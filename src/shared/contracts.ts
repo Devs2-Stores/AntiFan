@@ -297,6 +297,146 @@ export interface ToolbarPhoneStatus {
   lastChecked?: number;
 }
 
+/**
+ * Cross-project window contracts.
+ *
+ * Every label below is resolved by Main from its validated registries; a renderer only
+ * displays it and echoes stable ids back. A title or a status line a renderer produced
+ * itself is never authority over which window or tab a request targets.
+ *
+ * Listing and activation are deliberately two channels. `TABS_SEARCH` must stay free of
+ * focus, selection and attachment side effects — it is an inventory read that any shell
+ * may perform — while `TABS_SEARCH_ACTIVATE` is the only path that may present another
+ * window, and it exists for one explicit user action on one exact id.
+ *
+ * `CLOSE_REFUSED` is the one channel Main pushes to a shell's chrome and nothing travels
+ * back on it: it carries a decision already made (see `CloseRefusalNotice`), so it cannot
+ * be a request and has no reply.
+ */
+export const PROJECT_WINDOW_CHANNELS = {
+  TABS_SEARCH: 'antifan:tabs:search',
+  TABS_SEARCH_ACTIVATE: 'antifan:tabs:search-activate',
+  PROJECT_OPEN: 'antifan:project:open',
+  CLOSE_REFUSED: 'antifan:close:refused',
+} as const;
+
+/**
+ * Wire form of the Main-side window owner: a project and Unassigned are disjoint, so a
+ * project id can never collide with the Unassigned bucket.
+ */
+export type ProjectWindowOwner =
+  | { kind: 'project'; projectId: string }
+  | { kind: 'unassigned' };
+
+/**
+ * The identity Main resolved for the shell a renderer is the chrome of.
+ *
+ * `title` and `pathLabel` are display projections of validated records. Absent identity
+ * means Main has not described the shell — not that the renderer may name its own. On the
+ * initial state the field is read as-is; in a later state broadcast the key's presence is
+ * the signal, so a broadcast that omits it carries no identity news while an explicit
+ * `projectWindow: null` retracts the identity and hides the renderer's labels.
+ */
+export interface ProjectWindowIdentity {
+  owner: ProjectWindowOwner;
+  title: string;
+  /** Workspace path that disambiguates duplicate project titles. */
+  pathLabel?: string;
+  /** Workspace root this shell's terminals and workspace-scoped tools belong to. */
+  workspacePath?: string;
+}
+
+/** Request body of `antifan:tabs:search`. A literal query; `''` lists the full inventory. */
+export interface ProjectTabSearchQuery {
+  query: string;
+}
+
+/** One row of the Main-owned user-visible tab inventory. */
+export interface ProjectTabSearchRow {
+  /** Exact live tab identity. A row is addressed by this id, never by its index. */
+  tabId: string;
+  title: string;
+  url: string;
+  /** Project title, or Unassigned, as Main resolved it. */
+  ownerLabel: string;
+  /** Workspace path that distinguishes duplicate names; absent when the owner has none. */
+  pathLabel?: string;
+  /**
+   * False only when Main asserted the tab was already gone while building this row.
+   * Absent is not evidence of staleness: a row wrongly painted unavailable would hide a
+   * live tab, and activation revalidates the exact id before any side effect anyway.
+   */
+  live?: boolean;
+}
+
+/** `UNAVAILABLE` means the inventory itself could not be established — not an empty result. */
+export type ProjectTabSearchResult =
+  | { status: 'OK'; rows: ProjectTabSearchRow[] }
+  | { status: 'UNAVAILABLE'; reason: string };
+
+/** Why an exact tab id could not be presented. No substitute target is ever implied. */
+export type ProjectTabUnavailableCode =
+  | 'TAB_CLOSED'
+  | 'TAB_NOT_VISIBLE'
+  | 'OWNER_UNRESOLVED'
+  | 'WINDOW_FAILED';
+
+export interface ProjectTabActivateRequest {
+  tabId: string;
+}
+
+export type ProjectTabActivationResult =
+  | { status: 'ACTIVATED'; tabId: string }
+  | { status: 'UNAVAILABLE'; tabId: string; reasonCode: ProjectTabUnavailableCode; reason: string };
+
+/** An absent `projectId` asks Main to present its existing project-opening surface. */
+export interface ProjectOpenRequest {
+  projectId?: string;
+}
+
+/** `OPENED` created a shell; `FOCUSED` presented the one that already existed. */
+export type ProjectOpenResult =
+  | { status: 'OPENED'; projectId: string }
+  | { status: 'FOCUSED'; projectId: string }
+  | { status: 'CANCELLED' }
+  | { status: 'FAILED'; projectId?: string; reason: string };
+
+/**
+ * One reason a close or quit was refused, as a display projection.
+ *
+ * `code` is the machine category Main already recorded; `detail` is the evidence text to
+ * show verbatim. `controls` are the existing stop/release actions that would clear the
+ * blocking work, and they are named for reading only — a surface that showed them as
+ * buttons would be promising actions it cannot perform (`antifan.cli.endSession` is an
+ * agent-session action no chrome can invoke). There is deliberately no force override:
+ * the work named here has to end before the surface may close.
+ */
+export interface CloseRefusalReasonWire {
+  code: string;
+  detail: string;
+  /** Page this reason concerns, when the evidence was page-scoped. */
+  tabId?: string;
+  controls: Array<{ id: string; label: string }>;
+}
+
+/**
+ * A refused close or quit, pushed to the chrome that has to explain it.
+ *
+ * These are reasons Main already decided: the renderer displays them and decides nothing —
+ * it cannot approve, defer or override the close, and no reply of any kind travels back.
+ * `kind` is which request was refused (`close` is one shell's window close, `quit` is the
+ * whole application), `ownerKey` names the refused shell and is present for `close` only,
+ * `haltedBy` is the stop reason that ended the attempt, and `summary` is Main's own
+ * one-line account of the attempt, which stands even when `reasons` is empty.
+ */
+export interface CloseRefusalNotice {
+  kind: 'close' | 'quit';
+  ownerKey?: string;
+  haltedBy: string | null;
+  summary: string;
+  reasons: CloseRefusalReasonWire[];
+}
+
 export const FRAME_BACKDROP_CHANNELS = {
   UPDATE_LAYOUT: 'antifan:frame-backdrop:update-layout',
   FOCUS_PANE: 'antifan:frame-backdrop:focus-pane',

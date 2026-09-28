@@ -25,6 +25,7 @@ import type { ElementGlobalRect, SemanticElementDescriptor, RendererActionReques
 import { generateCollectionNonce, validateCollectionEnvelope } from './semantic-ref-types';
 import type { NativeTabRecord } from './native-tab-host';
 import type { TabDevToolsHost } from './tab-devtools-host';
+import { withEvalCeiling } from './eval-ceiling';
 
 /**
  * Isolated-world pre-flight refusals that must NOT be retried through the
@@ -55,6 +56,18 @@ const ISOLATED_ACTION_NAMES: Record<string, true> = {
 
 /** Pacing bounds for a bounded pointer drag: short enough to stay snappy, long enough for slider libraries to see distinct frames. */
 const DRAG_STEP_BOUNDS = { min: 4, max: 20, default: 10, intervalMs: 16 };
+
+/**
+ * Ceiling for one agent-side renderer round trip. The soft budget only warns — a heavy page or a
+ * busy CPU is slow, not dead — while the derived hard ceiling (~25s here) terminates the
+ * overrunning script and refuses with `EVAL_HARD_TIMEOUT`. The ceiling exists because silence is
+ * the normal failure mode of a dead renderer: an evaluation on a WebContents whose renderer never
+ * came up (`pid = 0`, an un-navigated view) or has since died never settles at all, and because
+ * actions are serialized per target every later action queues behind it and never answers either.
+ */
+const AGENT_SCRIPT_SOFT_BUDGET_MS = 10_000;
+/** A trajectory animates its steps by design, so its silence ceiling sits above a real animation. */
+const AGENT_TRAJECTORY_SOFT_BUDGET_MS = 30_000;
 
 function isIsolatedAction(value: string): value is RendererActionRequest['action'] {
   return ISOLATED_ACTION_NAMES[value] === true;
@@ -118,6 +131,12 @@ export interface TabAutomationContext {
   getAllTabs: () => IterableIterator<[string, NativeTabRecord]>;
   applyTabThrottling?: () => void;
   tabDevToolsHost?: TabDevToolsHost;
+  /**
+   * Overrides the agent-side eval soft budget (and therefore the derived hard ceiling). Production
+   * leaves it unset; a test sets it so it can prove a silent renderer is refused without waiting
+   * the production budget out.
+   */
+  agentEvalSoftBudgetMs?: number;
   resolveTargetWorkspace?: (targetSessionId?: string, tabUrl?: string) => string;
   getTabTerminalSession?: (tabId: string) => string | undefined;
   sendKeyboardPress?: (params: { key: string; modifiers?: string[]; tabId?: string }) => Promise<{ success: boolean; key: string; modifiers: string[] }>;
@@ -159,6 +178,26 @@ function validatePathConfinement(rawFilePath: string, rawWorkspaceRoot: string):
   }
 
   return realFile;
+}
+
+/**
+ * Dispatch the agent-glow script into one tab view, best effort. Two facts make this racy by
+ * nature: a view whose native object is gone raises on the `webContents` read itself, and a
+ * contents destroyed after the liveness probe raises out of the dispatch instead of rejecting
+ * a promise, so `.catch()` alone never sees it. The glow is decorative and its async failures
+ * are already discarded; the synchronous path now treats a dispatch it cannot make the same
+ * way, instead of letting a teardown-time glow clear abort the caller.
+ */
+function dispatchGlowScript(view: Electron.WebContentsView | null | undefined, script: string): void {
+  if (!view) return;
+  try {
+    const contents = view.webContents;
+    if (!contents || contents.isDestroyed()) return;
+    const dispatched = contents.executeJavaScript(script);
+    if (dispatched && typeof dispatched.catch === 'function') dispatched.catch(() => {});
+  } catch {
+    // The view or its contents disappeared mid-dispatch: nothing is left to glow.
+  }
 }
 
 export class TabAutomationHost {
@@ -207,12 +246,8 @@ export class TabAutomationHost {
         }
       } catch {}
     })()`;
-    if (tab.view?.webContents && !tab.view.webContents.isDestroyed()) {
-      tab.view.webContents.executeJavaScript(script).catch(() => {});
-    }
-    if (tab.mobileView?.webContents && !tab.mobileView.webContents.isDestroyed()) {
-      tab.mobileView.webContents.executeJavaScript(script).catch(() => {});
-    }
+    dispatchGlowScript(tab.view, script);
+    dispatchGlowScript(tab.mobileView, script);
     this.ctx.syncFrameBackdrop();
   }
 
@@ -226,12 +261,8 @@ export class TabAutomationHost {
         }
       } catch {}
     })()`;
-    if (tab.view?.webContents && !tab.view.webContents.isDestroyed()) {
-      tab.view.webContents.executeJavaScript(script).catch(() => {});
-    }
-    if (tab.mobileView?.webContents && !tab.mobileView.webContents.isDestroyed()) {
-      tab.mobileView.webContents.executeJavaScript(script).catch(() => {});
-    }
+    dispatchGlowScript(tab.view, script);
+    dispatchGlowScript(tab.mobileView, script);
     this.ctx.syncFrameBackdrop();
   }
 
@@ -247,6 +278,10 @@ export class TabAutomationHost {
     this.activateAgentVisualGlow(tabId);
   }
   public clearTabAgentWorking(tabId: string): void {
+    // Bookkeeping first, and unconditionally: releasing the timer and the working ref is what
+    // clearing a tab owes it, and none of it touches a native object. Everything after it is
+    // view and window work, guarded where those facts actually live — the tab view's own
+    // liveness in `dispatchGlowScript`, and the shell window's in the host's backdrop sync.
     const timer = this.agentWorkingTimers.get(tabId);
     if (timer) clearTimeout(timer);
     this.agentWorkingTimers.delete(tabId);
@@ -337,6 +372,42 @@ export class TabAutomationHost {
     this.ctx.applyTabThrottling?.();
   }
 
+  /** Soft budget for agent-side renderer scripts; overridable through the injected context. */
+  private agentScriptSoftBudgetMs(): number {
+    const override = this.ctx.agentEvalSoftBudgetMs;
+    return typeof override === 'number' && Number.isFinite(override) && override > 0
+      ? Math.round(override)
+      : AGENT_SCRIPT_SOFT_BUDGET_MS;
+  }
+
+  /**
+   * Run one agent-side renderer script under the shared ceiling (`eval-ceiling.ts`).
+   *
+   * The isolated agent world is where every synthetic action and inspection script runs, and an
+   * evaluation there is answered with NOTHING once the page's renderer is gone: the promise
+   * neither resolves nor rejects, so a caller that awaits it waits forever, and every later
+   * action on that target queues behind it and never answers either. The ceiling turns that
+   * silence into `EVAL_HARD_TIMEOUT` and terminates the overrunning execution so the renderer can
+   * take the next action. A silent script is never reported as a result.
+   */
+  private runAgentScript<T>(
+    label: string,
+    wc: Electron.WebContents | undefined,
+    softBudgetMs: number,
+    work: () => Promise<T>
+  ): Promise<T> {
+    const devToolsHost = this.ctx.tabDevToolsHost;
+    return withEvalCeiling({
+      wc,
+      label,
+      softBudgetMs,
+      work,
+      terminate: devToolsHost
+        ? (target) => devToolsHost.sendCdpCommand(target, 'Runtime.terminateExecution', {}).catch(() => undefined)
+        : undefined,
+    });
+  }
+
   public async ensureAgentBrowserInjected(tabId?: string, paneId?: SplitPaneId): Promise<boolean> {
     const targetId = this.resolveAutomationTargetId(tabId, 'ensureAgentBrowserInjected');
     const target = this.ctx.getTabRecord(targetId);
@@ -345,9 +416,16 @@ export class TabAutomationHost {
     const wc = this.ctx.getTabWebContents(target.state.id, effectivePane);
     if (!wc || wc.isDestroyed()) return false;
     try {
-      await wc.executeJavaScript(AGENT_BROWSER_SCRIPT);
+      await this.runAgentScript('agent browser injection', wc, this.agentScriptSoftBudgetMs(), () =>
+        wc.executeJavaScript(AGENT_BROWSER_SCRIPT)
+      );
       return true;
-    } catch {
+    } catch (err) {
+      // Injection that never answered is a failure, not a success: the boolean is this API's own
+      // failure channel, and a swallowed refusal would make a dead tab look healthy.
+      if (err instanceof CapabilityError && err.code === 'EVAL_HARD_TIMEOUT') {
+        console.warn(`[tab-automation-host] agent browser injection refused: ${err.message}`);
+      }
       return false;
     }
   }
@@ -357,29 +435,45 @@ export class TabAutomationHost {
       executeJavaScriptInIsolatedWorld?: (worldId: number, scripts: Array<{ code: string }>) => Promise<unknown>;
       executeJavaScript?: (code: string) => Promise<unknown>;
     };
-    if (rawWc.mainFrame && typeof rawWc.mainFrame.executeJavaScriptInIsolatedWorld === 'function') {
-      return await rawWc.mainFrame.executeJavaScriptInIsolatedWorld(ISOLATED_AGENT_WORLD_ID, [{ code: script }]);
+    const softBudgetMs = this.agentScriptSoftBudgetMs();
+    const mainFrameIsolated = rawWc.mainFrame?.executeJavaScriptInIsolatedWorld?.bind(rawWc.mainFrame);
+    if (mainFrameIsolated) {
+      return await this.runAgentScript('isolated agent script', wc, softBudgetMs, () =>
+        mainFrameIsolated(ISOLATED_AGENT_WORLD_ID, [{ code: script }])
+      );
     }
-    if (typeof rawWc.executeJavaScriptInIsolatedWorld === 'function') {
-      return await rawWc.executeJavaScriptInIsolatedWorld(ISOLATED_AGENT_WORLD_ID, [{ code: script }]);
+    const directIsolated = rawWc.executeJavaScriptInIsolatedWorld?.bind(rawWc);
+    if (directIsolated) {
+      return await this.runAgentScript('isolated agent script', wc, softBudgetMs, () =>
+        directIsolated(ISOLATED_AGENT_WORLD_ID, [{ code: script }])
+      );
     }
-    if (this.ctx.tabDevToolsHost) {
+    const devToolsHost = this.ctx.tabDevToolsHost;
+    if (devToolsHost) {
       try {
-        const isolatedCtxId = await this.ctx.tabDevToolsHost.getOrCreateIsolatedWorldContext?.(wc);
-        const evalRes = await this.ctx.tabDevToolsHost.sendCdpCommand<{ result?: { value?: unknown }; exceptionDetails?: unknown }>(
-          wc,
-          'Runtime.evaluate',
-          {
-            expression: script,
-            contextId: isolatedCtxId,
-            returnByValue: true,
-            awaitPromise: true,
-          }
+        const isolatedCtxId = await this.runAgentScript('isolated world context', wc, softBudgetMs, async () =>
+          devToolsHost.getOrCreateIsolatedWorldContext?.(wc)
+        );
+        const evalRes = await this.runAgentScript('isolated agent script (cdp)', wc, softBudgetMs, () =>
+          devToolsHost.sendCdpCommand<{ result?: { value?: unknown }; exceptionDetails?: unknown }>(
+            wc,
+            'Runtime.evaluate',
+            {
+              expression: script,
+              contextId: isolatedCtxId,
+              returnByValue: true,
+              awaitPromise: true,
+            }
+          )
         );
         if (evalRes && evalRes.result && 'value' in evalRes.result) {
           return evalRes.result.value;
         }
-      } catch {}
+      } catch (err) {
+        // A ceiling refusal must not be re-labelled as "this environment cannot run scripts": the
+        // environment may support it perfectly well while the renderer is simply gone.
+        if (err instanceof CapabilityError && err.code === 'EVAL_HARD_TIMEOUT') throw err;
+      }
     }
     throw new CapabilityError('CAPABILITY_NOT_FOUND', 'Isolated world execution (world 1004) is not supported in this WebContents environment');
   }
@@ -1127,11 +1221,13 @@ export class TabAutomationHost {
     const wc = this.ctx.getTabWebContents(target.state.id, effectivePane);
     if (!wc || wc.isDestroyed()) return false;
     try {
-      await wc.executeJavaScript(`(() => {
+      await this.runAgentScript('agent visual clear', wc, this.agentScriptSoftBudgetMs(), () =>
+        wc.executeJavaScript(`(() => {
         if (typeof window.__antifanAgentClear === 'function') {
           window.__antifanAgentClear();
         }
-      })()`);
+      })()`)
+      );
       return true;
     } catch {
       return false;
@@ -1462,7 +1558,9 @@ export class TabAutomationHost {
     }
 
     try {
-      const result = await wc.executeJavaScript(`window.__antifanAgentTrajectory(${JSON.stringify(normalizedSteps)}, ${JSON.stringify({ speed: params?.speed, smoothScroll: params?.smoothScroll })})`);
+      const result = await this.runAgentScript('agent trajectory', wc, AGENT_TRAJECTORY_SOFT_BUDGET_MS, () =>
+        wc.executeJavaScript(`window.__antifanAgentTrajectory(${JSON.stringify(normalizedSteps)}, ${JSON.stringify({ speed: params?.speed, smoothScroll: params?.smoothScroll })})`)
+      );
       const generationChanged = this.ctx.getSemanticDocumentGeneration(targetId, effectivePane) !== generationBefore || (this.ctx.getLegacyDocumentGeneration?.(targetId) || 0) !== legacyDocGenBefore;
       const urlChanged = wc.isDestroyed() || wc.getURL() !== urlBefore;
       const obj = result && typeof result === 'object' ? result as Record<string, unknown> : null;
@@ -1490,7 +1588,15 @@ export class TabAutomationHost {
       };
     } catch (err) {
       console.error('[tab-automation-host] agentTrajectory error:', err);
-      return { success: false, executedSteps: 0, totalSteps, reason: 'Trajectory execution failed' };
+      return {
+        success: false,
+        executedSteps: 0,
+        totalSteps,
+        reason:
+          err instanceof CapabilityError && err.code === 'EVAL_HARD_TIMEOUT'
+            ? err.message
+            : 'Trajectory execution failed',
+      };
     }
   }
 
@@ -2538,7 +2644,9 @@ export class TabAutomationHost {
         }
       })()`;
 
-      return await wc.executeJavaScript(script);
+      return await this.runAgentScript('page global inspection', wc, this.agentScriptSoftBudgetMs(), () =>
+        wc.executeJavaScript(script)
+      );
     });
   }
   public dispose(): void {

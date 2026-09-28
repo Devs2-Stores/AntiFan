@@ -9,6 +9,15 @@ import { HaravanUploader } from './haravan-uploader';
 export interface TabContextMenuHostDelegate {
   getWindow(): BrowserWindow;
   getActiveTabId(): string;
+  /**
+   * The tab a page belongs to, when the host can map one. A context menu is opened
+   * on a specific page, so that page is the explicit target of every navigation
+   * entry; a host that answers the mapping lets those entries address that tab
+   * instead of whichever tab the window is presenting. Returning undefined means
+   * "this view is not a tab", and the entries are then refused rather than pointed
+   * at a neighbouring tab.
+   */
+  getTabIdForWebContents?(wc: Electron.WebContents): string | undefined;
   getActiveTab(): { url?: string; id?: string } | null | undefined;
   /**
    * Profile-level credential target: always the durable shared-profile
@@ -40,6 +49,21 @@ export interface TabContextMenuHostDelegate {
 
 export class TabContextMenuBuilder {
   constructor(private readonly host: TabContextMenuHostDelegate) {}
+
+  /**
+   * The tab this menu was opened on. The page the user right-clicked is the explicit
+   * target, so a host that can map it answers directly and a mapped-to-nothing view is
+   * refused — a neighbouring tab is not a substitute. A host that has not migrated the
+   * mapping keeps the previous behaviour: its own presented tab.
+   */
+  private resolveTargetTabId(wc: Electron.WebContents): string | undefined {
+    if (typeof this.host.getTabIdForWebContents === 'function') {
+      const mapped = this.host.getTabIdForWebContents(wc);
+      return typeof mapped === 'string' && mapped.trim() ? mapped.trim() : undefined;
+    }
+    const active = this.host.getActiveTabId();
+    return typeof active === 'string' && active.trim() ? active.trim() : undefined;
+  }
 
   public setupPageContextMenu(wc: Electron.WebContents): void {
     wc.on('context-menu', async (_event, params) => {
@@ -210,27 +234,35 @@ export class TabContextMenuBuilder {
       }
 
       // 4. Standard Navigation & Developer Tools
-      const targetTabId = this.host.getActiveTabId();
+      const targetTabId = this.resolveTargetTabId(wc);
       const navigationHistory = (wc as unknown as { navigationHistory?: { canGoBack?: () => boolean; canGoForward?: () => boolean } }).navigationHistory;
+      const canNavigate = Boolean(targetTabId);
       menu.append(
         new MenuItem({
           label: '⬅️ Back',
-          enabled: navigationHistory?.canGoBack?.() ?? false,
-          click: () => this.host.goBack(targetTabId),
+          enabled: canNavigate && (navigationHistory?.canGoBack?.() ?? false),
+          click: () => {
+            if (targetTabId) this.host.goBack(targetTabId);
+          },
         })
       );
       menu.append(
         new MenuItem({
           label: '➡️ Forward',
-          enabled: navigationHistory?.canGoForward?.() ?? false,
-          click: () => this.host.goForward(targetTabId),
+          enabled: canNavigate && (navigationHistory?.canGoForward?.() ?? false),
+          click: () => {
+            if (targetTabId) this.host.goForward(targetTabId);
+          },
         })
       );
       menu.append(
         new MenuItem({
           label: '🔄 Reload',
           accelerator: 'Ctrl+R',
-          click: () => this.host.reload(targetTabId),
+          enabled: canNavigate,
+          click: () => {
+            if (targetTabId) this.host.reload(targetTabId);
+          },
         })
       );
       menu.append(
@@ -244,12 +276,19 @@ export class TabContextMenuBuilder {
         new MenuItem({
           label: '📄 View Page Source',
           accelerator: 'Ctrl+U',
+          enabled: canNavigate,
           click: () => {
+            if (!targetTabId) return;
             if (this.host.viewPageSource) {
               this.host.viewPageSource(targetTabId);
             } else {
-              const active = this.host.getActiveTab();
-              if (active?.url) this.host.createTab(`view-source:${active.url}`);
+              // A view-source tab is built from the page the menu was opened on — the same
+              // page `targetTabId` was resolved from — not from whichever tab the window
+              // presents. A page that has no URL yet falls back to the delegate's own
+              // presented tab, which is still this window.
+              const pageUrl = typeof wc.getURL === 'function' ? wc.getURL() : '';
+              const sourceUrl = pageUrl || this.host.getActiveTab()?.url || '';
+              if (sourceUrl) this.host.createTab(`view-source:${sourceUrl}`);
             }
           },
         })

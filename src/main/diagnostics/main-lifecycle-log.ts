@@ -188,6 +188,61 @@ export function installExitRecorder(proc: { on: (event: 'exit', listener: (code:
   } catch {}
 }
 
+export type ShutdownStepOutcome = 'done' | 'failed' | 'timeout';
+
+/**
+ * Run one named teardown step with a bounded wait, journaling its outcome.
+ *
+ * The committed shutdown is awaited by a quit before `app.quit()` — and by the shutdown
+ * path generally — so a step that never settles (a native flush that hangs) would mean the
+ * application never quits at all and the user has to kill the process. The journal already
+ * names every step, so this adds the one thing it was missing: a deadline. A step that
+ * exceeds it is recorded as `timeout` and skipped, the remaining steps still run, and the
+ * quit completes. Cleanup failure is never reported as success — the reason is in the
+ * journal for the next boot to read, exactly as a step failure is.
+ *
+ * The step's own rejection is journaled as `failed` here (with its message) and returned
+ * rather than rethrown: a teardown sequence runs every step and reports outcomes, it does
+ * not abort on the first one. The timer is unref'd, so it can never be the reason the
+ * process stays alive.
+ */
+export async function runBoundedShutdownStep(
+  name: string,
+  deadlineMs: number,
+  run: () => unknown,
+  journal: (event: string, fields?: Record<string, unknown>) => void
+): Promise<ShutdownStepOutcome> {
+  journal('shutdown.step.begin', { step: name });
+  let timer: NodeJS.Timeout | null = null;
+  const expired = new Promise<'timeout'>((resolve) => {
+    const handle = setTimeout(() => resolve('timeout'), Math.max(1, deadlineMs));
+    handle.unref?.();
+    timer = handle;
+  });
+  try {
+    const outcome = await Promise.race([
+      Promise.resolve()
+        .then(run)
+        .then(
+          () => 'done' as const,
+          (error: unknown) => {
+            journal('shutdown.step.failed', { step: name, detail: String(error) });
+            return 'failed' as const;
+          }
+        ),
+      expired,
+    ]);
+    if (outcome === 'timeout') {
+      journal('shutdown.step.timeout', { step: name, deadlineMs });
+    } else if (outcome === 'done') {
+      journal('shutdown.step.done', { step: name });
+    }
+    return outcome;
+  } finally {
+    clearTimeout(timer ?? undefined);
+  }
+}
+
 /** Absolute path of the journal, for boot records and diagnostics. */
 export function getLifecycleLogPath(): string | null {
   initLogFile();

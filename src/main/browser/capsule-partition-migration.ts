@@ -16,6 +16,8 @@
  *    mirrors the original Electron implementation exactly.
  */
 
+import { settleWithinBound } from './target-operation-chain';
+
 export interface CapsuleMigrationCookie {
   domain?: string;
   path?: string;
@@ -38,7 +40,11 @@ export interface CapsuleMigrationDeps {
   readCookies(partition: string): Promise<CapsuleMigrationCookie[]>;
   /** Writes one cookie into the target partition. THROW on write failure. */
   writeCookie(targetPartition: string, cookie: CapsuleMigrationCookie): Promise<void>;
-  /** Flushes the target partition's cookie store after a batch. THROW on failure. */
+  /**
+   * Flushes the target partition's cookie store after a batch. THROW on
+   * failure. A promise that never settles is itself a failure: the caller
+   * reports it in `flushTimedOutPartitions` instead of waiting forever.
+   */
   flushStore(partition: string): Promise<void>;
 }
 
@@ -47,7 +53,27 @@ export interface CapsuleMigrationResult {
   legacyPartitions: string[];
   /** True only when no list/read/write/flush failure occurred. */
   markerReady: boolean;
+  /**
+   * Target partitions whose `flushStore` produced no answer inside the bound.
+   * A silent flush is a failure, not a success: the partition is not counted
+   * as migrated and `markerReady` stays false so the next launch retries.
+   */
+  flushTimedOutPartitions: string[];
 }
+
+/**
+ * How long one partition flush may stay unanswered before the migration
+ * reports it instead of waiting on it forever.
+ *
+ * Far above the measured round trip — a `cookies.flushStore()` commit of even
+ * a large copied batch is a single SQLite write that answers in single-digit
+ * milliseconds on this platform — and far below the patience of a boot
+ * sequence the user is staring at. What it bounds is the answer the platform
+ * never sends: a cookie database another Chrome/Electron process holds locked
+ * leaves `flushStore()` pending with no resolution, no rejection, nothing,
+ * so an unbounded wait here is a silent startup hang rather than a failure.
+ */
+export const CAPSULE_FLUSH_BOUND_MS = 10_000;
 
 /**
  * Derives the `cookies.set` details for a cookie being copied to a target
@@ -79,7 +105,10 @@ export function buildCookieSetDetails(c: CapsuleMigrationCookie): {
   };
 }
 
-export async function runCapsuleToProfileMigration(deps: CapsuleMigrationDeps): Promise<CapsuleMigrationResult> {
+export async function runCapsuleToProfileMigration(
+  deps: CapsuleMigrationDeps,
+  flushBoundMs: number = CAPSULE_FLUSH_BOUND_MS
+): Promise<CapsuleMigrationResult> {
   let listFailed = false;
   let keys: string[] = [];
   try {
@@ -93,6 +122,7 @@ export async function runCapsuleToProfileMigration(deps: CapsuleMigrationDeps): 
   let migrated = 0;
   let failed = listFailed;
   const legacyPartitions: string[] = [];
+  const flushTimedOutPartitions: string[] = [];
   for (const key of candidateKeys) {
     const legacy = `persist:${key}`;
     // Strip every redundant `capsule-` prefix: the on-disk directory for an
@@ -122,7 +152,24 @@ export async function runCapsuleToProfileMigration(deps: CapsuleMigrationDeps): 
         }
       }
       if (copied > 0) {
-        await deps.flushStore(target);
+        const flush = deps.flushStore(target);
+        // The bound may outlive the real flush: keep its late settlement
+        // observed so a late rejection never escapes as unhandled.
+        flush.catch(() => {});
+        const settled = await settleWithinBound(flush, flushBoundMs);
+        if (!settled) {
+          console.warn(
+            `[PartitionMigration] flushStore(${target}) produced no answer within ${flushBoundMs}ms; ` +
+              'the partition is counted as not migrated so the next launch retries'
+          );
+          flushTimedOutPartitions.push(target);
+          failed = true;
+          continue;
+        }
+        // Inside the bound the flush really answered: re-await it so a
+        // rejection lands on the existing failure path instead of being
+        // reported as a success.
+        await flush;
         migrated += copied;
         legacyPartitions.push(legacy);
       }
@@ -130,5 +177,5 @@ export async function runCapsuleToProfileMigration(deps: CapsuleMigrationDeps): 
       failed = true;
     }
   }
-  return { migrated, legacyPartitions, markerReady: !failed };
+  return { migrated, legacyPartitions, markerReady: !failed, flushTimedOutPartitions };
 }

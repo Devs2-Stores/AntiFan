@@ -3,6 +3,8 @@
  * 100% parity with Antigravity Desktop IPC surface.
  */
 import { contextBridge, ipcRenderer } from 'electron';
+import { PROJECT_WINDOW_CHANNELS } from '../shared/contracts';
+import type { CloseRefusalNotice, ProjectTabActivationResult, ProjectTabSearchResult } from '../shared/contracts';
 
 const CHANNELS = {
   GET_INITIAL_STATE: 'antifan:toolbar:get-initial-state',
@@ -114,6 +116,26 @@ const toolbarApi = {
   toggleSplitReview: (tabId?: string, enabled?: boolean) => ipcRenderer.invoke(CHANNELS.TOGGLE_SPLIT_REVIEW, { tabId, enabled }),
   setSplitPreset: (paneId: string, presetId: string, tabId?: string) => ipcRenderer.invoke(CHANNELS.SET_SPLIT_PRESET, { paneId, presetId, tabId }),
   setSplitFocusedPane: (paneId: string, tabId?: string) => ipcRenderer.invoke(CHANNELS.SET_SPLIT_FOCUSED_PANE, { paneId, tabId }),
+
+  // Cross-project tab search. Two channels, one intention each: `searchProjectTabs`
+  // reads the Main-owned inventory and must never present anything, while
+  // `activateProjectTab` is the only path that may focus/select a foreign tab and it
+  // takes exactly the id the user picked. Neither exposes a generic invoke passthrough.
+  searchProjectTabs: (query: string): Promise<ProjectTabSearchResult> =>
+    ipcRenderer.invoke(PROJECT_WINDOW_CHANNELS.TABS_SEARCH, { query } satisfies { query: string }),
+  activateProjectTab: (tabId: string): Promise<ProjectTabActivationResult> =>
+    ipcRenderer.invoke(PROJECT_WINDOW_CHANNELS.TABS_SEARCH_ACTIVATE, { tabId } satisfies { tabId: string }),
+
+  // A refused close or quit is Main's decision arriving for display only: the callback
+  // returns nothing and the channel carries no reply, so a chrome cannot answer, approve or
+  // renegotiate a refusal it was told about.
+  onCloseRefused: (callback: (notice: CloseRefusalNotice) => void) => {
+    const handler = (_event: unknown, notice: CloseRefusalNotice) => callback(notice);
+    ipcRenderer.on(PROJECT_WINDOW_CHANNELS.CLOSE_REFUSED, handler);
+    return () => {
+      ipcRenderer.removeListener(PROJECT_WINDOW_CHANNELS.CLOSE_REFUSED, handler);
+    };
+  },
 
   // Workflow & MCP Hub APIs
   getWorkflowState: () => ipcRenderer.invoke('antifan:workflow:get-state'),

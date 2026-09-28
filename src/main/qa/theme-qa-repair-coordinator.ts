@@ -185,11 +185,21 @@ export class ThemeQaRepairCoordinator {
         // An inconclusive verification still consumed this revision: a retry without
         // further edits is a replay, not new evidence.
         session.lastVerifiedRevision = revision;
-        // Missing-evidence retries are bounded like failed retries: a session that still
-        // cannot produce complete evidence after the iteration cap stops accepting new
-        // verification rounds (m_d axis of the 3-axis stop criteria).
-        session.status = session.verificationAttempts >= MAX_REPAIR_ITERATIONS ? 'blocked' : 'awaiting_fix';
-        throw new CapabilityError('SETTLE_INCOMPLETE', 'Repair verification lacks complete regression evidence');
+        // Missing-evidence retries are bounded by the m_d axis of the 3-axis stop
+        // criteria: a single round reporting more gaps than the threshold is terminal
+        // immediately; otherwise the session stays retryable until the iteration cap.
+        const gapDecision = evaluateThreeAxisStop(
+          { sufficiency: 0, missingness: report.findings?.evidenceGaps?.length ?? 0, contradiction: 0 },
+          session.verificationAttempts,
+          MAX_REPAIR_ITERATIONS
+        );
+        session.status = gapDecision.action === 'ABORT_BLOCKED' ? 'blocked' : 'awaiting_fix';
+        throw new CapabilityError(
+          'SETTLE_INCOMPLETE',
+          gapDecision.action === 'ABORT_BLOCKED'
+            ? 'STOP_CRITERIA_EXCEEDED: Repair verification lacks complete regression evidence'
+            : 'Repair verification lacks complete regression evidence'
+        );
       }
       session.lastVerifiedRevision = revision;
       const transition = VerificationCircuitBreaker.getInstance().recordAttempt(

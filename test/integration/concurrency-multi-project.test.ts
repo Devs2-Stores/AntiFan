@@ -14,12 +14,57 @@ import { registerBrowserCapabilities } from '../../src/main/tools/browser-capabi
 import { AntiFanMcpServer } from '../../src/main/mcp/mcp-server';
 import { BridgeServer } from '../../src/main/bridge/bridge-server';
 import { NativeTabHost } from '../../src/main/browser/native-tab-host';
+import { TabAuthorityDirectory } from '../../src/main/browser/tab-authority-directory';
+import type { ProjectWindowShell } from '../../src/main/browser/project-window-shell';
 import { deriveCapsulePartition } from '../../src/main/browser/browser-session-partition';
 import {
   makeControlPlaneId,
   issueRuntimeLease,
   CapabilityError,
 } from '../../src/shared/control-plane-contracts';
+
+/** Distinct chrome webContents ids, so two windows can never answer for each other. */
+let nextSurfaceContentsId = 700_000;
+
+/**
+ * One project window's routing authority: the shipping `NativeTabHost` methods over that
+ * window's own tabs, plus the shell plumbing the real directory reads (owner, liveness, chrome
+ * surface ids). Only window plumbing is absent — every routing decision below is the shipping one.
+ */
+function makeWindowAuthority(ownerProjectId: string, tabIds: readonly string[]) {
+  const toolbarContentsId = (nextSurfaceContentsId += 1);
+  const sidebarContentsId = (nextSurfaceContentsId += 1);
+  let destroyed = false;
+  const shell = {
+    owner: { kind: 'project', projectId: ownerProjectId },
+    window: { isDestroyed: () => destroyed },
+    chromeSurfaceFor: (webContentsId: number) => {
+      if (webContentsId === toolbarContentsId) return 'toolbar' as const;
+      if (webContentsId === sidebarContentsId) return 'sidebar' as const;
+      return undefined;
+    },
+  } as unknown as ProjectWindowShell;
+  const host = Object.create(NativeTabHost.prototype) as NativeTabHost;
+  Object.assign(host, {
+    tabs: new Map(tabIds.map((id) => [id, { id, state: { id, url: 'about:blank', title: id } }])),
+    tabOrder: [...tabIds],
+    automationTabId: null,
+    terminalWindows: new Map(),
+    popoutWindow: null,
+    isDisposed: false,
+    shell,
+    broadcastState: () => {},
+  });
+  return {
+    shell,
+    host,
+    toolbarContentsId,
+    sidebarContentsId,
+    destroyWindow: () => {
+      destroyed = true;
+    },
+  };
+}
 
 describe('Multi-Project & Multi-Session Two-Tier Concurrency Stress Suite (Phase 05)', () => {
   it('runs end-to-end multi-project concurrency, preemption, and security verification', async () => {
@@ -254,6 +299,48 @@ describe('Multi-Project & Multi-Session Two-Tier Concurrency Stress Suite (Phase
       const partA = deriveCapsulePartition(projA, 'clean');
       const partB = deriveCapsulePartition(projB, 'clean');
       assert.notStrictEqual(partA, partB);
+
+      // 7. Multi-project tab routing through the real window authority
+      const directory = new TabAuthorityDirectory();
+      const windowA = makeWindowAuthority(projA, ['tab-projA-1']);
+      const windowB = makeWindowAuthority(projB, ['tab-projB-1', 'tab-dynamic-created-999']);
+      directory.register(windowA.shell, windowA.host);
+      directory.register(windowB.shell, windowB.host);
+
+      const recordB = runtime.runs.attachments.getRecord(launchB.attachmentId);
+      assert.ok(recordB, 'session B lost its attachment record');
+      assert.strictEqual(recordB.tabId, 'tab-dynamic-created-999');
+      assert.strictEqual(windowA.host.windowOwnerKey(), 'project:' + projA);
+      assert.strictEqual(windowB.host.windowOwnerKey(), 'project:' + projB);
+
+      // Every tab the two sessions actually bound resolves to the window that owns it, and a tab
+      // that belongs to no window resolves to nothing instead of to a neighbour.
+      assert.strictEqual(directory.hostForTab('tab-projA-1'), windowA.host);
+      assert.strictEqual(directory.hostForTab('tab-dynamic-created-999'), windowB.host);
+      assert.strictEqual(directory.hostForTab('tab-projB-1'), windowB.host);
+      assert.strictEqual(directory.hostForTab('tab-nowhere'), undefined);
+      assert.strictEqual(directory.hostForTab(''), undefined);
+      assert.strictEqual(directory.hosts().length, 2);
+      assert.strictEqual(directory.liveShellCount(), 2);
+
+      // A chrome surface answers only for its own window; page content is not a chrome surface,
+      // so a sender that belongs to no window resolves to nothing.
+      assert.strictEqual(directory.resolveSender(windowA.toolbarContentsId)?.host, windowA.host);
+      assert.strictEqual(directory.resolveSender(windowA.toolbarContentsId)?.surface, 'toolbar');
+      assert.strictEqual(directory.resolveSender(windowB.sidebarContentsId)?.host, windowB.host);
+      assert.strictEqual(directory.resolveSender(windowB.sidebarContentsId)?.surface, 'sidebar');
+      assert.strictEqual(directory.resolveSender(999_999), undefined);
+
+      // Closing one project window takes exactly that window's tabs out of routing.
+      windowA.destroyWindow();
+      assert.strictEqual(directory.hostForTab('tab-projA-1'), undefined);
+      assert.strictEqual(directory.hostForTab('tab-dynamic-created-999'), windowB.host);
+      assert.strictEqual(directory.liveShellCount(), 1);
+      assert.deepStrictEqual(directory.hosts(), [windowB.host]);
+      directory.unregister(windowB.shell);
+      assert.strictEqual(directory.hostForShell(windowB.shell), undefined);
+      assert.strictEqual(directory.hostForTab('tab-dynamic-created-999'), undefined);
+      assert.strictEqual(directory.liveShellCount(), 0);
 
       if (ws) ws.close();
       if (bridgeServer) bridgeServer.dispose();

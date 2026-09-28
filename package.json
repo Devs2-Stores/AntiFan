@@ -58,6 +58,7 @@
     "smoke:cdp-queue": "npm run compile && node scripts/run-electron.cjs scripts/smoke-tab-devtools-queue.cjs",
     "smoke:agent-hardening": "npm run compile && node scripts/run-electron.cjs scripts/smoke-agent-hardening.cjs",
     "smoke:vault": "npm run compile && node scripts/run-electron.cjs scripts/smoke-vault.cjs",
+    "smoke:two-shell": "npm run compile && node scripts/run-electron.cjs scripts/probe-two-shell-ipc.cjs",
     "benchmark:artifacts": "node scripts/benchmark-antigravity-artifacts.mjs",
     "benchmark:soak": "node scripts/benchmark-electron-performance.mjs --scenario soak",
     "benchmark:terminal-paint": "node scripts/run-electron.cjs test/e2e/terminal-paint-bench.cjs",

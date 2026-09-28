@@ -6,7 +6,12 @@ import * as os from 'node:os';
 import { buildPreviewUrl, parsePreviewUrl } from '../../src/main/server/preview-url-codec';
 import { safeResolveAndOpenFile, MIME_MAP } from '../../src/main/server/safe-fs-resolver';
 import { PreviewWatcherPool, PreviewChangeEvent } from '../../src/main/server/preview-watcher-pool';
-
+import { NativeTabHost } from '../../src/main/browser/native-tab-host';
+import {
+  listRegisteredChromeChannels,
+  UnknownChromeSenderError,
+} from '../../src/main/browser/ipc-router';
+import { createChromeRouteHarness } from '../support/chrome-route-harness';
 describe('Preview Protocol & Watcher Suite', () => {
   const tmpDir = path.join(os.tmpdir(), `antifan-test-preview-${Date.now()}`);
 
@@ -191,10 +196,42 @@ describe('Preview Protocol & Watcher Suite', () => {
     const root = fs.existsSync(path.join(process.cwd(), 'src')) ? process.cwd() : path.resolve(__dirname, '..', '..');
     const nativeHostPath = path.join(root, 'src', 'main', 'browser', 'native-tab-host.ts');
     const nativeSource = fs.existsSync(nativeHostPath) ? fs.readFileSync(nativeHostPath, 'utf8') : '';
-    it('verifies antifan:preview:open IPC registration and handler signature', () => {
-      assert.ok(nativeSource.includes("ipcMain.removeHandler('antifan:preview:open');"));
-      assert.ok(nativeSource.includes("ipcMain.handle('antifan:preview:open'"));
-      assert.ok(nativeSource.includes('this.createPreviewTab(filePath, capsuleId)'));
+    it('verifies antifan:preview:open IPC registration and refusal of untrusted sender', () => {
+      let createPreviewTabCalled = false;
+      // The fake host is a test double; cast with as unknown as NativeTabHost (harness never touches host internals)
+      const fakeHost = {
+        name: 'preview-test-host',
+        createPreviewTab: () => {
+          createPreviewTabCalled = true;
+          return 'tab-preview-1';
+        },
+      } as unknown as NativeTabHost;
+
+      const harness = createChromeRouteHarness({ host: fakeHost });
+      const registered = listRegisteredChromeChannels();
+      assert.ok(
+        registered.includes('antifan:preview:open'),
+        'antifan:preview:open must be registered in the chrome route table',
+      );
+
+      const route = NativeTabHost.CHROME_ROUTES.find((r) => r.channel === 'antifan:preview:open');
+      assert.ok(route, 'route for antifan:preview:open must exist in NativeTabHost.CHROME_ROUTES');
+
+      const foreignSender = { id: 9999, isDestroyed: () => false, send: () => {} };
+      const foreignEvent = {
+        sender: foreignSender,
+        senderFrame: { url: 'file:///E:/Work/apps/AntiFan/src/renderer/toolbar.html', parent: null },
+      };
+
+      assert.throws(
+        () => harness.invokeWithEvent('antifan:preview:open', foreignEvent, { path: 'index.html', capsuleId: 'cap-1' }),
+        (err: unknown) => {
+          assert.ok(err instanceof UnknownChromeSenderError, 'refused sender must throw UnknownChromeSenderError');
+          assert.equal(err.code, 'UNKNOWN_CHROME_SENDER');
+          return true;
+        },
+      );
+      assert.strictEqual(createPreviewTabCalled, false, 'the route body must never run for a refused sender');
     });
 
     it('verifies createPreviewTab guards against out-of-root and malformed paths', () => {

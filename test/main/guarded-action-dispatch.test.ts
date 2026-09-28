@@ -7,6 +7,7 @@ import { SplitNavigationCoordinator } from '../../src/main/browser/split-review-
 import { AntiFanTab, SplitPaneId } from '../../src/shared/contracts';
 import { RawElementDescriptor } from '../../src/main/browser/semantic-ref-types';
 import { ISOLATED_AGENT_WORLD_ID } from '../../src/main/browser/semantic-ref-executor';
+import { createShellDouble } from '../support/project-window-shell-double';
 
 type TestHost = any;
 
@@ -115,6 +116,7 @@ function createGuardedTestHost() {
   };
 
   host.activeTabId = 'tab-1';
+  host.shell = createShellDouble();
   host.tabs = new Map([['tab-1', { state, view: desktopView, focusedPane: 'desktop' }]]);
   host.tabOrder = ['tab-1'];
   host.browserEpoch = 1;

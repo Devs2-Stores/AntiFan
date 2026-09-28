@@ -20,7 +20,7 @@
  * Exit 0 only when every assertion in both phases passes.
  */
 
-const { app, BrowserWindow } = require('electron');
+const { app } = require('electron');
 const assert = require('node:assert');
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
@@ -43,6 +43,7 @@ const { NativeTabHost } = require(path.join(R, 'main', 'browser', 'native-tab-ho
 const { TerminalManager } = require(path.join(R, 'main', 'browser', 'terminal-manager.js'));
 const { AttachmentRegistry } = require(path.join(R, 'main', 'run', 'attachment-registry.js'));
 const { ProfileOwnership } = require(path.join(R, 'main', 'browser', 'profile-ownership.js'));
+const { ProjectWindowShell } = require(path.join(R, 'main', 'browser', 'project-window-shell.js'));
 
 const traceStart = Date.now();
 function trace(label) {
@@ -71,13 +72,14 @@ async function runSeed() {
   const profileLease = new ProfileOwnership().acquire(profileDir);
   assert.ok(profileLease, 'seed acquired profile lease');
 
-  const win = new BrowserWindow({
-    width: 1000,
-    height: 700,
+  const winShell = new ProjectWindowShell({
+    owner: { kind: 'project', projectId: 'project-00000000-0000-4000-8000-000000000001' },
+    title: 'AntiFan Smoke Window',
+    bounds: { width: 1000, height: 700 },
     show: false,
-    webPreferences: { nodeIntegration: false, contextIsolation: true },
   });
-  const tabHost = new NativeTabHost(win);
+  const win = winShell.window;
+  const tabHost = new NativeTabHost(winShell);
 
   const sentinelId = tabHost.createTab(SENTINEL_URL, true);
   const agentTabId = tabHost.createTab(AGENT_URL, false, { offscreen: true });
@@ -191,13 +193,14 @@ async function runVerify() {
   assert.ok(persisted && Array.isArray(persisted.tabs), 'saved-tabs.json readable by the fresh process');
   assert.deepStrictEqual(persisted.tabs.map((t) => t.url), [SENTINEL_URL], 'disk holds only the user tab');
 
-  const win = new BrowserWindow({
-    width: 1000,
-    height: 700,
+  const winShell = new ProjectWindowShell({
+    owner: { kind: 'project', projectId: 'project-00000000-0000-4000-8000-000000000001' },
+    title: 'AntiFan Smoke Window',
+    bounds: { width: 1000, height: 700 },
     show: false,
-    webPreferences: { nodeIntegration: false, contextIsolation: true },
   });
-  const tabHost = new NativeTabHost(win);
+  const win = winShell.window;
+  const tabHost = new NativeTabHost(winShell);
   tabHost.restoreTabs(SENTINEL_URL);
 
   const restored = tabHost.getTabList();

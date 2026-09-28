@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-const { app, BrowserWindow } = require('electron');
+const { app } = require('electron');
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
@@ -28,6 +28,7 @@ const { DEFAULT_MAX_RECEIPT_BYTES } = require('../.compiled/src/main/session/rec
 const { makeControlPlaneId } = require('../.compiled/src/shared/control-plane-contracts.js');
 const { LiquidErrorScanner } = require('../.compiled/src/main/qa/scanners/liquid-error-scanner.js');
 const { PlatformDetector } = require('../.compiled/src/main/qa/scanners/platform-detector.js');
+const { ProjectWindowShell } = require('../.compiled/src/main/browser/project-window-shell.js');
 
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -255,13 +256,14 @@ async function runSoak() {
     stage('prepare fixture');
     const workspaceRoot = themeWorkload.prepareFreezeFixture(rootDir, tempRoot);
     fixture = await bounded('Start freeze fixture server', themeWorkload.startFreezeFixtureServer(workspaceRoot));
-    mainWindow = new BrowserWindow({
-      width: 1280,
-      height: 900,
+    const mainWindowShell = new ProjectWindowShell({
+      owner: { kind: 'project', projectId: 'project-00000000-0000-4000-8000-000000000001' },
+      title: 'AntiFan Smoke Window',
+      bounds: { width: 1280, height: 900 },
       show: true,
-      webPreferences: { nodeIntegration: false, contextIsolation: true },
     });
-    tabHost = new NativeTabHost(mainWindow);
+    mainWindow = mainWindowShell.window;
+    tabHost = new NativeTabHost(mainWindowShell);
     const initialTabId = tabHost.createTab(fixture.productUrl, true);
     tabHost.setAutomationTabId(initialTabId);
     const createdTabIds = [initialTabId];

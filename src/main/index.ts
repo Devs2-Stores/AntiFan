@@ -4,7 +4,7 @@
  */
 import * as path from 'path';
 import * as fs from 'fs';
-import { app, BrowserWindow, Menu, protocol, session, nativeTheme, webContents, crashReporter } from 'electron';
+import { app, BrowserWindow, Menu, ipcMain, protocol, session, nativeTheme, webContents, crashReporter, dialog, type IpcMainInvokeEvent, type OpenDialogOptions } from 'electron';
 
 // Register custom privileged scheme for local workspace preview before app.whenReady()
 protocol.registerSchemesAsPrivileged([
@@ -22,8 +22,53 @@ protocol.registerSchemesAsPrivileged([
 ]);
 import { registerPreviewProtocolHandler } from './server/preview-protocol-handler';
 import { StorageLocations, DISK_CACHE_BYTES, MEDIA_CACHE_BYTES } from './config/storage-locations';
-import { WorkspaceCapsuleManager } from './project/workspace-capsule';
-import { NativeTabHost } from './browser/native-tab-host';
+import { WorkspaceCapsuleManager, findReusableCapsule, type WorkspaceCapsule } from './project/workspace-capsule';
+import { ProjectRegistry } from './project/project-registry';
+import {
+  collectProjectOpenCandidates,
+  projectOpenDialogSpec,
+  projectOpenChoiceFor,
+  type ProjectOpenCandidate,
+} from './project/project-open-picker';
+import { NativeTabHost, collectTabSearchInventory, activateTabSearchResult, isUnhostedTerminalWindow, type TabSearchInventoryRow, type TabSearchActivationFailure } from './browser/native-tab-host';
+import { closeAuxiliaryWindow } from './browser/auxiliary-close';
+import { ProjectWindowManager, type OpenIntent } from './browser/project-window-manager';
+import { ProjectWindowShell, ownerKey, ownerLabel, type ChromeSurface, type WindowOwner } from './browser/project-window-shell';
+import { TabAuthorityDirectory } from './browser/tab-authority-directory';
+import {
+  PageCloseReservations,
+  ProjectCloseCoordinator,
+  type ClosePhase,
+  type CloseReport,
+  type CloseSurface,
+  type LiveUseReport,
+  type LiveUseRequest,
+  type PageCloseOutcome,
+  type QuitReport,
+  type SurfaceCloseOutcome,
+} from './browser/project-close-coordinator';
+import {
+  collectCloseLiveUse,
+  projectLiveUseAttachments,
+  ORPHANED_RUN_STATE,
+  type CloseLiveUseAffinity,
+  type CloseLiveUseAttachmentRecord,
+  type CloseLiveUsePort,
+  type CloseLiveUseRun,
+  type CloseLiveUseTerminalState,
+} from './browser/close-live-use';
+import {
+  presentCloseRefusal,
+  type CloseRefusalPresentationPort,
+} from './browser/close-refusal-notice';
+import { safeSendWebContents } from './browser/web-contents-guard';
+import {
+  setChromeSenderResolver,
+  installChromeIpcOnce,
+  listRegisteredChromeChannels,
+  type IpcRoute,
+  type RoutedSurface,
+} from './browser/ipc-router';
 import { BridgeServer, DEFAULT_EXTENSION_ALLOWED_DOMAINS, redactCredentials } from './bridge/bridge-server';
 import { TerminalManager } from './browser/terminal-manager';
 import { ensureDaemon } from './terminal-daemon/daemon-spawner';
@@ -38,11 +83,21 @@ import { LocalIpcServer } from './native-messaging/local-ipc-server';
 import { installNativeHost, COMPANION_EXTENSION_ID } from './native-messaging/manifest-installer';
 import { chromeSessionUserAgent } from './browser/google-auth-identity';
 import { ControlPlaneRuntime, resolveArtifactStoreOptionsFromEnv } from './control-plane/control-plane-runtime';
-import { BrowserControlPort } from './tools/browser-control-port';
+import { BrowserControlPort, assertApplicationAdmitsWork } from './tools/browser-control-port';
 import { CapabilityTransportAdapter } from './tools/capability-transport';
 import { DeviceManager } from './device/device-manager';
 import { IosDeviceAdapter } from './device/ios-device-adapter';
-import { validateControlPlaneId } from '../shared/control-plane-contracts';
+import { validateControlPlaneId, makeControlPlaneId, type ProjectRecord } from '../shared/control-plane-contracts';
+import {
+  PROJECT_WINDOW_CHANNELS,
+  type ProjectOpenResult,
+  type ProjectTabActivationResult,
+  type ProjectTabSearchRow,
+  type ProjectTabSearchResult,
+  type ProjectTabUnavailableCode,
+  type ProjectWindowIdentity,
+  type ProjectWindowOwner,
+} from '../shared/contracts';
 import { assertDeadlineChain } from '../shared/deadline-chain';
 import { preparePersistentProfile, ProfileMigrationError, ProfileOwnership, ProfileOwnershipError, type PersistentProfileResult, type ProfileLease } from './browser/profile-ownership';
 import { recordBenchmark, startEventLoopDelayMonitor, isBenchmarkEnabled, refusesWindowClose, BENCHMARK_ALLOW_WINDOW_CLOSE_ENV } from './benchmark/telemetry';
@@ -52,6 +107,7 @@ import {
   installExitInterceptor,
   installExitRecorder,
   getLifecycleLogPath,
+  runBoundedShutdownStep,
 } from './diagnostics/main-lifecycle-log';
 import { pruneOldCrashDumps } from './diagnostics/crash-dump-retention';
 import { intakeCrashReports } from './diagnostics/crash-report-intake';
@@ -227,12 +283,422 @@ app.commandLine.appendSwitch('disable-blink-features', 'AutomationControlled');
 const CHROME_USER_AGENT = chromeSessionUserAgent();
 app.userAgentFallback = CHROME_USER_AGENT;
 
-let mainWindow: BrowserWindow | null = null;
-let tabHost: NativeTabHost | null = null;
+export const projectRegistry = new ProjectRegistry();
+let projectWindows: ProjectWindowManager | null = null;
 let capsuleManager: WorkspaceCapsuleManager | null = null;
+
+/** A capsule record whose affiliation Main can trust on the evidence of the record alone. */
+export type ValidatedAffiliationCapsule = WorkspaceCapsule & { projectId: string; workspaceId: string };
+
+/**
+ * Whether a capsule carries an explicit, control-plane-safe affiliation: both ids present and
+ * well formed. Ambiguity — two records claiming one project — is a separate rule, settled by
+ * `uniqueValidatedClaim`, never here.
+ *
+ * A persisted record can carry `migrationMarker: 'explicit'` without a workspace id (the store
+ * trusts a marker it reads from disk). Such a record must NOT count as a known project: the
+ * synchronizer registers nothing for it, so opening it would mint a workspace id from nothing.
+ */
+export function hasValidatedAffiliation(capsule: WorkspaceCapsule): capsule is ValidatedAffiliationCapsule {
+  if (!capsule.projectId || typeof capsule.projectId !== 'string' || capsule.projectId.trim().length === 0) {
+    return false;
+  }
+  if (!capsule.workspaceId || typeof capsule.workspaceId !== 'string' || capsule.workspaceId.trim().length === 0) {
+    return false;
+  }
+  try {
+    validateControlPlaneId(capsule.projectId, 'project');
+    validateControlPlaneId(capsule.workspaceId, 'workspace');
+  } catch {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * The capsule record authorizing an open of `projectId`, when exactly one exists and it carries a
+ * validated affiliation. This is the same evidence the synchronizer registers from, so an open can
+ * never name a project the registry refuses to know — and a second claim stays a refusal rather
+ * than a tiebreak.
+ */
+export function uniqueValidatedClaim(capsules: WorkspaceCapsule[], projectId: string): ValidatedAffiliationCapsule | undefined {
+  const matches = capsules.filter((capsule) => capsule.projectId === projectId);
+  const [onlyMatch, ...rest] = matches;
+  if (!onlyMatch || rest.length > 0) return undefined;
+  return hasValidatedAffiliation(onlyMatch) ? onlyMatch : undefined;
+}
+
+/**
+ * Synchronize explicit capsule project/workspace affiliations into the ProjectRegistry.
+ *
+ * Capsule store is the durable record and the ProjectRegistry is the runtime projection.
+ * Main's synchronizer is the single writer.
+ *
+ * Rules:
+ * 1. For every capsule carrying explicit projectId + workspaceId:
+ *    - Registers the project (id = capsule.projectId, name = capsule.name, state = 'open', dataRoot)
+ *    - Registers the workspace (id = capsule.workspaceId, projectId, rootPath = capsule.workspacePath, state = 'attached')
+ * 2. Idempotent: running twice leaves the registry unchanged.
+ * 3. Never overwrites a newer root with an older one (compares updatedAt timestamps).
+ * 4. Never invents a project for a capsule that claims none (absent or ambiguous affiliation stays unregistered).
+ *    Matching the plan's "ambiguity is Unassigned" rule: multiple capsules claiming the same projectId is ambiguous.
+ */
+export function synchronizeCapsulesWithRegistry(
+  capsules: WorkspaceCapsuleManager | WorkspaceCapsule[],
+  registry: ProjectRegistry,
+  dataRoot: string,
+): { registeredProjects: number; registeredWorkspaces: number } {
+  const capsuleList = Array.isArray(capsules) ? capsules : capsules.list();
+  const resolvedDataRoot = path.resolve(dataRoot);
+
+  const validExplicitCapsules: ValidatedAffiliationCapsule[] = [];
+  const projectClaimCounts = new Map<string, number>();
+
+  for (const capsule of capsuleList) {
+    if (!hasValidatedAffiliation(capsule)) continue;
+    validExplicitCapsules.push(capsule);
+    const count = projectClaimCounts.get(capsule.projectId) || 0;
+    projectClaimCounts.set(capsule.projectId, count + 1);
+  }
+
+  let registeredProjects = 0;
+  let registeredWorkspaces = 0;
+
+  for (const capsule of validExplicitCapsules) {
+    const projectId = capsule.projectId;
+    const workspaceId = capsule.workspaceId;
+
+    // Ambiguity check: multiple capsules claiming the same project ID is ambiguous -> stays unregistered
+    if ((projectClaimCounts.get(projectId) || 0) > 1) {
+      continue;
+    }
+
+    const normalizedRoot = capsule.workspacePath && typeof capsule.workspacePath === 'string' && capsule.workspacePath.trim().length > 0
+      ? path.resolve(capsule.workspacePath)
+      : '';
+    const capsuleTimestamp = typeof capsule.updatedAt === 'number' && capsule.updatedAt > 0
+      ? capsule.updatedAt
+      : (typeof capsule.createdAt === 'number' && capsule.createdAt > 0 ? capsule.createdAt : Date.now());
+
+    // 1. Ensure/register project
+    let existingProject: ProjectRecord | undefined;
+    try {
+      existingProject = registry.getProject(projectId);
+    } catch {
+      existingProject = undefined;
+    }
+
+    if (!existingProject) {
+      registry.registerProject({
+        id: projectId,
+        name: capsule.name || `Project-${projectId}`,
+        dataRoot: resolvedDataRoot,
+        state: 'open',
+        createdAt: capsule.createdAt || capsuleTimestamp,
+        updatedAt: capsuleTimestamp,
+      });
+      registeredProjects++;
+    } else {
+      // If project exists, keep it open; update if capsule is newer and name changed
+      const shouldUpdateProject = existingProject.state !== 'open' ||
+        (capsuleTimestamp > existingProject.updatedAt && capsule.name && capsule.name !== existingProject.name);
+      if (shouldUpdateProject) {
+        registry.registerProject({
+          ...existingProject,
+          name: capsule.name || existingProject.name,
+          state: 'open',
+          updatedAt: Math.max(existingProject.updatedAt, capsuleTimestamp),
+        });
+      }
+    }
+
+    // 2. Ensure/register workspace
+    const existingWs = registry.findWorkspaceById(workspaceId);
+    if (!existingWs) {
+      registry.registerWorkspace({
+        id: workspaceId,
+        projectId,
+        rootPath: normalizedRoot,
+        state: 'attached',
+        createdAt: capsule.createdAt || capsuleTimestamp,
+        updatedAt: capsuleTimestamp,
+      });
+      registeredWorkspaces++;
+    } else {
+      // Workspace already exists.
+      // Idempotency: if root, project, and state match, do nothing.
+      const rootMatches = process.platform === 'win32'
+        ? existingWs.rootPath.toLowerCase() === normalizedRoot.toLowerCase()
+        : existingWs.rootPath === normalizedRoot;
+
+      if (rootMatches && existingWs.projectId === projectId && existingWs.state === 'attached') {
+        continue;
+      }
+
+      // If roots differ: never overwrite a newer root with an older one!
+      if (!rootMatches) {
+        if (existingWs.updatedAt > capsuleTimestamp) {
+          continue;
+        }
+      }
+
+      registry.registerWorkspace({
+        ...existingWs,
+        projectId,
+        rootPath: normalizedRoot,
+        state: 'attached',
+        updatedAt: Math.max(existingWs.updatedAt, capsuleTimestamp),
+      });
+      registeredWorkspaces++;
+    }
+  }
+
+  return { registeredProjects, registeredWorkspaces };
+}
+/**
+ * The shell this process opened for itself at launch. It is a convenience pointer
+ * for launch-time sequencing (first paint, control-plane warm-up), never a routing
+ * authority: every request resolves through the window directory below.
+ */
+let bootstrapShell: ProjectWindowShell | null = null;
+/**
+ * Shared services resolve a tab or a sender to its owning project window through
+ * this directory. There is deliberately no "first window's host" here: a request
+ * that cannot name the window it means is refused rather than served by whichever
+ * window happened to be created first.
+ */
+const tabAuthorities = new TabAuthorityDirectory();
+
+const DEFAULT_BOOT_PROJECT_ID = 'project-00000000-0000-4000-8000-000000000001';
+const DEFAULT_BOOT_WORKSPACE_ID = 'workspace-00000000-0000-4000-8000-000000000001';
+/** Identity this process booted for, recorded when the bootstrap window opens. */
+let bootProjectIdValue: string | null = null;
+/** This app's own surfaces: a launch URL pointing at one is not a page to restore. */
+const LOCAL_SURFACE_HOSTS = ['localhost:20128', 'localhost:20129', 'localhost:20130'];
+
+/** A launch-time http(s) argument, when the caller supplied one. */
+function launchUrlArgument(argv: readonly string[] = process.argv): string | undefined {
+  return argv.find(
+    (arg) => (arg.startsWith('http://') || arg.startsWith('https://')) && !LOCAL_SURFACE_HOSTS.some((local) => arg.includes(local)),
+  );
+}
+
+/** Set once this process has handed its launch URL to the window that opened for it. */
+let launchUrlConsumed = false;
+
+/**
+ * The launch URL, for the window this process launched for and no other.
+ *
+ * A launch argument describes the process start, not every window: taking it again for a
+ * window opened minutes later would inject a tab for a URL the user passed at launch, in a
+ * window that never asked for it.
+ */
+function consumeLaunchUrlArgument(): string | undefined {
+  if (launchUrlConsumed) return undefined;
+  const url = launchUrlArgument();
+  if (!url) return undefined;
+  launchUrlConsumed = true;
+  return url;
+}
+
+/** Live project shells, in the directory's registration order. */
+function liveProjectShells(): ProjectWindowShell[] {
+  return projectWindows?.listShells() ?? [];
+}
+
+/** The shell whose native window this is, or undefined when no shell owns it. */
+function shellForBrowserWindow(window: Electron.BrowserWindow | null | undefined): ProjectWindowShell | undefined {
+  if (!window || window.isDestroyed()) return undefined;
+  return liveProjectShells().find((shell) => shell.window === window);
+}
+
+/** The live shell behind an owner key, or undefined when no window carries it. */
+function liveShellFor(ownerKeyValue: string): ProjectWindowShell | undefined {
+  return liveProjectShells().find((shell) => ownerKey(shell.owner) === ownerKeyValue);
+}
+
+/** The OS window title: the project's validated label, with this build's marker in dev. */
+function shellTitleFor(projectTitle: string): string {
+  return IS_DEV ? `${projectTitle} [DEV]` : projectTitle;
+}
+
+/** The icon this build ships, resolved once for every window. */
+let cachedAppIconPath: string | null | undefined;
+
+function appIconPath(): string | undefined {
+  if (cachedAppIconPath === undefined) {
+    cachedAppIconPath = [
+      path.join(__dirname, '..', '..', 'assets', 'icon.png'),
+      path.join(process.cwd(), 'assets', 'icon.png'),
+    ].find((candidate) => fs.existsSync(candidate)) ?? null;
+  }
+  return cachedAppIconPath ?? undefined;
+}
+
+/** Wire-form owner (contracts) to Main's window owner. An invalid id is refused, never repaired. */
+function toWindowOwner(owner: ProjectWindowOwner): WindowOwner {
+  return owner.kind === 'project'
+    ? { kind: 'project', projectId: validateControlPlaneId(owner.projectId, 'project') }
+    : { kind: 'unassigned' };
+}
+
+/**
+ * The validated labels for a window's owner. A project's title and path come from
+ * the capsule Main recorded for that project once that record's affiliation
+ * validates — never from a page title or a renderer string — and an owner no
+ * record describes keeps its stable id as its title with no path, rather than
+ * borrowing another project's workspace.
+ */
+export function resolveWindowRecord(owner: WindowOwner): {
+  title: string;
+  pathLabel?: string;
+  workspacePath?: string;
+  capsuleId?: string;
+  projectId?: string;
+  workspaceId?: string;
+} {
+  if (owner.kind !== 'project') return { title: ownerLabel(owner) };
+
+  // Look for unambiguous matching capsule in capsule store
+  const matches = capsuleManager?.list().filter((capsule) => capsule.projectId === owner.projectId) ?? [];
+  // Two records claiming one project is ambiguity, not a choice: until they are
+  // reconciled, the window shows its stable id and claims no workspace. A lone record with no
+  // well-formed workspace id is the record an open refuses (`uniqueValidatedClaim`), so it may
+  // not hand a window a path or a capsule tag the registry never registered: such a project is
+  // described by the registry fallback below alone, exactly as if no capsule store existed.
+  const claimed = matches.length === 1 ? matches[0] : undefined;
+  const capsule = claimed && hasValidatedAffiliation(claimed) ? claimed : undefined;
+
+  // 1. Registry workspace root (first in fallback order)
+  let registryWorkspaceRoot: string | undefined;
+  let registryWorkspaceId: string | undefined;
+  try {
+    const wsList = projectRegistry.listWorkspaces(owner.projectId);
+    const attached = wsList.find((w) => w.state === 'attached' && w.rootPath && w.rootPath.trim().length > 0);
+    if (attached) {
+      registryWorkspaceRoot = attached.rootPath;
+      registryWorkspaceId = attached.id;
+    }
+  } catch {}
+
+  // 2. Affiliated capsule root (second in fallback order)
+  // There is no third fallback to the process cwd: an owner no record describes keeps its stable
+  // id as its title and claims no workspace (see the docblock above), rather than presenting the
+  // application's own launch directory as the project's. Callers that need a working directory
+  // still fall back on their own (the initial registry seeding below does exactly that).
+  const workspacePath = registryWorkspaceRoot || capsule?.workspacePath;
+
+  // Resolve title: capsule-derived label first, registry project name second, stable id fallback
+  let title = owner.projectId;
+  if (capsule?.name) {
+    title = capsule.name;
+  } else {
+    try {
+      const proj = projectRegistry.getProject(owner.projectId);
+      if (proj?.name) title = proj.name;
+    } catch {}
+  }
+
+  // Preference order for workspaceId: explicit capsule workspaceId wins, then registry workspaceId
+  const workspaceId = capsule?.workspaceId || registryWorkspaceId;
+
+  return {
+    title,
+    pathLabel: capsule?.workspacePath || workspacePath,
+    workspacePath,
+    capsuleId: capsule?.id,
+    projectId: owner.projectId,
+    workspaceId,
+  };
+}
+
+/**
+ * Whether Main holds a validated record for a project: the boot identity, an open
+ * registry project, a capsule-claimed explicit project, or a window already open for it.
+ * A renderer-supplied id no record carries is refused rather than opened under a
+ * name the renderer invented.
+ */
+export function isKnownProjectId(projectId: string): boolean {
+  if (projectId === bootProjectIdValue) return true;
+  // Branch A: Registry open (project exists in shared ProjectRegistry and state is 'open')
+  try {
+    const project = projectRegistry.getProject(projectId);
+    if (project.state === 'open') return true;
+  } catch {}
+  // Branch B: one capsule claims this project and carries a validated affiliation — the same
+  // evidence the synchronizer registers from, so an incomplete record (a persisted 'explicit'
+  // marker with no workspace id) cannot authorize an open the registry knows nothing about.
+  if (uniqueValidatedClaim(capsuleManager?.list() ?? [], projectId)) return true;
+  return liveProjectShells().some((shell) => shell.owner.kind === 'project' && shell.owner.projectId === projectId);
+}
+
+/**
+ * The host a shared service acts on when the call names neither a tab nor a sender.
+ *
+ * There is no ambient "current window": the automation-target owner is the one
+ * window an unbound agent authority is already pinned to (see the bridge's runtime
+ * binding), and a single-window process is unambiguous by construction. Anything
+ * else refuses, so a request can never land in whichever window was created first.
+ */
+function ambientHostOrThrow(): NativeTabHost {
+  const hosts = tabAuthorities.hosts();
+  const automationHost = hosts.find((host) => host.getAutomationTabId() != null);
+  if (automationHost) return automationHost;
+  if (hosts.length === 1) return hosts[0]!;
+  if (hosts.length === 0) throw new Error('No project window is live, so no tab host can serve this request');
+  throw new Error(`${hosts.length} project windows are live and this request names no window, tab or sender`);
+}
+
+/**
+ * The same host, or null when no window is live — a legitimately empty process rather
+ * than an error for callers that only need a window-shaped object for a process-wide
+ * derivation.
+ */
+function sharedServiceHost(): NativeTabHost | null {
+  const focused = shellForBrowserWindow(BrowserWindow.getFocusedWindow());
+  const shell = focused ?? bootstrapShell ?? liveProjectShells()[0];
+  if (shell) {
+    const host = tabAuthorities.hostForShell(shell);
+    if (host) return host;
+  }
+  return tabAuthorities.hosts()[0] ?? null;
+}
+
+/**
+ * A host for a call whose subject is the process, not a window: partition naming,
+ * cookie migration, housekeeping, the device-preset catalog. Every live window
+ * answers those identically, so any host will do and none is preferred as "the"
+ * window; a process with no window has nothing to derive from and refuses.
+ */
+function sharedServiceHostOrThrow(): NativeTabHost {
+  const host = sharedServiceHost();
+  if (!host) throw new Error('No project window is live, so no tab host can serve this request');
+  return host;
+}
+
+/**
+ * The project window that owns a tab. A tab no live window owns — one that was
+ * closed, or a call that carries no tab id — falls back to the ambient host above,
+ * which is the single-window path this replaced: every host answers an unknown id
+ * the same way its caller expects (`false`, `''`, `1`, or a `TARGET_STALE`
+ * capability error), so a stale id keeps its old outcome instead of turning into an
+ * exception. Only a process with no window at all refuses.
+ */
+function hostForTabOrBootstrap(tabId: string | undefined): NativeTabHost {
+  if (tabId) {
+    const owner = tabAuthorities.hostForTab(tabId);
+    if (owner) return owner;
+  }
+  return ambientHostOrThrow();
+}
 let bridgeServer: BridgeServer | null = null;
 let windowStateManager: WindowStateManager | null = null;
 let controlPlane: ControlPlaneRuntime | null = null;
+let browserPort: BrowserControlPort | null = null;
+let deviceAdapter: IosDeviceAdapter | null = null;
+let terminalDaemonInitialized = false;
+/** Hosts already given the control plane; attaching twice would re-run its device query. */
+const hostsWithControlPlane = new WeakSet<NativeTabHost>();
 let profileLease: ProfileLease | null = null;
 let localIpcServer: LocalIpcServer | null = null;
 // Enforce single instance lock
@@ -242,15 +708,20 @@ if (!gotTheLock) {
   app.exit(0);
 } else {
   app.on('second-instance', (_event, commandLine) => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.show();
-      mainWindow.focus();
+    // A second launch is a user action in an already running process: bring the
+    // window the user is working in forward and route its URL argument there. Every
+    // live shell is a candidate — the focused window is the user's target — and a
+    // process with no shell ignores the launch instead of resurrecting a global one.
+    const shells = liveProjectShells();
+    if (shells.length === 0) return;
+    const target = shellForBrowserWindow(BrowserWindow.getFocusedWindow()) ?? shells[0]!;
+    if (target.window.isMinimized()) target.window.restore();
+    target.window.show();
+    target.window.focus();
 
-      const urlArg = commandLine.find((arg) => (arg.startsWith('http://') || arg.startsWith('https://')) && !arg.includes('localhost:20128') && !arg.includes('localhost:20129') && !arg.includes('localhost:20130'));
-      if (urlArg && tabHost) {
-        tabHost.createTab(urlArg);
-      }
+    const urlArg = launchUrlArgument(commandLine);
+    if (urlArg) {
+      tabAuthorities.hostForShell(target)?.createTab(urlArg);
     }
   });
 }
@@ -275,7 +746,16 @@ recordBenchmark({ surface: 'startup', name: 'bootstrap' });
  */
 function describeLiveWebContentsRoles(): Map<number, { role: string; url: string }> {
   const collected = new Map<number, { roles: string[]; url: string }>();
-  const windowWcId = mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents.id : null;
+  // Every project shell's chrome is a 'window' role. With several windows live the
+  // per-process row has to name all of them, not one global window that may already
+  // be gone: a closed project must not hide its sibling's renderer from the series.
+  const chromeWcIds = new Set<number>();
+  for (const shell of liveProjectShells()) {
+    for (const view of [shell.toolbarView, shell.sidebarView, shell.frameBackdropView]) {
+      const chromeWc = view?.webContents;
+      if (chromeWc && !chromeWc.isDestroyed()) chromeWcIds.add(chromeWc.id);
+    }
+  }
   const push = (wc: Electron.WebContents, label: string) => {
     let pid = 0;
     try {
@@ -293,19 +773,19 @@ function describeLiveWebContentsRoles(): Map<number, { role: string; url: string
     }
     collected.set(pid, entry);
   };
-  if (tabHost) {
-    for (const tab of tabHost.getTabList()) {
+  for (const host of tabAuthorities.hosts()) {
+    for (const tab of host.getTabList()) {
       for (const pane of ['desktop', 'mobile'] as const) {
-        const wc = tabHost.getTabWebContents(tab.id, pane);
+        const wc = host.getTabWebContents(tab.id, pane);
         if (!wc || wc.isDestroyed()) continue;
-        const offscreen = tabHost.isTabOffscreen(tab.id) ? ':offscreen' : '';
+        const offscreen = host.isTabOffscreen(tab.id) ? ':offscreen' : '';
         push(wc, `tab:${tab.id.slice(0, 8)}${pane === 'mobile' ? ':mobile' : ''}${offscreen}`);
       }
     }
   }
   for (const wc of webContents.getAllWebContents()) {
     if (wc.isDestroyed()) continue;
-    if (windowWcId !== null && wc.id === windowWcId) {
+    if (chromeWcIds.has(wc.id)) {
       push(wc, 'window');
       continue;
     }
@@ -399,38 +879,1141 @@ function stopProcessMetricsSampling(): void {
   processMetricsTimer = null;
 }
 
-async function createWindow(): Promise<void> {
-  const windowTitle = IS_DEV ? 'AntiFan Browser Desktop [DEV]' : 'AntiFan Browser Desktop';
-  
-  windowStateManager = new WindowStateManager(StorageLocations.getConfigDir(), 1360, 880);
-  const winBounds = windowStateManager.getValidBounds();
-  const appIconCandidates = [
-    path.join(__dirname, '..', '..', 'assets', 'icon.png'),
-    path.join(process.cwd(), 'assets', 'icon.png'),
-  ];
-  const appIconPath = appIconCandidates.find((candidate) => fs.existsSync(candidate));
+/** Per-window wiring outcome. `created` distinguishes a new window from a join. */
+interface ProjectWindowRuntime {
+  shell: ProjectWindowShell;
+  host: NativeTabHost;
+  created: boolean;
+}
 
-  mainWindow = new BrowserWindow({
-    title: windowTitle,
-    icon: appIconPath,
-    x: winBounds.x,
-    y: winBounds.y,
-    width: winBounds.width,
-    height: winBounds.height,
-    minWidth: 700,
-    minHeight: 500,
-    backgroundColor: '#080c14',
-    autoHideMenuBar: false,
-    show: false,
-    webPreferences: {
-      contextIsolation: true,
-      sandbox: true,
-      nodeIntegration: false,
+/**
+ * Give one window's host the shared services that exist at this moment. Called when
+ * a host is created and again when a service it was too early for comes up, so a
+ * window opened later is never left without the control plane or the viewport gate.
+ */
+function attachSharedServices(host: NativeTabHost): void {
+  if (controlPlane && !hostsWithControlPlane.has(host)) {
+    hostsWithControlPlane.add(host);
+    // setControlPlane also re-reads the phone status; the explicit pass after the
+    // device surface registers covers hosts that were attached before it existed.
+    host.setControlPlane(controlPlane);
+  }
+  if (browserPort) host.setViewportGate(browserPort.viewportGate);
+}
+
+/**
+ * The one close-admission table for the whole process, shared by every consumer that can
+ * bind a page or admit work onto one (see `setCloseAdmission` on the tab host, the
+ * attachment registry, the capability transport and the browser-control port). One
+ * instance is what makes a reservation mean something: a page inside an async close
+ * window refuses new bindings and new work from every path, and the operations those
+ * paths admitted are what the close gate measures instead of guessing.
+ */
+const closeReservations = new PageCloseReservations();
+/** Last close report per owner key, so the live probe can read the shipping path's own words. */
+const lastCloseReports = new Map<string, CloseReport>();
+/** Last coordinated quit report, for the same reason. */
+let lastQuitReport: QuitReport | null = null;
+
+/** The project window that presents this page, or undefined when no live host owns it. */
+function ownerKeyOfPage(tabId: string): string | undefined {
+  const owner = tabAuthorities.hostForTab(tabId)?.windowOwnerKey();
+  return owner && owner.length > 0 ? owner : undefined;
+}
+
+/**
+ * Destroy exactly one page through the host that presents it. `unknown` is the honest
+ * answer for a page no live host claims: there is no terminator to ask, and a close
+ * attempt must not read that silence as success.
+ */
+function closePageInOwningHost(tabId: string): Promise<PageCloseOutcome> {
+  const host = tabAuthorities.hostForTab(tabId);
+  if (!host) return Promise.resolve('unknown');
+  return host.closePage(tabId);
+}
+
+/**
+ * The auxiliary windows an application quit must also close: one host's terminal windows
+ * (the sidebar popout and any extra workbench window). They are not project shells — no
+ * project snapshot claims them — but they are the user's own windows, so an orderly quit
+ * closes them and honours a veto in one instead of tearing services down underneath it.
+ *
+ * They are found through the host's own surface lookup, never a window census by title:
+ * a webContents a live host answers `terminalPopout` for is a terminal window that host
+ * owns. Capture hosts are deliberately absent — they are non-closable offscreen windows
+ * whose views belong to a host, and destroying that host is what destroys them, which the
+ * committed shutdown already does.
+ */
+function terminalWindowCloseSurfaces(): CloseSurface[] {
+  const surfaces: CloseSurface[] = [];
+  const seen = new Set<number>();
+  for (const contents of webContents.getAllWebContents()) {
+    if (contents.isDestroyed()) continue;
+    let isTerminalWindow = false;
+    for (const host of tabAuthorities.hosts()) {
+      try {
+        if (host.surfaceForWebContents(contents.id) === 'terminalPopout') {
+          isTerminalWindow = true;
+          break;
+        }
+      } catch {
+        // A host that cannot answer for this webContents is not evidence that it owns it.
+      }
+    }
+    if (!isTerminalWindow) {
+      // No live host can answer for a window that outlived its own host's disposal, and the
+      // last browser shell closing is exactly when that happens: the process-wide registry
+      // is the only remaining answer, so a committed quit still reaches the window instead
+      // of leaving it alive behind the gate.
+      isTerminalWindow = isUnhostedTerminalWindow(contents.id);
+    }
+    if (!isTerminalWindow) continue;
+    const window = BrowserWindow.fromWebContents(contents);
+    if (!window || window.isDestroyed() || seen.has(window.id)) continue;
+    seen.add(window.id);
+    surfaces.push({
+      key: `terminal-window:${window.id}`,
+      kind: 'auxiliary',
+      visibleMemberIds: () => [],
+      closeSelf: () => closeAuxiliaryWindow(window),
+    });
+  }
+  return surfaces;
+}
+
+/**
+ * Every closable surface, in order: the browser shells the window manager knows, then the
+ * auxiliary terminal windows. Counting and closing both come from here, never from
+ * `BrowserWindow.getAllWindows()` — a capture host or a terminal window must not be
+ * mistaken for a project window, and a project window must not be missed because it is
+ * not the first one created.
+ */
+function listApplicationCloseSurfaces(): CloseSurface[] {
+  const shells = projectWindows ? projectWindows.listCloseSurfaces().map(withHostMembers) : [];
+  return [...shells, ...terminalWindowCloseSurfaces()];
+}
+
+/** The host that presents a shell's pages, by owner key; null once that window is gone. */
+function hostForOwnerKey(ownerKeyValue: string): NativeTabHost | null {
+  const shell = liveShellFor(ownerKeyValue);
+  return shell ? tabAuthorities.hostForShell(shell) ?? null : null;
+}
+
+/**
+ * The live pages a close attempt must check, reserve and destroy for one browser shell.
+ *
+ * The member list is read from the hosting tab authority — the same source `ownerOfPage`,
+ * the page-close path and the tab directory use — because under-reporting is the dangerous
+ * direction: a shell whose members read empty would close while its pages were never
+ * busy-checked, never reserved, and never closed. A host that has no pages yet answers with
+ * its own (empty) list, and a host that is already gone falls back to the surface's list so
+ * the attempt still reports the pages it can no longer ask for.
+ */
+function withHostMembers(surface: CloseSurface): CloseSurface {
+  if (surface.kind !== 'browser') return surface;
+  return {
+    ...surface,
+    visibleMemberIds: () => hostForOwnerKey(surface.key)?.visibleMemberTabIds() ?? surface.visibleMemberIds(),
+  };
+}
+
+/** One browser shell, as the close path must see it (see `withHostMembers`). */
+function browserCloseSurfaceFor(ownerKeyValue: string): CloseSurface | undefined {
+  const surface = projectWindows?.closeSurfaceForOwner(ownerKeyValue);
+  return surface ? withHostMembers(surface) : undefined;
+}
+
+/**
+ * Enumerate every run the control plane knows for close live-use evidence.
+ *
+ * Runs are stored in the run service. Because the run service's public API indexes runs
+ * by project id (`listRuns(projectId: string)`), simply iterating `plane.projects.listProjects()`
+ * misses any run whose project was removed from the registry (an orphaned run).
+ *
+ * Rather than fabricating completeness, we actively detect unverified/orphaned runs:
+ * 1. Collect all runs for registered projects.
+ * 2. Check active attachments for any runId not enumerated under registered projects.
+ * 3. Check the internal run store (if present at runtime) for any run whose projectId is unlisted.
+ *
+ * If an orphaned run is found (its project is absent from the project registry), its lifecycle
+ * cannot be verified or managed through the project UI; it is reported with state 'unknown' so
+ * close/quit refuses with `cannotTell` rather than silently folding an orphaned run into idle.
+ */
+export function enumerateCloseLiveUseRuns(plane: ControlPlaneRuntime): CloseLiveUseRun[] {
+  const runs: CloseLiveUseRun[] = [];
+  const seenRunIds = new Set<string>();
+  const registeredProjectIds = new Set<string>();
+
+  for (const project of plane.projects.listProjects()) {
+    registeredProjectIds.add(project.id);
+    for (const run of plane.runs.listRuns(project.id)) {
+      runs.push({ runId: run.id, state: run.state });
+      seenRunIds.add(run.id);
+    }
+  }
+
+  // Check active attachments for orphaned runs (e.g. project was removed from registry)
+  const registry = plane.runs.attachments;
+  const now = Date.now();
+  for (const attachmentId of registry.getActiveRecordIds()) {
+    const record = registry.getRecord(attachmentId);
+    if (!record?.runId || seenRunIds.has(record.runId)) continue;
+    // The id set retains revoked and expired records for audit. Only a binding that can still
+    // dispatch stands for live work: a record that is no longer active cannot be doing any, and
+    // treating it as evidence made a dead attachment refuse every quit for the whole retention
+    // window.
+    if (record.state !== 'active' || (typeof record.expiresAt === 'number' && record.expiresAt <= now)) continue;
+    seenRunIds.add(record.runId);
+
+    // This runId is active in attachments but was not listed under registered projects.
+    // An orphaned run cannot be verified through registered projects, so its state is reported
+    // outside the run vocabulary: the close gate refuses on a state it cannot interpret.
+    runs.push({ runId: record.runId, state: ORPHANED_RUN_STATE });
+  }
+
+  // Check internal run service map at runtime for any unlisted orphaned runs
+  const runStore: unknown = plane.runs;
+  if (runStore && typeof runStore === 'object' && 'runs' in runStore) {
+    const rawRuns = runStore.runs;
+    if (rawRuns instanceof Map) {
+      for (const run of rawRuns.values()) {
+        if (run && typeof run === 'object' && 'id' in run && typeof run.id === 'string' && !seenRunIds.has(run.id)) {
+          seenRunIds.add(run.id);
+          const projectId = 'projectId' in run && typeof run.projectId === 'string' ? run.projectId : '';
+          const state = 'state' in run && typeof run.state === 'string' ? run.state : ORPHANED_RUN_STATE;
+          if (!registeredProjectIds.has(projectId)) {
+            runs.push({ runId: run.id, state: ORPHANED_RUN_STATE });
+          } else {
+            runs.push({ runId: run.id, state });
+          }
+        }
+      }
+    }
+  }
+
+  return runs;
+}
+
+/**
+ * The live-use port (see `close-live-use`): raw reads from the owners that decide whether
+ * shared work is active. Nothing here interprets the answer — a throw from any of these
+ * becomes `unknown` there, and unknown refuses.
+ */
+const closeLiveUsePort: CloseLiveUsePort = {
+  // The admission table itself, not a snapshot: the module composes the process-wide count
+  // for an application question and the attributed counts for a shell or page question —
+  // per page, and per owner key for work a window's chrome asked for without naming a page —
+  // so neither attributed read can be dropped here (a wiring that supplied only the pools
+  // answered `idle` under an admitted dispatch).
+  admission: () => closeReservations,
+  operationCounters: () => {
+    if (!browserPort) {
+      throw new Error('the browser control port is not initialized');
+    }
+    return { pools: browserPort.passivePool, waits: browserPort.waitRegistry };
+  },
+  ledgerInFlight: () => (controlPlane ? controlPlane.ledger.getStats().inFlightCount : null),
+  runs: () => {
+    const plane = controlPlane;
+    if (!plane) {
+      throw new Error('the control plane runtime is not initialized');
+    }
+    return enumerateCloseLiveUseRuns(plane);
+  },
+  attachments: () => {
+    const plane = controlPlane;
+    if (!plane) {
+      throw new Error('the control plane runtime is not initialized');
+    }
+    const registry = plane.runs.attachments;
+    const records: CloseLiveUseAttachmentRecord[] = [];
+    for (const attachmentId of registry.getActiveRecordIds()) {
+      const record = registry.getRecord(attachmentId);
+      if (!record) continue;
+      records.push({
+        id: record.id,
+        state: record.state,
+        expiresAt: record.expiresAt,
+        runId: record.runId,
+        tabId: record.tabId,
+        browserTarget: record.browserTarget ? { tabId: record.browserTarget.tabId } : undefined,
+      });
+    }
+    // Reclaim and lease rules live in the projection (and are tested against it), so this
+    // read cannot drift from the evidence module's own contract; `ownerOfPage` supplies the
+    // presentation owner a binding on a member page is scoped by.
+    return projectLiveUseAttachments(records, Date.now(), (tabId) => ownerKeyOfPage(tabId));
+  },
+  affinities: () => {
+    const affinities: CloseLiveUseAffinity[] = [];
+    for (const host of tabAuthorities.hosts()) {
+      const owner = host.windowOwnerKey() || undefined;
+      for (const [terminalId, info] of Object.entries(host.buildTerminalAffinityMap())) {
+        const tabIds = [info.tabId, info.primaryTabId, ...(info.managedTabIds ?? [])].filter(
+          (tabId): tabId is string => typeof tabId === 'string' && tabId.length > 0
+        );
+        affinities.push({ terminalId, status: info.status, tabIds: [...new Set(tabIds)], ...(owner ? { ownerKey: owner } : {}) });
+      }
+    }
+    return affinities;
+  },
+  terminalState: (): CloseLiveUseTerminalState => {
+    if (process.env.ANTIFAN_USE_TERMINAL_DAEMON !== '0' && !terminalDaemonInitialized) {
+      return { available: false, detail: 'the terminal host daemon connection has not settled' };
+    }
+    const terminal = TerminalManager.getInstance();
+    const candidate: unknown = terminal;
+    if (!candidate || typeof candidate !== 'object') {
+      return { available: false, detail: 'the terminal manager is unavailable' };
+    }
+    if ('isDisposed' in candidate && candidate.isDisposed === true) {
+      return { available: false, detail: 'the terminal manager is disposed' };
+    }
+    if ('client' in candidate && candidate.client && typeof candidate.client === 'object' && 'connected' in candidate.client) {
+      if (candidate.client.connected !== true) {
+        return { available: false, detail: 'the terminal host daemon is not connected' };
+      }
+    } else if (candidate instanceof DaemonTerminalProxy) {
+      return { available: false, detail: 'the terminal host daemon is not connected' };
+    }
+    try {
+      const raw = terminal.listSessions();
+      if (!Array.isArray(raw)) {
+        return { available: false, detail: 'the terminal manager did not return a session list' };
+      }
+      const sessions = (raw as Array<{ id?: unknown; state?: unknown }>).map((session) => ({
+        id: typeof session?.id === 'string' ? session.id : '',
+        ...(typeof session?.state === 'string' ? { state: session.state } : {}),
+      }));
+      return { available: true, sessions };
+    } catch (err) {
+      return {
+        available: false,
+        detail: `the terminal session list could not be read: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+  },
+};
+
+/**
+ * Release every binding whose owner provably cannot come back, before live use is measured.
+ *
+ * The close gate reads liveness from the attachment registry, so an agent that crashed or
+ * exited without ending its session would otherwise leave its page busy until the lease
+ * deadline: a refusal whose only stop control is the client that died. The registry's own
+ * release is the reachable route — it revokes a record whose `boundPid` is dead and marks
+ * one whose deadline passed, the same durable mutation `antifan.cli.endSession` performs —
+ * and a binding whose owner is still alive or unreadable keeps holding its page, which is
+ * the fail-closed direction.
+ *
+ * A failed sweep changes nothing about the answer: the measurement below still runs, and an
+ * attachment that is still active keeps refusing the close.
+ */
+async function releaseGoneOwnerBindings(): Promise<void> {
+  const registry = controlPlane?.runs.attachments;
+  if (!registry) return;
+  try {
+    const released = await registry.revokeGoneOwnerAttachments();
+    if (released.revoked.length > 0 || released.expired.length > 0) {
+      recordLifecycleEvent('close-live-use.gone-owner-release', {
+        revoked: released.revoked.length,
+        expired: released.expired.length,
+        retained: released.retained,
+      });
+    }
+  } catch (err) {
+    recordLifecycleEvent('close-live-use.gone-owner-release.failed', { detail: String(err) });
+  }
+}
+
+/** One authoritative read (see `close-live-use`), classified into idle / busy / unknown. */
+async function readLiveUse(request: LiveUseRequest): Promise<LiveUseReport> {
+  await releaseGoneOwnerBindings();
+  return collectCloseLiveUse(request, closeLiveUsePort);
+}
+
+/**
+ * The one close coordinator for the whole process. Its dependencies are the real system:
+ * the windows that exist, the host that owns a page, the live-use owners above, and the
+ * existing ordered teardown. The state machine itself is the coordinator's; nothing here
+ * re-implements it.
+ */
+const closeCoordinator = new ProjectCloseCoordinator({
+  reservations: closeReservations,
+  listSurfaces: () => listApplicationCloseSurfaces(),
+  surfaceForOwner: (target) => browserCloseSurfaceFor(target),
+  ownerOfPage: (tabId) => ownerKeyOfPage(tabId),
+  closePage: (tabId) => closePageInOwningHost(tabId),
+  queryLiveUse: (request) => readLiveUse(request),
+  commitShutdown: () => shutdown(),
+});
+
+/**
+ * The one surface a refused close or quit reaches. It is presentation only: the decision was
+ * already made by the coordinator above, and a delivery that fails changes neither the
+ * outcome nor the windows (see `close-refusal-notice`).
+ *
+ * A shell's chrome is addressed through the same guard every other Main→chrome send uses, so
+ * a crashed or already-destroyed toolbar answers `false` instead of throwing — that answer is
+ * what lets the quit path notice it has no chrome left to explain itself in.
+ */
+const closeRefusalPresentation: CloseRefusalPresentationPort = {
+  surfaces: () =>
+    liveProjectShells().map((shell) => ({
+      ownerKey: ownerKey(shell.owner),
+      send: (notice) =>
+        safeSendWebContents(shell.toolbarView?.webContents, PROJECT_WINDOW_CHANNELS.CLOSE_REFUSED, notice),
+    })),
+  // The one focus-affecting step in the path, and only because it is the last one: the user
+  // asked to quit, no browser shell survived to show the reason, and a native dialog is the
+  // only remaining way to say why the application is still here. It offers no way past the
+  // refusal — one acknowledgement button, no force-quit option.
+  showDialog: (notice) =>
+    dialog
+      .showMessageBox({
+        type: 'warning',
+        title: 'AntiFan could not quit',
+        message: notice.summary,
+        detail: notice.reasons
+          .map((reason) => {
+            const scope = reason.tabId === undefined ? '' : ` [${reason.tabId}]`;
+            const guidance = reason.controls.map((control) => control.label).join(' ');
+            return guidance.length === 0 ? `${reason.detail}${scope}` : `${reason.detail}${scope}\n→ ${guidance}`;
+          })
+          .join('\n\n'),
+        buttons: ['OK'],
+      })
+      .then(() => undefined),
+  journal: recordLifecycleEvent,
+};
+
+/** Journal one close outcome and keep it for the probe surface. */
+function recordCloseReport(report: CloseReport): void {
+  lastCloseReports.set(report.ownerKey, report);
+  if (report.disposition === 'closed') {
+    recordLifecycleEvent('window-close.closed', {
+      owner: report.ownerKey,
+      closed: report.closed.length,
+      skipped: report.skipped.length,
+      failed: report.failed.length,
+      lastBrowserShellGone: report.lastBrowserShellGone,
+    });
+    return;
+  }
+  recordLifecycleEvent('window-close.incomplete', {
+    owner: report.ownerKey,
+    haltedBy: report.haltedBy,
+    partial: report.partial,
+    closed: report.closed.length,
+    skipped: report.skipped.length,
+    failed: report.failed.length,
+    refusals: report.refusals.map((refusal) => refusal.code).join(','),
+  });
+  console.warn(`[antifan] ${report.summary}`);
+  // The shell stayed open, so it is the surface that has to explain itself: the refusal goes
+  // to its own chrome and to no other window. A close nobody asked to quit never takes focus.
+  presentCloseRefusal(report, 'close', closeRefusalPresentation);
+}
+
+/**
+ * Route one user close request through the coordinator. The shell already prevented its own
+ * native close synchronously, so the decision may take as long as the pages need: the
+ * attempt reserves every member page before it awaits anything, and a refusal leaves all of
+ * them — and every service — exactly as they were.
+ */
+function requestShellClose(shell: ProjectWindowShell): void {
+  const key = ownerKey(shell.owner);
+  closeCoordinator.attemptClose(key, 'user').then(recordCloseReport, (err) => {
+    recordLifecycleEvent('window-close.failed', { owner: key, detail: String(err) });
+    console.warn(`[antifan] Closing window '${key}' failed:`, err);
+  });
+}
+
+/**
+ * The one application-quit gate. Every entry — an explicit Quit, the last browser shell
+ * going away, `window-all-closed` — comes through here, so repeated requests coalesce into
+ * the single in-flight attempt instead of racing each other. Services are torn down only
+ * after every native closure succeeded; a refusal or a late veto keeps them and releases
+ * its reservations, which is what makes a retry work.
+ */
+function requestApplicationQuit(origin: string): void {
+  if (closeCoordinator.hasCommittedShutdown()) return;
+  recordLifecycleEvent('quit.requested', { origin, applicationPhase: closeCoordinator.applicationPhase() });
+  closeCoordinator.attemptQuit().then(
+    (report) => {
+      lastQuitReport = report;
+      recordLifecycleEvent('quit.outcome', {
+        origin,
+        shutdown: report.shutdown,
+        phase: report.phase,
+        haltedBy: report.haltedBy,
+        closedShells: report.closedShells.length,
+        survivingShells: report.survivingShells.length,
+        auxiliaries: report.auxiliaries.length,
+        coalescedRequests: report.coalescedRequests,
+        ...(report.commitError ? { commitError: report.commitError } : {}),
+      });
+      if (report.shutdown !== 'committed') {
+        console.warn(`[antifan] ${report.summary}`, report.refusals.map((refusal) => refusal.detail).join(' '));
+        // A refused quit is the user's own request being refused, and it has to be visible
+        // wherever they are looking: every browser shell gets the reason. A halt with no
+        // refusal (for example a failed commit) still has a summary worth showing, so the
+        // notice is delivered whenever there is something to explain.
+        if (report.refusals.length > 0 || report.haltedBy !== null) {
+          presentCloseRefusal(report, 'quit', closeRefusalPresentation);
+        }
+        return;
+      }
+      // Every native closure succeeded and the ordered teardown resolved, so the quit is
+      // the platform's to carry out now: the guarded `before-quit` lets this one through.
+      // The last-resort bound is armed first: from here this process has no window left to
+      // report anything, and a platform that never delivers the quit would strand it.
+      armForceExitWatchdog('committed quit did not end the process within 2000ms');
+      app.quit();
+    },
+    (err) => {
+      recordLifecycleEvent('quit.failed', { origin, detail: String(err) });
+      console.warn('[antifan] Coordinated quit failed:', err);
+    }
+  );
+}
+
+/**
+ * A shell the platform destroyed. Unregistering first means a message from its dying
+ * renderers can never be routed again, and its host is disposed with the shell, which
+ * persists that owner's tabs. Whether the process may now end is not decided here: only the
+ * coordinator authorises destruction, so this reports the last-browser-shell fact and asks
+ * the same gate for an orderly quit — refused there while shared work is active or unknown,
+ * and coalesced with a quit that is already running.
+ */
+function handleShellClosed(shell: ProjectWindowShell): void {
+  if (bootstrapShell === shell) bootstrapShell = null;
+  projectWindows?.notifyShellGone(shell.owner);
+  // Electron fires `closed` before `window-all-closed`, so the keep-alive there never
+  // gets its turn: a benchmark run that loses its window — to an incidental close, a
+  // renderer crash or an OS action — would still shut down here and discard the whole
+  // measurement. The run owns its process, so it records the loss and keeps going; a
+  // run that finishes windowless is a finding for the report, not a reason to lose it.
+  if (refusesWindowClose() && !isShuttingDown) {
+    recordLifecycleEvent('window-closed.ignored', { reason: 'benchmark keep-alive' });
+    console.warn('[antifan] Benchmark mode: main window closed; the run continues without a window.');
+    return;
+  }
+  const remaining = projectWindows?.browserShellCount() ?? 0;
+  if (remaining > 0) {
+    recordLifecycleEvent('window-closed.siblings-live', { remaining, owner: ownerKey(shell.owner) });
+    return;
+  }
+  recordLifecycleEvent('window-closed.last-browser-shell', { owner: ownerKey(shell.owner) });
+  requestApplicationQuit('last-browser-shell-closed');
+}
+
+/**
+ * Per-shell lifecycle. There is no global window: every shell carries its own close request
+ * and its own close gate, so what happens to the process is decided by how many browser
+ * shells are left rather than by which one happened to be created first.
+ */
+function attachShellLifecycle(shell: ProjectWindowShell): void {
+  shell.onCloseRequest(() => {
+    // A benchmark run owns its windows (see `refusesWindowClose`): an incidental close
+    // would end the measurement and destroy the tabs it was measuring, so the request is
+    // refused rather than honoured.
+    if (refusesWindowClose() && !isShuttingDown) {
+      recordLifecycleEvent('window-close.refused', { reason: 'benchmark run owns the window', owner: ownerKey(shell.owner) });
+      console.warn(`[antifan] Benchmark mode: window close refused; the run owns it (set ${BENCHMARK_ALLOW_WINDOW_CLOSE_ENV}=1 to override).`);
+      return;
+    }
+    // The shell prevented its own native close before this listener ran (see
+    // project-window-shell), so from here the coordinator owns the decision and the
+    // attempt's own single-use authorisation is the only gate that may carry it out.
+    requestShellClose(shell);
+  });
+  shell.window.on('closed', () => { handleShellClosed(shell); });
+}
+
+/**
+ * The ONLY path that creates a project window.
+ *
+ * The startup bootstrap and 'antifan:project:open' both come through here, so a
+ * window opened later is wired exactly like the first one: its own NativeTabHost
+ * registered with the window directory (which is what makes its tabs routable), its
+ * own owner-keyed placement and saved tabs, and its own close gate. A path that
+ * created only a shell would leave a window whose tabs nothing could resolve.
+ */
+async function ensureProjectWindow(owner: WindowOwner, intent: OpenIntent): Promise<ProjectWindowRuntime> {
+  const manager = projectWindows;
+  if (!manager) throw new Error('The project window manager is not up yet');
+
+  if (owner.kind === 'project' && capsuleManager) {
+    synchronizeCapsulesWithRegistry(capsuleManager, projectRegistry, StorageLocations.getControlPlaneDir());
+  }
+
+  const shell = await manager.ensureWindow(owner, intent);
+  // A join — a duplicate open, or a second caller racing the first — already owns its
+  // host. Only the creation path wires one, and it does so with no await between the
+  // check and the registration, so two callers cannot both build a host for one shell.
+  const existingHost = tabAuthorities.hostForShell(shell);
+  if (existingHost) return { shell, host: existingHost, created: false };
+
+  const host = new NativeTabHost(shell, capsuleManager || undefined);
+  // The reservation table, before the host can restore or create a single page: a tab
+  // created inside an async close window would otherwise exist for exactly as long as it
+  // takes the attempt to destroy its window.
+  host.setCloseAdmission(closeReservations);
+  tabAuthorities.register(shell, host);
+  recordBenchmark({ surface: 'startup', name: 'tabHostCtor' });
+
+  const record = resolveWindowRecord(shell.owner);
+  if (record.workspacePath) {
+    // This window's terminals belong to its own verified workspace. The host refuses a
+    // path it cannot verify, which leaves the association unset rather than moving this
+    // window's terminals into another window's directory.
+    host.setWindowWorkspaceAffiliation({
+      workspacePath: record.workspacePath,
+      ...(record.capsuleId ? { capsuleId: record.capsuleId } : {}),
+    });
+  }
+  if (owner.kind === 'project') {
+    const targetWorkspaceId = record.workspaceId || projectRegistry.listWorkspaces(owner.projectId)[0]?.id || makeControlPlaneId('workspace');
+    const targetWorkspaceRoot = record.workspacePath || process.cwd();
+    projectRegistry.ensureInitialWorkspace(
+      owner.projectId,
+      targetWorkspaceId,
+      targetWorkspaceRoot,
+      StorageLocations.getControlPlaneDir(),
+    );
+  }
+  windowStateManager?.manage(shell.window, ownerKey(shell.owner));
+  attachShellLifecycle(shell);
+  // Restore this owner's tabs immediately so pages start loading and the layout is
+  // established. Saved tabs are owner-scoped, so a new window can never inherit another
+  // window's pages; the launch URL is consumed once for the same reason — it belongs to the
+  // window this process launched for, not to every window opened afterwards.
+  host.restoreTabs(consumeLaunchUrlArgument());
+  recordBenchmark({ surface: 'startup', name: 'tabsRestored' });
+  attachSharedServices(host);
+  return { shell, host, created: true };
+}
+
+/**
+ * Install the one application menu. Commands resolve their window per click through
+ * the directory (`resolveHostForWindow`), so the global accelerators act on the window
+ * the user is actually in, and a window no shell describes refuses instead of silently
+ * acting on another one.
+ */
+function installApplicationMenu(): void {
+  const attachTo = bootstrapShell?.window ?? liveProjectShells()[0]?.window;
+  if (!attachTo || attachTo.isDestroyed()) return;
+  Menu.setApplicationMenu(buildApplicationMenu(attachTo, null, {
+    resolveHostForWindow: (window) => {
+      const shell = shellForBrowserWindow(window);
+      return shell ? tabAuthorities.hostForShell(shell) ?? null : null;
+    },
+    // The menu is the one project entry a project window has: the sidebar chip is the
+    // other, and both ask the same Main function, so neither can drift from the other's
+    // validation.
+    openProjectPicker: (window) => { void openProjectWindow({}, window); },
+  }));
+}
+
+/**
+ * Present the bootstrap window as soon as its renderer paints, with a bounded fallback
+ * so a slow first paint cannot leave the app invisible. Only the bootstrap window is
+ * presented here: an agent-created window is never shown by this path.
+ */
+function presentBootstrapWindow(shell: ProjectWindowShell): void {
+  const placement = windowStateManager?.getValidBounds(ownerKey(shell.owner));
+  let fallbackTimer: NodeJS.Timeout | null = null;
+  const present = (): void => {
+    if (fallbackTimer) {
+      clearTimeout(fallbackTimer);
+      fallbackTimer = null;
+    }
+    if (shell.window.isDestroyed() || shell.window.isVisible()) return;
+    if (placement?.isMaximized) {
+      shell.window.maximize();
+    } else if (typeof placement?.x !== 'number' || typeof placement?.y !== 'number') {
+      shell.window.center();
+    }
+    shell.window.show();
+    shell.window.focus();
+    recordBenchmark({ surface: 'startup', name: 'firstVisible' });
+    recordProcessMetrics('afterFirstVisible');
+    startProcessMetricsSampling();
+  };
+  shell.window.once('ready-to-show', present);
+  shell.window.once('closed', () => {
+    if (!fallbackTimer) return;
+    clearTimeout(fallbackTimer);
+    fallbackTimer = null;
+  });
+  fallbackTimer = setTimeout(present, 300);
+}
+
+/** Surfaces a project-window channel serves: the toolbar control and the sidebar's own. */
+const PROJECT_WINDOW_ROUTE_SURFACES: readonly RoutedSurface[] = ['toolbar', 'sidebar'];
+
+/**
+ * Main's own label for an owner key: the window's validated record, the same source the
+ * window's title and its identity message use. The host labels a project owner by its id,
+ * which is the right stable key for persistence but not what a user searches against —
+ * the search list must name a window the way that window names itself.
+ */
+function projectLabelFor(ownerKeyValue: string): string | undefined {
+  const shell = liveShellFor(ownerKeyValue);
+  return shell ? shellTitleFor(resolveWindowRecord(shell.owner).title) : undefined;
+}
+
+/** One inventory row as the renderer's contract sees it. Main asserts liveness only for rows built from live tabs. */
+function toProjectSearchRow(row: TabSearchInventoryRow): ProjectTabSearchRow {
+  const label = projectLabelFor(row.ownerKey);
+  return {
+    tabId: row.tabId,
+    title: row.title,
+    url: row.url,
+    ownerLabel: label ?? row.ownerLabel,
+    ...(row.projectPath ? { pathLabel: row.projectPath } : {}),
+    live: true,
+  };
+}
+
+/** Why an exact activation was refused, in the contract's vocabulary. */
+function activationFailureCode(reason: TabSearchActivationFailure, tabId: string): ProjectTabUnavailableCode {
+  if (reason === 'OWNER_CHANGED') return 'OWNER_UNRESOLVED';
+  return tabId && tabAuthorities.hostForTab(tabId)?.hasExactTab(tabId) ? 'TAB_NOT_VISIBLE' : 'TAB_CLOSED';
+}
+
+/**
+ * The inventory the project picker offers: the registry's open projects plus the identities
+ * Main already knows without a record — the boot project and every project a window owns.
+ * A closed record and an id nothing describes are both left out, because either one would be
+ * refused by the open below and a button that cannot work is worse than no button.
+ */
+function projectOpenCandidates(): ProjectOpenCandidate[] {
+  const liveProjectIds = liveProjectShells()
+    .map((shell) => (shell.owner.kind === 'project' ? shell.owner.projectId : ''))
+    .filter((projectId) => projectId.length > 0);
+  return collectProjectOpenCandidates({
+    registryProjects: projectRegistry.listProjects(),
+    knownProjectIds: bootProjectIdValue ? [bootProjectIdValue, ...liveProjectIds] : liveProjectIds,
+    describe: (projectId) => {
+      const record = resolveWindowRecord({ kind: 'project', projectId });
+      return { title: record.title, ...(record.pathLabel ? { pathLabel: record.pathLabel } : {}) };
+    },
+  });
+}
+
+/**
+ * The outcome of Main's picker: a project the user chose, their request to choose a folder
+ * instead, or a dialog they dismissed. There is no "nothing to offer" case: the folder action is
+ * on the dialog whatever the inventory holds, so a build that knows no project still has a real
+ * answer, and a dialog nobody could answer usefully is not a state Main can reach.
+ */
+type ProjectOpenPick =
+  | { kind: 'picked'; projectId: string }
+  | { kind: 'folder' }
+  | { kind: 'cancelled' };
+
+/**
+ * Main's own project-opening surface: a native list of the projects it can actually open,
+ * modal to the window that asked. The answer is an id from Main's own inventory or the explicit
+ * request to choose a folder, so the open path that follows validates nothing it did not build
+ * itself.
+ *
+ * The spec always exists (`projectOpenDialogSpec`), which is why the folder action is offered even
+ * with an empty inventory: opening one of the user's own folders is a real answer to "open a
+ * project", and a dialog whose only other button was dismissal would be a dead end. Every label
+ * carries its workspace path because the `detail` line is not rendered on every platform (Windows
+ * drops it), so a bare title would leave two same-named projects indistinguishable in the buttons
+ * the user actually clicks.
+ */
+async function pickProjectToOpen(parent: BrowserWindow | null): Promise<ProjectOpenPick> {
+  const spec = projectOpenDialogSpec(projectOpenCandidates());
+  const options = {
+    type: 'question' as const,
+    title: spec.message,
+    message: spec.message,
+    detail: spec.detail,
+    buttons: spec.buttons,
+    defaultId: spec.defaultId,
+    cancelId: spec.cancelId,
+    noLink: true,
+  };
+  // A dialog with no parent cannot be attached to one: the unparented overload is the only
+  // legal call, and it is also what a window-less Main (a probe seam) has to use.
+  const answer = parent && !parent.isDestroyed()
+    ? await dialog.showMessageBox(parent, options)
+    : await dialog.showMessageBox(options);
+  const choice = projectOpenChoiceFor(spec, answer.response);
+  if (choice.kind === 'folder') {
+    recordLifecycleEvent('project-open.folder', {});
+    return { kind: 'folder' };
+  }
+  return choice.kind === 'project'
+    ? { kind: 'picked', projectId: choice.projectId }
+    : { kind: 'cancelled' };
+}
+
+/**
+ * Resolve the folder the user chooses into the project that opens there.
+ *
+ * A folder Main already registered as an attached workspace is adopted, never duplicated: the
+ * registry is the identity of record, and a second project for one directory would leave two
+ * windows whose terminals share a working directory but not a close gate. Two attached
+ * workspaces on one root is ambiguity, not a choice, and is refused rather than tie-broken.
+ *
+ * A folder no record describes becomes a project of its own. Its durability is the capsule
+ * affiliation and nothing else: `workspace-capsules.json` is what the next boot's
+ * `synchronizeCapsulesWithRegistry` re-registers the project from, so the affiliation has to land
+ * before this reports success — and without the capsule manager no affiliation can be written, so
+ * such a project would vanish at the next boot and take the window's identity with it. That is why
+ * a missing manager refuses before any record moves, rather than creating what cannot persist.
+ *
+ * The chosen path is resolved through the filesystem exactly as the capsule routes resolve theirs:
+ * a workspace is a filesystem anchor for PTY cwd and preview containment, so the anchor has to be
+ * the directory itself, never a symlink a later containment check would compare against.
+ */
+async function resolveProjectFromFolder(
+  parent: BrowserWindow | null,
+): Promise<{ projectId: string } | { result: ProjectOpenResult }> {
+  // The chooser opens where the user already works when Main knows the boot project's workspace;
+  // without one it is omitted, which leaves the platform's own last-used directory in charge.
+  const bootProjectId = bootProjectIdValue;
+  const defaultPath = bootProjectId
+    ? resolveWindowRecord({ kind: 'project', projectId: bootProjectId }).workspacePath
+    : undefined;
+  const options: OpenDialogOptions = {
+    properties: ['openDirectory', 'createDirectory'],
+    title: 'Chọn thư mục dự án',
+    ...(defaultPath ? { defaultPath } : {}),
+  };
+  // A folder chooser with no parent cannot be attached to one: the unparented overload is the only
+  // legal call, and it is also what a window-less Main (a probe seam) has to use.
+  const answer = parent && !parent.isDestroyed()
+    ? await dialog.showOpenDialog(parent, options)
+    : await dialog.showOpenDialog(options);
+  const chosen = answer.canceled ? '' : answer.filePaths?.[0] ?? '';
+  if (!chosen) return { result: { status: 'CANCELLED' } };
+
+  let resolved = '';
+  try {
+    resolved = fs.realpathSync(chosen);
+    if (!fs.statSync(resolved).isDirectory()) resolved = '';
+  } catch {
+    resolved = '';
+  }
+  if (!resolved) return { result: { status: 'FAILED', reason: 'PROJECT_FOLDER_INVALID' } };
+
+  const attached = projectRegistry.findWorkspacesByRoot(resolved);
+  if (attached.length > 1) {
+    return { result: { status: 'FAILED', reason: 'AMBIGUOUS_PROJECT_FOLDER' } };
+  }
+  if (attached.length === 1) {
+    // Bound to a local: the length check above is what proves the element exists, and rereading the
+    // array through its index would make the type checker ask again for what this line already knows.
+    const adopted = attached[0];
+    if (adopted) {
+      recordLifecycleEvent('project-open.folder-adopted', { projectId: adopted.projectId });
+      return { projectId: adopted.projectId };
+    }
+  }
+
+  // A folder chooser can stay open as long as the user likes, so the admission is re-read now and
+  // the mutation below follows it with no await in between: a quit that committed around the dialog
+  // would otherwise end with a project — and a window — created after it counted the windows it
+  // intends to end. The wrap is not for tidiness: a rejection here would surface as a dead click,
+  // while every refusal, the admission included, becomes the same FAILED envelope the caller reads.
+  try {
+    assertApplicationAdmitsWork(closeReservations, 'open project from folder');
+    // Bound once: the manager has to be the same instance for both calls below, and a manager that
+    // is absent is absent before the first record moves rather than after.
+    const manager = capsuleManager;
+    if (!manager) {
+      return { result: { status: 'FAILED', reason: 'PROJECT_FOLDER_INVALID' } };
+    }
+    const dataRoot = StorageLocations.getControlPlaneDir();
+    // An existing capsule for this folder is reused, not duplicated. A workspace directory is what
+    // the user recognises, and the capsule carries what they have built up in it — its saved zoom,
+    // sidebar width and device preset. Minting a second capsule for a folder that already has one
+    // is how one directory becomes nine rows that each claim to be its own workspace.
+    const reusable = findReusableCapsule(manager.list(), resolved, manager.getActive()?.id ?? '');
+    const name = reusable && reusable.name.trim() ? reusable.name.trim() : path.basename(resolved) || 'Project';
+    const project = projectRegistry.createProject(name, dataRoot);
+    const workspace = projectRegistry.ensureInitialWorkspace(
+      project.id,
+      makeControlPlaneId('workspace'),
+      resolved,
+      dataRoot,
+    );
+    const capsule = reusable ?? manager.create(name, resolved);
+    manager.setAffiliation(capsule.id, { projectId: project.id, workspaceId: workspace.id });
+    recordLifecycleEvent(reusable ? 'project-open.folder-reused' : 'project-open.folder-created', {
+      projectId: project.id,
+      workspaceId: workspace.id,
+      capsuleId: capsule.id,
+    });
+    return { projectId: project.id };
+  } catch (err) {
+    recordLifecycleEvent('project-open.folder-failed', { detail: redactCredentials(String(err)) });
+    return { result: { status: 'FAILED', reason: 'PROJECT_FOLDER_INVALID' } };
+  }
+}
+
+/**
+ * The window a chrome message came from, for a dialog that has to be modal to it. A probe
+ * seam dispatches routes with no event at all, so an absent sender is an ordinary null
+ * rather than an error.
+ */
+function senderWindowFor(event: unknown): BrowserWindow | null {
+  const sender = event && typeof event === 'object' && 'sender' in event
+    ? (event as { sender?: unknown }).sender
+    : undefined;
+  if (!sender || typeof sender !== 'object') return null;
+  try {
+    return BrowserWindow.fromWebContents(sender as Parameters<typeof BrowserWindow.fromWebContents>[0]);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Open or present one project window on a user's explicit request. The payload may name the
+ * project, but the decision to open rests on Main's own records: a project no capsule, open
+ * window or boot identity carries is refused rather than opened under a name a renderer
+ * invented. A request that names no project at all asks Main to present its own picker —
+ * the renderer never guesses which project the user meant, and a cancelled picker stays
+ * cancelled rather than opening something the user did not choose.
+ *
+ * The picker may answer with a folder instead of an id. That answer is resolved into a project id
+ * here and the open then continues below unchanged, so a folder open and an id open end in the
+ * same validation and the same window factory rather than in two paths that could drift apart.
+ */
+async function openProjectWindow(payload: unknown, parent?: BrowserWindow | null): Promise<ProjectOpenResult> {
+  let requested = payload && typeof payload === 'object' && 'projectId' in payload && typeof payload.projectId === 'string'
+    ? payload.projectId.trim()
+    : '';
+  if (!requested) {
+    recordLifecycleEvent('project-open.without-target', {});
+    // One parent for both dialogs: the folder chooser belongs to the window whose picker the user
+    // just answered, not to whatever window happens to be focused by the time it opens.
+    const pickerParent = parent ?? BrowserWindow.getFocusedWindow();
+    const picked = await pickProjectToOpen(pickerParent);
+    if (picked.kind === 'cancelled') return { status: 'CANCELLED' };
+    if (picked.kind === 'folder') {
+      const fromFolder = await resolveProjectFromFolder(pickerParent);
+      if ('result' in fromFolder) return fromFolder.result;
+      requested = fromFolder.projectId;
+    } else {
+      recordLifecycleEvent('project-open.picked', { projectId: picked.projectId });
+      requested = picked.projectId;
+    }
+  }
+  let projectId: string;
+  try {
+    projectId = validateControlPlaneId(requested, 'project');
+  } catch {
+    return { status: 'FAILED', reason: 'INVALID_PROJECT_ID' };
+  }
+  if (!isKnownProjectId(projectId)) {
+    return { status: 'FAILED', projectId, reason: 'UNKNOWN_PROJECT' };
+  }
+  try {
+    // Opening a shell is new work: a committed quit has already counted and passed every
+    // window it intends to end, so admitting one now would leave it alive outside the
+    // teardown. Raised inside the try so the refusal is the same FAILED envelope every
+    // other refusal uses, not a rejected invoke.
+    assertApplicationAdmitsWork(closeReservations, 'Open project window');
+    const { created } = await ensureProjectWindow({ kind: 'project', projectId }, 'user');
+    recordLifecycleEvent('project-open', { projectId, created });
+    return created ? { status: 'OPENED', projectId } : { status: 'FOCUSED', projectId };
+  } catch (err) {
+    recordLifecycleEvent('project-open.failed', { projectId, detail: String(err) });
+    return { status: 'FAILED', projectId, reason: redactCredentials(String(err)) };
+  }
+}
+
+/** The user-visible inventory every window can search. Listing has no side effects at all. */
+function searchProjectTabs(payload: unknown): ProjectTabSearchResult {
+  const query = payload && typeof payload === 'object' && 'query' in payload && typeof payload.query === 'string'
+    ? payload.query
+    : '';
+  return { status: 'OK', rows: collectTabSearchInventory(tabAuthorities.hosts(), query).map(toProjectSearchRow) };
+}
+
+/**
+ * Present one exact tab, wherever it lives. The owner the user selected is re-derived
+ * from Main's own inventory in the same tick as the lookup and revalidated by the
+ * activation below: validation, selection and presentation happen with no await between
+ * them, so a result that went stale cannot be retargeted to another tab and is reported
+ * unavailable instead. Nothing here changes an attachment: a user's visual activation
+ * never rotates agent authority.
+ */
+function activateProjectTab(payload: unknown): ProjectTabActivationResult {
+  const tabId = payload && typeof payload === 'object' && 'tabId' in payload && typeof payload.tabId === 'string'
+    ? payload.tabId
+    : '';
+  const hosts = tabAuthorities.hosts();
+  const expectedOwnerKey = collectTabSearchInventory(hosts, '').find((row) => row.tabId === tabId)?.ownerKey ?? '';
+  const activation = activateTabSearchResult(hosts, { tabId, expectedOwnerKey });
+  if (!activation.ok) {
+    return {
+      status: 'UNAVAILABLE',
+      tabId,
+      reasonCode: activationFailureCode(activation.reason, tabId),
+      reason: activation.reason,
+    };
+  }
+  const activationHost = tabAuthorities.hostForTab(tabId);
+  const activationShell = activationHost
+    ? liveProjectShells().find((shell) => tabAuthorities.hostForShell(shell) === activationHost)
+    : undefined;
+  if (activationShell && !activationShell.window.isDestroyed()) {
+    if (activationShell.window.isMinimized()) activationShell.window.restore();
+    activationShell.window.show();
+    activationShell.window.focus();
+  }
+  recordLifecycleEvent('tab-search.activated', { tabId, ownerKey: activation.ownerKey });
+  return { status: 'ACTIVATED', tabId };
+}
+
+/**
+ * The cross-window chrome entrypoints: they resolve their target per message — the
+ * sender is authorized as a live chrome surface, then the window directory is asked
+ * for the inventory, the exact tab, or the project window — which is what makes a
+ * second project window legal. They ride the same declarative table as every other
+ * chrome channel rather than a second registration path of their own.
+ *
+ * Exported for the live probe (`scripts/probe-project-windows.cjs`), which drives these
+ * routes through the router's own dispatch seam: that seam shares the authorization path
+ * of the registered handlers, so the probe cannot bypass the sender or surface gate.
+ */
+export const PROJECT_WINDOW_ROUTES: readonly IpcRoute[] = [
+  {
+    channel: PROJECT_WINDOW_CHANNELS.PROJECT_OPEN,
+    surface: PROJECT_WINDOW_ROUTE_SURFACES,
+    kind: 'handle',
+    run: (_target, event, args) => openProjectWindow(args[0], senderWindowFor(event)),
+  },
+  {
+    channel: PROJECT_WINDOW_CHANNELS.TABS_SEARCH,
+    surface: PROJECT_WINDOW_ROUTE_SURFACES,
+    kind: 'handle',
+    run: (_target, _event, args) => searchProjectTabs(args[0]),
+  },
+  {
+    channel: PROJECT_WINDOW_CHANNELS.TABS_SEARCH_ACTIVATE,
+    surface: PROJECT_WINDOW_ROUTE_SURFACES,
+    kind: 'handle',
+    run: (_target, _event, args) => activateProjectTab(args[0]),
+  },
+];
+
+/**
+ * Register the chrome table once for the whole process: the host's channels and these
+ * cross-window entrypoints, installed together. The host's own install is then the
+ * documented no-op (see ipc-router), which is what makes the second project window
+ * legal. A table that did not land would leave the entrypoints answering nothing, so
+ * the ledger is checked here rather than assumed.
+ */
+function installProjectWindowChromeRoutes(): void {
+  installChromeIpcOnce([...NativeTabHost.CHROME_ROUTES, ...PROJECT_WINDOW_ROUTES]);
+  const registered = listRegisteredChromeChannels();
+  const missing = PROJECT_WINDOW_ROUTES.map((route) => route.channel).filter((channel) => !registered.includes(channel));
+  if (missing.length > 0) {
+    throw new Error(`Project-window chrome channels were not registered: ${missing.join(', ')}`);
+  }
+}
+
+async function createWindow(): Promise<void> {
+  windowStateManager = new WindowStateManager(StorageLocations.getConfigDir(), 1360, 880);
+
+  // The project identity this build boots for. It keys the window directory, the
+  // control plane and every owner-keyed record, so it is resolved (and validated)
+  // once, before any window is admitted.
+  const projectId = validateControlPlaneId(process.env.ANTIFAN_PROJECT_ID || DEFAULT_BOOT_PROJECT_ID, 'project');
+  bootProjectIdValue = projectId;
+  const owner: WindowOwner = { kind: 'project', projectId };
+
+  projectWindows = new ProjectWindowManager({
+    // Labels come from Main's validated records, never from a renderer or a page:
+    // the shell's title is the project identity, and the path label is what
+    // disambiguates two projects that share a name. Placement is resolved for THIS
+    // owner, so each window opens where its own project was last left.
+    createShell: (shellOwner) => {
+      // The manager defers this callback to a microtask, so the admission the request was
+      // checked against can already be reserved by a quit that committed in between. This is
+      // the point of creation and nothing below awaits, so the refusal is read here rather
+      // than only where the request arrived.
+      assertApplicationAdmitsWork(closeReservations, 'Create project window');
+      const record = resolveWindowRecord(shellOwner);
+      const placement = windowStateManager?.getValidBounds(ownerKey(shellOwner));
+      return new ProjectWindowShell(
+        {
+          owner: shellOwner,
+          title: shellTitleFor(record.title),
+          pathLabel: record.pathLabel,
+          icon: appIconPath(),
+          bounds: {
+            x: placement?.x,
+            y: placement?.y,
+            width: placement?.width ?? 1360,
+            height: placement?.height ?? 880,
+          },
+          minWidth: 700,
+          minHeight: 500,
+          backgroundColor: '#080c14',
+          // First paint stays the presenter's job (see `presentBootstrapWindow`): showing
+          // at construction would skip the ready-to-show path and its benchmark marker.
+          show: false,
+        },
+        { isOpen: false, width: 380 },
+      );
+    },
+    presentShell: (shell) => {
+      if (shell.window.isDestroyed()) return;
+      // Position is per owner: presenting a project restores THAT project's saved
+      // maximized/positioned state, never the state of the window created first.
+      const placement = windowStateManager?.getValidBounds(ownerKey(shell.owner));
+      if (placement?.isMaximized) shell.window.maximize();
+      else if (typeof placement?.x !== 'number' || typeof placement?.y !== 'number') shell.window.center();
+      shell.window.show();
+      shell.window.focus();
+    },
+    // A partial close — some of a window's tabs, not the window — leaves the surviving
+    // pages in a layout still sized for the tabs that went away. The host owns its tab
+    // layout, so the restore is delegated to it; a host that refuses is recorded rather
+    // than silently leaving the strip mis-laid out.
+    restoreShellLayout: (shell, survivingTabIds) => {
+      const host = tabAuthorities.hostForShell(shell);
+      if (!host) return;
+      if (!host.restoreSurvivingLayout(survivingTabIds)) {
+        recordLifecycleEvent('window-layout.restore-failed', { owner: ownerKey(shell.owner), surviving: survivingTabIds.length });
+      }
+    },
+    // Unregister before the shell's own teardown: a removed window must never be
+    // resolvable from a stale mapping, and its host must stop touching views that are
+    // about to be destroyed. Host disposal is also what persists this owner's tabs.
+    onShellDisposed: (shell) => {
+      const host = tabAuthorities.hostForShell(shell);
+      tabAuthorities.unregister(shell);
+      try {
+        host?.dispose();
+      } catch (err) {
+        console.error('[antifan] Failed to dispose a closed window host:', err);
+      }
     },
   });
 
-  windowStateManager.manage(mainWindow);
-  recordBenchmark({ surface: 'startup', name: 'windowCtor' });
+  // Chrome IPC is registered once for the whole process (see ipc-router): this
+  // resolver is how a message finds its window, and it is recomputed per message
+  // so a destroyed renderer can never be served from a stale mapping. It must be in
+  // place before the install below, which is the one install the process performs.
+  setChromeSenderResolver((webContents) => tabAuthorities.resolveSender(webContents.id));
+  // The chrome table is installed here, before any host exists, because the install is
+  // once per process and it carries both halves: the host's per-window channels and the
+  // cross-window entrypoints this file owns. A host constructed first would install the
+  // half that does not include the project-opening and search channels.
+  installProjectWindowChromeRoutes();
 
   // Bring up or re-attach to the detached terminal host daemon so GUI restarts
   // never kill live agent sessions or shell processes.
@@ -450,103 +2033,87 @@ async function createWindow(): Promise<void> {
       }
     } catch (err) {
       console.warn('[index] Failed to initialize Terminal Host Daemon, falling back to in-process:', err);
+    } finally {
+      terminalDaemonInitialized = true;
     }
+  } else {
+    terminalDaemonInitialized = true;
   }
 
   // Canonical single TerminalManager / DaemonTerminalProxy instance shared across
   // UI IPC, Bridge, NativeTabHost, control-plane capabilities, and theme transactions.
   const terminalManager = TerminalManager.getInstance();
-  tabHost = new NativeTabHost(mainWindow, capsuleManager || undefined);
-  recordBenchmark({ surface: 'startup', name: 'tabHostCtor' });
 
-  // Restore tabs immediately so web pages start loading and window layout is established
-  const initialUrl = process.argv.find((arg) => (arg.startsWith('http://') || arg.startsWith('https://')) && !arg.includes('localhost:20128') && !arg.includes('localhost:20129') && !arg.includes('localhost:20130'));
-  tabHost.restoreTabs(initialUrl);
-  recordBenchmark({ surface: 'startup', name: 'tabsRestored' });
-
-  // Set Top Menubar (File, Edit, Selection, View, Go, Run, Terminal, Help)
-  Menu.setApplicationMenu(buildApplicationMenu(mainWindow, tabHost));
-
-  const projectId = validateControlPlaneId(process.env.ANTIFAN_PROJECT_ID || 'project-00000000-0000-4000-8000-000000000001', 'project');
-  const workspaceId = validateControlPlaneId(process.env.ANTIFAN_WORKSPACE_ID || 'workspace-00000000-0000-4000-8000-000000000001', 'workspace');
+  const workspaceId = validateControlPlaneId(process.env.ANTIFAN_WORKSPACE_ID || DEFAULT_BOOT_WORKSPACE_ID, 'workspace');
   controlPlane = new ControlPlaneRuntime({
     projectId,
     workspaceId,
     dataRoot: StorageLocations.getControlPlaneDir(),
     allowEval: ALLOW_EVAL,
     terminal: terminalManager,
+    projects: projectRegistry,
     // Terminal ownership for attachment-bound calls: the host's live tab affinity is the single
     // source of truth already used by the Bridge gate, so both planes refuse a foreign shell the
     // same way. Without this the control plane had no owner notion at all and every attachment
     // shared one terminal namespace.
     terminalAuthority: {
-      allowsTab: (tabId, terminalId) => tabHost!.isTerminalAllowedForTab(tabId, terminalId),
-      isAgentTerminal: (terminalId) => {
-        const affinity = tabHost!.getTerminalAgentAffinity(terminalId);
-        return Boolean(affinity && affinity.status === 'alive');
-      },
-      bind: (terminalId, generation, tabId) => tabHost!.bindTerminalAgentAffinity(terminalId, generation, tabId),
+      allowsTab: (tabId, terminalId) => hostForTabOrBootstrap(tabId).isTerminalAllowedForTab(tabId, terminalId),
+      isAgentTerminal: (terminalId) => tabAuthorities.hosts().some((h) => h.getTerminalAgentAffinity(terminalId)?.status === 'alive'),
+      bind: (terminalId, generation, tabId) => hostForTabOrBootstrap(tabId).bindTerminalAgentAffinity(terminalId, generation, tabId),
     },
     artifactStoreOptions: resolveArtifactStoreOptionsFromEnv(),
-    getAutomationTabId: () => tabHost!.getAutomationTabId(),
-    getDocumentGeneration: (tabId) => tabHost!.getDocumentGeneration(tabId),
-    isTabAllowed: (primaryTabId, requestedTabId) => tabHost!.isTabAllowedForPrimary(primaryTabId, requestedTabId),
-    resolveTabId: (id) => tabHost!.resolveTargetTabId(id),
-    resolveFailoverTabId: (staleTabId) => tabHost!.getFailoverTargetTab(staleTabId),
-    releaseSessionTab: (sessionId, tabId) => tabHost!.releaseSessionTab(sessionId, tabId),
-    releaseSessionTabPool: (sessionId) => tabHost!.releaseSessionTabPool(sessionId),
+    getAutomationTabId: () => {
+      for (const h of tabAuthorities.hosts()) {
+        const id = h.getAutomationTabId();
+        if (id) return id;
+      }
+      return null;
+    },
+    getDocumentGeneration: (tabId) => hostForTabOrBootstrap(tabId).getDocumentGeneration(tabId),
+    isTabAllowed: (primaryTabId, requestedTabId) => hostForTabOrBootstrap(primaryTabId).isTabAllowedForPrimary(primaryTabId, requestedTabId),
+    resolveTabId: (id) => {
+      if (!id) return undefined;
+      for (const host of tabAuthorities.hosts()) {
+        const resolved = host.resolveTargetTabId(id);
+        if (resolved) return resolved;
+      }
+      return undefined;
+    },
+    resolveFailoverTabId: (staleTabId) => {
+      if (!staleTabId) return undefined;
+      for (const host of tabAuthorities.hosts()) {
+        const target = host.getFailoverTargetTab(staleTabId);
+        if (target) return target;
+      }
+      return undefined;
+    },
+    releaseSessionTab: (sessionId, tabId) => hostForTabOrBootstrap(tabId).releaseSessionTab(sessionId, tabId),
+    releaseSessionTabPool: (sessionId) => {
+      let anyReleased = false;
+      for (const host of tabAuthorities.hosts()) {
+        if (host.releaseSessionTabPool(sessionId)) anyReleased = true;
+      }
+      return anyReleased;
+    },
   });
-  // Show the window as soon as its renderer paints
-  // init below), so the user sees chrome immediately instead of waiting for the
-  // ~4s ledger/attachments replay.
-  let showFallbackTimer: NodeJS.Timeout | null = null;
-  const showMainWindow = () => {
-    if (showFallbackTimer) {
-      clearTimeout(showFallbackTimer);
-      showFallbackTimer = null;
-    }
-    if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isVisible()) return;
-    if (winBounds.isMaximized) {
-      mainWindow.maximize();
-    } else if (typeof winBounds.x !== 'number' || typeof winBounds.y !== 'number') {
-      mainWindow.center();
-    }
-    mainWindow.show();
-    mainWindow.focus();
-    recordBenchmark({ surface: 'startup', name: 'firstVisible' });
-    recordProcessMetrics('afterFirstVisible');
-    startProcessMetricsSampling();
-  };
-  mainWindow.once('ready-to-show', showMainWindow);
-  showFallbackTimer = setTimeout(showMainWindow, 300);
-  // A benchmark run owns its window (see `refusesWindowClose`): an incidental close would end the
-  // measurement and destroy the tabs it was measuring. Refusing here — rather than surviving
-  // `window-all-closed` — keeps the window, its views and its tabs alive.
-  mainWindow.on('close', (event) => {
-    if (!refusesWindowClose() || isShuttingDown) return;
-    event.preventDefault();
-    recordLifecycleEvent('window-close.refused', { reason: 'benchmark run owns the window' });
-    console.warn(`[antifan] Benchmark mode: main window close refused; the run owns it (set ${BENCHMARK_ALLOW_WINDOW_CLOSE_ENV}=1 to override).`);
-  });
-  mainWindow.on('closed', async () => {
-    if (showFallbackTimer) {
-      clearTimeout(showFallbackTimer);
-      showFallbackTimer = null;
-    }
-    mainWindow = null;
-    // Electron fires `closed` before `window-all-closed`, so the keep-alive in that handler never
-    // gets its turn: a benchmark run that loses its window — to an incidental close, a renderer
-    // crash or an OS action — would still shut down here and discard the whole measurement. The run
-    // owns its process, so it records the loss and keeps going; a run that finishes windowless is a
-    // finding for the report, not a reason to lose the artifact.
-    if (refusesWindowClose() && !isShuttingDown) {
-      recordLifecycleEvent('window-closed.ignored', { reason: 'benchmark keep-alive' });
-      console.warn('[antifan] Benchmark mode: main window closed; the run continues without a window.');
-      return;
-    }
-    await shutdown();
-    app.quit();
-  });
+
+  // Synchronize capsule affiliations into the shared ProjectRegistry before opening any window
+  if (capsuleManager) {
+    synchronizeCapsulesWithRegistry(capsuleManager, projectRegistry, StorageLocations.getControlPlaneDir());
+  }
+
+  // Every window — this one and every later one — goes through the same factory.
+  const { shell, host: bootstrapHost } = await ensureProjectWindow(owner, 'user');
+  bootstrapShell = shell;
+  recordBenchmark({ surface: 'startup', name: 'windowCtor' });
+
+  // Set Top Menubar (File, Edit, Selection, View, Go, Run, Terminal, Help)
+  installApplicationMenu();
+
+  // Show the window as soon as its renderer paints (see `presentBootstrapWindow`), so
+  // the user sees chrome immediately instead of waiting for the ~4s ledger/attachments
+  // replay.
+  presentBootstrapWindow(shell);
 
   // Finish control-plane init (async relative to the window show above; the
   // renderer already painted and is interactive). The ledger/attachment replay
@@ -560,15 +2127,18 @@ async function createWindow(): Promise<void> {
     initStarted = true;
     controlPlane!.initialize().then(initDone.resolve, initDone.reject);
   };
-  if (mainWindow.isVisible()) {
+  if (shell.window.isVisible()) {
     setTimeout(startControlPlaneInit, 0);
   } else {
-    mainWindow.once('ready-to-show', () => setTimeout(startControlPlaneInit, 0));
+    shell.window.once('ready-to-show', () => setTimeout(startControlPlaneInit, 0));
     setTimeout(startControlPlaneInit, 1500);
   }
   await initDone.promise;
   startLifecycleHeartbeat();
-  tabHost.setControlPlane(controlPlane);
+  // The bootstrap host got everything that existed when it was built; the control plane
+  // only exists now, so this is where it (and the phone status behind it) reaches the
+  // window. Later windows get both from the same helper (see `attachSharedServices`).
+  attachSharedServices(bootstrapHost);
 
   // Phase 2 (step 10): deterministic attachment disposal. When an attachment is
   // revoked or expires, close ONLY the agent tab it owns (offscreen) and its
@@ -577,95 +2147,249 @@ async function createWindow(): Promise<void> {
   // discriminator: a user-visible tab is never offscreen and is never closed here.
   // tabHost.closeTab already releases viewport locks, agent-working state,
   // terminal affinity, session pools, and partitions for that single tab.
+  //
+  // One reservation table for both seams, installed before either can serve a request:
+  // the registry refuses a mint, a rebind or an adoption onto a page a close attempt has
+  // reserved (a binding that arrived during unload would be destroyed with the page), and
+  // the transport refuses dispatch whose admitted operation the gate could not measure.
+  controlPlane.runs.attachments.setCloseAdmission(closeReservations);
+  controlPlane.transport.setCloseAdmission(closeReservations);
   controlPlane.runs.attachments.setDisposeListener(({ attachmentId, tabId }) => {
-    if (!tabId || !tabHost) return;
-    if (tabHost.isTabOffscreen(tabId) !== true) return; // never close a user-visible tab
+    if (!tabId) return;
+    const host = tabAuthorities.hostForTab(tabId);
+    if (!host) return;
+    if (host.isTabOffscreen(tabId) !== true) return; // never close a user-visible tab
     try {
-      tabHost.closeTab(tabId);
+      host.closeTab(tabId);
       console.log(`[antifan] Attachment ${attachmentId} disposed; closed owned agent tab ${tabId}`);
     } catch (err) {
       console.warn(`[antifan] Attachment ${attachmentId} disposal: failed to close agent tab ${tabId}`, err);
     }
   });
-  const browserPort = new BrowserControlPort({
-    hasTab: (tabId) => tabHost!.hasTab(tabId),
-    resolveTargetTabId: (tabId) => tabHost!.resolveTargetTabId(tabId),
-    adoptChildTab: (primaryOrBoundTabId, childTabId) => tabHost!.adoptChildTabForBoundTab(primaryOrBoundTabId, childTabId),
-    getManagedTabIds: (primaryOrBoundTabId) => tabHost!.getManagedTabIdsForBoundTab(primaryOrBoundTabId),
-    isTabAllowed: (primaryOrBoundTabId, requestedTabId) => tabHost!.isTabAllowedForPrimary(primaryOrBoundTabId, requestedTabId),
-    getTabList: () => tabHost!.getTabList(),
-    getSessionTabList: (boundTabId) => tabHost!.getSessionTabRecords(boundTabId),
-    getFailoverTargetTab: (tabId) => tabHost!.getFailoverTargetTab(tabId),
-    getBrowserEpoch: () => tabHost!.getBrowserEpoch(),
-    getActiveTabId: () => tabHost!.getActiveTabId(),
-    getAutomationTabId: () => tabHost!.getAutomationTabId(),
-    setAutomationTabId: (tabId) => tabHost!.setAutomationTabId(tabId),
-    isTabOffscreen: (tabId) => tabHost!.isTabOffscreen(tabId),
-    createTab: (url, activate = false, options) => tabHost!.createTab(url, activate, options),
-    closeTab: (tabId) => tabHost!.closeTab(tabId),
-    switchTab: (tabId) => tabHost!.switchTab(tabId),
-    navigate: (tabId, url) => tabHost!.navigateAndWait(tabId, url),
-    reload: (tabId: string) => tabHost!.reloadAndWait(tabId),
+  const browserPortLocal = new BrowserControlPort({
+    hasTab: (tabId) => Boolean(tabId && tabAuthorities.hostForTab(tabId) !== undefined),
+    resolveTargetTabId: (tabId) => {
+      if (!tabId) return undefined;
+      for (const host of tabAuthorities.hosts()) {
+        const resolved = host.resolveTargetTabId(tabId);
+        if (resolved) return resolved;
+      }
+      return undefined;
+    },
+    adoptChildTab: (primaryOrBoundTabId, childTabId) => hostForTabOrBootstrap(primaryOrBoundTabId).adoptChildTabForBoundTab(primaryOrBoundTabId, childTabId),
+    getManagedTabIds: (primaryOrBoundTabId) => hostForTabOrBootstrap(primaryOrBoundTabId).getManagedTabIdsForBoundTab(primaryOrBoundTabId),
+    isTabAllowed: (primaryOrBoundTabId, requestedTabId) => hostForTabOrBootstrap(primaryOrBoundTabId).isTabAllowedForPrimary(primaryOrBoundTabId, requestedTabId),
+    getTabList: () => tabAuthorities.hosts().flatMap((h) => h.getTabList()),
+    getSessionTabList: (boundTabId) => hostForTabOrBootstrap(boundTabId).getSessionTabRecords(boundTabId),
+    getFailoverTargetTab: (tabId) => {
+      if (!tabId) return undefined;
+      for (const host of tabAuthorities.hosts()) {
+        const target = host.getFailoverTargetTab(tabId);
+        if (target) return target;
+      }
+      return undefined;
+    },
+    getBrowserEpoch: () => tabAuthorities.hosts().reduce((max, h) => Math.max(max, h.getBrowserEpoch()), 1),
+    // Diagnostic only: the port labels a tab "active" in its render-surface snapshot
+    // with this. Active-ness is a property of a tab's OWN window and this dependency
+    // takes no tab id, so with several windows live the only honest answer is "unknown"
+    // ('') — never whichever window was created first. The automation-target owner is
+    // unambiguous and answers for real.
+    getActiveTabId: () => {
+      const hosts = tabAuthorities.hosts();
+      const automationHost = hosts.find((h) => h.getAutomationTabId() != null);
+      if (automationHost) return automationHost.getActiveTabId();
+      return hosts.length === 1 ? hosts[0]!.getActiveTabId() : '';
+    },
+    getAutomationTabId: () => {
+      for (const h of tabAuthorities.hosts()) {
+        const id = h.getAutomationTabId();
+        if (id) return id;
+      }
+      return null;
+    },
+    setAutomationTabId: (tabId) => {
+      for (const h of tabAuthorities.hosts()) {
+        if (tabId && h.hasTab(tabId)) {
+          h.setAutomationTabId(tabId);
+        } else {
+          h.setAutomationTabId(undefined);
+        }
+      }
+    },
+    isTabOffscreen: (tabId) => (tabId ? hostForTabOrBootstrap(tabId).isTabOffscreen(tabId) : false),
+    resolveTabAffiliation: (tabId) => {
+      const host = hostForTabOrBootstrap(tabId);
+      if (!host.hasTab(tabId)) return undefined;
+      // The tab's own creation-time capsule is the measured affiliation: a tab carries the capsule
+      // it was created in, while the capsule ledger holds entries no runtime path writes.
+      const resolvedTabId = host.resolveTargetTabId ? host.resolveTargetTabId(tabId) : tabId;
+      const capsuleId = host.getTabCapsuleId(resolvedTabId ?? tabId);
+      const capsule = capsuleId ? capsuleManager?.list().find((c) => c.id === capsuleId) : undefined;
+      if (!capsule) return undefined;
+      return {
+        projectId: capsule.projectId,
+        workspaceId: capsule.workspaceId,
+        capsuleId: capsule.id,
+      };
+    },
+    createTab: (url, activate = false, options) => {
+      // `anchorTabId` selects the window; the host would not know what to do with it,
+      // so it is consumed here and never forwarded.
+      const { anchorTabId, ...hostOptions } = options ?? {};
+      return hostForTabOrBootstrap(anchorTabId).createTab(url, activate, hostOptions);
+    },
+    closeTab: (tabId) => hostForTabOrBootstrap(tabId).closeTab(tabId),
+    switchTab: (tabId) => hostForTabOrBootstrap(tabId).switchTab(tabId),
+    navigate: (tabId, url) => hostForTabOrBootstrap(tabId).navigateAndWait(tabId, url),
+    reload: (tabId: string) => hostForTabOrBootstrap(tabId).reloadAndWait(tabId),
     getTabDebugger: (tabId: string) => {
-      const wc = tabHost!.getTabWebContents(tabId, 'desktop');
+      const wc = hostForTabOrBootstrap(tabId).getTabWebContents(tabId, 'desktop');
       return wc && !wc.isDestroyed() ? wc.debugger : undefined;
     },
-    getDom: (selector, tabId, paneId) => tabHost!.getDom(selector, tabId, paneId),
-    captureScreenshot: (rect, tabId, paneId, options) => tabHost!.captureScreenshot(rect as any, tabId, paneId, options),
-    captureVerificationScreenshot: (rect, tabId, paneId, options) => tabHost!.captureVerificationScreenshot(rect as any, tabId, paneId, options),
-    drainTarget: (tabId, paneId, timeoutMs) => tabHost!.drainTarget(tabId, paneId, timeoutMs),
-    readRenderSurface: (tabId, paneId, timeoutMs) => tabHost!.readRenderSurface(tabId, paneId, timeoutMs),
-    reapplyTabGeometry: (tabId, paneId, before) => tabHost!.reapplyTabGeometry(tabId, paneId, before),
-    evalJs: (expression, tabId, paneId, userGesture, timeoutMs) => tabHost!.evalJs(expression, tabId, paneId, userGesture, timeoutMs),
-    evalJsInFrame: (expression, frameUrl, tabId, paneId, userGesture, timeoutMs) => tabHost!.evalJsInFrame(expression, frameUrl, tabId, paneId, userGesture, timeoutMs),
-    getNetworkTracker: () => tabHost!.getNetworkTracker(),
-    getDiagnostics: (tabId, level) => tabHost!.getDiagnostics(tabId, level),
-    runResponsiveCheck: (params) => tabHost!.runResponsiveCheck(params),
-    agentTrajectory: (params) => tabHost!.agentTrajectory(params),
-    dispatchAgentAction: (action, params) => tabHost!.dispatchAgentAction(action as any, params as any),
-    agentMove: (args) => tabHost!.agentMove(args),
-    agentClick: (params) => tabHost!.agentClick(params),
-    agentType: (params) => tabHost!.agentType(params),
-    agentScroll: (params) => tabHost!.agentScroll(params),
-    agentHover: (params) => tabHost!.agentHover(params),
-    agentHighlight: (params) => tabHost!.agentHighlight(params),
-    agentClear: (tabId, paneId) => tabHost!.agentClear(tabId, paneId),
-    agentDrag: (params) => tabHost!.agentDrag(params),
+    getDom: (selector, tabId, paneId) => hostForTabOrBootstrap(tabId).getDom(selector, tabId, paneId),
+    captureScreenshot: (rect, tabId, paneId, options) => hostForTabOrBootstrap(tabId).captureScreenshot(rect as Electron.Rectangle | undefined, tabId, paneId, options),
+    captureVerificationScreenshot: (rect, tabId, paneId, options) => hostForTabOrBootstrap(tabId).captureVerificationScreenshot(rect as Electron.Rectangle | undefined, tabId, paneId, options),
+    drainTarget: (tabId, paneId, timeoutMs) => hostForTabOrBootstrap(tabId).drainTarget(tabId, paneId, timeoutMs),
+    readRenderSurface: (tabId, paneId, timeoutMs) => hostForTabOrBootstrap(tabId).readRenderSurface(tabId, paneId, timeoutMs),
+    reapplyTabGeometry: (tabId, paneId, before) => hostForTabOrBootstrap(tabId).reapplyTabGeometry(tabId, paneId, before),
+    evalJs: (expression, tabId, paneId, userGesture, timeoutMs) => hostForTabOrBootstrap(tabId).evalJs(expression, tabId, paneId, userGesture, timeoutMs),
+    evalJsInFrame: (expression, frameUrl, tabId, paneId, userGesture, timeoutMs) => hostForTabOrBootstrap(tabId).evalJsInFrame(expression, frameUrl, tabId, paneId, userGesture, timeoutMs),
+    getNetworkTracker: () => ({
+      isAttached: (tabId, paneId) => hostForTabOrBootstrap(tabId).getNetworkTracker().isAttached(tabId, paneId),
+      awaitQuiescence: (tabId, paneId, options, signal) => hostForTabOrBootstrap(tabId).getNetworkTracker().awaitQuiescence(tabId, paneId, options, signal),
+      getInflightSnapshot: (tabId, paneId) => hostForTabOrBootstrap(tabId).getNetworkTracker().getInflightSnapshot?.(tabId, paneId) ?? [],
+    }),
+    getDiagnostics: (tabId, level) => hostForTabOrBootstrap(tabId).getDiagnostics(tabId, level),
+    runResponsiveCheck: (params) => {
+      const tabId = typeof params === 'object' && params ? params.tabId : undefined;
+      const host = hostForTabOrBootstrap(tabId);
+      return host.runResponsiveCheck(params);
+    },
+    agentTrajectory: (params) => {
+      const host = hostForTabOrBootstrap(params.tabId);
+      return host.agentTrajectory(params);
+    },
+    dispatchAgentAction: (action, params) => {
+      const tabId = typeof params === 'object' && params && 'tabId' in params && typeof params.tabId === 'string' ? params.tabId : undefined;
+      const host = hostForTabOrBootstrap(tabId);
+      return host.dispatchAgentAction(action, params as unknown as Parameters<NativeTabHost['dispatchAgentAction']>[1]);
+    },
+    agentMove: (args) => {
+      const host = hostForTabOrBootstrap(args.tabId);
+      return host.agentMove(args);
+    },
+    agentClick: (params) => {
+      const host = hostForTabOrBootstrap(params.tabId);
+      return host.agentClick(params);
+    },
+    agentType: (params) => {
+      const host = hostForTabOrBootstrap(params.tabId);
+      return host.agentType(params);
+    },
+    agentScroll: (params) => {
+      const host = hostForTabOrBootstrap(params.tabId);
+      return host.agentScroll(params);
+    },
+    agentHover: (params) => {
+      const host = hostForTabOrBootstrap(params.tabId);
+      return host.agentHover(params);
+    },
+    agentHighlight: (params) => {
+      const host = hostForTabOrBootstrap(params.tabId);
+      return host.agentHighlight(params);
+    },
+    agentClear: (tabId, paneId) => hostForTabOrBootstrap(tabId).agentClear(tabId, paneId),
+    agentDrag: (params) => {
+      const host = hostForTabOrBootstrap(params.tabId);
+      return host.agentDrag(params);
+    },
     setTrackerIsolation: (tabId, paneId, active) => (active
-      ? tabHost!.beginTrackerIsolation(tabId, paneId).then((receipt) => ({ active: receipt.active, reason: receipt.degradedReason }))
+      ? hostForTabOrBootstrap(tabId).beginTrackerIsolation(tabId, paneId).then((receipt) => ({ active: receipt.active, reason: receipt.degradedReason }))
       // `active` means "isolation is still applied to this target", matching
       // `isTrackerIsolationActive`. A failed rollback leaves the blocklist in
       // place, so reporting `active: false` here would tell the QA workflow and
       // the port that a tab which is still blocked was released cleanly.
-      : tabHost!.endTrackerIsolation(tabId, paneId).then((receipt) => (receipt.released
+      : hostForTabOrBootstrap(tabId).endTrackerIsolation(tabId, paneId).then((receipt) => (receipt.released
         ? { active: false, reason: receipt.reason }
         : { active: true, reason: receipt.reason }))),
-    agentSnapshot: (tabId, paneId) => tabHost!.agentSnapshot(tabId, paneId),
-    agentFind: (params) => tabHost!.agentFind(params),
-    sendKeyboardPress: (params) => tabHost!.sendKeyboardPress(params),
-    setViewportSize: (options) => tabHost!.setViewportSize(options),
-    setDevicePreset: (tabId, presetId) => tabHost!.setDevicePreset(tabId, presetId),
-    getDevicePresets: () => tabHost!.getDevicePresets(),
-    setZoom: (tabId, zoomFactor) => tabHost!.setZoom(tabId, zoomFactor),
-    toggleInspect: () => tabHost!.toggleInspect(),
-    toggleSplitReview: (tabId, enabled) => tabHost!.toggleSplitReview(tabId, enabled),
-    isCurrentTarget: (target) => tabHost!.isCurrentTarget(target),
-    clearAllAgentWorking: () => tabHost!.clearAllAgentWorking(),
-    getDocumentGeneration: (tabId) => tabHost!.getDocumentGeneration(tabId),
-    bumpDocumentGeneration: (tabId) => tabHost!.bumpDocumentGeneration(tabId),
-    getMutationRevision: (tabId) => tabHost!.getMutationRevision(tabId),
-    bumpMutationRevision: (tabId) => tabHost!.bumpMutationRevision(tabId),
-    uploadFileInput: (params) => tabHost!.uploadFileInput(params),
-    dropFiles: (params) => tabHost!.dropFiles(params),
-    executeActionSequence: (params) => tabHost!.executeActionSequence(params as ActionSequenceParams),
-    inspectStyles: (params) => tabHost!.inspectStyles(params),
-    inspectRegion: (params) => tabHost!.inspectRegion(params),
-    inspectFont: (params) => tabHost!.inspectFont(params),
-    getMatchedStylesForNode: (params) => tabHost!.getMatchedStylesForNode(params),
+    agentSnapshot: (tabId, paneId) => hostForTabOrBootstrap(tabId).agentSnapshot(tabId, paneId),
+    agentFind: (params) => {
+      const host = hostForTabOrBootstrap(params.tabId);
+      return host.agentFind(params);
+    },
+    sendKeyboardPress: (params) => {
+      const host = hostForTabOrBootstrap(params.tabId);
+      return host.sendKeyboardPress(params);
+    },
+    setViewportSize: (options) => {
+      const host = hostForTabOrBootstrap(options.tabId);
+      return host.setViewportSize(options);
+    },
+    setDevicePreset: (tabId, presetId) => hostForTabOrBootstrap(tabId).setDevicePreset(tabId, presetId),
+    getDevicePresets: () => sharedServiceHostOrThrow().getDevicePresets(),
+    setZoom: (tabId, zoomFactor) => hostForTabOrBootstrap(tabId).setZoom(tabId, zoomFactor),
+    // The inspector is a per-window overlay and this dependency names no window: the
+    // window an agent authority is pinned to answers for itself, a single-window process
+    // is unambiguous, and anything else refuses instead of toggling the inspector in
+    // whichever window happened to be created first.
+    toggleInspect: () => ambientHostOrThrow().toggleInspect(),
+    toggleSplitReview: (tabId, enabled) => hostForTabOrBootstrap(tabId).toggleSplitReview(tabId, enabled),
+    isCurrentTarget: (target) => {
+      if (!target?.tabId) return false;
+      const host = tabAuthorities.hostForTab(target.tabId);
+      return host ? host.isCurrentTarget(target) : false;
+    },
+    clearAllAgentWorking: () => {
+      for (const host of tabAuthorities.hosts()) {
+        host.clearAllAgentWorking();
+      }
+    },
+    getDocumentGeneration: (tabId) => hostForTabOrBootstrap(tabId).getDocumentGeneration(tabId),
+    bumpDocumentGeneration: (tabId) => hostForTabOrBootstrap(tabId).bumpDocumentGeneration(tabId),
+    getMutationRevision: (tabId) => hostForTabOrBootstrap(tabId).getMutationRevision(tabId),
+    bumpMutationRevision: (tabId) => hostForTabOrBootstrap(tabId).bumpMutationRevision(tabId),
+    uploadFileInput: (params) => {
+      const host = hostForTabOrBootstrap(params.tabId);
+      return host.uploadFileInput(params);
+    },
+    dropFiles: (params) => {
+      const host = hostForTabOrBootstrap(params.tabId);
+      return host.dropFiles(params);
+    },
+    executeActionSequence: (params) => {
+      const host = hostForTabOrBootstrap(params.tabId);
+      return host.executeActionSequence(params as ActionSequenceParams);
+    },
+    inspectStyles: (params) => {
+      const host = hostForTabOrBootstrap(params.tabId);
+      return host.inspectStyles(params);
+    },
+    inspectRegion: (params) => {
+      const host = hostForTabOrBootstrap(params.tabId);
+      return host.inspectRegion(params);
+    },
+    inspectFont: (params) => {
+      const host = hostForTabOrBootstrap(params.tabId);
+      return host.inspectFont(params);
+    },
+    getMatchedStylesForNode: (params) => {
+      const host = hostForTabOrBootstrap(params.tabId);
+      return host.getMatchedStylesForNode(params);
+    },
   }, controlPlane.artifacts);
+  // Published for windows opened later: `attachSharedServices` hands this same port's
+  // viewport gate to every host it builds, so a new window is never left ungated.
+  browserPort = browserPortLocal;
+  // Same reservation table as every other consumer: the port's background pools and wait
+  // registry refuse work for a page under close, and register the work they admit, so a
+  // close can never destroy a page out from under an operation it did not see.
+  browserPortLocal.setCloseAdmission(closeReservations);
   recordBenchmark({ surface: 'startup', name: 'browserPortReady' });
-  tabHost.setViewportGate(browserPort.viewportGate);
-  controlPlane.registerBrowser(browserPort);
+  for (const host of tabAuthorities.hosts()) {
+    host.setViewportGate(browserPortLocal.viewportGate);
+  }
+  controlPlane.registerBrowser(browserPortLocal);
   recordBenchmark({ surface: 'startup', name: 'browserRegistered' });
 
   // Tier-2 reality gate: the physical phone is registered as a peer adapter beside the browser port,
@@ -676,13 +2400,16 @@ async function createWindow(): Promise<void> {
     workspaceId: controlPlane.getLease().workspaceId || '',
     runtimeId: controlPlane.getLease().runtimeId,
   });
-  const deviceAdapter = new IosDeviceAdapter({ devices: deviceManager, artifacts: controlPlane.artifacts });
-  controlPlane.registerDevice(deviceAdapter, deviceManager);
+  const deviceAdapterLocal = new IosDeviceAdapter({ devices: deviceManager, artifacts: controlPlane.artifacts });
+  deviceAdapter = deviceAdapterLocal;
+  controlPlane.registerDevice(deviceAdapterLocal, deviceManager);
   recordBenchmark({ surface: 'startup', name: 'deviceRegistered' });
   // `setControlPlane` above ran before the device surface existed, so its status query correctly saw an
   // unregistered adapter. Now that the port is live, re-read and push the real state instead of letting
   // the toolbar wait for its next poll tick to stop showing "not registered yet".
-  tabHost.refreshPhoneStatus();
+  for (const host of tabAuthorities.hosts()) {
+    host.refreshPhoneStatus();
+  }
 
   const capabilityTransport = controlPlane.transport;
 
@@ -697,7 +2424,7 @@ async function createWindow(): Promise<void> {
   // migration is copying from. Chained, the reclaim sees a settled disk: the
   // stores the migration just read are deferred to the next launch, and by then
   // the done marker makes the migration a no-op, so nothing holds them.
-  const legacyMigration = tabHost
+  const legacyMigration = bootstrapHost
     .migrateLegacyCapsuleToProfile()
     .then((res) => {
       if (res.migrated > 0) {
@@ -711,7 +2438,7 @@ async function createWindow(): Promise<void> {
     // Runs after the tab list exists so every live partition (offscreen
     // included) vetoes its own deletion; dry-run first so the exact inventory is
     // journaled before a single byte is removed.
-    const host = tabHost!;
+    const host = sharedServiceHostOrThrow();
     try {
       // Every partition a tab currently owns, plus every partition the profile
       // resolver can derive for a real Chrome profile. The second half matters
@@ -731,7 +2458,7 @@ async function createWindow(): Promise<void> {
       const cleanupTargets = {
         profileDir: persistentUserData,
         configDir: StorageLocations.getConfigDir(),
-        livePartitions: [...host.getLivePartitionNames(), ...derivableProfiles],
+        livePartitions: [...tabAuthorities.hosts().flatMap((h) => h.getLivePartitionNames()), ...derivableProfiles],
       };
       const planned = pruneDeadStores({ ...cleanupTargets, dryRun: true });
       recordLifecycleEvent('housekeeping.deadStores.planned', { ...planned });
@@ -760,7 +2487,7 @@ async function createWindow(): Promise<void> {
     // Fail-closed against a quit racing the 1.5s deferral: never construct or
     // keep a listener alive after shutdown began.
     if (isShuttingDown) return;
-    const host = tabHost!;
+    const host = bootstrapHost;
     const plane = controlPlane!;
     bridgeServer = new BridgeServer(
       host,
@@ -807,6 +2534,7 @@ async function createWindow(): Promise<void> {
       plane
     );
     bridgeServer.setControlPlane(plane);
+    bridgeServer.setCloseAdmission(closeReservations);
     recordBenchmark({ surface: 'startup', name: 'bridgeCtor' });
     const bridgePort = await bridgeServer.start();
     recordBenchmark({ surface: 'startup', name: 'bridgeStarted' });
@@ -820,21 +2548,21 @@ async function createWindow(): Promise<void> {
         localIpcServer = new LocalIpcServer();
         await localIpcServer.start(bridgePort, () => {
           const activeCapsule = capsuleManager?.getActive();
-          const activePartition = tabHost!.getSharedProfilePartition('clean');
+          const activePartition = sharedServiceHostOrThrow().getSharedProfilePartition('clean');
           const allowedDomains = new Set<string>(DEFAULT_EXTENSION_ALLOWED_DOMAINS);
-          if (tabHost) {
-            for (const tab of tabHost.getTabList()) {
+          for (const host of tabAuthorities.hosts()) {
+            for (const tab of host.getTabList()) {
               if (!tab?.url) continue;
               try {
                 const parsed = new URL(tab.url);
                 if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') continue;
-                const host = parsed.hostname.toLowerCase().trim();
+                const hostName = parsed.hostname.toLowerCase().trim();
                 if (
-                  host &&
-                  !host.includes('*') &&
-                  /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\.[a-z]{2,}$/i.test(host)
+                  hostName &&
+                  !hostName.includes('*') &&
+                  /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\.[a-z]{2,}$/i.test(hostName)
                 ) {
-                  allowedDomains.add(host);
+                  allowedDomains.add(hostName);
                 }
               } catch {}
             }
@@ -896,11 +2624,15 @@ app.whenReady().then(async () => {
   // Configure default session policies cleanly without global header tampering
   configureBrowserSessionPartition('', 'clean');
   const capsuleStoragePath = path.join(StorageLocations.getConfigDir(), 'workspace-capsules.json');
-  capsuleManager = new WorkspaceCapsuleManager({ filePath: capsuleStoragePath });
+  capsuleManager = new WorkspaceCapsuleManager({
+    filePath: capsuleStoragePath,
+    affiliationAuthority: { projectRegistry },
+  });
   if (!capsuleManager.getActive()) {
     const defaultDir = fs.existsSync('E:/Work') ? 'E:/Work' : (fs.existsSync('E:\\Work') ? 'E:\\Work' : process.cwd());
     capsuleManager.create('Default Workspace', defaultDir);
   }
+  synchronizeCapsulesWithRegistry(capsuleManager, projectRegistry, StorageLocations.getControlPlaneDir());
   registerPreviewProtocolHandler(capsuleManager);
   await createWindow();
   recordBenchmark({ surface: 'startup', name: 'windowCreated' });
@@ -928,7 +2660,10 @@ function startLifecycleHeartbeat(): void {
   const beat = (): void => {
     let tabCount: number | null = null;
     let webContentsCount: number | null = null;
-    try { tabCount = tabHost ? tabHost.getTabList().length : null; } catch {}
+    try {
+      const hosts = tabAuthorities.hosts();
+      tabCount = hosts.length > 0 ? hosts.reduce((acc, h) => acc + h.getTabList().length, 0) : null;
+    } catch {}
     try { webContentsCount = webContents.getAllWebContents().length; } catch {}
     const memory = process.memoryUsage();
     recordLifecycleEvent('heartbeat', {
@@ -944,21 +2679,37 @@ function startLifecycleHeartbeat(): void {
 }
 
 let shutdownPromise: Promise<void> | null = null;
+/**
+ * Bound on one teardown step. The committed shutdown is awaited by the quit path before
+ * `app.quit()`, so a step that never settles would hang the quit instead of ending it; the
+ * deadline is generous enough for a real profile flush and far below a hang, so only a
+ * stuck native call hits it. The signal path keeps its own, tighter 2000ms bound on the
+ * whole sequence.
+ */
+const SHUTDOWN_STEP_DEADLINE_MS = 5_000;
+/**
+ * The ordered, once-only teardown. It is reached through the close coordinator's committed
+ * shutdown (`commitShutdown`) — only after every native closure of an application attempt
+ * succeeded — or through the forced signal path, which admits it is not graceful. The
+ * coordinator owns the decision to tear services down; this owns the order it happens in.
+ * Nothing here may end the application: the caller that committed the shutdown quits it.
+ */
 function shutdown(): Promise<void> {
   if (shutdownPromise) return shutdownPromise;
-  // `before-quit` caches this promise and calls preventDefault(), so a hang anywhere
-  // inside it means the app never quits at all. Journaling every step is what makes
-  // "a graceful quit that hung" distinguishable from "a process killed from outside".
+  // Before the first await: concurrent keep-alive checks must see a teardown in progress,
+  // and nothing may start a new close while the services underneath are being disposed.
+  isShuttingDown = true;
+  // A hang anywhere inside it means the app never quits at all. Journaling every step is
+  // what makes "a graceful quit that hung" distinguishable from "a process killed from
+  // outside".
   recordLifecycleEvent('shutdown.begin', { lifecycleLog: getLifecycleLogPath() });
-  shutdownPromise = (async () => {
+  const attempt = (async () => {
     const step = async (name: string, run: () => unknown): Promise<void> => {
-      recordLifecycleEvent('shutdown.step.begin', { step: name });
-      try {
-        await run();
-        recordLifecycleEvent('shutdown.step.done', { step: name });
-      } catch (err) {
-        recordLifecycleEvent('shutdown.step.failed', { step: name, detail: String(err) });
-      }
+      // Bounded: this sequence is awaited before `app.quit()`, so a native call that hangs
+      // must not be able to keep the process alive forever. A step that exceeds the
+      // deadline is journaled as `shutdown.step.timeout` and skipped; the ordered steps
+      // after it still run, and the quit still happens.
+      await runBoundedShutdownStep(name, SHUTDOWN_STEP_DEADLINE_MS, run, recordLifecycleEvent);
     };
     // First step, deliberately: if any later step hangs, these frames are already
     // terminal, so the next boot's replay cannot claim their outcome was never written.
@@ -970,9 +2721,13 @@ function shutdown(): Promise<void> {
     });
     await step('terminal.persistSync', () => TerminalManager.getInstance().persistSync());
     await step('history.persistSync', () => HistoryManager.getInstance().persistSync());
-    await step('tabHost.flushAllSessions', () => (tabHost ? tabHost.flushAllSessions() : undefined));
+    await step('tabHost.flushAllSessions', async () => {
+      await Promise.all(tabAuthorities.hosts().map((h) => h.flushAllSessions()));
+    });
     await step('cookies.flushStore', () => session.defaultSession.cookies.flushStore());
-    await step('tabHost.dispose', () => tabHost?.dispose());
+    await step('tabHost.dispose', () => {
+      for (const h of tabAuthorities.hosts()) h.dispose();
+    });
     await step('bridgeServer.dispose', () => bridgeServer?.dispose());
     await step('localIpcServer.close', () => localIpcServer?.close());
     await step('terminal.dispose', () => TerminalManager.getInstance().dispose());
@@ -985,10 +2740,23 @@ function shutdown(): Promise<void> {
       recordLifecycleEvent('shutdown.markCleanShutdown.failed', { detail: String(err) });
     }
   })();
-  return shutdownPromise;
+  shutdownPromise = attempt;
+  // A failed teardown stays retryable. The quit gate re-runs the ordered sequence after a
+  // failure (its report is refused, not cached), and a memoized rejection would answer every
+  // later attempt with that same failure while the services underneath stayed half disposed —
+  // a process that can never quit. The flags go back to "not shutting down" so a retry starts
+  // from the top; the steps above already journaled which one threw.
+  attempt.catch((err) => {
+    recordLifecycleEvent('shutdown.failed', { detail: String(err) });
+    if (shutdownPromise === attempt) {
+      shutdownPromise = null;
+      isShuttingDown = false;
+    }
+  });
+  return attempt;
 }
 
-app.on('window-all-closed', async () => {
+app.on('window-all-closed', () => {
   recordLifecycleEvent('window-all-closed', {});
   // Reached only when a window was destroyed despite the close guard (e.g. a renderer crash took
   // it). Quitting there would discard the run's whole artifact, so the benchmark keeps the process
@@ -999,26 +2767,41 @@ app.on('window-all-closed', async () => {
     console.warn('[antifan] Benchmark mode: window-all-closed ignored; the run continues without a window.');
     return;
   }
-  await shutdown();
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
+  // No `app.quit()` of its own: this is the same application gate as an explicit Quit, so a
+  // refusal here leaves the process — and everything the user is still working in — exactly as
+  // it was. Electron does not emit this event during `app.quit()`, so the guarded entries stay
+  // the last browser shell going away (`handleShellClosed`) and `before-quit`.
+  requestApplicationQuit('window-all-closed');
 });
 
 let isShuttingDown = false;
+// Set by the `will-quit` listener below: the platform delivered the quit. The force-exit
+// watchdog exists for a platform that never delivers it, so a delivered event disarms the kill.
+let willQuitDelivered = false;
 app.on('before-quit', (event) => {
-  recordLifecycleEvent('before-quit', { alreadyShuttingDown: isShuttingDown });
-  if (isShuttingDown) return;
-  isShuttingDown = true;
+  const committed = closeCoordinator.hasCommittedShutdown();
+  recordLifecycleEvent('before-quit', { committed, applicationPhase: closeCoordinator.applicationPhase() });
+  // A committed teardown is this process quitting itself: letting the event through is what
+  // actually ends it, and by then every window that could veto it was already closed through
+  // the coordinator, so the platform's own close pass has nothing left to destroy.
+  if (committed) return;
+  // Synchronously, before anything awaits: an unprevented `before-quit` starts closing every
+  // window on its own, which is exactly the destruction the gate exists to decide. A repeated
+  // Quit coalesces into the attempt already running rather than racing it.
   event.preventDefault();
-  shutdown().finally(() => {
-    app.quit();
-  });
+  requestApplicationQuit('before-quit');
 });
 app.on('will-quit', () => {
-  recordLifecycleEvent('will-quit', {});
+  willQuitDelivered = true;
+  recordLifecycleEvent('will-quit', { committed: closeCoordinator.hasCommittedShutdown() });
+  // Synchronous and idempotent, deliberately: the committed teardown already flushed and
+  // disposed everything, so there is no asynchronous work left for a guarded re-entry to
+  // await. It stays as the last line of defence for an exit that reached the platform
+  // without an orderly teardown (an OS-initiated quit).
   bridgeServer?.dispose();
-  tabHost?.dispose();
+  for (const h of tabAuthorities.hosts()) {
+    h.dispose();
+  }
   profileLease?.release();
   profileLease = null;
   benchmarkStopEventLoop?.();
@@ -1027,18 +2810,35 @@ app.on('will-quit', () => {
   recordProcessMetrics('atShutdown', true);
 });
 
+/**
+ * Arm the last-resort exit for a shutdown that has already committed to ending this process.
+ * Nothing is left to decide by then: the only remaining failure is a platform that never
+ * delivers the quit, which would leave the process alive with no window and no feedback. The
+ * timer is unref'd so it can never be the thing holding the event loop open.
+ *
+ * A delivered `will-quit` falsifies that premise, so the watchdog yields to it: the platform is
+ * not stuck, it asked, and a listener vetoed the quit — which is how a vetoed quit is supposed
+ * to work. Killing the process there would discard state the veto exists to protect, and it
+ * would journal `shutdown.forceExit` for a teardown that was, in fact, graceful.
+ */
+function armForceExitWatchdog(reason: string): NodeJS.Timeout {
+  const forceTimer = setTimeout(() => {
+    if (willQuitDelivered) return;
+    // A silent exit: no clean marker is written, because shutdown() never reached it.
+    recordLifecycleEvent('shutdown.forceExit', { code: 1, reason });
+    process.exit(1);
+  }, 2000);
+  forceTimer.unref?.();
+  return forceTimer;
+}
+
 let isSignalExiting = false;
 function handleSignal(signal: NodeJS.Signals): void {
   recordLifecycleEvent('signal', { signal, alreadyExiting: isSignalExiting });
   if (isSignalExiting) return;
   isSignalExiting = true;
   isShuttingDown = true;
-  const forceTimer = setTimeout(() => {
-    // A silent exit: no clean marker is written, because shutdown() never reached it.
-    recordLifecycleEvent('shutdown.forceExit', { code: 1, reason: 'shutdown did not finish within 2000ms' });
-    process.exit(1);
-  }, 2000);
-  forceTimer.unref?.();
+  const forceTimer = armForceExitWatchdog('shutdown did not finish within 2000ms');
   shutdown().finally(() => {
     clearTimeout(forceTimer);
     recordLifecycleEvent('shutdown.complete', { code: 0 });
@@ -1048,3 +2848,166 @@ function handleSignal(signal: NodeJS.Signals): void {
 
 process.on('SIGINT', handleSignal);
 process.on('SIGTERM', handleSignal);
+
+/** One window as the live probe sees it: presentation, authority and tabs together. */
+export interface ProjectWindowProbeEntry {
+  ownerKey: string;
+  owner: WindowOwner;
+  title: string;
+  pathLabel?: string;
+  windowId: number;
+  visible: boolean;
+  focused: boolean;
+  hostOwnerKey: string;
+  hostOwnerLabel: string;
+  tabIds: string[];
+  activeTabId: string;
+  identity: ProjectWindowIdentity;
+  terminalCwd: string;
+  terminalCwdSource: string;
+}
+
+/** A window's authority and tabs, or the empty projection when it has no host yet. */
+function describeShellForProbe(shell: ProjectWindowShell): ProjectWindowProbeEntry {
+  const host = tabAuthorities.hostForShell(shell);
+  const terminal = host
+    ? host.resolveTerminalCreationTarget()
+    : { cwd: '', source: 'no-host' };
+  return {
+    ownerKey: ownerKey(shell.owner),
+    owner: shell.owner,
+    title: shell.title,
+    ...(shell.pathLabel ? { pathLabel: shell.pathLabel } : {}),
+    windowId: shell.window.id,
+    visible: shell.window.isVisible(),
+    focused: shell.window.isFocused(),
+    hostOwnerKey: host?.windowOwnerKey() ?? '',
+    hostOwnerLabel: host?.windowOwnerLabel() ?? '',
+    tabIds: host?.getTabList().map((tab) => tab.id) ?? [],
+    activeTabId: host?.getActiveTabId() ?? '',
+    identity: host?.projectWindowIdentity() ?? {
+      owner: shell.owner,
+      title: shell.title,
+      ...(shell.pathLabel ? { pathLabel: shell.pathLabel } : {}),
+    },
+    terminalCwd: terminal.cwd,
+    terminalCwdSource: terminal.source,
+  };
+}
+
+/**
+ * Live-process inspection seam for the multi-window probe
+ * (`scripts/probe-project-windows.cjs`). Every function drives the shipping path — the
+ * same factory, the same directory, the same close gate — so the probe's evidence is
+ * this process's real behaviour rather than a second implementation of it that could
+ * pass while the app fails.
+ */
+export const projectWindowAuthority = {
+  /** Windows the process currently owns, as the quit gate counts them. */
+  browserShellCount(): number {
+    return projectWindows?.browserShellCount() ?? 0;
+  },
+  /** Chrome channels registered in this process, from the router's own ledger. */
+  registeredChromeChannels(): readonly string[] {
+    return listRegisteredChromeChannels();
+  },
+  snapshot(): ProjectWindowProbeEntry[] {
+    return liveProjectShells().map(describeShellForProbe);
+  },
+  /** Open or join a project window through the one factory, exactly as a user request does. */
+  async ensureProjectWindow(owner: ProjectWindowOwner, intent: OpenIntent): Promise<ProjectWindowProbeEntry> {
+    const { shell } = await ensureProjectWindow(toWindowOwner(owner), intent);
+    return describeShellForProbe(shell);
+  },
+  /**
+   * Ask a window to close the way a user does — a native close request. The shell
+   * request handler (see `attachShellLifecycle`) routes it through the close coordinator,
+   * which is the shipping path: no privileged shutdown, no bypass of the admission gate.
+   */
+  requestClose(ownerKeyValue: string): boolean {
+    const shell = liveShellFor(ownerKeyValue);
+    if (!shell || shell.window.isDestroyed()) return false;
+    shell.window.close();
+    return true;
+  },
+  /**
+   * The coordinator's own close path, for the cases the probe cannot reach with a native
+   * close request: a Quit that arrives while a run is queued, or a shell the platform
+   * destroyed. Same entrypoint the shipping listeners call.
+   */
+  attemptClose(ownerKeyValue: string, intent: 'user' | 'quit'): Promise<CloseReport> {
+    return closeCoordinator.attemptClose(ownerKeyValue, intent).then(
+      (report) => {
+        recordCloseReport(report);
+        return report;
+      },
+      (err) => {
+        recordLifecycleEvent('window-close.failed', { owner: ownerKeyValue, detail: String(err) });
+        throw err;
+      },
+    );
+  },
+  /** Drive the application quit gate exactly as `before-quit` and the last shell close do. */
+  requestQuit(origin: string): void {
+    requestApplicationQuit(origin);
+  },
+  /** The application attempt's state: `open` until admission is reserved, `closed` once committed. */
+  applicationPhase(): ClosePhase {
+    return closeCoordinator.applicationPhase();
+  },
+  /** The coordinator's admission snapshot: what a close currently reserves, and what it measures. */
+  reservations(): { reservedTabIds: readonly string[]; reservedCount: number; inFlightOperations: number; applicationReserved: boolean } {
+    const snapshot = closeReservations.snapshot();
+    return { ...snapshot, reservedCount: snapshot.reservedTabIds.length };
+  },
+  /** The live-use port, so tests and the probe can query the exact snapshot wiring. */
+  closeLiveUsePort(): CloseLiveUsePort {
+    return closeLiveUsePort;
+  },
+  /**
+   * The live control plane, so a probe can drive the shipping owners of shared work — a
+   * run in a non-terminal state, an attachment binding a page — and then watch the quit
+   * gate judge them. Nothing here fabricates state: every call below goes to the same
+   * services the shipping paths use.
+   */
+  controlPlane(): ControlPlaneRuntime | null {
+    return controlPlane;
+  },
+  /** The last coordinated quit report, or null while no quit has been attempted. */
+  lastQuitReport(): QuitReport | null {
+    return lastQuitReport;
+  },
+  /** The last close report the coordinator produced for an owner. */
+  lastCloseReport(ownerKeyValue: string): CloseReport | null {
+    return lastCloseReports.get(ownerKeyValue) ?? null;
+  },
+  /** The native window behind an owner key, so a probe can watch its events. */
+  windowFor(ownerKeyValue: string): Electron.BrowserWindow | null {
+    return liveShellFor(ownerKeyValue)?.window ?? null;
+  },
+  /**
+   * The shell behind an owner key, so a probe can drive that window's own chrome surfaces
+   * (toolbar, sidebar) the way its renderers do. One live window per owner key.
+   */
+  shellFor(ownerKeyValue: string): ProjectWindowShell | null {
+    return liveShellFor(ownerKeyValue) ?? null;
+  },
+  /** The host that owns a tab right now, or null when no live window does. */
+  hostForTab(tabId: string): NativeTabHost | null {
+    return tabAuthorities.hostForTab(tabId) ?? null;
+  },
+  /** The host behind an owner key, or null when that window is not open. */
+  hostForOwner(ownerKeyValue: string): NativeTabHost | null {
+    const shell = liveShellFor(ownerKeyValue);
+    return shell ? tabAuthorities.hostForShell(shell) ?? null : null;
+  },
+  /** Shared ProjectRegistry projection */
+  projectRegistry(): ProjectRegistry {
+    return projectRegistry;
+  },
+  /** Run capsule-registry synchronization on demand */
+  synchronizeCapsulesWithRegistry(): { registeredProjects: number; registeredWorkspaces: number } {
+    if (!capsuleManager) return { registeredProjects: 0, registeredWorkspaces: 0 };
+    return synchronizeCapsulesWithRegistry(capsuleManager, projectRegistry, StorageLocations.getControlPlaneDir());
+  },
+};

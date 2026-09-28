@@ -49,7 +49,7 @@ describe('Webview & Extension IPC Audit Invariants', () => {
 
     for (const channel of requiredToolbarChannels) {
       assert.ok(
-        content.includes(`ipcMain.handle(${channel}`) || content.includes(`ipcMain.on(${channel}`),
+        content.includes(`channel: ${channel}`) || content.includes(`ipcMain.handle(${channel}`) || content.includes(`ipcMain.on(${channel}`),
         `Missing IPC handler for ${channel} in native-tab-host.ts`
       );
     }
@@ -63,7 +63,7 @@ describe('Webview & Extension IPC Audit Invariants', () => {
 
     for (const channel of requiredSidebarChannels) {
       assert.ok(
-        content.includes(`ipcMain.handle(${channel}`),
+        content.includes(`channel: ${channel}`) || content.includes(`ipcMain.handle(${channel}`),
         `Missing IPC handler for ${channel} in native-tab-host.ts`
       );
     }
@@ -78,7 +78,7 @@ describe('Webview & Extension IPC Audit Invariants', () => {
 
     for (const channel of requiredTerminalChannels) {
       assert.ok(
-        content.includes(`ipcMain.handle(${channel}`),
+        content.includes(`channel: ${channel}`) || content.includes(`ipcMain.handle(${channel}`),
         `Missing IPC handler for ${channel} in native-tab-host.ts`
       );
     }
@@ -164,7 +164,9 @@ describe('Webview & Extension IPC Audit Invariants', () => {
     assert.match(nativeContent, /antifan:standalone:open-workspace/);
     assert.match(nativeContent, /antifan:terminal:new-session/);
     assert.match(preloadContent, /pickWorkspaceFolder:\s*\(sessionId\?: string\).*\{ sessionId \}/);
-    assert.match(nativeContent, /capsule:pick-folder[^]*setCapsule\(created\.id, chosenPath, opts\?\.sessionId\)/);
+    // The audit pins the contract the picker must keep: the folder the user chose and the
+    // session it was picked for reach setCapsule, for whichever capsule the route adopted.
+    assert.match(nativeContent, /capsule:pick-folder[^]*setCapsule\([\w$]+\.id, chosenPath, opts\?\.sessionId\)/);
   });
 
   it('verifies Find in Page DOM ID parity, IPC contracts, and shortcut prevention', () => {
@@ -195,9 +197,11 @@ describe('Webview & Extension IPC Audit Invariants', () => {
     assert.match(preload, /findInPage:\s*\(text:\s*string,\s*forward\s*=\s*true,\s*findNext\s*=\s*false\)/);
     assert.match(nativeTabHost, /FIND_IN_PAGE[^]*findNext/);
 
-    // 4. CmdOrCtrl+F is registered in app-menu and triggers focusFindBar
+    // 4. CmdOrCtrl+F is registered in app-menu and triggers focusFindBar on the host the
+    // menu resolved for the focused window: the find bar must act on the window the user
+    // is in, never on the window the menu was built for.
     const appMenu = fs.readFileSync(path.join(root, 'src', 'main', 'browser', 'app-menu.ts'), 'utf8');
-    assert.match(appMenu, /accelerator:\s*['"]CmdOrCtrl\+F['"][^]*tabHost\?\.focusFindBar\(\)/);
+    assert.match(appMenu, /accelerator:\s*['"]CmdOrCtrl\+F['"][^]*hostForClick\(focusedWindow\)\?\.focusFindBar\(\)/);
     assert.match(nativeTabHost, /focusFindBar\s*\(\)\s*:\s*void\s*\{[^}]*antifan:focus-find/);
     // 5. Overlay lifecycle in show/hide find bar
     assert.match(toolbarTs, /function showFindBar\(\)[^]*acquireOverlay\('find-bar',\s*50\)/);
@@ -393,8 +397,8 @@ describe('Webview & Extension IPC Audit Invariants', () => {
     );
     assert.match(
       fnBody,
-      /if\s*\(input\.key\s*===\s*['"]Escape['"]\)\s*\{[^}]*_event\.preventDefault\(\);/,
-      'Escape must be handled in setupGlobalShortcutsOnView with _event.preventDefault()'
+      /if\s*\(input\.key\s*===\s*['"]Escape['"]\)\s*\{[^}]*?if\s*\(tabId\)\s*_event\.preventDefault\(\);/,
+      'Escape must be handled in setupGlobalShortcutsOnView without preventing default on chrome views, which own Escape for their own overlays'
     );
   });
 
@@ -402,7 +406,7 @@ describe('Webview & Extension IPC Audit Invariants', () => {
     const nativeTabHost = fs.readFileSync(path.join(root, 'src', 'main', 'browser', 'native-tab-host.ts'), 'utf8');
     assert.match(
       nativeTabHost,
-      /else if \(url !== 'about:blank'\) \{[\s\S]*?wc\.loadURL\(url[^)]*\)\s*\.then\(\(\) => this\.clearInitialNavigationHistory\(wc, state\)\)/,
+      /else if \(url !== 'about:blank' \|\| isOffscreen\) \{[\s\S]*?wc\.loadURL\(url[^)]*\)\s*\.then\(\(\) => this\.clearInitialNavigationHistory\(wc, state\)\)/,
       'ordinary new tabs must clear the implicit about:blank history only after their initial URL loads'
     );
     assert.match(
@@ -425,7 +429,7 @@ describe('Webview & Extension IPC Audit Invariants', () => {
     ];
     for (const ch of requiredChannels) {
       assert.ok(
-        nativeTabHost.includes(`ipcMain.handle('${ch}'`) || nativeTabHost.includes(`ipcMain.on('${ch}'`),
+        nativeTabHost.includes(`channel: '${ch}'`) || nativeTabHost.includes(`ipcMain.handle('${ch}'`) || nativeTabHost.includes(`ipcMain.on('${ch}'`),
         `native-tab-host.ts must register channel ${ch}`
       );
     }
@@ -439,13 +443,13 @@ describe('Webview & Extension IPC Audit Invariants', () => {
 
     // Enforce workflow:run delegates to this.controlPlane.executeWorkflow
     assert.ok(
-      nativeTabHost.includes('this.controlPlane.executeWorkflow'),
+      /(?:this|host)\.controlPlane\.executeWorkflow/.test(nativeTabHost),
       'antifan:workflow:run must delegate to this.controlPlane.executeWorkflow'
     );
   });
 
   it('verifies safeSendWebContents guards against disposed frames and crashes', () => {
-    const { safeSendWebContents } = require('../../src/main/browser/native-tab-host');
+    const { safeSendWebContents } = require('../../src/main/browser/web-contents-guard');
     assert.strictEqual(typeof safeSendWebContents, 'function', 'safeSendWebContents must be exported');
 
     // Null / Undefined WebContents
@@ -537,11 +541,20 @@ describe('Webview & Extension IPC Audit Invariants', () => {
     const content = fs.readFileSync(nativeTabHostPath, 'utf8');
 
     // 1. session-created hook:
-    const sessionCreatedIdx = content.indexOf("TerminalManager.getInstance().on('session-created'");
-    assert.ok(sessionCreatedIdx !== -1, 'session-created listener must exist');
-    const nextHookIdx = content.indexOf('ipcMain.handle(TERMINAL_CHANNELS.GET_FULL_BUFFER', sessionCreatedIdx);
+    // The host registers its TerminalManager listeners through a removable wrapper so
+    // `dispose()` can release exactly its own handlers from the shared singleton. The
+    // anchor therefore moves from the registration literal to the handler declaration
+    // the registration names; every assertion about the handler body is unchanged.
+    const sessionCreatedIdx = content.indexOf('const onTerminalSessionCreated = (');
+    assert.ok(sessionCreatedIdx !== -1, 'session-created handler must exist');
+    const sessionCreatedRegistrationIdx = content.indexOf(
+      "subscribe('session-created', onTerminalSessionCreated);",
+      sessionCreatedIdx
+    );
+    assert.ok(sessionCreatedRegistrationIdx !== -1, 'session-created listener must be registered on the shared TerminalManager');
+    const nextHookIdx = content.indexOf('channel: TERMINAL_CHANNELS.GET_FULL_BUFFER', sessionCreatedIdx);
     assert.ok(nextHookIdx !== -1, 'TERMINAL_CHANNELS.GET_FULL_BUFFER boundary must exist');
-    const sessionCreatedBlock = content.slice(sessionCreatedIdx, nextHookIdx);
+    const sessionCreatedBlock = content.slice(sessionCreatedIdx, sessionCreatedRegistrationIdx);
 
     // Negative: must NOT fall back to this.activeTabId for root sessions
     assert.strictEqual(
@@ -572,12 +585,12 @@ describe('Webview & Extension IPC Audit Invariants', () => {
     );
 
     // 2. TERMINAL_CHANNELS.START handler must directly return startTerminal without binding activeTabId
-    const startIdx = content.indexOf('ipcMain.handle(TERMINAL_CHANNELS.START');
+    const startIdx = content.indexOf('channel: TERMINAL_CHANNELS.START');
     assert.ok(startIdx !== -1, 'TERMINAL_CHANNELS.START handler must exist');
-    const nextIpcIdx = content.indexOf('ipcMain.handle(TERMINAL_CHANNELS.INPUT', startIdx);
+    const nextIpcIdx = content.indexOf('channel: TERMINAL_CHANNELS.INPUT', startIdx);
     assert.ok(nextIpcIdx !== -1, 'TERMINAL_CHANNELS.INPUT boundary must exist');
     const startHandlerBlock = content.slice(startIdx, nextIpcIdx);
-    const agentGuard = /const isAgent = senderInfo && \(senderInfo\.tab\.state\.ephemeral === true \|\| senderInfo\.tab\.state\.offscreen === true \|\| senderInfo\.tabId === this\.automationTabId\)/.test(startHandlerBlock);
+    const agentGuard = /const isAgent = senderInfo && \(senderInfo\.tab\.state\.ephemeral === true \|\| senderInfo\.tab\.state\.offscreen === true \|\| senderInfo\.tabId === (?:this|host)\.automationTabId\)/.test(startHandlerBlock);
     assert.ok(
       agentGuard,
       'TERMINAL_CHANNELS.START binding must be guarded by explicit agent-plane sender detection'
@@ -586,19 +599,38 @@ describe('Webview & Extension IPC Audit Invariants', () => {
       startHandlerBlock.includes('bindTerminalAgentAffinity'),
       'TERMINAL_CHANNELS.START must bind the agent affinity for the sender tab; dropping the binding silently leaves the terminal on the user tab'
     );
+    // The bind moved into a local closure so the daemon path can bind after its RPC settles
+    // (the session does not exist before that), so the invariant is asserted directly rather
+    // than through the shape that used to carry it: every bind call names the sender tab as its
+    // affinity subject, never the user's active tab.
+    const bindArgs = [...startHandlerBlock.matchAll(/bindTerminalAgentAffinity\(([^;]*?)\)/g)].map((match) => match[1] ?? '');
+    assert.ok(bindArgs.length > 0, 'TERMINAL_CHANNELS.START must call bindTerminalAgentAffinity for the sender tab');
+    for (const args of bindArgs) {
+      assert.match(
+        args,
+        /senderInfo\.tabId\s*$/,
+        'TERMINAL_CHANNELS.START may bind only the agent sender tabId (senderInfo.tabId), never the user activeTabId'
+      );
+    }
     assert.ok(
-      /if \(isAgent && started\)\s*\{[\s\S]{0,400}?bindTerminalAgentAffinity\(sessionId, session\?\.sessionGeneration, senderInfo\.tabId\)/.test(startHandlerBlock),
-      'TERMINAL_CHANNELS.START may bind only the agent sender tabId (senderInfo.tabId), never the user activeTabId'
+      /if \(!isAgent\) return;/.test(startHandlerBlock),
+      'TERMINAL_CHANNELS.START must gate the agent affinity binding on the agent-plane guard'
     );
+    // The route passes the sender window's validated workspace root (`target`), its capsule
+    // provenance AND the owner key that makes the mint belong to that window; any one of them
+    // missing would let a project window inherit the process-wide cwd, another window's capsule,
+    // or a terminal that two windows working one folder both answer for. The behaviour is covered
+    // end-to-end by project-window-persistence's "passes the window workspace, capsule and
+    // owner key to the creation routes".
     assert.ok(
-      startHandlerBlock.includes('TerminalManager.getInstance().startTerminal(cwd)'),
-      'TERMINAL_CHANNELS.START must invoke startTerminal(cwd) on the terminal manager'
+      /TerminalManager\.getInstance\(\)\.startTerminal\(\s*target\.cwd\s*,\s*target\.capsuleId\s*,\s*target\.ownerKey\s*\)/.test(startHandlerBlock),
+      'TERMINAL_CHANNELS.START must invoke startTerminal with the sender window workspace root, capsule and owner key'
     );
 
     // 3. antifan:terminal:new-session handler must directly return createSession without binding activeTabId
-    const newSessionIdx = content.indexOf("ipcMain.handle('antifan:terminal:new-session'");
+    const newSessionIdx = content.indexOf("channel: 'antifan:terminal:new-session'");
     assert.ok(newSessionIdx !== -1, 'antifan:terminal:new-session handler must exist');
-    const nextSplitIdx = content.indexOf("ipcMain.handle('antifan:terminal:split-session'", newSessionIdx);
+    const nextSplitIdx = content.indexOf("channel: 'antifan:terminal:split-session'", newSessionIdx);
     assert.ok(nextSplitIdx !== -1, 'antifan:terminal:split-session boundary must exist');
     const newSessionBlock = content.slice(newSessionIdx, nextSplitIdx);
     assert.ok(
@@ -610,8 +642,8 @@ describe('Webview & Extension IPC Audit Invariants', () => {
       'antifan:terminal:new-session may bind only the agent sender tabId (senderInfo.tabId), never the user activeTabId'
     );
     assert.ok(
-      newSessionBlock.includes('TerminalManager.getInstance().createSession(cwd)'),
-      'antifan:terminal:new-session must invoke createSession(cwd) on the terminal manager'
+      /TerminalManager\.getInstance\(\)\.createSession\(\s*target\.cwd\s*,\s*target\.capsuleId\s*,\s*target\.ownerKey\s*\)/.test(newSessionBlock),
+      'antifan:terminal:new-session must invoke createSession with the sender window workspace root, capsule and owner key'
     );
   });
 });

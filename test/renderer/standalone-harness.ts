@@ -156,7 +156,22 @@ export class FakeElement {
   public readonly listeners: Record<string, Array<(event: KeyEventLike) => void>> = {};
   private readonly classes = new Set<string>();
 
-  constructor(public readonly tagName: string, public readonly elementId = '') {}
+  constructor(public readonly tagName: string, public elementId = '') {}
+
+  /**
+   * The DOM reflects `el.id = …` into the attribute, and `#id` selectors read it back. The
+   * renderer assigns `id` as a property on nearly every element it creates, so without this
+   * accessor those elements are unaddressable from a test even though the selector matches
+   * them in a real browser.
+   */
+  public get id(): string {
+    return this.elementId;
+  }
+
+  public set id(value: string) {
+    this.elementId = String(value);
+    this.attributes.id = this.elementId;
+  }
 
   public get className(): string {
     return [...this.classes].join(' ');
@@ -253,9 +268,11 @@ export class FakeElement {
     return this.descendants().filter(element => element.matches(base));
   }
 
-  public matches(selector: string): boolean {
-    const compound = selector.replace(':last-child', '').split(/(?=[.#[])/).filter(Boolean);
-    return compound.every(part => {
+  /** One compound selector (`tag.class#id[attr]`), the unit a descendant query walks in. */
+  private matchesCompound(compound: string): boolean {
+    if (!compound) return false;
+    const parts = compound.split(/(?=[.#[])/).filter(Boolean);
+    return parts.every(part => {
       if (part.startsWith('.')) return this.classes.has(part.slice(1));
       if (part.startsWith('#')) return this.elementId === part.slice(1);
       if (part.startsWith('[')) {
@@ -267,6 +284,32 @@ export class FakeElement {
       }
       return this.tagName === part;
     });
+  }
+
+  /**
+   * A selector with descendant combinators, matched right to left the way the DOM does: the
+   * rightmost compound is the element itself and every earlier one has to match an ancestor.
+   * A single-compound selector — every selector the renderer used before the header chip
+   * added `header .heading` — takes the same path with nothing to walk.
+   */
+  public matches(selector: string): boolean {
+    const chain = selector.replace(/:last-child/g, '').trim().split(/\s+/).filter(Boolean);
+    if (chain.length === 0) return false;
+    if (!this.matchesCompound(chain[chain.length - 1]!)) return false;
+    let ancestor = this.parent;
+    for (let index = chain.length - 2; index >= 0; index -= 1) {
+      let matched = false;
+      while (ancestor) {
+        if (ancestor.matchesCompound(chain[index]!)) {
+          matched = true;
+          ancestor = ancestor.parent;
+          break;
+        }
+        ancestor = ancestor.parent;
+      }
+      if (!matched) return false;
+    }
+    return true;
   }
 
   /**
@@ -312,7 +355,7 @@ export class FakeElement {
 
   public setAttribute(name: string, value: string): void {
     this.attributes[name] = value;
-    if (name === 'id') this.attributes.id = value;
+    if (name === 'id') this.elementId = value;
   }
 
   public getAttribute(name: string): string | null {
@@ -487,7 +530,7 @@ function computedStyle(): Record<string, string> {
   }) as Record<string, string>;
 }
 
-export function loadStandalone(options: { initialState?: unknown; contextMenuActions?: string[] } = {}): StandaloneHarness {
+export function loadStandalone(options: { initialState?: unknown; contextMenuActions?: string[]; popout?: boolean } = {}): StandaloneHarness {
   const elements = new Map<string, FakeElement>();
   const elementById = (id: string): FakeElement => {
     if (!elements.has(id)) elements.set(id, new FakeElement('div', id));
@@ -501,6 +544,17 @@ export function loadStandalone(options: { initialState?: unknown; contextMenuAct
   //                   > #terminal
   const standaloneElement = new FakeElement('main');
   standaloneElement.className = 'standalone';
+  // The header the sidebar's project chip lives in (`standalone.html`:
+  // `main.standalone > header > div.heading`). It exists before the script runs because the
+  // chip is appended to whatever heading is present at first paint.
+  const headerElement = new FakeElement('header');
+  const headingElement = new FakeElement('div');
+  headingElement.className = 'heading';
+  headerElement.appendChild(headingElement);
+  const headerActionsElement = new FakeElement('div');
+  headerActionsElement.className = 'header-actions';
+  headerElement.appendChild(headerActionsElement);
+  standaloneElement.appendChild(headerElement);
   const controlsElement = new FakeElement('section');
   controlsElement.className = 'controls';
   standaloneElement.appendChild(controlsElement);
@@ -560,7 +614,7 @@ export function loadStandalone(options: { initialState?: unknown; contextMenuAct
   const webLinksHandlers: Array<(event: unknown, uri: string) => void> = [];
   const windowStub: Record<string, unknown> = {
     document: documentStub,
-    location: { search: '', href: 'file:///standalone.html', origin: 'file://' },
+    location: { search: options.popout ? '?mode=popout' : '', href: 'file:///standalone.html', origin: 'file://' },
     innerWidth: 1440,
     innerHeight: 900,
     addEventListener: (type: string, listener: (event: KeyEventLike) => boolean | void) => {

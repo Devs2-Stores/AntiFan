@@ -28,7 +28,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { TerminalManager } from '../../src/main/browser/terminal-manager';
 import { TERMINAL_CHANNELS } from '../../src/shared/contracts';
-
+import type { ShellDouble } from '../support/project-window-shell-double';
+import type { ChromeRouteHarness } from '../support/chrome-route-harness';
 // Point every persistence path at a scratch directory so a test can never touch the
 // developer's real saved-tabs.json / terminal-sessions.json.
 const SCRATCH_DIR = path.join(process.cwd(), 'node_modules', '.cache', 'tsc-wsg', 'tmp-terminal-sleep-host');
@@ -79,10 +80,18 @@ class FakeIpcMain {
   }
 
   public invoke(channel: string, event: unknown, ...args: unknown[]): unknown {
-    const fn = this.handlers.get(channel);
-    if (!fn) throw new Error(`no handler registered for ${channel}`);
     this.invokes.set(channel, (this.invokes.get(channel) || 0) + 1);
-    return fn(event, ...args);
+    const ev = (event && typeof event === 'object' ? event : {}) as Record<string, unknown>;
+    // If the sender is an agent/managed tab on the host, preserve it so host.findTabByWebContents
+    // resolves the tab; otherwise default to harness.sender so the chrome resolver recognizes it.
+    const isTabSender = Boolean(ev.sender && host?.findTabByWebContents?.(ev.sender));
+    const sender = isTabSender ? ev.sender : harness.sender;
+    const fullEvent = {
+      ...ev,
+      sender,
+      senderFrame: { url: 'file:///E:/Work/apps/AntiFan/src/renderer/toolbar.html', parent: null },
+    };
+    return harness.invokeWithEvent(channel, fullEvent, ...args);
   }
 
   public count(channel: string): number {
@@ -148,7 +157,10 @@ NodeModule._load = function (request: string, parent: unknown, isMain: boolean) 
 };
 
 const { NativeTabHost } = require('../../src/main/browser/native-tab-host') as typeof import('../../src/main/browser/native-tab-host');
+const { createShellDouble } = require('../support/project-window-shell-double') as typeof import('../support/project-window-shell-double');
+const { createChromeRouteHarness } = require('../support/chrome-route-harness') as typeof import('../support/chrome-route-harness');
 
+let harness: ChromeRouteHarness;
 // ---------------------------------------------------------------------------
 // Host + manager harness
 // ---------------------------------------------------------------------------
@@ -169,6 +181,7 @@ let sessionLookups = 0;
 let listSessionsCalls = 0;
 
 let host: AnyRecord;
+let shell: ShellDouble;
 
 function seedSession(id: string, generation: number, state = 'running'): void {
   liveSessions = liveSessions.filter((s) => s.id !== id);
@@ -236,9 +249,13 @@ function resetHost(): void {
   if (host.terminalDataFlushTimer) clearTimeout(host.terminalDataFlushTimer);
   host.terminalDataFlushTimer = null;
   host.terminalFanoutMessages = 0;
-  host.sidebarView = null;
+  // Presentation state (chrome views, sidebar visibility and width) belongs to the
+  // shell now; the harness drives it there instead of on the host.
+  shell = createShellDouble({ isSidebarOpen: false, sidebarWidth: 380 });
+  host.shell = shell;
+  shell.sidebarView = null;
   host.popoutWindow = null;
-  host.isSidebarOpen = false;
+  shell.isSidebarOpen = false;
   host.isDisposed = false;
   host.persistTimer = null;
   host.bookmarks = [];
@@ -270,11 +287,15 @@ before(() => {
   host.updateLayout = () => {};
   host.schedulePersist = () => { host.scheduledPersists += 1; };
   resetHost();
-  // Registration is the code under test for the listener wiring: it installs the
-  // 'session-woken' listener and every terminal channel handler on the fake ipcMain.
-  host.setupToolbarIpc();
+  // Note: setupTerminalSubscriptions() (still called by the NativeTabHost constructor in production)
+  // installs the 'session-woken' listener on TerminalManager.getInstance(), whereas the route table
+  // (NativeTabHost.CHROME_ROUTES) registers the chrome IPC channels. Because host is created here via
+  // Object.create(NativeTabHost.prototype) bypassing the constructor, we explicitly call
+  // setupTerminalSubscriptions() to wire up the terminal event subscriptions, and instantiate
+  // the declarative ChromeRouteHarness to drive the chrome routes.
+  (host as any).setupTerminalSubscriptions();
+  harness = createChromeRouteHarness({ host: host as unknown as InstanceType<typeof NativeTabHost> });
 });
-
 beforeEach(() => {
   resetHost();
 });
@@ -285,7 +306,9 @@ after(() => {
   tm.removeAllListeners('session-woken');
   tm.removeAllListeners('session');
   tm.removeAllListeners('data');
-  tm.sessions.clear();
+  tm.removeAllListeners('session-closed');
+  tm.removeAllListeners('session-restarted');
+  tm.removeAllListeners('session-created');
   NodeModule._load = originalModuleLoad;
 });
 
@@ -581,8 +604,8 @@ describe('sleep/wake/set-category IPC handlers (native-tab-host)', () => {
 describe('sleep transition vs coalesced terminal data (native-tab-host)', () => {
   it('flushes the pending batch before the sleep broadcast and honours the sidebar gate', () => {
     const sidebarWc = makeWebContents('antifan:terminal');
-    host.sidebarView = { webContents: sidebarWc };
-    host.isSidebarOpen = true;
+    shell.sidebarView = { webContents: sidebarWc } as unknown as ShellDouble['sidebarView'];
+    shell.isSidebarOpen = true;
 
     addTab('tab-sleep', { ephemeral: true });
     const record = installManagerSession('terminal-sleep-order', 1, 'running', {
@@ -626,7 +649,7 @@ describe('sleep transition vs coalesced terminal data (native-tab-host)', () => 
 
     // Sidebar closed: the visibility gate drops data fan-out but never the state
     // broadcast that tells the renderer to tear the pane down.
-    host.isSidebarOpen = false;
+    shell.isSidebarOpen = false;
     sidebarWc.sent.length = 0;
     tm.emit('data', { sessionId: 'terminal-sleep-order', data: 'Y'.repeat(300), seq: 4, generation: 1 });
     tm.emit('session', { activeSessionId: 'terminal-sleep-order', sessions: [], snapshot: '', snapshotThroughSeq: 4 });

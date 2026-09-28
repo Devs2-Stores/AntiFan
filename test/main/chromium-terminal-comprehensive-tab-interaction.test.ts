@@ -9,6 +9,7 @@ import { BrowserControlPort, BrowserHostPort } from '../../src/main/tools/browse
 import { dispatchAnnotationToTerminal, sanitizeTerminalPrompt } from '../../src/main/browser/annotation-dispatch';
 import { AntiFanTab } from '../../src/shared/contracts';
 import { BrowserTarget, CapabilityError } from '../../src/shared/control-plane-contracts';
+import { createShellDouble, type ShellDouble } from '../support/project-window-shell-double';
 
 // Test seams for mock Host and WebContents
 interface MockWebContents {
@@ -43,8 +44,9 @@ interface ComprehensiveTestHost {
   tabOrder: string[];
   activeTabId: string;
   isDisposed: boolean;
-  isSidebarOpen: boolean;
   wasSidebarOpenBeforePopout: boolean;
+  /** Presentation owner: the double stands in for the window's ProjectWindowShell. */
+  shell: ShellDouble;
   popoutWindow: unknown;
   terminalWindows: Map<number, MockTerminalWindow>;
   terminalWindowMeta: Map<number, { sessionId?: string; isPopout?: boolean }>;
@@ -97,6 +99,7 @@ interface ComprehensiveTestHost {
   getTabList(): Array<{ id: string; url?: string; title?: string; alias?: string; role?: string }>;
   agentClick(params: { selector?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<boolean>;
   agentType(params: { selector?: string; text: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<boolean>;
+  resolveTabAffiliation?(tabId: string): { projectId?: string; workspaceId?: string; capsuleId?: string } | undefined;
 }
 
 function createMockWebContents(): MockWebContents {
@@ -132,7 +135,6 @@ function createComprehensiveHost(initialTabIds: string[] = ['tab-1']): Comprehen
   host.tabOrder = [...initialTabIds];
   host.activeTabId = initialTabIds[0] ?? '';
   host.isDisposed = false;
-  host.isSidebarOpen = true;
   host.wasSidebarOpenBeforePopout = false;
   host.popoutWindow = null;
   host.terminalWindows = new Map();
@@ -145,17 +147,25 @@ function createComprehensiveHost(initialTabIds: string[] = ['tab-1']): Comprehen
   // Test environment wrappers for UI calls that touch Electron display/windows
   const hostSeam = host as unknown as Record<string, unknown>;
   const childrenList: unknown[] = [];
-  hostSeam.window = {
-    contentView: {
-      children: childrenList,
-      addChildView: (view: unknown) => { childrenList.push(view); },
-      removeChildView: (view: unknown) => {
-        const idx = childrenList.indexOf(view);
-        if (idx !== -1) childrenList.splice(idx, 1);
+  const shellDouble = createShellDouble({
+    window: {
+      contentView: {
+        children: childrenList,
+        addChildView: (view: unknown) => { childrenList.push(view); },
+        removeChildView: (view: unknown) => {
+          const idx = childrenList.indexOf(view);
+          if (idx !== -1) childrenList.splice(idx, 1);
+        },
       },
+      isDestroyed: () => false,
+      getBounds: () => ({ x: 0, y: 0, width: 1440, height: 900 }),
+      getContentBounds: () => ({ x: 0, y: 0, width: 1440, height: 900 }),
+      on: () => {},
+      removeListener: () => {},
     },
-    isDestroyed: () => false,
-  };
+    isSidebarOpen: true,
+  });
+  host.shell = shellDouble;
   hostSeam.attachTabView = (view: unknown) => {
     if (view && !childrenList.includes(view)) {
       childrenList.push(view);
@@ -202,7 +212,15 @@ function createComprehensiveHost(initialTabIds: string[] = ['tab-1']): Comprehen
     alias: t.state.alias,
     role: t.state.role,
   }));
-  // Custom createTab that operates safely in node test runner without Electron BrowserWindow
+  hostSeam.resolveTabAffiliation = (tabId: string) => {
+    if (!host.hasTab(tabId)) return undefined;
+    return {
+      projectId: 'proj-1',
+      workspaceId: 'ws-1',
+      capsuleId: 'capsule-comprehensive-1',
+    };
+  };
+   // Custom createTab that operates safely in node test runner without Electron BrowserWindow
   host.createTab = function (url = 'https://www.google.com', activate = true): string {
     const id = `tab-spawned-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const tabRecord: MockTabRecord = {
@@ -873,7 +891,7 @@ describe('Chromium <-> Terminal 30-Flow Interaction & Tab Management Matrix', ()
 
   it('Flow 29: Terminal Popout Window vs Sidebar View multi-broadcast bookkeeping & destroyed window pruning (Synthetic seam test - live native BrowserWindow requires OS desktop session)', () => {
     const host = createComprehensiveHost(['tab-1']);
-    host.isSidebarOpen = true;
+    host.shell.isSidebarOpen = true;
 
     // Open popout window
     let popoutClosed = false;

@@ -13,6 +13,26 @@ import { promisify } from 'util';
 // Async spawn: icacls/powershell take seconds and must never stall the main
 // thread. windowsHide matches the *Sync default (no console window flash).
 const execFileAsync = promisify(execFile);
+
+/**
+ * Bounded execution deadline (15,000ms) for Windows security helper binaries
+ * (`whoami`, `icacls.exe`, `powershell.exe`).
+ *
+ * Sits far above the measured round trips on this platform:
+ * - `whoami /user`: 15-50ms
+ * - `icacls.exe /save`: 25-250ms
+ * - `powershell.exe` ACL repair: 800-2,500ms (cold CLR startup and module load)
+ * Even under heavy system load, offline domain controller discovery latency, or active
+ * Windows Defender / AV filter driver scanning, these operations complete well under 10s.
+ *
+ * Sits well below the caller durability and user-patience timeout bounds (~30s+),
+ * ensuring that a hung process (e.g. `icacls.exe` blocked on a locked file, offline network
+ * share, or filter driver hold; or `whoami` stalled on an unreachable domain controller)
+ * is forcefully terminated via SIGKILL rather than causing an unbounded hang in state
+ * persistence or security enforcement paths.
+ */
+export const WINDOWS_ACL_SPAWN_TIMEOUT_MS = 15_000;
+
 export interface FileDaclResult {
   enforced: boolean;
   platform: string;
@@ -21,7 +41,16 @@ export interface FileDaclResult {
 
 let cachedUserSid: string | null = null;
 
-export async function resolveCurrentUserSid(): Promise<string> {
+/**
+ * Reset cached user SID for deterministic testing.
+ */
+export function _resetCachedUserSidForTesting(): void {
+  cachedUserSid = null;
+}
+
+export async function resolveCurrentUserSid(
+  timeoutMs: number = WINDOWS_ACL_SPAWN_TIMEOUT_MS
+): Promise<string> {
   if (process.platform !== 'win32') {
     throw new Error('[AntiFan Security] Windows ACL enforcement is only supported on Windows (win32).');
   }
@@ -30,7 +59,14 @@ export async function resolveCurrentUserSid(): Promise<string> {
     return cachedUserSid;
   }
 
-  const { stdout } = await execFileAsync('whoami', ['/user', '/fo', 'csv', '/nh'], { encoding: 'utf8', windowsHide: true });
+  // Armed with a bounded timeout: whoami can hang indefinitely if querying an offline
+  // domain controller or if AV/filter drivers stall child process initialization.
+  const { stdout } = await execFileAsync('whoami', ['/user', '/fo', 'csv', '/nh'], {
+    encoding: 'utf8',
+    windowsHide: true,
+    timeout: timeoutMs,
+    killSignal: 'SIGKILL',
+  });
   const output = String(stdout).trim();
   const parts = output.split(',');
   const rawSid = parts[1];
@@ -57,13 +93,22 @@ export function parseSavedFileSddl(savedAcl: string): string | null {
   return parseSavedSddl(savedAcl);
 }
 
-async function readPathSddl(targetPath: string): Promise<string> {
+async function readPathSddl(
+  targetPath: string,
+  timeoutMs: number = WINDOWS_ACL_SPAWN_TIMEOUT_MS
+): Promise<string> {
   const normalizedTarget = path.win32.normalize(targetPath);
   const savePath = path.win32.normalize(
     path.join(os.tmpdir(), `antifan-acl-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}.txt`)
   );
   try {
-    await execFileAsync('icacls.exe', [normalizedTarget, '/save', savePath], { windowsHide: true });
+    // Armed with a bounded timeout: icacls can hang indefinitely on locked files,
+    // offline network shares, roaming profile paths, or AV filter driver locks.
+    await execFileAsync('icacls.exe', [normalizedTarget, '/save', savePath], {
+      windowsHide: true,
+      timeout: timeoutMs,
+      killSignal: 'SIGKILL',
+    });
     const sddl = parseSavedSddl(fs.readFileSync(savePath, 'utf16le'));
     if (!sddl) {
       throw new Error(`[AntiFan Security] icacls returned no DACL for ${normalizedTarget}`);
@@ -81,7 +126,10 @@ async function readPathSddl(targetPath: string): Promise<string> {
  * is simply absent from the result, and callers treat that as "needs repair"
  * — the safe direction.
  */
-async function readPathsSddl(targetPaths: string[]): Promise<Map<string, string>> {
+async function readPathsSddl(
+  targetPaths: string[],
+  timeoutMs: number = WINDOWS_ACL_SPAWN_TIMEOUT_MS
+): Promise<Map<string, string>> {
   const result = new Map<string, string>();
   if (targetPaths.length === 0) return result;
   const savePath = path.win32.normalize(
@@ -89,7 +137,14 @@ async function readPathsSddl(targetPaths: string[]): Promise<Map<string, string>
   );
   try {
     const normalized = targetPaths.map((p) => path.win32.normalize(p));
-    await execFileAsync('icacls.exe', [...normalized, '/save', savePath], { windowsHide: true });
+    // Armed with a bounded timeout: batched icacls can stall if any single target path
+    // is locked or inaccessible. On timeout/failure, unparsed paths are treated as
+    // needing repair (safe direction).
+    await execFileAsync('icacls.exe', [...normalized, '/save', savePath], {
+      windowsHide: true,
+      timeout: timeoutMs,
+      killSignal: 'SIGKILL',
+    });
     const lines = fs.readFileSync(savePath, 'utf16le').split(/\r?\n/).filter((l) => l.trim().length > 0);
     // Entries pair a bare path line with its SDDL line (contains 'D:').
     for (let i = 0; i + 1 < lines.length; i += 2) {
@@ -147,10 +202,14 @@ export function verifyProtectedSddl(
   }) && Object.keys(expected).length === 0;
 }
 
-export async function hasProtectedDirectoryDacl(dirPath: string, userSid: string): Promise<boolean> {
+export async function hasProtectedDirectoryDacl(
+  dirPath: string,
+  userSid: string,
+  timeoutMs: number = WINDOWS_ACL_SPAWN_TIMEOUT_MS
+): Promise<boolean> {
   if (process.platform !== 'win32') return false;
   try {
-    const sddl = await readPathSddl(dirPath);
+    const sddl = await readPathSddl(dirPath, timeoutMs);
     return verifyProtectedSddl(sddl, userSid, 'directory');
   } catch {
     return false;
@@ -173,23 +232,37 @@ export function buildDirectoryAclScript(dirPath: string, userSid: string): strin
   `;
 }
 
-export async function enforceProtectedDirectoryDacl(dirPath: string, userSid: string): Promise<void> {
+export async function enforceProtectedDirectoryDacl(
+  dirPath: string,
+  userSid: string,
+  timeoutMs: number = WINDOWS_ACL_SPAWN_TIMEOUT_MS
+): Promise<void> {
   if (process.platform !== 'win32') {
     throw new Error('[AntiFan Security] Windows ACL enforcement is only supported on Windows (win32).');
   }
-  if (await hasProtectedDirectoryDacl(dirPath, userSid)) return;
+  if (await hasProtectedDirectoryDacl(dirPath, userSid, timeoutMs)) return;
   // Fail-closed repair path: replace inherited ACLs with exactly two explicit ACEs.
   const psScript = buildDirectoryAclScript(dirPath, userSid);
-  await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', psScript], { windowsHide: true });
-  if (!(await hasProtectedDirectoryDacl(dirPath, userSid))) {
+  // Armed with a bounded timeout: powershell startup or SetAccessControl can hang under
+  // CLR initialization issues, AV inspection, or filesystem lock contention.
+  await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', psScript], {
+    windowsHide: true,
+    timeout: timeoutMs,
+    killSignal: 'SIGKILL',
+  });
+  if (!(await hasProtectedDirectoryDacl(dirPath, userSid, timeoutMs))) {
     throw new Error(`[AntiFan Security] DACL verification failed after repair: ${dirPath}`);
   }
 }
 
-export async function hasProtectedFileDacl(filePath: string, userSid: string): Promise<boolean> {
+export async function hasProtectedFileDacl(
+  filePath: string,
+  userSid: string,
+  timeoutMs: number = WINDOWS_ACL_SPAWN_TIMEOUT_MS
+): Promise<boolean> {
   if (process.platform !== 'win32') return false;
   try {
-    const sddl = await readPathSddl(filePath);
+    const sddl = await readPathSddl(filePath, timeoutMs);
     return verifyProtectedSddl(sddl, userSid, 'file');
   } catch {
     return false;
@@ -254,7 +327,8 @@ export function buildPathsAclScript(paths: string[], userSid: string): string {
 
 export async function enforceProtectedPathsDacl(
   paths: string[],
-  userSid?: string
+  userSid?: string,
+  timeoutMs: number = WINDOWS_ACL_SPAWN_TIMEOUT_MS
 ): Promise<FileDaclResult> {
   if (process.platform !== 'win32') {
     return {
@@ -271,7 +345,7 @@ export async function enforceProtectedPathsDacl(
     };
   }
 
-  const effectiveSid = userSid || (await resolveCurrentUserSid());
+  const effectiveSid = userSid || (await resolveCurrentUserSid(timeoutMs));
   if (!/^S-1-5-\d+(-\d+)+$/.test(effectiveSid)) {
     throw new Error(`[AntiFan Security] Invalid Windows User SID provided for file DACL enforcement: ${effectiveSid}`);
   }
@@ -288,13 +362,13 @@ export async function enforceProtectedPathsDacl(
   const needingRepair: string[] = [];
   // One icacls spawn verifies every path; per-path reads only for entries the
   // batched save could not resolve (parse gaps are treated as unprotected).
-  const batched = await readPathsSddl(paths);
+  const batched = await readPathsSddl(paths, timeoutMs);
   for (const p of paths) {
     const isDir = fs.statSync(p).isDirectory();
     let sddl = batched.get(p) ?? null;
     if (sddl === null) {
       try {
-        sddl = await readPathSddl(p);
+        sddl = await readPathSddl(p, timeoutMs);
       } catch {
         sddl = null;
       }
@@ -312,13 +386,19 @@ export async function enforceProtectedPathsDacl(
   }
 
   const psScript = buildPathsAclScript(needingRepair, effectiveSid);
-  await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', psScript], { windowsHide: true });
+  // Armed with a bounded timeout: powershell execution must never stall callers indefinitely
+  // during multi-path ACL repair.
+  await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', psScript], {
+    windowsHide: true,
+    timeout: timeoutMs,
+    killSignal: 'SIGKILL',
+  });
 
   for (const p of needingRepair) {
     const isDir = fs.statSync(p).isDirectory();
     const isProtected = isDir
-      ? await hasProtectedDirectoryDacl(p, effectiveSid)
-      : await hasProtectedFileDacl(p, effectiveSid);
+      ? await hasProtectedDirectoryDacl(p, effectiveSid, timeoutMs)
+      : await hasProtectedFileDacl(p, effectiveSid, timeoutMs);
     if (!isProtected) {
       throw new Error(`[AntiFan Security] File DACL verification failed after repair: ${p}`);
     }
@@ -332,23 +412,34 @@ export async function enforceProtectedPathsDacl(
 
 export async function enforceProtectedFileDacl(
   filePath: string,
-  userSid?: string
+  userSid?: string,
+  timeoutMs: number = WINDOWS_ACL_SPAWN_TIMEOUT_MS
 ): Promise<FileDaclResult> {
-  return enforceProtectedPathsDacl([filePath], userSid);
+  return enforceProtectedPathsDacl([filePath], userSid, timeoutMs);
 }
 
-export async function applyProtectedPathsDacl(paths: string[]): Promise<void> {
+export async function applyProtectedPathsDacl(
+  paths: string[],
+  timeoutMs: number = WINDOWS_ACL_SPAWN_TIMEOUT_MS
+): Promise<void> {
   if (process.platform !== 'win32') return;
   if (!Array.isArray(paths) || paths.length === 0) return;
-  const sid = await resolveCurrentUserSid();
-  await enforceProtectedPathsDacl(paths, sid);
+  const sid = await resolveCurrentUserSid(timeoutMs);
+  await enforceProtectedPathsDacl(paths, sid, timeoutMs);
 }
 
-export async function applyProtectedFileDacl(filePath: string): Promise<void> {
-  await applyProtectedPathsDacl([filePath]);
+export async function applyProtectedFileDacl(
+  filePath: string,
+  timeoutMs: number = WINDOWS_ACL_SPAWN_TIMEOUT_MS
+): Promise<void> {
+  await applyProtectedPathsDacl([filePath], timeoutMs);
 }
 
-export async function atomicWriteWithDacl(targetPath: string, content: string): Promise<void> {
+export async function atomicWriteWithDacl(
+  targetPath: string,
+  content: string,
+  timeoutMs: number = WINDOWS_ACL_SPAWN_TIMEOUT_MS
+): Promise<void> {
   const parentDir = path.dirname(targetPath);
   if (!fs.existsSync(parentDir)) {
     fs.mkdirSync(parentDir, { recursive: true });
@@ -356,7 +447,7 @@ export async function atomicWriteWithDacl(targetPath: string, content: string): 
   const tempPath = `${targetPath}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`;
   fs.writeFileSync(tempPath, '', { encoding: 'utf8', mode: 0o600 });
   try {
-    await applyProtectedFileDacl(tempPath);
+    await applyProtectedFileDacl(tempPath, timeoutMs);
     fs.writeFileSync(tempPath, content, { encoding: 'utf8', mode: 0o600 });
     try {
       fs.renameSync(tempPath, targetPath);
@@ -365,7 +456,7 @@ export async function atomicWriteWithDacl(targetPath: string, content: string): 
         if (!fs.existsSync(targetPath)) {
           fs.writeFileSync(targetPath, '', { encoding: 'utf8', mode: 0o600 });
         }
-        await applyProtectedFileDacl(targetPath);
+        await applyProtectedFileDacl(targetPath, timeoutMs);
         fs.writeFileSync(targetPath, content, { encoding: 'utf8', mode: 0o600 });
         try { fs.unlinkSync(tempPath); } catch {}
       } catch (fallbackErr) {
@@ -374,7 +465,7 @@ export async function atomicWriteWithDacl(targetPath: string, content: string): 
         throw fallbackErr;
       }
     }
-    await applyProtectedFileDacl(targetPath);
+    await applyProtectedFileDacl(targetPath, timeoutMs);
   } finally {
     if (fs.existsSync(tempPath)) {
       try { fs.unlinkSync(tempPath); } catch {}

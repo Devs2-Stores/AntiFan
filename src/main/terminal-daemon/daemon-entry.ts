@@ -192,7 +192,10 @@ function main(): void {
             break;
 
           case HOST_METHOD.start: {
-            const started = tm.startTerminal(typeof p.cwd === 'string' ? p.cwd : undefined);
+            const cwd = typeof p.cwd === 'string' && p.cwd ? p.cwd : undefined;
+            const capsuleId = typeof p.capsuleId === 'string' && p.capsuleId ? p.capsuleId : undefined;
+            const ownerKey = typeof p.ownerKey === 'string' && p.ownerKey ? p.ownerKey : undefined;
+            const started = tm.startTerminal(cwd, capsuleId, ownerKey);
             respond(started, { started, sessions: tm.listSessions(), activeSessionId: tm.getActiveSessionId() });
             break;
           }
@@ -280,9 +283,12 @@ function main(): void {
           }
 
           case HOST_METHOD.newSession: {
+            const cwd = typeof p.cwd === 'string' && p.cwd ? p.cwd : undefined;
+            const capsuleId = typeof p.capsuleId === 'string' && p.capsuleId ? p.capsuleId : undefined;
+            const ownerKey = typeof p.ownerKey === 'string' && p.ownerKey ? p.ownerKey : undefined;
             const sessionId = typeof p.parentId === 'string' && p.parentId
-              ? tm.createSplitSession(p.parentId, typeof p.cwd === 'string' ? p.cwd : undefined, Number(p.cols) || undefined, Number(p.rows) || undefined)
-              : tm.createSession(typeof p.cwd === 'string' ? p.cwd : undefined);
+              ? tm.createSplitSession(p.parentId, cwd, Number(p.cols) || undefined, Number(p.rows) || undefined)
+              : tm.createSession(cwd, capsuleId, ownerKey);
             respond(true, { sessionId, sessions: tm.listSessions(), activeSessionId: tm.getActiveSessionId() });
             break;
           }
@@ -449,7 +455,8 @@ function main(): void {
             break;
 
           case HOST_METHOD.restart: {
-            await tm.restart(typeof p.cwd === 'string' ? p.cwd : undefined);
+            const ownerKey = typeof p.ownerKey === 'string' && p.ownerKey ? p.ownerKey : undefined;
+            await tm.restart(typeof p.cwd === 'string' ? p.cwd : undefined, ownerKey);
             respond(true, { restarted: true });
             break;
           }

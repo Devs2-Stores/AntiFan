@@ -15,7 +15,7 @@
  *    close names it, authority rotates, and the next target-bound dispatch lands
  *    on that tab's document with no stale-target warning on stderr.
  */
-const { app, BrowserWindow } = require('electron');
+const { app } = require('electron');
 const http = require('node:http');
 const path = require('node:path');
 const os = require('node:os');
@@ -23,6 +23,7 @@ const fs = require('node:fs');
 const crypto = require('node:crypto');
 const { spawn, execFileSync } = require('node:child_process');
 const assert = require('node:assert/strict');
+const { ProjectWindowShell } = require('../.compiled/src/main/browser/project-window-shell.js');
 const knownSecrets = new Set();
 function redactCreds(val) {
   let str = typeof val === 'string' ? val : (val instanceof Error ? (val.stack || val.message) : String(val ?? ''));
@@ -58,23 +59,83 @@ function readProcessRssBytes(pid) {
   }
 }
 
-app.commandLine.appendSwitch('no-sandbox');
-app.commandLine.appendSwitch('disable-gpu');
+// This file is both the Electron entry of the live lane and a module the unit test loads
+// to inspect the objects it builds. `require.main === module` cannot tell the two apart
+// here: Electron loads its entry through an internal main module (measured on Electron 43,
+// the entry's `require.main` is not the entry and its `module.parent` is non-null). The
+// launcher's argv identifies the lane instead — `scripts/run-electron.cjs` spawns Electron
+// with the entry it was given, this script's path.
+const IS_ENTRY = typeof process.argv[1] === 'string' && path.resolve(process.argv[1]) === __filename;
 
-const tempUserData = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-mcp-live-e2e-'));
-app.setPath('userData', tempUserData);
-// StorageLocations resolves from the ambient environment, so without this pin the lane
-// reads and writes the machine's live data root: the register that seeds issue ids, the
-// baseline authority and the artifact store all follow getDataRoot(). Pin every resolved
-// path inside this run's temp dir before any compiled module resolves one.
-process.env.ANTIFAN_DATA_ROOT = tempUserData;
-process.env.ANTIFAN_VERIFICATION_REGISTER_DIR = path.join(tempUserData, 'verification-register');
+// Set by the entry boot below, which runs before any compiled module resolves a path.
+let tempUserData;
+
+if (IS_ENTRY) {
+  app.commandLine.appendSwitch('no-sandbox');
+  app.commandLine.appendSwitch('disable-gpu');
+  tempUserData = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-mcp-live-e2e-'));
+  app.setPath('userData', tempUserData);
+  // StorageLocations resolves from the ambient environment, so without this pin the lane
+  // reads and writes the machine's live data root: the register that seeds issue ids, the
+  // baseline authority and the artifact store all follow getDataRoot(). Pin every resolved
+  // path inside this run's temp dir before any compiled module resolves one.
+  process.env.ANTIFAN_DATA_ROOT = tempUserData;
+  process.env.ANTIFAN_VERIFICATION_REGISTER_DIR = path.join(tempUserData, 'verification-register');
+}
+
 const { BridgeServer } = require('../.compiled/src/main/bridge/bridge-server.js');
 const { makeControlPlaneId, issueRuntimeLease } = require('../.compiled/src/shared/control-plane-contracts.js');
 const { BrowserControlPort } = require('../.compiled/src/main/tools/browser-control-port.js');
 const { ControlPlaneRuntime } = require('../.compiled/src/main/control-plane/control-plane-runtime.js');
 const { AttachmentRegistry } = require('../.compiled/src/main/run/attachment-registry.js');
 const { NativeTabHost } = require('../.compiled/src/main/browser/native-tab-host.js');
+
+/**
+ * The capture-lane host fields `BrowserControlPort` reads to decide whether a tab can
+ * render at all (`src/main/tools/browser-control-port.ts:2303,2322,2364`): with no
+ * `readRenderSurface` the gate returns before checking anything, so a harness that omits
+ * it proves a capture on a surface it never measured. Built here so the port's gate and
+ * this harness cannot drift apart.
+ */
+function captureLaneHostFields(tabHost) {
+  return {
+    getSessionTabList: (boundTabId) => tabHost.getSessionTabRecords(boundTabId),
+    isTabOffscreen: (tabId) => tabHost.isTabOffscreen(tabId),
+    readRenderSurface: (tabId, paneId, timeoutMs) => tabHost.readRenderSurface(tabId, paneId, timeoutMs),
+  };
+}
+
+/**
+ * Session ownership (src/main/index.ts:406-407): `anti.browser.tabs.create` adopts the tab
+ * it opens into the session pool, and closing a pooled tab is what records the anchor the
+ * failover path reads. A harness that omits these can create tabs that no session owns, so
+ * no later close can hand the session a replacement.
+ */
+function sessionOwnershipHostFields(tabHost) {
+  return {
+    adoptChildTab: (primaryOrBoundTabId, childTabId) => tabHost.adoptChildTabForBoundTab(primaryOrBoundTabId, childTabId),
+    getManagedTabIds: (primaryOrBoundTabId) => tabHost.getManagedTabIdsForBoundTab(primaryOrBoundTabId),
+  };
+}
+
+/**
+ * The catalogue delegates the composition root installs (`src/main/index.ts:1828-1843`).
+ * Without `resolveTabId`/`resolveFailoverTabId` the catalogue resolves every bound tab to
+ * `undefined`, so the transport reads a live tab as gone, warns on every dispatch, and can
+ * never reach its heal path. `getDocumentGeneration` rides along because the runtime stamps
+ * it on every dispatch record.
+ */
+function runtimeDelegates(tabHost) {
+  return {
+    getDocumentGeneration: (id) => tabHost.getDocumentGeneration(id),
+    isTabAllowed: (primaryTabId, requestedTabId) => tabHost.isTabAllowedForPrimary(primaryTabId, requestedTabId),
+    resolveTabId: (id) => tabHost.resolveTargetTabId(id),
+    resolveFailoverTabId: (staleTabId) => tabHost.getFailoverTargetTab(staleTabId),
+  };
+}
+
+module.exports = { captureLaneHostFields, sessionOwnershipHostFields, runtimeDelegates };
+
 async function runMcpLiveE2ETest() {
   console.log('[Live Electron MCP E2E] Starting live Chromium storefront benchmark...');
 
@@ -164,17 +225,15 @@ async function runMcpLiveE2ETest() {
     });
 
     // 2. Launch live Electron BrowserWindow and real NativeTabHost
-    mainWindow = new BrowserWindow({
-      width: 1200,
-      height: 800,
+    const mainWindowShell = new ProjectWindowShell({
+      owner: { kind: 'project', projectId: 'project-00000000-0000-4000-8000-000000000001' },
+      title: 'AntiFan Smoke Window',
+      bounds: { width: 1200, height: 800 },
       show: true,
-      webPreferences: {
-        nodeIntegration: false,
-        contextIsolation: true,
-      },
     });
+    mainWindow = mainWindowShell.window;
 
-    tabHost = new NativeTabHost(mainWindow);
+    tabHost = new NativeTabHost(mainWindowShell);
 
     // Open storefront tab in real NativeTabHost first
     const storefrontUrl = `http://127.0.0.1:${httpPort}/products/winter-parka`;
@@ -202,13 +261,10 @@ async function runMcpLiveE2ETest() {
       workspaceId,
       allowEval: false,
       getAutomationTabId: () => tabHost.getAutomationTabId(),
-      getDocumentGeneration: (id) => tabHost.getDocumentGeneration(id),
-      // Mirrors the composition root (src/main/index.ts). Without these three the catalogue
-      // resolves every bound tab to `undefined`, so the transport reads a live tab as gone,
-      // warns on every dispatch and can never reach its heal path.
-      isTabAllowed: (primaryTabId, requestedTabId) => tabHost.isTabAllowedForPrimary(primaryTabId, requestedTabId),
-      resolveTabId: (id) => tabHost.resolveTargetTabId(id),
-      resolveFailoverTabId: (staleTabId) => tabHost.getFailoverTargetTab(staleTabId),
+      // Mirrors the composition root (src/main/index.ts). Without these delegates the
+      // catalogue resolves every bound tab to `undefined`, so the transport reads a live
+      // tab as gone, warns on every dispatch and can never reach its heal path.
+      ...runtimeDelegates(tabHost),
     });
 
     const session = await controlPlaneRuntime.createCliSession({
@@ -249,12 +305,17 @@ async function runMcpLiveE2ETest() {
       hasTab: (tabId) => tabHost.hasTab(tabId),
       resolveTargetTabId: (tabId) => tabHost.resolveTargetTabId(tabId),
       getFailoverTargetTab: (tabId) => tabHost.getFailoverTargetTab(tabId),
+      // Routed creation verifies the anchor tab's capsule affiliation before it allocates
+      // (src/main/index.ts:1717 reads it from the capsule manager). This harness runs one
+      // project window and one session bound to this project/workspace, so a live tab is
+      // affiliated with exactly that pair - answering anything else would refuse the routed
+      // creation the harness exists to prove.
+      resolveTabAffiliation: (tabId) => (tabHost.hasTab(tabId) ? { projectId, workspaceId } : undefined),
       // Session ownership (src/main/index.ts:406-407): `anti.browser.tabs.create` adopts
       // the tab it opens into the session pool, and closing a pooled tab is what records
       // the anchor the failover path reads. A harness that omits these can create tabs
       // that no session owns - and then no close can hand the session a replacement.
-      adoptChildTab: (primaryOrBoundTabId, childTabId) => tabHost.adoptChildTabForBoundTab(primaryOrBoundTabId, childTabId),
-      getManagedTabIds: (primaryOrBoundTabId) => tabHost.getManagedTabIdsForBoundTab(primaryOrBoundTabId),
+      ...sessionOwnershipHostFields(tabHost),
       getDiagnostics: (id, level) => tabHost.getDiagnostics(id, level),
       agentTrajectory: (params) => tabHost.agentTrajectory(params),
       agentMove: (args) => tabHost.agentMove(args),
@@ -275,9 +336,7 @@ async function runMcpLiveE2ETest() {
       // reads these three to decide whether a tab has a laid-out surface at all, so a
       // harness that omits them drives the gate as a silent no-op and can only ever
       // prove that capture works on tabs whose surface was never measured.
-      getSessionTabList: (boundTabId) => tabHost.getSessionTabRecords(boundTabId),
-      isTabOffscreen: (tabId) => tabHost.isTabOffscreen(tabId),
-      readRenderSurface: (tabId, paneId, timeoutMs) => tabHost.readRenderSurface(tabId, paneId, timeoutMs),
+      ...captureLaneHostFields(tabHost),
     }, controlPlaneRuntime.artifacts);
     tabHost.setViewportGate(browserPort.viewportGate);
     controlPlaneRuntime.registerBrowser(browserPort);
@@ -877,23 +936,25 @@ async function runMcpLiveE2ETest() {
   }
 }
 
-// U35: Top-level process watchdog to bound the run and prevent indefinite hangs
-// if Chromium or Electron initialization blocks before or during whenReady.
-const SUITE_WATCHDOG_TIMEOUT_MS = 180_000;
-const suiteWatchdog = setTimeout(() => {
-  console.error(`[Live Electron MCP E2E TIMEOUT] Process watchdog fired after ${SUITE_WATCHDOG_TIMEOUT_MS / 1000}s`);
-  app.exit(1);
-}, SUITE_WATCHDOG_TIMEOUT_MS);
+if (IS_ENTRY) {
+  // U35: Top-level process watchdog to bound the run and prevent indefinite hangs
+  // if Chromium or Electron initialization blocks before or during whenReady.
+  const SUITE_WATCHDOG_TIMEOUT_MS = 180_000;
+  const suiteWatchdog = setTimeout(() => {
+    console.error(`[Live Electron MCP E2E TIMEOUT] Process watchdog fired after ${SUITE_WATCHDOG_TIMEOUT_MS / 1000}s`);
+    app.exit(1);
+  }, SUITE_WATCHDOG_TIMEOUT_MS);
 
-app.whenReady().then(() => {
-  runMcpLiveE2ETest()
-    .then(() => {
-      clearTimeout(suiteWatchdog);
-      app.exit(0);
-    })
-    .catch((err) => {
-      clearTimeout(suiteWatchdog);
-      console.error('[Live Electron MCP E2E FAIL]', redactCreds(err));
-      app.exit(1);
-    });
-});
+  app.whenReady().then(() => {
+    runMcpLiveE2ETest()
+      .then(() => {
+        clearTimeout(suiteWatchdog);
+        app.exit(0);
+      })
+      .catch((err) => {
+        clearTimeout(suiteWatchdog);
+        console.error('[Live Electron MCP E2E FAIL]', redactCreds(err));
+        app.exit(1);
+      });
+  });
+}

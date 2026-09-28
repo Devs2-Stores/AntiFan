@@ -8,8 +8,9 @@ import {
   MAX_REPAIR_ITERATIONS,
   type ThreeAxisState,
 } from '../../src/main/qa/three-axis-stop';
-import { ThemeQaWorkflow } from '../../src/main/qa/theme-qa-workflow';
+import { ThemeQaWorkflow, type ThemeQaReport } from '../../src/main/qa/theme-qa-workflow';
 import type { ThemeRepairBeginResult, ThemeRepairVerificationResult } from '../../src/main/qa/theme-qa-repair-coordinator';
+import { ThemeQaRepairCoordinator } from '../../src/main/qa/theme-qa-repair-coordinator';
 import {
   BrowserTarget,
   CapabilityError,
@@ -326,5 +327,83 @@ describe('ThemeQaRepairCoordinator 3-axis stop wiring', () => {
     } finally {
       mutableHost.evalJs = originalEvalJs;
     }
+  });
+});
+
+describe('ThemeQaRepairCoordinator single-round gap threshold (m_d axis)', () => {
+  let workspaceRoot = '';
+  let target: BrowserTarget;
+
+  beforeEach(() => {
+    workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-md-axis-'));
+    target = { projectId: 'p', workspaceId: 'w', runtimeId: 'r', tabId: 't' } as unknown as BrowserTarget;
+  });
+
+  afterEach(() => {
+    fs.rmSync(workspaceRoot, { recursive: true, force: true });
+  });
+
+  const gapReport = (gapCount: number): ThemeQaReport =>
+    ({
+      summary: { passed: false },
+      findings: {
+        differential: { hasRegressions: false },
+        evidenceGaps: Array.from({ length: gapCount }, (_, index) => `gap-${index}`),
+      },
+    }) as unknown as ThemeQaReport;
+
+  const coordinatorReporting = (gapCount: () => number): ThemeQaRepairCoordinator =>
+    new ThemeQaRepairCoordinator({
+      validate: async () => gapReport(gapCount()),
+    } as unknown as ThemeQaWorkflow);
+
+  it('blocks the session on the first round that reports more gaps than the threshold', async () => {
+    let gaps = 1;
+    const coordinator = coordinatorReporting(() => gaps);
+    fs.writeFileSync(path.join(workspaceRoot, 'theme.liquid'), 'v1');
+    const begin = (await coordinator.begin({ workspaceRoot, target, runId: 'run-md-axis' })) as ThemeRepairBeginResult;
+
+    gaps = 4;
+    fs.writeFileSync(path.join(workspaceRoot, 'theme.liquid'), 'v2');
+    await assert.rejects(
+      coordinator.verify({ sessionId: begin.sessionId, target }),
+      (error: unknown) =>
+        error instanceof CapabilityError &&
+        error.code === 'SETTLE_INCOMPLETE' &&
+        error.message.includes('STOP_CRITERIA_EXCEEDED')
+    );
+
+    // The session is terminal, not awaiting another fix: the state machine refuses it by name.
+    await assert.rejects(
+      coordinator.verify({ sessionId: begin.sessionId, target }),
+      (error: unknown) =>
+        error instanceof CapabilityError && error.code === 'REPLAY_DENIED' && error.message.includes('"blocked"')
+    );
+  });
+
+  it('keeps the session retryable when a round stays within the gap threshold', async () => {
+    let gaps = 1;
+    const coordinator = coordinatorReporting(() => gaps);
+    fs.writeFileSync(path.join(workspaceRoot, 'theme.liquid'), 'v1');
+    const begin = (await coordinator.begin({ workspaceRoot, target, runId: 'run-md-axis' })) as ThemeRepairBeginResult;
+
+    gaps = 3;
+    fs.writeFileSync(path.join(workspaceRoot, 'theme.liquid'), 'v2');
+    await assert.rejects(
+      coordinator.verify({ sessionId: begin.sessionId, target }),
+      (error: unknown) =>
+        error instanceof CapabilityError &&
+        error.code === 'SETTLE_INCOMPLETE' &&
+        !error.message.includes('STOP_CRITERIA_EXCEEDED')
+    );
+
+    // Still awaiting a fix: the unchanged revision is refused as a replay, not as a blocked session.
+    await assert.rejects(
+      coordinator.verify({ sessionId: begin.sessionId, target }),
+      (error: unknown) =>
+        error instanceof CapabilityError &&
+        error.code === 'REPLAY_DENIED' &&
+        error.message.includes('has not changed')
+    );
   });
 });

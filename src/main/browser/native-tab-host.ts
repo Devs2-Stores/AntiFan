@@ -7,6 +7,7 @@
 import { app, BrowserWindow, WebContentsView, Menu, MenuItem, clipboard, Rectangle, ipcMain, shell, dialog, net, session, safeStorage, screen } from 'electron';
 import { spawn } from 'node:child_process';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { recordLifecycleEvent } from '../diagnostics/main-lifecycle-log';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -14,7 +15,7 @@ import { randomUUID, createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { performance } from 'node:perf_hooks';
 import { StorageLocations } from '../config/storage-locations';
-import { AntiFanTab, SplitPaneId, AntiFanPickedElement, TOOLBAR_CHANNELS, SIDEBAR_CHANNELS, TERMINAL_CHANNELS, FRAME_BACKDROP_CHANNELS, TerminalAckPayload, TerminalDataPayload, TerminalTabLayout, TerminalTabPrefs, TERMINAL_TAB_LAYOUT_DEFAULT_WIDTH, clampTerminalTabSidebarWidth, TERMINAL_CATEGORY_COLORS_MAX, TERMINAL_CATEGORY_COLOR_PATTERN, ToolbarPhoneStatus, TerminalAgentAffinityInfo, TabsUpdatedPayload } from '../../shared/contracts';
+import { AntiFanTab, SplitPaneId, AntiFanPickedElement, TOOLBAR_CHANNELS, SIDEBAR_CHANNELS, TERMINAL_CHANNELS, FRAME_BACKDROP_CHANNELS, TerminalAckPayload, TerminalDataPayload, TerminalTabLayout, TerminalTabPrefs, TERMINAL_TAB_LAYOUT_DEFAULT_WIDTH, clampTerminalTabSidebarWidth, TERMINAL_CATEGORY_COLORS_MAX, TERMINAL_CATEGORY_COLOR_PATTERN, ToolbarPhoneStatus, TerminalAgentAffinityInfo, TabsUpdatedPayload, ProjectWindowIdentity } from '../../shared/contracts';
 import { getSecureWebPreferences, sanitizeUrl, isAllowedNavigation, cleanRestoredUrl, isInternalWidgetOrSubframeUrl } from '../security/security-policy';
 import { ELEMENT_PICKER_SCRIPT } from './element-picker';
 import { resolveWorkspaceFromUrl, DEFAULT_WORKSPACE_ROOTS } from './workspace-resolver';
@@ -37,7 +38,7 @@ import { TabDiagnosticsManager, computeOrigin, normalizeConsoleLevel } from './t
 import type { CaptureViewportTransaction, RenderSurfaceSnapshot, VerificationCaptureEnvelope } from '../verification/visual-capture';
 import { buildKeyboardInputEvents } from './keyboard-normalizer';
 import { FirstPartyNetworkTracker, type NetworkTrackerStats } from './first-party-network-tracker';
-import { WorkspaceCapsuleManager, type WorkspaceCapsule } from '../project/workspace-capsule';
+import { WorkspaceCapsuleManager, findCapsuleByRoot, findReusableCapsule, type WorkspaceCapsule } from '../project/workspace-capsule';
 import { PreviewWatcherPool, type PreviewChangeEvent } from '../server/preview-watcher-pool';
 import { buildPreviewUrl, parsePreviewUrl } from '../server/preview-url-codec';
 import type { ControlPlaneResourceStats, ControlPlaneRuntime } from '../control-plane/control-plane-runtime';
@@ -49,7 +50,7 @@ import { LocalSessionVault, isTrustedSessionVaultSender } from './local-session-
 import { LocalCredentialVault, resolveSenderFrameOrigin } from './local-credential-vault';
 import { HaravanUploader } from './haravan-uploader';
 import type { ActionSequenceParams, ActionSequenceResult } from './tab-automation-host';
-import { TerminalManager, selectAnnotationTargets, type TerminalManagerStats } from './terminal-manager';
+import { TerminalManager, DEFAULT_TERMINAL_CAPSULE_ID, workspaceTerminalProvenance, selectAnnotationTargets, type SessionSummary, type TerminalDiagnosticsReport, type TerminalManagerStats, type TerminalSessionStateProjection } from './terminal-manager';
 import { checkForUpdatesAndRestart } from './app-menu';
 import { SkillScanner } from './skill-scanner';
 import { getCoreHealthService } from '../diagnostics/core-health';
@@ -59,6 +60,9 @@ import { UnmeasuredReason } from '../diagnostics/mcp-dispatch-accounting';
 import { WindowStateManager, WindowState } from './window-state';
 import { BridgeServer } from '../bridge/bridge-server';
 import { ViewportGate } from '../tools/browser-control-port';
+import { safeSendWebContents } from './web-contents-guard';
+import { ownerKey, ownerLabel, type ProjectWindowShell, type WindowOwner, type ChromeSurface } from './project-window-shell';
+import { installChromeIpcOnce, type IpcRoute, type IpcEvent } from './ipc-router';
 
 import { HistoryManager } from './history-manager';
 import { OAuthPopupManager } from './oauth-popup-manager';
@@ -121,6 +125,337 @@ const TERMINAL_COLLAPSED_CATEGORIES_MAX = 64;
 const TERMINAL_CATEGORIES_MAX = 64;
 const TERMINAL_CATEGORY_NAME_MAX = 48;
 
+/**
+ * Version of the saved-tabs document this authority writes. Version 1 was the
+ * flat document (top-level `tabs`/`activeTabId`); it carried no verified
+ * affiliation, so its records migrate to Unassigned. Every owner-keyed document
+ * states its version, which is what makes the migration run exactly once.
+ */
+export const SAVED_TABS_SCHEMA_VERSION = 2;
+
+/** Owner key of the Unassigned window; derived, never a second literal. */
+const UNASSIGNED_OWNER_KEY = ownerKey({ kind: 'unassigned' });
+
+/** One terminal window as persisted inside the record of the window that owns it. */
+export interface SavedTerminalWindowRecord {
+  sessionId?: string;
+  bounds?: { x?: number; y?: number; width?: number; height?: number; isMaximized?: boolean };
+  isPopout?: boolean;
+}
+
+/** A terminal-to-tab affinity as persisted inside its owner's record. */
+export interface SavedTerminalAffinityRecord {
+  terminalId: string;
+  primaryTabId: string;
+  managedTabIds: string[];
+}
+
+/** The persisted browser state of one window, keyed by its serialized owner. */
+export interface SavedTabsOwnerRecord {
+  activeTabId?: string;
+  tabs: Array<Record<string, unknown>>;
+  terminalWindows?: SavedTerminalWindowRecord[];
+  terminalAffinities?: SavedTerminalAffinityRecord[];
+  isTerminalPopoutOpen?: boolean;
+  wasSidebarOpenBeforePopout?: boolean;
+  popoutSessionId?: string;
+  updatedAt: number;
+}
+
+/**
+ * The on-disk saved-tabs document. `owners` is the only place window-scoped
+ * browser state lives; the remaining top-level keys are application-wide
+ * preferences (bookmarks, muted sites, profile, terminal presentation) that were
+ * shared before project windows existed and stay shared.
+ */
+export interface SavedTabsDocument extends Record<string, unknown> {
+  version: number;
+  owners: Record<string, SavedTabsOwnerRecord>;
+  sidebarWidth?: number;
+  isSidebarOpen?: boolean;
+  mutedSites?: string[];
+  bookmarks?: BookmarkItem[];
+  activeChromeProfileId?: string;
+  terminalTabLayout?: TerminalTabLayout;
+  terminalSidebarWidth?: number;
+  terminalCollapsedCategories?: string[];
+  terminalCategories?: string[];
+  terminalCategoryColors?: Record<string, string>;
+  terminalStarredCategories?: string[];
+  updatedAt?: number;
+}
+
+/**
+ * Persisted tab entries, as written from tab states. Non-object entries are
+ * dropped here rather than cast, so everything downstream reads a real object.
+ */
+function tabRecordsFromUnknown(value: unknown): Array<Record<string, unknown>> {
+  if (!Array.isArray(value)) return [];
+  const records: Array<Record<string, unknown>> = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
+    records.push(entry as Record<string, unknown>);
+  }
+  return records;
+}
+
+const TERMINAL_BOUND_KEYS = ['x', 'y', 'width', 'height'] as const;
+
+/** Persisted terminal windows, with every field re-checked against its declared type. */
+function terminalWindowRecordsFromUnknown(value: unknown): SavedTerminalWindowRecord[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const records: SavedTerminalWindowRecord[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
+    const source = entry as Record<string, unknown>;
+    const record: SavedTerminalWindowRecord = {};
+    if (typeof source.sessionId === 'string') record.sessionId = source.sessionId;
+    if (typeof source.isPopout === 'boolean') record.isPopout = source.isPopout;
+    const rawBounds = source.bounds;
+    if (rawBounds && typeof rawBounds === 'object' && !Array.isArray(rawBounds)) {
+      const boundsSource = rawBounds as Record<string, unknown>;
+      const bounds: NonNullable<SavedTerminalWindowRecord['bounds']> = {};
+      for (const key of TERMINAL_BOUND_KEYS) {
+        const coordinate = boundsSource[key];
+        if (typeof coordinate === 'number' && Number.isFinite(coordinate)) bounds[key] = coordinate;
+      }
+      if (typeof boundsSource.isMaximized === 'boolean') bounds.isMaximized = boundsSource.isMaximized;
+      record.bounds = bounds;
+    }
+    records.push(record);
+  }
+  return records;
+}
+
+/** Persisted terminal-to-tab affinities; an entry missing its ids is not an affinity. */
+function terminalAffinityRecordsFromUnknown(value: unknown): SavedTerminalAffinityRecord[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const records: SavedTerminalAffinityRecord[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
+    const source = entry as Record<string, unknown>;
+    if (typeof source.terminalId !== 'string' || typeof source.primaryTabId !== 'string') continue;
+    const managedTabIds = Array.isArray(source.managedTabIds)
+      ? source.managedTabIds.filter((id): id is string => typeof id === 'string')
+      : [];
+    records.push({ terminalId: source.terminalId, primaryTabId: source.primaryTabId, managedTabIds });
+  }
+  return records;
+}
+
+/** Outcome of the one-time legacy migration. */
+export interface SavedTabsMigrationResult {
+  migrated: boolean;
+  reason?: string;
+}
+
+/**
+ * Workspace a window's terminals belong to. Main resolves and validates it
+ * against the workspace registry; the host never derives it from focus, from the
+ * renderer, or from another window's live state.
+ */
+export interface WindowWorkspaceAffiliation {
+  workspacePath: string;
+  /** Capsule the window's terminals are pinned to, when one is verified. */
+  capsuleId?: string;
+}
+
+/** Where a new terminal's working directory came from. */
+export type TerminalCreationSource = 'popout-session' | 'window-workspace' | 'process-default';
+
+export interface TerminalCreationTarget {
+  cwd: string;
+  /**
+   * The capsule this session belongs to. Always concrete: the window's verified capsule,
+   * a popout session's own, or the sentinel for a window that has none — never left to the
+   * manager's process-wide ambient capsule, which is another window's workspace whenever
+   * two project windows are open.
+   */
+  capsuleId: string;
+  /**
+   * Owner key of the window the session is minted for. The key travels with the session and
+   * is what its visibility is decided by afterwards, so a terminal belongs to the window that
+   * asked for it even when a sibling window shares the same folder and the same capsule. A
+   * mint with no window to attribute — the process-start directory fallback — carries the
+   * manager's `'unassigned'` sentinel instead of guessing a window.
+   */
+  ownerKey: string;
+  source: TerminalCreationSource;
+}
+
+/** One user-visible tab in the cross-project search inventory. */
+export interface TabSearchInventoryRow {
+  tabId: string;
+  title: string;
+  url: string;
+  ownerKey: string;
+  ownerLabel: string;
+  /** Workspace label that distinguishes two projects with the same name. */
+  projectPath?: string;
+  active: boolean;
+  /** Position in the owning window's strip; the inventory's stable order. */
+  order: number;
+}
+
+/** Why an activation was refused. Both mean "unavailable"; neither permits a fallback. */
+export type TabSearchActivationFailure = 'TAB_UNAVAILABLE' | 'OWNER_CHANGED';
+
+export type TabSearchActivationResult =
+  | { ok: true; tabId: string; ownerKey: string; ownerLabel: string }
+  | { ok: false; tabId: string; reason: TabSearchActivationFailure };
+
+/**
+ * The manager methods the window-scoped projections need. `TerminalManager` can
+ * also be the daemon proxy, which implements only the long-standing surface, so
+ * every added call is optional and degrades to the unscoped process view.
+ */
+type TerminalManagerSeam = TerminalManager & {
+  getDefaultCwd?(): string;
+  sessionCapsuleId?(sessionId: string): string | undefined;
+  /**
+   * Owner key the session was minted under, or undefined for a row written before ownership
+   * existed. Optional like the capsule accessor: a minimal seam may not answer it, and the
+   * scope then falls back to the legacy capsule rule rather than admitting everything.
+   */
+  sessionOwnerKey?(sessionId: string): string | undefined;
+};
+
+function isExistingDirectory(candidate: string | undefined): boolean {
+  if (!candidate) return false;
+  try {
+    return fs.statSync(candidate).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Normalize any parsed saved-tabs document into its owner-keyed shape. Pure, so
+ * the migration decision can be inspected without touching the file.
+ *
+ * A legacy document has no verified affiliation for its records — the flat file
+ * predates project windows and names no project — so they become the Unassigned
+ * window's record rather than being guessed onto whichever window reads them.
+ */
+export function normalizeSavedTabsDocument(data: Record<string, unknown>): { document: SavedTabsDocument; migrated: boolean } {
+  const existingOwners: Record<string, SavedTabsOwnerRecord> = {};
+  const ownersValue = data.owners;
+  if (ownersValue && typeof ownersValue === 'object' && !Array.isArray(ownersValue)) {
+    for (const [key, value] of Object.entries(ownersValue)) {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
+      if (!('tabs' in value) || !Array.isArray(value.tabs)) continue;
+      const record: SavedTabsOwnerRecord = { tabs: tabRecordsFromUnknown(value.tabs), updatedAt: Date.now() };
+      if ('activeTabId' in value && typeof value.activeTabId === 'string') record.activeTabId = value.activeTabId;
+      if ('updatedAt' in value && typeof value.updatedAt === 'number') record.updatedAt = value.updatedAt;
+      const terminalWindows = terminalWindowRecordsFromUnknown(value.terminalWindows);
+      if (terminalWindows) record.terminalWindows = terminalWindows;
+      const terminalAffinities = terminalAffinityRecordsFromUnknown(value.terminalAffinities);
+      if (terminalAffinities) record.terminalAffinities = terminalAffinities;
+      if ('isTerminalPopoutOpen' in value && typeof value.isTerminalPopoutOpen === 'boolean') record.isTerminalPopoutOpen = value.isTerminalPopoutOpen;
+      if ('wasSidebarOpenBeforePopout' in value && typeof value.wasSidebarOpenBeforePopout === 'boolean') record.wasSidebarOpenBeforePopout = value.wasSidebarOpenBeforePopout;
+      if ('popoutSessionId' in value && typeof value.popoutSessionId === 'string') record.popoutSessionId = value.popoutSessionId;
+      existingOwners[key] = record;
+    }
+  }
+
+  const legacyTabs = tabRecordsFromUnknown(data.tabs);
+  const legacyTerminalWindows = terminalWindowRecordsFromUnknown(data.terminalWindows);
+  const legacyAffinities = terminalAffinityRecordsFromUnknown(data.terminalAffinities);
+  const hasLegacyWindowState = legacyTabs.length > 0
+    || Boolean(legacyTerminalWindows?.length)
+    || Boolean(legacyAffinities?.length)
+    || typeof data.activeTabId === 'string'
+    || data.isTerminalPopoutOpen === true;
+
+  if (data.version === SAVED_TABS_SCHEMA_VERSION && !hasLegacyWindowState) {
+    return { document: { ...data, version: SAVED_TABS_SCHEMA_VERSION, owners: existingOwners }, migrated: false };
+  }
+
+  const owners: Record<string, SavedTabsOwnerRecord> = { ...existingOwners };
+  if (hasLegacyWindowState) {
+    const previous = owners[UNASSIGNED_OWNER_KEY];
+    owners[UNASSIGNED_OWNER_KEY] = {
+      activeTabId: typeof data.activeTabId === 'string' ? data.activeTabId : previous?.activeTabId,
+      tabs: legacyTabs.length > 0 ? legacyTabs : (previous?.tabs ?? []),
+      terminalWindows: legacyTerminalWindows ?? previous?.terminalWindows,
+      terminalAffinities: legacyAffinities ?? previous?.terminalAffinities,
+      isTerminalPopoutOpen: data.isTerminalPopoutOpen === true || previous?.isTerminalPopoutOpen === true,
+      wasSidebarOpenBeforePopout: typeof data.wasSidebarOpenBeforePopout === 'boolean' ? data.wasSidebarOpenBeforePopout : previous?.wasSidebarOpenBeforePopout,
+      popoutSessionId: typeof data.popoutSessionId === 'string' ? data.popoutSessionId : previous?.popoutSessionId,
+      updatedAt: typeof data.updatedAt === 'number' ? data.updatedAt : Date.now(),
+    };
+  }
+
+  const document: SavedTabsDocument = { ...data, version: SAVED_TABS_SCHEMA_VERSION, owners };
+  // The flat keys are now owner-scoped: leaving them behind would let a reader
+  // that ignores `owners` see the same tabs under two owners.
+  delete document.tabs;
+  delete document.activeTabId;
+  delete document.terminalWindows;
+  delete document.terminalAffinities;
+  delete document.isTerminalPopoutOpen;
+  delete document.wasSidebarOpenBeforePopout;
+  delete document.popoutSessionId;
+  return { document, migrated: true };
+}
+
+/**
+ * Per-file serialization of saved-tabs writes. Every window merges its own owner
+ * record into the same document, and each merge is a read-modify-write: running
+ * two of them concurrently would let the later rename drop the earlier window's
+ * record. The chain keeps the read inside the critical section.
+ */
+const savedTabsWriteChains = new Map<string, Promise<unknown>>();
+
+function enqueueSavedTabsWrite<T>(filePath: string, task: () => Promise<T>): Promise<T> {
+  const previous = savedTabsWriteChains.get(filePath) ?? Promise.resolve();
+  const run = previous.then(task, task);
+  savedTabsWriteChains.set(filePath, run.then(() => undefined, () => undefined));
+  return run;
+}
+
+/**
+ * Cross-window search inventory. Hosts arrive in the caller's stable order (the
+ * Main window directory) and each reports its own strip order, so an empty query
+ * returns a deterministic list and a non-empty query only filters it — matching
+ * is literal and case-insensitive, and the order never depends on which window
+ * happens to be focused.
+ */
+export function collectTabSearchInventory(hosts: readonly NativeTabHost[], query: string): TabSearchInventoryRow[] {
+  const needle = typeof query === 'string' ? query.trim().toLowerCase() : '';
+  const rows: TabSearchInventoryRow[] = [];
+  for (const host of hosts) {
+    if (!host) continue;
+    rows.push(...host.listSearchInventory());
+  }
+  if (!needle) return rows;
+  return rows.filter((row) => row.title.toLowerCase().includes(needle) || row.url.toLowerCase().includes(needle));
+}
+
+/**
+ * Activation entry point for `'antifan:tabs:search-activate'`.
+ *
+ * The tab is found by exact identity across live windows, then revalidated inside
+ * the window that currently owns it — existence, current owner and user
+ * visibility — with no await between validation and selection. A result whose tab
+ * closed, moved, or became an automation surface is reported unavailable; it is
+ * never substituted by index and no attachment is changed, so the caller must not
+ * present a window for a refused result.
+ */
+export function activateTabSearchResult(
+  hosts: readonly NativeTabHost[],
+  request: { tabId: string; expectedOwnerKey: string },
+): TabSearchActivationResult {
+  const tabId = typeof request?.tabId === 'string' ? request.tabId : '';
+  const expectedOwnerKey = typeof request?.expectedOwnerKey === 'string' ? request.expectedOwnerKey : '';
+  if (!tabId) return { ok: false, tabId, reason: 'TAB_UNAVAILABLE' };
+  for (const host of hosts) {
+    if (!host?.hasExactTab(tabId)) continue;
+    return host.selectSearchResultTab(tabId, expectedOwnerKey);
+  }
+  return { ok: false, tabId, reason: 'TAB_UNAVAILABLE' };
+}
+
 
 function getMuteSite(url: string): string | undefined {
   try {
@@ -175,26 +510,6 @@ function normalizeTerminalCategoryColors(value: unknown): Record<string, string>
   }
   return out;
 }
-/**
- * Safely dispatches IPC messages to a WebContents instance, guarding against
- * frame lifecycle races (e.g. disposed WebFrameMain during process termination/reloads).
- */
-export function safeSendWebContents(
-  wc: Electron.WebContents | null | undefined,
-  channel: string,
-  ...args: unknown[]
-): boolean {
-  if (!wc || wc.isDestroyed()) return false;
-  try {
-    if (typeof wc.isCrashed === 'function' && wc.isCrashed()) return false;
-    if (!wc.mainFrame) return false;
-    wc.send(channel, ...args);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 
 export const MOBILE_OVERLAY_SCROLLBAR_CSS = `
 /* AntiFan Chrome DevTools Mobile Scrollbar Simulation */
@@ -445,11 +760,207 @@ function markSwitchStep(bucket: Record<string, number> | null, name: string, fro
   return now;
 }
 
+/**
+ * The close-admission facts this host consumes: whether a member page is inside an
+ * authorized close attempt's reservation window, whether a quit attempt holds all
+ * admission closed, and how to register the work this host is about to admit so the
+ * close gate measures real work instead of guessing. Declared structurally, and injected
+ * with `setCloseAdmission`, so the tab authority reads the facts without importing the
+ * close policy — `PageCloseReservations` in `project-close-coordinator.ts` satisfies this
+ * interface.
+ */
+export interface TabHostCloseAdmission {
+  /** True from the moment an attempt reserves the page until it releases it. */
+  isPageReserved(tabId: string): boolean;
+  /**
+   * True while a quit holds application admission closed — the broader refusal, read
+   * before the per-page one, because work admitted then would attach to services that
+   * attempt is disposing. Optional so the narrow page face still satisfies this type; an
+   * implementation that cannot answer must throw, and this host refuses rather than
+   * admitting.
+   */
+  isApplicationAdmissionReserved?(): boolean;
+  /**
+   * True from the moment an attempt reserves a window's own admission until it releases it.
+   * Read before registering owner-attributed work, so a mint asked for by a closing window's
+   * chrome — which names no page — is refused instead of being created while that window
+   * closes. Optional like the application face; an unreadable answer refuses.
+   */
+  isOwnerReserved?(ownerKey: string): boolean;
+  /**
+   * Registers one admitted operation, attributed to the pages it will reach and to the owner
+   * key of the window that asked, and returns its release — safe to call exactly once from
+   * every exit path. Either attribution may be absent; an operation that names neither is
+   * still counted process-wide. Optional: a seam without it cannot be measured, which is the
+   * behaviour a host with no seam already has.
+   */
+  beginAdmittedOperation?(tabIds?: string | readonly string[], ownerKey?: string): () => void;
+}
+
+/**
+ * Native outcome of one page's unload-aware close. Same vocabulary as the close
+ * coordinator's `PageCloseOutcome`, so `closePage` can be injected as `deps.closePage`
+ * unchanged; `failed` is a rejected promise, because a thrown native call carries the
+ * error text the coordinator reports and must never be flattened into `unknown`.
+ */
+export type TabPageCloseOutcome = 'closed' | 'vetoed' | 'unknown';
+
+/**
+ * How long one page's unload-aware close may stay silent before it is reported `unknown`.
+ *
+ * Measured on Electron 43: a live content answers `close({ waitForBeforeUnload: true })` with
+ * `destroyed` (~11ms) or `will-prevent-unload` (~0ms), and an already-destroyed content makes
+ * the call itself throw. A platform that answers a close request with NOTHING is not
+ * hypothetical — it was measured on the auxiliary terminal window, where neither `close`, nor
+ * `will-prevent-unload`, nor `closed` ever arrived — and the cost of that swallow here is
+ * permanent: the pending promise is handed to every later attempt and the tab stays
+ * unclosable under this attempt's authorization. The bound decides nothing about the close:
+ * `closed` is still reported only from a destroyed instance, and no page is ever destroyed on
+ * a timer.
+ */
+export const PAGE_CLOSE_OUTCOME_DEADLINE_MS = 1_500;
+
+/**
+ * How long a terminal window gets to finish dying before its survival is called a fact.
+ *
+ * Measured on Electron 43 alongside the shell's chrome audit: a content that asked to close
+ * still answers `isDestroyed() === false` in the calling task and is gone within ~5ms, so a
+ * judgement made in that task reports a window that was already on its way out.
+ */
+const TERMINAL_WINDOW_CLOSE_SETTLE_MS = 50;
+
+/**
+ * Narrow a renderer-supplied pane id to the two panes that exist. The IPC table
+ * receives unknown payloads; an unknown value must not reach tab state, where the
+ * string would silently travel through focus and layout comparisons.
+ */
+function normalizeSplitPaneId(value: unknown): SplitPaneId {
+  return value === 'mobile' ? 'mobile' : 'desktop';
+}
+
+/**
+ * Terminal windows that outlived the host that created them, by the id of their content.
+ *
+ * A terminal window is created by a host but belongs to the user, so host disposal asks it to
+ * close politely and a `beforeunload` veto holds — the veto is never overridden. That leaves a
+ * live window whose host no longer exists, and the application quit gate resolves an auxiliary
+ * terminal window through a *live* host (`surfaceForWebContents`). Without this registry such
+ * a window is invisible to every later attempt: alive when the application reports a committed
+ * quit, and then destroyed by the platform with its veto unread. The entry keeps the window
+ * answerable — "this webContents is a terminal window" — until the window is gone, so a later
+ * close attempt reaches it through any live shell and honours its veto.
+ *
+ * Process-wide and self-cleaning: one entry is added when a host is disposed with a live
+ * terminal window, and removed the moment that window reports itself closed or destroyed.
+ */
+const unownedTerminalWindows = new Map<number, { label: string; window: BrowserWindow }>();
+
+/**
+ * Answer for a terminal window whose host is gone. The window is checked on every lookup, so a
+ * platform-driven death that never reached the listeners cannot leave a stale answer behind.
+ */
+function unownedTerminalWindowFor(webContentsId: number): { label: string; window: BrowserWindow } | undefined {
+  const entry = unownedTerminalWindows.get(webContentsId);
+  if (!entry) return undefined;
+  let destroyed = true;
+  try {
+    destroyed = entry.window.isDestroyed();
+  } catch {
+    // A window whose native object is gone cannot be alive; the entry is worthless either way.
+    destroyed = true;
+  }
+  if (destroyed) {
+    unownedTerminalWindows.delete(webContentsId);
+    return undefined;
+  }
+  return entry;
+}
+
+/**
+ * Take responsibility for a terminal window this host could not take with it: the window stays a
+ * terminal window for as long as it lives, and the entry dies with it.
+ */
+function keepTerminalWindowAnswerable(label: string, window: BrowserWindow): void {
+  let contentsId: number;
+  try {
+    if (window.isDestroyed()) return;
+    const contents = window.webContents;
+    if (!contents || typeof contents.id !== 'number') return;
+    contentsId = contents.id;
+  } catch {
+    // A window that cannot report its content cannot be answered for either.
+    return;
+  }
+  // Chromium recycles a content id once its webContents is gone, so an entry is only kept for
+  // the window it was made for: a later window that carries the same id replaces a dead one
+  // instead of being shadowed by it. The old window's own cleanup is identity-checked, so it
+  // can never delete the entry that replaced it.
+  if (unownedTerminalWindows.get(contentsId)?.window === window) return;
+  unownedTerminalWindows.set(contentsId, { label, window });
+  const forget = (): void => {
+    if (unownedTerminalWindows.get(contentsId)?.window === window) unownedTerminalWindows.delete(contentsId);
+  };
+  try {
+    window.once('closed', forget);
+  } catch (err) {
+    console.warn('[native-tab-host] Failed to watch a terminal window left behind:', err);
+  }
+}
+
+/**
+ * Is this webContents a terminal window that no live host answers for?
+ *
+ * The application's auxiliary-surface lookup iterates live hosts, so a window that outlived
+ * every host that could answer for it — the case this registry exists for — is invisible to it
+ * even though the census proves the window is still there. The lookup asks here instead: this
+ * registry is the only place that still knows such a window is a terminal window, and it stays
+ * true until the window itself is gone.
+ */
+export function isUnhostedTerminalWindow(webContentsId: number): boolean {
+  return unownedTerminalWindowFor(webContentsId) !== undefined;
+}
+
+/**
+ * Which capsule owns a tab that is being created.
+ *
+ * Precedence, and why each step exists:
+ * 1. `explicit` — the caller measured the capsule (a routed/agent tab verified against its anchor,
+ *    a restored tab carrying its own, or a child inheriting the tab that opened it). A measured
+ *    capsule is never second-guessed.
+ * 2. `windowWorkspaceCapsuleId` — the shell's selected verified workspace. A user tab belongs to
+ *    the window it was opened in, which is not necessarily the process-wide active capsule: two
+ *    windows can hold different workspaces, and creating a tab in one must never file it under the
+ *    other's capsule.
+ * 3. `activeCapsuleId` — the last resort for a window with no verified workspace (Unassigned, a
+ *    legacy window). This is the process-wide selection, so it is only correct once nothing more
+ *    specific is known.
+ */
+export function resolveNewTabCapsuleId(input: {
+  explicit?: string | null;
+  windowWorkspaceCapsuleId?: string | null;
+  activeCapsuleId?: string | null;
+}): string | undefined {
+  for (const candidate of [input.explicit, input.windowWorkspaceCapsuleId, input.activeCapsuleId]) {
+    if (typeof candidate === 'string' && candidate.trim().length > 0) return candidate.trim();
+  }
+  return undefined;
+}
+
 export class NativeTabHost extends EventEmitter {
-  private window: BrowserWindow;
-  private toolbarView: WebContentsView;
-  private frameBackdropView: WebContentsView | null = null;
-  private sidebarView: WebContentsView | null = null;
+  /**
+   * The window this host presents in. The shell owns the BrowserWindow and the
+   * chrome views; this host owns tab identity, selection and authority. Every
+   * `this.shell.window` / `this.shell.toolbarView` reference below reads that
+   * ownership rather than a host-private copy.
+   */
+  private readonly shell: ProjectWindowShell;
+  /**
+   * The workspace this window's terminals belong to, resolved and validated by
+   * Main. Absent means "no verified association yet", which is a real state: the
+   * host then keeps the unscoped single-window behaviour instead of guessing from
+   * focus or from the process-wide active capsule.
+   */
+  private windowWorkspaceAffiliation: WindowWorkspaceAffiliation | null = null;
   /** Off-screen window that hosts a background pane for one raster so MCP capture does not paint that pane over the user's tab. */
   private captureHostWindow: BrowserWindow | null = null;
   private raisedCaptureView: WebContentsView | null = null;
@@ -637,7 +1148,7 @@ export class NativeTabHost extends EventEmitter {
         broadcastState: () => this.broadcastState(),
         emitInspectToggled: (active) => this.emit('inspect-toggled', active),
         emitElementPicked: (picked) => this.emit('element-picked', picked),
-        sendToolbarElementPicked: (picked) => safeSendWebContents(this.toolbarView?.webContents, TOOLBAR_CHANNELS.ELEMENT_PICKED, picked),
+        sendToolbarElementPicked: (picked) => safeSendWebContents(this.shell.toolbarView?.webContents, TOOLBAR_CHANNELS.ELEMENT_PICKED, picked),
         getTabTerminalSession: (tabId) => this.getTabTerminalSession(tabId),
         resolveTargetWorkspace: (targetSessionId, tabUrl) => this.resolveTargetWorkspace(targetSessionId, tabUrl),
         resolveAnnotationWorkspace: (targetSessionId, tabUrl) => this.resolveAnnotationWorkspace(targetSessionId, tabUrl),
@@ -658,11 +1169,11 @@ export class NativeTabHost extends EventEmitter {
         isTabViewAttached: (view) => this.isTabViewAttached(view),
         reassertPresentedView: () => this.reassertPresentedView(),
         raiseViewForCapture: (view, opts) => this.raiseViewForCapture(view, opts),
-        isWindowRenderable: () => !this.window.isDestroyed() && this.window.isVisible() && !this.window.isMinimized(),
+        isWindowRenderable: () => !this.shell.window.isDestroyed() && this.shell.window.isVisible() && !this.shell.window.isMinimized(),
         getWindowPresentationState: () => ({
-          visible: !this.window.isDestroyed() && this.window.isVisible(),
-          minimized: !this.window.isDestroyed() && this.window.isMinimized(),
-          maximized: !this.window.isDestroyed() && this.window.isMaximized(),
+          visible: !this.shell.window.isDestroyed() && this.shell.window.isVisible(),
+          minimized: !this.shell.window.isDestroyed() && this.shell.window.isMinimized(),
+          maximized: !this.shell.window.isDestroyed() && this.shell.window.isMaximized(),
         }),
       });
     }
@@ -718,12 +1229,12 @@ export class NativeTabHost extends EventEmitter {
 
   /** Benchmark-mode helper: counts attached desktop+mobile views; no behavior. */
   private countAttachedViews(): number {
-    if (!this.window || this.window.isDestroyed() || !this.window.contentView) return 0;
+    if (!this.shell.window || this.shell.window.isDestroyed() || !this.shell.window.contentView) return 0;
     let count = 0;
     for (const [, tab] of this.tabs.entries()) {
       try {
-        if (this.window.contentView.children.includes(tab.view)) count += 1;
-        if (tab.mobileView && this.window.contentView.children.includes(tab.mobileView)) count += 1;
+        if (this.shell.window.contentView.children.includes(tab.view)) count += 1;
+        if (tab.mobileView && this.shell.window.contentView.children.includes(tab.mobileView)) count += 1;
       } catch {}
     }
     return count;
@@ -892,9 +1403,9 @@ export class NativeTabHost extends EventEmitter {
     } catch {}
     return false;
   }
-  constructor(window: BrowserWindow, capsuleManager?: WorkspaceCapsuleManager) {
+  constructor(shell: ProjectWindowShell, capsuleManager?: WorkspaceCapsuleManager) {
     super();
-    this.window = window;
+    this.shell = shell;
     const stateDir = app ? app.getPath('userData') : StorageLocations.getConfigDir();
     this.terminalWindowStateManager = new WindowStateManager(stateDir, 900, 600, 'terminal-popout-window-state.json');
     this.capsuleManager = capsuleManager || new WorkspaceCapsuleManager({ filePath: path.join(stateDir, 'workspace-capsules.json') });
@@ -909,10 +1420,10 @@ export class NativeTabHost extends EventEmitter {
         const data = JSON.parse(raw);
         this.restoreMutedSites(data.mutedSites);
         if (typeof data.isSidebarOpen === 'boolean') {
-          this.isSidebarOpen = data.isSidebarOpen;
+          this.shell.isSidebarOpen = data.isSidebarOpen;
         }
         if (typeof data.sidebarWidth === 'number' && data.sidebarWidth >= 260 && data.sidebarWidth <= 850) {
-          this.sidebarWidth = data.sidebarWidth;
+          this.shell.sidebarWidth = data.sidebarWidth;
         }
         this.applyTerminalTabPrefs({
           layout: data.terminalTabLayout,
@@ -923,126 +1434,73 @@ export class NativeTabHost extends EventEmitter {
     } else {
       const activeCapsule = this.capsuleManager.getActive();
       if (typeof activeCapsule?.state?.sidebarOpen === 'boolean') {
-        this.isSidebarOpen = activeCapsule.state.sidebarOpen;
+        this.shell.isSidebarOpen = activeCapsule.state.sidebarOpen;
       }
       if (typeof activeCapsule?.state?.sidebarWidth === 'number' && activeCapsule.state.sidebarWidth >= 260 && activeCapsule.state.sidebarWidth <= 850) {
-        this.sidebarWidth = activeCapsule.state.sidebarWidth;
+        this.shell.sidebarWidth = activeCapsule.state.sidebarWidth;
       }
     }
     if (!this.capsuleManager.getActive()) {
       const defaultDir = fs.existsSync('E:/Work') ? 'E:/Work' : (fs.existsSync('E:\\Work') ? 'E:\\Work' : process.cwd());
       this.capsuleManager.create('Default Workspace', defaultDir, {
-        sidebarOpen: this.isSidebarOpen,
-        sidebarWidth: this.sidebarWidth,
+        sidebarOpen: this.shell.isSidebarOpen,
+        sidebarWidth: this.shell.sidebarWidth,
       });
     }
-    // 0. Create Frame Backdrop View (Bottom-most layer for realistic device chassis)
-    try {
-      this.frameBackdropView = new WebContentsView({
-        webPreferences: {
-          preload: path.join(__dirname, '..', '..', 'preload', 'frame-backdrop-preload.js'),
-          contextIsolation: true,
-          sandbox: false,
-          nodeIntegration: false,
-        },
+    // Chrome views are created and owned by the shell. The host only wires the
+    // behaviour it owns: the backdrop context menu and the terminal projection.
+    if (this.shell.frameBackdropView) {
+      this.setupBackdropContextMenu(this.shell.frameBackdropView.webContents);
+    }
+    if (this.shell.sidebarView) {
+      this.shell.sidebarView.webContents.on('did-finish-load', () => {
+        // The first paint is scoped exactly like every later push: a window with no capsule
+        // of its own shows the sessions no project claimed, never the process-wide list.
+        safeSendWebContents(
+          this.shell.sidebarView?.webContents,
+          'antifan:terminal:session',
+          this.terminalStateForWindow(TerminalManager.getInstance().getSessionState()),
+        );
       });
-      this.frameBackdropView.setBackgroundColor('#060910');
-      this.window.contentView.addChildView(this.frameBackdropView);
-
-      let backdropHtml = path.join(__dirname, '..', '..', 'renderer', 'frame-backdrop.html');
-      if (!fs.existsSync(backdropHtml)) {
-        backdropHtml = path.join(process.cwd(), 'src', 'renderer', 'frame-backdrop.html');
-      }
-      this.frameBackdropView.webContents.loadFile(backdropHtml);
-      this.setupBackdropContextMenu(this.frameBackdropView.webContents);
-    } catch (err) {
-      console.error('[native-tab-host] Failed to initialize frameBackdropView:', err);
     }
-    // 1. Create Toolbar View
-    this.toolbarView = new WebContentsView({
-      webPreferences: {
-        preload: path.join(__dirname, '..', '..', 'preload', 'toolbar-preload.js'),
-        contextIsolation: true,
-        sandbox: false,
-        nodeIntegration: false,
-      },
-    });
-    this.toolbarView.setBackgroundColor('#00000000');
-    this.window.contentView.addChildView(this.toolbarView);
-
-    let toolbarHtml = path.join(__dirname, '..', '..', 'renderer', 'toolbar.html');
-    if (!fs.existsSync(toolbarHtml)) {
-      toolbarHtml = path.join(process.cwd(), 'src', 'renderer', 'toolbar.html');
-    }
-    this.toolbarView.webContents.loadFile(toolbarHtml);
-
-    // 2. Create Terminal Workbench Sidebar View (Standalone)
-    this.sidebarView = new WebContentsView({
-      webPreferences: {
-        preload: path.join(__dirname, '..', '..', 'preload', 'standalone-preload.js'),
-        contextIsolation: true,
-        sandbox: false,
-        nodeIntegration: false,
-      },
-    });
-    this.sidebarView.setBackgroundColor('#060a11');
-    this.window.contentView.addChildView(this.sidebarView);
-
-    let standaloneHtml = path.join(__dirname, '..', '..', 'renderer', 'standalone.html');
-    if (!fs.existsSync(standaloneHtml)) {
-      standaloneHtml = path.join(process.cwd(), 'src', 'renderer', 'standalone.html');
-    }
-    this.sidebarView.webContents.on('did-finish-load', () => {
-      safeSendWebContents(this.sidebarView?.webContents, 'antifan:terminal:session', TerminalManager.getInstance().getSessionState());
-    });
-    this.sidebarView.webContents.loadFile(standaloneHtml);
 
     this.updateLayout();
 
-    this.window.on('resize', () => {
+    this.shell.onResize(() => {
       this.updateLayout();
     });
-    this.window.on('show', () => {
+    this.shell.onShow(() => {
       this.updateLayout();
     });
-    this.window.on('restore', () => {
+    this.shell.onRestore(() => {
       this.updateLayout();
     });
 
-    this.setupToolbarIpc();
-    this.setupSidebarIpc();
-    this.setupFrameBackdropIpc();
-    this.setupGlobalShortcutsOnView(this.toolbarView.webContents);
+    this.setupTerminalSubscriptions();
+    this.setupVaultIpc();
+    installChromeIpcOnce(NativeTabHost.CHROME_ROUTES);
+    this.setupGlobalShortcutsOnView(this.shell.toolbarView?.webContents);
   }
 
   public getToolbarHeight(): number {
-    return (this.isBookmarkBarVisible && this.bookmarks.length > 0)
-      ? TOOLBAR_HEIGHT_WITH_BOOKMARKS
-      : TOOLBAR_HEIGHT_COMPACT;
+    return this.shell.getToolbarHeight(this.bookmarks.length > 0, this.isBookmarkBarVisible);
   }
 
   public updateLayout(): void {
-    const { width, height } = this.window.getContentBounds();
-    const availableWidth = this.isSidebarOpen ? Math.max(400, width - this.sidebarWidth) : width;
-    const sidebarActualWidth = width - availableWidth;
     const toolbarHeight = this.getToolbarHeight();
-    const availableHeight = Math.max(0, height - toolbarHeight);
+    const geometry = this.shell.getContentGeometry(toolbarHeight);
+    // A destroyed window has no geometry to lay out: the shell reports that absence instead of
+    // raising, so a resize, restore or layout request arriving during teardown reports on
+    // nothing rather than aborting the step after it.
+    if (!geometry) return;
+    const { availableWidth, availableHeight } = geometry;
     const layoutStartMs = performance.now();
 
-    // 0. Frame Backdrop bounds (starts at y = toolbarHeight)
-    if (this.frameBackdropView) {
-      this.frameBackdropView.setBounds({ x: 0, y: toolbarHeight, width: availableWidth, height: availableHeight });
-    }
+    this.shell.applyChromeBounds(geometry, {
+      active: this.isToolbarOverlayActive,
+      extraHeight: this.toolbarOverlayCustomHeight ?? 0,
+    });
 
-    // 1. Toolbar bounds
-    if (this.isToolbarOverlayActive) {
-      const overlayHeight = this.toolbarOverlayCustomHeight && this.toolbarOverlayCustomHeight > 0
-        ? Math.min(height, toolbarHeight + this.toolbarOverlayCustomHeight)
-        : height;
-      this.toolbarView.setBounds({ x: 0, y: 0, width: availableWidth, height: overlayHeight });
-    } else {
-      this.toolbarView.setBounds({ x: 0, y: 0, width: availableWidth, height: toolbarHeight });
-    }
     if (this.activeTabId) {
       const tab = this.tabs.get(this.activeTabId);
       if (tab && tab.view && !tab.state.offscreen && !tab.state.ephemeral) {
@@ -1063,30 +1521,40 @@ export class NativeTabHost extends EventEmitter {
     }
 
 
-    // 4. Sidebar bounds
-    if (this.sidebarView) {
-      if (this.isSidebarOpen && sidebarActualWidth > 0) {
-        this.sidebarView.setBounds({ x: availableWidth, y: 0, width: sidebarActualWidth, height });
-      } else {
-        this.sidebarView.setBounds({ x: width, y: 0, width: 0, height: 0 });
-      }
-    }
     // 5. Broadcast to Frame Backdrop
     if (isBenchmarkEnabled()) {
-      recordBenchmark({ surface: 'tabs', name: 'layout', value: performance.now() - layoutStartMs, extra: { width, height, attachedViews: this.countAttachedViews() } });
+      recordBenchmark({ surface: 'tabs', name: 'layout', value: performance.now() - layoutStartMs, extra: { width: geometry.width, height: geometry.height, attachedViews: this.countAttachedViews() } });
     }
     this.enforceZOrder();
     this.syncFrameBackdrop();
   }
 
+  /**
+   * A tab or chrome view's contents while that view can still be asked anything, or undefined
+   * once it cannot. A view whose native object is gone raises on the property read itself, and
+   * that read sits on the teardown path — a throttle pass or backdrop sync over a window being
+   * torn down must report on a dead surface, not abort the step that called it.
+   */
+  private liveViewContents(view: Electron.WebContentsView | null | undefined): Electron.WebContents | undefined {
+    if (!view) return undefined;
+    try {
+      const contents = view.webContents;
+      if (!contents || contents.isDestroyed()) return undefined;
+      return contents;
+    } catch {
+      return undefined;
+    }
+  }
+
   private syncFrameBackdrop(): void {
-    if (!this.frameBackdropView || this.frameBackdropView.webContents.isDestroyed()) return;
-    if (!this.window || typeof this.window.getContentBounds !== 'function') return;
+    const backdrop = this.liveViewContents(this.shell?.frameBackdropView);
+    if (!backdrop) return;
+    // Geometry is absent once the window is gone; the shell answers that as a fact, and without
+    // it there is no surface left to publish a layout to.
+    const geometry = this.shell.getContentGeometry(this.getToolbarHeight());
+    if (!geometry) return;
+    const { availableWidth, availableHeight } = geometry;
     const activeTab = this.activeTabId ? this.tabs.get(this.activeTabId) : null;
-    const { width, height } = this.window.getContentBounds();
-    const availableWidth = this.isSidebarOpen ? Math.max(400, width - this.sidebarWidth) : width;
-    const toolbarHeight = this.getToolbarHeight();
-    const availableHeight = Math.max(0, height - toolbarHeight);
 
     const isAgentWorking = Boolean(activeTab && activeTab.state.aiState === 'agent_working');
     if (activeTab && activeTab.state.splitMode) {
@@ -1107,9 +1575,9 @@ export class NativeTabHost extends EventEmitter {
         url: activeTab.state.url || '',
         agentWorking: isAgentWorking,
       };
-      safeSendWebContents(this.frameBackdropView?.webContents, FRAME_BACKDROP_CHANNELS.UPDATE_LAYOUT, payload);
+      safeSendWebContents(backdrop, FRAME_BACKDROP_CHANNELS.UPDATE_LAYOUT, payload);
     } else {
-      safeSendWebContents(this.frameBackdropView?.webContents, FRAME_BACKDROP_CHANNELS.UPDATE_LAYOUT, {
+      safeSendWebContents(backdrop, FRAME_BACKDROP_CHANNELS.UPDATE_LAYOUT, {
         splitMode: false,
         focusedPane: 'desktop',
         containerWidth: availableWidth,
@@ -1119,162 +1587,125 @@ export class NativeTabHost extends EventEmitter {
     }
   }
 
-  private setupFrameBackdropIpc(): void {
-    ipcMain.on(FRAME_BACKDROP_CHANNELS.FOCUS_PANE, (_event, paneId: SplitPaneId) => {
-      if (this.activeTabId) {
-        this.setSplitFocusedPane(this.activeTabId, paneId);
+  private setupTerminalSubscriptions(): void {
+    // Every listener below is registered on the shared singleton, so it has to be
+    // removable by this host: `dispose()` releases exactly the handlers this instance
+    // registered, never another window's.
+    // The listener type is derived from EventEmitter itself rather than respelled, so it
+    // cannot drift from the emitter contract this call has to satisfy.
+    const subscribe = (event: string, handler: Parameters<EventEmitter['on']>[1]): void => {
+      TerminalManager.getInstance().on(event, handler);
+      this.terminalSubscriptionReleases?.push(() => {
+        try { TerminalManager.getInstance().removeListener(event, handler); } catch {}
+      });
+    };
+    const onTerminalData = (payload: TerminalDataPayload): void => {
+      // Another project's terminal output never reaches this window's subscribers.
+      if (!this.isSessionVisibleToWindow(payload.sessionId)) return;
+      const pending = this.terminalDataBatches.get(payload.sessionId);
+      if (!pending && payload.data.length <= TERMINAL_DATA_COALESCE_BYPASS_LENGTH) {
+        // Keystroke echo and other small chunks take the immediate path so typing
+        // latency is identical to the unbuffered baseline.
+        this.dispatchTerminalData(payload);
+        return;
       }
-    });
+      if (pending && pending.generation !== payload.generation) {
+        // A generation boundary (session restart) must never merge into the
+        // previous generation's batch — the renderer resets on generation change.
+        this.flushTerminalDataBatch(payload.sessionId);
+      }
+      const batch = this.terminalDataBatches.get(payload.sessionId);
+      if (batch) {
+        batch.parts.push(payload.data);
+        batch.throughSeq = payload.seq;
+      } else {
+        this.terminalDataBatches.set(payload.sessionId, {
+          parts: [payload.data],
+          fromSeq: payload.seq,
+          throughSeq: payload.seq,
+          generation: payload.generation,
+        });
+      }
+      if (!this.terminalDataFlushTimer) {
+        this.terminalDataFlushTimer = setTimeout(() => {
+          this.terminalDataFlushTimer = null;
+          this.flushAllTerminalDataBatches();
+        }, TERMINAL_DATA_FLUSH_MS);
+        this.terminalDataFlushTimer.unref?.();
+      }
+    };
+    subscribe('data', onTerminalData);
 
-    ipcMain.on(FRAME_BACKDROP_CHANNELS.READY, () => {
-      this.syncFrameBackdrop();
-    });
-
-    ipcMain.on(FRAME_BACKDROP_CHANNELS.RELOAD_PANE, (_event, paneId: SplitPaneId) => {
-      if (this.activeTabId) {
-        const tab = this.tabs.get(this.activeTabId);
-        if (tab) {
-          const targetWc = paneId === 'mobile' ? tab.mobileView?.webContents : tab.view.webContents;
-          if (targetWc && !targetWc.isDestroyed()) {
-            targetWc.reload();
-          }
+    const onTerminalSession = (state: unknown): void => {
+      // Session state must never overtake buffered output for the same session.
+      this.flushAllTerminalDataBatches();
+      if (this.shell.sidebarView && !this.shell.sidebarView.webContents.isDestroyed()) {
+        safeSendWebContents(this.shell.sidebarView.webContents, 'antifan:terminal:session', this.terminalStateForWindow(state));
+      }
+      for (const [id, win] of this.terminalWindows.entries()) {
+        if (win && !win.isDestroyed()) {
+          // A popout keeps the session it was opened with, even when that session is
+          // outside the window's capsule filter.
+          const boundSessionId = this.terminalWindowMeta.get(id)?.sessionId;
+          safeSendWebContents(win.webContents, 'antifan:terminal:session', this.terminalStateForWindow(state, boundSessionId));
+        } else {
+          this.terminalWindows.delete(id);
         }
       }
-    });
+    };
+    subscribe('session', onTerminalSession);
+
+    const onTerminalSessionClosed = ({ id }: { id: string }): void => {
+      // Deliver any buffered output for the closing session before the close
+      // notification so subscribers never see close precede its final data.
+      this.flushTerminalDataBatch(id);
+      this.clearTerminalAgentAffinity(id);
+    };
+    subscribe('session-closed', onTerminalSessionClosed);
+
+    const onTerminalSessionRestarted = ({ id, generation }: { id: string; generation: number }): void => {
+      this.flushTerminalDataBatch(id);
+      this.migrateTerminalAgentAffinityGeneration(id, generation);
+    };
+    subscribe('session-restarted', onTerminalSessionRestarted);
+    // Sleep is not a close: the session record survives with its affinity intact, so
+    // a wake must NOT migrate the generation key — `wakeSession` reuses the reserved
+    // generation, which is exactly the generation the affinity entry is keyed under.
+    // The wake does have to lift any tombstone written while the session slept: a
+    // bound browser tab that closed during the nap leaves `closedAt` set, and
+    // `isTerminalAllowedForTab` rejects a tombstoned entry outright, which would
+    // wedge the agent that owns the terminal. `reviveTerminalAgentAffinity` also
+    // repairs the entry, because the next badge read would otherwise re-arm it.
+    const onTerminalSessionWoken = (payload: { id: string; generation?: number | string }): void => {
+      const id = payload?.id;
+      if (!id) return;
+      this.flushTerminalDataBatch(id);
+      this.reviveTerminalAgentAffinity(id, payload?.generation);
+      // The repair changes what buildPersistData writes — `closedAt` no longer
+      // suppresses the entry — so the wake has to save the repaired shape.
+      this.schedulePersist();
+    };
+    subscribe('session-woken', onTerminalSessionWoken);
+
+    const onTerminalSessionCreated = ({ id, parentId, generation }: { id: string; parentId?: string; generation?: number }): void => {
+      let targetTab: string | undefined = undefined;
+      if (parentId) {
+        const parentAffinity = this.getTerminalAgentAffinity(parentId);
+        if (parentAffinity && parentAffinity.status === 'alive') {
+          targetTab = parentAffinity.tabId;
+        }
+      }
+      if (targetTab && this.hasTab(targetTab)) {
+        const existing = this.getTerminalAgentAffinity(id, generation);
+        if (!existing || existing.status === 'closed') {
+          this.bindTerminalAgentAffinity(id, generation || 1, targetTab);
+        }
+      }
+    };
+    subscribe('session-created', onTerminalSessionCreated);
   }
-  public toggleSidebar(): boolean {
-    this.isSidebarOpen = !this.isSidebarOpen;
-    this.updateLayout();
-    this.broadcastState();
-    if (this.isSidebarOpen && this.sidebarView && !this.sidebarView.webContents.isDestroyed()) {
-      safeSendWebContents(this.sidebarView.webContents, 'antifan:terminal:session', TerminalManager.getInstance().getSessionState());
-    }
-    return this.isSidebarOpen;
-  }
 
-
-  private setupToolbarIpc(): void {
-    ipcMain.handle(TOOLBAR_CHANNELS.GET_INITIAL_STATE, () => {
-      return {
-        tabs: this.getTabList(),
-        activeTabId: this.activeTabId,
-        isInspecting: this.isInspecting,
-        isFontFinderActive: this.isFontFinderActive,
-        isLensActive: this.isLensActive,
-        isRulerActive: this.isRulerActive,
-        isSidebarOpen: this.isSidebarOpen,
-        bookmarks: this.bookmarks,
-        isBookmarkBarVisible: this.isBookmarkBarVisible,
-        devicePresets: DEVICE_PRESETS,
-        activeChromeProfile: ChromeProfileSyncManager.getInstance().getActiveProfile(),
-        chromeProfiles: ChromeProfileSyncManager.getInstance().getAvailableProfiles(),
-        themeQa: this.getThemeQaState(this.activeTabId),
-        phoneStatus: this.cachedPhoneStatus,
-      };
-    });
-    ipcMain.handle(TOOLBAR_CHANNELS.GET_PHONE_STATUS, async (_event, forceRefresh?: boolean) => this.getPhoneStatus(forceRefresh));
-    ipcMain.handle(TOOLBAR_CHANNELS.THEME_QA_RUN, async (_event, options?: { workspaceRoot?: string }) => this.runThemeQa(options));
-    // Read-only: the toolbar scopes per-storefront state (checklist progress) by
-    // workspace, so two theme projects served on one local port stay separate.
-    ipcMain.handle(TOOLBAR_CHANNELS.WORKSPACE_IDENTIFY, () => {
-      const activeTab = this.tabs.get(this.activeTabId);
-      return { workspacePath: this.resolveTargetWorkspace(undefined, activeTab?.state.url) };
-    });
-
-    ipcMain.handle(TOOLBAR_CHANNELS.CREATE_TAB, (_event, url?: string) => this.createTab(url));
-    ipcMain.handle(TOOLBAR_CHANNELS.SWITCH_TAB, (_event, tabId: string) => this.switchTab(tabId));
-    ipcMain.handle(TOOLBAR_CHANNELS.CLOSE_TAB, (_event, tabId: string) => this.closeTab(tabId));
-    ipcMain.handle('antifan:tab:set-alias', (_event, { tabId, alias, role, aliasColor }: { tabId?: string; alias?: string; role?: string; aliasColor?: string }) => this.setTabAlias(tabId || this.activeTabId, alias, role, aliasColor));
-    ipcMain.handle('antifan:tab:get-alias', (_event, alias: string) => this.resolveAliasToTabId(alias));
-    ipcMain.handle(TOOLBAR_CHANNELS.MOVE_TAB, (_event, { tabId, toIndex }: { tabId: string; toIndex: number }) => this.moveTab(tabId, toIndex));
-    ipcMain.handle(TOOLBAR_CHANNELS.DUPLICATE_TAB, (_event, tabId: string) => this.duplicateTab(tabId));
-    ipcMain.handle(TOOLBAR_CHANNELS.CLOSE_OTHER_TABS, (_event, tabId: string) => this.closeOtherTabs(tabId));
-    ipcMain.handle(TOOLBAR_CHANNELS.CLOSE_TABS_TO_RIGHT, (_event, tabId: string) => this.closeTabsToRight(tabId));
-    ipcMain.handle(TOOLBAR_CHANNELS.NAVIGATE, (_event, { tabId, url }: { tabId?: string; url: string }) => this.navigate(tabId || this.activeTabId, url));
-    ipcMain.handle(TOOLBAR_CHANNELS.RELOAD, (_event, tabId?: string) => this.reload(tabId || this.activeTabId));
-    ipcMain.handle(TOOLBAR_CHANNELS.STOP_LOADING, (_event, tabId?: string) => this.stopLoading(tabId || this.activeTabId));
-    ipcMain.handle(TOOLBAR_CHANNELS.GO_BACK, (_event, tabId?: string) => this.goBack(tabId || this.activeTabId));
-    ipcMain.handle(TOOLBAR_CHANNELS.GO_FORWARD, (_event, tabId?: string) => this.goForward(tabId || this.activeTabId));
-    ipcMain.handle(TOOLBAR_CHANNELS.TOGGLE_INSPECT, () => this.toggleInspect());
-    ipcMain.handle(TOOLBAR_CHANNELS.SET_TAB_TERMINAL_SESSION, (_event, { tabId, terminalSessionId }: { tabId?: string; terminalSessionId?: string }) => this.setTabTerminalSession(tabId || this.activeTabId, terminalSessionId));
-    ipcMain.handle(TOOLBAR_CHANNELS.TOGGLE_FONT_FINDER, () => this.toggleFontFinder());
-    ipcMain.handle(TOOLBAR_CHANNELS.TOGGLE_LENS, () => this.toggleLens());
-    ipcMain.handle(TOOLBAR_CHANNELS.TOGGLE_RULER, () => this.toggleRuler());
-    ipcMain.handle(TOOLBAR_CHANNELS.TOGGLE_DEVTOOLS, () => this.toggleDevTools());
-    ipcMain.handle(TOOLBAR_CHANNELS.TOGGLE_SIDEBAR, () => this.toggleSidebar());
-    ipcMain.handle(TOOLBAR_CHANNELS.SET_DEVICE_PRESET, (_event, { tabId, presetId }: { tabId?: string; presetId: string }) => this.setDevicePreset(tabId || this.activeTabId, presetId));
-    ipcMain.handle(TOOLBAR_CHANNELS.TOGGLE_SPLIT_REVIEW, (_event, payload?: { tabId?: string; enabled?: boolean }) => this.toggleSplitReview(payload?.tabId || this.activeTabId, payload?.enabled));
-    ipcMain.handle(TOOLBAR_CHANNELS.SET_SPLIT_PRESET, (_event, { tabId, paneId, presetId }: { tabId?: string; paneId: SplitPaneId; presetId: string }) => this.setSplitPreset(tabId || this.activeTabId, paneId, presetId));
-    ipcMain.handle(TOOLBAR_CHANNELS.SET_SPLIT_FOCUSED_PANE, (_event, { tabId, paneId }: { tabId?: string; paneId: SplitPaneId }) => this.setSplitFocusedPane(tabId || this.activeTabId, paneId));
-    ipcMain.handle(TOOLBAR_CHANNELS.SET_ZOOM, (_event, { tabId, zoom }: { tabId?: string; zoom: number }) => this.setZoom(tabId || this.activeTabId, zoom));
-    ipcMain.handle(TOOLBAR_CHANNELS.TOGGLE_MUTE, (event, tabId?: string) => {
-      if (event.sender !== this.toolbarView.webContents) return false;
-      return this.toggleSiteMute(tabId ?? this.activeTabId);
-    });
-    ipcMain.on('antifan:tab-wheel-zoom', (event, { isZoomIn }: { isZoomIn: boolean }) => {
-      const senderWc = event.sender;
-      for (const [id, t] of this.tabs.entries()) {
-        if (t.view.webContents === senderWc) {
-          const current = t.state.zoomFactor || 1.0;
-          const step = 0.1;
-          const nextZoom = isZoomIn
-            ? Math.min(5.0, Number((current + step).toFixed(2)))
-            : Math.max(0.25, Number((current - step).toFixed(2)));
-          this.setZoom(id, nextZoom);
-          break;
-        }
-      }
-    });
-    ipcMain.on('antifan:dom-mutation', (event) => {
-      const senderWc = event.sender;
-      for (const [id, t] of this.tabs.entries()) {
-        if (t.view.webContents === senderWc || (t.mobileView && t.mobileView.webContents === senderWc)) {
-          this.bumpMutationRevision(id);
-          break;
-        }
-      }
-    });
-    ipcMain.handle(TOOLBAR_CHANNELS.CAPTURE_FULL_PAGE, () => this.captureScreenshot(undefined, undefined, undefined, { fullPage: true }));
-    ipcMain.handle(TOOLBAR_CHANNELS.CAPTURE_VIEWPORT, () => this.captureScreenshot());
-    ipcMain.handle(TOOLBAR_CHANNELS.OPEN_EXTERNAL, (_event, url?: string) => this.openExternal(url));
-    ipcMain.handle(TOOLBAR_CHANNELS.OPEN_IN_VSCODE, () => this.openInVSCode());
-    ipcMain.handle(TOOLBAR_CHANNELS.TOGGLE_BOOKMARK, (_event, { url, title }: { url: string; title?: string }) => this.toggleBookmark(url, title));
-    ipcMain.handle(TOOLBAR_CHANNELS.FIND_IN_PAGE, (_event, { text, forward, findNext }: { text: string; forward?: boolean; findNext?: boolean }) => this.findInPage(text, forward, findNext));
-    ipcMain.handle(TOOLBAR_CHANNELS.STOP_FIND_IN_PAGE, () => this.stopFindInPage());
-    ipcMain.handle(TOOLBAR_CHANNELS.SHOW_MENU, () => this.showMainMenu());
-    ipcMain.handle('antifan:toolbar:check-updates', () => checkForUpdatesAndRestart(this.window));
-    ipcMain.handle('antifan:copy-bridge-token', (event) => {
-      if (!isTrustedSessionVaultSender(event)) {
-        return { success: false, error: 'FORBIDDEN_SENDER' };
-      }
-      const bridge = BridgeServer.getInstance();
-      if (bridge) {
-        const token = bridge.getToken();
-        clipboard.writeText(token);
-        return { success: true };
-      }
-      return { success: false, error: 'Bridge server not running' };
-    });
-    ipcMain.handle('antifan:rotate-bridge-token', async (event) => {
-      if (!isTrustedSessionVaultSender(event)) {
-        return { success: false, error: 'FORBIDDEN_SENDER' };
-      }
-      const bridge = BridgeServer.getInstance();
-      if (bridge) {
-        const token = await bridge.rotateToken();
-        clipboard.writeText(token);
-        return { success: true };
-      }
-      return { success: false, error: 'Bridge server not running' };
-    });
-    ipcMain.handle(TOOLBAR_CHANNELS.SET_OVERLAY, (_event, active: boolean, customHeight?: number) => this.setToolbarOverlay(active, customHeight));
-    ipcMain.handle(TOOLBAR_CHANNELS.CLEAR_STORAGE, (event) => {
-      if (!isTrustedSessionVaultSender(event)) {
-        return { success: false, error: 'FORBIDDEN_SENDER' };
-      }
-      return this.clearStorageForActiveTab();
-    });
-    ipcMain.handle(TOOLBAR_CHANNELS.GET_CHROME_PROFILES, () => ChromeProfileSyncManager.getInstance().getAvailableProfiles());
+  private setupVaultIpc(): void {
     LocalSessionVault.getInstance().registerIpcHandlers(
       (_event?: unknown, payload?: unknown) => {
         const options = (payload && typeof payload === 'object') ? (payload as Record<string, unknown>) : undefined;
@@ -1395,7 +1826,403 @@ export class NativeTabHost extends EventEmitter {
         return res.response === 1;
       },
     }).registerIpcHandlers();
-    ipcMain.handle(TOOLBAR_CHANNELS.SYNC_CHROME_PROFILE, async (event, profileId: string) => {
+  }
+
+  public static readonly CHROME_ROUTES: readonly IpcRoute[] = [
+  {
+    channel: FRAME_BACKDROP_CHANNELS.FOCUS_PANE,
+    kind: 'on',
+    surface: 'frameBackdrop',
+    run: ({ host }, event, args) => {
+      const paneId = normalizeSplitPaneId(args[0]);
+      if (host.activeTabId) {
+        host.setSplitFocusedPane(host.activeTabId, paneId);
+      }
+    },
+  },
+  {
+    channel: FRAME_BACKDROP_CHANNELS.READY,
+    kind: 'on',
+    surface: 'frameBackdrop',
+    run: ({ host }) => {
+      host.syncFrameBackdrop();
+    },
+  },
+  {
+    channel: FRAME_BACKDROP_CHANNELS.RELOAD_PANE,
+    kind: 'on',
+    surface: 'frameBackdrop',
+    run: ({ host }, event, args) => {
+      const paneId = normalizeSplitPaneId(args[0]);
+      if (host.activeTabId) {
+        const tab = host.tabs.get(host.activeTabId);
+        if (tab) {
+          const targetWc = paneId === 'mobile' ? tab.mobileView?.webContents : tab.view.webContents;
+          if (targetWc && !targetWc.isDestroyed()) {
+            targetWc.reload();
+          }
+        }
+      }
+    },
+  },
+  {
+    channel: TOOLBAR_CHANNELS.GET_INITIAL_STATE,
+    surface: 'toolbar',
+    run: ({ host }) => {
+      return {
+        tabs: host.getTabList(),
+        activeTabId: host.activeTabId,
+        isInspecting: host.isInspecting,
+        isFontFinderActive: host.isFontFinderActive,
+        isLensActive: host.isLensActive,
+        isRulerActive: host.isRulerActive,
+        isSidebarOpen: host.shell.isSidebarOpen,
+        bookmarks: host.bookmarks,
+        isBookmarkBarVisible: host.isBookmarkBarVisible,
+        devicePresets: DEVICE_PRESETS,
+        activeChromeProfile: ChromeProfileSyncManager.getInstance().getActiveProfile(),
+        chromeProfiles: ChromeProfileSyncManager.getInstance().getAvailableProfiles(),
+        themeQa: host.getThemeQaState(host.activeTabId),
+        phoneStatus: host.cachedPhoneStatus,
+        projectWindow: host.projectWindowIdentity(),
+      };
+    },
+  },
+  {
+    channel: TOOLBAR_CHANNELS.GET_PHONE_STATUS,
+    surface: 'toolbar',
+    run: async ({ host }, event, args) => { return host.getPhoneStatus(typeof args[0] === 'boolean' ? args[0] : undefined); },
+  },
+  {
+    channel: TOOLBAR_CHANNELS.THEME_QA_RUN,
+    surface: 'toolbar',
+    run: async ({ host }, event, args) => { return host.runThemeQa(args[0] as { workspaceRoot?: string } | undefined); },
+  },
+  {
+    channel: TOOLBAR_CHANNELS.WORKSPACE_IDENTIFY,
+    surface: 'toolbar',
+    run: ({ host }) => {
+      const activeTab = host.tabs.get(host.activeTabId);
+      return { workspacePath: host.resolveTargetWorkspace(undefined, activeTab?.state.url) };
+    },
+  },
+  {
+    channel: TOOLBAR_CHANNELS.CREATE_TAB,
+    surface: ['toolbar', 'sidebar', 'terminalPopout'],
+    run: ({ host }, event, args) => { return host.createTab(typeof args[0] === 'string' ? args[0] : undefined); },
+  },
+  {
+    channel: TOOLBAR_CHANNELS.SWITCH_TAB,
+    surface: ['toolbar', 'sidebar', 'terminalPopout'],
+    run: ({ host }, event, args) => { return host.switchTab(typeof args[0] === 'string' ? args[0] : ''); },
+  },
+  {
+    channel: TOOLBAR_CHANNELS.CLOSE_TAB,
+    surface: 'toolbar',
+    run: ({ host }, event, args) => { return host.closeTab(typeof args[0] === 'string' ? args[0] : ''); },
+  },
+  {
+    channel: 'antifan:tab:set-alias',
+    surface: 'toolbar',
+    run: ({ host }, event, args) => {
+      const { tabId, alias, role, aliasColor } = (args[0] || {}) as { tabId?: string; alias?: string; role?: string; aliasColor?: string };
+      return host.setTabAlias(tabId || host.activeTabId, alias, role, aliasColor);
+    },
+  },
+  {
+    channel: 'antifan:tab:get-alias',
+    surface: 'toolbar',
+    run: ({ host }, event, args) => { return host.resolveAliasToTabId(typeof args[0] === 'string' ? args[0] : ''); },
+  },
+  {
+    channel: TOOLBAR_CHANNELS.MOVE_TAB,
+    surface: 'toolbar',
+    run: ({ host }, event, args) => {
+      const { tabId, toIndex } = (args[0] || {}) as { tabId?: unknown; toIndex?: unknown };
+      if (typeof tabId !== 'string' || typeof toIndex !== 'number' || !Number.isInteger(toIndex)) return false;
+      return host.moveTab(tabId, toIndex);
+    },
+  },
+  {
+    channel: TOOLBAR_CHANNELS.DUPLICATE_TAB,
+    surface: 'toolbar',
+    run: ({ host }, event, args) => { return host.duplicateTab(typeof args[0] === 'string' ? args[0] : ''); },
+  },
+  {
+    channel: TOOLBAR_CHANNELS.CLOSE_OTHER_TABS,
+    surface: 'toolbar',
+    run: ({ host }, event, args) => { host.closeOtherTabs(typeof args[0] === 'string' ? args[0] : ''); },
+  },
+  {
+    channel: TOOLBAR_CHANNELS.CLOSE_TABS_TO_RIGHT,
+    surface: 'toolbar',
+    run: ({ host }, event, args) => { host.closeTabsToRight(typeof args[0] === 'string' ? args[0] : ''); },
+  },
+  {
+    channel: TOOLBAR_CHANNELS.NAVIGATE,
+    surface: 'toolbar',
+    run: ({ host }, event, args) => {
+      const { tabId, url } = (args[0] || {}) as { tabId?: string; url: string };
+      return host.navigate(tabId || host.activeTabId, url);
+    },
+  },
+  {
+    channel: TOOLBAR_CHANNELS.RELOAD,
+    surface: 'toolbar',
+    run: ({ host }, event, args) => { return host.reload((typeof args[0] === 'string' ? args[0] : undefined) || host.activeTabId); },
+  },
+  {
+    channel: TOOLBAR_CHANNELS.STOP_LOADING,
+    surface: 'toolbar',
+    run: ({ host }, event, args) => { return host.stopLoading((typeof args[0] === 'string' ? args[0] : undefined) || host.activeTabId); },
+  },
+  {
+    channel: TOOLBAR_CHANNELS.GO_BACK,
+    surface: 'toolbar',
+    run: ({ host }, event, args) => { return host.goBack((typeof args[0] === 'string' ? args[0] : undefined) || host.activeTabId); },
+  },
+  {
+    channel: TOOLBAR_CHANNELS.GO_FORWARD,
+    surface: 'toolbar',
+    run: ({ host }, event, args) => { return host.goForward((typeof args[0] === 'string' ? args[0] : undefined) || host.activeTabId); },
+  },
+  {
+    channel: TOOLBAR_CHANNELS.TOGGLE_INSPECT,
+    surface: 'toolbar',
+    run: ({ host }) => host.toggleInspect(),
+  },
+  {
+    channel: TOOLBAR_CHANNELS.SET_TAB_TERMINAL_SESSION,
+    surface: 'toolbar',
+    run: ({ host }, event, args) => {
+      const { tabId, terminalSessionId } = (args[0] || {}) as { tabId?: string; terminalSessionId?: string };
+      return host.setTabTerminalSession(tabId || host.activeTabId, terminalSessionId);
+    },
+  },
+  {
+    channel: TOOLBAR_CHANNELS.TOGGLE_FONT_FINDER,
+    surface: 'toolbar',
+    run: ({ host }) => host.toggleFontFinder(),
+  },
+  {
+    channel: TOOLBAR_CHANNELS.TOGGLE_LENS,
+    surface: 'toolbar',
+    run: ({ host }) => host.toggleLens(),
+  },
+  {
+    channel: TOOLBAR_CHANNELS.TOGGLE_RULER,
+    surface: 'toolbar',
+    run: ({ host }) => host.toggleRuler(),
+  },
+  {
+    channel: TOOLBAR_CHANNELS.TOGGLE_DEVTOOLS,
+    surface: 'toolbar',
+    run: ({ host }) => host.toggleDevTools(),
+  },
+  {
+    channel: TOOLBAR_CHANNELS.TOGGLE_SIDEBAR,
+    surface: ['toolbar', 'sidebar', 'terminalPopout'],
+    run: ({ host }) => host.toggleSidebar(),
+  },
+  {
+    channel: TOOLBAR_CHANNELS.SET_DEVICE_PRESET,
+    surface: 'toolbar',
+    run: ({ host }, event, args) => {
+      const { tabId, presetId } = (args[0] || {}) as { tabId?: string; presetId: string };
+      return host.setDevicePreset(tabId || host.activeTabId, presetId);
+    },
+  },
+  {
+    channel: TOOLBAR_CHANNELS.TOGGLE_SPLIT_REVIEW,
+    surface: 'toolbar',
+    run: ({ host }, event, args) => {
+      const payload = args[0] as { tabId?: string; enabled?: boolean } | undefined;
+      return host.toggleSplitReview(payload?.tabId || host.activeTabId, payload?.enabled);
+    },
+  },
+  {
+    channel: TOOLBAR_CHANNELS.SET_SPLIT_PRESET,
+    surface: 'toolbar',
+    run: ({ host }, event, args) => {
+      const { tabId, paneId, presetId } = (args[0] || {}) as { tabId?: string; paneId?: unknown; presetId: string };
+      return host.setSplitPreset(tabId || host.activeTabId, normalizeSplitPaneId(paneId), presetId);
+    },
+  },
+  {
+    channel: TOOLBAR_CHANNELS.SET_SPLIT_FOCUSED_PANE,
+    surface: 'toolbar',
+    run: ({ host }, event, args) => {
+      const { tabId, paneId } = (args[0] || {}) as { tabId?: string; paneId?: unknown };
+      return host.setSplitFocusedPane(tabId || host.activeTabId, normalizeSplitPaneId(paneId));
+    },
+  },
+  {
+    channel: TOOLBAR_CHANNELS.SET_ZOOM,
+    surface: 'toolbar',
+    run: ({ host }, event, args) => {
+      const { tabId, zoom } = (args[0] || {}) as { tabId?: string; zoom: number };
+      return host.setZoom(tabId || host.activeTabId, zoom);
+    },
+  },
+  {
+    channel: TOOLBAR_CHANNELS.TOGGLE_MUTE,
+    surface: 'toolbar',
+    run: ({ host }, event, args) => {
+      const tabId = typeof args[0] === 'string' ? args[0] : undefined;
+      if (event?.sender !== host.shell.toolbarView?.webContents) return false;
+      return host.toggleSiteMute(tabId ?? host.activeTabId);
+    },
+  },
+  {
+    channel: 'antifan:tab-wheel-zoom',
+    kind: 'on',
+    // Sent by the page's own preload (`src/preload/tab-preload.ts`) and answered for the tab it
+    // came from: the sender is the page being zoomed, not a chrome surface.
+    surface: 'tab',
+    run: ({ host }, event, args) => {
+      const { isZoomIn } = (args[0] || {}) as { isZoomIn: boolean };
+      const senderWc = event?.sender;
+      for (const [id, t] of host.tabs.entries()) {
+        if (t.view.webContents === senderWc) {
+          const current = t.state.zoomFactor || 1.0;
+          const step = 0.1;
+          const nextZoom = isZoomIn
+            ? Math.min(5.0, Number((current + step).toFixed(2)))
+            : Math.max(0.25, Number((current - step).toFixed(2)));
+          host.setZoom(id, nextZoom);
+          break;
+        }
+      }
+    },
+  },
+  {
+    channel: 'antifan:dom-mutation',
+    kind: 'on',
+    // Same surface as the wheel-zoom report: the page announces its own DOM changed, so the
+    // document-generation revision it bumps is the page's, resolved from the sender.
+    surface: 'tab',
+    run: ({ host }, event) => {
+      const senderWc = event?.sender;
+      for (const [id, t] of host.tabs.entries()) {
+        if (t.view.webContents === senderWc || (t.mobileView && t.mobileView.webContents === senderWc)) {
+          host.bumpMutationRevision(id);
+          break;
+        }
+      }
+    },
+  },
+  {
+    channel: TOOLBAR_CHANNELS.CAPTURE_FULL_PAGE,
+    surface: 'toolbar',
+    run: ({ host }) => host.captureScreenshot(undefined, undefined, undefined, { fullPage: true }),
+  },
+  {
+    channel: TOOLBAR_CHANNELS.CAPTURE_VIEWPORT,
+    surface: 'toolbar',
+    run: ({ host }) => host.captureScreenshot(),
+  },
+  {
+    channel: TOOLBAR_CHANNELS.OPEN_EXTERNAL,
+    surface: ['toolbar', 'sidebar', 'terminalPopout'],
+    run: ({ host }, event, args) => { return host.openExternal(typeof args[0] === 'string' ? args[0] : undefined); },
+  },
+  {
+    channel: TOOLBAR_CHANNELS.OPEN_IN_VSCODE,
+    surface: 'toolbar',
+    run: ({ host }) => host.openInVSCode(),
+  },
+  {
+    channel: TOOLBAR_CHANNELS.TOGGLE_BOOKMARK,
+    surface: 'toolbar',
+    run: ({ host }, event, args) => {
+      const { url, title } = (args[0] || {}) as { url: string; title?: string };
+      return host.toggleBookmark(url, title);
+    },
+  },
+  {
+    channel: TOOLBAR_CHANNELS.FIND_IN_PAGE,
+    surface: 'toolbar',
+    run: ({ host }, event, args) => {
+      const { text, forward, findNext } = (args[0] || {}) as { text: string; forward?: boolean; findNext?: boolean };
+      return host.findInPage(text, forward, findNext);
+    },
+  },
+  {
+    channel: TOOLBAR_CHANNELS.STOP_FIND_IN_PAGE,
+    surface: 'toolbar',
+    run: ({ host }) => host.stopFindInPage(),
+  },
+  {
+    channel: TOOLBAR_CHANNELS.SHOW_MENU,
+    surface: 'toolbar',
+    run: ({ host }) => host.showMainMenu(),
+  },
+  {
+    channel: 'antifan:toolbar:check-updates',
+    surface: 'toolbar',
+    run: ({ host }) => checkForUpdatesAndRestart(host.shell.window),
+  },
+  {
+    channel: 'antifan:copy-bridge-token',
+    surface: 'toolbar',
+    run: ({ host }, event) => {
+      if (!isTrustedSessionVaultSender(event)) {
+        return { success: false, error: 'FORBIDDEN_SENDER' };
+      }
+      const bridge = BridgeServer.getInstance();
+      if (bridge) {
+        const token = bridge.getToken();
+        clipboard.writeText(token);
+        return { success: true };
+      }
+      return { success: false, error: 'Bridge server not running' };
+    },
+  },
+  {
+    channel: 'antifan:rotate-bridge-token',
+    surface: 'toolbar',
+    run: async ({ host }, event) => {
+      if (!isTrustedSessionVaultSender(event)) {
+        return { success: false, error: 'FORBIDDEN_SENDER' };
+      }
+      const bridge = BridgeServer.getInstance();
+      if (bridge) {
+        const token = await bridge.rotateToken();
+        clipboard.writeText(token);
+        return { success: true };
+      }
+      return { success: false, error: 'Bridge server not running' };
+    },
+  },
+  {
+    channel: TOOLBAR_CHANNELS.SET_OVERLAY,
+    surface: 'toolbar',
+    run: ({ host }, event, args) => {
+      const active = Boolean(args[0]);
+      const customHeight = typeof args[1] === 'number' ? args[1] : undefined;
+      return host.setToolbarOverlay(active, customHeight);
+    },
+  },
+  {
+    channel: TOOLBAR_CHANNELS.CLEAR_STORAGE,
+    surface: 'toolbar',
+    run: ({ host }, event) => {
+      if (!isTrustedSessionVaultSender(event)) {
+        return { success: false, error: 'FORBIDDEN_SENDER' };
+      }
+      return host.clearStorageForActiveTab();
+    },
+  },
+  {
+    channel: TOOLBAR_CHANNELS.GET_CHROME_PROFILES,
+    surface: 'toolbar',
+    run: ({ host }) => ChromeProfileSyncManager.getInstance().getAvailableProfiles(),
+  },
+  {
+    channel: TOOLBAR_CHANNELS.SYNC_CHROME_PROFILE,
+    surface: 'toolbar',
+    run: async ({ host }, event, args) => {
+      const profileId = typeof args[0] === 'string' ? args[0] : '';
       if (!isTrustedSessionVaultSender(event)) {
         return { success: false, cookiesCount: 0, bookmarksCount: 0, hasLiveCookies: false, message: 'FORBIDDEN_SENDER' };
       }
@@ -1413,43 +2240,64 @@ export class NativeTabHost extends EventEmitter {
         return { success: false, cookiesCount: 0, bookmarksCount: 0, hasLiveCookies: false, message: `Profile '${profileId}' not found.` };
       }
       manager.activeProfileId = profileId;
-      const targetSession = this.resolveTargetProfileSession(profileId);
+      const targetSession = host.resolveTargetProfileSession(profileId);
       const res = await manager.syncProfile(profileId, targetSession);
       const bm = ChromeProfileSyncManager.getInstance().getChromeBookmarks(profileId);
       if (bm && bm.length > 0) {
-        this.bookmarks = bm.map(b => ({ id: b.url, title: b.title, url: b.url, createdAt: Date.now() }));
+        host.bookmarks = bm.map(b => ({ id: b.url, title: b.title, url: b.url, createdAt: Date.now() }));
       }
-      this.updateLayout();
-      this.broadcastState();
+      host.updateLayout();
+      host.broadcastState();
       return res;
-    });
-    ipcMain.removeHandler('antifan:chrome:is-running');
-    ipcMain.handle('antifan:chrome:is-running', () => {
+    },
+  },
+  {
+    channel: 'antifan:chrome:is-running',
+    surface: 'toolbar',
+    run: ({ host }) => {
       return ChromeProfileSyncManager.getInstance().isChromeRunning();
-    });
-    ipcMain.handle(TOOLBAR_CHANNELS.TOGGLE_BOOKMARK_BAR, () => {
-      this.isBookmarkBarVisible = !this.isBookmarkBarVisible;
-      this.updateLayout();
-      this.broadcastState();
-      return this.isBookmarkBarVisible;
-    });
-    ipcMain.handle(TOOLBAR_CHANNELS.ADD_BOOKMARK, (_event, { title, url }: { title: string; url: string }) => {
-      const existing = this.bookmarks.find(b => b.url === url);
+    },
+  },
+  {
+    channel: TOOLBAR_CHANNELS.TOGGLE_BOOKMARK_BAR,
+    surface: 'toolbar',
+    run: ({ host }) => {
+      host.isBookmarkBarVisible = !host.isBookmarkBarVisible;
+      host.updateLayout();
+      host.broadcastState();
+      return host.isBookmarkBarVisible;
+    },
+  },
+  {
+    channel: TOOLBAR_CHANNELS.ADD_BOOKMARK,
+    surface: 'toolbar',
+    run: ({ host }, event, args) => {
+      const { title, url } = (args[0] || {}) as { title: string; url: string };
+      const existing = host.bookmarks.find(b => b.url === url);
       if (!existing) {
-        this.bookmarks.push({ id: url, title: title || url, url, createdAt: Date.now() });
-        this.updateLayout();
-        this.broadcastState();
+        host.bookmarks.push({ id: url, title: title || url, url, createdAt: Date.now() });
+        host.updateLayout();
+        host.broadcastState();
       }
-      return { ok: true, bookmarks: this.bookmarks };
-    });
-    ipcMain.removeHandler('antifan:preview:open');
-    ipcMain.handle('antifan:preview:open', (_event, { path: filePath, capsuleId }: { path: string; capsuleId?: string }) => {
-      return this.createPreviewTab(filePath, capsuleId);
-    });
-    ipcMain.handle(TOOLBAR_CHANNELS.GET_SUGGESTIONS, async (_event, query: string) => {
+      return { ok: true, bookmarks: host.bookmarks };
+    },
+  },
+  {
+    channel: 'antifan:preview:open',
+    surface: 'toolbar',
+    run: ({ host }, event, args) => {
+      const { path: filePath, capsuleId } = (args[0] || {}) as { path: string; capsuleId?: string };
+      return host.createPreviewTab(filePath, capsuleId);
+    },
+  },
+  {
+    channel: TOOLBAR_CHANNELS.GET_SUGGESTIONS,
+    surface: 'toolbar',
+    run: async ({ host }, event, args) => {
+      const query = typeof args[0] === 'string' ? args[0] : '';
       const q = (query || '').trim();
       if (!q) {
-        const results = this.bookmarks.slice(0, 5).map(b => ({
+        const results = host.bookmarks.slice(0, 5).map(b => ({
           type: 'bookmark' as const,
           text: b.title,
           url: b.url,
@@ -1477,7 +2325,7 @@ export class NativeTabHost extends EventEmitter {
       } catch {}
 
       // 2. Check local bookmarks match
-      this.bookmarks.forEach(b => {
+      host.bookmarks.forEach(b => {
         if (b.title.toLowerCase().includes(lower) || b.url.toLowerCase().includes(lower)) {
           if (!results.some(r => r.url === b.url)) {
             results.push({ type: 'bookmark', text: b.title, url: b.url, subText: b.url });
@@ -1486,8 +2334,8 @@ export class NativeTabHost extends EventEmitter {
       });
 
       // 3. Check local open tabs match
-      this.tabOrder.forEach(id => {
-        const tab = this.tabs.get(id);
+      host.tabOrder.forEach(id => {
+        const tab = host.tabs.get(id);
         if (tab && tab.state.ephemeral !== true && tab.state.offscreen !== true && (tab.state.title.toLowerCase().includes(lower) || tab.state.url.toLowerCase().includes(lower))) {
           if (!results.some(r => r.url === tab.state.url)) {
             results.push({ type: 'tab', text: tab.state.title, url: tab.state.url, tabId: id, subText: 'Chuyển sang tab' });
@@ -1541,536 +2389,811 @@ export class NativeTabHost extends EventEmitter {
       }
 
       return { suggestions: results.slice(0, 8) };
-    });
-    ipcMain.handle(TOOLBAR_CHANNELS.REMOVE_BOOKMARK, (_event, url: string) => {
-      this.bookmarks = this.bookmarks.filter(b => b.url !== url);
-      this.updateLayout();
-      this.broadcastState();
-      return { ok: true, bookmarks: this.bookmarks };
-    });
-
-    // Terminal IPC Handlers
-    TerminalManager.getInstance().on('data', (payload: TerminalDataPayload) => {
-      const pending = this.terminalDataBatches.get(payload.sessionId);
-      if (!pending && payload.data.length <= TERMINAL_DATA_COALESCE_BYPASS_LENGTH) {
-        // Keystroke echo and other small chunks take the immediate path so typing
-        // latency is identical to the unbuffered baseline.
-        this.dispatchTerminalData(payload);
-        return;
-      }
-      if (pending && pending.generation !== payload.generation) {
-        // A generation boundary (session restart) must never merge into the
-        // previous generation's batch — the renderer resets on generation change.
-        this.flushTerminalDataBatch(payload.sessionId);
-      }
-      const batch = this.terminalDataBatches.get(payload.sessionId);
-      if (batch) {
-        batch.parts.push(payload.data);
-        batch.throughSeq = payload.seq;
-      } else {
-        this.terminalDataBatches.set(payload.sessionId, {
-          parts: [payload.data],
-          fromSeq: payload.seq,
-          throughSeq: payload.seq,
-          generation: payload.generation,
-        });
-      }
-      if (!this.terminalDataFlushTimer) {
-        this.terminalDataFlushTimer = setTimeout(() => {
-          this.terminalDataFlushTimer = null;
-          this.flushAllTerminalDataBatches();
-        }, TERMINAL_DATA_FLUSH_MS);
-        this.terminalDataFlushTimer.unref?.();
-      }
-    });
-
-    TerminalManager.getInstance().on('session', (state: unknown) => {
-      // Session state must never overtake buffered output for the same session.
-      this.flushAllTerminalDataBatches();
-      if (this.sidebarView && !this.sidebarView.webContents.isDestroyed()) {
-        safeSendWebContents(this.sidebarView.webContents, 'antifan:terminal:session', state);
-      }
-      for (const [id, win] of this.terminalWindows.entries()) {
-        if (win && !win.isDestroyed()) {
-          safeSendWebContents(win.webContents, 'antifan:terminal:session', state);
-        } else {
-          this.terminalWindows.delete(id);
-        }
-      }
-    });
-    TerminalManager.getInstance().on('session-closed', ({ id }: { id: string }) => {
-      // Deliver any buffered output for the closing session before the close
-      // notification so subscribers never see close precede its final data.
-      this.flushTerminalDataBatch(id);
-      this.clearTerminalAgentAffinity(id);
-    });
-    TerminalManager.getInstance().on('session-restarted', ({ id, generation }: { id: string; generation: number }) => {
-      this.flushTerminalDataBatch(id);
-      this.migrateTerminalAgentAffinityGeneration(id, generation);
-    });
-    // Sleep is not a close: the session record survives with its affinity intact, so
-    // a wake must NOT migrate the generation key — `wakeSession` reuses the reserved
-    // generation, which is exactly the generation the affinity entry is keyed under.
-    // The wake does have to lift any tombstone written while the session slept: a
-    // bound browser tab that closed during the nap leaves `closedAt` set, and
-    // `isTerminalAllowedForTab` rejects a tombstoned entry outright, which would
-    // wedge the agent that owns the terminal. `reviveTerminalAgentAffinity` also
-    // repairs the entry, because the next badge read would otherwise re-arm it.
-    TerminalManager.getInstance().on('session-woken', (payload: { id: string; generation?: number | string }) => {
-      const id = payload?.id;
-      if (!id) return;
-      this.flushTerminalDataBatch(id);
-      this.reviveTerminalAgentAffinity(id, payload?.generation);
-      // The repair changes what buildPersistData writes — `closedAt` no longer
-      // suppresses the entry — so the wake has to save the repaired shape.
-      this.schedulePersist();
-    });
-    TerminalManager.getInstance().on('session-created', ({ id, parentId, generation }: { id: string; parentId?: string; generation?: number }) => {
-      let targetTab: string | undefined = undefined;
-      if (parentId) {
-        const parentAffinity = this.getTerminalAgentAffinity(parentId);
-        if (parentAffinity && parentAffinity.status === 'alive') {
-          targetTab = parentAffinity.tabId;
-        }
-      }
-      if (targetTab && this.hasTab(targetTab)) {
-        const existing = this.getTerminalAgentAffinity(id, generation);
-        if (!existing || existing.status === 'closed') {
-          this.bindTerminalAgentAffinity(id, generation || 1, targetTab);
-        }
-      }
-    });
-
-    ipcMain.handle(TERMINAL_CHANNELS.GET_FULL_BUFFER, (_event, sessionId?: string) => {
-      const tm = TerminalManager.getInstance();
-      const targetId = sessionId || tm.getActiveSessionId();
-      return tm.getFullBuffer(targetId);
-    });
-    ipcMain.handle(TERMINAL_CHANNELS.DUMP_DIAGNOSTICS, () => {
+    },
+  },
+  {
+    channel: TOOLBAR_CHANNELS.REMOVE_BOOKMARK,
+    surface: 'toolbar',
+    run: ({ host }, event, args) => {
+      const url = typeof args[0] === 'string' ? args[0] : '';
+      host.bookmarks = host.bookmarks.filter(b => b.url !== url);
+      host.updateLayout();
+      host.broadcastState();
+      return { ok: true, bookmarks: host.bookmarks };
+    },
+  },
+  {
+    channel: TERMINAL_CHANNELS.GET_FULL_BUFFER,
+    surface: ['sidebar', 'terminalPopout'],
+    sessionArgs: (args) => [typeof args[0] === 'string' ? args[0] : undefined],
+    run: ({ host }, event, args) => {
+      const sessionId = typeof args[0] === 'string' ? args[0] : '';
+      // A named session was admitted by the scope gate; with none named the buffer is this
+      // window's own active session, never the process-wide one another window switched to.
+      const targetId = sessionId || host.windowActiveSessionId(event?.sender);
+      if (!targetId) return { sessionId: '', buffer: '', snapshotThroughSeq: 0 };
+      return TerminalManager.getInstance().getFullBuffer(targetId);
+    },
+  },
+  {
+    channel: TERMINAL_CHANNELS.DUMP_DIAGNOSTICS,
+    surface: ['sidebar', 'terminalPopout'],
+    run: async ({ host }) => {
+      // The manager may be the detached daemon's proxy, whose diagnostics answer arrives as a
+      // promise; it is awaited and then narrowed, because a filtered report spread out of a
+      // pending promise would silently drop every session row instead of scoping them.
+      const report: unknown = await Promise.resolve(TerminalManager.getInstance().getDiagnostics());
       return {
-        ...TerminalManager.getInstance().getDiagnostics(),
-        fanoutMessages: this.terminalFanoutMessages,
+        ...host.scopeTerminalDiagnostics(report),
+        fanoutMessages: host.terminalFanoutMessages,
       };
-    });
-    ipcMain.handle(TERMINAL_CHANNELS.GET_DELTA, (_event, query: { sessionId: string; generation: number; fromSeq: number }) => {
+    },
+  },
+  {
+    channel: TERMINAL_CHANNELS.GET_DELTA,
+    surface: ['sidebar', 'terminalPopout'],
+    sessionArgs: (args) => [(args[0] as { sessionId?: string } | undefined)?.sessionId],
+    run: ({ host }, event, args) => {
+      const query = (args[0] || {}) as { sessionId: string; generation: number; fromSeq: number };
       if (!query || !query.sessionId) {
         return { status: 'SESSION_CLOSED', finalSeq: 0 };
       }
       const tm = TerminalManager.getInstance();
       return tm.getTerminalDelta(query.sessionId, query.generation || 0, Math.max(1, query.fromSeq || 0));
-    });
-    ipcMain.handle(TERMINAL_CHANNELS.SYNC_VIEW, (_event, query: { sessionId: string; knownGeneration: number; lastAppliedSeq: number }) => {
+    },
+  },
+  {
+    channel: TERMINAL_CHANNELS.SYNC_VIEW,
+    surface: ['sidebar', 'terminalPopout'],
+    sessionArgs: (args) => [(args[0] as { sessionId?: string } | undefined)?.sessionId],
+    run: ({ host }, event, args) => {
+      const query = (args[0] || {}) as { sessionId: string; knownGeneration: number; lastAppliedSeq: number };
       if (!query || !query.sessionId) {
         return { status: 'SESSION_CLOSED', finalSeq: 0 };
       }
       return TerminalManager.getInstance().syncTerminalView(query);
-    });
-    ipcMain.on(TERMINAL_CHANNELS.ACK, (_event, payload: TerminalAckPayload) => {
+    },
+  },
+  {
+    channel: TERMINAL_CHANNELS.ACK,
+    kind: 'on',
+    surface: ['sidebar', 'terminalPopout'],
+    sessionArgs: (args) => [(args[0] as { sessionId?: string } | undefined)?.sessionId],
+    run: ({ host }, event, args) => {
+      const payload = args[0] as TerminalAckPayload;
       TerminalManager.getInstance().recordSubscriberAck(payload);
-    });
-    ipcMain.handle(TERMINAL_CHANNELS.START, (_event, cwd?: string) => {
-      const senderInfo = this.findTabByWebContents(_event?.sender);
-      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === this.automationTabId);
-      const started = TerminalManager.getInstance().startTerminal(cwd);
-      if (isAgent && started) {
-        const tm = TerminalManager.getInstance();
-        const sessionId = tm.getActiveSessionId();
-        const session = tm.getSession(sessionId) as { sessionGeneration?: number } | undefined;
-        if (sessionId && senderInfo.tabId) {
-          this.bindTerminalAgentAffinity(sessionId, session?.sessionGeneration, senderInfo.tabId);
+    },
+  },
+  {
+    channel: TERMINAL_CHANNELS.START,
+    surface: ['sidebar', 'terminalPopout'],
+    run: ({ host }, event, args) => {
+      const cwd = typeof args[0] === 'string' ? args[0] : undefined;
+      const senderInfo = host.findTabByWebContents(event?.sender);
+      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === host.automationTabId);
+      // An omitted cwd means "this window's workspace", never the process-wide last
+      // directory another window's workspace switch may have left behind. An explicit cwd
+      // is honoured, but provenance is not the caller's to choose: the session belongs to
+      // the capsule this window verified, never to the manager's ambient one.
+      const resolvedTarget = host.resolveTerminalCreationTarget(event?.sender);
+      const target = cwd ? { ...resolvedTarget, cwd } : resolvedTarget;
+      // Starting with no live session spawns the shell: a mint, and in daemon mode a round-trip.
+      // The admission is taken in the same step the call starts and released when it settles, so
+      // the route keeps returning the value (or the promise) it always returned.
+      return host.admitThenRun(
+        'antifan:terminal:start',
+        { tabIds: senderInfo?.tabId, ownerKey: host.shellOwnerKeyForSender(event?.sender?.id) },
+        () => {
+          // The singleton is a daemon proxy installed by cast: it answers a settlement
+          // promise while the in-process manager answers a boolean, so the value is
+          // genuinely unknown at compile time.
+          const started: unknown = TerminalManager.getInstance().startTerminal(target.cwd, target.capsuleId, target.ownerKey);
+          const bindAffinity = (): void => {
+            if (!isAgent) return;
+            const tm = TerminalManager.getInstance();
+            const sessionId = tm.getActiveSessionId();
+            const session = tm.getSession(sessionId) as { sessionGeneration?: number } | undefined;
+            if (sessionId && senderInfo.tabId) {
+              host.bindTerminalAgentAffinity(sessionId, session?.sessionGeneration, senderInfo.tabId);
+            }
+          };
+          const thenable = started as { then?: unknown } | null | undefined;
+          if (thenable && typeof thenable.then === 'function') {
+            // The session the affinity names does not exist until the RPC resolves, so
+            // the bind must ride the settlement: reading active state now would still
+            // describe the previous session.
+            return Promise.resolve(started).then((value) => {
+              if (value) bindAffinity();
+              return value;
+            });
+          }
+          if (started) bindAffinity();
+          return started;
         }
-      }
-      return started;
-    });
-    ipcMain.handle(TERMINAL_CHANNELS.INPUT, (_event, input: string) => {
-      const senderInfo = this.findTabByWebContents(_event?.sender);
-      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === this.automationTabId);
-      if (isAgent) {
-        return this.terminalWrite(senderInfo.tabId, input);
-      }
-      TerminalManager.getInstance().write(input);
-      return true;
-    });
-
-    // One-way channel: the preload uses ipcRenderer.send, so there is no reply
-    // path — permission failures are logged, never thrown back into IPC.
-    ipcMain.on('antifan:terminal:input-session', (_event, { id, input }: { id: string; input: string }) => {
-      const senderInfo = this.findTabByWebContents(_event?.sender);
-      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === this.automationTabId);
+      );
+    },
+  },
+  {
+    channel: TERMINAL_CHANNELS.INPUT,
+    surface: ['sidebar', 'terminalPopout'],
+    run: ({ host }, event, args) => {
+      const input = typeof args[0] === 'string' ? args[0] : '';
+      const senderInfo = host.findTabByWebContents(event?.sender);
+      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === host.automationTabId);
+      // A write can be what wakes a sleeping session - `resolveWritableSession` spawns its PTY -
+      // so it is admitted like the mint it may become, held until the write settles.
+      return host.admitThenRun(
+        'antifan:terminal:input',
+        { tabIds: senderInfo?.tabId, ownerKey: host.shellOwnerKeyForSender(event?.sender?.id) },
+        () => {
+          if (isAgent) {
+            return host.terminalWrite(senderInfo.tabId, input);
+          }
+          // The write goes to the session this window presents, never to the process-wide
+          // active one: another window's switch must not receive this window's keystrokes.
+          const targetId = host.windowActiveSessionId(event?.sender);
+          if (!targetId) return false;
+          const written: unknown = TerminalManager.getInstance().writeTo(targetId, input);
+          // The singleton is a daemon proxy installed by cast: it answers boolean|Promise<boolean>
+          // while the in-process manager answers undefined, which maps to the old constant true.
+          return written === undefined ? true : (written as boolean | Promise<boolean>);
+        }
+      );
+    },
+  },
+  {
+    channel: 'antifan:terminal:input-session',
+    kind: 'on',
+    surface: ['sidebar', 'terminalPopout'],
+    sessionArgs: (args) => [(args[0] as { id?: string } | undefined)?.id],
+    run: ({ host }, event, args) => {
+      const { id, input } = (args[0] || {}) as { id: string; input: string };
+      const senderInfo = host.findTabByWebContents(event?.sender);
+      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === host.automationTabId);
+      // A write can be what wakes a sleeping session and spawns its PTY, so it is admitted
+      // like the mint it may become. This channel is fire-and-forget: the router dispatches it
+      // without awaiting and with no rejection path back to the sender, so the handler stays
+      // synchronous and releases the admission from the write's own promise.
+      const release = host.admitHostWork('antifan:terminal:input-session', {
+        tabIds: senderInfo?.tabId,
+        ownerKey: host.shellOwnerKeyForSender(event?.sender?.id),
+      });
+      const settle = (written: unknown): void => {
+        const thenable = written as { then?: unknown } | null | undefined;
+        if (thenable && typeof thenable.then === 'function') {
+          void Promise.resolve(written).then(release, (err: unknown) => {
+            release();
+            console.warn(`[native-tab-host] terminal input-session '${id}' failed during write:`, err);
+          });
+          return;
+        }
+        release();
+      };
       if (isAgent) {
         try {
-          this.terminalWrite(senderInfo.tabId, input, id);
+          settle(host.terminalWrite(senderInfo.tabId, input, id));
         } catch (err) {
+          release();
           console.warn(`[native-tab-host] terminal input-session rejected for tab '${senderInfo.tabId}' session '${id}':`, err);
         }
         return;
       }
-      TerminalManager.getInstance().writeTo(id, input);
-    });
-
-    ipcMain.handle(TERMINAL_CHANNELS.KILL, (_event) => {
-      const senderInfo = this.findTabByWebContents(_event?.sender);
-      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === this.automationTabId);
+      try {
+        settle(TerminalManager.getInstance().writeTo(id, input));
+      } catch (err) {
+        // A synchronous throw would otherwise leak the admission and keep every close busy.
+        release();
+        console.warn(`[native-tab-host] terminal input-session '${id}' failed during write:`, err);
+      }
+    },
+  },
+  {
+    channel: TERMINAL_CHANNELS.KILL,
+    surface: ['sidebar', 'terminalPopout'],
+    run: ({ host }, event) => {
+      const senderInfo = host.findTabByWebContents(event?.sender);
+      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === host.automationTabId);
       if (isAgent) {
-        const ownedTerminalId = this.getOwnedTerminalSession(senderInfo.tabId);
+        const ownedTerminalId = host.getOwnedTerminalSession(senderInfo.tabId);
         if (!ownedTerminalId) {
           throw new CapabilityError('TERMINAL_FORBIDDEN' as unknown as CapabilityErrorCode, `Agent tab '${senderInfo.tabId}' does not own a terminal session; cannot kill active terminal`);
         }
-        this.assertTerminalAccess(senderInfo.tabId, ownedTerminalId);
+        host.assertTerminalAccess(senderInfo.tabId, ownedTerminalId);
         TerminalManager.getInstance().closeSession(ownedTerminalId);
         return true;
       }
-      TerminalManager.getInstance().kill();
-      return true;
-    });
-    ipcMain.handle(TERMINAL_CHANNELS.RESTART, async (_event, cwd?: string) => {
-      const senderInfo = this.findTabByWebContents(_event?.sender);
-      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === this.automationTabId);
-      if (isAgent) {
-        const ownedTerminalId = this.getOwnedTerminalSession(senderInfo.tabId);
-        if (!ownedTerminalId) {
-          throw new CapabilityError('TERMINAL_FORBIDDEN' as unknown as CapabilityErrorCode, `Agent tab '${senderInfo.tabId}' does not own a terminal session; cannot restart active terminal`);
-        }
-        this.assertTerminalAccess(senderInfo.tabId, ownedTerminalId);
-        const tm = TerminalManager.getInstance();
-        const prevActiveId = tm.getActiveSessionId();
-        tm.switchSession(ownedTerminalId);
-        try {
-          await tm.restart(cwd);
-        } finally {
-          if (prevActiveId && prevActiveId !== ownedTerminalId && tm.getSession(prevActiveId)) {
-            tm.switchSession(prevActiveId);
+      // Killing "the active terminal" means the one this window presents: the process-wide
+      // active session may belong to another project's window.
+      const targetId = host.windowActiveSessionId(event?.sender);
+      if (!targetId) return false;
+      return TerminalManager.getInstance().closeSession(targetId);
+    },
+  },
+  {
+    channel: TERMINAL_CHANNELS.RESTART,
+    surface: ['sidebar', 'terminalPopout'],
+    run: async ({ host }, event, args) => {
+      const cwd = typeof args[0] === 'string' ? args[0] : undefined;
+      const senderInfo = host.findTabByWebContents(event?.sender);
+      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === host.automationTabId);
+      // restart replaces the terminal process — a mint — so it is admitted like the other
+      // terminal RPCs and held until the awaited restart settles.
+      return host.admitThenRun(
+        'antifan:terminal:restart',
+        { tabIds: senderInfo?.tabId, ownerKey: host.shellOwnerKeyForSender(event?.sender?.id) },
+        async () => {
+          if (isAgent) {
+            const ownedTerminalId = host.getOwnedTerminalSession(senderInfo.tabId);
+            if (!ownedTerminalId) {
+              throw new CapabilityError('TERMINAL_FORBIDDEN' as unknown as CapabilityErrorCode, `Agent tab '${senderInfo.tabId}' does not own a terminal session; cannot restart active terminal`);
+            }
+            host.assertTerminalAccess(senderInfo.tabId, ownedTerminalId);
+            const tm = TerminalManager.getInstance();
+            const prevActiveId = tm.getActiveSessionId();
+            // switchSession is a daemon round-trip in daemon mode: awaiting keeps the
+            // restart aimed at the owned PTY, and the awaited restore keeps the admission
+            // held until the previous active session is put back.
+            await tm.switchSession(ownedTerminalId);
+            try {
+              await tm.restart(cwd);
+            } finally {
+              if (prevActiveId && prevActiveId !== ownedTerminalId && tm.getSession(prevActiveId)) {
+                await tm.switchSession(prevActiveId);
+              }
+            }
+            return true;
           }
+          // Restarting "the terminal" means the one this window presents: the manager only
+          // exposes restart against its process-wide active session, so the window's own
+          // session is made active for the call and the previous one restored after it.
+          return host.runAgainstWindowActive(event?.sender, () => TerminalManager.getInstance().restart(cwd));
         }
-        return true;
-      }
-      await TerminalManager.getInstance().restart(cwd);
-      return true;
-    });
-
-    ipcMain.handle(TERMINAL_CHANNELS.OPEN_IN_VSCODE, (_event, cwd?: string) => {
-      return this.openInVSCode(cwd);
-    });
-
-    ipcMain.handle(TERMINAL_CHANNELS.RESIZE, (_event, { cols, rows }: { cols: number; rows: number }) => {
-      const senderInfo = this.findTabByWebContents(_event?.sender);
-      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === this.automationTabId);
+      );
+    },
+  },
+  {
+    channel: TERMINAL_CHANNELS.OPEN_IN_VSCODE,
+    surface: ['sidebar', 'terminalPopout'],
+    run: ({ host }, event, args) => { return host.openInVSCode(typeof args[0] === 'string' ? args[0] : undefined); },
+  },
+  {
+    channel: TERMINAL_CHANNELS.RESIZE,
+    surface: ['sidebar', 'terminalPopout'],
+    run: ({ host }, event, args) => {
+      const { cols, rows } = (args[0] || {}) as { cols: number; rows: number };
+      const senderInfo = host.findTabByWebContents(event?.sender);
+      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === host.automationTabId);
       if (isAgent) {
-        const ownedTerminalId = this.getOwnedTerminalSession(senderInfo.tabId);
+        const ownedTerminalId = host.getOwnedTerminalSession(senderInfo.tabId);
         if (!ownedTerminalId) {
           throw new CapabilityError('TERMINAL_FORBIDDEN' as unknown as CapabilityErrorCode, `Agent tab '${senderInfo.tabId}' does not own a terminal session; cannot resize active terminal`);
         }
-        this.assertTerminalAccess(senderInfo.tabId, ownedTerminalId);
+        host.assertTerminalAccess(senderInfo.tabId, ownedTerminalId);
         TerminalManager.getInstance().resizeTo(ownedTerminalId, cols, rows);
         return true;
       }
-      TerminalManager.getInstance().resize(cols, rows);
+      // The size belongs to the terminal this window presents; the process-wide active
+      // session may be another project's window.
+      const targetId = host.windowActiveSessionId(event?.sender);
+      if (!targetId) return false;
+      TerminalManager.getInstance().resizeTo(targetId, cols, rows);
       return true;
-    });
-
-    ipcMain.handle('antifan:terminal:resize-session', (_event, { id, cols, rows }: { id: string; cols: number; rows: number }) => {
-      const senderInfo = this.findTabByWebContents(_event?.sender);
-      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === this.automationTabId);
+    },
+  },
+  {
+    channel: 'antifan:terminal:resize-session',
+    surface: ['sidebar', 'terminalPopout'],
+    sessionArgs: (args) => [(args[0] as { id?: string } | undefined)?.id],
+    run: ({ host }, event, args) => {
+      const { id, cols, rows } = (args[0] || {}) as { id: string; cols: number; rows: number };
+      const senderInfo = host.findTabByWebContents(event?.sender);
+      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === host.automationTabId);
       if (isAgent) {
-        this.assertTerminalAccess(senderInfo.tabId, id);
+        host.assertTerminalAccess(senderInfo.tabId, id);
       }
       TerminalManager.getInstance().resizeTo(id, cols, rows);
       return true;
-    });
-
-    ipcMain.handle('antifan:terminal:new-session', (_event, cwd?: string) => {
-      const senderInfo = this.findTabByWebContents(_event?.sender);
-      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === this.automationTabId);
-      const id = TerminalManager.getInstance().createSession(cwd);
-      if (isAgent && id) {
-        const s = TerminalManager.getInstance().getSession(id);
-        this.bindTerminalAgentAffinity(id, s?.sessionGeneration, senderInfo.tabId);
+    },
+  },
+  {
+    channel: 'antifan:terminal:new-session',
+    surface: ['sidebar', 'terminalPopout'],
+    run: async ({ host }, event, args) => {
+      host.assertApplicationAdmitsHostWork('antifan:terminal:new-session');
+      const cwd = typeof args[0] === 'string' ? args[0] : undefined;
+      const senderInfo = host.findTabByWebContents(event?.sender);
+      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === host.automationTabId);
+      // An explicit cwd is honoured, but provenance is not the caller's to choose: the new
+      // session belongs to the capsule this window verified, never to the manager's ambient
+      // one, which another window's workspace switch may have set.
+      const resolvedTarget = host.resolveTerminalCreationTarget(event?.sender);
+      const target = cwd ? { ...resolvedTarget, cwd } : resolvedTarget;
+      // The daemon mints the PTY after this call resolves: hold the admission across it, and
+      // attribute it to the page that asked plus the owner of the shell that asked - a sidebar
+      // sender is chrome, so without the owner a shell close could not see this mint.
+      const release = host.admitHostWork('antifan:terminal:new-session', {
+        tabIds: senderInfo?.tabId,
+        ownerKey: host.shellOwnerKeyForSender(event?.sender?.id),
+      });
+      try {
+        const id = await TerminalManager.getInstance().createSession(target.cwd, target.capsuleId, target.ownerKey);
+        if (isAgent && id) {
+          const s = TerminalManager.getInstance().getSession(id);
+          host.bindTerminalAgentAffinity(id, s?.sessionGeneration, senderInfo.tabId);
+        }
+        return id;
+      } finally {
+        release();
       }
-      return id;
-    });
-
-    ipcMain.handle('antifan:terminal:split-session', (_event, p: unknown) => {
+    },
+  },
+  {
+    channel: 'antifan:terminal:split-session',
+    surface: ['sidebar', 'terminalPopout'],
+    sessionArgs: (args) => {
+      const p = args[0];
+      const pObj = p && typeof p === 'object' ? (p as Record<string, unknown>) : undefined;
+      const parentId = typeof p === 'string' ? p : (typeof pObj?.parentId === 'string' ? pObj.parentId : (typeof pObj?.id === 'string' ? pObj.id : undefined));
+      return [parentId];
+    },
+    run: async ({ host }, event, args) => {
+      host.assertApplicationAdmitsHostWork('antifan:terminal:split-session');
+      const p = args[0];
       const pObj = p && typeof p === 'object' ? p as Record<string, unknown> : undefined;
       const parentId = typeof p === 'string' ? p : (typeof pObj?.parentId === 'string' ? pObj.parentId : (typeof pObj?.id === 'string' ? pObj.id : undefined));
       const cwd = typeof pObj?.cwd === 'string' ? pObj.cwd : undefined;
       const cols = typeof pObj?.cols === 'number' ? pObj.cols : undefined;
       const rows = typeof pObj?.rows === 'number' ? pObj.rows : undefined;
-      const senderInfo = this.findTabByWebContents(_event?.sender);
-      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === this.automationTabId);
+      const senderInfo = host.findTabByWebContents(event?.sender);
+      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === host.automationTabId);
       let targetParentId = parentId;
       if (isAgent) {
         if (parentId) {
-          this.assertTerminalAccess(senderInfo.tabId, parentId);
+          host.assertTerminalAccess(senderInfo.tabId, parentId);
         } else {
-          const ownedTerminalId = this.getOwnedTerminalSession(senderInfo.tabId);
+          const ownedTerminalId = host.getOwnedTerminalSession(senderInfo.tabId);
           if (!ownedTerminalId) {
             throw new CapabilityError('TERMINAL_FORBIDDEN' as unknown as CapabilityErrorCode, `Agent tab '${senderInfo.tabId}' does not own a terminal session to split`);
           }
-          this.assertTerminalAccess(senderInfo.tabId, ownedTerminalId);
+          host.assertTerminalAccess(senderInfo.tabId, ownedTerminalId);
           targetParentId = ownedTerminalId;
         }
+      } else if (!parentId) {
+        // A named parent was admitted by the scope gate. With none named the split belongs
+        // to the session this window presents, never to the process-wide active one.
+        targetParentId = host.windowActiveSessionId(event?.sender);
+        if (!targetParentId) return false;
       }
-      const splitId = TerminalManager.getInstance().createSplitSession(targetParentId || '', cwd, cols, rows);
+      const splitId = await (async () => {
+        // Same shape as `new-session`: the split PTY is minted inside the daemon, so the
+        // admission is re-read and registered in one step across the call.
+        const release = host.admitHostWork('antifan:terminal:split-session', {
+          tabIds: senderInfo?.tabId,
+          ownerKey: host.shellOwnerKeyForSender(event?.sender?.id),
+        });
+        try {
+          return await TerminalManager.getInstance().createSplitSession(targetParentId || '', cwd, cols, rows);
+        } finally {
+          release();
+        }
+      })();
       if (isAgent && splitId) {
         const s = TerminalManager.getInstance().getSession(splitId);
-        this.bindTerminalAgentAffinity(splitId, s?.sessionGeneration, senderInfo.tabId);
+        host.bindTerminalAgentAffinity(splitId, s?.sessionGeneration, senderInfo.tabId);
       }
       return splitId;
-    });
-
-    ipcMain.handle('antifan:terminal:unsplit-session', (_event, parentId: string) => {
-      const senderInfo = this.findTabByWebContents(_event?.sender);
-      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === this.automationTabId);
+    },
+  },
+  {
+    channel: 'antifan:terminal:unsplit-session',
+    surface: ['sidebar', 'terminalPopout'],
+    sessionArgs: (args) => [typeof args[0] === 'string' ? args[0] : undefined],
+    run: ({ host }, event, args) => {
+      const parentId = typeof args[0] === 'string' ? args[0] : '';
+      const senderInfo = host.findTabByWebContents(event?.sender);
+      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === host.automationTabId);
       if (isAgent && parentId) {
-        this.assertTerminalAccess(senderInfo.tabId, parentId);
+        host.assertTerminalAccess(senderInfo.tabId, parentId);
       }
       return TerminalManager.getInstance().closeSplitSession(parentId);
-    });
-
-    ipcMain.handle('antifan:terminal:close-split', (_event, { id }: { id: string }) => {
-      const senderInfo = this.findTabByWebContents(_event?.sender);
-      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === this.automationTabId);
+    },
+  },
+  {
+    channel: 'antifan:terminal:close-split',
+    surface: ['sidebar', 'terminalPopout'],
+    sessionArgs: (args) => [(args[0] as { id?: string } | undefined)?.id],
+    run: ({ host }, event, args) => {
+      const { id } = (args[0] || {}) as { id: string };
+      const senderInfo = host.findTabByWebContents(event?.sender);
+      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === host.automationTabId);
       if (isAgent && id) {
-        this.assertTerminalAccess(senderInfo.tabId, id);
+        host.assertTerminalAccess(senderInfo.tabId, id);
       }
       return TerminalManager.getInstance().closeSplitSession(id);
-    });
-
-    ipcMain.handle(TERMINAL_CHANNELS.LIST_SESSIONS, () => {
-      return TerminalManager.getInstance().listSessions();
-    });
-    ipcMain.handle(TERMINAL_CHANNELS.SWITCH_SESSION, (event, id: string) => {
-      const senderWin = BrowserWindow.fromWebContents(event.sender);
-      if (senderWin && this.terminalWindowMeta.has(senderWin.id)) {
-        const meta = this.terminalWindowMeta.get(senderWin.id);
-        if (meta) meta.sessionId = id;
-        this.schedulePersist();
-      }
-      return TerminalManager.getInstance().switchSession(id);
-    });
-
-    ipcMain.handle(TERMINAL_CHANNELS.RENAME_SESSION, (_event, p: any) => {
+    },
+  },
+  {
+    channel: TERMINAL_CHANNELS.LIST_SESSIONS,
+    surface: ['sidebar', 'terminalPopout'],
+    run: ({ host }) => {
+      // The list the sidebar bootstraps from carries the same scope as its pushed
+      // projection: never another project's sessions.
+      return host.visibleTerminalSessions();
+    },
+  },
+  {
+    channel: TERMINAL_CHANNELS.SWITCH_SESSION,
+    surface: ['sidebar', 'terminalPopout'],
+    sessionArgs: (args) => [typeof args[0] === 'string' ? args[0] : undefined],
+    run: ({ host }, event, args) => {
+      const id = typeof args[0] === 'string' ? args[0] : '';
+      // Switching to a sleeping session materializes its PTY, so the switch is admitted like the
+      // mint it may become and held until it settles. The admission is taken BEFORE the metadata
+      // below: a refused switch must not leave the window pointing at a session it was never
+      // allowed to adopt.
+      return host.admitThenRun(
+        'antifan:terminal:switch-session',
+        { ownerKey: host.shellOwnerKeyForSender(event?.sender?.id) },
+        () => {
+          const senderWin = (event?.sender ? BrowserWindow.fromWebContents(event.sender) : null);
+          if (senderWin && host.terminalWindowMeta.has(senderWin.id)) {
+            const meta = host.terminalWindowMeta.get(senderWin.id);
+            if (meta) meta.sessionId = id;
+            host.schedulePersist();
+          }
+          return TerminalManager.getInstance().switchSession(id);
+        }
+      );
+    },
+  },
+  {
+    channel: TERMINAL_CHANNELS.RENAME_SESSION,
+    surface: ['sidebar', 'terminalPopout'],
+    sessionArgs: (args) => {
+      const p = args[0] as { id?: string; sessionId?: string } | string | undefined;
+      return [typeof p === 'string' ? undefined : (p?.id || p?.sessionId)];
+    },
+    run: ({ host }, event, args) => {
+      const p = args[0] as { id?: string; sessionId?: string; name?: string; newTitle?: string } | string | undefined;
       const id = typeof p === 'string' ? '' : (p?.id || p?.sessionId);
       const name = typeof p === 'string' ? p : (p?.name || p?.newTitle);
-      return TerminalManager.getInstance().renameSession(id || TerminalManager.getInstance().getActiveSessionId(), name || '');
-    });
-
-    ipcMain.handle('antifan:terminal:reorder-sessions', (_event, orderIds: string[]) => {
+      // A named session was admitted by the scope gate; with none named the rename applies
+      // to the session this window presents, never to the process-wide active one.
+      const targetId = id || host.windowActiveSessionId(event?.sender);
+      if (!targetId) return false;
+      return TerminalManager.getInstance().renameSession(targetId, name || '');
+    },
+  },
+  {
+    channel: 'antifan:terminal:reorder-sessions',
+    surface: ['sidebar', 'terminalPopout'],
+    sessionArgs: (args) => (Array.isArray(args[0]) ? (args[0] as string[]) : []),
+    run: ({ host }, event, args) => {
+      const orderIds = Array.isArray(args[0]) ? (args[0] as string[]) : [];
       return TerminalManager.getInstance().reorderSessions(orderIds);
-    });
-
-    ipcMain.handle('antifan:terminal:close-session', (_event, id: string) => {
-      const senderInfo = this.findTabByWebContents(_event?.sender);
-      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === this.automationTabId);
+    },
+  },
+  {
+    channel: 'antifan:terminal:close-session',
+    surface: ['sidebar', 'terminalPopout'],
+    sessionArgs: (args) => [typeof args[0] === 'string' ? args[0] : undefined],
+    run: ({ host }, event, args) => {
+      const id = typeof args[0] === 'string' ? args[0] : '';
+      const senderInfo = host.findTabByWebContents(event?.sender);
+      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === host.automationTabId);
       if (isAgent && id) {
-        this.assertTerminalAccess(senderInfo.tabId, id);
+        host.assertTerminalAccess(senderInfo.tabId, id);
       }
-      this.clearTerminalAgentAffinity(id);
+      host.clearTerminalAgentAffinity(id);
       return TerminalManager.getInstance().closeSession(id);
-    });
-    ipcMain.handle('antifan:terminal:delete-session', (_event, id: string) => {
-      const senderInfo = this.findTabByWebContents(_event?.sender);
-      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === this.automationTabId);
+    },
+  },
+  {
+    channel: 'antifan:terminal:delete-session',
+    surface: ['sidebar', 'terminalPopout'],
+    sessionArgs: (args) => [typeof args[0] === 'string' ? args[0] : undefined],
+    run: ({ host }, event, args) => {
+      const id = typeof args[0] === 'string' ? args[0] : '';
+      const senderInfo = host.findTabByWebContents(event?.sender);
+      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === host.automationTabId);
       if (isAgent && id) {
-        this.assertTerminalAccess(senderInfo.tabId, id);
+        host.assertTerminalAccess(senderInfo.tabId, id);
       }
-      this.clearTerminalAgentAffinity(id);
+      host.clearTerminalAgentAffinity(id);
       return TerminalManager.getInstance().closeSession(id);
-    });
-
-    ipcMain.handle('antifan:terminal:rebind-affinity', (_event, { tabId, terminalId }: { tabId?: string; terminalId?: string }) => {
-      const targetTabId = tabId || this.activeTabId;
-      const targetTerminalId = terminalId || TerminalManager.getInstance().getActiveSessionId();
-      if (!this.hasTab(targetTabId)) return false;
-      const canonicalTabId = this.resolveTargetTabId(targetTabId) || targetTabId;
+    },
+  },
+  {
+    channel: 'antifan:terminal:rebind-affinity',
+    surface: ['toolbar', 'sidebar', 'terminalPopout'],
+    sessionArgs: (args) => [(args[0] as { terminalId?: string } | undefined)?.terminalId],
+    run: ({ host }, event, args) => {
+      const { tabId, terminalId } = (args[0] || {}) as { tabId?: string; terminalId?: string };
+      const targetTabId = tabId || host.activeTabId;
+      const targetTerminalId = terminalId || host.windowActiveSessionId(event?.sender);
+      if (!host.hasTab(targetTabId)) return false;
+      const canonicalTabId = host.resolveTargetTabId(targetTabId) || targetTabId;
       const session = TerminalManager.getInstance().getSession(targetTerminalId);
       if (!session) return false;
-      const ok = this.bindTerminalAgentAffinity(targetTerminalId, session.sessionGeneration, canonicalTabId);
+      const ok = host.bindTerminalAgentAffinity(targetTerminalId, session.sessionGeneration, canonicalTabId);
       if (ok) {
-        this.broadcastState();
+        host.broadcastState();
       }
       return ok;
-    });
-    ipcMain.handle('antifan:terminal:adopt-tab', (_event, { tabId, terminalId }: { tabId?: string; terminalId?: string }) => {
-      const targetTabId = tabId || this.activeTabId;
-      const targetTerminalId = terminalId || TerminalManager.getInstance().getActiveSessionId();
-      if (!targetTerminalId || !this.hasTab(targetTabId)) return false;
-      const canonicalTabId = this.resolveTargetTabId(targetTabId) || targetTabId;
+    },
+  },
+  {
+    channel: 'antifan:terminal:adopt-tab',
+    surface: ['sidebar', 'terminalPopout'],
+    sessionArgs: (args) => [(args[0] as { terminalId?: string } | undefined)?.terminalId],
+    run: ({ host }, event, args) => {
+      const { tabId, terminalId } = (args[0] || {}) as { tabId?: string; terminalId?: string };
+      const targetTabId = tabId || host.activeTabId;
+      const targetTerminalId = terminalId || host.windowActiveSessionId(event?.sender);
+      if (!targetTerminalId || !host.hasTab(targetTabId)) return false;
+      const canonicalTabId = host.resolveTargetTabId(targetTabId) || targetTabId;
       const session = TerminalManager.getInstance().getSession(targetTerminalId);
       if (!session) return false;
-      const ok = this.adoptChildTab(targetTerminalId, canonicalTabId, session.sessionGeneration);
+      const ok = host.adoptChildTab(targetTerminalId, canonicalTabId, session.sessionGeneration);
       if (ok) {
-        this.broadcastState();
+        host.broadcastState();
       }
       return ok;
-    });
-
-    ipcMain.handle('antifan:terminal:remove-tab', (_event, { tabId, terminalId }: { tabId?: string; terminalId?: string }) => {
-      const targetTabId = tabId || this.activeTabId;
-      const targetTerminalId = terminalId || TerminalManager.getInstance().getActiveSessionId();
+    },
+  },
+  {
+    channel: 'antifan:terminal:remove-tab',
+    surface: ['sidebar', 'terminalPopout'],
+    sessionArgs: (args) => [(args[0] as { terminalId?: string } | undefined)?.terminalId],
+    run: ({ host }, event, args) => {
+      const { tabId, terminalId } = (args[0] || {}) as { tabId?: string; terminalId?: string };
+      const targetTabId = tabId || host.activeTabId;
+      const targetTerminalId = terminalId || host.windowActiveSessionId(event?.sender);
       if (!targetTerminalId) return false;
-      const canonicalTabId = this.resolveTargetTabId(targetTabId) || targetTabId;
+      const canonicalTabId = host.resolveTargetTabId(targetTabId) || targetTabId;
       const session = TerminalManager.getInstance().getSession(targetTerminalId);
       if (!session) return false;
-      return this.removeManagedTab(targetTerminalId, canonicalTabId, session.sessionGeneration);
-    });
-
-    ipcMain.handle('antifan:tabs:get-list', () => {
-      return this.getTabList().map((t) => ({
+      return host.removeManagedTab(targetTerminalId, canonicalTabId, session.sessionGeneration);
+    },
+  },
+  {
+    channel: 'antifan:tabs:get-list',
+    surface: ['sidebar', 'terminalPopout'],
+    run: ({ host }) => {
+      return host.getTabList().map((t) => ({
         id: t.id,
         title: t.title || 'Tab',
         url: t.url || 'about:blank',
       }));
-    });
-
-    ipcMain.handle('antifan:terminal:get-affinity', (_event, terminalId?: string) => {
-      const targetId = terminalId || TerminalManager.getInstance().getActiveSessionId();
+    },
+  },
+  {
+    channel: 'antifan:terminal:get-affinity',
+    surface: ['sidebar', 'terminalPopout'],
+    sessionArgs: (args) => [typeof args[0] === 'string' ? args[0] : undefined],
+    run: ({ host }, event, args) => { const targetId = (typeof args[0] === 'string' ? args[0] : undefined) || host.windowActiveSessionId(event?.sender);
       if (!targetId) return undefined;
-      return this.getTerminalAgentAffinity(targetId);
-    });
-
-    // Sleep is NOT close: the browser-tab affinity mapping must survive so the
-    // session can wake into the same tab. Never call clearTerminalAgentAffinity
-    // or closeSession here. Terminal state (including `state: 'sleeping'`) is
-    // persisted by TerminalManager, so the host has nothing of its own to write.
-    ipcMain.handle(TERMINAL_CHANNELS.SLEEP_SESSION, (_event, payload: unknown) => {
-      const id = this.resolveTerminalChannelId(payload);
+      return host.getTerminalAgentAffinity(targetId); },
+  },
+  {
+    channel: TERMINAL_CHANNELS.SLEEP_SESSION,
+    surface: ['sidebar', 'terminalPopout'],
+    sessionArgs: (args, host) => [host.resolveTerminalChannelId(args[0])],
+    run: ({ host }, event, args) => {
+      const payload = args[0];
+      const id = host.resolveTerminalChannelId(payload);
       if (!id) return false;
-      const senderInfo = this.findTabByWebContents(_event?.sender);
-      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === this.automationTabId);
+      const senderInfo = host.findTabByWebContents(event?.sender);
+      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === host.automationTabId);
       if (isAgent) {
-        this.assertTerminalAccess(senderInfo.tabId, id);
+        host.assertTerminalAccess(senderInfo.tabId, id);
       }
       return TerminalManager.getInstance().sleepSession(id);
-    });
-
-    ipcMain.handle(TERMINAL_CHANNELS.WAKE_SESSION, (_event, payload: unknown) => {
-      const id = this.resolveTerminalChannelId(payload);
+    },
+  },
+  {
+    channel: TERMINAL_CHANNELS.WAKE_SESSION,
+    surface: ['sidebar', 'terminalPopout'],
+    sessionArgs: (args, host) => [host.resolveTerminalChannelId(args[0])],
+    run: ({ host }, event, args) => {
+      const payload = args[0];
+      const id = host.resolveTerminalChannelId(payload);
       if (!id) return false;
-      const senderInfo = this.findTabByWebContents(_event?.sender);
-      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === this.automationTabId);
+      const senderInfo = host.findTabByWebContents(event?.sender);
+      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === host.automationTabId);
       if (isAgent) {
-        this.assertTerminalAccess(senderInfo.tabId, id);
+        host.assertTerminalAccess(senderInfo.tabId, id);
       }
+      // Waking a sleeping session spawns its PTY: admitted like the other terminal RPCs, held
+      // until the wake settles, and the access refusal above stays synchronous.
       // The wake is what emits 'session-woken'; the affinity tombstone written
       // while the session slept is lifted by the listener, not here.
-      return TerminalManager.getInstance().wakeSession(id);
-    });
-
-    ipcMain.handle(TERMINAL_CHANNELS.SET_CATEGORY, (_event, payload: unknown, categoryArg?: unknown) => {
+      return host.admitThenRun(
+        'antifan:terminal:wake-session',
+        { ownerKey: host.shellOwnerKeyForSender(event?.sender?.id) },
+        () => TerminalManager.getInstance().wakeSession(id)
+      );
+    },
+  },
+  {
+    channel: TERMINAL_CHANNELS.SET_CATEGORY,
+    surface: ['sidebar', 'terminalPopout'],
+    sessionArgs: (args, host) => [host.resolveTerminalChannelId(args[0])],
+    run: ({ host }, event, args) => {
+      const payload = args[0];
+      const categoryArg = args[1];
       // Accept both call shapes already used across the terminal channels: a
       // `{ id, category }` object and a positional `(id, category)` pair.
       const record = payload && typeof payload === 'object'
         ? payload as { id?: unknown; sessionId?: unknown; category?: unknown }
         : undefined;
-      const id = this.resolveTerminalChannelId(payload);
+      const id = host.resolveTerminalChannelId(payload);
       if (!id) return false;
       const category = typeof record?.category === 'string'
         ? record.category
         : (typeof categoryArg === 'string' ? categoryArg : undefined);
-      const senderInfo = this.findTabByWebContents(_event?.sender);
-      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === this.automationTabId);
+      const senderInfo = host.findTabByWebContents(event?.sender);
+      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === host.automationTabId);
       if (isAgent) {
-        this.assertTerminalAccess(senderInfo.tabId, id);
+        host.assertTerminalAccess(senderInfo.tabId, id);
       }
       const result = TerminalManager.getInstance().setCategory(id, category);
-      this.schedulePersist();
+      host.schedulePersist();
       return result;
-    });
-
-    ipcMain.handle(TERMINAL_CHANNELS.SET_TAB_PREFS, (_event, prefs: Partial<TerminalTabPrefs>) => {
-      const layoutChanged = this.applyTerminalTabPrefs(prefs);
+    },
+  },
+  {
+    channel: TERMINAL_CHANNELS.SET_TAB_PREFS,
+    surface: ['sidebar', 'terminalPopout'],
+    run: ({ host }, event, args) => {
+      const prefs = (args[0] || {}) as Partial<TerminalTabPrefs>;
+      const layoutChanged = host.applyTerminalTabPrefs(prefs);
       if (layoutChanged) {
         // The outer window geometry does not depend on the inner tab-strip
         // layout, but updateLayout is the established re-broadcast point.
-        this.updateLayout();
+        host.updateLayout();
       }
-      this.schedulePersist();
+      host.schedulePersist();
       return {
-        layout: this.terminalTabLayout,
-        sidebarWidth: this.terminalSidebarWidth,
-        collapsedCategories: this.terminalCollapsedCategories,
-        categories: this.terminalCategories,
-        categoryColors: this.terminalCategoryColors,
-        starredCategories: this.terminalStarredCategories,
+        layout: host.terminalTabLayout,
+        sidebarWidth: host.terminalSidebarWidth,
+        collapsedCategories: host.terminalCollapsedCategories,
+        categories: host.terminalCategories,
+        categoryColors: host.terminalCategoryColors,
+        starredCategories: host.terminalStarredCategories,
       } satisfies TerminalTabPrefs;
-    });
-
-    ipcMain.handle(TERMINAL_CHANNELS.GET_ALL_AFFINITIES, () => {
+    },
+  },
+  {
+    channel: TERMINAL_CHANNELS.GET_ALL_AFFINITIES,
+    surface: ['sidebar', 'terminalPopout'],
+    run: ({ host }) => {
       // One round-trip for every badge on the strip, over the same projection the tab
       // broadcast carries. A refresh that follows a mutation the renderer just made
       // pulls it instead of waiting for the next broadcast to echo its own change back.
-      return this.buildTerminalAffinityMap();
-    });
-    ipcMain.handle(TERMINAL_CHANNELS.POPOUT, () => {
-      return this.togglePopoutTerminal();
-    });
-
-    ipcMain.handle(TERMINAL_CHANNELS.NEW_WINDOW, (_event, opts?: { sessionId?: string }) => {
-      return this.openNewTerminalWindow(opts?.sessionId);
-    });
-
-    ipcMain.handle(TERMINAL_CHANNELS.CLOSE_WINDOW, (event) => {
-      const senderWin = BrowserWindow.fromWebContents(event.sender);
-      if (senderWin && !senderWin.isDestroyed() && senderWin !== this.window) {
+      return host.buildTerminalAffinityMap();
+    },
+  },
+  {
+    channel: TERMINAL_CHANNELS.POPOUT,
+    surface: ['toolbar', 'sidebar', 'terminalPopout'],
+    run: ({ host }, event) => {
+      // A popout created after the quit committed would outlive the windows it was asked
+      // from. Creating it is synchronous, so an assert is the whole gate: no close attempt
+      // can interleave inside the call.
+      host.assertApplicationAdmitsHostWork('antifan:terminal:popout');
+      // The window mint is synchronous, so the asking window's own close is an assert too,
+      // not a held admission: one synchronous step, no interleave to measure.
+      host.assertOwnerAdmitsHostWork('antifan:terminal:popout', host.shellOwnerKeyForSender(event?.sender?.id));
+      return host.togglePopoutTerminal();
+    },
+  },
+  {
+    channel: TERMINAL_CHANNELS.NEW_WINDOW,
+    surface: ['sidebar', 'terminalPopout'],
+    run: ({ host }, event, args) => {
+      const opts = args[0] as { sessionId?: string } | undefined;
+      // Same mint, same gate as the popout: a window opened into a committed teardown
+      // would register its terminal after the quit passed the point of no return.
+      host.assertApplicationAdmitsHostWork('antifan:window:new');
+      // The window mint is synchronous, so the asking window's own close is an assert too,
+      // not a held admission: one synchronous step, no interleave to measure.
+      host.assertOwnerAdmitsHostWork('antifan:window:new', host.shellOwnerKeyForSender(event?.sender?.id));
+      return host.openNewTerminalWindow(opts?.sessionId);
+    },
+  },
+  {
+    channel: TERMINAL_CHANNELS.CLOSE_WINDOW,
+    surface: ['sidebar', 'terminalPopout'],
+    run: ({ host }, event) => {
+      const senderWin = (event?.sender ? BrowserWindow.fromWebContents(event.sender) : null);
+      if (senderWin && !senderWin.isDestroyed() && senderWin !== host.shell.window) {
         senderWin.close();
-      } else if (this.popoutWindow && !this.popoutWindow.isDestroyed()) {
-        this.popoutWindow.close();
+      } else if (host.popoutWindow && !host.popoutWindow.isDestroyed()) {
+        host.popoutWindow.close();
       }
       return true;
-    });
-
-    ipcMain.handle(TERMINAL_CHANNELS.SET_ACTIVE_SESSION, (_event, p: any) => {
+    },
+  },
+  {
+    channel: TERMINAL_CHANNELS.SET_ACTIVE_SESSION,
+    surface: ['sidebar', 'terminalPopout'],
+    sessionArgs: (args) => {
+      const p = args[0] as { sessionId?: string; id?: string } | string | undefined;
+      return [typeof p === 'string' ? p : (p?.sessionId || p?.id)];
+    },
+    run: ({ host }, event, args) => {
+      const p = args[0] as { sessionId?: string; id?: string } | string | undefined;
       const sessionId = typeof p === 'string' ? p : (p?.sessionId || p?.id);
-      if (sessionId) {
-        TerminalManager.getInstance().switchSession(sessionId);
-      }
-      return true;
-    });
-
-    ipcMain.handle(TERMINAL_CHANNELS.REDOCK, (event) => {
-      const senderWin = BrowserWindow.fromWebContents(event.sender);
-      if (senderWin && !senderWin.isDestroyed() && senderWin !== this.window) {
+      if (!sessionId) return true;
+      // The same mint as SWITCH_SESSION by another name: this route switches too, and a switch to
+      // a sleeping session materializes its PTY.
+      return host.admitThenRun(
+        'antifan:terminal:set-active-session',
+        { ownerKey: host.shellOwnerKeyForSender(event?.sender?.id) },
+        () => TerminalManager.getInstance().switchSession(sessionId)
+      );
+    },
+  },
+  {
+    channel: TERMINAL_CHANNELS.REDOCK,
+    surface: ['sidebar', 'terminalPopout'],
+    run: ({ host }, event) => {
+      const senderWin = (event?.sender ? BrowserWindow.fromWebContents(event.sender) : null);
+      if (senderWin && !senderWin.isDestroyed() && senderWin !== host.shell.window) {
         senderWin.close();
-        if (this.wasSidebarOpenBeforePopout && !this.isSidebarOpen) {
-          this.toggleSidebar();
+        if (host.wasSidebarOpenBeforePopout && !host.shell.isSidebarOpen) {
+          host.toggleSidebar();
         }
-        this.wasSidebarOpenBeforePopout = false;
-      } else if (this.popoutWindow && !this.popoutWindow.isDestroyed()) {
-        this.popoutWindow.close();
+        host.wasSidebarOpenBeforePopout = false;
+      } else if (host.popoutWindow && !host.popoutWindow.isDestroyed()) {
+        host.popoutWindow.close();
       } else {
-        if (this.wasSidebarOpenBeforePopout && !this.isSidebarOpen) {
-          this.toggleSidebar();
+        if (host.wasSidebarOpenBeforePopout && !host.shell.isSidebarOpen) {
+          host.toggleSidebar();
         }
-        this.wasSidebarOpenBeforePopout = false;
+        host.wasSidebarOpenBeforePopout = false;
       }
       return true;
-    });
-
-    ipcMain.handle(TERMINAL_CHANNELS.GET_POPOUT_STATE, () => {
-      return Boolean(this.popoutWindow && !this.popoutWindow.isDestroyed());
-    });
-
-    ipcMain.handle('antifan:window:toggle-fullscreen', (event) => {
-      const callingWin = BrowserWindow.fromWebContents(event.sender) || this.window;
+    },
+  },
+  {
+    channel: TERMINAL_CHANNELS.GET_POPOUT_STATE,
+    surface: ['sidebar', 'terminalPopout'],
+    run: ({ host }) => {
+      return Boolean(host.popoutWindow && !host.popoutWindow.isDestroyed());
+    },
+  },
+  {
+    channel: 'antifan:window:toggle-fullscreen',
+    surface: ['toolbar', 'sidebar', 'terminalPopout'],
+    run: ({ host }, event) => {
+      const callingWin = (event?.sender ? BrowserWindow.fromWebContents(event.sender) : null) || host.shell.window;
       if (callingWin && !callingWin.isDestroyed()) {
         const next = !callingWin.isFullScreen();
         callingWin.setFullScreen(next);
         return next;
       }
       return false;
-    });
-    ipcMain.handle('antifan:toolbar:get-mobile-remote-info', (event) => {
+    },
+  },
+  {
+    channel: 'antifan:toolbar:get-mobile-remote-info',
+    surface: 'toolbar',
+    run: ({ host }, event) => {
       if (!isTrustedSessionVaultSender(event)) {
         return null;
       }
       return BridgeServer.getInstance()?.getRemoteConnectionInfo() || null;
-    });
-
-    ipcMain.handle('antifan:workflow:get-state', () => {
-      const workflows = this.controlPlane ? this.controlPlane.workflowRegistry.getAll() : [];
-      const tools = this.controlPlane?.transport
-        ? buildMcpToolList([], this.controlPlane.transport, true).map((tool) => {
+    },
+  },
+  {
+    channel: 'antifan:workflow:get-state',
+    surface: 'toolbar',
+    run: ({ host }) => {
+      const workflows = host.controlPlane ? host.controlPlane.workflowRegistry.getAll() : [];
+      const tools = host.controlPlane?.transport
+        ? buildMcpToolList([], host.controlPlane.transport, true).map((tool) => {
           const name = tool.name;
           const category = name.startsWith('anti.')
             ? 'mcp'
@@ -2093,24 +3216,28 @@ export class NativeTabHost extends EventEmitter {
         })
         : [];
       return { workflows, tools };
-    });
-
-    ipcMain.handle('antifan:workflow:get-artifact', async (event, id: unknown) => {
+    },
+  },
+  {
+    channel: 'antifan:workflow:get-artifact',
+    surface: 'toolbar',
+    run: async ({ host }, event, args) => {
+      const id = args[0];
       if (!isTrustedSessionVaultSender(event)) {
         return null;
       }
-      if (!this.controlPlane || typeof id !== 'string') {
+      if (!host.controlPlane || typeof id !== 'string') {
         return null;
       }
       try {
-        const artifactStore: object = this.controlPlane.artifacts;
+        const artifactStore: object = host.controlPlane.artifacts;
         if ('resolve' in artifactStore) {
           const resolver = artifactStore.resolve;
           if (typeof resolver === 'function') {
             return await resolver.call(artifactStore, id);
           }
         }
-        const { ref, data } = this.controlPlane.artifacts.readBytesById(id);
+        const { ref, data } = host.controlPlane.artifacts.readBytesById(id);
         const mime = ref.mime || 'application/octet-stream';
         const dataUrl = mime.startsWith('image/')
           ? `data:${mime};base64,${data.toString('base64')}`
@@ -2126,36 +3253,48 @@ export class NativeTabHost extends EventEmitter {
       } catch {
         return null;
       }
-    });
-
-    ipcMain.handle('antifan:workflow:save', (event, item: unknown) => {
+    },
+  },
+  {
+    channel: 'antifan:workflow:save',
+    surface: 'toolbar',
+    run: ({ host }, event, args) => {
+      const item = args[0];
       if (!isTrustedSessionVaultSender(event)) {
         throw new Error('FORBIDDEN_SENDER');
       }
-      if (!this.controlPlane) {
+      if (!host.controlPlane) {
         throw new Error('Control plane runtime is not initialized');
       }
-      return this.controlPlane.workflowRegistry.saveCustom(item as Parameters<typeof this.controlPlane.workflowRegistry.saveCustom>[0]);
-    });
-
-    ipcMain.handle('antifan:workflow:delete', (event, id: unknown) => {
+      return host.controlPlane.workflowRegistry.saveCustom(item as Parameters<typeof host.controlPlane.workflowRegistry.saveCustom>[0]);
+    },
+  },
+  {
+    channel: 'antifan:workflow:delete',
+    surface: 'toolbar',
+    run: ({ host }, event, args) => {
+      const id = args[0];
       if (!isTrustedSessionVaultSender(event)) {
         throw new Error('FORBIDDEN_SENDER');
       }
-      if (!this.controlPlane) {
+      if (!host.controlPlane) {
         throw new Error('Control plane runtime is not initialized');
       }
-      return typeof id === 'string' ? this.controlPlane.workflowRegistry.deleteCustom(id) : false;
-    });
-
-    ipcMain.handle('antifan:workflow:run', async (event, payload: unknown) => {
+      return typeof id === 'string' ? host.controlPlane.workflowRegistry.deleteCustom(id) : false;
+    },
+  },
+  {
+    channel: 'antifan:workflow:run',
+    surface: 'toolbar',
+    run: async ({ host }, event, args) => {
+      const payload = args[0];
       if (!isTrustedSessionVaultSender(event)) {
         return { ok: false, status: 'failed', error: 'FORBIDDEN_SENDER' };
       }
-      if (!this.controlPlane) {
+      if (!host.controlPlane) {
         return { ok: false, status: 'failed', error: 'Control plane runtime is not initialized' };
       }
-      if (this.activeWorkflowAbortController) {
+      if (host.activeWorkflowAbortController) {
         return { ok: false, status: 'failed', error: 'ALREADY_RUNNING' };
       }
       const raw = (payload && typeof payload === 'object') ? payload as { workflowDef?: unknown; workflowId?: unknown } : undefined;
@@ -2166,7 +3305,7 @@ export class NativeTabHost extends EventEmitter {
         // WorkflowDefinition): it counts as pre-registered only when it matches a registered
         // definition structurally. Otherwise it runs under the read grant.
         const supplied = raw.workflowDef as WorkflowDefinition;
-        const registered = this.controlPlane.workflowRegistry.getAll().find((item) => {
+        const registered = host.controlPlane.workflowRegistry.getAll().find((item) => {
           const candidate = item.definition as WorkflowDefinition;
           return candidate?.name === supplied.name
             && JSON.stringify(candidate) === JSON.stringify(supplied);
@@ -2174,7 +3313,7 @@ export class NativeTabHost extends EventEmitter {
         isPreRegistered = registered !== undefined;
         wfDef = supplied;
       } else if (typeof raw?.workflowId === 'string') {
-        const item = this.controlPlane.workflowRegistry.getById(raw.workflowId);
+        const item = host.controlPlane.workflowRegistry.getById(raw.workflowId);
         if (item?.definition) {
           wfDef = item.definition as WorkflowDefinition;
           isPreRegistered = true;
@@ -2184,13 +3323,13 @@ export class NativeTabHost extends EventEmitter {
         return { ok: false, status: 'failed', error: 'Không tìm thấy kịch bản Workflow' };
       }
       const grant = isPreRegistered ? 'write' : 'read';
-      const activeTab = this.getActiveTab();
-      const activeTabId = this.getActiveTabId();
+      const activeTab = host.getActiveTab();
+      const activeTabId = host.getActiveTabId();
       if (!activeTab || !activeTabId) {
         return { ok: false, status: 'failed', error: 'No active browser tab for workflow execution' };
       }
-      const lease = this.controlPlane.getLease();
-      const hostEpoch = typeof this.browserEpoch === 'number' ? this.browserEpoch : 1;
+      const lease = host.controlPlane.getLease();
+      const hostEpoch = typeof host.browserEpoch === 'number' ? host.browserEpoch : 1;
       if (hostEpoch !== lease.hostEpoch) {
         return {
           ok: false,
@@ -2203,22 +3342,22 @@ export class NativeTabHost extends EventEmitter {
         tabId: activeTabId,
         url: activeTab.url || '',
         browserEpoch: hostEpoch,
-        documentGeneration: this.getDocumentGeneration(activeTabId),
+        documentGeneration: host.getDocumentGeneration(activeTabId),
         projectId: lease.projectId,
         workspaceId: lease.workspaceId || '',
         runtimeId: lease.runtimeId || '',
       };
       const abortController = new AbortController();
-      this.activeWorkflowAbortController = abortController;
+      host.activeWorkflowAbortController = abortController;
       try {
-        const result = await this.controlPlane.executeWorkflow({
+        const result = await host.controlPlane.executeWorkflow({
           workflow: wfDef,
           target,
           grant,
           signal: abortController.signal,
           onEvent: (event) => {
             try {
-              this.toolbarView?.webContents?.send?.('antifan:workflow:event', event);
+              host.shell.toolbarView?.webContents?.send?.('antifan:workflow:event', event);
             } catch (err) {
               console.error('[workflow] failed to send antifan:workflow:event', err);
             }
@@ -2244,23 +3383,29 @@ export class NativeTabHost extends EventEmitter {
           completedAt: new Date().toISOString(),
         };
       } finally {
-        if (this.activeWorkflowAbortController === abortController) {
-          this.activeWorkflowAbortController = null;
+        if (host.activeWorkflowAbortController === abortController) {
+          host.activeWorkflowAbortController = null;
         }
       }
-    });
-
-    ipcMain.handle('antifan:workflow:abort', () => {
-      if (this.activeWorkflowAbortController) {
-        this.activeWorkflowAbortController.abort();
-        this.activeWorkflowAbortController = null;
+    },
+  },
+  {
+    channel: 'antifan:workflow:abort',
+    surface: 'toolbar',
+    run: ({ host }) => {
+      if (host.activeWorkflowAbortController) {
+        host.activeWorkflowAbortController.abort();
+        host.activeWorkflowAbortController = null;
         return true;
       }
       return false;
-    });
-    // Core Health surface (Phase 6): aggregated snapshot + drill-downs, all
-    // read through the existing antifan-core CLI surface. Read-only.
-    ipcMain.handle('antifan:core-health:get-state', async (_event, opts?: unknown) => {
+    },
+  },
+  {
+    channel: 'antifan:core-health:get-state',
+    surface: 'toolbar',
+    run: async ({ host }, event, args) => {
+      const opts = args[0];
       const refresh = Boolean(opts && typeof opts === 'object' && (opts as { refresh?: unknown }).refresh === true);
       try {
         const service = getCoreHealthService();
@@ -2278,25 +3423,23 @@ export class NativeTabHost extends EventEmitter {
           },
         };
       }
-    });
-    ipcMain.handle('antifan:core-health:get-task-run-trace', (_event, id: unknown) => {
+    },
+  },
+  {
+    channel: 'antifan:core-health:get-task-run-trace',
+    surface: 'toolbar',
+    run: ({ host }, event, args) => {
+      const id = args[0];
       if (typeof id !== 'string' || !id) {
         return { status: 'UNKNOWN', reasonCode: 'TASK_RUN_NOT_FOUND', affected: [], evidenceRefs: [] };
       }
       return getCoreHealthService().getTaskRunTrace(id);
-    });
-    // MCP Dispatch accounting surface (Phase 4): per-recorded-dispatch-name volume, terminal-state
-    // mix, error-code histogram and latency, read-only from the control-plane invocation ledger
-    // through a worker-thread pass. Unlike the four ungated read-only precedents — the workflow
-    // registry + capability catalogue (`antifan:workflow:get-state` below), the core-health counters
-    // (`antifan:core-health:get-state` above) and the capsule directory listing
-    // (`antifan:capsule:list` below) — this channel returns cross-session operational history:
-    // per-tool volumes, terminal-state mixes, error-code histograms and latency, the first artefact
-    // of its class in this codebase. The toolbar document is the exact origin
-    // `isTrustedSessionVaultSender` whitelists (`local-session-vault.ts:78-80`), so an injected
-    // script in this document must not be able to read the operator's dispatch history. Gated; the
-    // four precedents are not an equivalence.
-    ipcMain.handle('antifan:mcp-dispatch:get-state', async (event) => {
+    },
+  },
+  {
+    channel: 'antifan:mcp-dispatch:get-state',
+    surface: 'toolbar',
+    run: async ({ host }, event) => {
       if (!isTrustedSessionVaultSender(event)) {
         // A refusal is a well-formed UNMEASURED envelope, never null: the renderer must not have to
         // distinguish null from a payload, and an absent value would render as a blank pane.
@@ -2309,15 +3452,24 @@ export class NativeTabHost extends EventEmitter {
       }
       try { return await getMcpDispatchService().getState(); }
       catch { return unmeasuredBoundaryEnvelope(UnmeasuredReason.SERVICE_FAILED, ['service-failed'], mcpDispatchStoreLabel()); }
-    });
-    ipcMain.handle('antifan:capsule:list', () => {
+    },
+  },
+  {
+    channel: 'antifan:capsule:list',
+    surface: ['sidebar', 'terminalPopout'],
+    run: ({ host }) => {
       return {
-        activeCapsuleId: this.capsuleManager.getActive()?.id || '',
-        capsules: this.capsuleManager.list(),
+        activeCapsuleId: host.capsuleManager.getActive()?.id || '',
+        capsules: host.capsuleManager.list(),
       };
-    });
-
-    ipcMain.handle('antifan:capsule:pick-folder', async (_event, opts?: { sessionId?: string }) => {
+    },
+  },
+  {
+    channel: 'antifan:capsule:pick-folder',
+    surface: ['sidebar', 'terminalPopout'],
+    run: async ({ host }, event, args) => {
+      host.assertApplicationAdmitsHostWork('antifan:capsule:pick-folder');
+      const opts = args[0] as { sessionId?: string } | undefined;
       const defaultDir = fs.existsSync('E:/Work')
         ? 'E:/Work'
         : (fs.existsSync('E:\\Work')
@@ -2327,7 +3479,7 @@ export class NativeTabHost extends EventEmitter {
             : (fs.existsSync('e:/Work')
               ? 'e:/Work'
               : process.cwd())));
-      const result = await dialog.showOpenDialog(this.window, {
+      const result = await dialog.showOpenDialog(host.shell.window, {
         defaultPath: defaultDir,
         properties: ['openDirectory', 'createDirectory'],
         title: 'Chọn thư mục Workspace (Select Workspace Folder)',
@@ -2335,26 +3487,110 @@ export class NativeTabHost extends EventEmitter {
       if (result.canceled || !result.filePaths || !result.filePaths.length || !result.filePaths[0]) {
         return null;
       }
-      const chosenPath = result.filePaths[0];
+      // The modal picker can stay open for as long as the user likes, so the admission that was
+      // checked when the handler started says nothing about now: re-read it immediately before
+      // the mint, with no await in between, or a quit could have committed around the dialog.
+      host.assertApplicationAdmitsHostWork('antifan:capsule:pick-folder');
+      // The chooser can hand back a junction or 8.3 spelling of a folder that already has a capsule.
+      // One canonical spelling is used for the lookup, the stored path, and the terminal cwd — the
+      // same resolution a folder open performs — or an alias would mint a second row for a folder
+      // the store already records.
+      let chosenPath = result.filePaths[0];
+      try {
+        chosenPath = fs.realpathSync(chosenPath);
+      } catch {
+        // An unreadable path keeps the spelling the chooser returned: refusing here would take
+        // away a folder the dialog was allowed to create.
+      }
       const folderName = path.basename(chosenPath) || 'Workspace';
-      const created = this.capsuleManager.create(folderName, chosenPath);
-      this.capsuleManager.switchTo(created.id);
-      TerminalManager.getInstance().setCapsule(created.id, chosenPath, opts?.sessionId);
-      return created;
-    });
-
-    ipcMain.handle('antifan:capsule:create', (_event, { name, workspacePath }: { name: string; workspacePath: string }) => {
-      return this.capsuleManager.create(name, workspacePath);
-    });
-
-    ipcMain.handle('antifan:capsule:switch', (_event, { capsuleId, sessionId }: { capsuleId: string; sessionId?: string }) => {
-      this.capsuleManager.switchTo(capsuleId);
-      TerminalManager.getInstance().setCapsule(capsuleId, this.capsuleManager.getActive()?.workspacePath, sessionId);
+      // The admission has to be in hand before any state moves: creating or switching the
+      // capsule first would leave a mutation behind when the owner reservation refuses.
+      return await host.admitThenRun(
+        'antifan:capsule:pick-folder',
+        { ownerKey: host.shellOwnerKeyForSender(event?.sender?.id) },
+        async () => {
+          // Pointing the shell at a folder it already has a capsule for adopts that record. The
+          // switcher only re-points the shell — it never moves a capsule's affiliation — so a
+          // second row for the same path would be a duplicate the next folder open has to fold
+          // back together, which is how one folder became nine identically named capsules.
+          const activeId = host.capsuleManager.getActive()?.id ?? '';
+          const existing = findCapsuleByRoot(host.capsuleManager.list(), chosenPath, activeId);
+          const target = existing ?? host.capsuleManager.create(folderName, chosenPath);
+          if (target.id !== activeId) host.capsuleManager.switchTo(target.id);
+          // setCapsule can spawn PTYs and is a daemon round-trip in daemon mode, so the mint
+          // stays inside the held window until that call settles.
+          await TerminalManager.getInstance().setCapsule(target.id, chosenPath, opts?.sessionId);
+          return target;
+        }
+      );
+    },
+  },
+  {
+    channel: 'antifan:capsule:create',
+    surface: ['sidebar', 'terminalPopout'],
+    run: ({ host }, event, args) => {
+      host.assertApplicationAdmitsHostWork('antifan:capsule:create');
+      const { name, workspacePath } = (args[0] || {}) as { name: string; workspacePath: string };
+      // Both fields come from a renderer, so neither is trusted. The manager enforces only
+      // "absolute", which would still accept a path that does not exist or names a file — and a
+      // capsule is a filesystem anchor for PTY cwd and preview containment, so it has to be a
+      // real directory. The path is resolved through the filesystem so the anchor is the
+      // directory itself, never a symlink that a later containment check would compare against.
+      if (typeof name !== 'string' || !name.trim()) {
+        throw new Error('Capsule name is required');
+      }
+      if (typeof workspacePath !== 'string' || !path.isAbsolute(workspacePath)) {
+        throw new Error('Capsule workspace must be an absolute path');
+      }
+      let resolvedWorkspace = '';
+      try {
+        resolvedWorkspace = fs.realpathSync(workspacePath);
+        if (!fs.statSync(resolvedWorkspace).isDirectory()) resolvedWorkspace = '';
+      } catch {
+        resolvedWorkspace = '';
+      }
+      if (!resolvedWorkspace) {
+        throw new Error('Capsule workspace must be an existing directory');
+      }
+      return host.capsuleManager.create(name, resolvedWorkspace);
+    },
+  },
+  {
+    channel: 'antifan:capsule:switch',
+    surface: ['sidebar', 'terminalPopout'],
+    run: ({ host }, event, args) => {
+      host.assertApplicationAdmitsHostWork('antifan:capsule:switch');
+      const { capsuleId, sessionId } = (args[0] || {}) as { capsuleId: string; sessionId?: string };
+      // The admission has to be in hand before the switch: a refused owner would otherwise
+      // leave the active capsule already changed. The route stays synchronous, so the held
+      // window carries the manager mutation plus the setCapsule mint, releasing on every exit.
+      const settled: unknown = host.admitThenRun(
+        'antifan:capsule:switch',
+        { ownerKey: host.shellOwnerKeyForSender(event?.sender?.id) },
+        () => {
+          host.capsuleManager.switchTo(capsuleId);
+          return TerminalManager.getInstance().setCapsule(capsuleId, host.capsuleManager.getActive()?.workspacePath, sessionId);
+        }
+      );
+      // In daemon mode the settled value is a promise the synchronous route cannot await:
+      // the release already rides it, so the only duty left is swallowing its rejection
+      // in-band instead of leaving an unhandled rejection in main.
+      const thenable = settled as { then?: unknown } | null | undefined;
+      if (thenable && typeof thenable.then === 'function') {
+        void Promise.resolve(settled).catch((err: unknown) => {
+          console.warn(`[native-tab-host] capsule:switch '${capsuleId}' failed during setCapsule:`, err);
+        });
+      }
       return true;
-    });
-    ipcMain.handle('antifan:standalone:open-workspace', async (_event, opts?: { sessionId?: string }) => {
-      const activeTab = this.tabs.get(this.activeTabId);
-      const targetWorkspace = this.resolveTargetWorkspace(opts?.sessionId, activeTab?.state.url);
+    },
+  },
+  {
+    channel: 'antifan:standalone:open-workspace',
+    surface: ['sidebar', 'terminalPopout'],
+    run: async ({ host }, event, args) => {
+      const opts = args[0] as { sessionId?: string } | undefined;
+      const activeTab = host.tabs.get(host.activeTabId);
+      const targetWorkspace = host.resolveTargetWorkspace(opts?.sessionId, activeTab?.state.url);
       if (targetWorkspace) {
         const normalized = path.normalize(targetWorkspace);
         if (fs.existsSync(normalized)) {
@@ -2369,31 +3605,172 @@ export class NativeTabHost extends EventEmitter {
       const fallback = fs.existsSync('e:\\Work') ? 'e:\\Work' : process.cwd();
       await shell.openPath(fallback);
       return { ok: true, workspacePath: fallback };
-    });
+    },
+  },
+  {
+    channel: SIDEBAR_CHANNELS.GET_INITIAL_STATE,
+    surface: ['sidebar', 'terminalPopout'],
+    run: ({ host }) => {
+      const activeTab = host.tabs.get(host.activeTabId);
+      const targetWorkspace = host.resolveTargetWorkspace(undefined, activeTab?.state.url);
+      return {
+        isOpen: host.shell.isSidebarOpen,
+        width: host.shell.sidebarWidth,
+        workspacePath: targetWorkspace,
+        activeWorkspace: targetWorkspace,
+        // Boot-time prefs so the renderer can paint the persisted tab layout
+        // without a second IPC round-trip.
+        terminalTabPrefs: {
+          layout: host.terminalTabLayout,
+          sidebarWidth: host.terminalSidebarWidth,
+          collapsedCategories: host.terminalCollapsedCategories,
+          categories: host.terminalCategories,
+          categoryColors: host.terminalCategoryColors,
+          starredCategories: host.terminalStarredCategories,
+        } satisfies TerminalTabPrefs,
+      };
+    },
+  },
+  {
+    channel: SIDEBAR_CHANNELS.CLOSE_SIDEBAR,
+    surface: 'sidebar',
+    run: ({ host }) => {
+      host.toggleSidebar();
+    },
+  },
+  {
+    channel: SIDEBAR_CHANNELS.SET_WIDTH,
+    surface: ['sidebar', 'terminalPopout'],
+    run: ({ host }, event, args) => {
+      const width = typeof args[0] === 'number' ? args[0] : 0;
+      host.shell.sidebarWidth = Math.max(260, Math.min(width, 850));
+      host.updateLayout();
+      host.schedulePersist();
+    },
+  },
+  ];
+
+  public surfaceForWebContents(webContentsId: number): ChromeSurface | 'terminalPopout' | 'devtools' | 'tab' | undefined {
+    const shellSurface = this.shell.chromeSurfaceFor(webContentsId);
+    if (shellSurface) return shellSurface;
+
+    if (this.popoutWindow && !this.popoutWindow.isDestroyed() && this.popoutWindow.webContents?.id === webContentsId) {
+      return this.isShowingTerminalWorkbenchPage(this.popoutWindow) ? 'terminalPopout' : undefined;
+    }
+    for (const win of this.terminalWindows.values()) {
+      if (!win.isDestroyed() && win.webContents?.id === webContentsId) {
+        return this.isShowingTerminalWorkbenchPage(win) ? 'terminalPopout' : undefined;
+      }
+    }
+    // A terminal window whose own host is gone is still a terminal window, and any live host
+    // answers for it: that answer is what lets a later close attempt reach a window a disposed
+    // host had to leave behind (see `unownedTerminalWindows`).
+    const unownedTerminal = unownedTerminalWindowFor(webContentsId);
+    if (unownedTerminal) {
+      return this.isShowingTerminalWorkbenchPage(unownedTerminal.window) ? 'terminalPopout' : undefined;
+    }
+
+    if (this.tabs) {
+      for (const tab of this.tabs.values()) {
+        if (!tab.view?.webContents?.isDestroyed() && tab.view?.webContents?.devToolsWebContents?.id === webContentsId) {
+          return 'devtools';
+        }
+        if (tab.mobileView && !tab.mobileView.webContents.isDestroyed() && tab.mobileView.webContents.devToolsWebContents?.id === webContentsId) {
+          return 'devtools';
+        }
+      }
+    }
+    if (this.shell.window && !this.shell.window.isDestroyed() && this.shell.window.webContents?.devToolsWebContents?.id === webContentsId) {
+      return 'devtools';
+    }
+    if (this.shell.toolbarView && !this.shell.toolbarView.webContents.isDestroyed() && this.shell.toolbarView.webContents.devToolsWebContents?.id === webContentsId) {
+      return 'devtools';
+    }
+    if (this.shell.sidebarView && !this.shell.sidebarView.webContents.isDestroyed() && this.shell.sidebarView.webContents.devToolsWebContents?.id === webContentsId) {
+      return 'devtools';
+    }
+    if (this.shell.frameBackdropView && !this.shell.frameBackdropView.webContents.isDestroyed() && this.shell.frameBackdropView.webContents.devToolsWebContents?.id === webContentsId) {
+      return 'devtools';
+    }
+
+    // A member page reports about itself (its own mutations, its own wheel zoom). It is resolved
+    // last so that no chrome surface or auxiliary window answer is ever shadowed by a tab, and it
+    // is resolved at all because the alternative is refusing the page's own messages: routes that
+    // belong to a page declare `surface: 'tab'`, and every other route keeps refusing them.
+    if (this.tabs) {
+      for (const tab of this.tabs.values()) {
+        const desktop = tab.view?.webContents;
+        if (desktop && !desktop.isDestroyed() && desktop.id === webContentsId) return 'tab';
+        const mobile = tab.mobileView?.webContents;
+        if (mobile && !mobile.isDestroyed() && mobile.id === webContentsId) return 'tab';
+      }
+    }
+
+    return undefined;
   }
+
+  /**
+   * A terminal workbench window keeps its surface role only while it still shows
+   * the renderer page it was created with. A window navigated to anything else
+   * (a link, a redirect) is refused rather than trusted by window identity — the
+   * same expected-page rule the chrome surfaces already enforce.
+   */
+  private isShowingTerminalWorkbenchPage(win: BrowserWindow): boolean {
+    const contents = win.webContents;
+    if (!contents || contents.isDestroyed()) return false;
+    const frameUrl = contents.mainFrame?.url || (typeof contents.getURL === 'function' ? contents.getURL() : '');
+    // Nothing to identify yet (a window before its first navigation): not evidence of a
+    // foreign page, so the window keeps its surface role as before.
+    if (!frameUrl) return true;
+    // A page replaced the workbench: the window is refused rather than trusted by identity.
+    if (!frameUrl.startsWith('file:')) return false;
+    try {
+      const loaded = path.resolve(fileURLToPath(new URL(frameUrl)));
+      const expected = path.resolve(this.resolveStandaloneRendererPage());
+      return process.platform === 'win32' ? loaded.toLowerCase() === expected.toLowerCase() : loaded === expected;
+    } catch {
+      return false;
+    }
+  }
+
+  /** The standalone renderer page used by terminal workbench windows. */
+  private resolveStandaloneRendererPage(): string {
+    const bundled = path.join(__dirname, '..', '..', 'renderer', 'standalone.html');
+    if (fs.existsSync(bundled)) return bundled;
+    return path.join(process.cwd(), 'src', 'renderer', 'standalone.html');
+  }
+
+  public toggleSidebar(): boolean {
+    this.shell.isSidebarOpen = !this.shell.isSidebarOpen;
+    this.updateLayout();
+    this.broadcastState();
+    if (this.shell.isSidebarOpen && this.shell.sidebarView && !this.shell.sidebarView.webContents.isDestroyed()) {
+      safeSendWebContents(
+        this.shell.sidebarView.webContents,
+        'antifan:terminal:session',
+        this.terminalStateForWindow(TerminalManager.getInstance().getSessionState()),
+      );
+    }
+    return this.shell.isSidebarOpen;
+  }
+
   private openInVSCode(targetPath?: string): { ok: boolean; error?: string; workspacePath?: string } {
     let workspacePath = targetPath;
     if (!workspacePath || !fs.existsSync(workspacePath)) {
       const activeSessionId = TerminalManager.getInstance().getActiveSessionId();
-      const activeSession = activeSessionId ? TerminalManager.getInstance().getSession(activeSessionId) : undefined;
-      if (activeSession?.cwd && fs.existsSync(activeSession.cwd)) {
-        workspacePath = activeSession.cwd;
-      } else if (TerminalManager.getInstance().getCurrentCwd() && fs.existsSync(TerminalManager.getInstance().getCurrentCwd())) {
-        workspacePath = TerminalManager.getInstance().getCurrentCwd();
-      } else {
-        const activeTab = this.tabs.get(this.activeTabId);
-        workspacePath = this.resolveTargetWorkspace(undefined, activeTab?.state.url);
-      }
+      const activeTab = this.tabs.get(this.activeTabId);
+      workspacePath = this.resolveTargetWorkspace(activeSessionId, activeTab?.state.url);
     }
     if (!workspacePath || !fs.existsSync(workspacePath)) {
-      return { ok: false, error: 'Workspace not found' };
+      return { ok: false, error: 'WORKSPACE_NOT_FOUND' };
     }
+
     try {
-      const child = spawn('code', ['--reuse-window', workspacePath], {
-        cwd: workspacePath,
+      const isWin = process.platform === 'win32';
+      const cmd = isWin ? 'code.cmd' : 'code';
+      const child = spawn(cmd, [workspacePath], {
         detached: true,
         stdio: 'ignore',
-        windowsHide: true,
         shell: process.platform === 'win32',
       });
       child.unref();
@@ -2402,40 +3779,9 @@ export class NativeTabHost extends EventEmitter {
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }
   }
-  private setupSidebarIpc(): void {
-    ipcMain.handle(SIDEBAR_CHANNELS.GET_INITIAL_STATE, () => {
-      const activeTab = this.tabs.get(this.activeTabId);
-      const targetWorkspace = this.resolveTargetWorkspace(undefined, activeTab?.state.url);
-      return {
-        isOpen: this.isSidebarOpen,
-        width: this.sidebarWidth,
-        workspacePath: targetWorkspace,
-        activeWorkspace: targetWorkspace,
-        // Boot-time prefs so the renderer can paint the persisted tab layout
-        // without a second IPC round-trip.
-        terminalTabPrefs: {
-          layout: this.terminalTabLayout,
-          sidebarWidth: this.terminalSidebarWidth,
-          collapsedCategories: this.terminalCollapsedCategories,
-          categories: this.terminalCategories,
-          categoryColors: this.terminalCategoryColors,
-          starredCategories: this.terminalStarredCategories,
-        } satisfies TerminalTabPrefs,
-      };
-    });
 
-    ipcMain.handle(SIDEBAR_CHANNELS.CLOSE_SIDEBAR, () => {
-      this.toggleSidebar();
-    });
-
-    ipcMain.handle(SIDEBAR_CHANNELS.SET_WIDTH, (_event, width: number) => {
-      this.sidebarWidth = Math.max(260, Math.min(width, 850));
-      this.updateLayout();
-      this.schedulePersist();
-    });
-  }
-
-  private setupGlobalShortcutsOnView(wc: Electron.WebContents, tabId?: string): void {
+  private setupGlobalShortcutsOnView(wc: Electron.WebContents | null | undefined, tabId?: string): void {
+    if (!wc) return;
     wc.on('before-input-event', (_event, input) => {
       if (this.agentInputInFlight === 0 && this.viewportGate) {
         const automationTargetTabId = this.automationTabId;
@@ -2480,13 +3826,17 @@ export class NativeTabHost extends EventEmitter {
       // 3. Ctrl+L -> Focus Omnibox
       if (isCtrlOrCmd && input.key.toLowerCase() === 'l') {
         _event.preventDefault();
-        safeSendWebContents(this.toolbarView?.webContents, 'antifan:focus-omnibox');
+        safeSendWebContents(this.shell.toolbarView?.webContents, 'antifan:focus-omnibox');
         return;
       }
 
       // 4. Esc -> Stop Inspect / Font Finder / Lens / Find
       if (input.key === 'Escape') {
-        _event.preventDefault();
+        // A chrome view owns Escape for its own overlays: the toolbar's document-level chain closes
+        // tab search, the app and profile dropdowns, the shortcuts sheet, the theme-QA panel, the
+        // find bar and the omnibox suggestions. A key main has already consumed never reaches that
+        // renderer, so the chrome keeps its key while the shortcut's own work still applies.
+        if (tabId) _event.preventDefault();
         if (this.isInspecting) this.stopInspect();
         if (this.isFontFinderActive) this.stopFontFinder();
         if (this.isLensActive) this.stopLens();
@@ -2593,7 +3943,7 @@ export class NativeTabHost extends EventEmitter {
         menu.append(
           new MenuItem({
             label: '⚡ Save PNG + Upload Haravan (Copy CDN)',
-            click: () => uploader.uploadImageToHaravan(imageUrl, undefined, this.window),
+            click: () => uploader.uploadImageToHaravan(imageUrl, undefined, this.shell.window),
           })
         );
 
@@ -2602,7 +3952,7 @@ export class NativeTabHost extends EventEmitter {
           saveAsSubmenu.append(
             new MenuItem({
               label: `Save as ${format.toUpperCase()}`,
-              click: () => uploader.saveImageAs(imageUrl, format, this.window),
+              click: () => uploader.saveImageAs(imageUrl, format, this.shell.window),
             })
           );
         }
@@ -2617,7 +3967,7 @@ export class NativeTabHost extends EventEmitter {
         menu.append(
           new MenuItem({
             label: 'ℹ️ View Image Info & Dimensions',
-            click: () => uploader.showImageInfo(imageUrl, this.window, wc),
+            click: () => uploader.showImageInfo(imageUrl, this.shell.window, wc),
           })
         );
         menu.append(
@@ -2751,7 +4101,7 @@ export class NativeTabHost extends EventEmitter {
         })
       );
 
-        menu.popup({ window: this.window });
+        menu.popup({ window: this.shell.window });
       } catch {}
     });
   }
@@ -2879,7 +4229,7 @@ export class NativeTabHost extends EventEmitter {
         })
       );
 
-        menu.popup({ window: this.window });
+        menu.popup({ window: this.shell.window });
       } catch {}
     });
   }
@@ -2897,7 +4247,7 @@ export class NativeTabHost extends EventEmitter {
               this.bookmarks = bm.map((b) => ({ id: b.url, title: b.title, url: b.url, createdAt: Date.now() }));
               this.broadcastState();
             }
-            dialog.showMessageBox(this.window, {
+            dialog.showMessageBox(this.shell.window, {
               type: res.success ? 'info' : 'warning',
               title: 'Chrome Profile Sync',
               message: res.message,
@@ -2910,7 +4260,7 @@ export class NativeTabHost extends EventEmitter {
       {
         label: '🔄 Check for Updates... (Recompile & Restart)',
         accelerator: 'CmdOrCtrl+Shift+U',
-        click: () => checkForUpdatesAndRestart(this.window),
+        click: () => checkForUpdatesAndRestart(this.shell.window),
       },
       { type: 'separator' },
       {
@@ -2924,7 +4274,7 @@ export class NativeTabHost extends EventEmitter {
           if (bridge) {
             const token = bridge.getToken();
             clipboard.writeText(token);
-            dialog.showMessageBox(this.window, {
+            dialog.showMessageBox(this.shell.window, {
               type: 'info',
               title: 'Bridge Token',
               message: 'Đã sao chép mã Bridge Token vào Clipboard.',
@@ -2939,7 +4289,7 @@ export class NativeTabHost extends EventEmitter {
           if (bridge) {
             const token = await bridge.rotateToken();
             clipboard.writeText(token);
-            dialog.showMessageBox(this.window, {
+            dialog.showMessageBox(this.shell.window, {
               type: 'info',
               title: 'Bridge Token Rotated',
               message: 'Đã tạo mới mã Bridge Token và sao chép vào Clipboard.\nCác kết nối cũ đã bị vô hiệu hóa.',
@@ -3002,7 +4352,7 @@ export class NativeTabHost extends EventEmitter {
       },
     ]);
 
-    menu.popup({ window: this.window });
+    menu.popup({ window: this.shell.window });
   }
 
   public bookmarkActiveTab(): void {
@@ -3028,7 +4378,7 @@ export class NativeTabHost extends EventEmitter {
 
   public isTabViewAttached(view: WebContentsView | null | undefined): boolean {
     if (!view) return false;
-    if (this.window && (typeof this.window.isDestroyed !== 'function' || !this.window.isDestroyed()) && this.window.contentView && Array.isArray(this.window.contentView.children) && this.window.contentView.children.includes(view)) {
+    if (this.shell.window && (typeof this.shell.window.isDestroyed !== 'function' || !this.shell.window.isDestroyed()) && this.shell.window.contentView && Array.isArray(this.shell.window.contentView.children) && this.shell.window.contentView.children.includes(view)) {
       return true;
     }
     const host = this.captureHostWindow;
@@ -3062,7 +4412,7 @@ export class NativeTabHost extends EventEmitter {
     const recycleMobileLayer = options.recycleMobileLayer !== false;
     this.lowerRaisedCaptureView();
     if (this.isDisposed) return;
-    if (!this.window || (typeof this.window.isDestroyed === 'function' && this.window.isDestroyed()) || !this.window.contentView) return;
+    if (!this.shell.window || (typeof this.shell.window.isDestroyed === 'function' && this.shell.window.isDestroyed()) || !this.shell.window.contentView) return;
     // Guarded by their own fields: several tests build a host without running field
     // initializers, and a re-assert on such a host must be a no-op, not a TypeError.
     const activeTab = this.activeTabId && this.tabs ? this.tabs.get(this.activeTabId) : null;
@@ -3110,10 +4460,10 @@ export class NativeTabHost extends EventEmitter {
    * recycle because an attach-for-capture count leaked.
    */
   private recyclePresentedLayer(view: WebContentsView | null | undefined, isMobile: boolean): void {
-    if (!view || !this.window || !this.window.contentView) return;
+    if (!view || !this.shell.window || !this.shell.window.contentView) return;
     try {
       if (this.isTabViewAttached(view)) {
-        this.window.contentView.removeChildView(view);
+        this.shell.window.contentView.removeChildView(view);
       }
     } catch {}
     this.attachTabView(view, isMobile);
@@ -3138,20 +4488,20 @@ export class NativeTabHost extends EventEmitter {
    * A temporarily-held view stays: the capture path owns its lifetime.
    */
   private detachUnpresentedTabViews(): void {
-    if (!this.window || (typeof this.window.isDestroyed === 'function' && this.window.isDestroyed()) || !this.window.contentView || !this.tabs) return;
+    if (!this.shell.window || (typeof this.shell.window.isDestroyed === 'function' && this.shell.window.isDestroyed()) || !this.shell.window.contentView || !this.tabs) return;
     const activeTab = this.activeTabId ? this.tabs.get(this.activeTabId) : null;
     for (const tab of this.tabs.values()) {
       for (const view of [tab.view, tab.mobileView]) {
         if (!view || view === activeTab?.view || view === activeTab?.mobileView) continue;
         if (this.isTemporarilyAttachedView(view)) continue;
         if (!this.isTabViewAttached(view)) continue;
-        try { this.window.contentView.removeChildView(view); } catch {}
+        try { this.shell.window.contentView.removeChildView(view); } catch {}
       }
     }
   }
 
   public async runWithAttachedTabView<T>(view: WebContentsView | null | undefined, action: () => Promise<T>, isMobile = false): Promise<T> {
-    if (!view || !this.window || (typeof this.window.isDestroyed === 'function' && this.window.isDestroyed()) || !this.window.contentView) {
+    if (!view || !this.shell.window || (typeof this.shell.window.isDestroyed === 'function' && this.shell.window.isDestroyed()) || !this.shell.window.contentView) {
       return action();
     }
     if (!this.temporaryViewAttachCounts) {
@@ -3196,8 +4546,8 @@ export class NativeTabHost extends EventEmitter {
           // a second full-size pane painted over the tab the user is looking at.
           if (!isActiveView) {
             try {
-              if (this.window && (typeof this.window.isDestroyed !== 'function' || !this.window.isDestroyed()) && this.window.contentView && this.isTabViewAttached(view)) {
-                this.window.contentView.removeChildView(view);
+              if (this.shell.window && (typeof this.shell.window.isDestroyed !== 'function' || !this.shell.window.isDestroyed()) && this.shell.window.contentView && this.isTabViewAttached(view)) {
+                this.shell.window.contentView.removeChildView(view);
               }
             } catch {}
           }
@@ -3231,7 +4581,7 @@ export class NativeTabHost extends EventEmitter {
    * host raise left the pane starved.
    */
   public raiseViewForCapture(view: WebContentsView, opts?: { inWindow?: boolean }): void {
-    if (!view || !this.window || (typeof this.window.isDestroyed === 'function' && this.window.isDestroyed()) || !this.window.contentView) return;
+    if (!view || !this.shell.window || (typeof this.shell.window.isDestroyed === 'function' && this.shell.window.isDestroyed()) || !this.shell.window.contentView) return;
     if (this.raisedCaptureView !== view && !this.isTabViewAttached(view)) return;
     if (!opts?.inWindow && this.raiseViewOnCaptureHost(view)) return;
     // Host unavailable (tests, or BrowserWindow refused), not preferred, or
@@ -3252,6 +4602,9 @@ export class NativeTabHost extends EventEmitter {
   private raiseViewOnCaptureHost(view: WebContentsView): boolean {
     const host = this.ensureCaptureHostWindow();
     if (!host) return false;
+    // The host has one tracked occupant. Release it before transferring a
+    // different pane, otherwise its parent becomes invisible to cleanup.
+    if (this.raisedCaptureView && this.raisedCaptureView !== view) this.lowerRaisedCaptureView();
     const current = typeof view.getBounds === 'function' ? view.getBounds() : undefined;
     const width = Math.max(1, Math.round(current?.width || 1280));
     const height = Math.max(1, Math.round(current?.height || 800));
@@ -3259,10 +4612,10 @@ export class NativeTabHost extends EventEmitter {
     try {
       host.setBounds({ x: origin.x, y: origin.y, width, height });
       if (!host.isVisible()) host.showInactive();
-      if (this.isTabViewAttached(view)) this.window.contentView.removeChildView(view);
+      if (this.shell.window.contentView.children.includes(view)) this.shell.window.contentView.removeChildView(view);
       host.contentView.addChildView(view);
-      if (typeof view.setBounds === 'function') view.setBounds({ x: 0, y: 0, width, height });
       this.raisedCaptureView = view;
+      if (typeof view.setBounds === 'function') view.setBounds({ x: 0, y: 0, width, height });
       const wc = view.webContents;
       if (wc && typeof wc.isDestroyed === 'function' && !wc.isDestroyed() && typeof wc.invalidate === 'function') {
         try { wc.invalidate(); } catch {}
@@ -3270,7 +4623,7 @@ export class NativeTabHost extends EventEmitter {
       return true;
     } catch (err) {
       console.warn('[native-tab-host] capture-host raise failed:', err);
-      this.raisedCaptureView = null;
+      if (this.raisedCaptureView === view) this.lowerRaisedCaptureView();
       return false;
     }
   }
@@ -3326,23 +4679,23 @@ export class NativeTabHost extends EventEmitter {
       }
     } catch {}
     if (!this.isTemporarilyAttachedView(view)) return;
-    if (!this.window || (typeof this.window.isDestroyed === 'function' && this.window.isDestroyed())) return;
+    if (!this.shell.window || (typeof this.shell.window.isDestroyed === 'function' && this.shell.window.isDestroyed())) return;
     this.attachTabView(view, false);
   }
 
   private raiseViewInWindow(view: WebContentsView): void {
-    if (!this.window || !this.window.contentView) return;
-    const contentView = this.window.contentView;
+    if (!this.shell.window || !this.shell.window.contentView) return;
+    const contentView = this.shell.window.contentView;
     try {
       if (typeof contentView.removeChildView === 'function') contentView.removeChildView(view);
       if (typeof contentView.addChildView === 'function') contentView.addChildView(view);
-      if (this.sidebarView && this.isTabViewAttached(this.sidebarView as unknown as WebContentsView)) {
-        contentView.removeChildView(this.sidebarView);
-        contentView.addChildView(this.sidebarView);
+      if (this.shell.sidebarView && this.isTabViewAttached(this.shell.sidebarView as unknown as WebContentsView)) {
+        contentView.removeChildView(this.shell.sidebarView);
+        contentView.addChildView(this.shell.sidebarView);
       }
-      if (this.toolbarView && this.isTabViewAttached(this.toolbarView as unknown as WebContentsView)) {
-        contentView.removeChildView(this.toolbarView);
-        contentView.addChildView(this.toolbarView);
+      if (this.shell.toolbarView && this.isTabViewAttached(this.shell.toolbarView as unknown as WebContentsView)) {
+        contentView.removeChildView(this.shell.toolbarView);
+        contentView.addChildView(this.shell.toolbarView);
       }
       const wc = view.webContents;
       if (wc && typeof wc.isDestroyed === 'function' && !wc.isDestroyed() && typeof wc.invalidate === 'function') {
@@ -3364,12 +4717,12 @@ export class NativeTabHost extends EventEmitter {
    */
   private layOutDetachedView(view: WebContentsView | null | undefined): void {
     if (!view || !view.webContents) return;
-    if (!this.window || (typeof this.window.isDestroyed === 'function' && this.window.isDestroyed()) || typeof this.window.getContentBounds !== 'function') return;
+    if (!this.shell.window || (typeof this.shell.window.isDestroyed === 'function' && this.shell.window.isDestroyed()) || typeof this.shell.window.getContentBounds !== 'function') return;
     const indexed = this.tabByWebContents?.get(view.webContents);
     if (!indexed) return;
-    const { width, height } = this.window.getContentBounds();
+    const { width, height } = this.shell.window.getContentBounds();
     if (!Number.isFinite(width) || !Number.isFinite(height) || width < 1 || height < 1) return;
-    const availableWidth = this.isSidebarOpen ? Math.max(400, width - this.sidebarWidth) : width;
+    const availableWidth = this.shell.isSidebarOpen ? Math.max(400, width - this.shell.sidebarWidth) : width;
     const toolbarHeight = this.getToolbarHeight();
     const availableHeight = Math.max(0, height - toolbarHeight);
     if (availableWidth < 1 || availableHeight < 1) return;
@@ -3382,12 +4735,12 @@ export class NativeTabHost extends EventEmitter {
    * that asked for geometry must refuse on that answer rather than invent one.
    */
   public getTabContentBounds(tabId: string, paneId?: SplitPaneId): { width: number; height: number } | undefined {
-    if (!this.window || (typeof this.window.isDestroyed === 'function' && this.window.isDestroyed()) || typeof this.window.getContentBounds !== 'function') {
+    if (!this.shell.window || (typeof this.shell.window.isDestroyed === 'function' && this.shell.window.isDestroyed()) || typeof this.shell.window.getContentBounds !== 'function') {
       return undefined;
     }
-    const { width, height } = this.window.getContentBounds();
+    const { width, height } = this.shell.window.getContentBounds();
     if (!Number.isFinite(width) || !Number.isFinite(height) || width < 1 || height < 1) return undefined;
-    const availableWidth = this.isSidebarOpen ? Math.max(400, width - this.sidebarWidth) : width;
+    const availableWidth = this.shell.isSidebarOpen ? Math.max(400, width - this.shell.sidebarWidth) : width;
     const toolbarHeight = this.getToolbarHeight();
     const availableHeight = Math.max(0, height - toolbarHeight);
     if (availableWidth < 1 || availableHeight < 1) return undefined;
@@ -3408,17 +4761,17 @@ export class NativeTabHost extends EventEmitter {
   }
 
   public attachTabView(view: WebContentsView | null | undefined, isMobile = false): void {
-    if (!view || !this.window || (typeof this.window.isDestroyed === 'function' && this.window.isDestroyed()) || !this.window.contentView) return;
+    if (!view || !this.shell.window || (typeof this.shell.window.isDestroyed === 'function' && this.shell.window.isDestroyed()) || !this.shell.window.contentView) return;
     if (view.webContents && typeof view.webContents.isDestroyed === 'function' && view.webContents.isDestroyed()) return;
     try {
-      const children = Array.isArray(this.window.contentView.children) ? this.window.contentView.children : [];
+      const children = Array.isArray(this.shell.window.contentView.children) ? this.shell.window.contentView.children : [];
       // Where the pane belongs is already written down in `enforceZOrder`: above every other
       // child, below the shell chrome. Inserting it at the backdrop instead leaves it beneath
       // the tab views this switch is replacing, and the order check then re-stacks this view,
       // the sidebar and the toolbar on every switch - three removes, three adds and three
       // invalidates spent producing an order this insert can produce directly.
       let insertIndex = children.length;
-      const shellAbove = [this.sidebarView, this.toolbarView].find((shell) => shell && children.includes(shell));
+      const shellAbove = [this.shell.sidebarView, this.shell.toolbarView].find((shell) => shell && children.includes(shell));
       if (shellAbove) insertIndex = children.indexOf(shellAbove);
       if (isMobile && this.activeTabId) {
         const activeTab = this.tabs.get(this.activeTabId);
@@ -3428,7 +4781,7 @@ export class NativeTabHost extends EventEmitter {
       }
       insertIndex = Math.max(0, Math.min(insertIndex, children.length));
       if (!children.includes(view)) {
-        this.window.contentView.addChildView(view, insertIndex);
+        this.shell.window.contentView.addChildView(view, insertIndex);
       }
       this.enforceZOrder();
     } catch (err) {
@@ -3437,8 +4790,8 @@ export class NativeTabHost extends EventEmitter {
   }
 
   public enforceZOrder(): void {
-    if (!this.window || (typeof this.window.isDestroyed === 'function' && this.window.isDestroyed()) || !this.window.contentView) return;
-    const contentView = this.window.contentView;
+    if (!this.shell.window || (typeof this.shell.window.isDestroyed === 'function' && this.shell.window.isDestroyed()) || !this.shell.window.contentView) return;
+    const contentView = this.shell.window.contentView;
     const children = Array.isArray(contentView.children) ? contentView.children : [];
     if (children.length <= 1) return;
 
@@ -3451,16 +4804,16 @@ export class NativeTabHost extends EventEmitter {
     const activeTab = this.activeTabId ? this.tabs.get(this.activeTabId) : null;
     const desiredOrder: Electron.View[] = [];
 
-    if (this.frameBackdropView && children.includes(this.frameBackdropView)) {
-      desiredOrder.push(this.frameBackdropView);
+    if (this.shell.frameBackdropView && children.includes(this.shell.frameBackdropView)) {
+      desiredOrder.push(this.shell.frameBackdropView);
     }
     for (const child of children) {
       if (
-        child !== this.frameBackdropView &&
+        child !== this.shell.frameBackdropView &&
         child !== activeTab?.view &&
         child !== activeTab?.mobileView &&
-        child !== this.sidebarView &&
-        child !== this.toolbarView
+        child !== this.shell.sidebarView &&
+        child !== this.shell.toolbarView
       ) {
         desiredOrder.push(child);
       }
@@ -3471,11 +4824,11 @@ export class NativeTabHost extends EventEmitter {
     if (activeTab?.state.splitMode && activeTab.mobileView && children.includes(activeTab.mobileView)) {
       desiredOrder.push(activeTab.mobileView);
     }
-    if (this.sidebarView && children.includes(this.sidebarView)) {
-      desiredOrder.push(this.sidebarView);
+    if (this.shell.sidebarView && children.includes(this.shell.sidebarView)) {
+      desiredOrder.push(this.shell.sidebarView);
     }
-    if (this.toolbarView && children.includes(this.toolbarView)) {
-      desiredOrder.push(this.toolbarView);
+    if (this.shell.toolbarView && children.includes(this.shell.toolbarView)) {
+      desiredOrder.push(this.shell.toolbarView);
     }
 
     // Check if relative order already matches
@@ -3533,15 +4886,15 @@ export class NativeTabHost extends EventEmitter {
   public setToolbarOverlay(active: boolean, customHeight?: number): void {
     this.isToolbarOverlayActive = active;
     this.toolbarOverlayCustomHeight = customHeight;
-    const { width, height } = this.window.getContentBounds();
-    const availableWidth = this.isSidebarOpen ? Math.max(400, width - this.sidebarWidth) : width;
-    if (active) {
-      // Give full window height or custom height so dropdowns, popovers, context menus are NEVER clipped!
-      const overlayHeight = customHeight && customHeight > 0 ? Math.min(height, this.getToolbarHeight() + customHeight) : height;
-      this.toolbarView.setBounds({ x: 0, y: 0, width: availableWidth, height: overlayHeight });
-    } else {
-      this.toolbarView.setBounds({ x: 0, y: 0, width: availableWidth, height: this.getToolbarHeight() });
-    }
+    // The overlay is chrome this window owns, so a toolbar renderer message that arrives while
+    // the window is being torn down must report on nothing rather than raise out of the IPC
+    // route that delivered it (the window object survives its native counterpart).
+    if (!this.shell.window || (typeof this.shell.window.isDestroyed === 'function' && this.shell.window.isDestroyed()) || typeof this.shell.window.getContentBounds !== 'function') return;
+    // The shell is the only writer of chrome bounds: the overlay flags above are inputs to the
+    // canonical pass, which reaches `applyChromeBounds` with the same geometry the tab views
+    // just took. A second write here would compute its own width and desync the toolbar
+    // renderer's viewport from every other surface.
+    this.updateLayout();
   }
 
   private ensureToolbarOnTop(): void {
@@ -3584,11 +4937,11 @@ export class NativeTabHost extends EventEmitter {
 
   public showShortcuts(): void {
     this.setToolbarOverlay(true);
-    safeSendWebContents(this.toolbarView?.webContents, 'antifan:show-shortcuts');
+    safeSendWebContents(this.shell.toolbarView?.webContents, 'antifan:show-shortcuts');
   }
 
   public focusFindBar(): void {
-    safeSendWebContents(this.toolbarView?.webContents, 'antifan:focus-find');
+    safeSendWebContents(this.shell.toolbarView?.webContents, 'antifan:focus-find');
   }
 
   public getTabList(): AntiFanTab[] {
@@ -3632,6 +4985,427 @@ export class NativeTabHost extends EventEmitter {
       } as AntiFanTab & { customViewport?: { width: number; height: number; mobile?: boolean }; attached?: boolean });
     }
     return records;
+  }
+
+  /**
+   * Serialized owner of this window, as persisted and as the search inventory
+   * reports it. A shell without a verified owner is Unassigned — the same state a
+   * historical page with no unique project match gets, never a guess.
+   */
+  public windowOwnerKey(): string {
+    const owner = this.shell?.owner;
+    return owner ? ownerKey(owner) : UNASSIGNED_OWNER_KEY;
+  }
+
+  /** Human label for this window's owner (a project id, or Unassigned). */
+  public windowOwnerLabel(): string {
+    const owner = this.shell?.owner;
+    return owner ? ownerLabel(owner) : ownerLabel({ kind: 'unassigned' });
+  }
+
+  /**
+   * Pin this window's terminals to a verified workspace. Main resolves the
+   * relationship and passes it here; an invalid path or capsule is refused and the
+   * previous association is kept, so a malformed update can never silently move a
+   * window's terminals into another workspace.
+   */
+  public setWindowWorkspaceAffiliation(affiliation: WindowWorkspaceAffiliation | null): boolean {
+    if (affiliation === null) {
+      this.windowWorkspaceAffiliation = null;
+      return true;
+    }
+    if (!affiliation || typeof affiliation !== 'object') return false;
+    const workspacePath = typeof affiliation.workspacePath === 'string' ? affiliation.workspacePath.trim() : '';
+    if (!workspacePath || !path.isAbsolute(workspacePath) || !isExistingDirectory(workspacePath)) return false;
+    const capsuleId = affiliation.capsuleId;
+    if (capsuleId !== undefined && (typeof capsuleId !== 'string' || !capsuleId.trim())) return false;
+    this.windowWorkspaceAffiliation = {
+      workspacePath: path.normalize(workspacePath),
+      ...(capsuleId ? { capsuleId: capsuleId.trim() } : {}),
+    };
+    return true;
+  }
+
+  public getWindowWorkspaceAffiliation(): WindowWorkspaceAffiliation | null {
+    return this.windowWorkspaceAffiliation ? { ...this.windowWorkspaceAffiliation } : null;
+  }
+
+  /**
+   * The workspace root this window's terminals belong to, or '' when the window has
+   * no verified association. Never another window's workspace.
+   */
+  public resolveWindowWorkspaceRoot(): string {
+    const affiliation = this.windowWorkspaceAffiliation;
+    if (affiliation && isExistingDirectory(affiliation.workspacePath)) return affiliation.workspacePath;
+    return '';
+  }
+
+  /**
+   * The provenance tag this window's sessions carry: its capsule when it has one, else its
+   * verified workspace, so two project windows that both lack a capsule still own separate
+   * buckets instead of sharing the sentinel. Undefined only when the window has no verified
+   * workspace at all — the Unassigned case, which owns nothing but what no project claimed.
+   */
+  private windowTerminalProvenance(): string | undefined {
+    const capsuleId = this.windowWorkspaceAffiliation?.capsuleId;
+    if (capsuleId) return capsuleId;
+    const root = this.resolveWindowWorkspaceRoot();
+    return root ? workspaceTerminalProvenance(this.windowOwnerKey(), root) : undefined;
+  }
+
+  /**
+   * The scope this window sees a session under.
+   *
+   * `ownerKey` is the window's own key, and it is the whole decision for every row that was
+   * minted with one: two project windows that share one folder each mint under their own key,
+   * so neither ever answers for the other's terminals the way a shared capsule let it.
+   *
+   * `tags` is the legacy rule, kept for the rows already on disk that carry no owner key: a
+   * window's own capsule, plus the workspace tag it would carry without one, so a session
+   * created before this window's project gained a capsule belongs to the same project
+   * workspace and must not disappear from the window that created it. Both are positively
+   * attributed, so another project's session — a different capsule, or the same directory
+   * attached by another project — never matches. A window with no verified workspace at all
+   * sees only what no window claimed (`DEFAULT_TERMINAL_CAPSULE_ID`, or a legacy record that
+   * carries no tag).
+   */
+  private windowSessionScope(): { ownerKey: string; tags: Set<string>; acceptsUnclaimed: boolean } {
+    const tags = new Set<string>();
+    const capsuleId = this.windowWorkspaceAffiliation?.capsuleId;
+    if (capsuleId) tags.add(capsuleId);
+    const root = this.resolveWindowWorkspaceRoot();
+    if (root) tags.add(workspaceTerminalProvenance(this.windowOwnerKey(), root));
+    return { ownerKey: this.windowOwnerKey(), tags, acceptsUnclaimed: tags.size === 0 };
+  }
+
+  /**
+   * Session projection scoped to this window. `includeSessionId` keeps a terminal popout's
+   * own binding visible even when the scope would hide it.
+   *
+   * There is no unscoped fallback: a seam that can name neither a session's owner nor its
+   * capsule attributes nothing, so the projection is EMPTY. The unscoped view is every
+   * project's sessions, and falling back to it would hand a scoped window exactly what the
+   * scope exists to withhold.
+   */
+  private scopedTerminalProjection(includeSessionId?: string): TerminalSessionStateProjection {
+    return this.terminalStateForWindow(TerminalManager.getInstance().getSessionState(), includeSessionId);
+  }
+
+  /**
+   * The terminal state this window may see, projected from the process-wide view.
+   *
+   * Only the sessions this window can attribute to itself survive; the transcript on hand
+   * belongs to whichever session the process view made active, so a window that may not see
+   * that session is given an empty one instead of a foreign transcript.
+   */
+  private terminalStateForWindow(state: unknown, includeSessionId?: string): TerminalSessionStateProjection {
+    const projection = (state ?? {}) as Partial<TerminalSessionStateProjection>;
+    const sessions = (Array.isArray(projection.sessions) ? projection.sessions : []).filter(
+      (session) => session && (this.isSessionVisibleToWindow(session.id) || session.id === includeSessionId),
+    );
+    const rawActive = typeof projection.activeSessionId === 'string' ? projection.activeSessionId : '';
+    const wanted = includeSessionId && sessions.some((session) => session.id === includeSessionId) ? includeSessionId : undefined;
+    const activeSessionId = wanted ?? (sessions.some((session) => session.id === rawActive) ? rawActive : (sessions[0]?.id ?? ''));
+    const transcriptKept = activeSessionId !== '' && activeSessionId === rawActive;
+    const splitSessionId = typeof projection.splitSessionId === 'string' && sessions.some((session) => session.id === projection.splitSessionId)
+      ? projection.splitSessionId
+      : undefined;
+    return {
+      activeSessionId,
+      sessions,
+      ...(splitSessionId ? { splitSessionId } : {}),
+      snapshot: transcriptKept && typeof projection.snapshot === 'string' ? projection.snapshot : '',
+      snapshotThroughSeq: transcriptKept && typeof projection.snapshotThroughSeq === 'number' ? projection.snapshotThroughSeq : 0,
+    };
+  }
+
+  /**
+   * The session this window presents as active: its terminal window's own binding when the
+   * sender is one, else the active session of this window's scope.
+   *
+   * The manager's active session is process-wide mutable state, so it answers for whichever
+   * window switched last, not for this one. Every implicit terminal route — input, kill,
+   * restart, resize, buffer — resolves its target here instead, and refuses when the window
+   * presents nothing.
+   */
+  public windowActiveSessionId(sender?: unknown): string {
+    const bound = this.terminalSessionForSender(sender);
+    if (bound && this.isSessionVisibleToWindow(bound)) return bound;
+    return this.terminalStateForWindow(TerminalManager.getInstance().getSessionState()).activeSessionId;
+  }
+
+  /**
+   * Run a manager call that only exists against the active session, aimed at this window's
+   * own session.
+   *
+   * `restart` is the terminal RPC the manager exposes against no session in particular.
+   * Switching first is what makes it act on the session the calling window presents instead
+   * of whichever window switched last, and the restore puts the previous one back so the
+   * other windows' views land where they were. Returns false when the window presents
+   * nothing to act on.
+   */
+  public async runAgainstWindowActive(sender: unknown, run: () => Promise<unknown> | unknown): Promise<boolean> {
+    const tm = TerminalManager.getInstance() as TerminalManagerSeam;
+    const target = this.windowActiveSessionId(sender);
+    if (!target) return false;
+    const previous = tm.getActiveSessionId();
+    if (previous !== target) {
+      const switched = await tm.switchSession(target);
+      if (!switched) return false;
+    }
+    try {
+      await run();
+      return true;
+    } finally {
+      if (previous && previous !== target && tm.getSession(previous)) {
+        await tm.switchSession(previous);
+      }
+    }
+  }
+
+  /**
+   * Whether a session may be acted on from this window: the same scope its sidebar renders.
+   *
+   * Every IPC route that names a session is admitted through here before it reaches the
+   * manager, so a renderer cannot read, type into, rename or kill a session it was never
+   * shown. A route that names no session acts on this window's own active session instead.
+   */
+  public admitsSessionForWindow(sessionId: string): boolean {
+    return this.isSessionVisibleToWindow(sessionId);
+  }
+
+  /**
+   * Whether a session's output belongs to this window.
+   *
+   * Ownership is the key a session was minted under, and it decides alone as soon as the row
+   * carries one: two project windows may share one folder and one capsule, and the key is what
+   * keeps each window's terminals its own. A project window therefore never matches
+   * `'unassigned'`, which is the process-default mint's owner, nor an `agent:` key, which
+   * belongs to no window at all.
+   *
+   * A row written before ownership existed carries no key and keeps the capsule rule it was
+   * created under, so nothing already on disk changes owner. An unattributable session — or a
+   * seam that cannot answer — is refused rather than passed through, because the unscoped
+   * answer is every project's session.
+   *
+   * `facts` are the ownership facts a caller already holds, as a diagnostics row does. A
+   * caller holding none has them read from the manager seam.
+   */
+  private isSessionVisibleToWindow(sessionId: string, facts?: { ownerKey?: string; capsuleId?: string }): boolean {
+    // A terminal window and the sidebar that opened it are the same window: the
+    // session one of this host's own windows presents stays visible to its host.
+    for (const meta of this.terminalWindowMeta.values()) {
+      if (meta?.sessionId === sessionId) return true;
+    }
+    const tm = TerminalManager.getInstance() as TerminalManagerSeam;
+    const rowOwner = typeof facts?.ownerKey === 'string' && facts.ownerKey ? facts.ownerKey : undefined;
+    const rowCapsule = typeof facts?.capsuleId === 'string' && facts.capsuleId ? facts.capsuleId : undefined;
+    const { ownerKey, tags, acceptsUnclaimed } = this.windowSessionScope();
+
+    const sessionOwner = rowOwner ??
+      (typeof tm.sessionOwnerKey === 'function' ? tm.sessionOwnerKey(sessionId) : undefined);
+    if (sessionOwner !== undefined) return sessionOwner === ownerKey;
+
+    // No owner key on the row: it predates ownership, so its capsule decides, exactly as it did
+    // before the key existed. A seam that cannot name a capsule attributes nothing.
+    if (rowCapsule === undefined && typeof tm.sessionCapsuleId !== 'function') return false;
+    const sessionCapsuleId = rowCapsule ??
+      (typeof tm.sessionCapsuleId === 'function' ? tm.sessionCapsuleId(sessionId) : undefined);
+    if (tags.size > 0) {
+      if (sessionCapsuleId === undefined) return false;
+      return tags.has(sessionCapsuleId);
+    }
+    return acceptsUnclaimed && (sessionCapsuleId === undefined || sessionCapsuleId === DEFAULT_TERMINAL_CAPSULE_ID);
+  }
+
+  /**
+   * The sessions this window may show, for a caller that asks for the list directly
+   * instead of rendering the pushed projection.
+   *
+   * Same scope as `terminalStateForWindow`. The unscoped list is every project's
+   * terminals, so it never leaves this host.
+   */
+  public visibleTerminalSessions(): SessionSummary[] {
+    const tm = TerminalManager.getInstance();
+    return this.terminalStateForWindow(tm.getSessionState()).sessions;
+  }
+
+  /**
+   * The process diagnostics this window may read.
+   *
+   * The report names every session, its owner key, its capsule, its subscriber and the
+   * process-wide active session; a window is given its own rows only, with the active session
+   * blanked when that session belongs to another window — the same attribution rule every
+   * other terminal read goes through.
+   *
+   * The manager answers the process-wide report synchronously; the detached daemon's proxy
+   * answers it asynchronously, so the caller awaits it and narrows the result here rather
+   * than asking the authority for a filtered report it cannot always compute.
+   */
+  public scopeTerminalDiagnostics(report: unknown): TerminalDiagnosticsReport {
+    const source = (report ?? {}) as Partial<TerminalDiagnosticsReport>;
+    // Each row names its own owner key and capsule, so the row is decided on the facts it
+    // carries — by the same rule, in the same order, the sidebar and every other terminal read
+    // go through.
+    const sessions = (Array.isArray(source.sessions) ? source.sessions : []).filter(
+      (session) => Boolean(session) && this.isSessionVisibleToWindow(session.sessionId, session),
+    );
+    // A subscriber row that cannot name its session cannot be attributed to any window, so it
+    // is dropped rather than shown: `recordSubscriberAck` always records a session id.
+    const subscribers = (Array.isArray(source.subscribers) ? source.subscribers : []).filter(
+      (subscriber) => typeof subscriber?.sessionId === 'string' && this.isSessionVisibleToWindow(subscriber.sessionId),
+    );
+    const activeSessionId = typeof source.activeSessionId === 'string' && this.isSessionVisibleToWindow(source.activeSessionId)
+      ? source.activeSessionId
+      : '';
+    return {
+      timestamp: typeof source.timestamp === 'number' ? source.timestamp : Date.now(),
+      sessionCount: sessions.length,
+      activeSessionId,
+      sessions,
+      subscribers,
+    };
+  }
+
+  /** The session a terminal window of this host presents directly, if any. */
+  private terminalSessionForSender(sender: unknown): string | undefined {
+    if (!sender || typeof sender !== 'object') return undefined;
+    const windowId = BrowserWindow.fromWebContents(sender as Electron.WebContents)?.id;
+    if (windowId === undefined) return undefined;
+    return this.terminalWindowMeta?.get(windowId)?.sessionId;
+  }
+
+  /**
+   * Working directory, capsule and owner for a terminal this window is about to create.
+   *
+   * A terminal popout keeps the workspace it was opened in (its own bound session
+   * is this window's state, not another window's); otherwise the window's verified
+   * workspace root wins. The last resort is the immutable process-start directory:
+   * `TerminalManager.currentCwd` is process-wide mutable state another window's
+   * workspace switch rewrites, so inheriting it is exactly how one project's
+   * terminal opens in another project's directory.
+   *
+   * The owner travels with the mint: the popout session's own owner when it has one, otherwise
+   * this window's key, which is what keeps two windows that share one folder apart. The
+   * process-default arm attributes to this window too — the asking window's identity is always
+   * known even when its workspace is not, and the sentinel would mint a row this window hides
+   * from itself. `DEFAULT_TERMINAL_OWNER_KEY` stays the manager-level default for calls that
+   * name no window at all.
+   */
+  public resolveTerminalCreationTarget(sender?: unknown): TerminalCreationTarget {
+    const tm = TerminalManager.getInstance() as TerminalManagerSeam;
+    const popoutSessionId = this.terminalSessionForSender(sender);
+    if (popoutSessionId) {
+      const session = tm.getSession(popoutSessionId) as { cwd?: string; capsuleId?: string } | undefined;
+      if (session?.cwd && isExistingDirectory(session.cwd)) {
+        return {
+          cwd: path.normalize(session.cwd),
+          capsuleId: session.capsuleId || DEFAULT_TERMINAL_CAPSULE_ID,
+          ownerKey: (typeof tm.sessionOwnerKey === 'function' ? tm.sessionOwnerKey(popoutSessionId) : undefined) ?? this.windowOwnerKey(),
+          source: 'popout-session',
+        };
+      }
+    }
+    const windowRoot = this.resolveWindowWorkspaceRoot();
+    if (windowRoot) {
+      return {
+        cwd: windowRoot,
+        capsuleId: this.windowTerminalProvenance() ?? DEFAULT_TERMINAL_CAPSULE_ID,
+        ownerKey: this.windowOwnerKey(),
+        source: 'window-workspace',
+      };
+    }
+    const defaultCwd = tm.getDefaultCwd?.() || process.cwd();
+    return {
+      cwd: defaultCwd,
+      capsuleId: DEFAULT_TERMINAL_CAPSULE_ID,
+      ownerKey: this.windowOwnerKey(),
+      source: 'process-default',
+    };
+  }
+
+  /**
+   * Exact tab identity: never alias- or index-resolved, so a stale id can never
+   * name a different tab. `hasTab` deliberately resolves aliases and numeric
+   * references and must not be used where exactness is the contract.
+   */
+  public hasExactTab(tabId: string): boolean {
+    if (!tabId || !this.tabs) return false;
+    return this.tabs.has(tabId);
+  }
+
+  /**
+   * Identity of the project window this host belongs to, as the toolbar renderer
+   * paints it. Every field is Main-resolved at shell construction or from this
+   * host's own affiliation — a page title or a renderer string can never become
+   * the project's name. The key's presence is the signal in a later broadcast, so
+   * this is sent on every state push rather than only once at boot.
+   */
+  public projectWindowIdentity(): ProjectWindowIdentity {
+    const workspacePath = this.resolveWindowWorkspaceRoot();
+    // A shell without a resolved owner is the absence of project authority, and the
+    // contract has no "unknown" member: fail closed to Unassigned rather than
+    // reporting a window that owns nothing.
+    const owner = this.shell?.owner ?? { kind: 'unassigned' };
+    return {
+      owner,
+      title: this.shell?.title ?? '',
+      ...(this.shell?.pathLabel ? { pathLabel: this.shell.pathLabel } : {}),
+      ...(workspacePath ? { workspacePath } : {}),
+    };
+  }
+
+  /**
+   * The user-visible inventory the `'antifan:tabs:search'` contract lists: this
+   * window's tabs in strip order, excluding the offscreen/ephemeral automation
+   * surfaces no user can see or choose.
+   */
+  public listSearchInventory(): TabSearchInventoryRow[] {
+    const ownerKeyValue = this.windowOwnerKey();
+    const label = this.windowOwnerLabel();
+    const projectPath = this.resolveWindowWorkspaceRoot();
+    const rows: TabSearchInventoryRow[] = [];
+    this.tabOrder.forEach((tabId, order) => {
+      const tab = this.tabs.get(tabId);
+      if (!tab) return;
+      if (tab.state.ephemeral === true || tab.state.offscreen === true) return;
+      rows.push({
+        tabId,
+        title: tab.state.title || tab.state.url || '',
+        url: tab.state.url || '',
+        ownerKey: ownerKeyValue,
+        ownerLabel: label,
+        ...(projectPath ? { projectPath } : {}),
+        active: tabId === this.activeTabId,
+        order,
+      });
+    });
+    return rows;
+  }
+
+  /**
+   * Select an exact tab on behalf of an explicit user search activation.
+   *
+   * Validation and selection are one synchronous step: the tab must still exist
+   * under this exact id, must carry the owner the search result was rendered for,
+   * and must still be user-visible. An incompatible result is refused outright —
+   * never substituted by index, never retargeted to another tab — and nothing is
+   * mutated when the check fails. Attachments are not touched: a user's visual
+   * activation never rotates agent authority.
+   */
+  public selectSearchResultTab(tabId: string, expectedOwnerKey: string): TabSearchActivationResult {
+    const tab = tabId && this.tabs ? this.tabs.get(tabId) : undefined;
+    if (!tab || tab.state.ephemeral === true || tab.state.offscreen === true) {
+      return { ok: false, tabId, reason: 'TAB_UNAVAILABLE' };
+    }
+    if (this.windowOwnerKey() !== expectedOwnerKey) {
+      return { ok: false, tabId, reason: 'OWNER_CHANGED' };
+    }
+    this.switchTab(tabId);
+    if (this.activeTabId !== tabId) {
+      return { ok: false, tabId, reason: 'TAB_UNAVAILABLE' };
+    }
+    return { ok: true, tabId, ownerKey: expectedOwnerKey, ownerLabel: this.windowOwnerLabel() };
   }
 
   public getActiveTabId(): string {
@@ -4169,7 +5943,7 @@ export class NativeTabHost extends EventEmitter {
         const tabSessionId = this.getTabTerminalSession(id);
         const termContextData: Record<string, unknown> = {
           tabId: id,
-          sessions: selectAnnotationTargets(tm.listSessions()),
+          sessions: selectAnnotationTargets(this.visibleTerminalSessions()),
           selectedSessionId: tm.getActiveSessionId(),
         };
         if (tabSessionId !== undefined) {
@@ -4309,11 +6083,12 @@ export class NativeTabHost extends EventEmitter {
           } else if (decision.historyDirection === 'forward') {
             this.safeGoForward(siblingView.webContents);
           } else if (decision.mirrorUrl && isAllowedNavigation(decision.mirrorUrl)) {
+            // A sibling that already presents the mirror URL must be left alone:
+            // reloading it is a no-op navigation that still wipes the live DOM
+            // (form values, scroll, focus). Only a different URL needs correction.
             const siblingUrl = cleanRestoredUrl(siblingView.webContents.getURL());
             if (siblingUrl !== decision.mirrorUrl) {
               siblingView.webContents.loadURL(decision.mirrorUrl).catch(() => {});
-            } else if (!siblingView.webContents.isLoading()) {
-              siblingView.webContents.reload();
             }
           }
         }
@@ -4348,11 +6123,12 @@ export class NativeTabHost extends EventEmitter {
             } else if (decision.historyDirection === 'forward') {
               this.safeGoForward(siblingView.webContents);
             } else if (decision.mirrorUrl && isAllowedNavigation(decision.mirrorUrl)) {
+              // A sibling that already presents the mirror URL must be left alone:
+              // reloading it is a no-op navigation that still wipes the live DOM
+              // (form values, scroll, focus). Only a different URL needs correction.
               const siblingUrl = cleanRestoredUrl(siblingView.webContents.getURL());
               if (siblingUrl !== decision.mirrorUrl) {
                 siblingView.webContents.loadURL(decision.mirrorUrl).catch(() => {});
-              } else if (!siblingView.webContents.isLoading()) {
-                siblingView.webContents.reload();
               }
             }
           }
@@ -4402,21 +6178,55 @@ export class NativeTabHost extends EventEmitter {
     });
 
     wc.on('found-in-page', (_event, result) => {
-      safeSendWebContents(this.toolbarView?.webContents, TOOLBAR_CHANNELS.FIND_RESULT, result);
+      safeSendWebContents(this.shell.toolbarView?.webContents, TOOLBAR_CHANNELS.FIND_RESULT, result);
     });
 
     wc.setWindowOpenHandler((details) => {
       return OAuthPopupManager.getInstance().handleWindowOpen(
         wc,
-        this.window,
+        this.shell.window,
         details,
         {
           onNewTabRequested: (url: string) => {
             if (isAllowedNavigation(url)) {
-              const newTabId = this.createTab(url, true);
-              if (newTabId) {
-                this.adoptChildTab(id, newTabId, undefined, 'native_window_open', id);
-              }
+              // Chromium answers a page's window.open synchronously and the requesting page
+              // is blocked inside that call until this handler returns, so the tab is not
+              // built here: creating and activating one attaches WebContentsViews and
+              // touches the compositor, and doing that under the renderer's own window-open
+              // reply was observed deadlocking the two — window.open simply never returned
+              // and the whole run stalled. Deferring keeps the reply immediate and the tab
+              // arrives one turn later, which is what every caller of window.open sees
+              // anyway: this path denies the native window, so the page's window.open is
+              // `null` whatever happens to the tab.
+              const parentTabId = id;
+              // Read the opener's session identity now, not inside the deferred callback: the
+              // source of a window.open is the tab that asked for it, and this tab can be gone
+              // (or its capsule state already torn down) by the time the creation actually runs.
+              // The capsule alone is not the identity: a popup placed in a different partition
+              // reads a cookie jar the opener cannot see, and one with a different user agent
+              // mode presents a different browser than the page that opened it, so the child
+              // inherits all three from the opener.
+              const parentState = this.tabs.get(parentTabId)?.state;
+              const parentCapsuleId = this.getTabCapsuleId(parentTabId);
+              const parentPartition = parentState && typeof parentState.partition === 'string' && parentState.partition ? parentState.partition : undefined;
+              const parentUserAgentMode = parentState?.userAgentMode;
+              setImmediate(() => {
+                if (this.isDisposed) return;
+                // The request is deferred, so the opener can be closed in the meantime. A popup
+                // whose parent died is not created at all: adopting into a gone parent would
+                // leave a tab in this window that no opener and no pool owns.
+                if (!this.hasExactTab(parentTabId)) return;
+                const newTabId = this.createTab(url, true, {
+                  ...(parentCapsuleId ? { capsuleId: parentCapsuleId } : {}),
+                  ...(parentPartition ? { partition: parentPartition } : {}),
+                  ...(parentUserAgentMode ? { userAgentMode: parentUserAgentMode } : {}),
+                });
+                // Adoption failure cleans up only the child this call created and never
+                // retargets its parent, so an unowned child is closed instead of orphaned.
+                if (newTabId && !this.adoptChildTab(parentTabId, newTabId, undefined, 'native_window_open', parentTabId)) {
+                  this.closeTab(newTabId);
+                }
+              });
             }
           }
         }
@@ -4491,7 +6301,12 @@ export class NativeTabHost extends EventEmitter {
     }
 
     if (!capsuleIdForTab) {
-      capsuleIdForTab = this.capsuleManager.getActive()?.id;
+      // The window's own verified workspace before the process-wide selection: a tab opened in
+      // this window belongs to this window, and the active capsule can belong to another one.
+      capsuleIdForTab = resolveNewTabCapsuleId({
+        windowWorkspaceCapsuleId: this.windowWorkspaceAffiliation?.capsuleId,
+        activeCapsuleId: this.capsuleManager.getActive()?.id,
+      });
     }
 
     const userAgentMode: BrowserSessionUserAgentMode = options?.userAgentMode || 'clean';
@@ -4595,7 +6410,11 @@ export class NativeTabHost extends EventEmitter {
       state.title = `view-source:${sourceTargetUrl}`;
       state.url = url;
       this.fetchAndLoadPageSource(wc, sourceTargetUrl, state);
-    } else if (url !== 'about:blank') {
+    } else if (url !== 'about:blank' || isOffscreen) {
+      // An offscreen agent tab must materialize about:blank too: constructing a
+      // WebContentsView without a load leaves no renderer document to answer CDP
+      // (measured by scripts/probe-background-full-page.cjs), so the first MCP
+      // call wedges the session before capture is attempted.
       if (!isAllowedNavigation(url)) return '';
       let initialUa: string | undefined;
       if (effectivePreset) {
@@ -4674,8 +6493,8 @@ export class NativeTabHost extends EventEmitter {
         // would ever free this one. The window can be narrower than the renderer's
         // appetite, so leaking one view per crash compounds.
         try {
-          if (this.window && !this.window.isDestroyed() && target.view && this.window.contentView.children.includes(target.view)) {
-            this.window.contentView.removeChildView(target.view);
+          if (this.shell.window && !this.shell.window.isDestroyed() && target.view && this.shell.window.contentView.children.includes(target.view)) {
+            this.shell.window.contentView.removeChildView(target.view);
           }
         } catch {}
         try { this.destroyOwnedWebContents(target.view?.webContents); } catch {}
@@ -4768,17 +6587,17 @@ export class NativeTabHost extends EventEmitter {
       }
 
       // Defensively ensure no other inactive tab views remain attached
-      if (this.window && !this.window.isDestroyed() && this.window.contentView) {
+      if (this.shell.window && !this.shell.window.isDestroyed() && this.shell.window.contentView) {
         for (const [id, tab] of this.tabs.entries()) {
           if (id !== targetId) {
             // A view an in-flight attach-for-capture call is holding stays put: detaching
             // it here breaks that caller's measurement, and its release then decides the
             // visible stack from a picture of it that is already stale.
-            if (tab.view && !this.isTemporarilyAttachedView(tab.view) && this.window.contentView.children.includes(tab.view)) {
-              try { this.window.contentView.removeChildView(tab.view); } catch {}
+            if (tab.view && !this.isTemporarilyAttachedView(tab.view) && this.shell.window.contentView.children.includes(tab.view)) {
+              try { this.shell.window.contentView.removeChildView(tab.view); } catch {}
             }
-            if (tab.mobileView && !this.isTemporarilyAttachedView(tab.mobileView) && this.window.contentView.children.includes(tab.mobileView)) {
-              try { this.window.contentView.removeChildView(tab.mobileView); } catch {}
+            if (tab.mobileView && !this.isTemporarilyAttachedView(tab.mobileView) && this.shell.window.contentView.children.includes(tab.mobileView)) {
+              try { this.shell.window.contentView.removeChildView(tab.mobileView); } catch {}
             }
           }
         }
@@ -4793,14 +6612,14 @@ export class NativeTabHost extends EventEmitter {
           if (ownedTab.view) ownedViews.add(ownedTab.view);
           if (ownedTab.mobileView) ownedViews.add(ownedTab.mobileView);
         }
-        for (const shellView of [this.toolbarView, this.sidebarView, this.frameBackdropView]) {
+        for (const shellView of [this.shell.toolbarView, this.shell.sidebarView, this.shell.frameBackdropView]) {
           if (shellView) ownedViews.add(shellView);
         }
         let orphanViewCount = 0;
-        for (const child of Array.from(this.window.contentView.children)) {
+        for (const child of Array.from(this.shell.window.contentView.children)) {
           if (ownedViews.has(child)) continue;
           orphanViewCount += 1;
-          try { this.window.contentView.removeChildView(child); } catch {}
+          try { this.shell.window.contentView.removeChildView(child); } catch {}
         }
         if (orphanViewCount > 0) {
           console.warn(`[native-tab-host] Detached ${orphanViewCount} view(s) that no tab or shell surface owns`);
@@ -4809,7 +6628,7 @@ export class NativeTabHost extends EventEmitter {
 
         // Assert target view is attached after inactive clean-up
         if (target.view && !this.isTabViewAttached(target.view)) {
-          try { this.window.contentView.addChildView(target.view); } catch {}
+          try { this.shell.window.contentView.addChildView(target.view); } catch {}
         }
       }
 
@@ -4877,17 +6696,22 @@ export class NativeTabHost extends EventEmitter {
   public applyTabThrottling(): void {
     if (this.isDisposed) return;
     for (const [id, tab] of this.tabs.entries()) {
+      // Both panes are probed through the tolerant accessor: a view whose native object is gone
+      // cannot be throttled, and asking it anyway would throw out of the clear/teardown step
+      // that called this pass.
+      const desktop = this.liveViewContents(tab.view);
+      const mobile = this.liveViewContents(tab.mobileView);
       // Offscreen agent tabs must keep painting continuously so capturePage always
       // has a fresh compositor frame; skip throttling for offscreen tabs and keep backgroundThrottling: false.
       if (tab.state.offscreen === true) {
-        if (tab.view && !tab.view.webContents.isDestroyed()) {
+        if (desktop) {
           try {
-            tab.view.webContents.setBackgroundThrottling(false);
+            desktop.setBackgroundThrottling(false);
           } catch {}
         }
-        if (tab.mobileView && !tab.mobileView.webContents.isDestroyed()) {
+        if (mobile) {
           try {
-            tab.mobileView.webContents.setBackgroundThrottling(false);
+            mobile.setBackgroundThrottling(false);
           } catch {}
         }
         continue;
@@ -4898,14 +6722,14 @@ export class NativeTabHost extends EventEmitter {
       // Unthrottle if the tab is foreground OR currently executing active agent operations.
       // Once agent finishes (returns to idle), tab immediately throttles to conserve CPU/RAM.
       const shouldThrottle = !isForeground && !isAgentWorking;
-      if (tab.view && !tab.view.webContents.isDestroyed()) {
+      if (desktop) {
         try {
-          tab.view.webContents.setBackgroundThrottling(shouldThrottle);
+          desktop.setBackgroundThrottling(shouldThrottle);
         } catch {}
       }
-      if (tab.mobileView && !tab.mobileView.webContents.isDestroyed()) {
+      if (mobile) {
         try {
-          tab.mobileView.webContents.setBackgroundThrottling(shouldThrottle);
+          mobile.setBackgroundThrottling(shouldThrottle);
         } catch {}
       }
     }
@@ -4952,6 +6776,15 @@ export class NativeTabHost extends EventEmitter {
     const target = this.tabs.get(targetId);
     if (!target) return false;
     tabId = targetId;
+    // A page inside an authorized close attempt belongs to that attempt: destroying it
+    // here would race the attempt's own unload observers and could leave the shell
+    // reporting a page it still believes it owns. The attempt's own closePage() is the
+    // one caller allowed through, because it is the caller that took the reservation.
+    const reservedForClose = this.isPageReservedForClose(tabId);
+    // Optional like every other field this method reads: test harnesses build a host
+    // without running field initializers, and a cleanup path must not throw there.
+    const authorizedByAttempt = Boolean(this.attemptAuthorizedCloses?.has(tabId));
+    if (reservedForClose && !authorizedByAttempt) return false;
     // ViewportGate per-tab lock cleanup (Phase 2 contract): ensures lock/poison state is scoped by target and cleaned up on tab destruction via this.viewportGate?.cleanupTab(tabId). Note for P5 owner: full distributed target lock release verified here.
     this.viewportGate?.cleanupTab(tabId);
     this.semanticRefRegistry?.invalidateTab(tabId);
@@ -5029,11 +6862,11 @@ export class NativeTabHost extends EventEmitter {
     }
     if (this.activeTabId === tabId) {
       try {
-        this.window.contentView.removeChildView(target.view);
+        this.shell.window.contentView.removeChildView(target.view);
       } catch {}
       if (target.mobileView) {
         try {
-          this.window.contentView.removeChildView(target.mobileView);
+          this.shell.window.contentView.removeChildView(target.mobileView);
         } catch {}
       }
     }
@@ -5057,6 +6890,15 @@ export class NativeTabHost extends EventEmitter {
       });
       if (userTabs.length > 0) {
         this.switchTab(userTabs[userTabs.length - 1]!);
+      } else if (reservedForClose || authorizedByAttempt) {
+        // Repairing "the window is never empty" must not run inside an authorized close:
+        // the replacement page would be a new arrival the attempt has to treat as one, so
+        // a project shell could never reach zero member pages and never close. The shell
+        // stays empty and the attempt decides; a tab a user or agent opens during the
+        // close is a real arrival and keeps the shell open, which is reported honestly
+        // rather than as a failure.
+        this.activeTabId = '';
+        this.broadcastState();
       } else {
         this.createTab('https://www.google.com');
       }
@@ -5068,6 +6910,425 @@ export class NativeTabHost extends EventEmitter {
     this.reassertPresentedView();
     recordBenchmark({ surface: 'tabs', name: 'closed', extra: { attachedViews: this.countAttachedViews() } });
     return true;
+  }
+
+  /**
+   * Install (or clear) the close-admission seam. Main injects the singleton tab
+   * authority's reservations here; the host reads the fact without importing close
+   * policy, and a host that was never given the seam behaves as it did before it.
+   */
+  public setCloseAdmission(admission: TabHostCloseAdmission | null): void {
+    this.closeAdmission = admission && typeof admission.isPageReserved === 'function' ? admission : null;
+  }
+
+  /**
+   * Refuse work that mints something the committed teardown has already passed: a PTY or a
+   * capsule created then would outlive the windows that asked for it. The close gate's
+   * application reservation is the authority here, so this reads the same fact
+   * `admitAgentAction` reads rather than keeping a second copy of the state.
+   */
+  public assertApplicationAdmitsHostWork(surface: string): void {
+    if (!this.isApplicationAdmissionReservedForClose()) return;
+    throw new CapabilityError('RUNTIME_DRAINING', `${surface} refused: application admission is reserved for a quit`);
+  }
+
+  /**
+   * Refuse work that mints for a window whose own close attempt is already in flight.
+   * The application assert above cannot see this: a *shell* close is not a quit, so the
+   * broader reservation stays open while the asking window's own admission is held. For
+   * synchronous mints — a popout, a terminal window — a held admission would add nothing:
+   * no close attempt can interleave inside the call itself, so refusing it here is the
+   * whole gate. An absent owner key means the sender names no window to protect.
+   */
+  public assertOwnerAdmitsHostWork(surface: string, ownerKey: string | undefined): void {
+    const owner = typeof ownerKey === 'string' ? ownerKey.trim() : '';
+    if (owner.length === 0) return;
+    if (!this.isOwnerReservedForClose(owner)) return;
+    throw new CapabilityError('TARGET_STALE', `${surface} refused: window '${owner}' is closing`);
+  }
+
+  /**
+   * The owner key an admitted operation requested through `senderId` belongs to, or undefined.
+   *
+   * A sidebar, toolbar or popout sender is chrome rather than a page, so `findTabByWebContents`
+   * answers undefined for it - and `beginAdmittedOperation` counts a *named page*, never the
+   * process total, for every page-scoped question. A terminal mint admitted with no attribution is
+   * therefore invisible to the very shell close that would take down the window presenting it:
+   * that attempt reads an idle page and proceeds while the daemon is still minting the shell's PTY.
+   * The shell's owner is the identity of the whole window, so attributing the mint to it makes the
+   * work visible to that shell's close - and to no other window's, and not to a page close, because
+   * a reserved page is not what a mint for the window is about.
+   *
+   * Every owner class keys on its window, including Unassigned: `ProjectWindowManager` holds at
+   * most one live shell per owner key — `ensureWindow` reuses the entry its key already has and
+   * `listShells` reads that same map — so `unassigned` cannot alias two live windows, and the
+   * sentinel is disjoint from every `project:<id>` (see `ownerKey`). A sender this host cannot
+   * place, or a host with no shell, names no owner; the process-wide count still holds the
+   * operation.
+   */
+  public shellOwnerKeyForSender(senderId: number | undefined): string | undefined {
+    if (typeof senderId !== 'number' || !this.ownsChromeSender(senderId)) return undefined;
+    const owner = this.shell?.owner;
+    return owner ? ownerKey(owner) : undefined;
+  }
+
+  /** True when this webContents is a surface this shell presents: its chrome, or a terminal window of it. */
+  private ownsChromeSender(senderId: number): boolean {
+    if (this.shell.chromeSurfaceFor(senderId)) return true;
+    if (this.popoutWindow && !this.popoutWindow.isDestroyed() && this.popoutWindow.webContents?.id === senderId) return true;
+    for (const win of this.terminalWindows.values()) {
+      if (!win.isDestroyed() && win.webContents?.id === senderId) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Admit host work that spans an await, or refuse it as final - and release from a
+   * `finally` on every path.
+   *
+   * The terminal RPCs mint their PTY inside the daemon after the call resolves, so reading
+   * admission before the call proves nothing about the moment the PTY exists. The refusal
+   * and the registration happen in one synchronous step in both directions: an attempt that
+   * already began refuses this work instead of letting a PTY be created for a page it is
+   * about to destroy, and this work is registered before control leaves the step, so an
+   * attempt that begins mid-RPC measures it instead of tearing down around a PTY that is
+   * about to exist.
+   *
+   * `attribution` names what the operation is about: the page it was asked from (a sidebar
+   * request bound to a member page) and the owner key of the window that asked, which is
+   * what makes a mint from chrome visible to that window's close. Either may be absent, and
+   * an operation that names neither is still counted process-wide.
+   */
+  public admitHostWork(surface: string, attribution?: { readonly tabIds?: string | readonly string[]; readonly ownerKey?: string }): () => void {
+    this.assertApplicationAdmitsHostWork(surface);
+    const claimed = attribution?.tabIds === undefined ? [] : typeof attribution.tabIds === 'string' ? [attribution.tabIds] : [...attribution.tabIds];
+    for (const page of claimed) {
+      if (page.length > 0 && this.isPageReservedForClose(page)) {
+        throw new CapabilityError('TARGET_STALE', `${surface} refused: page '${page}' is reserved for close`);
+      }
+    }
+    const admission = this.closeAdmission;
+    const owner = typeof attribution?.ownerKey === 'string' ? attribution.ownerKey.trim() : '';
+    if (owner.length > 0 && this.isOwnerReservedForClose(owner)) {
+      throw new CapabilityError('TARGET_STALE', `${surface} refused: window '${owner}' is closing`);
+    }
+    if (!admission || typeof admission.beginAdmittedOperation !== 'function') return () => {};
+    return admission.beginAdmittedOperation(claimed, attribution?.ownerKey);
+  }
+
+  /**
+   * Admit host work and run it, releasing the admission when that work settles.
+   *
+   * A route that admits must not change the shape it returned before admission existed: an
+   * in-process call returns its value synchronously, and a daemon round-trip returns the very
+   * promise the caller already awaited. What admission adds is the synchronous step — refuse or
+   * register before control leaves the route — plus a release attached to settlement, so an
+   * await that spans the call cannot outlive its own admission, and a rejection releases before
+   * it propagates.
+   */
+  public admitThenRun<T>(
+    surface: string,
+    attribution: { readonly tabIds?: string | readonly string[]; readonly ownerKey?: string },
+    work: () => T | Promise<T>
+  ): T | Promise<T> {
+    const release = this.admitHostWork(surface, attribution);
+    let result: T | Promise<T>;
+    try {
+      result = work();
+    } catch (err) {
+      release();
+      throw err;
+    }
+    const settled: unknown = result;
+    const isThenable =
+      !!settled &&
+      (typeof settled === 'object' || typeof settled === 'function') &&
+      typeof (settled as { then?: unknown }).then === 'function';
+    if (!isThenable) {
+      release();
+      return result;
+    }
+    return Promise.resolve(result).then(
+      (value: T) => {
+        release();
+        return value;
+      },
+      (err: unknown) => {
+        release();
+        throw err;
+      }
+    );
+  }
+
+  /**
+   * Unload-aware native close of ONE member page — the native half the close
+   * coordinator injects as `deps.closePage`.
+   *
+   * The native side owns the outcome vocabulary:
+   * - both observers are registered on the exact `WebContents` instance BEFORE
+   *   `close({ waitForBeforeUnload: true })` runs, because `close()` returns no
+   *   awaitable result;
+   * - `will-prevent-unload` is never answered with `preventDefault()`: that would
+   *   override the page's veto and destroy a page the user asked to keep;
+   * - a destroyed instance wins over a veto, so `closed` and `vetoed` are never
+   *   conflated, and a thrown native call REJECTS rather than reporting an outcome, so
+   *   the coordinator's `failed` bucket stays distinct from `unknown`;
+   * - a missing or replaced instance resolves `unknown`, and a close that stays silent past
+   *   `PAGE_CLOSE_OUTCOME_DEADLINE_MS` reports what the instance itself says: `closed` when
+   *   the instance is destroyed (its `destroyed` event was dropped or arrived too late to be
+   *   observed), `unknown` while it is still standing. The bound never decides a closure —
+   *   `closed` still comes only from a destroyed instance, and no page is ever destroyed on a
+   *   timer — it only stops one swallowed platform answer from holding this tab's reservation
+   *   and handing its never-settling promise to every later attempt. Reporting `unknown` for
+   *   an instance that was in fact destroyed would be the worse error of the two: it skips
+   *   `finalizeClosedPage`, leaving a closed page's record owned by this shell.
+   *
+   * Local cleanup is explicit here: the tab record and its child contents are disposed
+   * when the per-tab `destroyed` listener did not already do it, so no caller has to
+   * assume that listener exists.
+   */
+  public closePage(tabId: string): Promise<TabPageCloseOutcome> {
+    if (this.isDisposed) return Promise.resolve('unknown');
+    const targetId = (this.resolveTargetTabId(tabId) || tabId || '').trim();
+    if (targetId.length === 0) return Promise.resolve('unknown');
+    const inFlight = this.pendingPageCloses?.get(targetId);
+    if (inFlight) return inFlight;
+    const record = this.tabs?.get(targetId);
+    const wc: Electron.WebContents | null | undefined = record?.view?.webContents;
+    if (!record || !wc) return Promise.resolve('unknown');
+
+    // From here this call owns the page: the attempt's reservation keeps every other
+    // caller out of closeTab() for this tab id, and this set names the one caller that is
+    // allowed through, so the attempt's own close still runs the local tab cleanup.
+    const deferred = Promise.withResolvers<TabPageCloseOutcome>();
+    let settled = false;
+    let outcomeTimer: NodeJS.Timeout | null = null;
+    const releaseAttempt = (): void => {
+      if (outcomeTimer) {
+        clearTimeout(outcomeTimer);
+        outcomeTimer = null;
+      }
+      this.attemptAuthorizedCloses?.delete(targetId);
+      this.pendingPageCloses?.delete(targetId);
+      try { wc.removeListener('destroyed', onDestroyed); } catch {}
+      try { wc.removeListener('will-prevent-unload', onWillPreventUnload); } catch {}
+    };
+    const finish = (outcome: TabPageCloseOutcome): void => {
+      if (settled) return;
+      settled = true;
+      try {
+        // Cleanup runs while this call still owns the reservation: the tab authority
+        // refuses to destroy a reserved page, so releasing first would leave the closed
+        // page's record behind and the shell would report a page it no longer owns.
+        if (outcome === 'closed') this.finalizeClosedPage(targetId, wc);
+      } finally {
+        releaseAttempt();
+      }
+      deferred.resolve(outcome);
+    };
+    const onDestroyed = (): void => finish('closed');
+    // Never preventDefault here: the whole point of this observer is to honor the veto.
+    const onWillPreventUnload = (): void => finish('vetoed');
+
+    this.attemptAuthorizedCloses?.add(targetId);
+    if (typeof wc.isDestroyed === 'function' && wc.isDestroyed()) {
+      // Already terminal: nothing can veto it, and no observer can fire for it again.
+      // Same ordering rule as `finish`: the record cleanup happens under this call's
+      // authorization, then the reservation is released.
+      settled = true;
+      try {
+        this.finalizeClosedPage(targetId, wc);
+      } finally {
+        releaseAttempt();
+      }
+      return Promise.resolve('closed');
+    }
+
+    this.pendingPageCloses?.set(targetId, deferred.promise);
+    wc.once('destroyed', onDestroyed);
+    wc.once('will-prevent-unload', onWillPreventUnload);
+    // Armed before the request, because a swallowed answer emits no event to arm one from.
+    // The bound reports the same fact the `destroyed` observer reports, and reports it the
+    // same way: a destruction that landed without its event being delivered is a closed page,
+    // not a silent one, and calling it silent would skip `finalizeClosedPage` and leave the
+    // destroyed record in `this.tabs` — a leak the page's own close is supposed to prevent.
+    // `finish` routes through `releaseAttempt`, so it clears this timer and drops the
+    // in-flight entry, and a later attempt can ask the page again.
+    outcomeTimer = setTimeout(() => {
+      const gone = typeof wc.isDestroyed === 'function' && wc.isDestroyed();
+      finish(gone ? 'closed' : 'unknown');
+    }, PAGE_CLOSE_OUTCOME_DEADLINE_MS);
+    outcomeTimer.unref?.();
+    try {
+      wc.close({ waitForBeforeUnload: true });
+    } catch (error) {
+      if (!settled) {
+        settled = true;
+        releaseAttempt();
+        deferred.reject(error);
+      }
+    }
+    return deferred.promise;
+  }
+
+  /**
+   * Dispose the tab record of a page whose exact instance was just destroyed. Runs only
+   * when the per-tab `destroyed` listener did not already clean the record up, and never
+   * touches a record a newer instance now owns.
+   */
+  private finalizeClosedPage(tabId: string, destroyedInstance: Electron.WebContents): void {
+    const record = this.tabs?.get(tabId);
+    if (!record) return;
+    if (record.view?.webContents !== destroyedInstance) return;
+    this.closeTab(tabId);
+  }
+
+  /**
+   * The visible member-page snapshot a close attempt takes BEFORE it destroys anything:
+   * this shell's presented tabs in strip order, excluding the offscreen/ephemeral
+   * agent-plane views that `auxiliaryViewTabIds()` reports separately.
+   */
+  public visibleMemberTabIds(): string[] {
+    if (this.isDisposed || !this.tabs) return [];
+    const isMember = (tab: NativeTabRecord | undefined): boolean =>
+      Boolean(tab && tab.state.ephemeral !== true && tab.state.offscreen !== true);
+    const members: string[] = [];
+    for (const id of this.tabOrder ?? []) {
+      if (members.includes(id) || !isMember(this.tabs.get(id))) continue;
+      members.push(id);
+    }
+    // A presented record missing from the strip order is still a member. Under-reporting
+    // is the dangerous direction: a page left out of the snapshot is a page the attempt
+    // would leave behind while reporting its shell closed.
+    for (const [id, tab] of this.tabs) {
+      if (members.includes(id) || !isMember(tab)) continue;
+      members.push(id);
+    }
+    return members;
+  }
+
+  /**
+   * The auxiliary views this host owns: offscreen and ephemeral agent-plane tabs. They
+   * are deliberately outside `visibleMemberTabIds()` — no project snapshot may claim
+   * them — but they hold live renderers and can carry in-flight work, so an
+   * application-scope busy check must still see them.
+   */
+  public auxiliaryViewTabIds(): string[] {
+    if (this.isDisposed || !this.tabs) return [];
+    const ids: string[] = [];
+    for (const [id, tab] of this.tabs) {
+      if (tab.state.ephemeral === true || tab.state.offscreen === true) ids.push(id);
+    }
+    return ids;
+  }
+
+  /**
+   * Re-present a surviving member page INSIDE this shell after a partial close: the
+   * current active page when it survived, otherwise the last survivor in strip order.
+   * Never raises, shows or focuses another window and never touches another shell.
+   */
+  public restoreSurvivingLayout(survivingTabIds: readonly string[]): boolean {
+    if (this.isDisposed || !this.tabs) return false;
+    const survivors = this.visibleMemberTabIds().filter((id) => survivingTabIds.includes(id));
+    if (survivors.length === 0) return false;
+    const target = survivors.includes(this.activeTabId) ? this.activeTabId : survivors[survivors.length - 1]!;
+    if (this.activeTabId === target) {
+      this.reassertPresentedView();
+      return true;
+    }
+    return this.switchTab(target);
+  }
+
+  /**
+   * Read one page's close reservation. Fail-closed: a seam that throws reads as
+   * "reserved", so an unreadable reservation can never authorize destroying a page.
+   */
+  private isPageReservedForClose(tabId: string): boolean {
+    const admission = this.closeAdmission;
+    if (!admission || typeof admission.isPageReserved !== 'function') return false;
+    try {
+      return admission.isPageReserved(tabId) === true;
+    } catch {
+      return true;
+    }
+  }
+
+  /**
+   * Read the application-wide admission fact. Fail-closed for the same reason as the
+   * per-page read, and read BEFORE it, because it is the broader refusal. A host that was
+   * never given the wider face reads as not reserved, so injecting the seam stays additive.
+   */
+  private isApplicationAdmissionReservedForClose(): boolean {
+    const admission = this.closeAdmission;
+    if (!admission || typeof admission.isApplicationAdmissionReserved !== 'function') return false;
+    try {
+      return admission.isApplicationAdmissionReserved() === true;
+    } catch {
+      return true;
+    }
+  }
+
+  /**
+   * Read one window's close reservation. Fail-closed for the same reason as the other two:
+   * an unreadable answer refuses rather than admitting work into a closing window.
+   */
+  private isOwnerReservedForClose(ownerKey: string): boolean {
+    const admission = this.closeAdmission;
+    if (!admission || typeof admission.isOwnerReserved !== 'function') return false;
+    try {
+      return admission.isOwnerReserved(ownerKey) === true;
+    } catch {
+      return true;
+    }
+  }
+
+  /**
+   * Admit one agent action, or refuse it as final — the same two-step the port gate and
+   * the capability transport perform, applied at the host so the bridge RPC surfaces
+   * cannot admit work the gate would have refused.
+   *
+   * The refusal is a throw carrying a `CapabilityError` code from the shared vocabulary:
+   * `RUNTIME_DRAINING` while a quit holds admission, `TARGET_STALE` for a page inside an
+   * authorized close, with the surface name in the message so the caller can report which
+   * action was refused and why. Registering the admitted operation is what makes an
+   * in-flight agent action visible to the close gate's measurement; a registration that
+   * throws is a refusal, not a warning, because unmeasurable work must not be admitted.
+   */
+  private admitAgentAction(surface: string, tabId?: string): () => void {
+    if (this.isApplicationAdmissionReservedForClose()) {
+      throw new CapabilityError(
+        'RUNTIME_DRAINING',
+        `${surface} refused: application admission is reserved for a quit`
+      );
+    }
+    const target = tabId || this.automationTabId || '';
+    if (target && this.isPageReservedForClose(target)) {
+      throw new CapabilityError(
+        'TARGET_STALE',
+        `${surface} refused: page '${target}' is reserved for close`
+      );
+    }
+    // A nested action — the keyboard action the automation host routes back through this
+    // host — is already registered by the outer call, so registering here would count one
+    // action twice in that measurement. The refusal above still applies to it.
+    if (this.agentActionAdmissionDepth > 0) return () => {};
+    const admission = this.closeAdmission;
+    if (!admission || typeof admission.beginAdmittedOperation !== 'function') return () => {};
+    // Attributed to the page AND to this window's owner. A page count alone is invisible to a
+    // shell question when the target is an offscreen or ephemeral tab: those are not member
+    // pages, so a window close would destroy the tab mid-action and still measure as idle.
+    const release = admission.beginAdmittedOperation(
+      target ? [target] : undefined,
+      this.windowOwnerKey()
+    );
+    this.agentActionAdmissionDepth++;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      this.agentActionAdmissionDepth--;
+      release();
+    };
   }
 
   public reopenClosedTab(): string | null {
@@ -5552,11 +7813,19 @@ export class NativeTabHost extends EventEmitter {
           mobileView.webContents.loadURL(tab.state.url).catch(() => {});
         }
       }
+      if (tab.state.url && tab.state.url !== 'about:blank' && !tab.state.url.startsWith('view-source:') && isAllowedNavigation(tab.state.url)) {
+        // The mirror transaction mirrors the mount itself: the desktop pane holds
+        // the live document and is the authority; the mobile pane's initial load
+        // (or the view's already-loaded document) is the host-driven mirror of it.
+        // Seeding here settles that commit as the expected echo, so it can never
+        // claim mobile authority and drive a correction against the live pane.
+        this.splitCoordinator.startTransaction(tabId, 'desktop', cleanRestoredUrl(tab.state.url));
+      }
     } else {
       if (tab.mobileView) {
         if (tabId === this.activeTabId) {
           try {
-            this.window.contentView.removeChildView(tab.mobileView);
+            this.shell.window.contentView.removeChildView(tab.mobileView);
           } catch {}
         }
         try {
@@ -5806,9 +8075,12 @@ export class NativeTabHost extends EventEmitter {
   public applyTabDeviceEmulationForTab(tabId: string): void {
     const tab = this.tabs.get(tabId);
     if (!tab) return;
-    if (!this.window || typeof this.window.getContentBounds !== 'function') return;
-    const { width, height } = this.window.getContentBounds();
-    const availableWidth = this.isSidebarOpen ? Math.max(400, width - this.sidebarWidth) : width;
+    // Emulation is sized from this window's content box, and a DevTools- or teardown-driven
+    // request can arrive after that window is gone; the destroyed check is the only honest
+    // answer, because the method reference still exists on a destroyed window.
+    if (!this.shell.window || (typeof this.shell.window.isDestroyed === 'function' && this.shell.window.isDestroyed()) || typeof this.shell.window.getContentBounds !== 'function') return;
+    const { width, height } = this.shell.window.getContentBounds();
+    const availableWidth = this.shell.isSidebarOpen ? Math.max(400, width - this.shell.sidebarWidth) : width;
     const toolbarHeight = this.getToolbarHeight();
     const availableHeight = Math.max(0, height - toolbarHeight);
     this.applyTabDeviceEmulation(tab, availableWidth, availableHeight, toolbarHeight);
@@ -6183,31 +8455,67 @@ export class NativeTabHost extends EventEmitter {
     return this.getAutomationHost().ensureAgentBrowserInjected(tabId, paneId);
   }
   public async dispatchAgentAction(action: 'click' | 'type' | 'move' | 'hover' | 'scroll' | 'highlight' | 'clear' | 'trajectory', params: { selector?: string; ref?: string; x?: number; y?: number; text?: string; clear?: boolean; trusted?: boolean; deltaY?: number; label?: string; tabId?: string; paneId?: SplitPaneId; steps?: Array<Record<string, unknown>>; speed?: 'fast' | 'natural' | 'slow'; smoothScroll?: boolean }): Promise<{ success: boolean; data?: unknown; reason?: string }> {
-    return this.getAutomationHost().dispatchAgentAction(action, params);
+    const release = this.admitAgentAction(`dispatchAgentAction(${action})`, params.tabId);
+    try {
+      return await this.getAutomationHost().dispatchAgentAction(action, params);
+    } finally {
+      release();
+    }
   }
   private async executeInIsolatedWorld(wc: Electron.WebContents, script: string): Promise<unknown> {
     return this.getAutomationHost().executeInIsolatedWorld(wc, script);
   }
 
   public async agentClick(params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; trusted?: boolean; force?: boolean; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
-    return this.getAutomationHost().agentClick(params);
+    const release = this.admitAgentAction('agentClick', params.tabId);
+    try {
+      return await this.getAutomationHost().agentClick(params);
+    } finally {
+      release();
+    }
   }
 
   public async agentType(params: { selector?: string; ref?: string; text: string; clear?: boolean; trusted?: boolean; force?: boolean; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
-    return this.getAutomationHost().agentType(params);
+    const release = this.admitAgentAction('agentType', params.tabId);
+    try {
+      return await this.getAutomationHost().agentType(params);
+    } finally {
+      release();
+    }
   }
   public async agentScroll(params: { deltaY?: number; selector?: string; ref?: string; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
-    return this.getAutomationHost().agentScroll(params);
+    const release = this.admitAgentAction('agentScroll', params.tabId);
+    try {
+      return await this.getAutomationHost().agentScroll(params);
+    } finally {
+      release();
+    }
   }
 
   public async agentHover(params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; force?: boolean; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
-    return this.getAutomationHost().agentHover(params);
+    const release = this.admitAgentAction('agentHover', params.tabId);
+    try {
+      return await this.getAutomationHost().agentHover(params);
+    } finally {
+      release();
+    }
   }
 
   public async agentHighlight(params: { selector?: string; ref?: string; label?: string; color?: string; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
-    return this.getAutomationHost().agentHighlight(params);
+    const release = this.admitAgentAction('agentHighlight', params.tabId);
+    try {
+      return await this.getAutomationHost().agentHighlight(params);
+    } finally {
+      release();
+    }
   }
   public async agentClear(tabId?: string, paneId?: SplitPaneId): Promise<boolean> {
+    // Clearing the visual cursor is the one agent surface that must never throw: it is
+    // also a cancellation, reached from teardown paths that must not abort their ordered
+    // steps. A reserved page refuses it the way `closePage` refuses instead of throwing.
+    if (this.isApplicationAdmissionReservedForClose() || (tabId && this.isPageReservedForClose(tabId))) {
+      return false;
+    }
     return this.getAutomationHost().agentClear(tabId, paneId);
   }
   public async inspectStyles(params: { selector?: string; ref?: string; properties?: string[]; tabId?: string; paneId?: SplitPaneId }): Promise<Record<string, unknown>> {
@@ -6322,6 +8630,18 @@ export class NativeTabHost extends EventEmitter {
     return true;
   }
 
+  /**
+   * The capsule a tab was created in, read from the live tab. This is the measured affiliation a
+   * routed creation is authorized against: the persisted capsule ledger is written by no runtime
+   * path, so reading it would report every tab this build creates as owned by no capsule.
+   */
+  public getTabCapsuleId(tabId?: string | null): string | undefined {
+    const resolved = this.resolveTargetTabId(tabId);
+    if (!resolved) return undefined;
+    const capsuleId = this.tabs.get(resolved)?.state.capsuleId;
+    return typeof capsuleId === 'string' && capsuleId.length > 0 ? capsuleId : undefined;
+  }
+
   public resolveTargetTabId(tabIdOrIdentifier?: string | null): string | undefined {
     if (!tabIdOrIdentifier || typeof tabIdOrIdentifier !== 'string') return undefined;
     const trimmed = tabIdOrIdentifier.trim();
@@ -6367,6 +8687,9 @@ export class NativeTabHost extends EventEmitter {
     if (terminalIds.length === 0) return result;
     const tm = TerminalManager.getInstance();
     for (const terminalId of terminalIds) {
+      // The strip shows the badges of the terminals this window presents. Another project's
+      // terminal id is not this window's to report, or to act on.
+      if (!this.isSessionVisibleToWindow(terminalId)) continue;
       const session = tm.getSession(terminalId) as { sessionGeneration?: number } | undefined;
       if (!session) continue;
       const affinity = this.getTerminalAgentAffinity(terminalId, session.sessionGeneration);
@@ -6848,7 +9171,7 @@ export class NativeTabHost extends EventEmitter {
     }
   }
 
-  public terminalWrite(tabId: string, input: string, terminalId?: string): boolean {
+  public terminalWrite(tabId: string, input: string, terminalId?: string): boolean | Promise<boolean> {
     const targetTerminalId = terminalId || this.getOwnedTerminalSession(tabId);
     if (!targetTerminalId) {
       throw new CapabilityError(
@@ -6857,8 +9180,10 @@ export class NativeTabHost extends EventEmitter {
       );
     }
     this.assertTerminalAccess(tabId, targetTerminalId);
-    TerminalManager.getInstance().writeTo(targetTerminalId, input);
-    return true;
+    const written: unknown = TerminalManager.getInstance().writeTo(targetTerminalId, input);
+    // The singleton is a daemon proxy installed by cast: it answers boolean|Promise<boolean>
+    // while the in-process manager answers undefined, which maps to the old constant true.
+    return written === undefined ? true : (written as boolean | Promise<boolean>);
   }
 
   /**
@@ -6869,8 +9194,8 @@ export class NativeTabHost extends EventEmitter {
    */
   private dispatchTerminalData(payload: TerminalDataPayload): void {
     let sent = 0;
-    if (this.isSidebarOpen && this.sidebarView && !this.sidebarView.webContents.isDestroyed()) {
-      safeSendWebContents(this.sidebarView.webContents, 'antifan:terminal:data', payload);
+    if (this.shell.isSidebarOpen && this.shell.sidebarView && !this.shell.sidebarView.webContents.isDestroyed()) {
+      safeSendWebContents(this.shell.sidebarView.webContents, 'antifan:terminal:data', payload);
       sent += 1;
     }
     for (const [id, win] of this.terminalWindows.entries()) {
@@ -7620,7 +9945,12 @@ export class NativeTabHost extends EventEmitter {
     tabId?: string;
     paneId?: SplitPaneId;
   }): Promise<{ success: boolean; reason?: string; data?: unknown }> {
-    return this.getAutomationHost().agentDrag(params);
+    const release = this.admitAgentAction('agentDrag', params.tabId);
+    try {
+      return await this.getAutomationHost().agentDrag(params);
+    } finally {
+      release();
+    }
   }
 
   public async reapplyTabGeometry(
@@ -7645,14 +9975,29 @@ export class NativeTabHost extends EventEmitter {
   }
 
   public async uploadFileInput(params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: SplitPaneId }): Promise<{ success: boolean; uploadedCount: number; reason?: string }> {
-    return this.getAutomationHost().uploadFileInput(params.refOrSelector, params.filePaths, params.tabId, params.paneId);
+    const release = this.admitAgentAction('uploadFileInput', params.tabId);
+    try {
+      return await this.getAutomationHost().uploadFileInput(params.refOrSelector, params.filePaths, params.tabId, params.paneId);
+    } finally {
+      release();
+    }
   }
 
   public async dropFiles(params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: SplitPaneId }): Promise<{ success: boolean; droppedCount: number; reason?: string }> {
-    return this.getAutomationHost().dropFiles(params.refOrSelector, params.filePaths, params.tabId, params.paneId);
+    const release = this.admitAgentAction('dropFiles', params.tabId);
+    try {
+      return await this.getAutomationHost().dropFiles(params.refOrSelector, params.filePaths, params.tabId, params.paneId);
+    } finally {
+      release();
+    }
   }
   public async executeActionSequence(params: ActionSequenceParams): Promise<ActionSequenceResult> {
-    return this.getAutomationHost().executeActionSequence(params);
+    const release = this.admitAgentAction('executeActionSequence', params.tabId);
+    try {
+      return await this.getAutomationHost().executeActionSequence(params);
+    } finally {
+      release();
+    }
   }
 
   private getTabsStoragePath(): string {
@@ -7662,7 +10007,165 @@ export class NativeTabHost extends EventEmitter {
     }
     return path.join(userData, 'saved-tabs.json');
   }
+
+  /** Raw parse of the saved-tabs file; null when absent, unreadable or not an object. */
+  private readSavedTabsFile(filePath: string): Record<string, unknown> | null {
+    try {
+      if (!fs.existsSync(filePath)) return null;
+      const parsed: unknown = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+      return parsed as Record<string, unknown>;
+    } catch (err) {
+      console.warn('[native-tab-host] Failed to read saved tabs:', err);
+      return null;
+    }
+  }
+
+  /** Read + normalize without writing; the caller's write persists the migration. */
+  private normalizeSavedTabsFileForMerge(filePath: string): SavedTabsDocument | null {
+    const data = this.readSavedTabsFile(filePath);
+    if (!data) return null;
+    return normalizeSavedTabsDocument(data).document;
+  }
+
+  /**
+   * Read the shared saved-tabs document, migrating a legacy flat file exactly once.
+   *
+   * The migration is a file-level transaction: the versioned document is written to
+   * a temporary file in the same directory and only then renamed over the source, so
+   * an interrupted write leaves the legacy source intact for the next launch. When
+   * the write fails the in-memory versioned view is still returned — the user's tabs
+   * are not lost just because the disk could not be rewritten yet.
+   */
+  public loadSavedTabsDocument(): SavedTabsDocument | null {
+    const filePath = this.getTabsStoragePath();
+    const data = this.readSavedTabsFile(filePath);
+    if (!data) return null;
+    const { document, migrated } = normalizeSavedTabsDocument(data);
+    if (migrated) {
+      try {
+        this.writeSavedTabsDocumentSync(filePath, document);
+        console.log('[native-tab-host] Migrated legacy saved tabs to the owner-keyed document');
+      } catch (err) {
+        console.warn('[native-tab-host] Saved-tabs migration write failed; legacy source retained:', err);
+      }
+    }
+    return document;
+  }
+
+  /**
+   * Explicit one-time migration entry point (boot, and the persistence suite).
+   * A document that already states its version is left untouched, so retrying after
+   * an interrupted write converges instead of duplicating records.
+   */
+  public migrateLegacySavedTabsFile(): SavedTabsMigrationResult {
+    const filePath = this.getTabsStoragePath();
+    const data = this.readSavedTabsFile(filePath);
+    if (!data) return { migrated: false, reason: 'no-document' };
+    const { document, migrated } = normalizeSavedTabsDocument(data);
+    if (!migrated) return { migrated: false, reason: 'already-versioned' };
+    try {
+      this.writeSavedTabsDocumentSync(filePath, document);
+    } catch (err) {
+      return { migrated: false, reason: `write-failed: ${err instanceof Error ? err.message : String(err)}` };
+    }
+    return { migrated: true };
+  }
+
+  /**
+   * The one atomic write of the saved-tabs document. Throws on failure so a caller
+   * can retain what it was replacing; a partially written temp file is removed so it
+   * can never be mistaken for the document.
+   */
+  public writeSavedTabsDocumentSync(filePath: string, document: SavedTabsDocument): void {
+    const tempPath = `${filePath}.tmp.${Date.now()}.${Math.random().toString(36).slice(2, 8)}`;
+    const json = JSON.stringify(document, null, 2);
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    try {
+      fs.writeFileSync(tempPath, json, 'utf8');
+      fs.renameSync(tempPath, filePath);
+    } catch (err) {
+      try { fs.rmSync(tempPath, { force: true }); } catch {}
+      throw err;
+    }
+  }
+
+  /** This window's record inside the document: tabs, its local active id, its auxiliaries. */
+  private ownerRecordFromPersistData(data: Record<string, unknown>): SavedTabsOwnerRecord {
+    const record: SavedTabsOwnerRecord = {
+      tabs: tabRecordsFromUnknown(data.tabs),
+      updatedAt: Date.now(),
+    };
+    if (typeof data.activeTabId === 'string') record.activeTabId = data.activeTabId;
+    const terminalWindows = terminalWindowRecordsFromUnknown(data.terminalWindows);
+    if (terminalWindows) record.terminalWindows = terminalWindows;
+    const terminalAffinities = terminalAffinityRecordsFromUnknown(data.terminalAffinities);
+    if (terminalAffinities) record.terminalAffinities = terminalAffinities;
+    if (data.isTerminalPopoutOpen === true) record.isTerminalPopoutOpen = true;
+    if (typeof data.wasSidebarOpenBeforePopout === 'boolean') record.wasSidebarOpenBeforePopout = data.wasSidebarOpenBeforePopout;
+    if (typeof data.popoutSessionId === 'string') record.popoutSessionId = data.popoutSessionId;
+    return record;
+  }
+
+  /** Application-wide preferences: everything the window record does not own. */
+  private sharedPrefsFromPersistData(data: Record<string, unknown>): Record<string, unknown> {
+    const shared: Record<string, unknown> = { ...data };
+    delete shared.tabs;
+    delete shared.activeTabId;
+    delete shared.terminalWindows;
+    delete shared.terminalAffinities;
+    delete shared.isTerminalPopoutOpen;
+    delete shared.wasSidebarOpenBeforePopout;
+    delete shared.popoutSessionId;
+    return shared;
+  }
+
+  /**
+   * Merge this window's record into the document, preserving every other owner's
+   * record: closing or saving one project must never overwrite another project's
+   * saved tabs, popouts or affinities.
+   */
+  private buildSavedTabsDocument(existing: SavedTabsDocument | null, data: Record<string, unknown>): SavedTabsDocument {
+    const owners: Record<string, SavedTabsOwnerRecord> = { ...(existing?.owners ?? {}) };
+    owners[this.windowOwnerKey()] = this.ownerRecordFromPersistData(data);
+    return {
+      ...this.sharedPrefsFromPersistData(data),
+      version: SAVED_TABS_SCHEMA_VERSION,
+      owners,
+      updatedAt: Date.now(),
+    };
+  }
   private isDisposed = false;
+  /**
+   * Close-admission facts injected by Main (see `TabHostCloseAdmission`). Absent means
+   * "no close attempt is running"; every consumer below then behaves exactly as it did
+   * before this seam existed instead of guessing at an attempt's state.
+   */
+  private closeAdmission: TabHostCloseAdmission | null = null;
+  /**
+   * Nesting depth of admitted agent actions. The keyboard action the automation host
+   * routes back through this host arrives with an action already admitted, so the inner
+   * call asserts the refusal but does not register a second operation for one action.
+   */
+  private agentActionAdmissionDepth = 0;
+  /**
+   * Pages this host's own `closePage()` is closing *under* an attempt's reservation.
+   * A reservation alone means "an attempt owns this page and no other caller may
+   * destroy it"; this set names the one caller that is allowed through, so the
+   * attempt's own authorized close still runs the local tab cleanup.
+   */
+  private readonly attemptAuthorizedCloses = new Set<string>();
+  /** In-flight `closePage()` calls by tab id, so a duplicate close is the same outcome. */
+  private readonly pendingPageCloses = new Map<string, Promise<TabPageCloseOutcome>>();
+  /** Latches the child-view teardown so it disposes each webContents exactly once. */
+  private childViewsDisposed = false;
+  /**
+   * Releases for the listeners this host registered on the shared `TerminalManager`
+   * singleton. The manager outlives every window, so a host that never unsubscribed
+   * would be kept alive by the manager's listener list and would keep forwarding
+   * terminal payloads into destroyed views.
+   */
+  private terminalSubscriptionReleases: Array<() => void> = [];
   private isPersistingTabs = false;
   private hasPendingPersist = false;
   private broadcastStatePending = false;
@@ -7839,8 +10342,8 @@ export class NativeTabHost extends EventEmitter {
       bookmarks: this.bookmarks,
       mutedSites: Array.from(this.mutedSites),
       activeChromeProfileId: ChromeProfileSyncManager.getInstance().activeProfileId,
-      sidebarWidth: this.sidebarWidth,
-      isSidebarOpen: this.isSidebarOpen,
+      sidebarWidth: this.shell.sidebarWidth,
+      isSidebarOpen: this.shell.isSidebarOpen,
       terminalTabLayout: this.terminalTabLayout,
       terminalSidebarWidth: this.terminalSidebarWidth,
       terminalCollapsedCategories: this.terminalCollapsedCategories,
@@ -7868,11 +10371,15 @@ export class NativeTabHost extends EventEmitter {
         this.hasPendingPersist = false;
         const filePath = this.getTabsStoragePath();
         const data = this.buildPersistData();
-        const tempPath = `${filePath}.tmp.${Date.now()}.${Math.random().toString(36).slice(2, 8)}`;
-        const json = JSON.stringify(data, null, 2);
-        await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
-        await fs.promises.writeFile(tempPath, json, 'utf8');
-        await fs.promises.rename(tempPath, filePath);
+        await enqueueSavedTabsWrite(filePath, async () => {
+          // Merge and swap in ONE uninterrupted synchronous step. The read has to see what
+          // another window wrote since this window last looked, and the rename has to happen
+          // before anyone else reads — an await between the two lets a synchronous writer (a
+          // closing window's disposal persist, which cannot enter this chain) land its newer
+          // record in the gap, and this task would then rename an older snapshot over it.
+          const existing = this.normalizeSavedTabsFileForMerge(filePath);
+          this.writeSavedTabsDocumentSync(filePath, this.buildSavedTabsDocument(existing, data));
+        });
         console.log('[native-tab-host] Persisted tabs async to:', filePath);
       } while (this.hasPendingPersist && !this.isDisposed);
     } catch (err) {
@@ -7895,11 +10402,8 @@ export class NativeTabHost extends EventEmitter {
     try {
       const filePath = this.getTabsStoragePath();
       const data = this.buildPersistData();
-      const tempPath = `${filePath}.tmp.${Date.now()}.${Math.random().toString(36).slice(2, 8)}`;
-      const json = JSON.stringify(data, null, 2);
-      fs.mkdirSync(path.dirname(filePath), { recursive: true });
-      fs.writeFileSync(tempPath, json, 'utf8');
-      fs.renameSync(tempPath, filePath);
+      const document = this.buildSavedTabsDocument(this.normalizeSavedTabsFileForMerge(filePath), data);
+      this.writeSavedTabsDocumentSync(filePath, document);
       console.log('[native-tab-host] Persisted tabs sync to:', filePath);
     } catch (err) {
       console.warn('[native-tab-host] Failed to persist tabs sync:', err);
@@ -7908,153 +10412,158 @@ export class NativeTabHost extends EventEmitter {
 
   public restoreTabs(fallbackUrl?: string, options?: { safeStart?: boolean }): void {
     try {
-      const filePath = this.getTabsStoragePath();
-      if (fs.existsSync(filePath)) {
-        const raw = fs.readFileSync(filePath, 'utf8');
-        const data = JSON.parse(raw);
-        if (data) {
-          this.restoreMutedSites(data.mutedSites);
-          if (typeof data.sidebarWidth === 'number' && data.sidebarWidth >= 260 && data.sidebarWidth <= 850) {
-            this.sidebarWidth = data.sidebarWidth;
+      // Migrates a legacy flat file on first read; shared preferences apply to every
+      // window, while tabs/popouts/affinities belong to this window's owner record.
+      const document = this.loadSavedTabsDocument();
+      if (document) {
+        this.restoreMutedSites(document.mutedSites);
+        if (typeof document.sidebarWidth === 'number' && document.sidebarWidth >= 260 && document.sidebarWidth <= 850) {
+          this.shell.sidebarWidth = document.sidebarWidth;
+        }
+        if (typeof document.isSidebarOpen === 'boolean') {
+          this.shell.isSidebarOpen = document.isSidebarOpen;
+        }
+        this.applyTerminalTabPrefs({
+          layout: document.terminalTabLayout,
+          sidebarWidth: document.terminalSidebarWidth,
+          collapsedCategories: document.terminalCollapsedCategories,
+          categories: document.terminalCategories,
+          categoryColors: document.terminalCategoryColors,
+          starredCategories: document.terminalStarredCategories,
+        });
+        const record = document.owners[this.windowOwnerKey()];
+        if (record && Array.isArray(record.terminalWindows) && record.terminalWindows.length > 0) {
+          // Booting the manager is not provenance-free: `startTerminal()` with no target
+          // keeps the process-wide `currentCwd` (another window's workspace may have set it)
+          // and stamps the session with the ambient creation capsule, so a restored window
+          // could come back as an invisible default-capsule PTY in the wrong directory. The
+          // saved windows belong to this window, so this window's resolved target decides.
+          const terminalTarget = this.resolveTerminalCreationTarget();
+          TerminalManager.getInstance().startTerminal(terminalTarget.cwd, terminalTarget.capsuleId, terminalTarget.ownerKey);
+          const wasOpen = typeof record.wasSidebarOpenBeforePopout === 'boolean' ? record.wasSidebarOpenBeforePopout : true;
+          for (const tw of record.terminalWindows) {
+            if (tw.isPopout) {
+              this.togglePopoutTerminal(tw.sessionId, { wasSidebarOpenBeforePopout: wasOpen, bounds: tw.bounds });
+            } else {
+              this.openNewTerminalWindow(tw.sessionId, tw.bounds);
+            }
           }
-          if (typeof data.isSidebarOpen === 'boolean') {
-            this.isSidebarOpen = data.isSidebarOpen;
+        } else if (record && record.isTerminalPopoutOpen) {
+          // Same provenance rule as the saved-window branch above: the popout was this
+          // window's, so it boots on this window's workspace and capsule, never on the
+          // ambient process-wide ones.
+          const terminalTarget = this.resolveTerminalCreationTarget();
+          TerminalManager.getInstance().startTerminal(terminalTarget.cwd, terminalTarget.capsuleId, terminalTarget.ownerKey);
+          const wasOpen = typeof record.wasSidebarOpenBeforePopout === 'boolean' ? record.wasSidebarOpenBeforePopout : true;
+          this.togglePopoutTerminal(record.popoutSessionId, { wasSidebarOpenBeforePopout: wasOpen });
+        }
+        if (document.activeChromeProfileId) {
+          ChromeProfileSyncManager.getInstance().activeProfileId = document.activeChromeProfileId;
+        }
+        if (Array.isArray(document.bookmarks) && document.bookmarks.length > 0) {
+          this.bookmarks = document.bookmarks;
+        }
+        if (record && Array.isArray(record.tabs) && record.tabs.length > 0) {
+          let restoredActiveId = record.activeTabId;
+          const oldIdToNewId = new Map<string, string>();
+
+          // Identify target active tab ID from persisted session
+          let targetActiveOldId = typeof record.activeTabId === 'string' ? record.activeTabId : undefined;
+          if (!targetActiveOldId || !record.tabs.some((t: Record<string, unknown> | null) => t && (t.id === targetActiveOldId || (t.state as Record<string, unknown> | undefined)?.id === targetActiveOldId))) {
+            const firstValid = record.tabs.find((t: Record<string, unknown> | null) => t && !t.ephemeral && !t.offscreen);
+            if (firstValid && typeof firstValid.id === 'string') {
+              targetActiveOldId = firstValid.id;
+            }
           }
-          this.applyTerminalTabPrefs({
-            layout: data.terminalTabLayout,
-            sidebarWidth: data.terminalSidebarWidth,
-            collapsedCategories: data.terminalCollapsedCategories,
-            categories: data.terminalCategories,
-            categoryColors: data.terminalCategoryColors,
-            starredCategories: data.terminalStarredCategories,
-          });
-          if (Array.isArray(data.terminalWindows) && data.terminalWindows.length > 0) {
-            TerminalManager.getInstance().startTerminal();
-            const wasOpen = typeof data.wasSidebarOpenBeforePopout === 'boolean' ? data.wasSidebarOpenBeforePopout : true;
-            for (const tw of data.terminalWindows) {
-              if (tw.isPopout) {
-                this.togglePopoutTerminal(tw.sessionId, { wasSidebarOpenBeforePopout: wasOpen, bounds: tw.bounds });
-              } else {
-                this.openNewTerminalWindow(tw.sessionId, tw.bounds);
+
+          for (const rawTab of record.tabs) {
+            // Persisted entries were written from AntiFanTab states, and
+            // migratePersistedTab re-validates every field it reads, so the shape
+            // assertion ends at this call.
+            const migrated = migratePersistedTab(rawTab as Partial<AntiFanTab>);
+            const rawId = typeof rawTab.id === 'string' ? rawTab.id : undefined;
+            if (rawTab.ephemeral === true || rawTab.offscreen === true) continue;
+            if (migrated.ephemeral === true || migrated.offscreen === true) continue;
+            const safeUrl = cleanRestoredUrl(migrated.url || 'about:blank');
+            const isTargetActive = rawId === targetActiveOldId || migrated.id === targetActiveOldId;
+            const isUnloadedStub = options?.safeStart === true && !isTargetActive;
+            const initialTabUrl = isUnloadedStub ? 'about:blank' : safeUrl;
+            const id = this.createTab(initialTabUrl, false, {
+              capsuleId: migrated.capsuleId,
+              userAgentMode: migrated.userAgentMode,
+            });
+            if (rawId) {
+              oldIdToNewId.set(rawId, id);
+            }
+            if (migrated.id) {
+              oldIdToNewId.set(migrated.id, id);
+            }
+            const tab = this.tabs.get(id);
+            if (tab) {
+              tab.state.url = safeUrl;
+              if (isUnloadedStub) {
+                tab.state.isLoading = false;
+              }
+              if (migrated.title) tab.state.title = migrated.title;
+              if (migrated.devicePresetId) this.setDevicePreset(id, migrated.devicePresetId);
+              if (typeof migrated.zoomFactor === 'number') tab.state.zoomFactor = migrated.zoomFactor;
+              if (migrated.alias) tab.state.alias = migrated.alias;
+              if (migrated.role) tab.state.role = migrated.role;
+              if (migrated.aliasColor) tab.state.aliasColor = migrated.aliasColor;
+              if (migrated.splitMode) {
+                this.toggleSplitReview(id, true);
+                if (migrated.splitDesktopPresetId) tab.state.splitDesktopPresetId = migrated.splitDesktopPresetId;
+                if (migrated.splitMobilePresetId) tab.state.splitMobilePresetId = migrated.splitMobilePresetId;
+              }
+              if (migrated.capsuleId && typeof migrated.capsuleId === 'string' && !tab.state.capsuleId) {
+                tab.state.capsuleId = migrated.capsuleId;
+                const targetCapsuleId = migrated.capsuleId;
+                const capsule = this.capsuleManager.list().find((c) => c.id.toLowerCase() === targetCapsuleId.toLowerCase());
+                if (capsule && fs.existsSync(capsule.workspacePath) && !this.tabPreviewUnsubscribers.has(id)) {
+                  const unsub = this.previewWatcherPool.retain(capsule.id, capsule.workspacePath, (event) => {
+                    this.dispatchScopedReload(capsule.id, event);
+                  });
+                  this.tabPreviewUnsubscribers.set(id, unsub);
+                }
               }
             }
-          } else if (data.isTerminalPopoutOpen) {
-            TerminalManager.getInstance().startTerminal();
-            const wasOpen = typeof data.wasSidebarOpenBeforePopout === 'boolean' ? data.wasSidebarOpenBeforePopout : true;
-            this.togglePopoutTerminal(data.popoutSessionId, { wasSidebarOpenBeforePopout: wasOpen });
-          }
-          if (data.activeChromeProfileId) {
-            ChromeProfileSyncManager.getInstance().activeProfileId = data.activeChromeProfileId;
-          }
-          if (Array.isArray(data.bookmarks) && data.bookmarks.length > 0) {
-            this.bookmarks = data.bookmarks;
-          }
-          if (Array.isArray(data.tabs) && data.tabs.length > 0) {
-            let restoredActiveId = data.activeTabId;
-            const oldIdToNewId = new Map<string, string>();
-
-            // Identify target active tab ID from persisted session
-            let targetActiveOldId = typeof data.activeTabId === 'string' ? data.activeTabId : undefined;
-            if (!targetActiveOldId || !data.tabs.some((t: Record<string, unknown> | null) => t && (t.id === targetActiveOldId || (t.state as Record<string, unknown> | undefined)?.id === targetActiveOldId))) {
-              const firstValid = data.tabs.find((t: Record<string, unknown> | null) => t && !t.ephemeral && !t.offscreen);
-              if (firstValid && typeof firstValid.id === 'string') {
-                targetActiveOldId = firstValid.id;
-              }
+            if ((rawId !== undefined && rawId === record.activeTabId) || migrated.id === record.activeTabId) {
+              restoredActiveId = id;
             }
+          }
 
-            for (const rawTab of data.tabs) {
-              if (rawTab && typeof rawTab === 'object') {
-                if (rawTab.ephemeral === true || rawTab.offscreen === true) {
-                  continue;
-                }
-              }
-              const migrated = migratePersistedTab(rawTab);
-              if (migrated && typeof migrated === 'object') {
-                if (migrated.ephemeral === true || migrated.offscreen === true) {
-                  continue;
-                }
-              }
-              const safeUrl = cleanRestoredUrl(migrated.url || 'about:blank');
-              const isTargetActive = (rawTab && rawTab.id === targetActiveOldId) || (migrated && migrated.id === targetActiveOldId);
-              const isUnloadedStub = options?.safeStart === true && !isTargetActive;
-              const initialTabUrl = isUnloadedStub ? 'about:blank' : safeUrl;
-              const id = this.createTab(initialTabUrl, false, {
-                capsuleId: migrated.capsuleId,
-                userAgentMode: migrated.userAgentMode,
-              });
-              if (rawTab && typeof rawTab === 'object' && rawTab.id) {
-                oldIdToNewId.set(rawTab.id, id);
-              }
-              if (migrated && migrated.id) {
-                oldIdToNewId.set(migrated.id, id);
-              }
-              const tab = this.tabs.get(id);
-              if (tab) {
-                tab.state.url = safeUrl;
-                if (isUnloadedStub) {
-                  tab.state.isLoading = false;
-                }
-                if (migrated.title) tab.state.title = migrated.title;
-                if (migrated.devicePresetId) this.setDevicePreset(id, migrated.devicePresetId);
-                if (typeof migrated.zoomFactor === 'number') tab.state.zoomFactor = migrated.zoomFactor;
-                if (migrated.alias) tab.state.alias = migrated.alias;
-                if (migrated.role) tab.state.role = migrated.role;
-                if (migrated.aliasColor) tab.state.aliasColor = migrated.aliasColor;
-                if (migrated.splitMode) {
-                  this.toggleSplitReview(id, true);
-                  if (migrated.splitDesktopPresetId) tab.state.splitDesktopPresetId = migrated.splitDesktopPresetId;
-                  if (migrated.splitMobilePresetId) tab.state.splitMobilePresetId = migrated.splitMobilePresetId;
-                }
-                if (migrated.capsuleId && typeof migrated.capsuleId === 'string' && !tab.state.capsuleId) {
-                  tab.state.capsuleId = migrated.capsuleId;
-                  const targetCapsuleId = migrated.capsuleId;
-                  const capsule = this.capsuleManager.list().find((c) => c.id.toLowerCase() === targetCapsuleId.toLowerCase());
-                  if (capsule && fs.existsSync(capsule.workspacePath) && !this.tabPreviewUnsubscribers.has(id)) {
-                    const unsub = this.previewWatcherPool.retain(capsule.id, capsule.workspacePath, (event) => {
-                      this.dispatchScopedReload(capsule.id, event);
-                    });
-                    this.tabPreviewUnsubscribers.set(id, unsub);
-                  }
-                }
-              }
-              if (rawTab.id === data.activeTabId || migrated.id === data.activeTabId) {
-                restoredActiveId = id;
-              }
-            }
-
-            // Rebuild Terminal Multi-Tab Affinities
-            if (Array.isArray(data.terminalAffinities) && data.terminalAffinities.length > 0) {
-              for (const aff of data.terminalAffinities) {
-                const newPrimaryId = oldIdToNewId.get(aff.primaryTabId);
-                if (newPrimaryId && this.hasTab(newPrimaryId)) {
-                  this.bindTerminalAgentAffinity(aff.terminalId, undefined, newPrimaryId);
-                  if (Array.isArray(aff.managedTabIds)) {
-                    for (const oldChildId of aff.managedTabIds) {
-                      const newChildId = oldIdToNewId.get(oldChildId);
-                      if (newChildId && newChildId !== newPrimaryId && this.hasTab(newChildId)) {
-                        this.adoptChildTab(aff.terminalId, newChildId, undefined, 'user_attached', newPrimaryId);
-                      }
+          // Rebuild Terminal Multi-Tab Affinities
+          if (Array.isArray(record.terminalAffinities) && record.terminalAffinities.length > 0) {
+            for (const aff of record.terminalAffinities) {
+              const newPrimaryId = oldIdToNewId.get(aff.primaryTabId);
+              if (newPrimaryId && this.hasTab(newPrimaryId)) {
+                this.bindTerminalAgentAffinity(aff.terminalId, undefined, newPrimaryId);
+                if (Array.isArray(aff.managedTabIds)) {
+                  for (const oldChildId of aff.managedTabIds) {
+                    const newChildId = oldIdToNewId.get(oldChildId);
+                    if (newChildId && newChildId !== newPrimaryId && this.hasTab(newChildId)) {
+                      this.adoptChildTab(aff.terminalId, newChildId, undefined, 'user_attached', newPrimaryId);
                     }
                   }
                 }
               }
             }
+          }
 
-            if (this.tabOrder.length === 0) {
-              this.createTab(fallbackUrl || 'https://www.google.com');
-            } else if (restoredActiveId && this.tabs.has(restoredActiveId)) {
-              const activeCandidate = this.tabs.get(restoredActiveId);
-              if (activeCandidate && activeCandidate.state.ephemeral !== true && activeCandidate.state.offscreen !== true) {
-                this.switchTab(restoredActiveId);
-              } else if (this.tabOrder.length > 0) {
-                this.switchTab(this.tabOrder[0]!);
-              }
+          if (this.tabOrder.length === 0) {
+            this.createTab(fallbackUrl || 'https://www.google.com');
+          } else if (restoredActiveId && this.tabs.has(restoredActiveId)) {
+            const activeCandidate = this.tabs.get(restoredActiveId);
+            if (activeCandidate && activeCandidate.state.ephemeral !== true && activeCandidate.state.offscreen !== true) {
+              this.switchTab(restoredActiveId);
             } else if (this.tabOrder.length > 0) {
               this.switchTab(this.tabOrder[0]!);
             }
-            this.updateLayout();
-            return;
+          } else if (this.tabOrder.length > 0) {
+            this.switchTab(this.tabOrder[0]!);
           }
+          this.updateLayout();
+          return;
         }
       }
     } catch (err) {
@@ -8131,7 +10640,7 @@ export class NativeTabHost extends EventEmitter {
       isFontFinderActive: this.isFontFinderActive,
       isLensActive: this.isLensActive,
       isRulerActive: this.isRulerActive,
-      isSidebarOpen: this.isSidebarOpen,
+      isSidebarOpen: this.shell.isSidebarOpen,
       bookmarks: this.bookmarks,
       isBookmarkBarVisible: this.isBookmarkBarVisible,
       devicePresets: DEVICE_PRESETS,
@@ -8139,8 +10648,9 @@ export class NativeTabHost extends EventEmitter {
       chromeProfiles: ChromeProfileSyncManager.getInstance().getAvailableProfiles(),
       themeQa: this.getThemeQaState(this.activeTabId),
       phoneStatus: this.cachedPhoneStatus,
+      projectWindow: this.projectWindowIdentity(),
     };
-    safeSendWebContents(this.toolbarView?.webContents, TOOLBAR_CHANNELS.STATE_UPDATED, payload);
+    safeSendWebContents(this.shell.toolbarView?.webContents, TOOLBAR_CHANNELS.STATE_UPDATED, payload);
     // The sidebar and every terminal window read the tab list; the ones showing a
     // terminal tab strip also read the affinity map behind its badges. Both ride one
     // channel because the map is a projection of the state this broadcast already
@@ -8149,7 +10659,7 @@ export class NativeTabHost extends EventEmitter {
     // a deserialized map on the main thread that every switch, bridge RPC and
     // terminal fanout also runs on. Built once here, however many windows read it.
     const tabTargets = [
-      this.sidebarView?.webContents,
+      this.shell.sidebarView?.webContents,
       ...(this.terminalWindows ? Array.from(this.terminalWindows.values(), (win) => win?.webContents) : []),
     ].filter((wc): wc is Electron.WebContents => Boolean(wc));
     if (tabTargets.length > 0) {
@@ -8232,7 +10742,7 @@ export class NativeTabHost extends EventEmitter {
   public broadcastPhoneStatus(status?: ToolbarPhoneStatus): void {
     const payload = status || this.cachedPhoneStatus;
     if (!payload) return;
-    safeSendWebContents(this.toolbarView?.webContents, TOOLBAR_CHANNELS.PHONE_STATUS, payload);
+    safeSendWebContents(this.shell.toolbarView?.webContents, TOOLBAR_CHANNELS.PHONE_STATUS, payload);
   }
 
   public setControlPlane(cp: ControlPlaneRuntime): void {
@@ -8461,14 +10971,29 @@ export class NativeTabHost extends EventEmitter {
   }
 
   public async agentTrajectory(params: { steps: Array<Record<string, unknown>>; speed?: 'fast' | 'natural' | 'slow'; smoothScroll?: boolean; tabId?: string; paneId?: SplitPaneId }): Promise<Record<string, unknown>> {
-    return this.getAutomationHost().agentTrajectory(params);
+    const release = this.admitAgentAction('agentTrajectory', params.tabId);
+    try {
+      return await this.getAutomationHost().agentTrajectory(params);
+    } finally {
+      release();
+    }
   }
 
   public async agentMove(args: { selector?: string; ref?: string; x?: number; y?: number; label?: string; force?: boolean; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
-    return this.getAutomationHost().agentMove(args);
+    const release = this.admitAgentAction('agentMove', args.tabId);
+    try {
+      return await this.getAutomationHost().agentMove(args);
+    } finally {
+      release();
+    }
   }
 
   public async cancelActiveAgentAction(tabId?: string, paneId?: SplitPaneId): Promise<boolean> {
+    // A cancellation, not work: it refuses without throwing so a teardown path that calls
+    // it cannot be aborted by the refusal.
+    if (this.isApplicationAdmissionReservedForClose() || (tabId && this.isPageReservedForClose(tabId))) {
+      return false;
+    }
     return this.getAutomationHost().agentClear(tabId, paneId);
   }
 
@@ -8488,15 +11013,20 @@ export class NativeTabHost extends EventEmitter {
     if (!tab || tab.view.webContents.isDestroyed()) {
       throw new CapabilityError('TARGET_STALE', `Target tab '${targetId}' not found or destroyed`);
     }
-    return this.withTabAgentWorking(targetId, async () => {
-      const events = buildKeyboardInputEvents(params.key, params.modifiers);
-      for (const evt of events) {
-        this.syncWithAgentInput(() => {
-          tab.view.webContents.sendInputEvent(evt);
-        });
-      }
-      return { success: true, key: params.key, modifiers: params.modifiers || [] };
-    });
+    const release = this.admitAgentAction('sendKeyboardPress', targetId);
+    try {
+      return await this.withTabAgentWorking(targetId, async () => {
+        const events = buildKeyboardInputEvents(params.key, params.modifiers);
+        for (const evt of events) {
+          this.syncWithAgentInput(() => {
+            tab.view.webContents.sendInputEvent(evt);
+          });
+        }
+        return { success: true, key: params.key, modifiers: params.modifiers || [] };
+      });
+    } finally {
+      release();
+    }
   }
   public async setViewportSize(options: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; tabId?: string; reload?: boolean }): Promise<boolean> {
     const targetId = options.tabId || this.activeTabId;
@@ -8545,12 +11075,12 @@ export class NativeTabHost extends EventEmitter {
       // cannot name one — absent, destroyed, or reporting a non-positive box as a
       // minimized window does — has no geometry to lay the emulation out in: refuse the
       // request instead of applying it to an invented 1440x900 or to a 0x0 box.
-      const contentBounds = this.window && (typeof this.window.isDestroyed !== 'function' || !this.window.isDestroyed()) && typeof this.window.getContentBounds === 'function'
-        ? this.window.getContentBounds()
+      const contentBounds = this.shell.window && (typeof this.shell.window.isDestroyed !== 'function' || !this.shell.window.isDestroyed()) && typeof this.shell.window.getContentBounds === 'function'
+        ? this.shell.window.getContentBounds()
         : undefined;
       const toolbarHeight = typeof this.getToolbarHeight === 'function' ? this.getToolbarHeight() : 40;
       const availableWidth = contentBounds
-        ? (this.isSidebarOpen ? Math.max(400, contentBounds.width - this.sidebarWidth) : contentBounds.width)
+        ? (this.shell.isSidebarOpen ? Math.max(400, contentBounds.width - this.shell.sidebarWidth) : contentBounds.width)
         : 0;
       const availableHeight = contentBounds ? Math.max(0, contentBounds.height - toolbarHeight) : 0;
       if (!contentBounds || !Number.isFinite(contentBounds.width) || !Number.isFinite(contentBounds.height)
@@ -8651,17 +11181,17 @@ export class NativeTabHost extends EventEmitter {
   }
 
   public toggleFullScreen(): void {
-    this.window.setFullScreen(!this.window.isFullScreen());
+    this.shell.window.setFullScreen(!this.shell.window.isFullScreen());
   }
 
   public reloadWindow(): void {
     this.persistTabs();
     TerminalManager.getInstance().persistSync();
-    if (this.toolbarView && !this.toolbarView.webContents.isDestroyed()) {
-      this.toolbarView.webContents.reload();
+    if (this.shell.toolbarView && !this.shell.toolbarView.webContents.isDestroyed()) {
+      this.shell.toolbarView.webContents.reload();
     }
-    if (this.sidebarView && !this.sidebarView.webContents.isDestroyed()) {
-      this.sidebarView.webContents.reload();
+    if (this.shell.sidebarView && !this.shell.sidebarView.webContents.isDestroyed()) {
+      this.shell.sidebarView.webContents.reload();
     }
     // Standalone / popout terminal windows load the same renderer bundle
     // (standalone.html) and are not part of toolbarView/sidebarView.
@@ -8750,8 +11280,8 @@ export class NativeTabHost extends EventEmitter {
       return all[0]!;
     }
     return this.capsuleManager.create('Default Workspace', process.cwd(), {
-      sidebarOpen: this.isSidebarOpen,
-      sidebarWidth: this.sidebarWidth,
+      sidebarOpen: this.shell.isSidebarOpen,
+      sidebarWidth: this.shell.sidebarWidth,
     });
   }
 
@@ -8778,18 +11308,38 @@ export class NativeTabHost extends EventEmitter {
       }
     }
   }
+  /**
+   * The session a terminal window may be created bound to: the requested id only when this
+   * host can already attribute that session to the window that asked.
+   *
+   * A session id is not a capability. A renderer that names another project's session would
+   * otherwise make this host present it, forward its output, and let the new window type
+   * into it — the binding enters `terminalWindowMeta`, which is exactly the positive
+   * attribution the scope is built on. An unadmitted request leaves the window unbound.
+   */
+  private admitTerminalWindowBinding(sessionId?: string): string | undefined {
+    return typeof sessionId === 'string' && sessionId && this.isSessionVisibleToWindow(sessionId) ? sessionId : undefined;
+  }
+
+  /** The active session of this window's own scope, never the process-wide one another window set. */
+  private ownActiveSessionId(): string {
+    return this.terminalStateForWindow(TerminalManager.getInstance().getSessionState()).activeSessionId;
+  }
+
   public togglePopoutTerminal(sessionId?: string, options?: { wasSidebarOpenBeforePopout?: boolean; bounds?: Partial<WindowState> }): boolean {
     if (this.popoutWindow && !this.popoutWindow.isDestroyed()) {
       this.popoutWindow.close();
       this.popoutWindow = null;
       this.broadcastPopoutState(false);
-      if (this.wasSidebarOpenBeforePopout && !this.isSidebarOpen) {
+      if (this.wasSidebarOpenBeforePopout && !this.shell.isSidebarOpen) {
         this.toggleSidebar();
       }
       this.wasSidebarOpenBeforePopout = false;
       this.schedulePersist();
       return false;
     }
+
+    const admittedSessionId = this.admitTerminalWindowBinding(sessionId);
 
     const bounds = WindowStateManager.validateBounds(options?.bounds || this.terminalWindowStateManager.getState(), 900, 600);
     const win = new BrowserWindow({
@@ -8824,7 +11374,7 @@ export class NativeTabHost extends EventEmitter {
     this.terminalWindowStateManager.manage(win);
     this.popoutWindow = win;
     this.terminalWindows.set(win.id, win);
-    const activeSessionId = sessionId || TerminalManager.getInstance().getActiveSessionId();
+    const activeSessionId = admittedSessionId || this.ownActiveSessionId();
     this.terminalWindowMeta.set(win.id, { sessionId: activeSessionId, isPopout: true });
 
     const onWindowChange = () => {
@@ -8834,10 +11384,7 @@ export class NativeTabHost extends EventEmitter {
     win.on('move', onWindowChange);
     win.on('maximize', onWindowChange);
     win.on('unmaximize', onWindowChange);
-    let standaloneHtml = path.join(__dirname, '..', '..', 'renderer', 'standalone.html');
-    if (!fs.existsSync(standaloneHtml)) {
-      standaloneHtml = path.join(process.cwd(), 'src', 'renderer', 'standalone.html');
-    }
+    const standaloneHtml = this.resolveStandaloneRendererPage();
 
     win.webContents.on('before-input-event', (event, input) => {
       if (input.type === 'keyDown' && input.key === 'F11') {
@@ -8848,24 +11395,28 @@ export class NativeTabHost extends EventEmitter {
 
     win.webContents.on('did-finish-load', async () => {
       const tm = TerminalManager.getInstance();
-      const activeId = sessionId || tm.getActiveSessionId();
-      const s = await tm.getSession(activeId, { includeBuffer: true });
-      const activeSession = tm.listSessions().find(x => x.id === activeId);
+      // The sessions this window's own window may see, never another project's: the bound
+      // session stays in the list, and with no explicit binding the active one is this
+      // window's own active session rather than the process-wide one.
+      const scoped = this.terminalStateForWindow(tm.getSessionState(), admittedSessionId);
+      const activeId = admittedSessionId || scoped.activeSessionId || '';
+      const s = activeId ? await tm.getSession(activeId, { includeBuffer: true }) : undefined;
+      const activeSession = scoped.sessions.find((summary) => summary.id === activeId);
       safeSendWebContents(win.webContents, 'antifan:terminal:session', {
         activeSessionId: activeId,
-        sessions: tm.listSessions(),
+        sessions: scoped.sessions,
         splitSessionId: activeSession?.splitSessionId,
         snapshot: s?.buffer || '',
       });
     });
 
-    win.loadFile(standaloneHtml, { query: { mode: 'popout', ...(sessionId ? { sessionId } : {}) } });
+    win.loadFile(standaloneHtml, { query: { mode: 'popout', ...(admittedSessionId ? { sessionId: admittedSessionId } : {}) } });
     if (options && typeof options.wasSidebarOpenBeforePopout === 'boolean') {
       this.wasSidebarOpenBeforePopout = options.wasSidebarOpenBeforePopout;
     } else {
-      this.wasSidebarOpenBeforePopout = this.isSidebarOpen;
+      this.wasSidebarOpenBeforePopout = this.shell.isSidebarOpen;
     }
-    if (this.isSidebarOpen) {
+    if (this.shell.isSidebarOpen) {
       this.toggleSidebar();
     }
     win.on('closed', () => {
@@ -8874,7 +11425,7 @@ export class NativeTabHost extends EventEmitter {
       if (this.popoutWindow === win) {
         this.popoutWindow = null;
         this.broadcastPopoutState(false);
-        if (this.wasSidebarOpenBeforePopout && !this.isSidebarOpen) {
+        if (this.wasSidebarOpenBeforePopout && !this.shell.isSidebarOpen) {
           this.toggleSidebar();
         }
         this.wasSidebarOpenBeforePopout = false;
@@ -8887,6 +11438,7 @@ export class NativeTabHost extends EventEmitter {
   }
 
   public openNewTerminalWindow(sessionId?: string, customBounds?: Partial<WindowState>): boolean {
+    const admittedSessionId = this.admitTerminalWindowBinding(sessionId);
     const baseBounds = customBounds ? WindowStateManager.validateBounds(customBounds, 900, 600) : this.terminalWindowStateManager.getValidBounds();
     const count = this.terminalWindows.size;
     const offsetX = (!customBounds && count > 0 && typeof baseBounds.x === 'number') ? baseBounds.x + (count * 25) : baseBounds.x;
@@ -8923,7 +11475,7 @@ export class NativeTabHost extends EventEmitter {
     setTimeout(showNewTermWin, 300);
 
     this.terminalWindows.set(win.id, win);
-    const activeSessionId = sessionId || TerminalManager.getInstance().getActiveSessionId();
+    const activeSessionId = admittedSessionId || this.ownActiveSessionId();
     this.terminalWindowMeta.set(win.id, { sessionId: activeSessionId, isPopout: false });
 
     const onWindowChange = () => {
@@ -8940,25 +11492,26 @@ export class NativeTabHost extends EventEmitter {
         win.setFullScreen(!win.isFullScreen());
       }
     });
-    let standaloneHtml = path.join(__dirname, '..', '..', 'renderer', 'standalone.html');
-    if (!fs.existsSync(standaloneHtml)) {
-      standaloneHtml = path.join(process.cwd(), 'src', 'renderer', 'standalone.html');
-    }
+    const standaloneHtml = this.resolveStandaloneRendererPage();
 
     win.webContents.on('did-finish-load', async () => {
       const tm = TerminalManager.getInstance();
-      const activeId = sessionId || tm.getActiveSessionId();
-      const s = await tm.getSession(activeId, { includeBuffer: true });
-      const activeSession = tm.listSessions().find(x => x.id === activeId);
+      // The sessions this window's own window may see, never another project's: the bound
+      // session stays in the list, and with no explicit binding the active one is this
+      // window's own active session rather than the process-wide one.
+      const scoped = this.terminalStateForWindow(tm.getSessionState(), admittedSessionId);
+      const activeId = admittedSessionId || scoped.activeSessionId || '';
+      const s = activeId ? await tm.getSession(activeId, { includeBuffer: true }) : undefined;
+      const activeSession = scoped.sessions.find((summary) => summary.id === activeId);
       safeSendWebContents(win.webContents, 'antifan:terminal:session', {
         activeSessionId: activeId,
-        sessions: tm.listSessions(),
+        sessions: scoped.sessions,
         splitSessionId: activeSession?.splitSessionId,
         snapshot: s?.buffer || '',
       });
     });
 
-    win.loadFile(standaloneHtml, { query: { mode: 'popout', ...(sessionId ? { sessionId } : {}) } });
+    win.loadFile(standaloneHtml, { query: { mode: 'popout', ...(admittedSessionId ? { sessionId: admittedSessionId } : {}) } });
 
     win.on('closed', () => {
       this.terminalWindows.delete(win.id);
@@ -8970,7 +11523,7 @@ export class NativeTabHost extends EventEmitter {
   }
 
   private broadcastPopoutState(isPopout: boolean): void {
-    safeSendWebContents(this.sidebarView?.webContents, 'antifan:terminal:popout-state-changed', isPopout);
+    safeSendWebContents(this.shell.sidebarView?.webContents, 'antifan:terminal:popout-state-changed', isPopout);
     for (const [, win] of this.terminalWindows) {
       safeSendWebContents(win?.webContents, 'antifan:terminal:popout-state-changed', isPopout);
     }
@@ -8994,50 +11547,40 @@ export class NativeTabHost extends EventEmitter {
       this.terminalDataFlushTimer = null;
     }
     this.isDisposed = true;
+    // Child contents FIRST, ahead of every step that talks to the shell, a tracker or
+    // another host: shell closure does not prove that a WebContentsView's contents were
+    // disposed, so this host disposes every webContents it created itself, and doing it
+    // here means no later teardown failure can strand a live renderer.
+    this.disposeChildViewContents();
+    this.releaseTerminalSubscriptions();
+    this.pendingPageCloses?.clear();
+    this.attemptAuthorizedCloses?.clear();
     try {
       if (this.captureHostWindow && (typeof this.captureHostWindow.isDestroyed !== 'function' || !this.captureHostWindow.isDestroyed())) {
         this.captureHostWindow.destroy();
       }
     } catch {}
     this.captureHostWindow = null;
+    // A raised view is normally one of the tab views disposed above; a view this host
+    // raised that no tab record owns would otherwise keep its renderer alive.
+    try {
+      if (this.raisedCaptureView) this.destroyOwnedWebContents(this.raisedCaptureView.webContents);
+    } catch {}
     this.raisedCaptureView = null;
-    this.automationHost?.dispose();
+    this.runDisposalStep('automationHost', () => this.automationHost?.dispose());
     this.asyncQaQueue?.abortAll();
-    this.semanticRefRegistry?.destroy();
+    this.runDisposalStep('semanticRefRegistry', () => this.semanticRefRegistry?.destroy());
     this.targetOperationQueues?.clear();
     // Optional like every other map cleared in dispose: this line runs on hosts that were
     // never fully constructed, and dispose must not be the thing that throws there.
     this.targetOperationOwners?.clear();
     this.semanticDocumentGenerations?.clear();
     this.sessionTabPools?.clear();
-    try {
-      this.window.contentView.removeChildView(this.toolbarView);
-    } catch {}
-    try {
-      this.destroyOwnedWebContents(this.toolbarView.webContents);
-    } catch {}
-    if (this.frameBackdropView) {
-      try {
-        this.window.contentView.removeChildView(this.frameBackdropView);
-      } catch {}
-      try {
-        this.destroyOwnedWebContents(this.frameBackdropView.webContents);
-      } catch {}
-      this.frameBackdropView = null;
-    }
-    if (this.sidebarView) {
-      try {
-        this.window.contentView.removeChildView(this.sidebarView);
-      } catch {}
-      try {
-        this.destroyOwnedWebContents(this.sidebarView.webContents);
-      } catch {}
-      this.sidebarView = null;
-    }
-    if (this.devToolsHost) {
-      this.devToolsHost.dispose();
-    }
-    this.networkTracker.dispose();
+    // Chrome surfaces belong to the shell and are torn down by it; tab and
+    // auxiliary webContents above stay this host's responsibility.
+    this.runDisposalStep('shellChrome', () => this.shell.disposeChrome());
+    this.runDisposalStep('devToolsHost', () => this.devToolsHost?.dispose());
+    this.runDisposalStep('networkTracker', () => this.networkTracker.dispose());
     this.previewWatcherPool.clear();
     if (this.persistTimer) {
       clearTimeout(this.persistTimer);
@@ -9047,37 +11590,133 @@ export class NativeTabHost extends EventEmitter {
       clearTimeout(this.titleBroadcastTimer);
       this.titleBroadcastTimer = undefined;
     }
-    for (const [, win] of this.terminalWindows) {
-      if (win && !win.isDestroyed()) {
-        try { win.close(); } catch {}
+    // Terminal windows are the user's own windows, so they are asked to close politely and a
+    // veto holds. What this host must not do is forget one: a window that survives this
+    // disposal has no host left to answer for it, so it is kept answerable for a later close
+    // attempt and its survival is reported instead of dropped (see `unownedTerminalWindows`).
+    const terminalWindowsAtDisposal = [...this.terminalWindows.values()];
+    for (const win of terminalWindowsAtDisposal) {
+      try {
+        if (win && !win.isDestroyed()) win.close();
+      } catch (err) {
+        console.warn('[native-tab-host] Failed to close a terminal window at disposal:', err);
       }
     }
     this.terminalWindows.clear();
     this.terminalWindowMeta.clear();
     this.popoutWindow = null;
+    this.claimTerminalWindowsLeftBehind(terminalWindowsAtDisposal);
     for (const unsub of this.tabPreviewUnsubscribers.values()) {
       try { unsub(); } catch {}
     }
     this.tabPreviewUnsubscribers.clear();
+  }
+
+  /**
+   * Keep the terminal windows this host could not take with it answerable, and say so.
+   *
+   * The claim is recorded in the task that disposed the host — a close attempt that starts
+   * right after this one must already see the window — while the report waits for the close to
+   * have had its chance, exactly like the shell's own chrome audit: the platform destroys a
+   * window on a later turn, so "still alive in this task" is not survival and must never be
+   * reported as one. A window that is still there afterwards is a fact worth naming: its host
+   * is gone, it is visible only through another live shell, and its veto has to reach the next
+   * attempt instead of being lost with this one.
+   */
+  private claimTerminalWindowsLeftBehind(windows: BrowserWindow[]): void {
+    const label = this.windowOwnerKey();
+    const survivors: Array<{ contentsId: number; windowId: number }> = [];
+    for (const win of windows) {
+      try {
+        if (!win || win.isDestroyed()) continue;
+        const contentsId = win.webContents?.id;
+        if (typeof contentsId !== 'number') continue;
+        keepTerminalWindowAnswerable(label, win);
+        survivors.push({ contentsId, windowId: win.id });
+      } catch (err) {
+        console.warn('[native-tab-host] Failed to record a terminal window left behind:', err);
+      }
+    }
+    if (survivors.length === 0) return;
+    const timer = setTimeout(() => {
+      const alive = survivors.filter((entry) => unownedTerminalWindowFor(entry.contentsId) !== undefined);
+      if (alive.length === 0) return;
+      console.error(
+        `[native-tab-host] ${label} was disposed with ${alive.length} terminal window(s) still alive ` +
+        `${TERMINAL_WINDOW_CLOSE_SETTLE_MS}ms after disposal: ` +
+        `${alive.map((entry) => `terminalPopout#${entry.contentsId} (window ${entry.windowId})`).join(', ')} ` +
+        `— their close was refused or has not landed, and they stay answerable to the next close attempt`
+      );
+      recordLifecycleEvent('tabhost.terminalWindowsLeftBehind', {
+        owner: label,
+        windows: alive.length,
+        windowIds: alive.map((entry) => entry.windowId),
+      });
+    }, TERMINAL_WINDOW_CLOSE_SETTLE_MS);
+    // A diagnostic must not hold the process open: the window it reports on is already an
+    // orphan, and an exiting process reports it through the census instead.
+    if (typeof timer.unref === 'function') timer.unref();
+  }
+
+  /**
+   * Destroy every tab child view's webContents and detach the view, exactly once per
+   * host. Its own latch keeps a second call inert even if an earlier teardown step threw
+   * before reaching this one, and each view is isolated so one failure cannot strand the
+   * others. The tab map is cleared first, so a `destroyed` listener firing mid-loop can
+   * never re-enter the close path against a record this loop is already unwinding.
+   */
+  private disposeChildViewContents(): void {
+    if (this.childViewsDisposed) return;
+    this.childViewsDisposed = true;
     const tabsToClean = [...this.tabs.entries()];
     this.tabs.clear();
     this.tabOrder = [];
     for (const [id, tab] of tabsToClean) {
       try {
-        this.window.contentView.removeChildView(tab.view);
+        this.shell.window.contentView.removeChildView(tab.view);
       } catch {}
       try {
         this.destroyOwnedWebContents(tab.view.webContents);
       } catch {}
       if (tab.mobileView) {
         try {
-          this.window.contentView.removeChildView(tab.mobileView);
+          this.shell.window.contentView.removeChildView(tab.mobileView);
         } catch {}
         try {
           this.destroyOwnedWebContents(tab.mobileView.webContents);
         } catch {}
       }
-      this.splitCoordinator.cleanupTab(id);
+      // Teardown must finish the steps after it, so a collaborator that was never
+      // constructed or that fails here cannot strand the remaining child contents.
+      try { this.splitCoordinator?.cleanupTab(id); } catch {}
+    }
+  }
+
+  /**
+   * Drop the listeners this host registered on the shared `TerminalManager` singleton,
+   * exactly once per host. The manager outlives every window: leaving them registered
+   * would keep this host (and its views) reachable from the manager forever and would
+   * keep fanning terminal payloads at a torn-down shell. Only this host's own handlers
+   * are removed — another window's listeners are never touched.
+   */
+  private releaseTerminalSubscriptions(): void {
+    const releases = this.terminalSubscriptionReleases ?? [];
+    this.terminalSubscriptionReleases = [];
+    for (const release of releases) {
+      try { release(); } catch {}
+    }
+  }
+
+  /**
+   * Run one teardown step of a collaborator this host does not own. A failing step is
+   * reported and skipped: teardown must still finish the steps after it, and the caller
+   * of `dispose()` must not have to catch a failure that is already recorded.
+   */
+  private runDisposalStep(name: string, step: () => void): void {
+    try {
+      step();
+    } catch (err) {
+      console.warn(`[native-tab-host] dispose step '${name}' failed:`, err);
     }
   }
 }

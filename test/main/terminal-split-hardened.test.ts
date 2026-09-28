@@ -13,6 +13,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { TerminalManager } from '../../src/main/browser/terminal-manager';
+import { CapabilityError } from '../../src/shared/control-plane-contracts';
+
 
 const ROOT = path.resolve(__dirname, '../..');
 
@@ -307,5 +309,162 @@ describe('Terminal Split Hardened 10-Round Verification Suite', () => {
 
     await tm.closeSession(parent);
     assert.strictEqual(tm.listSessions().find((s) => s.id === splitB), undefined);
+  });
+});
+
+describe('Deferred PTY queue vs dispose — no orphan shells', () => {
+  /**
+   * Rows share ONE manager deliberately: row 1 disposes it mid-flight, rows 2
+   * and 3 assert the disposed state stays authoritative over everything that
+   * can still mint a shell. Only node-pty is stubbed (the same seam
+   * terminal-stream-invariants uses); the queue, pump, dispose and kill path
+   * are the shipped code.
+   */
+  class DeferredFakePty {
+    public cols: number;
+    public rows: number;
+    public readonly pid = 0;
+    public killed = false;
+
+    constructor(public readonly shell: string, options: Record<string, unknown>) {
+      this.cols = Number(options.cols) || 120;
+      this.rows = Number(options.rows) || 30;
+    }
+
+    onData(_cb: (data: string) => void): { dispose: () => void } {
+      return { dispose: () => {} };
+    }
+
+    onExit(_cb: (event: { exitCode: number; signal?: number }) => void): { dispose: () => void } {
+      return { dispose: () => {} };
+    }
+
+    kill(): void {
+      this.killed = true;
+    }
+
+    write(_input: string): void {}
+
+    resize(cols: number, rows: number): void {
+      this.cols = cols;
+      this.rows = rows;
+    }
+  }
+
+  type DeferredManagerInternals = {
+    sessions: Map<string, {
+      id: string;
+      pty: { kill: () => void } | null;
+      state: string;
+      disposed?: boolean;
+      cwd?: string;
+      name?: string;
+      splitOf?: string;
+      capsuleId?: string;
+    }>;
+    sessionGenerations: Map<string, number>;
+    activePersistPromise: Promise<void> | null;
+    deferredPtyIds: string[];
+    scheduleDeferredPtyStarts: (ids: string[]) => void;
+    createSessionRecord: (
+      id: string,
+      cwd: string,
+      restoredBuffer: string,
+      initialCols: number | undefined,
+      initialRows: number | undefined,
+      minimumRows: number,
+      parentSessionId: string | undefined,
+      generation: number,
+      parentGeneration?: number,
+    ) => unknown;
+    spawn: (...args: unknown[]) => unknown;
+    statePath: () => string;
+  };
+
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-deferred-dispose-'));
+  const testStateFile = path.join(tempDir, 'terminal-sessions.json');
+  const deferredSpawnedPtys: DeferredFakePty[] = [];
+  const ptyModule = require('node-pty') as unknown as {
+    spawn: (shell: string, args: string[], options: Record<string, unknown>) => DeferredFakePty;
+  };
+  const realPtySpawn = ptyModule.spawn;
+  let tm!: TerminalManager;
+  let internals!: DeferredManagerInternals;
+
+  before(() => {
+    ptyModule.spawn = (shell: string, _args: string[], options: Record<string, unknown>) => {
+      const p = new DeferredFakePty(shell, options);
+      deferredSpawnedPtys.push(p);
+      return p;
+    };
+    if (ptyModule.spawn === realPtySpawn) {
+      throw new Error('node-pty spawn stub was not installed; the lane would exercise the real PTY');
+    }
+    // The prior suite disposed the singleton, so getInstance() yields a fresh,
+    // undisposed canonical — constructionCount was reset by that teardown.
+    tm = TerminalManager.getInstance();
+    internals = tm as unknown as DeferredManagerInternals;
+    internals.statePath = () => testStateFile;
+  });
+
+  after(async () => {
+    await tm.dispose();
+    ptyModule.spawn = realPtySpawn;
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('does not mint a PTY when a deferred materialization races dispose and its record reappears after the kill snapshot', async (t) => {
+    // Hold the persist drain open so the pump can be armed while dispose() is
+    // still suspended inside its own first await — the window where a queued
+    // start used to schedule a timer that survived the kill pass. Mock timers
+    // make the 250ms pump delay deterministic instead of a wall-clock sleep.
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const drainGate = Promise.withResolvers<void>();
+    internals.activePersistPromise = drainGate.promise;
+    const disposal = tm.dispose();
+
+    internals.scheduleDeferredPtyStarts(['terminal-deferred-1']);
+    drainGate.resolve();
+    await disposal;
+
+    // A record materializing after the kill snapshot is exactly what the
+    // deferred queue resurrected: the armed pump must refuse it too.
+    internals.createSessionRecord('terminal-deferred-1', 'E:/Work', '', 120, 30, 8, undefined, 1);
+    t.mock.timers.runAll();
+
+    assert.equal(deferredSpawnedPtys.length, 0, 'dispose must stay authoritative over the armed deferred pump');
+    const session = tm.getSession('terminal-deferred-1');
+    assert.equal(session?.pty ?? null, null, 'a post-dispose record may exist but must never own a shell');
+  });
+
+  it('refuses a late materialization reaching ensureSessionPty after disposal completed', () => {
+    // The same refusal the pump needs, driven through the keystroke path:
+    // writeTo → resolveWritableSession → ensureSessionPty on a record that
+    // survived teardown without a shell.
+    internals.createSessionRecord('terminal-late-1', 'E:/Work', '', 120, 30, 8, undefined, 1);
+    tm.writeTo('terminal-late-1', 'echo hi\r');
+
+    assert.equal(deferredSpawnedPtys.length, 0, 'no keystroke may mint a shell on a disposed manager');
+    const session = tm.getSession('terminal-late-1');
+    assert.equal(session?.pty ?? null, null, 'the late record stays shell-less');
+  });
+
+  it('keeps every mint entry point closed after dispose: capsule switch, createSession, and the spawn seam', () => {
+    assert.throws(
+      () => tm.setCapsule('capsule-post-dispose', 'E:/Work'),
+      CapabilityError,
+      'a capsule switch on a dead manager must fail closed, not resurrect it',
+    );
+    assert.throws(
+      () => tm.createSession('E:/Work'),
+      CapabilityError,
+      'createSession on a dead manager must fail closed, not resurrect it',
+    );
+    assert.throws(
+      () => internals.spawn.call(tm, 'terminal-orphan-1', 'E:/Work'),
+      CapabilityError,
+      'the PTY mint itself refuses on a disposed manager',
+    );
+    assert.equal(deferredSpawnedPtys.length, 0, 'nothing may reach node-pty after disposal');
   });
 });

@@ -25,11 +25,12 @@
  */
 'use strict';
 
-const { app, BrowserWindow } = require('electron');
+const { app } = require('electron');
 const http = require('node:http');
 const path = require('node:path');
 const os = require('node:os');
 const fs = require('node:fs');
+const { ProjectWindowShell } = require(path.join(__dirname, '..', '.compiled', 'src', 'main', 'browser', 'project-window-shell.js'));
 
 app.commandLine.appendSwitch('no-sandbox');
 app.disableHardwareAcceleration();
@@ -67,8 +68,15 @@ app.whenReady().then(async () => {
     await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
     fixtureUrl = `http://127.0.0.1:${server.address().port}/`;
 
-    win = new BrowserWindow({ width: 1440, height: 900, show: true, backgroundColor: '#080c14' });
-    host = new NativeTabHost(win);
+    const winShell = new ProjectWindowShell({
+      owner: { kind: 'project', projectId: 'project-00000000-0000-4000-8000-000000000001' },
+      title: 'AntiFan Smoke Window',
+      bounds: { width: 1440, height: 900 },
+      show: true,
+      backgroundColor: '#080c14',
+    });
+    win = winShell.window;
+    host = new NativeTabHost(winShell);
 
     const presentedTabId = host.createTab(fixtureUrl, true);
     const backgroundTabId = host.createTab(fixtureUrl, false);

@@ -205,6 +205,10 @@ app.whenReady().then(async () => {
       preload: path.resolve(__dirname, '../../.compiled/src/preload/toolbar-preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
+      // Production's toolbar view runs with sandbox: false (project-window-shell.ts); a
+      // sandboxed preload cannot require a relative module, so the default sandbox leaves
+      // the toolbar without its bridge and this probe measuring a window the app never creates.
+      sandbox: false,
     },
   });
 

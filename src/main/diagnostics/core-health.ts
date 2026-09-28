@@ -329,11 +329,39 @@ export class CoreHealthService {
       const args = [this.scriptPath, command];
       if (arg !== undefined) args.push(arg);
       const res = await new Promise<{ status: number | null; stdout: string; stderr: string; error?: Error }>((resolve) => {
+        let settled = false;
+        let timer: NodeJS.Timeout | null = null;
+        const settle = (outcome: { status: number | null; stdout: string; stderr: string; error?: Error }): void => {
+          if (settled) return;
+          settled = true;
+          if (timer) clearTimeout(timer);
+          resolve(outcome);
+        };
+
         const child = spawn(process.execPath, args, {
           cwd: this.repoRoot,
           env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
           windowsHide: true,
         });
+        let stdout = '';
+        let stderr = '';
+        timer = setTimeout(() => {
+          if (child.pid) {
+            void ProcessRegistry.getInstance().kill(child.pid).catch(() => {});
+          } else {
+            try {
+              child.kill('SIGKILL');
+            } catch {}
+          }
+          settle({
+            status: null,
+            stdout,
+            stderr,
+            error: new Error('antifan-core ' + command + ' timed out after ' + this.timeoutMs + 'ms'),
+          });
+        }, this.timeoutMs);
+        timer.unref?.();
+
         if (child.pid) {
           ProcessRegistry.getInstance().register({
             pid: child.pid,
@@ -341,32 +369,23 @@ export class CoreHealthService {
             name: command,
             command: args.join(' '),
             processRef: child,
+            osStartTime: Date.now(),
           });
         }
-        let stdout = '';
-        let stderr = '';
-        const timer = setTimeout(() => {
-          if (child.pid) {
-            void ProcessRegistry.getInstance().kill(child.pid);
-          } else {
-            child.kill('SIGKILL');
-          }
-        }, this.timeoutMs);
-        child.stdout.on('data', (d: Buffer) => { stdout += d.toString('utf8'); });
-        child.stderr.on('data', (d: Buffer) => { stderr += d.toString('utf8'); });
+
+        child.stdout?.on('data', (d: Buffer) => { stdout += d.toString('utf8'); });
+        child.stderr?.on('data', (d: Buffer) => { stderr += d.toString('utf8'); });
         child.on('error', (error) => {
           if (child.pid) {
             ProcessRegistry.getInstance().unregister(child.pid);
           }
-          clearTimeout(timer);
-          resolve({ status: null, stdout, stderr, error });
+          settle({ status: null, stdout, stderr, error });
         });
         child.on('close', (status) => {
           if (child.pid) {
             ProcessRegistry.getInstance().unregister(child.pid, status);
           }
-          clearTimeout(timer);
-          resolve({ status, stdout, stderr });
+          settle({ status, stdout, stderr });
         });
       });
       if (res.error) throw res.error;

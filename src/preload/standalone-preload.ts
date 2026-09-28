@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, clipboard } from 'electron';
-import { TERMINAL_CHANNELS } from '../shared/contracts';
-import type { TerminalDataPayload, TerminalTabPrefs, TabsUpdatedPayload } from '../shared/contracts';
+import { PROJECT_WINDOW_CHANNELS, TERMINAL_CHANNELS } from '../shared/contracts';
+import type { ProjectOpenResult, TerminalDataPayload, TerminalTabPrefs, TabsUpdatedPayload } from '../shared/contracts';
 
 /**
  * The tab broadcast is one object carrying both halves the renderer reads. Normalizing
@@ -28,6 +28,11 @@ const api = {
   pasteImageFromClipboard: () => ipcRenderer.invoke('antifan:terminal:paste-image'),
   savePastedImageBuffer: (dataUrlOrBase64: string) => ipcRenderer.invoke('antifan:terminal:save-pasted-image', dataUrlOrBase64),
   openWorkspace: (sessionId?: string) => ipcRenderer.invoke('antifan:standalone:open-workspace', { sessionId }),
+  // The one explicit user intention to open a project. With no id, Main presents its own
+  // project-opening surface; the renderer never guesses a project from a title, a path or
+  // whatever tab happens to be focused.
+  openProject: (projectId?: string): Promise<ProjectOpenResult> =>
+    ipcRenderer.invoke(PROJECT_WINDOW_CHANNELS.PROJECT_OPEN, { projectId }),
   getInitialState: () => ipcRenderer.invoke('antifan:sidebar:get-initial-state'),
   startTerminal: (cwd?: string) => ipcRenderer.invoke('antifan:terminal:start', cwd),
   sendTerminalInput: (input: string) => ipcRenderer.invoke('antifan:terminal:input', input),

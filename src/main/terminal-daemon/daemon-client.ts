@@ -21,11 +21,21 @@
 import { EventEmitter } from 'node:events';
 import WebSocket from 'ws';
 import { HOST_METHOD, HOST_EVENT, HOST_EVENT_TO_LOCAL } from './protocol';
+import type { HostNewSessionParams, HostNewSessionResult, HostRestartParams, HostStartParams, HostStartResult } from './protocol';
 import type { BridgeRequestPayload, BridgeResponsePayload, BridgeEventPayload, TerminalAckPayload } from '../../shared/contracts';
 import type { TerminalWaitInput, TerminalWaitResult } from '../../shared/control-plane-contracts';
 
 const HOST = '127.0.0.1';
 const CALL_TIMEOUT_MS = 15000;
+/**
+ * Deadline for establishing the socket and completing authentication handshake.
+ *
+ * Sits far above the measured local loopback WebSocket upgrade round trip (1–15ms)
+ * and well below user patience and CALL_TIMEOUT_MS (15000ms), so an accepted TCP
+ * connection whose peer never answers the WebSocket upgrade rejects with a typed refusal
+ * instead of stranding every caller awaiting connect().
+ */
+export const HANDSHAKE_TIMEOUT_MS = 5000;
 const RECONNECT_MIN_MS = 250;
 const RECONNECT_MAX_MS = 5000;
 
@@ -52,28 +62,63 @@ export class DaemonClient {
   private readonly eventHandlers = new Map<string, Set<(data: unknown) => void>>();
   private closeHandlers = new Set<() => void>();
   private openPromise: Promise<void> | null = null;
+  private openReject: ((err: Error) => void) | null = null;
 
   constructor(private readonly endpoint: DaemonEndpoint) {}
 
   /** Establish the socket and authenticate. Resolves once the upgrade succeeds. */
-  connect(): Promise<void> {
+  connect(timeoutMs = HANDSHAKE_TIMEOUT_MS): Promise<void> {
     if (this.openPromise) return this.openPromise;
     this.openPromise = new Promise<void>((resolve, reject) => {
+      this.openReject = reject;
+      let handshakeTimer: NodeJS.Timeout | null = null;
+      const settle = (fn: () => void): void => {
+        if (handshakeTimer) {
+          clearTimeout(handshakeTimer);
+          handshakeTimer = null;
+        }
+        this.openReject = null;
+        fn();
+      };
+
       const ws = new WebSocket(`ws://${HOST}:${this.endpoint.port}/`, {
         headers: { 'x-antifan-token': this.endpoint.token },
       });
       this.ws = ws;
 
+      handshakeTimer = setTimeout(() => {
+        if (this.openReject) {
+          try { ws.close(); } catch { /* ignore */ }
+          settle(() => reject(new Error(`daemon handshake timed out after ${timeoutMs}ms (${HOST}:${this.endpoint.port})`)));
+        }
+      }, timeoutMs);
+      handshakeTimer.unref?.();
+
       ws.on('message', (raw) => this.onMessage(raw));
-      ws.on('close', () => this.handleSocketClose());
+      ws.on('close', () => {
+        if (handshakeTimer) {
+          clearTimeout(handshakeTimer);
+          handshakeTimer = null;
+        }
+        // A socket connect() has already replaced — a handshake-timeout retry, or an
+        // explicit reconnect — closes after its successor is installed. That close says
+        // nothing about the live socket, so it must not run the shared teardown: doing so
+        // rejects the new socket's in-flight calls and asks the owner to reconnect a link
+        // that is healthy. Only the currently installed socket speaks for the transport.
+        if (this.ws !== ws) return;
+        this.handleSocketClose();
+      });
       ws.on('error', () => { /* close follows */ });
 
-      ws.once('open', () => resolve());
-      ws.once('unexpected-response', (_req, res) => reject(new Error(`HTTP ${res.statusCode}`)));
-      ws.once('error', (err) => reject(err));
+      ws.once('open', () => settle(() => resolve()));
+      ws.once('unexpected-response', (_req, res) => settle(() => reject(new Error(`HTTP ${res.statusCode}`))));
+      ws.once('error', (err) => settle(() => reject(err)));
     });
     // A failed connect must not poison a later retry.
-    this.openPromise.catch(() => { this.openPromise = null; });
+    this.openPromise.catch(() => {
+      this.openPromise = null;
+      this.openReject = null;
+    });
     return this.openPromise;
   }
 
@@ -165,6 +210,11 @@ export class DaemonClient {
   }
 
   private handleSocketClose(): void {
+    if (this.openReject) {
+      const reject = this.openReject;
+      this.openReject = null;
+      reject(new Error(`daemon socket closed before handshake (${HOST}:${this.endpoint.port})`));
+    }
     for (const [, p] of this.pending) {
       clearTimeout(p.timer);
       p.reject(new Error('daemon socket closed'));
@@ -294,10 +344,29 @@ export class DaemonTerminalProxy extends EventEmitter {
 
   /* ---- TerminalManager-shaped surface (async & sync-cached) ---- */
 
-  async startTerminal(cwd?: string): Promise<boolean> {
+  /**
+   * Start the terminal subsystem or re-establish working directory.
+   *
+   * ASYNC/SYNC SEAM CONTRACT:
+   * While `TerminalManager.startTerminal(cwd?, capsuleId?, ownerKey?)` is synchronous and returns `boolean`,
+   * this proxy communicates with the daemon over WebSocket and returns `Promise<boolean>`.
+   * The daemon's `start` handler threads `capsuleId` and `ownerKey` to `TerminalManager.startTerminal`,
+   * so initial session creation and restored saved sessions preserve workspace provenance and window ownership.
+   *
+   * @param cwd Initial working directory
+   * @param capsuleId Optional workspace capsule to preserve provenance if an initial session is spawned
+   * @param ownerKey Optional owner key of the requesting window; a session spawned by this call is
+   *   visible only to that window's scope. Omitted from the wire when empty, so the host falls back
+   *   to the legacy capsule attribution.
+   */
+  async startTerminal(cwd?: string, capsuleId?: string, ownerKey?: string): Promise<boolean> {
     // Idempotent on the daemon side: its shell already exists, so this re-establishes cwd and
     // returns the manager's actual answer rather than a fabricated success.
-    const r = await this.client.call<{ started: boolean }>(HOST_METHOD.start, { cwd });
+    const payload: HostStartParams = {};
+    if (typeof cwd === 'string' && cwd) payload.cwd = cwd;
+    if (typeof capsuleId === 'string' && capsuleId) payload.capsuleId = capsuleId;
+    if (typeof ownerKey === 'string' && ownerKey) payload.ownerKey = ownerKey;
+    const r = await this.client.call<HostStartResult>(HOST_METHOD.start, payload);
     return r.started;
   }
 
@@ -320,14 +389,34 @@ export class DaemonTerminalProxy extends EventEmitter {
     return this.client.call(HOST_METHOD.syncView, query as Record<string, unknown>);
   }
 
-  write(input: string): boolean {
-    this.client.call(HOST_METHOD.input, { text: input }).catch(() => undefined);
-    return true;
+  /**
+   * Write input to the daemon's active session.
+   *
+   * ASYNC/SYNC SEAM CONTRACT:
+   * `TerminalManager.write(input)` in-process is `void`, but this proxy is a daemon
+   * round-trip, so it returns `Promise<boolean>` resolving when the daemon settles it —
+   * `true` when the input was delivered, `false` when the RPC failed. The promise must
+   * NOT be discarded here: callers admit this write against the close gate and release
+   * that admission from the returned value's own settlement, so a swallowed promise would
+   * report the write finished while the daemon is still waking or spawning the PTY that
+   * receives it — letting a quit tear down mid-write. The catch-to-`false` mapping keeps
+   * the old "never throws" contract so the release path can never be stranded by a
+   * rejection.
+   */
+  write(input: string): Promise<boolean> {
+    return this.client.call(HOST_METHOD.input, { text: input }).then(() => true, () => false);
   }
 
-  writeTo(sessionId: string, input: string): boolean {
-    this.client.call(HOST_METHOD.input, { sessionId, text: input }).catch(() => undefined);
-    return true;
+  /**
+   * Write input to a named session in the daemon.
+   *
+   * ASYNC/SYNC SEAM CONTRACT: same shape as {@link write} — returns `Promise<boolean>`
+   * settling when the daemon RPC settles (`true` delivered / `false` failed, never
+   * rejects) instead of the in-process manager's `void`, so a close admission held
+   * against the write releases only once the daemon is actually done with it.
+   */
+  writeTo(sessionId: string, input: string): Promise<boolean> {
+    return this.client.call(HOST_METHOD.input, { sessionId, text: input }).then(() => true, () => false);
   }
 
   async sendKey(key: string, sessionId?: string): Promise<void> {
@@ -342,13 +431,40 @@ export class DaemonTerminalProxy extends EventEmitter {
     await this.client.call(HOST_METHOD.resize, { sessionId, cols, rows });
   }
 
-  async createSession(cwd?: string): Promise<string> {
-    const r = await this.client.call<{ sessionId: string }>(HOST_METHOD.newSession, { cwd });
+  /**
+   * Create a new terminal session in the daemon.
+   *
+   * ASYNC/SYNC SEAM CONTRACT:
+   * While `TerminalManager.createSession(cwd?, capsuleId?, ownerKey?)` in-process is synchronous and returns `string`,
+   * this daemon proxy communicates over WebSocket and returns `Promise<string>`.
+   * Callers holding a reference to the process-wide terminal singleton (`TerminalManager.getInstance()`)
+   * in daemon mode MUST await `createSession(...)` (e.g. `await terminal.createSession(cwd, capsuleId, ownerKey)`).
+   * A synchronous read without `await` receives a `Promise<string>` object rather than a session ID string,
+   * whose `typeof` is `'object'` and cannot be used directly as a session identifier (it serializes to `{}` in JSON).
+   * Awaiting the call unwraps both shapes cleanly: `await Promise.resolve(id)` and `await id` both evaluate to the string id.
+   *
+   * @param cwd Initial working directory for the session shell
+   * @param capsuleId Optional workspace capsule to preserve provenance for the created session
+   * @param ownerKey Optional owner key of the requesting window; the created session is visible only
+   *   to that window's scope. Omitted from the wire when empty, so the host falls back to the legacy
+   *   capsule attribution.
+   * @returns Promise resolving to the created session ID string
+   */
+  async createSession(cwd?: string, capsuleId?: string, ownerKey?: string): Promise<string> {
+    const payload: HostNewSessionParams = {};
+    if (typeof cwd === 'string' && cwd) payload.cwd = cwd;
+    if (typeof capsuleId === 'string' && capsuleId) payload.capsuleId = capsuleId;
+    if (typeof ownerKey === 'string' && ownerKey) payload.ownerKey = ownerKey;
+    const r = await this.client.call<HostNewSessionResult>(HOST_METHOD.newSession, payload);
     return r.sessionId;
   }
 
   async createSplitSession(parentId: string, cwd?: string, cols?: number, rows?: number): Promise<string> {
-    const r = await this.client.call<{ sessionId: string }>(HOST_METHOD.newSession, { parentId, cwd, cols, rows });
+    const payload: HostNewSessionParams = { parentId };
+    if (typeof cwd === 'string' && cwd) payload.cwd = cwd;
+    if (typeof cols === 'number') payload.cols = cols;
+    if (typeof rows === 'number') payload.rows = rows;
+    const r = await this.client.call<HostNewSessionResult>(HOST_METHOD.newSession, payload);
     return r.sessionId;
   }
 
@@ -367,8 +483,17 @@ export class DaemonTerminalProxy extends EventEmitter {
     return r.renamed;
   }
 
-  async restart(cwd?: string): Promise<void> {
-    await this.client.call(HOST_METHOD.restart, { cwd });
+  /**
+   * Restart the daemon's shell.
+   *
+   * `ownerKey` is stamped on any record this restart mints: a restart with no live session would
+   * otherwise create an unowned record that a project window must never see. Omitted from the wire
+   * when empty, so the host falls back to the legacy capsule attribution.
+   */
+  async restart(cwd?: string, ownerKey?: string): Promise<void> {
+    const payload: HostRestartParams = { cwd };
+    if (typeof ownerKey === 'string' && ownerKey) payload.ownerKey = ownerKey;
+    await this.client.call(HOST_METHOD.restart, payload);
   }
 
   async sleepSession(sessionId: string): Promise<boolean> {
@@ -446,6 +571,38 @@ export class DaemonTerminalProxy extends EventEmitter {
       activeSessionId: this.cachedActiveSessionId,
       sessions: this.cachedSessions,
     };
+  }
+
+  /**
+   * Workspace capsule a session belongs to, or undefined for a session this facade holds
+   * no summary for.
+   *
+   * The daemon owns the session records, so the cached summaries are the only provenance
+   * the proxy can answer from. A summary carries `capsuleId` exactly when the session was
+   * created in a workspace, so the answer matches the in-process manager's
+   * `s.capsuleId || undefined` for every session this facade knows — and matches its
+   * unknown-session answer for every session it does not.
+   */
+  sessionCapsuleId(sessionId: string): string | undefined {
+    const s = this.cachedSessionsById.get(sessionId);
+    if (!s) return undefined;
+    return typeof s.capsuleId === 'string' && s.capsuleId ? s.capsuleId : undefined;
+  }
+
+  /**
+   * Owner key of the window a session belongs to, or undefined when the cached summary carries
+   * none — an unknown session, or a legacy row written before owner-key attribution.
+   *
+   * The daemon owns the session records, so the cached summaries are the only provenance this
+   * facade can answer from: `_updateLocalCache` stores them verbatim, so the field survives the
+   * round trip. `undefined` is a meaningful answer here, not a miss: a session without an owner
+   * key is matched by the legacy capsule rule in the asking window's scope, exactly as it was
+   * before owner keys existed.
+   */
+  sessionOwnerKey(sessionId: string): string | undefined {
+    const s = this.cachedSessionsById.get(sessionId);
+    if (!s) return undefined;
+    return typeof s.ownerKey === 'string' && s.ownerKey ? s.ownerKey : undefined;
   }
 
   async getSubscribers(): Promise<unknown> {

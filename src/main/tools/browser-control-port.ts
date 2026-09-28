@@ -73,9 +73,11 @@ import {
   type VisualBaselineRef,
 } from '../verification/baseline-authority.js';
 import { formatInflightNote, type InflightRequestSnapshot, type NetworkTrackerOptions } from '../browser/first-party-network-tracker.js';
+import type { BrowserSessionUserAgentMode } from '../browser/browser-session-partition';
 import type { AntiFanTab } from '../../shared/contracts';
 import { DEADLINES } from '../../shared/deadline-chain';
 import { injectedScriptStore } from '../browser/scripts/injected-script-store.js';
+import type { PageCloseAdmission } from '../run/attachment-registry';
 
 function isTabRecord(item: unknown): item is AntiFanTab {
   if (typeof item !== 'object' || item === null || !('id' in item)) return false;
@@ -116,7 +118,15 @@ export interface BrowserHostPort {
   setAutomationTabId?(tabId?: string): void;
   isTabOffscreen?(tabId?: string): boolean;
   isTabEphemeral?(tabId?: string): boolean;
-  createTab?(url?: string, activate?: boolean, options?: { capsuleId?: string; userAgentMode?: any; ephemeral?: boolean; offscreen?: boolean; devicePresetId?: string; mobile?: boolean }): string;
+  /**
+   * `capsuleId` binds the new tab to a workspace capsule at creation time, which is
+   * what makes creation atomic. `anchorTabId` is the tab whose window owns the new
+   * one: the adapter resolves the host from it, so a child is created in its
+   * parent's window instead of whichever window happens to be first.
+   */
+  createTab?(url?: string, activate?: boolean, options?: { capsuleId?: string; userAgentMode?: BrowserSessionUserAgentMode; ephemeral?: boolean; offscreen?: boolean; devicePresetId?: string; mobile?: boolean; anchorTabId?: string }): string;
+  /** The capsule and project/workspace a tab was created in, or undefined when no capsule owns it. */
+  resolveTabAffiliation?(tabId: string): { projectId?: string; workspaceId?: string; capsuleId?: string } | undefined;
   closeTab?(tabId: string): boolean;
   switchTab?(tabId: string): boolean;
   navigate(tabId: string, url: string): Promise<boolean> | boolean;
@@ -396,11 +406,133 @@ export interface ViewportLockOptions {
   signal?: AbortSignal;
 }
 
+/**
+ * Refuse any new work while an application attempt (a quit) holds all admission closed.
+ *
+ * Every seam that admits work calls this before it registers anything, including work
+ * that names no page: during a quit attempt the services the work would rely on are on
+ * their way out, so a bindless management call is refused too. Fail-closed in both
+ * directions — an unreadable admission state refuses instead of admitting, and the
+ * refusal is the existing `RUNTIME_DRAINING` failure, which the caller retries once the
+ * quit finishes or is refused. No-op when no admission is injected.
+ */
+export function assertApplicationAdmitsWork(admission: PageCloseAdmission | undefined, surface: string): void {
+  if (!admission) return;
+  let reserved: boolean;
+  try {
+    reserved = Boolean(admission.isApplicationAdmissionReserved());
+  } catch (err) {
+    const cause = err instanceof Error ? err.message : String(err);
+    throw new CapabilityError(
+      'RUNTIME_DRAINING',
+      `${surface} refused: the application admission state could not be read (${cause}); no new work is admitted while it is unknown. Retry shortly.`,
+      { applicationAdmissionUnreadable: true }
+    );
+  }
+  if (!reserved) return;
+  throw new CapabilityError(
+    'RUNTIME_DRAINING',
+    `${surface} refused: the application is quitting and admits no new work. Retry once the quit finishes or is refused.`,
+    { applicationQuitting: true }
+  );
+}
+
+/**
+ * Refuse tab-scoped work whose page has its close reserved (see `PageCloseAdmission`).
+ *
+ * A reserved page is mid-unload: work admitted onto it races the destroy and its
+ * result can never be delivered. The refusal is the existing `TARGET_STALE` failure —
+ * final, with no retry-into-success — and an unreadable reservation is treated the
+ * same way rather than as permission, because the page may be closing. The broader
+ * application gate runs first (a quit refuses every page), and the whole check is a
+ * no-op when no admission is injected, which keeps the previous behaviour.
+ */
+export function assertPageAdmitsWork(
+  admission: PageCloseAdmission | undefined,
+  tabId: string,
+  surface: string
+): void {
+  if (!admission) return;
+  assertApplicationAdmitsWork(admission, surface);
+  let reserved: boolean;
+  try {
+    reserved = Boolean(admission.isPageReserved(tabId));
+  } catch (err) {
+    const cause = err instanceof Error ? err.message : String(err);
+    throw new CapabilityError(
+      'TARGET_STALE',
+      `${surface} refused on tab '${tabId}': the close reservation could not be read (${cause}). Retry, or rebind to a live tab.`,
+      { tabId, closeReservationUnreadable: true }
+    );
+  }
+  if (!reserved) return;
+  throw new CapabilityError(
+    'TARGET_STALE',
+    `${surface} refused on tab '${tabId}': the page is reserved for close and admits no new work. Retry after the close, or rebind to a live tab.`,
+    { tabId, reservedForClose: true }
+  );
+}
+
+/**
+ * Bind a close-admission release to a once-only guard.
+ *
+ * The operation is registered once but its release runs from a `finally`, which must
+ * never be the reason an operation reports the wrong outcome: a second release is a
+ * no-op, and a throwing release is logged rather than allowed to replace the result
+ * (or the failure) the operation actually produced.
+ */
+export function onceCloseAdmissionRelease(release: (() => void) | undefined): () => void {
+  if (!release) return () => {};
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    try {
+      release();
+    } catch (err) {
+      console.warn('[close-admission] release failed:', err);
+    }
+  };
+}
+
+/**
+ * Admit one operation that works on a single page, from a seam that is not one of the
+ * port's pools: the viewport gate (agent actions, sequences, traces) and the port's own
+ * direct page work.
+ *
+ * The gate runs first — application admission, then the page reservation — and only then
+ * does the operation register itself, attributed to the page it will reach. Both halves
+ * matter: without the check, work is admitted against services a quit is tearing down or
+ * onto a page inside its reservation window; without the registration, a close measuring
+ * that page counts nothing and destroys it under the operation. `tabId` is optional
+ * because a bindless operation (one that only reaches the host) still has to pass the
+ * application gate, which is the evidence it can honestly support.
+ *
+ * The returned release is idempotent, so a `finally` that also runs on the refusal path
+ * cannot double-count. A refusal throws before anything is registered, so it has no
+ * counter to clear.
+ */
+export function admitPageOperation(
+  admission: PageCloseAdmission | undefined,
+  tabId: string | undefined,
+  surface: string
+): () => void {
+  if (tabId) assertPageAdmitsWork(admission, tabId, surface);
+  else assertApplicationAdmitsWork(admission, surface);
+  return onceCloseAdmissionRelease(admission?.beginAdmittedOperation(tabId));
+}
+
 export class PassiveExecutionPool {
   private tabActiveCounts = new Map<string, number>();
   private globalActiveCount = 0;
   private readonly MAX_PER_TAB = 4;
   private readonly MAX_GLOBAL = 16;
+  private closeAdmission?: PageCloseAdmission;
+
+  /** Injects the close-admission seam (see `PageCloseAdmission`); absent = previous behaviour. */
+  setCloseAdmission(admission?: PageCloseAdmission): void {
+    this.closeAdmission = admission;
+  }
 
   async execute<T>(tabId: string, action: () => Promise<T>): Promise<T> {
     const tabCount = this.tabActiveCounts.get(tabId) || 0;
@@ -408,11 +540,19 @@ export class PassiveExecutionPool {
       throw new CapabilityError('CAPABILITY_OVERLOADED', `Concurrency limit exceeded for background operations on tab ${tabId}`);
     }
 
+    // Close admission runs before the counters move, so a refusal (thrown by the gate)
+    // leaves both the counters and the action untouched, and an admitted operation is
+    // registered before it is counted — a close measuring this pool sees real work
+    // rather than a guess.
+    assertPageAdmitsWork(this.closeAdmission, tabId, 'Background operation');
+    const releaseAdmission = onceCloseAdmissionRelease(this.closeAdmission?.beginAdmittedOperation());
+
     this.tabActiveCounts.set(tabId, tabCount + 1);
     this.globalActiveCount++;
     try {
       return await action();
     } finally {
+      releaseAdmission();
       const updated = (this.tabActiveCounts.get(tabId) || 1) - 1;
       if (updated <= 0) this.tabActiveCounts.delete(tabId);
       else this.tabActiveCounts.set(tabId, updated);
@@ -440,6 +580,12 @@ export class WaitRegistry {
   private readonly MAX_GLOBAL = 16;
   private readonly DEFAULT_TIMEOUT_MS = 5_000;
   private readonly MAX_TIMEOUT_MS = 30_000;
+  private closeAdmission?: PageCloseAdmission;
+
+  /** Injects the close-admission seam (see `PageCloseAdmission`); absent = previous behaviour. */
+  setCloseAdmission(admission?: PageCloseAdmission): void {
+    this.closeAdmission = admission;
+  }
 
   async execute<T>(
     tabId: string,
@@ -450,6 +596,12 @@ export class WaitRegistry {
     if (tabCount >= this.MAX_PER_TAB || this.globalWaitCount >= this.MAX_GLOBAL) {
       throw new CapabilityError('CAPABILITY_OVERLOADED', `Wait registry concurrency limit exceeded on tab ${tabId}`);
     }
+
+    // Same admission order as the passive pool: a reserved page refuses the wait before
+    // it is counted, and an admitted wait is registered before it starts so a close
+    // never has to infer it from a queue length.
+    assertPageAdmitsWork(this.closeAdmission, tabId, 'Wait');
+    const releaseAdmission = onceCloseAdmissionRelease(this.closeAdmission?.beginAdmittedOperation());
 
     this.tabWaitCounts.set(tabId, tabCount + 1);
     this.globalWaitCount++;
@@ -474,6 +626,7 @@ export class WaitRegistry {
 
       return await action(controller.signal);
     } finally {
+      releaseAdmission();
       if (timer) clearTimeout(timer);
       if (options?.signal && onParentAbort) {
         options.signal.removeEventListener('abort', onParentAbort);
@@ -529,6 +682,7 @@ export class ViewportGate {
   // an unscoped human preemption (-> global poison); both leave lastPreemptScoped=false.
   private lastPreemptEpoch = 0;
   private onCancelCallback: ((tabId?: string) => Promise<boolean>) | null = null;
+  private closeAdmission?: PageCloseAdmission;
   private queue: Array<{
     tabId?: string;
     epoch: number;
@@ -539,6 +693,16 @@ export class ViewportGate {
 
   public setCancellationHandler(callback: (tabId?: string) => Promise<boolean>): void {
     this.onCancelCallback = callback;
+  }
+
+  /**
+   * Injects the close-admission seam (see `PageCloseAdmission`). The gate is one of the
+   * port's admission paths: every action it holds (agent actions, sequences, traces) runs
+   * against a page, so it consults admission before running one and registers it while it
+   * runs. Absent = previous behaviour.
+   */
+  public setCloseAdmission(admission?: PageCloseAdmission): void {
+    this.closeAdmission = admission;
   }
 
   public resetPoisonState(tabId?: string): void {
@@ -595,6 +759,12 @@ export class ViewportGate {
     if (this.isPoisoned || (lockTabId !== undefined && this.poisonedTabs.has(lockTabId))) {
       throw new CapabilityError('TARGET_STALE', 'ViewportGate is poisoned due to unacknowledged action cancellation');
     }
+    // Close admission, before the caller joins the queue: a page inside its reservation
+    // window (or an application that is quitting) admits no new work, so this action has to
+    // be refused now rather than after it waited for the lock it would then hold over a
+    // page that is being destroyed.
+    if (lockTabId) assertPageAdmitsWork(this.closeAdmission, lockTabId, 'Viewport action');
+    else assertApplicationAdmitsWork(this.closeAdmission, 'Viewport action');
     const timeoutMs = options.timeoutMs ?? VIEWPORT_GATE_ADMISSION_BUDGET_MS;
     const controller = new AbortController();
 
@@ -614,6 +784,20 @@ export class ViewportGate {
     if (this.isPoisoned || (lockTabId !== undefined && this.poisonedTabs.has(lockTabId))) {
       release();
       throw new CapabilityError('TARGET_STALE', 'ViewportGate is poisoned due to unacknowledged action cancellation');
+    }
+
+    // 2a. Close admission again, now that the lock is held: the page may have been reserved
+    //     for close while this caller waited, and the action is about to run against it.
+    //     The registration that follows is what makes the action visible to a close
+    //     measuring this page — a gate holder is real work, not a queue length — and it
+    //     happens after the check, with no await in between, so the pair is atomic under
+    //     the JS model. A refusal releases the lock before it throws.
+    let releaseAdmission: () => void;
+    try {
+      releaseAdmission = admitPageOperation(this.closeAdmission, lockTabId, 'Viewport action');
+    } catch (err) {
+      release();
+      throw err;
     }
 
     // 2b. This caller now owns the lock: capture the preemption epoch and clear any
@@ -704,6 +888,7 @@ export class ViewportGate {
         options.signal.removeEventListener('abort', onParentAbort);
       }
       if (executionTimer) clearTimeout(executionTimer);
+      releaseAdmission();
       this.activeAbortController = null;
       this.activeTabId = null;
       this.lastPreemptScoped = false;
@@ -1622,6 +1807,8 @@ export class BrowserControlPort {
   public readonly passivePool = new PassiveExecutionPool();
   public readonly waitRegistry = new WaitRegistry();
   public readonly viewportGate = new ViewportGate();
+  /** The close-admission seam this port's pools, waits and viewport gate consult. */
+  private closeAdmission?: PageCloseAdmission;
   /** Joint mutual exclusion for visualCompare tab pairs (passivePool keeps capacity accounting) */
   private readonly comparePairLock = new MultiKeyLock();
   /** Targets holding a timed-out in-flight CDP command until their recovery receipt lands. */
@@ -1658,6 +1845,21 @@ export class BrowserControlPort {
       }
       return true;
     });
+  }
+  /**
+   * Injects the close-admission seam (see `PageCloseAdmission`) into this port's
+   * in-flight accounting and admission paths. The background pools and the wait registry
+   * then refuse work on a reserved page and register every admitted operation, and the
+   * viewport gate — the port's other admission path, used by agent actions, sequences and
+   * traces — refuses an application that is quitting or a page reserved for close and
+   * registers what it runs, so a close measures the port's real work instead of guessing.
+   * Absent = previous behaviour.
+   */
+  setCloseAdmission(admission?: PageCloseAdmission): void {
+    this.closeAdmission = admission;
+    this.passivePool.setCloseAdmission(admission);
+    this.waitRegistry.setCloseAdmission(admission);
+    this.viewportGate.setCloseAdmission(admission);
   }
   /**
    * Stages through the sink's async path when it has one: capture buffers reach
@@ -3292,21 +3494,104 @@ export class BrowserControlPort {
       };
     }, { timeoutMs: params.timeoutMs, signal });
   }
-  openTab(options: { url?: string; activate?: boolean; ephemeral?: boolean; offscreen?: boolean; devicePresetId?: string; mobile?: boolean } = {}, context?: { target?: BrowserTarget }): { tabId: string } {
-    if (!this.host.createTab) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'createTab is not supported by host');
-    const boundTabId = context?.target?.tabId;
+
+  /**
+   * Refuse a creation whose anchor tab no longer exists, so nothing is allocated for a
+   * session that has nothing to adopt into.
+   *
+   * An anchor that no longer exists cannot adopt anything: `adoptChildTab` refuses an
+   * identifier that is not a live tab, and reporting that refusal as a quota breach sends
+   * the caller hunting for tabs to close while its own managed set holds one id (measured:
+   * a session whose bound tab was closed mid-session received "browser tab quota reached"
+   * with 1 counted tab). The two failures have different recoveries, so they are reported
+   * apart: a dead anchor is rebound, a full session closes a tab.
+   *
+   * This is the liveness seam `openTab` reads before it allocates, defined once so the
+   * refusal cannot depend on *when* the anchor was lost: allocation is not instantaneous,
+   * and an anchor can be closed between the gate's read and the adopt call.
+   */
+  private assertAnchorTabLive(boundTabId: string | undefined): void {
     if (boundTabId && this.host.hasTab && !this.host.hasTab(boundTabId)) {
-      // An anchor that no longer exists cannot adopt anything: `adoptChildTab` refuses an
-      // identifier that is not a live tab, and reporting that refusal as a quota breach sends
-      // the caller hunting for tabs to close while its own managed set holds one id (measured:
-      // a session whose bound tab was closed mid-session received "browser tab quota reached"
-      // with 1 counted tab). The two failures have different recoveries, so they are reported
-      // apart: a dead anchor is rebound, a full session closes a tab.
       throw new CapabilityError('TARGET_STALE', `Cannot open a tab for session '${boundTabId}': the session's anchor tab no longer exists, so a new tab has nothing to be adopted into. Rebind the session to a live tab (anti.browser.rebind_target), then retry.`, {
         boundTabId,
         recovery: 'anti.browser.rebind_target',
       });
     }
+  }
+
+  /**
+   * Verify - and return - the capsule that authorizes a routed creation, read from the
+   * anchor tab's own measured affiliation, never from the globally active capsule.
+   *
+   * The same definition serves the pre-allocation gate and the post-adoption re-read, so a
+   * routed creation that could not be adopted is classified against the affiliation the
+   * anchor holds NOW rather than the one it held when the child was allocated.
+   */
+  private verifyRoutedAnchorCapsule(boundTabId: string | undefined, target: BrowserTarget | undefined): string | undefined {
+    if (!(target && target.projectId && target.workspaceId && boundTabId)) return undefined;
+    if (!this.host.resolveTabAffiliation) {
+      throw new CapabilityError(
+        'CAPABILITY_NOT_FOUND',
+        `Cannot verify affiliation for anchor tab '${boundTabId}': host does not implement resolveTabAffiliation. A routed tab (project: '${target.projectId}', workspace: '${target.workspaceId}') cannot be created without verified affiliation. Implement resolveTabAffiliation on the host or rebind to an unrouted session.`,
+        {
+          boundTabId,
+          targetProjectId: target.projectId,
+          targetWorkspaceId: target.workspaceId,
+          recovery: 'implement resolveTabAffiliation on host or use unrouted target',
+        }
+      );
+    }
+    const affiliation = this.host.resolveTabAffiliation(boundTabId);
+    if (!affiliation) {
+      throw new CapabilityError(
+        'TARGET_STALE',
+        `Cannot open a routed tab for session '${boundTabId}': the anchor tab is not owned by any capsule (measured affiliation: undefined). A routed tab requires a verified capsule affiliation matching project '${target.projectId}' and workspace '${target.workspaceId}'. Rebind the session to a live tab owned by an active capsule (anti.browser.rebind_target), then retry.`,
+        {
+          boundTabId,
+          targetProjectId: target.projectId,
+          targetWorkspaceId: target.workspaceId,
+          recovery: 'anti.browser.rebind_target',
+        }
+      );
+    }
+    if (!affiliation.projectId || !affiliation.workspaceId) {
+      throw new CapabilityError(
+        'POLICY_DENIED',
+        `Cannot open a routed tab for session '${boundTabId}': anchor tab belongs to capsule '${affiliation.capsuleId ?? 'unknown'}' which is explicitly Unassigned (measured project: '${affiliation.projectId ?? 'none'}', workspace: '${affiliation.workspaceId ?? 'none'}', target requires project: '${target.projectId}', workspace: '${target.workspaceId}'). This request will not inherit the active capsule. Open the project/workspace explicitly, then retry.`,
+        {
+          boundTabId,
+          capsuleId: affiliation.capsuleId,
+          measuredProjectId: affiliation.projectId,
+          measuredWorkspaceId: affiliation.workspaceId,
+          targetProjectId: target.projectId,
+          targetWorkspaceId: target.workspaceId,
+          state: 'Unassigned',
+          recovery: 'open the project/workspace explicitly',
+        }
+      );
+    }
+    if (affiliation.projectId !== target.projectId || affiliation.workspaceId !== target.workspaceId) {
+      throw new CapabilityError(
+        'POLICY_DENIED',
+        `Cannot open a routed tab for session '${boundTabId}': anchor tab affiliation (project: '${affiliation.projectId}', workspace: '${affiliation.workspaceId}') conflicts with requested target (project: '${target.projectId}', workspace: '${target.workspaceId}'). A tab creation cannot bridge across different project/workspace affiliations. Rebind to a session matching the target project and workspace, then retry.`,
+        {
+          boundTabId,
+          capsuleId: affiliation.capsuleId,
+          measuredProjectId: affiliation.projectId,
+          measuredWorkspaceId: affiliation.workspaceId,
+          targetProjectId: target.projectId,
+          targetWorkspaceId: target.workspaceId,
+          recovery: 'rebind to a session matching target project and workspace',
+        }
+      );
+    }
+    return affiliation.capsuleId;
+  }
+
+  openTab(options: { url?: string; activate?: boolean; ephemeral?: boolean; offscreen?: boolean; devicePresetId?: string; mobile?: boolean } = {}, context?: { target?: BrowserTarget }): { tabId: string } {
+    if (!this.host.createTab) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'createTab is not supported by host');
+    const boundTabId = context?.target?.tabId;
+    this.assertAnchorTabLive(boundTabId);
     if (boundTabId && this.host.getManagedTabIds) {
       // The same pruning source the adopt path counts: a closed tab can never be
       // counted here and ignored there.
@@ -3320,20 +3605,49 @@ export class BrowserControlPort {
         });
       }
     }
+    const target = context?.target;
+    const routed = Boolean(target && target.projectId && target.workspaceId);
+    // Phase 2: routed tab creation must be authorized by the anchor tab's own
+    // verified affiliation and must never inherit the globally active capsule.
+    // Verifying affiliation after checking anchor liveness and tab quota but
+    // before calling createTab guarantees no WebContents or tab handle is allocated
+    // when the anchor belongs to a different or unassigned project/workspace,
+    // or when the host cannot verify affiliation.
+    const verifiedCapsuleId = this.verifyRoutedAnchorCapsule(boundTabId, target);
     // Phase 2 (step 11): forward the offscreen option so dedicated agent tabs keep
     // rendering without foregrounding the user's visible surface.
-    const tabId = this.host.createTab(options.url || 'about:blank', options.activate ?? false, {
-      ephemeral: options.ephemeral,
-      offscreen: options.offscreen,
-      devicePresetId: options.devicePresetId,
-      mobile: options.mobile,
-    });
+    const createOptions = (routed && target && target.projectId && target.workspaceId)
+      ? {
+          ephemeral: options.ephemeral,
+          offscreen: options.offscreen,
+          devicePresetId: options.devicePresetId,
+          mobile: options.mobile,
+          capsuleId: verifiedCapsuleId,
+          anchorTabId: boundTabId,
+        }
+      : {
+          ephemeral: options.ephemeral,
+          offscreen: options.offscreen,
+          devicePresetId: options.devicePresetId,
+          mobile: options.mobile,
+        };
+    const tabId = this.host.createTab(options.url || 'about:blank', options.activate ?? false, createOptions);
     if (boundTabId && this.host.adoptChildTab) {
       // A tab this session cannot own is a tab it can never list, address or
       // close: close it and fail instead of handing back a leak.
       const adopted = this.host.adoptChildTab(boundTabId, tabId);
       if (adopted === false) {
         this.host.closeTab?.(tabId);
+        // `adopted === false` does not say why: a closed anchor, an anchor that lost the
+        // requested affiliation and a pool that refused the tab all produce the same value,
+        // and the gate that read the anchor as live ran before the child was allocated.
+        // Re-read the anchor through that gate's own seams and classify on the fresh reading,
+        // so the caller gets the recovery that actually applies - rebind a dead or
+        // unauthorized anchor, close a tab only when the anchor can genuinely still adopt.
+        // Both reads are synchronous, so this adds no await in which the anchor could change
+        // again, and the classification cannot drift from the gate's vocabulary.
+        this.assertAnchorTabLive(boundTabId);
+        this.verifyRoutedAnchorCapsule(boundTabId, target);
         // Re-read the same pruned source the gate and the adopt path count, so
         // the refusal reports the set the host actually refused on.
         // Report the state that was measured, never the limit by default. The gate above

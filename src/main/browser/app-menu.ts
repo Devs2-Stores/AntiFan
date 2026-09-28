@@ -4,6 +4,7 @@
  * File, Edit, View, Browser, Tools, Terminal, Help
  */
 import { app, dialog, Menu, MenuItemConstructorOptions, BrowserWindow, shell, clipboard, safeStorage } from 'electron';
+import type { BaseWindow } from 'electron';
 import * as cp from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -46,7 +47,7 @@ function getPendingSourceModifications(srcDir: string, compiledDir: string): str
   return modifiedFiles;
 }
 
-export function checkForUpdatesAndRestart(window?: BrowserWindow | null): void {
+export function checkForUpdatesAndRestart(window?: BaseWindow | null): void {
   const cwd = process.cwd();
   const srcDir = path.join(cwd, 'src');
   const compiledDir = path.join(cwd, '.compiled', 'src');
@@ -114,8 +115,60 @@ export function checkForUpdatesAndRestart(window?: BrowserWindow | null): void {
   });
 }
 
-export function buildApplicationMenu(mainWindow: BrowserWindow, tabHost?: NativeTabHost | null): Menu {
+export interface ApplicationMenuOptions {
+  /**
+   * Which window's host an application-menu command acts on. A native menu click
+   * carries no renderer sender, but it does carry the window the user clicked in,
+   * and for the user's own action that focused window is legitimate evidence of
+   * which window they meant: the window directory answers with its host.
+   *
+   * Omitting the resolver keeps the passed host for every command, which is what a
+   * single-window caller already relies on.
+   */
+  resolveHostForWindow?: (window: BrowserWindow | null) => NativeTabHost | null;
+  /**
+   * Main's project-opening surface, injected by the process that owns the registry.
+   *
+   * A menu click carries no renderer sender, so Main cannot be reached the way a chrome
+   * channel is; the window the user clicked in is passed instead, which is what makes the
+   * dialog modal to that window. Omitting the callback leaves the entry visibly disabled
+   * rather than offering an action that would do nothing.
+   */
+  openProjectPicker?: (window: BrowserWindow | null) => void;
+}
+
+/**
+ * The host an application-menu command runs against. With a resolver, the focused
+ * window decides — and a window the directory cannot resolve refuses the command
+ * instead of running it against another window. Without one, the caller's own host
+ * answers, exactly as it did before this seam existed.
+ */
+export function resolveApplicationMenuHost(
+  passedHost: NativeTabHost | null | undefined,
+  focusedWindow: BaseWindow | null | undefined,
+  resolveHostForWindow?: (window: BrowserWindow | null) => NativeTabHost | null
+): NativeTabHost | null {
+  if (resolveHostForWindow) {
+    // Electron reports the click's window as a BaseWindow. Every window this application
+    // creates — and therefore every window a host can be registered for — is a
+    // BrowserWindow, so the conversion is the identity here; a window that somehow is not
+    // one simply matches no registered shell, and the resolver answers null, which
+    // refuses the command.
+    return resolveHostForWindow(focusedWindow as BrowserWindow | null) ?? null;
+  }
+  return passedHost ?? null;
+}
+
+export function buildApplicationMenu(mainWindow: BrowserWindow, tabHost?: NativeTabHost | null, options?: ApplicationMenuOptions): Menu {
   const isMac = process.platform === 'darwin';
+  /**
+   * Resolve per click, from the window the user clicked in. Every command below runs
+   * against this host so one menu can never mix windows: the accelerators are global,
+   * so the focused window — not the window the menu was built for — is what the user
+   * is driving.
+   */
+  const hostForClick = (focusedWindow: BaseWindow | null | undefined): NativeTabHost | null =>
+    resolveApplicationMenuHost(tabHost, focusedWindow, options?.resolveHostForWindow);
 
 
   const managePasswordVault = async (window: BrowserWindow | null): Promise<void> => {
@@ -182,7 +235,8 @@ export function buildApplicationMenu(mainWindow: BrowserWindow, tabHost?: Native
     ...(chromeProfiles.length > 0
       ? chromeProfiles.map((p) => ({
           label: `Sync: ${p.name} (${p.id})`,
-          click: async () => {
+          click: async (_item: unknown, focusedWindow: BaseWindow | undefined) => {
+            const host = hostForClick(focusedWindow);
             // Unified target: shared profile partition (explicit profileId — no
             // dependence on prior active state). Menu items only exist for
             // discovered profiles, but the sync itself validates again.
@@ -192,11 +246,11 @@ export function buildApplicationMenu(mainWindow: BrowserWindow, tabHost?: Native
               return;
             }
             manager.activeProfileId = p.id;
-            const res = await manager.syncProfile(p.id, tabHost?.resolveTargetProfileSession(p.id));
+            const res = await manager.syncProfile(p.id, host?.resolveTargetProfileSession(p.id));
             const bm = ChromeProfileSyncManager.getInstance().getChromeBookmarks(p.id);
-            if (bm.length > 0 && tabHost) {
-              tabHost.bookmarks = bm.map((b) => ({ id: b.url, title: b.title, url: b.url, createdAt: Date.now() }));
-              tabHost.broadcastState();
+            if (bm.length > 0 && host) {
+              host.bookmarks = bm.map((b) => ({ id: b.url, title: b.title, url: b.url, createdAt: Date.now() }));
+              host.broadcastState();
             }
             dialog.showMessageBox(mainWindow, {
               type: res.success ? 'info' : 'warning',
@@ -209,8 +263,8 @@ export function buildApplicationMenu(mainWindow: BrowserWindow, tabHost?: Native
     { type: 'separator' },
     {
       label: '💾 Sao lưu Session Vault (Export JSON)',
-      click: async () => {
-        const targetSession = tabHost?.resolveTargetProfileSession();
+      click: async (_item, focusedWindow: BaseWindow | undefined) => {
+        const targetSession = hostForClick(focusedWindow)?.resolveTargetProfileSession();
         if (!targetSession) return;
         const res = await LocalSessionVault.getInstance().exportVaultToFile(targetSession);
         const googleAuth = res.googleAuthCount ?? 0;
@@ -229,8 +283,8 @@ export function buildApplicationMenu(mainWindow: BrowserWindow, tabHost?: Native
     },
     {
       label: '📥 Khôi phục Session Vault (Import JSON)',
-      click: async () => {
-        const targetSession = tabHost?.resolveTargetProfileSession();
+      click: async (_item, focusedWindow: BaseWindow | undefined) => {
+        const targetSession = hostForClick(focusedWindow)?.resolveTargetProfileSession();
         if (!targetSession) return;
         const res = await LocalSessionVault.getInstance().importVaultFromFile(targetSession);
         const googleAuth = res.googleAuthCount ?? 0;
@@ -255,21 +309,32 @@ export function buildApplicationMenu(mainWindow: BrowserWindow, tabHost?: Native
       label: 'File',
       submenu: [
         {
+          label: 'Mở dự án…',
+          accelerator: 'CmdOrCtrl+Shift+O',
+          // A disabled entry is the honest shape of "this build was given no picker": the
+          // accelerator stays reserved, and no click can silently do nothing.
+          enabled: typeof options?.openProjectPicker === 'function',
+          click: (_item, focusedWindow: BaseWindow | undefined) =>
+            options?.openProjectPicker?.((focusedWindow as BrowserWindow | undefined) ?? null),
+        },
+        { type: 'separator' },
+        {
           label: 'New Tab',
           accelerator: 'CmdOrCtrl+T',
-          click: () => tabHost?.createTab('https://www.google.com'),
+          click: (_item, focusedWindow: BaseWindow | undefined) => hostForClick(focusedWindow)?.createTab('https://www.google.com'),
         },
         {
           label: 'Reopen Closed Tab',
           accelerator: 'CmdOrCtrl+Shift+T',
-          click: () => tabHost?.reopenClosedTab(),
+          click: (_item, focusedWindow: BaseWindow | undefined) => hostForClick(focusedWindow)?.reopenClosedTab(),
         },
         {
           label: 'Close Tab',
           accelerator: 'CmdOrCtrl+W',
-          click: () => {
-            if (tabHost) {
-              tabHost.closeTab(tabHost.getActiveTabId());
+          click: (_item, focusedWindow: BaseWindow | undefined) => {
+            const host = hostForClick(focusedWindow);
+            if (host) {
+              host.closeTab(host.getActiveTabId());
             }
           },
         },
@@ -277,7 +342,7 @@ export function buildApplicationMenu(mainWindow: BrowserWindow, tabHost?: Native
         {
           label: 'Capture Viewport Screenshot',
           accelerator: 'CmdOrCtrl+Shift+S',
-          click: () => tabHost?.captureScreenshot(),
+          click: (_item, focusedWindow: BaseWindow | undefined) => void hostForClick(focusedWindow)?.captureScreenshot(),
         },
         { type: 'separator' },
         {
@@ -319,8 +384,9 @@ export function buildApplicationMenu(mainWindow: BrowserWindow, tabHost?: Native
         {
           label: 'Reload Page',
           accelerator: 'CmdOrCtrl+R',
-          click: () => {
-            if (tabHost) tabHost.reload(tabHost.getActiveTabId());
+          click: (_item, focusedWindow: BaseWindow | undefined) => {
+            const host = hostForClick(focusedWindow);
+            if (host) host.reload(host.getActiveTabId());
           },
         },
         {
@@ -328,21 +394,23 @@ export function buildApplicationMenu(mainWindow: BrowserWindow, tabHost?: Native
           accelerator: 'F5',
           visible: false,
           acceleratorWorksWhenHidden: true,
-          click: () => {
-            if (tabHost) tabHost.reload(tabHost.getActiveTabId());
+          click: (_item, focusedWindow: BaseWindow | undefined) => {
+            const host = hostForClick(focusedWindow);
+            if (host) host.reload(host.getActiveTabId());
           },
         },
         {
           label: 'Force Reload Page',
           accelerator: 'CmdOrCtrl+Shift+R',
-          click: () => {
-            if (tabHost) tabHost.reload(tabHost.getActiveTabId());
+          click: (_item, focusedWindow: BaseWindow | undefined) => {
+            const host = hostForClick(focusedWindow);
+            if (host) host.reload(host.getActiveTabId());
           },
         },
         {
           label: 'Toggle Bookmarks Bar',
           accelerator: 'CmdOrCtrl+Shift+B',
-          click: () => tabHost?.toggleBookmarkBar(),
+          click: (_item, focusedWindow: BaseWindow | undefined) => hostForClick(focusedWindow)?.toggleBookmarkBar(),
         },
         { type: 'separator' },
         { role: 'resetZoom' },
@@ -352,19 +420,19 @@ export function buildApplicationMenu(mainWindow: BrowserWindow, tabHost?: Native
         {
           label: 'Toggle Full Screen',
           accelerator: 'F11',
-          click: () => tabHost?.toggleFullScreen(),
+          click: (_item, focusedWindow: BaseWindow | undefined) => hostForClick(focusedWindow)?.toggleFullScreen(),
         },
         {
           label: 'Toggle Developer Tools',
           accelerator: 'CmdOrCtrl+Shift+I',
-          click: () => tabHost?.toggleDevTools(),
+          click: (_item, focusedWindow: BaseWindow | undefined) => hostForClick(focusedWindow)?.toggleDevTools(),
         },
         {
           label: 'Toggle Developer Tools (F12)',
           accelerator: 'F12',
           visible: false,
           acceleratorWorksWhenHidden: true,
-          click: () => tabHost?.toggleDevTools(),
+          click: (_item, focusedWindow: BaseWindow | undefined) => hostForClick(focusedWindow)?.toggleDevTools(),
         },
       ],
     },
@@ -376,28 +444,31 @@ export function buildApplicationMenu(mainWindow: BrowserWindow, tabHost?: Native
         {
           label: 'Back',
           accelerator: 'Alt+Left',
-          click: () => {
-            if (tabHost) tabHost.goBack(tabHost.getActiveTabId());
+          click: (_item, focusedWindow: BaseWindow | undefined) => {
+            const host = hostForClick(focusedWindow);
+            if (host) host.goBack(host.getActiveTabId());
           },
         },
         {
           label: 'Forward',
           accelerator: 'Alt+Right',
-          click: () => {
-            if (tabHost) tabHost.goForward(tabHost.getActiveTabId());
+          click: (_item, focusedWindow: BaseWindow | undefined) => {
+            const host = hostForClick(focusedWindow);
+            if (host) host.goForward(host.getActiveTabId());
           },
         },
         {
           label: 'Home',
-          click: () => {
-            if (tabHost) tabHost.navigate(tabHost.getActiveTabId(), 'https://www.google.com');
+          click: (_item, focusedWindow: BaseWindow | undefined) => {
+            const host = hostForClick(focusedWindow);
+            if (host) host.navigate(host.getActiveTabId(), 'https://www.google.com');
           },
         },
         { type: 'separator' },
         {
           label: 'Bookmark This Tab',
           accelerator: 'CmdOrCtrl+D',
-          click: () => tabHost?.bookmarkActiveTab(),
+          click: (_item, focusedWindow: BaseWindow | undefined) => hostForClick(focusedWindow)?.bookmarkActiveTab(),
         },
         {
           label: 'Sync Google Chrome Profile',
@@ -406,11 +477,11 @@ export function buildApplicationMenu(mainWindow: BrowserWindow, tabHost?: Native
         { type: 'separator' },
         {
           label: 'Clear Cookies & Site Cache',
-          click: () => tabHost?.clearStorageForActiveTab(),
+          click: (_item, focusedWindow: BaseWindow | undefined) => hostForClick(focusedWindow)?.clearStorageForActiveTab(),
         },
         {
           label: 'Open in System Browser',
-          click: () => tabHost?.openExternal(),
+          click: (_item, focusedWindow: BaseWindow | undefined) => hostForClick(focusedWindow)?.openExternal(),
         },
       ],
     },
@@ -422,26 +493,26 @@ export function buildApplicationMenu(mainWindow: BrowserWindow, tabHost?: Native
         {
           label: 'Quick Inspect DOM (Annotate)',
           accelerator: 'CmdOrCtrl+B',
-          click: () => tabHost?.toggleInspect(),
+          click: (_item, focusedWindow: BaseWindow | undefined) => hostForClick(focusedWindow)?.toggleInspect(),
         },
         {
           label: 'Font Finder (Inspect Typography)',
-          click: () => tabHost?.toggleFontFinder(),
+          click: (_item, focusedWindow: BaseWindow | undefined) => hostForClick(focusedWindow)?.toggleFontFinder(),
         },
         {
           label: 'GPU Lens Zoom Glass',
           accelerator: 'CmdOrCtrl+Alt+L',
-          click: () => tabHost?.toggleLens(),
+          click: (_item, focusedWindow: BaseWindow | undefined) => hostForClick(focusedWindow)?.toggleLens(),
         },
         {
           label: 'Precision Ruler & Layout Grid',
-          click: () => tabHost?.toggleRuler(),
+          click: (_item, focusedWindow: BaseWindow | undefined) => hostForClick(focusedWindow)?.toggleRuler(),
         },
         { type: 'separator' },
         {
           label: 'Find in Page...',
           accelerator: 'CmdOrCtrl+F',
-          click: () => tabHost?.focusFindBar(),
+          click: (_item, focusedWindow: BaseWindow | undefined) => hostForClick(focusedWindow)?.focusFindBar(),
         },
         { type: 'separator' },
         {
@@ -458,17 +529,17 @@ export function buildApplicationMenu(mainWindow: BrowserWindow, tabHost?: Native
         {
           label: 'Toggle Sidebar Terminal',
           accelerator: 'CmdOrCtrl+Alt+B',
-          click: () => tabHost?.toggleSidebar(),
+          click: (_item, focusedWindow: BaseWindow | undefined) => hostForClick(focusedWindow)?.toggleSidebar(),
         },
         {
           label: 'Toggle Terminal Workbench',
           accelerator: 'CmdOrCtrl+`',
-          click: () => tabHost?.toggleSidebar(),
+          click: (_item, focusedWindow: BaseWindow | undefined) => hostForClick(focusedWindow)?.toggleSidebar(),
         },
         {
           label: 'Pop out Terminal Workbench',
           accelerator: 'CmdOrCtrl+Shift+N',
-          click: () => tabHost?.togglePopoutTerminal(),
+          click: (_item, focusedWindow: BaseWindow | undefined) => hostForClick(focusedWindow)?.togglePopoutTerminal(),
         },
       ],
     },
@@ -480,21 +551,21 @@ export function buildApplicationMenu(mainWindow: BrowserWindow, tabHost?: Native
         {
           label: 'Developer: Reload Window (Hot Reload UI)',
           accelerator: 'CmdOrCtrl+Alt+R',
-          click: () => tabHost?.reloadWindow(),
+          click: (_item, focusedWindow: BaseWindow | undefined) => hostForClick(focusedWindow)?.reloadWindow(),
         },
         {
           label: 'Developer: Recompile & Restart App',
           accelerator: 'CmdOrCtrl+Shift+U',
-          click: () => checkForUpdatesAndRestart(mainWindow),
+          click: (_item, focusedWindow: BaseWindow | undefined) => checkForUpdatesAndRestart(focusedWindow ?? mainWindow),
         },
         { type: 'separator' },
         {
           label: 'Keyboard Shortcuts...',
-          click: () => tabHost?.showShortcuts(),
+          click: (_item, focusedWindow: BaseWindow | undefined) => hostForClick(focusedWindow)?.showShortcuts(),
         },
         {
           label: 'Open in System Browser',
-          click: () => tabHost?.openExternal(),
+          click: (_item, focusedWindow: BaseWindow | undefined) => hostForClick(focusedWindow)?.openExternal(),
         },
         { type: 'separator' },
         {

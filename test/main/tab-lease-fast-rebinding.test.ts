@@ -38,6 +38,11 @@ describe('Fast-Path Tab Lease Rebinding & Explicit TabId Routing (Phase 02)', ()
     ];
 
     class MockHost extends EventEmitter {
+      hasTab(id?: string | null) { return Boolean(id && tabList.some(t => t.id === id)); }
+      resolveTabAffiliation(tabId: string) {
+        if (!tabList.some(t => t.id === tabId)) return undefined;
+        return { projectId, workspaceId, capsuleId: 'capsule-initial' };
+      }
       getTabList() { return [...tabList]; }
       getActiveTabId() { return currentAutoTab; }
       getActiveTab() { return tabList.find(t => t.id === currentAutoTab); }
@@ -134,6 +139,10 @@ describe('Fast-Path Tab Lease Rebinding & Explicit TabId Routing (Phase 02)', ()
 
     class MockHost extends EventEmitter {
       hasTab(id?: string | null) { return Boolean(id && tabList.some(t => t.id === id)); }
+      resolveTabAffiliation(tabId: string) {
+        if (!tabList.some(t => t.id === tabId)) return undefined;
+        return { projectId, workspaceId, capsuleId: 'capsule-ws-1' };
+      }
       getTabList() { return [...tabList]; }
       getActiveTabId() { return currentAutoTab; }
       getActiveTab() { return tabList.find(t => t.id === currentAutoTab); }

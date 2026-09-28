@@ -1,4 +1,4 @@
-const { app, BrowserWindow } = require('electron');
+const { app } = require('electron');
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
@@ -8,14 +8,8 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { StringDecoder } = require('node:string_decoder');
 const WebSocket = require('ws');
+const { ProjectWindowShell } = require('../.compiled/src/main/browser/project-window-shell.js');
 
-// The worker records verification claims through the live IssueRegister
-// singleton; isolate the register inside the orchestrator-owned temp root so
-// residue never lands in the real register.
-process.env.ANTIFAN_VERIFICATION_REGISTER_DIR = path.join(
-  process.env.ANTIFAN_LIVE_PROOF_TEMP_ROOT || os.tmpdir(),
-  'verification-register'
-);
 function redactCreds(val) {
   const str = typeof val === 'string' ? val : (val instanceof Error ? (val.stack || val.message) : String(val ?? ''));
   return str
@@ -24,27 +18,49 @@ function redactCreds(val) {
     .replace(/(["']?(?:token|secret|code)["']?\s*[:=]\s*["'])[^"']+(["'])/gi, '$1[REDACTED]$2');
 }
 
-app.commandLine.appendSwitch('no-sandbox');
-app.commandLine.appendSwitch('disable-gpu');
-app.on('window-all-closed', (event) => {
-  event.preventDefault();
-});
+// This file is both the Electron entry of the live lane and a module the unit test loads
+// to inspect the objects it builds. `require.main === module` cannot tell the two apart
+// here: Electron loads its entry through an internal main module (measured on Electron 43,
+// the entry's `require.main` is not the entry and its `module.parent` is non-null). The
+// launcher's argv identifies the lane instead, and every launcher names this file —
+// `scripts/run-theme-golden-live-proof.cjs` spawns Electron with this script's absolute
+// path, and `scripts/run-electron.cjs` forwards the entry it was given verbatim.
+const IS_ENTRY = typeof process.argv[1] === 'string' && path.resolve(process.argv[1]) === __filename;
 
 const rootDir = path.resolve(__dirname, '..');
 const tempRoot = process.env.ANTIFAN_LIVE_PROOF_TEMP_ROOT;
 const proofPath = process.env.ANTIFAN_LIVE_PROOF_STAGING_PATH;
-if (!tempRoot || !proofPath) {
-  throw new Error('Live theme proof worker requires orchestrator-owned temp and staging paths');
+// Set by the entry boot below, which runs before `run()` can read either of them.
+let tempUserData;
+let workspaceRoot;
+
+if (IS_ENTRY) {
+  // The worker records verification claims through the live IssueRegister
+  // singleton; isolate the register inside the orchestrator-owned temp root so
+  // residue never lands in the real register.
+  process.env.ANTIFAN_VERIFICATION_REGISTER_DIR = path.join(
+    process.env.ANTIFAN_LIVE_PROOF_TEMP_ROOT || os.tmpdir(),
+    'verification-register'
+  );
+  if (!tempRoot || !proofPath) {
+    throw new Error('Live theme proof worker requires orchestrator-owned temp and staging paths');
+  }
+  tempUserData = path.join(tempRoot, 'user-data');
+  workspaceRoot = path.join(tempRoot, 'workspace');
+  app.commandLine.appendSwitch('no-sandbox');
+  app.commandLine.appendSwitch('disable-gpu');
+  app.on('window-all-closed', (event) => {
+    event.preventDefault();
+  });
+  app.setPath('userData', tempUserData);
 }
-const tempUserData = path.join(tempRoot, 'user-data');
-const workspaceRoot = path.join(tempRoot, 'workspace');
-app.setPath('userData', tempUserData);
 
 const { BridgeServer } = require('../.compiled/src/main/bridge/bridge-server.js');
 const { makeControlPlaneId } = require('../.compiled/src/shared/control-plane-contracts.js');
 const { BrowserControlPort } = require('../.compiled/src/main/tools/browser-control-port.js');
 const { ControlPlaneRuntime } = require('../.compiled/src/main/control-plane/control-plane-runtime.js');
 const { NativeTabHost } = require('../.compiled/src/main/browser/native-tab-host.js');
+const { setChromeSenderResolver } = require('../.compiled/src/main/browser/ipc-router.js');
 const { TerminalManager } = require('../.compiled/src/main/browser/terminal-manager.js');
 const { computeStructuralMetrics, normalizeVisualRegions } = require('../.compiled/src/main/verification/visual-region.js');
 function copyDirectory(source, destination) {
@@ -198,6 +214,51 @@ async function dispatchBridgeCapability(port, launch, authorityRevision, name, p
   }
 }
 
+/**
+ * The capture-lane host fields `BrowserControlPort` reads to decide whether a tab can
+ * render at all (`src/main/tools/browser-control-port.ts:2303,2322,2364`): with no
+ * `readRenderSurface` the gate returns before checking anything, so a harness that omits
+ * it proves a capture on a surface it never measured. Built here so the port's gate and
+ * this harness cannot drift apart.
+ */
+function captureLaneHostFields(tabHost) {
+  return {
+    getSessionTabList: (boundTabId) => tabHost.getSessionTabRecords(boundTabId),
+    isTabOffscreen: (tabId) => tabHost.isTabOffscreen(tabId),
+    readRenderSurface: (tabId, paneId, timeoutMs) => tabHost.readRenderSurface(tabId, paneId, timeoutMs),
+  };
+}
+
+/**
+ * The catalogue delegates the composition root installs (`src/main/index.ts:1828-1843`).
+ * Without `resolveTabId`/`resolveFailoverTabId` the catalogue resolves every bound tab to
+ * `undefined`, so the transport reads a live tab as gone, warns on every dispatch, and can
+ * never reach its heal path. `getDocumentGeneration` rides along because the runtime stamps
+ * it on every dispatch record.
+ */
+function runtimeDelegates(tabHost) {
+  return {
+    getDocumentGeneration: (id) => tabHost.getDocumentGeneration(id),
+    isTabAllowed: (primaryTabId, requestedTabId) => tabHost.isTabAllowedForPrimary(primaryTabId, requestedTabId),
+    resolveTabId: (id) => tabHost.resolveTargetTabId(id),
+    resolveFailoverTabId: (staleTabId) => tabHost.getFailoverTargetTab(staleTabId),
+  };
+}
+
+/** The chrome IPC dispatch target for this shell's own surfaces, and its installation. */
+function chromeSenderResolver({ windowShell, tabHost }) {
+  return (webContents) => {
+    const surface = windowShell.chromeSurfaceFor(webContents.id) || tabHost.surfaceForWebContents(webContents.id);
+    return surface ? { host: tabHost, surface } : undefined;
+  };
+}
+
+function installChromeSenderResolver(target) {
+  setChromeSenderResolver(chromeSenderResolver(target));
+}
+
+module.exports = { captureLaneHostFields, runtimeDelegates, installChromeSenderResolver };
+
 async function run() {
   console.log('[Live Theme Proof] Starting real Chromium Product Card slice...');
   let server;
@@ -254,13 +315,19 @@ async function run() {
     const storefrontUrl = `http://127.0.0.1:${port}/index.html`;
     const drawerUrl = `http://127.0.0.1:${port}/drawer.html`;
 
-    window = new BrowserWindow({
-      width: 1200,
-      height: 900,
+    const windowShell = new ProjectWindowShell({
+      owner: { kind: 'project', projectId: 'project-00000000-0000-4000-8000-000000000001' },
+      title: 'AntiFan Smoke Window',
+      bounds: { width: 1200, height: 900 },
       show: true,
-      webPreferences: { nodeIntegration: false, contextIsolation: true },
     });
-    tabHost = new NativeTabHost(window);
+    window = windowShell.window;
+    tabHost = new NativeTabHost(windowShell);
+    // Chrome IPC resolves its dispatch target from live shells on every message; production
+    // installs this in src/main/index.ts. Without it this shell's toolbar/sidebar/frame-backdrop
+    // boot calls are refused with UNKNOWN_CHROME_SENDER, which buries real failures in this
+    // lane's stderr. Mirrors test/e2e/site-mute-smoke.cjs.
+    installChromeSenderResolver({ windowShell, tabHost });
     const tabId = tabHost.createTab(storefrontUrl, true);
     tabHost.setAutomationTabId(tabId);
     await waitForLoad(tabHost.getTabWebContents(tabId));
@@ -275,13 +342,10 @@ async function run() {
       allowEval: false,
       hostEpoch: tabHost.getBrowserEpoch(),
       getAutomationTabId: () => tabHost.getAutomationTabId(),
-      getDocumentGeneration: (id) => tabHost.getDocumentGeneration(id),
-      // Mirrors the composition root (src/main/index.ts). Without these three the
+      // Mirrors the composition root (src/main/index.ts). Without these delegates the
       // catalogue resolves every bound tab to `undefined`, so the transport reads a
       // live tab as gone, warns on every dispatch, and can never reach its heal path.
-      isTabAllowed: (primaryTabId, requestedTabId) => tabHost.isTabAllowedForPrimary(primaryTabId, requestedTabId),
-      resolveTabId: (id) => tabHost.resolveTargetTabId(id),
-      resolveFailoverTabId: (staleTabId) => tabHost.getFailoverTargetTab(staleTabId),
+      ...runtimeDelegates(tabHost),
     });
     await runtime.initialize();
     tabHost.setControlPlane(runtime);
@@ -330,9 +394,7 @@ async function run() {
       // Mirrors the composition root (src/main/index.ts:410,416,430): the capture lane
       // reads these to decide whether a tab has a laid-out surface, so omitting them
       // would let this harness prove a capture on a surface it never measured.
-      getSessionTabList: (boundTabId) => tabHost.getSessionTabRecords(boundTabId),
-      isTabOffscreen: (tabId) => tabHost.isTabOffscreen(tabId),
-      readRenderSurface: (tabId, paneId, timeoutMs) => tabHost.readRenderSurface(tabId, paneId, timeoutMs),
+      ...captureLaneHostFields(tabHost),
     }, runtime.artifacts);
     tabHost.setViewportGate(browser.viewportGate);
     runtime.registerBrowser(browser);
@@ -998,9 +1060,11 @@ async function run() {
   }
 }
 
-app.whenReady().then(() => run()
-  .then(() => app.exit(0))
-  .catch((error) => {
-    console.error('[Live Theme Proof FAIL]', redactCreds(error));
-    app.exit(1);
-  }));
+if (IS_ENTRY) {
+  app.whenReady().then(() => run()
+    .then(() => app.exit(0))
+    .catch((error) => {
+      console.error('[Live Theme Proof FAIL]', redactCreds(error));
+      app.exit(1);
+    }));
+}

@@ -6,6 +6,7 @@ import * as path from 'node:path';
 import { NativeTabHost, NativeTabRecord } from '../../src/main/browser/native-tab-host';
 import { parseBenchmarkLine } from '../../src/main/benchmark/telemetry';
 import { AntiFanTab } from '../../src/shared/contracts';
+import { createShellDouble, ShellDouble, ShellDoubleView, ShellDoubleWindow } from '../support/project-window-shell-double';
 
 
 /**
@@ -46,6 +47,7 @@ interface RecordedTab {
 
 interface PresentedHost {
   host: any;
+  shell: ShellDouble;
   children: unknown[];
   emulationCalls: Array<{ tabId: string; availableWidth: number; availableHeight: number; toolbarHeight: number }>;
 }
@@ -109,14 +111,13 @@ function createPresentedHost(params: { tabs: RecordedTab[]; activeTabId: string;
   host.tabs = new Map(params.tabs.map((recorded) => [recorded.tab.state.id, recorded.tab]));
   host.activeTabId = params.activeTabId;
   host.defaultUserAgent = 'MockDesktopUA';
-  host.isSidebarOpen = false;
-  host.sidebarWidth = SIDEBAR_WIDTH;
   host.temporaryViewAttachCounts = new WeakMap();
   host.tabByWebContents = new WeakMap(
     params.tabs.map((recorded) => [recorded.tab.view.webContents, { tabId: recorded.tab.state.id, tab: recorded.tab }])
   );
-  host.window = {
+  const windowDouble: ShellDoubleWindow = {
     isDestroyed: () => false,
+    getBounds: () => ({ ...WINDOW_CONTENT_BOX }),
     getContentBounds: () => ({ ...WINDOW_CONTENT_BOX }),
     contentView: {
       children,
@@ -129,7 +130,15 @@ function createPresentedHost(params: { tabs: RecordedTab[]; activeTabId: string;
         if (at >= 0) children.splice(at, 1);
       },
     },
+    on: () => {},
+    removeListener: () => {},
   };
+  const shell = createShellDouble({
+    window: windowDouble,
+    isSidebarOpen: false,
+    sidebarWidth: SIDEBAR_WIDTH,
+  }) as unknown as ShellDouble;
+  host.shell = shell;
   host.getToolbarHeight = () => TOOLBAR_HEIGHT;
   // Device emulation is the layout path activation uses - it is what sizes the pane's
   // view for the window. The box arithmetic itself is covered by the pane-layout suite;
@@ -145,7 +154,7 @@ function createPresentedHost(params: { tabs: RecordedTab[]; activeTabId: string;
   host.setupTabWebContentsEvents = () => {};
   host.destroyOwnedWebContents = () => {};
   host.schedulePersist = () => {};
-  return { host, children, emulationCalls };
+  return { host, shell, children, emulationCalls };
 }
 
 describe('Presented view invariant', () => {
@@ -226,7 +235,7 @@ describe('Presented view invariant', () => {
 
   it('reassert on an already-attached pane recycles the compositor layer without a getBounds kick', () => {
     const presented = createTestTab('tab-visible');
-    const { host, children } = createPresentedHost({
+    const { host, shell, children } = createPresentedHost({
       tabs: [presented],
       activeTabId: 'tab-visible',
       attached: [presented.tab.view],
@@ -241,13 +250,13 @@ describe('Presented view invariant', () => {
     const boundsBeforeRecycle = presented.setBoundsCalls.length;
     let removes = 0;
     let adds = 0;
-    const origRemove = host.window.contentView.removeChildView.bind(host.window.contentView);
-    const origAdd = host.window.contentView.addChildView.bind(host.window.contentView);
-    host.window.contentView.removeChildView = (view: unknown) => {
+    const origRemove = shell.window.contentView.removeChildView.bind(shell.window.contentView);
+    const origAdd = shell.window.contentView.addChildView.bind(shell.window.contentView);
+    shell.window.contentView.removeChildView = (view: unknown) => {
       removes += 1;
       origRemove(view);
     };
-    host.window.contentView.addChildView = (view: unknown, index?: number) => {
+    shell.window.contentView.addChildView = (view: unknown, index?: number) => {
       adds += 1;
       origAdd(view, index);
     };
@@ -268,7 +277,7 @@ describe('Presented view invariant', () => {
   it('a switch onto a tab the window is not presenting must not drop the visual it just attached', () => {
     const presented = createTestTab('tab-visible');
     const background = createTestTab('tab-bg');
-    const { host, children } = createPresentedHost({
+    const { host, shell, children } = createPresentedHost({
       tabs: [presented, background],
       activeTabId: 'tab-visible',
       attached: [presented.tab.view],
@@ -276,14 +285,14 @@ describe('Presented view invariant', () => {
     let removes = 0;
     let adds = 0;
     const moved: Array<{ view: unknown; kind: 'add' | 'remove' }> = [];
-    const origRemove = host.window.contentView.removeChildView.bind(host.window.contentView);
-    const origAdd = host.window.contentView.addChildView.bind(host.window.contentView);
-    host.window.contentView.removeChildView = (view: unknown) => {
+    const origRemove = shell.window.contentView.removeChildView.bind(shell.window.contentView);
+    const origAdd = shell.window.contentView.addChildView.bind(shell.window.contentView);
+    shell.window.contentView.removeChildView = (view: unknown) => {
       removes += 1;
       moved.push({ view, kind: 'remove' });
       origRemove(view);
     };
-    host.window.contentView.addChildView = (view: unknown, index?: number) => {
+    shell.window.contentView.addChildView = (view: unknown, index?: number) => {
       adds += 1;
       moved.push({ view, kind: 'add' });
       origAdd(view, index);
@@ -316,22 +325,22 @@ describe('Presented view invariant', () => {
     const background = createTestTab('tab-bg');
     const sidebar = { webContents: { isDestroyed: () => false } };
     const toolbar = { webContents: { isDestroyed: () => false } };
-    const { host, children } = createPresentedHost({
+    const { host, shell, children } = createPresentedHost({
       tabs: [presented, background],
       activeTabId: 'tab-visible',
       attached: [presented.tab.view, sidebar, toolbar],
     });
-    host.sidebarView = sidebar;
-    host.toolbarView = toolbar;
+    shell.sidebarView = sidebar as unknown as ShellDoubleView;
+    shell.toolbarView = toolbar as unknown as ShellDoubleView;
 
     const moved: unknown[] = [];
-    const origRemove = host.window.contentView.removeChildView.bind(host.window.contentView);
-    const origAdd = host.window.contentView.addChildView.bind(host.window.contentView);
-    host.window.contentView.removeChildView = (view: unknown) => {
+    const origRemove = shell.window.contentView.removeChildView.bind(shell.window.contentView);
+    const origAdd = shell.window.contentView.addChildView.bind(shell.window.contentView);
+    shell.window.contentView.removeChildView = (view: unknown) => {
       moved.push(view);
       origRemove(view);
     };
-    host.window.contentView.addChildView = (view: unknown, index?: number) => {
+    shell.window.contentView.addChildView = (view: unknown, index?: number) => {
       moved.push(view);
       origAdd(view, index);
     };
@@ -352,20 +361,20 @@ describe('Presented view invariant', () => {
 
   it('a leaked attach-for-capture count must not skip recycling the presented compositor layer', async () => {
     const presented = createTestTab('tab-visible');
-    const { host, children } = createPresentedHost({
+    const { host, shell, children } = createPresentedHost({
       tabs: [presented],
       activeTabId: 'tab-visible',
       attached: [presented.tab.view],
     });
     let removes = 0;
     let adds = 0;
-    const origRemove = host.window.contentView.removeChildView.bind(host.window.contentView);
-    const origAdd = host.window.contentView.addChildView.bind(host.window.contentView);
-    host.window.contentView.removeChildView = (view: unknown) => {
+    const origRemove = shell.window.contentView.removeChildView.bind(shell.window.contentView);
+    const origAdd = shell.window.contentView.addChildView.bind(shell.window.contentView);
+    shell.window.contentView.removeChildView = (view: unknown) => {
       removes += 1;
       origRemove(view);
     };
-    host.window.contentView.addChildView = (view: unknown, index?: number) => {
+    shell.window.contentView.addChildView = (view: unknown, index?: number) => {
       adds += 1;
       origAdd(view, index);
     };

@@ -22,13 +22,14 @@ if (!isElectron) {
   return;
 }
 
-const { app, BrowserWindow } = require('electron');
+const { app } = require('electron');
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const path = require('node:path');
 const os = require('node:os');
 const fs = require('node:fs');
 const { spawn } = require('node:child_process');
+const { ProjectWindowShell } = require(path.resolve(__dirname, '../../.compiled/src/main/browser/project-window-shell.js'));
 
 app.disableHardwareAcceleration();
 app.commandLine.appendSwitch('no-sandbox');
@@ -64,8 +65,8 @@ async function waitFor(desc, fn, timeoutMs = 10000, intervalMs = 50) {
   throw new Error(`Timeout waiting for ${desc}${lastErr ? ': ' + lastErr.message : ''}`);
 }
 
-async function getToolbarMuteState(tabHost) {
-  return await tabHost.toolbarView.webContents.executeJavaScript(`
+async function getToolbarMuteState(shell) {
+  return await shell.toolbarView.webContents.executeJavaScript(`
     (() => {
       const btn = document.getElementById('btnMute');
       if (!btn) return { exists: false };
@@ -83,8 +84,8 @@ async function getToolbarMuteState(tabHost) {
   `);
 }
 
-async function clickToolbarMute(tabHost) {
-  return await tabHost.toolbarView.webContents.executeJavaScript(`
+async function clickToolbarMute(shell) {
+  return await shell.toolbarView.webContents.executeJavaScript(`
     (() => {
       const btn = document.getElementById('btnMute');
       if (!btn) throw new Error('#btnMute not found');
@@ -95,12 +96,33 @@ async function clickToolbarMute(tabHost) {
 }
 
 const { NativeTabHost } = require(path.resolve(__dirname, '../../.compiled/src/main/browser/native-tab-host.js'));
+const { setChromeSenderResolver } = require(path.resolve(__dirname, '../../.compiled/src/main/browser/ipc-router.js'));
+
+/**
+ * Chrome IPC resolves its dispatch target from live shells on every message; production does
+ * this through the window directory (src/main/index.ts:1506). A harness that omits the resolver
+ * leaves the toolbar with no answer to its own boot calls, so #btnMute never leaves the
+ * disabled default the smoke then waits on.
+ */
+function installChromeSenderResolver(winShell, tabHost) {
+  setChromeSenderResolver((webContents) => {
+    const surface = winShell.chromeSurfaceFor(webContents.id) || tabHost.surfaceForWebContents(webContents.id);
+    return surface ? { host: tabHost, surface } : undefined;
+  });
+}
 
 async function runVerifyPhase() {
   const port = Number(process.env.ANTIFAN_SITE_MUTE_PORT);
   const targetUrl = `http://127.0.0.1:${port}/`;
-  const win = new BrowserWindow({ width: 1280, height: 800, show: true, webPreferences: { contextIsolation: true } });
-  const tabHost = new NativeTabHost(win);
+  const winShell = new ProjectWindowShell({
+    owner: { kind: 'project', projectId: 'project-00000000-0000-4000-8000-000000000001' },
+    title: 'AntiFan Smoke Window',
+    bounds: { width: 1280, height: 800 },
+    show: true,
+  });
+  const win = winShell.window;
+  const tabHost = new NativeTabHost(winShell);
+  installChromeSenderResolver(winShell, tabHost);
 
   try {
     const tabId = tabHost.createTab(targetUrl, true);
@@ -115,12 +137,12 @@ async function runVerifyPhase() {
     assert.equal(tabHost.getTabList().find((x) => x.id === tabId)?.isMuted, true);
 
     await waitFor('verify toolbar muted', async () => {
-      const s = await getToolbarMuteState(tabHost);
+      const s = await getToolbarMuteState(winShell);
       return s.exists && s.isMuted && s.ariaPressed === 'true';
     });
 
     // Unmute via UI click
-    await clickToolbarMute(tabHost);
+    await clickToolbarMute(winShell);
     await waitFor('verify unmuted', () => !wc.isAudioMuted() && tabHost.getTabList().find((x) => x.id === tabId)?.isMuted === false);
     assert.equal(wc.isAudioMuted(), false);
 
@@ -153,8 +175,15 @@ async function runMainPhase() {
     const url127Page2 = `http://127.0.0.1:${port}/page2`;
     const urlLocalhost = `http://localhost:${port}/`;
 
-    win = new BrowserWindow({ width: 1440, height: 900, show: true, webPreferences: { contextIsolation: true } });
-    tabHost = new NativeTabHost(win);
+    const winShell = new ProjectWindowShell({
+      owner: { kind: 'project', projectId: 'project-00000000-0000-4000-8000-000000000001' },
+      title: 'AntiFan Smoke Window',
+      bounds: { width: 1440, height: 900 },
+      show: true,
+    });
+    win = winShell.window;
+    tabHost = new NativeTabHost(winShell);
+    installChromeSenderResolver(winShell, tabHost);
 
     // 1. Initial HTTP silent page: enabled, unmuted, 960px layout check, blank page disabled
     const tab1Id = tabHost.createTab(url127, true);
@@ -167,11 +196,11 @@ async function runMainPhase() {
     const tab1Wc = tabHost.getTabWebContents(tab1Id);
     assert.equal(tab1Wc.isAudioMuted(), false);
     await waitFor('toolbar btnMute ready', async () => {
-      const state = await getToolbarMuteState(tabHost);
+      const state = await getToolbarMuteState(winShell);
       return state.exists && !state.disabled;
     });
 
-    const btnInit = await getToolbarMuteState(tabHost);
+    const btnInit = await getToolbarMuteState(winShell);
     assert.equal(btnInit.exists, true, '#btnMute must exist in toolbar');
     assert.equal(btnInit.visible, true);
     assert.equal(btnInit.disabled, false);
@@ -180,8 +209,8 @@ async function runMainPhase() {
 
     // 960px bounding box check
     win.setBounds({ x: 0, y: 0, width: 960, height: 800 });
-    await waitFor('960px bounds settled', async () => (await getToolbarMuteState(tabHost)).rect?.width > 0);
-    const btn960 = await getToolbarMuteState(tabHost);
+    await waitFor('960px bounds settled', async () => (await getToolbarMuteState(winShell)).rect?.width > 0);
+    const btn960 = await getToolbarMuteState(winShell);
     assert.equal(btn960.visible, true);
     assert.ok(btn960.rect.width > 0 && btn960.rect.height > 0);
     assert.ok(btn960.rect.right <= 960, '#btnMute must be within 960px viewport');
@@ -190,12 +219,12 @@ async function runMainPhase() {
     // about:blank disables #btnMute
     tabHost.navigate(tab1Id, 'about:blank');
     await waitFor('about:blank loaded', () => tabHost.getTabWebContents(tab1Id)?.getURL() === 'about:blank');
-    await waitFor('btnMute disabled on blank', async () => (await getToolbarMuteState(tabHost)).disabled === true);
-    assert.equal((await getToolbarMuteState(tabHost)).disabled, true);
+    await waitFor('btnMute disabled on blank', async () => (await getToolbarMuteState(winShell)).disabled === true);
+    assert.equal((await getToolbarMuteState(winShell)).disabled, true);
 
     tabHost.navigate(tab1Id, url127);
     await waitFor('tab 1 returns to http', () => tabHost.getTabWebContents(tab1Id)?.getURL().startsWith(url127));
-    await waitFor('btnMute re-enabled', async () => (await getToolbarMuteState(tabHost)).disabled === false);
+    await waitFor('btnMute re-enabled', async () => (await getToolbarMuteState(winShell)).disabled === false);
 
     // 2. Multi-surface sync: desktop + split mobile + same-host tab 2
     const tab2Id = tabHost.createTab(url127Page2, false);
@@ -215,7 +244,7 @@ async function runMainPhase() {
     assert.equal(tab2Wc.isAudioMuted(), false);
 
     // Click UI #btnMute
-    await clickToolbarMute(tabHost);
+    await clickToolbarMute(winShell);
     await waitFor('all same-host surfaces muted', () =>
       tab1Wc.isAudioMuted() && mobileWc.isAudioMuted() && tab2Wc.isAudioMuted() &&
       tabHost.getTabList().find((x) => x.id === tab1Id)?.isMuted &&
@@ -225,11 +254,11 @@ async function runMainPhase() {
     assert.equal(mobileWc.isAudioMuted(), true);
     assert.equal(tab2Wc.isAudioMuted(), true);
 
-    await waitFor('toolbar mute state rendered', async () => (await getToolbarMuteState(tabHost)).isMuted === true);
-    const btnMuted = await getToolbarMuteState(tabHost);
+    await waitFor('toolbar mute state rendered', async () => (await getToolbarMuteState(winShell)).isMuted === true);
+    const btnMuted = await getToolbarMuteState(winShell);
     assert.equal(btnMuted.isMuted, true);
     assert.equal(btnMuted.ariaPressed, 'true');
-    assert.equal(await tabHost.toolbarView.webContents.executeJavaScript(`
+    assert.equal(await winShell.toolbarView.webContents.executeJavaScript(`
       document.querySelector('.tab[data-tab-id="${tab1Id}"] .tab-audio-btn')?.getAttribute('aria-pressed')
     `), 'true');
 
@@ -241,12 +270,12 @@ async function runMainPhase() {
     assert.equal(tabHost.getTabList().find((x) => x.id === tab3Id)?.isMuted, false);
 
     tabHost.switchTab(tab3Id);
-    await waitFor('toolbar unmuted on localhost', async () => !(await getToolbarMuteState(tabHost)).isMuted);
-    assert.equal((await getToolbarMuteState(tabHost)).ariaPressed, 'false');
+    await waitFor('toolbar unmuted on localhost', async () => !(await getToolbarMuteState(winShell)).isMuted);
+    assert.equal((await getToolbarMuteState(winShell)).ariaPressed, 'false');
 
     tabHost.switchTab(tab1Id);
-    await waitFor('toolbar muted on 127.0.0.1', async () => (await getToolbarMuteState(tabHost)).isMuted);
-    assert.equal((await getToolbarMuteState(tabHost)).ariaPressed, 'true');
+    await waitFor('toolbar muted on 127.0.0.1', async () => (await getToolbarMuteState(winShell)).isMuted);
+    assert.equal((await getToolbarMuteState(winShell)).ariaPressed, 'true');
 
     // 4. Navigation lifecycle: reload maintains, away clears, back restores
     const reloadFinished = new Promise((resolve) => tab1Wc.once('did-finish-load', resolve));

@@ -3,6 +3,7 @@ import * as assert from 'node:assert';
 import { NativeTabHost } from '../../src/main/browser/native-tab-host';
 import { SemanticRefRegistry } from '../../src/main/browser/semantic-ref-registry';
 import { AsyncThemeQaQueue } from '../../src/main/qa/async-qa-job-queue';
+import { createShellDouble } from '../support/project-window-shell-double';
 type TestHost = any;
 
 function createHost(executeJavaScript: (code: string) => Promise<unknown>) {
@@ -44,6 +45,7 @@ function createHost(executeJavaScript: (code: string) => Promise<unknown>) {
   host.agentWorkingRefs = new Map();
   host.broadcastState = () => {};
   host.ensureAgentBrowserInjected = async () => true;
+  host.shell = createShellDouble();
   host.asyncQaQueue = new AsyncThemeQaQueue();
   host.semanticRefRegistry = new SemanticRefRegistry();
   host.semanticDocumentGenerations = new Map();
@@ -326,28 +328,33 @@ describe('NativeTabHost device emulation rides the DevTools agent', () => {
     const desktopView = makeView(desktopWc);
     const mobileView = makeView(mobileWc);
     const children: unknown[] = [];
-    host.window = {
-      isDestroyed: () => false,
-      getContentBounds: () => ({ x: 0, y: 0, width: 1440, height: 900 }),
-      contentView: {
-        children,
-        addChildView: (view: unknown) => {
-          const existing = children.indexOf(view);
-          if (existing >= 0) children.splice(existing, 1);
-          children.push(view);
+    host.shell = createShellDouble({
+      window: {
+        isDestroyed: () => false,
+        getBounds: () => ({ x: 0, y: 0, width: 1440, height: 900 }),
+        getContentBounds: () => ({ x: 0, y: 0, width: 1440, height: 900 }),
+        contentView: {
+          children,
+          addChildView: (view: unknown) => {
+            const existing = children.indexOf(view);
+            if (existing >= 0) children.splice(existing, 1);
+            children.push(view);
+          },
+          removeChildView: (view: unknown) => {
+            const existing = children.indexOf(view);
+            if (existing >= 0) children.splice(existing, 1);
+          },
         },
-        removeChildView: (view: unknown) => {
-          const existing = children.indexOf(view);
-          if (existing >= 0) children.splice(existing, 1);
-        },
+        on: () => {},
+        removeListener: () => {},
       },
-    };
+      isSidebarOpen: false,
+    });
     host.appliedClipRadius = new Map();
     host.touchEmulationStates = new Map();
     host.pendingEmulationDeferrals = new Map();
     host.tabs = new Map();
     host.activeTabId = 'tab-desktop';
-    host.isSidebarOpen = false;
     host.defaultUserAgent = 'default-ua';
     host.broadcastState = () => {};
     return { host, cdpCalls, nativeCalls, children, desktopWc, mobileWc, desktopView, mobileView };

@@ -135,6 +135,15 @@ export class ProjectRegistry {
     }
   }
 
+  findWorkspacesByRoot(rootPath: string): WorkspaceRecord[] {
+    const normalized = path.resolve(rootPath);
+    const key = process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+    return Array.from(this.workspaces.values()).filter((item) => {
+      const itemKey = process.platform === 'win32' ? item.rootPath.toLowerCase() : item.rootPath;
+      return itemKey === key && item.state === 'attached';
+    }).map((item) => ({ ...item }));
+  }
+
   ensureInitialWorkspace(projectId: string, workspaceId: string, rootPath: string, dataRoot: string): WorkspaceRecord {
     const validProjectId = validateControlPlaneId(projectId, 'project');
     const validWorkspaceId = validateControlPlaneId(workspaceId, 'workspace');

@@ -9,6 +9,7 @@ import { DEVICE_PRESETS } from '../../src/main/browser/device-presets';
 import { AntiFanTab } from '../../src/shared/contracts';
 import { TabDevToolsHost } from '../../src/main/browser/tab-devtools-host';
 import { SemanticElementDescriptor } from '../../src/main/browser/semantic-ref-types';
+import { createShellDouble, ShellDouble, ShellDoubleWindow } from '../support/project-window-shell-double';
 
 interface CdpCssProperty {
   name: string;
@@ -55,8 +56,9 @@ interface TestHostShape {
   tabs: Map<string, NativeTabRecord>;
   pendingEmulationDeferrals: WeakMap<object, unknown>;
   activeTabId: string;
+  bookmarks: unknown[];
   defaultUserAgent: string;
-  window?: TestWindowShape;
+  shell: ShellDouble;
   updateLayoutCallCount: number;
   updateLayout: () => void;
   getToolbarHeight: () => number;
@@ -126,14 +128,21 @@ function createTestHost(): TestHostShape {
   host.tabs = new Map<string, NativeTabRecord>();
   host.pendingEmulationDeferrals = new WeakMap();
   host.activeTabId = 'tab-1';
+  // getToolbarHeight() reads this.bookmarks.length; the prototype-created host
+  // never ran the constructor, so the field has to exist.
+  host.bookmarks = [];
   host.defaultUserAgent = 'MockDesktopUA';
+  const shell = createShellDouble({
+    contentBounds: WINDOW_CONTENT_BOX,
+  }) as unknown as ShellDouble;
   // A window the host can measure, without a contentView: these cases exercise the
   // emulation path, so an attach-and-lay-out pass (owned by the capture describe) must
   // not run behind them.
-  host.window = {
+  shell.window = {
     isDestroyed: () => false,
     getContentBounds: () => ({ ...WINDOW_CONTENT_BOX }),
-  };
+  } as unknown as ShellDoubleWindow;
+  host.shell = shell;
   host.updateLayoutCallCount = 0;
   host.broadcastCount = 0;
   // Real NativeTabHost.broadcastState needs toolbarView/tabOrder/persistence;
@@ -564,6 +573,7 @@ describe('Phase 1: Viewport Emulation & CDP Matched Styles Gateway', () => {
 
   it('refuses a background viewport when the window cannot name a content box, and applies it when the window can', async () => {
     const host = createTestHost();
+    const shell = host.shell;
     host.activeTabId = 'tab-1';
     const backgroundTab = createTestTabRecord('tab-bg');
     host.tabs.set('tab-bg', backgroundTab);
@@ -618,7 +628,7 @@ describe('Phase 1: Viewport Emulation & CDP Matched Styles Gateway', () => {
     ];
 
     for (const unusable of unusableWindows) {
-      host.window = unusable.window;
+      shell.window = unusable.window as unknown as ShellDoubleWindow;
       await assert.rejects(
         () => host.setViewportSize({ width: 390, height: 844, tabId: 'tab-bg' }),
         (error: unknown) => {
@@ -641,7 +651,7 @@ describe('Phase 1: Viewport Emulation & CDP Matched Styles Gateway', () => {
 
     // The same call with a window that can name its box applies the requested viewport,
     // laid out in that measured box instead of the 1440x900 default.
-    host.window = { isDestroyed: () => false, getContentBounds: () => ({ ...WINDOW_CONTENT_BOX }) };
+    shell.window = { isDestroyed: () => false, getContentBounds: () => ({ ...WINDOW_CONTENT_BOX }) } as unknown as ShellDoubleWindow;
     assert.strictEqual(await host.setViewportSize({ width: 411, height: 866, mobile: true, tabId: 'tab-bg' }), true);
     assert.deepStrictEqual(
       emulationBoxes,
@@ -792,18 +802,8 @@ describe('Attach-for-capture pane layout', () => {
     tabs: Map<string, NativeTabRecord>;
     activeTabId: string;
     defaultUserAgent: string;
-    isSidebarOpen: boolean;
-    sidebarWidth: number;
+    shell: ShellDouble;
     tabByWebContents: WeakMap<object, { tabId: string; tab: NativeTabRecord }>;
-    window: {
-      isDestroyed: () => boolean;
-      getContentBounds: () => PaneBounds;
-      contentView: {
-        children: unknown[];
-        addChildView: (view: unknown, index?: number) => void;
-        removeChildView: (view: unknown) => void;
-      };
-    };
     getToolbarHeight: () => number;
     applyDeviceCornerClipping: (wc: unknown, radius: number) => void;
     applyCdpTouchEmulation: (wc: unknown, enabled: boolean) => Promise<void>;
@@ -853,25 +853,32 @@ describe('Attach-for-capture pane layout', () => {
     // pre-attached case is the visible tab and the capture target is background.
     host.activeTabId = params.preAttached ? params.tab.state.id : 'tab-other';
     host.defaultUserAgent = 'MockDesktopUA';
-    host.isSidebarOpen = params.sidebarOpen;
-    host.sidebarWidth = SIDEBAR_WIDTH;
+    const shell = createShellDouble({
+      isSidebarOpen: params.sidebarOpen,
+      sidebarWidth: SIDEBAR_WIDTH,
+      contentBounds: WINDOW_BOUNDS,
+      window: {
+        isDestroyed: () => false,
+        getBounds: () => ({ ...WINDOW_BOUNDS }),
+        getContentBounds: () => ({ ...WINDOW_BOUNDS }),
+        contentView: {
+          children,
+          addChildView: (view: unknown, index?: number) => {
+            children.splice(typeof index === 'number' ? index : children.length, 0, view);
+          },
+          removeChildView: (view: unknown) => {
+            const at = children.indexOf(view);
+            if (at >= 0) children.splice(at, 1);
+          },
+        },
+        on: () => {},
+        removeListener: () => {},
+      },
+    }) as unknown as ShellDouble;
+    host.shell = shell;
     host.tabByWebContents = new WeakMap<object, { tabId: string; tab: NativeTabRecord }>([
       [params.view.webContents, { tabId: params.tab.state.id, tab: params.tab }],
     ]);
-    host.window = {
-      isDestroyed: () => false,
-      getContentBounds: () => ({ ...WINDOW_BOUNDS }),
-      contentView: {
-        children,
-        addChildView: (view: unknown, index?: number) => {
-          children.splice(typeof index === 'number' ? index : children.length, 0, view);
-        },
-        removeChildView: (view: unknown) => {
-          const at = children.indexOf(view);
-          if (at >= 0) children.splice(at, 1);
-        },
-      },
-    };
     host.getToolbarHeight = () => TOOLBAR_HEIGHT;
     host.applyDeviceCornerClipping = (_wc: unknown, _radius: number) => {};
     host.applyCdpTouchEmulation = (_wc: unknown, _enabled: boolean) => Promise.resolve();
@@ -923,14 +930,14 @@ describe('Attach-for-capture pane layout', () => {
     const presentedPane = createRecordingPaneView(presentedBox);
     presentedTab.view = presentedPane.view as unknown as NativeTabRecord['view'];
     const attachedHost = createAttachHost({ tab: presentedTab, view: presentedPane.view, preAttached: true, sidebarOpen: true });
-    const childrenBefore = [...attachedHost.window.contentView.children];
+    const childrenBefore = [...attachedHost.shell.window.contentView.children];
 
     const attachedResult = await attachedHost.runWithAttachedTabView(presentedPane.view, async () => 'ok');
 
     assert.strictEqual(attachedResult, 'ok');
     assert.deepStrictEqual(presentedPane.setBoundsCalls, [], 'An already-presented view must not be laid out again');
     assert.deepStrictEqual(presentedPane.currentBounds(), presentedBox, 'The presented box must survive the capture unchanged');
-    assert.deepStrictEqual(attachedHost.window.contentView.children, childrenBefore, 'A view the helper did not attach must not be detached either');
+    assert.deepStrictEqual(attachedHost.shell.window.contentView.children, childrenBefore, 'A view the helper did not attach must not be detached either');
   });
 });
 
@@ -981,24 +988,12 @@ describe('Responsive sweep surface', () => {
     setBackgroundColor: (color: string) => void;
   }
 
-  interface SweepWindow {
-    isDestroyed: () => boolean;
-    getContentBounds: () => { x: number; y: number; width: number; height: number };
-    contentView: {
-      children: unknown[];
-      addChildView: (view: unknown, index?: number) => void;
-      removeChildView: (view: unknown) => void;
-    };
-  }
-
   interface SweepHost {
     tabs: Map<string, NativeTabRecord>;
     activeTabId: string;
     pendingEmulationDeferrals: WeakMap<object, unknown>;
     defaultUserAgent: string;
-    isSidebarOpen: boolean;
-    sidebarWidth: number;
-    window: SweepWindow;
+    shell: ShellDouble;
     tabByWebContents: WeakMap<object, { tabId: string; tab: NativeTabRecord }>;
     getToolbarHeight: () => number;
     applyDeviceCornerClipping: (wc: unknown, radius: number) => void;
@@ -1129,22 +1124,29 @@ describe('Responsive sweep surface', () => {
     host.pendingEmulationDeferrals = new WeakMap();
     host.activeTabId = 'tab-active';
     host.defaultUserAgent = 'MockDesktopUA';
-    host.isSidebarOpen = false;
-    host.sidebarWidth = 0;
-    host.window = {
-      isDestroyed: () => false,
-      getContentBounds: () => ({ ...WINDOW_BOX }),
-      contentView: {
-        children,
-        addChildView: (child: unknown, index?: number) => {
-          children.splice(typeof index === 'number' ? index : children.length, 0, child);
+    const shell = createShellDouble({
+      isSidebarOpen: false,
+      sidebarWidth: 0,
+      contentBounds: WINDOW_BOX,
+      window: {
+        isDestroyed: () => false,
+        getBounds: () => ({ ...WINDOW_BOX }),
+        getContentBounds: () => ({ ...WINDOW_BOX }),
+        contentView: {
+          children,
+          addChildView: (child: unknown, index?: number) => {
+            children.splice(typeof index === 'number' ? index : children.length, 0, child);
+          },
+          removeChildView: (child: unknown) => {
+            const at = children.indexOf(child);
+            if (at >= 0) children.splice(at, 1);
+          },
         },
-        removeChildView: (child: unknown) => {
-          const at = children.indexOf(child);
-          if (at >= 0) children.splice(at, 1);
-        },
+        on: () => {},
+        removeListener: () => {},
       },
-    };
+    }) as unknown as ShellDouble;
+    host.shell = shell;
     host.tabByWebContents = new WeakMap<object, { tabId: string; tab: NativeTabRecord }>();
     host.getToolbarHeight = () => TOOLBAR_HEIGHT;
     host.applyDeviceCornerClipping = (_wc: unknown, _radius: number) => {};

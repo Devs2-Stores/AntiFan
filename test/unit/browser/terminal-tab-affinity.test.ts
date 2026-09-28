@@ -349,6 +349,11 @@ describe('Terminal-to-Tab Agent Affinity Contract Tests (NativeTabHost Seam)', (
         return true;
       },
       isTabAllowed: (_primaryId: string, targetId: string) => managedSet.has(targetId),
+      // The anchor stands in for a tab whose capsule carries the same project/workspace
+      // the routed target names, so this test keeps exercising adoption and the quota
+      // rather than the affiliation gate (covered in open-tab-anchor-liveness.test.ts).
+      resolveTabAffiliation: (tabId: string) =>
+        tabId === 'tab-primary' ? { projectId: 'proj-1', workspaceId: 'ws-1', capsuleId: 'capsule-primary' } : undefined,
     };
     const port = new BrowserControlPort(mockHost as any);
     const boundTarget = { tabId: 'tab-primary', projectId: 'proj-1', workspaceId: 'ws-1', runtimeId: 'rt-1', browserEpoch: 1, documentGeneration: 1 } as any;

@@ -7,7 +7,7 @@
  * 4. High-fidelity viewport screenshot capture (anti.screenshot.viewport).
  * 5. Correlation gap telemetry recording into .antifan/telemetry/gaps.jsonl.
  */
-const { app, BrowserWindow } = require('electron');
+const { app } = require('electron');
 const http = require('node:http');
 const path = require('node:path');
 const os = require('node:os');
@@ -27,6 +27,7 @@ const { registerBrowserCapabilities } = require('../.compiled/src/main/tools/bro
 const { BrowserControlPort } = require('../.compiled/src/main/tools/browser-control-port.js');
 const { issueRuntimeLease, makeControlPlaneId } = require('../.compiled/src/shared/control-plane-contracts.js');
 const { getTelemetryLogPath } = require('../.compiled/src/main/telemetry/fallback-recorder.js');
+const { ProjectWindowShell } = require('../.compiled/src/main/browser/project-window-shell.js');
 let cleanupFn = async () => {};
 
 async function runParitySmokeTest() {
@@ -115,17 +116,15 @@ async function runParitySmokeTest() {
     fs.writeFileSync(uploadFixturePath, 'id,name,price\n1,Shirt,250000');
 
     // 2. Create Electron Window and TabHost
-    mainWindow = new BrowserWindow({
-      width: 1024,
-      height: 768,
+    const mainWindowShell = new ProjectWindowShell({
+      owner: { kind: 'project', projectId: 'project-00000000-0000-4000-8000-000000000001' },
+      title: 'AntiFan Smoke Window',
+      bounds: { width: 1024, height: 768 },
       show: false,
-      webPreferences: {
-        nodeIntegration: false,
-        contextIsolation: true,
-      },
     });
+    mainWindow = mainWindowShell.window;
 
-    tabHost = new NativeTabHost(mainWindow);
+    tabHost = new NativeTabHost(mainWindowShell);
     const tabId = tabHost.createTab(testUrl, true);
     await tabHost.navigateAndWait(tabId, testUrl);
 

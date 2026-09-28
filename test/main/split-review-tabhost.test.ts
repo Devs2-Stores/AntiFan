@@ -6,6 +6,7 @@ import { SemanticRefRegistry } from '../../src/main/browser/semantic-ref-registr
 import { SplitNavigationCoordinator } from '../../src/main/browser/split-review-coordinator';
 import { FirstPartyNetworkTracker } from '../../src/main/browser/first-party-network-tracker';
 import { AntiFanTab } from '../../src/shared/contracts';
+import { createShellDouble } from '../support/project-window-shell-double';
 type PrivateHostMethods = {
   setupTabWebContentsEvents: (id: string, view: unknown, state: unknown, paneId: string) => void;
 };
@@ -27,6 +28,7 @@ function createTestHost() {
     goForward: () => {},
     canGoBack: (): boolean => true,
     canGoForward: (): boolean => false,
+    isLoading: (): boolean => false,
     setZoomFactor: (_z?: number) => {},
     setAudioMuted: (_muted: boolean) => {},
     isCurrentlyAudible: () => false,
@@ -52,6 +54,7 @@ function createTestHost() {
     goForward: () => {},
     canGoBack: (): boolean => true,
     canGoForward: (): boolean => false,
+    isLoading: (): boolean => false,
     setZoomFactor: (_z?: number) => {},
     setAudioMuted: (_muted: boolean) => {},
     isCurrentlyAudible: () => false,
@@ -113,39 +116,21 @@ function createTestHost() {
   host.inspectedTabId = null;
   host.programmaticNavigations = new Map();
   host.tabPreviewUnsubscribers = new Map();
-  host.toolbarView = {
-    webContents: {
-      isDestroyed: () => false,
-      send: () => {},
-    },
-  };
-  host.window = {
-    contentView: {
-      // A real child list, not a no-op pair: the host's attach helpers and the
-      // emulation layout path read it to tell an attached view from a detached one.
-      // Without it every view reads as surface-less, which no production tab ever is.
-      children: [] as unknown[],
-      addChildView: (view: any, index?: number) => {
-        const children: any[] = host.window.contentView.children;
-        const existing = children.indexOf(view);
-        if (existing >= 0) children.splice(existing, 1);
-        if (typeof index === 'number') children.splice(Math.max(0, Math.min(index, children.length)), 0, view);
-        else children.push(view);
+  const shellDouble = createShellDouble({
+    toolbarView: {
+      webContents: {
+        id: 1,
+        isDestroyed: () => false,
+        send: () => {},
       },
-      removeChildView: (view: any) => {
-        const children: any[] = host.window.contentView.children;
-        const existing = children.indexOf(view);
-        if (existing >= 0) children.splice(existing, 1);
-      },
+      setBounds: () => {},
     },
-    getBounds: () => ({ x: 0, y: 0, width: 1400, height: 900 }),
-    getContentBounds: () => ({ x: 0, y: 0, width: 1400, height: 900 }),
-  };
+    contentBounds: { x: 0, y: 0, width: 1400, height: 900 },
+  });
+  host.shell = shellDouble;
   // An active tab's view is in the window in production; the emulation primitives reach
   // the platform only through such a view, so the harness starts from the same state.
   host.attachTabView(host.tabs.get('tab-split-1')?.view, false);
-  host.sidebarWidth = 380;
-  host.isSidebarOpen = false;
   host.isBookmarkBarVisible = false;
   host.appliedClipRadius = new WeakMap();
   host.diagnosticsManager = { recordConsole: () => {}, recordFailure: () => {}, clear: () => {}, deleteTab: () => {} };
@@ -156,10 +141,10 @@ function createTestHost() {
       // Production `updateLayout` attaches the active tab's panes before applying
       // emulation; mirroring it here keeps the harness's views attached, which is the
       // state every emulation call is made in.
-      if (tab.view && !host.window.contentView.children.includes(tab.view)) {
+      if (tab.view && !host.shell.window.contentView.children.includes(tab.view)) {
         host.attachTabView(tab.view, false);
       }
-      if (tab.state.splitMode && tab.mobileView && !host.window.contentView.children.includes(tab.mobileView)) {
+      if (tab.state.splitMode && tab.mobileView && !host.shell.window.contentView.children.includes(tab.mobileView)) {
         host.attachTabView(tab.mobileView, true);
       }
       (NativeTabHost.prototype as any).applyTabDeviceEmulation.call(host, tab, 1400, 850, 42);
@@ -362,7 +347,7 @@ describe('NativeTabHost Split Review Integration', () => {
     let zoomRestored = false;
     const cdpCalls: Array<{ cmd: string; params: Record<string, unknown> }> = [];
 
-    host.window.contentView.removeChildView = (v: any) => {
+    host.shell.window.contentView.removeChildView = (v: any) => {
       if (v === mobileView) removedChild = true;
     };
     mobileWc.destroy = () => { mobileDestroyed = true; };
@@ -503,42 +488,31 @@ describe('NativeTabHost Split Review Integration', () => {
     assert.doesNotMatch(executedScripts[2] || '', /contain:\s*paint/);
   });
 
-  it('detaches and destroys every owned WebContentsView during dispose', () => {
+  it('detaches and destroys every owned tab WebContentsView during dispose and leaves chrome to the shell', () => {
     const { host, desktopWc, mobileWc, mobileView } = createTestHost();
     const removedViews: any[] = [];
     const destroyed = new Set<string>();
-    const mockBackdropView: any = {
-      webContents: {
-        isDestroyed: () => destroyed.has('backdrop'),
-        destroy: () => { destroyed.add('backdrop'); },
-        send: () => {},
-      },
-      setBounds: () => {},
-    };
-    const mockToolbarView: any = {
-      webContents: {
-        isDestroyed: () => destroyed.has('toolbar'),
-        destroy: () => { destroyed.add('toolbar'); },
-        send: () => {},
-      },
-    };
+    let chromeDisposals = 0;
     desktopWc.isDestroyed = () => destroyed.has('desktop');
     desktopWc.destroy = () => { destroyed.add('desktop'); };
     mobileWc.isDestroyed = () => destroyed.has('mobile');
     mobileWc.destroy = () => { destroyed.add('mobile'); };
     host.tabs.get('tab-split-1').mobileView = mobileView;
-    host.window.contentView.removeChildView = (view: any) => {
+    const desktopView = host.tabs.get('tab-split-1').view;
+    host.shell.window.contentView.removeChildView = (view: any) => {
       removedViews.push(view);
     };
-    host.toolbarView = mockToolbarView;
-    host.frameBackdropView = mockBackdropView;
+    // Chrome surfaces belong to the shell: dispose delegates instead of reaching
+    // into another owner's views.
+    host.shell.disposeChrome = () => { chromeDisposals += 1; };
 
     NativeTabHost.prototype.dispose.call(host);
 
-    assert.ok(removedViews.includes(mockToolbarView));
-    assert.ok(removedViews.includes(mockBackdropView));
-    assert.deepStrictEqual([...destroyed].sort(), ['backdrop', 'desktop', 'mobile', 'toolbar']);
-    assert.strictEqual(host.frameBackdropView, null);
+    assert.deepStrictEqual([...destroyed].sort(), ['desktop', 'mobile']);
+    assert.strictEqual(removedViews.length, 2);
+    assert.ok(removedViews.includes(desktopView));
+    assert.ok(removedViews.includes(mobileView));
+    assert.strictEqual(chromeDisposals, 1);
   });
 
   it('injects inspect picker into both desktop and mobile webContents in split mode and auto-focuses picked pane', async () => {
@@ -653,8 +627,8 @@ describe('NativeTabHost Split Review Integration', () => {
     tab.mobileView = { webContents: mobileWc, setBounds: () => {} } as any;
     // The emulation path reads the window's child list to lay the panes out, so both
     // panes are attached first — the same state production drives this path in.
-    host.window.contentView.addChildView(tab.view);
-    host.window.contentView.addChildView(tab.mobileView);
+    host.shell.window.contentView.addChildView(tab.view);
+    host.shell.window.contentView.addChildView(tab.mobileView);
 
     let desktopUaSet = '';
     let mobileUaSet = '';
@@ -1152,5 +1126,108 @@ describe('NativeTabHost Split Review Integration', () => {
     const previewNav = makeEvent();
     desktopWc.emit('will-navigate', previewNav, 'antifan-preview://preview/1');
     assert.strictEqual(previewNav.prevented, undefined, 'will-navigate must allow antifan-preview internal scheme');
+  });
+  it('does not reload the live desktop document when enabling split review mirrors it', () => {
+    const { host, state, desktopWc, mobileWc, mobileView } = createTestHost();
+    const tab = host.tabs.get('tab-split-1')!;
+    host.updateLayout = () => {};
+    tab.mobileView = mobileView;
+    desktopWc.isLoading = () => false;
+    mobileWc.isLoading = () => false;
+
+    let currentMobileUrl = 'https://example.com/test';
+    mobileWc.getURL = () => currentMobileUrl;
+    let currentDesktopUrl = 'https://example.com/test';
+    desktopWc.getURL = () => currentDesktopUrl;
+
+    const desktopCalls: string[] = [];
+    let desktopLiveDom: string | undefined = 'field-value-typed-by-user';
+    desktopWc.loadURL = async (url?: string) => { desktopCalls.push(`load:${url}`); };
+    desktopWc.reload = () => { desktopCalls.push('reload'); desktopLiveDom = undefined; };
+
+    privateHost.setupTabWebContentsEvents.call(host, 'tab-split-1', tab.view, tab.state, 'desktop');
+    privateHost.setupTabWebContentsEvents.call(host, 'tab-split-1', tab.mobileView, tab.state, 'mobile');
+
+    assert.strictEqual(host.toggleSplitReview('tab-split-1', true), true);
+    assert.strictEqual(state.splitMode, true);
+
+    // The mount load the host itself issued to the mobile pane commits. That commit
+    // is the expected mirror echo of the desktop document — never a reason to drive
+    // a navigation or reload against the pane holding the user's live page.
+    mobileWc.emit('did-navigate', {}, currentMobileUrl, 200, 'OK');
+    assert.deepStrictEqual(desktopCalls, [], 'Mount commit must not load or reload the live pane');
+    assert.strictEqual(desktopLiveDom, 'field-value-typed-by-user', 'Live DOM value must survive enabling split review');
+    assert.strictEqual(host.splitCoordinator.getTransactionState('tab-split-1'), null, 'Mount commit must settle its mirror transaction');
+
+    // A renderer-issued refresh of the live document commits the same URL again:
+    // the pane already presenting that URL is not touched.
+    const mobileCalls: string[] = [];
+    let mobileLiveDom: string | undefined = 'mobile-field-value';
+    mobileWc.loadURL = async (url?: string) => { mobileCalls.push(`load:${url}`); };
+    mobileWc.reload = () => { mobileCalls.push('reload'); mobileLiveDom = undefined; };
+
+    desktopWc.emit('did-navigate', {}, currentDesktopUrl, 200, 'OK');
+    assert.deepStrictEqual(mobileCalls, [], 'Same-URL authority commit must not load or reload the mirror pane');
+    assert.strictEqual(mobileLiveDom, 'mobile-field-value');
+
+    // The in-page mirror path follows the same rule; close the first transaction
+    // so this commit is evaluated on its own.
+    mobileWc.emit('did-navigate-in-page', {}, currentMobileUrl, true);
+    assert.deepStrictEqual(desktopCalls, [], 'Mirror echo must not touch the authority pane');
+    desktopWc.emit('did-navigate-in-page', {}, currentDesktopUrl, true);
+    assert.deepStrictEqual(mobileCalls, [], 'Same-URL in-page commit must not touch the mirror pane');
+    assert.strictEqual(mobileLiveDom, 'mobile-field-value');
+    assert.strictEqual(desktopLiveDom, 'field-value-typed-by-user');
+  });
+
+  it('still mirrors authority navigation into a sibling showing a different document', () => {
+    const { host, state, desktopWc, mobileWc, mobileView } = createTestHost();
+    const tab = host.tabs.get('tab-split-1')!;
+    host.updateLayout = () => {};
+    tab.mobileView = mobileView;
+    desktopWc.isLoading = () => false;
+    mobileWc.isLoading = () => false;
+
+    let currentMobileUrl = 'https://example.com/test';
+    mobileWc.getURL = () => currentMobileUrl;
+    let currentDesktopUrl = 'https://example.com/test';
+    desktopWc.getURL = () => currentDesktopUrl;
+
+    const desktopCalls: string[] = [];
+    desktopWc.loadURL = async (url?: string) => { desktopCalls.push(`load:${url}`); };
+    desktopWc.reload = () => { desktopCalls.push('reload'); };
+    const mobileCalls: string[] = [];
+    mobileWc.loadURL = async (url?: string) => { mobileCalls.push(`load:${url}`); };
+    mobileWc.reload = () => { mobileCalls.push('reload'); };
+
+    privateHost.setupTabWebContentsEvents.call(host, 'tab-split-1', tab.view, tab.state, 'desktop');
+    privateHost.setupTabWebContentsEvents.call(host, 'tab-split-1', tab.mobileView, tab.state, 'mobile');
+    host.toggleSplitReview('tab-split-1', true);
+
+    mobileWc.emit('did-navigate', {}, currentMobileUrl, 200, 'OK');
+    assert.deepStrictEqual(desktopCalls, []);
+    assert.deepStrictEqual(mobileCalls, []);
+
+    // The authority commits a new document while the sibling still shows the
+    // previous one, so the sibling is navigated to the mirror URL.
+    currentDesktopUrl = 'https://example.com/second';
+    desktopWc.emit('did-navigate', {}, currentDesktopUrl, 200, 'OK');
+    assert.deepStrictEqual(mobileCalls, ['load:https://example.com/second'], 'Stale sibling must be navigated to the mirror URL');
+
+    // A second authority commit while the correction is still in flight re-targets it.
+    currentDesktopUrl = 'https://example.com/third';
+    desktopWc.emit('did-navigate', {}, currentDesktopUrl, 200, 'OK');
+    assert.deepStrictEqual(mobileCalls, ['load:https://example.com/second', 'load:https://example.com/third']);
+
+    // The corrected mirror commit settles as an echo and never bounces back.
+    currentMobileUrl = 'https://example.com/third';
+    mobileWc.emit('did-navigate', {}, currentMobileUrl, 200, 'OK');
+    assert.deepStrictEqual(desktopCalls, [], 'Mirror echo must not navigate the authority pane');
+    assert.strictEqual(host.splitCoordinator.getTransactionState('tab-split-1'), null);
+
+    // An organic navigation on the mobile pane still mirrors to the desktop pane.
+    currentMobileUrl = 'https://example.com/fourth';
+    mobileWc.emit('did-navigate', {}, currentMobileUrl, 200, 'OK');
+    assert.deepStrictEqual(desktopCalls, ['load:https://example.com/fourth'], 'Sibling navigation must mirror to the pane showing a different document, and the correction must never reload the live pane');
   });
 });

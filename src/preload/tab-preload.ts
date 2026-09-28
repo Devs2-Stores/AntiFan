@@ -340,7 +340,10 @@ window.addEventListener(
 
   try {
     const errorObserver = new MutationObserver(() => scheduleErrorCheck());
-    errorObserver.observe(document.documentElement, { childList: true, subtree: true });
+    // Same document-start reason as the mutation report below: the parser has not created
+    // `documentElement` yet when this preload runs, and observing null only produces the throw
+    // the catch swallows. A Document target with `subtree` covers the tree as it is built.
+    errorObserver.observe(document, { childList: true, subtree: true });
   } catch {}
 })();
 
@@ -380,7 +383,11 @@ window.addEventListener(
 
   try {
     const observer = new MutationObserver(() => notifyMutation());
-    observer.observe(document.documentElement, {
+    // `document` is the only valid target at document start: this preload runs before the parser
+    // has created `documentElement`, and `observe(null)` throws while the `catch` below swallows
+    // it — which silently disabled this report in every page. A Document target with `subtree`
+    // covers the whole tree, including the `html` element the parser inserts after this line.
+    observer.observe(document, {
       childList: true,
       subtree: true,
       attributes: true,
@@ -481,7 +488,9 @@ window.addEventListener(
   // Re-hook dynamically injected forms (SPA login overlays).
   try {
     const spawnObserver = new MutationObserver(() => setupCapture());
-    spawnObserver.observe(document.documentElement, { childList: true, subtree: true });
+    // `document` for the same document-start reason: `documentElement` may not exist yet, and
+    // an observe(null) throw here is swallowed, leaving overlays injected later unhooked.
+    spawnObserver.observe(document, { childList: true, subtree: true });
   } catch {}
 })();
 

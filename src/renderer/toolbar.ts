@@ -43,6 +43,36 @@ interface ToolbarPhoneStatus {
   detail?: string;
   lastChecked?: number;
 }
+/**
+ * Wire shapes of the cross-project contracts. This renderer is a classic script, so it
+ * cannot import `src/shared/contracts.ts` and mirrors the projections it consumes —
+ * exactly as it already does for tabs and phone status. Everything arriving from the
+ * bridge is validated before use: a renderer that trusted an unvalidated row could
+ * address a tab id nobody reported.
+ */
+interface ProjectWindowIdentity {
+  owner: { kind: 'project'; projectId: string } | { kind: 'unassigned' };
+  title: string;
+  pathLabel?: string;
+}
+
+interface ProjectTabSearchRow {
+  tabId: string;
+  title: string;
+  url: string;
+  ownerLabel: string;
+  pathLabel?: string;
+  live?: boolean;
+}
+
+type ProjectTabSearchResult =
+  | { status: 'OK'; rows: ProjectTabSearchRow[] }
+  | { status: 'UNAVAILABLE'; reason: string };
+
+type ProjectTabActivationResult =
+  | { status: 'ACTIVATED'; tabId: string }
+  | { status: 'UNAVAILABLE'; tabId: string; reasonCode: string; reason: string };
+
 interface AntiFanToolbarApi {
   getInitialState: () => Promise<any>;
   createTab: (url?: string) => Promise<string>;
@@ -119,6 +149,21 @@ interface AntiFanToolbarApi {
   onThemeQaState: (callback: (state: ThemeQaState) => void) => () => void;
   getPhoneStatus?: (forceRefresh?: boolean) => Promise<ToolbarPhoneStatus>;
   onPhoneStatusChanged?: (callback: (status: ToolbarPhoneStatus) => void) => () => void;
+  /**
+   * Cross-project tab inventory. Listing is side-effect free: it must never focus,
+   * select or attach anything. Optional so an older preload cannot break this renderer —
+   * a missing bridge is reported as an error state, never worked around.
+   */
+  searchProjectTabs?: (query: string) => Promise<ProjectTabSearchResult>;
+  /** The only path that may present another window, for one explicit user action. */
+  activateProjectTab?: (tabId: string) => Promise<ProjectTabActivationResult>;
+  /**
+   * Reasons Main refused a close or quit, pushed for display only. The payload arrives
+   * unvalidated like every other cross-process message, so it is typed `unknown` here and
+   * read structurally at render time (see the refusal-notice section). Optional so a
+   * renderer hot-swapped ahead of its preload cannot fail at init through a missing member.
+   */
+  onCloseRefused?: (callback: (notice: unknown) => void) => () => void;
 }
 
 declare global {
@@ -3832,6 +3877,7 @@ phoneStatusOverlay?.addEventListener('click', (e) => {
 });
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
+  if (tabSearchOverlay?.style.display === 'flex') { closeTabSearch(true); return; }
   if (phoneStatusOverlay?.style.display === 'flex') { closePhoneStatusModal(); return; }
   if (tabContextMenu?.classList.contains('active')) { hideTabContextMenu(); return; }
   if (appDropdownMenu?.style.display !== 'none' && appDropdownMenu) { closeAppMenu(); return; }
@@ -4759,6 +4805,12 @@ async function initToolbar() {
     renderPhoneStatus(status);
   });
 
+  // Same reason, and the same once-per-renderer rule: a refusal is pushed by Main while the
+  // shell it refused is still settling, so a listener attached after the first await can
+  // miss the only message that explains why this window is still open.
+  closeRefusalUnsubscribe?.();
+  closeRefusalUnsubscribe = api.onCloseRefused?.((notice) => renderCloseRefusalNotice(notice)) ?? null;
+
   try {
     const state = await api.getInitialState();
     if (state) {
@@ -4778,6 +4830,7 @@ async function initToolbar() {
       isBookmarkBarVisible = !!state.isBookmarkBarVisible;
       if (state.themeQa) renderThemeQa(state.themeQa);
       if ('phoneStatus' in state) renderPhoneStatus(state.phoneStatus as ToolbarPhoneStatus);
+      renderProjectWindowIdentity(state.projectWindow);
       renderTabs();
       renderBookmarks();
       renderChromeProfiles();
@@ -4801,6 +4854,12 @@ async function initToolbar() {
       isBookmarkBarVisible = !!s.isBookmarkBarVisible;
       if (s.themeQa) renderThemeQa(s.themeQa as unknown as ThemeQaState);
       if ('phoneStatus' in s) renderPhoneStatus(s.phoneStatus as ToolbarPhoneStatus);
+      // Main may resolve the shell's title after the first paint, so the identity rides
+      // the state broadcast too rather than being read once at boot. Presence is the
+      // signal — exactly as with `phoneStatus` above: a broadcast that leaves the key out
+      // is carrying no identity news and must not blank a chip that is already correct,
+      // while an explicit `projectWindow: null` retracts it.
+      if ('projectWindow' in s) renderProjectWindowIdentity(s.projectWindow);
       const newTabsSig = computeTabsSignature(currentTabs, activeTabId);
       if (newTabsSig !== lastTabsSignature) {
         renderTabs();
@@ -5041,6 +5100,586 @@ async function initToolbar() {
   setInterval(pollPhoneStatus, 10000);
   window.addEventListener('focus', () => void pollPhoneStatus());
 }
+
+// ===========================================================================
+// REFUSED CLOSE / QUIT NOTICE
+//
+// Main decides whether this window or the whole application may close; a refusal arrives
+// here as text with the reasons already recorded, and this surface displays it without
+// deciding anything. It cannot approve the close, defer it, or offer a way around the
+// named work: the reasons point at the existing stop/release actions, and those are shown
+// as guidance because not every one of them is invocable from this chrome (an agent
+// session is ended where it was started, not from a toolbar button). The latest notice
+// replaces the previous one — a stale reason list describes work that is no longer what
+// holds the window open.
+// ===========================================================================
+
+const closeRefusalNoticeEl = document.getElementById('closeRefusalNotice') as HTMLElement | null;
+const closeRefusalTitleEl = document.getElementById('closeRefusalTitle') as HTMLElement | null;
+const closeRefusalSummaryEl = document.getElementById('closeRefusalSummary') as HTMLElement | null;
+const closeRefusalReasonsEl = document.getElementById('closeRefusalReasons') as HTMLElement | null;
+const closeRefusalDismissEl = document.getElementById('closeRefusalDismiss') as HTMLButtonElement | null;
+
+/** This chrome's overlay token: the panel is painted below the strip, which is clipped. */
+const CLOSE_REFUSAL_OVERLAY_TOKEN = 'close-refusal';
+/**
+ * Floor for the strip expansion. A `position: fixed` panel outside a laid-out document
+ * measures 0 (jsdom reports no layout at all), and asking for a 0-height expansion would
+ * clip the very region this notice exists to show.
+ */
+const CLOSE_REFUSAL_MIN_HEIGHT = 96;
+
+/**
+ * This renderer's one refusal-notice subscription. Held so a repeated init replaces the
+ * listener instead of stacking a second painter onto the same region.
+ */
+let closeRefusalUnsubscribe: (() => void) | null = null;
+
+/** A reason as this surface renders it: text to show, and the controls it names. */
+interface CloseRefusalReasonView {
+  code: string;
+  detail: string;
+  tabId: string | null;
+  controls: Array<{ id: string; label: string }>;
+}
+
+interface CloseRefusalView {
+  kind: 'close' | 'quit';
+  summary: string;
+  reasons: CloseRefusalReasonView[];
+}
+
+/** Only well-formed control entries survive: a label is what the user is shown. */
+function toCloseRefusalControls(value: unknown): Array<{ id: string; label: string }> {
+  if (!Array.isArray(value)) return [];
+  const out: Array<{ id: string; label: string }> = [];
+  for (const entry of value) {
+    if (!isPlainRecord(entry)) continue;
+    if (typeof entry.id !== 'string' || typeof entry.label !== 'string') continue;
+    if (entry.label.length === 0) continue;
+    out.push({ id: entry.id, label: entry.label });
+  }
+  return out;
+}
+
+/** A reason without its detail is not a reason anyone can act on, so it is dropped. */
+function toCloseRefusalReason(value: unknown): CloseRefusalReasonView | null {
+  if (!isPlainRecord(value)) return null;
+  if (typeof value.detail !== 'string' || value.detail.length === 0) return null;
+  return {
+    code: typeof value.code === 'string' ? value.code : '',
+    detail: value.detail,
+    tabId: typeof value.tabId === 'string' && value.tabId.length > 0 ? value.tabId : null,
+    controls: toCloseRefusalControls(value.controls),
+  };
+}
+
+/**
+ * Read one notice out of an unvalidated message. A payload that is not shaped like a
+ * notice reads as null: a message this surface cannot understand must not paint an empty
+ * region claiming a close was refused for no stated reason, and must not throw either.
+ */
+function toCloseRefusalView(value: unknown): CloseRefusalView | null {
+  if (!isPlainRecord(value)) return null;
+  if (typeof value.summary !== 'string' || !Array.isArray(value.reasons)) return null;
+  const reasons: CloseRefusalReasonView[] = [];
+  for (const raw of value.reasons) {
+    const reason = toCloseRefusalReason(raw);
+    if (reason) reasons.push(reason);
+  }
+  return { kind: value.kind === 'quit' ? 'quit' : 'close', summary: value.summary, reasons };
+}
+
+/**
+ * One reason row: what Main recorded about the blocking work, then the controls it names
+ * as guidance. Text only — details carry tab ids, paths and action ids.
+ */
+function buildCloseRefusalReasonRow(reason: CloseRefusalReasonView): HTMLElement {
+  const row = document.createElement('div');
+  row.className = 'close-refusal-reason';
+  if (reason.code) row.setAttribute('data-reason-code', reason.code);
+  if (reason.tabId) {
+    row.setAttribute('data-tab-id', reason.tabId);
+    const scope = document.createElement('div');
+    scope.className = 'close-refusal-reason-scope';
+    scope.textContent = `Tab ${reason.tabId}`;
+    row.appendChild(scope);
+  }
+  const detail = document.createElement('div');
+  detail.className = 'close-refusal-reason-detail';
+  detail.textContent = reason.detail;
+  row.appendChild(detail);
+  if (reason.controls.length > 0) {
+    const controls = document.createElement('div');
+    controls.className = 'close-refusal-controls';
+    const heading = document.createElement('div');
+    heading.className = 'close-refusal-controls-label';
+    heading.textContent = 'Xử lý bằng cách:';
+    controls.appendChild(heading);
+    for (const control of reason.controls) {
+      const line = document.createElement('div');
+      line.className = 'close-refusal-control';
+      line.setAttribute('data-control-id', control.id);
+      line.textContent = control.label;
+      controls.appendChild(line);
+    }
+    row.appendChild(controls);
+  }
+  return row;
+}
+
+/** The rows on screen belong to the previous notice; nothing is kept across a replacement. */
+function clearCloseRefusalReasons(): void {
+  if (!closeRefusalReasonsEl) return;
+  while (closeRefusalReasonsEl.firstChild) closeRefusalReasonsEl.removeChild(closeRefusalReasonsEl.firstChild);
+}
+
+function hideCloseRefusalNotice(): void {
+  if (closeRefusalNoticeEl) closeRefusalNoticeEl.style.display = 'none';
+  clearCloseRefusalReasons();
+  releaseOverlay(CLOSE_REFUSAL_OVERLAY_TOKEN);
+}
+
+/**
+ * Paint one refusal notice. Focus is never taken here: the user asked to close a window or
+ * quit, and the answer must be readable without pulling them out of whatever they were
+ * doing. A malformed payload renders nothing and leaves any notice already on screen alone.
+ */
+function renderCloseRefusalNotice(raw: unknown): void {
+  const notice = toCloseRefusalView(raw);
+  if (!notice) return;
+  if (!closeRefusalNoticeEl || !closeRefusalSummaryEl || !closeRefusalReasonsEl) return;
+  closeRefusalSummaryEl.textContent = notice.summary;
+  if (closeRefusalTitleEl) {
+    closeRefusalTitleEl.textContent = notice.kind === 'quit' ? 'Không thể thoát AntiFan' : 'Không thể đóng cửa sổ này';
+  }
+  closeRefusalNoticeEl.setAttribute('data-kind', notice.kind);
+  clearCloseRefusalReasons();
+  for (const reason of notice.reasons) closeRefusalReasonsEl.appendChild(buildCloseRefusalReasonRow(reason));
+  closeRefusalNoticeEl.style.display = 'flex';
+  acquireOverlay(CLOSE_REFUSAL_OVERLAY_TOKEN, Math.max(CLOSE_REFUSAL_MIN_HEIGHT, closeRefusalNoticeEl.offsetHeight));
+}
+
+if (closeRefusalDismissEl) closeRefusalDismissEl.addEventListener('click', hideCloseRefusalNotice);
+
+// ===========================================================================
+// CROSS-PROJECT WINDOW IDENTITY & TAB SEARCH
+//
+// Two rules drive everything below:
+//   1. Identity is display-only. Main resolves titles and paths; this renderer shows
+//      them and never lets its own text decide which window or tab a request targets.
+//   2. Listing and activation are different acts. Reading the inventory is safe and
+//      side-effect free; presenting a foreign window happens only for the exact id the
+//      user picked, and only through the activation channel.
+// ===========================================================================
+
+const projectChip = document.getElementById('projectChip') as HTMLElement | null;
+const projectChipTitle = document.getElementById('projectChipTitle') as HTMLElement | null;
+const projectChipPath = document.getElementById('projectChipPath') as HTMLElement | null;
+const btnTabSearch = document.getElementById('btnTabSearch') as HTMLButtonElement | null;
+const tabSearchOverlay = document.getElementById('tabSearchOverlay') as HTMLElement | null;
+const tabSearchInput = document.getElementById('tabSearchInput') as HTMLInputElement | null;
+const tabSearchResults = document.getElementById('tabSearchResults') as HTMLElement | null;
+const tabSearchStatus = document.getElementById('tabSearchStatus') as HTMLElement | null;
+const tabSearchClose = document.getElementById('tabSearchClose') as HTMLButtonElement | null;
+
+/** The control the user opened search from; Escape returns focus to it. */
+type TabSearchInvoker = Element & { focus?: () => void };
+
+/** A row plus the one piece of state the user can change here: whether it is still real. */
+interface TabSearchEntry {
+  row: ProjectTabSearchRow;
+  unavailable: boolean;
+  reason: string;
+}
+
+let tabSearchEntries: TabSearchEntry[] = [];
+let tabSearchRowElements: HTMLElement[] = [];
+let tabSearchActiveIndex = -1;
+let tabSearchInvoker: TabSearchInvoker | null = null;
+/**
+ * Monotonic request id. Each keystroke re-lists, and only the newest answer may paint:
+ * an older inventory landing late would resurrect rows the newer query excluded and
+ * invite the user to pick a tab they are no longer looking at.
+ */
+let tabSearchRequestSeq = 0;
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+/**
+ * Validate the identity Main reported for this shell. Anything unrecognized reads as
+ * "Main has not described this shell" — never as a licence to name one here.
+ */
+function parseProjectWindowIdentity(source: unknown): ProjectWindowIdentity | null {
+  if (!isPlainRecord(source)) return null;
+  const owner = source.owner;
+  if (!isPlainRecord(owner)) return null;
+  let parsedOwner: ProjectWindowIdentity['owner'];
+  if (owner.kind === 'project' && typeof owner.projectId === 'string' && owner.projectId) {
+    parsedOwner = { kind: 'project', projectId: owner.projectId };
+  } else if (owner.kind === 'unassigned') {
+    parsedOwner = { kind: 'unassigned' };
+  } else {
+    return null;
+  }
+  return {
+    owner: parsedOwner,
+    title: typeof source.title === 'string' ? source.title : '',
+    pathLabel: typeof source.pathLabel === 'string' ? source.pathLabel : undefined,
+  };
+}
+
+/**
+ * Paint the shell's project identity. A duplicate project name is distinguished by the
+ * workspace path label, which is also the chip's tooltip.
+ */
+function renderProjectWindowIdentity(source: unknown) {
+  if (!projectChip || !projectChipTitle || !projectChipPath) return;
+  const identity = parseProjectWindowIdentity(source);
+  if (!identity) {
+    projectChip.style.display = 'none';
+    projectChipTitle.textContent = '';
+    projectChipPath.textContent = '';
+    projectChip.removeAttribute('title');
+    return;
+  }
+  // A project with no resolved title still shows its stable id, and an Unassigned shell
+  // shows the bucket it is in. Both come from Main's vocabulary, not from this renderer.
+  const title = identity.title || (identity.owner.kind === 'project' ? identity.owner.projectId : 'Unassigned');
+  projectChip.style.display = '';
+  projectChip.classList.toggle('unassigned', identity.owner.kind === 'unassigned');
+  projectChipTitle.textContent = title;
+  projectChipPath.textContent = identity.pathLabel || '';
+  projectChip.title = identity.pathLabel ? `${title} — ${identity.pathLabel}` : title;
+}
+
+/** Validate one inventory row. A row without an addressable id is dropped, not guessed. */
+function toTabSearchRow(raw: unknown): ProjectTabSearchRow | null {
+  if (!isPlainRecord(raw)) return null;
+  const tabId = typeof raw.tabId === 'string' ? raw.tabId : '';
+  if (!tabId) return null;
+  return {
+    tabId,
+    title: typeof raw.title === 'string' ? raw.title : '',
+    url: typeof raw.url === 'string' ? raw.url : '',
+    ownerLabel: typeof raw.ownerLabel === 'string' ? raw.ownerLabel : '',
+    pathLabel: typeof raw.pathLabel === 'string' ? raw.pathLabel : undefined,
+    live: raw.live !== false,
+  };
+}
+
+/**
+ * Literal, case-insensitive substring match over title and URL: no regex, no tokenizing,
+ * no ranking. It is deliberately not trimmed — a query is taken exactly as typed — and
+ * it preserves the inventory order Main returned, so the same query always lists the
+ * same tabs in the same order.
+ */
+function filterTabSearchRows(rows: ProjectTabSearchRow[], query: string): ProjectTabSearchRow[] {
+  if (query === '') return rows;
+  const needle = query.toLowerCase();
+  return rows.filter((row) => row.title.toLowerCase().includes(needle) || row.url.toLowerCase().includes(needle));
+}
+
+/** Screen-reader status line: result counts, availability and failures travel here. */
+function announceTabSearch(message: string) {
+  if (tabSearchStatus) tabSearchStatus.textContent = message;
+}
+
+/** The single message row a state with no options to offer shows instead of rows. */
+function renderTabSearchState(state: 'loading' | 'empty' | 'no-results' | 'error', message: string) {
+  tabSearchEntries = [];
+  tabSearchRowElements = [];
+  tabSearchActiveIndex = -1;
+  if (tabSearchInput) tabSearchInput.removeAttribute('aria-activedescendant');
+  if (!tabSearchResults) return;
+  tabSearchResults.dataset.state = state;
+  tabSearchResults.textContent = '';
+  const messageEl = document.createElement('div');
+  messageEl.className = 'tab-search-message';
+  messageEl.setAttribute('role', 'presentation');
+  messageEl.textContent = message;
+  tabSearchResults.appendChild(messageEl);
+}
+
+/**
+ * Row markup is built with createElement/textContent rather than an HTML string: titles
+ * and URLs come from pages, and a search surface is exactly where untrusted text would
+ * otherwise be re-parsed as markup.
+ */
+function renderTabSearchRows(options: { preserveActive?: boolean } = {}) {
+  if (!tabSearchResults) return;
+  tabSearchResults.textContent = '';
+  tabSearchRowElements = [];
+  for (let i = 0; i < tabSearchEntries.length; i++) {
+    const entry = tabSearchEntries[i];
+    if (!entry) continue;
+    const row = entry.row;
+    const el = document.createElement('div');
+    el.className = `tab-search-row${entry.unavailable ? ' unavailable' : ''}`;
+    el.id = `tabSearchOption${i}`;
+    el.setAttribute('role', 'option');
+    el.setAttribute('aria-selected', 'false');
+    el.setAttribute('data-tab-id', row.tabId);
+    el.setAttribute('data-state', entry.unavailable ? 'unavailable' : 'available');
+    if (entry.unavailable) el.setAttribute('aria-disabled', 'true');
+
+    const main = document.createElement('div');
+    main.className = 'tab-search-row-main';
+    const titleEl = document.createElement('span');
+    titleEl.className = 'tab-search-row-title';
+    // A tab with no title is known by its address; showing an empty line would make two
+    // untitled tabs indistinguishable.
+    titleEl.textContent = row.title || row.url;
+    const urlEl = document.createElement('span');
+    urlEl.className = 'tab-search-row-url';
+    urlEl.textContent = row.url;
+    main.appendChild(titleEl);
+    main.appendChild(urlEl);
+
+    const meta = document.createElement('div');
+    meta.className = 'tab-search-row-meta';
+    const ownerEl = document.createElement('span');
+    ownerEl.className = 'tab-search-row-project';
+    ownerEl.textContent = row.ownerLabel || 'Unassigned';
+    const pathEl = document.createElement('span');
+    pathEl.className = 'tab-search-row-path';
+    pathEl.textContent = row.pathLabel || '';
+    meta.appendChild(ownerEl);
+    meta.appendChild(pathEl);
+    if (entry.unavailable) {
+      const stateEl = document.createElement('span');
+      stateEl.className = 'tab-search-row-unavailable';
+      stateEl.textContent = entry.reason ? `Không khả dụng: ${entry.reason}` : 'Không khả dụng';
+      meta.appendChild(stateEl);
+    }
+
+    el.appendChild(main);
+    el.appendChild(meta);
+    el.addEventListener('mouseenter', () => setActiveTabSearchEntry(i));
+    el.addEventListener('click', () => { void activateTabSearchEntry(i); });
+    tabSearchResults.appendChild(el);
+    tabSearchRowElements.push(el);
+  }
+  tabSearchResults.dataset.state = tabSearchEntries.length ? 'results' : 'empty';
+  // A repaint that follows a failed activation keeps the highlight on the row the user
+  // actually picked: moving it to the top row would make one more Enter open a tab the
+  // user never chose. Every other repaint starts at the top available row, so Enter can
+  // open it — a highlight is a selection the user can see, not an activation they did
+  // not ask for.
+  if (options.preserveActive && tabSearchActiveIndex >= 0 && tabSearchActiveIndex < tabSearchEntries.length) {
+    setActiveTabSearchEntry(tabSearchActiveIndex, false);
+    return;
+  }
+  const firstAvailable = tabSearchEntries.findIndex((entry) => !entry.unavailable);
+  setActiveTabSearchEntry(firstAvailable, false);
+}
+
+function setActiveTabSearchEntry(index: number, scrollIntoView = true) {
+  tabSearchActiveIndex = index;
+  if (tabSearchInput) {
+    if (index >= 0) tabSearchInput.setAttribute('aria-activedescendant', `tabSearchOption${index}`);
+    else tabSearchInput.removeAttribute('aria-activedescendant');
+  }
+  for (let i = 0; i < tabSearchRowElements.length; i++) {
+    const el = tabSearchRowElements[i];
+    if (!el) continue;
+    const selected = i === index;
+    el.setAttribute('aria-selected', selected ? 'true' : 'false');
+    el.classList.toggle('active', selected);
+  }
+  const activeEl = index >= 0 ? tabSearchRowElements[index] : undefined;
+  // jsdom has no layout, and a zero-height panel has nothing to scroll: a missing or
+  // throwing scrollIntoView must not break the keyboard path.
+  if (scrollIntoView && activeEl) {
+    try { activeEl.scrollIntoView?.({ block: 'nearest' }); } catch { /* no layout here */ }
+  }
+}
+
+/** Arrow keys walk available rows only; they never activate anything. */
+function moveTabSearchActive(key: string) {
+  const available: number[] = [];
+  for (let i = 0; i < tabSearchEntries.length; i++) {
+    const entry = tabSearchEntries[i];
+    if (entry && !entry.unavailable) available.push(i);
+  }
+  if (!available.length) return;
+  let position = available.indexOf(tabSearchActiveIndex);
+  if (position < 0) {
+    // Nothing highlighted yet: the first arrow starts at the edge it points at.
+    position = key === 'ArrowUp' || key === 'End' ? available.length : -1;
+  }
+  let target = position;
+  if (key === 'Home') target = 0;
+  else if (key === 'End') target = available.length - 1;
+  else if (key === 'ArrowDown') target = Math.min(position + 1, available.length - 1);
+  else if (key === 'ArrowUp') target = Math.max(position - 1, 0);
+  const targetIndex = target >= 0 ? available[Math.min(target, available.length - 1)] : undefined;
+  if (typeof targetIndex === 'number') setActiveTabSearchEntry(targetIndex);
+}
+
+/**
+ * Read the Main-owned inventory. This never focuses, selects or attaches anything — the
+ * only calls it makes are the listing channel and local repaints.
+ */
+async function requestTabSearch(query: string) {
+  const api = getApi();
+  const seq = ++tabSearchRequestSeq;
+
+  if (!api?.searchProjectTabs) {
+    const message = 'Không tải được danh sách tab: preload thiếu searchProjectTabs';
+    renderTabSearchState('error', message);
+    announceTabSearch(message);
+    return;
+  }
+
+  try {
+    const result = await api.searchProjectTabs(query);
+    if (seq !== tabSearchRequestSeq) return;
+    const payload: Record<string, unknown> = isPlainRecord(result) ? result : {};
+    if (payload.status !== 'OK') {
+      const reason = typeof payload.reason === 'string' && payload.reason ? payload.reason : 'không rõ nguyên nhân';
+      const message = `Không tải được danh sách tab: ${reason}`;
+      renderTabSearchState('error', message);
+      announceTabSearch(message);
+      return;
+    }
+    const inventory = (Array.isArray(payload.rows) ? payload.rows : [])
+      .map(toTabSearchRow)
+      .filter((row): row is ProjectTabSearchRow => row !== null);
+    const matches = filterTabSearchRows(inventory, query);
+    if (!matches.length) {
+      // Two empty states, not one: an empty inventory is a fresh shell, and a query with
+      // no match must read as "your query found nothing", not as "you have no tabs".
+      const message = query
+        ? `Không có tab nào khớp "${query}"`
+        : 'Chưa có tab nào đang mở';
+      renderTabSearchState(query ? 'no-results' : 'empty', message);
+      announceTabSearch(message);
+      return;
+    }
+    tabSearchEntries = matches.map((row) => ({ row, unavailable: row.live === false, reason: '' }));
+    renderTabSearchRows();
+    announceTabSearch(query ? `Tìm thấy ${matches.length} tab khớp "${query}"` : `${matches.length} tab đang mở`);
+  } catch (err) {
+    if (seq !== tabSearchRequestSeq) return;
+    const message = `Không tải được danh sách tab: ${err instanceof Error ? err.message : String(err)}`;
+    renderTabSearchState('error', message);
+    announceTabSearch(message);
+  }
+}
+
+/**
+ * The one place that may present another window, and only for the exact id the user
+ * picked. A stale row is marked unavailable in place: nothing else is selected, no
+ * neighbouring index is tried and no other project is substituted.
+ */
+async function activateTabSearchEntry(index: number) {
+  const entry = tabSearchEntries[index];
+  if (!entry) return;
+  if (entry.unavailable) {
+    announceTabSearch(`${entry.row.title || entry.row.url || entry.row.tabId} không còn khả dụng${entry.reason ? `: ${entry.reason}` : ''}`);
+    return;
+  }
+  const api = getApi();
+  if (!api?.activateProjectTab) {
+    announceTabSearch('Không mở được tab: preload thiếu activateProjectTab');
+    return;
+  }
+  try {
+    const result = await api.activateProjectTab(entry.row.tabId);
+    const payload: Record<string, unknown> = isPlainRecord(result) ? result : {};
+    if (payload.status === 'ACTIVATED' && payload.tabId === entry.row.tabId) {
+      // Focus now belongs to the window that was just presented; restoring it here would
+      // fight the presentation the user asked for.
+      closeTabSearch(false);
+      return;
+    }
+    const reason = payload.status === 'UNAVAILABLE' && typeof payload.reason === 'string' && payload.reason
+      ? payload.reason
+      : payload.status === 'ACTIVATED'
+        ? 'main xác nhận một tab khác'
+        : 'phản hồi không hợp lệ';
+    entry.unavailable = true;
+    entry.reason = reason;
+    renderTabSearchRows({ preserveActive: true });
+    announceTabSearch(`${entry.row.title || entry.row.url || entry.row.tabId} không còn khả dụng: ${reason}`);
+  } catch (err) {
+    // The list stays on screen so the user can deliberately pick a different row; a
+    // failed activation is not a reason to substitute one.
+    announceTabSearch(`Không mở được tab: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+async function openTabSearch(invoker: Element | null) {
+  if (!tabSearchOverlay) return;
+  tabSearchInvoker = invoker && typeof (invoker as TabSearchInvoker).focus === 'function' ? invoker as TabSearchInvoker : null;
+  tabSearchOverlay.style.display = 'flex';
+  // The control is a disclosure: its expanded state follows the panel it opened, for
+  // screen readers and for the active styling keyed on the attribute.
+  btnTabSearch?.setAttribute('aria-expanded', 'true');
+  acquireOverlay('tab-search');
+  if (tabSearchInput) {
+    tabSearchInput.value = '';
+    tabSearchInput.removeAttribute('aria-activedescendant');
+  }
+  renderTabSearchState('loading', 'Đang tải danh sách tab…');
+  announceTabSearch('Đang tải danh sách tab…');
+  tabSearchInput?.focus();
+  await requestTabSearch('');
+}
+
+function closeTabSearch(restoreFocus: boolean) {
+  if (tabSearchOverlay) {
+    tabSearchOverlay.style.display = 'none';
+    releaseOverlay('tab-search');
+  }
+  btnTabSearch?.setAttribute('aria-expanded', 'false');
+  // Invalidate any answer still in flight: a closed panel must not repaint later.
+  tabSearchRequestSeq++;
+  tabSearchEntries = [];
+  tabSearchRowElements = [];
+  tabSearchActiveIndex = -1;
+  if (tabSearchResults) {
+    tabSearchResults.textContent = '';
+    tabSearchResults.dataset.state = 'idle';
+  }
+  announceTabSearch('');
+  if (tabSearchInput) {
+    tabSearchInput.value = '';
+    tabSearchInput.removeAttribute('aria-activedescendant');
+  }
+  const invoker = tabSearchInvoker;
+  tabSearchInvoker = null;
+  // Escape returns the user to the control search was opened from. A successful
+  // activation deliberately does not: focus then belongs to the window just presented.
+  if (restoreFocus && invoker && document.contains(invoker)) invoker.focus?.();
+}
+
+if (btnTabSearch) {
+  btnTabSearch.addEventListener('click', () => { void openTabSearch(btnTabSearch); });
+}
+tabSearchClose?.addEventListener('click', () => closeTabSearch(true));
+tabSearchOverlay?.addEventListener('click', (event) => {
+  if (event.target === tabSearchOverlay) closeTabSearch(true);
+});
+tabSearchInput?.addEventListener('input', () => {
+  void requestTabSearch(tabSearchInput.value);
+});
+tabSearchInput?.addEventListener('keydown', (event) => {
+  // Escape is handled once, by the document-level chain, so every overlay closes the
+  // same way and returns focus through closeTabSearch().
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    if (tabSearchActiveIndex >= 0) void activateTabSearchEntry(tabSearchActiveIndex);
+    return;
+  }
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Home' || event.key === 'End') {
+    event.preventDefault();
+    moveTabSearchActive(event.key);
+  }
+});
 
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', initToolbar);

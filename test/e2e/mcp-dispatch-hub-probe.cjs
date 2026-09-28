@@ -1436,6 +1436,10 @@ async function main() {
       preload: PRELOAD_PATH,
       nodeIntegration: false,
       contextIsolation: true,
+      // Production's toolbar view runs with sandbox: false (project-window-shell.ts); a
+      // sandboxed preload cannot require a relative module, so the default sandbox would make
+      // this probe measure a window the app never creates (bridge absent, not a product defect).
+      sandbox: false,
     },
   });
 

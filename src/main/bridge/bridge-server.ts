@@ -15,7 +15,7 @@ import { randomUUID } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import { isBenchmarkEnabled, recordBenchmark } from '../benchmark/telemetry';
 import { NativeTabHost } from '../browser/native-tab-host';
-import { TerminalManager, type SessionSummary } from '../browser/terminal-manager';
+import { TerminalManager, DEFAULT_TERMINAL_CAPSULE_ID, agentTerminalOwnerKey, type SessionSummary } from '../browser/terminal-manager';
 import { renderMobileRemoteHtml } from './mobile-remote-html';
 import { generateQrSvg } from './qr-generator';
 import {
@@ -28,7 +28,7 @@ import {
 } from '../../shared/contracts';
 import { CapabilityTransportAdapter } from '../tools/capability-transport';
 import { CapabilityRequestContext, CapabilityError, BrowserTarget, RuntimeLease, ArtifactRef, ClientInvocationIntent, makeControlPlaneId, hashSecret, verifySecret } from '../../shared/control-plane-contracts';
-import { AttachmentRegistry } from '../run/attachment-registry';
+import { AttachmentRegistry, type PageCloseAdmission } from '../run/attachment-registry';
 import { SessionCapabilityFilter, isCapabilityNamePermitted } from '../tools/capability-catalogue';
 import { enforceProtectedDirectoryDacl, enforceProtectedFileDacl, resolveCurrentUserSid, applyProtectedPathsDacl } from '../security/windows-acl';
 import { ControlPlaneRuntime } from '../control-plane/control-plane-runtime';
@@ -236,6 +236,27 @@ interface RuntimeBinding {
   browserTarget?: BrowserTarget;
 }
 
+/**
+ * Who is asking for a status snapshot. Only an agent-plane caller names an
+ * attachment: the attachment's authenticated target is that caller's answer for
+ * "active", because the user's foreground tab is not its authority. User-plane
+ * callers (mobile companion, IDE bridge client, an extension status probe) pass
+ * nothing and read the presenting host's own state — the same host their tab list
+ * comes from, so the two can never describe different windows.
+ */
+export interface BridgeInvocationScope {
+  attachmentId?: string | null;
+}
+
+/**
+ * Bridge status as one caller sees it. For an agent-plane caller with no live bound
+ * target, `activeTabId` is absent and `activeTabRefusal` says why: a refusal must not
+ * be readable as a window that simply has no tab.
+ */
+export interface BridgeStatusAnswer extends AntiFanBridgeStatus {
+  activeTabRefusal?: string;
+}
+
 export class BridgeServer {
   private static instance: BridgeServer | null = null;
   private wss: WebSocketServer | null = null;
@@ -243,6 +264,7 @@ export class BridgeServer {
   private clients: Set<WebSocket> = new Set();
   private readonly socketAttachmentIds: WeakMap<WebSocket, string> = new WeakMap();
   private tabHost: NativeTabHost;
+  private closeAdmission?: PageCloseAdmission;
   private pairingQueueDir: string;
   private pairingReplenishInFlight: Promise<void> | null = null;
   private isDisposed = false;
@@ -310,10 +332,12 @@ export class BridgeServer {
     runtimeBindingProvider?: () => RuntimeBinding,
     attachmentRegistry?: AttachmentRegistry,
     host = '127.0.0.1',
-    controlPlaneRuntime?: ControlPlaneRuntime
+    controlPlaneRuntime?: ControlPlaneRuntime,
+    closeAdmission?: PageCloseAdmission
   ) {
     this.tabHost = tabHost;
     this.isDev = isDev;
+    this.closeAdmission = closeAdmission;
     this.port = isDev && port === 20129 ? 20130 : port;
     // Ephemeral-port instances (tests, smoke runners, CI) are private instances: they
     // must never publish discovery metadata or populate the shared pairing queue, which
@@ -354,6 +378,9 @@ export class BridgeServer {
   }
   public setControlPlane(controlPlane: ControlPlaneRuntime): void {
     this.controlPlaneRuntime = controlPlane;
+  }
+  public setCloseAdmission(admission?: PageCloseAdmission): void {
+    this.closeAdmission = admission;
   }
   public async rotateToken(): Promise<string> {
     this.token = this.resolveMasterToken();
@@ -1029,13 +1056,17 @@ export class BridgeServer {
               }
               const suppliedTabId = typeof data.tabId === 'string' && data.tabId.trim() ? data.tabId.trim() : undefined;
               const autoTabId = typeof this.tabHost.getAutomationTabId === 'function' ? this.tabHost.getAutomationTabId() : undefined;
-              const activeTabId = typeof this.tabHost.getActiveTabId === 'function' ? this.tabHost.getActiveTabId() : undefined;
 
+              // The tab an agent session is bound to comes from either an explicit request or
+              // authority the caller already holds: its runtime binding, or the tab that was
+              // explicitly designated for automation. The window's foreground tab is deliberately
+              // not a candidate — with more than one project window it silently bound the session
+              // to another window's tab. A session that arrives with none of these stays unbound
+              // and `antifan.cli.startSession` provisions the dedicated agent tab it needs.
               const effectiveTabId =
                 suppliedTabId ||
                 binding?.browserTarget?.tabId ||
-                (autoTabId && this.hostTabExists(autoTabId) ? autoTabId : undefined) ||
-                (activeTabId && this.hostTabExists(activeTabId) ? activeTabId : undefined);
+                (autoTabId && this.hostTabExists(autoTabId) ? autoTabId : undefined);
 
               const browserTarget: BrowserTarget | undefined = effectiveTabId
                 ? {
@@ -1205,7 +1236,10 @@ export class BridgeServer {
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
         if (isAllowedOrigin) headers['Access-Control-Allow-Origin'] = rawOrigin;
         res.writeHead(200, headers);
-        res.end(JSON.stringify(this.getStatus()));
+        // An attachment credential is an agent credential, so /status may not answer it with the
+        // foreground tab: it is answered from its own bound target, or refused by name. The master
+        // token and the user-plane grants keep reading the presenting host's own state.
+        res.end(JSON.stringify(this.getStatus(verifiedAttachmentId && !isBridgeToken ? { attachmentId: verifiedAttachmentId } : undefined)));
         return;
       }
 
@@ -1777,10 +1811,8 @@ export class BridgeServer {
 
       if (verifiedAttachmentId && !isBridgeToken) {
         // Dual-Plane Rule: Agent plane attachments only see their owned tab and terminal session
-        const registry = this.attachmentRegistry || this.controlPlaneRuntime?.runs?.attachments;
-        const record = registry ? registry.getRecord(verifiedAttachmentId) : undefined;
-        const boundTabId = record?.tabId || record?.browserTarget?.tabId;
-        if (boundTabId && this.hostTabExists(boundTabId)) {
+        const boundTabId = this.boundTabIdFor(verifiedAttachmentId);
+        if (boundTabId) {
           initActiveTabId = boundTabId;
           const canonical = typeof this.tabHost.resolveTargetTabId === 'function'
             ? this.tabHost.resolveTargetTabId(boundTabId)
@@ -1829,7 +1861,10 @@ export class BridgeServer {
       }
 
       this.sendEvent(ws, 'antifan:init', {
-        status: this.getStatus(),
+        // Same rule as /status: an attachment-authenticated socket gets its own bound target (or a
+        // refusal naming the missing explicit target) in `status.activeTabId`, never the foreground
+        // tab of the window that happens to be presenting.
+        status: this.getStatus(verifiedAttachmentId && !isBridgeToken ? { attachmentId: verifiedAttachmentId } : undefined),
         tabs: initTabs,
         activeTabId: initActiveTabId,
         terminalSessions: initTerminalSessions,
@@ -2109,6 +2144,9 @@ export class BridgeServer {
           break;
         }
         case 'antifan.cli.startSession': {
+          // Minting a session and provisioning an agent tab is new work: a committed quit
+          // must refuse it rather than create something the teardown already passed.
+          this.assertApplicationAdmitsWork('antifan.cli.startSession');
           if (!this.controlPlaneRuntime) {
             respond(false, undefined, 'Control plane runtime is not available');
             break;
@@ -2180,10 +2218,8 @@ export class BridgeServer {
                 // owned live tab, provision a dedicated offscreen/ephemeral agent tab
                 // immediately (never inspect activeTabId / foreground).
                 const targetAttachmentId = typeof p.attachmentId === 'string' && p.attachmentId.trim() ? p.attachmentId.trim() : boundAttachmentId;
-                const registry = this.attachmentRegistry || this.controlPlaneRuntime?.runs?.attachments;
-                const attachmentRecord = targetAttachmentId && registry ? registry.getRecord(targetAttachmentId) : undefined;
-                const ownTabId = attachmentRecord?.tabId || attachmentRecord?.browserTarget?.tabId;
-                if (ownTabId && this.hostTabExists(ownTabId)) {
+                const ownTabId = this.boundTabIdFor(targetAttachmentId);
+                if (ownTabId) {
                   tabId = ownTabId;
                 } else {
                   tabId = this.tabHost.createTab('about:blank', false, { offscreen: true, ephemeral: true });
@@ -2386,6 +2422,10 @@ export class BridgeServer {
 
         case 'openTab':
         case 'antifan.openTab': {
+          // A tab minted after the quit committed, or while a close was already authorized,
+          // would arrive where no membership re-read can see it: the assert and the registered
+          // operation bracket the creation itself, the way every sibling page RPC is gated.
+          this.assertApplicationAdmitsWork('antifan.openTab');
           const isAgentCaller = Boolean(boundAttachmentId || p.attachmentId);
           const activate = Boolean(p.activate ?? false);
           // Asking to activate a tab means the tab must exist on screen: an
@@ -2397,8 +2437,17 @@ export class BridgeServer {
           // capture never foregrounds/attaches the user's visible view. Forward the
           // offscreen option through the adapter; default offscreen for agent callers.
           const isOffscreen = isAgentCaller ? (p.offscreen !== false && !wantsVisibleTab) : Boolean(p.offscreen);
-          const tabId = this.tabHost.createTab(p.url, activate, { ephemeral: isEphemeral, offscreen: isOffscreen });
-          respond(true, { tabId });
+          // The tab does not exist yet, so the operation is attributed to the page the caller
+          // is working from: that is the page whose window owns the new tab, and the window's
+          // own close is the attempt that would otherwise destroy it mid-mint.
+          const targetTabId = this.boundTabIdFor(boundAttachmentId) || this.tabHost.getActiveTabId?.() || undefined;
+          const release = this.admitDirectRpcOperation('antifan.openTab', targetTabId);
+          try {
+            const tabId = this.tabHost.createTab(p.url, activate, { ephemeral: isEphemeral, offscreen: isOffscreen });
+            respond(true, { tabId });
+          } finally {
+            release();
+          }
           break;
         }
 
@@ -2418,49 +2467,73 @@ export class BridgeServer {
 
         case 'navigate':
         case 'antifan.navigate': {
+          this.assertApplicationAdmitsWork('antifan.navigate');
           const target = this.resolveDirectRpcTargetTab(p.tabId, boundAttachmentId, p.attachmentId);
           if ('error' in target) {
             respond(false, undefined, target.error);
             break;
           }
-          const ok = this.tabHost.navigate(target.tabId, p.url);
-          respond(ok, { navigated: ok });
+          const release = this.admitDirectRpcOperation('antifan.navigate', target.tabId);
+          try {
+            const ok = this.tabHost.navigate(target.tabId, p.url);
+            respond(ok, { navigated: ok });
+          } finally {
+            release();
+          }
           break;
         }
 
         case 'reload':
         case 'antifan.reload': {
+          this.assertApplicationAdmitsWork('antifan.reload');
           const target = this.resolveDirectRpcTargetTab(p.tabId, boundAttachmentId, p.attachmentId);
           if ('error' in target) {
             respond(false, undefined, target.error);
             break;
           }
-          const ok = this.tabHost.reload(target.tabId);
-          respond(ok, { reloaded: ok });
+          const release = this.admitDirectRpcOperation('antifan.reload', target.tabId);
+          try {
+            const ok = this.tabHost.reload(target.tabId);
+            respond(ok, { reloaded: ok });
+          } finally {
+            release();
+          }
           break;
         }
 
         case 'goBack':
         case 'antifan.goBack': {
+          this.assertApplicationAdmitsWork('antifan.goBack');
           const target = this.resolveDirectRpcTargetTab(p.tabId, boundAttachmentId, p.attachmentId);
           if ('error' in target) {
             respond(false, undefined, target.error);
             break;
           }
-          const ok = this.tabHost.goBack(target.tabId);
-          respond(ok, { wentBack: ok });
+          const release = this.admitDirectRpcOperation('antifan.goBack', target.tabId);
+          try {
+            const ok = this.tabHost.goBack(target.tabId);
+            respond(ok, { wentBack: ok });
+          } finally {
+            release();
+          }
           break;
         }
 
         case 'goForward':
         case 'antifan.goForward': {
+          this.assertApplicationAdmitsWork('antifan.goForward');
           const target = this.resolveDirectRpcTargetTab(p.tabId, boundAttachmentId, p.attachmentId);
           if ('error' in target) {
             respond(false, undefined, target.error);
             break;
           }
-          const ok = this.tabHost.goForward(target.tabId);
-          respond(ok, { wentForward: ok });
+          const release = this.admitDirectRpcOperation('antifan.goForward', target.tabId);
+          try {
+            const ok = this.tabHost.goForward(target.tabId);
+            respond(ok, { wentForward: ok });
+          } finally {
+            release();
+          }
           break;
         }
 
@@ -2507,7 +2580,7 @@ export class BridgeServer {
                 respond(false, undefined, 'TERMINAL_FORBIDDEN: caller may not operate this terminal session');
                 break;
               }
-              tm.writeTo(p.sessionId, p.text);
+              await this.holdProcessAdmission('terminalInput', () => tm.writeTo(p.sessionId, p.text));
             } else if (boundAttachmentId) {
               // Attachment callers must never fall back to the user's active shell.
               // Reject with TERMINAL_FORBIDDEN unless a sessionId is required.
@@ -2520,9 +2593,9 @@ export class BridgeServer {
                 respond(false, undefined, 'TERMINAL_FORBIDDEN: caller may not operate this terminal session');
                 break;
               }
-              tm.write(p.text);
+              await this.holdProcessAdmission('terminalInput', () => tm.write(p.text));
             } else {
-              tm.write(p.text);
+              await this.holdProcessAdmission('terminalInput', () => tm.write(p.text));
             }
             respond(true, { written: true });
           } else {
@@ -2562,7 +2635,7 @@ export class BridgeServer {
                 respond(false, undefined, 'TERMINAL_FORBIDDEN: caller may not operate this terminal session');
                 break;
               }
-              tm.writeTo(p.sessionId, sequence);
+              await this.holdProcessAdmission('terminalSendKey', () => tm.writeTo(p.sessionId, sequence));
             } else if (boundAttachmentId) {
               respond(false, undefined, 'TERMINAL_FORBIDDEN: terminalSessionId is required for attachment key input');
               break;
@@ -2573,9 +2646,9 @@ export class BridgeServer {
                 respond(false, undefined, 'TERMINAL_FORBIDDEN: caller may not operate this terminal session');
                 break;
               }
-              tm.write(sequence);
+              await this.holdProcessAdmission('terminalSendKey', () => tm.write(sequence));
             } else {
-              tm.write(sequence);
+              await this.holdProcessAdmission('terminalSendKey', () => tm.write(sequence));
             }
             respond(true, { sent: true, key });
           } else {
@@ -2607,7 +2680,7 @@ export class BridgeServer {
               respond(false, undefined, 'TERMINAL_FORBIDDEN: caller may not target an agent-owned terminal session');
               break;
             }
-            const switched = tm.switchSession(p.sessionId);
+            const switched = await this.holdProcessAdmission('terminalSwitchSession', () => tm.switchSession(p.sessionId));
             respond(switched, {
               switched,
               activeSessionId: this.visibleTerminalActiveId(this.visibleTerminalSessions(tm.listSessions(), mobileGrant)),
@@ -2621,7 +2694,26 @@ export class BridgeServer {
         case 'terminalNewSession':
         case 'antifan.terminalNewSession': {
           const tm = TerminalManager.getInstance();
-          const sessionId = tm.createSession(p.cwd);
+          // The caller's workspace, not the daemon's ambient selection: a PTY filed under
+          // whichever capsule the daemon happens to hold is invisible to the window that asked
+          // for it. An explicit capsule on the request wins; otherwise it comes from the tab
+          // this caller is bound to, the same affiliation the neighbouring terminal cases
+          // resolve their target through.
+          const explicitCapsuleId = typeof p.capsuleId === 'string' && p.capsuleId.trim() ? p.capsuleId.trim() : undefined;
+          const boundTabId = this.boundTabIdFor(boundAttachmentId);
+          const capsuleId = explicitCapsuleId
+            // A bound tab that carries no capsule means no project claims its terminal, which
+            // is the sentinel — not the daemon's ambient capsule, which another window set.
+            ?? (boundTabId ? this.tabHost.getTabCapsuleId?.(boundTabId) || DEFAULT_TERMINAL_CAPSULE_ID : undefined);
+          // A PTY minted after the quit committed would outlive the windows that asked for it,
+          // and admitting before this await would not prove the mint is still allowed when it
+          // happens: the assert and the registration share one synchronous step.
+          // Ownership is the agent's own, never the window its bound tab sits in: a bridge socket
+          // mints on behalf of an agent surface, so the row must not fall into a project window's
+          // sidebar scope. A caller with no bound tab mints `agent:unbound` — never a project key.
+          const sessionId = await this.holdProcessAdmission('terminalNewSession', () =>
+            tm.createSession(p.cwd, capsuleId, agentTerminalOwnerKey(boundTabId))
+          );
           const sessions = this.visibleTerminalSessions(tm.listSessions(), mobileGrant);
           respond(true, {
             sessionId,
@@ -2678,7 +2770,7 @@ export class BridgeServer {
             respond(false, undefined, 'TERMINAL_FORBIDDEN: caller may not operate this terminal session');
             break;
           }
-          const renamed = tm.renameSession(targetId, p.name || '');
+          const renamed = await tm.renameSession(targetId, p.name || '');
           const sessions = this.visibleTerminalSessions(tm.listSessions(), mobileGrant);
           respond(renamed, {
             renamed,
@@ -2696,7 +2788,12 @@ export class BridgeServer {
               break;
             }
           }
-          await tm.restart(p.cwd);
+          // Same ownership rule as terminalNewSession above: a restart through a bridge socket is an
+          // agent mint. The replaced record keeps its own owner, and a restart that has to spawn the
+          // manager's first record takes this key instead of the ambient one — never a project window's.
+          await this.holdProcessAdmission('terminalRestart', () =>
+            tm.restart(p.cwd, agentTerminalOwnerKey(this.boundTabIdFor(boundAttachmentId)))
+          );
           respond(true, { restarted: true });
           break;
         }
@@ -2713,10 +2810,12 @@ export class BridgeServer {
           }
           const cols = Number(p.cols) || 80;
           const rows = Number(p.rows) || 24;
+          // The daemon-backed facade answers asynchronously: an unawaited resize would report
+          // success for a resize the host refused and leave its rejection unhandled.
           if (p.sessionId) {
-            tm.resizeTo(p.sessionId, cols, rows);
+            await tm.resizeTo(p.sessionId, cols, rows);
           } else {
-            tm.resize(cols, rows);
+            await tm.resize(cols, rows);
           }
           respond(true, { resized: true, cols, rows });
           break;
@@ -2724,35 +2823,63 @@ export class BridgeServer {
 
         case 'getTabs':
         case 'antifan.getTabs': {
+          // Both halves of this snapshot come from one host, so a caller is never handed one
+          // window's tab list beside another window's active tab. Attachment-authenticated
+          // sockets are refused above, before reaching it: an agent names its own target, it is
+          // never shown the foreground tab.
           respond(true, { tabs: this.tabHost.getTabList(), activeTabId: this.tabHost.getActiveTabId() });
           break;
         }
 
         case 'getDOM':
         case 'antifan.getDOM': {
-          const dom = await this.tabHost.getDom(p.selector, p.tabId, p.paneId);
-          respond(true, { html: dom });
+          const targetTabId = (typeof p.tabId === 'string' && p.tabId.trim())
+            ? p.tabId.trim()
+            : (this.boundTabIdFor(boundAttachmentId) || this.tabHost.getActiveTabId?.() || undefined);
+          const release = this.admitDirectRpcOperation('antifan.getDOM', targetTabId);
+          try {
+            const dom = await this.tabHost.getDom(p.selector, p.tabId, p.paneId);
+            respond(true, { html: dom });
+          } finally {
+            release();
+          }
           break;
         }
 
         case 'captureScreenshot':
         case 'antifan.captureScreenshot': {
-          const imageBase64 = await this.tabHost.captureScreenshot(p.tabId, p.paneId);
-          if (!imageBase64 || imageBase64.length === 0) {
-            // A target with no live compositor surface yields an empty capture; reporting it as
-            // a successful capture would hand clients a 0-byte image.
-            const message = 'Failed to capture a non-empty screenshot: the target has no live compositor surface';
-            respond(false, { code: 'TARGET_STALE', message }, `TARGET_STALE: ${message}`);
-            break;
+          const targetTabId = (typeof p.tabId === 'string' && p.tabId.trim())
+            ? p.tabId.trim()
+            : (this.boundTabIdFor(boundAttachmentId) || this.tabHost.getActiveTabId?.() || undefined);
+          const release = this.admitDirectRpcOperation('antifan.captureScreenshot', targetTabId);
+          try {
+            const imageBase64 = await this.tabHost.captureScreenshot(p.tabId, p.paneId);
+            if (!imageBase64 || imageBase64.length === 0) {
+              // A target with no live compositor surface yields an empty capture; reporting it as
+              // a successful capture would hand clients a 0-byte image.
+              const message = 'Failed to capture a non-empty screenshot: the target has no live compositor surface';
+              respond(false, { code: 'TARGET_STALE', message }, `TARGET_STALE: ${message}`);
+              break;
+            }
+            respond(true, { imageBase64 });
+          } finally {
+            release();
           }
-          respond(true, { imageBase64 });
           break;
         }
 
         case 'evalJS':
         case 'antifan.evalJS': {
-          const result = await this.tabHost.evalJs(p.expression, p.tabId, p.paneId);
-          respond(true, { result });
+          const targetTabId = (typeof p.tabId === 'string' && p.tabId.trim())
+            ? p.tabId.trim()
+            : (this.boundTabIdFor(boundAttachmentId) || this.tabHost.getActiveTabId?.() || undefined);
+          const release = this.admitDirectRpcOperation('antifan.evalJS', targetTabId);
+          try {
+            const result = await this.tabHost.evalJs(p.expression, p.tabId, p.paneId);
+            respond(true, { result });
+          } finally {
+            release();
+          }
           break;
         }
         case 'persistTabs':
@@ -2919,8 +3046,148 @@ export class BridgeServer {
           respond(false, undefined, `Unknown bridge method: ${method}`);
       }
     } catch (err: unknown) {
+      if (err instanceof CapabilityError) {
+        respond(false, { code: err.code, message: err.message, details: err.details }, `${err.code}: ${err.message}`);
+        return;
+      }
       const errorMsg = err instanceof Error ? err.message : String(err);
       respond(false, undefined, errorMsg);
+    }
+  }
+  private getEffectiveAdmission(): PageCloseAdmission | undefined {
+    if (this.closeAdmission) return this.closeAdmission;
+    const hostSeam = this.tabHost as unknown as { closeAdmission?: PageCloseAdmission };
+    return hostSeam.closeAdmission;
+  }
+
+  private assertApplicationAdmitsWork(surface: string): void {
+    const admission = this.getEffectiveAdmission();
+    if (!admission) return;
+    let applicationReserved = false;
+    try {
+      if (typeof admission.isApplicationAdmissionReserved === 'function') {
+        applicationReserved = Boolean(admission.isApplicationAdmissionReserved());
+      }
+    } catch (err) {
+      const cause = err instanceof Error ? err.message : String(err);
+      throw new CapabilityError(
+        'RUNTIME_DRAINING',
+        `${surface} refused: the application admission state could not be read (${cause}); no new work is admitted while it is unknown. Retry shortly.`,
+        { applicationAdmissionUnreadable: true }
+      );
+    }
+    if (applicationReserved) {
+      throw new CapabilityError(
+        'RUNTIME_DRAINING',
+        `${surface} refused: the application is quitting and admits no new work. Retry once the quit finishes or is refused.`,
+        { applicationQuitting: true }
+      );
+    }
+  }
+
+  private admitDirectRpcOperation(surface: string, tabId?: string): () => void {
+    this.assertApplicationAdmitsWork(surface);
+    const admission = this.getEffectiveAdmission();
+    if (!admission) return () => {};
+
+    const hostSeam = this.tabHost as unknown as { automationTabId?: string };
+    const target = tabId || hostSeam.automationTabId || '';
+    if (target) {
+      let pageReserved = false;
+      try {
+        if (typeof admission.isPageReserved === 'function') {
+          pageReserved = Boolean(admission.isPageReserved(target));
+        }
+      } catch (err) {
+        const cause = err instanceof Error ? err.message : String(err);
+        throw new CapabilityError(
+          'TARGET_STALE',
+          `${surface} refused on tab '${target}': the close reservation could not be read (${cause}). Retry, or rebind to a live tab.`,
+          { tabId: target, closeReservationUnreadable: true }
+        );
+      }
+      if (pageReserved) {
+        throw new CapabilityError(
+          'TARGET_STALE',
+          `${surface} refused: page '${target}' is reserved for close`,
+          { tabId: target, reservedForClose: true }
+        );
+      }
+    }
+
+    if (typeof admission.beginAdmittedOperation !== 'function') return () => {};
+    // Attributed to the page AND to its window's owner. A page count alone is invisible to a
+    // shell close when the target is an offscreen or ephemeral tab: those are not member pages
+    // of any shell, so the window would be torn down while this operation is still in flight
+    // and the close report would call it clean.
+    const release = admission.beginAdmittedOperation(
+      target ? [target] : undefined,
+      target ? this.hostWindowOwnerKey() : undefined
+    );
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      try {
+        release();
+      } catch (err) {
+        console.warn(`[close-admission] release failed for ${surface}:`, err);
+      }
+    };
+  }
+
+  /**
+   * The owner key of the window this host presents — the identity a shell-scope close
+   * attempt for it carries — or undefined when the host cannot answer.
+   *
+   * Read for the owner half of an admitted operation's attribution. A host whose seam
+   * predates that attribution, or a test double standing in for one, names no owner and
+   * the operation stays attributed to its page alone.
+   */
+  private hostWindowOwnerKey(): string | undefined {
+    const host = this.tabHost as unknown as { windowOwnerKey?: () => unknown };
+    if (typeof host.windowOwnerKey !== 'function') return undefined;
+    const key = host.windowOwnerKey();
+    return typeof key === 'string' && key.trim().length > 0 ? key : undefined;
+  }
+
+  /**
+   * Admit one operation that belongs to the process rather than to a page.
+   *
+   * The terminal RPCs mint inside the daemon after the call resolves, so an assert that
+   * happens before the await proves nothing about the moment the PTY exists. This asserts and
+   * registers in one synchronous step, and the registration is process-wide on purpose: these
+   * RPCs name no page, and attributing them to `automationTabId` or the active tab — what
+   * `admitDirectRpcOperation` falls back to for a call with no explicit target — would refuse
+   * an unrelated page's close for a write that never reached it.
+   */
+  private admitProcessOperation(surface: string): () => void {
+    this.assertApplicationAdmitsWork(surface);
+    const admission = this.getEffectiveAdmission();
+    if (!admission || typeof admission.beginAdmittedOperation !== 'function') return () => {};
+    const release = admission.beginAdmittedOperation();
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      try {
+        release();
+      } catch (err) {
+        console.warn(`[close-admission] release failed for ${surface}:`, err);
+      }
+    };
+  }
+
+  /**
+   * Run one bridge operation under a process-scoped admission, held until the work settles:
+   * a PTY minted inside the daemon is only measurable by the close gate this way.
+   */
+  private async holdProcessAdmission<T>(surface: string, work: () => T | Promise<T>): Promise<T> {
+    const release = this.admitProcessOperation(surface);
+    try {
+      return await work();
+    } finally {
+      release();
     }
   }
   /**
@@ -2983,6 +3250,35 @@ export class BridgeServer {
       return list.some((tab: unknown) => tab && typeof tab === 'object' && (tab as { id?: unknown }).id === tabId);
     }
     return true;
+  }
+
+  /**
+   * The tab an attachment-bound invocation is pinned to, or undefined when it holds no
+   * live target. The answer comes from the caller's own record, so a binding that was
+   * revoked — or a tab that has since closed — can never be served from another
+   * window's tab.
+   */
+  private boundTabIdFor(attachmentId?: string | null): string | undefined {
+    if (!attachmentId) return undefined;
+    const registry = this.attachmentRegistry || this.controlPlaneRuntime?.runs?.attachments;
+    const record = registry ? registry.getRecord(attachmentId) : undefined;
+    const boundTabId = record?.tabId || record?.browserTarget?.tabId;
+    return boundTabId && this.hostTabExists(boundTabId) ? boundTabId : undefined;
+  }
+
+  /**
+   * The active-tab answer an agent-plane caller may be handed: its own authenticated
+   * target, or a refusal naming the missing explicit target. A zero-argument
+   * "active tab" query is never answered from the focused window, because an agent's
+   * authority is its attachment, not the tab the user happens to be looking at.
+   */
+  private agentPlaneActiveTab(attachmentId?: string | null): { tabId?: string; refusal?: string } {
+    const boundTabId = this.boundTabIdFor(attachmentId);
+    if (boundTabId) return { tabId: boundTabId };
+    return {
+      refusal:
+        'TARGET_REQUIRED: this invocation named no tabId and its attachment holds no live bound target; the foreground tab of a window is not a substitute for agent authority',
+    };
   }
 
   /**
@@ -3449,12 +3745,16 @@ export class BridgeServer {
     }
   }
 
-  public getStatus(): AntiFanBridgeStatus {
+  public getStatus(scope?: BridgeInvocationScope): BridgeStatusAnswer {
+    const answer = scope?.attachmentId
+      ? this.agentPlaneActiveTab(scope.attachmentId)
+      : { tabId: this.tabHost.getActiveTabId(), refusal: undefined };
     return {
       active: true,
       port: this.port,
       clientCount: this.clients.size,
-      activeTabId: this.tabHost.getActiveTabId(),
+      activeTabId: answer.tabId,
+      ...(answer.refusal ? { activeTabRefusal: answer.refusal } : {}),
       tabCount: this.tabHost.getTabList().length,
       inspecting: false,
     };

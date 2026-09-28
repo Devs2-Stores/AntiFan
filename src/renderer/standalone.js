@@ -11,6 +11,254 @@ if (isPopoutMode) {
 }
 
 // ---------------------------------------------------------------------------
+// Shell scope: one window, one project, one workspace.
+//
+// Main decides which project this shell shows and which workspace its terminals
+// belong to. This renderer only paints that decision, and it passes the workspace back
+// explicitly when it creates a terminal: leaving the cwd implicit lets the main process
+// fall back to its one global "current workspace", which is how a terminal started in
+// window B lands in window A's project after focus moves.
+//
+// Precedence is deliberately staged. `projectWindow` is the shell-scoped projection;
+// `workspacePath`/`activeWorkspace` are the older per-surface fields Main already sends.
+// Neither is guessed here — an absent identity simply draws nothing.
+// ---------------------------------------------------------------------------
+const shellScope = {
+  ownerKind: '',      // 'project' | 'unassigned' | '' while Main has not described the shell
+  projectId: '',
+  title: '',
+  pathLabel: '',
+  workspacePath: '',
+};
+let shellScopeChip = null;
+let shellScopeTitleEl = null;
+let shellScopePathEl = null;
+let shellScopeStatusEl = null;
+let shellScopeOpenProjectBtn = null;
+let shellScopeStatusTimer = null;
+
+/**
+ * Read the identity and workspace Main reported for this shell into `shellScope` and
+ * repaint the header chip. Unrecognized shapes leave the shell scope unset rather than
+ * half-populated from fields that were not meant to carry it.
+ */
+function applyShellScope(source) {
+  const state = source && typeof source === 'object' ? source : null;
+  const identity = state && state.projectWindow && typeof state.projectWindow === 'object' ? state.projectWindow : null;
+  const owner = identity && identity.owner && typeof identity.owner === 'object' ? identity.owner : null;
+
+  shellScope.ownerKind = '';
+  shellScope.projectId = '';
+  shellScope.title = '';
+  shellScope.pathLabel = '';
+  if (owner && owner.kind === 'project' && typeof owner.projectId === 'string' && owner.projectId) {
+    shellScope.ownerKind = 'project';
+    shellScope.projectId = owner.projectId;
+    shellScope.title = typeof identity.title === 'string' ? identity.title : '';
+    shellScope.pathLabel = typeof identity.pathLabel === 'string' ? identity.pathLabel : '';
+  } else if (owner && owner.kind === 'unassigned') {
+    shellScope.ownerKind = 'unassigned';
+    shellScope.title = typeof identity.title === 'string' ? identity.title : '';
+    shellScope.pathLabel = typeof identity.pathLabel === 'string' ? identity.pathLabel : '';
+  }
+
+  const scopedWorkspace = identity && typeof identity.workspacePath === 'string' && identity.workspacePath
+    ? identity.workspacePath
+    : '';
+  const legacyWorkspace = typeof state?.workspacePath === 'string' && state.workspacePath
+    ? state.workspacePath
+    : (typeof state?.activeWorkspace === 'string' ? state.activeWorkspace : '');
+  shellScope.workspacePath = scopedWorkspace || legacyWorkspace;
+
+  renderShellScopeChip();
+}
+
+/**
+ * What the header chip shows for a described shell. The decision lives in one place because
+ * it is what makes "Open Project" reachable at all: a project window is the only window this
+ * build boots, so a chip that offered the action only in an Unassigned shell — a shell no
+ * launch path creates — would leave the action unreachable in every window the user can have.
+ *
+ * Only the described/un-described distinction matters here. Which project to open is never
+ * this renderer's decision: the request carries no id, and Main answers with its own picker.
+ */
+function shellScopeActionPlan(scope) {
+  const described = Boolean(scope && scope.ownerKind);
+  return { chipVisible: described, openProjectVisible: described };
+}
+
+/**
+ * The header chip names the shell's project and offers the explicit Open Project action in
+ * every described shell: the project is this window's own, and the action opens another one
+ * in its own window with its own tabs and terminals.
+ */
+function renderShellScopeChip() {
+  const heading = document.querySelector('header .heading') || document.querySelector('.standalone header');
+  if (!heading) return;
+  if (!shellScopeChip) {
+    shellScopeChip = document.createElement('div');
+    shellScopeChip.id = 'shellScopeChip';
+    shellScopeChip.className = 'shell-scope-chip';
+    shellScopeChip.setAttribute('role', 'group');
+    shellScopeChip.setAttribute('aria-label', 'Dự án của cửa sổ này');
+    shellScopeChip.setAttribute('style', 'display:flex;align-items:center;gap:5px;margin-left:10px;height:20px;max-width:230px;padding:0 7px;border-radius:6px;background:rgba(56,189,248,0.10);border:1px solid rgba(56,189,248,0.35);font-size:10px;color:#e2e8f0;overflow:hidden;white-space:nowrap;');
+    shellScopeTitleEl = document.createElement('span');
+    shellScopeTitleEl.id = 'shellScopeTitle';
+    shellScopeTitleEl.setAttribute('style', 'font-weight:600;overflow:hidden;text-overflow:ellipsis;');
+    shellScopePathEl = document.createElement('span');
+    shellScopePathEl.id = 'shellScopePath';
+    shellScopePathEl.setAttribute('style', 'color:#64748b;overflow:hidden;text-overflow:ellipsis;max-width:110px;');
+    shellScopeStatusEl = document.createElement('span');
+    shellScopeStatusEl.id = 'shellScopeStatus';
+    shellScopeStatusEl.setAttribute('role', 'status');
+    shellScopeStatusEl.setAttribute('aria-live', 'polite');
+    shellScopeStatusEl.setAttribute('style', 'overflow:hidden;text-overflow:ellipsis;max-width:150px;');
+    shellScopeOpenProjectBtn = document.createElement('button');
+    shellScopeOpenProjectBtn.id = 'btnOpenProject';
+    shellScopeOpenProjectBtn.type = 'button';
+    shellScopeOpenProjectBtn.textContent = 'Mở dự án…';
+    shellScopeOpenProjectBtn.setAttribute('title', 'Mở một dự án trong cửa sổ riêng');
+    shellScopeOpenProjectBtn.setAttribute('style', 'height:16px;padding:0 6px;border-radius:5px;border:1px solid rgba(148,163,184,0.5);background:transparent;color:#cbd5e1;font-size:10px;cursor:pointer;');
+    shellScopeOpenProjectBtn.addEventListener('click', () => { void openProjectFromScope(); });
+    shellScopeChip.appendChild(shellScopeTitleEl);
+    shellScopeChip.appendChild(shellScopePathEl);
+    shellScopeChip.appendChild(shellScopeStatusEl);
+    shellScopeChip.appendChild(shellScopeOpenProjectBtn);
+    heading.appendChild(shellScopeChip);
+  }
+
+  const plan = shellScopeActionPlan(shellScope);
+  if (!plan.chipVisible) {
+    // Main has not described this shell: showing "Unassigned" here would be this
+    // renderer naming a project state it cannot see.
+    shellScopeChip.style.display = 'none';
+    shellScopeChip.removeAttribute('title');
+    if (shellScopeOpenProjectBtn) shellScopeOpenProjectBtn.style.display = 'none';
+    return;
+  }
+
+  const title = shellScope.title || (shellScope.ownerKind === 'project' ? shellScope.projectId : 'Unassigned');
+  shellScopeChip.style.display = 'flex';
+  shellScopeChip.classList.toggle('unassigned', shellScope.ownerKind === 'unassigned');
+  shellScopeChip.title = shellScope.pathLabel ? `${title} — ${shellScope.pathLabel}` : title;
+  shellScopeTitleEl.textContent = title;
+  shellScopePathEl.textContent = shellScope.pathLabel || '';
+  if (shellScopeOpenProjectBtn) {
+    shellScopeOpenProjectBtn.style.display = plan.openProjectVisible ? 'inline-flex' : 'none';
+  }
+}
+
+/**
+ * The explicit user intention to open a project. It never carries a project id: which
+ * project the user meant is Main's answer to give, and a renderer that sent its own window's
+ * id would turn "open another project" into "focus the one I am already in". The outcome is
+ * reported from what Main answers, never inferred from the click.
+ */
+async function openProjectFromScope() {
+  if (!api?.openProject) {
+    reportShellScope('preload thiếu openProject', true);
+    return;
+  }
+  try {
+    const result = await api.openProject();
+    const status = result && typeof result === 'object' ? result.status : '';
+    if (status === 'OPENED') reportShellScope(`Đã mở ${result.projectId}`, false);
+    else if (status === 'FOCUSED') reportShellScope(`Đã chuyển tới ${result.projectId}`, false);
+    else if (status === 'FAILED') reportShellScope(projectOpenFailureText(result.reason), true);
+    // CANCELLED needs no message: the user closed the picker themselves.
+  } catch (err) {
+    reportShellScope(err instanceof Error ? err.message : String(err), true);
+  }
+}
+
+/**
+ * A refusal in the user's language. Main answers with the machine reason it recorded, which
+ * is the right value on the wire and the wrong thing to show next to a button, so the codes
+ * this surface can cause are named here and anything else is shown verbatim rather than
+ * replaced by a guess.
+ */
+function projectOpenFailureText(reason) {
+  if (reason === 'PROJECT_FOLDER_INVALID') return 'Thư mục không hợp lệ hoặc không truy cập được';
+  if (reason === 'AMBIGUOUS_PROJECT_FOLDER') return 'Nhiều dự án cùng dùng thư mục này';
+  if (reason === 'UNKNOWN_PROJECT') return 'Dự án này không còn tồn tại';
+  if (reason === 'INVALID_PROJECT_ID') return 'Mã dự án không hợp lệ';
+  return typeof reason === 'string' && reason ? reason : 'không rõ nguyên nhân';
+}
+
+/**
+ * Show the last Open Project outcome inside the chip itself. The header is the only
+ * surface this renderer owns, and a failed open that reported nowhere would look
+ * exactly like a click that did nothing.
+ */
+function reportShellScope(message, isError) {
+  if (!shellScopeStatusEl) return;
+  shellScopeStatusEl.textContent = message;
+  shellScopeStatusEl.style.color = isError ? '#f87171' : '#86efac';
+  clearTimeout(shellScopeStatusTimer);
+  shellScopeStatusTimer = setTimeout(() => {
+    shellScopeStatusEl.textContent = '';
+  }, 6000);
+}
+
+let terminalNoticeEl = null;
+let terminalNoticeTimer = null;
+
+/**
+ * Show a terminal-command refusal inside the panel the command was issued from.
+ *
+ * The shell chip is not a usable surface for this: Main hides it outright for a shell whose owner
+ * it has not described (`renderShellScopeChip`), so a refusal reported there can be painted into an
+ * element the user cannot see. This notice is created on demand in the panel itself, so it exists
+ * whether or not the header knows what the shell belongs to.
+ */
+function showTerminalNotice(message) {
+  if (!terminalNoticeEl) {
+    terminalNoticeEl = document.createElement('div');
+    terminalNoticeEl.id = 'terminalNotice';
+    terminalNoticeEl.setAttribute('role', 'status');
+    // Inline like the chip's own container: the notice must be readable even when the stylesheet
+    // that ships with the panel is not what painted this shell.
+    terminalNoticeEl.setAttribute(
+      'style',
+      'position:fixed;top:10px;right:12px;z-index:60;max-width:min(440px,70%);padding:8px 10px;'
+      + 'border-radius:8px;border:1px solid rgba(248,113,113,0.55);background:rgba(69,10,10,0.94);'
+      + 'color:#fecaca;font-size:11px;line-height:1.35;box-shadow:0 6px 18px rgba(0,0,0,0.35);'
+      + 'display:none;pointer-events:none;word-break:break-word;',
+    );
+    document.body.appendChild(terminalNoticeEl);
+  }
+  terminalNoticeEl.textContent = message;
+  terminalNoticeEl.style.display = 'block';
+  clearTimeout(terminalNoticeTimer);
+  terminalNoticeTimer = setTimeout(() => {
+    if (terminalNoticeEl) terminalNoticeEl.style.display = 'none';
+  }, 8000);
+}
+
+/**
+ * Run a terminal-creation request against Main and say why nothing appeared when it refuses.
+ *
+ * Session creation lives on the main side, so a rejection is the only explanation this renderer
+ * ever gets: ignoring it made the button inert with nothing said anywhere, which is a dead click
+ * the user has no way to diagnose.
+ */
+async function createTerminal() {
+  if (!api?.newTerminal) {
+    showTerminalNotice('Không tạo được Terminal: preload thiếu newTerminal');
+    return;
+  }
+  try {
+    // Explicit cwd: Main must not fall back to one global current workspace, or a terminal
+    // started in this window can land in another project's directory.
+    await api.newTerminal(shellScope.workspacePath || undefined);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    showTerminalNotice(`Không tạo được Terminal: ${message}`);
+    console.error('[terminal] newTerminal refused:', message);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Terminal tab-strip layout: horizontal strip (default) <-> vertical sidebar.
 //
 // The durable preference is owned by the main process: it is validated by
@@ -2393,7 +2641,7 @@ function updateEmptyStateDisplay(hasSessions) {
     `;
     mainPane.appendChild(emptyEl);
     emptyEl.querySelector('#btnEmptyCreateTerminal')?.addEventListener('click', () => {
-      api?.newTerminal();
+      void createTerminal();
     });
   }
 }
@@ -2405,7 +2653,7 @@ const splitButton = document.getElementById('btnSplitTerminal') || document.getE
 if (btnNewTerminal) {
   btnNewTerminal.onclick = (e) => {
     e.stopPropagation();
-    api?.newTerminal();
+    void createTerminal();
   };
 }
 
@@ -3379,7 +3627,7 @@ contextMenu?.querySelectorAll('.context-item').forEach((item) => {
         if (activeId === targetId) unmountSplit();
       }
     } else if (action === 'new') {
-      api?.newTerminal();
+      void createTerminal();
     } else if (action === 'sleep') {
       // Sleeping an already-sleeping tab is a no-op: main would have nothing to
       // release, and the round-trip only risks a redundant broadcast.
@@ -3439,9 +3687,12 @@ function activateTabLocally(targetId) {
     el.classList.toggle('active', el.getAttribute('data-session-id') === activeId);
   });
   syncTerminalPool(sessions, activeId);
-  if (!isPopoutMode) {
-    api?.switchTerminal(targetId);
-  }
+  // A popout is a second surface on the same window, not a shell of its own: selecting a tab here
+  // is this window's selection, and main holds the one active session every surface follows. The
+  // report is also what keeps a popout's own binding current, so a route that resolves "this
+  // window's session" resolves to what the user is looking at. Only a selection reports: traffic
+  // stays out of this path (a gap recovered by an ack never repoints anything).
+  api?.switchTerminal(targetId);
 }
 
 function startInlineRename(sessionId, tabWrapEl, titleSpanEl) {
@@ -4856,7 +5107,11 @@ async function bootstrapTerminalState() {
   let initialCwd = undefined;
   try {
     const s = await api?.getInitialState?.();
-    initialCwd = s?.workspacePath || s?.activeWorkspace;
+    // The shell's own project/workspace arrives here; every terminal this surface
+    // creates is scoped by it rather than by whatever the main process considers
+    // globally active.
+    applyShellScope(s);
+    initialCwd = shellScope.workspacePath || undefined;
     // Paint the persisted tab-strip layout before the first terminal mounts, so
     // the initial grid geometry is the user's rather than a horizontal-then-reflow
     // flash. The main process already validated and clamped these values.
@@ -4902,7 +5157,7 @@ async function bootstrapTerminalState() {
         syncTerminalPool(sessions, activeId);
       }
     } else if (api?.newTerminal) {
-      await api.newTerminal();
+      await createTerminal();
     }
   } catch {}
 }

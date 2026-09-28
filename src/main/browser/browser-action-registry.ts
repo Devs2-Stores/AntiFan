@@ -17,7 +17,54 @@ export interface ActionDefinition<TParams = Record<string, any>, TResult = any> 
     properties: Record<string, { type: string; description: string; enum?: string[]; items?: { type: string } }>;
     required?: string[];
   };
-  handler: (params: TParams, context: { tabHost: NativeTabHost }) => Promise<TResult> | TResult;
+  handler: (params: TParams, context: ActionContext) => Promise<TResult> | TResult;
+}
+
+/**
+ * The context an action runs in. `boundTabId` is the authenticated target the
+ * invocation arrived on: an agent call that names no tab is answered from here,
+ * never from whichever window happens to be presenting a tab.
+ */
+export interface ActionContext {
+  tabHost: NativeTabHost;
+  boundTabId?: string | null;
+}
+
+/** Who is invoking an action. Only an agent caller carries a bound target. */
+export interface ActionInvocationScope {
+  /** The tab this invocation is authenticated for, when the caller is an agent. */
+  boundTabId?: string | null;
+}
+
+/**
+ * The tab a zero-argument action acts on. An explicit parameter wins; otherwise the
+ * invocation's own bound target answers. A caller with neither is refused by name:
+ * falling back to the host's presented tab is what let a session in one project
+ * window operate on another window's tab.
+ */
+function resolveInvocationTabId(actionName: string, params: { tabId?: unknown } | undefined, boundTabId?: string | null): string {
+  const explicit = typeof params?.tabId === 'string' ? params.tabId.trim() : '';
+  if (explicit) return explicit;
+  const bound = typeof boundTabId === 'string' ? boundTabId.trim() : '';
+  if (bound) return bound;
+  throw new CapabilityError(
+    'TARGET_REQUIRED',
+    `TARGET_REQUIRED: "${actionName}" was called without an explicit tabId and this invocation carries no authenticated bound target; refusing to act on a window's active tab`
+  );
+}
+
+/**
+ * The active-tab answer an action result may carry. An agent invocation is answered
+ * from its bound target; with no bound target the field is null and the reason
+ * travels beside it, so a result never reports a tab this caller cannot act on.
+ */
+function scopedActiveTabAnswer(actionName: string, boundTabId?: string | null): { activeTabId: string | null; activeTabRefusal?: string } {
+  const bound = typeof boundTabId === 'string' ? boundTabId.trim() : '';
+  if (bound) return { activeTabId: bound };
+  return {
+    activeTabId: null,
+    activeTabRefusal: `TARGET_REQUIRED: "${actionName}" carries no explicit tabId and no authenticated bound target; refusing to report a window's active tab`,
+  };
 }
 
 export class BrowserActionRegistry {
@@ -66,7 +113,7 @@ export class BrowserActionRegistry {
     return tools;
   }
 
-  public async execute(actionName: string, params: Record<string, any> = {}, allowHighRisk = false): Promise<any> {
+  public async execute(actionName: string, params: Record<string, any> = {}, allowHighRisk = false, scope?: ActionInvocationScope): Promise<any> {
     const action = this.actions.get(actionName);
     if (!action) {
       throw new Error(`Unknown browser action: ${actionName}`);
@@ -76,7 +123,7 @@ export class BrowserActionRegistry {
       throw new Error(`Action "${actionName}" is high-risk and is currently disabled.`);
     }
 
-    return await action.handler(params, { tabHost: this.tabHost });
+    return await action.handler(params, { tabHost: this.tabHost, boundTabId: scope?.boundTabId ?? null });
   }
 
   private registerCoreActions(): void {
@@ -139,10 +186,10 @@ export class BrowserActionRegistry {
         type: 'object',
         properties: {},
       },
-      handler: (_params: Record<string, any>, { tabHost }) => {
+      handler: (_params: Record<string, any>, { tabHost, boundTabId }) => {
         return {
           tabs: tabHost.getTabList(),
-          activeTabId: tabHost.getActiveTabId(),
+          ...scopedActiveTabAnswer('listTabs', boundTabId),
         };
       },
     });
@@ -199,8 +246,8 @@ export class BrowserActionRegistry {
         },
         required: ['url'],
       },
-      handler: (params: { url: string; tabId?: string }, { tabHost }) => {
-        const targetTabId = params.tabId || tabHost.getActiveTabId();
+      handler: (params: { url: string; tabId?: string }, { tabHost, boundTabId }) => {
+        const targetTabId = resolveInvocationTabId('navigate', params, boundTabId);
         const ok = tabHost.navigate(targetTabId, params.url);
         return { navigated: ok, success: ok };
       },
@@ -218,8 +265,8 @@ export class BrowserActionRegistry {
           tabId: { type: 'string', description: 'Optional Tab ID' },
         },
       },
-      handler: (params: { tabId?: string }, { tabHost }) => {
-        const targetTabId = params.tabId || tabHost.getActiveTabId();
+      handler: (params: { tabId?: string }, { tabHost, boundTabId }) => {
+        const targetTabId = resolveInvocationTabId('reload', params, boundTabId);
         const ok = tabHost.reload(targetTabId);
         return { reloaded: ok, success: ok };
       },
@@ -236,8 +283,8 @@ export class BrowserActionRegistry {
           tabId: { type: 'string', description: 'Optional Tab ID' },
         },
       },
-      handler: (params: { tabId?: string }, { tabHost }) => {
-        const targetTabId = params.tabId || tabHost.getActiveTabId();
+      handler: (params: { tabId?: string }, { tabHost, boundTabId }) => {
+        const targetTabId = resolveInvocationTabId('goBack', params, boundTabId);
         const ok = tabHost.goBack(targetTabId);
         return { wentBack: ok, success: ok };
       },
@@ -254,8 +301,8 @@ export class BrowserActionRegistry {
           tabId: { type: 'string', description: 'Optional Tab ID' },
         },
       },
-      handler: (params: { tabId?: string }, { tabHost }) => {
-        const targetTabId = params.tabId || tabHost.getActiveTabId();
+      handler: (params: { tabId?: string }, { tabHost, boundTabId }) => {
+        const targetTabId = resolveInvocationTabId('goForward', params, boundTabId);
         const ok = tabHost.goForward(targetTabId);
         return { wentForward: ok, success: ok };
       },
@@ -343,14 +390,13 @@ export class BrowserActionRegistry {
         type: 'object',
         properties: {},
       },
-      handler: (_params: Record<string, any>, { tabHost }) => {
+      handler: (_params: Record<string, any>, { tabHost, boundTabId }) => {
         const tabs = tabHost.getTabList();
-        const activeTabId = tabHost.getActiveTabId();
         return {
           active: true,
           port: 20129,
           clientCount: 0,
-          activeTabId,
+          ...scopedActiveTabAnswer('getStatus', boundTabId),
           tabCount: tabs.length,
           inspecting: false,
         };

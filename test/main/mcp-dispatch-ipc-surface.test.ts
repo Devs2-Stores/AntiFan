@@ -23,7 +23,13 @@ import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-
+import { NativeTabHost } from '../../src/main/browser/native-tab-host';
+import {
+  listRegisteredChromeChannels,
+  ChromeSurfaceMismatchError,
+  UnknownChromeSenderError,
+} from '../../src/main/browser/ipc-router';
+import { createChromeRouteHarness } from '../support/chrome-route-harness';
 const root = fs.existsSync(path.join(process.cwd(), 'src'))
   ? process.cwd()
   : path.resolve(__dirname, '..', '..');
@@ -135,22 +141,23 @@ const FORBIDDEN_PAYLOAD_TOKENS = [
 
 describe('MCP dispatch IPC delivery surface', () => {
   describe('channel existence and the gated handler (source text)', () => {
-    it('registers antifan:mcp-dispatch:get-state inside the core-health IPC block', () => {
-      const source = fs.readFileSync(NATIVE_TAB_HOST_PATH, 'utf8');
+    it('registers antifan:mcp-dispatch:get-state in the chrome route table for the toolbar surface', () => {
+      // The fake host is a test double; cast with as unknown as NativeTabHost (harness never touches host internals)
+      const fakeHost = { name: 'mcp-dispatch-test-host' } as unknown as NativeTabHost;
+      createChromeRouteHarness({ host: fakeHost });
+
+      const registered = listRegisteredChromeChannels();
       assert.ok(
-        source.includes(`ipcMain.handle('${CHANNEL}'`),
-        `native-tab-host.ts must register '${CHANNEL}'`,
+        registered.includes(CHANNEL),
+        `'${CHANNEL}' must be present in listRegisteredChromeChannels()`,
       );
 
-      const coreHealthTrace = source.indexOf("ipcMain.handle('antifan:core-health:get-task-run-trace'");
-      const dispatchHandler = source.indexOf(`ipcMain.handle('${CHANNEL}'`);
-      const capsuleList = source.indexOf("ipcMain.handle('antifan:capsule:list'");
-      assert.ok(coreHealthTrace > 0, 'the core-health trace handler must exist as the anchor');
-      assert.ok(dispatchHandler > 0, 'the dispatch handler must exist');
-      assert.ok(capsuleList > 0, 'the capsule:list handler must exist as the closing anchor');
+      const route = NativeTabHost.CHROME_ROUTES.find((r) => r.channel === CHANNEL);
+      assert.ok(route, `route for '${CHANNEL}' must exist in NativeTabHost.CHROME_ROUTES`);
+      const allowed = Array.isArray(route.surface) ? route.surface : [route.surface];
       assert.ok(
-        dispatchHandler > coreHealthTrace && dispatchHandler < capsuleList,
-        'the dispatch handler must sit immediately after the core-health block and before antifan:capsule:list',
+        allowed.includes('toolbar'),
+        `route '${CHANNEL}' must declare the toolbar surface (declared: ${allowed.join(', ')})`,
       );
     });
 
@@ -177,42 +184,38 @@ describe('MCP dispatch IPC delivery surface', () => {
       );
     });
 
-    it('makes the sender gate the handler first statement and never returns null', () => {
-      const source = fs.readFileSync(NATIVE_TAB_HOST_PATH, 'utf8');
-      const handlerStart = source.indexOf(`ipcMain.handle('${CHANNEL}'`);
-      const handlerEnd = source.indexOf("ipcMain.handle('antifan:capsule:list'", handlerStart);
-      // Bounded by the NEXT handler, not by a character count: a slice that is too short silently
-      // stops asserting the tail of the handler (it did, at 900 chars, once a comment was added).
-      const handlerRegion = source.slice(handlerStart, handlerEnd > handlerStart ? handlerEnd : handlerStart + 2000);
-      assert.ok(handlerRegion.length > 0, 'the handler region must be extractable');
+    it('refuses an unknown sender with UNKNOWN_CHROME_SENDER before the route body runs', () => {
+      // The fake host is a test double; cast with as unknown as NativeTabHost (harness never touches host internals)
+      const fakeHost = { name: 'mcp-dispatch-test-host' } as unknown as NativeTabHost;
+      const harness = createChromeRouteHarness({ host: fakeHost });
+      const foreignSender = { id: 8888, isDestroyed: () => false, send: () => {} };
+      const foreignEvent = {
+        sender: foreignSender,
+        senderFrame: { url: 'file:///E:/Work/apps/AntiFan/src/renderer/toolbar.html', parent: null },
+      };
 
-      assert.match(
-        handlerRegion,
-        /async \(event\) => \{\s*if \(!isTrustedSessionVaultSender\(event\)\) \{/,
-        'isTrustedSessionVaultSender(event) must be the handler first statement',
+      assert.throws(
+        () => harness.invokeWithEvent(CHANNEL, foreignEvent),
+        (err: unknown) => {
+          assert.ok(err instanceof UnknownChromeSenderError, 'error must be UnknownChromeSenderError');
+          assert.equal(err.code, 'UNKNOWN_CHROME_SENDER');
+          return true;
+        },
       );
-      assert.ok(
-        !/return null/.test(handlerRegion),
-        'the refusal must never be null — the renderer must not distinguish null from a payload',
-      );
-      assert.match(
-        handlerRegion,
-        /return unmeasuredBoundaryEnvelope\(UnmeasuredReason\.SERVICE_FAILED, \['ipc-sender-not-trusted'\]/,
-        'the refusal must be a well-formed UNMEASURED envelope naming the cause in affected[]',
-      );
-      assert.match(
-        handlerRegion,
-        /try \{ return await getMcpDispatchService\(\)\.getState\(\); \}/,
-        'the success path must delegate to the service singleton',
-      );
-      assert.match(
-        handlerRegion,
-        /catch \{ return unmeasuredBoundaryEnvelope\(UnmeasuredReason\.SERVICE_FAILED/,
-        'the failure path must also return an UNMEASURED envelope instead of throwing at IPC',
-      );
-      assert.ok(
-        !/String\(err\)/.test(handlerRegion),
-        'a raw error message would carry an absolute path; affected[] takes closed tokens only',
+    });
+
+    it('refuses a sender resolved to the wrong surface with CHROME_SURFACE_MISMATCH before the route body runs', () => {
+      // The fake host is a test double; cast with as unknown as NativeTabHost (harness never touches host internals)
+      const fakeHost = { name: 'mcp-dispatch-test-host' } as unknown as NativeTabHost;
+      const harness = createChromeRouteHarness({ host: fakeHost, surface: 'sidebar' });
+
+      assert.throws(
+        () => harness.invoke(CHANNEL),
+        (err: unknown) => {
+          assert.ok(err instanceof ChromeSurfaceMismatchError, 'error must be ChromeSurfaceMismatchError');
+          assert.equal(err.code, 'CHROME_SURFACE_MISMATCH');
+          return true;
+        },
       );
     });
 

@@ -9,6 +9,7 @@ import { isBenchmarkEnabled, recordBenchmark } from '../benchmark/telemetry';
 import { StorageLocations } from '../config/storage-locations';
 import { TerminalWaitInput, TerminalWaitResult, CapabilityError } from '../../shared/control-plane-contracts';
 import { TerminalDeltaResult, TerminalJournalEntry, TerminalAckPayload, TerminalSyncViewResult } from '../../shared/contracts';
+import { ownerKey } from './window-owner';
 export function resolveScriptsDir(): string | undefined {
   let dir = __dirname;
   for (let i = 0; i < 6; i++) {
@@ -194,6 +195,13 @@ export class SessionRecord {
   public pty: pty.IPty | null = null;
   public splitOf?: string;
   public capsuleId: string;
+  /**
+   * The window owner this session belongs to. Deliberately separate from `capsuleId`, which
+   * stays the workspace-attribution field: two project windows may attach the same folder, so
+   * the capsule cannot decide which window's sidebar shows the row. A record written before
+   * owner keys existed has none, and keeps the capsule rule's visibility.
+   */
+  public ownerKey?: string;
   public disposed?: boolean;
   public lastSeq = 0;
   public sessionGeneration: number;
@@ -226,6 +234,7 @@ export class SessionRecord {
     id: string;
     cwd: string;
     capsuleId: string;
+    ownerKey?: string;
     sessionGeneration: number;
     name?: string;
     pty?: pty.IPty | null;
@@ -244,6 +253,7 @@ export class SessionRecord {
     this.name = fields.name ?? `Terminal ${fields.id.replace('terminal-', '')}`;
     this.cwd = fields.cwd;
     this.capsuleId = fields.capsuleId;
+    this.ownerKey = fields.ownerKey;
     this.sessionGeneration = fields.sessionGeneration;
     this.pty = fields.pty ?? null;
     this.restoredTail = fields.restoredTail;
@@ -338,6 +348,9 @@ type SavedSession = {
   buffer?: string;
   splitOf?: string;
   capsuleId?: string;
+  // Window owner the row belongs to; absent on a file written before owner keys
+  // existed, so those rows are restored without one and keep the capsule rule.
+  ownerKey?: string;
   cols?: number;
   rows?: number;
   // Sleep/archive metadata. `state` is written for every session so a session the
@@ -431,6 +444,21 @@ export interface SessionSummary {
   // htop, an agent TUI). That screen is not scrollback, so a viewer must offer the
   // transcript instead of pretending the history is there.
   altScreen?: boolean;
+  /**
+   * Workspace capsule the session was created in. It travels with the summary so a
+   * consumer that only sees summaries — the daemon-backed facade, which owns no
+   * session records — can still answer "whose session is this" without a second
+   * registry. Absent for a session minted before capsule provenance existed.
+   */
+  capsuleId?: string;
+  /**
+   * Window owner the session belongs to; the field a window's visibility rule matches first,
+   * before falling back to the capsule. It travels with the summary for the same reason
+   * `capsuleId` does: a consumer that only sees summaries — the daemon-backed facade, which
+   * owns no session records — must still be able to answer "whose session is this". Absent for
+   * a session written before owner keys existed, which keeps the capsule rule's visibility.
+   */
+  ownerKey?: string;
 }
 export interface TerminalManagerStats {
   sessionCount: number;
@@ -461,6 +489,8 @@ export interface TerminalSessionDiagnostics {
   splitOf?: string;
   altScreen: boolean;
   capsuleId: string;
+  /** Window owner the session belongs to; absent on a row written before owner keys existed. */
+  ownerKey?: string;
 }
 
 export interface TerminalSubscriberState {
@@ -596,6 +626,61 @@ export function safeSliceTailJsonBounded(str: string, maxJsonBytes: number): str
   const result = `${resetPrefix}${rawSlice}`;
   return result;
 }
+/**
+ * The capsule a session is stamped with when no window's verified workspace claimed it.
+ *
+ * A window that has no capsule of its own creates exactly these sessions, and it is how a
+ * window decides whether an untagged record is its own or belongs to some project: the
+ * capsules a project window is scoped to are generated ids, never this sentinel.
+ */
+export const DEFAULT_TERMINAL_CAPSULE_ID = 'default';
+
+/**
+ * The owner key of a session no window claimed: what `ownerKey()` maps the `unassigned` owner
+ * to. A record created outside any window's call — a bare `getInstance().createSession()` —
+ * belongs to no project window, and this is the value that says so instead of leaving the owner
+ * ambiguous and letting some other window's rule adopt it.
+ */
+export const DEFAULT_TERMINAL_OWNER_KEY = ownerKey({ kind: 'unassigned' });
+
+/**
+ * Owner key for a session an agent asked for through a page: the tab is the agent's identity, so
+ * every session one tab's agent mints is that owner's. A request with no tab (an MCP or bridge
+ * call with no page context) is `agent:unbound` rather than whichever window happens to be
+ * active — borrowing the active window is exactly how one window's terminal surfaced in
+ * another's sidebar.
+ */
+export function agentTerminalOwnerKey(tabId?: string): string {
+  return `agent:${tabId?.trim() || 'unbound'}`;
+}
+
+/**
+ * The provenance tag a session created by a project window that has no capsule of its own
+ * carries: the project that window verified, and the workspace it attached.
+ *
+ * Two windows that both lack a capsule belong to two projects, and both would otherwise
+ * fall back to the shared sentinel and see each other's terminals. The tag is derived from
+ * the owner and the verified root, so it is stable across restarts and unique per project
+ * workspace — two projects may attach the same directory, and their terminals must stay
+ * separate even then. The `workspace:` prefix keeps it from colliding with a generated
+ * capsule id or a user-named capsule.
+ */
+export function workspaceTerminalProvenance(ownerKey: string, workspacePath: string): string {
+  return `workspace:${ownerKey}:${path.normalize(workspacePath)}`;
+}
+
+/**
+ * What a viewer renders for one window: the sessions it may show, which one is
+ * active, and that session's transcript.
+ */
+export interface TerminalSessionStateProjection {
+  activeSessionId: string;
+  sessions: SessionSummary[];
+  splitSessionId?: string;
+  snapshot: string;
+  snapshotThroughSeq: number;
+}
+
 export class TerminalManager extends EventEmitter {
   private static instance: TerminalManager | any | undefined;
   private static constructionCount = 0;
@@ -604,7 +689,34 @@ export class TerminalManager extends EventEmitter {
   private activeSessionId = '';
   private bridgeEndpoint: { port: number; host: string; pid: number } | null = null;
   private currentCwd = process.cwd();
-  private currentCapsuleId = 'default';
+  /**
+   * The directory this process started in. `currentCwd` is process-wide mutable
+   * state that a workspace switch rewrites for every window; this never changes,
+   * so it is the only safe last-resort cwd for a window that has no verified
+   * workspace of its own (inheriting the mutable one is how one project's
+   * terminal opens in another project's directory).
+   */
+  private readonly initialCwd = process.cwd();
+  private currentCapsuleId: string = DEFAULT_TERMINAL_CAPSULE_ID;
+  /**
+   * Workspace capsule of the window asking for a session right now. A window
+   * passes its verified capsule into `startTerminal`/`createSession`, and every
+   * record created inside that call is tagged with it instead of the process-wide
+   * active capsule — which is a different window's workspace whenever two project
+   * windows are open. Always cleared by the caller, so it can never leak forward.
+   */
+  private creationCapsuleId: string | undefined;
+  /** The capsule a record created right now belongs to. */
+  private get effectiveCreationCapsuleId(): string { return this.creationCapsuleId || this.currentCapsuleId; }
+  /**
+   * Window owner asking for a session right now. Mirrors {@link creationCapsuleId}: the window
+   * passes its owner key into `startTerminal`/`createSession`, every record created inside that
+   * call is stamped with it, and the caller clears it in a `finally` so it cannot leak forward
+   * into another window's creation. Unlike the capsule, the owner decides visibility.
+   */
+  private creationOwnerKey: string | undefined;
+  /** The owner a record created right now belongs to. */
+  private get effectiveCreationOwnerKey(): string { return this.creationOwnerKey || DEFAULT_TERMINAL_OWNER_KEY; }
   private persistTimer: NodeJS.Timeout | null = null;
   private isPersisting = false;
   private hasPendingPersist = false;
@@ -631,6 +743,7 @@ export class TerminalManager extends EventEmitter {
     cwd: string;
     splitOf?: string;
     capsuleId: string;
+    ownerKey?: string;
     cols: number;
     rows: number;
     state: 'running' | 'exited' | 'closed' | 'sleeping';
@@ -754,6 +867,7 @@ export class TerminalManager extends EventEmitter {
       cached.cwd === s.cwd &&
       cached.splitOf === s.splitOf &&
       cached.capsuleId === s.capsuleId &&
+      cached.ownerKey === s.ownerKey &&
       cached.cols === cols &&
       cached.rows === rows &&
       cached.state === state &&
@@ -769,6 +883,7 @@ export class TerminalManager extends EventEmitter {
       buffer: safeSliceTail(s.buffer, MAX_PERSISTED_BYTES),
       splitOf: s.splitOf,
       capsuleId: s.capsuleId,
+      ownerKey: s.ownerKey,
       cols,
       rows,
       state,
@@ -782,6 +897,7 @@ export class TerminalManager extends EventEmitter {
       cwd: s.cwd,
       splitOf: s.splitOf,
       capsuleId: s.capsuleId,
+      ownerKey: s.ownerKey,
       cols,
       rows,
       state,
@@ -884,6 +1000,16 @@ export class TerminalManager extends EventEmitter {
 
   public persistSync(): void {
     if (this.isDisposed || (this.sessions.size === 0 && !this.hadAnySessions)) return;
+    this.writePersistSync();
+  }
+
+  /**
+   * The raw state flush. `dispose()` calls this directly because it marks the
+   * manager disposed before draining — the public guard must stay a guard for
+   * ordinary callers without starving the shutdown write.
+   */
+  private writePersistSync(): void {
+    if (this.sessions.size === 0 && !this.hadAnySessions) return;
     if (this.persistTimer) {
       clearTimeout(this.persistTimer);
       this.persistTimer = null;
@@ -946,9 +1072,10 @@ export class TerminalManager extends EventEmitter {
     this.bridgeEndpoint = endpoint;
   }
   public getCurrentCwd(): string { return this.currentCwd; }
+  /** The immutable process-start directory; see {@link initialCwd}. */
+  public getDefaultCwd(): string { return this.initialCwd; }
   public setCapsule(capsuleId: string, cwd?: string, targetSessionId?: string): void {
-    this.isDisposed = false;
-    this.currentCapsuleId = capsuleId || 'default';
+    this.currentCapsuleId = capsuleId || DEFAULT_TERMINAL_CAPSULE_ID;
     if (cwd) this.currentCwd = cwd;
 
     // A running shell keeps the workspace identity it was created in: this switch may only adopt
@@ -1016,6 +1143,7 @@ export class TerminalManager extends EventEmitter {
                 const s = this.spawn(item.id, item.cwd || this.currentCwd, item.buffer || '', item.cols, item.rows);
                 s.name = item.name || s.name;
                 s.capsuleId = item.capsuleId || this.currentCapsuleId;
+                s.ownerKey = item.ownerKey;
                 s.category = item.category;
               }
             } else if (item.state === 'sleeping') {
@@ -1023,6 +1151,7 @@ export class TerminalManager extends EventEmitter {
             } else {
               const s = this.reserveRestoredSession(item, item.cols, item.rows, MIN_TERMINAL_ROWS);
               s.capsuleId = item.capsuleId || this.currentCapsuleId;
+              s.ownerKey = item.ownerKey;
               deferredIds.push(item.id);
             }
           }
@@ -1041,10 +1170,12 @@ export class TerminalManager extends EventEmitter {
               s.name = item.name || s.name;
               s.splitOf = item.splitOf;
               s.capsuleId = item.capsuleId || this.currentCapsuleId;
+              s.ownerKey = item.ownerKey;
               s.category = item.category ?? parent?.category;
             } else {
               const s = this.reserveRestoredSession(item, item.cols, initialRows, MIN_SPLIT_TERMINAL_ROWS, item.splitOf, parent?.sessionGeneration);
               s.capsuleId = item.capsuleId || this.currentCapsuleId;
+              s.ownerKey = item.ownerKey;
               deferredIds.push(item.id);
             }
           }
@@ -1096,7 +1227,8 @@ export class TerminalManager extends EventEmitter {
       // The recovered transcript is display-only history: it renders once
       // behind a separator via composeTranscript and is never persisted again.
       restoredTail: restoredBuffer ? safeSliceTail(restoredBuffer, MAX_TRANSCRIPT_BYTES) : undefined,
-      capsuleId: this.currentCapsuleId,
+      capsuleId: this.effectiveCreationCapsuleId,
+      ownerKey: this.effectiveCreationOwnerKey,
       disposed: false,
       sessionGeneration: generation,
       state: 'running',
@@ -1136,7 +1268,8 @@ export class TerminalManager extends EventEmitter {
     );
     s.name = item.name || s.name;
     s.splitOf = item.splitOf;
-    s.capsuleId = item.capsuleId || this.currentCapsuleId;
+    s.capsuleId = item.capsuleId || this.effectiveCreationCapsuleId;
+    s.ownerKey = item.ownerKey;
     s.category = item.category;
     return s;
   }
@@ -1176,7 +1309,8 @@ export class TerminalManager extends EventEmitter {
     );
     s.name = item.name || s.name;
     s.splitOf = item.splitOf;
-    s.capsuleId = item.capsuleId || this.currentCapsuleId;
+    s.capsuleId = item.capsuleId || this.effectiveCreationCapsuleId;
+    s.ownerKey = item.ownerKey;
     s.category = item.category;
     s.state = 'sleeping';
     s.sleptAt = Date.now();
@@ -1189,6 +1323,9 @@ export class TerminalManager extends EventEmitter {
    * one, which is bound to the PTY's data/exit subscriptions).
    */
   private ensureSessionPty(id: string): Session | undefined {
+    // Disposal is authoritative over materialization: once dispose() begins, no
+    // queued or in-flight restore may mint a PTY that would outlive teardown.
+    if (this.isDisposed) return undefined;
     const queuedIdx = this.deferredPtyIds.indexOf(id);
     if (queuedIdx !== -1) this.deferredPtyIds.splice(queuedIdx, 1);
     const reserved = this.sessions.get(id);
@@ -1217,6 +1354,7 @@ export class TerminalManager extends EventEmitter {
     live.name = reserved.name;
     live.splitOf = reserved.splitOf;
     live.capsuleId = reserved.capsuleId;
+    live.ownerKey = reserved.ownerKey;
     live.category = reserved.category;
     live.lastSeq = reserved.lastSeq || 0;
     if (reserved.chunks && reserved.chunks.length > 0) {
@@ -1230,6 +1368,10 @@ export class TerminalManager extends EventEmitter {
   }
 
   private scheduleDeferredPtyStarts(ids: string[]): void {
+    // A disposed manager cannot queue starts: anything still arriving here
+    // raced the teardown and must be refused, not parked for a pump that will
+    // never legitimately run.
+    if (this.isDisposed) return;
     for (const id of ids) {
       if (!this.deferredPtyIds.includes(id)) this.deferredPtyIds.push(id);
     }
@@ -1240,6 +1382,10 @@ export class TerminalManager extends EventEmitter {
     if (this.isDisposed || this.deferredPtyTimer || this.deferredPtyIds.length === 0) return;
     this.deferredPtyTimer = setTimeout(() => {
       this.deferredPtyTimer = null;
+      // A pump armed while dispose() waited on an in-flight write survives the
+      // timer clear; it must defer to disposal instead of minting a shell whose
+      // owner is already gone.
+      if (this.isDisposed) return;
       // A session put to sleep after it was queued must never be resurrected by
       // the queue: drop it (not merely skip it, which would wedge the head) so
       // the nap really costs zero processes.
@@ -1259,6 +1405,12 @@ export class TerminalManager extends EventEmitter {
   }
 
   private spawn(id: string, cwd: string, restoredBuffer = '', initialCols?: number, initialRows?: number, minimumRows = MIN_TERMINAL_ROWS, parentSessionId?: string, parentGeneration?: number, reservedGeneration?: number): Session {
+    // The only PTY mint in this class. Throwing here — rather than minting a
+    // shell no live manager will ever deliver or kill — is what keeps an
+    // in-flight materialization from becoming an orphan after dispose().
+    if (this.isDisposed) {
+      throw new CapabilityError('RUNTIME_DRAINING', 'TerminalManager is disposed; no new PTY may be spawned');
+    }
     let validCwd = cwd || this.currentCwd;
     try {
       if (!validCwd || !fs.existsSync(validCwd) || !fs.statSync(validCwd).isDirectory()) {
@@ -1437,8 +1589,35 @@ export class TerminalManager extends EventEmitter {
     this.emit('data', { sessionId: s.id, data, seq: s.lastSeq, generation: s.sessionGeneration });
   }
 
-  public startTerminal(cwd?: string): boolean {
-    this.isDisposed = false;
+  /**
+   * Start (or resume) the sessions this window presents.
+   *
+   * `cwd` is the caller's explicit workspace root; when it is omitted the
+   * process-wide `currentCwd` is used, which is why every window-scoped caller
+   * passes one. `capsuleId` is creation provenance only — the workspace capsule
+   * the creating window was verified against. It tags the sessions this call
+   * spawns or restores, and never re-parents a session that already belongs to
+   * another capsule.
+   *
+   * `ownerKey` is the window that is asking, stamped on every record this call creates or
+   * restores. It is what decides which window's sidebar may show the session, so it is never
+   * derived from the capsule: two project windows may attach the same folder.
+   */
+  public startTerminal(cwd?: string, capsuleId?: string, ownerKey?: string): boolean {
+    if (!capsuleId && !ownerKey) return this.startTerminalWithProvenance(cwd);
+    const previousCreationCapsuleId = this.creationCapsuleId;
+    const previousCreationOwnerKey = this.creationOwnerKey;
+    if (capsuleId) this.creationCapsuleId = capsuleId;
+    if (ownerKey) this.creationOwnerKey = ownerKey;
+    try {
+      return this.startTerminalWithProvenance(cwd);
+    } finally {
+      this.creationCapsuleId = previousCreationCapsuleId;
+      this.creationOwnerKey = previousCreationOwnerKey;
+    }
+  }
+
+  private startTerminalWithProvenance(cwd?: string): boolean {
     if (cwd) this.currentCwd = cwd;
     const sessions = this.listSessions();
     if (!sessions.length) {
@@ -1464,7 +1643,8 @@ export class TerminalManager extends EventEmitter {
             } else {
               const s = this.spawn(item.id, item.cwd || this.currentCwd, item.buffer || '', item.cols, item.rows);
               s.name = item.name || s.name;
-              s.capsuleId = item.capsuleId || this.currentCapsuleId;
+              s.capsuleId = item.capsuleId || this.effectiveCreationCapsuleId;
+              s.ownerKey = item.ownerKey;
               s.category = item.category;
             }
           } else if (item.state === 'sleeping') {
@@ -1488,7 +1668,8 @@ export class TerminalManager extends EventEmitter {
             const s = this.spawn(item.id, item.cwd || this.currentCwd, item.buffer || '', item.cols, initialRows, MIN_SPLIT_TERMINAL_ROWS, item.splitOf, parent?.sessionGeneration);
             s.name = item.name || s.name;
             s.splitOf = item.splitOf;
-            s.capsuleId = item.capsuleId || this.currentCapsuleId;
+            s.capsuleId = item.capsuleId || this.effectiveCreationCapsuleId;
+            s.ownerKey = item.ownerKey;
             s.category = item.category ?? parent?.category;
           } else {
             this.reserveRestoredSession(item, item.cols, initialRows, MIN_SPLIT_TERMINAL_ROWS, item.splitOf, parent?.sessionGeneration);
@@ -1780,7 +1961,25 @@ export class TerminalManager extends EventEmitter {
     }
   }
 
-  public async restart(cwd?: string): Promise<void> {
+  /**
+   * Replace the session this window is on with a fresh shell.
+   *
+   * `ownerKey` is the window asking, stamped on the record when this call has to mint one (it
+   * only ever does when no session exists at all). A session that is being replaced keeps its own
+   * owner: the row the user is looking at stays where it is, whichever window asked to restart it.
+   */
+  public async restart(cwd?: string, ownerKey?: string): Promise<void> {
+    if (!ownerKey) return this.restartWithProvenance(cwd);
+    const previousCreationOwnerKey = this.creationOwnerKey;
+    this.creationOwnerKey = ownerKey;
+    try {
+      return await this.restartWithProvenance(cwd);
+    } finally {
+      this.creationOwnerKey = previousCreationOwnerKey;
+    }
+  }
+
+  private async restartWithProvenance(cwd?: string): Promise<void> {
     if (cwd) this.currentCwd = cwd;
     let id = this.activeSessionId;
     if (!id || !this.sessions.has(id)) {
@@ -1803,6 +2002,7 @@ export class TerminalManager extends EventEmitter {
     const prevName = targetSession?.name;
     const prevCategory = targetSession?.category;
     const prevCapsuleId = targetSession?.capsuleId;
+    const prevOwnerKey = targetSession?.ownerKey;
     if (targetSession) {
       await this.safelyKillSession(targetSession);
       this.sessions.delete(id);
@@ -1810,14 +2010,43 @@ export class TerminalManager extends EventEmitter {
     const s = this.spawn(id, cwd || this.currentCwd);
     if (prevName) s.name = prevName;
     if (prevCapsuleId) s.capsuleId = prevCapsuleId;
+    if (prevOwnerKey) s.ownerKey = prevOwnerKey;
     if (prevCategory) s.category = prevCategory;
     this.persist();
     this.emitSession();
     this.emit('session-restarted', { id, generation: s.sessionGeneration });
   }
 
-  public createSession(cwd?: string): string {
-    this.isDisposed = false;
+  /**
+   * Synchronously create a new terminal session.
+   *
+   * ASYNC/SYNC SEAM NOTE:
+   * This in-process TerminalManager method is synchronous and returns a `string` session ID immediately.
+   * However, in default daemon mode, `TerminalManager.setInstance(proxy)` installs `DaemonTerminalProxy`
+   * as the process-wide singleton, whose corresponding `createSession` is ASYNCHRONOUS and returns `Promise<string>`.
+   * Callers holding `TerminalManager.getInstance()` across process boundaries MUST await `createSession(...)`
+   * (e.g. `await terminal.createSession(...)`) to ensure compatibility with both in-process and daemon-backed runtimes.
+   * A bare synchronous read (`const id = tm.createSession()`) receives a `Promise` in daemon mode, which will fail
+   * runtime type assertions and serialize as `{}` over JSON RPC.
+   *
+   * `ownerKey` is the window (or agent) the new session belongs to, and decides which window's
+   * sidebar may show the row. Omitted, the session lands on {@link DEFAULT_TERMINAL_OWNER_KEY}.
+   */
+  public createSession(cwd?: string, capsuleId?: string, ownerKey?: string): string {
+    if (!capsuleId && !ownerKey) return this.createSessionWithProvenance(cwd);
+    const previousCreationCapsuleId = this.creationCapsuleId;
+    const previousCreationOwnerKey = this.creationOwnerKey;
+    if (capsuleId) this.creationCapsuleId = capsuleId;
+    if (ownerKey) this.creationOwnerKey = ownerKey;
+    try {
+      return this.createSessionWithProvenance(cwd);
+    } finally {
+      this.creationCapsuleId = previousCreationCapsuleId;
+      this.creationOwnerKey = previousCreationOwnerKey;
+    }
+  }
+
+  private createSessionWithProvenance(cwd?: string): string {
     const id = this.nextTerminalId();
     this.activeSessionId = id;
     const s = this.spawn(id, cwd || this.currentCwd);
@@ -1852,6 +2081,7 @@ export class TerminalManager extends EventEmitter {
     const splitSession = this.spawn(id, cwd || parent.cwd, '', targetCols, targetRows, MIN_SPLIT_TERMINAL_ROWS, parentId, parent.sessionGeneration);
     splitSession.splitOf = parentId;
     splitSession.capsuleId = parent.capsuleId || this.currentCapsuleId;
+    splitSession.ownerKey = parent.ownerKey || this.effectiveCreationOwnerKey;
     splitSession.category = parent.category;
     this.persist();
     this.emitSession();
@@ -2055,6 +2285,8 @@ export class TerminalManager extends EventEmitter {
       cols: s.pendingCols || s.pty?.cols || this.lastCols || 120,
       rows: s.pendingRows || s.pty?.rows || this.lastRows || 30,
       altScreen: Boolean(s.altScreen),
+      ...(s.capsuleId ? { capsuleId: s.capsuleId } : {}),
+      ...(s.ownerKey ? { ownerKey: s.ownerKey } : {}),
     });
 
     if (!paged || baseSessions.length === 0) {
@@ -2132,6 +2364,13 @@ export class TerminalManager extends EventEmitter {
     };
   }
 
+  /**
+   * Process diagnostics: every session this process holds, with its capsule.
+   *
+   * The report is process-wide by construction — narrowing it to the sessions one window may
+   * see is a presentation rule and lives with the other window-scoped projections, so a
+   * caller that renders it for a window narrows it there instead of asking the authority here.
+   */
   public getDiagnostics(): TerminalDiagnosticsReport {
     return {
       timestamp: Date.now(),
@@ -2146,6 +2385,7 @@ export class TerminalManager extends EventEmitter {
         splitOf: s.splitOf,
         altScreen: Boolean(s.altScreen),
         capsuleId: s.capsuleId,
+        ...(s.ownerKey ? { ownerKey: s.ownerKey } : {}),
       })),
       subscribers: this.getSubscribers(),
     };
@@ -2397,13 +2637,7 @@ export class TerminalManager extends EventEmitter {
     }
     return undefined;
   }
-  public getSessionState(): {
-    activeSessionId: string;
-    sessions: SessionSummary[];
-    splitSessionId?: string;
-    snapshot: string;
-    snapshotThroughSeq: number;
-  } {
+  public getSessionState(): TerminalSessionStateProjection {
     const s = this.sessions.get(this.activeSessionId);
     const sessionsList = this.listSessions();
     const activeSummary = sessionsList.find(x => x.id === this.activeSessionId);
@@ -2416,12 +2650,33 @@ export class TerminalManager extends EventEmitter {
     };
   }
 
+  /** Workspace capsule a session belongs to, or undefined for an unknown session. */
+  public sessionCapsuleId(sessionId: string): string | undefined {
+    const s = this.sessions.get(sessionId);
+    return s ? (s.capsuleId || undefined) : undefined;
+  }
+
+  /**
+   * Window owner a session belongs to, or undefined for an unknown session. Also undefined for a
+   * row written before owner keys existed: that row is still matched by the capsule rule, so
+   * answering with an invented owner would hand it to the wrong window.
+   */
+  public sessionOwnerKey(sessionId: string): string | undefined {
+    const s = this.sessions.get(sessionId);
+    return s ? (s.ownerKey || undefined) : undefined;
+  }
+
   private emitSession(): void {
     this.emit('session', this.getSessionState());
   }
 
   public async dispose(): Promise<void> {
     if (this.isDisposed) return;
+    // Disposal must be authoritative from the first synchronous step: the pump,
+    // ensureSessionPty and spawn all refuse on this flag, so nothing queued or
+    // materializing behind the persists below can mint a PTY that outlives this
+    // teardown. The flag therefore goes up BEFORE any await, not after.
+    this.isDisposed = true;
     // Allow a later canonical to be constructed after teardown (test isolation etc.):
     // each process still holds at most ONE live instance at any moment.
     TerminalManager.constructionCount = 0;
@@ -2439,8 +2694,9 @@ export class TerminalManager extends EventEmitter {
         await this.activePersistPromise;
       } catch {}
     }
-    this.persistSync();
-    this.isDisposed = true;
+    // The final flush bypasses the public persistSync guard, which would see
+    // isDisposed and skip the shutdown write entirely.
+    this.writePersistSync();
     this.removeAllListeners();
     const killPromises: Promise<void>[] = [];
     for (const [, s] of this.sessions.entries()) {

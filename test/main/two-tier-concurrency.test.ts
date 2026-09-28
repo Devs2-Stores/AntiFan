@@ -205,6 +205,11 @@ describe('Two-Tier Concurrency Engine & ViewportGate Integration (Phase 03)', ()
         return ['tab-sync', 'tab-created'].includes(bound) && ['tab-sync', 'tab-created'].includes(req);
       },
       resolveTargetTabId: (id: string) => tabList.some(t => t.id === id) ? id : undefined,
+      // The anchor tab stands in for a tab whose capsule carries the same project and
+      // workspace the attachment was issued for, which is the relation the transport's
+      // authenticated target asserts. Without it a routed creation is refused.
+      resolveTabAffiliation: (tabId: string) =>
+        tabList.some(t => t.id === tabId) ? { projectId, workspaceId, capsuleId: 'capsule-sync' } : undefined,
     } as unknown as NativeTabHost;
 
     const catalogue = new CapabilityCatalogue({

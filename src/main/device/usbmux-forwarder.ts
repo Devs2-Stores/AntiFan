@@ -3,6 +3,79 @@ import { CapabilityError } from '../../shared/control-plane-contracts';
 import { connectDevicePort } from './usbmux-client';
 
 /**
+ * How long a loopback port-forwarder server close may wait for connections to drain.
+ *
+ * Measured on this platform: a clean loopback server close once tracked sockets are
+ * destroyed finishes in 0-5ms. This deadline sits far above that sub-5ms round trip so a
+ * draining server is never cut short, and sits far below user-patience and device-teardown
+ * timeouts (10-15s), so an un-tracked, half-open, or stalled peer socket cannot block
+ * device teardown indefinitely.
+ */
+export const USBMUX_FORWARDER_CLOSE_DEADLINE_MS = 1_500;
+
+/**
+ * Close a net.Server with a bounded wait for existing connections to drain.
+ *
+ * `net.Server.close(cb)` stops accepting immediately, but defers calling `cb` and
+ * emitting 'close' until every connection has ended. A lingering or untracked connection
+ * would therefore make an unbounded wait hang forever.
+ *
+ * Calls `server.closeAllConnections?.()` (Node 18.2+) before closing to proactively terminate
+ * lingering connections, and bounds the wait on the platform confirmation.
+ *
+ * Returns `true` if the server confirmed close before the deadline, or `false` if the bound
+ * expired while connections remained open.
+ */
+export async function closeServerWithinBound(
+  server: net.Server,
+  boundMs: number = USBMUX_FORWARDER_CLOSE_DEADLINE_MS
+): Promise<boolean> {
+  const deferred = Promise.withResolvers<boolean>();
+  let settled = false;
+  let outcomeTimer: NodeJS.Timeout | null = null;
+
+  const finish = (confirmed: boolean): void => {
+    if (settled) return;
+    settled = true;
+    if (outcomeTimer !== null) {
+      clearTimeout(outcomeTimer);
+      outcomeTimer = null;
+    }
+    server.removeListener('close', onClose);
+    deferred.resolve(confirmed);
+  };
+
+  const onClose = (): void => finish(true);
+  server.once('close', onClose);
+
+  // Armed before the request, because a close the platform never confirms emits nothing:
+  // a bound that waited for an event would never start.
+  outcomeTimer = setTimeout(() => {
+    finish(false);
+  }, Math.max(1, boundMs));
+  outcomeTimer.unref?.();
+
+  try {
+    // Proactively end lingering connections on servers that support closeAllConnections (Node 18.2+)
+    (server as net.Server & { closeAllConnections?: () => void }).closeAllConnections?.();
+    server.close((err) => {
+      if (err) {
+        // If the server was already not running / stopped, it is effectively closed.
+        const code = (err as NodeJS.ErrnoException).code;
+        finish(code === 'ERR_SERVER_NOT_RUNNING');
+      } else {
+        finish(true);
+      }
+    });
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException | undefined)?.code;
+    finish(code === 'ERR_SERVER_NOT_RUNNING');
+  }
+
+  return deferred.promise;
+}
+
+/**
  * AntiFan in-process usbmuxd port forwarder.
  *
  * Apple's Windows usbmuxd hands the device-port stream back on the *same* socket
@@ -30,7 +103,7 @@ export interface UsbmuxPortForwarder {
   readonly deviceNumber: number;
   readonly devicePort: number;
   stats(): UsbmuxPortForwarderStats;
-  close(): Promise<void>;
+  close(boundMs?: number): Promise<boolean>;
 }
 
 export async function createUsbmuxPortForwarder(options: {
@@ -135,12 +208,11 @@ export async function createUsbmuxPortForwarder(options: {
     deviceNumber: options.deviceNumber,
     devicePort: options.devicePort,
     stats: () => ({ ...stats }),
-    close: async () => {
+    close: async (boundMs?: number): Promise<boolean> => {
       for (const socket of [...openSockets]) socket.destroy();
       openSockets.clear();
-      const closed = Promise.withResolvers<void>();
-      server.close(() => closed.resolve());
-      await closed.promise;
+      (server as net.Server & { closeAllConnections?: () => void }).closeAllConnections?.();
+      return closeServerWithinBound(server, boundMs ?? USBMUX_FORWARDER_CLOSE_DEADLINE_MS);
     },
   };
 }

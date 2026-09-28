@@ -9,12 +9,13 @@ import * as net from 'node:net';
 import * as crypto from 'node:crypto';
 import * as http from 'node:http';
 import { spawn } from 'node:child_process';
+import { setImmediate as yieldToLoop } from 'node:timers/promises';
 import { BridgeServer, type MobileSessionGrant } from '../../src/main/bridge/bridge-server';
 import { TerminalManager } from '../../src/main/browser/terminal-manager';
 import { StorageLocations } from '../../src/main/config/storage-locations';
 import { NativeTabHost } from '../../src/main/browser/native-tab-host';
 import { ControlPlaneRuntime } from '../../src/main/control-plane/control-plane-runtime';
-import { AttachmentRegistry } from '../../src/main/run/attachment-registry';
+import { AttachmentRegistry, type PageCloseAdmission } from '../../src/main/run/attachment-registry';
 import { makeControlPlaneId } from '../../src/shared/control-plane-contracts';
 // Mock NativeTabHost for pure isolated bridge test
 class MockTabHost extends EventEmitter {
@@ -47,6 +48,13 @@ class MockTabHost extends EventEmitter {
     const t = this.tabs.find(x => x.id === tabId);
     if (t) t.url = url;
     return true;
+  }
+  reload(tabId: string) {
+    const t = this.tabs.find(x => x.id === tabId);
+    return Boolean(t);
+  }
+  async evalJs(expression: string, _tabId?: string, _paneId?: unknown) {
+    return { evaluated: expression };
   }
   toggleInspect() {
     return true;
@@ -1168,8 +1176,17 @@ type TerminalWriteSurface = {
   resize: (cols: number, rows: number) => void;
   restart: (cwd?: string) => Promise<void>;
   getActiveSessionId: () => string;
+  switchSession: (id: string) => boolean;
   listSessions: () => Array<{ id: string }>;
   createSession: (cwd?: string) => string;
+};
+
+// The daemon facade's async twin of the same surface: same method names, Promise results.
+type AsyncTerminalFacadeSurface = Omit<TerminalWriteSurface, 'createSession' | 'renameSession' | 'closeSession' | 'switchSession'> & {
+  createSession: (cwd?: string, capsuleId?: string) => Promise<string>;
+  renameSession: (id: string, name: string) => Promise<boolean>;
+  closeSession: (id: string) => Promise<boolean>;
+  switchSession: (id: string) => Promise<boolean>;
 };
 
 type MobileGrantSurface = {
@@ -1651,6 +1668,497 @@ describe('Bridge terminal write planes', () => {
       tm.createSession = originalCreateSession;
       for (const socket of sockets) { try { socket.close(); } catch {} }
       server.dispose();
+    }
+  });
+
+  it('returns real session ids and verdicts when the terminal singleton is the async daemon facade', async () => {
+    const mockHost = new MockTabHost() as unknown as NativeTabHost;
+    const server = new BridgeServer(mockHost, 0, false);
+    const terminalManager = TerminalManager.getInstance();
+    // tm is the daemon facade shape: createSession/switchSession/renameSession return Promises,
+    // which is exactly what DaemonTerminalProxy produces over its WebSocket RPC.
+    const tm = terminalManager as unknown as AsyncTerminalFacadeSurface;
+    const syncSurface = terminalManager as unknown as TerminalWriteSurface;
+    const originalCreateSession = syncSurface.createSession.bind(terminalManager);
+    const originalSwitchSession = syncSurface.switchSession.bind(terminalManager);
+    const originalRenameSession = syncSurface.renameSession.bind(terminalManager);
+    const originalListSessions = syncSurface.listSessions.bind(terminalManager);
+    const originalGetActiveSessionId = syncSurface.getActiveSessionId.bind(terminalManager);
+
+    tm.createSession = async () => 'terminal-daemon-1';
+    tm.switchSession = async () => true;
+    tm.renameSession = async () => true;
+    tm.listSessions = () => [{ id: 'terminal-daemon-1' }];
+    tm.getActiveSessionId = () => 'terminal-daemon-1';
+
+    const readDataField = (value: unknown, field: string): unknown =>
+      (value !== null && typeof value === 'object' && field in value)
+        ? (value as Record<string, unknown>)[field]
+        : undefined;
+
+    try {
+      const port = await server.start();
+      const ws = new WebSocket(`ws://127.0.0.1:${port}`, {
+        headers: { Authorization: `Bearer ${server.getToken()}` },
+      });
+      await new Promise<void>((resolve, reject) => { ws.on('open', resolve); ws.on('error', reject); });
+      const call = (id: string, method: string, params: Record<string, unknown>) => new Promise<{ success: boolean; error?: string; data?: unknown }>((resolve) => {
+        const onMessage = (raw: unknown) => {
+          let frame: unknown;
+          try { frame = JSON.parse(String(raw)); } catch { return; }
+          if (typeof frame !== 'object' || frame === null || !('id' in frame) || frame.id !== id) return;
+          ws.off('message', onMessage);
+          resolve({
+            success: 'success' in frame && frame.success === true,
+            error: 'error' in frame && typeof frame.error === 'string' ? frame.error : undefined,
+            data: 'data' in frame ? frame.data : undefined,
+          });
+        };
+        ws.on('message', onMessage);
+        ws.send(JSON.stringify({ id, method, params }));
+      });
+
+      try {
+        const created = await call('daemon-shape-new', 'antifan.terminalNewSession', { cwd: 'E:/Work' });
+        assert.strictEqual(created.success, true, created.error);
+        assert.strictEqual(readDataField(created.data, 'sessionId'), 'terminal-daemon-1',
+          'bridge must return the real session id, not a serialized Promise');
+
+        const switched = await call('daemon-shape-switch', 'antifan.terminalSwitchSession', { sessionId: 'terminal-daemon-1' });
+        assert.strictEqual(switched.success, true, switched.error);
+        assert.strictEqual(readDataField(switched.data, 'switched'), true);
+
+        const renamed = await call('daemon-shape-rename', 'antifan.terminalRenameSession', { sessionId: 'terminal-daemon-1', name: 'daemon' });
+        assert.strictEqual(renamed.success, true, renamed.error);
+        assert.strictEqual(readDataField(renamed.data, 'renamed'), true);
+      } finally {
+        ws.close();
+      }
+    } finally {
+      syncSurface.createSession = originalCreateSession;
+      syncSurface.switchSession = originalSwitchSession;
+      syncSurface.renameSession = originalRenameSession;
+      syncSurface.listSessions = originalListSessions;
+      syncSurface.getActiveSessionId = originalGetActiveSessionId;
+      server.dispose();
+    }
+  });
+});
+interface DirectRpcAdmissionReply {
+  id?: string;
+  success?: boolean;
+  data?: {
+    code?: string;
+    message?: string;
+    navigated?: boolean;
+    reloaded?: boolean;
+    wentBack?: boolean;
+    wentForward?: boolean;
+    result?: unknown;
+    html?: string;
+    imageBase64?: string;
+    sessionId?: string;
+    sessions?: Array<{ id: string }>;
+    switched?: boolean;
+    restarted?: boolean;
+    written?: boolean;
+  };
+  error?: string;
+}
+
+class DirectRpcTestCloseAdmission implements PageCloseAdmission {
+  public began = 0;
+  public released = 0;
+  public inFlight = 0;
+  public readonly attributions: Array<readonly string[] | undefined> = [];
+  public readonly reserved = new Set<string>();
+  public applicationReserved = false;
+  public throwOnApplicationRead = false;
+  public throwOnPageRead = false;
+
+  public isPageReserved(tabId: string): boolean {
+    if (this.throwOnPageRead) throw new Error('close coordinator page reservation unreadable');
+    return this.reserved.has(tabId);
+  }
+
+  public isApplicationAdmissionReserved(): boolean {
+    if (this.throwOnApplicationRead) throw new Error('close coordinator application admission unreadable');
+    return this.applicationReserved;
+  }
+
+  public beginAdmittedOperation(tabIds?: string | readonly string[]): () => void {
+    this.began++;
+    this.inFlight++;
+    this.attributions.push(Array.isArray(tabIds) ? [...tabIds] : undefined);
+    let done = false;
+    return () => {
+      if (done) return;
+      done = true;
+      this.released++;
+      this.inFlight--;
+    };
+  }
+}
+
+describe('Bridge direct RPC close admission', () => {
+  async function setupBridgeWithAdmission() {
+    const mockHost = new MockTabHost();
+    const admission = new DirectRpcTestCloseAdmission();
+    const server = new BridgeServer(mockHost as unknown as NativeTabHost, 0, false);
+    server.setCloseAdmission(admission);
+    const port = await server.start();
+    const ws = new WebSocket(`ws://127.0.0.1:${port}`, {
+      headers: { Authorization: `Bearer ${server.getToken()}` },
+    });
+    const pending = new Map<string, (reply: DirectRpcAdmissionReply) => void>();
+    ws.on('message', (raw) => {
+      const parsed = JSON.parse(raw.toString()) as DirectRpcAdmissionReply;
+      if (parsed.id && pending.has(parsed.id)) {
+        const cb = pending.get(parsed.id);
+        if (cb) {
+          pending.delete(parsed.id);
+          cb(parsed);
+        }
+      }
+    });
+    await new Promise<void>((resolve, reject) => { ws.on('open', resolve); ws.on('error', reject); });
+    let seq = 0;
+    const call = (method: string, params?: Record<string, unknown>) => {
+      const id = `rpc-${++seq}-${Date.now()}`;
+      return new Promise<DirectRpcAdmissionReply>((resolve) => {
+        pending.set(id, resolve);
+        ws.send(JSON.stringify({ id, method, params }));
+      });
+    };
+    const cleanup = () => {
+      ws.close();
+      server.dispose();
+    };
+    return { mockHost, admission, server, ws, call, cleanup };
+  }
+
+  it('refuses all five direct RPC handlers with RUNTIME_DRAINING when application holds quit reservation', async () => {
+    const { admission, call, cleanup } = await setupBridgeWithAdmission();
+    try {
+      admission.applicationReserved = true;
+
+      const nav = await call('antifan.navigate', { tabId: 'tab-1', url: 'https://example.com' });
+      assert.strictEqual(nav.success, false);
+      assert.strictEqual(nav.data?.code, 'RUNTIME_DRAINING');
+      assert.ok(nav.error?.startsWith('RUNTIME_DRAINING:'), `expected RUNTIME_DRAINING error, got ${nav.error}`);
+
+      const rel = await call('antifan.reload', { tabId: 'tab-1' });
+      assert.strictEqual(rel.success, false);
+      assert.strictEqual(rel.data?.code, 'RUNTIME_DRAINING');
+      assert.ok(rel.error?.startsWith('RUNTIME_DRAINING:'), `expected RUNTIME_DRAINING error, got ${rel.error}`);
+
+      const ev = await call('antifan.evalJS', { tabId: 'tab-1', expression: '1 + 1' });
+      assert.strictEqual(ev.success, false);
+      assert.strictEqual(ev.data?.code, 'RUNTIME_DRAINING');
+      assert.ok(ev.error?.startsWith('RUNTIME_DRAINING:'), `expected RUNTIME_DRAINING error, got ${ev.error}`);
+
+      const dom = await call('antifan.getDOM', { tabId: 'tab-1', selector: 'body' });
+      assert.strictEqual(dom.success, false);
+      assert.strictEqual(dom.data?.code, 'RUNTIME_DRAINING');
+      assert.ok(dom.error?.startsWith('RUNTIME_DRAINING:'), `expected RUNTIME_DRAINING error, got ${dom.error}`);
+
+      const shot = await call('antifan.captureScreenshot', { tabId: 'tab-1' });
+      assert.strictEqual(shot.success, false);
+      assert.strictEqual(shot.data?.code, 'RUNTIME_DRAINING');
+      assert.ok(shot.error?.startsWith('RUNTIME_DRAINING:'), `expected RUNTIME_DRAINING error, got ${shot.error}`);
+
+      assert.strictEqual(admission.began, 0, 'no operation may be admitted while application admission is reserved');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('refuses all five direct RPC handlers with TARGET_STALE when target page is reserved for close', async () => {
+    const { admission, call, cleanup } = await setupBridgeWithAdmission();
+    try {
+      admission.applicationReserved = false;
+      admission.reserved.add('tab-1');
+
+      const nav = await call('antifan.navigate', { tabId: 'tab-1', url: 'https://example.com' });
+      assert.strictEqual(nav.success, false);
+      assert.strictEqual(nav.data?.code, 'TARGET_STALE');
+      assert.ok(nav.error?.startsWith('TARGET_STALE:'), `expected TARGET_STALE error, got ${nav.error}`);
+
+      const rel = await call('antifan.reload', { tabId: 'tab-1' });
+      assert.strictEqual(rel.success, false);
+      assert.strictEqual(rel.data?.code, 'TARGET_STALE');
+      assert.ok(rel.error?.startsWith('TARGET_STALE:'), `expected TARGET_STALE error, got ${rel.error}`);
+
+      const ev = await call('antifan.evalJS', { tabId: 'tab-1', expression: '1 + 1' });
+      assert.strictEqual(ev.success, false);
+      assert.strictEqual(ev.data?.code, 'TARGET_STALE');
+      assert.ok(ev.error?.startsWith('TARGET_STALE:'), `expected TARGET_STALE error, got ${ev.error}`);
+
+      const dom = await call('antifan.getDOM', { tabId: 'tab-1', selector: 'body' });
+      assert.strictEqual(dom.success, false);
+      assert.strictEqual(dom.data?.code, 'TARGET_STALE');
+      assert.ok(dom.error?.startsWith('TARGET_STALE:'), `expected TARGET_STALE error, got ${dom.error}`);
+
+      const shot = await call('antifan.captureScreenshot', { tabId: 'tab-1' });
+      assert.strictEqual(shot.success, false);
+      assert.strictEqual(shot.data?.code, 'TARGET_STALE');
+      assert.ok(shot.error?.startsWith('TARGET_STALE:'), `expected TARGET_STALE error, got ${shot.error}`);
+
+      assert.strictEqual(admission.began, 0, 'no operation may be admitted onto a reserved page');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('admits and successfully executes all five direct RPC handlers when neither reservation holds', async () => {
+    const { admission, call, cleanup } = await setupBridgeWithAdmission();
+    try {
+      admission.applicationReserved = false;
+      admission.reserved.clear();
+
+      const nav = await call('antifan.navigate', { tabId: 'tab-1', url: 'https://example.com' });
+      assert.strictEqual(nav.success, true);
+      assert.strictEqual(nav.data?.navigated, true);
+
+      const rel = await call('antifan.reload', { tabId: 'tab-1' });
+      assert.strictEqual(rel.success, true);
+      assert.strictEqual(rel.data?.reloaded, true);
+
+      const ev = await call('antifan.evalJS', { tabId: 'tab-1', expression: 'window.title' });
+      assert.strictEqual(ev.success, true);
+      assert.ok(ev.data?.result !== undefined);
+
+      const dom = await call('antifan.getDOM', { tabId: 'tab-1', selector: 'h1' });
+      assert.strictEqual(dom.success, true);
+      assert.ok(dom.data?.html?.includes('AntiFan'));
+
+      const shot = await call('antifan.captureScreenshot', { tabId: 'tab-1' });
+      assert.strictEqual(shot.success, true);
+      assert.ok(shot.data?.imageBase64 !== undefined);
+
+      assert.strictEqual(admission.began, 5, 'each successful handler must be registered as admitted work');
+      assert.strictEqual(admission.released, 5, 'each admitted operation must release on completion');
+      assert.strictEqual(admission.inFlight, 0, 'no operation should remain in-flight after handlers return');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('fails closed when application or page admission queries throw', async () => {
+    const { admission, call, cleanup } = await setupBridgeWithAdmission();
+    try {
+      admission.throwOnApplicationRead = true;
+      const appFail = await call('antifan.navigate', { tabId: 'tab-1', url: 'https://example.com' });
+      assert.strictEqual(appFail.success, false);
+      assert.strictEqual(appFail.data?.code, 'RUNTIME_DRAINING');
+      assert.ok(appFail.error?.startsWith('RUNTIME_DRAINING:'), `expected RUNTIME_DRAINING, got ${appFail.error}`);
+
+      admission.throwOnApplicationRead = false;
+      admission.throwOnPageRead = true;
+      const pageFail = await call('antifan.navigate', { tabId: 'tab-1', url: 'https://example.com' });
+      assert.strictEqual(pageFail.success, false);
+      assert.strictEqual(pageFail.data?.code, 'TARGET_STALE');
+      assert.ok(pageFail.error?.startsWith('TARGET_STALE:'), `expected TARGET_STALE, got ${pageFail.error}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('refuses navigation without tabId with RUNTIME_DRAINING during quit before target validation', async () => {
+    const { admission, call, cleanup } = await setupBridgeWithAdmission();
+    try {
+      admission.applicationReserved = true;
+      const reply = await call('antifan.navigate', { url: 'https://example.com' });
+      assert.strictEqual(reply.success, false);
+      assert.strictEqual(reply.data?.code, 'RUNTIME_DRAINING', 'application admission must refuse before target resolution fails');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('holds terminalNewSession under a process admission and attributes it to no page', async () => {
+    const { admission, call, cleanup } = await setupBridgeWithAdmission();
+    const terminalManager = TerminalManager.getInstance();
+    const tm = terminalManager as unknown as AsyncTerminalFacadeSurface;
+    const syncSurface = terminalManager as unknown as TerminalWriteSurface;
+    const originalCreateSession = syncSurface.createSession.bind(terminalManager);
+    const originalListSessions = syncSurface.listSessions.bind(terminalManager);
+    // The daemon facade returns a Promise; holding it pending is what makes the
+    // "admission is held across the await" window observable to this test.
+    const minted = Promise.withResolvers<string>();
+    tm.createSession = () => minted.promise;
+    tm.listSessions = () => [{ id: 'terminal-held' }];
+    try {
+      const pending = call('antifan.terminalNewSession', { cwd: 'E:/Work' });
+      for (let i = 0; i < 50 && admission.inFlight === 0; i++) await yieldToLoop();
+
+      assert.strictEqual(admission.inFlight, 1, 'the mint is admitted while its work promise is still pending');
+      assert.strictEqual(admission.began, 1, 'the mint registers exactly one in-flight operation');
+      assert.deepStrictEqual(
+        admission.attributions,
+        [undefined],
+        'a terminal RPC names no page, so it can never refuse an unrelated page\'s close'
+      );
+
+      minted.resolve('terminal-held');
+      const created = await pending;
+      assert.strictEqual(created.success, true, created.error);
+      assert.strictEqual(created.data?.sessionId, 'terminal-held');
+      assert.strictEqual(admission.released, 1, 'the admission is released when the mint resolves');
+      assert.strictEqual(admission.inFlight, 0, 'nothing stays in flight after the mint settles');
+    } finally {
+      minted.resolve('terminal-held');
+      syncSurface.createSession = originalCreateSession;
+      syncSurface.listSessions = originalListSessions;
+      cleanup();
+    }
+  });
+
+  it('releases the process admission when terminalNewSession rejects', async () => {
+    const { admission, call, cleanup } = await setupBridgeWithAdmission();
+    const terminalManager = TerminalManager.getInstance();
+    const tm = terminalManager as unknown as AsyncTerminalFacadeSurface;
+    const syncSurface = terminalManager as unknown as TerminalWriteSurface;
+    const originalCreateSession = syncSurface.createSession.bind(terminalManager);
+    const minted = Promise.withResolvers<string>();
+    tm.createSession = () => minted.promise;
+    try {
+      const pending = call('antifan.terminalNewSession', {});
+      for (let i = 0; i < 50 && admission.inFlight === 0; i++) await yieldToLoop();
+      assert.strictEqual(admission.inFlight, 1, 'the mint is admitted before the work settles');
+
+      minted.reject(new Error('pty spawn refused'));
+      const refused = await pending;
+      assert.strictEqual(refused.success, false);
+      assert.match(refused.error || '', /pty spawn refused/);
+      assert.strictEqual(admission.began, 1);
+      assert.strictEqual(admission.released, 1, 'a failed mint still releases its admission');
+      assert.strictEqual(admission.inFlight, 0);
+      assert.deepStrictEqual(admission.attributions, [undefined]);
+    } finally {
+      minted.resolve('aborted');
+      syncSurface.createSession = originalCreateSession;
+      cleanup();
+    }
+  });
+
+  it('refuses terminal RPCs with RUNTIME_DRAINING while a quit holds application admission', async () => {
+    const { admission, call, cleanup } = await setupBridgeWithAdmission();
+    const terminalManager = TerminalManager.getInstance();
+    const tm = terminalManager as unknown as TerminalWriteSurface;
+    const asyncSurface = terminalManager as unknown as AsyncTerminalFacadeSurface;
+    const originalWriteTo = tm.writeTo.bind(terminalManager);
+    const originalWrite = tm.write.bind(terminalManager);
+    const originalCreateSession = tm.createSession.bind(terminalManager);
+    const originalSwitchSession = tm.switchSession.bind(terminalManager);
+    const originalRestart = tm.restart.bind(terminalManager);
+    const reached: string[] = [];
+    tm.writeTo = () => { reached.push('writeTo'); };
+    tm.write = () => { reached.push('write'); };
+    asyncSurface.createSession = async () => { reached.push('createSession'); return 'terminal-x'; };
+    asyncSurface.switchSession = async () => { reached.push('switchSession'); return true; };
+    tm.restart = async () => { reached.push('restart'); };
+    try {
+      admission.applicationReserved = true;
+
+      const created = await call('antifan.terminalNewSession', { cwd: 'E:/Work' });
+      assert.strictEqual(created.success, false);
+      assert.strictEqual(created.data?.code, 'RUNTIME_DRAINING');
+      assert.ok(created.error?.startsWith('RUNTIME_DRAINING:'), `expected RUNTIME_DRAINING error, got ${created.error}`);
+
+      const switched = await call('antifan.terminalSwitchSession', { sessionId: 'session-live' });
+      assert.strictEqual(switched.success, false);
+      assert.strictEqual(switched.data?.code, 'RUNTIME_DRAINING');
+      assert.ok(switched.error?.startsWith('RUNTIME_DRAINING:'), `expected RUNTIME_DRAINING error, got ${switched.error}`);
+
+      const restarted = await call('antifan.terminalRestart', { sessionId: 'session-live' });
+      assert.strictEqual(restarted.success, false);
+      assert.strictEqual(restarted.data?.code, 'RUNTIME_DRAINING');
+      assert.ok(restarted.error?.startsWith('RUNTIME_DRAINING:'), `expected RUNTIME_DRAINING error, got ${restarted.error}`);
+
+      const written = await call('antifan.terminalInput', { sessionId: 'session-live', text: 'echo refused\r' });
+      assert.strictEqual(written.success, false);
+      assert.strictEqual(written.data?.code, 'RUNTIME_DRAINING');
+      assert.ok(written.error?.startsWith('RUNTIME_DRAINING:'), `expected RUNTIME_DRAINING error, got ${written.error}`);
+
+      assert.deepStrictEqual(reached, [], 'a refused call never reaches the terminal manager');
+      assert.strictEqual(admission.began, 0, 'no operation is admitted while application admission is reserved');
+    } finally {
+      tm.writeTo = originalWriteTo;
+      tm.write = originalWrite;
+      tm.createSession = originalCreateSession;
+      tm.switchSession = originalSwitchSession;
+      tm.restart = originalRestart;
+      cleanup();
+    }
+  });
+
+  it('refuses an agent-owned terminal with TERMINAL_FORBIDDEN before the admission seam is consulted', async () => {
+    const { mockHost, admission, server, call, cleanup } = await setupBridgeWithAdmission();
+    const terminalManager = TerminalManager.getInstance();
+    const tm = terminalManager as unknown as TerminalWriteSurface;
+    const originalWriteTo = tm.writeTo.bind(terminalManager);
+    const originalWrite = tm.write.bind(terminalManager);
+    const writes: Array<{ sessionId?: string; input: string }> = [];
+    tm.writeTo = (sessionId: string, input: string) => { writes.push({ sessionId, input }); };
+    tm.write = (input: string) => { writes.push({ input }); };
+    // The affinity hook is an optional seam the mock lacks; seating it flips 'session-agent' to agent-owned.
+    // The mock tab host is a distinct class with no shared member with the seam shape, so the
+    // type has to be widened before seating the optional affinity hook on it.
+    const affinitySurface = mockHost as unknown as { getTerminalAgentAffinity?: (id: string) => unknown };
+    affinitySurface.getTerminalAgentAffinity = (id: string) => (id === 'session-agent' ? { status: 'alive' } : undefined);
+    const sockets: WebSocket[] = [];
+    try {
+      // The quit admission is in force: if the seam were consulted before the caller's
+      // plane check, this call would surface RUNTIME_DRAINING instead of TERMINAL_FORBIDDEN.
+      admission.applicationReserved = true;
+      const grant: MobileSessionGrant = {
+        grantToken: 'grant-terminal-drain-order',
+        sessionId: 'session-mobile',
+        clientClass: 'mobile',
+        issuedAt: Date.now(),
+        expiresAt: Date.now() + 60_000,
+        revoked: false,
+        allowedScopes: ['terminal.sync', 'terminal.input'],
+      };
+      const grantSurface = server as unknown as MobileGrantSurface;
+      grantSurface.mobileGrants.set(grant.grantToken, grant);
+      const mobile = new WebSocket(`ws://127.0.0.1:${server.getPort()}`, {
+        headers: { Authorization: `Bearer ${grant.grantToken}` },
+      });
+      sockets.push(mobile);
+      await new Promise<void>((resolve, reject) => { mobile.on('open', resolve); mobile.on('error', reject); });
+      const reply = new Promise<DirectRpcAdmissionReply>((resolve) => {
+        const onMessage = (raw: unknown) => {
+          let frame: unknown;
+          try { frame = JSON.parse(String(raw)); } catch { return; }
+          if (typeof frame !== 'object' || frame === null || !('id' in frame) || frame.id !== 'term-agent-forbidden') return;
+          mobile.off('message', onMessage);
+          resolve(frame as DirectRpcAdmissionReply);
+        };
+        mobile.on('message', onMessage);
+      });
+      mobile.send(JSON.stringify({ id: 'term-agent-forbidden', method: 'antifan.terminalInput', params: { sessionId: 'session-agent', text: 'echo refused\r' } }));
+
+      const refused = await reply;
+      assert.strictEqual(refused.success, false);
+      assert.strictEqual(refused.data?.code, 'TERMINAL_FORBIDDEN', 'authorization refuses before the draining check runs');
+      assert.match(refused.error || '', /TERMINAL_FORBIDDEN/);
+      assert.strictEqual(admission.began, 0, 'the seam records no operation for a refused caller');
+      assert.deepStrictEqual(admission.attributions, []);
+      assert.deepStrictEqual(writes, [], 'a refused write never reaches the terminal');
+      mobile.close();
+
+      // A master-socket write that passes authorization is then refused by the draining
+      // admission, proving the seam still gates calls the plane check let through.
+      const admittedThenRefused = await call('antifan.terminalInput', { sessionId: 'session-mobile', text: 'echo drained\r' });
+      assert.strictEqual(admittedThenRefused.success, false);
+      assert.strictEqual(admittedThenRefused.data?.code, 'RUNTIME_DRAINING');
+    } finally {
+      tm.writeTo = originalWriteTo;
+      tm.write = originalWrite;
+      for (const socket of sockets) { try { socket.close(); } catch {} }
+      cleanup();
     }
   });
 });

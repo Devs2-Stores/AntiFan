@@ -194,7 +194,7 @@ function parseArgs(argv) {
 }
 
 function runElectronWorkload() {
-  const { app, BrowserWindow } = require('electron');
+  const { app } = require('electron');
   const http = require('node:http');
   const path = require('node:path');
   const os = require('node:os');
@@ -216,6 +216,7 @@ function runElectronWorkload() {
   const { BrowserControlPort } = require(path.join(rootDir, '.compiled', 'src', 'main', 'tools', 'browser-control-port.js'));
   const { ControlPlaneRuntime } = require(path.join(rootDir, '.compiled', 'src', 'main', 'control-plane', 'control-plane-runtime.js'));
   const { NativeTabHost } = require(path.join(rootDir, '.compiled', 'src', 'main', 'browser', 'native-tab-host.js'));
+  const { ProjectWindowShell } = require(path.join(rootDir, '.compiled', 'src', 'main', 'browser', 'project-window-shell.js'));
   const { BridgeServer } = require(path.join(rootDir, '.compiled', 'src', 'main', 'bridge', 'bridge-server.js'));
   const { StorageLocations } = require(path.join(rootDir, '.compiled', 'src', 'main', 'config', 'storage-locations.js'));
   const { getCoreHealthService } = require(path.join(rootDir, '.compiled', 'src', 'main', 'diagnostics', 'core-health.js'));
@@ -283,17 +284,15 @@ function runElectronWorkload() {
       const storefrontUrl = `http://127.0.0.1:${port}/`;
 
       // 2. Launch BrowserWindow and NativeTabHost
-      mainWindow = new BrowserWindow({
-        width: 1200,
-        height: 800,
+      const mainWindowShell = new ProjectWindowShell({
+        owner: { kind: 'project', projectId: 'project-00000000-0000-4000-8000-000000000001' },
+        title: 'AntiFan Smoke Window',
+        bounds: { width: 1200, height: 800 },
         show: cliArgs.showWindow,
-        webPreferences: {
-          nodeIntegration: false,
-          contextIsolation: true,
-        },
       });
+      mainWindow = mainWindowShell.window;
 
-      tabHost = new NativeTabHost(mainWindow);
+      tabHost = new NativeTabHost(mainWindowShell);
       const tabId = tabHost.createTab(storefrontUrl, true);
       tabHost.setAutomationTabId(tabId);
 

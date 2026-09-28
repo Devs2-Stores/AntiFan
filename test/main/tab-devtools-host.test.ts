@@ -924,24 +924,48 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
     assert.deepStrictEqual(clip, { x: 10, y: 20, width: 30, height: 20, scale: 1 });
   });
 
-  it('17. full-page capture on an offscreen target is rejected typed before any CDP capture call', async () => {
+  it('17. full-page capture on an offscreen target uses the same CDP surface transaction', async () => {
     const { ctx, tabs } = createMockContext();
     const tab = tabs.get('tab-1');
     assert.ok(tab);
     tab.state.offscreen = true;
 
     const devTools = new TabDevToolsHost(ctx);
-    const cdpCommands: string[] = [];
-    (devTools as unknown as { sendCdpCommand: (wc: unknown, method: string, params?: unknown) => Promise<unknown> }).sendCdpCommand = async (_wc, method) => {
-      cdpCommands.push(method);
+    const cdpCommands: Array<{ method: string; params?: unknown }> = [];
+    (devTools as unknown as { sendCdpCommand: (wc: unknown, method: string, params?: unknown) => Promise<unknown> }).sendCdpCommand = async (_wc, method, params) => {
+      cdpCommands.push({ method, params });
+      const expression =
+        params && typeof params === 'object' && 'expression' in params && typeof params.expression === 'string'
+          ? params.expression
+          : '';
+      if (method === 'Runtime.evaluate') {
+        if (expression.includes('devicePixelRatio')) {
+          return { result: { value: { dpr: 1, vw: 800, vh: 600 } } };
+        }
+        if (expression.includes('scrollHeight')) {
+          return { result: { value: 2400 } };
+        }
+      }
+      if (method === 'Page.captureScreenshot') {
+        return { data: makePng(800, 2400).toString('base64') };
+      }
       return {};
     };
 
-    await assert.rejects(
-      () => devTools.captureVerificationScreenshot(undefined, 'tab-1', 'desktop', { fullPage: true }),
-      (err: unknown) => err instanceof CaptureError && err.code === 'FULLPAGE_CAPTURE_UNSUPPORTED_ON_OFFSCREEN'
-    );
-    assert.deepStrictEqual(cdpCommands, [], 'Offscreen full-page rejection must not touch CDP');
+    const envelope = await devTools.captureVerificationScreenshot(undefined, 'tab-1', 'desktop', { fullPage: true });
+
+    assert.strictEqual(envelope.backend, 'cdp');
+    assert.strictEqual(envelope.captureMode, 'full-page');
+    assert.deepStrictEqual(envelope.cssViewport, { width: 800, height: 600 });
+    assert.deepStrictEqual(envelope.cssCaptureSize, { width: 800, height: 2400 });
+    assert.deepStrictEqual(envelope.rasterSize, { width: 800, height: 2400 });
+    const pageCaptureCmds = cdpCommands.filter((c) => c.method === 'Page.captureScreenshot');
+    assert.strictEqual(pageCaptureCmds.length, 1, 'Offscreen full-page capture must issue exactly one Page.captureScreenshot');
+    const params = pageCaptureCmds[0]?.params;
+    assert.ok(params && typeof params === 'object');
+    assert.strictEqual('fromSurface' in params && params.fromSurface, true);
+    assert.strictEqual('captureBeyondViewport' in params && params.captureBeyondViewport, true);
+    assert.deepStrictEqual('clip' in params ? params.clip : undefined, { x: 0, y: 0, width: 800, height: 2400, scale: 1 });
   });
 
   it('18. full-page geometry above the 16384 CSS-pixel ceiling is rejected with zero capture calls', async () => {
@@ -1767,6 +1791,46 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
     assert.ok(events.indexOf('restore') < events.lastIndexOf('release'), 'restore must precede the outer capture-surface release');
   });
 
+  it('37. getDom attaches a background tab view for the dump and leaves the visible tab alone', async () => {
+    const { ctx, tabs, mockWc } = createMockContext();
+    ctx.createTab('https://example.com/bg');
+    const tab2 = tabs.get('tab-2');
+    assert.ok(tab2);
+
+    const dumped: string[] = [];
+    (mockWc as { executeJavaScript: (script: string) => Promise<unknown> }).executeJavaScript = async (script: string) => {
+      dumped.push(script);
+      return script.includes('querySelector') ? '<h1>Hello Test</h1>' : '<html><body><h1>Hello Test</h1></body></html>';
+    };
+
+    const attachCalls: Array<{ view: unknown; isMobile?: boolean }> = [];
+    ctx.runWithAttachedTabView = async <T>(_view: unknown, action: () => Promise<T>, isMobile?: boolean): Promise<T> => {
+      attachCalls.push({ view: _view, isMobile });
+      return await action();
+    };
+    const devTools = new TabDevToolsHost(ctx);
+
+    // The active tab's dump runs directly: its view is already on screen.
+    const activeDump = await devTools.getDom(undefined, 'tab-1');
+    assert.strictEqual(activeDump, '<html><body><h1>Hello Test</h1></body></html>');
+    assert.strictEqual(attachCalls.length, 0, 'a dump of the visible tab must not attach its view');
+
+    // A background tab's dump is wrapped in the attach, the way evalJs and the render-surface
+    // probe already are: with its view detached the page has no live surface, and the dump then
+    // waits out the whole eval ceiling instead of answering.
+    const backgroundDump = await devTools.getDom('h1', 'tab-2');
+    assert.strictEqual(backgroundDump, '<h1>Hello Test</h1>');
+    assert.deepStrictEqual(
+      attachCalls.map((call) => call.view),
+      [tab2.view],
+      'a dump of a background tab must run against its attached view',
+    );
+    assert.deepStrictEqual(attachCalls.map((call) => call.isMobile), [false]);
+    assert.strictEqual(dumped.length, 2, 'each dump must run its own script exactly once');
+    const backgroundScript = dumped[1] ?? '';
+    assert.ok(backgroundScript.includes('querySelector("h1")'), `the selector never reached the page: ${backgroundScript}`);
+  });
+
   describe('captureVerificationScreenshot frame-liveness gate', () => {
     interface FrameGateOptions {
       /** What the in-page rAF census answers for each probe. */
@@ -1820,7 +1884,7 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
       assert.strictEqual(devTools.isTargetDraining('tab-1', 'desktop'), false, 'the refusal happens before dispatch, so the target never enters the drain quarantine');
     });
 
-    it('never reasserts a pane raised for capture: the ladder re-raises it in-window instead', async () => {
+    it('restores the presented tab when a raised background capture remains frame-starved', async () => {
       const { ctx, probes, invalidates } = createFrameGateContext({ frameAlive: () => false });
       // tab-2 is created while activeTabId stays 'tab-1', so the capture runs the
       // background path and the pane is raised for the raster.
@@ -1840,7 +1904,7 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
       assert.strictEqual(raiseCalls[0], undefined, 'the first raise takes the capture host');
       assert.deepStrictEqual(raiseCalls[1], { inWindow: true }, 'the repair ladder re-raises the starved pane into the real window');
       assert.strictEqual(invalidates(), 1, 'the repair ladder must have tried one compositor invalidate');
-      assert.strictEqual(reasserts, 0, 'reassertPresentedView lowers a raised pane back into occlusion, so the ladder must not call it for a raised pane');
+      assert.strictEqual(reasserts, 1, 'a refused capture must restore the user tab after the repair ladder ends');
       assert.ok(probes.length >= 3, 'the gate must have probed at entry, after the invalidate, and after the in-window lift');
       assert.strictEqual(methods.includes('Page.captureScreenshot'), false, 'a starved raised pane must never reach the dispatch');
     });

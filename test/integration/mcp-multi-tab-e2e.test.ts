@@ -8,12 +8,56 @@ import { CapabilityCatalogue } from '../../src/main/tools/capability-catalogue';
 import { registerBrowserCapabilities } from '../../src/main/tools/browser-capabilities';
 import { AttachmentRegistry } from '../../src/main/run/attachment-registry';
 import { NativeTabHost } from '../../src/main/browser/native-tab-host';
+import { TabAuthorityDirectory } from '../../src/main/browser/tab-authority-directory';
+import type { ProjectWindowShell } from '../../src/main/browser/project-window-shell';
 import { TerminalManager } from '../../src/main/browser/terminal-manager';
 import {
   makeControlPlaneId,
   issueRuntimeLease,
   BrowserTarget,
 } from '../../src/shared/control-plane-contracts';
+
+/** Distinct chrome webContents ids, so two windows can never answer for each other. */
+let nextSurfaceContentsId = 800_000;
+
+/**
+ * One project window's routing authority: the shipping host methods over that window's own tabs,
+ * with the shell plumbing the real directory reads. Only window plumbing is absent — ownership,
+ * target and resolution answers below are the shipping implementations.
+ */
+function makeWindowAuthority(ownerProjectId: string, tabIds: readonly string[], title: string) {
+  const toolbarContentsId = (nextSurfaceContentsId += 1);
+  let destroyed = false;
+  const shell = {
+    owner: { kind: 'project', projectId: ownerProjectId },
+    window: { isDestroyed: () => destroyed },
+    chromeSurfaceFor: (webContentsId: number) => (webContentsId === toolbarContentsId ? ('toolbar' as const) : undefined),
+  } as unknown as ProjectWindowShell;
+  const host = Object.create(NativeTabHost.prototype) as NativeTabHost;
+  Object.assign(host, {
+    tabs: new Map(
+      tabIds.map((id, index) => [
+        id,
+        { id, state: { id, url: `https://example.com/${id}`, title: `${title} ${index + 1}` } },
+      ]),
+    ),
+    tabOrder: [...tabIds],
+    automationTabId: null,
+    terminalWindows: new Map(),
+    popoutWindow: null,
+    isDisposed: false,
+    shell,
+    broadcastState: () => {},
+  });
+  return {
+    host,
+    shell,
+    toolbarContentsId,
+    destroyWindow: () => {
+      destroyed = true;
+    },
+  };
+}
 
 describe('Full-Stack E2E Integration: OMP / MCP Multi-Tab Affinity, Lineage & Failover', () => {
   const tm = TerminalManager.getInstance() as any;
@@ -87,6 +131,10 @@ describe('Full-Stack E2E Integration: OMP / MCP Multi-Tab Affinity, Lineage & Fa
       registerTab(newId, url || 'about:blank', `Spawned Tab ${newId}`);
       return newId;
     };
+    // A routed creation verifies the anchor's own capsule before allocating: every tab
+    // this host owns belongs to the project/workspace the attachment was issued for.
+    host.resolveTabAffiliation = (tabId: string) =>
+      host.tabs.has(tabId) ? { projectId, workspaceId, capsuleId: 'capsule-e2e' } : undefined;
     host.closeTab = (id: string) => {
       host.tabs.delete(id);
       host.tombstoneTerminalAgentAffinity(id);
@@ -352,5 +400,57 @@ describe('Full-Stack E2E Integration: OMP / MCP Multi-Tab Affinity, Lineage & Fa
 
     // Verified: popup is allowed for primary
     assert.strictEqual(host.isTabAllowed('tab-parent', popupId), true);
+  });
+
+  it('keeps each project window authoritative for its own tabs under one shared directory', async () => {
+    const directory = new TabAuthorityDirectory();
+    const windowA = makeWindowAuthority('project-a', ['tab-a-1'], 'Window A');
+    const windowB = makeWindowAuthority('project-b', ['tab-b-1', 'tab-b-2'], 'Window B');
+    directory.register(windowA.shell, windowA.host);
+    directory.register(windowB.shell, windowB.host);
+
+    // Ownership is exclusive, so an app-wide scan over `hosts()` finds each tab exactly once and
+    // can never hand a tab to a window that does not present it.
+    const inventory = directory.hosts().flatMap((host) => host.getTabList());
+    assert.deepStrictEqual(
+      inventory.map((tab) => tab.id).sort(),
+      ['tab-a-1', 'tab-b-1', 'tab-b-2'],
+    );
+    assert.strictEqual(new Set(inventory.map((tab) => tab.id)).size, inventory.length, 'a tab id appears in two windows');
+    for (const tabId of ['tab-a-1', 'tab-b-1', 'tab-b-2']) {
+      assert.strictEqual(
+        directory.hosts().filter((host) => host.hasTab(tabId)).length,
+        1,
+        `${tabId} is owned by more than one window`,
+      );
+      assert.strictEqual(directory.hostForTab(tabId)?.hasTab(tabId), true, `${tabId} resolves to a window that does not present it`);
+    }
+    assert.strictEqual(windowA.host.hasTab('tab-b-1'), false);
+    assert.strictEqual(windowA.host.resolveTargetTabId('tab-a-1'), 'tab-a-1');
+    assert.strictEqual(windowA.host.resolveTargetTabId('tab-b-1'), undefined, "window A resolved window B's tab");
+
+    // A window's automation target is scoped to that window: a tab another window presents can
+    // never become its target (the host clears instead), so the app-wide scan cannot rotate
+    // authority onto a neighbour.
+    windowA.host.setAutomationTabId('tab-a-1');
+    windowB.host.setAutomationTabId('tab-b-1');
+    assert.strictEqual(windowA.host.getAutomationTabId(), 'tab-a-1');
+    assert.strictEqual(windowB.host.getAutomationTabId(), 'tab-b-1');
+    windowA.host.setAutomationTabId('tab-b-1');
+    assert.strictEqual(windowA.host.getAutomationTabId(), null, 'a foreign window tab became window A target');
+    assert.strictEqual(windowB.host.getAutomationTabId(), 'tab-b-1', 'window B target moved when window A refused a foreign tab');
+    windowA.host.setAutomationTabId('tab-a-1');
+
+    // Closing one window withdraws exactly its tabs and leaves the sibling and its target intact.
+    windowA.destroyWindow();
+    assert.strictEqual(directory.hostForTab('tab-a-1'), undefined);
+    assert.deepStrictEqual(
+      directory.hosts().flatMap((host) => host.getTabList()).map((tab) => tab.id),
+      ['tab-b-1', 'tab-b-2'],
+    );
+    assert.strictEqual(windowB.host.getAutomationTabId(), 'tab-b-1');
+    assert.strictEqual(directory.resolveSender(windowA.toolbarContentsId), undefined);
+    assert.strictEqual(directory.resolveSender(windowB.toolbarContentsId)?.host, windowB.host);
+    assert.strictEqual(directory.resolveSender(windowB.toolbarContentsId)?.surface, 'toolbar');
   });
 });

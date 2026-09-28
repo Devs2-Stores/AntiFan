@@ -17,7 +17,7 @@
  */
 'use strict';
 
-const { app, BrowserWindow } = require('electron');
+const { app } = require('electron');
 const http = require('node:http');
 const path = require('node:path');
 const os = require('node:os');
@@ -38,6 +38,7 @@ const { ControlPlaneRuntime } = require('../.compiled/src/main/control-plane/con
 const { AttachmentRegistry } = require('../.compiled/src/main/run/attachment-registry.js');
 const { NativeTabHost } = require('../.compiled/src/main/browser/native-tab-host.js');
 const { AntiFanMcpServer } = require('../.compiled/src/main/mcp/mcp-server.js');
+const { ProjectWindowShell } = require('../.compiled/src/main/browser/project-window-shell.js');
 
 let cleanupFn = async () => {};
 
@@ -146,13 +147,14 @@ async function runDualPlaneSmokeTest() {
     const base = `http://127.0.0.1:${port}`;
 
     // 2. Electron window + tab host.
-    mainWindow = new BrowserWindow({
-      width: 1280,
-      height: 800,
+    const mainWindowShell = new ProjectWindowShell({
+      owner: { kind: 'project', projectId: 'project-00000000-0000-4000-8000-000000000001' },
+      title: 'AntiFan Smoke Window',
+      bounds: { width: 1280, height: 800 },
       show: false,
-      webPreferences: { nodeIntegration: false, contextIsolation: true },
     });
-    tabHost = new NativeTabHost(mainWindow);
+    mainWindow = mainWindowShell.window;
+    tabHost = new NativeTabHost(mainWindowShell);
 
     const tabA = tabHost.createTab(`${base}/target-a`, false);
     const tabB = tabHost.createTab(`${base}/target-b`, false);

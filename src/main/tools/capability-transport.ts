@@ -18,7 +18,8 @@ import {
   InvocationState,
 } from '../../shared/control-plane-contracts';
 import { CapabilityCatalogue } from './capability-catalogue';
-import { AttachmentRegistry } from '../run/attachment-registry';
+import { AttachmentRegistry, type PageCloseAdmission } from '../run/attachment-registry';
+import { onceCloseAdmissionRelease, assertPageAdmitsWork, assertApplicationAdmitsWork } from './browser-control-port';
 import { InvocationLedger } from '../session/invocation-ledger';
 import { safeErrorText } from './browser-capabilities';
 
@@ -200,11 +201,20 @@ export function isFreshInspectionCapability(
 }
 
 export class CapabilityTransportAdapter {
+  private closeAdmission?: PageCloseAdmission;
   constructor(
     private readonly catalogue: CapabilityCatalogue,
     private readonly attachmentRegistry: AttachmentRegistry,
     private readonly ledger?: InvocationLedger
   ) {}
+
+  /**
+   * Injects the close-admission seam (see `PageCloseAdmission`). Optional: with nothing
+   * injected, dispatch behaves exactly as it did before the seam existed.
+   */
+  setCloseAdmission(admission?: PageCloseAdmission): void {
+    this.closeAdmission = admission;
+  }
 
   list(context?: Pick<CapabilityRequestContext, 'grant'>): CapabilityListItem[] {
     return this.catalogue.list(context);
@@ -611,6 +621,7 @@ export class CapabilityTransportAdapter {
     }
 
     const handlerPromise = (async (): Promise<CapabilityTransportResponse> => {
+    let releaseAdmission: (() => void) | undefined;
     try {
       const authContext: AuthenticatedCapabilityContext = {
         attachmentId: liveAuthority.attachmentId,
@@ -683,6 +694,38 @@ export class CapabilityTransportAdapter {
           console.warn(`[capability-transport] attachment ${authority.attachmentId} bound tab '${staleBoundTabId}' is gone and no failover target exists; dispatching '${intent.name}' against the stale target`);
         }
       }
+      // Close admission comes first, inside the operation body, and after healing so
+      // every gate and counter sees the tab this dispatch would really reach:
+      //
+      // - the application gate refuses while a quit attempt holds admission closed (the
+      //   services this invocation would use are on their way out, even for a bindless
+      //   management call);
+      // - the page gate refuses a page already reserved for close;
+      // - the admitted operation is then registered against the pages it may reach, so a
+      //   close measuring one of them counts real work instead of guessing from a
+      //   process-wide number.
+      //
+      // A gate that refuses (throws) is classified and answered like any other refusal —
+      // before a handler effects anything. `releaseAdmission` is cleared exactly once, in
+      // the `finally` below: the single exit path this operation has, on success, throw,
+      // and cancellation alike.
+      const operationTargetTabId = authContext.browserTarget?.tabId;
+      assertApplicationAdmitsWork(this.closeAdmission, `Capability '${intent.name}'`);
+      if (operationTargetTabId) {
+        assertPageAdmitsWork(this.closeAdmission, operationTargetTabId, `Capability '${intent.name}'`);
+      }
+      // The port resolves aliases, numbered tab references and failover targets, so both
+      // the authority's tab and an explicit tab the intent asks for are attributed:
+      // over-attribution can only refuse a close that would otherwise be allowed, while
+      // under-attribution would let a close destroy the page the work is running on.
+      const requestedTabParam = (intent.params as Record<string, unknown> | undefined)?.tabId;
+      releaseAdmission = onceCloseAdmissionRelease(
+        this.closeAdmission?.beginAdmittedOperation(
+          [operationTargetTabId, typeof requestedTabParam === 'string' ? requestedTabParam : undefined].filter(
+            (tabId): tabId is string => typeof tabId === 'string' && tabId.trim().length > 0
+          )
+        )
+      );
       const attachedTabIdForInspection = authContext.browserTarget?.tabId || record.tabId;
       const isInspection = this.isFreshInspection(intent.name, policy);
       const preInspectionDocGen = isInspection && attachedTabIdForInspection
@@ -1018,6 +1061,7 @@ export class CapabilityTransportAdapter {
       };
     } finally {
       abortListenerCleanup?.();
+      releaseAdmission?.();
     }
     })();
     // The handler always returns a classified response; observe the same promise

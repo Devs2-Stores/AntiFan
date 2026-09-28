@@ -10,9 +10,11 @@ import { BrowserControlPort } from '../../src/main/tools/browser-control-port';
 import { ISOLATED_AGENT_WORLD_ID, buildIsolatedCollectorScript, buildIsolatedExecutorScript } from '../../src/main/browser/semantic-ref-executor';
 import { makeControlPlaneId, issueRuntimeLease, BrowserTarget } from '../../src/shared/control-plane-contracts';
 import { AntiFanTab } from '../../src/shared/contracts';
+import { createShellDouble } from '../support/project-window-shell-double';
 function createIntegrationHost() {
   const host = Object.create(NativeTabHost.prototype) as any;
   EventEmitter.call(host);
+  host.shell = createShellDouble();
   host.mutationRevisions = new Map();
   const isolatedCalls: Array<{ worldId: number; code: string }> = [];
 

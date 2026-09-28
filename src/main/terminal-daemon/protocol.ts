@@ -63,6 +63,65 @@ export const HOST_METHOD = {
 
 export type HostMethod = (typeof HOST_METHOD)[keyof typeof HOST_METHOD];
 
+/** Wire parameters for terminalNewSession */
+export interface HostNewSessionParams {
+  cwd?: string;
+  capsuleId?: string;
+  /**
+   * Owner key of the window requesting the session (`project:<projectId>` | `unassigned`).
+   * Absent when the caller predates owner-key attribution, in which case the host falls back to
+   * the legacy capsule/workspace-tag attribution so old clients keep today's visibility.
+   */
+  ownerKey?: string;
+  parentId?: string;
+  cols?: number;
+  rows?: number;
+  /** Forward-compatible wire payload: unknown fields travel through untouched. */
+  [key: string]: unknown;
+}
+
+/** Wire result for terminalNewSession */
+export interface HostNewSessionResult {
+  sessionId: string;
+  sessions?: unknown[];
+  activeSessionId?: string;
+}
+
+/** Wire parameters for terminalStart */
+export interface HostStartParams {
+  cwd?: string;
+  capsuleId?: string;
+  /**
+   * Owner key of the window requesting the start (`project:<projectId>` | `unassigned`), stamped
+   * onto any session this call spawns. Absent when the caller predates owner-key attribution, in
+   * which case the host falls back to the legacy capsule/workspace-tag attribution.
+   */
+  ownerKey?: string;
+  /** Forward-compatible wire payload: unknown fields travel through untouched. */
+  [key: string]: unknown;
+}
+
+/** Wire result for terminalStart */
+export interface HostStartResult {
+  started: boolean;
+  sessions?: unknown[];
+  activeSessionId?: string;
+}
+
+/** Wire parameters for terminalRestart */
+export interface HostRestartParams {
+  cwd?: string;
+  /**
+   * Owner key of the window requesting the restart (`project:<projectId>` | `unassigned`), stamped
+   * onto any record this restart mints — a restart with no live session would otherwise create an
+   * unowned record that a project window must never see. Absent when the caller predates owner-key
+   * attribution, in which case the host falls back to the legacy capsule/workspace-tag attribution.
+   */
+  ownerKey?: string;
+  /** Forward-compatible wire payload: unknown fields travel through untouched. */
+  [key: string]: unknown;
+}
+
 /** Broadcast events the host pushes to every connected client. */
 export const HOST_EVENT = {
   data: 'antifan:terminal:data',

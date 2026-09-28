@@ -12,6 +12,7 @@ import { spawn, execSync, execFile, type ChildProcess } from 'child_process';
 import { promisify } from 'util';
 const execFileAsync = promisify(execFile);
 import { LocalSessionVault } from './local-session-vault';
+import { settleWithinBound } from './target-operation-chain';
 export interface ChromeProfileInfo {
   id: string; // 'Default', 'Profile 1', etc.
   name: string; // 'Personal', 'Work', etc.
@@ -98,6 +99,16 @@ export interface ExtensionCookieInput {
 }
 
 export const DEFAULT_PERSISTENT_SESSION_COOKIE_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 days
+
+/**
+ * CDP reachability probe budgets. `CDP_PROBE_REQUEST_TIMEOUT_MS` is the socket-idle timeout that
+ * covers a socket that stays open and silent; `CDP_PROBE_ATTEMPT_BOUND_MS` is the backstop above
+ * it, because there is a third case that answers NOTHING at all: a response torn down mid-body
+ * emits no `end` on the response, no `error` on the request, and the socket is destroyed rather
+ * than idle, so no timeout fires either. Both stay far below the 6s caller budget.
+ */
+const CDP_PROBE_REQUEST_TIMEOUT_MS = 600;
+const CDP_PROBE_ATTEMPT_BOUND_MS = 900;
 
 interface ExtensionCookieImportOptions {
   /**
@@ -394,22 +405,47 @@ export class ChromeProfileSyncManager {
    * Confirms the DevTools HTTP endpoint actually answers before the CDP WS
    * import (DevToolsActivePort is written at bind time; this guards against
    * races and stale-file reads). Bounded retries, then false.
+   *
+   * Each attempt is bounded on its own, because a reply can fail to arrive as NOTHING at all:
+   * measured on this platform, a response torn down mid-body (RST after the headers) emits no
+   * `end` on the response and no `error` on the request, and the socket is destroyed rather than
+   * idle so its timeout never fires either. An attempt that waited on those events alone would
+   * stay pending forever, and because the retry deadline is only consulted between attempts, the
+   * whole probe would never return — neither success nor failure.
    */
   private async probeCdpReachable(port: number, timeoutMs: number): Promise<boolean> {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
-      const ok = await new Promise<boolean>((resolve) => {
-        const req = http.get({ host: '127.0.0.1', port, path: '/json/version', timeout: 600 }, (res) => {
-          res.resume();
-          res.on('end', () => resolve(true));
-        });
-        req.on('error', () => resolve(false));
+      const attemptBoundMs = Math.min(CDP_PROBE_ATTEMPT_BOUND_MS, Math.max(1, deadline - Date.now()));
+      // `reached` is only ever set from a completed response: an abort, an error, a timeout or a
+      // bound expiry all mean "this attempt did not reach the endpoint", never a healthy default.
+      let reached = false;
+      const attempt = new Promise<void>((resolve) => {
+        const req = http.get(
+          {
+            host: '127.0.0.1',
+            port,
+            path: '/json/version',
+            timeout: Math.min(CDP_PROBE_REQUEST_TIMEOUT_MS, attemptBoundMs),
+          },
+          (res) => {
+            res.resume();
+            res.on('end', () => {
+              reached = res.complete;
+              resolve();
+            });
+            res.on('aborted', () => resolve());
+            res.on('error', () => resolve());
+          }
+        );
+        req.on('error', () => resolve());
         req.on('timeout', () => {
           req.destroy();
-          resolve(false);
+          resolve();
         });
       });
-      if (ok) return true;
+      await settleWithinBound(attempt, attemptBoundMs);
+      if (reached) return true;
       await new Promise((resolve) => setTimeout(resolve, 300));
     }
     return false;

@@ -6,7 +6,7 @@
  * asserts strict cookie separation across live Chromium sessions, and validates cleanup.
  */
 
-const { app, BrowserWindow } = require('electron');
+const { app } = require('electron');
 const http = require('node:http');
 const path = require('node:path');
 const fs = require('node:fs');
@@ -17,6 +17,7 @@ app.commandLine.appendSwitch('disable-gpu');
 app.commandLine.appendSwitch('disable-software-rasterizer');
 
 const { NativeTabHost } = require('../.compiled/src/main/browser/native-tab-host.js');
+const { ProjectWindowShell } = require('../.compiled/src/main/browser/project-window-shell.js');
 
 function wait(ms) {
   const { promise, resolve } = Promise.withResolvers();
@@ -54,17 +55,15 @@ async function runIsolationCertification() {
   const { server, port, baseUrl } = await startFixtureServer();
   console.log(`[E2E Certification] Local fixture server listening on ${baseUrl}`);
 
-  const win = new BrowserWindow({
+  const winShell = new ProjectWindowShell({
+    owner: { kind: 'project', projectId: 'project-00000000-0000-4000-8000-000000000001' },
+    title: 'AntiFan Smoke Window',
+    bounds: { width: 1024, height: 768 },
     show: false,
-    width: 1024,
-    height: 768,
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-    },
   });
+  const win = winShell.window;
 
-  const tabHost = new NativeTabHost(win);
+  const tabHost = new NativeTabHost(winShell);
 
   try {
     // 1. Open Ephemeral Tab A

@@ -3,11 +3,13 @@
  * Tests real Electron 43 WebContentsView lifecycle, NativeTabHost split mode toggle,
  * independent DOM/form state, synchronized navigation, focused pane routing, and clean teardown.
  */
-const { app, BrowserWindow } = require('electron');
+const { app } = require('electron');
 const http = require('node:http');
 const path = require('node:path');
 const os = require('node:os');
 const fs = require('node:fs');
+const { ProjectWindowShell } = require(path.join(__dirname, '..', '.compiled', 'src', 'main', 'browser', 'project-window-shell.js'));
+const { setChromeSenderResolver } = require(path.join(__dirname, '..', '.compiled', 'src', 'main', 'browser', 'ipc-router.js'));
 
 function readPngDimensions(filePath) {
   const buf = fs.readFileSync(filePath);
@@ -35,6 +37,20 @@ console.error = (...args) => {
   origErr(...args);
   try { logStream.write(`[${new Date().toISOString()}] [ERROR] ${args.join(' ')}\n`); } catch {}
 };
+
+/**
+ * Chrome IPC resolves its dispatch target through `setChromeSenderResolver` on every
+ * message and refuses any sender it cannot place (`authorize` in ipc-router.ts).
+ * Production installs the resolver once at src/main/index.ts:1755 from the tab-authority
+ * directory; this harness has no directory, so it resolves against its own shell/host
+ * (same pattern as test/e2e/site-mute-smoke.cjs).
+ */
+function installChromeSenderResolver(winShell, tabHost) {
+  setChromeSenderResolver((webContents) => {
+    const surface = winShell.chromeSurfaceFor(webContents.id) || tabHost.surfaceForWebContents(webContents.id);
+    return surface ? { host: tabHost, surface } : undefined;
+  });
+}
 
 const { isAllowedNavigation, sanitizeUrl } = require('../.compiled/src/main/security/security-policy.js');
 
@@ -98,20 +114,29 @@ async function runSmokeTest() {
     const page2Url = `http://127.0.0.1:${testPort}/page2`;
     console.log(`[Smoke] Fixture server listening at ${homeUrl}`);
 
-    // 2. Create Window
-    win = new BrowserWindow({
-      width: 1440,
-      height: 900,
+    // 2. Create Window — the same pair the shipping factory builds (`ensureProjectWindow`:
+    // shell owning window/chrome, then its own NativeTabHost). Three deltas are inherent to a
+    // standalone smoke and deliberate: `owner`/`title` are this harness's own identity instead
+    // of validated registry records; `show: true` stands in for the presenter, because the app
+    // constructs every shell hidden and shows it on ready-to-show; and the host is not
+    // registered in a tab-authority directory, so it installs its own single-window sender
+    // resolver below: production's directory-backed resolver authorizes every chrome IPC
+    // sender on each message, not just cross-window routing, and the smoke's toolbar would
+    // be refused as UNKNOWN_CHROME_SENDER without it.
+    const winShell = new ProjectWindowShell({
+      owner: { kind: 'project', projectId: 'project-00000000-0000-4000-8000-000000000001' },
+      title: 'AntiFan Smoke Window',
+      bounds: { width: 1440, height: 900 },
       show: true,
-      webPreferences: {
-        sandbox: true,
-        contextIsolation: true,
-      },
     });
+    win = winShell.window;
 
     // 3. Instantiate NativeTabHost from compiled build
+    // The shared WorkspaceCapsuleManager argument is omitted: one window has no capsule store
+    // to share, and the host's own manager is rooted in the temp userData set above.
     const { NativeTabHost } = require(path.join(__dirname, '..', '.compiled', 'src', 'main', 'browser', 'native-tab-host.js'));
-    tabHost = new NativeTabHost(win);
+    tabHost = new NativeTabHost(winShell);
+    installChromeSenderResolver(winShell, tabHost);
 
     console.log('[Smoke] Step 1: Creating initial tab...');
     const tabId = tabHost.createTab(homeUrl, true);
@@ -169,7 +194,7 @@ async function runSmokeTest() {
     console.log('[Smoke] Verified independent form input state.');
     // Verify exact alignment between #laptopScreenFrame and tab.view bounds on all 4 edges
     const toolbarHeight = tabHost.getToolbarHeight();
-    const backdropCutout = await tabHost.frameBackdropView.webContents.executeJavaScript(`
+    const backdropCutout = await winShell.frameBackdropView.webContents.executeJavaScript(`
       (() => {
         const el = document.getElementById('laptopScreenFrame');
         if (!el) return null;
@@ -291,11 +316,11 @@ async function runSmokeTest() {
     // 1. Assert live contentView z-order
     const children = win.contentView.children;
     const tabRec = tabHost.tabs.get(tabId);
-    const backdropIdx = children.indexOf(tabHost.frameBackdropView);
+    const backdropIdx = children.indexOf(winShell.frameBackdropView);
     const desktopIdx = children.indexOf(tabRec.view);
     const mobileIdx = children.indexOf(tabRec.mobileView);
-    const sidebarIdx = children.indexOf(tabHost.sidebarView);
-    const toolbarIdx = children.indexOf(tabHost.toolbarView);
+    const sidebarIdx = children.indexOf(winShell.sidebarView);
+    const toolbarIdx = children.indexOf(winShell.toolbarView);
     if (backdropIdx === -1 || desktopIdx === -1 || mobileIdx === -1 || sidebarIdx === -1 || toolbarIdx === -1) {
       throw new Error(`Expected all 5 views attached to contentView, got backdrop=${backdropIdx}, desktop=${desktopIdx}, mobile=${mobileIdx}, sidebar=${sidebarIdx}, toolbar=${toolbarIdx}`);
     }
@@ -398,7 +423,8 @@ async function runSmokeTest() {
     console.log('[Smoke] Verified focused pane target routing (DOM & agent snapshot).');
     console.log('[Smoke] Step 5b: Testing inspect mode & element pick capture on focused pane...');
     tabHost.switchTab(tabId);
-    const inspectActive = tabHost.toggleInspect(tabId);
+    // Inspect targets the shell's active tab (selected by the switch above); no target argument is accepted.
+    const inspectActive = tabHost.toggleInspect();
     if (!inspectActive) {
       throw new Error('Expected toggleInspect to activate inspect mode');
     }

@@ -25,6 +25,17 @@ protocol.registerSchemesAsPrivileged([
       supportFetchAPI: true,
     },
   },
+  {
+    // The production popup policy allows only http(s)/about/antifan/antifan-preview
+    // navigations, so the OAuth probe rides the real `antifan:` allowlist entry
+    // instead of a smoke-only scheme that would trip the deny branch.
+    scheme: 'antifan',
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+    },
+  },
 ]);
 
 const pageHtml = '<!doctype html><meta charset="utf-8"><title>AntiFan persistence smoke</title><body>ready</body>';
@@ -53,6 +64,7 @@ function openDatabase(action) {
 
 async function run() {
   protocol.handle('antifan-smoke', () => new Response(pageHtml, { headers: { 'content-type': 'text/html' } }));
+  protocol.handle('antifan', () => new Response(pageHtml, { headers: { 'content-type': 'text/html' } }));
   const win = new BrowserWindow({
     show: false,
     webPreferences: {
@@ -98,8 +110,13 @@ async function run() {
         clearTimeout(timer);
         resolve(child);
       });
-      win.webContents.executeJavaScript("window.open('antifan-smoke://identity/oauth/authorize?client_id=smoke', 'oauth-smoke')").catch(reject);
+      // antifan://identity/oauth/authorize passes isAllowedNavigation (antifan: is
+      // allowlisted) and isOAuthUrl (path matches /oauth2?/authorize/), so the
+      // production allow branch creates a real child window on the parent Session.
+      win.webContents.executeJavaScript("window.open('antifan://identity/oauth/authorize?client_id=smoke', 'oauth-smoke')").catch(reject);
     });
+    await new Promise((resolve) => popup.webContents.once('did-finish-load', resolve));
+    console.log(`[profile-smoke] OAUTH_CHILD id=${popup.id} url=${popup.webContents.getURL()}`);
     const sameSession = popup.webContents.session === win.webContents.session;
     const hasOpener = await popup.webContents.executeJavaScript('window.opener !== null');
     popup.destroy();

@@ -43,14 +43,23 @@ interface HostOptions {
   setViewportSize?: (opts: { width: number; height: number; tabId?: string }) => Promise<boolean> | boolean;
   sessionTabList?: () => unknown[];
   adoptReturns?: boolean;
-  evalJs?: (script: string, tabId?: string, paneId?: string, userGesture?: boolean, timeoutMs?: number) => Promise<unknown> | unknown;
-}
+   evalJs?: (script: string, tabId?: string, paneId?: string, userGesture?: boolean, timeoutMs?: number) => Promise<unknown> | unknown;
+  affiliation?: (tabId: string) => { projectId?: string; workspaceId?: string; capsuleId?: string } | undefined;
+ }
 
 function buildHost(opts: HostOptions) {
   const calls = { capture: 0, close: [] as string[], geometryRestores: 0, eval: 0, drains: 0 };
   const host: Partial<BrowserHostPort> & Record<string, unknown> = {
     hasTab: () => true,
     getTabList: () => [{ id: 'tab-b' }],
+    resolveTabAffiliation: (tabId: string) => {
+      if (opts.affiliation) return opts.affiliation(tabId);
+      return {
+        projectId: TARGET.projectId,
+        workspaceId: TARGET.workspaceId,
+        capsuleId: 'capsule-1',
+      };
+    },
     getDocumentGeneration: () => 1,
     isCurrentTarget: () => true,
     getManagedTabIds: () => new Set(['tab-b']),

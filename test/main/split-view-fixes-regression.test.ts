@@ -7,6 +7,7 @@ import { ELEMENT_PICKER_SCRIPT } from '../../src/main/browser/element-picker';
 import { FONT_FINDER_SCRIPT } from '../../src/main/browser/font-finder';
 import { TabDevToolsHost, TabDevToolsContext } from '../../src/main/browser/tab-devtools-host';
 import { NativeTabHost } from '../../src/main/browser/native-tab-host';
+import { createShellDouble } from '../support/project-window-shell-double';
 
 function getRepoRoot(): string {
   let cur = __dirname;
@@ -71,10 +72,17 @@ describe('Split View 3 Fixes Regression Suite', () => {
     };
 
     const host = Object.create(NativeTabHost.prototype) as any;
-    host.window = {
-      isDestroyed: () => false,
-      contentView: mockContentView,
-    };
+    const shell = createShellDouble({
+      window: {
+        isDestroyed: () => false,
+        getBounds: () => ({ x: 0, y: 0, width: 1440, height: 900 }),
+        getContentBounds: () => ({ x: 0, y: 0, width: 1440, height: 900 }),
+        contentView: mockContentView,
+        on: () => {},
+        removeListener: () => {},
+      },
+    });
+    host.shell = shell;
     host.tabs = new Map();
     host.activeTabId = 'tab-1';
 
@@ -84,9 +92,9 @@ describe('Split View 3 Fixes Regression Suite', () => {
     const sidebarView = { id: 'sidebar' };
     const toolbarView = { id: 'toolbar' };
 
-    host.frameBackdropView = backdropView;
-    host.sidebarView = sidebarView;
-    host.toolbarView = toolbarView;
+    shell.frameBackdropView = backdropView as unknown as typeof shell.frameBackdropView;
+    shell.sidebarView = sidebarView as unknown as typeof shell.sidebarView;
+    shell.toolbarView = toolbarView as unknown as typeof shell.toolbarView;
 
     host.tabs.set('tab-1', {
       id: 'tab-1',
@@ -194,6 +202,8 @@ describe('Split View 3 Fixes Regression Suite', () => {
     };
 
     const host = Object.create(NativeTabHost.prototype) as any;
+    const shell = createShellDouble();
+    host.shell = shell;
     host.tabs = new Map([['tab-old', oldTab], ['tab-new', newTab]]);
     host.activeTabId = 'tab-old';
     host.isFontFinderActive = true;

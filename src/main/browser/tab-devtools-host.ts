@@ -38,6 +38,7 @@ import type { ScrollPrewarmReceipt } from '../verification/scroll-prewarm';
 import { evaluatePreCaptureQuiescence, type PreCaptureQuiescenceResult } from '../verification/capture-settle';
 import { buildTrackerStubScript, buildTrackerStubTeardownScript, TRACKER_BLOCK_PATTERNS } from './tracker-isolation';
 import type { TrackerIsolationReceipt } from './tracker-isolation';
+import { withEvalCeiling } from './eval-ceiling';
 
 const delay = (ms: number): Promise<void> => {
   const { promise, resolve } = Promise.withResolvers<void>();
@@ -164,6 +165,11 @@ export interface TabDevToolsContext {
    * raise left the pane frame-starved.
    */
   raiseViewForCapture?: (view: Electron.WebContentsView, opts?: { inWindow?: boolean }) => void;
+  /**
+   * Overrides `EVAL_JS_DEFAULT_TIMEOUT_MS` for the bounded eval sites so a test can
+   * prove the refusal without waiting the production budget; production leaves it unset.
+   */
+  evalSoftBudgetMs?: number;
 }
 export interface TabDevToolsStats {
   attachedWebContentsCount: number;
@@ -183,6 +189,14 @@ export interface TabDevToolsStats {
  * reference materialization walk) pass their own through `timeoutMs`.
  */
 const EVAL_JS_DEFAULT_TIMEOUT_MS = 15_000;
+
+/**
+ * Soft budget for capturing the active view's raster for the GPU lens.
+ * A raster capture normally settles in milliseconds (typically 10-50ms),
+ * so 2,000ms gives ample margin for a contended GPU or desktop window
+ * compositor before emitting a soft warning.
+ */
+const LENS_CAPTURE_SOFT_BUDGET_MS = 2_000;
 
 /**
  * Source of the circular-safe value serializer injected into every evaluated
@@ -380,14 +394,23 @@ export class TabDevToolsHost {
     if (!active) return;
     this.isLensActive = true;
     try {
-      const img = await active.view.webContents.capturePage();
-      const dataUrl = img.toDataURL();
-      await active.view.webContents.executeJavaScript(`(() => {
-        window.__antifanLensScreenshot = ${JSON.stringify(dataUrl)};
-        if (window.__antifanLensUpdateSnapshot) {
-          window.__antifanLensUpdateSnapshot(${JSON.stringify(dataUrl)});
-        }
-      })()`);
+      const wc = active.view.webContents;
+      await withEvalCeiling({
+        wc,
+        label: 'lens capture',
+        softBudgetMs: this.ctx.evalSoftBudgetMs ?? LENS_CAPTURE_SOFT_BUDGET_MS,
+        work: async () => {
+          const img = await active.view.webContents.capturePage();
+          const dataUrl = img.toDataURL();
+          await active.view.webContents.executeJavaScript(`(() => {
+            window.__antifanLensScreenshot = ${JSON.stringify(dataUrl)};
+            if (window.__antifanLensUpdateSnapshot) {
+              window.__antifanLensUpdateSnapshot(${JSON.stringify(dataUrl)});
+            }
+          })()`);
+        },
+        terminate: (target) => this.sendCdpCommand(target, 'Runtime.terminateExecution', {}).catch(() => undefined),
+      });
     } catch (err) {
       console.error('[tab-devtools-host] Failed to capture page for lens:', err);
     }
@@ -2084,12 +2107,6 @@ export class TabDevToolsHost {
       );
     }
     const isOffscreenTarget = target.state?.offscreen === true;
-    if (mode === 'full-page' && isOffscreenTarget) {
-      throw new CaptureError(
-        'FULLPAGE_CAPTURE_UNSUPPORTED_ON_OFFSCREEN',
-        `Full-page verification capture is unsupported on offscreen target '${targetId}'; use viewport/clip capture or a foreground tab`
-      );
-    }
     if (this.isWebContentsDraining(wc)) {
       throw new CaptureError(
         'TARGET_BUSY_DRAINING',
@@ -2403,8 +2420,8 @@ export class TabDevToolsHost {
           // timed-out inside the command it is quarantined as draining and
           // every later command waits out the drain window (both measured).
           const rasterStartedAt = Date.now();
-          await this.ensureFramesForRaster(wc, targetId, effectivePane, mode, isOffscreenTarget, shouldRaiseForRaster, targetPaneView);
           try {
+            await this.ensureFramesForRaster(wc, targetId, effectivePane, mode, isOffscreenTarget, shouldRaiseForRaster, targetPaneView);
             captureRes = await this.sendCdpCommand<{ data?: string }>(
               wc,
               'Page.captureScreenshot',
@@ -2418,6 +2435,9 @@ export class TabDevToolsHost {
               cdpBoundMs
             );
           } catch (err) {
+            // Frame refusal occurs before dispatch: do not classify it as a
+            // raster timeout or probe again. The finally still restores the tab.
+            if (err instanceof CaptureError && err.code === 'CAPTURE_FRAME_STARVATION') throw err;
             // A timed-out raster can leave the presented pane blank even though the
             // view is still attached: the compositor stopped committing frames.
             // Re-assert restores z-order and invalidates so the user sees the page
@@ -2800,7 +2820,26 @@ export class TabDevToolsHost {
             return el ? el.outerHTML : '';
           })()`
         : `(() => document.documentElement ? document.documentElement.outerHTML : '')()`;
-      return wc.executeJavaScript(script);
+      const execute = (): Promise<string> =>
+        withEvalCeiling({
+          wc,
+          label: 'dom dump',
+          softBudgetMs: this.ctx.evalSoftBudgetMs ?? EVAL_JS_DEFAULT_TIMEOUT_MS,
+          work: () => wc.executeJavaScript(script),
+          terminate: (target) => this.sendCdpCommand(target, 'Runtime.terminateExecution', {}).catch(() => undefined),
+        });
+      // A dump of a tab that is not the one on screen runs against an attached view, the way
+      // `evalJs` and the render-surface probe already do: with its view detached the page has
+      // no live surface, and the dump then waits out the whole eval ceiling instead of
+      // answering - an agent bound to a background tab could not read it at all.
+      const paneView = effectivePane === 'mobile' ? (target.mobileView || target.view) : target.view;
+      const isActiveTarget = targetId === this.ctx.getActiveTabId();
+      const isOffscreenTarget = target.state?.offscreen === true;
+      if (!isActiveTarget && !isOffscreenTarget && paneView && this.ctx.runWithAttachedTabView) {
+        const isMobilePane = effectivePane === 'mobile' && Boolean(target.mobileView);
+        return await this.ctx.runWithAttachedTabView(paneView, execute, isMobilePane);
+      }
+      return await execute();
     });
   }
 

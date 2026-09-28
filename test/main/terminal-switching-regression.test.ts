@@ -8,7 +8,7 @@ import { TerminalManager } from '../../src/main/browser/terminal-manager';
 const ROOT = path.resolve(__dirname, '../../..');
 
 describe('Terminal Switching Regression & Viewport Integrity', () => {
-  const tm = TerminalManager.getInstance();
+  let tm = TerminalManager.getInstance();
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-term-test-'));
   const testStateFile = path.join(tempDir, 'terminal-sessions.json');
 
@@ -24,12 +24,16 @@ describe('Terminal Switching Regression & Viewport Integrity', () => {
     readSavedSessions: () => { activeSessionId?: string; sessions?: Array<{ id: string; buffer?: string; name?: string }> };
   };
 
-  const tmInternal = tm as unknown as TerminalManagerInternals;
-  const originalSpawn = tmInternal.spawn.bind(tm);
-  const originalStatePath = tmInternal.statePath.bind(tm);
+  let tmInternal = tm as unknown as TerminalManagerInternals;
+  // The seams go on the prototype, not the instance: `dispose()` retires the instance and unsets
+  // the singleton, so the rows that follow it run against a newly constructed canonical, which
+  // must inherit the same temp state file and the same PTY double.
+  const managerPrototype = TerminalManager.prototype as unknown as TerminalManagerInternals;
+  const originalSpawn = managerPrototype.spawn;
+  const originalStatePath = managerPrototype.statePath;
 
-  tmInternal.statePath = () => testStateFile;
-  tmInternal.spawn = function (id: string, cwd: string, restoredBuffer = '', initialCols?: number, initialRows?: number, minimumRows = 8) {
+  managerPrototype.statePath = () => testStateFile;
+  managerPrototype.spawn = function (id: string, cwd: string, restoredBuffer = '', initialCols?: number, initialRows?: number, minimumRows = 8) {
     const cols = Math.max(40, initialCols || tmInternal.lastCols || 120);
     const rows = Math.max(minimumRows, initialRows || tmInternal.lastRows || 30);
     const mockPty = {
@@ -58,10 +62,20 @@ describe('Terminal Switching Regression & Viewport Integrity', () => {
     return s;
   };
 
+  /**
+   * A disposed manager is retired for good: the singleton is unset and the instance no longer
+   * persists or mints PTYs. Every row after a dispose therefore describes a *new* app lifecycle and
+   * must bind to the newly constructed canonical rather than keep writing to a retired object.
+   */
+  const reacquireLiveManager = (): void => {
+    tm = TerminalManager.getInstance();
+    tmInternal = tm as unknown as TerminalManagerInternals;
+  };
+
   after(async () => {
     await tm.dispose();
-    tmInternal.spawn = originalSpawn;
-    tmInternal.statePath = originalStatePath;
+    managerPrototype.spawn = originalSpawn;
+    managerPrototype.statePath = originalStatePath;
     try {
       fs.rmSync(tempDir, { recursive: true, force: true });
     } catch {}
@@ -317,6 +331,8 @@ describe('Terminal Switching Regression & Viewport Integrity', () => {
     const savedSession = saved.sessions?.find((item: any) => item.id === sId);
     assert.ok(savedSession, 'Session should be saved on disk even when disposed during debounce');
     assert.ok(savedSession.buffer?.includes('unique-quit-test-marker-54321'));
+    // This row retired the manager on purpose; the rows that follow describe the next app run.
+    reacquireLiveManager();
   });
 
   it('race-resilient: ensures in-flight persistAsync does not overwrite fresh persistSync on exit when paused between write and rename', async () => {
@@ -614,7 +630,9 @@ describe('Terminal Switching Regression & Viewport Integrity', () => {
     assert.ok(savedAfterPostDispose.sessions?.some((s) => s.id === t3 && s.name === 'Terminal 3'));
     assert.ok(savedAfterPostDispose.sessions?.some((s) => s.id === t4 && s.name === 'Terminal 4'));
 
-    // 4. App Reopen phase: new startup invokes setCapsule() or startTerminal()
+    // 4. App Reopen phase: a new startup constructs a new manager and invokes setCapsule() /
+    //    startTerminal() on it, which is what restores the sessions from disk.
+    reacquireLiveManager();
     tm.setCapsule('capsule-reopen', 'E:/Work/project-a');
     const restoredSessions = tm.listSessions();
     assert.strictEqual(

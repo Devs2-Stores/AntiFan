@@ -23,6 +23,14 @@ export interface AttachmentValidatorDelegate {
   getAttemptState?: (attemptId: string) => AttemptState | undefined;
   getHostEpoch?: () => number;
   getProcessPid?: (runId: string, attemptId: string) => number | undefined;
+  /**
+   * Liveness of a bound owner process (`boundPid`). Injected so the registry can tell
+   * "this owner is gone" from "this owner is quiet" without importing a process host.
+   * A pid this predicate reports dead can never dispatch again — every dispatch path
+   * refuses a `boundPid` mismatch (see `validateAttachment`), so the binding is holding
+   * no work and may be released. Absent, no owner is ever considered gone.
+   */
+  isOwnerProcessAlive?: (pid: number) => boolean;
   getBackendId?: (attemptId: string) => string | undefined;
   getDocumentGeneration?: (tabId?: string) => number;
   getAutomationTabId?: () => string | null;
@@ -30,6 +38,54 @@ export interface AttachmentValidatorDelegate {
   releaseSessionTab?: (sessionId: string, tabId: string) => boolean;
   releaseSessionTabPool?: (sessionId: string) => boolean;
 }
+
+/**
+ * Close-admission seam. Injected by the composition root rather than imported, so
+ * the attachment authority does not depend on the window/browser close coordinator
+ * that implements it.
+ *
+ * A page whose close is reserved is on its way out of the process. A binding minted,
+ * rebound or adopted onto it would be destroyed with it without the client ever
+ * learning its authority had been lost, and an operation admitted against it would
+ * either race the unload or be counted as idle work. Both halves are therefore
+ * consulted at the admission points that hold a tab:
+ *
+ * - `isPageReserved(tabId)` gates every path that binds a tab (attachment mint,
+ *   rebind, adopter rotation) and every path that admits tab-scoped work.
+ * - `isApplicationAdmissionReserved()` gates every admission while a quit attempt holds
+ *   application admission closed: bindings and operations admitted then would attach to
+ *   services that attempt is about to dispose.
+ * - `beginAdmittedOperation(tabIds?, ownerKey?)` registers in-flight work so a close
+ *   measures it instead of guessing, attributing the operation to the pages it reaches
+ *   and to the window that asked for it.
+ *
+ * Injecting nothing keeps the previous behaviour of every consumer.
+ */
+export interface PageCloseAdmission {
+  /** True while the page's close is reserved: it accepts no new binding and no new work. */
+  isPageReserved(tabId: string): boolean;
+  /**
+   * True while an application attempt (a quit) holds all admission closed. A binding or
+   * an operation admitted during that window would be created against services that are
+   * about to be torn down, so this is the broader refusal and is consulted before the
+   * per-page reservation. Read synchronously and fail-closed: an implementation that
+   * cannot answer must throw, and the consumer refuses rather than admitting.
+   */
+  isApplicationAdmissionReserved(): boolean;
+  /**
+   * Registers one admitted operation and returns its release, attributed to every page
+   * it will reach (`tabIds`) so a close measuring that page counts real work instead of
+   * guessing from a process-wide number, and to the window that asked for it (`ownerKey`)
+   * so a shell-scope close counts work on pages it does not own as member pages — an
+   * offscreen or ephemeral tab — instead of measuring that window as idle. An
+   * implementation refuses admission by throwing
+   * a `CapabilityError` from the shared error vocabulary; callers surface that refusal as
+   * final (no retry-into-success, no silent redirect). The returned release must be safe
+   * to call exactly once from every exit path, including a throw or a cancellation.
+   */
+  beginAdmittedOperation(tabIds?: string | readonly string[], ownerKey?: string): () => void;
+}
+
 export interface IssueAttachmentOptions {
   chatId?: string;
   backendId: string;
@@ -95,6 +151,7 @@ export class AttachmentRegistry {
   private readonly maxHistoricalRevisions: number;
   private isQuarantined = false;
   private mutationLock: Promise<void> = Promise.resolve();
+  private closeAdmission?: PageCloseAdmission;
   private disposeListener?: (info: { attachmentId: string; tabId?: string; browserTarget?: BrowserTarget }) => void;
   private uncompactedFramesCount = 0;
   /**
@@ -355,6 +412,10 @@ export class AttachmentRegistry {
       // explicit/browserTarget tab — NEVER from the process-global automation target
       // (which may belong to a different concurrent session). No delegatedAutomationTabId.
       const effectiveTabId = options.tabId ?? options.browserTarget?.tabId;
+      // A reserved page is about to be destroyed with everything bound to it, so a
+      // mint here would hand the caller authority that is already lost. Refused
+      // before the record exists (and before any generation probe touches the page).
+      this.assertPageAdmitsBinding(effectiveTabId, 'mint an attachment');
 
       let initialDocGen = options.documentGeneration ?? options.browserTarget?.documentGeneration;
       if (typeof initialDocGen !== 'number' && effectiveTabId && this.delegate?.getDocumentGeneration) {
@@ -486,6 +547,15 @@ export class AttachmentRegistry {
       }
       if (overrides?.expectedTabId !== undefined && record.tabId !== overrides.expectedTabId) {
         throw new CapabilityError('TRANSACTION_CONFLICT', `CAS conflict: expected tabId ${overrides.expectedTabId}, but current tabId is ${record.tabId ?? 'none'}`);
+      }
+      // Moving the binding onto a different page is a new binding even when the same
+      // record is only adopting it: refusing here keeps an adopter from landing on a
+      // page whose close is already reserved. A same-page rotation (a document
+      // generation advance on the page this attachment already holds) is not a new
+      // binding — its work was admitted before the reservation — so it is not refused.
+      const rotationTabId = overrides?.tabId ?? overrides?.browserTarget?.tabId;
+      if (rotationTabId !== undefined && rotationTabId !== record.tabId) {
+        this.assertPageAdmitsBinding(rotationTabId, 'rotate attachment authority onto a tab');
       }
       const nextRevNumber = (prevSnapshot?.revisionNumber ?? record.revisionNumber ?? 1) + 1;
       const nextRev: AuthorityRevisionHandle = `rev_${crypto.randomBytes(16).toString('hex')}`;
@@ -888,6 +958,13 @@ export class AttachmentRegistry {
       console.warn(`[AttachmentRegistry] updateAttachmentTab: CAS tabId mismatch for ${attachmentId} (expected ${casOptions.expectedTabId}, bound ${record.tabId})`);
       return null;
     }
+    // Only a move onto a different page is a new binding: a same-page generation
+    // refresh settles work admitted before the reservation, so a reserved page's
+    // already-bound authority survives its own close long enough to be honest about
+    // what it did.
+    if (record.tabId !== tabId) {
+      this.assertPageAdmitsBinding(tabId, 'rebind the attachment');
+    }
     let docGen = documentGeneration;
     if (casOptions) {
       if (typeof docGen !== 'number' || !Number.isFinite(docGen) || docGen < 1) {
@@ -1136,6 +1213,71 @@ export class AttachmentRegistry {
     this.disposeListener = listener;
   }
 
+  /**
+   * Injects the close-admission seam (see {@link PageCloseAdmission}). Optional: with
+   * nothing injected every binding path keeps its previous behaviour.
+   */
+  setCloseAdmission(admission?: PageCloseAdmission): void {
+    this.closeAdmission = admission;
+  }
+
+  /**
+   * Refuse a binding while the application admits no new work, or whose target page has
+   * its close reserved.
+   *
+   * `operation` names the refused intent so the caller can act on it. The application
+   * gate comes first because it is the broader one: during a quit attempt the services a
+   * new binding would rely on are on their way out, whatever page it names — including a
+   * bindless mint. The refusal is the existing `RUNTIME_DRAINING` failure and it is not
+   * silent: nothing is bound and the caller retries once the quit finishes or is refused.
+   *
+   * The per-page refusal stays the existing `TARGET_STALE` failure — the page is leaving
+   * — and it is final: no silent redirect to another tab, no retry that would turn into a
+   * success on a page about to be destroyed. A reservation source that cannot be read is
+   * not permission to bind either: the page may be mid-unload, so the same refusal carries
+   * the read failure as its reason.
+   */
+  private assertPageAdmitsBinding(tabId: string | undefined, operation: string): void {
+    const admission = this.closeAdmission;
+    if (!admission) return;
+    let applicationReserved: boolean;
+    try {
+      applicationReserved = Boolean(admission.isApplicationAdmissionReserved());
+    } catch (err) {
+      const cause = err instanceof Error ? err.message : String(err);
+      throw new CapabilityError(
+        'RUNTIME_DRAINING',
+        `Cannot ${operation}: the application admission state could not be read (${cause}); no new work is admitted while it is unknown. Retry shortly.`,
+        { tabId, applicationAdmissionUnreadable: true }
+      );
+    }
+    if (applicationReserved) {
+      throw new CapabilityError(
+        'RUNTIME_DRAINING',
+        `Cannot ${operation}: the application is quitting and admits no new work. Nothing was bound; retry once the quit finishes or is refused.`,
+        { tabId, applicationQuitting: true }
+      );
+    }
+    if (!tabId) return;
+    let reserved: boolean;
+    try {
+      reserved = Boolean(admission.isPageReserved(tabId));
+    } catch (err) {
+      const cause = err instanceof Error ? err.message : String(err);
+      throw new CapabilityError(
+        'TARGET_STALE',
+        `Cannot ${operation}: the close reservation for tab '${tabId}' could not be read (${cause}). Retry, or rebind to a live tab.`,
+        { tabId, closeReservationUnreadable: true }
+      );
+    }
+    if (!reserved) return;
+    throw new CapabilityError(
+      'TARGET_STALE',
+      `Cannot ${operation}: tab '${tabId}' is reserved for close and admits no new binding. Nothing was bound; rebind to a live tab once the close is done.`,
+      { tabId, reservedForClose: true }
+    );
+  }
+
   private notifyDispose(record: ExecutionAttachmentRecord): void {
     // Session-end quota release: the bound tab's session pool is freed here,
     // not in the dispose listener — the listener refuses user-visible tabs,
@@ -1169,6 +1311,68 @@ export class AttachmentRegistry {
           await this.revokeAttachmentUnlocked(id);
         }
       }
+    });
+  }
+
+  /**
+   * Release every active binding whose owner provably cannot come back, so a page it
+   * holds does not stay busy forever (the fail-closed close gate reads liveness from
+   * this registry; see `close-live-use`).
+   *
+   * Two facts prove an owner is gone, and only these two:
+   *
+   * - the lease deadline passed. `renewAttachment` refuses a renewal past
+   *   `expiresAt` and `validateLiveExecution` refuses dispatch, so the record is already
+   *   dead — this marks it expired and runs the same disposal a lazy read would.
+   * - `boundPid` is set and the injected liveness predicate reports it dead. Every
+   *   dispatch path refuses a `boundPid` mismatch, so no process can use this binding
+   *   again: the authority is unreachable and releasing it destroys no work. A missing
+   *   predicate or an unset `boundPid` never releases anything, and a live or
+   *   unreadable pid is treated as alive — the direction that keeps a real session's
+   *   binding intact.
+   *
+   * Revocation is the same durable mutation as `revokeForAttempt`, so the record, its
+   * persisted frame and the ownership-disposal hook stay consistent with any other end
+   * of session.
+   */
+  async revokeGoneOwnerAttachments(): Promise<{ revoked: string[]; expired: string[]; retained: number }> {
+    return await this.runWithMutationLock(async () => {
+      const revoked: string[] = [];
+      const expired: string[] = [];
+      let retained = 0;
+      const now = Date.now();
+      for (const record of [...this.records.values()]) {
+        if (record.state !== 'active') continue;
+        if (typeof record.expiresAt === 'number' && record.expiresAt <= now) {
+          const candidateRecord: ExecutionAttachmentRecord = { ...record, state: 'expired' };
+          const existingRevisions = Array.from(this.revisions.values()).filter((r) => r.attachmentId === record.id);
+          await this.appendPersistenceFrameUnlocked(candidateRecord, existingRevisions);
+          this.records.set(record.id, candidateRecord);
+          this.notifyDispose(candidateRecord);
+          expired.push(record.id);
+          continue;
+        }
+        const boundPid = record.boundPid;
+        const isAlive = this.delegate?.isOwnerProcessAlive;
+        if (typeof boundPid !== 'number' || !Number.isInteger(boundPid) || boundPid <= 0 || !isAlive) {
+          retained++;
+          continue;
+        }
+        let alive: boolean;
+        try {
+          // A liveness read that fails is not evidence of death: keep the binding.
+          alive = isAlive(boundPid) !== false;
+        } catch {
+          alive = true;
+        }
+        if (alive) {
+          retained++;
+          continue;
+        }
+        await this.revokeAttachmentUnlocked(record.id);
+        revoked.push(record.id);
+      }
+      return { revoked, expired, retained };
     });
   }
   getRecord(attachmentId: string): ExecutionAttachmentRecord | undefined {

@@ -1,5 +1,5 @@
 import { CapabilityCatalogue } from './capability-catalogue';
-import { TerminalManager } from '../browser/terminal-manager';
+import { TerminalManager, agentTerminalOwnerKey } from '../browser/terminal-manager';
 import {
   CapabilityError,
   CapabilityRequestContext,
@@ -221,7 +221,7 @@ export function registerTerminalCapabilities(
       },
       required: ['sessionId', 'input'],
     },
-    execute: (
+    execute: async (
       params: { sessionId: string; input: string },
       context?: CapabilityRequestContext | AuthenticatedCapabilityContext
     ) => {
@@ -239,7 +239,11 @@ export function registerTerminalCapabilities(
       // delivers the input to the fresh shell. No explicit wakeSession() call is made
       // here on purpose: a second wake would race that transition and could spawn two
       // shells for one keystroke.
-      terminal.writeTo(params.sessionId, params.input);
+      // The singleton may be the daemon proxy, whose writeTo resolves only once the daemon
+      // has delivered the input (and completed any wake it triggered). Awaiting keeps the
+      // probe honest: `after` — and therefore `woke` — describes the session after the
+      // input landed, not mid-RPC while the wake is still in flight.
+      await terminal.writeTo(params.sessionId, params.input);
       const after = probeTerminalLifecycle(terminal, params.sessionId) || before;
       const woke = wasSleeping && after !== undefined && after.state !== 'sleeping';
       const result: TerminalWriteResult = {
@@ -439,13 +443,14 @@ export function registerTerminalCapabilities(
       type: 'object',
       properties: {
         cwd: { type: 'string' },
+        capsuleId: { type: 'string' },
         parentId: { type: 'string' },
         initialCols: { type: 'number' },
         initialRows: { type: 'number' },
       },
     },
     execute: async (
-      params: { cwd?: string; parentId?: string; initialCols?: number; initialRows?: number },
+      params: { cwd?: string; capsuleId?: string; parentId?: string; initialCols?: number; initialRows?: number },
       context?: CapabilityRequestContext | AuthenticatedCapabilityContext
     ) => {
       // Ownership is resolved BEFORE a shell exists: a session created for a caller that cannot be
@@ -457,15 +462,24 @@ export function registerTerminalCapabilities(
         // new PTY in a foreign workspace and then claim that workspace's tab for it.
         assertTerminalOwnership(scope, params.parentId, 'operate');
       }
-      // The manager's declared contract is synchronous, but the daemon-backed facade the
-      // composition root installs as the canonical instance (see DaemonTerminalProxy)
-      // exposes these same names as ASYNC methods. Reading the return value without
-      // awaiting it therefore put a Promise where the wire contract promises a string, and
-      // the tool answered `{"sessionId":{}}` — the caller lost the only handle to the
-      // terminal it had just created. Awaiting is correct for both shapes.
+      // ASYNC/SYNC SEAM CONVENTION:
+      // TerminalManager declares a synchronous contract (`createSession(cwd?, capsuleId?): string`),
+      // but the daemon-backed facade installed as the process singleton (DaemonTerminalProxy)
+      // implements `createSession(cwd?, capsuleId?): Promise<string>`.
+      // Callers holding a reference to the singleton MUST await `terminal.createSession(...)` (or
+      // `terminal.createSplitSession(...)`). Awaiting is correct for both shapes: it cleanly unwraps
+      // a Promise when running against DaemonTerminalProxy and resolves a bare string when running
+      // against in-process TerminalManager. Reading the return value synchronously yields an unhandled
+      // Promise object in daemon mode, which would cause this tool to respond with `{"sessionId":{}}`
+      // and lose the session identifier.
+      // Ownership of the row is the caller's own agent key — its bound tab, or `agent:unbound` when
+      // the invocation carries no attachment. This tool surface is only ever reached by an agent, so
+      // a session minted here must never be filed under a project window's key, which would make it
+      // appear in that window's sidebar and nowhere else.
+      const agentOwnerKey = agentTerminalOwnerKey(scope.bound ? scope.tabId : undefined);
       const id = params.parentId
         ? await terminal.createSplitSession(params.parentId, params.cwd, params.initialCols, params.initialRows)
-        : await terminal.createSession(params.cwd);
+        : await terminal.createSession(params.cwd, params.capsuleId, agentOwnerKey);
       if (typeof id !== 'string' || !id) {
         // An empty id is a refusal, not a handle: `createSplitSession` reports an
         // unusable parent (missing, disposed, or itself a split) that way. Fabricating

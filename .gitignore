@@ -76,3 +76,7 @@ Microsoft/
 # Goal-runner test scratch dirs (created under the repo so the disk-headroom probe is real)
 .goal-test-*/
 .goal-runs/
+# Client theme customization copies (local working data, same policy as clone/)
+customizes/
+# Root throwaway scratch scripts
+/temp-scratch*.cjs
