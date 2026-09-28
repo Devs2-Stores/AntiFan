@@ -1,0 +1,184 @@
+{
+  "status": "failed",
+  "startedAt": "2026-09-22T00:44:45.526Z",
+  "finishedAt": "2026-09-22T00:45:56.678Z",
+  "config": {
+    "totalMinutes": 240,
+    "requestedTotalMinutes": 240,
+    "durationSource": "argv --minutes",
+    "bundle": {
+      "start": {
+        "dir": "E:\\Work\\apps\\AntiFan\\.compiled",
+        "files": 419,
+        "bytes": 9254238,
+        "md5": "53f0fa88afdbc3cf8e153dbc01b1e023"
+      },
+      "end": {
+        "dir": "E:\\Work\\apps\\AntiFan\\.compiled",
+        "files": 419,
+        "bytes": 9254238,
+        "md5": "53f0fa88afdbc3cf8e153dbc01b1e023"
+      },
+      "changedDuringRun": false
+    },
+    "warmupMinutes": 30,
+    "workloadMinutes": 180,
+    "recoveryMinutes": 30,
+    "switchIntervalMs": 3000,
+    "burstIntervalMs": 30000,
+    "burstLines": 300,
+    "tabRounds": 1,
+    "fixtureTickMs": 200,
+    "fixtureTitleMode": "unique",
+    "sampleIntervalSeconds": 60,
+    "reportTag": "4hfix5",
+    "appArgs": [],
+    "legs": [
+      {
+        "name": "baseline",
+        "minutes": 60,
+        "burstLines": 300,
+        "burstIntervalMs": 30000,
+        "fixtureTickMs": 200,
+        "fixtureTitleMode": "unique",
+        "switchIntervalMs": 3000
+      },
+      {
+        "name": "burst4x",
+        "minutes": 60,
+        "burstLines": 1200,
+        "burstIntervalMs": 30000,
+        "fixtureTickMs": 200,
+        "fixtureTitleMode": "unique",
+        "switchIntervalMs": 3000
+      },
+      {
+        "name": "burst-off",
+        "minutes": 60,
+        "burstLines": 1,
+        "burstIntervalMs": 600000,
+        "fixtureTickMs": 200,
+        "fixtureTitleMode": "unique",
+        "switchIntervalMs": 3000
+      }
+    ]
+  },
+  "rootPid": 1108,
+  "fixturePort": 61189,
+  "stats": {
+    "requestCount": 0,
+    "openedTabs": 0,
+    "switches": 0,
+    "bursts": 0,
+    "burstsByPhase": {
+      "warmup": 0,
+      "workload": 0,
+      "recovery": 0
+    },
+    "reloads": 0,
+    "terminalEventsCount": 0,
+    "totalSamples": 0,
+    "totalSuspendedMinutes": 0,
+    "activeWorkloadMinutes": null,
+    "activeMinutesSinceStart": 0,
+    "teardownTelemetry": {
+      "tabsToClose": 0,
+      "tabsClosedSuccess": 0,
+      "tabsClosedFailed": 0,
+      "terminalClosedSuccess": false,
+      "terminalClosedFailed": false,
+      "teardownDegraded": false
+    }
+  },
+  "metrics": {
+    "switchLatencyMs": {
+      "min": null,
+      "p50": null,
+      "p95": null,
+      "max": null
+    },
+    "switchLatencyWorkloadCount": 0,
+    "switchLatencyWarmupMs": {
+      "min": null,
+      "p50": null,
+      "p95": null,
+      "max": null
+    },
+    "switchLatencyWarmupCount": 0,
+    "switchLatencyAllPhasesMs": {
+      "min": null,
+      "p50": null,
+      "p95": null,
+      "max": null
+    },
+    "activeWorkingSetMB": {
+      "min": null,
+      "p50": null,
+      "p95": null,
+      "max": null
+    },
+    "activeRendererWorkingSetMB": {
+      "min": null,
+      "p50": null,
+      "p95": null,
+      "max": null
+    },
+    "overallActiveSlopeMBPerMin": null,
+    "overallActiveSlopeMBPerHour": null,
+    "rendererActiveSlopeMBPerMin": null,
+    "rendererActiveSlopeMBPerHour": null,
+    "rolling60MinSlopes": [],
+    "initialLoadedMB": null,
+    "postWarmupMB": null,
+    "finalActiveMB": null,
+    "recoveredMB": null,
+    "processSeriesSampleCount": 0,
+    "perProcessSlopes": [],
+    "worstProcessSlopeMBPerMin": null,
+    "worstProcessRole": "",
+    "worstProcessUrl": "",
+    "worstProcessPid": null,
+    "appPrivateMaxSlopeMBPerMin": null,
+    "appPrivateMaxRole": "",
+    "appPrivateMaxUrl": "",
+    "appPrivateMaxPid": null,
+    "processSlopeWindowStart": null,
+    "processSlopeWindowEnd": null,
+    "refusedProcessCount": 0,
+    "refusedProcessWorkingSetMB": 0,
+    "refusedProcessNames": [],
+    "slowSwitchSamples": [],
+    "switchLatencyByTab": [],
+    "cpu": null,
+    "legBurstCounterSuspect": false,
+    "cpuByPhase": {
+      "warmup": null,
+      "workload": null,
+      "recovery": null
+    },
+    "historyPersist": null,
+    "slopeSloSatisfied": null,
+    "slopeGateApplicable": false,
+    "privateSlopeSloSatisfied": null,
+    "privateSlopeMeasured": false,
+    "switchLatencyWorkloadSamples": 0,
+    "switchLatencyMaxMs": null,
+    "latencyMaxGated": false,
+    "memorySloSatisfied": true,
+    "latencySloSatisfied": false,
+    "orphanSloSatisfied": true,
+    "executionSloSatisfied": false,
+    "teardownSloSatisfied": true,
+    "verdict": "FAILED"
+  },
+  "samples": [],
+  "processSeries": [],
+  "historySamples": [],
+  "switchStepSamples": [],
+  "legSlopes": [],
+  "slowSwitchSamples": [],
+  "switchSamples": [],
+  "switchSamplesDropped": 0,
+  "stderrTail": [],
+  "stdoutBenchmarkTail": []
+}

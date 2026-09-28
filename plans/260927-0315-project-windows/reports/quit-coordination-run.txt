@@ -1,0 +1,401 @@
+[run-electron] eval flag: --allow-eval (source: dev-default (non-production start)); ANTIFAN_ALLOW_EVAL=<unset>; electron args: scripts/probe-quit-coordination.cjs --allow-eval
+(node:14652) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+[24224:0927/172733.700:ERROR:ui\base\resource\resource_bundle.cc:1104] Failed to load E:\Work\apps\AntiFan\node_modules\electron\dist\chrome_100_percent.pak
+Some features may not be available.
+  PASS  the coordinator is idle at boot: one browser shell, no reservation, phase open
+[probe heartbeat] tick 1 (row: boot)
+[native-tab-host] Persisted tabs async to: C:\Users\Admin\AppData\Local\Temp\antifan-quit-probe-AT6TGE\Profile\saved-tabs.json
+(node:24224) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `electron --trace-warnings ...` to show where the warning was created)
+  PASS  a real queued run exists in the shipping run service
+[probe heartbeat] tick 2 (row: boot)
+[probe heartbeat] tick 3 (row: boot)
+[native-tab-host] Persisted tabs async to: C:\Users\Admin\AppData\Local\Temp\antifan-quit-probe-AT6TGE\Profile\saved-tabs.json
+[native-tab-host] Persisted tabs async to: C:\Users\Admin\AppData\Local\Temp\antifan-quit-probe-AT6TGE\Profile\saved-tabs.json
+[probe heartbeat] tick 4 (row: boot)
+[native-tab-host] Persisted tabs async to: C:\Users\Admin\AppData\Local\Temp\antifan-quit-probe-AT6TGE\Profile\saved-tabs.json
+[probe heartbeat] tick 5 (row: boot)
+[probe heartbeat] tick 6 (row: boot)
+[probe heartbeat] tick 7 (row: boot)
+[antifan] Persisted non-secret bridge info to E:\Work\.antifan-data\config\bridge-dev.json
+[antifan] Keeping the existing entry in C:\Users\Admin\.gemini\antifan_bridge_dev.json: it is held by a live instance.
+[native-tab-host] Persisted tabs async to: C:\Users\Admin\AppData\Local\Temp\antifan-quit-probe-AT6TGE\Profile\saved-tabs.json
+[native-tab-host] Persisted tabs async to: C:\Users\Admin\AppData\Local\Temp\antifan-quit-probe-AT6TGE\Profile\saved-tabs.json
+[probe heartbeat] tick 8 (row: boot)
+[native-tab-host] Persisted tabs async to: C:\Users\Admin\AppData\Local\Temp\antifan-quit-probe-AT6TGE\Profile\saved-tabs.json
+  PASS  three browser shells exist, each with its own tab
+[probe heartbeat] tick 9 (row: close first window while siblings idle)
+[probe heartbeat] tick 10 (row: close first window while siblings idle)
+[native-tab-host] Persisted tabs sync to: C:\Users\Admin\AppData\Local\Temp\antifan-quit-probe-AT6TGE\Profile\saved-tabs.json
+[project-window-shell] project-00000000-0000-4000-8000-0000000000a1 closed with 1 content(s) still alive: toolbar#2 (contents that reported destroyed during the attempt: 1)
+[native-tab-host] Persisted tabs async to: C:\Users\Admin\AppData\Local\Temp\antifan-quit-probe-AT6TGE\Profile\saved-tabs.json
+[native-tab-host] Persisted tabs async to: C:\Users\Admin\AppData\Local\Temp\antifan-quit-probe-AT6TGE\Profile\saved-tabs.json
+  PASS  a close attempt reserves its member pages before it awaits anything
+  PASS  closing one window disposes only it, releases its reservation, and starts no quit
+[diag][after-close] +0ms contents=12 :: 18:alive:pid=0:window: | 17:alive:pid=0:window: | 15:alive:pid=21336:window:https://www.google.com/ | 14:alive:pid=21268:window:file:///E:/Work/apps/AntiFan/src | 13:alive:pid=21268:window:file:///E:/Work/apps/AntiFan/src | 12:alive:pid=21268:window:file:///E:/Work/apps/AntiFan/src | 11:alive:pid=0:window: | 10:alive:pid=21336:window:https://www.google.com/ | 9:alive:pid=21268:window:file:///E:/Work/apps/AntiFan/src | 8:alive:pid=21268:window:file:///E:/Work/apps/AntiFan/src | 7:alive:pid=21268:window:file:///E:/Work/apps/AntiFan/src | 6:alive:pid=0:window:
+[diag][after-close] alphaToolbar isDestroyed=no-view destroyType=object
+[diag][setImmediate] +1ms contents=12 :: 18:alive:pid=0:window: | 17:alive:pid=0:window: | 15:alive:pid=21336:window:https://www.google.com/ | 14:alive:pid=21268:window:file:///E:/Work/apps/AntiFan/src | 13:alive:pid=21268:window:file:///E:/Work/apps/AntiFan/src | 12:alive:pid=21268:window:file:///E:/Work/apps/AntiFan/src | 11:alive:pid=0:window: | 10:alive:pid=21336:window:https://www.google.com/ | 9:alive:pid=21268:window:file:///E:/Work/apps/AntiFan/src | 8:alive:pid=21268:window:file:///E:/Work/apps/AntiFan/src | 7:alive:pid=21268:window:file:///E:/Work/apps/AntiFan/src | 6:alive:pid=0:window:
+[diag][setImmediate] alphaToolbar isDestroyed=no-view destroyType=object
+[diag][50ms] +56ms contents=12 :: 18:alive:pid=0:window: | 17:alive:pid=0:window: | 15:alive:pid=21336:window:https://www.google.com/ | 14:alive:pid=21268:window:file:///E:/Work/apps/AntiFan/src | 13:alive:pid=21268:window:file:///E:/Work/apps/AntiFan/src | 12:alive:pid=21268:window:file:///E:/Work/apps/AntiFan/src | 11:alive:pid=0:window: | 10:alive:pid=21336:window:https://www.google.com/ | 9:alive:pid=21268:window:file:///E:/Work/apps/AntiFan/src | 8:alive:pid=21268:window:file:///E:/Work/apps/AntiFan/src | 7:alive:pid=21268:window:file:///E:/Work/apps/AntiFan/src | 6:alive:pid=0:window:
+[diag][50ms] alphaToolbar isDestroyed=no-view destroyType=object
+[antifan] Native Messaging Local IPC Server listening at \\.\pipe\antifan-bridge-ipc-37f84ae2-e1e2-46ca-8f7b-e590a5b68aa6
+[probe heartbeat] tick 11 (row: unload veto)
+[diag][heartbeat] +1004ms shells=2 phase=open
+[diag][1500ms] +1533ms contents=13 :: 19:alive:pid=0:window: | 18:alive:pid=0:window: | 17:alive:pid=0:window: | 15:alive:pid=21336:window:https://www.google.com/ | 14:alive:pid=21268:window:file:///E:/Work/apps/AntiFan/src | 13:alive:pid=21268:window:file:///E:/Work/apps/AntiFan/src | 12:alive:pid=21268:window:file:///E:/Work/apps/AntiFan/src | 11:alive:pid=0:window: | 10:alive:pid=21336:window:https://www.google.com/ | 9:alive:pid=21268:window:file:///E:/Work/apps/AntiFan/src | 8:alive:pid=21268:window:file:///E:/Work/apps/AntiFan/src | 7:alive:pid=21268:window:file:///E:/Work/apps/AntiFan/src | 6:alive:pid=0:window:
+[diag][1500ms] alphaToolbar isDestroyed=no-view destroyType=object
+[probe heartbeat] tick 12 (row: unload veto)
+[diag][heartbeat] +1534ms shells=2 phase=open
+[native-tab-host] Persisted tabs async to: C:\Users\Admin\AppData\Local\Temp\antifan-quit-probe-AT6TGE\Profile\saved-tabs.json
+[probe heartbeat] tick 13 (row: unload veto)
+[diag][heartbeat] +2098ms shells=2 phase=open
+[probe heartbeat] tick 14 (row: unload veto)
+[diag][heartbeat] +2604ms shells=2 phase=open
+[probe heartbeat] tick 15 (row: unload veto)
+[diag][heartbeat] +3137ms shells=2 phase=open
+[probe heartbeat] tick 16 (row: unload veto)
+[diag][heartbeat] +3639ms shells=2 phase=open
+[probe heartbeat] tick 17 (row: unload veto)
+[diag][heartbeat] +4144ms shells=2 phase=open
+[diag] toolbarB eval -> 2
+[diag] sidebarB eval -> 2
+[diag] toolbarG eval -> 2
+[probe heartbeat] tick 18 (row: unload veto)
+[diag][heartbeat] +4651ms shells=2 phase=open
+[probe heartbeat] tick 19 (row: unload veto)
+[diag][heartbeat] +5154ms shells=2 phase=open
+[probe heartbeat] tick 20 (row: unload veto)
+[diag][heartbeat] +5659ms shells=2 phase=open
+[probe heartbeat] tick 21 (row: unload veto)
+[diag][heartbeat] +6165ms shells=2 phase=open
+[probe heartbeat] tick 22 (row: unload veto)
+[diag][heartbeat] +6674ms shells=2 phase=open
+[probe heartbeat] tick 23 (row: unload veto)
+[diag][heartbeat] +7183ms shells=2 phase=open
+[probe heartbeat] tick 24 (row: unload veto)
+[diag][heartbeat] +7692ms shells=2 phase=open
+[probe heartbeat] tick 25 (row: unload veto)
+[diag][heartbeat] +8198ms shells=2 phase=open
+[probe heartbeat] tick 26 (row: unload veto)
+[diag][heartbeat] +8702ms shells=2 phase=open
+[probe heartbeat] tick 27 (row: unload veto)
+[diag][heartbeat] +9208ms shells=2 phase=open
+[probe heartbeat] tick 28 (row: unload veto)
+[diag][heartbeat] +9713ms shells=2 phase=open
+[probe heartbeat] tick 29 (row: unload veto)
+[diag][heartbeat] +10219ms shells=2 phase=open
+[probe heartbeat] tick 30 (row: unload veto)
+[diag][heartbeat] +10722ms shells=2 phase=open
+[probe heartbeat] tick 31 (row: unload veto)
+[diag][heartbeat] +11228ms shells=2 phase=open
+[probe heartbeat] tick 32 (row: unload veto)
+[diag][heartbeat] +11733ms shells=2 phase=open
+[probe heartbeat] tick 33 (row: unload veto)
+[diag][heartbeat] +12239ms shells=2 phase=open
+[probe heartbeat] tick 34 (row: unload veto)
+[diag][heartbeat] +12747ms shells=2 phase=open
+[probe heartbeat] tick 35 (row: unload veto)
+[diag][heartbeat] +13252ms shells=2 phase=open
+[probe heartbeat] tick 36 (row: unload veto)
+[diag][heartbeat] +13756ms shells=2 phase=open
+[probe heartbeat] tick 37 (row: unload veto)
+[diag][heartbeat] +14265ms shells=2 phase=open
+[probe heartbeat] tick 38 (row: unload veto)
+[diag][heartbeat] +14770ms shells=2 phase=open
+[probe heartbeat] tick 39 (row: unload veto)
+[diag][heartbeat] +15277ms shells=2 phase=open
+[probe heartbeat] tick 40 (row: unload veto)
+[diag][heartbeat] +15781ms shells=2 phase=open
+[probe heartbeat] tick 41 (row: unload veto)
+[diag][heartbeat] +16287ms shells=2 phase=open
+[probe heartbeat] tick 42 (row: unload veto)
+[diag][heartbeat] +16789ms shells=2 phase=open
+[probe heartbeat] tick 43 (row: unload veto)
+[diag][heartbeat] +17297ms shells=2 phase=open
+[probe heartbeat] tick 44 (row: unload veto)
+[diag][heartbeat] +17800ms shells=2 phase=open
+[probe heartbeat] tick 45 (row: unload veto)
+[diag][heartbeat] +18308ms shells=2 phase=open
+[probe heartbeat] tick 46 (row: unload veto)
+[diag][heartbeat] +18812ms shells=2 phase=open
+[probe heartbeat] tick 47 (row: unload veto)
+[diag][heartbeat] +19316ms shells=2 phase=open
+[probe heartbeat] tick 48 (row: unload veto)
+[diag][heartbeat] +19824ms shells=2 phase=open
+[probe heartbeat] tick 49 (row: unload veto)
+[diag][heartbeat] +20329ms shells=2 phase=open
+[probe heartbeat] tick 50 (row: unload veto)
+[diag][heartbeat] +20833ms shells=2 phase=open
+[probe heartbeat] tick 51 (row: unload veto)
+[diag][heartbeat] +21336ms shells=2 phase=open
+[probe heartbeat] tick 52 (row: unload veto)
+[diag][heartbeat] +21846ms shells=2 phase=open
+[probe heartbeat] tick 53 (row: unload veto)
+[diag][heartbeat] +22351ms shells=2 phase=open
+[probe heartbeat] tick 54 (row: unload veto)
+[diag][heartbeat] +22856ms shells=2 phase=open
+[probe heartbeat] tick 55 (row: unload veto)
+[diag][heartbeat] +23363ms shells=2 phase=open
+[probe heartbeat] tick 56 (row: unload veto)
+[diag][heartbeat] +23870ms shells=2 phase=open
+[probe heartbeat] tick 57 (row: unload veto)
+[diag][heartbeat] +24380ms shells=2 phase=open
+[probe heartbeat] tick 58 (row: unload veto)
+[diag][heartbeat] +24886ms shells=2 phase=open
+[probe heartbeat] tick 59 (row: unload veto)
+[diag][heartbeat] +25391ms shells=2 phase=open
+[probe heartbeat] tick 60 (row: unload veto)
+[diag][heartbeat] +25899ms shells=2 phase=open
+[probe heartbeat] tick 61 (row: unload veto)
+[diag][heartbeat] +26405ms shells=2 phase=open
+[probe heartbeat] tick 62 (row: unload veto)
+[diag][heartbeat] +26906ms shells=2 phase=open
+[probe heartbeat] tick 63 (row: unload veto)
+[diag][heartbeat] +27420ms shells=2 phase=open
+[probe heartbeat] tick 64 (row: unload veto)
+[diag][heartbeat] +27936ms shells=2 phase=open
+[probe heartbeat] tick 65 (row: unload veto)
+[diag][heartbeat] +28472ms shells=2 phase=open
+[probe heartbeat] tick 66 (row: unload veto)
+[diag][heartbeat] +29005ms shells=2 phase=open
+[probe heartbeat] tick 67 (row: unload veto)
+[diag][heartbeat] +29608ms shells=2 phase=open
+[probe heartbeat] tick 68 (row: unload veto)
+[diag][heartbeat] +30153ms shells=2 phase=open
+[probe heartbeat] tick 69 (row: unload veto)
+[diag][heartbeat] +30661ms shells=2 phase=open
+[probe heartbeat] tick 70 (row: unload veto)
+[diag][heartbeat] +31208ms shells=2 phase=open
+[probe heartbeat] tick 71 (row: unload veto)
+[diag][heartbeat] +31740ms shells=2 phase=open
+[probe heartbeat] tick 72 (row: unload veto)
+[diag][heartbeat] +32287ms shells=2 phase=open
+[probe heartbeat] tick 73 (row: unload veto)
+[diag][heartbeat] +32845ms shells=2 phase=open
+[probe heartbeat] tick 74 (row: unload veto)
+[diag][heartbeat] +33400ms shells=2 phase=open
+[probe heartbeat] tick 75 (row: unload veto)
+[diag][heartbeat] +33924ms shells=2 phase=open
+[probe heartbeat] tick 76 (row: unload veto)
+[diag][heartbeat] +34468ms shells=2 phase=open
+[probe heartbeat] tick 77 (row: unload veto)
+[diag][heartbeat] +35036ms shells=2 phase=open
+[probe heartbeat] tick 78 (row: unload veto)
+[diag][heartbeat] +35625ms shells=2 phase=open
+[probe heartbeat] tick 79 (row: unload veto)
+[diag][heartbeat] +36213ms shells=2 phase=open
+[probe heartbeat] tick 80 (row: unload veto)
+[diag][heartbeat] +36783ms shells=2 phase=open
+[probe heartbeat] tick 81 (row: unload veto)
+[diag][heartbeat] +37307ms shells=2 phase=open
+[probe heartbeat] tick 82 (row: unload veto)
+[diag][heartbeat] +37864ms shells=2 phase=open
+[probe heartbeat] tick 83 (row: unload veto)
+[diag][heartbeat] +38416ms shells=2 phase=open
+[probe heartbeat] tick 84 (row: unload veto)
+[diag][heartbeat] +38936ms shells=2 phase=open
+[probe heartbeat] tick 85 (row: unload veto)
+[diag][heartbeat] +39439ms shells=2 phase=open
+[probe heartbeat] tick 86 (row: unload veto)
+[diag][heartbeat] +39979ms shells=2 phase=open
+[probe heartbeat] tick 87 (row: unload veto)
+[diag][heartbeat] +40489ms shells=2 phase=open
+[probe heartbeat] tick 88 (row: unload veto)
+[diag][heartbeat] +40996ms shells=2 phase=open
+[probe heartbeat] tick 89 (row: unload veto)
+[diag][heartbeat] +41501ms shells=2 phase=open
+[probe heartbeat] tick 90 (row: unload veto)
+[diag][heartbeat] +42008ms shells=2 phase=open
+[probe heartbeat] tick 91 (row: unload veto)
+[diag][heartbeat] +42515ms shells=2 phase=open
+[probe heartbeat] tick 92 (row: unload veto)
+[diag][heartbeat] +43021ms shells=2 phase=open
+[probe heartbeat] tick 93 (row: unload veto)
+[diag][heartbeat] +43523ms shells=2 phase=open
+[probe heartbeat] tick 94 (row: unload veto)
+[diag][heartbeat] +44026ms shells=2 phase=open
+[probe heartbeat] tick 95 (row: unload veto)
+[diag][heartbeat] +44531ms shells=2 phase=open
+[probe heartbeat] tick 96 (row: unload veto)
+[diag][heartbeat] +45035ms shells=2 phase=open
+[probe heartbeat] tick 97 (row: unload veto)
+[diag][heartbeat] +45543ms shells=2 phase=open
+[probe heartbeat] tick 98 (row: unload veto)
+[diag][heartbeat] +46046ms shells=2 phase=open
+[probe heartbeat] tick 99 (row: unload veto)
+[diag][heartbeat] +46551ms shells=2 phase=open
+[probe heartbeat] tick 100 (row: unload veto)
+[diag][heartbeat] +47057ms shells=2 phase=open
+[probe heartbeat] tick 101 (row: unload veto)
+[diag][heartbeat] +47561ms shells=2 phase=open
+[probe heartbeat] tick 102 (row: unload veto)
+[diag][heartbeat] +48066ms shells=2 phase=open
+[probe heartbeat] tick 103 (row: unload veto)
+[diag][heartbeat] +48574ms shells=2 phase=open
+[probe heartbeat] tick 104 (row: unload veto)
+[diag][heartbeat] +49079ms shells=2 phase=open
+[probe heartbeat] tick 105 (row: unload veto)
+[diag][heartbeat] +49584ms shells=2 phase=open
+[probe heartbeat] tick 106 (row: unload veto)
+[diag][heartbeat] +50091ms shells=2 phase=open
+[probe heartbeat] tick 107 (row: unload veto)
+[diag][heartbeat] +50596ms shells=2 phase=open
+[probe heartbeat] tick 108 (row: unload veto)
+[diag][heartbeat] +51098ms shells=2 phase=open
+[probe heartbeat] tick 109 (row: unload veto)
+[diag][heartbeat] +51602ms shells=2 phase=open
+[probe heartbeat] tick 110 (row: unload veto)
+[diag][heartbeat] +52108ms shells=2 phase=open
+[probe heartbeat] tick 111 (row: unload veto)
+[diag][heartbeat] +52617ms shells=2 phase=open
+[probe heartbeat] tick 112 (row: unload veto)
+[diag][heartbeat] +53125ms shells=2 phase=open
+[probe heartbeat] tick 113 (row: unload veto)
+[diag][heartbeat] +53633ms shells=2 phase=open
+[probe heartbeat] tick 114 (row: unload veto)
+[diag][heartbeat] +54142ms shells=2 phase=open
+[probe heartbeat] tick 115 (row: unload veto)
+[diag][heartbeat] +54646ms shells=2 phase=open
+[probe heartbeat] tick 116 (row: unload veto)
+[diag][heartbeat] +55153ms shells=2 phase=open
+[probe heartbeat] tick 117 (row: unload veto)
+[diag][heartbeat] +55665ms shells=2 phase=open
+[probe heartbeat] tick 118 (row: unload veto)
+[diag][heartbeat] +56166ms shells=2 phase=open
+[probe heartbeat] tick 119 (row: unload veto)
+[diag][heartbeat] +56670ms shells=2 phase=open
+[probe heartbeat] tick 120 (row: unload veto)
+[diag][heartbeat] +57176ms shells=2 phase=open
+[probe heartbeat] tick 121 (row: unload veto)
+[diag][heartbeat] +57682ms shells=2 phase=open
+[probe heartbeat] tick 122 (row: unload veto)
+[diag][heartbeat] +58190ms shells=2 phase=open
+[probe heartbeat] tick 123 (row: unload veto)
+[diag][heartbeat] +58703ms shells=2 phase=open
+[probe heartbeat] tick 124 (row: unload veto)
+[diag][heartbeat] +59223ms shells=2 phase=open
+[probe heartbeat] tick 125 (row: unload veto)
+[diag][heartbeat] +59737ms shells=2 phase=open
+[probe heartbeat] tick 126 (row: unload veto)
+[diag][heartbeat] +60242ms shells=2 phase=open
+[probe heartbeat] tick 127 (row: unload veto)
+[diag][heartbeat] +60745ms shells=2 phase=open
+[probe heartbeat] tick 128 (row: unload veto)
+[diag][heartbeat] +61251ms shells=2 phase=open
+[probe heartbeat] tick 129 (row: unload veto)
+[diag][heartbeat] +61753ms shells=2 phase=open
+[probe heartbeat] tick 130 (row: unload veto)
+[diag][heartbeat] +62261ms shells=2 phase=open
+[probe heartbeat] tick 131 (row: unload veto)
+[diag][heartbeat] +62770ms shells=2 phase=open
+[probe heartbeat] tick 132 (row: unload veto)
+[diag][heartbeat] +63278ms shells=2 phase=open
+[probe heartbeat] tick 133 (row: unload veto)
+[diag][heartbeat] +63783ms shells=2 phase=open
+[probe heartbeat] tick 134 (row: unload veto)
+[diag][heartbeat] +64290ms shells=2 phase=open
+[probe heartbeat] tick 135 (row: unload veto)
+[diag][heartbeat] +64796ms shells=2 phase=open
+[probe heartbeat] tick 136 (row: unload veto)
+[diag][heartbeat] +65303ms shells=2 phase=open
+[probe heartbeat] tick 137 (row: unload veto)
+[diag][heartbeat] +65809ms shells=2 phase=open
+[probe heartbeat] tick 138 (row: unload veto)
+[diag][heartbeat] +66316ms shells=2 phase=open
+[probe heartbeat] tick 139 (row: unload veto)
+[diag][heartbeat] +66823ms shells=2 phase=open
+[probe heartbeat] tick 140 (row: unload veto)
+[diag][heartbeat] +67331ms shells=2 phase=open
+[probe heartbeat] tick 141 (row: unload veto)
+[diag][heartbeat] +67836ms shells=2 phase=open
+[probe heartbeat] tick 142 (row: unload veto)
+[diag][heartbeat] +68344ms shells=2 phase=open
+[probe heartbeat] tick 143 (row: unload veto)
+[diag][heartbeat] +68851ms shells=2 phase=open
+[probe heartbeat] tick 144 (row: unload veto)
+[diag][heartbeat] +69356ms shells=2 phase=open
+[probe heartbeat] tick 145 (row: unload veto)
+[diag][heartbeat] +69861ms shells=2 phase=open
+[probe heartbeat] tick 146 (row: unload veto)
+[diag][heartbeat] +70368ms shells=2 phase=open
+[probe heartbeat] tick 147 (row: unload veto)
+[diag][heartbeat] +70875ms shells=2 phase=open
+[probe heartbeat] tick 148 (row: unload veto)
+[diag][heartbeat] +71382ms shells=2 phase=open
+[probe heartbeat] tick 149 (row: unload veto)
+[diag][heartbeat] +71887ms shells=2 phase=open
+[probe heartbeat] tick 150 (row: unload veto)
+[diag][heartbeat] +72391ms shells=2 phase=open
+[probe heartbeat] tick 151 (row: unload veto)
+[diag][heartbeat] +72898ms shells=2 phase=open
+[probe heartbeat] tick 152 (row: unload veto)
+[diag][heartbeat] +73402ms shells=2 phase=open
+[probe heartbeat] tick 153 (row: unload veto)
+[diag][heartbeat] +73911ms shells=2 phase=open
+[probe heartbeat] tick 154 (row: unload veto)
+[diag][heartbeat] +74419ms shells=2 phase=open
+[probe heartbeat] tick 155 (row: unload veto)
+[diag][heartbeat] +74925ms shells=2 phase=open
+[probe heartbeat] tick 156 (row: unload veto)
+[diag][heartbeat] +75431ms shells=2 phase=open
+[probe heartbeat] tick 157 (row: unload veto)
+[diag][heartbeat] +75938ms shells=2 phase=open
+[probe heartbeat] tick 158 (row: unload veto)
+[diag][heartbeat] +76447ms shells=2 phase=open
+[probe heartbeat] tick 159 (row: unload veto)
+[diag][heartbeat] +76959ms shells=2 phase=open
+[probe heartbeat] tick 160 (row: unload veto)
+[diag][heartbeat] +77467ms shells=2 phase=open
+[probe heartbeat] tick 161 (row: unload veto)
+[diag][heartbeat] +77972ms shells=2 phase=open
+[probe heartbeat] tick 162 (row: unload veto)
+[diag][heartbeat] +78478ms shells=2 phase=open
+[probe heartbeat] tick 163 (row: unload veto)
+[diag][heartbeat] +78985ms shells=2 phase=open
+[probe heartbeat] tick 164 (row: unload veto)
+[diag][heartbeat] +79496ms shells=2 phase=open
+[probe heartbeat] tick 165 (row: unload veto)
+[diag][heartbeat] +80002ms shells=2 phase=open
+[probe heartbeat] tick 166 (row: unload veto)
+[diag][heartbeat] +80507ms shells=2 phase=open
+[probe heartbeat] tick 167 (row: unload veto)
+[diag][heartbeat] +81011ms shells=2 phase=open
+[probe heartbeat] tick 168 (row: unload veto)
+[diag][heartbeat] +81515ms shells=2 phase=open
+[probe heartbeat] tick 169 (row: unload veto)
+[diag][heartbeat] +82022ms shells=2 phase=open
+[probe heartbeat] tick 170 (row: unload veto)
+[diag][heartbeat] +82529ms shells=2 phase=open
+[probe heartbeat] tick 171 (row: unload veto)
+[diag][heartbeat] +83033ms shells=2 phase=open
+[probe heartbeat] tick 172 (row: unload veto)
+[diag][heartbeat] +83537ms shells=2 phase=open
+[probe heartbeat] tick 173 (row: unload veto)
+[diag][heartbeat] +84043ms shells=2 phase=open
+[probe heartbeat] tick 174 (row: unload veto)
+[diag][heartbeat] +84551ms shells=2 phase=open
+[probe heartbeat] tick 175 (row: unload veto)
+[diag][heartbeat] +85054ms shells=2 phase=open
+[probe heartbeat] tick 176 (row: unload veto)
+[diag][heartbeat] +85559ms shells=2 phase=open
+[probe heartbeat] tick 177 (row: unload veto)
+[diag][heartbeat] +86064ms shells=2 phase=open
+[probe heartbeat] tick 178 (row: unload veto)
+[diag][heartbeat] +86568ms shells=2 phase=open
+[probe heartbeat] tick 179 (row: unload veto)
+[diag][heartbeat] +87074ms shells=2 phase=open
+[probe heartbeat] tick 180 (row: unload veto)
+[diag][heartbeat] +87583ms shells=2 phase=open
+[probe heartbeat] tick 181 (row: unload veto)
+[diag][heartbeat] +88088ms shells=2 phase=open
+[probe heartbeat] tick 182 (row: unload veto)
+[diag][heartbeat] +88593ms shells=2 phase=open
+[probe heartbeat] tick 183 (row: unload veto)
+[diag][heartbeat] +89096ms shells=2 phase=open
+[probe heartbeat] tick 184 (row: unload veto)
+[diag][heartbeat] +89600ms shells=2 phase=open
+[probe heartbeat] tick 185 (row: unload veto)
+[diag][heartbeat] +90105ms shells=2 phase=open
+[probe heartbeat] tick 186 (row: unload veto)
+[diag][heartbeat] +90610ms shells=2 phase=open

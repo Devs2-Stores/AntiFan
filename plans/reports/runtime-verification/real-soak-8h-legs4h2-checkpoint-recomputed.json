@@ -1,0 +1,1718 @@
+{
+  "source": "real-soak-8h-legs4h2-checkpoint.json",
+  "sourceStartedAt": "2026-09-20T18:41:17.251Z",
+  "sourceFinishedAt": "2026-09-20T22:31:30.395Z",
+  "recomputedAt": "2026-09-21T01:09:45.157Z",
+  "harnessLegsEnv": "baseline:60:300:30000,burst4x:60:1200:30000,burst-off:60:1:600000",
+  "historyRowsRecovered": 0,
+  "stdoutProvided": false,
+  "memoryAgrees": true,
+  "memoryDiffs": {},
+  "stale": {
+    "cpu": {
+      "from": "2026-09-20T19:11:32.099Z",
+      "to": "2026-09-20T22:10:40.941Z",
+      "windowMinutes": 179.15,
+      "samples": 180,
+      "cpuSecondsTotal": 501,
+      "cpuSecondsPerMinute": 2.797,
+      "perProcess": [
+        {
+          "pid": 6044,
+          "seconds": 130.797,
+          "share": 0.2611,
+          "role": "",
+          "type": ""
+        },
+        {
+          "pid": 13408,
+          "seconds": 114.375,
+          "share": 0.2283,
+          "role": "Browser",
+          "type": "Browser"
+        },
+        {
+          "pid": 22044,
+          "seconds": 85.766,
+          "share": 0.1712,
+          "role": "GPU",
+          "type": "GPU"
+        },
+        {
+          "pid": 22376,
+          "seconds": 67.703,
+          "share": 0.1351,
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "type": "Tab"
+        },
+        {
+          "pid": 9096,
+          "seconds": 25.531,
+          "share": 0.051,
+          "role": "tab:9c825362+tab:92f9c20e+tab:e3825c3f+tab:f8fddfec",
+          "type": "Tab"
+        },
+        {
+          "pid": 11628,
+          "seconds": 24.859,
+          "share": 0.0496,
+          "role": "",
+          "type": ""
+        },
+        {
+          "pid": 17824,
+          "seconds": 17.594,
+          "share": 0.0351,
+          "role": "",
+          "type": ""
+        },
+        {
+          "pid": 19040,
+          "seconds": 15.516,
+          "share": 0.031,
+          "role": "",
+          "type": ""
+        },
+        {
+          "pid": 14932,
+          "seconds": 10.734,
+          "share": 0.0214,
+          "role": "",
+          "type": ""
+        },
+        {
+          "pid": 12332,
+          "seconds": 5.391,
+          "share": 0.0108,
+          "role": "tab:5fa0fe21",
+          "type": "Tab"
+        },
+        {
+          "pid": 19924,
+          "seconds": 1.281,
+          "share": 0.0026,
+          "role": "tab:3f226687",
+          "type": "Tab"
+        },
+        {
+          "pid": 15124,
+          "seconds": 0.656,
+          "share": 0.0013,
+          "role": "",
+          "type": ""
+        },
+        {
+          "pid": 19164,
+          "seconds": 0.484,
+          "share": 0.001,
+          "role": "Utility",
+          "type": "Utility"
+        },
+        {
+          "pid": 9140,
+          "seconds": 0.313,
+          "share": 0.0006,
+          "role": "tab:23f67e25",
+          "type": "Tab"
+        },
+        {
+          "pid": 20556,
+          "seconds": 0,
+          "share": 0,
+          "role": "",
+          "type": ""
+        }
+      ],
+      "notAttributablePids": [],
+      "unreadablePids": [],
+      "counterResetPids": [],
+      "source": "samples.cpuByPid (231 of 231 row(s) carry counters)",
+      "bursts": 243,
+      "burstLines": 178505,
+      "msPer1000BurstLines": 2806.6441,
+      "switches": 3508,
+      "msPerSwitch": 142.8164
+    },
+    "cpuByPhase": {
+      "warmup": {
+        "from": "2026-09-20T18:41:29.217Z",
+        "to": "2026-09-20T19:10:32.105Z",
+        "windowMinutes": 29.05,
+        "samples": 31,
+        "cpuSecondsTotal": 66.861,
+        "cpuSecondsPerMinute": 2.302,
+        "perProcess": [
+          {
+            "pid": 6044,
+            "seconds": 19.156,
+            "share": 0.2865,
+            "role": "",
+            "type": ""
+          },
+          {
+            "pid": 13408,
+            "seconds": 17.719,
+            "share": 0.265,
+            "role": "Browser",
+            "type": "Browser"
+          },
+          {
+            "pid": 22376,
+            "seconds": 8.344,
+            "share": 0.1248,
+            "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+            "type": "Tab"
+          },
+          {
+            "pid": 22044,
+            "seconds": 7.813,
+            "share": 0.1169,
+            "role": "GPU",
+            "type": "GPU"
+          },
+          {
+            "pid": 11628,
+            "seconds": 3.422,
+            "share": 0.0512,
+            "role": "",
+            "type": ""
+          },
+          {
+            "pid": 17824,
+            "seconds": 2.703,
+            "share": 0.0404,
+            "role": "",
+            "type": ""
+          },
+          {
+            "pid": 19040,
+            "seconds": 2.656,
+            "share": 0.0397,
+            "role": "",
+            "type": ""
+          },
+          {
+            "pid": 9096,
+            "seconds": 2.094,
+            "share": 0.0313,
+            "role": "tab:9c825362+tab:92f9c20e+tab:e3825c3f+tab:f8fddfec",
+            "type": "Tab"
+          },
+          {
+            "pid": 14932,
+            "seconds": 1.891,
+            "share": 0.0283,
+            "role": "",
+            "type": ""
+          },
+          {
+            "pid": 12332,
+            "seconds": 0.531,
+            "share": 0.0079,
+            "role": "tab:5fa0fe21",
+            "type": "Tab"
+          },
+          {
+            "pid": 15124,
+            "seconds": 0.188,
+            "share": 0.0028,
+            "role": "",
+            "type": ""
+          },
+          {
+            "pid": 9140,
+            "seconds": 0.172,
+            "share": 0.0026,
+            "role": "tab:23f67e25",
+            "type": "Tab"
+          },
+          {
+            "pid": 19924,
+            "seconds": 0.156,
+            "share": 0.0023,
+            "role": "tab:3f226687",
+            "type": "Tab"
+          },
+          {
+            "pid": 19164,
+            "seconds": 0.016,
+            "share": 0.0002,
+            "role": "Utility",
+            "type": "Utility"
+          },
+          {
+            "pid": 20556,
+            "seconds": 0,
+            "share": 0,
+            "role": "",
+            "type": ""
+          }
+        ],
+        "notAttributablePids": [],
+        "unreadablePids": [],
+        "counterResetPids": [],
+        "source": "samples.cpuByPid (231 of 231 row(s) carry counters)"
+      },
+      "workload": {
+        "from": "2026-09-20T19:11:32.099Z",
+        "to": "2026-09-20T22:10:40.941Z",
+        "windowMinutes": 179.15,
+        "samples": 180,
+        "cpuSecondsTotal": 501,
+        "cpuSecondsPerMinute": 2.797,
+        "perProcess": [
+          {
+            "pid": 6044,
+            "seconds": 130.797,
+            "share": 0.2611,
+            "role": "",
+            "type": ""
+          },
+          {
+            "pid": 13408,
+            "seconds": 114.375,
+            "share": 0.2283,
+            "role": "Browser",
+            "type": "Browser"
+          },
+          {
+            "pid": 22044,
+            "seconds": 85.766,
+            "share": 0.1712,
+            "role": "GPU",
+            "type": "GPU"
+          },
+          {
+            "pid": 22376,
+            "seconds": 67.703,
+            "share": 0.1351,
+            "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+            "type": "Tab"
+          },
+          {
+            "pid": 9096,
+            "seconds": 25.531,
+            "share": 0.051,
+            "role": "tab:9c825362+tab:92f9c20e+tab:e3825c3f+tab:f8fddfec",
+            "type": "Tab"
+          },
+          {
+            "pid": 11628,
+            "seconds": 24.859,
+            "share": 0.0496,
+            "role": "",
+            "type": ""
+          },
+          {
+            "pid": 17824,
+            "seconds": 17.594,
+            "share": 0.0351,
+            "role": "",
+            "type": ""
+          },
+          {
+            "pid": 19040,
+            "seconds": 15.516,
+            "share": 0.031,
+            "role": "",
+            "type": ""
+          },
+          {
+            "pid": 14932,
+            "seconds": 10.734,
+            "share": 0.0214,
+            "role": "",
+            "type": ""
+          },
+          {
+            "pid": 12332,
+            "seconds": 5.391,
+            "share": 0.0108,
+            "role": "tab:5fa0fe21",
+            "type": "Tab"
+          },
+          {
+            "pid": 19924,
+            "seconds": 1.281,
+            "share": 0.0026,
+            "role": "tab:3f226687",
+            "type": "Tab"
+          },
+          {
+            "pid": 15124,
+            "seconds": 0.656,
+            "share": 0.0013,
+            "role": "",
+            "type": ""
+          },
+          {
+            "pid": 19164,
+            "seconds": 0.484,
+            "share": 0.001,
+            "role": "Utility",
+            "type": "Utility"
+          },
+          {
+            "pid": 9140,
+            "seconds": 0.313,
+            "share": 0.0006,
+            "role": "tab:23f67e25",
+            "type": "Tab"
+          },
+          {
+            "pid": 20556,
+            "seconds": 0,
+            "share": 0,
+            "role": "",
+            "type": ""
+          }
+        ],
+        "notAttributablePids": [],
+        "unreadablePids": [],
+        "counterResetPids": [],
+        "source": "samples.cpuByPid (231 of 231 row(s) carry counters)"
+      },
+      "recovery": {
+        "from": "2026-09-20T22:11:41.043Z",
+        "to": "2026-09-20T22:30:41.981Z",
+        "windowMinutes": 19.02,
+        "samples": 20,
+        "cpuSecondsTotal": 5.782,
+        "cpuSecondsPerMinute": 0.304,
+        "perProcess": [
+          {
+            "pid": 11628,
+            "seconds": 2.484,
+            "share": 0.4296,
+            "role": "",
+            "type": ""
+          },
+          {
+            "pid": 13408,
+            "seconds": 1.672,
+            "share": 0.2892,
+            "role": "Browser",
+            "type": "Browser"
+          },
+          {
+            "pid": 14932,
+            "seconds": 1.469,
+            "share": 0.2541,
+            "role": "",
+            "type": ""
+          },
+          {
+            "pid": 22044,
+            "seconds": 0.078,
+            "share": 0.0135,
+            "role": "GPU",
+            "type": "GPU"
+          },
+          {
+            "pid": 15124,
+            "seconds": 0.063,
+            "share": 0.0109,
+            "role": "",
+            "type": ""
+          },
+          {
+            "pid": 22376,
+            "seconds": 0.016,
+            "share": 0.0028,
+            "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+            "type": "Tab"
+          },
+          {
+            "pid": 9140,
+            "seconds": 0,
+            "share": 0,
+            "role": "tab:23f67e25",
+            "type": "Tab"
+          },
+          {
+            "pid": 19164,
+            "seconds": 0,
+            "share": 0,
+            "role": "Utility",
+            "type": "Utility"
+          },
+          {
+            "pid": 20556,
+            "seconds": 0,
+            "share": 0,
+            "role": "",
+            "type": ""
+          }
+        ],
+        "notAttributablePids": [],
+        "unreadablePids": [],
+        "counterResetPids": [],
+        "source": "samples.cpuByPid (231 of 231 row(s) carry counters)"
+      }
+    },
+    "legCpu": [
+      {
+        "name": "baseline",
+        "ordinal": 1,
+        "cpu": {
+          "from": "2026-09-20T19:11:32.099Z",
+          "to": "2026-09-20T20:10:34.790Z",
+          "windowMinutes": 59.04,
+          "samples": 60,
+          "cpuSecondsTotal": 146.876,
+          "cpuSecondsPerMinute": 2.488,
+          "perProcess": [
+            {
+              "pid": 6044,
+              "seconds": 39.391,
+              "share": 0.2682,
+              "role": "",
+              "type": ""
+            },
+            {
+              "pid": 13408,
+              "seconds": 32.188,
+              "share": 0.2192,
+              "role": "Browser",
+              "type": "Browser"
+            },
+            {
+              "pid": 22044,
+              "seconds": 28.156,
+              "share": 0.1917,
+              "role": "GPU",
+              "type": "GPU"
+            },
+            {
+              "pid": 22376,
+              "seconds": 16.391,
+              "share": 0.1116,
+              "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+              "type": "Tab"
+            },
+            {
+              "pid": 11628,
+              "seconds": 8.281,
+              "share": 0.0564,
+              "role": "",
+              "type": ""
+            },
+            {
+              "pid": 9096,
+              "seconds": 7.703,
+              "share": 0.0524,
+              "role": "tab:9c825362+tab:92f9c20e+tab:e3825c3f+tab:f8fddfec",
+              "type": "Tab"
+            },
+            {
+              "pid": 19040,
+              "seconds": 4.719,
+              "share": 0.0321,
+              "role": "",
+              "type": ""
+            },
+            {
+              "pid": 17824,
+              "seconds": 4.516,
+              "share": 0.0307,
+              "role": "",
+              "type": ""
+            },
+            {
+              "pid": 14932,
+              "seconds": 2.953,
+              "share": 0.0201,
+              "role": "",
+              "type": ""
+            },
+            {
+              "pid": 12332,
+              "seconds": 1.656,
+              "share": 0.0113,
+              "role": "tab:5fa0fe21",
+              "type": "Tab"
+            },
+            {
+              "pid": 19924,
+              "seconds": 0.375,
+              "share": 0.0026,
+              "role": "tab:3f226687",
+              "type": "Tab"
+            },
+            {
+              "pid": 15124,
+              "seconds": 0.234,
+              "share": 0.0016,
+              "role": "",
+              "type": ""
+            },
+            {
+              "pid": 19164,
+              "seconds": 0.219,
+              "share": 0.0015,
+              "role": "Utility",
+              "type": "Utility"
+            },
+            {
+              "pid": 9140,
+              "seconds": 0.094,
+              "share": 0.0006,
+              "role": "tab:23f67e25",
+              "type": "Tab"
+            },
+            {
+              "pid": 20556,
+              "seconds": 0,
+              "share": 0,
+              "role": "",
+              "type": ""
+            }
+          ],
+          "notAttributablePids": [],
+          "unreadablePids": [],
+          "counterResetPids": [],
+          "source": "samples.cpuByPid (231 of 231 row(s) carry counters)",
+          "burstLines": 35700,
+          "msPer1000BurstLines": 4114.1737,
+          "msPerSwitch": 125.6424
+        }
+      },
+      {
+        "name": "burst4x",
+        "ordinal": 2,
+        "cpu": {
+          "from": "2026-09-20T20:11:34.829Z",
+          "to": "2026-09-20T21:10:37.970Z",
+          "windowMinutes": 59.05,
+          "samples": 60,
+          "cpuSecondsTotal": 176.251,
+          "cpuSecondsPerMinute": 2.985,
+          "perProcess": [
+            {
+              "pid": 6044,
+              "seconds": 46.453,
+              "share": 0.2636,
+              "role": "",
+              "type": ""
+            },
+            {
+              "pid": 13408,
+              "seconds": 42.359,
+              "share": 0.2403,
+              "role": "Browser",
+              "type": "Browser"
+            },
+            {
+              "pid": 22044,
+              "seconds": 27.984,
+              "share": 0.1588,
+              "role": "GPU",
+              "type": "GPU"
+            },
+            {
+              "pid": 22376,
+              "seconds": 17.672,
+              "share": 0.1003,
+              "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+              "type": "Tab"
+            },
+            {
+              "pid": 17824,
+              "seconds": 12.641,
+              "share": 0.0717,
+              "role": "",
+              "type": ""
+            },
+            {
+              "pid": 9096,
+              "seconds": 9.313,
+              "share": 0.0528,
+              "role": "tab:9c825362+tab:92f9c20e+tab:e3825c3f+tab:f8fddfec",
+              "type": "Tab"
+            },
+            {
+              "pid": 11628,
+              "seconds": 8.078,
+              "share": 0.0458,
+              "role": "",
+              "type": ""
+            },
+            {
+              "pid": 19040,
+              "seconds": 5.266,
+              "share": 0.0299,
+              "role": "",
+              "type": ""
+            },
+            {
+              "pid": 14932,
+              "seconds": 3.547,
+              "share": 0.0201,
+              "role": "",
+              "type": ""
+            },
+            {
+              "pid": 12332,
+              "seconds": 1.984,
+              "share": 0.0113,
+              "role": "tab:5fa0fe21",
+              "type": "Tab"
+            },
+            {
+              "pid": 19924,
+              "seconds": 0.406,
+              "share": 0.0023,
+              "role": "tab:3f226687",
+              "type": "Tab"
+            },
+            {
+              "pid": 15124,
+              "seconds": 0.219,
+              "share": 0.0012,
+              "role": "",
+              "type": ""
+            },
+            {
+              "pid": 19164,
+              "seconds": 0.188,
+              "share": 0.0011,
+              "role": "Utility",
+              "type": "Utility"
+            },
+            {
+              "pid": 9140,
+              "seconds": 0.141,
+              "share": 0.0008,
+              "role": "tab:23f67e25",
+              "type": "Tab"
+            },
+            {
+              "pid": 20556,
+              "seconds": 0,
+              "share": 0,
+              "role": "",
+              "type": ""
+            }
+          ],
+          "notAttributablePids": [],
+          "unreadablePids": [],
+          "counterResetPids": [],
+          "source": "samples.cpuByPid (231 of 231 row(s) carry counters)",
+          "burstLines": 142800,
+          "msPer1000BurstLines": 1234.2507,
+          "msPerSwitch": 150.7707
+        }
+      },
+      {
+        "name": "burst-off",
+        "ordinal": 3,
+        "cpu": {
+          "from": "2026-09-20T21:11:38.036Z",
+          "to": "2026-09-20T22:10:40.941Z",
+          "windowMinutes": 59.05,
+          "samples": 60,
+          "cpuSecondsTotal": 172.392,
+          "cpuSecondsPerMinute": 2.919,
+          "perProcess": [
+            {
+              "pid": 6044,
+              "seconds": 43.859,
+              "share": 0.2544,
+              "role": "",
+              "type": ""
+            },
+            {
+              "pid": 13408,
+              "seconds": 38.563,
+              "share": 0.2237,
+              "role": "Browser",
+              "type": "Browser"
+            },
+            {
+              "pid": 22376,
+              "seconds": 32.938,
+              "share": 0.1911,
+              "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+              "type": "Tab"
+            },
+            {
+              "pid": 22044,
+              "seconds": 28.391,
+              "share": 0.1647,
+              "role": "GPU",
+              "type": "GPU"
+            },
+            {
+              "pid": 11628,
+              "seconds": 8.313,
+              "share": 0.0482,
+              "role": "",
+              "type": ""
+            },
+            {
+              "pid": 9096,
+              "seconds": 8.156,
+              "share": 0.0473,
+              "role": "tab:9c825362+tab:92f9c20e+tab:e3825c3f+tab:f8fddfec",
+              "type": "Tab"
+            },
+            {
+              "pid": 19040,
+              "seconds": 5.344,
+              "share": 0.031,
+              "role": "",
+              "type": ""
+            },
+            {
+              "pid": 14932,
+              "seconds": 4.078,
+              "share": 0.0237,
+              "role": "",
+              "type": ""
+            },
+            {
+              "pid": 12332,
+              "seconds": 1.719,
+              "share": 0.01,
+              "role": "tab:5fa0fe21",
+              "type": "Tab"
+            },
+            {
+              "pid": 19924,
+              "seconds": 0.484,
+              "share": 0.0028,
+              "role": "tab:3f226687",
+              "type": "Tab"
+            },
+            {
+              "pid": 17824,
+              "seconds": 0.203,
+              "share": 0.0012,
+              "role": "",
+              "type": ""
+            },
+            {
+              "pid": 15124,
+              "seconds": 0.188,
+              "share": 0.0011,
+              "role": "",
+              "type": ""
+            },
+            {
+              "pid": 9140,
+              "seconds": 0.078,
+              "share": 0.0005,
+              "role": "tab:23f67e25",
+              "type": "Tab"
+            },
+            {
+              "pid": 19164,
+              "seconds": 0.078,
+              "share": 0.0005,
+              "role": "Utility",
+              "type": "Utility"
+            },
+            {
+              "pid": 20556,
+              "seconds": 0,
+              "share": 0,
+              "role": "",
+              "type": ""
+            }
+          ],
+          "notAttributablePids": [],
+          "unreadablePids": [],
+          "counterResetPids": [],
+          "source": "samples.cpuByPid (231 of 231 row(s) carry counters)",
+          "burstLines": 5,
+          "msPer1000BurstLines": 34478400,
+          "msPerSwitch": 147.3436
+        }
+      }
+    ],
+    "historyPersist": {
+      "run": {
+        "flushes": 418,
+        "totalMs": 7073.625,
+        "maxMs": 45.309,
+        "supersededFlushes": 217
+      },
+      "workload": {
+        "flushes": 355,
+        "totalMs": 5965.224,
+        "maxMs": 45.309,
+        "supersededFlushes": 186,
+        "msPerMinute": 33.297
+      },
+      "last": {
+        "at": 1789942292279,
+        "items": 8004,
+        "bytes": 3853811
+      },
+      "byLeg": [
+        {
+          "name": "baseline",
+          "ordinal": 1,
+          "flushes": 119,
+          "totalMs": 1988.223,
+          "maxMs": 32.416,
+          "supersededFlushes": 68,
+          "lastItems": 8004
+        },
+        {
+          "name": "burst4x",
+          "ordinal": 2,
+          "flushes": 119,
+          "totalMs": 2045.72,
+          "maxMs": 29.274,
+          "supersededFlushes": 64,
+          "lastItems": 8004
+        },
+        {
+          "name": "burst-off",
+          "ordinal": 3,
+          "flushes": 119,
+          "totalMs": 1961.107,
+          "maxMs": 45.309,
+          "supersededFlushes": 56,
+          "lastItems": 8004
+        }
+      ]
+    }
+  },
+  "recomputed": {
+    "cpu": {
+      "from": "2026-09-20T19:11:32.099Z",
+      "to": "2026-09-20T22:10:40.941Z",
+      "windowMinutes": 179.15,
+      "samples": 180,
+      "cpuSecondsTotal": 501,
+      "cpuSecondsPerMinute": 2.797,
+      "perProcess": [
+        {
+          "pid": 6044,
+          "seconds": 130.797,
+          "share": 0.2611,
+          "role": "",
+          "type": ""
+        },
+        {
+          "pid": 13408,
+          "seconds": 114.375,
+          "share": 0.2283,
+          "role": "Browser",
+          "type": "Browser"
+        },
+        {
+          "pid": 22044,
+          "seconds": 85.766,
+          "share": 0.1712,
+          "role": "GPU",
+          "type": "GPU"
+        },
+        {
+          "pid": 22376,
+          "seconds": 67.703,
+          "share": 0.1351,
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "type": "Tab"
+        },
+        {
+          "pid": 9096,
+          "seconds": 25.531,
+          "share": 0.051,
+          "role": "tab:9c825362+tab:92f9c20e+tab:e3825c3f+tab:f8fddfec",
+          "type": "Tab"
+        },
+        {
+          "pid": 11628,
+          "seconds": 24.859,
+          "share": 0.0496,
+          "role": "",
+          "type": ""
+        },
+        {
+          "pid": 17824,
+          "seconds": 17.594,
+          "share": 0.0351,
+          "role": "",
+          "type": ""
+        },
+        {
+          "pid": 19040,
+          "seconds": 15.516,
+          "share": 0.031,
+          "role": "",
+          "type": ""
+        },
+        {
+          "pid": 14932,
+          "seconds": 10.734,
+          "share": 0.0214,
+          "role": "",
+          "type": ""
+        },
+        {
+          "pid": 12332,
+          "seconds": 5.391,
+          "share": 0.0108,
+          "role": "tab:5fa0fe21",
+          "type": "Tab"
+        },
+        {
+          "pid": 19924,
+          "seconds": 1.281,
+          "share": 0.0026,
+          "role": "tab:3f226687",
+          "type": "Tab"
+        },
+        {
+          "pid": 15124,
+          "seconds": 0.656,
+          "share": 0.0013,
+          "role": "",
+          "type": ""
+        },
+        {
+          "pid": 19164,
+          "seconds": 0.484,
+          "share": 0.001,
+          "role": "Utility",
+          "type": "Utility"
+        },
+        {
+          "pid": 9140,
+          "seconds": 0.313,
+          "share": 0.0006,
+          "role": "tab:23f67e25",
+          "type": "Tab"
+        },
+        {
+          "pid": 20556,
+          "seconds": 0,
+          "share": 0,
+          "role": "",
+          "type": ""
+        }
+      ],
+      "notAttributablePids": [],
+      "unreadablePids": [],
+      "counterResetPids": [],
+      "source": "samples.cpuByPid (231 of 231 row(s) carry counters)",
+      "bursts": 243,
+      "burstLines": 178505,
+      "msPer1000BurstLines": 2806.6441,
+      "switches": 3508,
+      "msPerSwitch": 142.8164
+    },
+    "cpuByPhase": {
+      "warmup": {
+        "from": "2026-09-20T18:41:29.217Z",
+        "to": "2026-09-20T19:10:32.105Z",
+        "windowMinutes": 29.05,
+        "samples": 31,
+        "cpuSecondsTotal": 66.861,
+        "cpuSecondsPerMinute": 2.302,
+        "perProcess": [
+          {
+            "pid": 6044,
+            "seconds": 19.156,
+            "share": 0.2865,
+            "role": "",
+            "type": ""
+          },
+          {
+            "pid": 13408,
+            "seconds": 17.719,
+            "share": 0.265,
+            "role": "Browser",
+            "type": "Browser"
+          },
+          {
+            "pid": 22376,
+            "seconds": 8.344,
+            "share": 0.1248,
+            "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+            "type": "Tab"
+          },
+          {
+            "pid": 22044,
+            "seconds": 7.813,
+            "share": 0.1169,
+            "role": "GPU",
+            "type": "GPU"
+          },
+          {
+            "pid": 11628,
+            "seconds": 3.422,
+            "share": 0.0512,
+            "role": "",
+            "type": ""
+          },
+          {
+            "pid": 17824,
+            "seconds": 2.703,
+            "share": 0.0404,
+            "role": "",
+            "type": ""
+          },
+          {
+            "pid": 19040,
+            "seconds": 2.656,
+            "share": 0.0397,
+            "role": "",
+            "type": ""
+          },
+          {
+            "pid": 9096,
+            "seconds": 2.094,
+            "share": 0.0313,
+            "role": "tab:9c825362+tab:92f9c20e+tab:e3825c3f+tab:f8fddfec",
+            "type": "Tab"
+          },
+          {
+            "pid": 14932,
+            "seconds": 1.891,
+            "share": 0.0283,
+            "role": "",
+            "type": ""
+          },
+          {
+            "pid": 12332,
+            "seconds": 0.531,
+            "share": 0.0079,
+            "role": "tab:5fa0fe21",
+            "type": "Tab"
+          },
+          {
+            "pid": 15124,
+            "seconds": 0.188,
+            "share": 0.0028,
+            "role": "",
+            "type": ""
+          },
+          {
+            "pid": 9140,
+            "seconds": 0.172,
+            "share": 0.0026,
+            "role": "tab:23f67e25",
+            "type": "Tab"
+          },
+          {
+            "pid": 19924,
+            "seconds": 0.156,
+            "share": 0.0023,
+            "role": "tab:3f226687",
+            "type": "Tab"
+          },
+          {
+            "pid": 19164,
+            "seconds": 0.016,
+            "share": 0.0002,
+            "role": "Utility",
+            "type": "Utility"
+          },
+          {
+            "pid": 20556,
+            "seconds": 0,
+            "share": 0,
+            "role": "",
+            "type": ""
+          }
+        ],
+        "notAttributablePids": [],
+        "unreadablePids": [],
+        "counterResetPids": [],
+        "source": "samples.cpuByPid (231 of 231 row(s) carry counters)"
+      },
+      "workload": {
+        "from": "2026-09-20T19:11:32.099Z",
+        "to": "2026-09-20T22:10:40.941Z",
+        "windowMinutes": 179.15,
+        "samples": 180,
+        "cpuSecondsTotal": 501,
+        "cpuSecondsPerMinute": 2.797,
+        "perProcess": [
+          {
+            "pid": 6044,
+            "seconds": 130.797,
+            "share": 0.2611,
+            "role": "",
+            "type": ""
+          },
+          {
+            "pid": 13408,
+            "seconds": 114.375,
+            "share": 0.2283,
+            "role": "Browser",
+            "type": "Browser"
+          },
+          {
+            "pid": 22044,
+            "seconds": 85.766,
+            "share": 0.1712,
+            "role": "GPU",
+            "type": "GPU"
+          },
+          {
+            "pid": 22376,
+            "seconds": 67.703,
+            "share": 0.1351,
+            "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+            "type": "Tab"
+          },
+          {
+            "pid": 9096,
+            "seconds": 25.531,
+            "share": 0.051,
+            "role": "tab:9c825362+tab:92f9c20e+tab:e3825c3f+tab:f8fddfec",
+            "type": "Tab"
+          },
+          {
+            "pid": 11628,
+            "seconds": 24.859,
+            "share": 0.0496,
+            "role": "",
+            "type": ""
+          },
+          {
+            "pid": 17824,
+            "seconds": 17.594,
+            "share": 0.0351,
+            "role": "",
+            "type": ""
+          },
+          {
+            "pid": 19040,
+            "seconds": 15.516,
+            "share": 0.031,
+            "role": "",
+            "type": ""
+          },
+          {
+            "pid": 14932,
+            "seconds": 10.734,
+            "share": 0.0214,
+            "role": "",
+            "type": ""
+          },
+          {
+            "pid": 12332,
+            "seconds": 5.391,
+            "share": 0.0108,
+            "role": "tab:5fa0fe21",
+            "type": "Tab"
+          },
+          {
+            "pid": 19924,
+            "seconds": 1.281,
+            "share": 0.0026,
+            "role": "tab:3f226687",
+            "type": "Tab"
+          },
+          {
+            "pid": 15124,
+            "seconds": 0.656,
+            "share": 0.0013,
+            "role": "",
+            "type": ""
+          },
+          {
+            "pid": 19164,
+            "seconds": 0.484,
+            "share": 0.001,
+            "role": "Utility",
+            "type": "Utility"
+          },
+          {
+            "pid": 9140,
+            "seconds": 0.313,
+            "share": 0.0006,
+            "role": "tab:23f67e25",
+            "type": "Tab"
+          },
+          {
+            "pid": 20556,
+            "seconds": 0,
+            "share": 0,
+            "role": "",
+            "type": ""
+          }
+        ],
+        "notAttributablePids": [],
+        "unreadablePids": [],
+        "counterResetPids": [],
+        "source": "samples.cpuByPid (231 of 231 row(s) carry counters)"
+      },
+      "recovery": {
+        "from": "2026-09-20T22:11:41.043Z",
+        "to": "2026-09-20T22:30:41.981Z",
+        "windowMinutes": 19.02,
+        "samples": 20,
+        "cpuSecondsTotal": 5.782,
+        "cpuSecondsPerMinute": 0.304,
+        "perProcess": [
+          {
+            "pid": 11628,
+            "seconds": 2.484,
+            "share": 0.4296,
+            "role": "",
+            "type": ""
+          },
+          {
+            "pid": 13408,
+            "seconds": 1.672,
+            "share": 0.2892,
+            "role": "Browser",
+            "type": "Browser"
+          },
+          {
+            "pid": 14932,
+            "seconds": 1.469,
+            "share": 0.2541,
+            "role": "",
+            "type": ""
+          },
+          {
+            "pid": 22044,
+            "seconds": 0.078,
+            "share": 0.0135,
+            "role": "GPU",
+            "type": "GPU"
+          },
+          {
+            "pid": 15124,
+            "seconds": 0.063,
+            "share": 0.0109,
+            "role": "",
+            "type": ""
+          },
+          {
+            "pid": 22376,
+            "seconds": 0.016,
+            "share": 0.0028,
+            "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+            "type": "Tab"
+          },
+          {
+            "pid": 9140,
+            "seconds": 0,
+            "share": 0,
+            "role": "tab:23f67e25",
+            "type": "Tab"
+          },
+          {
+            "pid": 19164,
+            "seconds": 0,
+            "share": 0,
+            "role": "Utility",
+            "type": "Utility"
+          },
+          {
+            "pid": 20556,
+            "seconds": 0,
+            "share": 0,
+            "role": "",
+            "type": ""
+          }
+        ],
+        "notAttributablePids": [],
+        "unreadablePids": [],
+        "counterResetPids": [],
+        "source": "samples.cpuByPid (231 of 231 row(s) carry counters)"
+      }
+    },
+    "legCpu": [
+      {
+        "name": "baseline",
+        "ordinal": 1,
+        "cpu": {
+          "from": "2026-09-20T19:11:32.099Z",
+          "to": "2026-09-20T20:10:34.790Z",
+          "windowMinutes": 59.04,
+          "samples": 60,
+          "cpuSecondsTotal": 146.876,
+          "cpuSecondsPerMinute": 2.488,
+          "perProcess": [
+            {
+              "pid": 6044,
+              "seconds": 39.391,
+              "share": 0.2682,
+              "role": "",
+              "type": ""
+            },
+            {
+              "pid": 13408,
+              "seconds": 32.188,
+              "share": 0.2192,
+              "role": "Browser",
+              "type": "Browser"
+            },
+            {
+              "pid": 22044,
+              "seconds": 28.156,
+              "share": 0.1917,
+              "role": "GPU",
+              "type": "GPU"
+            },
+            {
+              "pid": 22376,
+              "seconds": 16.391,
+              "share": 0.1116,
+              "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+              "type": "Tab"
+            },
+            {
+              "pid": 11628,
+              "seconds": 8.281,
+              "share": 0.0564,
+              "role": "",
+              "type": ""
+            },
+            {
+              "pid": 9096,
+              "seconds": 7.703,
+              "share": 0.0524,
+              "role": "tab:9c825362+tab:92f9c20e+tab:e3825c3f+tab:f8fddfec",
+              "type": "Tab"
+            },
+            {
+              "pid": 19040,
+              "seconds": 4.719,
+              "share": 0.0321,
+              "role": "",
+              "type": ""
+            },
+            {
+              "pid": 17824,
+              "seconds": 4.516,
+              "share": 0.0307,
+              "role": "",
+              "type": ""
+            },
+            {
+              "pid": 14932,
+              "seconds": 2.953,
+              "share": 0.0201,
+              "role": "",
+              "type": ""
+            },
+            {
+              "pid": 12332,
+              "seconds": 1.656,
+              "share": 0.0113,
+              "role": "tab:5fa0fe21",
+              "type": "Tab"
+            },
+            {
+              "pid": 19924,
+              "seconds": 0.375,
+              "share": 0.0026,
+              "role": "tab:3f226687",
+              "type": "Tab"
+            },
+            {
+              "pid": 15124,
+              "seconds": 0.234,
+              "share": 0.0016,
+              "role": "",
+              "type": ""
+            },
+            {
+              "pid": 19164,
+              "seconds": 0.219,
+              "share": 0.0015,
+              "role": "Utility",
+              "type": "Utility"
+            },
+            {
+              "pid": 9140,
+              "seconds": 0.094,
+              "share": 0.0006,
+              "role": "tab:23f67e25",
+              "type": "Tab"
+            },
+            {
+              "pid": 20556,
+              "seconds": 0,
+              "share": 0,
+              "role": "",
+              "type": ""
+            }
+          ],
+          "notAttributablePids": [],
+          "unreadablePids": [],
+          "counterResetPids": [],
+          "source": "samples.cpuByPid (231 of 231 row(s) carry counters)",
+          "burstLines": 35700,
+          "msPer1000BurstLines": 4114.1737,
+          "msPerSwitch": 125.6424
+        },
+        "bursts": 119,
+        "burstLinesObserved": 35700,
+        "switchCount": 1169
+      },
+      {
+        "name": "burst4x",
+        "ordinal": 2,
+        "cpu": {
+          "from": "2026-09-20T20:11:34.829Z",
+          "to": "2026-09-20T21:10:37.970Z",
+          "windowMinutes": 59.05,
+          "samples": 60,
+          "cpuSecondsTotal": 176.251,
+          "cpuSecondsPerMinute": 2.985,
+          "perProcess": [
+            {
+              "pid": 6044,
+              "seconds": 46.453,
+              "share": 0.2636,
+              "role": "",
+              "type": ""
+            },
+            {
+              "pid": 13408,
+              "seconds": 42.359,
+              "share": 0.2403,
+              "role": "Browser",
+              "type": "Browser"
+            },
+            {
+              "pid": 22044,
+              "seconds": 27.984,
+              "share": 0.1588,
+              "role": "GPU",
+              "type": "GPU"
+            },
+            {
+              "pid": 22376,
+              "seconds": 17.672,
+              "share": 0.1003,
+              "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+              "type": "Tab"
+            },
+            {
+              "pid": 17824,
+              "seconds": 12.641,
+              "share": 0.0717,
+              "role": "",
+              "type": ""
+            },
+            {
+              "pid": 9096,
+              "seconds": 9.313,
+              "share": 0.0528,
+              "role": "tab:9c825362+tab:92f9c20e+tab:e3825c3f+tab:f8fddfec",
+              "type": "Tab"
+            },
+            {
+              "pid": 11628,
+              "seconds": 8.078,
+              "share": 0.0458,
+              "role": "",
+              "type": ""
+            },
+            {
+              "pid": 19040,
+              "seconds": 5.266,
+              "share": 0.0299,
+              "role": "",
+              "type": ""
+            },
+            {
+              "pid": 14932,
+              "seconds": 3.547,
+              "share": 0.0201,
+              "role": "",
+              "type": ""
+            },
+            {
+              "pid": 12332,
+              "seconds": 1.984,
+              "share": 0.0113,
+              "role": "tab:5fa0fe21",
+              "type": "Tab"
+            },
+            {
+              "pid": 19924,
+              "seconds": 0.406,
+              "share": 0.0023,
+              "role": "tab:3f226687",
+              "type": "Tab"
+            },
+            {
+              "pid": 15124,
+              "seconds": 0.219,
+              "share": 0.0012,
+              "role": "",
+              "type": ""
+            },
+            {
+              "pid": 19164,
+              "seconds": 0.188,
+              "share": 0.0011,
+              "role": "Utility",
+              "type": "Utility"
+            },
+            {
+              "pid": 9140,
+              "seconds": 0.141,
+              "share": 0.0008,
+              "role": "tab:23f67e25",
+              "type": "Tab"
+            },
+            {
+              "pid": 20556,
+              "seconds": 0,
+              "share": 0,
+              "role": "",
+              "type": ""
+            }
+          ],
+          "notAttributablePids": [],
+          "unreadablePids": [],
+          "counterResetPids": [],
+          "source": "samples.cpuByPid (231 of 231 row(s) carry counters)",
+          "burstLines": 142800,
+          "msPer1000BurstLines": 1234.2507,
+          "msPerSwitch": 150.7707
+        },
+        "bursts": 119,
+        "burstLinesObserved": 142800,
+        "switchCount": 1169
+      },
+      {
+        "name": "burst-off",
+        "ordinal": 3,
+        "cpu": {
+          "from": "2026-09-20T21:11:38.036Z",
+          "to": "2026-09-20T22:10:40.941Z",
+          "windowMinutes": 59.05,
+          "samples": 60,
+          "cpuSecondsTotal": 172.392,
+          "cpuSecondsPerMinute": 2.919,
+          "perProcess": [
+            {
+              "pid": 6044,
+              "seconds": 43.859,
+              "share": 0.2544,
+              "role": "",
+              "type": ""
+            },
+            {
+              "pid": 13408,
+              "seconds": 38.563,
+              "share": 0.2237,
+              "role": "Browser",
+              "type": "Browser"
+            },
+            {
+              "pid": 22376,
+              "seconds": 32.938,
+              "share": 0.1911,
+              "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+              "type": "Tab"
+            },
+            {
+              "pid": 22044,
+              "seconds": 28.391,
+              "share": 0.1647,
+              "role": "GPU",
+              "type": "GPU"
+            },
+            {
+              "pid": 11628,
+              "seconds": 8.313,
+              "share": 0.0482,
+              "role": "",
+              "type": ""
+            },
+            {
+              "pid": 9096,
+              "seconds": 8.156,
+              "share": 0.0473,
+              "role": "tab:9c825362+tab:92f9c20e+tab:e3825c3f+tab:f8fddfec",
+              "type": "Tab"
+            },
+            {
+              "pid": 19040,
+              "seconds": 5.344,
+              "share": 0.031,
+              "role": "",
+              "type": ""
+            },
+            {
+              "pid": 14932,
+              "seconds": 4.078,
+              "share": 0.0237,
+              "role": "",
+              "type": ""
+            },
+            {
+              "pid": 12332,
+              "seconds": 1.719,
+              "share": 0.01,
+              "role": "tab:5fa0fe21",
+              "type": "Tab"
+            },
+            {
+              "pid": 19924,
+              "seconds": 0.484,
+              "share": 0.0028,
+              "role": "tab:3f226687",
+              "type": "Tab"
+            },
+            {
+              "pid": 17824,
+              "seconds": 0.203,
+              "share": 0.0012,
+              "role": "",
+              "type": ""
+            },
+            {
+              "pid": 15124,
+              "seconds": 0.188,
+              "share": 0.0011,
+              "role": "",
+              "type": ""
+            },
+            {
+              "pid": 9140,
+              "seconds": 0.078,
+              "share": 0.0005,
+              "role": "tab:23f67e25",
+              "type": "Tab"
+            },
+            {
+              "pid": 19164,
+              "seconds": 0.078,
+              "share": 0.0005,
+              "role": "Utility",
+              "type": "Utility"
+            },
+            {
+              "pid": 20556,
+              "seconds": 0,
+              "share": 0,
+              "role": "",
+              "type": ""
+            }
+          ],
+          "notAttributablePids": [],
+          "unreadablePids": [],
+          "counterResetPids": [],
+          "source": "samples.cpuByPid (231 of 231 row(s) carry counters)",
+          "burstLines": 5,
+          "msPer1000BurstLines": 34478400,
+          "msPerSwitch": 147.3436
+        },
+        "bursts": 5,
+        "burstLinesObserved": 5,
+        "switchCount": 1170
+      }
+    ],
+    "historyPersist": null,
+    "legBurstCounterSuspect": false,
+    "verdict": "PASSED_SLOPE_NOT_GRADED"
+  }
+}

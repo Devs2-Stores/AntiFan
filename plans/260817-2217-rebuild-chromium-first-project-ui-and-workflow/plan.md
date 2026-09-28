@@ -6,7 +6,7 @@ priority: P1
 effort: "XL (8-12 weeks)"
 branch: main
 tags: [refactor, frontend, electron, chromium, harness, critical]
-blockedBy: [260820-1301-build-antifan-standalone-control-plane, 260901-1011-antifan-core-runtime-freeze]
+blockedBy: [260820-1301-build-antifan-standalone-control-plane, 260901-1011-antifan-core-runtime-freeze, 260927-0315-project-windows]
 blocks: []
 created: 2026-08-17
 ---
@@ -14,6 +14,8 @@ created: 2026-08-17
 # Rebuild Chromium-First Project UI And Workflow
 
 ## Overview
+
+Window lifecycle dependency (2026-09-27): [Project Windows](../260927-0315-project-windows/plan.md) now owns the one-window-per-project/shared-runtime cutover. Consume its routing, close and placement contracts; do not independently implement a second window registry. Unrelated renderer/Harness work remains in this plan.
 
 Replace the legacy renderer shell around the accepted Project-owned Chromium
 architecture without clean-room rewriting capabilities that already work.

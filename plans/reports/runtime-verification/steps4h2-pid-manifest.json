@@ -1,0 +1,137 @@
+{
+  "purpose": "Post-hoc attribution and host-competition record for the steps4h2 soak: names which processes belong to the measured app tree, proves the per-process series is app-sourced, and records the external machine load that shares the host.",
+  "recordedAt": "2026-09-21T08:37:18.643Z",
+  "run": {
+    "tag": "steps4h2",
+    "launchedAt": "2026-09-21T15:32:56.535+07:00",
+    "launchedAtUtc": "2026-09-21T08:32:56.535Z",
+    "argv": [
+      "node",
+      "scripts/benchmark-real-soak-8h.cjs",
+      "--minutes",
+      "240"
+    ],
+    "legs": "SOAK_LEGS=baseline:60:300:30000,burst4x:60:1200:30000,burst-off:60:1:600000",
+    "harnessPid": 26304,
+    "treeHarnessPid": 26304,
+    "appMainPid": 25888,
+    "appMainCommandLine": "E:\\Work\\apps\\AntiFan\\node_modules\\electron\\dist\\electron.exe E:\\Work\\apps\\AntiFan --production",
+    "appMainStartedAt": "/Date(1789979577327)/",
+    "bundleMd5": "6a333f3c1bee6438bbe2a1fcb13ed0a2",
+    "bundleFiles": 418,
+    "bundleBytesMB": 8.8,
+    "appTreePids": [
+      808,
+      16548,
+      18212,
+      18280,
+      19208,
+      21416,
+      21428,
+      21488,
+      24668,
+      24932,
+      25888,
+      26424
+    ],
+    "appTreeSnapshotAt": "2026-09-21T08:37:18.644Z",
+    "injectedChildPids": [
+      32,
+      22008,
+      26292
+    ],
+    "measuredSeries": {
+      "harnessField": "processSamples <- benchmarkIngest.samples (scripts/benchmark-real-soak-8h.cjs:1599)",
+      "appSource": "recordProcessMetrics over app.getAppMetrics() (src/main/index.ts)",
+      "consequence": "only pids descended from the app main pid can appear in processSamples / processSeries"
+    },
+    "schedule": {
+      "warmup": "2026-09-21T15:32:56.535+07:00 -> 2026-09-21T16:02:56.535+07:00",
+      "workloadLegs": [
+        {
+          "name": "baseline",
+          "bursts": "300 lines / 30000ms",
+          "from": "2026-09-21T16:02:56.535+07:00",
+          "to": "2026-09-21T17:02:56.535+07:00",
+          "minutes": 60
+        },
+        {
+          "name": "burst4x",
+          "bursts": "1200 lines / 30000ms",
+          "from": "2026-09-21T17:02:56.535+07:00",
+          "to": "2026-09-21T18:02:56.535+07:00",
+          "minutes": 60
+        },
+        {
+          "name": "burst-off",
+          "bursts": "1 lines / 600000ms",
+          "from": "2026-09-21T18:02:56.535+07:00",
+          "to": "2026-09-21T19:02:56.535+07:00",
+          "minutes": 60
+        }
+      ],
+      "recovery": "2026-09-21T19:02:56.535+07:00 -> 2026-09-21T19:32:56.535+07:00",
+      "workloadMinutes": 180
+    }
+  },
+  "external": {
+    "snapshot": {
+      "at": "2026-09-21T08:33:11.534Z",
+      "run": {
+        "procs": 9,
+        "rssMB": 1221.1,
+        "cpuSec": 3.9
+      },
+      "external": {
+        "procs": 28,
+        "rssMB": 4277.9,
+        "cpuSec": 4525.8
+      },
+      "machineFreeMB": 1390,
+      "machineTotalMB": 16236,
+      "loadPct": 100,
+      "compiledRewritten": 0,
+      "externalPids": [
+        1048,
+        10952,
+        13236,
+        12308,
+        11580,
+        20160,
+        6988,
+        15152,
+        6024,
+        17716,
+        24052,
+        23708,
+        23080,
+        12660,
+        24032,
+        18484,
+        2088,
+        23212,
+        24944,
+        9840,
+        3684,
+        23480,
+        19964,
+        10916,
+        22668,
+        17124,
+        25884,
+        20236
+      ]
+    },
+    "seriesFile": "plans/reports/runtime-verification/steps4h2-external-load.jsonl",
+    "samplerPid": 10416,
+    "note": "The user app instance and the shared terminal daemon host are alive alongside this run; the sampler records them every 5 minutes so the verdict states the competition instead of assuming it away."
+  },
+  "attributionRule": "A pid not in appTreePids is not part of this run. If one ever appears in processSeries, the payload is contaminated and the per-process gates must be discarded rather than reported.",
+  "bundleDigest": {
+    "sha256": "0462f675d0ad351c5e8da5e0ba1fc03259d6d85525f1ab588142b3ef7f12aae2",
+    "files": 369,
+    "scope": ".compiled/src (main+preload+renderer+shared)",
+    "newestSourceMtime": "2026-09-21T08:27:06.241Z"
+  },
+  "keepAwake": true
+}

@@ -1,0 +1,975 @@
+{
+  "probe": "quit-coordination",
+  "passed": 22,
+  "failed": 0,
+  "checks": [
+    {
+      "name": "the coordinator is idle at boot: one browser shell, no reservation, phase open",
+      "ok": true
+    },
+    {
+      "name": "a real queued run exists in the shipping run service",
+      "ok": true
+    },
+    {
+      "name": "three browser shells exist, each with its own tab",
+      "ok": true
+    },
+    {
+      "name": "a closed window leaves no chrome content reachable and reports no survivor",
+      "ok": true
+    },
+    {
+      "name": "a close attempt reserves its member pages before it awaits anything",
+      "ok": true
+    },
+    {
+      "name": "closing one window disposes only it, releases its reservation, and starts no quit",
+      "ok": true
+    },
+    {
+      "name": "a page that vetoes its unload retains the shell, with an honest partial report",
+      "ok": true
+    },
+    {
+      "name": "a tab arriving during the close survives and the shell is retained",
+      "ok": true
+    },
+    {
+      "name": "a Quit while a run is queued is refused, coalesced, and tears nothing down",
+      "ok": true
+    },
+    {
+      "name": "shared services are still usable after the refusal",
+      "ok": true
+    },
+    {
+      "name": "the terminal run state reopens the gate instead of locking it out",
+      "ok": true
+    },
+    {
+      "name": "a binding attempted during unload is refused; a page cannot be bound and then destroyed",
+      "ok": true
+    },
+    {
+      "name": "a late veto in a terminal window keeps services alive, releases admission and never commits",
+      "ok": true
+    },
+    {
+      "name": "the application is still usable after the late veto: a window opens and runs a page",
+      "ok": true
+    },
+    {
+      "name": "a terminal window whose host is gone stays discoverable to the shipping enumerator",
+      "ok": true
+    },
+    {
+      "name": "unload settle (a): a page with no unload handler is destroyed by the close and reports no veto",
+      "ok": true
+    },
+    {
+      "name": "unload settle (b): a vetoing page reports will-prevent-unload, survives the close, and dies once disarmed",
+      "ok": true
+    },
+    {
+      "name": "unload settle (c): an already-destroyed content reports no event, so its outcome is read from state",
+      "ok": true
+    },
+    {
+      "name": "unload settle (d): a user-driven close with user activation reaches the app as the page veto",
+      "ok": true
+    },
+    {
+      "name": "the last browser shell closing runs the same application gate and exits orderly",
+      "ok": true
+    },
+    {
+      "name": "the ordered teardown ran once and nothing forced the exit",
+      "ok": true
+    },
+    {
+      "name": "every row of the probe executed and reported pass",
+      "ok": true
+    }
+  ],
+  "observations": {
+    "boot": {
+      "alphaKey": "project:project-00000000-0000-4000-8000-0000000000a1",
+      "browserShellCount": 1,
+      "phase": "open",
+      "reservations": {
+        "reservedTabIds": [],
+        "inFlightOperations": 0,
+        "applicationReserved": false,
+        "reservedCount": 0
+      }
+    },
+    "queuedRun": {
+      "runId": "run-d4aae759-76cc-4717-8f44-96eefddd5813",
+      "chatId": "chat-80399225-cdce-4f53-b27a-a5b5b1939999",
+      "state": "queued",
+      "runs": [
+        {
+          "id": "run-d4aae759-76cc-4717-8f44-96eefddd5813",
+          "state": "queued"
+        }
+      ]
+    },
+    "windows": {
+      "openB": {
+        "status": "OPENED",
+        "projectId": "project-00000000-0000-4000-8000-0000000000b2"
+      },
+      "keys": {
+        "alphaKey": "project:project-00000000-0000-4000-8000-0000000000a1",
+        "betaKey": "project:project-00000000-0000-4000-8000-0000000000b2",
+        "gammaKey": "project:project-00000000-0000-4000-8000-0000000000c3"
+      },
+      "tabs": {
+        "tabA": "66309ce2-cc1f-404c-baeb-1477f9a86d06",
+        "tabB": "8314a4e2-00d6-47fa-94e8-9036e6e410a7",
+        "tabG1": "7af0075c-37e2-4d10-b03e-78f4205e55ab"
+      },
+      "counts": [
+        {
+          "key": "project:project-00000000-0000-4000-8000-0000000000a1",
+          "tabs": [
+            "5e8fd0ff-453d-4c58-bd1e-43917a3daddd",
+            "66309ce2-cc1f-404c-baeb-1477f9a86d06"
+          ]
+        },
+        {
+          "key": "project:project-00000000-0000-4000-8000-0000000000b2",
+          "tabs": [
+            "8bde8dc9-8fb2-4f82-bec8-33fd1eacbec2",
+            "8314a4e2-00d6-47fa-94e8-9036e6e410a7"
+          ]
+        },
+        {
+          "key": "project:project-00000000-0000-4000-8000-0000000000c3",
+          "tabs": [
+            "aaa29d97-422f-4b86-b8f1-70f46c7bf258",
+            "7af0075c-37e2-4d10-b03e-78f4205e55ab"
+          ]
+        }
+      ]
+    },
+    "closeAlpha": {
+      "chromeBeforeClose": [
+        {
+          "role": "toolbar",
+          "id": 2
+        },
+        {
+          "role": "sidebar",
+          "id": 4
+        },
+        {
+          "role": "frameBackdrop",
+          "id": 3
+        }
+      ],
+      "chromeTimeline": {
+        "elapsedMs": 0,
+        "diedAt": {
+          "toolbar#2": 0,
+          "sidebar#4": 0,
+          "frameBackdrop#3": 0
+        },
+        "remaining": [],
+        "samples": [
+          {
+            "atMs": 0,
+            "reachable": []
+          }
+        ],
+        "finalState": [
+          {
+            "role": "toolbar",
+            "id": 2,
+            "foundById": false,
+            "reportsDestroyed": true,
+            "runsScript": "not-attempted"
+          },
+          {
+            "role": "sidebar",
+            "id": 4,
+            "foundById": false,
+            "reportsDestroyed": true,
+            "runsScript": "not-attempted"
+          },
+          {
+            "role": "frameBackdrop",
+            "id": 3,
+            "foundById": false,
+            "reportsDestroyed": true,
+            "runsScript": "not-attempted"
+          }
+        ]
+      },
+      "shellWarnings": [],
+      "reservedDuringAttempt": {
+        "reservedTabIds": [
+          "5e8fd0ff-453d-4c58-bd1e-43917a3daddd",
+          "66309ce2-cc1f-404c-baeb-1477f9a86d06"
+        ],
+        "inFlightOperations": 0,
+        "applicationReserved": false,
+        "reservedCount": 2
+      },
+      "report": {
+        "attemptId": 1,
+        "ownerKey": "project:project-00000000-0000-4000-8000-0000000000a1",
+        "intent": "user",
+        "coalescedRequests": 0,
+        "coalesced": false,
+        "disposition": "closed",
+        "phase": "closed",
+        "closed": [
+          {
+            "tabId": "5e8fd0ff-453d-4c58-bd1e-43917a3daddd",
+            "outcome": "closed",
+            "attempted": true
+          },
+          {
+            "tabId": "66309ce2-cc1f-404c-baeb-1477f9a86d06",
+            "outcome": "closed",
+            "attempted": true
+          }
+        ],
+        "skipped": [],
+        "failed": [],
+        "refusals": [],
+        "haltedBy": null,
+        "surface": {
+          "key": "project:project-00000000-0000-4000-8000-0000000000a1",
+          "kind": "browser",
+          "outcome": "closed"
+        },
+        "survivingTabIds": [],
+        "partial": false,
+        "lastBrowserShellGone": false,
+        "warnings": [],
+        "summary": "Close of project:project-00000000-0000-4000-8000-0000000000a1: shell closed (closed 2, skipped 0, failed 0)."
+      },
+      "count": 2,
+      "betaTabs": [
+        "8bde8dc9-8fb2-4f82-bec8-33fd1eacbec2",
+        "8314a4e2-00d6-47fa-94e8-9036e6e410a7"
+      ],
+      "reservationsAfter": {
+        "reservedTabIds": [],
+        "inFlightOperations": 0,
+        "applicationReserved": false,
+        "reservedCount": 0
+      },
+      "appReady": true,
+      "quitReported": null
+    },
+    "unloadVeto": {
+      "vetoTab": "d90d95bf-f510-4f89-a31a-232574c84964",
+      "report": {
+        "attemptId": 2,
+        "ownerKey": "project:project-00000000-0000-4000-8000-0000000000c3",
+        "intent": "user",
+        "coalescedRequests": 0,
+        "coalesced": false,
+        "disposition": "retained",
+        "phase": "open",
+        "closed": [
+          {
+            "tabId": "aaa29d97-422f-4b86-b8f1-70f46c7bf258",
+            "outcome": "closed",
+            "attempted": true
+          },
+          {
+            "tabId": "7af0075c-37e2-4d10-b03e-78f4205e55ab",
+            "outcome": "closed",
+            "attempted": true
+          }
+        ],
+        "skipped": [
+          {
+            "tabId": "d90d95bf-f510-4f89-a31a-232574c84964",
+            "outcome": "skipped",
+            "reason": "unload-veto",
+            "attempted": true
+          }
+        ],
+        "failed": [],
+        "refusals": [
+          {
+            "code": "unload-veto",
+            "detail": "Page d90d95bf-f510-4f89-a31a-232574c84964 refused to unload",
+            "controls": [],
+            "tabId": "d90d95bf-f510-4f89-a31a-232574c84964"
+          }
+        ],
+        "haltedBy": "unload-veto",
+        "surface": null,
+        "survivingTabIds": [
+          "d90d95bf-f510-4f89-a31a-232574c84964"
+        ],
+        "partial": true,
+        "lastBrowserShellGone": false,
+        "warnings": [],
+        "summary": "Close of project:project-00000000-0000-4000-8000-0000000000c3: shell retained, stopped by unload-veto (closed 2, skipped 1, failed 0); earlier closes stand and are not transactional."
+      },
+      "gammaTabs": [
+        "d90d95bf-f510-4f89-a31a-232574c84964"
+      ],
+      "reservations": {
+        "reservedTabIds": [],
+        "inFlightOperations": 0,
+        "applicationReserved": false,
+        "reservedCount": 0
+      }
+    },
+    "newArrival": {
+      "arrivalTab": "9d7b1ab5-391d-4062-bc41-5dead157f083",
+      "report": {
+        "attemptId": 3,
+        "ownerKey": "project:project-00000000-0000-4000-8000-0000000000c3",
+        "intent": "user",
+        "coalescedRequests": 0,
+        "coalesced": false,
+        "disposition": "retained",
+        "phase": "open",
+        "closed": [
+          {
+            "tabId": "d90d95bf-f510-4f89-a31a-232574c84964",
+            "outcome": "closed",
+            "attempted": true
+          }
+        ],
+        "skipped": [
+          {
+            "tabId": "9d7b1ab5-391d-4062-bc41-5dead157f083",
+            "outcome": "skipped",
+            "reason": "new-arrival",
+            "attempted": false
+          }
+        ],
+        "failed": [],
+        "refusals": [
+          {
+            "code": "new-arrival",
+            "detail": "Pages appeared while the shell was closing: 9d7b1ab5-391d-4062-bc41-5dead157f083",
+            "controls": []
+          }
+        ],
+        "haltedBy": "new-arrival",
+        "surface": null,
+        "survivingTabIds": [
+          "9d7b1ab5-391d-4062-bc41-5dead157f083"
+        ],
+        "partial": true,
+        "lastBrowserShellGone": false,
+        "warnings": [],
+        "summary": "Close of project:project-00000000-0000-4000-8000-0000000000c3: shell retained, stopped by new-arrival (closed 1, skipped 1, failed 0); earlier closes stand and are not transactional."
+      },
+      "gammaTabs": [
+        "9d7b1ab5-391d-4062-bc41-5dead157f083"
+      ]
+    },
+    "queuedQuit": {
+      "report": {
+        "attemptId": 4,
+        "coalescedRequests": 1,
+        "coalesced": true,
+        "shutdown": "not-committed",
+        "phase": "open",
+        "admissionReserved": true,
+        "shells": [],
+        "auxiliaries": [],
+        "closedShells": [],
+        "survivingShells": [
+          "project:project-00000000-0000-4000-8000-0000000000b2",
+          "project:project-00000000-0000-4000-8000-0000000000c3"
+        ],
+        "refusals": [
+          {
+            "code": "busy",
+            "detail": "Run run-d4aae759-76cc-4717-8f44-96eefddd5813 is queued",
+            "controls": [
+              {
+                "id": "antifan:workflow:abort",
+                "label": "Stop the run where it was started (the toolbar stop button for a workflow, the agent client for its own run), or wait for it to finish"
+              }
+            ]
+          }
+        ],
+        "haltedBy": "busy",
+        "warnings": [
+          "No surface was closed and no service was torn down."
+        ],
+        "summary": "Application quit: not committed, 0 browser shell(s) closed, 0 auxiliary surface(s) closed, stopped by busy; services remain available for recovery."
+      },
+      "count": 2,
+      "reservations": {
+        "reservedTabIds": [],
+        "inFlightOperations": 0,
+        "applicationReserved": false,
+        "reservedCount": 0
+      },
+      "phase": "open",
+      "lastCloseReportForGamma": {
+        "attemptId": 3,
+        "ownerKey": "project:project-00000000-0000-4000-8000-0000000000c3",
+        "intent": "user",
+        "coalescedRequests": 0,
+        "coalesced": false,
+        "disposition": "retained",
+        "phase": "open",
+        "closed": [
+          {
+            "tabId": "d90d95bf-f510-4f89-a31a-232574c84964",
+            "outcome": "closed",
+            "attempted": true
+          }
+        ],
+        "skipped": [
+          {
+            "tabId": "9d7b1ab5-391d-4062-bc41-5dead157f083",
+            "outcome": "skipped",
+            "reason": "new-arrival",
+            "attempted": false
+          }
+        ],
+        "failed": [],
+        "refusals": [
+          {
+            "code": "new-arrival",
+            "detail": "Pages appeared while the shell was closing: 9d7b1ab5-391d-4062-bc41-5dead157f083",
+            "controls": []
+          }
+        ],
+        "haltedBy": "new-arrival",
+        "surface": null,
+        "survivingTabIds": [
+          "9d7b1ab5-391d-4062-bc41-5dead157f083"
+        ],
+        "partial": true,
+        "lastBrowserShellGone": false,
+        "warnings": [],
+        "summary": "Close of project:project-00000000-0000-4000-8000-0000000000c3: shell retained, stopped by new-arrival (closed 1, skipped 1, failed 0); earlier closes stand and are not transactional."
+      }
+    },
+    "runCleanup": {
+      "runStates": [
+        {
+          "id": "run-d4aae759-76cc-4717-8f44-96eefddd5813",
+          "state": "completed"
+        }
+      ],
+      "phase": "open",
+      "reservations": {
+        "reservedTabIds": [],
+        "inFlightOperations": 0,
+        "applicationReserved": false,
+        "reservedCount": 0
+      }
+    },
+    "bindingDuringUnload": {
+      "gammaPageForBinding": "9d7b1ab5-391d-4062-bc41-5dead157f083",
+      "mintOutcome": {
+        "admitted": false,
+        "code": "TARGET_STALE"
+      },
+      "report": {
+        "attemptId": 5,
+        "ownerKey": "project:project-00000000-0000-4000-8000-0000000000c3",
+        "intent": "user",
+        "coalescedRequests": 0,
+        "coalesced": false,
+        "disposition": "closed",
+        "phase": "closed",
+        "closed": [
+          {
+            "tabId": "9d7b1ab5-391d-4062-bc41-5dead157f083",
+            "outcome": "closed",
+            "attempted": true
+          }
+        ],
+        "skipped": [],
+        "failed": [],
+        "refusals": [],
+        "haltedBy": null,
+        "surface": {
+          "key": "project:project-00000000-0000-4000-8000-0000000000c3",
+          "kind": "browser",
+          "outcome": "closed"
+        },
+        "survivingTabIds": [],
+        "partial": false,
+        "lastBrowserShellGone": false,
+        "warnings": [],
+        "summary": "Close of project:project-00000000-0000-4000-8000-0000000000c3: shell closed (closed 1, skipped 0, failed 0)."
+      },
+      "count": 1
+    },
+    "auxiliary": {
+      "popoutOpened": true,
+      "terminalWindowId": 4,
+      "armed": "function",
+      "census": [
+        {
+          "id": 4,
+          "destroyed": false,
+          "url": "file:///E:/Work/apps/AntiFan/src/renderer/standa"
+        },
+        {
+          "id": 2,
+          "destroyed": false,
+          "url": ""
+        }
+      ]
+    },
+    "auxQuit": {
+      "report": {
+        "attemptId": 6,
+        "coalescedRequests": 1,
+        "coalesced": true,
+        "shutdown": "not-committed",
+        "phase": "open",
+        "admissionReserved": true,
+        "shells": [
+          {
+            "attemptId": 7,
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000b2",
+            "intent": "quit",
+            "coalescedRequests": 0,
+            "coalesced": false,
+            "disposition": "closed",
+            "phase": "closed",
+            "closed": [
+              {
+                "tabId": "8bde8dc9-8fb2-4f82-bec8-33fd1eacbec2",
+                "outcome": "closed",
+                "attempted": true
+              },
+              {
+                "tabId": "8314a4e2-00d6-47fa-94e8-9036e6e410a7",
+                "outcome": "closed",
+                "attempted": true
+              },
+              {
+                "tabId": "6647818b-6ec8-4bcd-8439-a24907eabec0",
+                "outcome": "closed",
+                "attempted": true
+              }
+            ],
+            "skipped": [],
+            "failed": [],
+            "refusals": [],
+            "haltedBy": null,
+            "surface": {
+              "key": "project:project-00000000-0000-4000-8000-0000000000b2",
+              "kind": "browser",
+              "outcome": "closed"
+            },
+            "survivingTabIds": [],
+            "partial": false,
+            "lastBrowserShellGone": true,
+            "warnings": [],
+            "summary": "Close of project:project-00000000-0000-4000-8000-0000000000b2: shell closed (closed 3, skipped 0, failed 0)."
+          }
+        ],
+        "auxiliaries": [
+          {
+            "key": "terminal-window:4",
+            "kind": "auxiliary",
+            "outcome": "vetoed"
+          }
+        ],
+        "closedShells": [
+          "project:project-00000000-0000-4000-8000-0000000000b2"
+        ],
+        "survivingShells": [],
+        "refusals": [
+          {
+            "code": "unload-veto",
+            "detail": "Auxiliary surface terminal-window:4 refused to close",
+            "controls": []
+          }
+        ],
+        "haltedBy": "unload-veto",
+        "warnings": [
+          "Shared services were retained; recovery controls stay available."
+        ],
+        "summary": "Application quit: not committed, 1 browser shell(s) closed, 0 auxiliary surface(s) closed, stopped by unload-veto; services remain available for recovery."
+      },
+      "count": 0,
+      "reservations": {
+        "reservedTabIds": [],
+        "inFlightOperations": 0,
+        "applicationReserved": false,
+        "reservedCount": 0
+      },
+      "phase": "open",
+      "terminalWindows": [],
+      "census": [
+        {
+          "id": 4,
+          "destroyed": false,
+          "url": "file:///E:/Work/apps/AntiFan/src/renderer/standa"
+        }
+      ],
+      "popoutEvents": [
+        "window-close(defaultPrevented=false)@61ms",
+        "window-close(defaultPrevented=false)@87ms",
+        "will-prevent-unload@87ms"
+      ],
+      "journal": [
+        "quit.requested",
+        "window-closed.last-browser-shell",
+        "quit.requested",
+        "quit.outcome",
+        "quit.outcome",
+        "tabhost.terminalWindowsLeftBehind"
+      ]
+    },
+    "orphanDiscovery": {
+      "afterHostLoss": [],
+      "censusWindowIds": [
+        5,
+        4
+      ],
+      "enumeratorInputs": [
+        {
+          "contentsId": 28,
+          "windowId": 5,
+          "windowTitle": "Probe Gamma [DEV]",
+          "url": "about:blank",
+          "terminalPopoutViaHosts": false,
+          "unhostedTerminalWindow": false,
+          "reachableByShippingGate": false
+        },
+        {
+          "contentsId": 27,
+          "windowId": 5,
+          "windowTitle": "Probe Gamma [DEV]",
+          "url": "https://www.google.com/",
+          "terminalPopoutViaHosts": false,
+          "unhostedTerminalWindow": false,
+          "reachableByShippingGate": false
+        },
+        {
+          "contentsId": 26,
+          "windowId": 5,
+          "windowTitle": "Probe Gamma [DEV]",
+          "url": "file:///E:/Work/apps/AntiFan/src/renderer/standalone.html",
+          "terminalPopoutViaHosts": false,
+          "unhostedTerminalWindow": false,
+          "reachableByShippingGate": false
+        },
+        {
+          "contentsId": 25,
+          "windowId": 5,
+          "windowTitle": "Probe Gamma [DEV]",
+          "url": "file:///E:/Work/apps/AntiFan/src/renderer/frame-backdrop.html",
+          "terminalPopoutViaHosts": false,
+          "unhostedTerminalWindow": false,
+          "reachableByShippingGate": false
+        },
+        {
+          "contentsId": 24,
+          "windowId": 5,
+          "windowTitle": "Probe Gamma [DEV]",
+          "url": "file:///E:/Work/apps/AntiFan/src/renderer/toolbar.html",
+          "terminalPopoutViaHosts": false,
+          "unhostedTerminalWindow": false,
+          "reachableByShippingGate": false
+        },
+        {
+          "contentsId": 23,
+          "windowId": 5,
+          "windowTitle": "Probe Gamma [DEV]",
+          "url": "",
+          "terminalPopoutViaHosts": false,
+          "unhostedTerminalWindow": false,
+          "reachableByShippingGate": false
+        },
+        {
+          "contentsId": 22,
+          "windowId": 4,
+          "windowTitle": "AntiFan Terminal",
+          "url": "file:///E:/Work/apps/AntiFan/src/renderer/standalone.html?mode=popout",
+          "terminalPopoutViaHosts": true,
+          "unhostedTerminalWindow": true,
+          "reachableByShippingGate": true
+        }
+      ],
+      "discoveredByShippingEnumeration": [
+        22
+      ]
+    },
+    "unloadSettle": {
+      "a": {
+        "tabId": "875c5b40-85a1-4d20-809b-f4b07f76e940",
+        "handlerType": "none",
+        "label": "a: no unload handler",
+        "contentsId": 29,
+        "events": [
+          "destroyed"
+        ],
+        "timings": {
+          "destroyed": 11
+        },
+        "callError": null,
+        "destroyed": true,
+        "elapsedMs": 726
+      },
+      "b": {
+        "tabId": "4d5a71fa-0b70-40b1-88a8-eec2a7c49271",
+        "handlerType": "function",
+        "armed": {
+          "label": "b: vetoing page",
+          "contentsId": 30,
+          "events": [
+            "will-prevent-unload"
+          ],
+          "timings": {
+            "will-prevent-unload": 0
+          },
+          "callError": null,
+          "destroyed": false,
+          "elapsedMs": 705
+        },
+        "disarmed": {
+          "label": "b: vetoing page, disarmed",
+          "contentsId": 30,
+          "events": [
+            "destroyed"
+          ],
+          "timings": {
+            "destroyed": 12
+          },
+          "callError": null,
+          "destroyed": true,
+          "elapsedMs": 718
+        }
+      },
+      "c": {
+        "tabId": "14b24b7e-8b28-4436-9a27-a8315c8549c9",
+        "killed": true,
+        "killError": null,
+        "recordAfterDeath": "no longer in the directory",
+        "label": "c: already-destroyed content",
+        "contentsId": 31,
+        "events": [],
+        "timings": {},
+        "callError": "Object has been destroyed",
+        "destroyed": true,
+        "elapsedMs": 700
+      },
+      "d": {
+        "tabId": "d70aba2c-8364-4200-9d15-6715754a03b6",
+        "handlerType": "function",
+        "activationReadback": "true/true",
+        "closeRequested": true,
+        "report": {
+          "attemptId": 8,
+          "ownerKey": "project:project-00000000-0000-4000-8000-0000000000c3",
+          "intent": "user",
+          "coalescedRequests": 0,
+          "coalesced": false,
+          "disposition": "retained",
+          "phase": "open",
+          "closed": [
+            {
+              "tabId": "f5d907c4-6326-4088-9012-20cca69979f6",
+              "outcome": "closed",
+              "attempted": true
+            },
+            {
+              "tabId": "53bfee92-5bde-4990-a8c9-476105b3be14",
+              "outcome": "closed",
+              "attempted": true
+            }
+          ],
+          "skipped": [
+            {
+              "tabId": "d70aba2c-8364-4200-9d15-6715754a03b6",
+              "outcome": "skipped",
+              "reason": "unload-veto",
+              "attempted": true
+            }
+          ],
+          "failed": [],
+          "refusals": [
+            {
+              "code": "unload-veto",
+              "detail": "Page d70aba2c-8364-4200-9d15-6715754a03b6 refused to unload",
+              "controls": [],
+              "tabId": "d70aba2c-8364-4200-9d15-6715754a03b6"
+            }
+          ],
+          "haltedBy": "unload-veto",
+          "surface": null,
+          "survivingTabIds": [
+            "d70aba2c-8364-4200-9d15-6715754a03b6"
+          ],
+          "partial": true,
+          "lastBrowserShellGone": false,
+          "warnings": [],
+          "summary": "Close of project:project-00000000-0000-4000-8000-0000000000c3: shell retained, stopped by unload-veto (closed 2, skipped 1, failed 0); earlier closes stand and are not transactional."
+        },
+        "events": [
+          "page:will-prevent-unload@28ms"
+        ],
+        "census": [
+          {
+            "id": 5,
+            "destroyed": false,
+            "url": ""
+          },
+          {
+            "id": 4,
+            "destroyed": false,
+            "url": "file:///E:/Work/apps/AntiFan/src/renderer/standa"
+          }
+        ]
+      }
+    },
+    "disarmPopout": {
+      "before": [
+        {
+          "id": 5,
+          "destroyed": false,
+          "url": ""
+        },
+        {
+          "id": 4,
+          "destroyed": false,
+          "url": "file:///E:/Work/apps/AntiFan/src/renderer/standa"
+        }
+      ],
+      "after": [
+        {
+          "id": 5,
+          "destroyed": false,
+          "url": ""
+        },
+        {
+          "id": 4,
+          "destroyed": false,
+          "url": "file:///E:/Work/apps/AntiFan/src/renderer/standa"
+        }
+      ]
+    },
+    "finalQuit": {
+      "closeRequested": true,
+      "quitSettled": "will-quit",
+      "count": 0,
+      "finalTabsBefore": [
+        "d70aba2c-8364-4200-9d15-6715754a03b6"
+      ],
+      "report": {
+        "attemptId": 10,
+        "coalescedRequests": 0,
+        "coalesced": false,
+        "shutdown": "committed",
+        "phase": "closed",
+        "admissionReserved": true,
+        "shells": [],
+        "auxiliaries": [
+          {
+            "key": "terminal-window:4",
+            "kind": "auxiliary",
+            "outcome": "closed"
+          }
+        ],
+        "closedShells": [],
+        "survivingShells": [],
+        "refusals": [],
+        "haltedBy": null,
+        "warnings": [],
+        "summary": "Application quit: committed after closing 0 browser shell(s) and 1 auxiliary surface(s)."
+      },
+      "closeReport": {
+        "attemptId": 9,
+        "ownerKey": "project:project-00000000-0000-4000-8000-0000000000c3",
+        "intent": "user",
+        "coalescedRequests": 0,
+        "coalesced": false,
+        "disposition": "closed",
+        "phase": "closed",
+        "closed": [
+          {
+            "tabId": "d70aba2c-8364-4200-9d15-6715754a03b6",
+            "outcome": "closed",
+            "attempted": true
+          }
+        ],
+        "skipped": [],
+        "failed": [],
+        "refusals": [],
+        "haltedBy": null,
+        "surface": {
+          "key": "project:project-00000000-0000-4000-8000-0000000000c3",
+          "kind": "browser",
+          "outcome": "closed"
+        },
+        "survivingTabIds": [],
+        "partial": false,
+        "lastBrowserShellGone": true,
+        "warnings": [],
+        "summary": "Close of project:project-00000000-0000-4000-8000-0000000000c3: shell closed (closed 1, skipped 0, failed 0)."
+      },
+      "terminalWindows": [],
+      "censusBefore": [
+        {
+          "id": 5,
+          "destroyed": false,
+          "url": ""
+        },
+        {
+          "id": 4,
+          "destroyed": false,
+          "url": "file:///E:/Work/apps/AntiFan/src/renderer/standa"
+        }
+      ],
+      "censusAfter": [],
+      "popoutAliveAtFinalQuit": true,
+      "reservations": {
+        "reservedTabIds": [],
+        "inFlightOperations": 0,
+        "applicationReserved": false,
+        "reservedCount": 0
+      },
+      "journal": [
+        "window-closed.last-browser-shell",
+        "quit.requested",
+        "window-close.closed",
+        "shutdown.begin",
+        "shutdown.step.begin",
+        "shutdown.step.done",
+        "shutdown.step.begin",
+        "shutdown.step.done",
+        "shutdown.step.begin",
+        "shutdown.step.done",
+        "shutdown.step.begin",
+        "shutdown.step.done",
+        "shutdown.step.begin",
+        "window-all-closed",
+        "shutdown.step.done",
+        "shutdown.step.begin",
+        "shutdown.step.done",
+        "shutdown.step.begin",
+        "shutdown.step.done",
+        "shutdown.step.begin",
+        "shutdown.step.done",
+        "shutdown.step.begin",
+        "shutdown.step.done",
+        "shutdown.clean",
+        "quit.outcome",
+        "app.quit",
+        "before-quit",
+        "will-quit"
+      ]
+    },
+    "heartbeatTicks": 40
+  },
+  "at": "2026-09-27T11:37:14.254Z"
+}

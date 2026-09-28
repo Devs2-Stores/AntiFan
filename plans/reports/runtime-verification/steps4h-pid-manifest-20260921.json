@@ -1,0 +1,118 @@
+{
+  "purpose": "Post-hoc attribution safety net for the steps4h soak (first run carrying switchStepSamples): names which processes belong to the measured app tree, proves the per-process series is app-sourced, and records the external machine load that shares the host.",
+  "recordedAt": "2026-09-21T08:18:08.759Z",
+  "run": {
+    "tag": "steps4h",
+    "launchedAt": "2026-09-21T15:15:05.872+07:00",
+    "launchedAtUtc": "2026-09-21T08:15:05.872Z",
+    "argv": [
+      "node",
+      "scripts/benchmark-real-soak-8h.cjs",
+      "--minutes",
+      "240"
+    ],
+    "legs": "SOAK_LEGS=baseline:60:300:30000,burst4x:60:1200:30000,burst-off:60:1:600000",
+    "harnessPid": 12300,
+    "appMainPid": 26464,
+    "appMainStartedAt": "2026-09-21T15:15:13.393+07:00",
+    "appMainCommandLine": "E:\\Work\\apps\\AntiFan\\node_modules\\electron\\dist\\electron.exe E:\\Work\\apps\\AntiFan --production",
+    "bundleMd5": "adbf89166bf97e7dfd9d904a1d80bf7c",
+    "bundleFiles": 417,
+    "bundleBytesMB": 8.8,
+    "appTreePids": [
+      2740,
+      5756,
+      13140,
+      21400,
+      23364,
+      23628,
+      24616,
+      24828,
+      25420,
+      25472,
+      26092,
+      26464
+    ],
+    "appTreeSnapshotAt": "2026-09-21T08:18:08.760Z",
+    "injectedChildPids": [
+      17400,
+      25896
+    ],
+    "measuredSeries": {
+      "harnessField": "processSamples <- benchmarkIngest.samples (scripts/benchmark-real-soak-8h.cjs:1599)",
+      "appSource": "recordProcessMetrics over app.getAppMetrics() (src/main/index.ts)",
+      "consequence": "only pids descended from the app main pid can appear in processSamples / processSeries"
+    },
+    "schedule": {
+      "warmup": "2026-09-21T15:15:35.872+07:00 -> 2026-09-21T15:45:35.872+07:00",
+      "workloadLegs": [
+        "baseline  2026-09-21T15:45:35.872+07:00 -> 2026-09-21T16:45:35.872+07:00",
+        "burst4x   2026-09-21T16:45:35.872+07:00 -> 2026-09-21T17:45:35.872+07:00",
+        "burst-off 2026-09-21T17:45:35.872+07:00 -> 2026-09-21T18:45:35.872+07:00"
+      ],
+      "recovery": "2026-09-21T18:45:35.872+07:00 -> 2026-09-21T19:15:35.872+07:00",
+      "workloadMinutes": 180
+    }
+  },
+  "external": {
+    "snapshot": {
+      "at": "2026-09-21T08:17:38.970Z",
+      "run": {
+        "procs": 10,
+        "rssMB": 1388.5,
+        "cpuSec": 16.3
+      },
+      "external": {
+        "procs": 29,
+        "rssMB": 4338.5,
+        "cpuSec": 4851.4
+      },
+      "machineFreeMB": 1884,
+      "machineTotalMB": 16236,
+      "loadPct": 88,
+      "compiledRewritten": 0,
+      "externalPids": [
+        1048,
+        10952,
+        13236,
+        12308,
+        11580,
+        20160,
+        6988,
+        15152,
+        6024,
+        17716,
+        24052,
+        23708,
+        25412,
+        4476,
+        6160,
+        5212,
+        11080,
+        22912,
+        1892,
+        24304,
+        25084,
+        24992,
+        25320,
+        23312,
+        23632,
+        14572,
+        25148,
+        16944,
+        24464
+      ]
+    },
+    "seriesFile": "plans/reports/runtime-verification/steps4h-external-load.jsonl",
+    "samplerPid": 25924,
+    "note": "The user app instance and the shared terminal daemon host are alive alongside this run; the sampler records them every 5 minutes so the verdict states the competition instead of assuming it away."
+  },
+  "attributionRule": "A pid not in appTreePids is not part of this run. If one ever appears in processSeries, the payload is contaminated and the per-process gates must be discarded rather than reported.",
+  "bundleDigest": {
+    "sha256": "cd41c1100078c86c09e511223ad9a5b2bc4f8aea25ea3307aae879c7a9d83f74",
+    "files": 369,
+    "scope": ".compiled/src (main+preload+renderer+shared)",
+    "newestSourceMtime": "2026-09-21T08:14:46.118Z"
+  },
+  "keepAwake": true
+}

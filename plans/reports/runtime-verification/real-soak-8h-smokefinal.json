@@ -1,0 +1,2109 @@
+{
+  "status": "failed",
+  "startedAt": "2026-09-21T08:27:38.579Z",
+  "finishedAt": "2026-09-21T08:31:18.621Z",
+  "config": {
+    "totalMinutes": 3,
+    "requestedTotalMinutes": 3,
+    "durationSource": "argv --minutes",
+    "bundle": {
+      "start": {
+        "dir": "E:\\Work\\apps\\AntiFan\\.compiled",
+        "files": 418,
+        "bytes": 9221858,
+        "md5": "6a333f3c1bee6438bbe2a1fcb13ed0a2"
+      },
+      "end": {
+        "dir": "E:\\Work\\apps\\AntiFan\\.compiled",
+        "files": 418,
+        "bytes": 9221858,
+        "md5": "6a333f3c1bee6438bbe2a1fcb13ed0a2"
+      },
+      "changedDuringRun": false
+    },
+    "warmupMinutes": 1,
+    "workloadMinutes": 1,
+    "recoveryMinutes": 1,
+    "switchIntervalMs": 3000,
+    "burstIntervalMs": 30000,
+    "burstLines": 300,
+    "tabRounds": 1,
+    "fixtureTickMs": 200,
+    "fixtureTitleMode": "unique",
+    "sampleIntervalSeconds": 60,
+    "reportTag": "smokefinal",
+    "appArgs": [],
+    "legs": [
+      {
+        "name": "smoke",
+        "minutes": 1,
+        "burstLines": 60,
+        "burstIntervalMs": 6000,
+        "fixtureTickMs": 200,
+        "fixtureTitleMode": "unique",
+        "switchIntervalMs": 3000
+      }
+    ]
+  },
+  "rootPid": 7556,
+  "fixturePort": 60520,
+  "stats": {
+    "requestCount": 5,
+    "openedTabs": 6,
+    "switches": 39,
+    "bursts": 11,
+    "burstsByPhase": {
+      "warmup": 2,
+      "workload": 9,
+      "recovery": 0
+    },
+    "reloads": 1,
+    "terminalEventsCount": 59,
+    "totalSamples": 5,
+    "totalSuspendedMinutes": 0,
+    "activeWorkloadMinutes": null,
+    "activeMinutesSinceStart": 3,
+    "teardownTelemetry": {
+      "tabsToClose": 6,
+      "tabsClosedSuccess": 6,
+      "tabsClosedFailed": 0,
+      "terminalClosedSuccess": true,
+      "terminalClosedFailed": false,
+      "teardownDegraded": false
+    }
+  },
+  "metrics": {
+    "switchLatencyMs": {
+      "min": 15.12,
+      "p50": 20.451,
+      "p95": 28.932,
+      "max": 28.932
+    },
+    "switchLatencyWorkloadCount": 19,
+    "switchLatencyWarmupMs": {
+      "min": 12.641,
+      "p50": 21.482,
+      "p95": 45.382,
+      "max": 54.437
+    },
+    "switchLatencyWarmupCount": 20,
+    "switchLatencyAllPhasesMs": {
+      "min": 12.641,
+      "p50": 20.451,
+      "p95": 45.382,
+      "max": 54.437
+    },
+    "activeWorkingSetMB": {
+      "min": 1523.94,
+      "p50": 1523.94,
+      "p95": 1523.94,
+      "max": 1523.94
+    },
+    "activeRendererWorkingSetMB": {
+      "min": 731.29,
+      "p50": 731.29,
+      "p95": 731.29,
+      "max": 731.29
+    },
+    "overallActiveSlopeMBPerMin": null,
+    "overallActiveSlopeMBPerHour": null,
+    "rendererActiveSlopeMBPerMin": null,
+    "rendererActiveSlopeMBPerHour": null,
+    "rolling60MinSlopes": [],
+    "initialLoadedMB": 1536.24,
+    "postWarmupMB": 1543.73,
+    "finalActiveMB": 1523.94,
+    "recoveredMB": 1011.29,
+    "processSeriesSampleCount": 3,
+    "perProcessSlopes": [],
+    "worstProcessSlopeMBPerMin": null,
+    "worstProcessRole": "",
+    "worstProcessUrl": "",
+    "worstProcessPid": null,
+    "appPrivateMaxSlopeMBPerMin": null,
+    "appPrivateMaxRole": "",
+    "appPrivateMaxUrl": "",
+    "appPrivateMaxPid": null,
+    "processSlopeWindowStart": 1789979340131,
+    "processSlopeWindowEnd": 1789979340131,
+    "refusedProcessCount": 0,
+    "refusedProcessWorkingSetMB": 0,
+    "refusedProcessNames": [],
+    "slowSwitchSamples": [
+      {
+        "at": 1789979292683,
+        "ms": 54.437,
+        "tabId": "f5c96594-368a-48cd-9444-a9a0427eb94f",
+        "phase": "warmup",
+        "leg": null
+      },
+      {
+        "at": 1789979319888,
+        "ms": 45.382,
+        "tabId": "5b19475d-b4ac-4924-8541-c6b9869a447c",
+        "phase": "warmup",
+        "leg": null
+      },
+      {
+        "at": 1789979298757,
+        "ms": 35.712,
+        "tabId": "e15dd65e-56bf-4aca-bc2e-842dd7ee2958",
+        "phase": "warmup",
+        "leg": null
+      },
+      {
+        "at": 1789979379654,
+        "ms": 28.932,
+        "tabId": "a0738fb1-bf42-4203-a6f9-2e06ef704ef9",
+        "phase": "workload",
+        "leg": "smoke#1"
+      },
+      {
+        "at": 1789979328918,
+        "ms": 26.372,
+        "tabId": "f5c96594-368a-48cd-9444-a9a0427eb94f",
+        "phase": "warmup",
+        "leg": null
+      },
+      {
+        "at": 1789979391876,
+        "ms": 25.719,
+        "tabId": "e15dd65e-56bf-4aca-bc2e-842dd7ee2958",
+        "phase": "workload",
+        "leg": "smoke#1"
+      },
+      {
+        "at": 1789979331922,
+        "ms": 24.934,
+        "tabId": "3fbb41e0-0a95-4b9c-af8a-90673c08a4d6",
+        "phase": "warmup",
+        "leg": null
+      },
+      {
+        "at": 1789979382666,
+        "ms": 24.697,
+        "tabId": "95ad7e85-30d0-4a23-9c25-c012cd9faaf9",
+        "phase": "workload",
+        "leg": "smoke#1"
+      },
+      {
+        "at": 1789979352303,
+        "ms": 24.679,
+        "tabId": "3fbb41e0-0a95-4b9c-af8a-90673c08a4d6",
+        "phase": "workload",
+        "leg": "smoke#1"
+      },
+      {
+        "at": 1789979385749,
+        "ms": 24.402,
+        "tabId": "f5c96594-368a-48cd-9444-a9a0427eb94f",
+        "phase": "workload",
+        "leg": "smoke#1"
+      }
+    ],
+    "switchLatencyByTab": [
+      {
+        "tabId": "f5c96594-368a-48cd-9444-a9a0427eb94f",
+        "url": "https://www.wikipedia.org",
+        "count": 6,
+        "p50": 24.402,
+        "p95": 54.437,
+        "max": 54.437
+      },
+      {
+        "tabId": "5b19475d-b4ac-4924-8541-c6b9869a447c",
+        "url": "http://127.0.0.1:60520/product-test-1",
+        "count": 7,
+        "p50": 19.427,
+        "p95": 45.382,
+        "max": 45.382
+      },
+      {
+        "tabId": "e15dd65e-56bf-4aca-bc2e-842dd7ee2958",
+        "url": "http://127.0.0.1:60520/collection-featured",
+        "count": 7,
+        "p50": 21.637,
+        "p95": 35.712,
+        "max": 35.712
+      },
+      {
+        "tabId": "a0738fb1-bf42-4203-a6f9-2e06ef704ef9",
+        "url": "http://127.0.0.1:60520/product-test-2",
+        "count": 6,
+        "p50": 19.005,
+        "p95": 28.932,
+        "max": 28.932
+      },
+      {
+        "tabId": "3fbb41e0-0a95-4b9c-af8a-90673c08a4d6",
+        "url": "http://127.0.0.1:60520/store-home",
+        "count": 7,
+        "p50": 19.207,
+        "p95": 24.934,
+        "max": 24.934
+      },
+      {
+        "tabId": "95ad7e85-30d0-4a23-9c25-c012cd9faaf9",
+        "url": "https://example.com",
+        "count": 6,
+        "p50": 21.482,
+        "p95": 24.697,
+        "max": 24.697
+      }
+    ],
+    "cpu": null,
+    "legBurstCounterSuspect": false,
+    "cpuByPhase": {
+      "warmup": {
+        "from": "2026-09-21T08:27:57.269Z",
+        "to": "2026-09-21T08:28:00.357Z",
+        "windowMinutes": 0.05,
+        "samples": 2,
+        "cpuSecondsTotal": 1.331,
+        "cpuSecondsPerMinute": 26.62,
+        "perProcess": [
+          {
+            "pid": 17676,
+            "seconds": 0.75,
+            "share": 0.5635,
+            "role": "pty shell",
+            "type": "other"
+          },
+          {
+            "pid": 11548,
+            "seconds": 0.219,
+            "share": 0.1645,
+            "role": "console host (pty child)",
+            "type": "other"
+          },
+          {
+            "pid": 7556,
+            "seconds": 0.141,
+            "share": 0.1059,
+            "role": "Browser",
+            "type": "Browser"
+          },
+          {
+            "pid": 3160,
+            "seconds": 0.063,
+            "share": 0.0473,
+            "role": "GPU",
+            "type": "GPU"
+          },
+          {
+            "pid": 26104,
+            "seconds": 0.063,
+            "share": 0.0473,
+            "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+            "type": "Tab"
+          },
+          {
+            "pid": 23228,
+            "seconds": 0.031,
+            "share": 0.0233,
+            "role": "tab:2ebfdff4",
+            "type": "Tab"
+          },
+          {
+            "pid": 1548,
+            "seconds": 0.016,
+            "share": 0.012,
+            "role": "console host (pty child)",
+            "type": "other"
+          },
+          {
+            "pid": 9024,
+            "seconds": 0.016,
+            "share": 0.012,
+            "role": "Utility",
+            "type": "Utility"
+          },
+          {
+            "pid": 15716,
+            "seconds": 0.016,
+            "share": 0.012,
+            "role": "tab:3fbb41e0+tab:e15dd65e+tab:5b19475d+tab:a0738fb1",
+            "type": "Tab"
+          },
+          {
+            "pid": 25364,
+            "seconds": 0.016,
+            "share": 0.012,
+            "role": "pty agent",
+            "type": "other"
+          },
+          {
+            "pid": 7592,
+            "seconds": 0,
+            "share": 0,
+            "role": "tab:f5c96594",
+            "type": "Tab"
+          },
+          {
+            "pid": 20880,
+            "seconds": 0,
+            "share": 0,
+            "role": "",
+            "type": ""
+          },
+          {
+            "pid": 21132,
+            "seconds": 0,
+            "share": 0,
+            "role": "pty agent",
+            "type": "other"
+          },
+          {
+            "pid": 23136,
+            "seconds": 0,
+            "share": 0,
+            "role": "tab:95ad7e85",
+            "type": "Tab"
+          },
+          {
+            "pid": 24000,
+            "seconds": 0,
+            "share": 0,
+            "role": "pty shell",
+            "type": "other"
+          }
+        ],
+        "notAttributablePids": [],
+        "unreadablePids": [],
+        "counterResetPids": [],
+        "source": "samples.cpuByPid (5 of 5 row(s) carry counters)"
+      },
+      "workload": null,
+      "recovery": {
+        "from": "2026-09-21T08:30:01.959Z",
+        "to": "2026-09-21T08:31:12.401Z",
+        "windowMinutes": 1.17,
+        "samples": 2,
+        "cpuSecondsTotal": 1.297,
+        "cpuSecondsPerMinute": 1.109,
+        "perProcess": [
+          {
+            "pid": 1548,
+            "seconds": 0.703,
+            "share": 0.542,
+            "role": "console host (pty child)",
+            "type": "other"
+          },
+          {
+            "pid": 7556,
+            "seconds": 0.359,
+            "share": 0.2768,
+            "role": "Browser",
+            "type": "Browser"
+          },
+          {
+            "pid": 21132,
+            "seconds": 0.125,
+            "share": 0.0964,
+            "role": "pty agent",
+            "type": "other"
+          },
+          {
+            "pid": 3160,
+            "seconds": 0.078,
+            "share": 0.0601,
+            "role": "GPU",
+            "type": "GPU"
+          },
+          {
+            "pid": 24000,
+            "seconds": 0.016,
+            "share": 0.0123,
+            "role": "pty shell",
+            "type": "other"
+          },
+          {
+            "pid": 26104,
+            "seconds": 0.016,
+            "share": 0.0123,
+            "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+            "type": "Tab"
+          },
+          {
+            "pid": 9024,
+            "seconds": 0,
+            "share": 0,
+            "role": "Utility",
+            "type": "Utility"
+          },
+          {
+            "pid": 20880,
+            "seconds": 0,
+            "share": 0,
+            "role": "",
+            "type": ""
+          },
+          {
+            "pid": 23228,
+            "seconds": 0,
+            "share": 0,
+            "role": "tab:2ebfdff4",
+            "type": "Tab"
+          }
+        ],
+        "notAttributablePids": [],
+        "unreadablePids": [],
+        "counterResetPids": [],
+        "source": "samples.cpuByPid (5 of 5 row(s) carry counters)"
+      }
+    },
+    "historyPersist": {
+      "run": {
+        "flushes": 6,
+        "totalMs": 257.831,
+        "maxMs": 79.568,
+        "supersededFlushes": 4
+      },
+      "workload": null,
+      "last": {
+        "at": 1789979400324,
+        "items": 8048,
+        "bytes": 3871847
+      },
+      "byLeg": [
+        {
+          "name": "smoke",
+          "ordinal": 1,
+          "flushes": 2,
+          "totalMs": 72.382,
+          "maxMs": 38.368,
+          "supersededFlushes": 2,
+          "lastItems": 8048
+        }
+      ]
+    },
+    "slopeSloSatisfied": false,
+    "slopeGateApplicable": true,
+    "privateSlopeSloSatisfied": false,
+    "privateSlopeMeasured": false,
+    "switchLatencyWorkloadSamples": 19,
+    "switchLatencyMaxMs": 28.932,
+    "latencyMaxGated": false,
+    "memorySloSatisfied": true,
+    "latencySloSatisfied": false,
+    "orphanSloSatisfied": true,
+    "executionSloSatisfied": true,
+    "teardownSloSatisfied": true,
+    "verdict": "FAILED"
+  },
+  "samples": [
+    {
+      "at": 1789979277269,
+      "activeAt": 1789979277269,
+      "label": "warmup",
+      "totalWorkingSetMB": 1536.24,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 238.07
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 283.13
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 731.57
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 160.73
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 122.75
+        }
+      },
+      "pids": [
+        7556,
+        25364,
+        17676,
+        11548,
+        7592,
+        23136,
+        15716,
+        21132,
+        24000,
+        1548,
+        23228,
+        26104,
+        3160,
+        9024,
+        20880
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 19.172,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "1548": 0.125,
+        "3160": 0.390625,
+        "7556": 2.75,
+        "7592": 0.671875,
+        "9024": 0.515625,
+        "11548": 0.109375,
+        "15716": 0.265625,
+        "17676": 6,
+        "20880": 0.046875,
+        "21132": 0.03125,
+        "23136": 0.203125,
+        "23228": 0.90625,
+        "24000": 6.203125,
+        "25364": 0.046875,
+        "26104": 0.90625
+      },
+      "namesByPid": {
+        "1548": "conhost.exe",
+        "3160": "electron.exe",
+        "7556": "electron.exe",
+        "7592": "electron.exe",
+        "9024": "electron.exe",
+        "11548": "conhost.exe",
+        "15716": "electron.exe",
+        "17676": "powershell.exe",
+        "20880": "electron.exe",
+        "21132": "winpty-agent.exe",
+        "23136": "electron.exe",
+        "23228": "electron.exe",
+        "24000": "powershell.exe",
+        "25364": "winpty-agent.exe",
+        "26104": "electron.exe"
+      }
+    },
+    {
+      "at": 1789979280357,
+      "activeAt": 1789979280357,
+      "label": "warmup",
+      "totalWorkingSetMB": 1543.73,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 238.93
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 287.2
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 732.91
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 161.93
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 122.77
+        }
+      },
+      "pids": [
+        7556,
+        25364,
+        17676,
+        11548,
+        7592,
+        23136,
+        15716,
+        21132,
+        24000,
+        1548,
+        23228,
+        26104,
+        3160,
+        9024,
+        20880
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 20.5,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "1548": 0.140625,
+        "3160": 0.453125,
+        "7556": 2.890625,
+        "7592": 0.671875,
+        "9024": 0.53125,
+        "11548": 0.328125,
+        "15716": 0.28125,
+        "17676": 6.75,
+        "20880": 0.046875,
+        "21132": 0.03125,
+        "23136": 0.203125,
+        "23228": 0.9375,
+        "24000": 6.203125,
+        "25364": 0.0625,
+        "26104": 0.96875
+      },
+      "namesByPid": {
+        "1548": "conhost.exe",
+        "3160": "electron.exe",
+        "7556": "electron.exe",
+        "7592": "electron.exe",
+        "9024": "electron.exe",
+        "11548": "conhost.exe",
+        "15716": "electron.exe",
+        "17676": "powershell.exe",
+        "20880": "electron.exe",
+        "21132": "winpty-agent.exe",
+        "23136": "electron.exe",
+        "23228": "electron.exe",
+        "24000": "powershell.exe",
+        "25364": "winpty-agent.exe",
+        "26104": "electron.exe"
+      }
+    },
+    {
+      "at": 1789979340131,
+      "activeAt": 1789979340131,
+      "label": "workload",
+      "totalWorkingSetMB": 1523.94,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 207.91
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 288.92
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 731.29
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 173.51
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 122.32
+        }
+      },
+      "pids": [
+        7556,
+        25364,
+        17676,
+        11548,
+        7592,
+        23136,
+        15716,
+        21132,
+        24000,
+        1548,
+        23228,
+        26104,
+        3160,
+        9024,
+        20880
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 27.5,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "1548": 0.65625,
+        "3160": 2.25,
+        "7556": 4.90625,
+        "7592": 0.890625,
+        "9024": 0.71875,
+        "11548": 0.890625,
+        "15716": 1,
+        "17676": 6.859375,
+        "20880": 0.046875,
+        "21132": 0.140625,
+        "23136": 0.234375,
+        "23228": 0.9375,
+        "24000": 6.203125,
+        "25364": 0.234375,
+        "26104": 1.53125
+      },
+      "namesByPid": {
+        "1548": "conhost.exe",
+        "3160": "electron.exe",
+        "7556": "electron.exe",
+        "7592": "electron.exe",
+        "9024": "electron.exe",
+        "11548": "conhost.exe",
+        "15716": "electron.exe",
+        "17676": "powershell.exe",
+        "20880": "electron.exe",
+        "21132": "winpty-agent.exe",
+        "23136": "electron.exe",
+        "23228": "electron.exe",
+        "24000": "powershell.exe",
+        "25364": "winpty-agent.exe",
+        "26104": "electron.exe"
+      }
+    },
+    {
+      "at": 1789979401959,
+      "activeAt": 1789979401959,
+      "label": "recovery",
+      "totalWorkingSetMB": 1018.96,
+      "processCount": 9,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 216.69
+        },
+        "other": {
+          "count": 4,
+          "workingSetMB": 198.09
+        },
+        "renderer": {
+          "count": 2,
+          "workingSetMB": 305.46
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 176.54
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 122.19
+        }
+      },
+      "pids": [
+        7556,
+        21132,
+        24000,
+        1548,
+        23228,
+        26104,
+        3160,
+        9024,
+        20880
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 22.938,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "1548": 1.484375,
+        "3160": 3.765625,
+        "7556": 7.0625,
+        "9024": 1.046875,
+        "20880": 0.046875,
+        "21132": 0.3125,
+        "23228": 0.984375,
+        "24000": 6.203125,
+        "26104": 2.03125
+      },
+      "namesByPid": {
+        "1548": "conhost.exe",
+        "3160": "electron.exe",
+        "7556": "electron.exe",
+        "9024": "electron.exe",
+        "20880": "electron.exe",
+        "21132": "winpty-agent.exe",
+        "23228": "electron.exe",
+        "24000": "powershell.exe",
+        "26104": "electron.exe"
+      }
+    },
+    {
+      "at": 1789979472401,
+      "activeAt": 1789979472401,
+      "label": "recovery",
+      "totalWorkingSetMB": 1011.29,
+      "processCount": 9,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 211.21
+        },
+        "other": {
+          "count": 4,
+          "workingSetMB": 198.14
+        },
+        "renderer": {
+          "count": 2,
+          "workingSetMB": 303.29
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 176.51
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 122.14
+        }
+      },
+      "pids": [
+        7556,
+        21132,
+        24000,
+        1548,
+        23228,
+        26104,
+        3160,
+        9024,
+        20880
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 24.234,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "1548": 2.1875,
+        "3160": 3.84375,
+        "7556": 7.421875,
+        "9024": 1.046875,
+        "20880": 0.046875,
+        "21132": 0.4375,
+        "23228": 0.984375,
+        "24000": 6.21875,
+        "26104": 2.046875
+      },
+      "namesByPid": {
+        "1548": "conhost.exe",
+        "3160": "electron.exe",
+        "7556": "electron.exe",
+        "9024": "electron.exe",
+        "20880": "electron.exe",
+        "21132": "winpty-agent.exe",
+        "23228": "electron.exe",
+        "24000": "powershell.exe",
+        "26104": "electron.exe"
+      }
+    }
+  ],
+  "processSeries": [
+    {
+      "at": 1789979320471,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 7556,
+          "type": "Browser",
+          "role": "Browser",
+          "url": "",
+          "workingSetMB": 208.58,
+          "privateBytesMB": 131.86
+        },
+        {
+          "pid": 3160,
+          "type": "GPU",
+          "role": "GPU",
+          "url": "",
+          "workingSetMB": 173.45,
+          "privateBytesMB": 122.52
+        },
+        {
+          "pid": 9024,
+          "type": "Utility",
+          "role": "Utility",
+          "url": "",
+          "workingSetMB": 122.34,
+          "privateBytesMB": 14.64
+        },
+        {
+          "pid": 26104,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 158.74,
+          "privateBytesMB": 58.4
+        },
+        {
+          "pid": 23228,
+          "type": "Tab",
+          "role": "tab:2ebfdff4",
+          "url": "https://www.google.com/",
+          "workingSetMB": 148.63,
+          "privateBytesMB": 47.59
+        },
+        {
+          "pid": 15716,
+          "type": "Tab",
+          "role": "tab:3fbb41e0+tab:e15dd65e+tab:5b19475d+tab:a0738fb1",
+          "url": "http://127.0.0.1:60520/store-home",
+          "workingSetMB": 136.09,
+          "privateBytesMB": 32.14
+        },
+        {
+          "pid": 23136,
+          "type": "Tab",
+          "role": "tab:95ad7e85",
+          "url": "https://example.com/",
+          "workingSetMB": 129.28,
+          "privateBytesMB": 28.61
+        },
+        {
+          "pid": 7592,
+          "type": "Tab",
+          "role": "tab:f5c96594",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 157.95,
+          "privateBytesMB": 49.25
+        }
+      ]
+    },
+    {
+      "at": 1789979380478,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 7556,
+          "type": "Browser",
+          "role": "Browser",
+          "url": "",
+          "workingSetMB": 208.93,
+          "privateBytesMB": 135.88
+        },
+        {
+          "pid": 3160,
+          "type": "GPU",
+          "role": "GPU",
+          "url": "",
+          "workingSetMB": 173.82,
+          "privateBytesMB": 119.84
+        },
+        {
+          "pid": 9024,
+          "type": "Utility",
+          "role": "Utility",
+          "url": "",
+          "workingSetMB": 122.3,
+          "privateBytesMB": 14.58
+        },
+        {
+          "pid": 26104,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 159.06,
+          "privateBytesMB": 58.33
+        },
+        {
+          "pid": 23228,
+          "type": "Tab",
+          "role": "tab:2ebfdff4",
+          "url": "https://www.google.com/",
+          "workingSetMB": 148.64,
+          "privateBytesMB": 47.61
+        },
+        {
+          "pid": 15716,
+          "type": "Tab",
+          "role": "tab:3fbb41e0+tab:e15dd65e+tab:5b19475d+tab:a0738fb1",
+          "url": "http://127.0.0.1:60520/store-home",
+          "workingSetMB": 137.81,
+          "privateBytesMB": 34.22
+        },
+        {
+          "pid": 23136,
+          "type": "Tab",
+          "role": "tab:95ad7e85",
+          "url": "https://example.com/",
+          "workingSetMB": 129.24,
+          "privateBytesMB": 28.54
+        },
+        {
+          "pid": 7592,
+          "type": "Tab",
+          "role": "tab:f5c96594",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 156.57,
+          "privateBytesMB": 47.79
+        },
+        {
+          "pid": 22944,
+          "type": "GPU",
+          "role": "GPU",
+          "url": "",
+          "workingSetMB": 137.74,
+          "privateBytesMB": 36.99
+        }
+      ]
+    },
+    {
+      "at": 1789979440480,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 7556,
+          "type": "Browser",
+          "role": "Browser",
+          "url": "",
+          "workingSetMB": 211.78,
+          "privateBytesMB": 134.26
+        },
+        {
+          "pid": 3160,
+          "type": "GPU",
+          "role": "GPU",
+          "url": "",
+          "workingSetMB": 176.54,
+          "privateBytesMB": 126.11
+        },
+        {
+          "pid": 9024,
+          "type": "Utility",
+          "role": "Utility",
+          "url": "",
+          "workingSetMB": 122.16,
+          "privateBytesMB": 14.45
+        },
+        {
+          "pid": 26104,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 157.73,
+          "privateBytesMB": 56.92
+        },
+        {
+          "pid": 23228,
+          "type": "Tab",
+          "role": "tab:2ebfdff4",
+          "url": "https://www.google.com/",
+          "workingSetMB": 146.73,
+          "privateBytesMB": 45.52
+        }
+      ]
+    }
+  ],
+  "historySamples": [
+    {
+      "at": 1789979264593,
+      "name": "persist",
+      "value": 79.568,
+      "extra": {
+        "items": 1,
+        "bytes": 160,
+        "superseded": false
+      }
+    },
+    {
+      "at": 1789979295016,
+      "name": "persist",
+      "value": 31.252,
+      "extra": {
+        "items": 8048,
+        "bytes": 3871790,
+        "superseded": true
+      }
+    },
+    {
+      "at": 1789979325035,
+      "name": "persist",
+      "value": 36.319,
+      "extra": {
+        "items": 8048,
+        "bytes": 3871790,
+        "superseded": true
+      }
+    },
+    {
+      "at": 1789979355038,
+      "name": "persist",
+      "value": 38.368,
+      "extra": {
+        "items": 8048,
+        "bytes": 3871846,
+        "superseded": true
+      }
+    },
+    {
+      "at": 1789979386015,
+      "name": "persist",
+      "value": 34.014,
+      "extra": {
+        "items": 8048,
+        "bytes": 3871846,
+        "superseded": true
+      }
+    },
+    {
+      "at": 1789979400324,
+      "name": "persist",
+      "value": 38.31,
+      "extra": {
+        "items": 8048,
+        "bytes": 3871847,
+        "superseded": false
+      }
+    }
+  ],
+  "switchStepSamples": [
+    {
+      "at": 1789979260113,
+      "name": "switch-steps",
+      "value": 12.348,
+      "extra": {
+        "ensureView": 2.184,
+        "attachSweep": 2.046,
+        "layoutBroadcast": 3,
+        "throttle": 0.262,
+        "invalidateFocus": 0.191,
+        "presentedView": 4.504
+      }
+    },
+    {
+      "at": 1789979277330,
+      "name": "switch-steps",
+      "value": 18.292,
+      "extra": {
+        "ensureView": 0.039,
+        "attachSweep": 11.265,
+        "layoutBroadcast": 2.083,
+        "throttle": 0.282,
+        "invalidateFocus": 0.206,
+        "presentedView": 4.292
+      }
+    },
+    {
+      "at": 1789979280487,
+      "name": "switch-steps",
+      "value": 15.252,
+      "extra": {
+        "ensureView": 0.026,
+        "attachSweep": 7.823,
+        "layoutBroadcast": 1.63,
+        "throttle": 0.122,
+        "invalidateFocus": 0.119,
+        "presentedView": 5.437
+      }
+    },
+    {
+      "at": 1789979283547,
+      "name": "switch-steps",
+      "value": 20.405,
+      "extra": {
+        "ensureView": 0.043,
+        "attachSweep": 12.806,
+        "layoutBroadcast": 2.089,
+        "throttle": 0.372,
+        "invalidateFocus": 0.149,
+        "presentedView": 4.83
+      }
+    },
+    {
+      "at": 1789979286614,
+      "name": "switch-steps",
+      "value": 12.193,
+      "extra": {
+        "ensureView": 0.03,
+        "attachSweep": 8.356,
+        "layoutBroadcast": 1.09,
+        "throttle": 0.091,
+        "invalidateFocus": 0.143,
+        "presentedView": 2.419
+      }
+    },
+    {
+      "at": 1789979289631,
+      "name": "switch-steps",
+      "value": 13.295,
+      "extra": {
+        "ensureView": 0.06,
+        "attachSweep": 8.871,
+        "layoutBroadcast": 1.119,
+        "throttle": 0.071,
+        "invalidateFocus": 0.12,
+        "presentedView": 2.995
+      }
+    },
+    {
+      "at": 1789979292683,
+      "name": "switch-steps",
+      "value": 53.547,
+      "extra": {
+        "ensureView": 0.019,
+        "attachSweep": 29.89,
+        "layoutBroadcast": 9.231,
+        "throttle": 0.357,
+        "invalidateFocus": 0.226,
+        "presentedView": 13.555
+      }
+    },
+    {
+      "at": 1789979295728,
+      "name": "switch-steps",
+      "value": 13.75,
+      "extra": {
+        "ensureView": 0.043,
+        "attachSweep": 10.532,
+        "layoutBroadcast": 0.338,
+        "throttle": 0.068,
+        "invalidateFocus": 0.13,
+        "presentedView": 2.582
+      }
+    },
+    {
+      "at": 1789979298756,
+      "name": "switch-steps",
+      "value": 34.341,
+      "extra": {
+        "ensureView": 0.026,
+        "attachSweep": 24.168,
+        "layoutBroadcast": 0.645,
+        "throttle": 0.126,
+        "invalidateFocus": 0.286,
+        "presentedView": 9.029
+      }
+    },
+    {
+      "at": 1789979301757,
+      "name": "switch-steps",
+      "value": 13.649,
+      "extra": {
+        "ensureView": 0.028,
+        "attachSweep": 9.579,
+        "layoutBroadcast": 0.355,
+        "throttle": 0.111,
+        "invalidateFocus": 0.106,
+        "presentedView": 3.419
+      }
+    },
+    {
+      "at": 1789979304760,
+      "name": "switch-steps",
+      "value": 13.819,
+      "extra": {
+        "ensureView": 0.045,
+        "attachSweep": 9.867,
+        "layoutBroadcast": 0.465,
+        "throttle": 0.178,
+        "invalidateFocus": 0.117,
+        "presentedView": 3.092
+      }
+    },
+    {
+      "at": 1789979307769,
+      "name": "switch-steps",
+      "value": 14.22,
+      "extra": {
+        "ensureView": 0.027,
+        "attachSweep": 10.015,
+        "layoutBroadcast": 0.359,
+        "throttle": 0.084,
+        "invalidateFocus": 0.151,
+        "presentedView": 3.521
+      }
+    },
+    {
+      "at": 1789979310782,
+      "name": "switch-steps",
+      "value": 23.116,
+      "extra": {
+        "ensureView": 0.045,
+        "attachSweep": 15.13,
+        "layoutBroadcast": 0.418,
+        "throttle": 0.084,
+        "invalidateFocus": 0.379,
+        "presentedView": 6.95
+      }
+    },
+    {
+      "at": 1789979313796,
+      "name": "switch-steps",
+      "value": 17.324,
+      "extra": {
+        "ensureView": 0.029,
+        "attachSweep": 12.754,
+        "layoutBroadcast": 0.377,
+        "throttle": 0.079,
+        "invalidateFocus": 0.136,
+        "presentedView": 3.872
+      }
+    },
+    {
+      "at": 1789979316801,
+      "name": "switch-steps",
+      "value": 12.853,
+      "extra": {
+        "ensureView": 0.031,
+        "attachSweep": 9.422,
+        "layoutBroadcast": 0.368,
+        "throttle": 0.074,
+        "invalidateFocus": 0.142,
+        "presentedView": 2.748
+      }
+    },
+    {
+      "at": 1789979319888,
+      "name": "switch-steps",
+      "value": 36.962,
+      "extra": {
+        "ensureView": 0.037,
+        "attachSweep": 22.24,
+        "layoutBroadcast": 0.707,
+        "throttle": 0.333,
+        "invalidateFocus": 0.211,
+        "presentedView": 13.356
+      }
+    },
+    {
+      "at": 1789979322897,
+      "name": "switch-steps",
+      "value": 23.802,
+      "extra": {
+        "ensureView": 0.032,
+        "attachSweep": 16.414,
+        "layoutBroadcast": 0.544,
+        "throttle": 0.178,
+        "invalidateFocus": 0.125,
+        "presentedView": 6.424
+      }
+    },
+    {
+      "at": 1789979325908,
+      "name": "switch-steps",
+      "value": 20.783,
+      "extra": {
+        "ensureView": 0.039,
+        "attachSweep": 12.261,
+        "layoutBroadcast": 0.353,
+        "throttle": 0.095,
+        "invalidateFocus": 0.162,
+        "presentedView": 7.808
+      }
+    },
+    {
+      "at": 1789979328917,
+      "name": "switch-steps",
+      "value": 23.891,
+      "extra": {
+        "ensureView": 0.035,
+        "attachSweep": 16.814,
+        "layoutBroadcast": 0.37,
+        "throttle": 0.122,
+        "invalidateFocus": 0.299,
+        "presentedView": 6.186
+      }
+    },
+    {
+      "at": 1789979331922,
+      "name": "switch-steps",
+      "value": 24.181,
+      "extra": {
+        "ensureView": 0.094,
+        "attachSweep": 15.278,
+        "layoutBroadcast": 0.791,
+        "throttle": 0.114,
+        "invalidateFocus": 0.208,
+        "presentedView": 7.623
+      }
+    },
+    {
+      "at": 1789979334954,
+      "name": "switch-steps",
+      "value": 21.016,
+      "extra": {
+        "ensureView": 0.026,
+        "attachSweep": 13.062,
+        "layoutBroadcast": 0.391,
+        "throttle": 0.176,
+        "invalidateFocus": 0.304,
+        "presentedView": 6.994
+      }
+    },
+    {
+      "at": 1789979340249,
+      "name": "switch-steps",
+      "value": 15.136,
+      "extra": {
+        "ensureView": 0.079,
+        "attachSweep": 11.345,
+        "layoutBroadcast": 0.398,
+        "throttle": 0.192,
+        "invalidateFocus": 0.088,
+        "presentedView": 2.949
+      }
+    },
+    {
+      "at": 1789979343262,
+      "name": "switch-steps",
+      "value": 17.456,
+      "extra": {
+        "ensureView": 0.025,
+        "attachSweep": 12.993,
+        "layoutBroadcast": 0.549,
+        "throttle": 0.119,
+        "invalidateFocus": 0.136,
+        "presentedView": 3.567
+      }
+    },
+    {
+      "at": 1789979346265,
+      "name": "switch-steps",
+      "value": 15.269,
+      "extra": {
+        "ensureView": 0.033,
+        "attachSweep": 11.55,
+        "layoutBroadcast": 0.273,
+        "throttle": 0.096,
+        "invalidateFocus": 0.107,
+        "presentedView": 3.151
+      }
+    },
+    {
+      "at": 1789979349279,
+      "name": "switch-steps",
+      "value": 21.256,
+      "extra": {
+        "ensureView": 0.054,
+        "attachSweep": 14.975,
+        "layoutBroadcast": 0.441,
+        "throttle": 0.087,
+        "invalidateFocus": 0.34,
+        "presentedView": 5.307
+      }
+    },
+    {
+      "at": 1789979352302,
+      "name": "switch-steps",
+      "value": 23.08,
+      "extra": {
+        "ensureView": 0.048,
+        "attachSweep": 15.135,
+        "layoutBroadcast": 0.478,
+        "throttle": 0.087,
+        "invalidateFocus": 0.15,
+        "presentedView": 6.965
+      }
+    },
+    {
+      "at": 1789979355335,
+      "name": "switch-steps",
+      "value": 19.856,
+      "extra": {
+        "ensureView": 0.03,
+        "attachSweep": 13.082,
+        "layoutBroadcast": 0.573,
+        "throttle": 0.214,
+        "invalidateFocus": 0.159,
+        "presentedView": 5.724
+      }
+    },
+    {
+      "at": 1789979358371,
+      "name": "switch-steps",
+      "value": 18.775,
+      "extra": {
+        "ensureView": 0.033,
+        "attachSweep": 13.433,
+        "layoutBroadcast": 0.509,
+        "throttle": 0.093,
+        "invalidateFocus": 0.228,
+        "presentedView": 4.412
+      }
+    },
+    {
+      "at": 1789979361378,
+      "name": "switch-steps",
+      "value": 16.51,
+      "extra": {
+        "ensureView": 0.031,
+        "attachSweep": 11.776,
+        "layoutBroadcast": 0.351,
+        "throttle": 0.08,
+        "invalidateFocus": 0.139,
+        "presentedView": 4.077
+      }
+    },
+    {
+      "at": 1789979364410,
+      "name": "switch-steps",
+      "value": 21.168,
+      "extra": {
+        "ensureView": 0.027,
+        "attachSweep": 12.216,
+        "layoutBroadcast": 0.721,
+        "throttle": 0.197,
+        "invalidateFocus": 0.163,
+        "presentedView": 7.663
+      }
+    },
+    {
+      "at": 1789979367485,
+      "name": "switch-steps",
+      "value": 18.325,
+      "extra": {
+        "ensureView": 0.047,
+        "attachSweep": 12.211,
+        "layoutBroadcast": 0.38,
+        "throttle": 0.092,
+        "invalidateFocus": 0.319,
+        "presentedView": 5.157
+      }
+    },
+    {
+      "at": 1789979370506,
+      "name": "switch-steps",
+      "value": 14.519,
+      "extra": {
+        "ensureView": 0.027,
+        "attachSweep": 10.625,
+        "layoutBroadcast": 0.341,
+        "throttle": 0.084,
+        "invalidateFocus": 0.13,
+        "presentedView": 3.246
+      }
+    },
+    {
+      "at": 1789979373551,
+      "name": "switch-steps",
+      "value": 22.949,
+      "extra": {
+        "ensureView": 0.046,
+        "attachSweep": 15.395,
+        "layoutBroadcast": 0.546,
+        "throttle": 0.207,
+        "invalidateFocus": 0.135,
+        "presentedView": 6.538
+      }
+    },
+    {
+      "at": 1789979376626,
+      "name": "switch-steps",
+      "value": 18.893,
+      "extra": {
+        "ensureView": 0.03,
+        "attachSweep": 12.46,
+        "layoutBroadcast": 0.489,
+        "throttle": 0.23,
+        "invalidateFocus": 0.199,
+        "presentedView": 5.409
+      }
+    },
+    {
+      "at": 1789979379654,
+      "name": "switch-steps",
+      "value": 28.032,
+      "extra": {
+        "ensureView": 0.035,
+        "attachSweep": 19.993,
+        "layoutBroadcast": 0.551,
+        "throttle": 0.102,
+        "invalidateFocus": 0.309,
+        "presentedView": 6.982
+      }
+    },
+    {
+      "at": 1789979382666,
+      "name": "switch-steps",
+      "value": 23.845,
+      "extra": {
+        "ensureView": 0.031,
+        "attachSweep": 17.783,
+        "layoutBroadcast": 0.553,
+        "throttle": 0.138,
+        "invalidateFocus": 0.136,
+        "presentedView": 5.128
+      }
+    },
+    {
+      "at": 1789979385749,
+      "name": "switch-steps",
+      "value": 23.749,
+      "extra": {
+        "ensureView": 0.035,
+        "attachSweep": 16.14,
+        "layoutBroadcast": 0.475,
+        "throttle": 0.133,
+        "invalidateFocus": 0.413,
+        "presentedView": 6.484
+      }
+    },
+    {
+      "at": 1789979388810,
+      "name": "switch-steps",
+      "value": 21.48,
+      "extra": {
+        "ensureView": 0.027,
+        "attachSweep": 14.744,
+        "layoutBroadcast": 0.516,
+        "throttle": 0.094,
+        "invalidateFocus": 0.119,
+        "presentedView": 5.913
+      }
+    },
+    {
+      "at": 1789979391876,
+      "name": "switch-steps",
+      "value": 24.237,
+      "extra": {
+        "ensureView": 0.029,
+        "attachSweep": 18.037,
+        "layoutBroadcast": 0.474,
+        "throttle": 0.097,
+        "invalidateFocus": 0.115,
+        "presentedView": 5.42
+      }
+    },
+    {
+      "at": 1789979394959,
+      "name": "switch-steps",
+      "value": 18.05,
+      "extra": {
+        "ensureView": 0.03,
+        "attachSweep": 12.673,
+        "layoutBroadcast": 0.418,
+        "throttle": 0.096,
+        "invalidateFocus": 0.169,
+        "presentedView": 4.584
+      }
+    },
+    {
+      "at": 1789979397347,
+      "name": "switch-steps",
+      "value": 12.827,
+      "extra": {
+        "ensureView": 0.029,
+        "attachSweep": 2.92,
+        "layoutBroadcast": 0.333,
+        "throttle": 0.139,
+        "invalidateFocus": 0.343,
+        "presentedView": 9.003
+      }
+    },
+    {
+      "at": 1789979397400,
+      "name": "switch-steps",
+      "value": 12.796,
+      "extra": {
+        "ensureView": 0.032,
+        "attachSweep": 3.691,
+        "layoutBroadcast": 0.391,
+        "throttle": 0.033,
+        "invalidateFocus": 0.895,
+        "presentedView": 7.683
+      }
+    }
+  ],
+  "legSlopes": [
+    {
+      "name": "smoke",
+      "ordinal": 1,
+      "open": false,
+      "burstLines": 60,
+      "burstIntervalMs": 6000,
+      "fixtureTickMs": 200,
+      "fixtureTitleMode": "unique",
+      "switchIntervalMs": 3000,
+      "startAt": 1789979337269,
+      "endAt": 1789979397269,
+      "observedFrom": 1789979337316,
+      "observedTo": 1789979397269,
+      "observedMinutes": 1,
+      "bursts": 9,
+      "switchCount": 19,
+      "burstLinesObserved": 540,
+      "cpu": null,
+      "slopes": [],
+      "topSlopes": []
+    }
+  ],
+  "slowSwitchSamples": [
+    {
+      "at": 1789979292683,
+      "ms": 54.437,
+      "tabId": "f5c96594-368a-48cd-9444-a9a0427eb94f",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789979319888,
+      "ms": 45.382,
+      "tabId": "5b19475d-b4ac-4924-8541-c6b9869a447c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789979298757,
+      "ms": 35.712,
+      "tabId": "e15dd65e-56bf-4aca-bc2e-842dd7ee2958",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789979379654,
+      "ms": 28.932,
+      "tabId": "a0738fb1-bf42-4203-a6f9-2e06ef704ef9",
+      "phase": "workload",
+      "leg": "smoke#1"
+    },
+    {
+      "at": 1789979328918,
+      "ms": 26.372,
+      "tabId": "f5c96594-368a-48cd-9444-a9a0427eb94f",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789979391876,
+      "ms": 25.719,
+      "tabId": "e15dd65e-56bf-4aca-bc2e-842dd7ee2958",
+      "phase": "workload",
+      "leg": "smoke#1"
+    },
+    {
+      "at": 1789979331922,
+      "ms": 24.934,
+      "tabId": "3fbb41e0-0a95-4b9c-af8a-90673c08a4d6",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789979382666,
+      "ms": 24.697,
+      "tabId": "95ad7e85-30d0-4a23-9c25-c012cd9faaf9",
+      "phase": "workload",
+      "leg": "smoke#1"
+    },
+    {
+      "at": 1789979352303,
+      "ms": 24.679,
+      "tabId": "3fbb41e0-0a95-4b9c-af8a-90673c08a4d6",
+      "phase": "workload",
+      "leg": "smoke#1"
+    },
+    {
+      "at": 1789979385749,
+      "ms": 24.402,
+      "tabId": "f5c96594-368a-48cd-9444-a9a0427eb94f",
+      "phase": "workload",
+      "leg": "smoke#1"
+    }
+  ],
+  "switchSamples": [
+    {
+      "at": 1789979277330,
+      "ms": 19.207,
+      "tabId": "3fbb41e0-0a95-4b9c-af8a-90673c08a4d6",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789979280488,
+      "ms": 16.01,
+      "tabId": "e15dd65e-56bf-4aca-bc2e-842dd7ee2958",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789979283547,
+      "ms": 22.775,
+      "tabId": "5b19475d-b4ac-4924-8541-c6b9869a447c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789979286615,
+      "ms": 12.641,
+      "tabId": "a0738fb1-bf42-4203-a6f9-2e06ef704ef9",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789979289631,
+      "ms": 13.787,
+      "tabId": "95ad7e85-30d0-4a23-9c25-c012cd9faaf9",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789979292683,
+      "ms": 54.437,
+      "tabId": "f5c96594-368a-48cd-9444-a9a0427eb94f",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789979295728,
+      "ms": 14.432,
+      "tabId": "3fbb41e0-0a95-4b9c-af8a-90673c08a4d6",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789979298757,
+      "ms": 35.712,
+      "tabId": "e15dd65e-56bf-4aca-bc2e-842dd7ee2958",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789979301757,
+      "ms": 14.262,
+      "tabId": "5b19475d-b4ac-4924-8541-c6b9869a447c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789979304761,
+      "ms": 14.405,
+      "tabId": "a0738fb1-bf42-4203-a6f9-2e06ef704ef9",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789979307769,
+      "ms": 15.217,
+      "tabId": "95ad7e85-30d0-4a23-9c25-c012cd9faaf9",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789979310782,
+      "ms": 23.894,
+      "tabId": "f5c96594-368a-48cd-9444-a9a0427eb94f",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789979313796,
+      "ms": 17.948,
+      "tabId": "3fbb41e0-0a95-4b9c-af8a-90673c08a4d6",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789979316801,
+      "ms": 13.366,
+      "tabId": "e15dd65e-56bf-4aca-bc2e-842dd7ee2958",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789979319888,
+      "ms": 45.382,
+      "tabId": "5b19475d-b4ac-4924-8541-c6b9869a447c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789979322898,
+      "ms": 24.395,
+      "tabId": "a0738fb1-bf42-4203-a6f9-2e06ef704ef9",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789979325909,
+      "ms": 21.482,
+      "tabId": "95ad7e85-30d0-4a23-9c25-c012cd9faaf9",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789979328918,
+      "ms": 26.372,
+      "tabId": "f5c96594-368a-48cd-9444-a9a0427eb94f",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789979331922,
+      "ms": 24.934,
+      "tabId": "3fbb41e0-0a95-4b9c-af8a-90673c08a4d6",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789979334955,
+      "ms": 21.637,
+      "tabId": "e15dd65e-56bf-4aca-bc2e-842dd7ee2958",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789979340249,
+      "ms": 15.663,
+      "tabId": "5b19475d-b4ac-4924-8541-c6b9869a447c",
+      "phase": "workload",
+      "leg": "smoke#1"
+    },
+    {
+      "at": 1789979343262,
+      "ms": 18.002,
+      "tabId": "a0738fb1-bf42-4203-a6f9-2e06ef704ef9",
+      "phase": "workload",
+      "leg": "smoke#1"
+    },
+    {
+      "at": 1789979346265,
+      "ms": 15.744,
+      "tabId": "95ad7e85-30d0-4a23-9c25-c012cd9faaf9",
+      "phase": "workload",
+      "leg": "smoke#1"
+    },
+    {
+      "at": 1789979349279,
+      "ms": 21.74,
+      "tabId": "f5c96594-368a-48cd-9444-a9a0427eb94f",
+      "phase": "workload",
+      "leg": "smoke#1"
+    },
+    {
+      "at": 1789979352303,
+      "ms": 24.679,
+      "tabId": "3fbb41e0-0a95-4b9c-af8a-90673c08a4d6",
+      "phase": "workload",
+      "leg": "smoke#1"
+    },
+    {
+      "at": 1789979355335,
+      "ms": 20.451,
+      "tabId": "e15dd65e-56bf-4aca-bc2e-842dd7ee2958",
+      "phase": "workload",
+      "leg": "smoke#1"
+    },
+    {
+      "at": 1789979358371,
+      "ms": 19.427,
+      "tabId": "5b19475d-b4ac-4924-8541-c6b9869a447c",
+      "phase": "workload",
+      "leg": "smoke#1"
+    },
+    {
+      "at": 1789979361378,
+      "ms": 19.005,
+      "tabId": "a0738fb1-bf42-4203-a6f9-2e06ef704ef9",
+      "phase": "workload",
+      "leg": "smoke#1"
+    },
+    {
+      "at": 1789979364410,
+      "ms": 21.803,
+      "tabId": "95ad7e85-30d0-4a23-9c25-c012cd9faaf9",
+      "phase": "workload",
+      "leg": "smoke#1"
+    },
+    {
+      "at": 1789979367485,
+      "ms": 19.029,
+      "tabId": "f5c96594-368a-48cd-9444-a9a0427eb94f",
+      "phase": "workload",
+      "leg": "smoke#1"
+    },
+    {
+      "at": 1789979370506,
+      "ms": 15.12,
+      "tabId": "3fbb41e0-0a95-4b9c-af8a-90673c08a4d6",
+      "phase": "workload",
+      "leg": "smoke#1"
+    },
+    {
+      "at": 1789979373551,
+      "ms": 23.557,
+      "tabId": "e15dd65e-56bf-4aca-bc2e-842dd7ee2958",
+      "phase": "workload",
+      "leg": "smoke#1"
+    },
+    {
+      "at": 1789979376626,
+      "ms": 20.153,
+      "tabId": "5b19475d-b4ac-4924-8541-c6b9869a447c",
+      "phase": "workload",
+      "leg": "smoke#1"
+    },
+    {
+      "at": 1789979379654,
+      "ms": 28.932,
+      "tabId": "a0738fb1-bf42-4203-a6f9-2e06ef704ef9",
+      "phase": "workload",
+      "leg": "smoke#1"
+    },
+    {
+      "at": 1789979382666,
+      "ms": 24.697,
+      "tabId": "95ad7e85-30d0-4a23-9c25-c012cd9faaf9",
+      "phase": "workload",
+      "leg": "smoke#1"
+    },
+    {
+      "at": 1789979385749,
+      "ms": 24.402,
+      "tabId": "f5c96594-368a-48cd-9444-a9a0427eb94f",
+      "phase": "workload",
+      "leg": "smoke#1"
+    },
+    {
+      "at": 1789979388810,
+      "ms": 22.814,
+      "tabId": "3fbb41e0-0a95-4b9c-af8a-90673c08a4d6",
+      "phase": "workload",
+      "leg": "smoke#1"
+    },
+    {
+      "at": 1789979391876,
+      "ms": 25.719,
+      "tabId": "e15dd65e-56bf-4aca-bc2e-842dd7ee2958",
+      "phase": "workload",
+      "leg": "smoke#1"
+    },
+    {
+      "at": 1789979394959,
+      "ms": 18.621,
+      "tabId": "5b19475d-b4ac-4924-8541-c6b9869a447c",
+      "phase": "workload",
+      "leg": "smoke#1"
+    }
+  ],
+  "switchSamplesDropped": 0,
+  "stderrTail": [
+    "[index] Terminal Host Daemon unavailable (no staged daemon bundle (run scripts/stage-daemon-host.mjs)); falling back to in-process TerminalManager",
+    "(node:7556) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.",
+    "(Use `electron --trace-warnings ...` to show where the warning was created)"
+  ],
+  "stdoutBenchmarkTail": [
+    "[antifan-benchmark] {\"surface\":\"bridge\",\"name\":\"broadcast\",\"value\":0.14530000000377186,\"extra\":{\"event\":\"antifan:terminal:data\",\"clients\":1,\"congested\":0,\"bytes\":434},\"ts\":\"2026-09-21T08:29:52.072Z\",\"nowMs\":132933.2874}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"ptyData\",\"value\":31,\"extra\":{\"sessionId\":\"terminal-2\",\"chunkSeq\":60,\"totalBytes\":13908},\"ts\":\"2026-09-21T08:29:52.112Z\",\"nowMs\":132973.4827}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"fanoutMessages\",\"value\":0,\"extra\":{\"sessionId\":\"terminal-2\",\"windows\":0},\"ts\":\"2026-09-21T08:29:52.112Z\",\"nowMs\":132973.6086}",
+    "[antifan-benchmark] {\"surface\":\"bridge\",\"name\":\"broadcast\",\"value\":0.1558999999833759,\"extra\":{\"event\":\"antifan:terminal:data\",\"clients\":1,\"congested\":0,\"bytes\":161},\"ts\":\"2026-09-21T08:29:52.113Z\",\"nowMs\":132973.798}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"ptyData\",\"value\":47,\"extra\":{\"sessionId\":\"terminal-2\",\"chunkSeq\":61,\"totalBytes\":13955},\"ts\":\"2026-09-21T08:29:52.144Z\",\"nowMs\":133004.8834}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"fanoutMessages\",\"value\":0,\"extra\":{\"sessionId\":\"terminal-2\",\"windows\":0},\"ts\":\"2026-09-21T08:29:52.144Z\",\"nowMs\":133005.0516}",
+    "[antifan-benchmark] {\"surface\":\"bridge\",\"name\":\"broadcast\",\"value\":0.19280000001890585,\"extra\":{\"event\":\"antifan:terminal:data\",\"clients\":1,\"congested\":0,\"bytes\":193},\"ts\":\"2026-09-21T08:29:52.144Z\",\"nowMs\":133005.2832}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"ptyData\",\"value\":275,\"extra\":{\"sessionId\":\"terminal-2\",\"chunkSeq\":62,\"totalBytes\":14230},\"ts\":\"2026-09-21T08:29:52.196Z\",\"nowMs\":133057.4142}",
+    "[antifan-benchmark] {\"surface\":\"bridge\",\"name\":\"broadcast\",\"value\":0.1429000000061933,\"extra\":{\"event\":\"antifan:terminal:data\",\"clients\":1,\"congested\":0,\"bytes\":617},\"ts\":\"2026-09-21T08:29:52.196Z\",\"nowMs\":133057.6864}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"fanoutMessages\",\"value\":0,\"extra\":{\"sessionId\":\"terminal-2\",\"windows\":0},\"ts\":\"2026-09-21T08:29:52.202Z\",\"nowMs\":133063.6481}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"ptyData\",\"value\":209,\"extra\":{\"sessionId\":\"terminal-2\",\"chunkSeq\":63,\"totalBytes\":14439},\"ts\":\"2026-09-21T08:29:52.236Z\",\"nowMs\":133097.4002}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"fanoutMessages\",\"value\":0,\"extra\":{\"sessionId\":\"terminal-2\",\"windows\":0},\"ts\":\"2026-09-21T08:29:52.236Z\",\"nowMs\":133097.5227}",
+    "[antifan-benchmark] {\"surface\":\"bridge\",\"name\":\"broadcast\",\"value\":0.13190000000759028,\"extra\":{\"event\":\"antifan:terminal:data\",\"clients\":1,\"congested\":0,\"bytes\":473},\"ts\":\"2026-09-21T08:29:52.236Z\",\"nowMs\":133097.6863}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.23989999998593703,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-21T08:29:54.954Z\",\"nowMs\":135814.8962}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.24520000000484288,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-21T08:29:54.959Z\",\"nowMs\":135819.7364}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":17.98200000001816,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-21T08:29:54.959Z\",\"nowMs\":135819.9108}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switch-steps\",\"value\":18.05,\"extra\":{\"ensureView\":0.03,\"attachSweep\":12.673,\"layoutBroadcast\":0.418,\"throttle\":0.096,\"invalidateFocus\":0.169,\"presentedView\":4.584},\"ts\":\"2026-09-21T08:29:54.959Z\",\"nowMs\":135819.964}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.2527999999874737,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-21T08:29:57.317Z\",\"nowMs\":138177.8645}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"closed\",\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-21T08:29:57.317Z\",\"nowMs\":138178.0457}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.28820000000996515,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-21T08:29:57.325Z\",\"nowMs\":138185.7251}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"closed\",\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-21T08:29:57.325Z\",\"nowMs\":138185.9099}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.15920000002370216,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-21T08:29:57.338Z\",\"nowMs\":138198.8366}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.22529999999096617,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-21T08:29:57.347Z\",\"nowMs\":138208.3058}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":12.777800000010757,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-21T08:29:57.347Z\",\"nowMs\":138208.48}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switch-steps\",\"value\":12.827,\"extra\":{\"ensureView\":0.029,\"attachSweep\":2.92,\"layoutBroadcast\":0.333,\"throttle\":0.139,\"invalidateFocus\":0.343,\"presentedView\":9.003},\"ts\":\"2026-09-21T08:29:57.347Z\",\"nowMs\":138208.5187}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.21299999998882413,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-21T08:29:57.352Z\",\"nowMs\":138213.0346}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"closed\",\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-21T08:29:57.352Z\",\"nowMs\":138213.2212}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.20310000001336448,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-21T08:29:57.358Z\",\"nowMs\":138219.5758}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"closed\",\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-21T08:29:57.359Z\",\"nowMs\":138219.7472}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.3761999999987893,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-21T08:29:57.375Z\",\"nowMs\":138236.6362}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"closed\",\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-21T08:29:57.376Z\",\"nowMs\":138236.9663}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.1748000000079628,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-21T08:29:57.391Z\",\"nowMs\":138252.3594}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.1820999999763444,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-21T08:29:57.400Z\",\"nowMs\":138260.8544}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":12.737699999997858,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-21T08:29:57.400Z\",\"nowMs\":138261.169}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switch-steps\",\"value\":12.796,\"extra\":{\"ensureView\":0.032,\"attachSweep\":3.691,\"layoutBroadcast\":0.391,\"throttle\":0.033,\"invalidateFocus\":0.895,\"presentedView\":7.683},\"ts\":\"2026-09-21T08:29:57.400Z\",\"nowMs\":138261.25}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.23920000001089647,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-21T08:29:57.408Z\",\"nowMs\":138268.8871}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"closed\",\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-21T08:29:57.408Z\",\"nowMs\":138269.3324}",
+    "[antifan-benchmark] {\"surface\":\"bridge\",\"name\":\"broadcast\",\"value\":0.18340000000898726,\"extra\":{\"event\":\"antifan:terminal:session\",\"clients\":1,\"congested\":0,\"bytes\":1055},\"ts\":\"2026-09-21T08:29:57.932Z\",\"nowMs\":138793.1017}",
+    "[antifan-benchmark] {\"surface\":\"history\",\"name\":\"persist\",\"value\":38.31,\"extra\":{\"items\":8048,\"bytes\":3871847,\"superseded\":false},\"ts\":\"2026-09-21T08:30:00.324Z\",\"nowMs\":141185.5165}",
+    "[antifan-benchmark] {\"surface\":\"process\",\"name\":\"periodic\",\"extra\":{\"breakdown\":{\"Browser\":{\"processes\":1,\"workingSetKB\":216864,\"privateBytesKB\":137484},\"GPU\":{\"processes\":1,\"workingSetKB\":180772,\"privateBytesKB\":129136},\"Utility\":{\"processes\":1,\"workingSetKB\":125092,\"privateBytesKB\":14792},\"Tab\":{\"processes\":2,\"workingSetKB\":311768,\"privateBytesKB\":104892}},\"processes\":[{\"pid\":7556,\"type\":\"Browser\",\"workingSetKB\":216864,\"privateBytesKB\":137484,\"role\":\"\",\"url\":\"\"},{\"pid\":3160,\"type\":\"GPU\",\"workingSetKB\":180772,\"privateBytesKB\":129136,\"role\":\"\",\"url\":\"\"},{\"pid\":9024,\"type\":\"Utility\",\"workingSetKB\":125092,\"privateBytesKB\":14792,\"role\":\"\",\"url\":\"\"},{\"pid\":26104,\"type\":\"Tab\",\"workingSetKB\":161512,\"privateBytesKB\":58284,\"role\":\"chrome:standalone+chrome:toolbar+chrome:frame-backdrop\",\"url\":\"file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html\"},{\"pid\":23228,\"type\":\"Tab\",\"workingSetKB\":150256,\"privateBytesKB\":46608,\"role\":\"tab:2ebfdff4\",\"url\":\"https://www.google.com/\"}],\"mainRssKB\":216864},\"ts\":\"2026-09-21T08:30:40.480Z\",\"nowMs\":181341.7543}"
+  ]
+}

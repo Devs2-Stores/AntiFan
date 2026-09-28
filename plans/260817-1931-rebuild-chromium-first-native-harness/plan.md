@@ -5,7 +5,7 @@ status: in-progress
 priority: P1
 effort: "XL"
 tags: [architecture, electron, chromium, harness, migration]
-blockedBy: []
+blockedBy: [260927-0315-project-windows]
 blocks: [260817-2217-rebuild-chromium-first-project-ui-and-workflow]
 created: 2026-08-17
 ---
@@ -13,6 +13,8 @@ created: 2026-08-17
 # Rebuild Chromium-First Native Harness
 
 ## Overview
+
+Window-contract supersession (2026-09-27): [Project Windows](../260927-0315-project-windows/plan.md) supersedes this historical plan's per-project terminal-manager and mandatory unique-partition prescriptions. Browser windows share application services and preserve existing opt-in partition isolation. Remaining Harness scope consumes the new window/routing boundary; it does not authorize recreating separate service runtimes.
 
 Rebuild the app around a project-isolated, Chromium-first runtime. Each Project
 owns one visible BrowserWindow, one persistent Chromium profile/partition, its

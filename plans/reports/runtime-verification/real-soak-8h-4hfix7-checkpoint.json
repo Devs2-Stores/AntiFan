@@ -1,0 +1,6018 @@
+{
+  "status": "in-progress",
+  "startedAt": "2026-09-22T01:20:29.843Z",
+  "finishedAt": "2026-09-22T01:31:21.487Z",
+  "config": {
+    "totalMinutes": 240,
+    "requestedTotalMinutes": 240,
+    "durationSource": "argv --minutes",
+    "bundle": null,
+    "warmupMinutes": 30,
+    "workloadMinutes": 180,
+    "recoveryMinutes": 30,
+    "switchIntervalMs": 3000,
+    "burstIntervalMs": 30000,
+    "burstLines": 300,
+    "tabRounds": 1,
+    "fixtureTickMs": 200,
+    "fixtureTitleMode": "unique",
+    "sampleIntervalSeconds": 60,
+    "reportTag": "4hfix7",
+    "appArgs": [],
+    "legs": [
+      {
+        "name": "baseline",
+        "minutes": 60,
+        "burstLines": 300,
+        "burstIntervalMs": 30000,
+        "fixtureTickMs": 200,
+        "fixtureTitleMode": "unique",
+        "switchIntervalMs": 3000
+      },
+      {
+        "name": "burst4x",
+        "minutes": 60,
+        "burstLines": 1200,
+        "burstIntervalMs": 30000,
+        "fixtureTickMs": 200,
+        "fixtureTitleMode": "unique",
+        "switchIntervalMs": 3000
+      },
+      {
+        "name": "burst-off",
+        "minutes": 60,
+        "burstLines": 1,
+        "burstIntervalMs": 600000,
+        "fixtureTickMs": 200,
+        "fixtureTitleMode": "unique",
+        "switchIntervalMs": 3000
+      }
+    ]
+  },
+  "rootPid": 1408,
+  "fixturePort": 63343,
+  "stats": {
+    "requestCount": 4,
+    "openedTabs": 6,
+    "switches": 180,
+    "bursts": 20,
+    "burstsByPhase": {
+      "warmup": 20,
+      "workload": 0,
+      "recovery": 0
+    },
+    "reloads": 0,
+    "terminalEventsCount": 40,
+    "totalSamples": 11,
+    "totalSuspendedMinutes": 0,
+    "activeWorkloadMinutes": null,
+    "activeMinutesSinceStart": 10,
+    "teardownTelemetry": {
+      "tabsToClose": 0,
+      "tabsClosedSuccess": 0,
+      "tabsClosedFailed": 0,
+      "terminalClosedSuccess": false,
+      "terminalClosedFailed": false,
+      "teardownDegraded": false
+    }
+  },
+  "metrics": {
+    "switchLatencyMs": {
+      "min": null,
+      "p50": null,
+      "p95": null,
+      "max": null
+    },
+    "switchLatencyWorkloadCount": 0,
+    "switchLatencyWarmupMs": {
+      "min": 9.225,
+      "p50": 14.03,
+      "p95": 23.791,
+      "max": 40.864
+    },
+    "switchLatencyWarmupCount": 180,
+    "switchLatencyAllPhasesMs": {
+      "min": 9.225,
+      "p50": 14.03,
+      "p95": 23.791,
+      "max": 40.864
+    },
+    "activeWorkingSetMB": {
+      "min": null,
+      "p50": null,
+      "p95": null,
+      "max": null
+    },
+    "activeRendererWorkingSetMB": {
+      "min": null,
+      "p50": null,
+      "p95": null,
+      "max": null
+    },
+    "overallActiveSlopeMBPerMin": null,
+    "overallActiveSlopeMBPerHour": null,
+    "rendererActiveSlopeMBPerMin": null,
+    "rendererActiveSlopeMBPerHour": null,
+    "rolling60MinSlopes": [],
+    "initialLoadedMB": 1634.55,
+    "postWarmupMB": 1605.19,
+    "finalActiveMB": null,
+    "recoveredMB": null,
+    "processSeriesSampleCount": 10,
+    "perProcessSlopes": [],
+    "worstProcessSlopeMBPerMin": null,
+    "worstProcessRole": "",
+    "worstProcessUrl": "",
+    "worstProcessPid": null,
+    "appPrivateMaxSlopeMBPerMin": null,
+    "appPrivateMaxRole": "",
+    "appPrivateMaxUrl": "",
+    "appPrivateMaxPid": null,
+    "processSlopeWindowStart": null,
+    "processSlopeWindowEnd": null,
+    "refusedProcessCount": 0,
+    "refusedProcessWorkingSetMB": 0,
+    "refusedProcessNames": [],
+    "slowSwitchSamples": [
+      {
+        "at": 1790040363366,
+        "ms": 40.864,
+        "tabId": "58588784-8517-4bd6-b574-ee95014051dc",
+        "phase": "warmup",
+        "leg": null
+      },
+      {
+        "at": 1790040213128,
+        "ms": 35.895,
+        "tabId": "5d66c79a-ffdb-4fc9-bc39-eaf22ec233a3",
+        "phase": "warmup",
+        "leg": null
+      },
+      {
+        "at": 1790040160149,
+        "ms": 32.966,
+        "tabId": "58588784-8517-4bd6-b574-ee95014051dc",
+        "phase": "warmup",
+        "leg": null
+      },
+      {
+        "at": 1790040679721,
+        "ms": 27.839,
+        "tabId": "58588784-8517-4bd6-b574-ee95014051dc",
+        "phase": "warmup",
+        "leg": null
+      },
+      {
+        "at": 1790040345038,
+        "ms": 27.361,
+        "tabId": "58588784-8517-4bd6-b574-ee95014051dc",
+        "phase": "warmup",
+        "leg": null
+      },
+      {
+        "at": 1790040592113,
+        "ms": 27.323,
+        "tabId": "5d66c79a-ffdb-4fc9-bc39-eaf22ec233a3",
+        "phase": "warmup",
+        "leg": null
+      },
+      {
+        "at": 1790040138602,
+        "ms": 25.246,
+        "tabId": "58588784-8517-4bd6-b574-ee95014051dc",
+        "phase": "warmup",
+        "leg": null
+      },
+      {
+        "at": 1790040090019,
+        "ms": 23.879,
+        "tabId": "dcc5ec72-0bc7-4d46-b0a7-cd48d66f34b7",
+        "phase": "warmup",
+        "leg": null
+      },
+      {
+        "at": 1790040485956,
+        "ms": 23.834,
+        "tabId": "140f3860-afc1-4413-8446-848e55dfd6da",
+        "phase": "warmup",
+        "leg": null
+      },
+      {
+        "at": 1790040541612,
+        "ms": 23.791,
+        "tabId": "58588784-8517-4bd6-b574-ee95014051dc",
+        "phase": "warmup",
+        "leg": null
+      }
+    ],
+    "switchLatencyByTab": [
+      {
+        "tabId": "58588784-8517-4bd6-b574-ee95014051dc",
+        "url": "https://www.wikipedia.org",
+        "count": 30,
+        "p50": 17.491,
+        "p95": 32.966,
+        "max": 40.864
+      },
+      {
+        "tabId": "5d66c79a-ffdb-4fc9-bc39-eaf22ec233a3",
+        "url": "http://127.0.0.1:63343/product-test-1",
+        "count": 30,
+        "p50": 15.015,
+        "p95": 27.323,
+        "max": 35.895
+      },
+      {
+        "tabId": "dcc5ec72-0bc7-4d46-b0a7-cd48d66f34b7",
+        "url": "http://127.0.0.1:63343/collection-featured",
+        "count": 30,
+        "p50": 13.964,
+        "p95": 19.173,
+        "max": 23.879
+      },
+      {
+        "tabId": "140f3860-afc1-4413-8446-848e55dfd6da",
+        "url": "http://127.0.0.1:63343/store-home",
+        "count": 30,
+        "p50": 15.264,
+        "p95": 23.35,
+        "max": 23.834
+      },
+      {
+        "tabId": "2e1a503f-0279-4f4d-bab0-32cbb5e7a3d2",
+        "url": "https://example.com",
+        "count": 30,
+        "p50": 12.611,
+        "p95": 17.165,
+        "max": 22.054
+      },
+      {
+        "tabId": "1052435f-5e56-429a-8324-d5b3e2805f74",
+        "url": "http://127.0.0.1:63343/product-test-2",
+        "count": 30,
+        "p50": 12.574,
+        "p95": 18.338,
+        "max": 20.306
+      }
+    ],
+    "cpu": null,
+    "legBurstCounterSuspect": false,
+    "cpuByPhase": {
+      "warmup": {
+        "from": "2026-09-22T01:21:21.435Z",
+        "to": "2026-09-22T01:30:27.535Z",
+        "windowMinutes": 9.1,
+        "samples": 11,
+        "cpuSecondsTotal": 111.814,
+        "cpuSecondsPerMinute": 12.287,
+        "perProcess": [
+          {
+            "pid": 3672,
+            "seconds": 29.734,
+            "share": 0.2659,
+            "role": "GPU",
+            "type": "GPU"
+          },
+          {
+            "pid": 21064,
+            "seconds": 24.75,
+            "share": 0.2213,
+            "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+            "type": "Tab"
+          },
+          {
+            "pid": 1408,
+            "seconds": 19.594,
+            "share": 0.1752,
+            "role": "Browser",
+            "type": "Browser"
+          },
+          {
+            "pid": 27640,
+            "seconds": 16.188,
+            "share": 0.1448,
+            "role": "tab:140f3860+tab:dcc5ec72+tab:5d66c79a+tab:1052435f",
+            "type": "Tab"
+          },
+          {
+            "pid": 16612,
+            "seconds": 5.766,
+            "share": 0.0516,
+            "role": "console host (pty child)",
+            "type": "other"
+          },
+          {
+            "pid": 13356,
+            "seconds": 5.297,
+            "share": 0.0474,
+            "role": "console host (pty child)",
+            "type": "other"
+          },
+          {
+            "pid": 12472,
+            "seconds": 4.156,
+            "share": 0.0372,
+            "role": "Utility",
+            "type": "Utility"
+          },
+          {
+            "pid": 16000,
+            "seconds": 2.047,
+            "share": 0.0183,
+            "role": "pty agent",
+            "type": "other"
+          },
+          {
+            "pid": 20284,
+            "seconds": 1.969,
+            "share": 0.0176,
+            "role": "tab:58588784",
+            "type": "Tab"
+          },
+          {
+            "pid": 21056,
+            "seconds": 1.563,
+            "share": 0.014,
+            "role": "pty agent",
+            "type": "other"
+          },
+          {
+            "pid": 5904,
+            "seconds": 0.453,
+            "share": 0.0041,
+            "role": "tab:2e1a503f",
+            "type": "Tab"
+          },
+          {
+            "pid": 15044,
+            "seconds": 0.156,
+            "share": 0.0014,
+            "role": "pty shell",
+            "type": "other"
+          },
+          {
+            "pid": 22624,
+            "seconds": 0.078,
+            "share": 0.0007,
+            "role": "tab:05e03e3b",
+            "type": "Tab"
+          },
+          {
+            "pid": 1820,
+            "seconds": 0.063,
+            "share": 0.0006,
+            "role": "pty shell",
+            "type": "other"
+          },
+          {
+            "pid": 30444,
+            "seconds": 0,
+            "share": 0,
+            "role": "",
+            "type": ""
+          }
+        ],
+        "notAttributablePids": [
+          23488,
+          24696
+        ],
+        "unreadablePids": [],
+        "counterResetPids": [],
+        "source": "samples.cpuByPid (11 of 11 row(s) carry counters)"
+      },
+      "workload": null,
+      "recovery": null
+    },
+    "historyPersist": {
+      "run": {
+        "flushes": 22,
+        "totalMs": 1153.532,
+        "maxMs": 151.736,
+        "supersededFlushes": 14
+      },
+      "workload": null,
+      "last": {
+        "at": 1790040663734,
+        "items": 8252,
+        "bytes": 3992780
+      },
+      "byLeg": []
+    },
+    "slopeSloSatisfied": null,
+    "slopeGateApplicable": false,
+    "privateSlopeSloSatisfied": null,
+    "privateSlopeMeasured": false,
+    "switchLatencyWorkloadSamples": 0,
+    "switchLatencyMaxMs": null,
+    "latencyMaxGated": false,
+    "memorySloSatisfied": true,
+    "latencySloSatisfied": false,
+    "orphanSloSatisfied": false,
+    "executionSloSatisfied": true,
+    "teardownSloSatisfied": true,
+    "verdict": "FAILED"
+  },
+  "samples": [
+    {
+      "at": 1790040081435,
+      "activeAt": 1790040081435,
+      "label": "warmup",
+      "totalWorkingSetMB": 1634.55,
+      "processCount": 17,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 219.01
+        },
+        "other": {
+          "count": 9,
+          "workingSetMB": 343.78
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 758.68
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 183.81
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 129.27
+        }
+      },
+      "pids": [
+        1408,
+        23488,
+        24696,
+        21056,
+        1820,
+        13356,
+        20284,
+        5904,
+        27640,
+        22624,
+        16000,
+        15044,
+        16612,
+        21064,
+        3672,
+        12472,
+        30444
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 39.313,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "1408": 5.34375,
+        "1820": 8.40625,
+        "3672": 3.46875,
+        "5904": 0.15625,
+        "12472": 0.921875,
+        "13356": 0.109375,
+        "15044": 10.171875,
+        "16000": 0.125,
+        "16612": 0.34375,
+        "20284": 0.90625,
+        "21056": 0.03125,
+        "21064": 1.734375,
+        "22624": 1.765625,
+        "23488": 5.15625,
+        "24696": 0.046875,
+        "27640": 0.546875,
+        "30444": 0.078125
+      },
+      "namesByPid": {
+        "1408": "electron.exe",
+        "1820": "powershell.exe",
+        "3672": "electron.exe",
+        "5904": "electron.exe",
+        "12472": "electron.exe",
+        "13356": "conhost.exe",
+        "15044": "powershell.exe",
+        "16000": "winpty-agent.exe",
+        "16612": "conhost.exe",
+        "20284": "electron.exe",
+        "21056": "winpty-agent.exe",
+        "21064": "electron.exe",
+        "22624": "electron.exe",
+        "23488": "powershell.exe",
+        "24696": "conhost.exe",
+        "27640": "electron.exe",
+        "30444": "electron.exe"
+      }
+    },
+    {
+      "at": 1790040089825,
+      "activeAt": 1790040089825,
+      "label": "warmup",
+      "totalWorkingSetMB": 1581.43,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 219.63
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 286.76
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 761.29
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 184.5
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 129.26
+        }
+      },
+      "pids": [
+        1408,
+        21056,
+        1820,
+        13356,
+        20284,
+        5904,
+        27640,
+        22624,
+        16000,
+        15044,
+        16612,
+        21064,
+        3672,
+        12472,
+        30444
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 36.406,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "1408": 5.90625,
+        "1820": 8.46875,
+        "3672": 4.078125,
+        "5904": 0.15625,
+        "12472": 1.015625,
+        "13356": 0.265625,
+        "15044": 10.1875,
+        "16000": 0.15625,
+        "16612": 0.390625,
+        "20284": 0.90625,
+        "21056": 0.0625,
+        "21064": 2.140625,
+        "22624": 1.765625,
+        "27640": 0.828125,
+        "30444": 0.078125
+      },
+      "namesByPid": {
+        "1408": "electron.exe",
+        "1820": "powershell.exe",
+        "3672": "electron.exe",
+        "5904": "electron.exe",
+        "12472": "electron.exe",
+        "13356": "conhost.exe",
+        "15044": "powershell.exe",
+        "16000": "winpty-agent.exe",
+        "16612": "conhost.exe",
+        "20284": "electron.exe",
+        "21056": "winpty-agent.exe",
+        "21064": "electron.exe",
+        "22624": "electron.exe",
+        "27640": "electron.exe",
+        "30444": "electron.exe"
+      }
+    },
+    {
+      "at": 1790040147821,
+      "activeAt": 1790040147821,
+      "label": "warmup",
+      "totalWorkingSetMB": 1598.22,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 215.37
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 285.93
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 774.94
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 193.27
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 128.71
+        }
+      },
+      "pids": [
+        1408,
+        21056,
+        1820,
+        13356,
+        20284,
+        5904,
+        27640,
+        22624,
+        16000,
+        15044,
+        16612,
+        21064,
+        3672,
+        12472,
+        30444
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 50.5,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "1408": 8.109375,
+        "1820": 8.46875,
+        "3672": 8.609375,
+        "5904": 0.234375,
+        "12472": 1.359375,
+        "13356": 0.765625,
+        "15044": 10.203125,
+        "16000": 0.375,
+        "16612": 1.09375,
+        "20284": 1.328125,
+        "21056": 0.25,
+        "21064": 5.046875,
+        "22624": 1.78125,
+        "27640": 2.796875,
+        "30444": 0.078125
+      },
+      "namesByPid": {
+        "1408": "electron.exe",
+        "1820": "powershell.exe",
+        "3672": "electron.exe",
+        "5904": "electron.exe",
+        "12472": "electron.exe",
+        "13356": "conhost.exe",
+        "15044": "powershell.exe",
+        "16000": "winpty-agent.exe",
+        "16612": "conhost.exe",
+        "20284": "electron.exe",
+        "21056": "winpty-agent.exe",
+        "21064": "electron.exe",
+        "22624": "electron.exe",
+        "27640": "electron.exe",
+        "30444": "electron.exe"
+      }
+    },
+    {
+      "at": 1790040209946,
+      "activeAt": 1790040209946,
+      "label": "warmup",
+      "totalWorkingSetMB": 1604.59,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 215.66
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 286.1
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 780.88
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 193.29
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 128.66
+        }
+      },
+      "pids": [
+        1408,
+        21056,
+        1820,
+        13356,
+        20284,
+        5904,
+        27640,
+        22624,
+        16000,
+        15044,
+        16612,
+        21064,
+        3672,
+        12472,
+        30444
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 62.297,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "1408": 9.921875,
+        "1820": 8.46875,
+        "3672": 12.0625,
+        "5904": 0.28125,
+        "12472": 1.8125,
+        "13356": 1.390625,
+        "15044": 10.25,
+        "16000": 0.609375,
+        "16612": 1.765625,
+        "20284": 1.5625,
+        "21056": 0.359375,
+        "21064": 7.28125,
+        "22624": 1.78125,
+        "27640": 4.671875,
+        "30444": 0.078125
+      },
+      "namesByPid": {
+        "1408": "electron.exe",
+        "1820": "powershell.exe",
+        "3672": "electron.exe",
+        "5904": "electron.exe",
+        "12472": "electron.exe",
+        "13356": "conhost.exe",
+        "15044": "powershell.exe",
+        "16000": "winpty-agent.exe",
+        "16612": "conhost.exe",
+        "20284": "electron.exe",
+        "21056": "winpty-agent.exe",
+        "21064": "electron.exe",
+        "22624": "electron.exe",
+        "27640": "electron.exe",
+        "30444": "electron.exe"
+      }
+    },
+    {
+      "at": 1790040267371,
+      "activeAt": 1790040267371,
+      "label": "warmup",
+      "totalWorkingSetMB": 1606.98,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 216.01
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 286.13
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 782.67
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 193.44
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 128.73
+        }
+      },
+      "pids": [
+        1408,
+        21056,
+        1820,
+        13356,
+        20284,
+        5904,
+        27640,
+        22624,
+        16000,
+        15044,
+        16612,
+        21064,
+        3672,
+        12472,
+        30444
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 74.406,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "1408": 11.921875,
+        "1820": 8.46875,
+        "3672": 15.625,
+        "5904": 0.296875,
+        "12472": 2.265625,
+        "13356": 1.84375,
+        "15044": 10.265625,
+        "16000": 0.875,
+        "16612": 2.21875,
+        "20284": 1.734375,
+        "21056": 0.46875,
+        "21064": 10.046875,
+        "22624": 1.78125,
+        "27640": 6.515625,
+        "30444": 0.078125
+      },
+      "namesByPid": {
+        "1408": "electron.exe",
+        "1820": "powershell.exe",
+        "3672": "electron.exe",
+        "5904": "electron.exe",
+        "12472": "electron.exe",
+        "13356": "conhost.exe",
+        "15044": "powershell.exe",
+        "16000": "winpty-agent.exe",
+        "16612": "conhost.exe",
+        "20284": "electron.exe",
+        "21056": "winpty-agent.exe",
+        "21064": "electron.exe",
+        "22624": "electron.exe",
+        "27640": "electron.exe",
+        "30444": "electron.exe"
+      }
+    },
+    {
+      "at": 1790040329776,
+      "activeAt": 1790040329776,
+      "label": "warmup",
+      "totalWorkingSetMB": 1605.36,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 220.94
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 285.09
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 778.4
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 192.33
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 128.59
+        }
+      },
+      "pids": [
+        1408,
+        21056,
+        1820,
+        13356,
+        20284,
+        5904,
+        27640,
+        22624,
+        16000,
+        15044,
+        16612,
+        21064,
+        3672,
+        12472,
+        30444
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 86.75,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "1408": 14.296875,
+        "1820": 8.46875,
+        "3672": 18.765625,
+        "5904": 0.34375,
+        "12472": 2.8125,
+        "13356": 2.4375,
+        "15044": 10.265625,
+        "16000": 1.109375,
+        "16612": 2.90625,
+        "20284": 1.921875,
+        "21056": 0.625,
+        "21064": 12.75,
+        "22624": 1.796875,
+        "27640": 8.171875,
+        "30444": 0.078125
+      },
+      "namesByPid": {
+        "1408": "electron.exe",
+        "1820": "powershell.exe",
+        "3672": "electron.exe",
+        "5904": "electron.exe",
+        "12472": "electron.exe",
+        "13356": "conhost.exe",
+        "15044": "powershell.exe",
+        "16000": "winpty-agent.exe",
+        "16612": "conhost.exe",
+        "20284": "electron.exe",
+        "21056": "winpty-agent.exe",
+        "21064": "electron.exe",
+        "22624": "electron.exe",
+        "27640": "electron.exe",
+        "30444": "electron.exe"
+      }
+    },
+    {
+      "at": 1790040388989,
+      "activeAt": 1790040388989,
+      "label": "warmup",
+      "totalWorkingSetMB": 1599.31,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 211.91
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 285.35
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 780.61
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 192.79
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 128.66
+        }
+      },
+      "pids": [
+        1408,
+        21056,
+        1820,
+        13356,
+        20284,
+        5904,
+        27640,
+        22624,
+        16000,
+        15044,
+        16612,
+        21064,
+        3672,
+        12472,
+        30444
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 98.563,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "1408": 16.359375,
+        "1820": 8.46875,
+        "3672": 21.296875,
+        "5904": 0.421875,
+        "12472": 3.328125,
+        "13356": 3.109375,
+        "15044": 10.28125,
+        "16000": 1.375,
+        "16612": 3.53125,
+        "20284": 2.109375,
+        "21056": 0.75,
+        "21064": 15.65625,
+        "22624": 1.8125,
+        "27640": 9.984375,
+        "30444": 0.078125
+      },
+      "namesByPid": {
+        "1408": "electron.exe",
+        "1820": "powershell.exe",
+        "3672": "electron.exe",
+        "5904": "electron.exe",
+        "12472": "electron.exe",
+        "13356": "conhost.exe",
+        "15044": "powershell.exe",
+        "16000": "winpty-agent.exe",
+        "16612": "conhost.exe",
+        "20284": "electron.exe",
+        "21056": "winpty-agent.exe",
+        "21064": "electron.exe",
+        "22624": "electron.exe",
+        "27640": "electron.exe",
+        "30444": "electron.exe"
+      }
+    },
+    {
+      "at": 1790040449297,
+      "activeAt": 1790040449297,
+      "label": "warmup",
+      "totalWorkingSetMB": 1601.98,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 212.24
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 285.57
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 782.57
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 192.89
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 128.71
+        }
+      },
+      "pids": [
+        1408,
+        21056,
+        1820,
+        13356,
+        20284,
+        5904,
+        27640,
+        22624,
+        16000,
+        15044,
+        16612,
+        21064,
+        3672,
+        12472,
+        30444
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 110.641,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "1408": 18.3125,
+        "1820": 8.46875,
+        "3672": 24.25,
+        "5904": 0.46875,
+        "12472": 3.859375,
+        "13356": 3.6875,
+        "15044": 10.296875,
+        "16000": 1.546875,
+        "16612": 4.296875,
+        "20284": 2.3125,
+        "21056": 1.015625,
+        "21064": 18.4375,
+        "22624": 1.828125,
+        "27640": 11.78125,
+        "30444": 0.078125
+      },
+      "namesByPid": {
+        "1408": "electron.exe",
+        "1820": "powershell.exe",
+        "3672": "electron.exe",
+        "5904": "electron.exe",
+        "12472": "electron.exe",
+        "13356": "conhost.exe",
+        "15044": "powershell.exe",
+        "16000": "winpty-agent.exe",
+        "16612": "conhost.exe",
+        "20284": "electron.exe",
+        "21056": "winpty-agent.exe",
+        "21064": "electron.exe",
+        "22624": "electron.exe",
+        "27640": "electron.exe",
+        "30444": "electron.exe"
+      }
+    },
+    {
+      "at": 1790040507933,
+      "activeAt": 1790040507933,
+      "label": "warmup",
+      "totalWorkingSetMB": 1603.06,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 211.96
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 285.6
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 784.02
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 192.79
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 128.69
+        }
+      },
+      "pids": [
+        1408,
+        21056,
+        1820,
+        13356,
+        20284,
+        5904,
+        27640,
+        22624,
+        16000,
+        15044,
+        16612,
+        21064,
+        3672,
+        12472,
+        30444
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 121.828,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "1408": 20.4375,
+        "1820": 8.46875,
+        "3672": 27,
+        "5904": 0.515625,
+        "12472": 4.3125,
+        "13356": 4.140625,
+        "15044": 10.3125,
+        "16000": 1.71875,
+        "16612": 5,
+        "20284": 2.5625,
+        "21056": 1.1875,
+        "21064": 20.9375,
+        "22624": 1.828125,
+        "27640": 13.328125,
+        "30444": 0.078125
+      },
+      "namesByPid": {
+        "1408": "electron.exe",
+        "1820": "powershell.exe",
+        "3672": "electron.exe",
+        "5904": "electron.exe",
+        "12472": "electron.exe",
+        "13356": "conhost.exe",
+        "15044": "powershell.exe",
+        "16000": "winpty-agent.exe",
+        "16612": "conhost.exe",
+        "20284": "electron.exe",
+        "21056": "winpty-agent.exe",
+        "21064": "electron.exe",
+        "22624": "electron.exe",
+        "27640": "electron.exe",
+        "30444": "electron.exe"
+      }
+    },
+    {
+      "at": 1790040567734,
+      "activeAt": 1790040567734,
+      "label": "warmup",
+      "totalWorkingSetMB": 1603.88,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 212.03
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 285.6
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 784.52
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 192.96
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 128.76
+        }
+      },
+      "pids": [
+        1408,
+        21056,
+        1820,
+        13356,
+        20284,
+        5904,
+        27640,
+        22624,
+        16000,
+        15044,
+        16612,
+        21064,
+        3672,
+        12472,
+        30444
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 134.375,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "1408": 22.59375,
+        "1820": 8.46875,
+        "3672": 30.421875,
+        "5904": 0.59375,
+        "12472": 4.75,
+        "13356": 4.875,
+        "15044": 10.328125,
+        "16000": 1.96875,
+        "16612": 5.578125,
+        "20284": 2.703125,
+        "21056": 1.40625,
+        "21064": 23.8125,
+        "22624": 1.828125,
+        "27640": 14.96875,
+        "30444": 0.078125
+      },
+      "namesByPid": {
+        "1408": "electron.exe",
+        "1820": "powershell.exe",
+        "3672": "electron.exe",
+        "5904": "electron.exe",
+        "12472": "electron.exe",
+        "13356": "conhost.exe",
+        "15044": "powershell.exe",
+        "16000": "winpty-agent.exe",
+        "16612": "conhost.exe",
+        "20284": "electron.exe",
+        "21056": "winpty-agent.exe",
+        "21064": "electron.exe",
+        "22624": "electron.exe",
+        "27640": "electron.exe",
+        "30444": "electron.exe"
+      }
+    },
+    {
+      "at": 1790040627535,
+      "activeAt": 1790040627535,
+      "label": "warmup",
+      "totalWorkingSetMB": 1605.19,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 212.02
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 285.66
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 785.81
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 192.95
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 128.76
+        }
+      },
+      "pids": [
+        1408,
+        21056,
+        1820,
+        13356,
+        20284,
+        5904,
+        27640,
+        22624,
+        16000,
+        15044,
+        16612,
+        21064,
+        3672,
+        12472,
+        30444
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 145.922,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "1408": 24.9375,
+        "1820": 8.46875,
+        "3672": 33.203125,
+        "5904": 0.609375,
+        "12472": 5.078125,
+        "13356": 5.40625,
+        "15044": 10.328125,
+        "16000": 2.171875,
+        "16612": 6.109375,
+        "20284": 2.875,
+        "21056": 1.59375,
+        "21064": 26.484375,
+        "22624": 1.84375,
+        "27640": 16.734375,
+        "30444": 0.078125
+      },
+      "namesByPid": {
+        "1408": "electron.exe",
+        "1820": "powershell.exe",
+        "3672": "electron.exe",
+        "5904": "electron.exe",
+        "12472": "electron.exe",
+        "13356": "conhost.exe",
+        "15044": "powershell.exe",
+        "16000": "winpty-agent.exe",
+        "16612": "conhost.exe",
+        "20284": "electron.exe",
+        "21056": "winpty-agent.exe",
+        "21064": "electron.exe",
+        "22624": "electron.exe",
+        "27640": "electron.exe",
+        "30444": "electron.exe"
+      }
+    }
+  ],
+  "processSeries": [
+    {
+      "at": 1790040099267,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 1408,
+          "type": "Browser",
+          "role": "Browser",
+          "url": "",
+          "workingSetMB": 215.39,
+          "privateBytesMB": 131.39
+        },
+        {
+          "pid": 3672,
+          "type": "GPU",
+          "role": "GPU",
+          "url": "",
+          "workingSetMB": 187.18,
+          "privateBytesMB": 138.66
+        },
+        {
+          "pid": 12472,
+          "type": "Utility",
+          "role": "Utility",
+          "url": "",
+          "workingSetMB": 128.76,
+          "privateBytesMB": 14.57
+        },
+        {
+          "pid": 21064,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 168.26,
+          "privateBytesMB": 58.27
+        },
+        {
+          "pid": 22624,
+          "type": "Tab",
+          "role": "tab:05e03e3b",
+          "url": "https://www.google.com/",
+          "workingSetMB": 163.63,
+          "privateBytesMB": 54.22
+        },
+        {
+          "pid": 27640,
+          "type": "Tab",
+          "role": "tab:140f3860+tab:dcc5ec72+tab:5d66c79a+tab:1052435f",
+          "url": "http://127.0.0.1:63343/store-home",
+          "workingSetMB": 143.05,
+          "privateBytesMB": 32.78
+        },
+        {
+          "pid": 5904,
+          "type": "Tab",
+          "role": "tab:2e1a503f",
+          "url": "https://example.com/",
+          "workingSetMB": 133.27,
+          "privateBytesMB": 22.37
+        },
+        {
+          "pid": 20284,
+          "type": "Tab",
+          "role": "tab:58588784",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 155.97,
+          "privateBytesMB": 38.21
+        }
+      ]
+    },
+    {
+      "at": 1790040159269,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 1408,
+          "type": "Browser",
+          "role": "Browser",
+          "url": "",
+          "workingSetMB": 223.61,
+          "privateBytesMB": 139.71
+        },
+        {
+          "pid": 3672,
+          "type": "GPU",
+          "role": "GPU",
+          "url": "",
+          "workingSetMB": 193.11,
+          "privateBytesMB": 143.92
+        },
+        {
+          "pid": 12472,
+          "type": "Utility",
+          "role": "Utility",
+          "url": "",
+          "workingSetMB": 128.71,
+          "privateBytesMB": 14.51
+        },
+        {
+          "pid": 21064,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 173.82,
+          "privateBytesMB": 63.82
+        },
+        {
+          "pid": 22624,
+          "type": "Tab",
+          "role": "tab:05e03e3b",
+          "url": "https://www.google.com/",
+          "workingSetMB": 162.06,
+          "privateBytesMB": 52.11
+        },
+        {
+          "pid": 27640,
+          "type": "Tab",
+          "role": "tab:140f3860+tab:dcc5ec72+tab:5d66c79a+tab:1052435f",
+          "url": "http://127.0.0.1:63343/store-home",
+          "workingSetMB": 146.62,
+          "privateBytesMB": 36.66
+        },
+        {
+          "pid": 5904,
+          "type": "Tab",
+          "role": "tab:2e1a503f",
+          "url": "https://example.com/",
+          "workingSetMB": 133.28,
+          "privateBytesMB": 22.35
+        },
+        {
+          "pid": 20284,
+          "type": "Tab",
+          "role": "tab:58588784",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 161.95,
+          "privateBytesMB": 43.9
+        }
+      ]
+    },
+    {
+      "at": 1790040219274,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 1408,
+          "type": "Browser",
+          "role": "Browser",
+          "url": "",
+          "workingSetMB": 227.09,
+          "privateBytesMB": 144.29
+        },
+        {
+          "pid": 3672,
+          "type": "GPU",
+          "role": "GPU",
+          "url": "",
+          "workingSetMB": 193.39,
+          "privateBytesMB": 148.51
+        },
+        {
+          "pid": 12472,
+          "type": "Utility",
+          "role": "Utility",
+          "url": "",
+          "workingSetMB": 128.73,
+          "privateBytesMB": 14.5
+        },
+        {
+          "pid": 21064,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 173.37,
+          "privateBytesMB": 63.35
+        },
+        {
+          "pid": 22624,
+          "type": "Tab",
+          "role": "tab:05e03e3b",
+          "url": "https://www.google.com/",
+          "workingSetMB": 162.06,
+          "privateBytesMB": 52.11
+        },
+        {
+          "pid": 27640,
+          "type": "Tab",
+          "role": "tab:140f3860+tab:dcc5ec72+tab:5d66c79a+tab:1052435f",
+          "url": "http://127.0.0.1:63343/store-home",
+          "workingSetMB": 150.33,
+          "privateBytesMB": 40.05
+        },
+        {
+          "pid": 5904,
+          "type": "Tab",
+          "role": "tab:2e1a503f",
+          "url": "https://example.com/",
+          "workingSetMB": 133.25,
+          "privateBytesMB": 22.41
+        },
+        {
+          "pid": 20284,
+          "type": "Tab",
+          "role": "tab:58588784",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 162.11,
+          "privateBytesMB": 44.21
+        }
+      ]
+    },
+    {
+      "at": 1790040279281,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 1408,
+          "type": "Browser",
+          "role": "Browser",
+          "url": "",
+          "workingSetMB": 224.18,
+          "privateBytesMB": 139.96
+        },
+        {
+          "pid": 3672,
+          "type": "GPU",
+          "role": "GPU",
+          "url": "",
+          "workingSetMB": 193.39,
+          "privateBytesMB": 146.16
+        },
+        {
+          "pid": 12472,
+          "type": "Utility",
+          "role": "Utility",
+          "url": "",
+          "workingSetMB": 128.73,
+          "privateBytesMB": 14.52
+        },
+        {
+          "pid": 21064,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 173.5,
+          "privateBytesMB": 63.4
+        },
+        {
+          "pid": 22624,
+          "type": "Tab",
+          "role": "tab:05e03e3b",
+          "url": "https://www.google.com/",
+          "workingSetMB": 162.06,
+          "privateBytesMB": 52.11
+        },
+        {
+          "pid": 27640,
+          "type": "Tab",
+          "role": "tab:140f3860+tab:dcc5ec72+tab:5d66c79a+tab:1052435f",
+          "url": "http://127.0.0.1:63343/store-home",
+          "workingSetMB": 151.33,
+          "privateBytesMB": 40.98
+        },
+        {
+          "pid": 5904,
+          "type": "Tab",
+          "role": "tab:2e1a503f",
+          "url": "https://example.com/",
+          "workingSetMB": 133.29,
+          "privateBytesMB": 22.41
+        },
+        {
+          "pid": 20284,
+          "type": "Tab",
+          "role": "tab:58588784",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 162.83,
+          "privateBytesMB": 44.83
+        }
+      ]
+    },
+    {
+      "at": 1790040339287,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 1408,
+          "type": "Browser",
+          "role": "Browser",
+          "url": "",
+          "workingSetMB": 225.91,
+          "privateBytesMB": 144.61
+        },
+        {
+          "pid": 3672,
+          "type": "GPU",
+          "role": "GPU",
+          "url": "",
+          "workingSetMB": 192.72,
+          "privateBytesMB": 143.13
+        },
+        {
+          "pid": 12472,
+          "type": "Utility",
+          "role": "Utility",
+          "url": "",
+          "workingSetMB": 128.62,
+          "privateBytesMB": 14.49
+        },
+        {
+          "pid": 21064,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 171.75,
+          "privateBytesMB": 63.72
+        },
+        {
+          "pid": 22624,
+          "type": "Tab",
+          "role": "tab:05e03e3b",
+          "url": "https://www.google.com/",
+          "workingSetMB": 160.53,
+          "privateBytesMB": 52.11
+        },
+        {
+          "pid": 27640,
+          "type": "Tab",
+          "role": "tab:140f3860+tab:dcc5ec72+tab:5d66c79a+tab:1052435f",
+          "url": "http://127.0.0.1:63343/store-home",
+          "workingSetMB": 152,
+          "privateBytesMB": 42.99
+        },
+        {
+          "pid": 5904,
+          "type": "Tab",
+          "role": "tab:2e1a503f",
+          "url": "https://example.com/",
+          "workingSetMB": 132.61,
+          "privateBytesMB": 22.41
+        },
+        {
+          "pid": 20284,
+          "type": "Tab",
+          "role": "tab:58588784",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 161.71,
+          "privateBytesMB": 45.55
+        }
+      ]
+    },
+    {
+      "at": 1790040399288,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 1408,
+          "type": "Browser",
+          "role": "Browser",
+          "url": "",
+          "workingSetMB": 220.27,
+          "privateBytesMB": 138.38
+        },
+        {
+          "pid": 3672,
+          "type": "GPU",
+          "role": "GPU",
+          "url": "",
+          "workingSetMB": 192.82,
+          "privateBytesMB": 147.44
+        },
+        {
+          "pid": 12472,
+          "type": "Utility",
+          "role": "Utility",
+          "url": "",
+          "workingSetMB": 128.66,
+          "privateBytesMB": 14.53
+        },
+        {
+          "pid": 21064,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 172.54,
+          "privateBytesMB": 63.63
+        },
+        {
+          "pid": 22624,
+          "type": "Tab",
+          "role": "tab:05e03e3b",
+          "url": "https://www.google.com/",
+          "workingSetMB": 160.53,
+          "privateBytesMB": 52.11
+        },
+        {
+          "pid": 27640,
+          "type": "Tab",
+          "role": "tab:140f3860+tab:dcc5ec72+tab:5d66c79a+tab:1052435f",
+          "url": "http://127.0.0.1:63343/store-home",
+          "workingSetMB": 153.4,
+          "privateBytesMB": 44.57
+        },
+        {
+          "pid": 5904,
+          "type": "Tab",
+          "role": "tab:2e1a503f",
+          "url": "https://example.com/",
+          "workingSetMB": 132.64,
+          "privateBytesMB": 22.41
+        },
+        {
+          "pid": 20284,
+          "type": "Tab",
+          "role": "tab:58588784",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 162.17,
+          "privateBytesMB": 45.64
+        }
+      ]
+    },
+    {
+      "at": 1790040459293,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 1408,
+          "type": "Browser",
+          "role": "Browser",
+          "url": "",
+          "workingSetMB": 212.4,
+          "privateBytesMB": 130.59
+        },
+        {
+          "pid": 3672,
+          "type": "GPU",
+          "role": "GPU",
+          "url": "",
+          "workingSetMB": 192.91,
+          "privateBytesMB": 145.33
+        },
+        {
+          "pid": 12472,
+          "type": "Utility",
+          "role": "Utility",
+          "url": "",
+          "workingSetMB": 128.71,
+          "privateBytesMB": 14.6
+        },
+        {
+          "pid": 21064,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 172.78,
+          "privateBytesMB": 63.8
+        },
+        {
+          "pid": 22624,
+          "type": "Tab",
+          "role": "tab:05e03e3b",
+          "url": "https://www.google.com/",
+          "workingSetMB": 160.53,
+          "privateBytesMB": 52.11
+        },
+        {
+          "pid": 27640,
+          "type": "Tab",
+          "role": "tab:140f3860+tab:dcc5ec72+tab:5d66c79a+tab:1052435f",
+          "url": "http://127.0.0.1:63343/store-home",
+          "workingSetMB": 154.45,
+          "privateBytesMB": 45.81
+        },
+        {
+          "pid": 5904,
+          "type": "Tab",
+          "role": "tab:2e1a503f",
+          "url": "https://example.com/",
+          "workingSetMB": 132.67,
+          "privateBytesMB": 22.4
+        },
+        {
+          "pid": 20284,
+          "type": "Tab",
+          "role": "tab:58588784",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 162.28,
+          "privateBytesMB": 45.64
+        }
+      ]
+    },
+    {
+      "at": 1790040519299,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 1408,
+          "type": "Browser",
+          "role": "Browser",
+          "url": "",
+          "workingSetMB": 223.64,
+          "privateBytesMB": 142.22
+        },
+        {
+          "pid": 3672,
+          "type": "GPU",
+          "role": "GPU",
+          "url": "",
+          "workingSetMB": 192.77,
+          "privateBytesMB": 145.35
+        },
+        {
+          "pid": 12472,
+          "type": "Utility",
+          "role": "Utility",
+          "url": "",
+          "workingSetMB": 128.76,
+          "privateBytesMB": 14.61
+        },
+        {
+          "pid": 21064,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 173.16,
+          "privateBytesMB": 64.25
+        },
+        {
+          "pid": 22624,
+          "type": "Tab",
+          "role": "tab:05e03e3b",
+          "url": "https://www.google.com/",
+          "workingSetMB": 160.53,
+          "privateBytesMB": 52.11
+        },
+        {
+          "pid": 27640,
+          "type": "Tab",
+          "role": "tab:140f3860+tab:dcc5ec72+tab:5d66c79a+tab:1052435f",
+          "url": "http://127.0.0.1:63343/store-home",
+          "workingSetMB": 156,
+          "privateBytesMB": 47.34
+        },
+        {
+          "pid": 5904,
+          "type": "Tab",
+          "role": "tab:2e1a503f",
+          "url": "https://example.com/",
+          "workingSetMB": 132.72,
+          "privateBytesMB": 22.54
+        },
+        {
+          "pid": 20284,
+          "type": "Tab",
+          "role": "tab:58588784",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 162.41,
+          "privateBytesMB": 45.74
+        }
+      ]
+    },
+    {
+      "at": 1790040579310,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 1408,
+          "type": "Browser",
+          "role": "Browser",
+          "url": "",
+          "workingSetMB": 223.62,
+          "privateBytesMB": 142.1
+        },
+        {
+          "pid": 3672,
+          "type": "GPU",
+          "role": "GPU",
+          "url": "",
+          "workingSetMB": 192.93,
+          "privateBytesMB": 145.34
+        },
+        {
+          "pid": 12472,
+          "type": "Utility",
+          "role": "Utility",
+          "url": "",
+          "workingSetMB": 128.76,
+          "privateBytesMB": 14.61
+        },
+        {
+          "pid": 21064,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 173.88,
+          "privateBytesMB": 64.99
+        },
+        {
+          "pid": 22624,
+          "type": "Tab",
+          "role": "tab:05e03e3b",
+          "url": "https://www.google.com/",
+          "workingSetMB": 160.53,
+          "privateBytesMB": 52.11
+        },
+        {
+          "pid": 27640,
+          "type": "Tab",
+          "role": "tab:140f3860+tab:dcc5ec72+tab:5d66c79a+tab:1052435f",
+          "url": "http://127.0.0.1:63343/store-home",
+          "workingSetMB": 156.7,
+          "privateBytesMB": 47.41
+        },
+        {
+          "pid": 5904,
+          "type": "Tab",
+          "role": "tab:2e1a503f",
+          "url": "https://example.com/",
+          "workingSetMB": 132.77,
+          "privateBytesMB": 22.54
+        },
+        {
+          "pid": 20284,
+          "type": "Tab",
+          "role": "tab:58588784",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 162.22,
+          "privateBytesMB": 45.52
+        }
+      ]
+    },
+    {
+      "at": 1790040639316,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 1408,
+          "type": "Browser",
+          "role": "Browser",
+          "url": "",
+          "workingSetMB": 223.6,
+          "privateBytesMB": 142.11
+        },
+        {
+          "pid": 3672,
+          "type": "GPU",
+          "role": "GPU",
+          "url": "",
+          "workingSetMB": 193.14,
+          "privateBytesMB": 147.43
+        },
+        {
+          "pid": 12472,
+          "type": "Utility",
+          "role": "Utility",
+          "url": "",
+          "workingSetMB": 128.64,
+          "privateBytesMB": 14.48
+        },
+        {
+          "pid": 21064,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 172.77,
+          "privateBytesMB": 63.76
+        },
+        {
+          "pid": 22624,
+          "type": "Tab",
+          "role": "tab:05e03e3b",
+          "url": "https://www.google.com/",
+          "workingSetMB": 160.53,
+          "privateBytesMB": 52.11
+        },
+        {
+          "pid": 27640,
+          "type": "Tab",
+          "role": "tab:140f3860+tab:dcc5ec72+tab:5d66c79a+tab:1052435f",
+          "url": "http://127.0.0.1:63343/store-home",
+          "workingSetMB": 157.42,
+          "privateBytesMB": 48.2
+        },
+        {
+          "pid": 5904,
+          "type": "Tab",
+          "role": "tab:2e1a503f",
+          "url": "https://example.com/",
+          "workingSetMB": 132.81,
+          "privateBytesMB": 22.55
+        },
+        {
+          "pid": 20284,
+          "type": "Tab",
+          "role": "tab:58588784",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 162.53,
+          "privateBytesMB": 45.75
+        }
+      ]
+    }
+  ],
+  "historySamples": [
+    {
+      "at": 1790040048113,
+      "name": "persist",
+      "value": 5.279,
+      "extra": {
+        "items": 1,
+        "bytes": 160,
+        "superseded": false
+      }
+    },
+    {
+      "at": 1790040063034,
+      "name": "persist",
+      "value": 7.096,
+      "extra": {
+        "items": 966,
+        "bytes": 386981,
+        "superseded": false
+      }
+    },
+    {
+      "at": 1790040093137,
+      "name": "persist",
+      "value": 50.253,
+      "extra": {
+        "items": 8252,
+        "bytes": 3992772,
+        "superseded": true
+      }
+    },
+    {
+      "at": 1790040123137,
+      "name": "persist",
+      "value": 40.05,
+      "extra": {
+        "items": 8252,
+        "bytes": 3992776,
+        "superseded": true
+      }
+    },
+    {
+      "at": 1790040153129,
+      "name": "persist",
+      "value": 33.516,
+      "extra": {
+        "items": 8252,
+        "bytes": 3992776,
+        "superseded": true
+      }
+    },
+    {
+      "at": 1790040183149,
+      "name": "persist",
+      "value": 43.666,
+      "extra": {
+        "items": 8252,
+        "bytes": 3992776,
+        "superseded": true
+      }
+    },
+    {
+      "at": 1790040213215,
+      "name": "persist",
+      "value": 99.446,
+      "extra": {
+        "items": 8252,
+        "bytes": 3992776,
+        "superseded": true
+      }
+    },
+    {
+      "at": 1790040243153,
+      "name": "persist",
+      "value": 33.494,
+      "extra": {
+        "items": 8252,
+        "bytes": 3992776,
+        "superseded": false
+      }
+    },
+    {
+      "at": 1790040273190,
+      "name": "persist",
+      "value": 58.915,
+      "extra": {
+        "items": 8252,
+        "bytes": 3992776,
+        "superseded": false
+      }
+    },
+    {
+      "at": 1790040303216,
+      "name": "persist",
+      "value": 73.463,
+      "extra": {
+        "items": 8252,
+        "bytes": 3992780,
+        "superseded": false
+      }
+    },
+    {
+      "at": 1790040333356,
+      "name": "persist",
+      "value": 74.896,
+      "extra": {
+        "items": 8252,
+        "bytes": 3992780,
+        "superseded": true
+      }
+    },
+    {
+      "at": 1790040363463,
+      "name": "persist",
+      "value": 151.736,
+      "extra": {
+        "items": 8252,
+        "bytes": 3992780,
+        "superseded": true
+      }
+    },
+    {
+      "at": 1790040393367,
+      "name": "persist",
+      "value": 42.463,
+      "extra": {
+        "items": 8252,
+        "bytes": 3992780,
+        "superseded": true
+      }
+    },
+    {
+      "at": 1790040423372,
+      "name": "persist",
+      "value": 44.328,
+      "extra": {
+        "items": 8252,
+        "bytes": 3992780,
+        "superseded": false
+      }
+    },
+    {
+      "at": 1790040453548,
+      "name": "persist",
+      "value": 62.517,
+      "extra": {
+        "items": 8252,
+        "bytes": 3992780,
+        "superseded": true
+      }
+    },
+    {
+      "at": 1790040483523,
+      "name": "persist",
+      "value": 48.946,
+      "extra": {
+        "items": 8252,
+        "bytes": 3992780,
+        "superseded": true
+      }
+    },
+    {
+      "at": 1790040513558,
+      "name": "persist",
+      "value": 53.156,
+      "extra": {
+        "items": 8252,
+        "bytes": 3992780,
+        "superseded": true
+      }
+    },
+    {
+      "at": 1790040543555,
+      "name": "persist",
+      "value": 42.897,
+      "extra": {
+        "items": 8252,
+        "bytes": 3992780,
+        "superseded": true
+      }
+    },
+    {
+      "at": 1790040573570,
+      "name": "persist",
+      "value": 45.356,
+      "extra": {
+        "items": 8252,
+        "bytes": 3992780,
+        "superseded": false
+      }
+    },
+    {
+      "at": 1790040603569,
+      "name": "persist",
+      "value": 46.237,
+      "extra": {
+        "items": 8252,
+        "bytes": 3992780,
+        "superseded": false
+      }
+    },
+    {
+      "at": 1790040633735,
+      "name": "persist",
+      "value": 58.994,
+      "extra": {
+        "items": 8252,
+        "bytes": 3992780,
+        "superseded": true
+      }
+    },
+    {
+      "at": 1790040663734,
+      "name": "persist",
+      "value": 36.828,
+      "extra": {
+        "items": 8252,
+        "bytes": 3992780,
+        "superseded": true
+      }
+    }
+  ],
+  "switchStepSamples": [
+    {
+      "at": 1790040038236,
+      "name": "switch-steps",
+      "value": 17.587,
+      "extra": {
+        "ensureView": 2.99,
+        "attachSweep": 4.883,
+        "layoutBroadcast": 5.87,
+        "throttle": 1.819,
+        "invalidateFocus": 0.413,
+        "presentedView": 1.382
+      }
+    },
+    {
+      "at": 1790040081572,
+      "name": "switch-steps",
+      "value": 22.135,
+      "extra": {
+        "ensureView": 0.045,
+        "attachSweep": 12.766,
+        "layoutBroadcast": 7.599,
+        "throttle": 0.221,
+        "invalidateFocus": 0.495,
+        "presentedView": 0.867
+      }
+    },
+    {
+      "at": 1790040090016,
+      "name": "switch-steps",
+      "value": 18.929,
+      "extra": {
+        "ensureView": 0.056,
+        "attachSweep": 12.014,
+        "layoutBroadcast": 5.579,
+        "throttle": 0.188,
+        "invalidateFocus": 0.241,
+        "presentedView": 0.697
+      }
+    },
+    {
+      "at": 1790040093036,
+      "name": "switch-steps",
+      "value": 17.683,
+      "extra": {
+        "ensureView": 0.042,
+        "attachSweep": 9.855,
+        "layoutBroadcast": 6.232,
+        "throttle": 0.118,
+        "invalidateFocus": 0.22,
+        "presentedView": 1.084
+      }
+    },
+    {
+      "at": 1790040096061,
+      "name": "switch-steps",
+      "value": 19.129,
+      "extra": {
+        "ensureView": 0.051,
+        "attachSweep": 10.244,
+        "layoutBroadcast": 7.138,
+        "throttle": 0.134,
+        "invalidateFocus": 0.271,
+        "presentedView": 1.08
+      }
+    },
+    {
+      "at": 1790040099086,
+      "name": "switch-steps",
+      "value": 20.271,
+      "extra": {
+        "ensureView": 0.066,
+        "attachSweep": 11.606,
+        "layoutBroadcast": 7.457,
+        "throttle": 0.159,
+        "invalidateFocus": 0.243,
+        "presentedView": 0.624
+      }
+    },
+    {
+      "at": 1790040102085,
+      "name": "switch-steps",
+      "value": 18.52,
+      "extra": {
+        "ensureView": 0.05,
+        "attachSweep": 11.05,
+        "layoutBroadcast": 5.983,
+        "throttle": 0.319,
+        "invalidateFocus": 0.249,
+        "presentedView": 0.753
+      }
+    },
+    {
+      "at": 1790040105126,
+      "name": "switch-steps",
+      "value": 11.909,
+      "extra": {
+        "ensureView": 0.044,
+        "attachSweep": 9.131,
+        "layoutBroadcast": 0.989,
+        "throttle": 0.2,
+        "invalidateFocus": 0.609,
+        "presentedView": 0.881
+      }
+    },
+    {
+      "at": 1790040108174,
+      "name": "switch-steps",
+      "value": 11.041,
+      "extra": {
+        "ensureView": 0.082,
+        "attachSweep": 8.886,
+        "layoutBroadcast": 0.649,
+        "throttle": 0.189,
+        "invalidateFocus": 0.332,
+        "presentedView": 0.797
+      }
+    },
+    {
+      "at": 1790040111212,
+      "name": "switch-steps",
+      "value": 12.815,
+      "extra": {
+        "ensureView": 0.057,
+        "attachSweep": 10.372,
+        "layoutBroadcast": 1.231,
+        "throttle": 0.124,
+        "invalidateFocus": 0.229,
+        "presentedView": 0.698
+      }
+    },
+    {
+      "at": 1790040114224,
+      "name": "switch-steps",
+      "value": 11.624,
+      "extra": {
+        "ensureView": 0.038,
+        "attachSweep": 9.252,
+        "layoutBroadcast": 0.695,
+        "throttle": 0.351,
+        "invalidateFocus": 0.421,
+        "presentedView": 0.726
+      }
+    },
+    {
+      "at": 1790040117297,
+      "name": "switch-steps",
+      "value": 10.771,
+      "extra": {
+        "ensureView": 0.034,
+        "attachSweep": 8.798,
+        "layoutBroadcast": 0.538,
+        "throttle": 0.159,
+        "invalidateFocus": 0.294,
+        "presentedView": 0.814
+      }
+    },
+    {
+      "at": 1790040120319,
+      "name": "switch-steps",
+      "value": 13.702,
+      "extra": {
+        "ensureView": 0.044,
+        "attachSweep": 9.115,
+        "layoutBroadcast": 0.612,
+        "throttle": 0.215,
+        "invalidateFocus": 2.531,
+        "presentedView": 0.907
+      }
+    },
+    {
+      "at": 1790040123337,
+      "name": "switch-steps",
+      "value": 11.926,
+      "extra": {
+        "ensureView": 0.073,
+        "attachSweep": 9.204,
+        "layoutBroadcast": 0.731,
+        "throttle": 0.148,
+        "invalidateFocus": 0.809,
+        "presentedView": 0.873
+      }
+    },
+    {
+      "at": 1790040126341,
+      "name": "switch-steps",
+      "value": 12.321,
+      "extra": {
+        "ensureView": 0.039,
+        "attachSweep": 8.963,
+        "layoutBroadcast": 1.39,
+        "throttle": 0.383,
+        "invalidateFocus": 0.327,
+        "presentedView": 1.096
+      }
+    },
+    {
+      "at": 1790040129412,
+      "name": "switch-steps",
+      "value": 13.344,
+      "extra": {
+        "ensureView": 0.04,
+        "attachSweep": 11.258,
+        "layoutBroadcast": 0.693,
+        "throttle": 0.176,
+        "invalidateFocus": 0.24,
+        "presentedView": 0.833
+      }
+    },
+    {
+      "at": 1790040132413,
+      "name": "switch-steps",
+      "value": 13.334,
+      "extra": {
+        "ensureView": 0.043,
+        "attachSweep": 10.293,
+        "layoutBroadcast": 1.153,
+        "throttle": 0.183,
+        "invalidateFocus": 0.303,
+        "presentedView": 1.152
+      }
+    },
+    {
+      "at": 1790040135493,
+      "name": "switch-steps",
+      "value": 12.492,
+      "extra": {
+        "ensureView": 0.037,
+        "attachSweep": 10.775,
+        "layoutBroadcast": 0.709,
+        "throttle": 0.13,
+        "invalidateFocus": 0.217,
+        "presentedView": 0.524
+      }
+    },
+    {
+      "at": 1790040138595,
+      "name": "switch-steps",
+      "value": 13.962,
+      "extra": {
+        "ensureView": 0.045,
+        "attachSweep": 10.54,
+        "layoutBroadcast": 0.6,
+        "throttle": 0.114,
+        "invalidateFocus": 1.355,
+        "presentedView": 1.215
+      }
+    },
+    {
+      "at": 1790040141623,
+      "name": "switch-steps",
+      "value": 11.406,
+      "extra": {
+        "ensureView": 0.045,
+        "attachSweep": 9.251,
+        "layoutBroadcast": 0.919,
+        "throttle": 0.14,
+        "invalidateFocus": 0.334,
+        "presentedView": 0.628
+      }
+    },
+    {
+      "at": 1790040147940,
+      "name": "switch-steps",
+      "value": 11.598,
+      "extra": {
+        "ensureView": 0.037,
+        "attachSweep": 9.762,
+        "layoutBroadcast": 0.754,
+        "throttle": 0.135,
+        "invalidateFocus": 0.23,
+        "presentedView": 0.587
+      }
+    },
+    {
+      "at": 1790040150978,
+      "name": "switch-steps",
+      "value": 11.657,
+      "extra": {
+        "ensureView": 0.042,
+        "attachSweep": 9.16,
+        "layoutBroadcast": 0.677,
+        "throttle": 0.12,
+        "invalidateFocus": 0.197,
+        "presentedView": 1.274
+      }
+    },
+    {
+      "at": 1790040154054,
+      "name": "switch-steps",
+      "value": 11.376,
+      "extra": {
+        "ensureView": 0.038,
+        "attachSweep": 9.075,
+        "layoutBroadcast": 0.693,
+        "throttle": 0.407,
+        "invalidateFocus": 0.272,
+        "presentedView": 0.816
+      }
+    },
+    {
+      "at": 1790040157087,
+      "name": "switch-steps",
+      "value": 11.48,
+      "extra": {
+        "ensureView": 0.049,
+        "attachSweep": 10.085,
+        "layoutBroadcast": 0.471,
+        "throttle": 0.144,
+        "invalidateFocus": 0.211,
+        "presentedView": 0.438
+      }
+    },
+    {
+      "at": 1790040160130,
+      "name": "switch-steps",
+      "value": 13.986,
+      "extra": {
+        "ensureView": 0.05,
+        "attachSweep": 11.105,
+        "layoutBroadcast": 0.57,
+        "throttle": 0.134,
+        "invalidateFocus": 1.23,
+        "presentedView": 0.79
+      }
+    },
+    {
+      "at": 1790040163148,
+      "name": "switch-steps",
+      "value": 9.912,
+      "extra": {
+        "ensureView": 0.038,
+        "attachSweep": 7.634,
+        "layoutBroadcast": 1.116,
+        "throttle": 0.135,
+        "invalidateFocus": 0.34,
+        "presentedView": 0.571
+      }
+    },
+    {
+      "at": 1790040166223,
+      "name": "switch-steps",
+      "value": 9.429,
+      "extra": {
+        "ensureView": 0.033,
+        "attachSweep": 7.759,
+        "layoutBroadcast": 0.618,
+        "throttle": 0.149,
+        "invalidateFocus": 0.223,
+        "presentedView": 0.556
+      }
+    },
+    {
+      "at": 1790040169262,
+      "name": "switch-steps",
+      "value": 13.062,
+      "extra": {
+        "ensureView": 0.056,
+        "attachSweep": 9.948,
+        "layoutBroadcast": 1.101,
+        "throttle": 0.584,
+        "invalidateFocus": 0.355,
+        "presentedView": 0.916
+      }
+    },
+    {
+      "at": 1790040172273,
+      "name": "switch-steps",
+      "value": 11.208,
+      "extra": {
+        "ensureView": 0.036,
+        "attachSweep": 9.55,
+        "layoutBroadcast": 0.596,
+        "throttle": 0.13,
+        "invalidateFocus": 0.212,
+        "presentedView": 0.594
+      }
+    },
+    {
+      "at": 1790040175370,
+      "name": "switch-steps",
+      "value": 12.652,
+      "extra": {
+        "ensureView": 0.087,
+        "attachSweep": 10.124,
+        "layoutBroadcast": 0.595,
+        "throttle": 0.243,
+        "invalidateFocus": 0.422,
+        "presentedView": 1.058
+      }
+    },
+    {
+      "at": 1790040178388,
+      "name": "switch-steps",
+      "value": 11.725,
+      "extra": {
+        "ensureView": 0.032,
+        "attachSweep": 9.354,
+        "layoutBroadcast": 0.505,
+        "throttle": 0.117,
+        "invalidateFocus": 1.119,
+        "presentedView": 0.527
+      }
+    },
+    {
+      "at": 1790040181435,
+      "name": "switch-steps",
+      "value": 13.364,
+      "extra": {
+        "ensureView": 0.036,
+        "attachSweep": 11.202,
+        "layoutBroadcast": 0.84,
+        "throttle": 0.16,
+        "invalidateFocus": 0.359,
+        "presentedView": 0.665
+      }
+    },
+    {
+      "at": 1790040184466,
+      "name": "switch-steps",
+      "value": 7.931,
+      "extra": {
+        "ensureView": 0.037,
+        "attachSweep": 6.045,
+        "layoutBroadcast": 0.665,
+        "throttle": 0.156,
+        "invalidateFocus": 0.24,
+        "presentedView": 0.689
+      }
+    },
+    {
+      "at": 1790040187528,
+      "name": "switch-steps",
+      "value": 11.634,
+      "extra": {
+        "ensureView": 0.037,
+        "attachSweep": 9.68,
+        "layoutBroadcast": 0.77,
+        "throttle": 0.182,
+        "invalidateFocus": 0.239,
+        "presentedView": 0.632
+      }
+    },
+    {
+      "at": 1790040190567,
+      "name": "switch-steps",
+      "value": 11.285,
+      "extra": {
+        "ensureView": 0.04,
+        "attachSweep": 9.494,
+        "layoutBroadcast": 0.629,
+        "throttle": 0.147,
+        "invalidateFocus": 0.248,
+        "presentedView": 0.666
+      }
+    },
+    {
+      "at": 1790040193662,
+      "name": "switch-steps",
+      "value": 11.353,
+      "extra": {
+        "ensureView": 0.039,
+        "attachSweep": 9.112,
+        "layoutBroadcast": 0.517,
+        "throttle": 0.192,
+        "invalidateFocus": 0.297,
+        "presentedView": 1.106
+      }
+    },
+    {
+      "at": 1790040196729,
+      "name": "switch-steps",
+      "value": 14.12,
+      "extra": {
+        "ensureView": 0.035,
+        "attachSweep": 10.212,
+        "layoutBroadcast": 0.525,
+        "throttle": 0.132,
+        "invalidateFocus": 1.605,
+        "presentedView": 1.362
+      }
+    },
+    {
+      "at": 1790040199801,
+      "name": "switch-steps",
+      "value": 12.006,
+      "extra": {
+        "ensureView": 0.035,
+        "attachSweep": 9.616,
+        "layoutBroadcast": 0.615,
+        "throttle": 0.113,
+        "invalidateFocus": 0.256,
+        "presentedView": 1.188
+      }
+    },
+    {
+      "at": 1790040210066,
+      "name": "switch-steps",
+      "value": 12.321,
+      "extra": {
+        "ensureView": 0.032,
+        "attachSweep": 9.934,
+        "layoutBroadcast": 1.097,
+        "throttle": 0.242,
+        "invalidateFocus": 0.267,
+        "presentedView": 0.656
+      }
+    },
+    {
+      "at": 1790040213128,
+      "name": "switch-steps",
+      "value": 12.951,
+      "extra": {
+        "ensureView": 0.041,
+        "attachSweep": 10.642,
+        "layoutBroadcast": 0.797,
+        "throttle": 0.131,
+        "invalidateFocus": 0.261,
+        "presentedView": 0.888
+      }
+    },
+    {
+      "at": 1790040216136,
+      "name": "switch-steps",
+      "value": 11.437,
+      "extra": {
+        "ensureView": 0.04,
+        "attachSweep": 9.662,
+        "layoutBroadcast": 0.658,
+        "throttle": 0.154,
+        "invalidateFocus": 0.215,
+        "presentedView": 0.592
+      }
+    },
+    {
+      "at": 1790040219153,
+      "name": "switch-steps",
+      "value": 12.428,
+      "extra": {
+        "ensureView": 0.039,
+        "attachSweep": 10.172,
+        "layoutBroadcast": 0.815,
+        "throttle": 0.269,
+        "invalidateFocus": 0.451,
+        "presentedView": 0.593
+      }
+    },
+    {
+      "at": 1790040222260,
+      "name": "switch-steps",
+      "value": 12.469,
+      "extra": {
+        "ensureView": 0.095,
+        "attachSweep": 8.674,
+        "layoutBroadcast": 0.7,
+        "throttle": 0.2,
+        "invalidateFocus": 2.081,
+        "presentedView": 0.63
+      }
+    },
+    {
+      "at": 1790040225283,
+      "name": "switch-steps",
+      "value": 11.957,
+      "extra": {
+        "ensureView": 0.039,
+        "attachSweep": 8.953,
+        "layoutBroadcast": 1.028,
+        "throttle": 0.16,
+        "invalidateFocus": 0.582,
+        "presentedView": 1.019
+      }
+    },
+    {
+      "at": 1790040228383,
+      "name": "switch-steps",
+      "value": 12.603,
+      "extra": {
+        "ensureView": 0.04,
+        "attachSweep": 10.526,
+        "layoutBroadcast": 0.688,
+        "throttle": 0.178,
+        "invalidateFocus": 0.292,
+        "presentedView": 0.691
+      }
+    },
+    {
+      "at": 1790040231443,
+      "name": "switch-steps",
+      "value": 12.442,
+      "extra": {
+        "ensureView": 0.038,
+        "attachSweep": 9.901,
+        "layoutBroadcast": 0.798,
+        "throttle": 0.3,
+        "invalidateFocus": 0.486,
+        "presentedView": 0.803
+      }
+    },
+    {
+      "at": 1790040234481,
+      "name": "switch-steps",
+      "value": 10.159,
+      "extra": {
+        "ensureView": 0.043,
+        "attachSweep": 8.78,
+        "layoutBroadcast": 0.556,
+        "throttle": 0.097,
+        "invalidateFocus": 0.19,
+        "presentedView": 0.423
+      }
+    },
+    {
+      "at": 1790040237537,
+      "name": "switch-steps",
+      "value": 11.007,
+      "extra": {
+        "ensureView": 0.044,
+        "attachSweep": 9.435,
+        "layoutBroadcast": 0.532,
+        "throttle": 0.206,
+        "invalidateFocus": 0.242,
+        "presentedView": 0.469
+      }
+    },
+    {
+      "at": 1790040240555,
+      "name": "switch-steps",
+      "value": 13.074,
+      "extra": {
+        "ensureView": 0.049,
+        "attachSweep": 9.64,
+        "layoutBroadcast": 0.705,
+        "throttle": 0.175,
+        "invalidateFocus": 1.704,
+        "presentedView": 0.722
+      }
+    },
+    {
+      "at": 1790040243656,
+      "name": "switch-steps",
+      "value": 12.091,
+      "extra": {
+        "ensureView": 0.028,
+        "attachSweep": 9.501,
+        "layoutBroadcast": 0.597,
+        "throttle": 0.34,
+        "invalidateFocus": 0.717,
+        "presentedView": 0.801
+      }
+    },
+    {
+      "at": 1790040246676,
+      "name": "switch-steps",
+      "value": 12.048,
+      "extra": {
+        "ensureView": 0.033,
+        "attachSweep": 8.755,
+        "layoutBroadcast": 0.696,
+        "throttle": 0.206,
+        "invalidateFocus": 0.77,
+        "presentedView": 1.495
+      }
+    },
+    {
+      "at": 1790040249719,
+      "name": "switch-steps",
+      "value": 13.628,
+      "extra": {
+        "ensureView": 0.032,
+        "attachSweep": 11.766,
+        "layoutBroadcast": 0.762,
+        "throttle": 0.116,
+        "invalidateFocus": 0.204,
+        "presentedView": 0.631
+      }
+    },
+    {
+      "at": 1790040252765,
+      "name": "switch-steps",
+      "value": 10.295,
+      "extra": {
+        "ensureView": 0.046,
+        "attachSweep": 8.275,
+        "layoutBroadcast": 0.612,
+        "throttle": 0.231,
+        "invalidateFocus": 0.359,
+        "presentedView": 0.658
+      }
+    },
+    {
+      "at": 1790040255871,
+      "name": "switch-steps",
+      "value": 9.889,
+      "extra": {
+        "ensureView": 0.042,
+        "attachSweep": 8.051,
+        "layoutBroadcast": 0.514,
+        "throttle": 0.113,
+        "invalidateFocus": 0.27,
+        "presentedView": 0.8
+      }
+    },
+    {
+      "at": 1790040258944,
+      "name": "switch-steps",
+      "value": 14.014,
+      "extra": {
+        "ensureView": 0.037,
+        "attachSweep": 10.141,
+        "layoutBroadcast": 0.621,
+        "throttle": 0.12,
+        "invalidateFocus": 2.034,
+        "presentedView": 0.944
+      }
+    },
+    {
+      "at": 1790040267486,
+      "name": "switch-steps",
+      "value": 12.64,
+      "extra": {
+        "ensureView": 0.038,
+        "attachSweep": 10.419,
+        "layoutBroadcast": 0.723,
+        "throttle": 0.244,
+        "invalidateFocus": 0.438,
+        "presentedView": 0.669
+      }
+    },
+    {
+      "at": 1790040270523,
+      "name": "switch-steps",
+      "value": 11.772,
+      "extra": {
+        "ensureView": 0.036,
+        "attachSweep": 9.499,
+        "layoutBroadcast": 0.565,
+        "throttle": 0.27,
+        "invalidateFocus": 0.494,
+        "presentedView": 0.817
+      }
+    },
+    {
+      "at": 1790040273525,
+      "name": "switch-steps",
+      "value": 10.485,
+      "extra": {
+        "ensureView": 0.041,
+        "attachSweep": 8.298,
+        "layoutBroadcast": 0.673,
+        "throttle": 0.118,
+        "invalidateFocus": 0.317,
+        "presentedView": 0.884
+      }
+    },
+    {
+      "at": 1790040276524,
+      "name": "switch-steps",
+      "value": 10.013,
+      "extra": {
+        "ensureView": 0.044,
+        "attachSweep": 8.17,
+        "layoutBroadcast": 0.788,
+        "throttle": 0.154,
+        "invalidateFocus": 0.222,
+        "presentedView": 0.537
+      }
+    },
+    {
+      "at": 1790040279526,
+      "name": "switch-steps",
+      "value": 11.191,
+      "extra": {
+        "ensureView": 0.037,
+        "attachSweep": 9.659,
+        "layoutBroadcast": 0.555,
+        "throttle": 0.177,
+        "invalidateFocus": 0.202,
+        "presentedView": 0.483
+      }
+    },
+    {
+      "at": 1790040282620,
+      "name": "switch-steps",
+      "value": 14.771,
+      "extra": {
+        "ensureView": 0.034,
+        "attachSweep": 9.354,
+        "layoutBroadcast": 1.666,
+        "throttle": 0.13,
+        "invalidateFocus": 2.018,
+        "presentedView": 1.475
+      }
+    },
+    {
+      "at": 1790040285705,
+      "name": "switch-steps",
+      "value": 10.267,
+      "extra": {
+        "ensureView": 0.047,
+        "attachSweep": 7.958,
+        "layoutBroadcast": 0.802,
+        "throttle": 0.103,
+        "invalidateFocus": 0.475,
+        "presentedView": 0.675
+      }
+    },
+    {
+      "at": 1790040288780,
+      "name": "switch-steps",
+      "value": 11.118,
+      "extra": {
+        "ensureView": 0.039,
+        "attachSweep": 8.995,
+        "layoutBroadcast": 0.574,
+        "throttle": 0.192,
+        "invalidateFocus": 0.562,
+        "presentedView": 0.699
+      }
+    },
+    {
+      "at": 1790040291808,
+      "name": "switch-steps",
+      "value": 11.897,
+      "extra": {
+        "ensureView": 0.038,
+        "attachSweep": 9.734,
+        "layoutBroadcast": 0.565,
+        "throttle": 0.127,
+        "invalidateFocus": 0.221,
+        "presentedView": 1.077
+      }
+    },
+    {
+      "at": 1790040294880,
+      "name": "switch-steps",
+      "value": 11.287,
+      "extra": {
+        "ensureView": 0.036,
+        "attachSweep": 9.535,
+        "layoutBroadcast": 0.751,
+        "throttle": 0.121,
+        "invalidateFocus": 0.235,
+        "presentedView": 0.532
+      }
+    },
+    {
+      "at": 1790040297966,
+      "name": "switch-steps",
+      "value": 13.089,
+      "extra": {
+        "ensureView": 0.034,
+        "attachSweep": 10.134,
+        "layoutBroadcast": 1.022,
+        "throttle": 0.384,
+        "invalidateFocus": 0.48,
+        "presentedView": 0.887
+      }
+    },
+    {
+      "at": 1790040300987,
+      "name": "switch-steps",
+      "value": 11.82,
+      "extra": {
+        "ensureView": 0.033,
+        "attachSweep": 9.334,
+        "layoutBroadcast": 0.531,
+        "throttle": 0.113,
+        "invalidateFocus": 1.198,
+        "presentedView": 0.541
+      }
+    },
+    {
+      "at": 1790040304046,
+      "name": "switch-steps",
+      "value": 12.826,
+      "extra": {
+        "ensureView": 0.037,
+        "attachSweep": 10.59,
+        "layoutBroadcast": 0.705,
+        "throttle": 0.124,
+        "invalidateFocus": 0.282,
+        "presentedView": 0.924
+      }
+    },
+    {
+      "at": 1790040307133,
+      "name": "switch-steps",
+      "value": 10.513,
+      "extra": {
+        "ensureView": 0.038,
+        "attachSweep": 8.441,
+        "layoutBroadcast": 0.767,
+        "throttle": 0.128,
+        "invalidateFocus": 0.234,
+        "presentedView": 0.815
+      }
+    },
+    {
+      "at": 1790040310221,
+      "name": "switch-steps",
+      "value": 14.276,
+      "extra": {
+        "ensureView": 0.042,
+        "attachSweep": 11.459,
+        "layoutBroadcast": 1.359,
+        "throttle": 0.193,
+        "invalidateFocus": 0.439,
+        "presentedView": 0.68
+      }
+    },
+    {
+      "at": 1790040313313,
+      "name": "switch-steps",
+      "value": 15.017,
+      "extra": {
+        "ensureView": 0.04,
+        "attachSweep": 11.324,
+        "layoutBroadcast": 1.228,
+        "throttle": 0.643,
+        "invalidateFocus": 0.642,
+        "presentedView": 1.032
+      }
+    },
+    {
+      "at": 1790040316370,
+      "name": "switch-steps",
+      "value": 14.515,
+      "extra": {
+        "ensureView": 0.038,
+        "attachSweep": 12.83,
+        "layoutBroadcast": 0.62,
+        "throttle": 0.129,
+        "invalidateFocus": 0.238,
+        "presentedView": 0.583
+      }
+    },
+    {
+      "at": 1790040319462,
+      "name": "switch-steps",
+      "value": 15.203,
+      "extra": {
+        "ensureView": 0.041,
+        "attachSweep": 11.345,
+        "layoutBroadcast": 0.614,
+        "throttle": 0.178,
+        "invalidateFocus": 1.409,
+        "presentedView": 1.248
+      }
+    },
+    {
+      "at": 1790040329898,
+      "name": "switch-steps",
+      "value": 15.114,
+      "extra": {
+        "ensureView": 0.041,
+        "attachSweep": 11.497,
+        "layoutBroadcast": 0.848,
+        "throttle": 0.275,
+        "invalidateFocus": 0.998,
+        "presentedView": 1.33
+      }
+    },
+    {
+      "at": 1790040332912,
+      "name": "switch-steps",
+      "value": 12.309,
+      "extra": {
+        "ensureView": 0.038,
+        "attachSweep": 10.544,
+        "layoutBroadcast": 0.454,
+        "throttle": 0.178,
+        "invalidateFocus": 0.207,
+        "presentedView": 0.731
+      }
+    },
+    {
+      "at": 1790040335932,
+      "name": "switch-steps",
+      "value": 11.013,
+      "extra": {
+        "ensureView": 0.044,
+        "attachSweep": 8.512,
+        "layoutBroadcast": 0.746,
+        "throttle": 0.246,
+        "invalidateFocus": 0.364,
+        "presentedView": 0.918
+      }
+    },
+    {
+      "at": 1790040338960,
+      "name": "switch-steps",
+      "value": 12.515,
+      "extra": {
+        "ensureView": 0.039,
+        "attachSweep": 10.231,
+        "layoutBroadcast": 0.588,
+        "throttle": 0.143,
+        "invalidateFocus": 0.422,
+        "presentedView": 0.981
+      }
+    },
+    {
+      "at": 1790040342005,
+      "name": "switch-steps",
+      "value": 9.945,
+      "extra": {
+        "ensureView": 0.036,
+        "attachSweep": 8.402,
+        "layoutBroadcast": 0.569,
+        "throttle": 0.121,
+        "invalidateFocus": 0.239,
+        "presentedView": 0.488
+      }
+    },
+    {
+      "at": 1790040345024,
+      "name": "switch-steps",
+      "value": 13.852,
+      "extra": {
+        "ensureView": 0.063,
+        "attachSweep": 10.044,
+        "layoutBroadcast": 0.721,
+        "throttle": 0.155,
+        "invalidateFocus": 1.748,
+        "presentedView": 0.964
+      }
+    },
+    {
+      "at": 1790040348097,
+      "name": "switch-steps",
+      "value": 11.309,
+      "extra": {
+        "ensureView": 0.033,
+        "attachSweep": 9.773,
+        "layoutBroadcast": 0.59,
+        "throttle": 0.1,
+        "invalidateFocus": 0.279,
+        "presentedView": 0.458
+      }
+    },
+    {
+      "at": 1790040351152,
+      "name": "switch-steps",
+      "value": 14.363,
+      "extra": {
+        "ensureView": 0.034,
+        "attachSweep": 11.359,
+        "layoutBroadcast": 1.517,
+        "throttle": 0.161,
+        "invalidateFocus": 0.367,
+        "presentedView": 0.815
+      }
+    },
+    {
+      "at": 1790040354151,
+      "name": "switch-steps",
+      "value": 10.858,
+      "extra": {
+        "ensureView": 0.063,
+        "attachSweep": 8.951,
+        "layoutBroadcast": 0.638,
+        "throttle": 0.106,
+        "invalidateFocus": 0.219,
+        "presentedView": 0.695
+      }
+    },
+    {
+      "at": 1790040357217,
+      "name": "switch-steps",
+      "value": 10.245,
+      "extra": {
+        "ensureView": 0.04,
+        "attachSweep": 7.802,
+        "layoutBroadcast": 0.752,
+        "throttle": 0.155,
+        "invalidateFocus": 0.286,
+        "presentedView": 1.145
+      }
+    },
+    {
+      "at": 1790040360235,
+      "name": "switch-steps",
+      "value": 11.406,
+      "extra": {
+        "ensureView": 0.035,
+        "attachSweep": 9.574,
+        "layoutBroadcast": 0.635,
+        "throttle": 0.179,
+        "invalidateFocus": 0.318,
+        "presentedView": 0.614
+      }
+    },
+    {
+      "at": 1790040363355,
+      "name": "switch-steps",
+      "value": 14.21,
+      "extra": {
+        "ensureView": 0.041,
+        "attachSweep": 10.632,
+        "layoutBroadcast": 0.569,
+        "throttle": 0.122,
+        "invalidateFocus": 2.09,
+        "presentedView": 0.669
+      }
+    },
+    {
+      "at": 1790040366378,
+      "name": "switch-steps",
+      "value": 13.018,
+      "extra": {
+        "ensureView": 0.039,
+        "attachSweep": 10.395,
+        "layoutBroadcast": 1.126,
+        "throttle": 0.123,
+        "invalidateFocus": 0.512,
+        "presentedView": 0.743
+      }
+    },
+    {
+      "at": 1790040369419,
+      "name": "switch-steps",
+      "value": 12.149,
+      "extra": {
+        "ensureView": 0.035,
+        "attachSweep": 10.322,
+        "layoutBroadcast": 0.766,
+        "throttle": 0.103,
+        "invalidateFocus": 0.226,
+        "presentedView": 0.625
+      }
+    },
+    {
+      "at": 1790040372433,
+      "name": "switch-steps",
+      "value": 11.079,
+      "extra": {
+        "ensureView": 0.036,
+        "attachSweep": 9.187,
+        "layoutBroadcast": 0.608,
+        "throttle": 0.108,
+        "invalidateFocus": 0.2,
+        "presentedView": 0.773
+      }
+    },
+    {
+      "at": 1790040375446,
+      "name": "switch-steps",
+      "value": 11.302,
+      "extra": {
+        "ensureView": 0.029,
+        "attachSweep": 9.359,
+        "layoutBroadcast": 0.726,
+        "throttle": 0.116,
+        "invalidateFocus": 0.244,
+        "presentedView": 0.761
+      }
+    },
+    {
+      "at": 1790040378554,
+      "name": "switch-steps",
+      "value": 11.195,
+      "extra": {
+        "ensureView": 0.042,
+        "attachSweep": 9.519,
+        "layoutBroadcast": 0.854,
+        "throttle": 0.147,
+        "invalidateFocus": 0.219,
+        "presentedView": 0.368
+      }
+    },
+    {
+      "at": 1790040381555,
+      "name": "switch-steps",
+      "value": 12.772,
+      "extra": {
+        "ensureView": 0.038,
+        "attachSweep": 9.663,
+        "layoutBroadcast": 0.656,
+        "throttle": 0.137,
+        "invalidateFocus": 1.219,
+        "presentedView": 0.92
+      }
+    },
+    {
+      "at": 1790040389112,
+      "name": "switch-steps",
+      "value": 11.947,
+      "extra": {
+        "ensureView": 0.034,
+        "attachSweep": 9.509,
+        "layoutBroadcast": 0.641,
+        "throttle": 0.121,
+        "invalidateFocus": 0.388,
+        "presentedView": 1.184
+      }
+    },
+    {
+      "at": 1790040392189,
+      "name": "switch-steps",
+      "value": 9.802,
+      "extra": {
+        "ensureView": 0.045,
+        "attachSweep": 7.983,
+        "layoutBroadcast": 0.774,
+        "throttle": 0.115,
+        "invalidateFocus": 0.225,
+        "presentedView": 0.577
+      }
+    },
+    {
+      "at": 1790040395221,
+      "name": "switch-steps",
+      "value": 12.646,
+      "extra": {
+        "ensureView": 0.033,
+        "attachSweep": 9.652,
+        "layoutBroadcast": 1.201,
+        "throttle": 0.217,
+        "invalidateFocus": 0.441,
+        "presentedView": 1.011
+      }
+    },
+    {
+      "at": 1790040398324,
+      "name": "switch-steps",
+      "value": 11.865,
+      "extra": {
+        "ensureView": 0.042,
+        "attachSweep": 9.969,
+        "layoutBroadcast": 0.62,
+        "throttle": 0.139,
+        "invalidateFocus": 0.241,
+        "presentedView": 0.733
+      }
+    },
+    {
+      "at": 1790040401329,
+      "name": "switch-steps",
+      "value": 12.285,
+      "extra": {
+        "ensureView": 0.039,
+        "attachSweep": 10.61,
+        "layoutBroadcast": 0.768,
+        "throttle": 0.11,
+        "invalidateFocus": 0.214,
+        "presentedView": 0.477
+      }
+    },
+    {
+      "at": 1790040404407,
+      "name": "switch-steps",
+      "value": 11.758,
+      "extra": {
+        "ensureView": 0.04,
+        "attachSweep": 8.936,
+        "layoutBroadcast": 0.605,
+        "throttle": 0.144,
+        "invalidateFocus": 1.304,
+        "presentedView": 0.642
+      }
+    },
+    {
+      "at": 1790040407487,
+      "name": "switch-steps",
+      "value": 14.683,
+      "extra": {
+        "ensureView": 0.04,
+        "attachSweep": 12.157,
+        "layoutBroadcast": 0.845,
+        "throttle": 0.243,
+        "invalidateFocus": 0.684,
+        "presentedView": 0.623
+      }
+    },
+    {
+      "at": 1790040410571,
+      "name": "switch-steps",
+      "value": 12.75,
+      "extra": {
+        "ensureView": 0.038,
+        "attachSweep": 10.165,
+        "layoutBroadcast": 0.614,
+        "throttle": 0.113,
+        "invalidateFocus": 0.28,
+        "presentedView": 1.44
+      }
+    },
+    {
+      "at": 1790040413649,
+      "name": "switch-steps",
+      "value": 10.931,
+      "extra": {
+        "ensureView": 0.034,
+        "attachSweep": 8.808,
+        "layoutBroadcast": 0.642,
+        "throttle": 0.116,
+        "invalidateFocus": 0.423,
+        "presentedView": 0.817
+      }
+    },
+    {
+      "at": 1790040416684,
+      "name": "switch-steps",
+      "value": 15.881,
+      "extra": {
+        "ensureView": 0.04,
+        "attachSweep": 12.606,
+        "layoutBroadcast": 1.704,
+        "throttle": 0.226,
+        "invalidateFocus": 0.457,
+        "presentedView": 0.733
+      }
+    },
+    {
+      "at": 1790040419751,
+      "name": "switch-steps",
+      "value": 11.212,
+      "extra": {
+        "ensureView": 0.077,
+        "attachSweep": 9.714,
+        "layoutBroadcast": 0.553,
+        "throttle": 0.135,
+        "invalidateFocus": 0.202,
+        "presentedView": 0.459
+      }
+    },
+    {
+      "at": 1790040422774,
+      "name": "switch-steps",
+      "value": 15.197,
+      "extra": {
+        "ensureView": 0.046,
+        "attachSweep": 11.709,
+        "layoutBroadcast": 0.715,
+        "throttle": 0.136,
+        "invalidateFocus": 1.661,
+        "presentedView": 0.834
+      }
+    },
+    {
+      "at": 1790040425859,
+      "name": "switch-steps",
+      "value": 13.963,
+      "extra": {
+        "ensureView": 0.082,
+        "attachSweep": 11.37,
+        "layoutBroadcast": 0.845,
+        "throttle": 0.174,
+        "invalidateFocus": 0.575,
+        "presentedView": 0.828
+      }
+    },
+    {
+      "at": 1790040428926,
+      "name": "switch-steps",
+      "value": 10.711,
+      "extra": {
+        "ensureView": 0.031,
+        "attachSweep": 9.177,
+        "layoutBroadcast": 0.517,
+        "throttle": 0.138,
+        "invalidateFocus": 0.204,
+        "presentedView": 0.564
+      }
+    },
+    {
+      "at": 1790040431927,
+      "name": "switch-steps",
+      "value": 12.343,
+      "extra": {
+        "ensureView": 0.034,
+        "attachSweep": 10.688,
+        "layoutBroadcast": 0.579,
+        "throttle": 0.148,
+        "invalidateFocus": 0.236,
+        "presentedView": 0.588
+      }
+    },
+    {
+      "at": 1790040434936,
+      "name": "switch-steps",
+      "value": 12.943,
+      "extra": {
+        "ensureView": 0.057,
+        "attachSweep": 10.445,
+        "layoutBroadcast": 0.89,
+        "throttle": 0.173,
+        "invalidateFocus": 0.254,
+        "presentedView": 1.042
+      }
+    },
+    {
+      "at": 1790040437955,
+      "name": "switch-steps",
+      "value": 11.791,
+      "extra": {
+        "ensureView": 0.033,
+        "attachSweep": 10.032,
+        "layoutBroadcast": 0.595,
+        "throttle": 0.151,
+        "invalidateFocus": 0.332,
+        "presentedView": 0.569
+      }
+    },
+    {
+      "at": 1790040441015,
+      "name": "switch-steps",
+      "value": 12.791,
+      "extra": {
+        "ensureView": 0.038,
+        "attachSweep": 9.647,
+        "layoutBroadcast": 0.504,
+        "throttle": 0.091,
+        "invalidateFocus": 1.297,
+        "presentedView": 1.129
+      }
+    },
+    {
+      "at": 1790040449419,
+      "name": "switch-steps",
+      "value": 11.565,
+      "extra": {
+        "ensureView": 0.039,
+        "attachSweep": 9.305,
+        "layoutBroadcast": 0.89,
+        "throttle": 0.129,
+        "invalidateFocus": 0.304,
+        "presentedView": 0.64
+      }
+    },
+    {
+      "at": 1790040452435,
+      "name": "switch-steps",
+      "value": 12.162,
+      "extra": {
+        "ensureView": 0.037,
+        "attachSweep": 10.281,
+        "layoutBroadcast": 0.713,
+        "throttle": 0.133,
+        "invalidateFocus": 0.229,
+        "presentedView": 0.558
+      }
+    },
+    {
+      "at": 1790040455515,
+      "name": "switch-steps",
+      "value": 11.622,
+      "extra": {
+        "ensureView": 0.04,
+        "attachSweep": 9.845,
+        "layoutBroadcast": 0.819,
+        "throttle": 0.133,
+        "invalidateFocus": 0.204,
+        "presentedView": 0.514
+      }
+    },
+    {
+      "at": 1790040458523,
+      "name": "switch-steps",
+      "value": 11.866,
+      "extra": {
+        "ensureView": 0.038,
+        "attachSweep": 9.629,
+        "layoutBroadcast": 0.642,
+        "throttle": 0.103,
+        "invalidateFocus": 0.248,
+        "presentedView": 1.041
+      }
+    },
+    {
+      "at": 1790040461531,
+      "name": "switch-steps",
+      "value": 12.002,
+      "extra": {
+        "ensureView": 0.039,
+        "attachSweep": 10.511,
+        "layoutBroadcast": 0.497,
+        "throttle": 0.103,
+        "invalidateFocus": 0.208,
+        "presentedView": 0.566
+      }
+    },
+    {
+      "at": 1790040464546,
+      "name": "switch-steps",
+      "value": 12.264,
+      "extra": {
+        "ensureView": 0.037,
+        "attachSweep": 8.831,
+        "layoutBroadcast": 0.898,
+        "throttle": 0.156,
+        "invalidateFocus": 1.618,
+        "presentedView": 0.649
+      }
+    },
+    {
+      "at": 1790040467659,
+      "name": "switch-steps",
+      "value": 13.705,
+      "extra": {
+        "ensureView": 0.04,
+        "attachSweep": 11.253,
+        "layoutBroadcast": 0.918,
+        "throttle": 0.108,
+        "invalidateFocus": 0.403,
+        "presentedView": 0.874
+      }
+    },
+    {
+      "at": 1790040470695,
+      "name": "switch-steps",
+      "value": 15.587,
+      "extra": {
+        "ensureView": 0.035,
+        "attachSweep": 13.478,
+        "layoutBroadcast": 0.765,
+        "throttle": 0.107,
+        "invalidateFocus": 0.274,
+        "presentedView": 0.825
+      }
+    },
+    {
+      "at": 1790040473783,
+      "name": "switch-steps",
+      "value": 10.563,
+      "extra": {
+        "ensureView": 0.035,
+        "attachSweep": 7.448,
+        "layoutBroadcast": 0.946,
+        "throttle": 0.125,
+        "invalidateFocus": 0.239,
+        "presentedView": 1.702
+      }
+    },
+    {
+      "at": 1790040476821,
+      "name": "switch-steps",
+      "value": 13.492,
+      "extra": {
+        "ensureView": 0.065,
+        "attachSweep": 10.801,
+        "layoutBroadcast": 0.86,
+        "throttle": 0.124,
+        "invalidateFocus": 0.304,
+        "presentedView": 1.247
+      }
+    },
+    {
+      "at": 1790040479900,
+      "name": "switch-steps",
+      "value": 11.206,
+      "extra": {
+        "ensureView": 0.035,
+        "attachSweep": 9.567,
+        "layoutBroadcast": 0.617,
+        "throttle": 0.116,
+        "invalidateFocus": 0.228,
+        "presentedView": 0.552
+      }
+    },
+    {
+      "at": 1790040482925,
+      "name": "switch-steps",
+      "value": 12.879,
+      "extra": {
+        "ensureView": 0.048,
+        "attachSweep": 9.603,
+        "layoutBroadcast": 0.568,
+        "throttle": 0.115,
+        "invalidateFocus": 1.765,
+        "presentedView": 0.701
+      }
+    },
+    {
+      "at": 1790040485946,
+      "name": "switch-steps",
+      "value": 13.388,
+      "extra": {
+        "ensureView": 0.035,
+        "attachSweep": 11.095,
+        "layoutBroadcast": 0.7,
+        "throttle": 0.113,
+        "invalidateFocus": 0.362,
+        "presentedView": 0.904
+      }
+    },
+    {
+      "at": 1790040488963,
+      "name": "switch-steps",
+      "value": 11.054,
+      "extra": {
+        "ensureView": 0.038,
+        "attachSweep": 8.99,
+        "layoutBroadcast": 0.607,
+        "throttle": 0.109,
+        "invalidateFocus": 0.278,
+        "presentedView": 0.943
+      }
+    },
+    {
+      "at": 1790040491974,
+      "name": "switch-steps",
+      "value": 13.384,
+      "extra": {
+        "ensureView": 0.036,
+        "attachSweep": 11.323,
+        "layoutBroadcast": 0.614,
+        "throttle": 0.094,
+        "invalidateFocus": 0.211,
+        "presentedView": 0.966
+      }
+    },
+    {
+      "at": 1790040494981,
+      "name": "switch-steps",
+      "value": 12.222,
+      "extra": {
+        "ensureView": 0.051,
+        "attachSweep": 10.387,
+        "layoutBroadcast": 0.612,
+        "throttle": 0.109,
+        "invalidateFocus": 0.219,
+        "presentedView": 0.757
+      }
+    },
+    {
+      "at": 1790040498078,
+      "name": "switch-steps",
+      "value": 11.145,
+      "extra": {
+        "ensureView": 0.036,
+        "attachSweep": 9.687,
+        "layoutBroadcast": 0.5,
+        "throttle": 0.149,
+        "invalidateFocus": 0.245,
+        "presentedView": 0.474
+      }
+    },
+    {
+      "at": 1790040501161,
+      "name": "switch-steps",
+      "value": 11.749,
+      "extra": {
+        "ensureView": 0.039,
+        "attachSweep": 8.742,
+        "layoutBroadcast": 0.596,
+        "throttle": 0.118,
+        "invalidateFocus": 1.6,
+        "presentedView": 0.564
+      }
+    },
+    {
+      "at": 1790040508050,
+      "name": "switch-steps",
+      "value": 11.342,
+      "extra": {
+        "ensureView": 0.044,
+        "attachSweep": 8.437,
+        "layoutBroadcast": 0.797,
+        "throttle": 0.105,
+        "invalidateFocus": 0.779,
+        "presentedView": 1.075
+      }
+    },
+    {
+      "at": 1790040511115,
+      "name": "switch-steps",
+      "value": 10.245,
+      "extra": {
+        "ensureView": 0.038,
+        "attachSweep": 8.277,
+        "layoutBroadcast": 0.897,
+        "throttle": 0.161,
+        "invalidateFocus": 0.337,
+        "presentedView": 0.489
+      }
+    },
+    {
+      "at": 1790040514121,
+      "name": "switch-steps",
+      "value": 13.945,
+      "extra": {
+        "ensureView": 0.029,
+        "attachSweep": 12.096,
+        "layoutBroadcast": 0.678,
+        "throttle": 0.235,
+        "invalidateFocus": 0.243,
+        "presentedView": 0.573
+      }
+    },
+    {
+      "at": 1790040517152,
+      "name": "switch-steps",
+      "value": 10.193,
+      "extra": {
+        "ensureView": 0.267,
+        "attachSweep": 8.38,
+        "layoutBroadcast": 0.624,
+        "throttle": 0.103,
+        "invalidateFocus": 0.21,
+        "presentedView": 0.535
+      }
+    },
+    {
+      "at": 1790040520263,
+      "name": "switch-steps",
+      "value": 12.389,
+      "extra": {
+        "ensureView": 0.04,
+        "attachSweep": 10.609,
+        "layoutBroadcast": 0.628,
+        "throttle": 0.104,
+        "invalidateFocus": 0.329,
+        "presentedView": 0.594
+      }
+    },
+    {
+      "at": 1790040523276,
+      "name": "switch-steps",
+      "value": 14.608,
+      "extra": {
+        "ensureView": 0.033,
+        "attachSweep": 11.385,
+        "layoutBroadcast": 0.822,
+        "throttle": 0.122,
+        "invalidateFocus": 1.541,
+        "presentedView": 0.616
+      }
+    },
+    {
+      "at": 1790040526276,
+      "name": "switch-steps",
+      "value": 10.85,
+      "extra": {
+        "ensureView": 0.041,
+        "attachSweep": 8.887,
+        "layoutBroadcast": 0.699,
+        "throttle": 0.154,
+        "invalidateFocus": 0.344,
+        "presentedView": 0.667
+      }
+    },
+    {
+      "at": 1790040529309,
+      "name": "switch-steps",
+      "value": 10.607,
+      "extra": {
+        "ensureView": 0.043,
+        "attachSweep": 8.964,
+        "layoutBroadcast": 0.561,
+        "throttle": 0.147,
+        "invalidateFocus": 0.244,
+        "presentedView": 0.571
+      }
+    },
+    {
+      "at": 1790040532334,
+      "name": "switch-steps",
+      "value": 11.279,
+      "extra": {
+        "ensureView": 0.043,
+        "attachSweep": 9.065,
+        "layoutBroadcast": 1.059,
+        "throttle": 0.233,
+        "invalidateFocus": 0.233,
+        "presentedView": 0.568
+      }
+    },
+    {
+      "at": 1790040535403,
+      "name": "switch-steps",
+      "value": 13.338,
+      "extra": {
+        "ensureView": 0.039,
+        "attachSweep": 10.701,
+        "layoutBroadcast": 1.281,
+        "throttle": 0.112,
+        "invalidateFocus": 0.289,
+        "presentedView": 0.808
+      }
+    },
+    {
+      "at": 1790040538490,
+      "name": "switch-steps",
+      "value": 12.691,
+      "extra": {
+        "ensureView": 0.043,
+        "attachSweep": 11.01,
+        "layoutBroadcast": 0.645,
+        "throttle": 0.204,
+        "invalidateFocus": 0.22,
+        "presentedView": 0.49
+      }
+    },
+    {
+      "at": 1790040541602,
+      "name": "switch-steps",
+      "value": 14.305,
+      "extra": {
+        "ensureView": 0.037,
+        "attachSweep": 10.706,
+        "layoutBroadcast": 0.605,
+        "throttle": 0.143,
+        "invalidateFocus": 1.356,
+        "presentedView": 1.163
+      }
+    },
+    {
+      "at": 1790040544648,
+      "name": "switch-steps",
+      "value": 11.894,
+      "extra": {
+        "ensureView": 0.038,
+        "attachSweep": 9.891,
+        "layoutBroadcast": 0.889,
+        "throttle": 0.126,
+        "invalidateFocus": 0.317,
+        "presentedView": 0.55
+      }
+    },
+    {
+      "at": 1790040547702,
+      "name": "switch-steps",
+      "value": 10.561,
+      "extra": {
+        "ensureView": 0.033,
+        "attachSweep": 8.881,
+        "layoutBroadcast": 0.545,
+        "throttle": 0.106,
+        "invalidateFocus": 0.231,
+        "presentedView": 0.622
+      }
+    },
+    {
+      "at": 1790040550755,
+      "name": "switch-steps",
+      "value": 12.349,
+      "extra": {
+        "ensureView": 0.039,
+        "attachSweep": 10.524,
+        "layoutBroadcast": 0.663,
+        "throttle": 0.111,
+        "invalidateFocus": 0.214,
+        "presentedView": 0.63
+      }
+    },
+    {
+      "at": 1790040553852,
+      "name": "switch-steps",
+      "value": 12.136,
+      "extra": {
+        "ensureView": 0.037,
+        "attachSweep": 9.787,
+        "layoutBroadcast": 0.696,
+        "throttle": 0.117,
+        "invalidateFocus": 0.368,
+        "presentedView": 0.861
+      }
+    },
+    {
+      "at": 1790040556860,
+      "name": "switch-steps",
+      "value": 10.647,
+      "extra": {
+        "ensureView": 0.042,
+        "attachSweep": 9.421,
+        "layoutBroadcast": 0.461,
+        "throttle": 0.096,
+        "invalidateFocus": 0.198,
+        "presentedView": 0.356
+      }
+    },
+    {
+      "at": 1790040559961,
+      "name": "switch-steps",
+      "value": 12.99,
+      "extra": {
+        "ensureView": 0.045,
+        "attachSweep": 10.1,
+        "layoutBroadcast": 0.568,
+        "throttle": 0.104,
+        "invalidateFocus": 1.476,
+        "presentedView": 0.624
+      }
+    },
+    {
+      "at": 1790040567848,
+      "name": "switch-steps",
+      "value": 10.735,
+      "extra": {
+        "ensureView": 0.098,
+        "attachSweep": 8.333,
+        "layoutBroadcast": 0.696,
+        "throttle": 0.167,
+        "invalidateFocus": 0.492,
+        "presentedView": 0.754
+      }
+    },
+    {
+      "at": 1790040570891,
+      "name": "switch-steps",
+      "value": 12.088,
+      "extra": {
+        "ensureView": 0.038,
+        "attachSweep": 10.202,
+        "layoutBroadcast": 0.581,
+        "throttle": 0.112,
+        "invalidateFocus": 0.22,
+        "presentedView": 0.764
+      }
+    },
+    {
+      "at": 1790040573921,
+      "name": "switch-steps",
+      "value": 12.107,
+      "extra": {
+        "ensureView": 0.04,
+        "attachSweep": 9.494,
+        "layoutBroadcast": 0.696,
+        "throttle": 0.151,
+        "invalidateFocus": 0.35,
+        "presentedView": 1.221
+      }
+    },
+    {
+      "at": 1790040576945,
+      "name": "switch-steps",
+      "value": 10.877,
+      "extra": {
+        "ensureView": 0.04,
+        "attachSweep": 9.494,
+        "layoutBroadcast": 0.545,
+        "throttle": 0.095,
+        "invalidateFocus": 0.217,
+        "presentedView": 0.425
+      }
+    },
+    {
+      "at": 1790040579947,
+      "name": "switch-steps",
+      "value": 11.824,
+      "extra": {
+        "ensureView": 0.032,
+        "attachSweep": 9.703,
+        "layoutBroadcast": 0.493,
+        "throttle": 0.12,
+        "invalidateFocus": 0.258,
+        "presentedView": 1.15
+      }
+    },
+    {
+      "at": 1790040582975,
+      "name": "switch-steps",
+      "value": 14.263,
+      "extra": {
+        "ensureView": 0.033,
+        "attachSweep": 10.194,
+        "layoutBroadcast": 0.562,
+        "throttle": 0.168,
+        "invalidateFocus": 1.957,
+        "presentedView": 1.249
+      }
+    },
+    {
+      "at": 1790040586012,
+      "name": "switch-steps",
+      "value": 12.414,
+      "extra": {
+        "ensureView": 0.036,
+        "attachSweep": 10.611,
+        "layoutBroadcast": 0.629,
+        "throttle": 0.159,
+        "invalidateFocus": 0.295,
+        "presentedView": 0.579
+      }
+    },
+    {
+      "at": 1790040589041,
+      "name": "switch-steps",
+      "value": 8.502,
+      "extra": {
+        "ensureView": 0.026,
+        "attachSweep": 6.84,
+        "layoutBroadcast": 0.65,
+        "throttle": 0.143,
+        "invalidateFocus": 0.237,
+        "presentedView": 0.53
+      }
+    },
+    {
+      "at": 1790040592103,
+      "name": "switch-steps",
+      "value": 13.779,
+      "extra": {
+        "ensureView": 0.041,
+        "attachSweep": 11.488,
+        "layoutBroadcast": 0.643,
+        "throttle": 0.116,
+        "invalidateFocus": 0.247,
+        "presentedView": 1.095
+      }
+    },
+    {
+      "at": 1790040595206,
+      "name": "switch-steps",
+      "value": 10.805,
+      "extra": {
+        "ensureView": 0.039,
+        "attachSweep": 9.025,
+        "layoutBroadcast": 0.642,
+        "throttle": 0.105,
+        "invalidateFocus": 0.225,
+        "presentedView": 0.647
+      }
+    },
+    {
+      "at": 1790040598291,
+      "name": "switch-steps",
+      "value": 10.485,
+      "extra": {
+        "ensureView": 0.037,
+        "attachSweep": 9.293,
+        "layoutBroadcast": 0.501,
+        "throttle": 0.11,
+        "invalidateFocus": 0.21,
+        "presentedView": 0.292
+      }
+    },
+    {
+      "at": 1790040601296,
+      "name": "switch-steps",
+      "value": 14.198,
+      "extra": {
+        "ensureView": 0.035,
+        "attachSweep": 10.489,
+        "layoutBroadcast": 0.642,
+        "throttle": 0.161,
+        "invalidateFocus": 1.602,
+        "presentedView": 1.194
+      }
+    },
+    {
+      "at": 1790040604319,
+      "name": "switch-steps",
+      "value": 10.183,
+      "extra": {
+        "ensureView": 0.032,
+        "attachSweep": 7.211,
+        "layoutBroadcast": 0.908,
+        "throttle": 0.152,
+        "invalidateFocus": 0.419,
+        "presentedView": 1.297
+      }
+    },
+    {
+      "at": 1790040607420,
+      "name": "switch-steps",
+      "value": 11.056,
+      "extra": {
+        "ensureView": 0.038,
+        "attachSweep": 9.102,
+        "layoutBroadcast": 0.596,
+        "throttle": 0.138,
+        "invalidateFocus": 0.379,
+        "presentedView": 0.731
+      }
+    },
+    {
+      "at": 1790040610446,
+      "name": "switch-steps",
+      "value": 10.152,
+      "extra": {
+        "ensureView": 0.068,
+        "attachSweep": 8.694,
+        "layoutBroadcast": 0.545,
+        "throttle": 0.13,
+        "invalidateFocus": 0.219,
+        "presentedView": 0.442
+      }
+    },
+    {
+      "at": 1790040613445,
+      "name": "switch-steps",
+      "value": 10.214,
+      "extra": {
+        "ensureView": 0.035,
+        "attachSweep": 8.513,
+        "layoutBroadcast": 0.669,
+        "throttle": 0.149,
+        "invalidateFocus": 0.268,
+        "presentedView": 0.526
+      }
+    },
+    {
+      "at": 1790040616484,
+      "name": "switch-steps",
+      "value": 11.219,
+      "extra": {
+        "ensureView": 0.058,
+        "attachSweep": 9.684,
+        "layoutBroadcast": 0.548,
+        "throttle": 0.121,
+        "invalidateFocus": 0.243,
+        "presentedView": 0.511
+      }
+    },
+    {
+      "at": 1790040619501,
+      "name": "switch-steps",
+      "value": 12.244,
+      "extra": {
+        "ensureView": 0.042,
+        "attachSweep": 9.017,
+        "layoutBroadcast": 0.59,
+        "throttle": 0.107,
+        "invalidateFocus": 1.686,
+        "presentedView": 0.736
+      }
+    },
+    {
+      "at": 1790040627654,
+      "name": "switch-steps",
+      "value": 10.542,
+      "extra": {
+        "ensureView": 0.085,
+        "attachSweep": 8.202,
+        "layoutBroadcast": 0.837,
+        "throttle": 0.209,
+        "invalidateFocus": 0.376,
+        "presentedView": 0.749
+      }
+    },
+    {
+      "at": 1790040630694,
+      "name": "switch-steps",
+      "value": 12.295,
+      "extra": {
+        "ensureView": 0.038,
+        "attachSweep": 10.674,
+        "layoutBroadcast": 0.592,
+        "throttle": 0.118,
+        "invalidateFocus": 0.233,
+        "presentedView": 0.561
+      }
+    },
+    {
+      "at": 1790040633780,
+      "name": "switch-steps",
+      "value": 12.678,
+      "extra": {
+        "ensureView": 0.048,
+        "attachSweep": 10.682,
+        "layoutBroadcast": 0.633,
+        "throttle": 0.161,
+        "invalidateFocus": 0.27,
+        "presentedView": 0.794
+      }
+    },
+    {
+      "at": 1790040636879,
+      "name": "switch-steps",
+      "value": 10.753,
+      "extra": {
+        "ensureView": 0.035,
+        "attachSweep": 8.644,
+        "layoutBroadcast": 0.851,
+        "throttle": 0.127,
+        "invalidateFocus": 0.408,
+        "presentedView": 0.612
+      }
+    },
+    {
+      "at": 1790040639953,
+      "name": "switch-steps",
+      "value": 11.249,
+      "extra": {
+        "ensureView": 0.043,
+        "attachSweep": 9.601,
+        "layoutBroadcast": 0.571,
+        "throttle": 0.157,
+        "invalidateFocus": 0.244,
+        "presentedView": 0.567
+      }
+    },
+    {
+      "at": 1790040642997,
+      "name": "switch-steps",
+      "value": 13.883,
+      "extra": {
+        "ensureView": 0.045,
+        "attachSweep": 9.864,
+        "layoutBroadcast": 1.084,
+        "throttle": 0.334,
+        "invalidateFocus": 1.559,
+        "presentedView": 0.919
+      }
+    },
+    {
+      "at": 1790040646031,
+      "name": "switch-steps",
+      "value": 13.963,
+      "extra": {
+        "ensureView": 0.034,
+        "attachSweep": 11.411,
+        "layoutBroadcast": 1.273,
+        "throttle": 0.112,
+        "invalidateFocus": 0.363,
+        "presentedView": 0.701
+      }
+    },
+    {
+      "at": 1790040649124,
+      "name": "switch-steps",
+      "value": 10.338,
+      "extra": {
+        "ensureView": 0.038,
+        "attachSweep": 8.085,
+        "layoutBroadcast": 0.629,
+        "throttle": 0.163,
+        "invalidateFocus": 0.323,
+        "presentedView": 1.031
+      }
+    },
+    {
+      "at": 1790040652126,
+      "name": "switch-steps",
+      "value": 11.706,
+      "extra": {
+        "ensureView": 0.036,
+        "attachSweep": 9.321,
+        "layoutBroadcast": 0.909,
+        "throttle": 0.179,
+        "invalidateFocus": 0.513,
+        "presentedView": 0.674
+      }
+    },
+    {
+      "at": 1790040655181,
+      "name": "switch-steps",
+      "value": 10.248,
+      "extra": {
+        "ensureView": 0.043,
+        "attachSweep": 8.478,
+        "layoutBroadcast": 0.548,
+        "throttle": 0.098,
+        "invalidateFocus": 0.234,
+        "presentedView": 0.739
+      }
+    },
+    {
+      "at": 1790040658249,
+      "name": "switch-steps",
+      "value": 11.139,
+      "extra": {
+        "ensureView": 0.039,
+        "attachSweep": 9.768,
+        "layoutBroadcast": 0.5,
+        "throttle": 0.101,
+        "invalidateFocus": 0.206,
+        "presentedView": 0.452
+      }
+    },
+    {
+      "at": 1790040661283,
+      "name": "switch-steps",
+      "value": 13.901,
+      "extra": {
+        "ensureView": 0.036,
+        "attachSweep": 10.221,
+        "layoutBroadcast": 1.102,
+        "throttle": 0.113,
+        "invalidateFocus": 1.272,
+        "presentedView": 1.019
+      }
+    },
+    {
+      "at": 1790040664326,
+      "name": "switch-steps",
+      "value": 12.733,
+      "extra": {
+        "ensureView": 0.029,
+        "attachSweep": 10.237,
+        "layoutBroadcast": 0.795,
+        "throttle": 0.114,
+        "invalidateFocus": 0.361,
+        "presentedView": 1.13
+      }
+    },
+    {
+      "at": 1790040667430,
+      "name": "switch-steps",
+      "value": 11.94,
+      "extra": {
+        "ensureView": 0.037,
+        "attachSweep": 10.291,
+        "layoutBroadcast": 0.545,
+        "throttle": 0.112,
+        "invalidateFocus": 0.21,
+        "presentedView": 0.582
+      }
+    },
+    {
+      "at": 1790040670482,
+      "name": "switch-steps",
+      "value": 11.737,
+      "extra": {
+        "ensureView": 0.035,
+        "attachSweep": 10.223,
+        "layoutBroadcast": 0.569,
+        "throttle": 0.102,
+        "invalidateFocus": 0.231,
+        "presentedView": 0.508
+      }
+    },
+    {
+      "at": 1790040673550,
+      "name": "switch-steps",
+      "value": 13.299,
+      "extra": {
+        "ensureView": 0.036,
+        "attachSweep": 9.866,
+        "layoutBroadcast": 0.653,
+        "throttle": 0.135,
+        "invalidateFocus": 1.607,
+        "presentedView": 0.905
+      }
+    },
+    {
+      "at": 1790040676637,
+      "name": "switch-steps",
+      "value": 11.441,
+      "extra": {
+        "ensureView": 0.035,
+        "attachSweep": 9.947,
+        "layoutBroadcast": 0.518,
+        "throttle": 0.12,
+        "invalidateFocus": 0.226,
+        "presentedView": 0.52
+      }
+    },
+    {
+      "at": 1790040679710,
+      "name": "switch-steps",
+      "value": 15.259,
+      "extra": {
+        "ensureView": 0.038,
+        "attachSweep": 10.428,
+        "layoutBroadcast": 1.093,
+        "throttle": 0.34,
+        "invalidateFocus": 2.658,
+        "presentedView": 0.614
+      }
+    }
+  ],
+  "legSlopes": [],
+  "slowSwitchSamples": [
+    {
+      "at": 1790040363366,
+      "ms": 40.864,
+      "tabId": "58588784-8517-4bd6-b574-ee95014051dc",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040213128,
+      "ms": 35.895,
+      "tabId": "5d66c79a-ffdb-4fc9-bc39-eaf22ec233a3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040160149,
+      "ms": 32.966,
+      "tabId": "58588784-8517-4bd6-b574-ee95014051dc",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040679721,
+      "ms": 27.839,
+      "tabId": "58588784-8517-4bd6-b574-ee95014051dc",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040345038,
+      "ms": 27.361,
+      "tabId": "58588784-8517-4bd6-b574-ee95014051dc",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040592113,
+      "ms": 27.323,
+      "tabId": "5d66c79a-ffdb-4fc9-bc39-eaf22ec233a3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040138602,
+      "ms": 25.246,
+      "tabId": "58588784-8517-4bd6-b574-ee95014051dc",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040090019,
+      "ms": 23.879,
+      "tabId": "dcc5ec72-0bc7-4d46-b0a7-cd48d66f34b7",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040485956,
+      "ms": 23.834,
+      "tabId": "140f3860-afc1-4413-8446-848e55dfd6da",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040541612,
+      "ms": 23.791,
+      "tabId": "58588784-8517-4bd6-b574-ee95014051dc",
+      "phase": "warmup",
+      "leg": null
+    }
+  ],
+  "switchSamples": [
+    {
+      "at": 1790040081568,
+      "ms": 23.35,
+      "tabId": "140f3860-afc1-4413-8446-848e55dfd6da",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040090019,
+      "ms": 23.879,
+      "tabId": "dcc5ec72-0bc7-4d46-b0a7-cd48d66f34b7",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040093037,
+      "ms": 19.406,
+      "tabId": "5d66c79a-ffdb-4fc9-bc39-eaf22ec233a3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040096063,
+      "ms": 20.306,
+      "tabId": "1052435f-5e56-429a-8324-d5b3e2805f74",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040099091,
+      "ms": 22.054,
+      "tabId": "2e1a503f-0279-4f4d-bab0-32cbb5e7a3d2",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040102089,
+      "ms": 22.534,
+      "tabId": "58588784-8517-4bd6-b574-ee95014051dc",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040105127,
+      "ms": 12.918,
+      "tabId": "140f3860-afc1-4413-8446-848e55dfd6da",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040108175,
+      "ms": 12.048,
+      "tabId": "dcc5ec72-0bc7-4d46-b0a7-cd48d66f34b7",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040111217,
+      "ms": 17.901,
+      "tabId": "5d66c79a-ffdb-4fc9-bc39-eaf22ec233a3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040114225,
+      "ms": 12.622,
+      "tabId": "1052435f-5e56-429a-8324-d5b3e2805f74",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040117299,
+      "ms": 12.243,
+      "tabId": "2e1a503f-0279-4f4d-bab0-32cbb5e7a3d2",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040120321,
+      "ms": 15.295,
+      "tabId": "58588784-8517-4bd6-b574-ee95014051dc",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040123338,
+      "ms": 12.863,
+      "tabId": "140f3860-afc1-4413-8446-848e55dfd6da",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040126343,
+      "ms": 13.964,
+      "tabId": "dcc5ec72-0bc7-4d46-b0a7-cd48d66f34b7",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040129415,
+      "ms": 15.78,
+      "tabId": "5d66c79a-ffdb-4fc9-bc39-eaf22ec233a3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040132416,
+      "ms": 15.991,
+      "tabId": "1052435f-5e56-429a-8324-d5b3e2805f74",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040135494,
+      "ms": 13.341,
+      "tabId": "2e1a503f-0279-4f4d-bab0-32cbb5e7a3d2",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040138602,
+      "ms": 25.246,
+      "tabId": "58588784-8517-4bd6-b574-ee95014051dc",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040141624,
+      "ms": 12.422,
+      "tabId": "140f3860-afc1-4413-8446-848e55dfd6da",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040147944,
+      "ms": 15.642,
+      "tabId": "dcc5ec72-0bc7-4d46-b0a7-cd48d66f34b7",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040150980,
+      "ms": 12.818,
+      "tabId": "5d66c79a-ffdb-4fc9-bc39-eaf22ec233a3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040154055,
+      "ms": 12.081,
+      "tabId": "1052435f-5e56-429a-8324-d5b3e2805f74",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040157088,
+      "ms": 12.247,
+      "tabId": "2e1a503f-0279-4f4d-bab0-32cbb5e7a3d2",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040160149,
+      "ms": 32.966,
+      "tabId": "58588784-8517-4bd6-b574-ee95014051dc",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040163149,
+      "ms": 10.821,
+      "tabId": "140f3860-afc1-4413-8446-848e55dfd6da",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040166224,
+      "ms": 11.287,
+      "tabId": "dcc5ec72-0bc7-4d46-b0a7-cd48d66f34b7",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040169264,
+      "ms": 14.586,
+      "tabId": "5d66c79a-ffdb-4fc9-bc39-eaf22ec233a3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040172274,
+      "ms": 12.515,
+      "tabId": "1052435f-5e56-429a-8324-d5b3e2805f74",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040175371,
+      "ms": 13.524,
+      "tabId": "2e1a503f-0279-4f4d-bab0-32cbb5e7a3d2",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040178389,
+      "ms": 13.065,
+      "tabId": "58588784-8517-4bd6-b574-ee95014051dc",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040181437,
+      "ms": 15.561,
+      "tabId": "140f3860-afc1-4413-8446-848e55dfd6da",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040184467,
+      "ms": 9.225,
+      "tabId": "dcc5ec72-0bc7-4d46-b0a7-cd48d66f34b7",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040187528,
+      "ms": 12.623,
+      "tabId": "5d66c79a-ffdb-4fc9-bc39-eaf22ec233a3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040190568,
+      "ms": 12.311,
+      "tabId": "1052435f-5e56-429a-8324-d5b3e2805f74",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040193663,
+      "ms": 13.05,
+      "tabId": "2e1a503f-0279-4f4d-bab0-32cbb5e7a3d2",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040196731,
+      "ms": 16.049,
+      "tabId": "58588784-8517-4bd6-b574-ee95014051dc",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040199804,
+      "ms": 14.847,
+      "tabId": "140f3860-afc1-4413-8446-848e55dfd6da",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040210068,
+      "ms": 13.989,
+      "tabId": "dcc5ec72-0bc7-4d46-b0a7-cd48d66f34b7",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040213128,
+      "ms": 35.895,
+      "tabId": "5d66c79a-ffdb-4fc9-bc39-eaf22ec233a3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040216136,
+      "ms": 12.316,
+      "tabId": "1052435f-5e56-429a-8324-d5b3e2805f74",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040219156,
+      "ms": 17.165,
+      "tabId": "2e1a503f-0279-4f4d-bab0-32cbb5e7a3d2",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040222260,
+      "ms": 13.708,
+      "tabId": "58588784-8517-4bd6-b574-ee95014051dc",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040225283,
+      "ms": 12.846,
+      "tabId": "140f3860-afc1-4413-8446-848e55dfd6da",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040228384,
+      "ms": 14.03,
+      "tabId": "dcc5ec72-0bc7-4d46-b0a7-cd48d66f34b7",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040231445,
+      "ms": 15.76,
+      "tabId": "5d66c79a-ffdb-4fc9-bc39-eaf22ec233a3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040234481,
+      "ms": 10.954,
+      "tabId": "1052435f-5e56-429a-8324-d5b3e2805f74",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040237537,
+      "ms": 11.88,
+      "tabId": "2e1a503f-0279-4f4d-bab0-32cbb5e7a3d2",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040240557,
+      "ms": 16.519,
+      "tabId": "58588784-8517-4bd6-b574-ee95014051dc",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040243658,
+      "ms": 14.964,
+      "tabId": "140f3860-afc1-4413-8446-848e55dfd6da",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040246676,
+      "ms": 12.902,
+      "tabId": "dcc5ec72-0bc7-4d46-b0a7-cd48d66f34b7",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040249719,
+      "ms": 15.015,
+      "tabId": "5d66c79a-ffdb-4fc9-bc39-eaf22ec233a3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040252765,
+      "ms": 11.167,
+      "tabId": "1052435f-5e56-429a-8324-d5b3e2805f74",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040255871,
+      "ms": 11.331,
+      "tabId": "2e1a503f-0279-4f4d-bab0-32cbb5e7a3d2",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040258945,
+      "ms": 17.669,
+      "tabId": "58588784-8517-4bd6-b574-ee95014051dc",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040267486,
+      "ms": 13.713,
+      "tabId": "140f3860-afc1-4413-8446-848e55dfd6da",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040270526,
+      "ms": 14.95,
+      "tabId": "dcc5ec72-0bc7-4d46-b0a7-cd48d66f34b7",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040273526,
+      "ms": 11.475,
+      "tabId": "5d66c79a-ffdb-4fc9-bc39-eaf22ec233a3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040276525,
+      "ms": 11.018,
+      "tabId": "1052435f-5e56-429a-8324-d5b3e2805f74",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040279527,
+      "ms": 12.328,
+      "tabId": "2e1a503f-0279-4f4d-bab0-32cbb5e7a3d2",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040282620,
+      "ms": 15.887,
+      "tabId": "58588784-8517-4bd6-b574-ee95014051dc",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040285705,
+      "ms": 10.998,
+      "tabId": "140f3860-afc1-4413-8446-848e55dfd6da",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040288781,
+      "ms": 12.016,
+      "tabId": "dcc5ec72-0bc7-4d46-b0a7-cd48d66f34b7",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040291810,
+      "ms": 14.223,
+      "tabId": "5d66c79a-ffdb-4fc9-bc39-eaf22ec233a3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040294880,
+      "ms": 12.574,
+      "tabId": "1052435f-5e56-429a-8324-d5b3e2805f74",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040297967,
+      "ms": 14.798,
+      "tabId": "2e1a503f-0279-4f4d-bab0-32cbb5e7a3d2",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040300997,
+      "ms": 22.115,
+      "tabId": "58588784-8517-4bd6-b574-ee95014051dc",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040304049,
+      "ms": 16.342,
+      "tabId": "140f3860-afc1-4413-8446-848e55dfd6da",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040307134,
+      "ms": 12.248,
+      "tabId": "dcc5ec72-0bc7-4d46-b0a7-cd48d66f34b7",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040310222,
+      "ms": 15.374,
+      "tabId": "5d66c79a-ffdb-4fc9-bc39-eaf22ec233a3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040313315,
+      "ms": 17.565,
+      "tabId": "1052435f-5e56-429a-8324-d5b3e2805f74",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040316371,
+      "ms": 15.911,
+      "tabId": "2e1a503f-0279-4f4d-bab0-32cbb5e7a3d2",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040319464,
+      "ms": 17.491,
+      "tabId": "58588784-8517-4bd6-b574-ee95014051dc",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040329903,
+      "ms": 20.531,
+      "tabId": "140f3860-afc1-4413-8446-848e55dfd6da",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040332916,
+      "ms": 17.237,
+      "tabId": "dcc5ec72-0bc7-4d46-b0a7-cd48d66f34b7",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040335934,
+      "ms": 12.238,
+      "tabId": "5d66c79a-ffdb-4fc9-bc39-eaf22ec233a3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040338964,
+      "ms": 15.166,
+      "tabId": "1052435f-5e56-429a-8324-d5b3e2805f74",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040342006,
+      "ms": 10.979,
+      "tabId": "2e1a503f-0279-4f4d-bab0-32cbb5e7a3d2",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040345038,
+      "ms": 27.361,
+      "tabId": "58588784-8517-4bd6-b574-ee95014051dc",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040348102,
+      "ms": 15.628,
+      "tabId": "140f3860-afc1-4413-8446-848e55dfd6da",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040351154,
+      "ms": 18.168,
+      "tabId": "dcc5ec72-0bc7-4d46-b0a7-cd48d66f34b7",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040354154,
+      "ms": 13.644,
+      "tabId": "5d66c79a-ffdb-4fc9-bc39-eaf22ec233a3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040357218,
+      "ms": 11.328,
+      "tabId": "1052435f-5e56-429a-8324-d5b3e2805f74",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040360236,
+      "ms": 12.768,
+      "tabId": "2e1a503f-0279-4f4d-bab0-32cbb5e7a3d2",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040363366,
+      "ms": 40.864,
+      "tabId": "58588784-8517-4bd6-b574-ee95014051dc",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040366382,
+      "ms": 15.894,
+      "tabId": "140f3860-afc1-4413-8446-848e55dfd6da",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040369425,
+      "ms": 16.735,
+      "tabId": "dcc5ec72-0bc7-4d46-b0a7-cd48d66f34b7",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040372436,
+      "ms": 14.093,
+      "tabId": "5d66c79a-ffdb-4fc9-bc39-eaf22ec233a3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040375447,
+      "ms": 12.016,
+      "tabId": "1052435f-5e56-429a-8324-d5b3e2805f74",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040378555,
+      "ms": 11.952,
+      "tabId": "2e1a503f-0279-4f4d-bab0-32cbb5e7a3d2",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040381560,
+      "ms": 16.902,
+      "tabId": "58588784-8517-4bd6-b574-ee95014051dc",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040389117,
+      "ms": 16.286,
+      "tabId": "140f3860-afc1-4413-8446-848e55dfd6da",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040392188,
+      "ms": 10.928,
+      "tabId": "dcc5ec72-0bc7-4d46-b0a7-cd48d66f34b7",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040395221,
+      "ms": 21.752,
+      "tabId": "5d66c79a-ffdb-4fc9-bc39-eaf22ec233a3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040398322,
+      "ms": 18.338,
+      "tabId": "1052435f-5e56-429a-8324-d5b3e2805f74",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040401327,
+      "ms": 13.805,
+      "tabId": "2e1a503f-0279-4f4d-bab0-32cbb5e7a3d2",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040404405,
+      "ms": 12.965,
+      "tabId": "58588784-8517-4bd6-b574-ee95014051dc",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040407485,
+      "ms": 15.509,
+      "tabId": "140f3860-afc1-4413-8446-848e55dfd6da",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040410572,
+      "ms": 16.115,
+      "tabId": "dcc5ec72-0bc7-4d46-b0a7-cd48d66f34b7",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040413647,
+      "ms": 11.913,
+      "tabId": "5d66c79a-ffdb-4fc9-bc39-eaf22ec233a3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040416682,
+      "ms": 17.253,
+      "tabId": "1052435f-5e56-429a-8324-d5b3e2805f74",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040419749,
+      "ms": 12.05,
+      "tabId": "2e1a503f-0279-4f4d-bab0-32cbb5e7a3d2",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040422772,
+      "ms": 16.797,
+      "tabId": "58588784-8517-4bd6-b574-ee95014051dc",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040425858,
+      "ms": 15.663,
+      "tabId": "140f3860-afc1-4413-8446-848e55dfd6da",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040428926,
+      "ms": 14.246,
+      "tabId": "dcc5ec72-0bc7-4d46-b0a7-cd48d66f34b7",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040431929,
+      "ms": 16.469,
+      "tabId": "5d66c79a-ffdb-4fc9-bc39-eaf22ec233a3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040434936,
+      "ms": 15.984,
+      "tabId": "1052435f-5e56-429a-8324-d5b3e2805f74",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040437953,
+      "ms": 12.589,
+      "tabId": "2e1a503f-0279-4f4d-bab0-32cbb5e7a3d2",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040441019,
+      "ms": 19.737,
+      "tabId": "58588784-8517-4bd6-b574-ee95014051dc",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040449420,
+      "ms": 16.085,
+      "tabId": "140f3860-afc1-4413-8446-848e55dfd6da",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040452439,
+      "ms": 16.874,
+      "tabId": "dcc5ec72-0bc7-4d46-b0a7-cd48d66f34b7",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040455515,
+      "ms": 12.401,
+      "tabId": "5d66c79a-ffdb-4fc9-bc39-eaf22ec233a3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040458524,
+      "ms": 12.876,
+      "tabId": "1052435f-5e56-429a-8324-d5b3e2805f74",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040461531,
+      "ms": 12.859,
+      "tabId": "2e1a503f-0279-4f4d-bab0-32cbb5e7a3d2",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040464546,
+      "ms": 13.078,
+      "tabId": "58588784-8517-4bd6-b574-ee95014051dc",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040467660,
+      "ms": 15.748,
+      "tabId": "140f3860-afc1-4413-8446-848e55dfd6da",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040470698,
+      "ms": 19.173,
+      "tabId": "dcc5ec72-0bc7-4d46-b0a7-cd48d66f34b7",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040473783,
+      "ms": 11.597,
+      "tabId": "5d66c79a-ffdb-4fc9-bc39-eaf22ec233a3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040476822,
+      "ms": 17.422,
+      "tabId": "1052435f-5e56-429a-8324-d5b3e2805f74",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040479900,
+      "ms": 12.113,
+      "tabId": "2e1a503f-0279-4f4d-bab0-32cbb5e7a3d2",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040482934,
+      "ms": 22.522,
+      "tabId": "58588784-8517-4bd6-b574-ee95014051dc",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040485956,
+      "ms": 23.834,
+      "tabId": "140f3860-afc1-4413-8446-848e55dfd6da",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040488963,
+      "ms": 11.857,
+      "tabId": "dcc5ec72-0bc7-4d46-b0a7-cd48d66f34b7",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040491976,
+      "ms": 15.747,
+      "tabId": "5d66c79a-ffdb-4fc9-bc39-eaf22ec233a3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040494981,
+      "ms": 14.014,
+      "tabId": "1052435f-5e56-429a-8324-d5b3e2805f74",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040498078,
+      "ms": 12.101,
+      "tabId": "2e1a503f-0279-4f4d-bab0-32cbb5e7a3d2",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040501161,
+      "ms": 12.822,
+      "tabId": "58588784-8517-4bd6-b574-ee95014051dc",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040508050,
+      "ms": 12.354,
+      "tabId": "140f3860-afc1-4413-8446-848e55dfd6da",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040511115,
+      "ms": 10.95,
+      "tabId": "dcc5ec72-0bc7-4d46-b0a7-cd48d66f34b7",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040514129,
+      "ms": 21.827,
+      "tabId": "5d66c79a-ffdb-4fc9-bc39-eaf22ec233a3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040517154,
+      "ms": 11.094,
+      "tabId": "1052435f-5e56-429a-8324-d5b3e2805f74",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040520265,
+      "ms": 13.477,
+      "tabId": "2e1a503f-0279-4f4d-bab0-32cbb5e7a3d2",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040523279,
+      "ms": 17.274,
+      "tabId": "58588784-8517-4bd6-b574-ee95014051dc",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040526277,
+      "ms": 11.849,
+      "tabId": "140f3860-afc1-4413-8446-848e55dfd6da",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040529310,
+      "ms": 11.513,
+      "tabId": "dcc5ec72-0bc7-4d46-b0a7-cd48d66f34b7",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040532335,
+      "ms": 12.378,
+      "tabId": "5d66c79a-ffdb-4fc9-bc39-eaf22ec233a3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040535406,
+      "ms": 15.731,
+      "tabId": "1052435f-5e56-429a-8324-d5b3e2805f74",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040538492,
+      "ms": 13.707,
+      "tabId": "2e1a503f-0279-4f4d-bab0-32cbb5e7a3d2",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040541612,
+      "ms": 23.791,
+      "tabId": "58588784-8517-4bd6-b574-ee95014051dc",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040544650,
+      "ms": 14.087,
+      "tabId": "140f3860-afc1-4413-8446-848e55dfd6da",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040547704,
+      "ms": 11.963,
+      "tabId": "dcc5ec72-0bc7-4d46-b0a7-cd48d66f34b7",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040550758,
+      "ms": 15.424,
+      "tabId": "5d66c79a-ffdb-4fc9-bc39-eaf22ec233a3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040553854,
+      "ms": 13.586,
+      "tabId": "1052435f-5e56-429a-8324-d5b3e2805f74",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040556862,
+      "ms": 11.439,
+      "tabId": "2e1a503f-0279-4f4d-bab0-32cbb5e7a3d2",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040559965,
+      "ms": 16.907,
+      "tabId": "58588784-8517-4bd6-b574-ee95014051dc",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040567849,
+      "ms": 11.638,
+      "tabId": "140f3860-afc1-4413-8446-848e55dfd6da",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040570890,
+      "ms": 13.637,
+      "tabId": "dcc5ec72-0bc7-4d46-b0a7-cd48d66f34b7",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040573920,
+      "ms": 13.38,
+      "tabId": "5d66c79a-ffdb-4fc9-bc39-eaf22ec233a3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040576942,
+      "ms": 11.698,
+      "tabId": "1052435f-5e56-429a-8324-d5b3e2805f74",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040579945,
+      "ms": 13.354,
+      "tabId": "2e1a503f-0279-4f4d-bab0-32cbb5e7a3d2",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040582972,
+      "ms": 15.498,
+      "tabId": "58588784-8517-4bd6-b574-ee95014051dc",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040586014,
+      "ms": 17.855,
+      "tabId": "140f3860-afc1-4413-8446-848e55dfd6da",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040589038,
+      "ms": 9.523,
+      "tabId": "dcc5ec72-0bc7-4d46-b0a7-cd48d66f34b7",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040592113,
+      "ms": 27.323,
+      "tabId": "5d66c79a-ffdb-4fc9-bc39-eaf22ec233a3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040595204,
+      "ms": 11.659,
+      "tabId": "1052435f-5e56-429a-8324-d5b3e2805f74",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040598288,
+      "ms": 11.331,
+      "tabId": "2e1a503f-0279-4f4d-bab0-32cbb5e7a3d2",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040601293,
+      "ms": 15.001,
+      "tabId": "58588784-8517-4bd6-b574-ee95014051dc",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040604317,
+      "ms": 11.498,
+      "tabId": "140f3860-afc1-4413-8446-848e55dfd6da",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040607418,
+      "ms": 11.994,
+      "tabId": "dcc5ec72-0bc7-4d46-b0a7-cd48d66f34b7",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040610448,
+      "ms": 16.74,
+      "tabId": "5d66c79a-ffdb-4fc9-bc39-eaf22ec233a3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040613442,
+      "ms": 11.09,
+      "tabId": "1052435f-5e56-429a-8324-d5b3e2805f74",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040616481,
+      "ms": 12.611,
+      "tabId": "2e1a503f-0279-4f4d-bab0-32cbb5e7a3d2",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040619504,
+      "ms": 18.941,
+      "tabId": "58588784-8517-4bd6-b574-ee95014051dc",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040627652,
+      "ms": 11.528,
+      "tabId": "140f3860-afc1-4413-8446-848e55dfd6da",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040630696,
+      "ms": 14.866,
+      "tabId": "dcc5ec72-0bc7-4d46-b0a7-cd48d66f34b7",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040633780,
+      "ms": 14.042,
+      "tabId": "5d66c79a-ffdb-4fc9-bc39-eaf22ec233a3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040636879,
+      "ms": 12.07,
+      "tabId": "1052435f-5e56-429a-8324-d5b3e2805f74",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040639952,
+      "ms": 12.166,
+      "tabId": "2e1a503f-0279-4f4d-bab0-32cbb5e7a3d2",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040642999,
+      "ms": 17.78,
+      "tabId": "58588784-8517-4bd6-b574-ee95014051dc",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040646032,
+      "ms": 17.45,
+      "tabId": "140f3860-afc1-4413-8446-848e55dfd6da",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040649124,
+      "ms": 11.423,
+      "tabId": "dcc5ec72-0bc7-4d46-b0a7-cd48d66f34b7",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040652125,
+      "ms": 13.033,
+      "tabId": "5d66c79a-ffdb-4fc9-bc39-eaf22ec233a3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040655180,
+      "ms": 11.355,
+      "tabId": "1052435f-5e56-429a-8324-d5b3e2805f74",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040658249,
+      "ms": 12.602,
+      "tabId": "2e1a503f-0279-4f4d-bab0-32cbb5e7a3d2",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040661286,
+      "ms": 18.802,
+      "tabId": "58588784-8517-4bd6-b574-ee95014051dc",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040664328,
+      "ms": 15.264,
+      "tabId": "140f3860-afc1-4413-8446-848e55dfd6da",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040667429,
+      "ms": 16.789,
+      "tabId": "dcc5ec72-0bc7-4d46-b0a7-cd48d66f34b7",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040670488,
+      "ms": 19.034,
+      "tabId": "5d66c79a-ffdb-4fc9-bc39-eaf22ec233a3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040673552,
+      "ms": 17.047,
+      "tabId": "1052435f-5e56-429a-8324-d5b3e2805f74",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040676642,
+      "ms": 17.129,
+      "tabId": "2e1a503f-0279-4f4d-bab0-32cbb5e7a3d2",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790040679721,
+      "ms": 27.839,
+      "tabId": "58588784-8517-4bd6-b574-ee95014051dc",
+      "phase": "warmup",
+      "leg": null
+    }
+  ],
+  "switchSamplesDropped": 0,
+  "stderrTail": [
+    "[index] Terminal Host Daemon unavailable (no staged daemon bundle (run scripts/stage-daemon-host.mjs)); falling back to in-process TerminalManager"
+  ],
+  "stdoutBenchmarkTail": [
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.3000999999931082,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-22T01:30:52.125Z\",\"nowMs\":616751.2531}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":11.648900000029244,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-22T01:30:52.126Z\",\"nowMs\":616751.4928}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switch-steps\",\"value\":11.706,\"extra\":{\"ensureView\":0.036,\"attachSweep\":9.321,\"layoutBroadcast\":0.909,\"throttle\":0.179,\"invalidateFocus\":0.513,\"presentedView\":0.674},\"ts\":\"2026-09-22T01:30:52.126Z\",\"nowMs\":616751.5296}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.32570000004488975,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-22T01:30:55.179Z\",\"nowMs\":619805.0804}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.3819000000366941,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-22T01:30:55.180Z\",\"nowMs\":619806.1114}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":10.156200000084937,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-22T01:30:55.180Z\",\"nowMs\":619806.3654}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switch-steps\",\"value\":10.248,\"extra\":{\"ensureView\":0.043,\"attachSweep\":8.478,\"layoutBroadcast\":0.548,\"throttle\":0.098,\"invalidateFocus\":0.234,\"presentedView\":0.739},\"ts\":\"2026-09-22T01:30:55.181Z\",\"nowMs\":619806.425}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.25990000006277114,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-22T01:30:58.248Z\",\"nowMs\":622873.8534}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.1766999999526888,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-22T01:30:58.249Z\",\"nowMs\":622874.6448}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":11.077400000067428,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-22T01:30:58.249Z\",\"nowMs\":622874.8171}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switch-steps\",\"value\":11.139,\"extra\":{\"ensureView\":0.039,\"attachSweep\":9.768,\"layoutBroadcast\":0.5,\"throttle\":0.101,\"invalidateFocus\":0.206,\"presentedView\":0.452},\"ts\":\"2026-09-22T01:30:58.249Z\",\"nowMs\":622874.8632}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.6321000000461936,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-22T01:31:01.280Z\",\"nowMs\":625905.6586}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.43170000007376075,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-22T01:31:01.282Z\",\"nowMs\":625908.0478}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":13.790200000046752,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-22T01:31:01.283Z\",\"nowMs\":625908.4783}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switch-steps\",\"value\":13.901,\"extra\":{\"ensureView\":0.036,\"attachSweep\":10.221,\"layoutBroadcast\":1.102,\"throttle\":0.113,\"invalidateFocus\":1.272,\"presentedView\":1.019},\"ts\":\"2026-09-22T01:31:01.283Z\",\"nowMs\":625908.574}",
+    "[antifan-benchmark] {\"surface\":\"history\",\"name\":\"persist\",\"value\":36.828,\"extra\":{\"items\":8252,\"bytes\":3992780,\"superseded\":true},\"ts\":\"2026-09-22T01:31:03.734Z\",\"nowMs\":628359.6058}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.4363000000594184,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-22T01:31:04.324Z\",\"nowMs\":628950.3292}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.4342999999644235,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-22T01:31:04.326Z\",\"nowMs\":628952.0487}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":12.682200000039302,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-22T01:31:04.326Z\",\"nowMs\":628952.2661}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switch-steps\",\"value\":12.733,\"extra\":{\"ensureView\":0.029,\"attachSweep\":10.237,\"layoutBroadcast\":0.795,\"throttle\":0.114,\"invalidateFocus\":0.361,\"presentedView\":1.13},\"ts\":\"2026-09-22T01:31:04.326Z\",\"nowMs\":628952.2997}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.31020000006537884,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-22T01:31:07.428Z\",\"nowMs\":632054.2209}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.21980000007897615,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-22T01:31:07.429Z\",\"nowMs\":632055.0573}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":11.789999999920838,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-22T01:31:07.430Z\",\"nowMs\":632055.409}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switch-steps\",\"value\":11.94,\"extra\":{\"ensureView\":0.037,\"attachSweep\":10.291,\"layoutBroadcast\":0.545,\"throttle\":0.112,\"invalidateFocus\":0.21,\"presentedView\":0.582},\"ts\":\"2026-09-22T01:31:07.430Z\",\"nowMs\":632055.4663}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.31880000000819564,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-22T01:31:10.481Z\",\"nowMs\":635106.8163}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.22789999993983656,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-22T01:31:10.482Z\",\"nowMs\":635107.7019}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":11.677999999956228,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-22T01:31:10.482Z\",\"nowMs\":635107.8709}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switch-steps\",\"value\":11.737,\"extra\":{\"ensureView\":0.035,\"attachSweep\":10.223,\"layoutBroadcast\":0.569,\"throttle\":0.102,\"invalidateFocus\":0.231,\"presentedView\":0.508},\"ts\":\"2026-09-22T01:31:10.482Z\",\"nowMs\":635107.9163}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.397400000016205,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-22T01:31:13.547Z\",\"nowMs\":638172.5335}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.4583000000566244,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-22T01:31:13.549Z\",\"nowMs\":638175.1463}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":13.21799999999348,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-22T01:31:13.550Z\",\"nowMs\":638175.407}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switch-steps\",\"value\":13.299,\"extra\":{\"ensureView\":0.036,\"attachSweep\":9.866,\"layoutBroadcast\":0.653,\"throttle\":0.135,\"invalidateFocus\":1.607,\"presentedView\":0.905},\"ts\":\"2026-09-22T01:31:13.550Z\",\"nowMs\":638175.4728}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.26819999993313104,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-22T01:31:16.636Z\",\"nowMs\":641261.939}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.20460000005550683,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-22T01:31:16.637Z\",\"nowMs\":641262.8148}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":11.378300000098534,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-22T01:31:16.637Z\",\"nowMs\":641263.0217}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switch-steps\",\"value\":11.441,\"extra\":{\"ensureView\":0.035,\"attachSweep\":9.947,\"layoutBroadcast\":0.518,\"throttle\":0.12,\"invalidateFocus\":0.226,\"presentedView\":0.52},\"ts\":\"2026-09-22T01:31:16.637Z\",\"nowMs\":641263.0661}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.49209999991580844,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-22T01:31:19.706Z\",\"nowMs\":644331.8922}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.24699999997392297,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-22T01:31:19.710Z\",\"nowMs\":644335.8648}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":15.18390000006184,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-22T01:31:19.710Z\",\"nowMs\":644336.0809}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switch-steps\",\"value\":15.259,\"extra\":{\"ensureView\":0.038,\"attachSweep\":10.428,\"layoutBroadcast\":1.093,\"throttle\":0.34,\"invalidateFocus\":2.658,\"presentedView\":0.614},\"ts\":\"2026-09-22T01:31:19.710Z\",\"nowMs\":644336.1194}"
+  ]
+}

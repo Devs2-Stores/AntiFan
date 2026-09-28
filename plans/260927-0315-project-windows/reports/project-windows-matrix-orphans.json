@@ -1,0 +1,18 @@
+{
+  "hostPid": 18852,
+  "dataRootToken": "antifan-pw-matrix-WyWgKT",
+  "supported": true,
+  "platform": "win32",
+  "hostState": "gone",
+  "hostGone": true,
+  "timedOut": false,
+  "ancestorQueryUnanswered": 0,
+  "survivorCheckRan": true,
+  "descendantCheckSupported": true,
+  "windowMs": 180000,
+  "observedAfterExitMs": 20658,
+  "survivingPids": [],
+  "commandLineMatches": [],
+  "pollCount": 6,
+  "checkedAt": "2026-09-27T22:22:24.511Z"
+}

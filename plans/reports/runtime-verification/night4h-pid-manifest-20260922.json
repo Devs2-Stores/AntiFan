@@ -1,0 +1,21 @@
+{
+  "tag": "night4h",
+  "run": "node scripts/benchmark-real-soak-8h.cjs --minutes 240",
+  "legs": "baseline:60:300:30000,burst4x:60:1200:30000,burst-off:60:1:600000",
+  "launchedAtLocal": "2026-09-22T01:00:57+07:00",
+  "warmupEndsLocal": "2026-09-22T01:30:57+07:00",
+  "workloadEndsLocal": "2026-09-22T04:30:57+07:00",
+  "recoveryEndsLocal": "2026-09-22T05:00:57+07:00",
+  "bundle": {
+    "files": 419,
+    "bytes": 9226000,
+    "md5": "46f1f6098f366a8aa4251779ef121677"
+  },
+  "guard": "benchmark-mode window-close refusal (src/main/index.ts) — live-proven in real-soak-8h-guardcheck",
+  "harnessPid": 23880,
+  "appMainPid": 27296,
+  "notes": "window closed externally at 12:55:31 in the 4-minute guardcheck smoke; run continued and wrote a final report with executionOk/teardownOk true",
+  "launchEpochMs": 1790013657000,
+  "sampler": "plans/reports/runtime-verification/night4h-external-load.jsonl",
+  "samplerNote": "first sampler pass used a wrong launch epoch (1789993857000, 5.5h early) and reported every compiled file as drift; restarted with the correct epoch"
+}

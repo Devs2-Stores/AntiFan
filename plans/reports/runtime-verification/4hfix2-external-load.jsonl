@@ -1,0 +1,2 @@
+{"at":"2026-09-22T00:44:31.294Z","note":"external = winpty/electron processes outside the soak harness tree; run = inside it; compiledRewritten = .compiled files newer than the run launch","harnessPid":30436,"launchEpoch":1790037871112}
+{"at":"2026-09-22T00:44:45.415Z","run":{"procs":10,"rssMB":1330.4,"cpuSec":6.8},"external":{"procs":18,"rssMB":2538.7,"cpuSec":40662.2},"machineFreeMB":4686,"machineTotalMB":16236,"loadPct":100,"compiledRewritten":0,"externalPids":[5704,16696,16840,16916,17104,17308,12520,10008,20400,24148,28324,22420,29840,4224,20656,29972,25540,10964]}

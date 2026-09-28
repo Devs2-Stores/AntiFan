@@ -1,0 +1,1 @@
+{"at":"2026-09-21T08:44:13.862Z","note":"external = winpty/electron processes outside the soak harness tree; run = inside it; compiledRewritten = .compiled files newer than the run launch","harnessPid":22156,"launchEpoch":1789980253769}

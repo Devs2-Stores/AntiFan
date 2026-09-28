@@ -1,0 +1,4176 @@
+{
+  "status": "in-progress",
+  "startedAt": "2026-09-21T08:15:05.959Z",
+  "finishedAt": "2026-09-21T08:22:01.336Z",
+  "config": {
+    "totalMinutes": 240,
+    "requestedTotalMinutes": 240,
+    "durationSource": "argv --minutes",
+    "bundle": null,
+    "warmupMinutes": 30,
+    "workloadMinutes": 180,
+    "recoveryMinutes": 30,
+    "switchIntervalMs": 3000,
+    "burstIntervalMs": 30000,
+    "burstLines": 300,
+    "tabRounds": 1,
+    "fixtureTickMs": 200,
+    "fixtureTitleMode": "unique",
+    "sampleIntervalSeconds": 60,
+    "reportTag": "steps4h",
+    "appArgs": [],
+    "legs": [
+      {
+        "name": "baseline",
+        "minutes": 60,
+        "burstLines": 300,
+        "burstIntervalMs": 30000,
+        "fixtureTickMs": 200,
+        "fixtureTitleMode": "unique",
+        "switchIntervalMs": 3000
+      },
+      {
+        "name": "burst4x",
+        "minutes": 60,
+        "burstLines": 1200,
+        "burstIntervalMs": 30000,
+        "fixtureTickMs": 200,
+        "fixtureTitleMode": "unique",
+        "switchIntervalMs": 3000
+      },
+      {
+        "name": "burst-off",
+        "minutes": 60,
+        "burstLines": 1,
+        "burstIntervalMs": 600000,
+        "fixtureTickMs": 200,
+        "fixtureTitleMode": "unique",
+        "switchIntervalMs": 3000
+      }
+    ]
+  },
+  "rootPid": 26464,
+  "fixturePort": 58472,
+  "stats": {
+    "requestCount": 4,
+    "openedTabs": 6,
+    "switches": 122,
+    "bursts": 13,
+    "burstsByPhase": {
+      "warmup": 13,
+      "workload": 0,
+      "recovery": 0
+    },
+    "reloads": 0,
+    "terminalEventsCount": 113,
+    "totalSamples": 8,
+    "totalSuspendedMinutes": 0,
+    "activeWorkloadMinutes": null,
+    "activeMinutesSinceStart": 6.42,
+    "teardownTelemetry": {
+      "tabsToClose": 0,
+      "tabsClosedSuccess": 0,
+      "tabsClosedFailed": 0,
+      "terminalClosedSuccess": false,
+      "terminalClosedFailed": false,
+      "teardownDegraded": false
+    }
+  },
+  "metrics": {
+    "switchLatencyMs": {
+      "min": null,
+      "p50": null,
+      "p95": null,
+      "max": null
+    },
+    "switchLatencyWorkloadCount": 0,
+    "switchLatencyWarmupMs": {
+      "min": 12.965,
+      "p50": 22.402,
+      "p95": 40.615,
+      "max": 314.195
+    },
+    "switchLatencyWarmupCount": 122,
+    "switchLatencyAllPhasesMs": {
+      "min": 12.965,
+      "p50": 22.402,
+      "p95": 40.615,
+      "max": 314.195
+    },
+    "activeWorkingSetMB": {
+      "min": null,
+      "p50": null,
+      "p95": null,
+      "max": null
+    },
+    "activeRendererWorkingSetMB": {
+      "min": null,
+      "p50": null,
+      "p95": null,
+      "max": null
+    },
+    "overallActiveSlopeMBPerMin": null,
+    "overallActiveSlopeMBPerHour": null,
+    "rendererActiveSlopeMBPerMin": null,
+    "rendererActiveSlopeMBPerHour": null,
+    "rolling60MinSlopes": [],
+    "initialLoadedMB": 1569.77,
+    "postWarmupMB": 1430.98,
+    "finalActiveMB": null,
+    "recoveredMB": null,
+    "processSeriesSampleCount": 7,
+    "perProcessSlopes": [],
+    "worstProcessSlopeMBPerMin": null,
+    "worstProcessRole": "",
+    "worstProcessUrl": "",
+    "worstProcessPid": null,
+    "appPrivateMaxSlopeMBPerMin": null,
+    "appPrivateMaxRole": "",
+    "appPrivateMaxUrl": "",
+    "appPrivateMaxPid": null,
+    "processSlopeWindowStart": null,
+    "processSlopeWindowEnd": null,
+    "refusedProcessCount": 0,
+    "refusedProcessWorkingSetMB": 0,
+    "refusedProcessNames": [],
+    "slowSwitchSamples": [
+      {
+        "at": 1789978916540,
+        "ms": 314.195,
+        "tabId": "484dfc23-ec5b-4c8d-9840-0f9b01b67dbb",
+        "phase": "warmup",
+        "leg": null
+      },
+      {
+        "at": 1789978903746,
+        "ms": 50.746,
+        "tabId": "a82925c3-a619-48bd-963a-bcad555b71eb",
+        "phase": "warmup",
+        "leg": null
+      },
+      {
+        "at": 1789978906848,
+        "ms": 48.523,
+        "tabId": "5687373c-a332-441d-b29d-126de8a5c25f",
+        "phase": "warmup",
+        "leg": null
+      },
+      {
+        "at": 1789978885251,
+        "ms": 47.419,
+        "tabId": "5687373c-a332-441d-b29d-126de8a5c25f",
+        "phase": "warmup",
+        "leg": null
+      },
+      {
+        "at": 1789978543230,
+        "ms": 45.821,
+        "tabId": "a82925c3-a619-48bd-963a-bcad555b71eb",
+        "phase": "warmup",
+        "leg": null
+      },
+      {
+        "at": 1789978735042,
+        "ms": 43.163,
+        "tabId": "5687373c-a332-441d-b29d-126de8a5c25f",
+        "phase": "warmup",
+        "leg": null
+      },
+      {
+        "at": 1789978561530,
+        "ms": 40.615,
+        "tabId": "a82925c3-a619-48bd-963a-bcad555b71eb",
+        "phase": "warmup",
+        "leg": null
+      },
+      {
+        "at": 1789978909853,
+        "ms": 38.679,
+        "tabId": "8b166409-d713-43df-ba12-0f962a6d0ca3",
+        "phase": "warmup",
+        "leg": null
+      },
+      {
+        "at": 1789978815367,
+        "ms": 38.153,
+        "tabId": "38fedf6b-7622-42bb-bb3d-052a5a60762a",
+        "phase": "warmup",
+        "leg": null
+      },
+      {
+        "at": 1789978765462,
+        "ms": 37.811,
+        "tabId": "7c93fa0e-0490-4677-a5ad-44c5d314d5db",
+        "phase": "warmup",
+        "leg": null
+      }
+    ],
+    "switchLatencyByTab": [
+      {
+        "tabId": "484dfc23-ec5b-4c8d-9840-0f9b01b67dbb",
+        "url": "http://127.0.0.1:58472/store-home",
+        "count": 21,
+        "p50": 20.522,
+        "p95": 32.151,
+        "max": 314.195
+      },
+      {
+        "tabId": "a82925c3-a619-48bd-963a-bcad555b71eb",
+        "url": "http://127.0.0.1:58472/product-test-1",
+        "count": 20,
+        "p50": 22.656,
+        "p95": 45.821,
+        "max": 50.746
+      },
+      {
+        "tabId": "5687373c-a332-441d-b29d-126de8a5c25f",
+        "url": "http://127.0.0.1:58472/product-test-2",
+        "count": 20,
+        "p50": 24.101,
+        "p95": 47.419,
+        "max": 48.523
+      },
+      {
+        "tabId": "8b166409-d713-43df-ba12-0f962a6d0ca3",
+        "url": "https://example.com",
+        "count": 20,
+        "p50": 22.337,
+        "p95": 33.321,
+        "max": 38.679
+      },
+      {
+        "tabId": "38fedf6b-7622-42bb-bb3d-052a5a60762a",
+        "url": "https://www.wikipedia.org",
+        "count": 20,
+        "p50": 24.297,
+        "p95": 30.074,
+        "max": 38.153
+      },
+      {
+        "tabId": "7c93fa0e-0490-4677-a5ad-44c5d314d5db",
+        "url": "http://127.0.0.1:58472/collection-featured",
+        "count": 21,
+        "p50": 21.841,
+        "p95": 30.791,
+        "max": 37.811
+      }
+    ],
+    "cpu": null,
+    "legBurstCounterSuspect": false,
+    "cpuByPhase": {
+      "warmup": {
+        "from": "2026-09-21T08:15:35.853Z",
+        "to": "2026-09-21T08:21:40.498Z",
+        "windowMinutes": 6.08,
+        "samples": 8,
+        "cpuSecondsTotal": 33.954,
+        "cpuSecondsPerMinute": 5.585,
+        "perProcess": [
+          {
+            "pid": 26464,
+            "seconds": 10.25,
+            "share": 0.3019,
+            "role": "Browser",
+            "type": "Browser"
+          },
+          {
+            "pid": 5756,
+            "seconds": 8.484,
+            "share": 0.2499,
+            "role": "console host (pty child)",
+            "type": "other"
+          },
+          {
+            "pid": 23364,
+            "seconds": 3.156,
+            "share": 0.0929,
+            "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+            "type": "Tab"
+          },
+          {
+            "pid": 2740,
+            "seconds": 2.891,
+            "share": 0.0851,
+            "role": "tab:484dfc23+tab:7c93fa0e+tab:a82925c3+tab:5687373c",
+            "type": "Tab"
+          },
+          {
+            "pid": 24616,
+            "seconds": 2.844,
+            "share": 0.0838,
+            "role": "GPU",
+            "type": "GPU"
+          },
+          {
+            "pid": 24828,
+            "seconds": 2.5,
+            "share": 0.0736,
+            "role": "pty shell",
+            "type": "other"
+          },
+          {
+            "pid": 13140,
+            "seconds": 1.734,
+            "share": 0.0511,
+            "role": "Utility",
+            "type": "Utility"
+          },
+          {
+            "pid": 25472,
+            "seconds": 1.344,
+            "share": 0.0396,
+            "role": "pty agent",
+            "type": "other"
+          },
+          {
+            "pid": 25420,
+            "seconds": 0.422,
+            "share": 0.0124,
+            "role": "tab:38fedf6b",
+            "type": "Tab"
+          },
+          {
+            "pid": 26092,
+            "seconds": 0.313,
+            "share": 0.0092,
+            "role": "tab:3abb3962",
+            "type": "Tab"
+          },
+          {
+            "pid": 21400,
+            "seconds": 0.016,
+            "share": 0.0005,
+            "role": "tab:8b166409",
+            "type": "Tab"
+          },
+          {
+            "pid": 23628,
+            "seconds": 0,
+            "share": 0,
+            "role": "",
+            "type": ""
+          }
+        ],
+        "notAttributablePids": [
+          12656
+        ],
+        "unreadablePids": [],
+        "counterResetPids": [],
+        "source": "samples.cpuByPid (8 of 8 row(s) carry counters)"
+      },
+      "workload": null,
+      "recovery": null
+    },
+    "historyPersist": {
+      "run": {
+        "flushes": 14,
+        "totalMs": 424.193,
+        "maxMs": 60.673,
+        "supersededFlushes": 8
+      },
+      "workload": null,
+      "last": {
+        "at": 1789978912021,
+        "items": 8048,
+        "bytes": 3871794
+      },
+      "byLeg": []
+    },
+    "slopeSloSatisfied": null,
+    "slopeGateApplicable": false,
+    "privateSlopeSloSatisfied": null,
+    "privateSlopeMeasured": false,
+    "switchLatencyWorkloadSamples": 0,
+    "switchLatencyMaxMs": null,
+    "latencyMaxGated": false,
+    "memorySloSatisfied": true,
+    "latencySloSatisfied": false,
+    "orphanSloSatisfied": false,
+    "executionSloSatisfied": true,
+    "teardownSloSatisfied": true,
+    "verdict": "FAILED"
+  },
+  "samples": [
+    {
+      "at": 1789978535853,
+      "activeAt": 1789978535853,
+      "label": "warmup",
+      "totalWorkingSetMB": 1569.77,
+      "processCount": 13,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 232.74
+        },
+        "other": {
+          "count": 4,
+          "workingSetMB": 200.1
+        },
+        "renderer": {
+          "count": 6,
+          "workingSetMB": 846.31
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 126.26
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 164.37
+        }
+      },
+      "pids": [
+        26464,
+        25472,
+        24828,
+        5756,
+        25420,
+        21400,
+        2740,
+        26092,
+        12656,
+        23364,
+        13140,
+        24616,
+        23628
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 14.328,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "2740": 0.3125,
+        "5756": 0.109375,
+        "12656": 0.03125,
+        "13140": 0.40625,
+        "21400": 0.140625,
+        "23364": 0.640625,
+        "23628": 0.03125,
+        "24616": 0.5,
+        "24828": 6.9375,
+        "25420": 0.671875,
+        "25472": 0.046875,
+        "26092": 1,
+        "26464": 3.5
+      },
+      "namesByPid": {
+        "2740": "electron.exe",
+        "5756": "conhost.exe",
+        "12656": "electron.exe",
+        "13140": "electron.exe",
+        "21400": "electron.exe",
+        "23364": "electron.exe",
+        "23628": "electron.exe",
+        "24616": "electron.exe",
+        "24828": "powershell.exe",
+        "25420": "electron.exe",
+        "25472": "winpty-agent.exe",
+        "26092": "electron.exe",
+        "26464": "electron.exe"
+      }
+    },
+    {
+      "at": 1789978540066,
+      "activeAt": 1789978540066,
+      "label": "warmup",
+      "totalWorkingSetMB": 1472.98,
+      "processCount": 12,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 234.21
+        },
+        "other": {
+          "count": 4,
+          "workingSetMB": 205.61
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 740.8
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 126.45
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 165.91
+        }
+      },
+      "pids": [
+        26464,
+        25472,
+        24828,
+        5756,
+        25420,
+        21400,
+        2740,
+        26092,
+        23364,
+        13140,
+        24616,
+        23628
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 17.625,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "2740": 0.359375,
+        "5756": 0.359375,
+        "13140": 0.453125,
+        "21400": 0.140625,
+        "23364": 1.3125,
+        "23628": 0.03125,
+        "24616": 0.765625,
+        "24828": 8.46875,
+        "25420": 0.671875,
+        "25472": 0.0625,
+        "26092": 1.1875,
+        "26464": 3.8125
+      },
+      "namesByPid": {
+        "2740": "electron.exe",
+        "5756": "conhost.exe",
+        "13140": "electron.exe",
+        "21400": "electron.exe",
+        "23364": "electron.exe",
+        "23628": "electron.exe",
+        "24616": "electron.exe",
+        "24828": "powershell.exe",
+        "25420": "electron.exe",
+        "25472": "winpty-agent.exe",
+        "26092": "electron.exe",
+        "26464": "electron.exe"
+      }
+    },
+    {
+      "at": 1789978598611,
+      "activeAt": 1789978598611,
+      "label": "warmup",
+      "totalWorkingSetMB": 1460.2,
+      "processCount": 12,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 204.65
+        },
+        "other": {
+          "count": 4,
+          "workingSetMB": 208.24
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 744.07
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 125.95
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 177.29
+        }
+      },
+      "pids": [
+        26464,
+        25472,
+        24828,
+        5756,
+        25420,
+        21400,
+        2740,
+        26092,
+        23364,
+        13140,
+        24616,
+        23628
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 23.641,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "2740": 0.890625,
+        "5756": 1.234375,
+        "13140": 0.6875,
+        "21400": 0.15625,
+        "23364": 1.765625,
+        "23628": 0.03125,
+        "24616": 2.328125,
+        "24828": 8.671875,
+        "25420": 0.875,
+        "25472": 0.21875,
+        "26092": 1.3125,
+        "26464": 5.46875
+      },
+      "namesByPid": {
+        "2740": "electron.exe",
+        "5756": "conhost.exe",
+        "13140": "electron.exe",
+        "21400": "electron.exe",
+        "23364": "electron.exe",
+        "23628": "electron.exe",
+        "24616": "electron.exe",
+        "24828": "powershell.exe",
+        "25420": "electron.exe",
+        "25472": "winpty-agent.exe",
+        "26092": "electron.exe",
+        "26464": "electron.exe"
+      }
+    },
+    {
+      "at": 1789978660412,
+      "activeAt": 1789978660412,
+      "label": "warmup",
+      "totalWorkingSetMB": 1464.54,
+      "processCount": 12,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 205.09
+        },
+        "other": {
+          "count": 4,
+          "workingSetMB": 208.57
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 746.45
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 125.89
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 178.52
+        }
+      },
+      "pids": [
+        26464,
+        25472,
+        24828,
+        5756,
+        25420,
+        21400,
+        2740,
+        26092,
+        23364,
+        13140,
+        24616,
+        23628
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 27.625,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "2740": 1.171875,
+        "5756": 2.234375,
+        "13140": 0.984375,
+        "21400": 0.15625,
+        "23364": 2.046875,
+        "23628": 0.03125,
+        "24616": 2.5,
+        "24828": 8.78125,
+        "25420": 0.984375,
+        "25472": 0.5,
+        "26092": 1.3125,
+        "26464": 6.921875
+      },
+      "namesByPid": {
+        "2740": "electron.exe",
+        "5756": "conhost.exe",
+        "13140": "electron.exe",
+        "21400": "electron.exe",
+        "23364": "electron.exe",
+        "23628": "electron.exe",
+        "24616": "electron.exe",
+        "24828": "powershell.exe",
+        "25420": "electron.exe",
+        "25472": "winpty-agent.exe",
+        "26092": "electron.exe",
+        "26464": "electron.exe"
+      }
+    },
+    {
+      "at": 1789978719614,
+      "activeAt": 1789978719614,
+      "label": "warmup",
+      "totalWorkingSetMB": 1470.36,
+      "processCount": 12,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 205.22
+        },
+        "other": {
+          "count": 4,
+          "workingSetMB": 208.96
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 751.45
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 125.97
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 178.76
+        }
+      },
+      "pids": [
+        26464,
+        25472,
+        24828,
+        5756,
+        25420,
+        21400,
+        2740,
+        26092,
+        23364,
+        13140,
+        24616,
+        23628
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 32.031,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "2740": 1.65625,
+        "5756": 3.59375,
+        "13140": 1.15625,
+        "21400": 0.15625,
+        "23364": 2.5,
+        "23628": 0.03125,
+        "24616": 2.609375,
+        "24828": 8.828125,
+        "25420": 1.015625,
+        "25472": 0.671875,
+        "26092": 1.3125,
+        "26464": 8.5
+      },
+      "namesByPid": {
+        "2740": "electron.exe",
+        "5756": "conhost.exe",
+        "13140": "electron.exe",
+        "21400": "electron.exe",
+        "23364": "electron.exe",
+        "23628": "electron.exe",
+        "24616": "electron.exe",
+        "24828": "powershell.exe",
+        "25420": "electron.exe",
+        "25472": "winpty-agent.exe",
+        "26092": "electron.exe",
+        "26464": "electron.exe"
+      }
+    },
+    {
+      "at": 1789978778572,
+      "activeAt": 1789978778572,
+      "label": "warmup",
+      "totalWorkingSetMB": 1465.19,
+      "processCount": 12,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 205.51
+        },
+        "other": {
+          "count": 4,
+          "workingSetMB": 204.12
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 750.57
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 125.97
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 179.02
+        }
+      },
+      "pids": [
+        26464,
+        25472,
+        24828,
+        5756,
+        25420,
+        21400,
+        2740,
+        26092,
+        23364,
+        13140,
+        24616,
+        23628
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 37.547,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "2740": 2.21875,
+        "5756": 5.328125,
+        "13140": 1.484375,
+        "21400": 0.15625,
+        "23364": 3.078125,
+        "23628": 0.03125,
+        "24616": 2.796875,
+        "24828": 9.0625,
+        "25420": 1.03125,
+        "25472": 1.015625,
+        "26092": 1.3125,
+        "26464": 10.03125
+      },
+      "namesByPid": {
+        "2740": "electron.exe",
+        "5756": "conhost.exe",
+        "13140": "electron.exe",
+        "21400": "electron.exe",
+        "23364": "electron.exe",
+        "23628": "electron.exe",
+        "24616": "electron.exe",
+        "24828": "powershell.exe",
+        "25420": "electron.exe",
+        "25472": "winpty-agent.exe",
+        "26092": "electron.exe",
+        "26464": "electron.exe"
+      }
+    },
+    {
+      "at": 1789978839162,
+      "activeAt": 1789978839162,
+      "label": "warmup",
+      "totalWorkingSetMB": 1473.18,
+      "processCount": 12,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 211.29
+        },
+        "other": {
+          "count": 4,
+          "workingSetMB": 204.26
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 752.34
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 126
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 179.29
+        }
+      },
+      "pids": [
+        26464,
+        25472,
+        24828,
+        5756,
+        25420,
+        21400,
+        2740,
+        26092,
+        23364,
+        13140,
+        24616,
+        23628
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 42.469,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "2740": 2.640625,
+        "5756": 7.015625,
+        "13140": 1.875,
+        "21400": 0.15625,
+        "23364": 3.390625,
+        "23628": 0.03125,
+        "24616": 3.046875,
+        "24828": 9.171875,
+        "25420": 1.046875,
+        "25472": 1.15625,
+        "26092": 1.3125,
+        "26464": 11.625
+      },
+      "namesByPid": {
+        "2740": "electron.exe",
+        "5756": "conhost.exe",
+        "13140": "electron.exe",
+        "21400": "electron.exe",
+        "23364": "electron.exe",
+        "23628": "electron.exe",
+        "24616": "electron.exe",
+        "24828": "powershell.exe",
+        "25420": "electron.exe",
+        "25472": "winpty-agent.exe",
+        "26092": "electron.exe",
+        "26464": "electron.exe"
+      }
+    },
+    {
+      "at": 1789978900498,
+      "activeAt": 1789978900498,
+      "label": "warmup",
+      "totalWorkingSetMB": 1430.98,
+      "processCount": 12,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 203.43
+        },
+        "other": {
+          "count": 4,
+          "workingSetMB": 204.53
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 750.22
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 93.41
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 179.39
+        }
+      },
+      "pids": [
+        26464,
+        25472,
+        24828,
+        5756,
+        25420,
+        21400,
+        2740,
+        26092,
+        23364,
+        13140,
+        24616,
+        23628
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 48.25,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "2740": 3.203125,
+        "5756": 8.59375,
+        "13140": 2.140625,
+        "21400": 0.15625,
+        "23364": 3.796875,
+        "23628": 0.03125,
+        "24616": 3.34375,
+        "24828": 9.4375,
+        "25420": 1.09375,
+        "25472": 1.390625,
+        "26092": 1.3125,
+        "26464": 13.75
+      },
+      "namesByPid": {
+        "2740": "electron.exe",
+        "5756": "conhost.exe",
+        "13140": "electron.exe",
+        "21400": "electron.exe",
+        "23364": "electron.exe",
+        "23628": "electron.exe",
+        "24616": "electron.exe",
+        "24828": "powershell.exe",
+        "25420": "electron.exe",
+        "25472": "winpty-agent.exe",
+        "26092": "electron.exe",
+        "26464": "electron.exe"
+      }
+    }
+  ],
+  "processSeries": [
+    {
+      "at": 1789978575217,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 26464,
+          "type": "Browser",
+          "role": "Browser",
+          "url": "",
+          "workingSetMB": 205.3,
+          "privateBytesMB": 120.09
+        },
+        {
+          "pid": 24616,
+          "type": "GPU",
+          "role": "GPU",
+          "url": "",
+          "workingSetMB": 176.5,
+          "privateBytesMB": 120.79
+        },
+        {
+          "pid": 13140,
+          "type": "Utility",
+          "role": "Utility",
+          "url": "",
+          "workingSetMB": 125.91,
+          "privateBytesMB": 14.61
+        },
+        {
+          "pid": 23364,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 158.26,
+          "privateBytesMB": 51.38
+        },
+        {
+          "pid": 26092,
+          "type": "Tab",
+          "role": "tab:3abb3962",
+          "url": "https://www.google.com/",
+          "workingSetMB": 153.66,
+          "privateBytesMB": 47.5
+        },
+        {
+          "pid": 2740,
+          "type": "Tab",
+          "role": "tab:484dfc23+tab:7c93fa0e+tab:a82925c3+tab:5687373c",
+          "url": "http://127.0.0.1:58472/store-home",
+          "workingSetMB": 141.59,
+          "privateBytesMB": 37.66
+        },
+        {
+          "pid": 21400,
+          "type": "Tab",
+          "role": "tab:8b166409",
+          "url": "https://example.com/",
+          "workingSetMB": 131.91,
+          "privateBytesMB": 27.66
+        },
+        {
+          "pid": 25420,
+          "type": "Tab",
+          "role": "tab:38fedf6b",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 158.05,
+          "privateBytesMB": 45.11
+        }
+      ]
+    },
+    {
+      "at": 1789978635221,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 26464,
+          "type": "Browser",
+          "role": "Browser",
+          "url": "",
+          "workingSetMB": 205.41,
+          "privateBytesMB": 120.18
+        },
+        {
+          "pid": 24616,
+          "type": "GPU",
+          "role": "GPU",
+          "url": "",
+          "workingSetMB": 177.46,
+          "privateBytesMB": 115.59
+        },
+        {
+          "pid": 13140,
+          "type": "Utility",
+          "role": "Utility",
+          "url": "",
+          "workingSetMB": 125.93,
+          "privateBytesMB": 14.63
+        },
+        {
+          "pid": 23364,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 157.99,
+          "privateBytesMB": 50.77
+        },
+        {
+          "pid": 26092,
+          "type": "Tab",
+          "role": "tab:3abb3962",
+          "url": "https://www.google.com/",
+          "workingSetMB": 153.68,
+          "privateBytesMB": 47.52
+        },
+        {
+          "pid": 2740,
+          "type": "Tab",
+          "role": "tab:484dfc23+tab:7c93fa0e+tab:a82925c3+tab:5687373c",
+          "url": "http://127.0.0.1:58472/store-home",
+          "workingSetMB": 144.21,
+          "privateBytesMB": 40.35
+        },
+        {
+          "pid": 21400,
+          "type": "Tab",
+          "role": "tab:8b166409",
+          "url": "https://example.com/",
+          "workingSetMB": 131.85,
+          "privateBytesMB": 27.57
+        },
+        {
+          "pid": 25420,
+          "type": "Tab",
+          "role": "tab:38fedf6b",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 156.69,
+          "privateBytesMB": 43.68
+        }
+      ]
+    },
+    {
+      "at": 1789978695235,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 26464,
+          "type": "Browser",
+          "role": "Browser",
+          "url": "",
+          "workingSetMB": 205.61,
+          "privateBytesMB": 120.29
+        },
+        {
+          "pid": 24616,
+          "type": "GPU",
+          "role": "GPU",
+          "url": "",
+          "workingSetMB": 178.87,
+          "privateBytesMB": 119.85
+        },
+        {
+          "pid": 13140,
+          "type": "Utility",
+          "role": "Utility",
+          "url": "",
+          "workingSetMB": 125.95,
+          "privateBytesMB": 14.61
+        },
+        {
+          "pid": 23364,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 157.7,
+          "privateBytesMB": 50.72
+        },
+        {
+          "pid": 26092,
+          "type": "Tab",
+          "role": "tab:3abb3962",
+          "url": "https://www.google.com/",
+          "workingSetMB": 153.68,
+          "privateBytesMB": 47.52
+        },
+        {
+          "pid": 2740,
+          "type": "Tab",
+          "role": "tab:484dfc23+tab:7c93fa0e+tab:a82925c3+tab:5687373c",
+          "url": "http://127.0.0.1:58472/store-home",
+          "workingSetMB": 148.64,
+          "privateBytesMB": 45.01
+        },
+        {
+          "pid": 21400,
+          "type": "Tab",
+          "role": "tab:8b166409",
+          "url": "https://example.com/",
+          "workingSetMB": 131.84,
+          "privateBytesMB": 27.54
+        },
+        {
+          "pid": 25420,
+          "type": "Tab",
+          "role": "tab:38fedf6b",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 156.74,
+          "privateBytesMB": 43.71
+        }
+      ]
+    },
+    {
+      "at": 1789978755253,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 26464,
+          "type": "Browser",
+          "role": "Browser",
+          "url": "",
+          "workingSetMB": 205.43,
+          "privateBytesMB": 120.1
+        },
+        {
+          "pid": 24616,
+          "type": "GPU",
+          "role": "GPU",
+          "url": "",
+          "workingSetMB": 179,
+          "privateBytesMB": 118.41
+        },
+        {
+          "pid": 13140,
+          "type": "Utility",
+          "role": "Utility",
+          "url": "",
+          "workingSetMB": 125.97,
+          "privateBytesMB": 14.64
+        },
+        {
+          "pid": 23364,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 158.13,
+          "privateBytesMB": 50.75
+        },
+        {
+          "pid": 26092,
+          "type": "Tab",
+          "role": "tab:3abb3962",
+          "url": "https://www.google.com/",
+          "workingSetMB": 153.68,
+          "privateBytesMB": 47.52
+        },
+        {
+          "pid": 2740,
+          "type": "Tab",
+          "role": "tab:484dfc23+tab:7c93fa0e+tab:a82925c3+tab:5687373c",
+          "url": "http://127.0.0.1:58472/store-home",
+          "workingSetMB": 149.84,
+          "privateBytesMB": 45.84
+        },
+        {
+          "pid": 21400,
+          "type": "Tab",
+          "role": "tab:8b166409",
+          "url": "https://example.com/",
+          "workingSetMB": 131.84,
+          "privateBytesMB": 27.54
+        },
+        {
+          "pid": 25420,
+          "type": "Tab",
+          "role": "tab:38fedf6b",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 156.84,
+          "privateBytesMB": 43.77
+        }
+      ]
+    },
+    {
+      "at": 1789978815254,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 26464,
+          "type": "Browser",
+          "role": "Browser",
+          "url": "",
+          "workingSetMB": 203.67,
+          "privateBytesMB": 118.25
+        },
+        {
+          "pid": 24616,
+          "type": "GPU",
+          "role": "GPU",
+          "url": "",
+          "workingSetMB": 179.19,
+          "privateBytesMB": 117.27
+        },
+        {
+          "pid": 13140,
+          "type": "Utility",
+          "role": "Utility",
+          "url": "",
+          "workingSetMB": 125.98,
+          "privateBytesMB": 14.63
+        },
+        {
+          "pid": 23364,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 158.15,
+          "privateBytesMB": 50.76
+        },
+        {
+          "pid": 26092,
+          "type": "Tab",
+          "role": "tab:3abb3962",
+          "url": "https://www.google.com/",
+          "workingSetMB": 153.68,
+          "privateBytesMB": 47.52
+        },
+        {
+          "pid": 2740,
+          "type": "Tab",
+          "role": "tab:484dfc23+tab:7c93fa0e+tab:a82925c3+tab:5687373c",
+          "url": "http://127.0.0.1:58472/store-home",
+          "workingSetMB": 150.51,
+          "privateBytesMB": 46.6
+        },
+        {
+          "pid": 21400,
+          "type": "Tab",
+          "role": "tab:8b166409",
+          "url": "https://example.com/",
+          "workingSetMB": 131.85,
+          "privateBytesMB": 27.55
+        },
+        {
+          "pid": 25420,
+          "type": "Tab",
+          "role": "tab:38fedf6b",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 156.82,
+          "privateBytesMB": 43.75
+        }
+      ]
+    },
+    {
+      "at": 1789978875262,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 26464,
+          "type": "Browser",
+          "role": "Browser",
+          "url": "",
+          "workingSetMB": 204.13,
+          "privateBytesMB": 118.24
+        },
+        {
+          "pid": 24616,
+          "type": "GPU",
+          "role": "GPU",
+          "url": "",
+          "workingSetMB": 179.43,
+          "privateBytesMB": 117.59
+        },
+        {
+          "pid": 13140,
+          "type": "Utility",
+          "role": "Utility",
+          "url": "",
+          "workingSetMB": 126.02,
+          "privateBytesMB": 14.67
+        },
+        {
+          "pid": 23364,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 158.9,
+          "privateBytesMB": 51.56
+        },
+        {
+          "pid": 26092,
+          "type": "Tab",
+          "role": "tab:3abb3962",
+          "url": "https://www.google.com/",
+          "workingSetMB": 153.24,
+          "privateBytesMB": 47.52
+        },
+        {
+          "pid": 2740,
+          "type": "Tab",
+          "role": "tab:484dfc23+tab:7c93fa0e+tab:a82925c3+tab:5687373c",
+          "url": "http://127.0.0.1:58472/store-home",
+          "workingSetMB": 153.22,
+          "privateBytesMB": 49.91
+        },
+        {
+          "pid": 21400,
+          "type": "Tab",
+          "role": "tab:8b166409",
+          "url": "https://example.com/",
+          "workingSetMB": 131.61,
+          "privateBytesMB": 27.54
+        },
+        {
+          "pid": 25420,
+          "type": "Tab",
+          "role": "tab:38fedf6b",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 156.64,
+          "privateBytesMB": 43.57
+        }
+      ]
+    },
+    {
+      "at": 1789978920387,
+      "name": "atShutdown",
+      "processes": [
+        {
+          "pid": 26464,
+          "type": "Browser",
+          "role": "Browser",
+          "url": "",
+          "workingSetMB": 213.52,
+          "privateBytesMB": 127.9
+        },
+        {
+          "pid": 24616,
+          "type": "GPU",
+          "role": "GPU",
+          "url": "",
+          "workingSetMB": 185.75,
+          "privateBytesMB": 144.09
+        },
+        {
+          "pid": 13140,
+          "type": "Utility",
+          "role": "Utility",
+          "url": "",
+          "workingSetMB": 93.41,
+          "privateBytesMB": 14.68
+        }
+      ]
+    }
+  ],
+  "historySamples": [
+    {
+      "at": 1789978519245,
+      "name": "persist",
+      "value": 1.352,
+      "extra": {
+        "items": 1,
+        "bytes": 160,
+        "superseded": false
+      }
+    },
+    {
+      "at": 1789978550018,
+      "name": "persist",
+      "value": 26.832,
+      "extra": {
+        "items": 8048,
+        "bytes": 3871790,
+        "superseded": true
+      }
+    },
+    {
+      "at": 1789978580031,
+      "name": "persist",
+      "value": 33.746,
+      "extra": {
+        "items": 8048,
+        "bytes": 3871790,
+        "superseded": true
+      }
+    },
+    {
+      "at": 1789978610022,
+      "name": "persist",
+      "value": 30.75,
+      "extra": {
+        "items": 8048,
+        "bytes": 3871794,
+        "superseded": true
+      }
+    },
+    {
+      "at": 1789978640174,
+      "name": "persist",
+      "value": 27.838,
+      "extra": {
+        "items": 8048,
+        "bytes": 3871794,
+        "superseded": false
+      }
+    },
+    {
+      "at": 1789978670386,
+      "name": "persist",
+      "value": 60.673,
+      "extra": {
+        "items": 8048,
+        "bytes": 3871794,
+        "superseded": false
+      }
+    },
+    {
+      "at": 1789978701006,
+      "name": "persist",
+      "value": 26.28,
+      "extra": {
+        "items": 8048,
+        "bytes": 3871794,
+        "superseded": true
+      }
+    },
+    {
+      "at": 1789978731016,
+      "name": "persist",
+      "value": 32.666,
+      "extra": {
+        "items": 8048,
+        "bytes": 3871794,
+        "superseded": true
+      }
+    },
+    {
+      "at": 1789978761015,
+      "name": "persist",
+      "value": 28.846,
+      "extra": {
+        "items": 8048,
+        "bytes": 3871794,
+        "superseded": true
+      }
+    },
+    {
+      "at": 1789978791024,
+      "name": "persist",
+      "value": 30.746,
+      "extra": {
+        "items": 8048,
+        "bytes": 3871794,
+        "superseded": true
+      }
+    },
+    {
+      "at": 1789978821153,
+      "name": "persist",
+      "value": 25.347,
+      "extra": {
+        "items": 8048,
+        "bytes": 3871794,
+        "superseded": false
+      }
+    },
+    {
+      "at": 1789978851174,
+      "name": "persist",
+      "value": 23.874,
+      "extra": {
+        "items": 8048,
+        "bytes": 3871794,
+        "superseded": false
+      }
+    },
+    {
+      "at": 1789978881220,
+      "name": "persist",
+      "value": 43.676,
+      "extra": {
+        "items": 8048,
+        "bytes": 3871794,
+        "superseded": false
+      }
+    },
+    {
+      "at": 1789978912021,
+      "name": "persist",
+      "value": 31.567,
+      "extra": {
+        "items": 8048,
+        "bytes": 3871794,
+        "superseded": true
+      }
+    }
+  ],
+  "switchStepSamples": [
+    {
+      "at": 1789978514801,
+      "name": "switch-steps",
+      "value": 12.983,
+      "extra": {
+        "ensureView": 2.384,
+        "attachSweep": 2.174,
+        "layoutBroadcast": 4.849,
+        "throttle": 0.348,
+        "invalidateFocus": 0.226,
+        "presentedView": 2.856
+      }
+    },
+    {
+      "at": 1789978535935,
+      "name": "switch-steps",
+      "value": 31.28,
+      "extra": {
+        "ensureView": 0.053,
+        "attachSweep": 17.11,
+        "layoutBroadcast": 5.326,
+        "throttle": 0.204,
+        "invalidateFocus": 0.138,
+        "presentedView": 8.336
+      }
+    },
+    {
+      "at": 1789978540189,
+      "name": "switch-steps",
+      "value": 18.622,
+      "extra": {
+        "ensureView": 0.03,
+        "attachSweep": 12.385,
+        "layoutBroadcast": 1.677,
+        "throttle": 0.079,
+        "invalidateFocus": 0.103,
+        "presentedView": 4.258
+      }
+    },
+    {
+      "at": 1789978543230,
+      "name": "switch-steps",
+      "value": 45.037,
+      "extra": {
+        "ensureView": 0.045,
+        "attachSweep": 32.381,
+        "layoutBroadcast": 3.057,
+        "throttle": 0.149,
+        "invalidateFocus": 0.21,
+        "presentedView": 9.091
+      }
+    },
+    {
+      "at": 1789978546227,
+      "name": "switch-steps",
+      "value": 27.693,
+      "extra": {
+        "ensureView": 0.036,
+        "attachSweep": 16.138,
+        "layoutBroadcast": 3.513,
+        "throttle": 0.146,
+        "invalidateFocus": 0.238,
+        "presentedView": 7.467
+      }
+    },
+    {
+      "at": 1789978549301,
+      "name": "switch-steps",
+      "value": 26.668,
+      "extra": {
+        "ensureView": 0.042,
+        "attachSweep": 15.508,
+        "layoutBroadcast": 1.921,
+        "throttle": 0.224,
+        "invalidateFocus": 0.307,
+        "presentedView": 8.567
+      }
+    },
+    {
+      "at": 1789978552331,
+      "name": "switch-steps",
+      "value": 18.631,
+      "extra": {
+        "ensureView": 0.034,
+        "attachSweep": 12.17,
+        "layoutBroadcast": 1.552,
+        "throttle": 0.101,
+        "invalidateFocus": 0.13,
+        "presentedView": 4.597
+      }
+    },
+    {
+      "at": 1789978555407,
+      "name": "switch-steps",
+      "value": 24.249,
+      "extra": {
+        "ensureView": 0.035,
+        "attachSweep": 14.914,
+        "layoutBroadcast": 0.715,
+        "throttle": 0.574,
+        "invalidateFocus": 0.241,
+        "presentedView": 7.684
+      }
+    },
+    {
+      "at": 1789978558513,
+      "name": "switch-steps",
+      "value": 29.648,
+      "extra": {
+        "ensureView": 0.036,
+        "attachSweep": 21.806,
+        "layoutBroadcast": 0.597,
+        "throttle": 0.16,
+        "invalidateFocus": 0.181,
+        "presentedView": 6.788
+      }
+    },
+    {
+      "at": 1789978561530,
+      "name": "switch-steps",
+      "value": 39.317,
+      "extra": {
+        "ensureView": 0.054,
+        "attachSweep": 27.41,
+        "layoutBroadcast": 0.411,
+        "throttle": 0.214,
+        "invalidateFocus": 0.247,
+        "presentedView": 10.746
+      }
+    },
+    {
+      "at": 1789978564561,
+      "name": "switch-steps",
+      "value": 29.578,
+      "extra": {
+        "ensureView": 0.079,
+        "attachSweep": 17.485,
+        "layoutBroadcast": 0.969,
+        "throttle": 1.417,
+        "invalidateFocus": 0.322,
+        "presentedView": 9.184
+      }
+    },
+    {
+      "at": 1789978567563,
+      "name": "switch-steps",
+      "value": 13.883,
+      "extra": {
+        "ensureView": 0.032,
+        "attachSweep": 10.39,
+        "layoutBroadcast": 0.306,
+        "throttle": 0.077,
+        "invalidateFocus": 0.113,
+        "presentedView": 2.906
+      }
+    },
+    {
+      "at": 1789978570581,
+      "name": "switch-steps",
+      "value": 16.442,
+      "extra": {
+        "ensureView": 0.039,
+        "attachSweep": 10.501,
+        "layoutBroadcast": 0.41,
+        "throttle": 0.079,
+        "invalidateFocus": 0.292,
+        "presentedView": 5.058
+      }
+    },
+    {
+      "at": 1789978573585,
+      "name": "switch-steps",
+      "value": 16.075,
+      "extra": {
+        "ensureView": 0.033,
+        "attachSweep": 11.505,
+        "layoutBroadcast": 0.334,
+        "throttle": 0.098,
+        "invalidateFocus": 0.101,
+        "presentedView": 3.916
+      }
+    },
+    {
+      "at": 1789978576672,
+      "name": "switch-steps",
+      "value": 21.62,
+      "extra": {
+        "ensureView": 0.027,
+        "attachSweep": 14.137,
+        "layoutBroadcast": 0.533,
+        "throttle": 0.093,
+        "invalidateFocus": 0.127,
+        "presentedView": 6.597
+      }
+    },
+    {
+      "at": 1789978579678,
+      "name": "switch-steps",
+      "value": 22.152,
+      "extra": {
+        "ensureView": 0.029,
+        "attachSweep": 14.233,
+        "layoutBroadcast": 0.464,
+        "throttle": 0.208,
+        "invalidateFocus": 0.192,
+        "presentedView": 6.966
+      }
+    },
+    {
+      "at": 1789978582716,
+      "name": "switch-steps",
+      "value": 16.266,
+      "extra": {
+        "ensureView": 0.032,
+        "attachSweep": 9.384,
+        "layoutBroadcast": 0.361,
+        "throttle": 0.255,
+        "invalidateFocus": 0.165,
+        "presentedView": 5.961
+      }
+    },
+    {
+      "at": 1789978585740,
+      "name": "switch-steps",
+      "value": 17.804,
+      "extra": {
+        "ensureView": 0.031,
+        "attachSweep": 9.932,
+        "layoutBroadcast": 0.364,
+        "throttle": 0.207,
+        "invalidateFocus": 0.162,
+        "presentedView": 7.026
+      }
+    },
+    {
+      "at": 1789978588761,
+      "name": "switch-steps",
+      "value": 29.534,
+      "extra": {
+        "ensureView": 0.063,
+        "attachSweep": 21.256,
+        "layoutBroadcast": 0.507,
+        "throttle": 0.568,
+        "invalidateFocus": 0.969,
+        "presentedView": 6.122
+      }
+    },
+    {
+      "at": 1789978591789,
+      "name": "switch-steps",
+      "value": 20.147,
+      "extra": {
+        "ensureView": 0.029,
+        "attachSweep": 14.97,
+        "layoutBroadcast": 0.494,
+        "throttle": 0.225,
+        "invalidateFocus": 0.161,
+        "presentedView": 4.186
+      }
+    },
+    {
+      "at": 1789978594794,
+      "name": "switch-steps",
+      "value": 13.298,
+      "extra": {
+        "ensureView": 0.033,
+        "attachSweep": 9.716,
+        "layoutBroadcast": 0.301,
+        "throttle": 0.08,
+        "invalidateFocus": 0.117,
+        "presentedView": 3.014
+      }
+    },
+    {
+      "at": 1789978598730,
+      "name": "switch-steps",
+      "value": 14.712,
+      "extra": {
+        "ensureView": 0.114,
+        "attachSweep": 9.096,
+        "layoutBroadcast": 0.45,
+        "throttle": 0.089,
+        "invalidateFocus": 0.135,
+        "presentedView": 4.753
+      }
+    },
+    {
+      "at": 1789978601741,
+      "name": "switch-steps",
+      "value": 17.897,
+      "extra": {
+        "ensureView": 0.027,
+        "attachSweep": 12.918,
+        "layoutBroadcast": 0.372,
+        "throttle": 0.091,
+        "invalidateFocus": 0.139,
+        "presentedView": 4.289
+      }
+    },
+    {
+      "at": 1789978604765,
+      "name": "switch-steps",
+      "value": 13.147,
+      "extra": {
+        "ensureView": 0.03,
+        "attachSweep": 9.995,
+        "layoutBroadcast": 0.277,
+        "throttle": 0.101,
+        "invalidateFocus": 0.1,
+        "presentedView": 2.608
+      }
+    },
+    {
+      "at": 1789978607790,
+      "name": "switch-steps",
+      "value": 24.932,
+      "extra": {
+        "ensureView": 0.028,
+        "attachSweep": 15.001,
+        "layoutBroadcast": 0.577,
+        "throttle": 0.189,
+        "invalidateFocus": 0.438,
+        "presentedView": 8.561
+      }
+    },
+    {
+      "at": 1789978610810,
+      "name": "switch-steps",
+      "value": 19.301,
+      "extra": {
+        "ensureView": 0.026,
+        "attachSweep": 13.178,
+        "layoutBroadcast": 0.378,
+        "throttle": 0.079,
+        "invalidateFocus": 0.171,
+        "presentedView": 5.388
+      }
+    },
+    {
+      "at": 1789978613855,
+      "name": "switch-steps",
+      "value": 18.227,
+      "extra": {
+        "ensureView": 0.032,
+        "attachSweep": 11.839,
+        "layoutBroadcast": 0.415,
+        "throttle": 0.092,
+        "invalidateFocus": 0.13,
+        "presentedView": 5.648
+      }
+    },
+    {
+      "at": 1789978616866,
+      "name": "switch-steps",
+      "value": 25.318,
+      "extra": {
+        "ensureView": 0.043,
+        "attachSweep": 16.863,
+        "layoutBroadcast": 0.556,
+        "throttle": 0.172,
+        "invalidateFocus": 0.142,
+        "presentedView": 7.454
+      }
+    },
+    {
+      "at": 1789978619918,
+      "name": "switch-steps",
+      "value": 23.374,
+      "extra": {
+        "ensureView": 0.037,
+        "attachSweep": 15.856,
+        "layoutBroadcast": 0.606,
+        "throttle": 0.184,
+        "invalidateFocus": 0.342,
+        "presentedView": 6.243
+      }
+    },
+    {
+      "at": 1789978622919,
+      "name": "switch-steps",
+      "value": 13.633,
+      "extra": {
+        "ensureView": 0.031,
+        "attachSweep": 9.226,
+        "layoutBroadcast": 0.34,
+        "throttle": 0.082,
+        "invalidateFocus": 0.105,
+        "presentedView": 3.78
+      }
+    },
+    {
+      "at": 1789978625931,
+      "name": "switch-steps",
+      "value": 19.919,
+      "extra": {
+        "ensureView": 0.022,
+        "attachSweep": 12.407,
+        "layoutBroadcast": 0.4,
+        "throttle": 0.082,
+        "invalidateFocus": 0.331,
+        "presentedView": 6.569
+      }
+    },
+    {
+      "at": 1789978628948,
+      "name": "switch-steps",
+      "value": 17.9,
+      "extra": {
+        "ensureView": 0.025,
+        "attachSweep": 12.598,
+        "layoutBroadcast": 0.396,
+        "throttle": 0.098,
+        "invalidateFocus": 0.124,
+        "presentedView": 4.602
+      }
+    },
+    {
+      "at": 1789978632048,
+      "name": "switch-steps",
+      "value": 21.299,
+      "extra": {
+        "ensureView": 0.024,
+        "attachSweep": 13.936,
+        "layoutBroadcast": 0.337,
+        "throttle": 0.073,
+        "invalidateFocus": 0.138,
+        "presentedView": 6.73
+      }
+    },
+    {
+      "at": 1789978635060,
+      "name": "switch-steps",
+      "value": 21.638,
+      "extra": {
+        "ensureView": 0.031,
+        "attachSweep": 15.095,
+        "layoutBroadcast": 0.535,
+        "throttle": 0.099,
+        "invalidateFocus": 0.148,
+        "presentedView": 5.605
+      }
+    },
+    {
+      "at": 1789978638080,
+      "name": "switch-steps",
+      "value": 15.99,
+      "extra": {
+        "ensureView": 0.033,
+        "attachSweep": 11.082,
+        "layoutBroadcast": 0.382,
+        "throttle": 0.096,
+        "invalidateFocus": 0.125,
+        "presentedView": 4.213
+      }
+    },
+    {
+      "at": 1789978641101,
+      "name": "switch-steps",
+      "value": 17.594,
+      "extra": {
+        "ensureView": 0.026,
+        "attachSweep": 13.132,
+        "layoutBroadcast": 0.318,
+        "throttle": 0.077,
+        "invalidateFocus": 0.137,
+        "presentedView": 3.846
+      }
+    },
+    {
+      "at": 1789978644118,
+      "name": "switch-steps",
+      "value": 20.866,
+      "extra": {
+        "ensureView": 0.033,
+        "attachSweep": 13.876,
+        "layoutBroadcast": 0.459,
+        "throttle": 0.175,
+        "invalidateFocus": 0.407,
+        "presentedView": 5.851
+      }
+    },
+    {
+      "at": 1789978647129,
+      "name": "switch-steps",
+      "value": 15.808,
+      "extra": {
+        "ensureView": 0.029,
+        "attachSweep": 11.224,
+        "layoutBroadcast": 0.337,
+        "throttle": 0.102,
+        "invalidateFocus": 0.102,
+        "presentedView": 3.944
+      }
+    },
+    {
+      "at": 1789978650178,
+      "name": "switch-steps",
+      "value": 26.236,
+      "extra": {
+        "ensureView": 0.033,
+        "attachSweep": 16.715,
+        "layoutBroadcast": 0.645,
+        "throttle": 0.092,
+        "invalidateFocus": 0.166,
+        "presentedView": 8.431
+      }
+    },
+    {
+      "at": 1789978653261,
+      "name": "switch-steps",
+      "value": 30.206,
+      "extra": {
+        "ensureView": 0.033,
+        "attachSweep": 19.002,
+        "layoutBroadcast": 0.455,
+        "throttle": 0.164,
+        "invalidateFocus": 0.154,
+        "presentedView": 10.293
+      }
+    },
+    {
+      "at": 1789978660539,
+      "name": "switch-steps",
+      "value": 22.637,
+      "extra": {
+        "ensureView": 0.037,
+        "attachSweep": 16.151,
+        "layoutBroadcast": 0.546,
+        "throttle": 0.105,
+        "invalidateFocus": 0.179,
+        "presentedView": 5.521
+      }
+    },
+    {
+      "at": 1789978663606,
+      "name": "switch-steps",
+      "value": 27.398,
+      "extra": {
+        "ensureView": 0.033,
+        "attachSweep": 18.266,
+        "layoutBroadcast": 0.514,
+        "throttle": 0.085,
+        "invalidateFocus": 0.354,
+        "presentedView": 8.056
+      }
+    },
+    {
+      "at": 1789978666698,
+      "name": "switch-steps",
+      "value": 18.372,
+      "extra": {
+        "ensureView": 0.032,
+        "attachSweep": 9.588,
+        "layoutBroadcast": 0.354,
+        "throttle": 0.159,
+        "invalidateFocus": 0.43,
+        "presentedView": 7.72
+      }
+    },
+    {
+      "at": 1789978669701,
+      "name": "switch-steps",
+      "value": 19.735,
+      "extra": {
+        "ensureView": 0.029,
+        "attachSweep": 14.565,
+        "layoutBroadcast": 0.461,
+        "throttle": 0.091,
+        "invalidateFocus": 0.152,
+        "presentedView": 4.366
+      }
+    },
+    {
+      "at": 1789978672802,
+      "name": "switch-steps",
+      "value": 17.535,
+      "extra": {
+        "ensureView": 0.022,
+        "attachSweep": 11.72,
+        "layoutBroadcast": 0.438,
+        "throttle": 0.245,
+        "invalidateFocus": 0.191,
+        "presentedView": 4.861
+      }
+    },
+    {
+      "at": 1789978675806,
+      "name": "switch-steps",
+      "value": 12.764,
+      "extra": {
+        "ensureView": 0.035,
+        "attachSweep": 9.885,
+        "layoutBroadcast": 0.293,
+        "throttle": 0.067,
+        "invalidateFocus": 0.113,
+        "presentedView": 2.329
+      }
+    },
+    {
+      "at": 1789978678911,
+      "name": "switch-steps",
+      "value": 15.851,
+      "extra": {
+        "ensureView": 0.034,
+        "attachSweep": 12.722,
+        "layoutBroadcast": 0.267,
+        "throttle": 0.092,
+        "invalidateFocus": 0.096,
+        "presentedView": 2.606
+      }
+    },
+    {
+      "at": 1789978681914,
+      "name": "switch-steps",
+      "value": 15.77,
+      "extra": {
+        "ensureView": 0.024,
+        "attachSweep": 11.377,
+        "layoutBroadcast": 0.354,
+        "throttle": 0.157,
+        "invalidateFocus": 0.119,
+        "presentedView": 3.677
+      }
+    },
+    {
+      "at": 1789978685022,
+      "name": "switch-steps",
+      "value": 24.38,
+      "extra": {
+        "ensureView": 0.036,
+        "attachSweep": 15.538,
+        "layoutBroadcast": 0.457,
+        "throttle": 0.601,
+        "invalidateFocus": 1.982,
+        "presentedView": 5.698
+      }
+    },
+    {
+      "at": 1789978688042,
+      "name": "switch-steps",
+      "value": 27.687,
+      "extra": {
+        "ensureView": 0.04,
+        "attachSweep": 19.963,
+        "layoutBroadcast": 0.449,
+        "throttle": 0.122,
+        "invalidateFocus": 0.549,
+        "presentedView": 6.5
+      }
+    },
+    {
+      "at": 1789978691090,
+      "name": "switch-steps",
+      "value": 16.35,
+      "extra": {
+        "ensureView": 0.034,
+        "attachSweep": 10.752,
+        "layoutBroadcast": 0.323,
+        "throttle": 0.149,
+        "invalidateFocus": 0.105,
+        "presentedView": 4.928
+      }
+    },
+    {
+      "at": 1789978694100,
+      "name": "switch-steps",
+      "value": 19.479,
+      "extra": {
+        "ensureView": 0.027,
+        "attachSweep": 13.363,
+        "layoutBroadcast": 0.344,
+        "throttle": 0.089,
+        "invalidateFocus": 0.1,
+        "presentedView": 5.486
+      }
+    },
+    {
+      "at": 1789978697100,
+      "name": "switch-steps",
+      "value": 20.383,
+      "extra": {
+        "ensureView": 0.026,
+        "attachSweep": 15.037,
+        "layoutBroadcast": 0.41,
+        "throttle": 0.089,
+        "invalidateFocus": 0.159,
+        "presentedView": 4.498
+      }
+    },
+    {
+      "at": 1789978700106,
+      "name": "switch-steps",
+      "value": 23.163,
+      "extra": {
+        "ensureView": 0.028,
+        "attachSweep": 15.919,
+        "layoutBroadcast": 0.457,
+        "throttle": 0.325,
+        "invalidateFocus": 0.224,
+        "presentedView": 6.142
+      }
+    },
+    {
+      "at": 1789978703179,
+      "name": "switch-steps",
+      "value": 19.721,
+      "extra": {
+        "ensureView": 0.03,
+        "attachSweep": 11.59,
+        "layoutBroadcast": 0.518,
+        "throttle": 0.199,
+        "invalidateFocus": 0.372,
+        "presentedView": 6.942
+      }
+    },
+    {
+      "at": 1789978706185,
+      "name": "switch-steps",
+      "value": 18.72,
+      "extra": {
+        "ensureView": 0.028,
+        "attachSweep": 13.207,
+        "layoutBroadcast": 0.314,
+        "throttle": 0.123,
+        "invalidateFocus": 0.099,
+        "presentedView": 4.895
+      }
+    },
+    {
+      "at": 1789978709287,
+      "name": "switch-steps",
+      "value": 15.446,
+      "extra": {
+        "ensureView": 0.029,
+        "attachSweep": 10.573,
+        "layoutBroadcast": 0.445,
+        "throttle": 0.121,
+        "invalidateFocus": 0.116,
+        "presentedView": 4.102
+      }
+    },
+    {
+      "at": 1789978712333,
+      "name": "switch-steps",
+      "value": 19.993,
+      "extra": {
+        "ensureView": 0.03,
+        "attachSweep": 15.026,
+        "layoutBroadcast": 0.479,
+        "throttle": 0.109,
+        "invalidateFocus": 0.136,
+        "presentedView": 4.151
+      }
+    },
+    {
+      "at": 1789978715335,
+      "name": "switch-steps",
+      "value": 15.437,
+      "extra": {
+        "ensureView": 0.039,
+        "attachSweep": 11.461,
+        "layoutBroadcast": 0.343,
+        "throttle": 0.068,
+        "invalidateFocus": 0.136,
+        "presentedView": 3.33
+      }
+    },
+    {
+      "at": 1789978719749,
+      "name": "switch-steps",
+      "value": 28.732,
+      "extra": {
+        "ensureView": 0.026,
+        "attachSweep": 20.13,
+        "layoutBroadcast": 0.72,
+        "throttle": 0.207,
+        "invalidateFocus": 0.158,
+        "presentedView": 7.409
+      }
+    },
+    {
+      "at": 1789978722772,
+      "name": "switch-steps",
+      "value": 25.738,
+      "extra": {
+        "ensureView": 0.025,
+        "attachSweep": 17.428,
+        "layoutBroadcast": 0.425,
+        "throttle": 0.15,
+        "invalidateFocus": 0.368,
+        "presentedView": 7.279
+      }
+    },
+    {
+      "at": 1789978725780,
+      "name": "switch-steps",
+      "value": 19.743,
+      "extra": {
+        "ensureView": 0.024,
+        "attachSweep": 10.504,
+        "layoutBroadcast": 0.559,
+        "throttle": 0.104,
+        "invalidateFocus": 0.128,
+        "presentedView": 8.245
+      }
+    },
+    {
+      "at": 1789978728886,
+      "name": "switch-steps",
+      "value": 27.173,
+      "extra": {
+        "ensureView": 0.073,
+        "attachSweep": 16.105,
+        "layoutBroadcast": 0.501,
+        "throttle": 0.173,
+        "invalidateFocus": 0.18,
+        "presentedView": 10.079
+      }
+    },
+    {
+      "at": 1789978731950,
+      "name": "switch-steps",
+      "value": 30.441,
+      "extra": {
+        "ensureView": 0.034,
+        "attachSweep": 18.423,
+        "layoutBroadcast": 0.505,
+        "throttle": 0.167,
+        "invalidateFocus": 0.128,
+        "presentedView": 11.104
+      }
+    },
+    {
+      "at": 1789978735041,
+      "name": "switch-steps",
+      "value": 27.468,
+      "extra": {
+        "ensureView": 0.031,
+        "attachSweep": 19.168,
+        "layoutBroadcast": 0.491,
+        "throttle": 0.098,
+        "invalidateFocus": 0.135,
+        "presentedView": 7.492
+      }
+    },
+    {
+      "at": 1789978738078,
+      "name": "switch-steps",
+      "value": 23.623,
+      "extra": {
+        "ensureView": 0.043,
+        "attachSweep": 14.727,
+        "layoutBroadcast": 1.105,
+        "throttle": 0.368,
+        "invalidateFocus": 0.264,
+        "presentedView": 7.073
+      }
+    },
+    {
+      "at": 1789978741097,
+      "name": "switch-steps",
+      "value": 24.788,
+      "extra": {
+        "ensureView": 0.046,
+        "attachSweep": 15.524,
+        "layoutBroadcast": 0.499,
+        "throttle": 0.122,
+        "invalidateFocus": 0.381,
+        "presentedView": 8.14
+      }
+    },
+    {
+      "at": 1789978744142,
+      "name": "switch-steps",
+      "value": 25.708,
+      "extra": {
+        "ensureView": 0.03,
+        "attachSweep": 18.409,
+        "layoutBroadcast": 0.513,
+        "throttle": 0.098,
+        "invalidateFocus": 0.141,
+        "presentedView": 6.436
+      }
+    },
+    {
+      "at": 1789978747203,
+      "name": "switch-steps",
+      "value": 25.787,
+      "extra": {
+        "ensureView": 0.033,
+        "attachSweep": 18.51,
+        "layoutBroadcast": 0.538,
+        "throttle": 0.309,
+        "invalidateFocus": 0.133,
+        "presentedView": 6.199
+      }
+    },
+    {
+      "at": 1789978750231,
+      "name": "switch-steps",
+      "value": 19.171,
+      "extra": {
+        "ensureView": 0.029,
+        "attachSweep": 12.496,
+        "layoutBroadcast": 0.336,
+        "throttle": 0.106,
+        "invalidateFocus": 0.15,
+        "presentedView": 5.989
+      }
+    },
+    {
+      "at": 1789978753262,
+      "name": "switch-steps",
+      "value": 24.922,
+      "extra": {
+        "ensureView": 0.032,
+        "attachSweep": 15.888,
+        "layoutBroadcast": 0.496,
+        "throttle": 0.186,
+        "invalidateFocus": 0.227,
+        "presentedView": 8.026
+      }
+    },
+    {
+      "at": 1789978756291,
+      "name": "switch-steps",
+      "value": 21.787,
+      "extra": {
+        "ensureView": 0.04,
+        "attachSweep": 15.826,
+        "layoutBroadcast": 0.412,
+        "throttle": 0.101,
+        "invalidateFocus": 0.214,
+        "presentedView": 5.134
+      }
+    },
+    {
+      "at": 1789978759297,
+      "name": "switch-steps",
+      "value": 24.424,
+      "extra": {
+        "ensureView": 0.032,
+        "attachSweep": 16.922,
+        "layoutBroadcast": 0.433,
+        "throttle": 0.095,
+        "invalidateFocus": 0.359,
+        "presentedView": 6.467
+      }
+    },
+    {
+      "at": 1789978762367,
+      "name": "switch-steps",
+      "value": 20.434,
+      "extra": {
+        "ensureView": 0.028,
+        "attachSweep": 14.908,
+        "layoutBroadcast": 0.37,
+        "throttle": 0.104,
+        "invalidateFocus": 0.145,
+        "presentedView": 4.823
+      }
+    },
+    {
+      "at": 1789978765462,
+      "name": "switch-steps",
+      "value": 36.824,
+      "extra": {
+        "ensureView": 0.042,
+        "attachSweep": 23.271,
+        "layoutBroadcast": 0.643,
+        "throttle": 0.217,
+        "invalidateFocus": 0.176,
+        "presentedView": 12.403
+      }
+    },
+    {
+      "at": 1789978768503,
+      "name": "switch-steps",
+      "value": 25.003,
+      "extra": {
+        "ensureView": 0.041,
+        "attachSweep": 15.947,
+        "layoutBroadcast": 0.46,
+        "throttle": 0.351,
+        "invalidateFocus": 0.458,
+        "presentedView": 7.628
+      }
+    },
+    {
+      "at": 1789978771501,
+      "name": "switch-steps",
+      "value": 19.944,
+      "extra": {
+        "ensureView": 0.03,
+        "attachSweep": 14.601,
+        "layoutBroadcast": 0.664,
+        "throttle": 0.215,
+        "invalidateFocus": 0.142,
+        "presentedView": 4.238
+      }
+    },
+    {
+      "at": 1789978774503,
+      "name": "switch-steps",
+      "value": 16.209,
+      "extra": {
+        "ensureView": 0.032,
+        "attachSweep": 10.902,
+        "layoutBroadcast": 0.477,
+        "throttle": 0.093,
+        "invalidateFocus": 0.15,
+        "presentedView": 4.494
+      }
+    },
+    {
+      "at": 1789978778712,
+      "name": "switch-steps",
+      "value": 27.681,
+      "extra": {
+        "ensureView": 0.024,
+        "attachSweep": 17.937,
+        "layoutBroadcast": 0.446,
+        "throttle": 0.116,
+        "invalidateFocus": 0.38,
+        "presentedView": 8.717
+      }
+    },
+    {
+      "at": 1789978781757,
+      "name": "switch-steps",
+      "value": 14.865,
+      "extra": {
+        "ensureView": 0.025,
+        "attachSweep": 11.412,
+        "layoutBroadcast": 0.335,
+        "throttle": 0.063,
+        "invalidateFocus": 0.128,
+        "presentedView": 2.742
+      }
+    },
+    {
+      "at": 1789978784757,
+      "name": "switch-steps",
+      "value": 14.27,
+      "extra": {
+        "ensureView": 0.052,
+        "attachSweep": 10.179,
+        "layoutBroadcast": 0.47,
+        "throttle": 0.241,
+        "invalidateFocus": 0.198,
+        "presentedView": 3.083
+      }
+    },
+    {
+      "at": 1789978787767,
+      "name": "switch-steps",
+      "value": 12.894,
+      "extra": {
+        "ensureView": 0.027,
+        "attachSweep": 10.058,
+        "layoutBroadcast": 0.287,
+        "throttle": 0.06,
+        "invalidateFocus": 0.107,
+        "presentedView": 2.323
+      }
+    },
+    {
+      "at": 1789978790847,
+      "name": "switch-steps",
+      "value": 14.647,
+      "extra": {
+        "ensureView": 0.024,
+        "attachSweep": 11.602,
+        "layoutBroadcast": 0.265,
+        "throttle": 0.05,
+        "invalidateFocus": 0.107,
+        "presentedView": 2.557
+      }
+    },
+    {
+      "at": 1789978793935,
+      "name": "switch-steps",
+      "value": 12.457,
+      "extra": {
+        "ensureView": 0.022,
+        "attachSweep": 9.758,
+        "layoutBroadcast": 0.269,
+        "throttle": 0.08,
+        "invalidateFocus": 0.095,
+        "presentedView": 2.201
+      }
+    },
+    {
+      "at": 1789978797032,
+      "name": "switch-steps",
+      "value": 14.378,
+      "extra": {
+        "ensureView": 0.051,
+        "attachSweep": 10.418,
+        "layoutBroadcast": 0.428,
+        "throttle": 0.173,
+        "invalidateFocus": 0.426,
+        "presentedView": 2.854
+      }
+    },
+    {
+      "at": 1789978800125,
+      "name": "switch-steps",
+      "value": 18.355,
+      "extra": {
+        "ensureView": 0.024,
+        "attachSweep": 13.308,
+        "layoutBroadcast": 0.424,
+        "throttle": 0.084,
+        "invalidateFocus": 0.12,
+        "presentedView": 4.341
+      }
+    },
+    {
+      "at": 1789978803157,
+      "name": "switch-steps",
+      "value": 14.315,
+      "extra": {
+        "ensureView": 0.051,
+        "attachSweep": 11.166,
+        "layoutBroadcast": 0.303,
+        "throttle": 0.054,
+        "invalidateFocus": 0.105,
+        "presentedView": 2.609
+      }
+    },
+    {
+      "at": 1789978806264,
+      "name": "switch-steps",
+      "value": 18.124,
+      "extra": {
+        "ensureView": 0.043,
+        "attachSweep": 12.621,
+        "layoutBroadcast": 0.444,
+        "throttle": 0.101,
+        "invalidateFocus": 0.167,
+        "presentedView": 4.675
+      }
+    },
+    {
+      "at": 1789978809314,
+      "name": "switch-steps",
+      "value": 28.028,
+      "extra": {
+        "ensureView": 0.034,
+        "attachSweep": 20.842,
+        "layoutBroadcast": 0.677,
+        "throttle": 0.218,
+        "invalidateFocus": 0.483,
+        "presentedView": 5.714
+      }
+    },
+    {
+      "at": 1789978812316,
+      "name": "switch-steps",
+      "value": 21.179,
+      "extra": {
+        "ensureView": 0.029,
+        "attachSweep": 13.531,
+        "layoutBroadcast": 0.288,
+        "throttle": 0.096,
+        "invalidateFocus": 0.107,
+        "presentedView": 7.064
+      }
+    },
+    {
+      "at": 1789978815367,
+      "name": "switch-steps",
+      "value": 37.601,
+      "extra": {
+        "ensureView": 0.03,
+        "attachSweep": 21.867,
+        "layoutBroadcast": 0.471,
+        "throttle": 0.154,
+        "invalidateFocus": 0.419,
+        "presentedView": 14.613
+      }
+    },
+    {
+      "at": 1789978818362,
+      "name": "switch-steps",
+      "value": 18.718,
+      "extra": {
+        "ensureView": 0.025,
+        "attachSweep": 12.523,
+        "layoutBroadcast": 0.331,
+        "throttle": 0.071,
+        "invalidateFocus": 0.11,
+        "presentedView": 5.601
+      }
+    },
+    {
+      "at": 1789978821456,
+      "name": "switch-steps",
+      "value": 15.631,
+      "extra": {
+        "ensureView": 0.027,
+        "attachSweep": 10.967,
+        "layoutBroadcast": 0.332,
+        "throttle": 0.069,
+        "invalidateFocus": 0.171,
+        "presentedView": 3.991
+      }
+    },
+    {
+      "at": 1789978824563,
+      "name": "switch-steps",
+      "value": 19.157,
+      "extra": {
+        "ensureView": 0.035,
+        "attachSweep": 13.658,
+        "layoutBroadcast": 0.426,
+        "throttle": 0.17,
+        "invalidateFocus": 0.236,
+        "presentedView": 4.548
+      }
+    },
+    {
+      "at": 1789978827674,
+      "name": "switch-steps",
+      "value": 28.492,
+      "extra": {
+        "ensureView": 0.038,
+        "attachSweep": 17.94,
+        "layoutBroadcast": 0.451,
+        "throttle": 0.17,
+        "invalidateFocus": 0.211,
+        "presentedView": 9.613
+      }
+    },
+    {
+      "at": 1789978830774,
+      "name": "switch-steps",
+      "value": 22.677,
+      "extra": {
+        "ensureView": 0.026,
+        "attachSweep": 15.102,
+        "layoutBroadcast": 0.495,
+        "throttle": 0.125,
+        "invalidateFocus": 0.137,
+        "presentedView": 6.664
+      }
+    },
+    {
+      "at": 1789978833790,
+      "name": "switch-steps",
+      "value": 20.592,
+      "extra": {
+        "ensureView": 0.033,
+        "attachSweep": 14.904,
+        "layoutBroadcast": 0.41,
+        "throttle": 0.152,
+        "invalidateFocus": 0.373,
+        "presentedView": 4.663
+      }
+    },
+    {
+      "at": 1789978839294,
+      "name": "switch-steps",
+      "value": 17.035,
+      "extra": {
+        "ensureView": 0.033,
+        "attachSweep": 13.456,
+        "layoutBroadcast": 0.363,
+        "throttle": 0.077,
+        "invalidateFocus": 0.109,
+        "presentedView": 2.954
+      }
+    },
+    {
+      "at": 1789978842371,
+      "name": "switch-steps",
+      "value": 21.941,
+      "extra": {
+        "ensureView": 0.029,
+        "attachSweep": 16.63,
+        "layoutBroadcast": 0.534,
+        "throttle": 0.08,
+        "invalidateFocus": 0.112,
+        "presentedView": 4.496
+      }
+    },
+    {
+      "at": 1789978845447,
+      "name": "switch-steps",
+      "value": 22.072,
+      "extra": {
+        "ensureView": 0.022,
+        "attachSweep": 14.479,
+        "layoutBroadcast": 0.535,
+        "throttle": 0.152,
+        "invalidateFocus": 0.112,
+        "presentedView": 6.704
+      }
+    },
+    {
+      "at": 1789978848474,
+      "name": "switch-steps",
+      "value": 22.641,
+      "extra": {
+        "ensureView": 0.035,
+        "attachSweep": 16.107,
+        "layoutBroadcast": 0.484,
+        "throttle": 0.084,
+        "invalidateFocus": 0.169,
+        "presentedView": 5.705
+      }
+    },
+    {
+      "at": 1789978851496,
+      "name": "switch-steps",
+      "value": 22.365,
+      "extra": {
+        "ensureView": 0.026,
+        "attachSweep": 15.746,
+        "layoutBroadcast": 0.593,
+        "throttle": 0.512,
+        "invalidateFocus": 0.143,
+        "presentedView": 5.287
+      }
+    },
+    {
+      "at": 1789978854517,
+      "name": "switch-steps",
+      "value": 15.57,
+      "extra": {
+        "ensureView": 0.02,
+        "attachSweep": 10.766,
+        "layoutBroadcast": 0.264,
+        "throttle": 0.048,
+        "invalidateFocus": 0.248,
+        "presentedView": 4.145
+      }
+    },
+    {
+      "at": 1789978857629,
+      "name": "switch-steps",
+      "value": 22.873,
+      "extra": {
+        "ensureView": 0.029,
+        "attachSweep": 15.954,
+        "layoutBroadcast": 0.469,
+        "throttle": 0.1,
+        "invalidateFocus": 0.226,
+        "presentedView": 6.046
+      }
+    },
+    {
+      "at": 1789978860640,
+      "name": "switch-steps",
+      "value": 18.343,
+      "extra": {
+        "ensureView": 0.029,
+        "attachSweep": 14.122,
+        "layoutBroadcast": 0.286,
+        "throttle": 0.058,
+        "invalidateFocus": 0.246,
+        "presentedView": 3.558
+      }
+    },
+    {
+      "at": 1789978863748,
+      "name": "switch-steps",
+      "value": 22.709,
+      "extra": {
+        "ensureView": 0.022,
+        "attachSweep": 16.44,
+        "layoutBroadcast": 0.405,
+        "throttle": 0.181,
+        "invalidateFocus": 0.138,
+        "presentedView": 5.471
+      }
+    },
+    {
+      "at": 1789978866875,
+      "name": "switch-steps",
+      "value": 27.515,
+      "extra": {
+        "ensureView": 0.035,
+        "attachSweep": 19.084,
+        "layoutBroadcast": 0.676,
+        "throttle": 0.248,
+        "invalidateFocus": 0.958,
+        "presentedView": 6.43
+      }
+    },
+    {
+      "at": 1789978869865,
+      "name": "switch-steps",
+      "value": 16.544,
+      "extra": {
+        "ensureView": 0.038,
+        "attachSweep": 12.701,
+        "layoutBroadcast": 0.296,
+        "throttle": 0.068,
+        "invalidateFocus": 0.104,
+        "presentedView": 3.294
+      }
+    },
+    {
+      "at": 1789978872974,
+      "name": "switch-steps",
+      "value": 20.061,
+      "extra": {
+        "ensureView": 0.038,
+        "attachSweep": 13.46,
+        "layoutBroadcast": 0.29,
+        "throttle": 0.065,
+        "invalidateFocus": 0.27,
+        "presentedView": 5.898
+      }
+    },
+    {
+      "at": 1789978875996,
+      "name": "switch-steps",
+      "value": 26.113,
+      "extra": {
+        "ensureView": 0.03,
+        "attachSweep": 17.275,
+        "layoutBroadcast": 1.177,
+        "throttle": 0.208,
+        "invalidateFocus": 0.201,
+        "presentedView": 7.153
+      }
+    },
+    {
+      "at": 1789978879081,
+      "name": "switch-steps",
+      "value": 27.662,
+      "extra": {
+        "ensureView": 0.042,
+        "attachSweep": 21.729,
+        "layoutBroadcast": 0.483,
+        "throttle": 0.277,
+        "invalidateFocus": 0.248,
+        "presentedView": 4.82
+      }
+    },
+    {
+      "at": 1789978882122,
+      "name": "switch-steps",
+      "value": 28.414,
+      "extra": {
+        "ensureView": 0.033,
+        "attachSweep": 18.126,
+        "layoutBroadcast": 0.499,
+        "throttle": 0.154,
+        "invalidateFocus": 0.19,
+        "presentedView": 9.34
+      }
+    },
+    {
+      "at": 1789978885250,
+      "name": "switch-steps",
+      "value": 46.794,
+      "extra": {
+        "ensureView": 0.034,
+        "attachSweep": 37.349,
+        "layoutBroadcast": 0.734,
+        "throttle": 0.101,
+        "invalidateFocus": 0.18,
+        "presentedView": 8.329
+      }
+    },
+    {
+      "at": 1789978888343,
+      "name": "switch-steps",
+      "value": 28.967,
+      "extra": {
+        "ensureView": 0.035,
+        "attachSweep": 19.87,
+        "layoutBroadcast": 0.484,
+        "throttle": 0.144,
+        "invalidateFocus": 0.128,
+        "presentedView": 8.238
+      }
+    },
+    {
+      "at": 1789978891374,
+      "name": "switch-steps",
+      "value": 23.672,
+      "extra": {
+        "ensureView": 0.031,
+        "attachSweep": 16.044,
+        "layoutBroadcast": 0.509,
+        "throttle": 0.119,
+        "invalidateFocus": 0.405,
+        "presentedView": 6.486
+      }
+    },
+    {
+      "at": 1789978894389,
+      "name": "switch-steps",
+      "value": 24.74,
+      "extra": {
+        "ensureView": 0.025,
+        "attachSweep": 14.875,
+        "layoutBroadcast": 0.543,
+        "throttle": 0.174,
+        "invalidateFocus": 0.132,
+        "presentedView": 8.923
+      }
+    },
+    {
+      "at": 1789978900636,
+      "name": "switch-steps",
+      "value": 29.305,
+      "extra": {
+        "ensureView": 0.043,
+        "attachSweep": 23.373,
+        "layoutBroadcast": 0.509,
+        "throttle": 0.085,
+        "invalidateFocus": 0.122,
+        "presentedView": 5.112
+      }
+    },
+    {
+      "at": 1789978903744,
+      "name": "switch-steps",
+      "value": 47.265,
+      "extra": {
+        "ensureView": 0.035,
+        "attachSweep": 33.791,
+        "layoutBroadcast": 0.65,
+        "throttle": 0.109,
+        "invalidateFocus": 0.203,
+        "presentedView": 12.406
+      }
+    },
+    {
+      "at": 1789978906847,
+      "name": "switch-steps",
+      "value": 46.193,
+      "extra": {
+        "ensureView": 0.081,
+        "attachSweep": 24.176,
+        "layoutBroadcast": 0.656,
+        "throttle": 0.11,
+        "invalidateFocus": 10.197,
+        "presentedView": 10.891
+      }
+    },
+    {
+      "at": 1789978909853,
+      "name": "switch-steps",
+      "value": 38.081,
+      "extra": {
+        "ensureView": 0.03,
+        "attachSweep": 27.233,
+        "layoutBroadcast": 0.863,
+        "throttle": 0.497,
+        "invalidateFocus": 1.138,
+        "presentedView": 8.252
+      }
+    },
+    {
+      "at": 1789978912886,
+      "name": "switch-steps",
+      "value": 25.587,
+      "extra": {
+        "ensureView": 0.044,
+        "attachSweep": 15.215,
+        "layoutBroadcast": 0.642,
+        "throttle": 0.108,
+        "invalidateFocus": 0.396,
+        "presentedView": 9.125
+      }
+    },
+    {
+      "at": 1789978916537,
+      "name": "switch-steps",
+      "value": 76.458,
+      "extra": {
+        "ensureView": 0.033,
+        "attachSweep": 41.655,
+        "layoutBroadcast": 0.716,
+        "throttle": 0.389,
+        "invalidateFocus": 0.178,
+        "presentedView": 33.388
+      }
+    },
+    {
+      "at": 1789978919280,
+      "name": "switch-steps",
+      "value": 27.712,
+      "extra": {
+        "ensureView": 0.031,
+        "attachSweep": 13.547,
+        "layoutBroadcast": 0.458,
+        "throttle": 0.086,
+        "invalidateFocus": 3.913,
+        "presentedView": 9.601
+      }
+    }
+  ],
+  "legSlopes": [],
+  "slowSwitchSamples": [
+    {
+      "at": 1789978916540,
+      "ms": 314.195,
+      "tabId": "484dfc23-ec5b-4c8d-9840-0f9b01b67dbb",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978903746,
+      "ms": 50.746,
+      "tabId": "a82925c3-a619-48bd-963a-bcad555b71eb",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978906848,
+      "ms": 48.523,
+      "tabId": "5687373c-a332-441d-b29d-126de8a5c25f",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978885251,
+      "ms": 47.419,
+      "tabId": "5687373c-a332-441d-b29d-126de8a5c25f",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978543230,
+      "ms": 45.821,
+      "tabId": "a82925c3-a619-48bd-963a-bcad555b71eb",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978735042,
+      "ms": 43.163,
+      "tabId": "5687373c-a332-441d-b29d-126de8a5c25f",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978561530,
+      "ms": 40.615,
+      "tabId": "a82925c3-a619-48bd-963a-bcad555b71eb",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978909853,
+      "ms": 38.679,
+      "tabId": "8b166409-d713-43df-ba12-0f962a6d0ca3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978815367,
+      "ms": 38.153,
+      "tabId": "38fedf6b-7622-42bb-bb3d-052a5a60762a",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978765462,
+      "ms": 37.811,
+      "tabId": "7c93fa0e-0490-4677-a5ad-44c5d314d5db",
+      "phase": "warmup",
+      "leg": null
+    }
+  ],
+  "switchSamples": [
+    {
+      "at": 1789978535935,
+      "ms": 32.094,
+      "tabId": "484dfc23-ec5b-4c8d-9840-0f9b01b67dbb",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978540189,
+      "ms": 19.34,
+      "tabId": "7c93fa0e-0490-4677-a5ad-44c5d314d5db",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978543230,
+      "ms": 45.821,
+      "tabId": "a82925c3-a619-48bd-963a-bcad555b71eb",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978546227,
+      "ms": 28.642,
+      "tabId": "5687373c-a332-441d-b29d-126de8a5c25f",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978549301,
+      "ms": 27.259,
+      "tabId": "8b166409-d713-43df-ba12-0f962a6d0ca3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978552331,
+      "ms": 19.338,
+      "tabId": "38fedf6b-7622-42bb-bb3d-052a5a60762a",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978555407,
+      "ms": 25.497,
+      "tabId": "484dfc23-ec5b-4c8d-9840-0f9b01b67dbb",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978558513,
+      "ms": 30.791,
+      "tabId": "7c93fa0e-0490-4677-a5ad-44c5d314d5db",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978561530,
+      "ms": 40.615,
+      "tabId": "a82925c3-a619-48bd-963a-bcad555b71eb",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978564561,
+      "ms": 30.745,
+      "tabId": "5687373c-a332-441d-b29d-126de8a5c25f",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978567563,
+      "ms": 14.485,
+      "tabId": "8b166409-d713-43df-ba12-0f962a6d0ca3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978570581,
+      "ms": 17.183,
+      "tabId": "38fedf6b-7622-42bb-bb3d-052a5a60762a",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978573585,
+      "ms": 16.677,
+      "tabId": "484dfc23-ec5b-4c8d-9840-0f9b01b67dbb",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978576673,
+      "ms": 22.402,
+      "tabId": "7c93fa0e-0490-4677-a5ad-44c5d314d5db",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978579679,
+      "ms": 22.656,
+      "tabId": "a82925c3-a619-48bd-963a-bcad555b71eb",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978582717,
+      "ms": 16.849,
+      "tabId": "5687373c-a332-441d-b29d-126de8a5c25f",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978585741,
+      "ms": 18.427,
+      "tabId": "8b166409-d713-43df-ba12-0f962a6d0ca3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978588762,
+      "ms": 30.074,
+      "tabId": "38fedf6b-7622-42bb-bb3d-052a5a60762a",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978591789,
+      "ms": 20.706,
+      "tabId": "484dfc23-ec5b-4c8d-9840-0f9b01b67dbb",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978594795,
+      "ms": 14.22,
+      "tabId": "7c93fa0e-0490-4677-a5ad-44c5d314d5db",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978598730,
+      "ms": 15.386,
+      "tabId": "a82925c3-a619-48bd-963a-bcad555b71eb",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978601742,
+      "ms": 18.491,
+      "tabId": "5687373c-a332-441d-b29d-126de8a5c25f",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978604766,
+      "ms": 13.659,
+      "tabId": "8b166409-d713-43df-ba12-0f962a6d0ca3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978607791,
+      "ms": 25.438,
+      "tabId": "38fedf6b-7622-42bb-bb3d-052a5a60762a",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978610811,
+      "ms": 19.856,
+      "tabId": "484dfc23-ec5b-4c8d-9840-0f9b01b67dbb",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978613856,
+      "ms": 18.78,
+      "tabId": "7c93fa0e-0490-4677-a5ad-44c5d314d5db",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978616867,
+      "ms": 26.005,
+      "tabId": "a82925c3-a619-48bd-963a-bcad555b71eb",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978619918,
+      "ms": 24.101,
+      "tabId": "5687373c-a332-441d-b29d-126de8a5c25f",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978622920,
+      "ms": 14.21,
+      "tabId": "8b166409-d713-43df-ba12-0f962a6d0ca3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978625932,
+      "ms": 20.418,
+      "tabId": "38fedf6b-7622-42bb-bb3d-052a5a60762a",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978628948,
+      "ms": 18.391,
+      "tabId": "484dfc23-ec5b-4c8d-9840-0f9b01b67dbb",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978632048,
+      "ms": 21.841,
+      "tabId": "7c93fa0e-0490-4677-a5ad-44c5d314d5db",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978635060,
+      "ms": 22.224,
+      "tabId": "a82925c3-a619-48bd-963a-bcad555b71eb",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978638080,
+      "ms": 16.571,
+      "tabId": "5687373c-a332-441d-b29d-126de8a5c25f",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978641101,
+      "ms": 18.172,
+      "tabId": "8b166409-d713-43df-ba12-0f962a6d0ca3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978644118,
+      "ms": 21.538,
+      "tabId": "38fedf6b-7622-42bb-bb3d-052a5a60762a",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978647129,
+      "ms": 16.46,
+      "tabId": "484dfc23-ec5b-4c8d-9840-0f9b01b67dbb",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978650178,
+      "ms": 26.951,
+      "tabId": "7c93fa0e-0490-4677-a5ad-44c5d314d5db",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978653262,
+      "ms": 31.031,
+      "tabId": "a82925c3-a619-48bd-963a-bcad555b71eb",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978660539,
+      "ms": 23.334,
+      "tabId": "5687373c-a332-441d-b29d-126de8a5c25f",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978663607,
+      "ms": 33.321,
+      "tabId": "8b166409-d713-43df-ba12-0f962a6d0ca3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978666698,
+      "ms": 20.347,
+      "tabId": "38fedf6b-7622-42bb-bb3d-052a5a60762a",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978669701,
+      "ms": 20.243,
+      "tabId": "484dfc23-ec5b-4c8d-9840-0f9b01b67dbb",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978672802,
+      "ms": 18.021,
+      "tabId": "7c93fa0e-0490-4677-a5ad-44c5d314d5db",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978675806,
+      "ms": 13.363,
+      "tabId": "a82925c3-a619-48bd-963a-bcad555b71eb",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978678911,
+      "ms": 16.383,
+      "tabId": "5687373c-a332-441d-b29d-126de8a5c25f",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978681914,
+      "ms": 16.297,
+      "tabId": "8b166409-d713-43df-ba12-0f962a6d0ca3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978685022,
+      "ms": 25.13,
+      "tabId": "38fedf6b-7622-42bb-bb3d-052a5a60762a",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978688042,
+      "ms": 32.151,
+      "tabId": "484dfc23-ec5b-4c8d-9840-0f9b01b67dbb",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978691091,
+      "ms": 16.946,
+      "tabId": "7c93fa0e-0490-4677-a5ad-44c5d314d5db",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978694100,
+      "ms": 19.979,
+      "tabId": "a82925c3-a619-48bd-963a-bcad555b71eb",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978697101,
+      "ms": 20.986,
+      "tabId": "5687373c-a332-441d-b29d-126de8a5c25f",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978700106,
+      "ms": 23.772,
+      "tabId": "8b166409-d713-43df-ba12-0f962a6d0ca3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978703179,
+      "ms": 20.362,
+      "tabId": "38fedf6b-7622-42bb-bb3d-052a5a60762a",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978706185,
+      "ms": 19.219,
+      "tabId": "484dfc23-ec5b-4c8d-9840-0f9b01b67dbb",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978709288,
+      "ms": 15.98,
+      "tabId": "7c93fa0e-0490-4677-a5ad-44c5d314d5db",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978712334,
+      "ms": 22.637,
+      "tabId": "a82925c3-a619-48bd-963a-bcad555b71eb",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978715336,
+      "ms": 16.382,
+      "tabId": "5687373c-a332-441d-b29d-126de8a5c25f",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978719750,
+      "ms": 29.559,
+      "tabId": "8b166409-d713-43df-ba12-0f962a6d0ca3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978722772,
+      "ms": 26.608,
+      "tabId": "38fedf6b-7622-42bb-bb3d-052a5a60762a",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978725781,
+      "ms": 20.522,
+      "tabId": "484dfc23-ec5b-4c8d-9840-0f9b01b67dbb",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978728887,
+      "ms": 27.953,
+      "tabId": "7c93fa0e-0490-4677-a5ad-44c5d314d5db",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978731951,
+      "ms": 32.107,
+      "tabId": "a82925c3-a619-48bd-963a-bcad555b71eb",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978735042,
+      "ms": 43.163,
+      "tabId": "5687373c-a332-441d-b29d-126de8a5c25f",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978738079,
+      "ms": 24.78,
+      "tabId": "8b166409-d713-43df-ba12-0f962a6d0ca3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978741097,
+      "ms": 25.39,
+      "tabId": "38fedf6b-7622-42bb-bb3d-052a5a60762a",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978744143,
+      "ms": 26.291,
+      "tabId": "484dfc23-ec5b-4c8d-9840-0f9b01b67dbb",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978747204,
+      "ms": 26.412,
+      "tabId": "7c93fa0e-0490-4677-a5ad-44c5d314d5db",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978750232,
+      "ms": 19.759,
+      "tabId": "a82925c3-a619-48bd-963a-bcad555b71eb",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978753262,
+      "ms": 25.693,
+      "tabId": "5687373c-a332-441d-b29d-126de8a5c25f",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978756291,
+      "ms": 22.337,
+      "tabId": "8b166409-d713-43df-ba12-0f962a6d0ca3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978759297,
+      "ms": 24.96,
+      "tabId": "38fedf6b-7622-42bb-bb3d-052a5a60762a",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978762368,
+      "ms": 21.161,
+      "tabId": "484dfc23-ec5b-4c8d-9840-0f9b01b67dbb",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978765462,
+      "ms": 37.811,
+      "tabId": "7c93fa0e-0490-4677-a5ad-44c5d314d5db",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978768503,
+      "ms": 25.59,
+      "tabId": "a82925c3-a619-48bd-963a-bcad555b71eb",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978771501,
+      "ms": 20.529,
+      "tabId": "5687373c-a332-441d-b29d-126de8a5c25f",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978774503,
+      "ms": 16.901,
+      "tabId": "8b166409-d713-43df-ba12-0f962a6d0ca3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978778712,
+      "ms": 28.221,
+      "tabId": "38fedf6b-7622-42bb-bb3d-052a5a60762a",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978781757,
+      "ms": 15.371,
+      "tabId": "484dfc23-ec5b-4c8d-9840-0f9b01b67dbb",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978784758,
+      "ms": 15.054,
+      "tabId": "7c93fa0e-0490-4677-a5ad-44c5d314d5db",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978787767,
+      "ms": 13.362,
+      "tabId": "a82925c3-a619-48bd-963a-bcad555b71eb",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978790847,
+      "ms": 15.091,
+      "tabId": "5687373c-a332-441d-b29d-126de8a5c25f",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978793935,
+      "ms": 12.965,
+      "tabId": "8b166409-d713-43df-ba12-0f962a6d0ca3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978797033,
+      "ms": 14.893,
+      "tabId": "38fedf6b-7622-42bb-bb3d-052a5a60762a",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978800125,
+      "ms": 18.875,
+      "tabId": "484dfc23-ec5b-4c8d-9840-0f9b01b67dbb",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978803157,
+      "ms": 14.918,
+      "tabId": "7c93fa0e-0490-4677-a5ad-44c5d314d5db",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978806265,
+      "ms": 18.938,
+      "tabId": "a82925c3-a619-48bd-963a-bcad555b71eb",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978809314,
+      "ms": 28.682,
+      "tabId": "5687373c-a332-441d-b29d-126de8a5c25f",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978812317,
+      "ms": 21.742,
+      "tabId": "8b166409-d713-43df-ba12-0f962a6d0ca3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978815367,
+      "ms": 38.153,
+      "tabId": "38fedf6b-7622-42bb-bb3d-052a5a60762a",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978818362,
+      "ms": 19.461,
+      "tabId": "484dfc23-ec5b-4c8d-9840-0f9b01b67dbb",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978821456,
+      "ms": 16.747,
+      "tabId": "7c93fa0e-0490-4677-a5ad-44c5d314d5db",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978824564,
+      "ms": 19.85,
+      "tabId": "a82925c3-a619-48bd-963a-bcad555b71eb",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978827675,
+      "ms": 29.263,
+      "tabId": "5687373c-a332-441d-b29d-126de8a5c25f",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978830775,
+      "ms": 23.301,
+      "tabId": "8b166409-d713-43df-ba12-0f962a6d0ca3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978833791,
+      "ms": 21.088,
+      "tabId": "38fedf6b-7622-42bb-bb3d-052a5a60762a",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978839295,
+      "ms": 18.992,
+      "tabId": "484dfc23-ec5b-4c8d-9840-0f9b01b67dbb",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978842371,
+      "ms": 26.213,
+      "tabId": "7c93fa0e-0490-4677-a5ad-44c5d314d5db",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978845447,
+      "ms": 22.572,
+      "tabId": "a82925c3-a619-48bd-963a-bcad555b71eb",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978848475,
+      "ms": 23.308,
+      "tabId": "5687373c-a332-441d-b29d-126de8a5c25f",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978851497,
+      "ms": 22.842,
+      "tabId": "8b166409-d713-43df-ba12-0f962a6d0ca3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978854518,
+      "ms": 16.078,
+      "tabId": "38fedf6b-7622-42bb-bb3d-052a5a60762a",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978857630,
+      "ms": 23.662,
+      "tabId": "484dfc23-ec5b-4c8d-9840-0f9b01b67dbb",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978860641,
+      "ms": 18.906,
+      "tabId": "7c93fa0e-0490-4677-a5ad-44c5d314d5db",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978863749,
+      "ms": 23.564,
+      "tabId": "a82925c3-a619-48bd-963a-bcad555b71eb",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978866875,
+      "ms": 28.631,
+      "tabId": "5687373c-a332-441d-b29d-126de8a5c25f",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978869865,
+      "ms": 17.273,
+      "tabId": "8b166409-d713-43df-ba12-0f962a6d0ca3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978872974,
+      "ms": 20.681,
+      "tabId": "38fedf6b-7622-42bb-bb3d-052a5a60762a",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978875997,
+      "ms": 26.71,
+      "tabId": "484dfc23-ec5b-4c8d-9840-0f9b01b67dbb",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978879081,
+      "ms": 28.414,
+      "tabId": "7c93fa0e-0490-4677-a5ad-44c5d314d5db",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978882123,
+      "ms": 29.474,
+      "tabId": "a82925c3-a619-48bd-963a-bcad555b71eb",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978885251,
+      "ms": 47.419,
+      "tabId": "5687373c-a332-441d-b29d-126de8a5c25f",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978888344,
+      "ms": 29.64,
+      "tabId": "8b166409-d713-43df-ba12-0f962a6d0ca3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978891375,
+      "ms": 24.297,
+      "tabId": "38fedf6b-7622-42bb-bb3d-052a5a60762a",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978894390,
+      "ms": 25.242,
+      "tabId": "484dfc23-ec5b-4c8d-9840-0f9b01b67dbb",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978900637,
+      "ms": 29.915,
+      "tabId": "7c93fa0e-0490-4677-a5ad-44c5d314d5db",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978903746,
+      "ms": 50.746,
+      "tabId": "a82925c3-a619-48bd-963a-bcad555b71eb",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978906848,
+      "ms": 48.523,
+      "tabId": "5687373c-a332-441d-b29d-126de8a5c25f",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978909853,
+      "ms": 38.679,
+      "tabId": "8b166409-d713-43df-ba12-0f962a6d0ca3",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978912887,
+      "ms": 26.311,
+      "tabId": "38fedf6b-7622-42bb-bb3d-052a5a60762a",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978916540,
+      "ms": 314.195,
+      "tabId": "484dfc23-ec5b-4c8d-9840-0f9b01b67dbb",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789978919281,
+      "ms": 28.597,
+      "tabId": "7c93fa0e-0490-4677-a5ad-44c5d314d5db",
+      "phase": "warmup",
+      "leg": null
+    }
+  ],
+  "switchSamplesDropped": 0,
+  "stderrTail": [
+    "[index] Terminal Host Daemon unavailable (no staged daemon bundle (run scripts/stage-daemon-host.mjs)); falling back to in-process TerminalManager"
+  ],
+  "stdoutBenchmarkTail": [
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"ptyData\",\"value\":243,\"extra\":{\"sessionId\":\"terminal-1\",\"chunkSeq\":110,\"totalBytes\":39767},\"ts\":\"2026-09-21T08:21:41.388Z\",\"nowMs\":387920.6383}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"fanoutMessages\",\"value\":0,\"extra\":{\"sessionId\":\"terminal-1\",\"windows\":0},\"ts\":\"2026-09-21T08:21:41.388Z\",\"nowMs\":387920.7746}",
+    "[antifan-benchmark] {\"surface\":\"bridge\",\"name\":\"broadcast\",\"value\":0.22149999998509884,\"extra\":{\"event\":\"antifan:terminal:data\",\"clients\":1,\"congested\":0,\"bytes\":537},\"ts\":\"2026-09-21T08:21:41.389Z\",\"nowMs\":387921.0443}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"ptyData\",\"value\":115,\"extra\":{\"sessionId\":\"terminal-1\",\"chunkSeq\":111,\"totalBytes\":39882},\"ts\":\"2026-09-21T08:21:41.436Z\",\"nowMs\":387968.2158}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"fanoutMessages\",\"value\":0,\"extra\":{\"sessionId\":\"terminal-1\",\"windows\":0},\"ts\":\"2026-09-21T08:21:41.436Z\",\"nowMs\":387968.3278}",
+    "[antifan-benchmark] {\"surface\":\"bridge\",\"name\":\"broadcast\",\"value\":0.157100000011269,\"extra\":{\"event\":\"antifan:terminal:data\",\"clients\":1,\"congested\":0,\"bytes\":309},\"ts\":\"2026-09-21T08:21:41.436Z\",\"nowMs\":387968.52}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"ptyData\",\"value\":266,\"extra\":{\"sessionId\":\"terminal-1\",\"chunkSeq\":112,\"totalBytes\":40148},\"ts\":\"2026-09-21T08:21:41.478Z\",\"nowMs\":388010.2128}",
+    "[antifan-benchmark] {\"surface\":\"bridge\",\"name\":\"broadcast\",\"value\":0.14880000002449378,\"extra\":{\"event\":\"antifan:terminal:data\",\"clients\":1,\"congested\":0,\"bytes\":577},\"ts\":\"2026-09-21T08:21:41.478Z\",\"nowMs\":388010.5012}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"fanoutMessages\",\"value\":0,\"extra\":{\"sessionId\":\"terminal-1\",\"windows\":0},\"ts\":\"2026-09-21T08:21:41.487Z\",\"nowMs\":388019.3163}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"ptyData\",\"value\":115,\"extra\":{\"sessionId\":\"terminal-1\",\"chunkSeq\":113,\"totalBytes\":40263},\"ts\":\"2026-09-21T08:21:41.518Z\",\"nowMs\":388050.2952}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"fanoutMessages\",\"value\":0,\"extra\":{\"sessionId\":\"terminal-1\",\"windows\":0},\"ts\":\"2026-09-21T08:21:41.518Z\",\"nowMs\":388050.4048}",
+    "[antifan-benchmark] {\"surface\":\"bridge\",\"name\":\"broadcast\",\"value\":0.1414999999688007,\"extra\":{\"event\":\"antifan:terminal:data\",\"clients\":1,\"congested\":0,\"bytes\":284},\"ts\":\"2026-09-21T08:21:41.518Z\",\"nowMs\":388050.5817}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.39539999997941777,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-21T08:21:43.731Z\",\"nowMs\":390263.7787}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.355600000009872,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-21T08:21:43.744Z\",\"nowMs\":390276.5191}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":47.20490000001155,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-21T08:21:43.744Z\",\"nowMs\":390276.7125}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switch-steps\",\"value\":47.265,\"extra\":{\"ensureView\":0.035,\"attachSweep\":33.791,\"layoutBroadcast\":0.65,\"throttle\":0.109,\"invalidateFocus\":0.203,\"presentedView\":12.406},\"ts\":\"2026-09-21T08:21:43.744Z\",\"nowMs\":390276.7524}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.2890999999945052,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-21T08:21:46.826Z\",\"nowMs\":393358.2097}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.4638000000268221,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-21T08:21:46.847Z\",\"nowMs\":393379.5563}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":46.12510000000475,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-21T08:21:46.847Z\",\"nowMs\":393379.7538}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switch-steps\",\"value\":46.193,\"extra\":{\"ensureView\":0.081,\"attachSweep\":24.176,\"layoutBroadcast\":0.656,\"throttle\":0.11,\"invalidateFocus\":10.197,\"presentedView\":10.891},\"ts\":\"2026-09-21T08:21:46.847Z\",\"nowMs\":393379.8025}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.39949999999953434,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-21T08:21:49.842Z\",\"nowMs\":396374.777}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.22980000003008172,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-21T08:21:49.852Z\",\"nowMs\":396384.8793}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":38.02390000002924,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-21T08:21:49.853Z\",\"nowMs\":396385.0473}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switch-steps\",\"value\":38.081,\"extra\":{\"ensureView\":0.03,\"attachSweep\":27.233,\"layoutBroadcast\":0.863,\"throttle\":0.497,\"invalidateFocus\":1.138,\"presentedView\":8.252},\"ts\":\"2026-09-21T08:21:49.853Z\",\"nowMs\":396385.089}",
+    "[antifan-benchmark] {\"surface\":\"history\",\"name\":\"persist\",\"value\":31.567,\"extra\":{\"items\":8048,\"bytes\":3871794,\"superseded\":true},\"ts\":\"2026-09-21T08:21:52.021Z\",\"nowMs\":398553.8905}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.3486000000266358,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-21T08:21:52.876Z\",\"nowMs\":399408.5769}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.23070000001462176,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-21T08:21:52.886Z\",\"nowMs\":399418.2935}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":25.540699999954086,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-21T08:21:52.886Z\",\"nowMs\":399418.4439}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switch-steps\",\"value\":25.587,\"extra\":{\"ensureView\":0.044,\"attachSweep\":15.215,\"layoutBroadcast\":0.642,\"throttle\":0.108,\"invalidateFocus\":0.396,\"presentedView\":9.125},\"ts\":\"2026-09-21T08:21:52.886Z\",\"nowMs\":399418.4787}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.48059999995166436,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-21T08:21:56.502Z\",\"nowMs\":403034.4321}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.5091000000247732,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-21T08:21:56.536Z\",\"nowMs\":403068.1892}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":76.37330000003567,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-21T08:21:56.536Z\",\"nowMs\":403068.5808}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switch-steps\",\"value\":76.458,\"extra\":{\"ensureView\":0.033,\"attachSweep\":41.655,\"layoutBroadcast\":0.716,\"throttle\":0.389,\"invalidateFocus\":0.178,\"presentedView\":33.388},\"ts\":\"2026-09-21T08:21:56.537Z\",\"nowMs\":403069.1055}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.26439999998547137,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-21T08:21:59.266Z\",\"nowMs\":405798.9198}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.33100000000558794,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-21T08:21:59.280Z\",\"nowMs\":405812.4689}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":27.650499999988824,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-21T08:21:59.280Z\",\"nowMs\":405812.6939}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switch-steps\",\"value\":27.712,\"extra\":{\"ensureView\":0.031,\"attachSweep\":13.547,\"layoutBroadcast\":0.458,\"throttle\":0.086,\"invalidateFocus\":3.913,\"presentedView\":9.601},\"ts\":\"2026-09-21T08:21:59.280Z\",\"nowMs\":405812.7402}",
+    "[antifan-benchmark] {\"surface\":\"event-loop\",\"name\":\"delaySamples\",\"value\":402,\"extra\":{\"samples\":[{\"t\":1789978515563,\"p50\":32489471,\"p95\":98893823,\"max\":205914111},{\"t\":1789978516567,\"p50\":34471935,\"p95\":55934975,\"max\":64258047},{\"t\":1789978517595,\"p50\":34013183,\"p95\":66945023,\"max\":74186751},{\"t\":1789978518666,\"p50\":38731775,\"p95\":65601535,\"max\":78512127},{\"t\":1789978519665,\"p50\":33259519,\"p95\":55476223,\"max\":64061439},{\"t\":1789978520674,\"p50\":33292287,\"p95\":73990143,\"max\":96665599},{\"t\":1789978521677,\"p50\":36143103,\"p95\":72089599,\"max\":74973183},{\"t\":1789978522679,\"p50\":53149695,\"p95\":86114303,\"max\":120651775},{\"t\":1789978523702,\"p50\":37093375,\"p95\":79167487,\"max\":92995583},{\"t\":1789978525158,\"p50\":33472511,\"p95\":50331647,\"max\":753401855},{\"t\":1789978526181,\"p50\":38010879,\"p95\":64880639,\"max\":83951615},{\"t\":1789978527184,\"p50\":40959999,\"p95\":65306623,\"max\":74514431},{\"t\":1789978528185,\"p50\":30474239,\"p95\":45088767,\"max\":103874559},{\"t\":1789978529281,\"p50\":30670847,\"p95\":278659071,\"max\":387186687},{\"t\":1789978530292,\"p50\":31080447,\"p95\":67698687,\"max\":69992447},{\"t\":1789978531342,\"p50\":27967487,\"p95\":178913279,\"max\":181272575},{\"t\":1789978532365,\"p50\":39059455,\"p95\":102170623,\"max\":102629375},{\"t\":1789978533413,\"p50\":30572543,\"p95\":60489727,\"max\":86376447},{\"t\":1789978534435,\"p50\":34111487,\"p95\":47906815,\"max\":54591487},{\"t\":1789978535439,\"p50\":32243711,\"p95\":38076415,\"max\":47808511},{\"t\":1789978536444,\"p50\":30556159,\"p95\":41287679,\"max\":52199423},{\"t\":1789978537451,\"p50\":29982719,\"p95\":44335103,\"max\":77070335},{\"t\":1789978538462,\"p50\":31162367,\"p95\":36601855,\"max\":59637759},{\"t\":1789978539461,\"p50\":31440895,\"p95\":60325887,\"max\":76480511},{\"t\":1789978540462,\"p50\":30785535,\"p95\":32751615,\"max\":34832383},{\"t\":1789978541473,\"p50\":30752767,\"p95\":34766847,\"max\":39354367},{\"t\":1789978542482,\"p50\":30605311,\"p95\":31260671,\"max\":35323903},{\"t\":1789978543488,\"p50\":30441471,\"p95\":31948799,\"max\":45842431},{\"t\":1789978544497,\"p50\":30507007,\"p95\":31080447,\"max\":33914879},{\"t\":1789978545499,\"p50\":30425087,\"p95\":32129023,\"max\":33341439},{\"t\":1789978546511,\"p50\":30654463,\"p95\":49807359,\"max\":49971199},{\"t\":1789978547516,\"p50\":30457855,\"p95\":33013759,\"max\":38043647},{\"t\":1789978548518,\"p50\":30244863,\"p95\":33210367,\"max\":33849343},{\"t\":1789978549519,\"p50\":30621695,\"p95\":32456703,\"max\":38567935},{\"t\":1789978550530,\"p50\":30539775,\"p95\":36306943,\"max\":40042495},{\"t\":1789978551535,\"p50\":30588927,\"p95\":32784383,\"max\":35192831},{\"t\":1789978552542,\"p50\":30507007,\"p95\":35422207,\"max\":39976959},{\"t\":1789978553545,\"p50\":30097407,\"p95\":35586047,\"max\":37027839},{\"t\":1789978554606,\"p50\":30474239,\"p95\":33587199,\"max\":89522175},{\"t\":1789978555608,\"p50\":30228479,\"p95\":63406079,\"max\":73662463},{\"t\":1789978556609,\"p50\":30425087,\"p95\":31752191,\"max\":34537471},{\"t\":1789978557633,\"p50\":30425087,\"p95\":30949375,\"max\":31326207},{\"t\":1789978558635,\"p50\":30326783,\"p95\":34078719,\"max\":45940735},{\"t\":1789978559649,\"p50\":30507007,\"p95\":31604735,\"max\":38436863},{\"t\":1789978560655,\"p50\":30490623,\"p95\":31440895,\"max\":36077567},{\"t\":1789978561657,\"p50\":30359551,\"p95\":33472511,\"max\":41517055},{\"t\":1789978562660,\"p50\":30490623,\"p95\":31817727,\"max\":37781503},{\"t\":1789978563670,\"p50\":30375935,\"p95\":31506431,\"max\":35422207},{\"t\":1789978564691,\"p50\":30621695,\"p95\":34275327,\"max\":45809663},{\"t\":1789978565700,\"p50\":30261247,\"p95\":31588351,\"max\":33587199},{\"t\":1789978566700,\"p50\":30162943,\"p95\":32178175,\"max\":34209791},{\"t\":1789978567701,\"p50\":30441471,\"p95\":32145407,\"max\":41156607},{\"t\":1789978568703,\"p50\":30556159,\"p95\":31047679,\"max\":32096255},{\"t\":1789978569706,\"p50\":30326783,\"p95\":32653311,\"max\":35618815},{\"t\":1789978570727,\"p50\":30654463,\"p95\":33947647,\"max\":55640063},{\"t\":1789978571737,\"p50\":30392319,\"p95\":31981567,\"max\":35815423},{\"t\":1789978572745,\"p50\":30621695,\"p95\":31260671,\"max\":32604159},{\"t\":1789978573751,\"p50\":30457855,\"p95\":32522239,\"max\":38207487},{\"t\":1789978574759,\"p50\":30392319,\"p95\":33619967,\"max\":71172095},{\"t\":1789978575763,\"p50\":30523391,\"p95\":37847039,\"max\":44695551},{\"t\":1789978576771,\"p50\":30523391,\"p95\":31375359,\"max\":38666239},{\"t\":1789978577774,\"p50\":30326783,\"p95\":32145407,\"max\":38567935},{\"t\":1789978578780,\"p50\":30408703,\"p95\":32604159,\"max\":33849343},{\"t\":1789978579792,\"p50\":30244863,\"p95\":33849343,\"max\":38338559},{\"t\":1789978580802,\"p50\":30507007,\"p95\":34144255,\"max\":59539455},{\"t\":1789978581804,\"p50\":30490623,\"p95\":31981567,\"max\":35028991},{\"t\":1789978582805,\"p50\":30441471,\"p95\":31768575,\"max\":33554431},{\"t\":1789978583816,\"p50\":30638079,\"p95\":32620543,\"max\":39944191},{\"t\":1789978584825,\"p50\":30441471,\"p95\":34373631,\"max\":36143103},{\"t\":1789978585828,\"p50\":30326783,\"p95\":31539199,\"max\":36896767},{\"t\":1789978586842,\"p50\":30539775,\"p95\":31539199,\"max\":35454975},{\"t\":1789978587854,\"p50\":30588927,\"p95\":32964607,\"max\":48037887},{\"t\":1789978588868,\"p50\":30441471,\"p95\":30982143,\"max\":36863999},{\"t\":1789978589873,\"p50\":30408703,\"p95\":33030143,\"max\":43122687},{\"t\":1789978590884,\"p50\":30392319,\"p95\":31211519,\"max\":32260095},{\"t\":1789978591890,\"p50\":30687231,\"p95\":34242559,\"max\":60620799},{\"t\":1789978592898,\"p50\":30474239,\"p95\":31621119,\"max\":31719423},{\"t\":1789978593909,\"p50\":30703615,\"p95\":31457279,\"max\":37584895},{\"t\":1789978594919,\"p50\":30654463,\"p95\":32145407,\"max\":33947647},{\"t\":1789978595930,\"p50\":30605311,\"p95\":31965183,\"max\":32718847},{\"t\":1789978596930,\"p50\":30425087,\"p95\":35389439,\"max\":40337407},{\"t\":1789978597939,\"p50\":30359551,\"p95\":31473663,\"max\":43089919},{\"t\":1789978598942,\"p50\":30326783,\"p95\":31408127,\"max\":35520511},{\"t\":1789978599948,\"p50\":30556159,\"p95\":31408127,\"max\":36995071},{\"t\":1789978600960,\"p50\":30703615,\"p95\":31195135,\"max\":31244287},{\"t\":1789978601967,\"p50\":30523391,\"p95\":30998527,\"max\":31490047},{\"t\":1789978602969,\"p50\":30703615,\"p95\":31227903,\"max\":40763391},{\"t\":1789978603977,\"p50\":30474239,\"p95\":32030719,\"max\":36798463},{\"t\":1789978604981,\"p50\":30457855,\"p95\":31571967,\"max\":39387135},{\"t\":1789978605992,\"p50\":30638079,\"p95\":32751615,\"max\":42041343},{\"t\":1789978606998,\"p50\":30507007,\"p95\":32849919,\"max\":37421055},{\"t\":1789978608009,\"p50\":30588927,\"p95\":32817151,\"max\":35258367},{\"t\":1789978609021,\"p50\":30556159,\"p95\":32489471,\"max\":37126143},{\"t\":1789978610023,\"p50\":30474239,\"p95\":31227903,\"max\":38469631},{\"t\":1789978611035,\"p50\":30638079,\"p95\":32210943,\"max\":35618815},{\"t\":1789978612036,\"p50\":30605311,\"p95\":31293439,\"max\":32505855},{\"t\":1789978613043,\"p50\":30523391,\"p95\":31195135,\"max\":32145407},{\"t\":1789978614050,\"p50\":30588927,\"p95\":31047679,\"max\":34668543},{\"t\":1789978615052,\"p50\":30523391,\"p95\":31850495,\"max\":36798463},{\"t\":1789978616068,\"p50\":30261247,\"p95\":32096255,\"max\":32489471},{\"t\":1789978617070,\"p50\":30425087,\"p95\":31719423,\"max\":41254911},{\"t\":1789978618079,\"p50\":30572543,\"p95\":33341439,\"max\":37552127},{\"t\":1789978619081,\"p50\":30375935,\"p95\":31424511,\"max\":36831231},{\"t\":1789978620093,\"p50\":30490623,\"p95\":36208639,\"max\":39256063},{\"t\":1789978621093,\"p50\":30408703,\"p95\":31637503,\"max\":32161791},{\"t\":1789978622095,\"p50\":30392319,\"p95\":31227903,\"max\":31735807},{\"t\":1789978623104,\"p50\":30457855,\"p95\":31195135,\"max\":31309823},{\"t\":1789978624112,\"p50\":30588927,\"p95\":31113215,\"max\":32620543},{\"t\":1789978625115,\"p50\":30556159,\"p95\":31178751,\"max\":52035583},{\"t\":1789978626124,\"p50\":30523391,\"p95\":31653887,\"max\":36241407},{\"t\":1789978627130,\"p50\":30654463,\"p95\":31113215,\"max\":31539199},{\"t\":1789978628139,\"p50\":30588927,\"p95\":31604735,\"max\":38600703},{\"t\":1789978629144,\"p50\":30474239,\"p95\":31326207,\"max\":34013183},{\"t\":1789978630159,\"p50\":30490623,\"p95\":31047679,\"max\":44662783},{\"t\":1789978631161,\"p50\":30408703,\"p95\":31326207,\"max\":32571391},{\"t\":1789978632163,\"p50\":30588927,\"p95\":31145983,\"max\":36896767},{\"t\":1789978633165,\"p50\":30408703,\"p95\":31522815,\"max\":34439167},{\"t\":1789978634166,\"p50\":30375935,\"p95\":31440895,\"max\":33226751},{\"t\":1789978635175,\"p50\":30572543,\"p95\":33374207,\"max\":35487743},{\"t\":1789978636183,\"p50\":30556159,\"p95\":31211519,\"max\":31653887},{\"t\":1789978637190,\"p50\":30687231,\"p95\":33456127,\"max\":34701311},{\"t\":1789978638200,\"p50\":30392319,\"p95\":32342015,\"max\":40992767},{\"t\":1789978639208,\"p50\":30588927,\"p95\":31195135,\"max\":33816575},{\"t\":1789978640215,\"p50\":30588927,\"p95\":34504703,\"max\":54886399},{\"t\":1789978641219,\"p50\":30441471,\"p95\":31113215,\"max\":31932415},{\"t\":1789978642225,\"p50\":30375935,\"p95\":31047679,\"max\":31195135},{\"t\":1789978643241,\"p50\":30392319,\"p95\":34144255,\"max\":38928383},{\"t\":1789978644250,\"p50\":30572543,\"p95\":36438015,\"max\":38731775},{\"t\":1789978645255,\"p50\":30572543,\"p95\":32882687,\"max\":43188223},{\"t\":1789978646261,\"p50\":30572543,\"p95\":30949375,\"max\":31457279},{\"t\":1789978647264,\"p50\":30441471,\"p95\":31686655,\"max\":47087615},{\"t\":1789978648270,\"p50\":30621695,\"p95\":31309823,\"max\":34275327},{\"t\":1789978649273,\"p50\":30392319,\"p95\":31064063,\"max\":33161215},{\"t\":1789978650285,\"p50\":30359551,\"p95\":31539199,\"max\":66256895},{\"t\":1789978651293,\"p50\":30638079,\"p95\":37224447,\"max\":42139647},{\"t\":1789978652292,\"p50\":30621695,\"p95\":35749887,\"max\":65077247},{\"t\":1789978653292,\"p50\":30294015,\"p95\":33652735,\"max\":40042495},{\"t\":1789978654295,\"p50\":30719999,\"p95\":38567935,\"max\":41254911},{\"t\":1789978655303,\"p50\":30490623,\"p95\":33652735,\"max\":62193663},{\"t\":1789978656303,\"p50\":30949375,\"p95\":64847871,\"max\":69599231},{\"t\":1789978657321,\"p50\":33357823,\"p95\":58818559,\"max\":69926911},{\"t\":1789978658338,\"p50\":30212095,\"p95\":37289983,\"max\":39190527},{\"t\":1789978659351,\"p50\":30572543,\"p95\":42500095,\"max\":50462719},{\"t\":1789978660363,\"p50\":31031295,\"p95\":42041343,\"max\":50561023},{\"t\":1789978661367,\"p50\":30474239,\"p95\":37224447,\"max\":39256063},{\"t\":1789978662368,\"p50\":30474239,\"p95\":35323903,\"max\":41582591},{\"t\":1789978663374,\"p50\":30408703,\"p95\":34111487,\"max\":35946495},{\"t\":1789978664380,\"p50\":30179327,\"p95\":35160063,\"max\":58195967},{\"t\":1789978665393,\"p50\":30457855,\"p95\":34930687,\"max\":39124991},{\"t\":1789978666405,\"p50\":30326783,\"p95\":45318143,\"max\":82575359},{\"t\":1789978667409,\"p50\":30375935,\"p95\":31637503,\"max\":37355519},{\"t\":1789978668416,\"p50\":30507007,\"p95\":32342015,\"max\":35848191},{\"t\":1789978669422,\"p50\":30588927,\"p95\":33144831,\"max\":37388287},{\"t\":1789978670431,\"p50\":30523391,\"p95\":37158911,\"max\":47284223},{\"t\":1789978671445,\"p50\":30392319,\"p95\":32030719,\"max\":39256063},{\"t\":1789978672448,\"p50\":30457855,\"p95\":32243711,\"max\":39583743},{\"t\":1789978673457,\"p50\":30638079,\"p95\":31227903,\"max\":33046527},{\"t\":1789978674464,\"p50\":30605311,\"p95\":31490047,\"max\":31883263},{\"t\":1789978675473,\"p50\":30605311,\"p95\":31244287,\"max\":50692095},{\"t\":1789978676481,\"p50\":30425087,\"p95\":31866879,\"max\":36405247},{\"t\":1789978677494,\"p50\":30310399,\"p95\":30998527,\"max\":32505855},{\"t\":1789978678499,\"p50\":30507007,\"p95\":31571967,\"max\":51609599},{\"t\":1789978679501,\"p50\":30457855,\"p95\":31014911,\"max\":31916031},{\"t\":1789978680513,\"p50\":30326783,\"p95\":30916607,\"max\":35913727},{\"t\":1789978681518,\"p50\":30425087,\"p95\":33390591,\"max\":40927231},{\"t\":1789978682520,\"p50\":30375935,\"p95\":33161215,\"max\":40304639},{\"t\":1789978683532,\"p50\":30310399,\"p95\":31752191,\"max\":40697855},{\"t\":1789978684541,\"p50\":30294015,\"p95\":31522815,\"max\":36634623},{\"t\":1789978685553,\"p50\":30687231,\"p95\":40959999,\"max\":46923775},{\"t\":1789978686558,\"p50\":30523391,\"p95\":34603007,\"max\":38567935},{\"t\":1789978687558,\"p50\":30539775,\"p95\":35192831,\"max\":41025535},{\"t\":1789978688564,\"p50\":30425087,\"p95\":34537471,\"max\":63635455},{\"t\":1789978689568,\"p50\":30277631,\"p95\":33538047,\"max\":81788927},{\"t\":1789978690569,\"p50\":30326783,\"p95\":31080447,\"max\":37191679},{\"t\":1789978691583,\"p50\":30310399,\"p95\":31342591,\"max\":32833535},{\"t\":1789978692598,\"p50\":30277631,\"p95\":33980415,\"max\":38600703},{\"t\":1789978693609,\"p50\":30326783,\"p95\":52625407,\"max\":93716479},{\"t\":1789978694611,\"p50\":30064639,\"p95\":34897919,\"max\":42008575},{\"t\":1789978695613,\"p50\":30392319,\"p95\":32145407,\"max\":32997375},{\"t\":1789978696626,\"p50\":30490623,\"p95\":31571967,\"max\":34045951},{\"t\":1789978697636,\"p50\":30113791,\"p95\":31293439,\"max\":39878655},{\"t\":1789978698638,\"p50\":30457855,\"p95\":31457279,\"max\":35979263},{\"t\":1789978699638,\"p50\":30703615,\"p95\":31375359,\"max\":32653311},{\"t\":1789978700641,\"p50\":30031871,\"p95\":57311231,\"max\":82575359},{\"t\":1789978701651,\"p50\":30359551,\"p95\":30883839,\"max\":40632319},{\"t\":1789978702653,\"p50\":30261247,\"p95\":32620543,\"max\":34373631},{\"t\":1789978703653,\"p50\":30408703,\"p95\":32538623,\"max\":36306943},{\"t\":1789978704659,\"p50\":30294015,\"p95\":31571967,\"max\":43515903},{\"t\":1789978705673,\"p50\":30425087,\"p95\":32309247,\"max\":38830079},{\"t\":1789978706684,\"p50\":30425087,\"p95\":31113215,\"max\":31424511},{\"t\":1789978707698,\"p50\":30638079,\"p95\":32702463,\"max\":36831231},{\"t\":1789978708699,\"p50\":30097407,\"p95\":31260671,\"max\":34668543},{\"t\":1789978709714,\"p50\":30457855,\"p95\":31047679,\"max\":31195135},{\"t\":1789978710715,\"p50\":30359551,\"p95\":34930687,\"max\":41254911},{\"t\":1789978711720,\"p50\":30081023,\"p95\":31440895,\"max\":46006271},{\"t\":1789978712720,\"p50\":30375935,\"p95\":32145407,\"max\":36274175},{\"t\":1789978713726,\"p50\":30097407,\"p95\":33259519,\"max\":35749887},{\"t\":1789978714732,\"p50\":30343167,\"p95\":31113215,\"max\":38535167},{\"t\":1789978715742,\"p50\":30179327,\"p95\":33341439,\"max\":40894463},{\"t\":1789978716756,\"p50\":30375935,\"p95\":37552127,\"max\":38240255},{\"t\":1789978717761,\"p50\":30031871,\"p95\":33718271,\"max\":40435711},{\"t\":1789978718770,\"p50\":30195711,\"p95\":41877503,\"max\":58163199},{\"t\":1789978719781,\"p50\":30457855,\"p95\":42008575,\"max\":56819711},{\"t\":1789978720789,\"p50\":30375935,\"p95\":33882111,\"max\":66879487},{\"t\":1789978721789,\"p50\":30261247,\"p95\":31784959,\"max\":35520511},{\"t\":1789978722791,\"p50\":30310399,\"p95\":32653311,\"max\":51609599},{\"t\":1789978723798,\"p50\":30375935,\"p95\":32276479,\"max\":38174719},{\"t\":1789978724809,\"p50\":30425087,\"p95\":32767999,\"max\":33619967},{\"t\":1789978725809,\"p50\":30375935,\"p95\":31113215,\"max\":31342591},{\"t\":1789978726823,\"p50\":30474239,\"p95\":32915455,\"max\":42369023},{\"t\":1789978727840,\"p50\":30359551,\"p95\":31457279,\"max\":34045951},{\"t\":1789978728842,\"p50\":30359551,\"p95\":37912575,\"max\":40140799},{\"t\":1789978729856,\"p50\":30162943,\"p95\":31948799,\"max\":44335103},{\"t\":1789978730867,\"p50\":30195711,\"p95\":31621119,\"max\":31752191},{\"t\":1789978731870,\"p50\":30408703,\"p95\":34045951,\"max\":43646975},{\"t\":1789978732881,\"p50\":30539775,\"p95\":35258367,\"max\":51937279},{\"t\":1789978733882,\"p50\":30556159,\"p95\":33046527,\"max\":35749887},{\"t\":1789978734882,\"p50\":30588927,\"p95\":34996223,\"max\":79298559},{\"t\":1789978735887,\"p50\":30310399,\"p95\":37978111,\"max\":100728831},{\"t\":1789978736891,\"p50\":30392319,\"p95\":34013183,\"max\":35815423},{\"t\":1789978737903,\"p50\":30064639,\"p95\":38764543,\"max\":58458111},{\"t\":1789978738912,\"p50\":30326783,\"p95\":35880959,\"max\":40402943},{\"t\":1789978739913,\"p50\":30375935,\"p95\":31916031,\"max\":32735231},{\"t\":1789978740920,\"p50\":30228479,\"p95\":31293439,\"max\":36569087},{\"t\":1789978741935,\"p50\":30457855,\"p95\":34897919,\"max\":41123839},{\"t\":1789978742941,\"p50\":30392319,\"p95\":34996223,\"max\":36110335},{\"t\":1789978743944,\"p50\":30244863,\"p95\":47153151,\"max\":66453503},{\"t\":1789978744958,\"p50\":32030719,\"p95\":40009727,\"max\":45940735},{\"t\":1789978745967,\"p50\":30310399,\"p95\":32178175,\"max\":42631167},{\"t\":1789978746967,\"p50\":30507007,\"p95\":37224447,\"max\":47513599},{\"t\":1789978747969,\"p50\":30146559,\"p95\":32194559,\"max\":34308095},{\"t\":1789978748975,\"p50\":30343167,\"p95\":38076415,\"max\":44040191},{\"t\":1789978749985,\"p50\":30310399,\"p95\":33914879,\"max\":40271871},{\"t\":1789978750993,\"p50\":30081023,\"p95\":33390591,\"max\":35291135},{\"t\":1789978752008,\"p50\":30097407,\"p95\":31571967,\"max\":46661631},{\"t\":1789978753008,\"p50\":30425087,\"p95\":32980991,\"max\":34471935},{\"t\":1789978754017,\"p50\":30212095,\"p95\":32014335,\"max\":33914879},{\"t\":1789978755019,\"p50\":30425087,\"p95\":32866303,\"max\":38699007},{\"t\":1789978756027,\"p50\":30539775,\"p95\":35749887,\"max\":43220991},{\"t\":1789978757040,\"p50\":29982719,\"p95\":33849343,\"max\":38535167},{\"t\":1789978758041,\"p50\":30375935,\"p95\":32653311,\"max\":51412991},{\"t\":1789978759049,\"p50\":30408703,\"p95\":32669695,\"max\":33849343},{\"t\":1789978760056,\"p50\":30490623,\"p95\":36798463,\"max\":48431103},{\"t\":1789978761066,\"p50\":30507007,\"p95\":38371327,\"max\":57475071},{\"t\":1789978762072,\"p50\":29884415,\"p95\":36372479,\"max\":38567935},{\"t\":1789978763081,\"p50\":30179327,\"p95\":35848191,\"max\":36929535},{\"t\":1789978764092,\"p50\":29835263,\"p95\":34013183,\"max\":36962303},{\"t\":1789978765091,\"p50\":29999103,\"p95\":36306943,\"max\":56623103},{\"t\":1789978766102,\"p50\":30375935,\"p95\":31621119,\"max\":54624255},{\"t\":1789978767112,\"p50\":30425087,\"p95\":35127295,\"max\":57802751},{\"t\":1789978768114,\"p50\":30408703,\"p95\":36274175,\"max\":69140479},{\"t\":1789978769123,\"p50\":30507007,\"p95\":32374783,\"max\":34897919},{\"t\":1789978770125,\"p50\":30343167,\"p95\":33341439,\"max\":41451519},{\"t\":1789978771137,\"p50\":30408703,\"p95\":31096831,\"max\":31309823},{\"t\":1789978772151,\"p50\":30212095,\"p95\":31375359,\"max\":34635775},{\"t\":1789978773163,\"p50\":30523391,\"p95\":31342591,\"max\":43581439},{\"t\":1789978774168,\"p50\":30392319,\"p95\":32571391,\"max\":46989311},{\"t\":1789978775171,\"p50\":30375935,\"p95\":31768575,\"max\":34209791},{\"t\":1789978776170,\"p50\":30523391,\"p95\":31342591,\"max\":31490047},{\"t\":1789978777182,\"p50\":30261247,\"p95\":32243711,\"max\":35651583},{\"t\":1789978778195,\"p50\":30490623,\"p95\":31047679,\"max\":31965183},{\"t\":1789978779204,\"p50\":30605311,\"p95\":31637503,\"max\":44498943},{\"t\":1789978780219,\"p50\":30490623,\"p95\":30998527,\"max\":32243711},{\"t\":1789978781233,\"p50\":30605311,\"p95\":34504703,\"max\":58261503},{\"t\":1789978782246,\"p50\":30507007,\"p95\":35487743,\"max\":36667391},{\"t\":1789978783256,\"p50\":30539775,\"p95\":30949375,\"max\":31113215},{\"t\":1789978784268,\"p50\":30605311,\"p95\":31145983,\"max\":36569087},{\"t\":1789978785268,\"p50\":30507007,\"p95\":31899647,\"max\":32178175},{\"t\":1789978786272,\"p50\":30277631,\"p95\":35717119,\"max\":47808511},{\"t\":1789978787286,\"p50\":30195711,\"p95\":32407551,\"max\":38895615},{\"t\":1789978788299,\"p50\":30343167,\"p95\":31195135,\"max\":34668543},{\"t\":1789978789312,\"p50\":30113791,\"p95\":30719999,\"max\":33193983},{\"t\":1789978790314,\"p50\":30490623,\"p95\":31309823,\"max\":32571391},{\"t\":1789978791319,\"p50\":30081023,\"p95\":32096255,\"max\":39714815},{\"t\":1789978792330,\"p50\":30392319,\"p95\":30982143,\"max\":31047679},{\"t\":1789978793345,\"p50\":30425087,\"p95\":31080447,\"max\":31145983},{\"t\":1789978794351,\"p50\":30687231,\"p95\":31522815,\"max\":39911423},{\"t\":1789978795351,\"p50\":30375935,\"p95\":31064063,\"max\":31539199},{\"t\":1789978796361,\"p50\":30556159,\"p95\":31260671,\"max\":31522815},{\"t\":1789978797367,\"p50\":30588927,\"p95\":33243135,\"max\":45449215},{\"t\":1789978798382,\"p50\":30425087,\"p95\":31080447,\"max\":32374783},{\"t\":1789978799393,\"p50\":30162943,\"p95\":31195135,\"max\":32030719},{\"t\":1789978800400,\"p50\":30392319,\"p95\":31277055,\"max\":33947647},{\"t\":1789978801412,\"p50\":30195711,\"p95\":31277055,\"max\":36438015},{\"t\":1789978802422,\"p50\":30736383,\"p95\":31309823,\"max\":34340863},{\"t\":1789978803426,\"p50\":30310399,\"p95\":34144255,\"max\":51249151},{\"t\":1789978804428,\"p50\":30212095,\"p95\":32767999,\"max\":36503551},{\"t\":1789978805435,\"p50\":30392319,\"p95\":33456127,\"max\":49283071},{\"t\":1789978806441,\"p50\":30359551,\"p95\":32686079,\"max\":44072959},{\"t\":1789978807450,\"p50\":30343167,\"p95\":34045951,\"max\":41648127},{\"t\":1789978808456,\"p50\":30310399,\"p95\":35520511,\"max\":37683199},{\"t\":1789978809468,\"p50\":30310399,\"p95\":34537471,\"max\":54001663},{\"t\":1789978810467,\"p50\":30326783,\"p95\":31178751,\"max\":31260671},{\"t\":1789978811473,\"p50\":30441471,\"p95\":30818303,\"max\":33538047},{\"t\":1789978812478,\"p50\":30425087,\"p95\":31637503,\"max\":36962303},{\"t\":1789978813492,\"p50\":30326783,\"p95\":31375359,\"max\":33619967},{\"t\":1789978814504,\"p50\":30048255,\"p95\":31653887,\"max\":44761087},{\"t\":1789978815510,\"p50\":30539775,\"p95\":31490047,\"max\":45416447},{\"t\":1789978816520,\"p50\":30212095,\"p95\":34996223,\"max\":39059455},{\"t\":1789978817521,\"p50\":30277631,\"p95\":31211519,\"max\":34799615},{\"t\":1789978818524,\"p50\":30294015,\"p95\":31227903,\"max\":34832383},{\"t\":1789978819529,\"p50\":30310399,\"p95\":31490047,\"max\":40239103},{\"t\":1789978820534,\"p50\":30359551,\"p95\":31506431,\"max\":31932415},{\"t\":1789978821546,\"p50\":30326783,\"p95\":31686655,\"max\":49872895},{\"t\":1789978822548,\"p50\":30408703,\"p95\":31424511,\"max\":31670271},{\"t\":1789978823551,\"p50\":30490623,\"p95\":31211519,\"max\":40370175},{\"t\":1789978824564,\"p50\":30343167,\"p95\":34144255,\"max\":40828927},{\"t\":1789978825575,\"p50\":30162943,\"p95\":32571391,\"max\":35618815},{\"t\":1789978826580,\"p50\":30785535,\"p95\":31637503,\"max\":39780351},{\"t\":1789978827584,\"p50\":30523391,\"p95\":32473087,\"max\":41058303},{\"t\":1789978828597,\"p50\":30490623,\"p95\":31162367,\"max\":35028991},{\"t\":1789978829608,\"p50\":30375935,\"p95\":31145983,\"max\":34471935},{\"t\":1789978830614,\"p50\":30556159,\"p95\":31358975,\"max\":32194559},{\"t\":1789978831618,\"p50\":30556159,\"p95\":35258367,\"max\":40173567},{\"t\":1789978832618,\"p50\":30425087,\"p95\":30932991,\"max\":34471935},{\"t\":1789978833618,\"p50\":30375935,\"p95\":31408127,\"max\":31997951},{\"t\":1789978834622,\"p50\":30375935,\"p95\":31768575,\"max\":34930687},{\"t\":1789978835627,\"p50\":30261247,\"p95\":32374783,\"max\":39157759},{\"t\":1789978836641,\"p50\":30310399,\"p95\":33783807,\"max\":38469631},{\"t\":1789978837646,\"p50\":30572543,\"p95\":38797311,\"max\":58228735},{\"t\":1789978838646,\"p50\":30752767,\"p95\":36274175,\"max\":47808511},{\"t\":1789978839656,\"p50\":30343167,\"p95\":32636927,\"max\":47972351},{\"t\":1789978840669,\"p50\":30457855,\"p95\":33751039,\"max\":47611903},{\"t\":1789978841682,\"p50\":30359551,\"p95\":31047679,\"max\":34373631},{\"t\":1789978842701,\"p50\":30556159,\"p95\":51838975,\"max\":58032127},{\"t\":1789978843704,\"p50\":30179327,\"p95\":34144255,\"max\":42991615},{\"t\":1789978844713,\"p50\":30474239,\"p95\":32260095,\"max\":33112063},{\"t\":1789978845713,\"p50\":30392319,\"p95\":33783807,\"max\":38273023},{\"t\":1789978846719,\"p50\":30179327,\"p95\":31539199,\"max\":32374783},{\"t\":1789978847719,\"p50\":30556159,\"p95\":32342015,\"max\":34996223},{\"t\":1789978848722,\"p50\":30392319,\"p95\":31506431,\"max\":37978111},{\"t\":1789978849723,\"p50\":30441471,\"p95\":33161215,\"max\":35356671},{\"t\":1789978850729,\"p50\":30294015,\"p95\":34766847,\"max\":45875199},{\"t\":1789978851732,\"p50\":30310399,\"p95\":31997951,\"max\":55181311},{\"t\":1789978852735,\"p50\":30539775,\"p95\":34373631,\"max\":46694399},{\"t\":1789978853740,\"p50\":30162943,\"p95\":31031295,\"max\":32391167},{\"t\":1789978854746,\"p50\":30621695,\"p95\":32325631,\"max\":58818559},{\"t\":1789978855748,\"p50\":30310399,\"p95\":31260671,\"max\":41156607},{\"t\":1789978856753,\"p50\":30392319,\"p95\":31866879,\"max\":36110335},{\"t\":1789978857759,\"p50\":30375935,\"p95\":31506431,\"max\":31801343},{\"t\":1789978858760,\"p50\":30572543,\"p95\":31358975,\"max\":38633471},{\"t\":1789978859775,\"p50\":30375935,\"p95\":31391743,\"max\":32030719},{\"t\":1789978860788,\"p50\":30228479,\"p95\":31277055,\"max\":32194559},{\"t\":1789978861791,\"p50\":30556159,\"p95\":36208639,\"max\":62783487},{\"t\":1789978862809,\"p50\":30228479,\"p95\":33718271,\"max\":37289983},{\"t\":1789978863816,\"p50\":30064639,\"p95\":36241407,\"max\":53247999},{\"t\":1789978864822,\"p50\":30605311,\"p95\":31981567,\"max\":35520511},{\"t\":1789978865824,\"p50\":30392319,\"p95\":32948223,\"max\":35815423},{\"t\":1789978866845,\"p50\":30294015,\"p95\":33488895,\"max\":45252607},{\"t\":1789978867860,\"p50\":30228479,\"p95\":33652735,\"max\":39780351},{\"t\":1789978868860,\"p50\":30195711,\"p95\":32129023,\"max\":34799615},{\"t\":1789978869865,\"p50\":30425087,\"p95\":31440895,\"max\":42631167},{\"t\":1789978870875,\"p50\":30539775,\"p95\":31522815,\"max\":48300031},{\"t\":1789978871879,\"p50\":30474239,\"p95\":31080447,\"max\":31244287},{\"t\":1789978872892,\"p50\":30294015,\"p95\":31162367,\"max\":31424511},{\"t\":1789978873895,\"p50\":30375935,\"p95\":31899647,\"max\":51544063},{\"t\":1789978874896,\"p50\":30343167,\"p95\":32358399,\"max\":33718271},{\"t\":1789978875909,\"p50\":30343167,\"p95\":32915455,\"max\":35553279},{\"t\":1789978876924,\"p50\":30851071,\"p95\":47972351,\"max\":55476223},{\"t\":1789978877943,\"p50\":30277631,\"p95\":37027839,\"max\":41123839},{\"t\":1789978878947,\"p50\":30195711,\"p95\":39190527,\"max\":46530559},{\"t\":1789978879952,\"p50\":30081023,\"p95\":33652735,\"max\":44367871},{\"t\":1789978880952,\"p50\":30425087,\"p95\":34603007,\"max\":39321599},{\"t\":1789978881955,\"p50\":31031295,\"p95\":54034431,\"max\":68419583},{\"t\":1789978882965,\"p50\":30408703,\"p95\":39026687,\"max\":49512447},{\"t\":1789978883972,\"p50\":30834687,\"p95\":51085311,\"max\":138149887},{\"t\":1789978884984,\"p50\":30392319,\"p95\":81985535,\"max\":107085823},{\"t\":1789978885994,\"p50\":29589503,\"p95\":37388287,\"max\":64585727},{\"t\":1789978887002,\"p50\":31211519,\"p95\":49119231,\"max\":64290815},{\"t\":1789978888069,\"p50\":30081023,\"p95\":52527103,\"max\":185073663},{\"t\":1789978889070,\"p50\":34177023,\"p95\":88866815,\"max\":105775103},{\"t\":1789978890073,\"p50\":30277631,\"p95\":34996223,\"max\":40730623},{\"t\":1789978891077,\"p50\":30474239,\"p95\":34373631,\"max\":44597247},{\"t\":1789978892079,\"p50\":30261247,\"p95\":33882111,\"max\":35749887},{\"t\":1789978893080,\"p50\":30294015,\"p95\":32342015,\"max\":37060607},{\"t\":1789978894090,\"p50\":30359551,\"p95\":31670271,\"max\":44204031},{\"t\":1789978895093,\"p50\":30408703,\"p95\":31965183,\"max\":37781503},{\"t\":1789978896106,\"p50\":30490623,\"p95\":31145983,\"max\":37781503},{\"t\":1789978897110,\"p50\":30769151,\"p95\":41287679,\"max\":55181311},{\"t\":1789978898118,\"p50\":30621695,\"p95\":37584895,\"max\":48529407},{\"t\":1789978899127,\"p50\":30212095,\"p95\":36962303,\"max\":58130431},{\"t\":1789978900137,\"p50\":30097407,\"p95\":77266943,\"max\":77660159},{\"t\":1789978901138,\"p50\":30162943,\"p95\":32030719,\"max\":97189887},{\"t\":1789978902151,\"p50\":30244863,\"p95\":36208639,\"max\":38567935},{\"t\":1789978903155,\"p50\":30490623,\"p95\":36241407,\"max\":43745279},{\"t\":1789978904167,\"p50\":31588351,\"p95\":60555263,\"max\":68550655},{\"t\":1789978905168,\"p50\":30523391,\"p95\":41254911,\"max\":49119231},{\"t\":1789978906168,\"p50\":30064639,\"p95\":48758783,\"max\":53608447},{\"t\":1789978907173,\"p50\":31834111,\"p95\":55508991,\"max\":62783487},{\"t\":1789978908178,\"p50\":30113791,\"p95\":34766847,\"max\":46792703},{\"t\":1789978909182,\"p50\":30523391,\"p95\":39616511,\"max\":43679743},{\"t\":1789978910195,\"p50\":29949951,\"p95\":45252607,\"max\":54329343},{\"t\":1789978911201,\"p50\":30769151,\"p95\":43778047,\"max\":45416447},{\"t\":1789978912203,\"p50\":30294015,\"p95\":31653887,\"max\":58294271},{\"t\":1789978913206,\"p50\":30474239,\"p95\":42500095,\"max\":48431103},{\"t\":1789978914212,\"p50\":30261247,\"p95\":31473663,\"max\":32030719},{\"t\":1789978915225,\"p50\":30195711,\"p95\":44793855,\"max\":50724863},{\"t\":1789978916538,\"p50\":49086463,\"p95\":409468927,\"max\":496500735},{\"t\":1789978917549,\"p50\":29802495,\"p95\":35389439,\"max\":53870591},{\"t\":1789978918549,\"p50\":30310399,\"p95\":31916031,\"max\":54722559},{\"t\":1789978919549,\"p50\":30359551,\"p95\":31391743,\"max\":34570239},{\"t\":1789978920386,\"p50\":31195135,\"p95\":90046463,\"max\":95027199}]},\"ts\":\"2026-09-21T08:22:00.386Z\",\"nowMs\":406918.4898}",
+    "[antifan-benchmark] {\"surface\":\"startup\",\"name\":\"shutdown\",\"ts\":\"2026-09-21T08:22:00.386Z\",\"nowMs\":406918.812}",
+    "[antifan-benchmark] {\"surface\":\"process\",\"name\":\"atShutdown\",\"extra\":{\"breakdown\":{\"Browser\":{\"processes\":1,\"workingSetKB\":218644,\"privateBytesKB\":130968},\"GPU\":{\"processes\":1,\"workingSetKB\":190208,\"privateBytesKB\":147548},\"Utility\":{\"processes\":1,\"workingSetKB\":95652,\"privateBytesKB\":15032}},\"processes\":[{\"pid\":26464,\"type\":\"Browser\",\"workingSetKB\":218644,\"privateBytesKB\":130968,\"role\":\"\",\"url\":\"\"},{\"pid\":24616,\"type\":\"GPU\",\"workingSetKB\":190208,\"privateBytesKB\":147548,\"role\":\"\",\"url\":\"\"},{\"pid\":13140,\"type\":\"Utility\",\"workingSetKB\":95652,\"privateBytesKB\":15032,\"role\":\"\",\"url\":\"\"}],\"mainRssKB\":218644},\"ts\":\"2026-09-21T08:22:00.387Z\",\"nowMs\":406919.1657}"
+  ]
+}

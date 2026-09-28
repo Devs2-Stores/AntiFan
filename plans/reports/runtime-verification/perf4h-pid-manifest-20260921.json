@@ -1,0 +1,123 @@
+{
+  "purpose": "Post-hoc attribution safety net for the perf4h soak: names which processes belong to the measured app tree, proves the per-process series is app-sourced, and records the external machine load that shares the host.",
+  "recordedAt": "2026-09-21T06:27:00+07:00",
+  "run": {
+    "tag": "perf4h",
+    "launchedAt": "2026-09-21T06:20:18+07:00",
+    "argv": [
+      "node",
+      "scripts/benchmark-real-soak-8h.cjs",
+      "--minutes",
+      "240"
+    ],
+    "harnessPid": 21752,
+    "appMainPid": 2596,
+    "appMainStartedAt": "2026-09-21T06:20:18+07:00",
+    "bundleMd5": "c4a2d9f92a046701fce0192113649722",
+    "bundleFiles": 417,
+    "compiledFilesRewrittenAfterLaunch": 0,
+    "appTreePids": [
+      2596,
+      18504,
+      19124,
+      18152,
+      2636,
+      3980,
+      20464,
+      2660,
+      3000,
+      20556,
+      16672,
+      2448,
+      12028,
+      15480,
+      11980,
+      1396,
+      16116
+    ],
+    "measuredSeries": {
+      "harnessField": "processSamples <- benchmarkIngest.samples (scripts/benchmark-real-soak-8h.cjs:1599)",
+      "appSource": "recordProcessMetrics over app.getAppMetrics() (src/main/index.ts:348, timer at :389)",
+      "consequence": "only pids descended from 2596 can appear in processSamples / processSeries; the processes below cannot enter the memory gates"
+    }
+  },
+  "external": {
+    "userAppInstance": {
+      "mainPid": 16884,
+      "startedAt": "2026-09-21T01:31:43+07:00",
+      "cmd": "electron.exe E:\\Work\\apps\\AntiFan --allow-eval (flag pushed by scripts/run-electron.cjs:72; profile E:\\Work\\.antifan-data\\Profile)",
+      "pids": [
+        16884,
+        8856,
+        18892,
+        18032,
+        11024,
+        6292,
+        5932,
+        22020
+      ],
+      "largestProcess": "pid 11024 renderer, ~1.7 GB RSS, ~7073 s CPU",
+      "ownership": "left alone: the plan's own Phase 4b note already calls this 'the user's own app instance' and declares machine load uncontrolled, so killing it would destroy a session that may be the user's"
+    },
+    "sharedTerminalDaemonHost": {
+      "startedAt": "2026-09-20T11:33:09+07:00",
+      "pids": [
+        1048,
+        10952,
+        13236,
+        12308
+      ],
+      "note": "long-lived daemon host (daemon-host/2cd82c30dd1802ea) reused across app runs; project infrastructure, not a leak"
+    },
+    "snapshot": {
+      "at": "2026-09-21T06:26:42+07:00",
+      "run": {
+        "procs": 11,
+        "rssMB": 1375.4,
+        "cpuSec": 42.1
+      },
+      "external": {
+        "procs": 12,
+        "rssMB": 2984.2,
+        "cpuSec": 11427.3
+      },
+      "machineFreeMB": 6226,
+      "machineTotalMB": 16236,
+      "loadPct": 27
+    },
+    "seriesFile": "plans/reports/runtime-verification/perf4h-external-load.jsonl (sampled every 5 min by scripts/sample-external-load.cjs)"
+  },
+  "attributionRule": "A pid not in appTreePids is not part of this run. If one ever appears in processSeries, the payload is contaminated and the per-process gates must be discarded rather than reported.",
+  "bundleDigest": {
+    "sha256": "90575df78bad0e4afaa0192e401fd80199cd8d14d00844df9cfa34482ea96b42",
+    "files": 189,
+    "scope": ".compiled/src (main+preload+renderer+shared)",
+    "newestSourceMtimeMs": 1789946217000
+  },
+  "runStartedLocal": "2026-09-21 06:20:18",
+  "bundleNote": "config.bundle IS a digest of the compiled tree the harness loaded, but it is written to the FINAL payload only; a checkpoint having bundle:null is expected. The harness also hashes the tree itself at start and finish (hashCompiledTree -> files/bytes/md5, drift flagged as changedDuringRun) and prints it. The sha256 above is an independent cross-check taken live from .compiled/src.",
+  "harnessBundle": {
+    "md5": "c4a2d9f92a046701fce0192113649722",
+    "compiledFiles": 417,
+    "bytesMB": 8.8,
+    "source": "perf4h-run.log line after RELAUNCH"
+  },
+  "abortedFirstLaunch": {
+    "at": "2026-09-21 06:16:51",
+    "harnessMd5": "6d19d8a87a5e51da14e6eb00e71d10da",
+    "note": "launcher relaunched at 06:20:18 because the tree it was about to measure was stale (app self-compiles at launch); the 3.5-minute warmup prefix belongs to that attempt, not to the measured run."
+  },
+  "measuredRun": {
+    "tag": "perf4h",
+    "startedLocal": "2026-09-21 06:20:18",
+    "warmupUntilLocal": "06:50:29",
+    "workloadEndLocal": "09:50:29",
+    "recoveryEndLocal": "10:20:29"
+  },
+  "keepAwake": true,
+  "firstCheckpoint": {
+    "atLocal": "06:30:29",
+    "samples": 11,
+    "ramMB": 1555.18
+  }
+}

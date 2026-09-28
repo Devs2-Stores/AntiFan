@@ -126,7 +126,11 @@ export function extract(ctx) {
       if (PRINCIPLE_TITLE.test(s.title) && principles.length < MAX_ROWS_PER_LEDGER) {
         const items = bullets.length ? bullets : [paragraphOf(body)].filter(Boolean);
         for (const st of items.slice(0, 8)) {
-          const key = `prin|${f.relPath}|${s.title}|${st}`;
+          // Content-addressed identity: the same normalized sentence repeated
+          // across files is ONE principle with many anchors, not many rows —
+          // the core ingest merges by statementHash, so keying on the file
+          // path here only fabricated duplicates for the principles gate.
+          const key = `prin|${st.trim().toLowerCase().replace(/\s+/g, ' ')}`;
           const principleId = id('prin', key);
           if (seen.has(principleId)) continue;
           seen.add(principleId);

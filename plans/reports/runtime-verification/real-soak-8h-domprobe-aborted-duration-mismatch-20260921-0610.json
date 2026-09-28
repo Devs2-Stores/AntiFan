@@ -1,0 +1,6838 @@
+{
+  "status": "in-progress",
+  "startedAt": "2026-09-20T22:45:50.455Z",
+  "finishedAt": "2026-09-20T23:06:00.956Z",
+  "config": {
+    "totalMinutes": 480,
+    "requestedTotalMinutes": 480,
+    "warmupMinutes": 30,
+    "workloadMinutes": 420,
+    "recoveryMinutes": 30,
+    "switchIntervalMs": 3000,
+    "burstIntervalMs": 30000,
+    "burstLines": 300,
+    "tabRounds": 1,
+    "fixtureTickMs": 200,
+    "sampleIntervalSeconds": 60,
+    "reportTag": "domprobe",
+    "appArgs": [
+      "--remote-debugging-port=0"
+    ],
+    "legs": []
+  },
+  "rootPid": 16424,
+  "fixturePort": 60573,
+  "stats": {
+    "requestCount": 4,
+    "openedTabs": 6,
+    "switches": 390,
+    "bursts": 40,
+    "burstsByPhase": {
+      "warmup": 40,
+      "workload": 0,
+      "recovery": 0
+    },
+    "reloads": 0,
+    "terminalEventsCount": 148,
+    "totalSamples": 21,
+    "totalSuspendedMinutes": 0,
+    "activeWorkloadMinutes": null,
+    "activeMinutesSinceStart": 20,
+    "teardownTelemetry": {
+      "tabsToClose": 0,
+      "tabsClosedSuccess": 0,
+      "tabsClosedFailed": 0,
+      "terminalClosedSuccess": false,
+      "terminalClosedFailed": false,
+      "teardownDegraded": false
+    }
+  },
+  "metrics": {
+    "switchLatencyMs": {
+      "min": null,
+      "p50": null,
+      "p95": null,
+      "max": null
+    },
+    "switchLatencyWorkloadCount": 0,
+    "switchLatencyWarmupMs": {
+      "min": 12.686,
+      "p50": 16.334,
+      "p95": 20.785,
+      "max": 24.519
+    },
+    "switchLatencyWarmupCount": 390,
+    "switchLatencyAllPhasesMs": {
+      "min": 12.686,
+      "p50": 16.334,
+      "p95": 20.785,
+      "max": 24.519
+    },
+    "activeWorkingSetMB": {
+      "min": null,
+      "p50": null,
+      "p95": null,
+      "max": null
+    },
+    "activeRendererWorkingSetMB": {
+      "min": null,
+      "p50": null,
+      "p95": null,
+      "max": null
+    },
+    "overallActiveSlopeMBPerMin": null,
+    "overallActiveSlopeMBPerHour": null,
+    "rendererActiveSlopeMBPerMin": null,
+    "rendererActiveSlopeMBPerHour": null,
+    "rolling60MinSlopes": [],
+    "initialLoadedMB": 1526.26,
+    "postWarmupMB": 1565.62,
+    "finalActiveMB": null,
+    "recoveredMB": null,
+    "processSeriesSampleCount": 20,
+    "perProcessSlopes": [],
+    "worstProcessSlopeMBPerMin": null,
+    "worstProcessRole": "",
+    "worstProcessUrl": "",
+    "worstProcessPid": null,
+    "appPrivateMaxSlopeMBPerMin": null,
+    "appPrivateMaxRole": "",
+    "appPrivateMaxUrl": "",
+    "appPrivateMaxPid": null,
+    "processSlopeWindowStart": null,
+    "processSlopeWindowEnd": null,
+    "refusedProcessCount": 0,
+    "refusedProcessWorkingSetMB": 0,
+    "refusedProcessNames": [],
+    "slowSwitchSamples": [
+      {
+        "at": 1789945269339,
+        "ms": 24.519,
+        "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+        "phase": "warmup",
+        "leg": null
+      },
+      {
+        "at": 1789944450006,
+        "ms": 23.786,
+        "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+        "phase": "warmup",
+        "leg": null
+      },
+      {
+        "at": 1789944468365,
+        "ms": 23.147,
+        "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+        "phase": "warmup",
+        "leg": null
+      },
+      {
+        "at": 1789944711397,
+        "ms": 22.909,
+        "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+        "phase": "warmup",
+        "leg": null
+      },
+      {
+        "at": 1789945155395,
+        "ms": 22.812,
+        "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+        "phase": "warmup",
+        "leg": null
+      },
+      {
+        "at": 1789944819237,
+        "ms": 22.578,
+        "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+        "phase": "warmup",
+        "leg": null
+      },
+      {
+        "at": 1789944807149,
+        "ms": 22.55,
+        "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+        "phase": "warmup",
+        "leg": null
+      },
+      {
+        "at": 1789945207165,
+        "ms": 22.433,
+        "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+        "phase": "warmup",
+        "leg": null
+      },
+      {
+        "at": 1789944606891,
+        "ms": 22.223,
+        "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+        "phase": "warmup",
+        "leg": null
+      },
+      {
+        "at": 1789945003615,
+        "ms": 22.034,
+        "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+        "phase": "warmup",
+        "leg": null
+      }
+    ],
+    "switchLatencyByTab": [
+      {
+        "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+        "url": "http://127.0.0.1:60573/collection-featured",
+        "count": 65,
+        "p50": 16.152,
+        "p95": 20.414,
+        "max": 24.519
+      },
+      {
+        "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+        "url": "https://www.wikipedia.org",
+        "count": 65,
+        "p50": 17.813,
+        "p95": 22.433,
+        "max": 23.786
+      },
+      {
+        "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+        "url": "http://127.0.0.1:60573/store-home",
+        "count": 65,
+        "p50": 16.137,
+        "p95": 21.043,
+        "max": 22.909
+      },
+      {
+        "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+        "url": "http://127.0.0.1:60573/product-test-1",
+        "count": 65,
+        "p50": 16.441,
+        "p95": 20.956,
+        "max": 22.223
+      },
+      {
+        "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+        "url": "https://example.com",
+        "count": 65,
+        "p50": 16.114,
+        "p95": 20.367,
+        "max": 21.839
+      },
+      {
+        "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+        "url": "http://127.0.0.1:60573/product-test-2",
+        "count": 65,
+        "p50": 15.934,
+        "p95": 19.039,
+        "max": 20.75
+      }
+    ],
+    "cpu": null,
+    "legBurstCounterSuspect": false,
+    "cpuByPhase": {
+      "warmup": {
+        "from": "2026-09-20T22:46:00.849Z",
+        "to": "2026-09-20T23:05:03.373Z",
+        "windowMinutes": 19.04,
+        "samples": 21,
+        "cpuSecondsTotal": 132.751,
+        "cpuSecondsPerMinute": 6.972,
+        "perProcess": [
+          {
+            "pid": 10896,
+            "seconds": 40.234,
+            "share": 0.3031,
+            "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+            "type": "Tab"
+          },
+          {
+            "pid": 17600,
+            "seconds": 39.938,
+            "share": 0.3008,
+            "role": "GPU",
+            "type": "GPU"
+          },
+          {
+            "pid": 16424,
+            "seconds": 15.469,
+            "share": 0.1165,
+            "role": "Browser",
+            "type": "Browser"
+          },
+          {
+            "pid": 20504,
+            "seconds": 15.297,
+            "share": 0.1152,
+            "role": "console host (pty child)",
+            "type": "other"
+          },
+          {
+            "pid": 17892,
+            "seconds": 11.563,
+            "share": 0.0871,
+            "role": "tab:00d1dcd8+tab:f353268a+tab:a703bb92+tab:d3487a42",
+            "type": "Tab"
+          },
+          {
+            "pid": 21112,
+            "seconds": 3.281,
+            "share": 0.0247,
+            "role": "console host (pty child)",
+            "type": "other"
+          },
+          {
+            "pid": 6012,
+            "seconds": 2.188,
+            "share": 0.0165,
+            "role": "pty agent",
+            "type": "other"
+          },
+          {
+            "pid": 14716,
+            "seconds": 2.078,
+            "share": 0.0157,
+            "role": "pty shell",
+            "type": "other"
+          },
+          {
+            "pid": 16468,
+            "seconds": 1.422,
+            "share": 0.0107,
+            "role": "pty agent",
+            "type": "other"
+          },
+          {
+            "pid": 4868,
+            "seconds": 0.734,
+            "share": 0.0055,
+            "role": "tab:6524b925",
+            "type": "Tab"
+          },
+          {
+            "pid": 13776,
+            "seconds": 0.359,
+            "share": 0.0027,
+            "role": "tab:f6bffd7c",
+            "type": "Tab"
+          },
+          {
+            "pid": 21764,
+            "seconds": 0.094,
+            "share": 0.0007,
+            "role": "pty shell",
+            "type": "other"
+          },
+          {
+            "pid": 10884,
+            "seconds": 0.078,
+            "share": 0.0006,
+            "role": "tab:a17ff4a4",
+            "type": "Tab"
+          },
+          {
+            "pid": 3800,
+            "seconds": 0.016,
+            "share": 0.0001,
+            "role": "Utility",
+            "type": "Utility"
+          },
+          {
+            "pid": 8184,
+            "seconds": 0,
+            "share": 0,
+            "role": "",
+            "type": ""
+          }
+        ],
+        "notAttributablePids": [],
+        "unreadablePids": [],
+        "counterResetPids": [],
+        "source": "samples.cpuByPid (21 of 21 row(s) carry counters)"
+      },
+      "workload": null,
+      "recovery": null
+    },
+    "historyPersist": {
+      "run": {
+        "flushes": 41,
+        "totalMs": 669.939,
+        "maxMs": 31.692,
+        "supersededFlushes": 25
+      },
+      "workload": null,
+      "last": {
+        "at": 1789945556515,
+        "items": 8004,
+        "bytes": 3853499
+      },
+      "byLeg": []
+    },
+    "slopeSloSatisfied": false,
+    "slopeGateApplicable": true,
+    "privateSlopeSloSatisfied": false,
+    "privateSlopeMeasured": false,
+    "switchLatencyWorkloadSamples": 0,
+    "switchLatencyMaxMs": null,
+    "latencyMaxGated": false,
+    "memorySloSatisfied": true,
+    "latencySloSatisfied": false,
+    "orphanSloSatisfied": false,
+    "executionSloSatisfied": true,
+    "teardownSloSatisfied": true,
+    "verdict": "FAILED"
+  },
+  "samples": [
+    {
+      "at": 1789944360849,
+      "activeAt": 1789944360849,
+      "label": "warmup",
+      "totalWorkingSetMB": 1526.26,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 209.56
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 283.54
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 736.26
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 120.58
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 176.31
+        }
+      },
+      "pids": [
+        16424,
+        6012,
+        14716,
+        20504,
+        4868,
+        13776,
+        17892,
+        16468,
+        21764,
+        21112,
+        10884,
+        10896,
+        3800,
+        17600,
+        8184
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 14.828,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "3800": 0.328125,
+        "4868": 0.34375,
+        "6012": 0.015625,
+        "8184": 0.015625,
+        "10884": 0.875,
+        "10896": 0.921875,
+        "13776": 0.0625,
+        "14716": 3.953125,
+        "16424": 2.015625,
+        "16468": 0.03125,
+        "17600": 1.78125,
+        "17892": 0.140625,
+        "20504": 0.015625,
+        "21112": 0.140625,
+        "21764": 4.1875
+      },
+      "namesByPid": {
+        "3800": "electron.exe",
+        "4868": "electron.exe",
+        "6012": "winpty-agent.exe",
+        "8184": "electron.exe",
+        "10884": "electron.exe",
+        "10896": "electron.exe",
+        "13776": "electron.exe",
+        "14716": "powershell.exe",
+        "16424": "electron.exe",
+        "16468": "winpty-agent.exe",
+        "17600": "electron.exe",
+        "17892": "electron.exe",
+        "20504": "conhost.exe",
+        "21112": "conhost.exe",
+        "21764": "powershell.exe"
+      }
+    },
+    {
+      "at": 1789944362718,
+      "activeAt": 1789944362718,
+      "label": "warmup",
+      "totalWorkingSetMB": 1566.02,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 240
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 294.7
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 734.15
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 120.52
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 176.64
+        }
+      },
+      "pids": [
+        16424,
+        6012,
+        14716,
+        20504,
+        4868,
+        13776,
+        17892,
+        16468,
+        21764,
+        21112,
+        10884,
+        10896,
+        3800,
+        17600,
+        8184
+      ],
+      "refusedProcessCount": 1,
+      "refusedProcessWorkingSetMB": 14.25,
+      "refusedProcessNames": [
+        "python.exe"
+      ],
+      "treeCpuSeconds": 15.625,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "3800": 0.328125,
+        "4868": 0.34375,
+        "6012": 0.015625,
+        "8184": 0.015625,
+        "10884": 0.875,
+        "10896": 0.96875,
+        "13776": 0.0625,
+        "14716": 4.265625,
+        "16424": 2.140625,
+        "16468": 0.03125,
+        "17600": 1.921875,
+        "17892": 0.1875,
+        "20504": 0.109375,
+        "21112": 0.171875,
+        "21764": 4.1875
+      },
+      "namesByPid": {
+        "3800": "electron.exe",
+        "4868": "electron.exe",
+        "6012": "winpty-agent.exe",
+        "8184": "electron.exe",
+        "10884": "electron.exe",
+        "10896": "electron.exe",
+        "13776": "electron.exe",
+        "14716": "powershell.exe",
+        "16424": "electron.exe",
+        "16468": "winpty-agent.exe",
+        "17600": "electron.exe",
+        "17892": "electron.exe",
+        "20504": "conhost.exe",
+        "21112": "conhost.exe",
+        "21764": "powershell.exe"
+      }
+    },
+    {
+      "at": 1789944422517,
+      "activeAt": 1789944422517,
+      "label": "warmup",
+      "totalWorkingSetMB": 1552.32,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 212.99
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 297.28
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 736.16
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 119.78
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 186.11
+        }
+      },
+      "pids": [
+        16424,
+        6012,
+        14716,
+        20504,
+        4868,
+        13776,
+        17892,
+        16468,
+        21764,
+        21112,
+        10884,
+        10896,
+        3800,
+        17600,
+        8184
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 22.641,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "3800": 0.34375,
+        "4868": 0.484375,
+        "6012": 0.140625,
+        "8184": 0.015625,
+        "10884": 0.921875,
+        "10896": 2.59375,
+        "13776": 0.15625,
+        "14716": 4.375,
+        "16424": 3.171875,
+        "16468": 0.0625,
+        "17600": 4.421875,
+        "17892": 0.953125,
+        "20504": 0.40625,
+        "21112": 0.375,
+        "21764": 4.21875
+      },
+      "namesByPid": {
+        "3800": "electron.exe",
+        "4868": "electron.exe",
+        "6012": "winpty-agent.exe",
+        "8184": "electron.exe",
+        "10884": "electron.exe",
+        "10896": "electron.exe",
+        "13776": "electron.exe",
+        "14716": "powershell.exe",
+        "16424": "electron.exe",
+        "16468": "winpty-agent.exe",
+        "17600": "electron.exe",
+        "17892": "electron.exe",
+        "20504": "conhost.exe",
+        "21112": "conhost.exe",
+        "21764": "powershell.exe"
+      }
+    },
+    {
+      "at": 1789944482973,
+      "activeAt": 1789944482973,
+      "label": "warmup",
+      "totalWorkingSetMB": 1554.76,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 213.57
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 297.62
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 736.75
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 119.68
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 187.14
+        }
+      },
+      "pids": [
+        16424,
+        6012,
+        14716,
+        20504,
+        4868,
+        13776,
+        17892,
+        16468,
+        21764,
+        21112,
+        10884,
+        10896,
+        3800,
+        17600,
+        8184
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 30.25,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "3800": 0.34375,
+        "4868": 0.546875,
+        "6012": 0.21875,
+        "8184": 0.015625,
+        "10884": 0.921875,
+        "10896": 4.640625,
+        "13776": 0.171875,
+        "14716": 4.484375,
+        "16424": 4.234375,
+        "16468": 0.109375,
+        "17600": 6.84375,
+        "17892": 1.796875,
+        "20504": 1.09375,
+        "21112": 0.609375,
+        "21764": 4.21875
+      },
+      "namesByPid": {
+        "3800": "electron.exe",
+        "4868": "electron.exe",
+        "6012": "winpty-agent.exe",
+        "8184": "electron.exe",
+        "10884": "electron.exe",
+        "10896": "electron.exe",
+        "13776": "electron.exe",
+        "14716": "powershell.exe",
+        "16424": "electron.exe",
+        "16468": "winpty-agent.exe",
+        "17600": "electron.exe",
+        "17892": "electron.exe",
+        "20504": "conhost.exe",
+        "21112": "conhost.exe",
+        "21764": "powershell.exe"
+      }
+    },
+    {
+      "at": 1789944542591,
+      "activeAt": 1789944542591,
+      "label": "warmup",
+      "totalWorkingSetMB": 1569.59,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 221.88
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 297.52
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 743.32
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 119.65
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 187.22
+        }
+      },
+      "pids": [
+        16424,
+        6012,
+        14716,
+        20504,
+        4868,
+        13776,
+        17892,
+        16468,
+        21764,
+        21112,
+        10884,
+        10896,
+        3800,
+        17600,
+        8184
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 36.531,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "3800": 0.34375,
+        "4868": 0.5625,
+        "6012": 0.34375,
+        "8184": 0.015625,
+        "10884": 0.921875,
+        "10896": 6.765625,
+        "13776": 0.171875,
+        "14716": 4.515625,
+        "16424": 4.9375,
+        "16468": 0.1875,
+        "17600": 8.875,
+        "17892": 2.21875,
+        "20504": 1.625,
+        "21112": 0.828125,
+        "21764": 4.21875
+      },
+      "namesByPid": {
+        "3800": "electron.exe",
+        "4868": "electron.exe",
+        "6012": "winpty-agent.exe",
+        "8184": "electron.exe",
+        "10884": "electron.exe",
+        "10896": "electron.exe",
+        "13776": "electron.exe",
+        "14716": "powershell.exe",
+        "16424": "electron.exe",
+        "16468": "winpty-agent.exe",
+        "17600": "electron.exe",
+        "17892": "electron.exe",
+        "20504": "conhost.exe",
+        "21112": "conhost.exe",
+        "21764": "powershell.exe"
+      }
+    },
+    {
+      "at": 1789944602636,
+      "activeAt": 1789944602636,
+      "label": "warmup",
+      "totalWorkingSetMB": 1569.29,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 218.15
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 297.95
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 745.99
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 119.65
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 187.55
+        }
+      },
+      "pids": [
+        16424,
+        6012,
+        14716,
+        20504,
+        4868,
+        13776,
+        17892,
+        16468,
+        21764,
+        21112,
+        10884,
+        10896,
+        3800,
+        17600,
+        8184
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 43.906,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "3800": 0.34375,
+        "4868": 0.59375,
+        "6012": 0.453125,
+        "8184": 0.015625,
+        "10884": 0.921875,
+        "10896": 9.03125,
+        "13776": 0.171875,
+        "14716": 4.625,
+        "16424": 5.90625,
+        "16468": 0.265625,
+        "17600": 11.015625,
+        "17892": 2.828125,
+        "20504": 2.515625,
+        "21112": 1,
+        "21764": 4.21875
+      },
+      "namesByPid": {
+        "3800": "electron.exe",
+        "4868": "electron.exe",
+        "6012": "winpty-agent.exe",
+        "8184": "electron.exe",
+        "10884": "electron.exe",
+        "10896": "electron.exe",
+        "13776": "electron.exe",
+        "14716": "powershell.exe",
+        "16424": "electron.exe",
+        "16468": "winpty-agent.exe",
+        "17600": "electron.exe",
+        "17892": "electron.exe",
+        "20504": "conhost.exe",
+        "21112": "conhost.exe",
+        "21764": "powershell.exe"
+      }
+    },
+    {
+      "at": 1789944662691,
+      "activeAt": 1789944662691,
+      "label": "warmup",
+      "totalWorkingSetMB": 1571.77,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 213.78
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 298.47
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 752.28
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 119.65
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 187.59
+        }
+      },
+      "pids": [
+        16424,
+        6012,
+        14716,
+        20504,
+        4868,
+        13776,
+        17892,
+        16468,
+        21764,
+        21112,
+        10884,
+        10896,
+        3800,
+        17600,
+        8184
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 51.344,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "3800": 0.34375,
+        "4868": 0.65625,
+        "6012": 0.640625,
+        "8184": 0.015625,
+        "10884": 0.921875,
+        "10896": 11.265625,
+        "13776": 0.1875,
+        "14716": 4.703125,
+        "16424": 6.671875,
+        "16468": 0.296875,
+        "17600": 13.4375,
+        "17892": 3.265625,
+        "20504": 3.46875,
+        "21112": 1.25,
+        "21764": 4.21875
+      },
+      "namesByPid": {
+        "3800": "electron.exe",
+        "4868": "electron.exe",
+        "6012": "winpty-agent.exe",
+        "8184": "electron.exe",
+        "10884": "electron.exe",
+        "10896": "electron.exe",
+        "13776": "electron.exe",
+        "14716": "powershell.exe",
+        "16424": "electron.exe",
+        "16468": "winpty-agent.exe",
+        "17600": "electron.exe",
+        "17892": "electron.exe",
+        "20504": "conhost.exe",
+        "21112": "conhost.exe",
+        "21764": "powershell.exe"
+      }
+    },
+    {
+      "at": 1789944722747,
+      "activeAt": 1789944722747,
+      "label": "warmup",
+      "totalWorkingSetMB": 1563.36,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 208.38
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 297.36
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 750.07
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 119.67
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 187.88
+        }
+      },
+      "pids": [
+        16424,
+        6012,
+        14716,
+        20504,
+        4868,
+        13776,
+        17892,
+        16468,
+        21764,
+        21112,
+        10884,
+        10896,
+        3800,
+        17600,
+        8184
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 58.984,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "3800": 0.34375,
+        "4868": 0.734375,
+        "6012": 0.71875,
+        "8184": 0.015625,
+        "10884": 0.921875,
+        "10896": 13.390625,
+        "13776": 0.1875,
+        "14716": 4.8125,
+        "16424": 7.640625,
+        "16468": 0.359375,
+        "17600": 15.828125,
+        "17892": 3.921875,
+        "20504": 4.484375,
+        "21112": 1.390625,
+        "21764": 4.234375
+      },
+      "namesByPid": {
+        "3800": "electron.exe",
+        "4868": "electron.exe",
+        "6012": "winpty-agent.exe",
+        "8184": "electron.exe",
+        "10884": "electron.exe",
+        "10896": "electron.exe",
+        "13776": "electron.exe",
+        "14716": "powershell.exe",
+        "16424": "electron.exe",
+        "16468": "winpty-agent.exe",
+        "17600": "electron.exe",
+        "17892": "electron.exe",
+        "20504": "conhost.exe",
+        "21112": "conhost.exe",
+        "21764": "powershell.exe"
+      }
+    },
+    {
+      "at": 1789944782775,
+      "activeAt": 1789944782775,
+      "label": "warmup",
+      "totalWorkingSetMB": 1572.12,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 219.5
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 294.36
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 750.95
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 119.67
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 187.65
+        }
+      },
+      "pids": [
+        16424,
+        6012,
+        14716,
+        20504,
+        4868,
+        13776,
+        17892,
+        16468,
+        21764,
+        21112,
+        10884,
+        10896,
+        3800,
+        17600,
+        8184
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 65.875,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "3800": 0.34375,
+        "4868": 0.765625,
+        "6012": 0.921875,
+        "8184": 0.015625,
+        "10884": 0.9375,
+        "10896": 15.390625,
+        "13776": 0.21875,
+        "14716": 4.90625,
+        "16424": 8.5,
+        "16468": 0.515625,
+        "17600": 17.640625,
+        "17892": 4.46875,
+        "20504": 5.375,
+        "21112": 1.640625,
+        "21764": 4.234375
+      },
+      "namesByPid": {
+        "3800": "electron.exe",
+        "4868": "electron.exe",
+        "6012": "winpty-agent.exe",
+        "8184": "electron.exe",
+        "10884": "electron.exe",
+        "10896": "electron.exe",
+        "13776": "electron.exe",
+        "14716": "powershell.exe",
+        "16424": "electron.exe",
+        "16468": "winpty-agent.exe",
+        "17600": "electron.exe",
+        "17892": "electron.exe",
+        "20504": "conhost.exe",
+        "21112": "conhost.exe",
+        "21764": "powershell.exe"
+      }
+    },
+    {
+      "at": 1789944842828,
+      "activeAt": 1789944842828,
+      "label": "warmup",
+      "totalWorkingSetMB": 1568.51,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 220.05
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 288.78
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 751.66
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 119.64
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 188.38
+        }
+      },
+      "pids": [
+        16424,
+        6012,
+        14716,
+        20504,
+        4868,
+        13776,
+        17892,
+        16468,
+        21764,
+        21112,
+        10884,
+        10896,
+        3800,
+        17600,
+        8184
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 73.016,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "3800": 0.34375,
+        "4868": 0.84375,
+        "6012": 1.015625,
+        "8184": 0.015625,
+        "10884": 0.9375,
+        "10896": 17.4375,
+        "13776": 0.21875,
+        "14716": 5,
+        "16424": 9.328125,
+        "16468": 0.625,
+        "17600": 19.75,
+        "17892": 5.03125,
+        "20504": 6.453125,
+        "21112": 1.765625,
+        "21764": 4.25
+      },
+      "namesByPid": {
+        "3800": "electron.exe",
+        "4868": "electron.exe",
+        "6012": "winpty-agent.exe",
+        "8184": "electron.exe",
+        "10884": "electron.exe",
+        "10896": "electron.exe",
+        "13776": "electron.exe",
+        "14716": "powershell.exe",
+        "16424": "electron.exe",
+        "16468": "winpty-agent.exe",
+        "17600": "electron.exe",
+        "17892": "electron.exe",
+        "20504": "conhost.exe",
+        "21112": "conhost.exe",
+        "21764": "powershell.exe"
+      }
+    },
+    {
+      "at": 1789944902904,
+      "activeAt": 1789944902904,
+      "label": "warmup",
+      "totalWorkingSetMB": 1563.3,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 217.02
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 284.73
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 753.87
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 119.64
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 188.03
+        }
+      },
+      "pids": [
+        16424,
+        6012,
+        14716,
+        20504,
+        4868,
+        13776,
+        17892,
+        16468,
+        21764,
+        21112,
+        10884,
+        10896,
+        3800,
+        17600,
+        8184
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 79.391,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "3800": 0.34375,
+        "4868": 0.859375,
+        "6012": 1.125,
+        "8184": 0.015625,
+        "10884": 0.9375,
+        "10896": 19.53125,
+        "13776": 0.265625,
+        "14716": 5.109375,
+        "16424": 10.1875,
+        "16468": 0.71875,
+        "17600": 21.578125,
+        "17892": 5.546875,
+        "20504": 7.078125,
+        "21112": 1.84375,
+        "21764": 4.25
+      },
+      "namesByPid": {
+        "3800": "electron.exe",
+        "4868": "electron.exe",
+        "6012": "winpty-agent.exe",
+        "8184": "electron.exe",
+        "10884": "electron.exe",
+        "10896": "electron.exe",
+        "13776": "electron.exe",
+        "14716": "powershell.exe",
+        "16424": "electron.exe",
+        "16468": "winpty-agent.exe",
+        "17600": "electron.exe",
+        "17892": "electron.exe",
+        "20504": "conhost.exe",
+        "21112": "conhost.exe",
+        "21764": "powershell.exe"
+      }
+    },
+    {
+      "at": 1789944962898,
+      "activeAt": 1789944962898,
+      "label": "warmup",
+      "totalWorkingSetMB": 1549.2,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 218.07
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 282.6
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 741.37
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 119.55
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 187.6
+        }
+      },
+      "pids": [
+        16424,
+        6012,
+        14716,
+        20504,
+        4868,
+        13776,
+        17892,
+        16468,
+        21764,
+        21112,
+        10884,
+        10896,
+        3800,
+        17600,
+        8184
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 86.469,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "3800": 0.34375,
+        "4868": 0.890625,
+        "6012": 1.1875,
+        "8184": 0.015625,
+        "10884": 0.9375,
+        "10896": 21.890625,
+        "13776": 0.28125,
+        "14716": 5.203125,
+        "16424": 10.8125,
+        "16468": 0.734375,
+        "17600": 23.53125,
+        "17892": 6.140625,
+        "20504": 8.125,
+        "21112": 2.109375,
+        "21764": 4.265625
+      },
+      "namesByPid": {
+        "3800": "electron.exe",
+        "4868": "electron.exe",
+        "6012": "winpty-agent.exe",
+        "8184": "electron.exe",
+        "10884": "electron.exe",
+        "10896": "electron.exe",
+        "13776": "electron.exe",
+        "14716": "powershell.exe",
+        "16424": "electron.exe",
+        "16468": "winpty-agent.exe",
+        "17600": "electron.exe",
+        "17892": "electron.exe",
+        "20504": "conhost.exe",
+        "21112": "conhost.exe",
+        "21764": "powershell.exe"
+      }
+    },
+    {
+      "at": 1789945022933,
+      "activeAt": 1789945022933,
+      "label": "warmup",
+      "totalWorkingSetMB": 1552.21,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 217.71
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 282.38
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 745.57
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 119.55
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 187
+        }
+      },
+      "pids": [
+        16424,
+        6012,
+        14716,
+        20504,
+        4868,
+        13776,
+        17892,
+        16468,
+        21764,
+        21112,
+        10884,
+        10896,
+        3800,
+        17600,
+        8184
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 92.75,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "3800": 0.34375,
+        "4868": 0.90625,
+        "6012": 1.296875,
+        "8184": 0.015625,
+        "10884": 0.9375,
+        "10896": 23.640625,
+        "13776": 0.296875,
+        "14716": 5.296875,
+        "16424": 11.421875,
+        "16468": 0.78125,
+        "17600": 25.5,
+        "17892": 6.6875,
+        "20504": 9.09375,
+        "21112": 2.265625,
+        "21764": 4.265625
+      },
+      "namesByPid": {
+        "3800": "electron.exe",
+        "4868": "electron.exe",
+        "6012": "winpty-agent.exe",
+        "8184": "electron.exe",
+        "10884": "electron.exe",
+        "10896": "electron.exe",
+        "13776": "electron.exe",
+        "14716": "powershell.exe",
+        "16424": "electron.exe",
+        "16468": "winpty-agent.exe",
+        "17600": "electron.exe",
+        "17892": "electron.exe",
+        "20504": "conhost.exe",
+        "21112": "conhost.exe",
+        "21764": "powershell.exe"
+      }
+    },
+    {
+      "at": 1789945082943,
+      "activeAt": 1789945082943,
+      "label": "warmup",
+      "totalWorkingSetMB": 1550.77,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 215.41
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 282.59
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 745.73
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 119.55
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 187.48
+        }
+      },
+      "pids": [
+        16424,
+        6012,
+        14716,
+        20504,
+        4868,
+        13776,
+        17892,
+        16468,
+        21764,
+        21112,
+        10884,
+        10896,
+        3800,
+        17600,
+        8184
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 99.984,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "3800": 0.34375,
+        "4868": 0.90625,
+        "6012": 1.40625,
+        "8184": 0.015625,
+        "10884": 0.9375,
+        "10896": 26.09375,
+        "13776": 0.296875,
+        "14716": 5.375,
+        "16424": 12.265625,
+        "16468": 0.828125,
+        "17600": 27.734375,
+        "17892": 7.1875,
+        "20504": 9.875,
+        "21112": 2.453125,
+        "21764": 4.265625
+      },
+      "namesByPid": {
+        "3800": "electron.exe",
+        "4868": "electron.exe",
+        "6012": "winpty-agent.exe",
+        "8184": "electron.exe",
+        "10884": "electron.exe",
+        "10896": "electron.exe",
+        "13776": "electron.exe",
+        "14716": "powershell.exe",
+        "16424": "electron.exe",
+        "16468": "winpty-agent.exe",
+        "17600": "electron.exe",
+        "17892": "electron.exe",
+        "20504": "conhost.exe",
+        "21112": "conhost.exe",
+        "21764": "powershell.exe"
+      }
+    },
+    {
+      "at": 1789945142984,
+      "activeAt": 1789945142984,
+      "label": "warmup",
+      "totalWorkingSetMB": 1552.86,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 215.96
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 282.58
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 747.62
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 119.54
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 187.16
+        }
+      },
+      "pids": [
+        16424,
+        6012,
+        14716,
+        20504,
+        4868,
+        13776,
+        17892,
+        16468,
+        21764,
+        21112,
+        10884,
+        10896,
+        3800,
+        17600,
+        8184
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 106.5,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "3800": 0.34375,
+        "4868": 0.921875,
+        "6012": 1.5,
+        "8184": 0.015625,
+        "10884": 0.9375,
+        "10896": 28.265625,
+        "13776": 0.34375,
+        "14716": 5.4375,
+        "16424": 12.921875,
+        "16468": 0.890625,
+        "17600": 29.3125,
+        "17892": 7.890625,
+        "20504": 10.78125,
+        "21112": 2.671875,
+        "21764": 4.265625
+      },
+      "namesByPid": {
+        "3800": "electron.exe",
+        "4868": "electron.exe",
+        "6012": "winpty-agent.exe",
+        "8184": "electron.exe",
+        "10884": "electron.exe",
+        "10896": "electron.exe",
+        "13776": "electron.exe",
+        "14716": "powershell.exe",
+        "16424": "electron.exe",
+        "16468": "winpty-agent.exe",
+        "17600": "electron.exe",
+        "17892": "electron.exe",
+        "20504": "conhost.exe",
+        "21112": "conhost.exe",
+        "21764": "powershell.exe"
+      }
+    },
+    {
+      "at": 1789945202998,
+      "activeAt": 1789945202998,
+      "label": "warmup",
+      "totalWorkingSetMB": 1572.31,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 232.87
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 282.64
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 749.97
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 119.54
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 187.29
+        }
+      },
+      "pids": [
+        16424,
+        6012,
+        14716,
+        20504,
+        4868,
+        13776,
+        17892,
+        16468,
+        21764,
+        21112,
+        10884,
+        10896,
+        3800,
+        17600,
+        8184
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 114.063,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "3800": 0.34375,
+        "4868": 0.96875,
+        "6012": 1.6875,
+        "8184": 0.015625,
+        "10884": 0.953125,
+        "10896": 30.65625,
+        "13776": 0.390625,
+        "14716": 5.515625,
+        "16424": 13.640625,
+        "16468": 0.984375,
+        "17600": 31.546875,
+        "17892": 8.65625,
+        "20504": 11.703125,
+        "21112": 2.734375,
+        "21764": 4.265625
+      },
+      "namesByPid": {
+        "3800": "electron.exe",
+        "4868": "electron.exe",
+        "6012": "winpty-agent.exe",
+        "8184": "electron.exe",
+        "10884": "electron.exe",
+        "10896": "electron.exe",
+        "13776": "electron.exe",
+        "14716": "powershell.exe",
+        "16424": "electron.exe",
+        "16468": "winpty-agent.exe",
+        "17600": "electron.exe",
+        "17892": "electron.exe",
+        "20504": "conhost.exe",
+        "21112": "conhost.exe",
+        "21764": "powershell.exe"
+      }
+    },
+    {
+      "at": 1789945263042,
+      "activeAt": 1789945263042,
+      "label": "warmup",
+      "totalWorkingSetMB": 1560,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 223.37
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 282.68
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 747.3
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 119.55
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 187.11
+        }
+      },
+      "pids": [
+        16424,
+        6012,
+        14716,
+        20504,
+        4868,
+        13776,
+        17892,
+        16468,
+        21764,
+        21112,
+        10884,
+        10896,
+        3800,
+        17600,
+        8184
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 120.531,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "3800": 0.34375,
+        "4868": 0.984375,
+        "6012": 1.75,
+        "8184": 0.015625,
+        "10884": 0.953125,
+        "10896": 32.765625,
+        "13776": 0.390625,
+        "14716": 5.578125,
+        "16424": 14.375,
+        "16468": 1.046875,
+        "17600": 33.765625,
+        "17892": 9.109375,
+        "20504": 12.328125,
+        "21112": 2.859375,
+        "21764": 4.265625
+      },
+      "namesByPid": {
+        "3800": "electron.exe",
+        "4868": "electron.exe",
+        "6012": "winpty-agent.exe",
+        "8184": "electron.exe",
+        "10884": "electron.exe",
+        "10896": "electron.exe",
+        "13776": "electron.exe",
+        "14716": "powershell.exe",
+        "16424": "electron.exe",
+        "16468": "winpty-agent.exe",
+        "17600": "electron.exe",
+        "17892": "electron.exe",
+        "20504": "conhost.exe",
+        "21112": "conhost.exe",
+        "21764": "powershell.exe"
+      }
+    },
+    {
+      "at": 1789945323230,
+      "activeAt": 1789945323230,
+      "label": "warmup",
+      "totalWorkingSetMB": 1566.06,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 228.01
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 282.86
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 747.97
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 119.55
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 187.67
+        }
+      },
+      "pids": [
+        16424,
+        6012,
+        14716,
+        20504,
+        4868,
+        13776,
+        17892,
+        16468,
+        21764,
+        21112,
+        10884,
+        10896,
+        3800,
+        17600,
+        8184
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 127.188,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "3800": 0.34375,
+        "4868": 1,
+        "6012": 1.90625,
+        "8184": 0.015625,
+        "10884": 0.953125,
+        "10896": 34.609375,
+        "13776": 0.390625,
+        "14716": 5.71875,
+        "16424": 15.03125,
+        "16468": 1.15625,
+        "17600": 35.78125,
+        "17892": 9.8125,
+        "20504": 13.09375,
+        "21112": 3.109375,
+        "21764": 4.265625
+      },
+      "namesByPid": {
+        "3800": "electron.exe",
+        "4868": "electron.exe",
+        "6012": "winpty-agent.exe",
+        "8184": "electron.exe",
+        "10884": "electron.exe",
+        "10896": "electron.exe",
+        "13776": "electron.exe",
+        "14716": "powershell.exe",
+        "16424": "electron.exe",
+        "16468": "winpty-agent.exe",
+        "17600": "electron.exe",
+        "17892": "electron.exe",
+        "20504": "conhost.exe",
+        "21112": "conhost.exe",
+        "21764": "powershell.exe"
+      }
+    },
+    {
+      "at": 1789945383244,
+      "activeAt": 1789945383244,
+      "label": "warmup",
+      "totalWorkingSetMB": 1558.35,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 219.66
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 282.88
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 748.55
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 119.54
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 187.71
+        }
+      },
+      "pids": [
+        16424,
+        6012,
+        14716,
+        20504,
+        4868,
+        13776,
+        17892,
+        16468,
+        21764,
+        21112,
+        10884,
+        10896,
+        3800,
+        17600,
+        8184
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 133.906,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "3800": 0.34375,
+        "4868": 1.015625,
+        "6012": 1.984375,
+        "8184": 0.015625,
+        "10884": 0.953125,
+        "10896": 36.359375,
+        "13776": 0.421875,
+        "14716": 5.84375,
+        "16424": 15.859375,
+        "16468": 1.296875,
+        "17600": 38.015625,
+        "17892": 10.453125,
+        "20504": 13.859375,
+        "21112": 3.21875,
+        "21764": 4.265625
+      },
+      "namesByPid": {
+        "3800": "electron.exe",
+        "4868": "electron.exe",
+        "6012": "winpty-agent.exe",
+        "8184": "electron.exe",
+        "10884": "electron.exe",
+        "10896": "electron.exe",
+        "13776": "electron.exe",
+        "14716": "powershell.exe",
+        "16424": "electron.exe",
+        "16468": "winpty-agent.exe",
+        "17600": "electron.exe",
+        "17892": "electron.exe",
+        "20504": "conhost.exe",
+        "21112": "conhost.exe",
+        "21764": "powershell.exe"
+      }
+    },
+    {
+      "at": 1789945443391,
+      "activeAt": 1789945443391,
+      "label": "warmup",
+      "totalWorkingSetMB": 1566.75,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 227.18
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 282.87
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 749.53
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 119.54
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 187.63
+        }
+      },
+      "pids": [
+        16424,
+        6012,
+        14716,
+        20504,
+        4868,
+        13776,
+        17892,
+        16468,
+        21764,
+        21112,
+        10884,
+        10896,
+        3800,
+        17600,
+        8184
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 140.625,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "3800": 0.34375,
+        "4868": 1.0625,
+        "6012": 2.0625,
+        "8184": 0.015625,
+        "10884": 0.953125,
+        "10896": 38.640625,
+        "13776": 0.421875,
+        "14716": 5.953125,
+        "16424": 16.59375,
+        "16468": 1.375,
+        "17600": 39.953125,
+        "17892": 11.03125,
+        "20504": 14.640625,
+        "21112": 3.3125,
+        "21764": 4.265625
+      },
+      "namesByPid": {
+        "3800": "electron.exe",
+        "4868": "electron.exe",
+        "6012": "winpty-agent.exe",
+        "8184": "electron.exe",
+        "10884": "electron.exe",
+        "10896": "electron.exe",
+        "13776": "electron.exe",
+        "14716": "powershell.exe",
+        "16424": "electron.exe",
+        "16468": "winpty-agent.exe",
+        "17600": "electron.exe",
+        "17892": "electron.exe",
+        "20504": "conhost.exe",
+        "21112": "conhost.exe",
+        "21764": "powershell.exe"
+      }
+    },
+    {
+      "at": 1789945503373,
+      "activeAt": 1789945503373,
+      "label": "warmup",
+      "totalWorkingSetMB": 1565.62,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 226.9
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 282.95
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 748.72
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 119.54
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 187.5
+        }
+      },
+      "pids": [
+        16424,
+        6012,
+        14716,
+        20504,
+        4868,
+        13776,
+        17892,
+        16468,
+        21764,
+        21112,
+        10884,
+        10896,
+        3800,
+        17600,
+        8184
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 147.578,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "3800": 0.34375,
+        "4868": 1.078125,
+        "6012": 2.203125,
+        "8184": 0.015625,
+        "10884": 0.953125,
+        "10896": 41.15625,
+        "13776": 0.421875,
+        "14716": 6.03125,
+        "16424": 17.484375,
+        "16468": 1.453125,
+        "17600": 41.71875,
+        "17892": 11.703125,
+        "20504": 15.3125,
+        "21112": 3.421875,
+        "21764": 4.28125
+      },
+      "namesByPid": {
+        "3800": "electron.exe",
+        "4868": "electron.exe",
+        "6012": "winpty-agent.exe",
+        "8184": "electron.exe",
+        "10884": "electron.exe",
+        "10896": "electron.exe",
+        "13776": "electron.exe",
+        "14716": "powershell.exe",
+        "16424": "electron.exe",
+        "16468": "winpty-agent.exe",
+        "17600": "electron.exe",
+        "17892": "electron.exe",
+        "20504": "conhost.exe",
+        "21112": "conhost.exe",
+        "21764": "powershell.exe"
+      }
+    }
+  ],
+  "processSeries": [
+    {
+      "at": 1789944411634,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 16424,
+          "type": "Browser",
+          "role": "Browser",
+          "url": "",
+          "workingSetMB": 206.29,
+          "privateBytesMB": 131.41
+        },
+        {
+          "pid": 17600,
+          "type": "GPU",
+          "role": "GPU",
+          "url": "",
+          "workingSetMB": 185.55,
+          "privateBytesMB": 151.18
+        },
+        {
+          "pid": 3800,
+          "type": "Utility",
+          "role": "Utility",
+          "url": "",
+          "workingSetMB": 119.88,
+          "privateBytesMB": 14.52
+        },
+        {
+          "pid": 10896,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 167.95,
+          "privateBytesMB": 69.31
+        },
+        {
+          "pid": 10884,
+          "type": "Tab",
+          "role": "tab:a17ff4a4",
+          "url": "https://www.google.com/",
+          "workingSetMB": 153.81,
+          "privateBytesMB": 54.14
+        },
+        {
+          "pid": 17892,
+          "type": "Tab",
+          "role": "tab:00d1dcd8+tab:f353268a+tab:a703bb92+tab:d3487a42",
+          "url": "http://127.0.0.1:60573/store-home",
+          "workingSetMB": 134.29,
+          "privateBytesMB": 34.45
+        },
+        {
+          "pid": 13776,
+          "type": "Tab",
+          "role": "tab:f6bffd7c",
+          "url": "https://example.com/",
+          "workingSetMB": 124.37,
+          "privateBytesMB": 22.25
+        },
+        {
+          "pid": 4868,
+          "type": "Tab",
+          "role": "tab:6524b925",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 154.93,
+          "privateBytesMB": 48.44
+        }
+      ]
+    },
+    {
+      "at": 1789944471639,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 16424,
+          "type": "Browser",
+          "role": "Browser",
+          "url": "",
+          "workingSetMB": 205.64,
+          "privateBytesMB": 130.54
+        },
+        {
+          "pid": 17600,
+          "type": "GPU",
+          "role": "GPU",
+          "url": "",
+          "workingSetMB": 187.4,
+          "privateBytesMB": 165.99
+        },
+        {
+          "pid": 3800,
+          "type": "Utility",
+          "role": "Utility",
+          "url": "",
+          "workingSetMB": 119.78,
+          "privateBytesMB": 14.42
+        },
+        {
+          "pid": 10896,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 170.31,
+          "privateBytesMB": 71.73
+        },
+        {
+          "pid": 10884,
+          "type": "Tab",
+          "role": "tab:a17ff4a4",
+          "url": "https://www.google.com/",
+          "workingSetMB": 150.91,
+          "privateBytesMB": 50.45
+        },
+        {
+          "pid": 17892,
+          "type": "Tab",
+          "role": "tab:00d1dcd8+tab:f353268a+tab:a703bb92+tab:d3487a42",
+          "url": "http://127.0.0.1:60573/store-home",
+          "workingSetMB": 135,
+          "privateBytesMB": 35.14
+        },
+        {
+          "pid": 13776,
+          "type": "Tab",
+          "role": "tab:f6bffd7c",
+          "url": "https://example.com/",
+          "workingSetMB": 124.73,
+          "privateBytesMB": 22.18
+        },
+        {
+          "pid": 4868,
+          "type": "Tab",
+          "role": "tab:6524b925",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 154.59,
+          "privateBytesMB": 48.01
+        }
+      ]
+    },
+    {
+      "at": 1789944531641,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 16424,
+          "type": "Browser",
+          "role": "Browser",
+          "url": "",
+          "workingSetMB": 210.26,
+          "privateBytesMB": 136.36
+        },
+        {
+          "pid": 17600,
+          "type": "GPU",
+          "role": "GPU",
+          "url": "",
+          "workingSetMB": 187.41,
+          "privateBytesMB": 163.61
+        },
+        {
+          "pid": 3800,
+          "type": "Utility",
+          "role": "Utility",
+          "url": "",
+          "workingSetMB": 119.66,
+          "privateBytesMB": 14.22
+        },
+        {
+          "pid": 10896,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 175.6,
+          "privateBytesMB": 77.16
+        },
+        {
+          "pid": 10884,
+          "type": "Tab",
+          "role": "tab:a17ff4a4",
+          "url": "https://www.google.com/",
+          "workingSetMB": 150.91,
+          "privateBytesMB": 50.45
+        },
+        {
+          "pid": 17892,
+          "type": "Tab",
+          "role": "tab:00d1dcd8+tab:f353268a+tab:a703bb92+tab:d3487a42",
+          "url": "http://127.0.0.1:60573/store-home",
+          "workingSetMB": 136.86,
+          "privateBytesMB": 37.14
+        },
+        {
+          "pid": 13776,
+          "type": "Tab",
+          "role": "tab:f6bffd7c",
+          "url": "https://example.com/",
+          "workingSetMB": 124.74,
+          "privateBytesMB": 22.18
+        },
+        {
+          "pid": 4868,
+          "type": "Tab",
+          "role": "tab:6524b925",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 154.61,
+          "privateBytesMB": 48.02
+        }
+      ]
+    },
+    {
+      "at": 1789944591644,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 16424,
+          "type": "Browser",
+          "role": "Browser",
+          "url": "",
+          "workingSetMB": 217.64,
+          "privateBytesMB": 145.57
+        },
+        {
+          "pid": 17600,
+          "type": "GPU",
+          "role": "GPU",
+          "url": "",
+          "workingSetMB": 187.47,
+          "privateBytesMB": 154.2
+        },
+        {
+          "pid": 3800,
+          "type": "Utility",
+          "role": "Utility",
+          "url": "",
+          "workingSetMB": 119.65,
+          "privateBytesMB": 14.21
+        },
+        {
+          "pid": 10896,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 176.76,
+          "privateBytesMB": 78.88
+        },
+        {
+          "pid": 10884,
+          "type": "Tab",
+          "role": "tab:a17ff4a4",
+          "url": "https://www.google.com/",
+          "workingSetMB": 150.91,
+          "privateBytesMB": 50.45
+        },
+        {
+          "pid": 17892,
+          "type": "Tab",
+          "role": "tab:00d1dcd8+tab:f353268a+tab:a703bb92+tab:d3487a42",
+          "url": "http://127.0.0.1:60573/store-home",
+          "workingSetMB": 138.86,
+          "privateBytesMB": 40.13
+        },
+        {
+          "pid": 13776,
+          "type": "Tab",
+          "role": "tab:f6bffd7c",
+          "url": "https://example.com/",
+          "workingSetMB": 124.75,
+          "privateBytesMB": 22.18
+        },
+        {
+          "pid": 4868,
+          "type": "Tab",
+          "role": "tab:6524b925",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 154.36,
+          "privateBytesMB": 47.85
+        }
+      ]
+    },
+    {
+      "at": 1789944651647,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 16424,
+          "type": "Browser",
+          "role": "Browser",
+          "url": "",
+          "workingSetMB": 206.45,
+          "privateBytesMB": 134.6
+        },
+        {
+          "pid": 17600,
+          "type": "GPU",
+          "role": "GPU",
+          "url": "",
+          "workingSetMB": 187.48,
+          "privateBytesMB": 151.36
+        },
+        {
+          "pid": 3800,
+          "type": "Utility",
+          "role": "Utility",
+          "url": "",
+          "workingSetMB": 119.66,
+          "privateBytesMB": 14.24
+        },
+        {
+          "pid": 10896,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 180.34,
+          "privateBytesMB": 81.93
+        },
+        {
+          "pid": 10884,
+          "type": "Tab",
+          "role": "tab:a17ff4a4",
+          "url": "https://www.google.com/",
+          "workingSetMB": 150.91,
+          "privateBytesMB": 50.45
+        },
+        {
+          "pid": 17892,
+          "type": "Tab",
+          "role": "tab:00d1dcd8+tab:f353268a+tab:a703bb92+tab:d3487a42",
+          "url": "http://127.0.0.1:60573/store-home",
+          "workingSetMB": 140.74,
+          "privateBytesMB": 42.21
+        },
+        {
+          "pid": 13776,
+          "type": "Tab",
+          "role": "tab:f6bffd7c",
+          "url": "https://example.com/",
+          "workingSetMB": 124.77,
+          "privateBytesMB": 22.19
+        },
+        {
+          "pid": 4868,
+          "type": "Tab",
+          "role": "tab:6524b925",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 154.54,
+          "privateBytesMB": 47.99
+        }
+      ]
+    },
+    {
+      "at": 1789944711661,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 16424,
+          "type": "Browser",
+          "role": "Browser",
+          "url": "",
+          "workingSetMB": 208,
+          "privateBytesMB": 136.07
+        },
+        {
+          "pid": 17600,
+          "type": "GPU",
+          "role": "GPU",
+          "url": "",
+          "workingSetMB": 188.25,
+          "privateBytesMB": 169.04
+        },
+        {
+          "pid": 3800,
+          "type": "Utility",
+          "role": "Utility",
+          "url": "",
+          "workingSetMB": 119.67,
+          "privateBytesMB": 14.24
+        },
+        {
+          "pid": 10896,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 177.94,
+          "privateBytesMB": 79.4
+        },
+        {
+          "pid": 10884,
+          "type": "Tab",
+          "role": "tab:a17ff4a4",
+          "url": "https://www.google.com/",
+          "workingSetMB": 150.91,
+          "privateBytesMB": 50.45
+        },
+        {
+          "pid": 17892,
+          "type": "Tab",
+          "role": "tab:00d1dcd8+tab:f353268a+tab:a703bb92+tab:d3487a42",
+          "url": "http://127.0.0.1:60573/store-home",
+          "workingSetMB": 141.2,
+          "privateBytesMB": 42.43
+        },
+        {
+          "pid": 13776,
+          "type": "Tab",
+          "role": "tab:f6bffd7c",
+          "url": "https://example.com/",
+          "workingSetMB": 124.77,
+          "privateBytesMB": 22.19
+        },
+        {
+          "pid": 4868,
+          "type": "Tab",
+          "role": "tab:6524b925",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 154.75,
+          "privateBytesMB": 48.16
+        }
+      ]
+    },
+    {
+      "at": 1789944771676,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 16424,
+          "type": "Browser",
+          "role": "Browser",
+          "url": "",
+          "workingSetMB": 208.77,
+          "privateBytesMB": 136.68
+        },
+        {
+          "pid": 17600,
+          "type": "GPU",
+          "role": "GPU",
+          "url": "",
+          "workingSetMB": 188.02,
+          "privateBytesMB": 157.01
+        },
+        {
+          "pid": 3800,
+          "type": "Utility",
+          "role": "Utility",
+          "url": "",
+          "workingSetMB": 119.67,
+          "privateBytesMB": 14.24
+        },
+        {
+          "pid": 10896,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 179.24,
+          "privateBytesMB": 80.61
+        },
+        {
+          "pid": 10884,
+          "type": "Tab",
+          "role": "tab:a17ff4a4",
+          "url": "https://www.google.com/",
+          "workingSetMB": 150.91,
+          "privateBytesMB": 50.45
+        },
+        {
+          "pid": 17892,
+          "type": "Tab",
+          "role": "tab:00d1dcd8+tab:f353268a+tab:a703bb92+tab:d3487a42",
+          "url": "http://127.0.0.1:60573/store-home",
+          "workingSetMB": 141.43,
+          "privateBytesMB": 42.48
+        },
+        {
+          "pid": 13776,
+          "type": "Tab",
+          "role": "tab:f6bffd7c",
+          "url": "https://example.com/",
+          "workingSetMB": 124.78,
+          "privateBytesMB": 22.2
+        },
+        {
+          "pid": 4868,
+          "type": "Tab",
+          "role": "tab:6524b925",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 154.81,
+          "privateBytesMB": 48.18
+        }
+      ]
+    },
+    {
+      "at": 1789944831677,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 16424,
+          "type": "Browser",
+          "role": "Browser",
+          "url": "",
+          "workingSetMB": 209.41,
+          "privateBytesMB": 137.09
+        },
+        {
+          "pid": 17600,
+          "type": "GPU",
+          "role": "GPU",
+          "url": "",
+          "workingSetMB": 188.18,
+          "privateBytesMB": 156.81
+        },
+        {
+          "pid": 3800,
+          "type": "Utility",
+          "role": "Utility",
+          "url": "",
+          "workingSetMB": 119.64,
+          "privateBytesMB": 14.18
+        },
+        {
+          "pid": 10896,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 178.98,
+          "privateBytesMB": 80.38
+        },
+        {
+          "pid": 10884,
+          "type": "Tab",
+          "role": "tab:a17ff4a4",
+          "url": "https://www.google.com/",
+          "workingSetMB": 150.91,
+          "privateBytesMB": 50.45
+        },
+        {
+          "pid": 17892,
+          "type": "Tab",
+          "role": "tab:00d1dcd8+tab:f353268a+tab:a703bb92+tab:d3487a42",
+          "url": "http://127.0.0.1:60573/store-home",
+          "workingSetMB": 141.64,
+          "privateBytesMB": 42.68
+        },
+        {
+          "pid": 13776,
+          "type": "Tab",
+          "role": "tab:f6bffd7c",
+          "url": "https://example.com/",
+          "workingSetMB": 124.79,
+          "privateBytesMB": 22.21
+        },
+        {
+          "pid": 4868,
+          "type": "Tab",
+          "role": "tab:6524b925",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 154.71,
+          "privateBytesMB": 48.02
+        }
+      ]
+    },
+    {
+      "at": 1789944891681,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 16424,
+          "type": "Browser",
+          "role": "Browser",
+          "url": "",
+          "workingSetMB": 209.32,
+          "privateBytesMB": 136.87
+        },
+        {
+          "pid": 17600,
+          "type": "GPU",
+          "role": "GPU",
+          "url": "",
+          "workingSetMB": 187.93,
+          "privateBytesMB": 151.04
+        },
+        {
+          "pid": 3800,
+          "type": "Utility",
+          "role": "Utility",
+          "url": "",
+          "workingSetMB": 119.64,
+          "privateBytesMB": 14.18
+        },
+        {
+          "pid": 10896,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 180.96,
+          "privateBytesMB": 82.19
+        },
+        {
+          "pid": 10884,
+          "type": "Tab",
+          "role": "tab:a17ff4a4",
+          "url": "https://www.google.com/",
+          "workingSetMB": 150.91,
+          "privateBytesMB": 50.45
+        },
+        {
+          "pid": 17892,
+          "type": "Tab",
+          "role": "tab:00d1dcd8+tab:f353268a+tab:a703bb92+tab:d3487a42",
+          "url": "http://127.0.0.1:60573/store-home",
+          "workingSetMB": 141.82,
+          "privateBytesMB": 42.87
+        },
+        {
+          "pid": 13776,
+          "type": "Tab",
+          "role": "tab:f6bffd7c",
+          "url": "https://example.com/",
+          "workingSetMB": 124.81,
+          "privateBytesMB": 22.21
+        },
+        {
+          "pid": 4868,
+          "type": "Tab",
+          "role": "tab:6524b925",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 154.66,
+          "privateBytesMB": 48.02
+        }
+      ]
+    },
+    {
+      "at": 1789944951693,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 16424,
+          "type": "Browser",
+          "role": "Browser",
+          "url": "",
+          "workingSetMB": 207.37,
+          "privateBytesMB": 137.36
+        },
+        {
+          "pid": 17600,
+          "type": "GPU",
+          "role": "GPU",
+          "url": "",
+          "workingSetMB": 187.85,
+          "privateBytesMB": 169.23
+        },
+        {
+          "pid": 3800,
+          "type": "Utility",
+          "role": "Utility",
+          "url": "",
+          "workingSetMB": 119.55,
+          "privateBytesMB": 14.21
+        },
+        {
+          "pid": 10896,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 181.98,
+          "privateBytesMB": 85.01
+        },
+        {
+          "pid": 10884,
+          "type": "Tab",
+          "role": "tab:a17ff4a4",
+          "url": "https://www.google.com/",
+          "workingSetMB": 149.11,
+          "privateBytesMB": 50.45
+        },
+        {
+          "pid": 17892,
+          "type": "Tab",
+          "role": "tab:00d1dcd8+tab:f353268a+tab:a703bb92+tab:d3487a42",
+          "url": "http://127.0.0.1:60573/store-home",
+          "workingSetMB": 138.27,
+          "privateBytesMB": 42.28
+        },
+        {
+          "pid": 13776,
+          "type": "Tab",
+          "role": "tab:f6bffd7c",
+          "url": "https://example.com/",
+          "workingSetMB": 123.58,
+          "privateBytesMB": 22.21
+        },
+        {
+          "pid": 4868,
+          "type": "Tab",
+          "role": "tab:6524b925",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 152.19,
+          "privateBytesMB": 48.45
+        }
+      ]
+    },
+    {
+      "at": 1789945011699,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 16424,
+          "type": "Browser",
+          "role": "Browser",
+          "url": "",
+          "workingSetMB": 207.89,
+          "privateBytesMB": 137.86
+        },
+        {
+          "pid": 17600,
+          "type": "GPU",
+          "role": "GPU",
+          "url": "",
+          "workingSetMB": 187.45,
+          "privateBytesMB": 157.72
+        },
+        {
+          "pid": 3800,
+          "type": "Utility",
+          "role": "Utility",
+          "url": "",
+          "workingSetMB": 119.55,
+          "privateBytesMB": 14.21
+        },
+        {
+          "pid": 10896,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 179.22,
+          "privateBytesMB": 81.61
+        },
+        {
+          "pid": 10884,
+          "type": "Tab",
+          "role": "tab:a17ff4a4",
+          "url": "https://www.google.com/",
+          "workingSetMB": 149.13,
+          "privateBytesMB": 50.7
+        },
+        {
+          "pid": 17892,
+          "type": "Tab",
+          "role": "tab:00d1dcd8+tab:f353268a+tab:a703bb92+tab:d3487a42",
+          "url": "http://127.0.0.1:60573/store-home",
+          "workingSetMB": 140.08,
+          "privateBytesMB": 42.74
+        },
+        {
+          "pid": 13776,
+          "type": "Tab",
+          "role": "tab:f6bffd7c",
+          "url": "https://example.com/",
+          "workingSetMB": 123.57,
+          "privateBytesMB": 22.2
+        },
+        {
+          "pid": 4868,
+          "type": "Tab",
+          "role": "tab:6524b925",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 152.41,
+          "privateBytesMB": 48.46
+        }
+      ]
+    },
+    {
+      "at": 1789945071701,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 16424,
+          "type": "Browser",
+          "role": "Browser",
+          "url": "",
+          "workingSetMB": 204.96,
+          "privateBytesMB": 133.92
+        },
+        {
+          "pid": 17600,
+          "type": "GPU",
+          "role": "GPU",
+          "url": "",
+          "workingSetMB": 187.37,
+          "privateBytesMB": 154.12
+        },
+        {
+          "pid": 3800,
+          "type": "Utility",
+          "role": "Utility",
+          "url": "",
+          "workingSetMB": 119.55,
+          "privateBytesMB": 14.21
+        },
+        {
+          "pid": 10896,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 179.79,
+          "privateBytesMB": 81.73
+        },
+        {
+          "pid": 10884,
+          "type": "Tab",
+          "role": "tab:a17ff4a4",
+          "url": "https://www.google.com/",
+          "workingSetMB": 149.13,
+          "privateBytesMB": 50.7
+        },
+        {
+          "pid": 17892,
+          "type": "Tab",
+          "role": "tab:00d1dcd8+tab:f353268a+tab:a703bb92+tab:d3487a42",
+          "url": "http://127.0.0.1:60573/store-home",
+          "workingSetMB": 139.7,
+          "privateBytesMB": 41.93
+        },
+        {
+          "pid": 13776,
+          "type": "Tab",
+          "role": "tab:f6bffd7c",
+          "url": "https://example.com/",
+          "workingSetMB": 123.59,
+          "privateBytesMB": 22.21
+        },
+        {
+          "pid": 4868,
+          "type": "Tab",
+          "role": "tab:6524b925",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 152.45,
+          "privateBytesMB": 48.3
+        }
+      ]
+    },
+    {
+      "at": 1789945131707,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 16424,
+          "type": "Browser",
+          "role": "Browser",
+          "url": "",
+          "workingSetMB": 206.65,
+          "privateBytesMB": 135.5
+        },
+        {
+          "pid": 17600,
+          "type": "GPU",
+          "role": "GPU",
+          "url": "",
+          "workingSetMB": 187.34,
+          "privateBytesMB": 152.59
+        },
+        {
+          "pid": 3800,
+          "type": "Utility",
+          "role": "Utility",
+          "url": "",
+          "workingSetMB": 119.54,
+          "privateBytesMB": 14.18
+        },
+        {
+          "pid": 10896,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 181.54,
+          "privateBytesMB": 83.97
+        },
+        {
+          "pid": 10884,
+          "type": "Tab",
+          "role": "tab:a17ff4a4",
+          "url": "https://www.google.com/",
+          "workingSetMB": 149.13,
+          "privateBytesMB": 50.7
+        },
+        {
+          "pid": 17892,
+          "type": "Tab",
+          "role": "tab:00d1dcd8+tab:f353268a+tab:a703bb92+tab:d3487a42",
+          "url": "http://127.0.0.1:60573/store-home",
+          "workingSetMB": 140.25,
+          "privateBytesMB": 42.35
+        },
+        {
+          "pid": 13776,
+          "type": "Tab",
+          "role": "tab:f6bffd7c",
+          "url": "https://example.com/",
+          "workingSetMB": 123.61,
+          "privateBytesMB": 22.22
+        },
+        {
+          "pid": 4868,
+          "type": "Tab",
+          "role": "tab:6524b925",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 152.61,
+          "privateBytesMB": 48.3
+        }
+      ]
+    },
+    {
+      "at": 1789945191711,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 16424,
+          "type": "Browser",
+          "role": "Browser",
+          "url": "",
+          "workingSetMB": 223.03,
+          "privateBytesMB": 152.92
+        },
+        {
+          "pid": 17600,
+          "type": "GPU",
+          "role": "GPU",
+          "url": "",
+          "workingSetMB": 187.56,
+          "privateBytesMB": 161.15
+        },
+        {
+          "pid": 3800,
+          "type": "Utility",
+          "role": "Utility",
+          "url": "",
+          "workingSetMB": 119.54,
+          "privateBytesMB": 14.18
+        },
+        {
+          "pid": 10896,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 183.18,
+          "privateBytesMB": 85.29
+        },
+        {
+          "pid": 10884,
+          "type": "Tab",
+          "role": "tab:a17ff4a4",
+          "url": "https://www.google.com/",
+          "workingSetMB": 149.13,
+          "privateBytesMB": 50.7
+        },
+        {
+          "pid": 17892,
+          "type": "Tab",
+          "role": "tab:00d1dcd8+tab:f353268a+tab:a703bb92+tab:d3487a42",
+          "url": "http://127.0.0.1:60573/store-home",
+          "workingSetMB": 140.67,
+          "privateBytesMB": 42.79
+        },
+        {
+          "pid": 13776,
+          "type": "Tab",
+          "role": "tab:f6bffd7c",
+          "url": "https://example.com/",
+          "workingSetMB": 123.6,
+          "privateBytesMB": 22.22
+        },
+        {
+          "pid": 4868,
+          "type": "Tab",
+          "role": "tab:6524b925",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 152.96,
+          "privateBytesMB": 48.49
+        }
+      ]
+    },
+    {
+      "at": 1789945251712,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 16424,
+          "type": "Browser",
+          "role": "Browser",
+          "url": "",
+          "workingSetMB": 216.36,
+          "privateBytesMB": 146.08
+        },
+        {
+          "pid": 17600,
+          "type": "GPU",
+          "role": "GPU",
+          "url": "",
+          "workingSetMB": 187.45,
+          "privateBytesMB": 155.19
+        },
+        {
+          "pid": 3800,
+          "type": "Utility",
+          "role": "Utility",
+          "url": "",
+          "workingSetMB": 119.55,
+          "privateBytesMB": 14.2
+        },
+        {
+          "pid": 10896,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 180.73,
+          "privateBytesMB": 82.46
+        },
+        {
+          "pid": 10884,
+          "type": "Tab",
+          "role": "tab:a17ff4a4",
+          "url": "https://www.google.com/",
+          "workingSetMB": 149.13,
+          "privateBytesMB": 50.7
+        },
+        {
+          "pid": 17892,
+          "type": "Tab",
+          "role": "tab:00d1dcd8+tab:f353268a+tab:a703bb92+tab:d3487a42",
+          "url": "http://127.0.0.1:60573/store-home",
+          "workingSetMB": 140.34,
+          "privateBytesMB": 42.48
+        },
+        {
+          "pid": 13776,
+          "type": "Tab",
+          "role": "tab:f6bffd7c",
+          "url": "https://example.com/",
+          "workingSetMB": 123.61,
+          "privateBytesMB": 22.22
+        },
+        {
+          "pid": 4868,
+          "type": "Tab",
+          "role": "tab:6524b925",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 152.97,
+          "privateBytesMB": 48.49
+        }
+      ]
+    },
+    {
+      "at": 1789945311718,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 16424,
+          "type": "Browser",
+          "role": "Browser",
+          "url": "",
+          "workingSetMB": 216.79,
+          "privateBytesMB": 146.19
+        },
+        {
+          "pid": 17600,
+          "type": "GPU",
+          "role": "GPU",
+          "url": "",
+          "workingSetMB": 187.35,
+          "privateBytesMB": 155.72
+        },
+        {
+          "pid": 3800,
+          "type": "Utility",
+          "role": "Utility",
+          "url": "",
+          "workingSetMB": 119.55,
+          "privateBytesMB": 14.2
+        },
+        {
+          "pid": 10896,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 181.94,
+          "privateBytesMB": 83.84
+        },
+        {
+          "pid": 10884,
+          "type": "Tab",
+          "role": "tab:a17ff4a4",
+          "url": "https://www.google.com/",
+          "workingSetMB": 149.13,
+          "privateBytesMB": 50.7
+        },
+        {
+          "pid": 17892,
+          "type": "Tab",
+          "role": "tab:00d1dcd8+tab:f353268a+tab:a703bb92+tab:d3487a42",
+          "url": "http://127.0.0.1:60573/store-home",
+          "workingSetMB": 140.79,
+          "privateBytesMB": 42.91
+        },
+        {
+          "pid": 13776,
+          "type": "Tab",
+          "role": "tab:f6bffd7c",
+          "url": "https://example.com/",
+          "workingSetMB": 123.62,
+          "privateBytesMB": 22.21
+        },
+        {
+          "pid": 4868,
+          "type": "Tab",
+          "role": "tab:6524b925",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 153.18,
+          "privateBytesMB": 48.46
+        }
+      ]
+    },
+    {
+      "at": 1789945371725,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 16424,
+          "type": "Browser",
+          "role": "Browser",
+          "url": "",
+          "workingSetMB": 208.86,
+          "privateBytesMB": 137.9
+        },
+        {
+          "pid": 17600,
+          "type": "GPU",
+          "role": "GPU",
+          "url": "",
+          "workingSetMB": 187.72,
+          "privateBytesMB": 155.09
+        },
+        {
+          "pid": 3800,
+          "type": "Utility",
+          "role": "Utility",
+          "url": "",
+          "workingSetMB": 119.54,
+          "privateBytesMB": 14.18
+        },
+        {
+          "pid": 10896,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 180.76,
+          "privateBytesMB": 82.54
+        },
+        {
+          "pid": 10884,
+          "type": "Tab",
+          "role": "tab:a17ff4a4",
+          "url": "https://www.google.com/",
+          "workingSetMB": 149.13,
+          "privateBytesMB": 50.7
+        },
+        {
+          "pid": 17892,
+          "type": "Tab",
+          "role": "tab:00d1dcd8+tab:f353268a+tab:a703bb92+tab:d3487a42",
+          "url": "http://127.0.0.1:60573/store-home",
+          "workingSetMB": 139.89,
+          "privateBytesMB": 42.03
+        },
+        {
+          "pid": 13776,
+          "type": "Tab",
+          "role": "tab:f6bffd7c",
+          "url": "https://example.com/",
+          "workingSetMB": 123.63,
+          "privateBytesMB": 22.21
+        },
+        {
+          "pid": 4868,
+          "type": "Tab",
+          "role": "tab:6524b925",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 153.36,
+          "privateBytesMB": 48.59
+        }
+      ]
+    },
+    {
+      "at": 1789945431733,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 16424,
+          "type": "Browser",
+          "role": "Browser",
+          "url": "",
+          "workingSetMB": 216.39,
+          "privateBytesMB": 145.65
+        },
+        {
+          "pid": 17600,
+          "type": "GPU",
+          "role": "GPU",
+          "url": "",
+          "workingSetMB": 187.81,
+          "privateBytesMB": 167.93
+        },
+        {
+          "pid": 3800,
+          "type": "Utility",
+          "role": "Utility",
+          "url": "",
+          "workingSetMB": 119.54,
+          "privateBytesMB": 14.18
+        },
+        {
+          "pid": 10896,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 182.69,
+          "privateBytesMB": 84.55
+        },
+        {
+          "pid": 10884,
+          "type": "Tab",
+          "role": "tab:a17ff4a4",
+          "url": "https://www.google.com/",
+          "workingSetMB": 149.13,
+          "privateBytesMB": 50.7
+        },
+        {
+          "pid": 17892,
+          "type": "Tab",
+          "role": "tab:00d1dcd8+tab:f353268a+tab:a703bb92+tab:d3487a42",
+          "url": "http://127.0.0.1:60573/store-home",
+          "workingSetMB": 140.21,
+          "privateBytesMB": 42.39
+        },
+        {
+          "pid": 13776,
+          "type": "Tab",
+          "role": "tab:f6bffd7c",
+          "url": "https://example.com/",
+          "workingSetMB": 123.63,
+          "privateBytesMB": 23.21
+        },
+        {
+          "pid": 4868,
+          "type": "Tab",
+          "role": "tab:6524b925",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 153.72,
+          "privateBytesMB": 48.77
+        }
+      ]
+    },
+    {
+      "at": 1789945491738,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 16424,
+          "type": "Browser",
+          "role": "Browser",
+          "url": "",
+          "workingSetMB": 216.71,
+          "privateBytesMB": 145.55
+        },
+        {
+          "pid": 17600,
+          "type": "GPU",
+          "role": "GPU",
+          "url": "",
+          "workingSetMB": 187.89,
+          "privateBytesMB": 158.62
+        },
+        {
+          "pid": 3800,
+          "type": "Utility",
+          "role": "Utility",
+          "url": "",
+          "workingSetMB": 119.54,
+          "privateBytesMB": 14.18
+        },
+        {
+          "pid": 10896,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 184.49,
+          "privateBytesMB": 86.29
+        },
+        {
+          "pid": 10884,
+          "type": "Tab",
+          "role": "tab:a17ff4a4",
+          "url": "https://www.google.com/",
+          "workingSetMB": 149.13,
+          "privateBytesMB": 50.7
+        },
+        {
+          "pid": 17892,
+          "type": "Tab",
+          "role": "tab:00d1dcd8+tab:f353268a+tab:a703bb92+tab:d3487a42",
+          "url": "http://127.0.0.1:60573/store-home",
+          "workingSetMB": 140.64,
+          "privateBytesMB": 42.8
+        },
+        {
+          "pid": 13776,
+          "type": "Tab",
+          "role": "tab:f6bffd7c",
+          "url": "https://example.com/",
+          "workingSetMB": 123.63,
+          "privateBytesMB": 23.21
+        },
+        {
+          "pid": 4868,
+          "type": "Tab",
+          "role": "tab:6524b925",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 153.83,
+          "privateBytesMB": 48.78
+        }
+      ]
+    },
+    {
+      "at": 1789945551739,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 16424,
+          "type": "Browser",
+          "role": "Browser",
+          "url": "",
+          "workingSetMB": 230.27,
+          "privateBytesMB": 159.09
+        },
+        {
+          "pid": 17600,
+          "type": "GPU",
+          "role": "GPU",
+          "url": "",
+          "workingSetMB": 187.83,
+          "privateBytesMB": 154.34
+        },
+        {
+          "pid": 3800,
+          "type": "Utility",
+          "role": "Utility",
+          "url": "",
+          "workingSetMB": 119.54,
+          "privateBytesMB": 14.18
+        },
+        {
+          "pid": 10896,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 182.32,
+          "privateBytesMB": 84.11
+        },
+        {
+          "pid": 10884,
+          "type": "Tab",
+          "role": "tab:a17ff4a4",
+          "url": "https://www.google.com/",
+          "workingSetMB": 149.13,
+          "privateBytesMB": 50.7
+        },
+        {
+          "pid": 17892,
+          "type": "Tab",
+          "role": "tab:00d1dcd8+tab:f353268a+tab:a703bb92+tab:d3487a42",
+          "url": "http://127.0.0.1:60573/store-home",
+          "workingSetMB": 140.35,
+          "privateBytesMB": 42.54
+        },
+        {
+          "pid": 13776,
+          "type": "Tab",
+          "role": "tab:f6bffd7c",
+          "url": "https://example.com/",
+          "workingSetMB": 123.64,
+          "privateBytesMB": 23.21
+        },
+        {
+          "pid": 4868,
+          "type": "Tab",
+          "role": "tab:6524b925",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 153.64,
+          "privateBytesMB": 48.61
+        }
+      ]
+    }
+  ],
+  "historySamples": [
+    {
+      "at": 1789944355184,
+      "name": "persist",
+      "value": 1.259,
+      "extra": {
+        "items": 1,
+        "bytes": 160,
+        "superseded": false
+      }
+    },
+    {
+      "at": 1789944385339,
+      "name": "persist",
+      "value": 31.692,
+      "extra": {
+        "items": 8004,
+        "bytes": 3853494,
+        "superseded": true
+      }
+    },
+    {
+      "at": 1789944415339,
+      "name": "persist",
+      "value": 16.89,
+      "extra": {
+        "items": 8004,
+        "bytes": 3853495,
+        "superseded": true
+      }
+    },
+    {
+      "at": 1789944445368,
+      "name": "persist",
+      "value": 22.089,
+      "extra": {
+        "items": 8004,
+        "bytes": 3853495,
+        "superseded": false
+      }
+    },
+    {
+      "at": 1789944475356,
+      "name": "persist",
+      "value": 16.21,
+      "extra": {
+        "items": 8004,
+        "bytes": 3853495,
+        "superseded": false
+      }
+    },
+    {
+      "at": 1789944505364,
+      "name": "persist",
+      "value": 16.349,
+      "extra": {
+        "items": 8004,
+        "bytes": 3853495,
+        "superseded": false
+      }
+    },
+    {
+      "at": 1789944535504,
+      "name": "persist",
+      "value": 14.875,
+      "extra": {
+        "items": 8004,
+        "bytes": 3853495,
+        "superseded": true
+      }
+    },
+    {
+      "at": 1789944565514,
+      "name": "persist",
+      "value": 16.422,
+      "extra": {
+        "items": 8004,
+        "bytes": 3853498,
+        "superseded": true
+      }
+    },
+    {
+      "at": 1789944595530,
+      "name": "persist",
+      "value": 16.73,
+      "extra": {
+        "items": 8004,
+        "bytes": 3853499,
+        "superseded": true
+      }
+    },
+    {
+      "at": 1789944625529,
+      "name": "persist",
+      "value": 15.036,
+      "extra": {
+        "items": 8004,
+        "bytes": 3853499,
+        "superseded": false
+      }
+    },
+    {
+      "at": 1789944655566,
+      "name": "persist",
+      "value": 15.454,
+      "extra": {
+        "items": 8004,
+        "bytes": 3853499,
+        "superseded": false
+      }
+    },
+    {
+      "at": 1789944685727,
+      "name": "persist",
+      "value": 18.274,
+      "extra": {
+        "items": 8004,
+        "bytes": 3853499,
+        "superseded": true
+      }
+    },
+    {
+      "at": 1789944715727,
+      "name": "persist",
+      "value": 17.479,
+      "extra": {
+        "items": 8004,
+        "bytes": 3853499,
+        "superseded": true
+      }
+    },
+    {
+      "at": 1789944745727,
+      "name": "persist",
+      "value": 15.548,
+      "extra": {
+        "items": 8004,
+        "bytes": 3853499,
+        "superseded": true
+      }
+    },
+    {
+      "at": 1789944775731,
+      "name": "persist",
+      "value": 15.848,
+      "extra": {
+        "items": 8004,
+        "bytes": 3853499,
+        "superseded": false
+      }
+    },
+    {
+      "at": 1789944805734,
+      "name": "persist",
+      "value": 16.014,
+      "extra": {
+        "items": 8004,
+        "bytes": 3853499,
+        "superseded": false
+      }
+    },
+    {
+      "at": 1789944835734,
+      "name": "persist",
+      "value": 15.68,
+      "extra": {
+        "items": 8004,
+        "bytes": 3853499,
+        "superseded": false
+      }
+    },
+    {
+      "at": 1789944865757,
+      "name": "persist",
+      "value": 14.433,
+      "extra": {
+        "items": 8004,
+        "bytes": 3853499,
+        "superseded": false
+      }
+    },
+    {
+      "at": 1789944895907,
+      "name": "persist",
+      "value": 14.604,
+      "extra": {
+        "items": 8004,
+        "bytes": 3853499,
+        "superseded": true
+      }
+    },
+    {
+      "at": 1789944925921,
+      "name": "persist",
+      "value": 24.269,
+      "extra": {
+        "items": 8004,
+        "bytes": 3853499,
+        "superseded": true
+      }
+    },
+    {
+      "at": 1789944955914,
+      "name": "persist",
+      "value": 17.238,
+      "extra": {
+        "items": 8004,
+        "bytes": 3853499,
+        "superseded": true
+      }
+    },
+    {
+      "at": 1789944985909,
+      "name": "persist",
+      "value": 14.869,
+      "extra": {
+        "items": 8004,
+        "bytes": 3853499,
+        "superseded": true
+      }
+    },
+    {
+      "at": 1789945015925,
+      "name": "persist",
+      "value": 19.763,
+      "extra": {
+        "items": 8004,
+        "bytes": 3853499,
+        "superseded": true
+      }
+    },
+    {
+      "at": 1789945045930,
+      "name": "persist",
+      "value": 17.128,
+      "extra": {
+        "items": 8004,
+        "bytes": 3853499,
+        "superseded": true
+      }
+    },
+    {
+      "at": 1789945075934,
+      "name": "persist",
+      "value": 20.522,
+      "extra": {
+        "items": 8004,
+        "bytes": 3853499,
+        "superseded": true
+      }
+    },
+    {
+      "at": 1789945105940,
+      "name": "persist",
+      "value": 17.226,
+      "extra": {
+        "items": 8004,
+        "bytes": 3853499,
+        "superseded": true
+      }
+    },
+    {
+      "at": 1789945135936,
+      "name": "persist",
+      "value": 15.394,
+      "extra": {
+        "items": 8004,
+        "bytes": 3853499,
+        "superseded": true
+      }
+    },
+    {
+      "at": 1789945165966,
+      "name": "persist",
+      "value": 15.514,
+      "extra": {
+        "items": 8004,
+        "bytes": 3853499,
+        "superseded": false
+      }
+    },
+    {
+      "at": 1789945195968,
+      "name": "persist",
+      "value": 14.433,
+      "extra": {
+        "items": 8004,
+        "bytes": 3853499,
+        "superseded": false
+      }
+    },
+    {
+      "at": 1789945226121,
+      "name": "persist",
+      "value": 16.779,
+      "extra": {
+        "items": 8004,
+        "bytes": 3853499,
+        "superseded": true
+      }
+    },
+    {
+      "at": 1789945256132,
+      "name": "persist",
+      "value": 14.799,
+      "extra": {
+        "items": 8004,
+        "bytes": 3853499,
+        "superseded": true
+      }
+    },
+    {
+      "at": 1789945286131,
+      "name": "persist",
+      "value": 14.661,
+      "extra": {
+        "items": 8004,
+        "bytes": 3853499,
+        "superseded": false
+      }
+    },
+    {
+      "at": 1789945316134,
+      "name": "persist",
+      "value": 14.995,
+      "extra": {
+        "items": 8004,
+        "bytes": 3853499,
+        "superseded": true
+      }
+    },
+    {
+      "at": 1789945346156,
+      "name": "persist",
+      "value": 15.26,
+      "extra": {
+        "items": 8004,
+        "bytes": 3853499,
+        "superseded": false
+      }
+    },
+    {
+      "at": 1789945376169,
+      "name": "persist",
+      "value": 17.131,
+      "extra": {
+        "items": 8004,
+        "bytes": 3853499,
+        "superseded": false
+      }
+    },
+    {
+      "at": 1789945406321,
+      "name": "persist",
+      "value": 15.547,
+      "extra": {
+        "items": 8004,
+        "bytes": 3853499,
+        "superseded": true
+      }
+    },
+    {
+      "at": 1789945436330,
+      "name": "persist",
+      "value": 14.319,
+      "extra": {
+        "items": 8004,
+        "bytes": 3853499,
+        "superseded": true
+      }
+    },
+    {
+      "at": 1789945466329,
+      "name": "persist",
+      "value": 14.539,
+      "extra": {
+        "items": 8004,
+        "bytes": 3853499,
+        "superseded": true
+      }
+    },
+    {
+      "at": 1789945496366,
+      "name": "persist",
+      "value": 15.091,
+      "extra": {
+        "items": 8004,
+        "bytes": 3853499,
+        "superseded": false
+      }
+    },
+    {
+      "at": 1789945526514,
+      "name": "persist",
+      "value": 14.434,
+      "extra": {
+        "items": 8004,
+        "bytes": 3853499,
+        "superseded": true
+      }
+    },
+    {
+      "at": 1789945556515,
+      "name": "persist",
+      "value": 15.142,
+      "extra": {
+        "items": 8004,
+        "bytes": 3853499,
+        "superseded": true
+      }
+    }
+  ],
+  "legSlopes": [],
+  "slowSwitchSamples": [
+    {
+      "at": 1789945269339,
+      "ms": 24.519,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944450006,
+      "ms": 23.786,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944468365,
+      "ms": 23.147,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944711397,
+      "ms": 22.909,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945155395,
+      "ms": 22.812,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944819237,
+      "ms": 22.578,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944807149,
+      "ms": 22.55,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945207165,
+      "ms": 22.433,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944606891,
+      "ms": 22.223,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945003615,
+      "ms": 22.034,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    }
+  ],
+  "switchSamples": [
+    {
+      "at": 1789944360887,
+      "ms": 19.022,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944363904,
+      "ms": 14.774,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944366916,
+      "ms": 18.471,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944369996,
+      "ms": 17.966,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944373016,
+      "ms": 16.286,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944376107,
+      "ms": 19.219,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944379164,
+      "ms": 13.129,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944382237,
+      "ms": 17.35,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944385331,
+      "ms": 14.212,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944388332,
+      "ms": 15.161,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944391352,
+      "ms": 13.81,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944394429,
+      "ms": 16.885,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944397466,
+      "ms": 21.043,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944400520,
+      "ms": 18.959,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944403518,
+      "ms": 17.942,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944406562,
+      "ms": 17.425,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944409563,
+      "ms": 13.878,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944412582,
+      "ms": 15.702,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944415637,
+      "ms": 14.609,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944418649,
+      "ms": 17.657,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944422645,
+      "ms": 16.56,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944425732,
+      "ms": 13.9,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944428766,
+      "ms": 16.85,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944431791,
+      "ms": 17.813,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944434877,
+      "ms": 16.894,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944437883,
+      "ms": 15.816,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944440889,
+      "ms": 16.884,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944443911,
+      "ms": 16.243,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944446995,
+      "ms": 13.355,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944450006,
+      "ms": 23.786,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944453081,
+      "ms": 21.944,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944456084,
+      "ms": 16.577,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944459181,
+      "ms": 21.449,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944462249,
+      "ms": 16.42,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944465267,
+      "ms": 16.935,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944468365,
+      "ms": 23.147,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944471456,
+      "ms": 16.887,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944474464,
+      "ms": 15.226,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944477490,
+      "ms": 20.456,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944480570,
+      "ms": 15.566,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944483629,
+      "ms": 16.589,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944486711,
+      "ms": 16.12,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944489751,
+      "ms": 14.681,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944492764,
+      "ms": 13.971,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944495860,
+      "ms": 17.956,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944498895,
+      "ms": 13.91,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944501972,
+      "ms": 14.153,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944504989,
+      "ms": 15.907,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944508003,
+      "ms": 13.652,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944511015,
+      "ms": 20.414,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944514081,
+      "ms": 20.445,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944517102,
+      "ms": 16.554,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944520124,
+      "ms": 15.725,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944523128,
+      "ms": 18.655,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944526131,
+      "ms": 17.571,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944529235,
+      "ms": 16.837,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944532265,
+      "ms": 17.686,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944535285,
+      "ms": 13.48,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944538354,
+      "ms": 16.114,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944542710,
+      "ms": 14.865,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944545792,
+      "ms": 14.94,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944548817,
+      "ms": 13.013,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944551826,
+      "ms": 17.598,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944554876,
+      "ms": 17.838,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944557919,
+      "ms": 13.239,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944561021,
+      "ms": 15.551,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944564028,
+      "ms": 15.545,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944567050,
+      "ms": 14.168,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944570119,
+      "ms": 13.094,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944573126,
+      "ms": 14.292,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944576216,
+      "ms": 16.889,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944579321,
+      "ms": 20.325,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944582353,
+      "ms": 16.868,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944585432,
+      "ms": 16.152,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944588524,
+      "ms": 16.441,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944591548,
+      "ms": 20.75,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944594646,
+      "ms": 21.048,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944597730,
+      "ms": 17.816,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944600815,
+      "ms": 13.69,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944603817,
+      "ms": 14.47,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944606891,
+      "ms": 22.223,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944609891,
+      "ms": 16.02,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944612987,
+      "ms": 21.839,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944616011,
+      "ms": 20.624,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944619015,
+      "ms": 19.418,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944622099,
+      "ms": 15.172,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944625197,
+      "ms": 17.971,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944628286,
+      "ms": 17.394,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944631361,
+      "ms": 14.937,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944634451,
+      "ms": 16.007,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944637499,
+      "ms": 16.588,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944640592,
+      "ms": 17.718,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944643608,
+      "ms": 18.094,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944646717,
+      "ms": 13.275,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944649762,
+      "ms": 17.305,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944652842,
+      "ms": 17.975,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944655870,
+      "ms": 16.579,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944658880,
+      "ms": 18.734,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944662818,
+      "ms": 18.356,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944665816,
+      "ms": 15.943,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944668823,
+      "ms": 15.09,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944671838,
+      "ms": 16.372,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944674938,
+      "ms": 15.612,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944677975,
+      "ms": 19.564,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944680983,
+      "ms": 17.007,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944683984,
+      "ms": 14.632,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944687054,
+      "ms": 17.569,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944690120,
+      "ms": 19.15,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944693144,
+      "ms": 17.886,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944696166,
+      "ms": 16.376,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944699171,
+      "ms": 13.081,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944702181,
+      "ms": 15.066,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944705274,
+      "ms": 15.031,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944708377,
+      "ms": 15.9,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944711397,
+      "ms": 22.909,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944714477,
+      "ms": 15.897,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944717486,
+      "ms": 16.693,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944720504,
+      "ms": 17.449,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944723531,
+      "ms": 16.237,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944726568,
+      "ms": 18.833,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944729580,
+      "ms": 14.168,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944732622,
+      "ms": 16.639,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944735716,
+      "ms": 18.308,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944738758,
+      "ms": 16.745,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944741768,
+      "ms": 16.444,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944744795,
+      "ms": 18.649,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944747867,
+      "ms": 15.702,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944750893,
+      "ms": 20.35,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944753974,
+      "ms": 16.871,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944757004,
+      "ms": 15.065,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944760103,
+      "ms": 18.347,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944763119,
+      "ms": 17.65,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944766208,
+      "ms": 20.773,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944769238,
+      "ms": 17.133,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944772250,
+      "ms": 15.618,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944775346,
+      "ms": 16.412,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944778358,
+      "ms": 14.938,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944782908,
+      "ms": 17.764,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944785935,
+      "ms": 20.256,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944788957,
+      "ms": 17.219,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944791968,
+      "ms": 20.956,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944794970,
+      "ms": 18.495,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944797980,
+      "ms": 19.289,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944801000,
+      "ms": 16.228,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944804049,
+      "ms": 15.238,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944807149,
+      "ms": 22.55,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944810163,
+      "ms": 18.775,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944813183,
+      "ms": 19.019,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944816204,
+      "ms": 16.481,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944819237,
+      "ms": 22.578,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944822318,
+      "ms": 15.658,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944825407,
+      "ms": 17.45,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944828433,
+      "ms": 15.291,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944831533,
+      "ms": 15.215,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944834599,
+      "ms": 14.38,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944837650,
+      "ms": 18.825,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944840742,
+      "ms": 17.24,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944843823,
+      "ms": 16.066,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944846938,
+      "ms": 17.625,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944849952,
+      "ms": 18.139,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944852980,
+      "ms": 14.283,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944855998,
+      "ms": 20.144,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944859059,
+      "ms": 19.537,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944862143,
+      "ms": 16.827,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944865218,
+      "ms": 14.169,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944868223,
+      "ms": 14.412,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944871253,
+      "ms": 18.729,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944874305,
+      "ms": 15.121,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944877324,
+      "ms": 15.537,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944880329,
+      "ms": 16.563,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944883357,
+      "ms": 13.574,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944886428,
+      "ms": 14.286,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944889440,
+      "ms": 21.614,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944892458,
+      "ms": 16.279,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944895462,
+      "ms": 18.051,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944898566,
+      "ms": 19.476,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944903024,
+      "ms": 19.047,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944906121,
+      "ms": 14.19,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944909143,
+      "ms": 13.759,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944912151,
+      "ms": 14.76,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944915170,
+      "ms": 14.011,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944918183,
+      "ms": 14.247,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944921208,
+      "ms": 16.053,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944924266,
+      "ms": 14.75,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944927356,
+      "ms": 15.523,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944930459,
+      "ms": 20.874,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944933549,
+      "ms": 20.013,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944936611,
+      "ms": 16.737,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944939657,
+      "ms": 19.746,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944942681,
+      "ms": 20.307,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944945698,
+      "ms": 14.589,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944948781,
+      "ms": 14.803,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944951797,
+      "ms": 15.028,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944954870,
+      "ms": 13.895,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944957889,
+      "ms": 17.275,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944960907,
+      "ms": 18.656,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944963987,
+      "ms": 15.52,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944967039,
+      "ms": 18.763,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944970126,
+      "ms": 12.686,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944973225,
+      "ms": 13.482,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944976242,
+      "ms": 15.5,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944979259,
+      "ms": 17.583,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944982263,
+      "ms": 16.404,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944985287,
+      "ms": 14.145,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944988369,
+      "ms": 13.919,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944991389,
+      "ms": 18.051,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944994474,
+      "ms": 19.448,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789944997558,
+      "ms": 17.925,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945000602,
+      "ms": 16.969,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945003615,
+      "ms": 22.034,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945006706,
+      "ms": 20.785,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945009707,
+      "ms": 15.965,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945012791,
+      "ms": 17.322,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945015855,
+      "ms": 16.434,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945018855,
+      "ms": 16.08,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945023066,
+      "ms": 20.066,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945026068,
+      "ms": 17.288,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945029151,
+      "ms": 14.7,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945032249,
+      "ms": 15.606,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945035255,
+      "ms": 20.281,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945038351,
+      "ms": 18.839,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945041421,
+      "ms": 15.348,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945044496,
+      "ms": 15.112,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945047512,
+      "ms": 16.739,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945050611,
+      "ms": 15.322,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945053638,
+      "ms": 17.997,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945056732,
+      "ms": 18.047,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945059801,
+      "ms": 15.698,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945062847,
+      "ms": 17.453,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945065923,
+      "ms": 15.353,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945069023,
+      "ms": 14.93,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945072025,
+      "ms": 14.729,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945075054,
+      "ms": 15.012,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945078157,
+      "ms": 15.749,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945081196,
+      "ms": 16.781,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945084226,
+      "ms": 16.666,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945087248,
+      "ms": 14.833,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945090246,
+      "ms": 13.514,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945093340,
+      "ms": 13.362,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945096420,
+      "ms": 20.732,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945099445,
+      "ms": 15.339,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945102478,
+      "ms": 17.539,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945105480,
+      "ms": 13.749,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945108588,
+      "ms": 17.537,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945111596,
+      "ms": 17.838,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945114707,
+      "ms": 14.557,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945117805,
+      "ms": 17.985,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945120834,
+      "ms": 17.327,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945123887,
+      "ms": 21.079,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945126907,
+      "ms": 19.039,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945129924,
+      "ms": 17.852,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945132935,
+      "ms": 14.776,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945136030,
+      "ms": 18.099,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945139052,
+      "ms": 15.381,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945143105,
+      "ms": 18.85,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945146191,
+      "ms": 15.1,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945149197,
+      "ms": 14.127,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945152283,
+      "ms": 14.756,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945155395,
+      "ms": 22.812,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945158414,
+      "ms": 15.846,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945161414,
+      "ms": 15.801,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945164474,
+      "ms": 15.934,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945167497,
+      "ms": 20.367,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945170591,
+      "ms": 16.094,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945173594,
+      "ms": 17.493,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945176590,
+      "ms": 14.022,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945179663,
+      "ms": 13.935,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945182672,
+      "ms": 13.8,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945185699,
+      "ms": 18.13,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945188708,
+      "ms": 18.901,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945191728,
+      "ms": 16.933,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945194817,
+      "ms": 14.123,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945197918,
+      "ms": 16.056,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945201023,
+      "ms": 13.524,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945204062,
+      "ms": 19.106,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945207165,
+      "ms": 22.433,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945210238,
+      "ms": 18.452,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945213339,
+      "ms": 16.187,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945216345,
+      "ms": 14.172,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945219361,
+      "ms": 14.538,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945222397,
+      "ms": 17.749,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945225488,
+      "ms": 19.99,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945228583,
+      "ms": 14.455,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945231605,
+      "ms": 20.563,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945234648,
+      "ms": 15.707,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945237699,
+      "ms": 15.217,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945240797,
+      "ms": 17.141,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945243895,
+      "ms": 19.716,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945246921,
+      "ms": 15.566,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945250027,
+      "ms": 15.105,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945253120,
+      "ms": 14.354,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945256164,
+      "ms": 17.522,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945259167,
+      "ms": 15.42,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945263166,
+      "ms": 16.246,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945266248,
+      "ms": 14.854,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945269339,
+      "ms": 24.519,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945272406,
+      "ms": 15.52,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945275497,
+      "ms": 18.871,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945278563,
+      "ms": 17.005,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945281578,
+      "ms": 16.837,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945284676,
+      "ms": 16.137,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945287675,
+      "ms": 14.423,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945290682,
+      "ms": 17.824,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945293682,
+      "ms": 14.706,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945296762,
+      "ms": 14.391,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945299770,
+      "ms": 14.277,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945302865,
+      "ms": 17.862,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945305952,
+      "ms": 14.617,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945308971,
+      "ms": 15.917,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945312051,
+      "ms": 14.399,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945315058,
+      "ms": 17.994,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945318082,
+      "ms": 15.839,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945321179,
+      "ms": 14.858,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945324191,
+      "ms": 15.764,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945327209,
+      "ms": 15.164,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945330252,
+      "ms": 16.646,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945333297,
+      "ms": 14.156,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945336376,
+      "ms": 20.053,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945339451,
+      "ms": 14.094,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945342563,
+      "ms": 20.246,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945345585,
+      "ms": 14.085,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945348606,
+      "ms": 14.899,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945351622,
+      "ms": 17.037,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945354716,
+      "ms": 18.209,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945357796,
+      "ms": 15.057,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945360858,
+      "ms": 14.029,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945363917,
+      "ms": 14.936,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945366932,
+      "ms": 13.188,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945370050,
+      "ms": 14.35,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945373150,
+      "ms": 14.781,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945376254,
+      "ms": 13.022,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945379262,
+      "ms": 15.921,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945383365,
+      "ms": 18.233,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945386466,
+      "ms": 17.58,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945389555,
+      "ms": 14.436,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945392656,
+      "ms": 18.62,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945395687,
+      "ms": 14.535,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945398790,
+      "ms": 16.481,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945401790,
+      "ms": 14.28,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945404896,
+      "ms": 16.982,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945407896,
+      "ms": 15.727,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945410910,
+      "ms": 19.107,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945413980,
+      "ms": 15.465,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945416980,
+      "ms": 15.024,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945420013,
+      "ms": 17.639,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945423027,
+      "ms": 14.622,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945426036,
+      "ms": 16.109,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945429050,
+      "ms": 20.167,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945432123,
+      "ms": 14.954,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945435124,
+      "ms": 15.72,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945438207,
+      "ms": 16.027,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945441314,
+      "ms": 18.302,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945444356,
+      "ms": 14.864,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945447457,
+      "ms": 18.244,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945450553,
+      "ms": 15.849,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945453627,
+      "ms": 15.036,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945456632,
+      "ms": 14.771,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945459739,
+      "ms": 13.919,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945462830,
+      "ms": 16.513,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945465905,
+      "ms": 18.375,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945468915,
+      "ms": 17.254,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945471938,
+      "ms": 16.672,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945474946,
+      "ms": 15.997,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945478028,
+      "ms": 13.349,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945481093,
+      "ms": 13.76,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945484118,
+      "ms": 16.949,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945487129,
+      "ms": 15.603,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945490136,
+      "ms": 18.252,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945493230,
+      "ms": 13.177,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945496318,
+      "ms": 15.041,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945499391,
+      "ms": 12.93,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945503498,
+      "ms": 18.126,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945506520,
+      "ms": 16.346,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945509541,
+      "ms": 13.665,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945512560,
+      "ms": 16.334,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945515575,
+      "ms": 14.684,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945518664,
+      "ms": 14.873,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945521731,
+      "ms": 18.407,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945524730,
+      "ms": 13.894,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945527769,
+      "ms": 14.728,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945530855,
+      "ms": 16.777,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945533882,
+      "ms": 17.348,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945536901,
+      "ms": 16.153,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945539902,
+      "ms": 16.622,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945543002,
+      "ms": 17.347,
+      "tabId": "00d1dcd8-8a58-4c04-9b73-9730a6b71ae4",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945546100,
+      "ms": 15.458,
+      "tabId": "f353268a-17c1-442f-a412-2b6fab1766be",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945549130,
+      "ms": 15.568,
+      "tabId": "a703bb92-0262-43bf-8cd9-3fe289b90c19",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945552156,
+      "ms": 14.655,
+      "tabId": "d3487a42-1483-492f-a615-40e5f8189215",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945555196,
+      "ms": 15.998,
+      "tabId": "f6bffd7c-4aca-4bc3-941c-ff8694f6e38c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1789945558203,
+      "ms": 14.518,
+      "tabId": "6524b925-0a7b-4cb5-bc93-560cac8e3071",
+      "phase": "warmup",
+      "leg": null
+    }
+  ],
+  "switchSamplesDropped": 0,
+  "stderrTail": [
+    "DevTools listening on ws://127.0.0.1:60574/devtools/browser/1462c630-e709-4601-9ee8-af2ba0284e22",
+    "[index] Terminal Host Daemon unavailable (no staged daemon bundle (run scripts/stage-daemon-host.mjs)); falling back to in-process TerminalManager"
+  ],
+  "stdoutBenchmarkTail": [
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.21249999990686774,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-20T23:05:30.854Z\",\"nowMs\":1180313.4248}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":16.21889999997802,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-20T23:05:30.854Z\",\"nowMs\":1180313.5434}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.1946000000461936,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-20T23:05:33.875Z\",\"nowMs\":1183334.952}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.24249999993480742,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-20T23:05:33.881Z\",\"nowMs\":1183340.8701}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":16.32730000000447,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-20T23:05:33.882Z\",\"nowMs\":1183341.0247}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"ptyData\",\"value\":237,\"extra\":{\"sessionId\":\"terminal-2\",\"chunkSeq\":150,\"totalBytes\":116031},\"ts\":\"2026-09-20T23:05:34.773Z\",\"nowMs\":1184232.4896}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"fanoutMessages\",\"value\":0,\"extra\":{\"sessionId\":\"terminal-2\",\"windows\":0},\"ts\":\"2026-09-20T23:05:34.773Z\",\"nowMs\":1184232.5631}",
+    "[antifan-benchmark] {\"surface\":\"bridge\",\"name\":\"broadcast\",\"value\":0.0625,\"extra\":{\"event\":\"antifan:terminal:data\",\"clients\":1,\"congested\":0,\"bytes\":463},\"ts\":\"2026-09-20T23:05:34.773Z\",\"nowMs\":1184232.6406}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"ptyData\",\"value\":1280,\"extra\":{\"sessionId\":\"terminal-2\",\"chunkSeq\":151,\"totalBytes\":117311},\"ts\":\"2026-09-20T23:05:34.809Z\",\"nowMs\":1184268.6956}",
+    "[antifan-benchmark] {\"surface\":\"bridge\",\"name\":\"broadcast\",\"value\":0.08539999998174608,\"extra\":{\"event\":\"antifan:terminal:data\",\"clients\":1,\"congested\":0,\"bytes\":2466},\"ts\":\"2026-09-20T23:05:34.809Z\",\"nowMs\":1184268.8471}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"fanoutMessages\",\"value\":0,\"extra\":{\"sessionId\":\"terminal-2\",\"windows\":0},\"ts\":\"2026-09-20T23:05:34.820Z\",\"nowMs\":1184279.2739}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"ptyData\",\"value\":1388,\"extra\":{\"sessionId\":\"terminal-2\",\"chunkSeq\":152,\"totalBytes\":118699},\"ts\":\"2026-09-20T23:05:34.840Z\",\"nowMs\":1184300.009}",
+    "[antifan-benchmark] {\"surface\":\"bridge\",\"name\":\"broadcast\",\"value\":0.06330000003799796,\"extra\":{\"event\":\"antifan:terminal:data\",\"clients\":1,\"congested\":0,\"bytes\":2555},\"ts\":\"2026-09-20T23:05:34.841Z\",\"nowMs\":1184300.1352}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"fanoutMessages\",\"value\":0,\"extra\":{\"sessionId\":\"terminal-2\",\"windows\":0},\"ts\":\"2026-09-20T23:05:34.853Z\",\"nowMs\":1184312.7891}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.1842000000178814,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-20T23:05:36.895Z\",\"nowMs\":1186354.9783}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.1624999998603016,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-20T23:05:36.900Z\",\"nowMs\":1186359.4642}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":15.016700000036508,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-20T23:05:36.900Z\",\"nowMs\":1186359.5804}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.16440000012516975,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-20T23:05:39.895Z\",\"nowMs\":1189354.9714}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.18329999991692603,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-20T23:05:39.901Z\",\"nowMs\":1189360.805}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":15.845299999928102,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-20T23:05:39.901Z\",\"nowMs\":1189360.9396}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.18980000005103648,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-20T23:05:42.996Z\",\"nowMs\":1192455.1622}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.2300999998115003,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-20T23:05:43.001Z\",\"nowMs\":1192461.0088}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":16.530100000090897,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-20T23:05:43.002Z\",\"nowMs\":1192461.1459}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.18350000004284084,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-20T23:05:46.095Z\",\"nowMs\":1195554.1437}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.19880000012926757,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-20T23:05:46.099Z\",\"nowMs\":1195558.8712}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":14.770899999886751,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-20T23:05:46.099Z\",\"nowMs\":1195558.9519}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.20169999985955656,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-20T23:05:49.125Z\",\"nowMs\":1198584.2608}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.20659999991767108,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-20T23:05:49.130Z\",\"nowMs\":1198589.3626}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":15.03899999987334,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-20T23:05:49.130Z\",\"nowMs\":1198589.4802}",
+    "[antifan-benchmark] {\"surface\":\"process\",\"name\":\"periodic\",\"extra\":{\"breakdown\":{\"Browser\":{\"processes\":1,\"workingSetKB\":235792,\"privateBytesKB\":162912},\"GPU\":{\"processes\":1,\"workingSetKB\":192340,\"privateBytesKB\":158040},\"Utility\":{\"processes\":1,\"workingSetKB\":122408,\"privateBytesKB\":14516},\"Tab\":{\"processes\":5,\"workingSetKB\":767048,\"privateBytesKB\":255140}},\"processes\":[{\"pid\":16424,\"type\":\"Browser\",\"workingSetKB\":235792,\"privateBytesKB\":162912,\"role\":\"\",\"url\":\"\"},{\"pid\":17600,\"type\":\"GPU\",\"workingSetKB\":192340,\"privateBytesKB\":158040,\"role\":\"\",\"url\":\"\"},{\"pid\":3800,\"type\":\"Utility\",\"workingSetKB\":122408,\"privateBytesKB\":14516,\"role\":\"\",\"url\":\"\"},{\"pid\":10896,\"type\":\"Tab\",\"workingSetKB\":186696,\"privateBytesKB\":86124,\"role\":\"chrome:standalone+chrome:toolbar+chrome:frame-backdrop\",\"url\":\"file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html\"},{\"pid\":10884,\"type\":\"Tab\",\"workingSetKB\":152708,\"privateBytesKB\":51916,\"role\":\"tab:a17ff4a4\",\"url\":\"https://www.google.com/\"},{\"pid\":17892,\"type\":\"Tab\",\"workingSetKB\":143716,\"privateBytesKB\":43556,\"role\":\"tab:00d1dcd8+tab:f353268a+tab:a703bb92+tab:d3487a42\",\"url\":\"http://127.0.0.1:60573/store-home\"},{\"pid\":13776,\"type\":\"Tab\",\"workingSetKB\":126604,\"privateBytesKB\":23768,\"role\":\"tab:f6bffd7c\",\"url\":\"https://example.com/\"},{\"pid\":4868,\"type\":\"Tab\",\"workingSetKB\":157324,\"privateBytesKB\":49776,\"role\":\"tab:6524b925\",\"url\":\"https://www.wikipedia.org/\"}],\"mainRssKB\":235800},\"ts\":\"2026-09-20T23:05:51.739Z\",\"nowMs\":1201198.1208}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.20369999995455146,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-20T23:05:52.151Z\",\"nowMs\":1201609.7263}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.16769999987445772,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-20T23:05:52.155Z\",\"nowMs\":1201614.5549}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":14.14919999986887,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-20T23:05:52.155Z\",\"nowMs\":1201614.6521}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.13819999992847443,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-20T23:05:55.191Z\",\"nowMs\":1204650.4383}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.14409999991767108,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-20T23:05:55.196Z\",\"nowMs\":1204655.1976}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":15.403299999888986,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-20T23:05:55.196Z\",\"nowMs\":1204655.3063}",
+    "[antifan-benchmark] {\"surface\":\"history\",\"name\":\"persist\",\"value\":15.142,\"extra\":{\"items\":8004,\"bytes\":3853499,\"superseded\":true},\"ts\":\"2026-09-20T23:05:56.515Z\",\"nowMs\":1205974.4069}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.15580000006593764,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-20T23:05:58.198Z\",\"nowMs\":1207657.6681}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.13079999992623925,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-20T23:05:58.203Z\",\"nowMs\":1207662.41}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":13.868699999991804,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-20T23:05:58.203Z\",\"nowMs\":1207662.499}"
+  ]
+}

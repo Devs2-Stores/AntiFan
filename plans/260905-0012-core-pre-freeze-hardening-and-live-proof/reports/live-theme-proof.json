@@ -4,7 +4,7 @@
   "verdict": "PASSED",
   "productCard": {
     "pngSignatureValid": true,
-    "pngBytes": 13265,
+    "pngBytes": 13253,
     "sourceCandidate": "snippets/card-product.liquid",
     "sourceConfidence": "HIGH",
     "sourceCorrelated": true,
@@ -76,7 +76,7 @@
     "ambiguousSourceVerdict": "REJECTED",
     "staleAuthorityDenied": true
   },
-  "coreTeardownCompletedAt": "2026-09-26T11:47:38.346Z",
+  "coreTeardownCompletedAt": "2026-09-27T18:09:24.054Z",
   "teardown": {
     "passed": true,
     "processBoundTempCleanup": "completed",
@@ -104,6 +104,6 @@
       "terminalExitSubscriptions": 0
     }
   },
-  "proofChecksum": "1039b6226cabdf2c0b91af9d9179038506efdf9a5373c4a1c163643d19a380d8",
-  "completedAt": "2026-09-26T11:47:38.680Z"
+  "proofChecksum": "afcb666700577a82d7dd15da7fe1b43990383479b80b28768380ba260e70ec2f",
+  "completedAt": "2026-09-27T18:09:24.391Z"
 }

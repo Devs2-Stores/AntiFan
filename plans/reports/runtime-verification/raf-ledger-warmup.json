@@ -1,0 +1,49 @@
+{
+  "port": 60574,
+  "at": "2026-09-20T22:58:42.814Z",
+  "seconds": 60,
+  "rows": [
+    {
+      "label": "frame-backdrop.html",
+      "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/frame-backdrop.html",
+      "visibility": "hidden",
+      "scheduled": 0,
+      "fired": 0,
+      "cancelled": 0,
+      "pending": 0,
+      "scheduledPerMin": 0,
+      "pendingPerMin": 0,
+      "unresolved": []
+    },
+    {
+      "label": "toolbar.html",
+      "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/toolbar.html",
+      "visibility": "visible",
+      "scheduled": 291,
+      "fired": 291,
+      "cancelled": 0,
+      "pending": 0,
+      "scheduledPerMin": 290.9,
+      "pendingPerMin": 0,
+      "unresolved": [
+        {
+          "count": 291,
+          "perMin": 290.9,
+          "stack": "window.requestAnimationFrame (<anonymous>:21:19) <- file:///E:/Work/apps/AntiFan/.compiled/src/renderer/toolbar.js:2746:34 <- Array.forEach (<anonymous>) <- renderTabs (file:///E:/Work/apps/AntiFan/.compiled/src/renderer/toolbar.js:2601:17) <- file:///E:/Work/apps/AntiFan/.compiled/src/renderer/toolbar.js:4550:17"
+        }
+      ]
+    },
+    {
+      "label": "standalone.html",
+      "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+      "visibility": "hidden",
+      "scheduled": 0,
+      "fired": 0,
+      "cancelled": 0,
+      "pending": 0,
+      "scheduledPerMin": 0,
+      "pendingPerMin": 0,
+      "unresolved": []
+    }
+  ]
+}

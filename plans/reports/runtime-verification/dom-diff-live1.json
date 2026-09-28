@@ -1,0 +1,25 @@
+{
+  "target": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/frame-backdrop.html",
+  "gapSeconds": 180,
+  "counters": {
+    "before": {
+      "documents": 5,
+      "nodes": 5400,
+      "jsEventListeners": 379
+    },
+    "after": {
+      "documents": 5,
+      "nodes": 3342,
+      "jsEventListeners": 379
+    },
+    "deltaNodesPerMinute": -686
+  },
+  "diff": {
+    "nodesBefore": 106,
+    "nodesAfter": 106,
+    "delta": 0
+  },
+  "byTag": [],
+  "added": [],
+  "removed": []
+}

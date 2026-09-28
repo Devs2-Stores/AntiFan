@@ -1,0 +1,1038 @@
+{
+  "source": "real-soak-8h-4hfix9-checkpoint.json",
+  "sourceStartedAt": "2026-09-22T01:40:41.072Z",
+  "sourceFinishedAt": "2026-09-22T02:21:22.476Z",
+  "recomputedAt": "2026-09-22T02:29:11.035Z",
+  "harnessLegsEnv": "baseline:60:300:30000,burst4x:60:1200:30000,burst-off:60:1:600000",
+  "historyRowsRecovered": 0,
+  "stdoutProvided": false,
+  "memoryAgrees": true,
+  "memoryDiffs": {},
+  "stale": {
+    "cpu": {
+      "from": "2026-09-22T02:11:31.578Z",
+      "to": "2026-09-22T02:20:31.358Z",
+      "windowMinutes": 9,
+      "samples": 10,
+      "cpuSecondsTotal": 120.048,
+      "cpuSecondsPerMinute": 13.339,
+      "perProcess": [
+        {
+          "pid": 20264,
+          "seconds": 27.625,
+          "share": 0.2301,
+          "role": "GPU",
+          "type": "GPU"
+        },
+        {
+          "pid": 25888,
+          "seconds": 26.328,
+          "share": 0.2193,
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "type": "Tab"
+        },
+        {
+          "pid": 11648,
+          "seconds": 18.594,
+          "share": 0.1549,
+          "role": "Browser",
+          "type": "Browser"
+        },
+        {
+          "pid": 1376,
+          "seconds": 18.063,
+          "share": 0.1505,
+          "role": "tab:e55466a1+tab:5ed63ce8+tab:b9440002+tab:297a4add",
+          "type": "Tab"
+        },
+        {
+          "pid": 18560,
+          "seconds": 13.172,
+          "share": 0.1097,
+          "role": "console host (pty child)",
+          "type": "other"
+        },
+        {
+          "pid": 19712,
+          "seconds": 4.578,
+          "share": 0.0381,
+          "role": "console host (pty child)",
+          "type": "other"
+        },
+        {
+          "pid": 6100,
+          "seconds": 3.953,
+          "share": 0.0329,
+          "role": "Utility",
+          "type": "Utility"
+        },
+        {
+          "pid": 29040,
+          "seconds": 2.219,
+          "share": 0.0185,
+          "role": "tab:f012e6f1",
+          "type": "Tab"
+        },
+        {
+          "pid": 21612,
+          "seconds": 2.016,
+          "share": 0.0168,
+          "role": "pty agent",
+          "type": "other"
+        },
+        {
+          "pid": 26156,
+          "seconds": 1.719,
+          "share": 0.0143,
+          "role": "pty shell",
+          "type": "other"
+        },
+        {
+          "pid": 28300,
+          "seconds": 1.406,
+          "share": 0.0117,
+          "role": "pty agent",
+          "type": "other"
+        },
+        {
+          "pid": 23440,
+          "seconds": 0.234,
+          "share": 0.0019,
+          "role": "tab:7b30be8f",
+          "type": "Tab"
+        },
+        {
+          "pid": 27476,
+          "seconds": 0.094,
+          "share": 0.0008,
+          "role": "pty shell",
+          "type": "other"
+        },
+        {
+          "pid": 22304,
+          "seconds": 0.047,
+          "share": 0.0004,
+          "role": "tab:35ec1761",
+          "type": "Tab"
+        },
+        {
+          "pid": 20348,
+          "seconds": 0,
+          "share": 0,
+          "role": "",
+          "type": ""
+        }
+      ],
+      "notAttributablePids": [],
+      "unreadablePids": [],
+      "counterResetPids": [],
+      "source": "samples.cpuByPid (41 of 41 row(s) carry counters)",
+      "bursts": 19,
+      "burstLines": 5700,
+      "msPer1000BurstLines": 21061.0526,
+      "switches": 177,
+      "msPerSwitch": 678.2373
+    },
+    "cpuByPhase": {
+      "warmup": {
+        "from": "2026-09-22T01:41:22.291Z",
+        "to": "2026-09-22T02:10:31.280Z",
+        "windowMinutes": 29.15,
+        "samples": 31,
+        "cpuSecondsTotal": 385.594,
+        "cpuSecondsPerMinute": 13.228,
+        "perProcess": [
+          {
+            "pid": 20264,
+            "seconds": 90.109,
+            "share": 0.2337,
+            "role": "GPU",
+            "type": "GPU"
+          },
+          {
+            "pid": 25888,
+            "seconds": 85.984,
+            "share": 0.223,
+            "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+            "type": "Tab"
+          },
+          {
+            "pid": 11648,
+            "seconds": 59.938,
+            "share": 0.1554,
+            "role": "Browser",
+            "type": "Browser"
+          },
+          {
+            "pid": 1376,
+            "seconds": 55.109,
+            "share": 0.1429,
+            "role": "tab:e55466a1+tab:5ed63ce8+tab:b9440002+tab:297a4add",
+            "type": "Tab"
+          },
+          {
+            "pid": 18560,
+            "seconds": 40.859,
+            "share": 0.106,
+            "role": "console host (pty child)",
+            "type": "other"
+          },
+          {
+            "pid": 19712,
+            "seconds": 13.766,
+            "share": 0.0357,
+            "role": "console host (pty child)",
+            "type": "other"
+          },
+          {
+            "pid": 6100,
+            "seconds": 13.266,
+            "share": 0.0344,
+            "role": "Utility",
+            "type": "Utility"
+          },
+          {
+            "pid": 26156,
+            "seconds": 7.969,
+            "share": 0.0207,
+            "role": "pty shell",
+            "type": "other"
+          },
+          {
+            "pid": 29040,
+            "seconds": 6.422,
+            "share": 0.0167,
+            "role": "tab:f012e6f1",
+            "type": "Tab"
+          },
+          {
+            "pid": 21612,
+            "seconds": 5.703,
+            "share": 0.0148,
+            "role": "pty agent",
+            "type": "other"
+          },
+          {
+            "pid": 28300,
+            "seconds": 4.953,
+            "share": 0.0128,
+            "role": "pty agent",
+            "type": "other"
+          },
+          {
+            "pid": 23440,
+            "seconds": 0.953,
+            "share": 0.0025,
+            "role": "tab:7b30be8f",
+            "type": "Tab"
+          },
+          {
+            "pid": 22304,
+            "seconds": 0.375,
+            "share": 0.001,
+            "role": "tab:35ec1761",
+            "type": "Tab"
+          },
+          {
+            "pid": 27476,
+            "seconds": 0.188,
+            "share": 0.0005,
+            "role": "pty shell",
+            "type": "other"
+          },
+          {
+            "pid": 20348,
+            "seconds": 0,
+            "share": 0,
+            "role": "",
+            "type": ""
+          }
+        ],
+        "notAttributablePids": [],
+        "unreadablePids": [],
+        "counterResetPids": [],
+        "source": "samples.cpuByPid (41 of 41 row(s) carry counters)"
+      },
+      "workload": {
+        "from": "2026-09-22T02:11:31.578Z",
+        "to": "2026-09-22T02:20:31.358Z",
+        "windowMinutes": 9,
+        "samples": 10,
+        "cpuSecondsTotal": 120.048,
+        "cpuSecondsPerMinute": 13.339,
+        "perProcess": [
+          {
+            "pid": 20264,
+            "seconds": 27.625,
+            "share": 0.2301,
+            "role": "GPU",
+            "type": "GPU"
+          },
+          {
+            "pid": 25888,
+            "seconds": 26.328,
+            "share": 0.2193,
+            "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+            "type": "Tab"
+          },
+          {
+            "pid": 11648,
+            "seconds": 18.594,
+            "share": 0.1549,
+            "role": "Browser",
+            "type": "Browser"
+          },
+          {
+            "pid": 1376,
+            "seconds": 18.063,
+            "share": 0.1505,
+            "role": "tab:e55466a1+tab:5ed63ce8+tab:b9440002+tab:297a4add",
+            "type": "Tab"
+          },
+          {
+            "pid": 18560,
+            "seconds": 13.172,
+            "share": 0.1097,
+            "role": "console host (pty child)",
+            "type": "other"
+          },
+          {
+            "pid": 19712,
+            "seconds": 4.578,
+            "share": 0.0381,
+            "role": "console host (pty child)",
+            "type": "other"
+          },
+          {
+            "pid": 6100,
+            "seconds": 3.953,
+            "share": 0.0329,
+            "role": "Utility",
+            "type": "Utility"
+          },
+          {
+            "pid": 29040,
+            "seconds": 2.219,
+            "share": 0.0185,
+            "role": "tab:f012e6f1",
+            "type": "Tab"
+          },
+          {
+            "pid": 21612,
+            "seconds": 2.016,
+            "share": 0.0168,
+            "role": "pty agent",
+            "type": "other"
+          },
+          {
+            "pid": 26156,
+            "seconds": 1.719,
+            "share": 0.0143,
+            "role": "pty shell",
+            "type": "other"
+          },
+          {
+            "pid": 28300,
+            "seconds": 1.406,
+            "share": 0.0117,
+            "role": "pty agent",
+            "type": "other"
+          },
+          {
+            "pid": 23440,
+            "seconds": 0.234,
+            "share": 0.0019,
+            "role": "tab:7b30be8f",
+            "type": "Tab"
+          },
+          {
+            "pid": 27476,
+            "seconds": 0.094,
+            "share": 0.0008,
+            "role": "pty shell",
+            "type": "other"
+          },
+          {
+            "pid": 22304,
+            "seconds": 0.047,
+            "share": 0.0004,
+            "role": "tab:35ec1761",
+            "type": "Tab"
+          },
+          {
+            "pid": 20348,
+            "seconds": 0,
+            "share": 0,
+            "role": "",
+            "type": ""
+          }
+        ],
+        "notAttributablePids": [],
+        "unreadablePids": [],
+        "counterResetPids": [],
+        "source": "samples.cpuByPid (41 of 41 row(s) carry counters)"
+      },
+      "recovery": null
+    },
+    "legCpu": [
+      {
+        "name": "baseline",
+        "ordinal": 1,
+        "cpu": {
+          "from": "2026-09-22T02:11:31.578Z",
+          "to": "2026-09-22T02:20:31.358Z",
+          "windowMinutes": 9,
+          "samples": 10,
+          "cpuSecondsTotal": 120.048,
+          "cpuSecondsPerMinute": 13.339,
+          "perProcess": [
+            {
+              "pid": 20264,
+              "seconds": 27.625,
+              "share": 0.2301,
+              "role": "GPU",
+              "type": "GPU"
+            },
+            {
+              "pid": 25888,
+              "seconds": 26.328,
+              "share": 0.2193,
+              "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+              "type": "Tab"
+            },
+            {
+              "pid": 11648,
+              "seconds": 18.594,
+              "share": 0.1549,
+              "role": "Browser",
+              "type": "Browser"
+            },
+            {
+              "pid": 1376,
+              "seconds": 18.063,
+              "share": 0.1505,
+              "role": "tab:e55466a1+tab:5ed63ce8+tab:b9440002+tab:297a4add",
+              "type": "Tab"
+            },
+            {
+              "pid": 18560,
+              "seconds": 13.172,
+              "share": 0.1097,
+              "role": "console host (pty child)",
+              "type": "other"
+            },
+            {
+              "pid": 19712,
+              "seconds": 4.578,
+              "share": 0.0381,
+              "role": "console host (pty child)",
+              "type": "other"
+            },
+            {
+              "pid": 6100,
+              "seconds": 3.953,
+              "share": 0.0329,
+              "role": "Utility",
+              "type": "Utility"
+            },
+            {
+              "pid": 29040,
+              "seconds": 2.219,
+              "share": 0.0185,
+              "role": "tab:f012e6f1",
+              "type": "Tab"
+            },
+            {
+              "pid": 21612,
+              "seconds": 2.016,
+              "share": 0.0168,
+              "role": "pty agent",
+              "type": "other"
+            },
+            {
+              "pid": 26156,
+              "seconds": 1.719,
+              "share": 0.0143,
+              "role": "pty shell",
+              "type": "other"
+            },
+            {
+              "pid": 28300,
+              "seconds": 1.406,
+              "share": 0.0117,
+              "role": "pty agent",
+              "type": "other"
+            },
+            {
+              "pid": 23440,
+              "seconds": 0.234,
+              "share": 0.0019,
+              "role": "tab:7b30be8f",
+              "type": "Tab"
+            },
+            {
+              "pid": 27476,
+              "seconds": 0.094,
+              "share": 0.0008,
+              "role": "pty shell",
+              "type": "other"
+            },
+            {
+              "pid": 22304,
+              "seconds": 0.047,
+              "share": 0.0004,
+              "role": "tab:35ec1761",
+              "type": "Tab"
+            },
+            {
+              "pid": 20348,
+              "seconds": 0,
+              "share": 0,
+              "role": "",
+              "type": ""
+            }
+          ],
+          "notAttributablePids": [],
+          "unreadablePids": [],
+          "counterResetPids": [],
+          "source": "samples.cpuByPid (41 of 41 row(s) carry counters)",
+          "burstLines": 5700,
+          "msPer1000BurstLines": 21061.0526,
+          "msPerSwitch": 678.2373
+        }
+      }
+    ],
+    "historyPersist": {
+      "run": {
+        "flushes": 82,
+        "totalMs": 4801.042,
+        "maxMs": 193.486,
+        "supersededFlushes": 74
+      },
+      "workload": {
+        "flushes": 18,
+        "totalMs": 1107.949,
+        "maxMs": 139.097,
+        "supersededFlushes": 16,
+        "msPerMinute": 123.105
+      },
+      "last": {
+        "at": 1790043666324,
+        "items": 8252,
+        "bytes": 3993089
+      },
+      "byLeg": [
+        {
+          "name": "baseline",
+          "ordinal": 1,
+          "flushes": 20,
+          "totalMs": 1228.328,
+          "maxMs": 139.097,
+          "supersededFlushes": 17,
+          "lastItems": 8252
+        }
+      ]
+    }
+  },
+  "recomputed": {
+    "cpu": {
+      "from": "2026-09-22T02:11:31.578Z",
+      "to": "2026-09-22T02:20:31.358Z",
+      "windowMinutes": 9,
+      "samples": 10,
+      "cpuSecondsTotal": 120.048,
+      "cpuSecondsPerMinute": 13.339,
+      "perProcess": [
+        {
+          "pid": 20264,
+          "seconds": 27.625,
+          "share": 0.2301,
+          "role": "GPU",
+          "type": "GPU"
+        },
+        {
+          "pid": 25888,
+          "seconds": 26.328,
+          "share": 0.2193,
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "type": "Tab"
+        },
+        {
+          "pid": 11648,
+          "seconds": 18.594,
+          "share": 0.1549,
+          "role": "Browser",
+          "type": "Browser"
+        },
+        {
+          "pid": 1376,
+          "seconds": 18.063,
+          "share": 0.1505,
+          "role": "tab:e55466a1+tab:5ed63ce8+tab:b9440002+tab:297a4add",
+          "type": "Tab"
+        },
+        {
+          "pid": 18560,
+          "seconds": 13.172,
+          "share": 0.1097,
+          "role": "console host (pty child)",
+          "type": "other"
+        },
+        {
+          "pid": 19712,
+          "seconds": 4.578,
+          "share": 0.0381,
+          "role": "console host (pty child)",
+          "type": "other"
+        },
+        {
+          "pid": 6100,
+          "seconds": 3.953,
+          "share": 0.0329,
+          "role": "Utility",
+          "type": "Utility"
+        },
+        {
+          "pid": 29040,
+          "seconds": 2.219,
+          "share": 0.0185,
+          "role": "tab:f012e6f1",
+          "type": "Tab"
+        },
+        {
+          "pid": 21612,
+          "seconds": 2.016,
+          "share": 0.0168,
+          "role": "pty agent",
+          "type": "other"
+        },
+        {
+          "pid": 26156,
+          "seconds": 1.719,
+          "share": 0.0143,
+          "role": "pty shell",
+          "type": "other"
+        },
+        {
+          "pid": 28300,
+          "seconds": 1.406,
+          "share": 0.0117,
+          "role": "pty agent",
+          "type": "other"
+        },
+        {
+          "pid": 23440,
+          "seconds": 0.234,
+          "share": 0.0019,
+          "role": "tab:7b30be8f",
+          "type": "Tab"
+        },
+        {
+          "pid": 27476,
+          "seconds": 0.094,
+          "share": 0.0008,
+          "role": "pty shell",
+          "type": "other"
+        },
+        {
+          "pid": 22304,
+          "seconds": 0.047,
+          "share": 0.0004,
+          "role": "tab:35ec1761",
+          "type": "Tab"
+        },
+        {
+          "pid": 20348,
+          "seconds": 0,
+          "share": 0,
+          "role": "",
+          "type": ""
+        }
+      ],
+      "notAttributablePids": [],
+      "unreadablePids": [],
+      "counterResetPids": [],
+      "source": "samples.cpuByPid (41 of 41 row(s) carry counters)",
+      "bursts": 19,
+      "burstLines": 5700,
+      "msPer1000BurstLines": 21061.0526,
+      "switches": 177,
+      "msPerSwitch": 678.2373
+    },
+    "cpuByPhase": {
+      "warmup": {
+        "from": "2026-09-22T01:41:22.291Z",
+        "to": "2026-09-22T02:10:31.280Z",
+        "windowMinutes": 29.15,
+        "samples": 31,
+        "cpuSecondsTotal": 385.594,
+        "cpuSecondsPerMinute": 13.228,
+        "perProcess": [
+          {
+            "pid": 20264,
+            "seconds": 90.109,
+            "share": 0.2337,
+            "role": "GPU",
+            "type": "GPU"
+          },
+          {
+            "pid": 25888,
+            "seconds": 85.984,
+            "share": 0.223,
+            "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+            "type": "Tab"
+          },
+          {
+            "pid": 11648,
+            "seconds": 59.938,
+            "share": 0.1554,
+            "role": "Browser",
+            "type": "Browser"
+          },
+          {
+            "pid": 1376,
+            "seconds": 55.109,
+            "share": 0.1429,
+            "role": "tab:e55466a1+tab:5ed63ce8+tab:b9440002+tab:297a4add",
+            "type": "Tab"
+          },
+          {
+            "pid": 18560,
+            "seconds": 40.859,
+            "share": 0.106,
+            "role": "console host (pty child)",
+            "type": "other"
+          },
+          {
+            "pid": 19712,
+            "seconds": 13.766,
+            "share": 0.0357,
+            "role": "console host (pty child)",
+            "type": "other"
+          },
+          {
+            "pid": 6100,
+            "seconds": 13.266,
+            "share": 0.0344,
+            "role": "Utility",
+            "type": "Utility"
+          },
+          {
+            "pid": 26156,
+            "seconds": 7.969,
+            "share": 0.0207,
+            "role": "pty shell",
+            "type": "other"
+          },
+          {
+            "pid": 29040,
+            "seconds": 6.422,
+            "share": 0.0167,
+            "role": "tab:f012e6f1",
+            "type": "Tab"
+          },
+          {
+            "pid": 21612,
+            "seconds": 5.703,
+            "share": 0.0148,
+            "role": "pty agent",
+            "type": "other"
+          },
+          {
+            "pid": 28300,
+            "seconds": 4.953,
+            "share": 0.0128,
+            "role": "pty agent",
+            "type": "other"
+          },
+          {
+            "pid": 23440,
+            "seconds": 0.953,
+            "share": 0.0025,
+            "role": "tab:7b30be8f",
+            "type": "Tab"
+          },
+          {
+            "pid": 22304,
+            "seconds": 0.375,
+            "share": 0.001,
+            "role": "tab:35ec1761",
+            "type": "Tab"
+          },
+          {
+            "pid": 27476,
+            "seconds": 0.188,
+            "share": 0.0005,
+            "role": "pty shell",
+            "type": "other"
+          },
+          {
+            "pid": 20348,
+            "seconds": 0,
+            "share": 0,
+            "role": "",
+            "type": ""
+          }
+        ],
+        "notAttributablePids": [],
+        "unreadablePids": [],
+        "counterResetPids": [],
+        "source": "samples.cpuByPid (41 of 41 row(s) carry counters)"
+      },
+      "workload": {
+        "from": "2026-09-22T02:11:31.578Z",
+        "to": "2026-09-22T02:20:31.358Z",
+        "windowMinutes": 9,
+        "samples": 10,
+        "cpuSecondsTotal": 120.048,
+        "cpuSecondsPerMinute": 13.339,
+        "perProcess": [
+          {
+            "pid": 20264,
+            "seconds": 27.625,
+            "share": 0.2301,
+            "role": "GPU",
+            "type": "GPU"
+          },
+          {
+            "pid": 25888,
+            "seconds": 26.328,
+            "share": 0.2193,
+            "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+            "type": "Tab"
+          },
+          {
+            "pid": 11648,
+            "seconds": 18.594,
+            "share": 0.1549,
+            "role": "Browser",
+            "type": "Browser"
+          },
+          {
+            "pid": 1376,
+            "seconds": 18.063,
+            "share": 0.1505,
+            "role": "tab:e55466a1+tab:5ed63ce8+tab:b9440002+tab:297a4add",
+            "type": "Tab"
+          },
+          {
+            "pid": 18560,
+            "seconds": 13.172,
+            "share": 0.1097,
+            "role": "console host (pty child)",
+            "type": "other"
+          },
+          {
+            "pid": 19712,
+            "seconds": 4.578,
+            "share": 0.0381,
+            "role": "console host (pty child)",
+            "type": "other"
+          },
+          {
+            "pid": 6100,
+            "seconds": 3.953,
+            "share": 0.0329,
+            "role": "Utility",
+            "type": "Utility"
+          },
+          {
+            "pid": 29040,
+            "seconds": 2.219,
+            "share": 0.0185,
+            "role": "tab:f012e6f1",
+            "type": "Tab"
+          },
+          {
+            "pid": 21612,
+            "seconds": 2.016,
+            "share": 0.0168,
+            "role": "pty agent",
+            "type": "other"
+          },
+          {
+            "pid": 26156,
+            "seconds": 1.719,
+            "share": 0.0143,
+            "role": "pty shell",
+            "type": "other"
+          },
+          {
+            "pid": 28300,
+            "seconds": 1.406,
+            "share": 0.0117,
+            "role": "pty agent",
+            "type": "other"
+          },
+          {
+            "pid": 23440,
+            "seconds": 0.234,
+            "share": 0.0019,
+            "role": "tab:7b30be8f",
+            "type": "Tab"
+          },
+          {
+            "pid": 27476,
+            "seconds": 0.094,
+            "share": 0.0008,
+            "role": "pty shell",
+            "type": "other"
+          },
+          {
+            "pid": 22304,
+            "seconds": 0.047,
+            "share": 0.0004,
+            "role": "tab:35ec1761",
+            "type": "Tab"
+          },
+          {
+            "pid": 20348,
+            "seconds": 0,
+            "share": 0,
+            "role": "",
+            "type": ""
+          }
+        ],
+        "notAttributablePids": [],
+        "unreadablePids": [],
+        "counterResetPids": [],
+        "source": "samples.cpuByPid (41 of 41 row(s) carry counters)"
+      },
+      "recovery": null
+    },
+    "legCpu": [
+      {
+        "name": "baseline",
+        "ordinal": 1,
+        "cpu": {
+          "from": "2026-09-22T02:11:31.578Z",
+          "to": "2026-09-22T02:20:31.358Z",
+          "windowMinutes": 9,
+          "samples": 10,
+          "cpuSecondsTotal": 120.048,
+          "cpuSecondsPerMinute": 13.339,
+          "perProcess": [
+            {
+              "pid": 20264,
+              "seconds": 27.625,
+              "share": 0.2301,
+              "role": "GPU",
+              "type": "GPU"
+            },
+            {
+              "pid": 25888,
+              "seconds": 26.328,
+              "share": 0.2193,
+              "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+              "type": "Tab"
+            },
+            {
+              "pid": 11648,
+              "seconds": 18.594,
+              "share": 0.1549,
+              "role": "Browser",
+              "type": "Browser"
+            },
+            {
+              "pid": 1376,
+              "seconds": 18.063,
+              "share": 0.1505,
+              "role": "tab:e55466a1+tab:5ed63ce8+tab:b9440002+tab:297a4add",
+              "type": "Tab"
+            },
+            {
+              "pid": 18560,
+              "seconds": 13.172,
+              "share": 0.1097,
+              "role": "console host (pty child)",
+              "type": "other"
+            },
+            {
+              "pid": 19712,
+              "seconds": 4.578,
+              "share": 0.0381,
+              "role": "console host (pty child)",
+              "type": "other"
+            },
+            {
+              "pid": 6100,
+              "seconds": 3.953,
+              "share": 0.0329,
+              "role": "Utility",
+              "type": "Utility"
+            },
+            {
+              "pid": 29040,
+              "seconds": 2.219,
+              "share": 0.0185,
+              "role": "tab:f012e6f1",
+              "type": "Tab"
+            },
+            {
+              "pid": 21612,
+              "seconds": 2.016,
+              "share": 0.0168,
+              "role": "pty agent",
+              "type": "other"
+            },
+            {
+              "pid": 26156,
+              "seconds": 1.719,
+              "share": 0.0143,
+              "role": "pty shell",
+              "type": "other"
+            },
+            {
+              "pid": 28300,
+              "seconds": 1.406,
+              "share": 0.0117,
+              "role": "pty agent",
+              "type": "other"
+            },
+            {
+              "pid": 23440,
+              "seconds": 0.234,
+              "share": 0.0019,
+              "role": "tab:7b30be8f",
+              "type": "Tab"
+            },
+            {
+              "pid": 27476,
+              "seconds": 0.094,
+              "share": 0.0008,
+              "role": "pty shell",
+              "type": "other"
+            },
+            {
+              "pid": 22304,
+              "seconds": 0.047,
+              "share": 0.0004,
+              "role": "tab:35ec1761",
+              "type": "Tab"
+            },
+            {
+              "pid": 20348,
+              "seconds": 0,
+              "share": 0,
+              "role": "",
+              "type": ""
+            }
+          ],
+          "notAttributablePids": [],
+          "unreadablePids": [],
+          "counterResetPids": [],
+          "source": "samples.cpuByPid (41 of 41 row(s) carry counters)",
+          "burstLines": 5700,
+          "msPer1000BurstLines": 21061.0526,
+          "msPerSwitch": 678.2373
+        },
+        "bursts": 19,
+        "burstLinesObserved": 5700,
+        "switchCount": 177
+      }
+    ],
+    "historyPersist": null,
+    "legBurstCounterSuspect": false,
+    "verdict": "FAILED"
+  }
+}

@@ -1,0 +1,492 @@
+{
+  "scenario": "project-windows-lifecycle",
+  "passed": 18,
+  "failed": 0,
+  "checks": [
+    {
+      "name": "window.startup-single-project-shell",
+      "ok": true
+    },
+    {
+      "name": "window.second-project-opens-with-own-authority",
+      "ok": true
+    },
+    {
+      "name": "window.duplicate-open-joins-existing-window",
+      "ok": true
+    },
+    {
+      "name": "window.unknown-project-refused",
+      "ok": true
+    },
+    {
+      "name": "window.independent-tabs-and-active-tab",
+      "ok": true
+    },
+    {
+      "name": "window.split-layout-independent",
+      "ok": true
+    },
+    {
+      "name": "window.native-popup-inherits-window-affiliation",
+      "ok": true
+    },
+    {
+      "name": "window.minimize-restore-keeps-target-authority",
+      "ok": true
+    },
+    {
+      "name": "window.same-project-sessions-cannot-cross-invoke",
+      "ok": true
+    },
+    {
+      "name": "window.background-surface-and-capture-ready",
+      "ok": true
+    },
+    {
+      "name": "window.search-lists-every-window",
+      "ok": true
+    },
+    {
+      "name": "window.search-activates-foreign-tab-without-authority-rotation",
+      "ok": true
+    },
+    {
+      "name": "window.search-stale-refusal-no-fallback",
+      "ok": true
+    },
+    {
+      "name": "window.five-projects-twenty-tabs",
+      "ok": true
+    },
+    {
+      "name": "window.agent-intent-window-stays-unpresented",
+      "ok": true
+    },
+    {
+      "name": "window.close-keeps-sibling-and-tabs",
+      "ok": true
+    },
+    {
+      "name": "window.survivor-toolbar-and-accelerator-after-sibling-close",
+      "ok": true
+    },
+    {
+      "name": "window.cleanup-closes-every-shell",
+      "ok": true
+    }
+  ],
+  "observations": {
+    "startup": {
+      "ownerKey": "project:project-00000000-0000-4000-8000-0000000000a1",
+      "windowId": 1,
+      "title": "Window Alpha [DEV]",
+      "shellCount": 1
+    },
+    "secondWindow": {
+      "ownerKey": "project:project-00000000-0000-4000-8000-0000000000b2",
+      "owner": {
+        "kind": "project",
+        "projectId": "project-00000000-0000-4000-8000-0000000000b2"
+      },
+      "title": "Window Beta [DEV]",
+      "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-e2e-WLvuwv\\window-beta",
+      "windowId": 2,
+      "visible": false,
+      "focused": false,
+      "hostOwnerKey": "project:project-00000000-0000-4000-8000-0000000000b2",
+      "hostOwnerLabel": "project-00000000-0000-4000-8000-0000000000b2",
+      "tabIds": [
+        "50773216-701b-4567-a1a3-bb686d13ceb7"
+      ],
+      "activeTabId": "50773216-701b-4567-a1a3-bb686d13ceb7",
+      "identity": {
+        "owner": {
+          "kind": "project",
+          "projectId": "project-00000000-0000-4000-8000-0000000000b2"
+        },
+        "title": "Window Beta [DEV]",
+        "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-e2e-WLvuwv\\window-beta",
+        "workspacePath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-e2e-WLvuwv\\window-beta"
+      },
+      "terminalCwd": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-e2e-WLvuwv\\window-beta",
+      "terminalCwdSource": "window-workspace"
+    },
+    "duplicateOpen": {
+      "status": "FOCUSED",
+      "projectId": "project-00000000-0000-4000-8000-0000000000b2"
+    },
+    "unknownProject": {
+      "status": "FAILED",
+      "projectId": "project-00000000-0000-4000-8000-0000000000ff",
+      "reason": "UNKNOWN_PROJECT"
+    },
+    "tabs": {
+      "alpha": [
+        "832f31dc-44f7-47b0-87c8-6aff7bc7588d",
+        "c0d9760c-7880-4d8d-a61d-3be7f93173ae",
+        "7443d0ca-017b-4b84-b22e-473bed169d9a"
+      ],
+      "beta": [
+        "50773216-701b-4567-a1a3-bb686d13ceb7",
+        "439d583c-db83-46d3-909e-5031baca1ea4",
+        "ac5b89dd-c10b-49b4-b0f3-2e29abcf62f3"
+      ]
+    },
+    "activeTabs": {
+      "alpha": "c0d9760c-7880-4d8d-a61d-3be7f93173ae",
+      "beta": "ac5b89dd-c10b-49b4-b0f3-2e29abcf62f3"
+    },
+    "splitState": {
+      "alpha": {
+        "tabId": "7443d0ca-017b-4b84-b22e-473bed169d9a",
+        "mobile": "ipad-mini",
+        "desktop": "laptop-macbook13",
+        "focused": "desktop"
+      },
+      "beta": {
+        "tabId": "ac5b89dd-c10b-49b4-b0f3-2e29abcf62f3",
+        "mobile": "mobile-small",
+        "desktop": "laptop-macbook13",
+        "focused": "mobile"
+      }
+    },
+    "splitGeometry": {
+      "alphaMobile": 382,
+      "betaMobileBefore": 310,
+      "betaMobileAfter": 382,
+      "alphaMobileAfter": 382
+    },
+    "splitOpenerPopup": {
+      "callerTabId": "7443d0ca-017b-4b84-b22e-473bed169d9a",
+      "backgroundScriptProbe": {
+        "expression": "1 + 1",
+        "settled": true,
+        "value": "2",
+        "error": null,
+        "settledAfterMs": 677,
+        "settledWithinBound": true,
+        "settledOncePresented": true
+      },
+      "presentedScriptProbe": {
+        "expression": "2 + 2",
+        "settled": true,
+        "value": "4",
+        "error": null,
+        "settledAfterMs": 46,
+        "settledWithinBound": true
+      },
+      "probePath": {
+        "createdTabIds": [],
+        "callSettledAtCheck": true,
+        "dispatchedToJs": {
+          "url": "https://example.com/native-popup-probe",
+          "disposition": "foreground-tab"
+        }
+      },
+      "productPath": {
+        "createdTabIds": [],
+        "callSettledAtCheck": true
+      }
+    },
+    "nativePopupOpen": {
+      "parentTabId": "c0d9760c-7880-4d8d-a61d-3be7f93173ae",
+      "windowOpenResult": "null"
+    },
+    "nativePopup": {
+      "childTabId": "b2800d0c-3fe3-4dd8-b8eb-3658a2ee002f",
+      "capsuleId": "capsule-pw-a1",
+      "partition": "persist:profile-default",
+      "userAgentMode": "clean",
+      "parentCapsuleId": "capsule-pw-a1",
+      "parentPartition": "persist:profile-default",
+      "parentUserAgentMode": "clean",
+      "windowCapsule": "capsule-pw-a1",
+      "activeCapsuleDuringPopup": "capsule-pw-b2",
+      "activeCapsuleBeforePopup": "capsule-pw-a1"
+    },
+    "nativePopupCapsuleRestored": {
+      "restoredTo": "capsule-pw-a1"
+    },
+    "minimizeRestore": {
+      "minimized": {
+        "alphaTarget": "7443d0ca-017b-4b84-b22e-473bed169d9a",
+        "betaTarget": "439d583c-db83-46d3-909e-5031baca1ea4",
+        "betaVisible": true
+      },
+      "restored": {
+        "alphaTarget": "7443d0ca-017b-4b84-b22e-473bed169d9a",
+        "betaTarget": "439d583c-db83-46d3-909e-5031baca1ea4",
+        "visible": true
+      },
+      "foreignTarget": {
+        "requested": "439d583c-db83-46d3-909e-5031baca1ea4",
+        "adopted": null
+      }
+    },
+    "sameProjectSessions": {
+      "tabOne": "c0d9760c-7880-4d8d-a61d-3be7f93173ae",
+      "tabTwo": "7443d0ca-017b-4b84-b22e-473bed169d9a",
+      "ownReadFailed": null,
+      "crossRefused": true,
+      "crossText": "{\"code\":\"TARGET_MISMATCH\",\"message\":\"Tab ID mismatch: expected c0d9760c-7880-4d8d-a61d-3be7f93173ae, got 7443d0ca-017b-4b84-b22e-473bed169d9a. Note: In split review mode, use the bound tabId with paneId: \\\"mobile\\\" to target the mobile pane.\",\"requestId\":\"request-7c11e916-55a5-4fa5-9e2b-4a714c49e650\",\"invocationId\":\"invocation-fa4a117d-101a-4814-977c-671ba11caa20\"}",
+      "domReadsBeforeSibling": [
+        "c0d9760c-7880-4d8d-a61d-3be7f93173ae",
+        "c0d9760c-7880-4d8d-a61d-3be7f93173ae"
+      ],
+      "siblingReadFailed": null,
+      "domReads": [
+        "c0d9760c-7880-4d8d-a61d-3be7f93173ae",
+        "c0d9760c-7880-4d8d-a61d-3be7f93173ae",
+        "7443d0ca-017b-4b84-b22e-473bed169d9a"
+      ]
+    },
+    "backgroundSurface": {
+      "mode": "tiled",
+      "workArea": {
+        "width": 1920,
+        "height": 1032
+      },
+      "surface": {
+        "vw": 1280,
+        "vh": 832,
+        "layoutWidth": 1280,
+        "layoutHeight": 832,
+        "dpr": 1,
+        "scrollX": 0,
+        "scrollY": 0,
+        "docH": 832,
+        "readyState": "complete",
+        "hidden": false
+      },
+      "activeTabId": "ac5b89dd-c10b-49b4-b0f3-2e29abcf62f3",
+      "visible": true,
+      "focused": false,
+      "presented": true,
+      "foregroundBeforeCapture": true,
+      "presentedSurface": {
+        "vw": 1280,
+        "vh": 832,
+        "layoutWidth": 1280,
+        "layoutHeight": 832,
+        "dpr": 1,
+        "scrollX": 0,
+        "scrollY": 0,
+        "docH": 832,
+        "readyState": "complete",
+        "hidden": false
+      }
+    },
+    "backgroundCapture": {
+      "backend": "cdp",
+      "rasterSize": {
+        "width": 1280,
+        "height": 832
+      },
+      "bytes": 16672,
+      "betaFocused": {
+        "before": false,
+        "after": false
+      },
+      "alphaFocusedAfterCapture": true
+    },
+    "inventory": {
+      "status": "OK",
+      "rows": [
+        {
+          "tabId": "832f31dc-44f7-47b0-87c8-6aff7bc7588d",
+          "title": "Google",
+          "url": "https://www.google.com/",
+          "ownerLabel": "Window Alpha [DEV]",
+          "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-e2e-WLvuwv\\window-alpha",
+          "live": true
+        },
+        {
+          "tabId": "c0d9760c-7880-4d8d-a61d-3be7f93173ae",
+          "title": "Example Domain",
+          "url": "https://example.com/",
+          "ownerLabel": "Window Alpha [DEV]",
+          "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-e2e-WLvuwv\\window-alpha",
+          "live": true
+        },
+        {
+          "tabId": "7443d0ca-017b-4b84-b22e-473bed169d9a",
+          "title": "Example Domain",
+          "url": "https://example.com/",
+          "ownerLabel": "Window Alpha [DEV]",
+          "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-e2e-WLvuwv\\window-alpha",
+          "live": true
+        },
+        {
+          "tabId": "50773216-701b-4567-a1a3-bb686d13ceb7",
+          "title": "Google",
+          "url": "https://www.google.com/",
+          "ownerLabel": "Window Beta [DEV]",
+          "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-e2e-WLvuwv\\window-beta",
+          "live": true
+        },
+        {
+          "tabId": "439d583c-db83-46d3-909e-5031baca1ea4",
+          "title": "Example Domain",
+          "url": "https://example.com/",
+          "ownerLabel": "Window Beta [DEV]",
+          "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-e2e-WLvuwv\\window-beta",
+          "live": true
+        },
+        {
+          "tabId": "ac5b89dd-c10b-49b4-b0f3-2e29abcf62f3",
+          "title": "Example Domain",
+          "url": "https://example.com/",
+          "ownerLabel": "Window Beta [DEV]",
+          "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-e2e-WLvuwv\\window-beta",
+          "live": true
+        }
+      ]
+    },
+    "activation": {
+      "result": {
+        "status": "ACTIVATED",
+        "tabId": "439d583c-db83-46d3-909e-5031baca1ea4"
+      },
+      "alphaActiveBefore": "7443d0ca-017b-4b84-b22e-473bed169d9a",
+      "alphaActiveAfter": "7443d0ca-017b-4b84-b22e-473bed169d9a",
+      "betaActiveAfter": "439d583c-db83-46d3-909e-5031baca1ea4",
+      "alphaAutomation": "7443d0ca-017b-4b84-b22e-473bed169d9a",
+      "betaAutomation": "ac5b89dd-c10b-49b4-b0f3-2e29abcf62f3"
+    },
+    "staleActivation": {
+      "never": {
+        "status": "UNAVAILABLE",
+        "tabId": "tab-that-never-existed",
+        "reasonCode": "TAB_CLOSED",
+        "reason": "TAB_UNAVAILABLE"
+      },
+      "closedTab": {
+        "status": "UNAVAILABLE",
+        "tabId": "ac5b89dd-c10b-49b4-b0f3-2e29abcf62f3",
+        "reasonCode": "TAB_CLOSED",
+        "reason": "TAB_UNAVAILABLE"
+      }
+    },
+    "volume": {
+      "shellCount": 5,
+      "tabCount": 20,
+      "windows": [
+        {
+          "ownerKey": "project:project-00000000-0000-4000-8000-0000000000a1",
+          "label": "Window Alpha [DEV]",
+          "path": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-e2e-WLvuwv\\window-alpha",
+          "tabIds": [
+            "832f31dc-44f7-47b0-87c8-6aff7bc7588d",
+            "c0d9760c-7880-4d8d-a61d-3be7f93173ae",
+            "7443d0ca-017b-4b84-b22e-473bed169d9a",
+            "5bf3ac2a-a855-4555-8168-d2020b52c9ef"
+          ]
+        },
+        {
+          "ownerKey": "project:project-00000000-0000-4000-8000-0000000000b2",
+          "label": "Window Beta [DEV]",
+          "path": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-e2e-WLvuwv\\window-beta",
+          "tabIds": [
+            "50773216-701b-4567-a1a3-bb686d13ceb7",
+            "439d583c-db83-46d3-909e-5031baca1ea4",
+            "8181276c-5d52-412a-a520-bc890352d2bd",
+            "a73463b7-acad-4151-bcd0-f55ec3066217"
+          ]
+        },
+        {
+          "ownerKey": "project:project-00000000-0000-4000-8000-0000000000c3",
+          "label": "Window Gamma [DEV]",
+          "path": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-e2e-WLvuwv\\window-gamma",
+          "tabIds": [
+            "729e34fc-599d-4933-a258-985d371df4cd",
+            "e5ef79cb-39a8-4cdd-a7b1-ea90bf40be0c",
+            "885e0fa7-621f-4003-af9a-1470fb069116",
+            "ddce5bcf-2dc7-40ab-93cf-a9186509dd3a"
+          ]
+        },
+        {
+          "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d4",
+          "label": "Window Delta [DEV]",
+          "path": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-e2e-WLvuwv\\window-delta",
+          "tabIds": [
+            "8dbe18b4-4a85-4518-81e7-6ae517be9eb2",
+            "8c905379-937f-428c-a70d-1db5b2090e74",
+            "a2459c32-74c1-4e3f-8d1a-ae8d9909c85a",
+            "b93f290d-9072-4ef2-b023-c3e47fd74d2b"
+          ]
+        },
+        {
+          "ownerKey": "project:project-00000000-0000-4000-8000-0000000000e5",
+          "label": "Window Epsilon [DEV]",
+          "path": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-e2e-WLvuwv\\window-epsilon",
+          "tabIds": [
+            "ef2d3ae2-eca9-4281-9929-5f72b5ddfcd8",
+            "80334ccd-1075-4c19-826b-5430b0dc74f4",
+            "9edaf4f0-164f-4cd3-87ef-e4fda259ad0b",
+            "47493249-f279-4a9c-8251-7f13b20ad053"
+          ]
+        }
+      ],
+      "inventoryRows": 20
+    },
+    "agentWindow": {
+      "entry": {
+        "ownerKey": "project:project-00000000-0000-4000-8000-0000000000f6",
+        "owner": {
+          "kind": "project",
+          "projectId": "project-00000000-0000-4000-8000-0000000000f6"
+        },
+        "title": "project-00000000-0000-4000-8000-0000000000f6 [DEV]",
+        "windowId": 6,
+        "visible": false,
+        "focused": false,
+        "hostOwnerKey": "project:project-00000000-0000-4000-8000-0000000000f6",
+        "hostOwnerLabel": "project-00000000-0000-4000-8000-0000000000f6",
+        "tabIds": [
+          "61e7f0d8-eadc-4655-80ec-6655ea3d371e"
+        ],
+        "activeTabId": "61e7f0d8-eadc-4655-80ec-6655ea3d371e",
+        "identity": {
+          "owner": {
+            "kind": "project",
+            "projectId": "project-00000000-0000-4000-8000-0000000000f6"
+          },
+          "title": "project-00000000-0000-4000-8000-0000000000f6 [DEV]"
+        },
+        "terminalCwd": "E:\\Work\\apps\\AntiFan",
+        "terminalCwdSource": "process-default"
+      },
+      "callsForAgentWindow": [],
+      "callsForOtherWindows": []
+    },
+    "close": {
+      "accepted": true,
+      "shellCount": 4,
+      "remaining": [
+        "project:project-00000000-0000-4000-8000-0000000000b2",
+        "project:project-00000000-0000-4000-8000-0000000000c3",
+        "project:project-00000000-0000-4000-8000-0000000000d4",
+        "project:project-00000000-0000-4000-8000-0000000000e5"
+      ]
+    },
+    "survivorPaths": {
+      "toolbarTab": "836f7ea3-7fb8-453e-af12-efbd78a35cf2",
+      "acceleratorTab": "92f31f3f-744f-48c5-a22e-49d66a725428",
+      "acceleratorActive": "92f31f3f-744f-48c5-a22e-49d66a725428",
+      "windowCount": 4
+    },
+    "teardown": {
+      "shellCount": 0
+    }
+  },
+  "deferred": [
+    "physical.two-monitor-surfaces",
+    "physical.typing-under-real-os-focus",
+    "physical.display-disconnect-and-dpi-change",
+    "physical.minimum-window-visual-and-keyboard",
+    "native.unload-veto-and-close-races",
+    "daemon.detached-session-survival"
+  ],
+  "at": "2026-09-27T21:55:49.863Z"
+}

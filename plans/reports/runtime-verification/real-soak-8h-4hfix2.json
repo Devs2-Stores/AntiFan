@@ -1,0 +1,358 @@
+{
+  "status": "failed",
+  "startedAt": "2026-09-22T00:44:31.396Z",
+  "finishedAt": "2026-09-22T00:45:43.311Z",
+  "config": {
+    "totalMinutes": 240,
+    "requestedTotalMinutes": 240,
+    "durationSource": "argv --minutes",
+    "bundle": {
+      "start": {
+        "dir": "E:\\Work\\apps\\AntiFan\\.compiled",
+        "files": 419,
+        "bytes": 9254238,
+        "md5": "53f0fa88afdbc3cf8e153dbc01b1e023"
+      },
+      "end": {
+        "dir": "E:\\Work\\apps\\AntiFan\\.compiled",
+        "files": 419,
+        "bytes": 9254238,
+        "md5": "53f0fa88afdbc3cf8e153dbc01b1e023"
+      },
+      "changedDuringRun": false
+    },
+    "warmupMinutes": 30,
+    "workloadMinutes": 180,
+    "recoveryMinutes": 30,
+    "switchIntervalMs": 3000,
+    "burstIntervalMs": 30000,
+    "burstLines": 300,
+    "tabRounds": 1,
+    "fixtureTickMs": 200,
+    "fixtureTitleMode": "unique",
+    "sampleIntervalSeconds": 60,
+    "reportTag": "4hfix2",
+    "appArgs": [],
+    "legs": [
+      {
+        "name": "baseline",
+        "minutes": 60,
+        "burstLines": 300,
+        "burstIntervalMs": 30000,
+        "fixtureTickMs": 200,
+        "fixtureTitleMode": "unique",
+        "switchIntervalMs": 3000
+      },
+      {
+        "name": "burst4x",
+        "minutes": 60,
+        "burstLines": 1200,
+        "burstIntervalMs": 30000,
+        "fixtureTickMs": 200,
+        "fixtureTitleMode": "unique",
+        "switchIntervalMs": 3000
+      },
+      {
+        "name": "burst-off",
+        "minutes": 60,
+        "burstLines": 1,
+        "burstIntervalMs": 600000,
+        "fixtureTickMs": 200,
+        "fixtureTitleMode": "unique",
+        "switchIntervalMs": 3000
+      }
+    ]
+  },
+  "rootPid": 5644,
+  "fixturePort": 61170,
+  "stats": {
+    "requestCount": 0,
+    "openedTabs": 0,
+    "switches": 0,
+    "bursts": 0,
+    "burstsByPhase": {
+      "warmup": 0,
+      "workload": 0,
+      "recovery": 0
+    },
+    "reloads": 0,
+    "terminalEventsCount": 0,
+    "totalSamples": 0,
+    "totalSuspendedMinutes": 0,
+    "activeWorkloadMinutes": null,
+    "activeMinutesSinceStart": 0,
+    "teardownTelemetry": {
+      "tabsToClose": 0,
+      "tabsClosedSuccess": 0,
+      "tabsClosedFailed": 0,
+      "terminalClosedSuccess": false,
+      "terminalClosedFailed": false,
+      "teardownDegraded": false
+    }
+  },
+  "metrics": {
+    "switchLatencyMs": {
+      "min": null,
+      "p50": null,
+      "p95": null,
+      "max": null
+    },
+    "switchLatencyWorkloadCount": 0,
+    "switchLatencyWarmupMs": {
+      "min": null,
+      "p50": null,
+      "p95": null,
+      "max": null
+    },
+    "switchLatencyWarmupCount": 0,
+    "switchLatencyAllPhasesMs": {
+      "min": null,
+      "p50": null,
+      "p95": null,
+      "max": null
+    },
+    "activeWorkingSetMB": {
+      "min": null,
+      "p50": null,
+      "p95": null,
+      "max": null
+    },
+    "activeRendererWorkingSetMB": {
+      "min": null,
+      "p50": null,
+      "p95": null,
+      "max": null
+    },
+    "overallActiveSlopeMBPerMin": null,
+    "overallActiveSlopeMBPerHour": null,
+    "rendererActiveSlopeMBPerMin": null,
+    "rendererActiveSlopeMBPerHour": null,
+    "rolling60MinSlopes": [],
+    "initialLoadedMB": null,
+    "postWarmupMB": null,
+    "finalActiveMB": null,
+    "recoveredMB": null,
+    "processSeriesSampleCount": 1,
+    "perProcessSlopes": [],
+    "worstProcessSlopeMBPerMin": null,
+    "worstProcessRole": "",
+    "worstProcessUrl": "",
+    "worstProcessPid": null,
+    "appPrivateMaxSlopeMBPerMin": null,
+    "appPrivateMaxRole": "",
+    "appPrivateMaxUrl": "",
+    "appPrivateMaxPid": null,
+    "processSlopeWindowStart": null,
+    "processSlopeWindowEnd": null,
+    "refusedProcessCount": 0,
+    "refusedProcessWorkingSetMB": 0,
+    "refusedProcessNames": [],
+    "slowSwitchSamples": [],
+    "switchLatencyByTab": [],
+    "cpu": null,
+    "legBurstCounterSuspect": false,
+    "cpuByPhase": {
+      "warmup": null,
+      "workload": null,
+      "recovery": null
+    },
+    "historyPersist": {
+      "run": {
+        "flushes": 2,
+        "totalMs": 188.903,
+        "maxMs": 152.728,
+        "supersededFlushes": 0
+      },
+      "workload": null,
+      "last": {
+        "at": 1790037895195,
+        "items": 8246,
+        "bytes": 3991687
+      },
+      "byLeg": []
+    },
+    "slopeSloSatisfied": null,
+    "slopeGateApplicable": false,
+    "privateSlopeSloSatisfied": null,
+    "privateSlopeMeasured": false,
+    "switchLatencyWorkloadSamples": 0,
+    "switchLatencyMaxMs": null,
+    "latencyMaxGated": false,
+    "memorySloSatisfied": true,
+    "latencySloSatisfied": false,
+    "orphanSloSatisfied": true,
+    "executionSloSatisfied": false,
+    "teardownSloSatisfied": true,
+    "verdict": "FAILED"
+  },
+  "samples": [],
+  "processSeries": [
+    {
+      "at": 1790037934389,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 5644,
+          "type": "Browser",
+          "role": "Browser",
+          "url": "",
+          "workingSetMB": 205.74,
+          "privateBytesMB": 120.65
+        },
+        {
+          "pid": 24132,
+          "type": "GPU",
+          "role": "GPU",
+          "url": "",
+          "workingSetMB": 180.27,
+          "privateBytesMB": 86.72
+        },
+        {
+          "pid": 27940,
+          "type": "Utility",
+          "role": "Utility",
+          "url": "",
+          "workingSetMB": 128.18,
+          "privateBytesMB": 14.1
+        },
+        {
+          "pid": 28684,
+          "type": "Tab",
+          "role": "chrome:standalone+chrome:toolbar+chrome:frame-backdrop",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 162.68,
+          "privateBytesMB": 56.1
+        },
+        {
+          "pid": 22620,
+          "type": "Tab",
+          "role": "tab:c3a57a05",
+          "url": "https://www.google.com/",
+          "workingSetMB": 167.84,
+          "privateBytesMB": 61.42
+        }
+      ]
+    }
+  ],
+  "historySamples": [
+    {
+      "at": 1790037881560,
+      "name": "persist",
+      "value": 152.728,
+      "extra": {
+        "items": 1,
+        "bytes": 160,
+        "superseded": false
+      }
+    },
+    {
+      "at": 1790037895195,
+      "name": "persist",
+      "value": 36.175,
+      "extra": {
+        "items": 8246,
+        "bytes": 3991687,
+        "superseded": false
+      }
+    }
+  ],
+  "switchStepSamples": [
+    {
+      "at": 1790037873650,
+      "name": "switch-steps",
+      "value": 13.624,
+      "extra": {
+        "ensureView": 4.982,
+        "attachSweep": 2.172,
+        "layoutBroadcast": 2.926,
+        "throttle": 0.333,
+        "invalidateFocus": 0.292,
+        "presentedView": 2.736
+      }
+    }
+  ],
+  "legSlopes": [],
+  "slowSwitchSamples": [],
+  "switchSamples": [],
+  "switchSamplesDropped": 0,
+  "stderrTail": [
+    "    '\\n' +",
+    "    '    $fileUserRule = New-Object System.Security.AccessControl.FileSystemAccessRule($userSid, [System.Security.AccessControl.FileSystemRights]::FullControl, [System.Security.AccessControl.AccessControlType]::Allow);\\n' +",
+    "    '    $fileSystemRule = New-Object System.Security.AccessControl.FileSystemAccessRule($systemSid, [System.Security.AccessControl.FileSystemRights]::FullControl, [System.Security.AccessControl.AccessControlType]::Allow);\\n' +",
+    "    '\\n' +",
+    "    \"    $dirUserRule = New-Object System.Security.AccessControl.FileSystemAccessRule($userSid, [System.Security.AccessControl.FileSystemRights]::FullControl, [System.Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit', [System.Security.AccessControl.PropagationFlags]::None, [System.Security.AccessControl.AccessControlType]::Allow);\\n\" +",
+    "    \"    $dirSystemRule = New-Object System.Security.AccessControl.FileSystemAccessRule($systemSid, [System.Security.AccessControl.FileSystemRights]::FullControl, [System.Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit', [System.Security.AccessControl.PropagationFlags]::None, [System.Security.AccessControl.AccessControlType]::Allow);\\n\" +",
+    "    '\\n' +",
+    "    '    $paths = @(\\n' +",
+    "    \"      'E:\\\\Work\\\\.antifan-soak-8h\\\\config\\\\.bridge.json.tmp.1790037879509-65a33965f0b1b8',\\n\" +",
+    "    \"      'C:\\\\Users\\\\Admin\\\\.gemini\\\\.antifan_bridge.json.tmp.1790037879509-c8a58b1ab5c8e8'\\n\" +",
+    "    '    );\\n' +",
+    "    '\\n' +",
+    "    '    foreach ($p in $paths) {\\n' +",
+    "    '      if ([System.IO.Directory]::Exists($p)) {\\n' +",
+    "    '        $acl = New-Object System.Security.AccessControl.DirectorySecurity;\\n' +",
+    "    '        $acl.SetAccessRuleProtection($true, $false);\\n' +",
+    "    '        $acl.AddAccessRule($dirUserRule);\\n' +",
+    "    '        $acl.AddAccessRule($dirSystemRule);\\n' +",
+    "    '        [System.IO.Directory]::SetAccessControl($p, $acl);\\n' +",
+    "    '      } elseif ([System.IO.File]::Exists($p)) {\\n' +",
+    "    '        $acl = New-Object System.Security.AccessControl.FileSecurity;\\n' +",
+    "    '        $acl.SetAccessRuleProtection($true, $false);\\n' +",
+    "    '        $acl.AddAccessRule($fileUserRule);\\n' +",
+    "    '        $acl.AddAccessRule($fileSystemRule);\\n' +",
+    "    '        [System.IO.File]::SetAccessControl($p, $acl);\\n' +",
+    "    '      } else {\\n' +",
+    "    '        throw \"Path does not exist: $p\";\\n' +",
+    "    '      }\\n' +",
+    "    '    }\\n' +",
+    "    '  ',",
+    "  stdout: '',",
+    "  stderr: 'Path does not exist: E:\\\\Work\\\\.antifan-soak-8h\\\\config\\\\.bridge.json.tmp.1790037879509-65a33965f0b1b8\\r\\n' +",
+    "    'At line:31 char:9\\r\\n' +",
+    "    '+         throw \"Path does not exist: $p\";\\r\\n' +",
+    "    '+         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\\r\\n' +",
+    "    '    + CategoryInfo          : OperationStopped: (Path does not e...-65a33965f0b1b8:String) [], RuntimeException\\r\\n' +",
+    "    '    + FullyQualifiedErrorId : Path does not exist: E:\\\\Work\\\\.antifan-soak-8h\\\\config\\\\.bridge.json.tmp.1790037879509-65a3 \\r\\n' +",
+    "    '   3965f0b1b8\\r\\n' +",
+    "    ' \\r\\n'",
+    "}"
+  ],
+  "stdoutBenchmarkTail": [
+    "[antifan-benchmark] {\"surface\":\"startup\",\"name\":\"bootstrap\",\"ts\":\"2026-09-22T00:44:33.257Z\",\"nowMs\":1176.9708}",
+    "[antifan-benchmark] {\"surface\":\"startup\",\"name\":\"ready\",\"ts\":\"2026-09-22T00:44:33.345Z\",\"nowMs\":1265.063}",
+    "[antifan-benchmark] {\"surface\":\"startup\",\"name\":\"windowCtor\",\"ts\":\"2026-09-22T00:44:33.542Z\",\"nowMs\":1462.1301}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":1.445699999999988,\"extra\":{\"width\":1344,\"height\":841,\"attachedViews\":0},\"ts\":\"2026-09-22T00:44:33.596Z\",\"nowMs\":1516.0888}",
+    "[antifan-benchmark] {\"surface\":\"startup\",\"name\":\"tabHostCtor\",\"ts\":\"2026-09-22T00:44:33.608Z\",\"nowMs\":1528.3519}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":2.590599999999995,\"extra\":{\"width\":1344,\"height\":841,\"attachedViews\":1},\"ts\":\"2026-09-22T00:44:33.646Z\",\"nowMs\":1566.4846}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.28559999999993124,\"extra\":{\"width\":1344,\"height\":841,\"attachedViews\":1},\"ts\":\"2026-09-22T00:44:33.650Z\",\"nowMs\":1569.771}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":13.464400000000069,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-22T00:44:33.650Z\",\"nowMs\":1570.1467}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switch-steps\",\"value\":13.624,\"extra\":{\"ensureView\":4.982,\"attachSweep\":2.172,\"layoutBroadcast\":2.926,\"throttle\":0.333,\"invalidateFocus\":0.292,\"presentedView\":2.736},\"ts\":\"2026-09-22T00:44:33.650Z\",\"nowMs\":1570.2914}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"created\",\"extra\":{\"activate\":true,\"url\":\"https://www.google.com\"},\"ts\":\"2026-09-22T00:44:33.650Z\",\"nowMs\":1570.5324}",
+    "[antifan-benchmark] {\"surface\":\"startup\",\"name\":\"tabsRestored\",\"ts\":\"2026-09-22T00:44:33.650Z\",\"nowMs\":1570.6095}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":4.3638999999998305,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-22T00:44:34.380Z\",\"nowMs\":2300.3745}",
+    "[antifan-benchmark] {\"surface\":\"startup\",\"name\":\"firstVisible\",\"ts\":\"2026-09-22T00:44:34.381Z\",\"nowMs\":2301.4633}",
+    "[antifan-benchmark] {\"surface\":\"process\",\"name\":\"afterFirstVisible\",\"extra\":{\"breakdown\":{\"Browser\":{\"processes\":1,\"workingSetKB\":199512,\"privateBytesKB\":78492},\"GPU\":{\"processes\":1,\"workingSetKB\":163984,\"privateBytesKB\":65064},\"Utility\":{\"processes\":1,\"workingSetKB\":128624,\"privateBytesKB\":12216},\"Tab\":{\"processes\":4,\"workingSetKB\":531136,\"privateBytesKB\":94564}},\"mainRssKB\":199544},\"ts\":\"2026-09-22T00:44:34.382Z\",\"nowMs\":2302.6144}",
+    "[antifan-benchmark] {\"surface\":\"startup\",\"name\":\"cpInitBreakdown\",\"extra\":{\"attachmentsMs\":5,\"ledgerMs\":1,\"pruneMs\":0},\"ts\":\"2026-09-22T00:44:36.358Z\",\"nowMs\":4278.472}",
+    "[antifan-benchmark] {\"surface\":\"startup\",\"name\":\"browserPortReady\",\"ts\":\"2026-09-22T00:44:36.453Z\",\"nowMs\":4373.5769}",
+    "[antifan-benchmark] {\"surface\":\"startup\",\"name\":\"browserRegistered\",\"ts\":\"2026-09-22T00:44:36.469Z\",\"nowMs\":4389.5593}",
+    "[antifan-benchmark] {\"surface\":\"startup\",\"name\":\"deviceRegistered\",\"ts\":\"2026-09-22T00:44:36.471Z\",\"nowMs\":4391.2434}",
+    "[antifan-benchmark] {\"surface\":\"startup\",\"name\":\"windowCreated\",\"ts\":\"2026-09-22T00:44:36.475Z\",\"nowMs\":4395.7533}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"ptyData\",\"value\":8,\"extra\":{\"sessionId\":\"terminal-1\",\"chunkSeq\":1,\"totalBytes\":8},\"ts\":\"2026-09-22T00:44:36.485Z\",\"nowMs\":4405.2284}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"fanoutMessages\",\"value\":0,\"extra\":{\"sessionId\":\"terminal-1\",\"windows\":0},\"ts\":\"2026-09-22T00:44:36.486Z\",\"nowMs\":4406.5927}",
+    "[antifan-benchmark] {\"surface\":\"startup\",\"name\":\"bridgeCtor\",\"ts\":\"2026-09-22T00:44:37.983Z\",\"nowMs\":5903.1102}",
+    "[antifan-benchmark] {\"surface\":\"startup\",\"name\":\"bridgeStarted\",\"ts\":\"2026-09-22T00:44:38.012Z\",\"nowMs\":5931.976}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.3338000000003376,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-22T00:44:38.444Z\",\"nowMs\":6364.3782}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.2867000000005646,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-22T00:44:38.449Z\",\"nowMs\":6369.5961}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.23500000000058208,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-22T00:44:38.451Z\",\"nowMs\":6370.8125}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"ptyData\",\"value\":210,\"extra\":{\"sessionId\":\"terminal-1\",\"chunkSeq\":2,\"totalBytes\":218},\"ts\":\"2026-09-22T00:44:39.026Z\",\"nowMs\":6946.5118}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"fanoutMessages\",\"value\":0,\"extra\":{\"sessionId\":\"terminal-1\",\"windows\":0},\"ts\":\"2026-09-22T00:44:39.026Z\",\"nowMs\":6946.6822}",
+    "[antifan-benchmark] {\"surface\":\"bridge\",\"name\":\"broadcast\",\"value\":0.03580000000056316,\"extra\":{\"event\":\"antifan:terminal:data\",\"clients\":0,\"congested\":0,\"bytes\":360},\"ts\":\"2026-09-22T00:44:39.027Z\",\"nowMs\":6947.2123}",
+    "[antifan-benchmark] {\"surface\":\"history\",\"name\":\"persist\",\"value\":152.728,\"extra\":{\"items\":1,\"bytes\":160,\"superseded\":false},\"ts\":\"2026-09-22T00:44:41.560Z\",\"nowMs\":9480.6044}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"ptyData\",\"value\":20,\"extra\":{\"sessionId\":\"terminal-1\",\"chunkSeq\":3,\"totalBytes\":238},\"ts\":\"2026-09-22T00:44:43.984Z\",\"nowMs\":11904.7358}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"fanoutMessages\",\"value\":0,\"extra\":{\"sessionId\":\"terminal-1\",\"windows\":0},\"ts\":\"2026-09-22T00:44:43.985Z\",\"nowMs\":11904.9437}",
+    "[antifan-benchmark] {\"surface\":\"bridge\",\"name\":\"broadcast\",\"value\":0.01959999999962747,\"extra\":{\"event\":\"antifan:terminal:data\",\"clients\":0,\"congested\":0,\"bytes\":131},\"ts\":\"2026-09-22T00:44:43.985Z\",\"nowMs\":11905.0231}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.3546999999998661,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-22T00:44:47.681Z\",\"nowMs\":15601.4908}",
+    "[antifan-benchmark] {\"surface\":\"history\",\"name\":\"persist\",\"value\":36.175,\"extra\":{\"items\":8246,\"bytes\":3991687,\"superseded\":false},\"ts\":\"2026-09-22T00:44:55.195Z\",\"nowMs\":23115.7324}",
+    "[antifan-benchmark] {\"surface\":\"process\",\"name\":\"periodic\",\"extra\":{\"breakdown\":{\"Browser\":{\"processes\":1,\"workingSetKB\":210680,\"privateBytesKB\":123544},\"GPU\":{\"processes\":1,\"workingSetKB\":184596,\"privateBytesKB\":88800},\"Utility\":{\"processes\":1,\"workingSetKB\":131260,\"privateBytesKB\":14440},\"Tab\":{\"processes\":2,\"workingSetKB\":338456,\"privateBytesKB\":120340}},\"processes\":[{\"pid\":5644,\"type\":\"Browser\",\"workingSetKB\":210680,\"privateBytesKB\":123544,\"role\":\"\",\"url\":\"\"},{\"pid\":24132,\"type\":\"GPU\",\"workingSetKB\":184596,\"privateBytesKB\":88800,\"role\":\"\",\"url\":\"\"},{\"pid\":27940,\"type\":\"Utility\",\"workingSetKB\":131260,\"privateBytesKB\":14440,\"role\":\"\",\"url\":\"\"},{\"pid\":28684,\"type\":\"Tab\",\"workingSetKB\":166588,\"privateBytesKB\":57448,\"role\":\"chrome:standalone+chrome:toolbar+chrome:frame-backdrop\",\"url\":\"file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html\"},{\"pid\":22620,\"type\":\"Tab\",\"workingSetKB\":171868,\"privateBytesKB\":62892,\"role\":\"tab:c3a57a05\",\"url\":\"https://www.google.com/\"}],\"mainRssKB\":210740},\"ts\":\"2026-09-22T00:45:34.389Z\",\"nowMs\":62305.8575}"
+  ]
+}

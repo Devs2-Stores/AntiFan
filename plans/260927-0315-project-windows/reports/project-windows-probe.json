@@ -1,0 +1,358 @@
+{
+  "probe": "project-windows",
+  "passed": 22,
+  "failed": 0,
+  "checks": [
+    {
+      "name": "startup opens exactly one project window, keyed by the boot identity",
+      "ok": true
+    },
+    {
+      "name": "the startup window carries its own host and Main-derived labels",
+      "ok": true
+    },
+    {
+      "name": "the window resolves its own terminal workspace root",
+      "ok": true
+    },
+    {
+      "name": "the process registered the cross-window channels once, beside the host channels",
+      "ok": true
+    },
+    {
+      "name": "the project-open channel opens a second window with its own authority",
+      "ok": true
+    },
+    {
+      "name": "re-opening an open project joins that window instead of creating another",
+      "ok": true
+    },
+    {
+      "name": "an unknown project id is refused instead of opened",
+      "ok": true
+    },
+    {
+      "name": "each window broadcasts its own Main-derived identity to its own chrome",
+      "ok": true
+    },
+    {
+      "name": "a tab opened in one window is owned by that window alone",
+      "ok": true
+    },
+    {
+      "name": "the directory resolves each tab to the host that owns it",
+      "ok": true
+    },
+    {
+      "name": "the search channel lists every window's user-visible tabs with Main labels",
+      "ok": true
+    },
+    {
+      "name": "the search channel has no side effects: two windows list the same inventory",
+      "ok": true
+    },
+    {
+      "name": "activating a search result presents that exact foreign tab without moving authority",
+      "ok": true
+    },
+    {
+      "name": "a stale result refuses with no substitute and no focus change",
+      "ok": true
+    },
+    {
+      "name": "a tab page is not a chrome surface: every cross-window channel refuses it",
+      "ok": true
+    },
+    {
+      "name": "an agent-intent window is created without a single presentation call",
+      "ok": true
+    },
+    {
+      "name": "creating an agent window does not move the user's windows",
+      "ok": true
+    },
+    {
+      "name": "the agent window is a managed window too: own host, own identity, no borrowed project",
+      "ok": true
+    },
+    {
+      "name": "an agent-created window closes like any other without taking its siblings",
+      "ok": true
+    },
+    {
+      "name": "closing a project window leaves its siblings alive: shellCount 1, B and its tabs intact",
+      "ok": true
+    },
+    {
+      "name": "the closed window's host is unregistered and its tabs stop resolving",
+      "ok": true
+    },
+    {
+      "name": "the process is still alive after a window closed",
+      "ok": true
+    }
+  ],
+  "observations": {
+    "startup": {
+      "browserShellCount": 1,
+      "entry": {
+        "ownerKey": "project:project-00000000-0000-4000-8000-0000000000a1",
+        "owner": {
+          "kind": "project",
+          "projectId": "project-00000000-0000-4000-8000-0000000000a1"
+        },
+        "title": "Probe Alpha [DEV]",
+        "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-probe-00ivHC\\alpha",
+        "windowId": 1,
+        "visible": false,
+        "focused": false,
+        "hostOwnerKey": "project:project-00000000-0000-4000-8000-0000000000a1",
+        "hostOwnerLabel": "project-00000000-0000-4000-8000-0000000000a1",
+        "tabIds": [
+          "6d6e8752-6913-47ec-a799-b308cfdaa950"
+        ],
+        "activeTabId": "6d6e8752-6913-47ec-a799-b308cfdaa950",
+        "identity": {
+          "owner": {
+            "kind": "project",
+            "projectId": "project-00000000-0000-4000-8000-0000000000a1"
+          },
+          "title": "Probe Alpha [DEV]",
+          "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-probe-00ivHC\\alpha",
+          "workspacePath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-probe-00ivHC\\alpha"
+        },
+        "terminalCwd": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-probe-00ivHC\\alpha",
+        "terminalCwdSource": "window-workspace"
+      }
+    },
+    "registeredChromeChannels": 118,
+    "secondOpenResult": {
+      "status": "OPENED",
+      "projectId": "project-00000000-0000-4000-8000-0000000000b2"
+    },
+    "secondWindow": {
+      "ownerKey": "project:project-00000000-0000-4000-8000-0000000000b2",
+      "owner": {
+        "kind": "project",
+        "projectId": "project-00000000-0000-4000-8000-0000000000b2"
+      },
+      "title": "Probe Beta [DEV]",
+      "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-probe-00ivHC\\beta",
+      "windowId": 2,
+      "visible": false,
+      "focused": false,
+      "hostOwnerKey": "project:project-00000000-0000-4000-8000-0000000000b2",
+      "hostOwnerLabel": "project-00000000-0000-4000-8000-0000000000b2",
+      "tabIds": [
+        "0e74e185-2f74-45e3-b434-eb2d8828979a"
+      ],
+      "activeTabId": "0e74e185-2f74-45e3-b434-eb2d8828979a",
+      "identity": {
+        "owner": {
+          "kind": "project",
+          "projectId": "project-00000000-0000-4000-8000-0000000000b2"
+        },
+        "title": "Probe Beta [DEV]",
+        "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-probe-00ivHC\\beta",
+        "workspacePath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-probe-00ivHC\\beta"
+      },
+      "terminalCwd": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-probe-00ivHC\\beta",
+      "terminalCwdSource": "window-workspace"
+    },
+    "unknownProject": {
+      "status": "FAILED",
+      "projectId": "project-00000000-0000-4000-8000-0000000000ff",
+      "reason": "UNKNOWN_PROJECT"
+    },
+    "identities": {
+      "identityA": {
+        "owner": {
+          "kind": "project",
+          "projectId": "project-00000000-0000-4000-8000-0000000000a1"
+        },
+        "title": "Probe Alpha [DEV]",
+        "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-probe-00ivHC\\alpha",
+        "workspacePath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-probe-00ivHC\\alpha"
+      },
+      "identityB": {
+        "owner": {
+          "kind": "project",
+          "projectId": "project-00000000-0000-4000-8000-0000000000b2"
+        },
+        "title": "Probe Beta [DEV]",
+        "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-probe-00ivHC\\beta",
+        "workspacePath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-probe-00ivHC\\beta"
+      }
+    },
+    "toolbarDom": {
+      "chipA": {
+        "visible": false,
+        "title": "",
+        "path": ""
+      },
+      "chipB": {
+        "visible": false,
+        "title": "",
+        "path": ""
+      }
+    },
+    "tabs": {
+      "tabA": "8e816e22-df2d-4593-9434-9e4642c397ca",
+      "tabB": "62cda13b-3800-4892-a8be-19c4390eb8a9",
+      "alphaTabs": [
+        "6d6e8752-6913-47ec-a799-b308cfdaa950",
+        "8e816e22-df2d-4593-9434-9e4642c397ca"
+      ],
+      "betaTabs": [
+        "0e74e185-2f74-45e3-b434-eb2d8828979a",
+        "62cda13b-3800-4892-a8be-19c4390eb8a9"
+      ]
+    },
+    "inventory": {
+      "status": "OK",
+      "rows": [
+        {
+          "tabId": "6d6e8752-6913-47ec-a799-b308cfdaa950",
+          "title": "Google",
+          "url": "https://www.google.com/",
+          "ownerLabel": "Probe Alpha [DEV]",
+          "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-probe-00ivHC\\alpha",
+          "live": true
+        },
+        {
+          "tabId": "8e816e22-df2d-4593-9434-9e4642c397ca",
+          "title": "New Tab",
+          "url": "about:blank",
+          "ownerLabel": "Probe Alpha [DEV]",
+          "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-probe-00ivHC\\alpha",
+          "live": true
+        },
+        {
+          "tabId": "0e74e185-2f74-45e3-b434-eb2d8828979a",
+          "title": "Google",
+          "url": "https://www.google.com/",
+          "ownerLabel": "Probe Beta [DEV]",
+          "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-probe-00ivHC\\beta",
+          "live": true
+        },
+        {
+          "tabId": "62cda13b-3800-4892-a8be-19c4390eb8a9",
+          "title": "New Tab",
+          "url": "about:blank",
+          "ownerLabel": "Probe Beta [DEV]",
+          "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-probe-00ivHC\\beta",
+          "live": true
+        }
+      ]
+    },
+    "inventoryParity": {
+      "fromA": "[[\"6d6e8752-6913-47ec-a799-b308cfdaa950\",\"Probe Alpha [DEV]\",true],[\"8e816e22-df2d-4593-9434-9e4642c397ca\",\"Probe Alpha [DEV]\",true],[\"0e74e185-2f74-45e3-b434-eb2d8828979a\",\"Probe Beta [DEV]\",true],[\"62cda13b-3800-4892-a8be-19c4390eb8a9\",\"Probe Beta [DEV]\",true]]",
+      "fromB": "[[\"6d6e8752-6913-47ec-a799-b308cfdaa950\",\"Probe Alpha [DEV]\",true],[\"8e816e22-df2d-4593-9434-9e4642c397ca\",\"Probe Alpha [DEV]\",true],[\"0e74e185-2f74-45e3-b434-eb2d8828979a\",\"Probe Beta [DEV]\",true],[\"62cda13b-3800-4892-a8be-19c4390eb8a9\",\"Probe Beta [DEV]\",true]]"
+    },
+    "activation": {
+      "result": {
+        "status": "ACTIVATED",
+        "tabId": "62cda13b-3800-4892-a8be-19c4390eb8a9"
+      },
+      "alphaActiveBefore": "8e816e22-df2d-4593-9434-9e4642c397ca",
+      "alphaActiveAfter": "8e816e22-df2d-4593-9434-9e4642c397ca",
+      "betaActive": "62cda13b-3800-4892-a8be-19c4390eb8a9"
+    },
+    "staleActivation": {
+      "status": "UNAVAILABLE",
+      "tabId": "tab-that-never-existed",
+      "reasonCode": "TAB_CLOSED",
+      "reason": "TAB_UNAVAILABLE"
+    },
+    "pageRefusals": [
+      {
+        "channel": "antifan:project:open",
+        "code": "UNKNOWN_CHROME_SENDER"
+      },
+      {
+        "channel": "antifan:tabs:search",
+        "code": "UNKNOWN_CHROME_SENDER"
+      },
+      {
+        "channel": "antifan:tabs:search-activate",
+        "code": "UNKNOWN_CHROME_SENDER"
+      }
+    ],
+    "agentWindow": {
+      "entry": {
+        "ownerKey": "project:project-00000000-0000-4000-8000-0000000000c3",
+        "owner": {
+          "kind": "project",
+          "projectId": "project-00000000-0000-4000-8000-0000000000c3"
+        },
+        "title": "project-00000000-0000-4000-8000-0000000000c3 [DEV]",
+        "windowId": 3,
+        "visible": false,
+        "focused": false,
+        "hostOwnerKey": "project:project-00000000-0000-4000-8000-0000000000c3",
+        "hostOwnerLabel": "project-00000000-0000-4000-8000-0000000000c3",
+        "tabIds": [
+          "c168d678-bdf3-429f-ade6-c9371558cadb"
+        ],
+        "activeTabId": "c168d678-bdf3-429f-ade6-c9371558cadb",
+        "identity": {
+          "owner": {
+            "kind": "project",
+            "projectId": "project-00000000-0000-4000-8000-0000000000c3"
+          },
+          "title": "project-00000000-0000-4000-8000-0000000000c3 [DEV]"
+        },
+        "terminalCwd": "E:\\Work\\apps\\AntiFan",
+        "terminalCwdSource": "process-default"
+      },
+      "callsForAgentWindow": [],
+      "callsForOtherWindows": []
+    },
+    "beforeClose": {
+      "count": 2,
+      "alphaHostPresent": true,
+      "betaTabsBefore": [
+        "0e74e185-2f74-45e3-b434-eb2d8828979a",
+        "62cda13b-3800-4892-a8be-19c4390eb8a9"
+      ]
+    },
+    "afterClose": {
+      "closeRequested": true,
+      "count": 1,
+      "entries": [
+        {
+          "ownerKey": "project:project-00000000-0000-4000-8000-0000000000b2",
+          "owner": {
+            "kind": "project",
+            "projectId": "project-00000000-0000-4000-8000-0000000000b2"
+          },
+          "title": "Probe Beta [DEV]",
+          "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-probe-00ivHC\\beta",
+          "windowId": 2,
+          "visible": true,
+          "focused": true,
+          "hostOwnerKey": "project:project-00000000-0000-4000-8000-0000000000b2",
+          "hostOwnerLabel": "project-00000000-0000-4000-8000-0000000000b2",
+          "tabIds": [
+            "0e74e185-2f74-45e3-b434-eb2d8828979a",
+            "62cda13b-3800-4892-a8be-19c4390eb8a9"
+          ],
+          "activeTabId": "62cda13b-3800-4892-a8be-19c4390eb8a9",
+          "identity": {
+            "owner": {
+              "kind": "project",
+              "projectId": "project-00000000-0000-4000-8000-0000000000b2"
+            },
+            "title": "Probe Beta [DEV]",
+            "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-probe-00ivHC\\beta",
+            "workspacePath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-probe-00ivHC\\beta"
+          },
+          "terminalCwd": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-probe-00ivHC\\beta",
+          "terminalCwdSource": "window-workspace"
+        }
+      ],
+      "tabAOwner": null
+    }
+  },
+  "at": "2026-09-27T09:47:14.103Z"
+}

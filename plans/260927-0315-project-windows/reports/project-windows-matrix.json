@@ -1,0 +1,4747 @@
+{
+  "probe": "project-windows-matrix",
+  "passed": 36,
+  "failed": 0,
+  "blocked": 3,
+  "coverage": {
+    "declared": 39,
+    "emitted": 39,
+    "judgedByThisProcess": [
+      "R0",
+      "R1",
+      "R1-HW",
+      "R2",
+      "R2-HW",
+      "R2b",
+      "R2c",
+      "R3a",
+      "R3b",
+      "R3c",
+      "R4a",
+      "R4a2",
+      "R4b",
+      "R4c",
+      "R4d",
+      "R4e",
+      "R4f",
+      "R4g",
+      "R5a",
+      "R5b",
+      "R6a",
+      "R6-HW",
+      "R7",
+      "R8a",
+      "R8b",
+      "R8c",
+      "R9a",
+      "R9b",
+      "R9c",
+      "R9d",
+      "R9E",
+      "R10a",
+      "R10b",
+      "R11",
+      "R12a",
+      "R12b",
+      "S1",
+      "S2",
+      "S3"
+    ],
+    "emittedWithoutBeingJudged": [],
+    "everyDeclaredRowEmittedExactlyOnce": true
+  },
+  "checks": [
+    {
+      "name": "R0 [criterion Acceptance scenario] Five project windows present at least twenty user-visible tabs; every tab resolves to the host of its own window; duplicate project names are separated by their workspace-path labels",
+      "ok": true
+    },
+    {
+      "name": "R1 [criterion 1] Two project windows are simultaneously open and visible with distinct window ids, owner keys and tab sets, and each occupies its own display when two exist; re-opening A through the user Open Project channel focuses the same window and creates no second one",
+      "ok": true
+    },
+    {
+      "name": "R1-HW [criterion 1] A and B are simultaneously legible and independently interactive on two separate physical monitors, observed by a person",
+      "ok": false,
+      "error": "BLOCKED: needs physical hardware/human: two real monitors with a person confirming that A and B are legible and independently interactive at the same time. A harness can place and measure windows, but it cannot observe a person reading two screens."
+    },
+    {
+      "name": "R2 [criterion 2] While typing in A, an agent bound to B creates and navigates a B tab: A's typed value, active tab and terminal workspace binding are unchanged, B's visible active tab does not move, and the attachment's authority revision does not rotate",
+      "ok": true
+    },
+    {
+      "name": "R2-HW [criterion 2] Real OS foreground focus and keyboard stability: a human types into A while a background window navigates, under the platform's own foreground lockout rules",
+      "ok": false,
+      "error": "BLOCKED: needs physical hardware/human: real OS foreground focus and keyboard stability. `sendInputEvent` injects into a renderer directly and cannot exercise the platform's foreground lockout rules, so \"a person keeps typing in A while a background window navigates\" is not certifiable from this harness."
+    },
+    {
+      "name": "R2b [criterion 2] Each window's terminal is its own: input typed through A's own sidebar reaches A's session and never B's, stays with A after B is observed to own the process-wide active session, an explicit write naming B's session from A is refused, and neither A's session list nor its diagnostics name B's session",
+      "ok": true
+    },
+    {
+      "name": "R2c [criterion 2] A terminal minted through a window's own sidebar with no cwd given lands in that window's verified workspace and capsule — the second A mint comes after another window has minted, and each session is read back from the window that asked for it",
+      "ok": true
+    },
+    {
+      "name": "R3a [criterion 3] The authorized target survives window activation, minimize and restore: the attachment revision is unchanged, a dispatch still navigates B's bound tab, and a foreign target stays refused",
+      "ok": true
+    },
+    {
+      "name": "R3b [criterion 3] Cross-window and same-window target mismatches are refused with a code, with no substitute navigation, no tab-list change and no focus change",
+      "ok": true
+    },
+    {
+      "name": "R3c [criterion 3] Two authenticated sessions inside one project cannot cross-invoke each other's tabs, while each still works on its own",
+      "ok": true
+    },
+    {
+      "name": "R4a [criterion 4] A user tab created through the boot window's own toolbar resolves to that window's host and is persisted under that window's owner record",
+      "ok": true
+    },
+    {
+      "name": "R4a2 [criterion 4] A user tab created through a second project window's toolbar resolves to that window's host and is persisted under that window's owner record, never another window's",
+      "ok": true
+    },
+    {
+      "name": "R4b [criterion 4] A native window.open child inherits its opener's window affiliation before it is presented",
+      "ok": true
+    },
+    {
+      "name": "R4c [criterion 4] An agent-routed child created for B is owned by B's host and is presented by B",
+      "ok": true
+    },
+    {
+      "name": "R4d [criterion 4] Tabs restored after a close/reopen return to their own window with their own affiliation; no project window claims another's page",
+      "ok": true
+    },
+    {
+      "name": "R4e [criterion 4] Missing authority refuses: the user channel refuses an unknown project id without allocating a window",
+      "ok": true
+    },
+    {
+      "name": "R4f [criterion 4] Conflicting authority fails: a session authenticated for A cannot create a routed child on B's anchor page",
+      "ok": true
+    },
+    {
+      "name": "R4g [criterion 4] Unresolved historical tabs are reachable in the Unassigned window, and no project window guesses their ownership",
+      "ok": true
+    },
+    {
+      "name": "R5a [criterion 5] Desktop/mobile split review in A changes only A's own panes: B's native tab-view rect, window bounds, active tab and split state are identical before and after",
+      "ok": true
+    },
+    {
+      "name": "R5b [criterion 5] Background screenshot capture of B works while A is the foreground window; the capture envelope reports a real viewport and raster, and B is not raised or activated by it",
+      "ok": true
+    },
+    {
+      "name": "R6a [criterion 6] Per-project normal bounds survive a close and reopen of the same project, as recorded in the owner-keyed window-state file",
+      "ok": true
+    },
+    {
+      "name": "R6-HW [criterion 6] Unplugging a physical monitor and changing the OS display scale leave every window recoverable on an available display",
+      "ok": false,
+      "error": "BLOCKED: needs physical hardware/human: unplugging a real monitor and changing the OS display scale cannot be produced by the app or the harness on the real surface (Electron exposes no API to remove a display or change its scale, and a synthetic screen event would be a fixture, not hardware). The window-state repair for these events is unit-proven, but the phase-5 criterion is not certifiable without the physical change."
+    },
+    {
+      "name": "R7 [criterion 7] Closing idle A leaves B alive with its tabs, its active tab, its bound attachment, its terminal session, shared services and its own auxiliary windows intact",
+      "ok": true
+    },
+    {
+      "name": "R8a [criterion 8] A page that vetoes its unload retains the shell with an honest partial report, names the surviving page and promises no undo",
+      "ok": true
+    },
+    {
+      "name": "R8b [criterion 8] A new tab arriving during a close attempt survives, and the shell is retained",
+      "ok": true
+    },
+    {
+      "name": "R8c [criterion 8] A close attempt reserves its own pages synchronously, and a binding attempted while a page is reserved is refused (TARGET_STALE) rather than bound and then destroyed",
+      "ok": true
+    },
+    {
+      "name": "R9a [criterion 9] An explicit Quit with real shared work queued is refused: nothing commits, no shell closes, services keep answering and admission is released",
+      "ok": true
+    },
+    {
+      "name": "R9b [criterion 9] With no active work, the last browser shell closing drives the same gate to a committed, orderly quit: ordered teardown, no force exit, no surviving native window or auxiliary surface",
+      "ok": true
+    },
+    {
+      "name": "R9c [criterion 9] Detached terminal host survival: after the shipping teardown the daemon identity is unchanged, the session created before the teardown still exists and an existing PTY still runs a command; then this harness stops the host it started",
+      "ok": true
+    },
+    {
+      "name": "R9d [criterion 9] After the committed teardown the process holds no page/renderer processes and no native windows for this instance",
+      "ok": true
+    },
+    {
+      "name": "R9E [criterion 9] After this process exits, no process the harness started (browser, renderer, utility, daemon) survives it",
+      "ok": true
+    },
+    {
+      "name": "R10a [criterion 10] A page whose agent session ends keeps its user-visible tab and typed input state; a stale target refuses instead of being routed to another project's page",
+      "ok": true
+    },
+    {
+      "name": "R10b [criterion 10] A real bridge transport client that drops mid-session (abrupt socket close) leaves the window, its tabs, the tab's resolution and the in-page form value intact, and a fresh connection still works",
+      "ok": true
+    },
+    {
+      "name": "R11 [criterion 11] Opening separate windows manufactures no cookie isolation: A's tabs keep the same partition names and the same live Session objects, and each window's partitions are recorded",
+      "ok": true
+    },
+    {
+      "name": "R12a [criterion 12] At 960x640 DIP the chrome is laid out inside the window, the native tab view starts exactly at the toolbar's bottom edge and never inside it, every control is reachable, and the search control's keyboard contract works",
+      "ok": true
+    },
+    {
+      "name": "R12b [criterion 12] At the maximized size the chrome stays laid out inside the window, the native tab view stays inside the content area, and the window sits inside its display's usable work area",
+      "ok": true
+    },
+    {
+      "name": "S1 [criterion Search supplement] Every window lists the same cross-project inventory, including foreign and Unassigned rows with Main labels, and literal case-insensitive title/URL matching filters it",
+      "ok": true
+    },
+    {
+      "name": "S2 [criterion Search supplement] Explicit activation of a foreign result focuses that tab's owner window and selects exactly that tab, without changing the invoking window's active tab or rotating attachment authority",
+      "ok": true
+    },
+    {
+      "name": "S3 [criterion Search supplement] A stale search result reports unavailable with no substitute tab and no focus change",
+      "ok": true
+    }
+  ],
+  "rows": [
+    {
+      "id": "R0",
+      "criterion": "Acceptance scenario",
+      "observable": "Five project windows present at least twenty user-visible tabs; every tab resolves to the host of its own window; duplicate project names are separated by their workspace-path labels",
+      "status": "PASS",
+      "observed": {
+        "perWindow": [
+          {
+            "projectId": "project-00000000-0000-4000-8000-0000000000d1",
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d1",
+            "windowId": 9,
+            "title": "Matrix Storefront [DEV]",
+            "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-WyWgKT\\alpha",
+            "tabCount": 4,
+            "activeTabId": "61cc3dc2-49e0-4bf4-887c-77b8f5b6ceda",
+            "allTabsResolveHere": true,
+            "tabUrls": [
+              "https://www.google.com/",
+              "http://127.0.0.1:61557/alpha",
+              "about:blank",
+              "about:blank"
+            ]
+          },
+          {
+            "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d2",
+            "windowId": 2,
+            "title": "Matrix Beta [DEV]",
+            "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-WyWgKT\\beta",
+            "tabCount": 7,
+            "activeTabId": "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb",
+            "allTabsResolveHere": true,
+            "tabUrls": [
+              "https://www.google.com/",
+              "http://127.0.0.1:61557/beta",
+              "about:blank",
+              "http://127.0.0.1:61557/child",
+              "http://127.0.0.1:61557/agent-child?owner=first",
+              "about:blank",
+              "http://127.0.0.1:61557/beta?owner=second"
+            ]
+          },
+          {
+            "projectId": "project-00000000-0000-4000-8000-0000000000d3",
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d3",
+            "windowId": 5,
+            "title": "Matrix Gamma [DEV]",
+            "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-WyWgKT\\gamma",
+            "tabCount": 4,
+            "activeTabId": "f8058671-c210-42ec-99ec-ba73e8240628",
+            "allTabsResolveHere": true,
+            "tabUrls": [
+              "http://127.0.0.1:61557/veto",
+              "about:blank",
+              "about:blank",
+              "about:blank"
+            ]
+          },
+          {
+            "projectId": "project-00000000-0000-4000-8000-0000000000d4",
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d4",
+            "windowId": 6,
+            "title": "Matrix Storefront [DEV]",
+            "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-WyWgKT\\delta",
+            "tabCount": 4,
+            "activeTabId": "38412adc-5c56-45ec-b5ac-4d1961d2509d",
+            "allTabsResolveHere": true,
+            "tabUrls": [
+              "about:blank",
+              "about:blank",
+              "about:blank",
+              "about:blank"
+            ]
+          },
+          {
+            "projectId": "project-00000000-0000-4000-8000-0000000000d5",
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d5",
+            "windowId": 10,
+            "title": "Matrix Epsilon [DEV]",
+            "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-WyWgKT\\epsilon",
+            "tabCount": 4,
+            "activeTabId": "410b08af-d597-4a94-9fc8-0f9591f77124",
+            "allTabsResolveHere": true,
+            "tabUrls": [
+              "https://www.google.com/",
+              "about:blank",
+              "about:blank",
+              "about:blank"
+            ]
+          }
+        ],
+        "totalTabs": 23,
+        "shellCount": 6,
+        "duplicateNameWindows": [
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d1",
+            "title": "Matrix Storefront [DEV]",
+            "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-WyWgKT\\alpha"
+          },
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d4",
+            "title": "Matrix Storefront [DEV]",
+            "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-WyWgKT\\delta"
+          }
+        ]
+      },
+      "ids": {
+        "windowIds": [
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d1",
+            "windowId": 9,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d1",
+            "tabIds": [
+              "143ceebc-027d-4bf1-a146-b07710c6f73e",
+              "278a692d-1367-4d8b-8c54-7b7a2efcdaa4",
+              "4065546d-4d12-444b-ba72-26af6cabf7d0",
+              "61cc3dc2-49e0-4bf4-887c-77b8f5b6ceda"
+            ],
+            "activeTabId": "61cc3dc2-49e0-4bf4-887c-77b8f5b6ceda",
+            "visible": false,
+            "focused": false
+          },
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d2",
+            "windowId": 2,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+            "tabIds": [
+              "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb",
+              "ccce5436-ae39-4179-8dfe-f77852407b86",
+              "0b0f83a2-acad-4ac6-b8c0-d35ba42e687a",
+              "281df374-d933-4266-a32f-46a81695fa72",
+              "a0748abc-be17-43cf-943a-678c1249c367",
+              "0dce60ba-6bc6-4c4d-a644-36a0ca172327",
+              "c21b730e-a286-4286-9c4a-6594c670f175"
+            ],
+            "activeTabId": "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb",
+            "visible": true,
+            "focused": true
+          },
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d3",
+            "windowId": 5,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d3",
+            "tabIds": [
+              "cd21bed7-8bba-466c-ac35-ab41948ba462",
+              "4c62a341-85bd-4aea-9875-8d9a7296ecd0",
+              "3dfcb512-4243-44a9-995f-dcffcdb31943",
+              "f8058671-c210-42ec-99ec-ba73e8240628"
+            ],
+            "activeTabId": "f8058671-c210-42ec-99ec-ba73e8240628",
+            "visible": false,
+            "focused": false
+          },
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d4",
+            "windowId": 6,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d4",
+            "tabIds": [
+              "be95dda9-3618-4a37-8867-bf8313f1e4f7",
+              "3322489a-114e-4227-9bc0-5083d9938f8d",
+              "4a72d98c-5229-4152-96bf-aefefe793aad",
+              "38412adc-5c56-45ec-b5ac-4d1961d2509d"
+            ],
+            "activeTabId": "38412adc-5c56-45ec-b5ac-4d1961d2509d",
+            "visible": false,
+            "focused": false
+          },
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d5",
+            "windowId": 10,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d5",
+            "tabIds": [
+              "f28a8e83-684f-45d7-936f-65d2565b809c",
+              "16955e72-d686-4e2c-8539-a7eb7f1940a1",
+              "9abe4976-999f-40bf-bcd0-f59f65842ee2",
+              "410b08af-d597-4a94-9fc8-0f9591f77124"
+            ],
+            "activeTabId": "410b08af-d597-4a94-9fc8-0f9591f77124",
+            "visible": false,
+            "focused": false
+          }
+        ],
+        "tabIds": [
+          "143ceebc-027d-4bf1-a146-b07710c6f73e",
+          "278a692d-1367-4d8b-8c54-7b7a2efcdaa4",
+          "4065546d-4d12-444b-ba72-26af6cabf7d0",
+          "61cc3dc2-49e0-4bf4-887c-77b8f5b6ceda",
+          "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb",
+          "ccce5436-ae39-4179-8dfe-f77852407b86",
+          "0b0f83a2-acad-4ac6-b8c0-d35ba42e687a",
+          "281df374-d933-4266-a32f-46a81695fa72",
+          "a0748abc-be17-43cf-943a-678c1249c367",
+          "0dce60ba-6bc6-4c4d-a644-36a0ca172327",
+          "c21b730e-a286-4286-9c4a-6594c670f175",
+          "cd21bed7-8bba-466c-ac35-ab41948ba462",
+          "4c62a341-85bd-4aea-9875-8d9a7296ecd0",
+          "3dfcb512-4243-44a9-995f-dcffcdb31943",
+          "f8058671-c210-42ec-99ec-ba73e8240628",
+          "be95dda9-3618-4a37-8867-bf8313f1e4f7",
+          "3322489a-114e-4227-9bc0-5083d9938f8d",
+          "4a72d98c-5229-4152-96bf-aefefe793aad",
+          "38412adc-5c56-45ec-b5ac-4d1961d2509d",
+          "f28a8e83-684f-45d7-936f-65d2565b809c",
+          "16955e72-d686-4e2c-8539-a7eb7f1940a1",
+          "9abe4976-999f-40bf-bcd0-f59f65842ee2",
+          "410b08af-d597-4a94-9fc8-0f9591f77124"
+        ],
+        "projectIds": [
+          "project-00000000-0000-4000-8000-0000000000d1",
+          "project-00000000-0000-4000-8000-0000000000d2",
+          "project-00000000-0000-4000-8000-0000000000d3",
+          "project-00000000-0000-4000-8000-0000000000d4",
+          "project-00000000-0000-4000-8000-0000000000d5"
+        ],
+        "workspaceIds": [
+          "workspace-00000000-0000-4000-8000-0000000000d1",
+          "workspace-00000000-0000-4000-8000-0000000000d2",
+          "workspace-00000000-0000-4000-8000-0000000000d3",
+          "workspace-00000000-0000-4000-8000-0000000000d4",
+          "workspace-00000000-0000-4000-8000-0000000000d5"
+        ],
+        "foregroundBefore": 2,
+        "foregroundAfter": 2
+      }
+    },
+    {
+      "id": "R1",
+      "criterion": "1",
+      "observable": "Two project windows are simultaneously open and visible with distinct window ids, owner keys and tab sets, and each occupies its own display when two exist; re-opening A through the user Open Project channel focuses the same window and creates no second one",
+      "status": "PASS",
+      "observed": {
+        "openResult": {
+          "status": "OPENED",
+          "projectId": "project-00000000-0000-4000-8000-0000000000d2"
+        },
+        "duplicate": {
+          "status": "FOCUSED",
+          "projectId": "project-00000000-0000-4000-8000-0000000000d2"
+        },
+        "placement": {
+          "displays": [
+            3582874238,
+            1621057772,
+            4240234152
+          ],
+          "placedOn": {
+            "project:project-00000000-0000-4000-8000-0000000000d1": 3582874238,
+            "project:project-00000000-0000-4000-8000-0000000000d2": 1621057772
+          },
+          "note": null
+        },
+        "shellCountBefore": 2,
+        "shellCountAfter": 2,
+        "alphaVisible": true,
+        "betaVisible": true,
+        "alphaTabs": [
+          "301df9a3-8403-4f21-bd71-548226444da0",
+          "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3"
+        ],
+        "betaTabs": [
+          "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb"
+        ]
+      },
+      "ids": {
+        "windowIds": [
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d1",
+            "windowId": 1,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d1",
+            "tabIds": [
+              "301df9a3-8403-4f21-bd71-548226444da0",
+              "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3"
+            ],
+            "activeTabId": "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3",
+            "visible": true,
+            "focused": false
+          },
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d2",
+            "windowId": 2,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+            "tabIds": [
+              "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb"
+            ],
+            "activeTabId": "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb",
+            "visible": true,
+            "focused": true
+          }
+        ],
+        "foregroundBefore": 2,
+        "foregroundAfter": 2
+      }
+    },
+    {
+      "id": "R1-HW",
+      "criterion": "1",
+      "observable": "A and B are simultaneously legible and independently interactive on two separate physical monitors, observed by a person",
+      "status": "BLOCKED",
+      "reason": "needs physical hardware/human: two real monitors with a person confirming that A and B are legible and independently interactive at the same time. A harness can place and measure windows, but it cannot observe a person reading two screens.",
+      "observed": {
+        "displays": [
+          {
+            "id": 3582874238,
+            "scaleFactor": 1,
+            "bounds": {
+              "x": 0,
+              "y": 0,
+              "width": 1920,
+              "height": 1080
+            },
+            "workArea": {
+              "x": 0,
+              "y": 0,
+              "width": 1920,
+              "height": 1032
+            }
+          },
+          {
+            "id": 1621057772,
+            "scaleFactor": 1,
+            "bounds": {
+              "x": -941,
+              "y": -1085,
+              "width": 1920,
+              "height": 1080
+            },
+            "workArea": {
+              "x": -941,
+              "y": -1085,
+              "width": 1920,
+              "height": 1032
+            }
+          },
+          {
+            "id": 4240234152,
+            "scaleFactor": 1,
+            "bounds": {
+              "x": 979,
+              "y": -1080,
+              "width": 1920,
+              "height": 1080
+            },
+            "workArea": {
+              "x": 979,
+              "y": -1080,
+              "width": 1920,
+              "height": 1032
+            }
+          }
+        ],
+        "windowPlacements": {
+          "project:project-00000000-0000-4000-8000-0000000000d1": {
+            "id": 3582874238,
+            "scaleFactor": 1,
+            "bounds": {
+              "x": 0,
+              "y": 0,
+              "width": 1920,
+              "height": 1080
+            },
+            "workArea": {
+              "x": 0,
+              "y": 0,
+              "width": 1920,
+              "height": 1032
+            }
+          },
+          "project:project-00000000-0000-4000-8000-0000000000d2": {
+            "id": 1621057772,
+            "scaleFactor": 1,
+            "bounds": {
+              "x": -941,
+              "y": -1085,
+              "width": 1920,
+              "height": 1080
+            },
+            "workArea": {
+              "x": -941,
+              "y": -1085,
+              "width": 1920,
+              "height": 1032
+            }
+          }
+        },
+        "note": "the automated placement/bounds half of this criterion is recorded in row R1; this row is the human half and stays BLOCKED until a person observes it"
+      },
+      "ids": {
+        "windowIds": [
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d1",
+            "windowId": 1,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d1",
+            "tabIds": [
+              "301df9a3-8403-4f21-bd71-548226444da0",
+              "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3"
+            ],
+            "activeTabId": "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3",
+            "visible": true,
+            "focused": false
+          },
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d2",
+            "windowId": 2,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+            "tabIds": [
+              "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb"
+            ],
+            "activeTabId": "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb",
+            "visible": true,
+            "focused": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "R2",
+      "criterion": "2",
+      "observable": "While typing in A, an agent bound to B creates and navigates a B tab: A's typed value, active tab and terminal workspace binding are unchanged, B's visible active tab does not move, and the attachment's authority revision does not rotate",
+      "status": "PASS",
+      "observed": {
+        "typedInA": "dang-go",
+        "typedStillInA": "dang-go",
+        "openedFact": {
+          "ok": true,
+          "code": null,
+          "message": null,
+          "data": {
+            "tabId": "a0748abc-be17-43cf-943a-678c1249c367"
+          },
+          "replacementAuthorityRevision": "rev_c5ce3f82fcc84cf99a1b7517bb6b9fbd"
+        },
+        "navigatedFact": {
+          "ok": true,
+          "code": null,
+          "message": null,
+          "data": {
+            "navigated": true,
+            "target": {
+              "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+              "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
+              "runtimeId": "binding-7d2e5ede-8903-46e2-9811-4f9fec77a04a",
+              "tabId": "a0748abc-be17-43cf-943a-678c1249c367",
+              "browserEpoch": 1,
+              "documentGeneration": 2,
+              "url": "http://127.0.0.1:61557/agent-child?step=2"
+            }
+          },
+          "replacementAuthorityRevision": "rev_ea8d5273c1641d5fbd74f973ac8814db"
+        },
+        "childTab": "a0748abc-be17-43cf-943a-678c1249c367",
+        "childUrl": "http://127.0.0.1:61557/agent-child?step=2",
+        "alphaUrl": "http://127.0.0.1:61557/alpha",
+        "foregroundBefore": 1,
+        "foregroundAfter": 1,
+        "foregroundNote": "the OS foreground reading is recorded evidence only in this row: whether a real user would keep typing is row R2-HW, which needs hardware/human observation",
+        "alphaActiveTabBefore": "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3",
+        "alphaActiveTabAfter": "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3",
+        "alphaTerminalBefore": {
+          "cwd": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-WyWgKT\\alpha",
+          "source": "window-workspace"
+        },
+        "alphaTerminalAfter": {
+          "cwd": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-WyWgKT\\alpha",
+          "source": "window-workspace"
+        },
+        "betaActiveTabBefore": "281df374-d933-4266-a32f-46a81695fa72",
+        "betaActiveTabAfter": "281df374-d933-4266-a32f-46a81695fa72",
+        "betaAnchorTab": "ccce5436-ae39-4179-8dfe-f77852407b86"
+      },
+      "ids": {
+        "windowIds": [
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d1",
+            "windowId": 1,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d1",
+            "tabIds": [
+              "301df9a3-8403-4f21-bd71-548226444da0",
+              "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3"
+            ],
+            "activeTabId": "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3",
+            "visible": true,
+            "focused": true
+          },
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d2",
+            "windowId": 2,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+            "tabIds": [
+              "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb",
+              "ccce5436-ae39-4179-8dfe-f77852407b86",
+              "0b0f83a2-acad-4ac6-b8c0-d35ba42e687a",
+              "281df374-d933-4266-a32f-46a81695fa72",
+              "a0748abc-be17-43cf-943a-678c1249c367"
+            ],
+            "activeTabId": "281df374-d933-4266-a32f-46a81695fa72",
+            "visible": true,
+            "focused": false
+          }
+        ],
+        "tabIds": [
+          "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3",
+          "ccce5436-ae39-4179-8dfe-f77852407b86",
+          "a0748abc-be17-43cf-943a-678c1249c367"
+        ],
+        "projectIds": [
+          "project-00000000-0000-4000-8000-0000000000d1",
+          "project-00000000-0000-4000-8000-0000000000d2"
+        ],
+        "workspaceIds": [
+          "workspace-00000000-0000-4000-8000-0000000000d1",
+          "workspace-00000000-0000-4000-8000-0000000000d2"
+        ],
+        "attachmentRevisionBefore": {
+          "attachmentId": "attachment-2540cd97-4690-42d6-af73-41c36ac1c579",
+          "present": true,
+          "authorityRevision": "rev_51f0fe07ca5b35dc8465f49267af8ba3",
+          "revisionNumber": 1,
+          "tabId": "ccce5436-ae39-4179-8dfe-f77852407b86",
+          "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+          "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
+          "state": "active"
+        },
+        "attachmentRevisionAfter": {
+          "attachmentId": "attachment-2540cd97-4690-42d6-af73-41c36ac1c579",
+          "present": true,
+          "authorityRevision": "rev_ea8d5273c1641d5fbd74f973ac8814db",
+          "revisionNumber": 3,
+          "tabId": "a0748abc-be17-43cf-943a-678c1249c367",
+          "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+          "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
+          "state": "active"
+        },
+        "foregroundBefore": 1,
+        "foregroundAfter": 1
+      }
+    },
+    {
+      "id": "R2-HW",
+      "criterion": "2",
+      "observable": "Real OS foreground focus and keyboard stability: a human types into A while a background window navigates, under the platform's own foreground lockout rules",
+      "status": "BLOCKED",
+      "reason": "needs physical hardware/human: real OS foreground focus and keyboard stability. `sendInputEvent` injects into a renderer directly and cannot exercise the platform's foreground lockout rules, so \"a person keeps typing in A while a background window navigates\" is not certifiable from this harness.",
+      "observed": {
+        "foregroundDuringAutomatedRow": {
+          "before": 1,
+          "after": 1
+        },
+        "note": "the automated half — A's typed value, active tab, terminal binding, B's active tab and the attachment revision all unchanged by B's agent work — is recorded in row R2"
+      },
+      "ids": {
+        "windowIds": [
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d1",
+            "windowId": 1,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d1",
+            "tabIds": [
+              "301df9a3-8403-4f21-bd71-548226444da0",
+              "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3"
+            ],
+            "activeTabId": "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3",
+            "visible": true,
+            "focused": true
+          },
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d2",
+            "windowId": 2,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+            "tabIds": [
+              "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb",
+              "ccce5436-ae39-4179-8dfe-f77852407b86",
+              "0b0f83a2-acad-4ac6-b8c0-d35ba42e687a",
+              "281df374-d933-4266-a32f-46a81695fa72",
+              "a0748abc-be17-43cf-943a-678c1249c367"
+            ],
+            "activeTabId": "281df374-d933-4266-a32f-46a81695fa72",
+            "visible": true,
+            "focused": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "R2b",
+      "criterion": "2",
+      "observable": "Each window's terminal is its own: input typed through A's own sidebar reaches A's session and never B's, stays with A after B is observed to own the process-wide active session, an explicit write naming B's session from A is refused, and neither A's session list nor its diagnostics name B's session",
+      "status": "PASS",
+      "observed": {
+        "sessionA": "terminal-2",
+        "sessionB": "terminal-3",
+        "sessionCapsuleA": "capsule-matrix-alpha",
+        "sessionCapsuleB": "capsule-matrix-beta",
+        "selectedA": true,
+        "selectedB": true,
+        "activeSessionAfterBSwitch": "terminal-3",
+        "crossSent": {
+          "sent": true
+        },
+        "ownMarkerReachedA": true,
+        "ownMarkerReadErrorA": null,
+        "ownMarkerReachedB": false,
+        "ownMarkerReadErrorB": null,
+        "afterSwitchMarkerReachedA": true,
+        "afterSwitchMarkerReadErrorA": null,
+        "afterSwitchMarkerReachedB": false,
+        "afterSwitchMarkerReadErrorB": null,
+        "crossMarkerReachedB": false,
+        "crossMarkerReadErrorB": null,
+        "listedFromA": [
+          "terminal-2"
+        ],
+        "diagnosedFromA": [
+          "terminal-2"
+        ],
+        "diagnosticsKeysFromA": [
+          "timestamp",
+          "sessionCount",
+          "activeSessionId",
+          "sessions",
+          "subscribers",
+          "fanoutMessages"
+        ],
+        "diagnosticsSessionCountFromA": 1,
+        "diagnosticsActiveSessionIdFromA": ""
+      },
+      "ids": {
+        "windowIds": [
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d1",
+            "windowId": 1,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d1",
+            "tabIds": [
+              "301df9a3-8403-4f21-bd71-548226444da0",
+              "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3"
+            ],
+            "activeTabId": "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3",
+            "visible": true,
+            "focused": true
+          },
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d2",
+            "windowId": 2,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+            "tabIds": [
+              "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb",
+              "ccce5436-ae39-4179-8dfe-f77852407b86",
+              "0b0f83a2-acad-4ac6-b8c0-d35ba42e687a",
+              "281df374-d933-4266-a32f-46a81695fa72",
+              "a0748abc-be17-43cf-943a-678c1249c367"
+            ],
+            "activeTabId": "281df374-d933-4266-a32f-46a81695fa72",
+            "visible": true,
+            "focused": false
+          }
+        ],
+        "projectIds": [
+          "project-00000000-0000-4000-8000-0000000000d1",
+          "project-00000000-0000-4000-8000-0000000000d2"
+        ],
+        "workspaceIds": [
+          "workspace-00000000-0000-4000-8000-0000000000d1",
+          "workspace-00000000-0000-4000-8000-0000000000d2"
+        ],
+        "terminalSessionIds": [
+          "terminal-2",
+          "terminal-3"
+        ]
+      }
+    },
+    {
+      "id": "R2c",
+      "criterion": "2",
+      "observable": "A terminal minted through a window's own sidebar with no cwd given lands in that window's verified workspace and capsule — the second A mint comes after another window has minted, and each session is read back from the window that asked for it",
+      "status": "PASS",
+      "observed": {
+        "mintedA": "terminal-3",
+        "mintedA2": "terminal-4",
+        "mintedB": "terminal-2",
+        "cwdA": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-WyWgKT\\alpha",
+        "cwdA2": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-WyWgKT\\alpha",
+        "cwdB": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-WyWgKT\\beta",
+        "proxyCachedCwdBeforeA": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-WyWgKT\\beta",
+        "proxyCachedCwdWasAnotherWindows": true,
+        "workspacePathA": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-WyWgKT\\alpha",
+        "workspacePathB": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-WyWgKT\\beta",
+        "workspaceFormsA": [
+          "c:\\users\\admin\\appdata\\local\\temp\\antifan-pw-matrix-wywgkt\\alpha"
+        ],
+        "workspaceFormsB": [
+          "c:\\users\\admin\\appdata\\local\\temp\\antifan-pw-matrix-wywgkt\\beta"
+        ],
+        "capsuleA": "capsule-matrix-alpha",
+        "capsuleA2": "capsule-matrix-alpha",
+        "capsuleB": "capsule-matrix-beta",
+        "expectedCapsuleA": "capsule-matrix-alpha",
+        "expectedCapsuleB": "capsule-matrix-beta",
+        "listedFromA": [
+          "terminal-3",
+          "terminal-4"
+        ]
+      },
+      "ids": {
+        "windowIds": [
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d1",
+            "windowId": 1,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d1",
+            "tabIds": [
+              "301df9a3-8403-4f21-bd71-548226444da0",
+              "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3"
+            ],
+            "activeTabId": "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3",
+            "visible": true,
+            "focused": true
+          },
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d2",
+            "windowId": 2,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+            "tabIds": [
+              "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb",
+              "ccce5436-ae39-4179-8dfe-f77852407b86",
+              "0b0f83a2-acad-4ac6-b8c0-d35ba42e687a",
+              "281df374-d933-4266-a32f-46a81695fa72",
+              "a0748abc-be17-43cf-943a-678c1249c367"
+            ],
+            "activeTabId": "281df374-d933-4266-a32f-46a81695fa72",
+            "visible": true,
+            "focused": false
+          }
+        ],
+        "projectIds": [
+          "project-00000000-0000-4000-8000-0000000000d1",
+          "project-00000000-0000-4000-8000-0000000000d2"
+        ],
+        "workspaceIds": [
+          "workspace-00000000-0000-4000-8000-0000000000d1",
+          "workspace-00000000-0000-4000-8000-0000000000d2"
+        ],
+        "terminalSessionIds": [
+          "terminal-3",
+          "terminal-4",
+          "terminal-2"
+        ]
+      }
+    },
+    {
+      "id": "R3a",
+      "criterion": "3",
+      "observable": "The authorized target survives window activation, minimize and restore: the attachment revision is unchanged, a dispatch still navigates B's bound tab, and a foreign target stays refused",
+      "status": "PASS",
+      "observed": {
+        "steps": [
+          {
+            "step": "activate-A",
+            "foreground": "project:project-00000000-0000-4000-8000-0000000000d1"
+          },
+          {
+            "step": "minimized-dispatch",
+            "result": {
+              "ok": true,
+              "code": null,
+              "message": null,
+              "data": {
+                "navigated": true,
+                "target": {
+                  "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+                  "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
+                  "runtimeId": "binding-7d2e5ede-8903-46e2-9811-4f9fec77a04a",
+                  "tabId": "a0748abc-be17-43cf-943a-678c1249c367",
+                  "browserEpoch": 1,
+                  "documentGeneration": 3,
+                  "url": "http://127.0.0.1:61557/agent-child?step=3"
+                }
+              },
+              "replacementAuthorityRevision": "rev_49b4dfcfa942e9a1d5201d97487873ef"
+            }
+          },
+          {
+            "step": "restored-dispatch",
+            "result": {
+              "ok": true,
+              "code": null,
+              "message": null,
+              "data": {
+                "navigated": true,
+                "target": {
+                  "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+                  "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
+                  "runtimeId": "binding-7d2e5ede-8903-46e2-9811-4f9fec77a04a",
+                  "tabId": "a0748abc-be17-43cf-943a-678c1249c367",
+                  "browserEpoch": 1,
+                  "documentGeneration": 4,
+                  "url": "http://127.0.0.1:61557/agent-child?step=4"
+                }
+              },
+              "replacementAuthorityRevision": "rev_97960ce731bb7523bfc884a0975177cd"
+            }
+          },
+          {
+            "step": "restored-foreign-refusal",
+            "result": {
+              "ok": false,
+              "code": "TARGET_MISMATCH",
+              "message": "Tab ID mismatch: expected a0748abc-be17-43cf-943a-678c1249c367, got 2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3. Note: In split review mode, use the bound tabId with paneId: \"mobile\" to target the mobile pane.",
+              "data": null,
+              "replacementAuthorityRevision": null
+            }
+          }
+        ],
+        "childUrl": "http://127.0.0.1:61557/agent-child?step=4",
+        "alphaUrlBefore": "http://127.0.0.1:61557/alpha",
+        "alphaUrlAfter": "http://127.0.0.1:61557/alpha",
+        "revisionBefore": {
+          "attachmentId": "attachment-2540cd97-4690-42d6-af73-41c36ac1c579",
+          "present": true,
+          "authorityRevision": "rev_ea8d5273c1641d5fbd74f973ac8814db",
+          "revisionNumber": 3,
+          "tabId": "a0748abc-be17-43cf-943a-678c1249c367",
+          "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+          "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
+          "state": "active"
+        },
+        "revisionAfterWindowOps": {
+          "attachmentId": "attachment-2540cd97-4690-42d6-af73-41c36ac1c579",
+          "present": true,
+          "authorityRevision": "rev_ea8d5273c1641d5fbd74f973ac8814db",
+          "revisionNumber": 3,
+          "tabId": "a0748abc-be17-43cf-943a-678c1249c367",
+          "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+          "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
+          "state": "active"
+        },
+        "revisionAfterMinimizedDispatch": {
+          "attachmentId": "attachment-2540cd97-4690-42d6-af73-41c36ac1c579",
+          "present": true,
+          "authorityRevision": "rev_49b4dfcfa942e9a1d5201d97487873ef",
+          "revisionNumber": 4,
+          "tabId": "a0748abc-be17-43cf-943a-678c1249c367",
+          "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+          "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
+          "state": "active"
+        },
+        "revisionAfterRestore": {
+          "attachmentId": "attachment-2540cd97-4690-42d6-af73-41c36ac1c579",
+          "present": true,
+          "authorityRevision": "rev_49b4dfcfa942e9a1d5201d97487873ef",
+          "revisionNumber": 4,
+          "tabId": "a0748abc-be17-43cf-943a-678c1249c367",
+          "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+          "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
+          "state": "active"
+        },
+        "revisionAfter": {
+          "attachmentId": "attachment-2540cd97-4690-42d6-af73-41c36ac1c579",
+          "present": true,
+          "authorityRevision": "rev_97960ce731bb7523bfc884a0975177cd",
+          "revisionNumber": 5,
+          "tabId": "a0748abc-be17-43cf-943a-678c1249c367",
+          "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+          "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
+          "state": "active"
+        },
+        "betaActiveTabBefore": "281df374-d933-4266-a32f-46a81695fa72",
+        "betaActiveTab": "281df374-d933-4266-a32f-46a81695fa72",
+        "betaAnchorTab": "ccce5436-ae39-4179-8dfe-f77852407b86"
+      },
+      "ids": {
+        "windowIds": [
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d1",
+            "windowId": 1,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d1",
+            "tabIds": [
+              "301df9a3-8403-4f21-bd71-548226444da0",
+              "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3"
+            ],
+            "activeTabId": "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3",
+            "visible": true,
+            "focused": false
+          },
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d2",
+            "windowId": 2,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+            "tabIds": [
+              "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb",
+              "ccce5436-ae39-4179-8dfe-f77852407b86",
+              "0b0f83a2-acad-4ac6-b8c0-d35ba42e687a",
+              "281df374-d933-4266-a32f-46a81695fa72",
+              "a0748abc-be17-43cf-943a-678c1249c367"
+            ],
+            "activeTabId": "281df374-d933-4266-a32f-46a81695fa72",
+            "visible": true,
+            "focused": true
+          }
+        ],
+        "tabIds": [
+          "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3",
+          "ccce5436-ae39-4179-8dfe-f77852407b86",
+          "a0748abc-be17-43cf-943a-678c1249c367"
+        ],
+        "attachmentRevisionBefore": {
+          "attachmentId": "attachment-2540cd97-4690-42d6-af73-41c36ac1c579",
+          "present": true,
+          "authorityRevision": "rev_ea8d5273c1641d5fbd74f973ac8814db",
+          "revisionNumber": 3,
+          "tabId": "a0748abc-be17-43cf-943a-678c1249c367",
+          "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+          "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
+          "state": "active"
+        },
+        "attachmentRevisionAfter": {
+          "attachmentId": "attachment-2540cd97-4690-42d6-af73-41c36ac1c579",
+          "present": true,
+          "authorityRevision": "rev_97960ce731bb7523bfc884a0975177cd",
+          "revisionNumber": 5,
+          "tabId": "a0748abc-be17-43cf-943a-678c1249c367",
+          "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+          "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
+          "state": "active"
+        },
+        "foregroundBefore": 2,
+        "foregroundAfter": 2
+      }
+    },
+    {
+      "id": "R3b",
+      "criterion": "3",
+      "observable": "Cross-window and same-window target mismatches are refused with a code, with no substitute navigation, no tab-list change and no focus change",
+      "status": "PASS",
+      "observed": {
+        "crossWindowRefusal": {
+          "ok": false,
+          "code": "TARGET_MISMATCH",
+          "message": "Tab ID mismatch: expected a0748abc-be17-43cf-943a-678c1249c367, got 2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3. Note: In split review mode, use the bound tabId with paneId: \"mobile\" to target the mobile pane.",
+          "data": null,
+          "replacementAuthorityRevision": null
+        },
+        "sameWindowOtherSessionRefusal": {
+          "ok": false,
+          "code": "TARGET_MISMATCH",
+          "message": "Tab ID mismatch: expected a0748abc-be17-43cf-943a-678c1249c367, got 0dce60ba-6bc6-4c4d-a644-36a0ca172327. Note: In split review mode, use the bound tabId with paneId: \"mobile\" to target the mobile pane.",
+          "data": null,
+          "replacementAuthorityRevision": null
+        },
+        "alphaUrlBefore": "http://127.0.0.1:61557/alpha",
+        "alphaUrlAfter": "http://127.0.0.1:61557/alpha",
+        "alphaActiveBefore": "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3",
+        "alphaActiveAfter": "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3",
+        "betaTabsBefore": [
+          "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb",
+          "ccce5436-ae39-4179-8dfe-f77852407b86",
+          "0b0f83a2-acad-4ac6-b8c0-d35ba42e687a",
+          "281df374-d933-4266-a32f-46a81695fa72",
+          "a0748abc-be17-43cf-943a-678c1249c367",
+          "0dce60ba-6bc6-4c4d-a644-36a0ca172327"
+        ],
+        "betaTabsAfter": [
+          "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb",
+          "ccce5436-ae39-4179-8dfe-f77852407b86",
+          "0b0f83a2-acad-4ac6-b8c0-d35ba42e687a",
+          "281df374-d933-4266-a32f-46a81695fa72",
+          "a0748abc-be17-43cf-943a-678c1249c367",
+          "0dce60ba-6bc6-4c4d-a644-36a0ca172327"
+        ]
+      },
+      "ids": {
+        "windowIds": [
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d1",
+            "windowId": 1,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d1",
+            "tabIds": [
+              "301df9a3-8403-4f21-bd71-548226444da0",
+              "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3"
+            ],
+            "activeTabId": "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3",
+            "visible": true,
+            "focused": false
+          },
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d2",
+            "windowId": 2,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+            "tabIds": [
+              "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb",
+              "ccce5436-ae39-4179-8dfe-f77852407b86",
+              "0b0f83a2-acad-4ac6-b8c0-d35ba42e687a",
+              "281df374-d933-4266-a32f-46a81695fa72",
+              "a0748abc-be17-43cf-943a-678c1249c367",
+              "0dce60ba-6bc6-4c4d-a644-36a0ca172327"
+            ],
+            "activeTabId": "281df374-d933-4266-a32f-46a81695fa72",
+            "visible": true,
+            "focused": true
+          }
+        ],
+        "tabIds": [
+          "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3",
+          "ccce5436-ae39-4179-8dfe-f77852407b86",
+          "0dce60ba-6bc6-4c4d-a644-36a0ca172327",
+          "a0748abc-be17-43cf-943a-678c1249c367"
+        ],
+        "attachmentRevisionBefore": {
+          "attachmentId": "attachment-2540cd97-4690-42d6-af73-41c36ac1c579",
+          "present": true,
+          "authorityRevision": "rev_97960ce731bb7523bfc884a0975177cd",
+          "revisionNumber": 5,
+          "tabId": "a0748abc-be17-43cf-943a-678c1249c367",
+          "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+          "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
+          "state": "active"
+        },
+        "attachmentRevisionAfter": {
+          "attachmentId": "attachment-2540cd97-4690-42d6-af73-41c36ac1c579",
+          "present": true,
+          "authorityRevision": "rev_97960ce731bb7523bfc884a0975177cd",
+          "revisionNumber": 5,
+          "tabId": "a0748abc-be17-43cf-943a-678c1249c367",
+          "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+          "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
+          "state": "active"
+        },
+        "foregroundBefore": 2,
+        "foregroundAfter": 2
+      }
+    },
+    {
+      "id": "R3c",
+      "criterion": "3",
+      "observable": "Two authenticated sessions inside one project cannot cross-invoke each other's tabs, while each still works on its own",
+      "status": "PASS",
+      "observed": {
+        "sharedProject": "project-00000000-0000-4000-8000-0000000000d2",
+        "sessions": [
+          {
+            "attachmentId": "attachment-2540cd97-4690-42d6-af73-41c36ac1c579",
+            "tabId": "a0748abc-be17-43cf-943a-678c1249c367",
+            "own": {
+              "ok": true,
+              "code": null,
+              "message": null,
+              "data": {
+                "navigated": true,
+                "target": {
+                  "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+                  "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
+                  "runtimeId": "binding-7d2e5ede-8903-46e2-9811-4f9fec77a04a",
+                  "tabId": "a0748abc-be17-43cf-943a-678c1249c367",
+                  "browserEpoch": 1,
+                  "documentGeneration": 5,
+                  "url": "http://127.0.0.1:61557/agent-child?owner=first"
+                }
+              },
+              "replacementAuthorityRevision": "rev_dd65df5a54cc4e1ac8630aaefbc352be"
+            },
+            "onOtherSessionTab": {
+              "ok": false,
+              "code": "TARGET_MISMATCH",
+              "message": "Tab ID mismatch: expected a0748abc-be17-43cf-943a-678c1249c367, got c21b730e-a286-4286-9c4a-6594c670f175. Note: In split review mode, use the bound tabId with paneId: \"mobile\" to target the mobile pane.",
+              "data": null,
+              "replacementAuthorityRevision": null
+            }
+          },
+          {
+            "attachmentId": "attachment-775dc49d-a506-47a1-8063-908b320903cf",
+            "tabId": "c21b730e-a286-4286-9c4a-6594c670f175",
+            "own": {
+              "ok": true,
+              "code": null,
+              "message": null,
+              "data": {
+                "navigated": true,
+                "target": {
+                  "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+                  "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
+                  "runtimeId": "binding-7d2e5ede-8903-46e2-9811-4f9fec77a04a",
+                  "tabId": "c21b730e-a286-4286-9c4a-6594c670f175",
+                  "browserEpoch": 1,
+                  "documentGeneration": 2,
+                  "url": "http://127.0.0.1:61557/beta?owner=second"
+                }
+              },
+              "replacementAuthorityRevision": "rev_173e2e50adc412187f77f490ce42c08c"
+            },
+            "onOtherSessionTab": {
+              "ok": false,
+              "code": "TARGET_MISMATCH",
+              "message": "Tab ID mismatch: expected c21b730e-a286-4286-9c4a-6594c670f175, got a0748abc-be17-43cf-943a-678c1249c367. Note: In split review mode, use the bound tabId with paneId: \"mobile\" to target the mobile pane.",
+              "data": null,
+              "replacementAuthorityRevision": null
+            }
+          }
+        ],
+        "firstUrlBefore": "http://127.0.0.1:61557/agent-child?step=4",
+        "firstUrlAfter": "http://127.0.0.1:61557/agent-child?owner=first",
+        "secondUrlBefore": "http://127.0.0.1:61557/agent-child?session=two",
+        "secondUrlAfter": "http://127.0.0.1:61557/beta?owner=second"
+      },
+      "ids": {
+        "windowIds": [
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d2",
+            "windowId": 2,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+            "tabIds": [
+              "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb",
+              "ccce5436-ae39-4179-8dfe-f77852407b86",
+              "0b0f83a2-acad-4ac6-b8c0-d35ba42e687a",
+              "281df374-d933-4266-a32f-46a81695fa72",
+              "a0748abc-be17-43cf-943a-678c1249c367",
+              "0dce60ba-6bc6-4c4d-a644-36a0ca172327",
+              "c21b730e-a286-4286-9c4a-6594c670f175"
+            ],
+            "activeTabId": "281df374-d933-4266-a32f-46a81695fa72",
+            "visible": true,
+            "focused": true
+          }
+        ],
+        "tabIds": [
+          "a0748abc-be17-43cf-943a-678c1249c367",
+          "c21b730e-a286-4286-9c4a-6594c670f175"
+        ],
+        "projectIds": [
+          "project-00000000-0000-4000-8000-0000000000d2"
+        ],
+        "workspaceIds": [
+          "workspace-00000000-0000-4000-8000-0000000000d2"
+        ],
+        "attachmentRevisionBefore": {
+          "attachmentId": "attachment-2540cd97-4690-42d6-af73-41c36ac1c579",
+          "present": true,
+          "authorityRevision": "rev_dd65df5a54cc4e1ac8630aaefbc352be",
+          "revisionNumber": 6,
+          "tabId": "a0748abc-be17-43cf-943a-678c1249c367",
+          "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+          "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
+          "state": "active"
+        },
+        "attachmentRevisionAfter": {
+          "attachmentId": "attachment-2540cd97-4690-42d6-af73-41c36ac1c579",
+          "present": true,
+          "authorityRevision": "rev_dd65df5a54cc4e1ac8630aaefbc352be",
+          "revisionNumber": 6,
+          "tabId": "a0748abc-be17-43cf-943a-678c1249c367",
+          "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+          "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
+          "state": "active"
+        }
+      }
+    },
+    {
+      "id": "R4a",
+      "criterion": "4",
+      "observable": "A user tab created through the boot window's own toolbar resolves to that window's host and is persisted under that window's owner record",
+      "status": "PASS",
+      "observed": {
+        "record": {
+          "tabId": "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3",
+          "url": "http://127.0.0.1:61557/alpha",
+          "title": "Matrix Alpha Page",
+          "capsuleId": "capsule-matrix-alpha",
+          "partition": "persist:profile-default",
+          "devicePresetId": "responsive",
+          "splitMode": false,
+          "splitDesktopPresetId": null,
+          "splitMobilePresetId": null,
+          "splitFocusedPane": null,
+          "offscreen": false,
+          "ephemeral": false,
+          "windowOwnerKey": "project:project-00000000-0000-4000-8000-0000000000d1"
+        },
+        "windowOwnerKey": "project:project-00000000-0000-4000-8000-0000000000d1",
+        "persistedUnderOwner": [
+          "301df9a3-8403-4f21-bd71-548226444da0",
+          "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3"
+        ],
+        "ownersClaimingTheTab": [],
+        "savedTabsVersion": 2,
+        "ownerKeys": [
+          "unassigned",
+          "project:project-00000000-0000-4000-8000-0000000000d1"
+        ],
+        "expectedProjectId": "project-00000000-0000-4000-8000-0000000000d1",
+        "expectedWorkspaceId": "workspace-00000000-0000-4000-8000-0000000000d1"
+      },
+      "ids": {
+        "windowIds": [
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d1",
+            "windowId": 1,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d1",
+            "tabIds": [
+              "301df9a3-8403-4f21-bd71-548226444da0",
+              "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3"
+            ],
+            "activeTabId": "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3",
+            "visible": true,
+            "focused": true
+          }
+        ],
+        "tabIds": [
+          "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3"
+        ],
+        "projectIds": [
+          "project-00000000-0000-4000-8000-0000000000d1"
+        ],
+        "workspaceIds": [
+          "workspace-00000000-0000-4000-8000-0000000000d1"
+        ]
+      }
+    },
+    {
+      "id": "R4a2",
+      "criterion": "4",
+      "observable": "A user tab created through a second project window's toolbar resolves to that window's host and is persisted under that window's owner record, never another window's",
+      "status": "PASS",
+      "observed": {
+        "toolbarTab": "0b0f83a2-acad-4ac6-b8c0-d35ba42e687a",
+        "record": {
+          "tabId": "0b0f83a2-acad-4ac6-b8c0-d35ba42e687a",
+          "url": "about:blank",
+          "title": "New Tab",
+          "capsuleId": "capsule-matrix-beta",
+          "partition": "persist:profile-default",
+          "devicePresetId": "responsive",
+          "splitMode": false,
+          "splitDesktopPresetId": null,
+          "splitMobilePresetId": null,
+          "splitFocusedPane": null,
+          "offscreen": false,
+          "ephemeral": false,
+          "windowOwnerKey": "project:project-00000000-0000-4000-8000-0000000000d2"
+        },
+        "windowOwnerKey": "project:project-00000000-0000-4000-8000-0000000000d2",
+        "persistedUnderOwner": [
+          "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb",
+          "ccce5436-ae39-4179-8dfe-f77852407b86",
+          "0b0f83a2-acad-4ac6-b8c0-d35ba42e687a"
+        ],
+        "ownersClaimingTheTab": [
+          "project:project-00000000-0000-4000-8000-0000000000d2"
+        ],
+        "expectedOwnerKey": "project:project-00000000-0000-4000-8000-0000000000d2",
+        "alphaOwnerRecordIds": [
+          "301df9a3-8403-4f21-bd71-548226444da0",
+          "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3"
+        ],
+        "note": "the window's saved-tabs owner record is the verified affiliation carrier; the tab must not be recorded under another project"
+      },
+      "ids": {
+        "windowIds": [
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d2",
+            "windowId": 2,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+            "tabIds": [
+              "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb",
+              "ccce5436-ae39-4179-8dfe-f77852407b86",
+              "0b0f83a2-acad-4ac6-b8c0-d35ba42e687a"
+            ],
+            "activeTabId": "0b0f83a2-acad-4ac6-b8c0-d35ba42e687a",
+            "visible": true,
+            "focused": true
+          },
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d1",
+            "windowId": 1,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d1",
+            "tabIds": [
+              "301df9a3-8403-4f21-bd71-548226444da0",
+              "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3"
+            ],
+            "activeTabId": "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3",
+            "visible": true,
+            "focused": false
+          }
+        ],
+        "tabIds": [
+          "0b0f83a2-acad-4ac6-b8c0-d35ba42e687a"
+        ],
+        "projectIds": [
+          "project-00000000-0000-4000-8000-0000000000d2"
+        ],
+        "workspaceIds": [
+          "workspace-00000000-0000-4000-8000-0000000000d2"
+        ]
+      }
+    },
+    {
+      "id": "R4b",
+      "criterion": "4",
+      "observable": "A native window.open child inherits its opener's window affiliation before it is presented",
+      "status": "PASS",
+      "observed": {
+        "clickedAt": {
+          "x": 225,
+          "y": 90
+        },
+        "childTab": "281df374-d933-4266-a32f-46a81695fa72",
+        "record": {
+          "tabId": "281df374-d933-4266-a32f-46a81695fa72",
+          "url": "http://127.0.0.1:61557/child",
+          "title": "New Tab",
+          "capsuleId": "capsule-matrix-beta",
+          "partition": "persist:profile-default",
+          "devicePresetId": "responsive",
+          "splitMode": false,
+          "splitDesktopPresetId": null,
+          "splitMobilePresetId": null,
+          "splitFocusedPane": null,
+          "offscreen": false,
+          "ephemeral": false,
+          "windowOwnerKey": "project:project-00000000-0000-4000-8000-0000000000d2"
+        },
+        "openerCapsuleId": "capsule-matrix-beta",
+        "hostOwnerKey": "project:project-00000000-0000-4000-8000-0000000000d2",
+        "siblingWindowTabIds": [
+          "301df9a3-8403-4f21-bd71-548226444da0",
+          "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3"
+        ]
+      },
+      "ids": {
+        "windowIds": [
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d1",
+            "windowId": 1,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d1",
+            "tabIds": [
+              "301df9a3-8403-4f21-bd71-548226444da0",
+              "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3"
+            ],
+            "activeTabId": "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3",
+            "visible": true,
+            "focused": false
+          },
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d2",
+            "windowId": 2,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+            "tabIds": [
+              "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb",
+              "ccce5436-ae39-4179-8dfe-f77852407b86",
+              "0b0f83a2-acad-4ac6-b8c0-d35ba42e687a",
+              "281df374-d933-4266-a32f-46a81695fa72"
+            ],
+            "activeTabId": "281df374-d933-4266-a32f-46a81695fa72",
+            "visible": true,
+            "focused": true
+          }
+        ],
+        "tabIds": [
+          "ccce5436-ae39-4179-8dfe-f77852407b86",
+          "281df374-d933-4266-a32f-46a81695fa72"
+        ],
+        "projectIds": [
+          "project-00000000-0000-4000-8000-0000000000d2"
+        ]
+      }
+    },
+    {
+      "id": "R4c",
+      "criterion": "4",
+      "observable": "An agent-routed child created for B is owned by B's host and is presented by B",
+      "status": "PASS",
+      "observed": {
+        "agentChildTab": "a0748abc-be17-43cf-943a-678c1249c367",
+        "record": {
+          "tabId": "a0748abc-be17-43cf-943a-678c1249c367",
+          "url": "http://127.0.0.1:61557/agent-child?step=2",
+          "title": "Matrix Agent Child Page",
+          "capsuleId": "capsule-matrix-beta",
+          "partition": "persist:profile-default",
+          "devicePresetId": "responsive",
+          "splitMode": false,
+          "splitDesktopPresetId": null,
+          "splitMobilePresetId": null,
+          "splitFocusedPane": null,
+          "offscreen": false,
+          "ephemeral": false,
+          "windowOwnerKey": "project:project-00000000-0000-4000-8000-0000000000d2"
+        },
+        "hostOwnerKey": "project:project-00000000-0000-4000-8000-0000000000d2",
+        "betaActiveTab": "281df374-d933-4266-a32f-46a81695fa72"
+      },
+      "ids": {
+        "tabIds": [
+          "a0748abc-be17-43cf-943a-678c1249c367"
+        ],
+        "projectIds": [
+          "project-00000000-0000-4000-8000-0000000000d2"
+        ],
+        "workspaceIds": [
+          "workspace-00000000-0000-4000-8000-0000000000d2"
+        ]
+      }
+    },
+    {
+      "id": "R4d",
+      "criterion": "4",
+      "observable": "Tabs restored after a close/reopen return to their own window with their own affiliation; no project window claims another's page",
+      "status": "PASS",
+      "observed": {
+        "restoredTabIds": [
+          "7dc31bf7-04c0-4ae5-bd88-4dc0e774fef2"
+        ],
+        "restoredRecords": [
+          {
+            "tabId": "7dc31bf7-04c0-4ae5-bd88-4dc0e774fef2",
+            "url": "https://www.google.com/",
+            "title": "Google",
+            "capsuleId": "capsule-matrix-alpha",
+            "partition": "persist:profile-default",
+            "devicePresetId": "responsive",
+            "splitMode": false,
+            "splitDesktopPresetId": null,
+            "splitMobilePresetId": null,
+            "splitFocusedPane": null,
+            "offscreen": false,
+            "ephemeral": false,
+            "windowOwnerKey": "project:project-00000000-0000-4000-8000-0000000000d1"
+          }
+        ],
+        "persistedUnderOwner": [
+          "7dc31bf7-04c0-4ae5-bd88-4dc0e774fef2"
+        ],
+        "ownersClaimingRestoredTabs": [],
+        "expectedOwnerKey": "project:project-00000000-0000-4000-8000-0000000000d1",
+        "leakedIntoBeta": []
+      },
+      "ids": {
+        "windowIds": [
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d1",
+            "windowId": 3,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d1",
+            "tabIds": [
+              "7dc31bf7-04c0-4ae5-bd88-4dc0e774fef2"
+            ],
+            "activeTabId": "7dc31bf7-04c0-4ae5-bd88-4dc0e774fef2",
+            "visible": false,
+            "focused": false
+          },
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d2",
+            "windowId": 2,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+            "tabIds": [
+              "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb",
+              "ccce5436-ae39-4179-8dfe-f77852407b86",
+              "0b0f83a2-acad-4ac6-b8c0-d35ba42e687a",
+              "281df374-d933-4266-a32f-46a81695fa72",
+              "a0748abc-be17-43cf-943a-678c1249c367",
+              "0dce60ba-6bc6-4c4d-a644-36a0ca172327",
+              "c21b730e-a286-4286-9c4a-6594c670f175"
+            ],
+            "activeTabId": "ccce5436-ae39-4179-8dfe-f77852407b86",
+            "visible": true,
+            "focused": true
+          }
+        ],
+        "tabIds": [
+          "7dc31bf7-04c0-4ae5-bd88-4dc0e774fef2"
+        ],
+        "projectIds": [
+          "project-00000000-0000-4000-8000-0000000000d1"
+        ],
+        "workspaceIds": [
+          "workspace-00000000-0000-4000-8000-0000000000d1"
+        ]
+      }
+    },
+    {
+      "id": "R4e",
+      "criterion": "4",
+      "observable": "Missing authority refuses: the user channel refuses an unknown project id without allocating a window",
+      "status": "PASS",
+      "observed": {
+        "result": {
+          "status": "FAILED",
+          "projectId": "project-00000000-0000-4000-8000-0000000000ff",
+          "reason": "UNKNOWN_PROJECT"
+        },
+        "shellCountBefore": 1,
+        "shellCountAfter": 1,
+        "unknownProjectId": "project-00000000-0000-4000-8000-0000000000ff"
+      },
+      "ids": {
+        "windowIds": [
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d1",
+            "windowId": 1,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d1",
+            "tabIds": [
+              "301df9a3-8403-4f21-bd71-548226444da0",
+              "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3"
+            ],
+            "activeTabId": "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3",
+            "visible": true,
+            "focused": true
+          }
+        ],
+        "foregroundBefore": 1,
+        "foregroundAfter": 1
+      }
+    },
+    {
+      "id": "R4f",
+      "criterion": "4",
+      "observable": "Conflicting authority fails: a session authenticated for A cannot create a routed child on B's anchor page",
+      "status": "PASS",
+      "observed": {
+        "refusal": {
+          "ok": false,
+          "code": "POLICY_DENIED",
+          "message": "Cannot open a routed tab for session 'ccce5436-ae39-4179-8dfe-f77852407b86': anchor tab affiliation (project: 'project-00000000-0000-4000-8000-0000000000d2', workspace: 'workspace-00000000-0000-4000-8000-0000000000d2') conflicts with requested target (project: 'project-00000000-0000-4000-8000-000000",
+          "data": null,
+          "replacementAuthorityRevision": null
+        },
+        "betaTabsBefore": [
+          "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb",
+          "ccce5436-ae39-4179-8dfe-f77852407b86",
+          "0b0f83a2-acad-4ac6-b8c0-d35ba42e687a",
+          "281df374-d933-4266-a32f-46a81695fa72",
+          "a0748abc-be17-43cf-943a-678c1249c367",
+          "0dce60ba-6bc6-4c4d-a644-36a0ca172327",
+          "c21b730e-a286-4286-9c4a-6594c670f175"
+        ],
+        "betaTabsAfter": [
+          "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb",
+          "ccce5436-ae39-4179-8dfe-f77852407b86",
+          "0b0f83a2-acad-4ac6-b8c0-d35ba42e687a",
+          "281df374-d933-4266-a32f-46a81695fa72",
+          "a0748abc-be17-43cf-943a-678c1249c367",
+          "0dce60ba-6bc6-4c4d-a644-36a0ca172327",
+          "c21b730e-a286-4286-9c4a-6594c670f175"
+        ],
+        "shellCountBefore": 2,
+        "shellCountAfter": 2
+      },
+      "ids": {
+        "windowIds": [
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d1",
+            "windowId": 1,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d1",
+            "tabIds": [
+              "301df9a3-8403-4f21-bd71-548226444da0",
+              "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3"
+            ],
+            "activeTabId": "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3",
+            "visible": true,
+            "focused": false
+          },
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d2",
+            "windowId": 2,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+            "tabIds": [
+              "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb",
+              "ccce5436-ae39-4179-8dfe-f77852407b86",
+              "0b0f83a2-acad-4ac6-b8c0-d35ba42e687a",
+              "281df374-d933-4266-a32f-46a81695fa72",
+              "a0748abc-be17-43cf-943a-678c1249c367",
+              "0dce60ba-6bc6-4c4d-a644-36a0ca172327",
+              "c21b730e-a286-4286-9c4a-6594c670f175"
+            ],
+            "activeTabId": "281df374-d933-4266-a32f-46a81695fa72",
+            "visible": true,
+            "focused": true
+          }
+        ],
+        "tabIds": [
+          "ccce5436-ae39-4179-8dfe-f77852407b86"
+        ],
+        "projectIds": [
+          "project-00000000-0000-4000-8000-0000000000d1",
+          "project-00000000-0000-4000-8000-0000000000d2"
+        ],
+        "attachmentRevisionBefore": {
+          "attachmentId": "attachment-87c57a74-307b-4c62-81cc-a71df5d6a075",
+          "present": true,
+          "authorityRevision": "rev_f4486631a581e1ed375b681fca021ee8",
+          "revisionNumber": 1,
+          "tabId": "ccce5436-ae39-4179-8dfe-f77852407b86",
+          "projectId": "project-00000000-0000-4000-8000-0000000000d1",
+          "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d1",
+          "state": "active"
+        },
+        "attachmentRevisionAfter": {
+          "attachmentId": "attachment-87c57a74-307b-4c62-81cc-a71df5d6a075",
+          "present": true,
+          "authorityRevision": "rev_f4486631a581e1ed375b681fca021ee8",
+          "revisionNumber": 1,
+          "tabId": "ccce5436-ae39-4179-8dfe-f77852407b86",
+          "projectId": "project-00000000-0000-4000-8000-0000000000d1",
+          "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d1",
+          "state": "active"
+        }
+      }
+    },
+    {
+      "id": "R4g",
+      "criterion": "4",
+      "observable": "Unresolved historical tabs are reachable in the Unassigned window, and no project window guesses their ownership",
+      "status": "PASS",
+      "observed": {
+        "savedTabsVersion": 2,
+        "migratedOwners": [
+          "unassigned",
+          "project:project-00000000-0000-4000-8000-0000000000d1",
+          "project:project-00000000-0000-4000-8000-0000000000d2",
+          "project:project-00000000-0000-4000-8000-0000000000d3",
+          "project:project-00000000-0000-4000-8000-0000000000d4",
+          "project:project-00000000-0000-4000-8000-0000000000d5"
+        ],
+        "migratedTabIds": [
+          "legacy-tab-1",
+          "legacy-tab-2"
+        ],
+        "claimedByProjectWindows": [],
+        "unassigned": {
+          "ownerKey": "unassigned",
+          "owner": {
+            "kind": "unassigned"
+          },
+          "title": "Unassigned [DEV]",
+          "windowId": 8,
+          "visible": false,
+          "focused": false,
+          "hostOwnerKey": "unassigned",
+          "hostOwnerLabel": "Unassigned",
+          "tabIds": [
+            "701f8080-7888-4687-9b68-a4bb764ab94d",
+            "0b172761-bed7-4026-ae44-f31df02ee6a0"
+          ],
+          "activeTabId": "701f8080-7888-4687-9b68-a4bb764ab94d",
+          "identity": {
+            "owner": {
+              "kind": "unassigned"
+            },
+            "title": "Unassigned [DEV]"
+          },
+          "terminalCwd": "E:\\Work\\apps\\AntiFan",
+          "terminalCwdSource": "process-default"
+        },
+        "legacyTabs": [
+          "legacy-tab-1",
+          "legacy-tab-2"
+        ]
+      },
+      "ids": {
+        "windowIds": [
+          {
+            "ownerKey": "unassigned",
+            "windowId": 8,
+            "projectId": "unassigned",
+            "tabIds": [
+              "701f8080-7888-4687-9b68-a4bb764ab94d",
+              "0b172761-bed7-4026-ae44-f31df02ee6a0"
+            ],
+            "activeTabId": "701f8080-7888-4687-9b68-a4bb764ab94d",
+            "visible": false,
+            "focused": false
+          },
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d2",
+            "windowId": 2,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+            "tabIds": [
+              "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb",
+              "ccce5436-ae39-4179-8dfe-f77852407b86",
+              "0b0f83a2-acad-4ac6-b8c0-d35ba42e687a",
+              "281df374-d933-4266-a32f-46a81695fa72",
+              "a0748abc-be17-43cf-943a-678c1249c367",
+              "0dce60ba-6bc6-4c4d-a644-36a0ca172327",
+              "c21b730e-a286-4286-9c4a-6594c670f175"
+            ],
+            "activeTabId": "ccce5436-ae39-4179-8dfe-f77852407b86",
+            "visible": true,
+            "focused": false
+          }
+        ],
+        "tabIds": [
+          "701f8080-7888-4687-9b68-a4bb764ab94d",
+          "0b172761-bed7-4026-ae44-f31df02ee6a0"
+        ],
+        "foregroundBefore": 4,
+        "foregroundAfter": 4
+      }
+    },
+    {
+      "id": "R5a",
+      "criterion": "5",
+      "observable": "Desktop/mobile split review in A changes only A's own panes: B's native tab-view rect, window bounds, active tab and split state are identical before and after",
+      "status": "PASS",
+      "observed": {
+        "enabled": true,
+        "presetApplied": true,
+        "alpha": {
+          "boundsBefore": {
+            "width": 1184,
+            "height": 731
+          },
+          "boundsAfter": {
+            "width": 855,
+            "height": 556
+          },
+          "mobileBounds": {
+            "width": 233,
+            "height": 504
+          },
+          "splitModeAfter": true,
+          "mobilePresetAfter": "phone-iphone15pro"
+        },
+        "beta": {
+          "tabContentBefore": {
+            "width": 1184,
+            "height": 731
+          },
+          "tabContentAfter": {
+            "width": 1184,
+            "height": 731
+          },
+          "nativeRectBefore": {
+            "x": 0,
+            "y": 76,
+            "width": 1184,
+            "height": 731
+          },
+          "nativeRectAfter": {
+            "x": 0,
+            "y": 76,
+            "width": 1184,
+            "height": 731
+          },
+          "windowBoundsBefore": {
+            "x": -901,
+            "y": -1045,
+            "width": 1200,
+            "height": 872
+          },
+          "windowBoundsAfter": {
+            "x": -901,
+            "y": -1045,
+            "width": 1200,
+            "height": 872
+          },
+          "splitModeBefore": false,
+          "splitModeAfter": false,
+          "activeBefore": "ccce5436-ae39-4179-8dfe-f77852407b86",
+          "activeAfter": "ccce5436-ae39-4179-8dfe-f77852407b86"
+        },
+        "splitDisarmed": {
+          "returned": false,
+          "splitMode": false
+        }
+      },
+      "ids": {
+        "windowIds": [
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d1",
+            "windowId": 1,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d1",
+            "tabIds": [
+              "301df9a3-8403-4f21-bd71-548226444da0",
+              "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3"
+            ],
+            "activeTabId": "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3",
+            "visible": true,
+            "focused": false
+          },
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d2",
+            "windowId": 2,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+            "tabIds": [
+              "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb",
+              "ccce5436-ae39-4179-8dfe-f77852407b86",
+              "0b0f83a2-acad-4ac6-b8c0-d35ba42e687a",
+              "281df374-d933-4266-a32f-46a81695fa72",
+              "a0748abc-be17-43cf-943a-678c1249c367",
+              "0dce60ba-6bc6-4c4d-a644-36a0ca172327",
+              "c21b730e-a286-4286-9c4a-6594c670f175"
+            ],
+            "activeTabId": "ccce5436-ae39-4179-8dfe-f77852407b86",
+            "visible": true,
+            "focused": true
+          }
+        ],
+        "tabIds": [
+          "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3",
+          "ccce5436-ae39-4179-8dfe-f77852407b86"
+        ],
+        "foregroundBefore": 2,
+        "foregroundAfter": 2
+      }
+    },
+    {
+      "id": "R5b",
+      "criterion": "5",
+      "observable": "Background screenshot capture of B works while A is the foreground window; the capture envelope reports a real viewport and raster, and B is not raised or activated by it",
+      "status": "PASS",
+      "observed": {
+        "foregroundBefore": 1,
+        "foregroundAfter": 1,
+        "betaFocusBefore": false,
+        "betaFocusAfter": false,
+        "envelope": {
+          "backend": "cdp",
+          "dpr": 1,
+          "zoom": 1,
+          "cssViewport": {
+            "width": 1184,
+            "height": 731
+          },
+          "cssCaptureSize": {
+            "width": 1184,
+            "height": 731
+          },
+          "rasterSize": {
+            "width": 1184,
+            "height": 731
+          },
+          "captureMode": "viewport",
+          "dataLength": 8776
+        }
+      },
+      "ids": {
+        "windowIds": [
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d1",
+            "windowId": 1,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d1",
+            "tabIds": [
+              "301df9a3-8403-4f21-bd71-548226444da0",
+              "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3"
+            ],
+            "activeTabId": "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3",
+            "visible": true,
+            "focused": true
+          },
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d2",
+            "windowId": 2,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+            "tabIds": [
+              "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb",
+              "ccce5436-ae39-4179-8dfe-f77852407b86",
+              "0b0f83a2-acad-4ac6-b8c0-d35ba42e687a",
+              "281df374-d933-4266-a32f-46a81695fa72",
+              "a0748abc-be17-43cf-943a-678c1249c367",
+              "0dce60ba-6bc6-4c4d-a644-36a0ca172327",
+              "c21b730e-a286-4286-9c4a-6594c670f175"
+            ],
+            "activeTabId": "ccce5436-ae39-4179-8dfe-f77852407b86",
+            "visible": true,
+            "focused": false
+          }
+        ],
+        "tabIds": [
+          "ccce5436-ae39-4179-8dfe-f77852407b86"
+        ],
+        "foregroundBefore": 1,
+        "foregroundAfter": 1
+      }
+    },
+    {
+      "id": "R6a",
+      "criterion": "6",
+      "observable": "Per-project normal bounds survive a close and reopen of the same project, as recorded in the owner-keyed window-state file",
+      "status": "PASS",
+      "observed": {
+        "closeOutcome": {
+          "requestClose": true,
+          "closedShell": true,
+          "shellCountAfterClose": 1,
+          "reservations": {
+            "reservedTabIds": [
+              "301df9a3-8403-4f21-bd71-548226444da0",
+              "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3",
+              "8899ad19-be0a-4321-8b14-befd85fa6ebb"
+            ],
+            "inFlightOperations": 0,
+            "applicationReserved": false,
+            "reservedCount": 3
+          },
+          "alphaStillPresent": false,
+          "alphaSidebarDestroyed": false
+        },
+        "target": {
+          "x": 60,
+          "y": 60,
+          "width": 1024,
+          "height": 700
+        },
+        "savedOwnerRecord": {
+          "normal": {
+            "x": 60,
+            "y": 60,
+            "width": 1024,
+            "height": 700
+          },
+          "isMaximized": false
+        },
+        "windowStateFile": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-WyWgKT\\config\\window-state.json",
+        "requestClose": true,
+        "closedShell": true,
+        "shellCountAfterClose": 1,
+        "reopened": {
+          "status": "OPENED",
+          "projectId": "project-00000000-0000-4000-8000-0000000000d1"
+        },
+        "alphaTabsBefore": [
+          "301df9a3-8403-4f21-bd71-548226444da0",
+          "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3",
+          "8899ad19-be0a-4321-8b14-befd85fa6ebb"
+        ],
+        "alphaTabsAfter": [
+          "7dc31bf7-04c0-4ae5-bd88-4dc0e774fef2"
+        ],
+        "restoredBounds": {
+          "x": 60,
+          "y": 60,
+          "width": 1024,
+          "height": 700
+        },
+        "restoredRecords": [
+          {
+            "tabId": "7dc31bf7-04c0-4ae5-bd88-4dc0e774fef2",
+            "url": "https://www.google.com/",
+            "title": "Google",
+            "capsuleId": "capsule-matrix-alpha",
+            "partition": "persist:profile-default",
+            "devicePresetId": "responsive",
+            "splitMode": false,
+            "splitDesktopPresetId": null,
+            "splitMobilePresetId": null,
+            "splitFocusedPane": null,
+            "offscreen": false,
+            "ephemeral": false,
+            "windowOwnerKey": "project:project-00000000-0000-4000-8000-0000000000d1"
+          }
+        ]
+      },
+      "ids": {
+        "windowIds": [
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d1",
+            "windowId": 3,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d1",
+            "tabIds": [
+              "7dc31bf7-04c0-4ae5-bd88-4dc0e774fef2"
+            ],
+            "activeTabId": "7dc31bf7-04c0-4ae5-bd88-4dc0e774fef2",
+            "visible": false,
+            "focused": false
+          },
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d2",
+            "windowId": 2,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+            "tabIds": [
+              "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb",
+              "ccce5436-ae39-4179-8dfe-f77852407b86",
+              "0b0f83a2-acad-4ac6-b8c0-d35ba42e687a",
+              "281df374-d933-4266-a32f-46a81695fa72",
+              "a0748abc-be17-43cf-943a-678c1249c367",
+              "0dce60ba-6bc6-4c4d-a644-36a0ca172327",
+              "c21b730e-a286-4286-9c4a-6594c670f175"
+            ],
+            "activeTabId": "ccce5436-ae39-4179-8dfe-f77852407b86",
+            "visible": true,
+            "focused": true
+          }
+        ],
+        "tabIds": [
+          "301df9a3-8403-4f21-bd71-548226444da0",
+          "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3",
+          "8899ad19-be0a-4321-8b14-befd85fa6ebb",
+          "7dc31bf7-04c0-4ae5-bd88-4dc0e774fef2"
+        ],
+        "projectIds": [
+          "project-00000000-0000-4000-8000-0000000000d1"
+        ],
+        "workspaceIds": [
+          "workspace-00000000-0000-4000-8000-0000000000d1"
+        ],
+        "foregroundBefore": 2,
+        "foregroundAfter": 2
+      }
+    },
+    {
+      "id": "R6-HW",
+      "criterion": "6",
+      "observable": "Unplugging a physical monitor and changing the OS display scale leave every window recoverable on an available display",
+      "status": "BLOCKED",
+      "reason": "needs physical hardware/human: unplugging a real monitor and changing the OS display scale cannot be produced by the app or the harness on the real surface (Electron exposes no API to remove a display or change its scale, and a synthetic screen event would be a fixture, not hardware). The window-state repair for these events is unit-proven, but the phase-5 criterion is not certifiable without the physical change.",
+      "observed": {
+        "displays": [
+          {
+            "id": 3582874238,
+            "scaleFactor": 1,
+            "bounds": {
+              "x": 0,
+              "y": 0,
+              "width": 1920,
+              "height": 1080
+            },
+            "workArea": {
+              "x": 0,
+              "y": 0,
+              "width": 1920,
+              "height": 1032
+            }
+          },
+          {
+            "id": 1621057772,
+            "scaleFactor": 1,
+            "bounds": {
+              "x": -941,
+              "y": -1085,
+              "width": 1920,
+              "height": 1080
+            },
+            "workArea": {
+              "x": -941,
+              "y": -1085,
+              "width": 1920,
+              "height": 1032
+            }
+          },
+          {
+            "id": 4240234152,
+            "scaleFactor": 1,
+            "bounds": {
+              "x": 979,
+              "y": -1080,
+              "width": 1920,
+              "height": 1080
+            },
+            "workArea": {
+              "x": 979,
+              "y": -1080,
+              "width": 1920,
+              "height": 1032
+            }
+          }
+        ],
+        "windowPlacements": [],
+        "nextStep": "repeat with a monitor unplugged and with the OS scale changed while these rows run; the harness records each window's display id, scaleFactor and work area so the human can compare before/after"
+      },
+      "ids": {
+        "windowIds": []
+      }
+    },
+    {
+      "id": "R7",
+      "criterion": "7",
+      "observable": "Closing idle A leaves B alive with its tabs, its active tab, its bound attachment, its terminal session, shared services and its own auxiliary windows intact",
+      "status": "PASS",
+      "observed": {
+        "requestClose": true,
+        "closedShell": true,
+        "terminalSessionId": "terminal-2",
+        "sessionCapsule": "capsule-matrix-beta",
+        "popoutOpened": true,
+        "auxiliariesBefore": [
+          {
+            "windowId": 4,
+            "contentsId": 25,
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d2"
+          }
+        ],
+        "auxiliariesAfter": [
+          {
+            "windowId": 4,
+            "contentsId": 25,
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d2"
+          }
+        ],
+        "betaTabsBefore": [
+          "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb",
+          "ccce5436-ae39-4179-8dfe-f77852407b86",
+          "0b0f83a2-acad-4ac6-b8c0-d35ba42e687a",
+          "281df374-d933-4266-a32f-46a81695fa72",
+          "a0748abc-be17-43cf-943a-678c1249c367",
+          "0dce60ba-6bc6-4c4d-a644-36a0ca172327",
+          "c21b730e-a286-4286-9c4a-6594c670f175"
+        ],
+        "betaTabsAfter": [
+          "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb",
+          "ccce5436-ae39-4179-8dfe-f77852407b86",
+          "0b0f83a2-acad-4ac6-b8c0-d35ba42e687a",
+          "281df374-d933-4266-a32f-46a81695fa72",
+          "a0748abc-be17-43cf-943a-678c1249c367",
+          "0dce60ba-6bc6-4c4d-a644-36a0ca172327",
+          "c21b730e-a286-4286-9c4a-6594c670f175"
+        ],
+        "betaActiveBefore": "ccce5436-ae39-4179-8dfe-f77852407b86",
+        "betaActiveAfter": "ccce5436-ae39-4179-8dfe-f77852407b86",
+        "terminalBefore": [
+          "terminal-1",
+          "terminal-2"
+        ],
+        "terminalAfter": [
+          "terminal-1",
+          "terminal-2"
+        ],
+        "attachmentRevisionBefore": {
+          "attachmentId": "attachment-2540cd97-4690-42d6-af73-41c36ac1c579",
+          "present": true,
+          "authorityRevision": "rev_dd65df5a54cc4e1ac8630aaefbc352be",
+          "revisionNumber": 6,
+          "tabId": "a0748abc-be17-43cf-943a-678c1249c367",
+          "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+          "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
+          "state": "active"
+        },
+        "attachmentRevisionAfter": {
+          "attachmentId": "attachment-2540cd97-4690-42d6-af73-41c36ac1c579",
+          "present": true,
+          "authorityRevision": "rev_dd65df5a54cc4e1ac8630aaefbc352be",
+          "revisionNumber": 6,
+          "tabId": "a0748abc-be17-43cf-943a-678c1249c367",
+          "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+          "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
+          "state": "active"
+        },
+        "closeReport": {
+          "attemptId": 2,
+          "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d1",
+          "intent": "user",
+          "coalescedRequests": 0,
+          "coalesced": false,
+          "disposition": "closed",
+          "phase": "closed",
+          "closed": [
+            {
+              "tabId": "7dc31bf7-04c0-4ae5-bd88-4dc0e774fef2",
+              "outcome": "closed",
+              "attempted": true
+            }
+          ],
+          "skipped": [],
+          "failed": [],
+          "refusals": [],
+          "haltedBy": null,
+          "surface": {
+            "key": "project:project-00000000-0000-4000-8000-0000000000d1",
+            "kind": "browser",
+            "outcome": "closed"
+          },
+          "survivingTabIds": [],
+          "partial": false,
+          "lastBrowserShellGone": false,
+          "warnings": [],
+          "summary": "Close of project:project-00000000-0000-4000-8000-0000000000d1: shell closed (closed 1, skipped 0, failed 0)."
+        },
+        "servicesAnswer": true
+      },
+      "ids": {
+        "windowIds": [
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d1",
+            "present": false
+          },
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d2",
+            "windowId": 2,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+            "tabIds": [
+              "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb",
+              "ccce5436-ae39-4179-8dfe-f77852407b86",
+              "0b0f83a2-acad-4ac6-b8c0-d35ba42e687a",
+              "281df374-d933-4266-a32f-46a81695fa72",
+              "a0748abc-be17-43cf-943a-678c1249c367",
+              "0dce60ba-6bc6-4c4d-a644-36a0ca172327",
+              "c21b730e-a286-4286-9c4a-6594c670f175"
+            ],
+            "activeTabId": "ccce5436-ae39-4179-8dfe-f77852407b86",
+            "visible": true,
+            "focused": false
+          }
+        ],
+        "tabIds": [
+          "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb",
+          "ccce5436-ae39-4179-8dfe-f77852407b86",
+          "0b0f83a2-acad-4ac6-b8c0-d35ba42e687a",
+          "281df374-d933-4266-a32f-46a81695fa72",
+          "a0748abc-be17-43cf-943a-678c1249c367",
+          "0dce60ba-6bc6-4c4d-a644-36a0ca172327",
+          "c21b730e-a286-4286-9c4a-6594c670f175",
+          "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3"
+        ],
+        "attachmentRevisionBefore": {
+          "attachmentId": "attachment-2540cd97-4690-42d6-af73-41c36ac1c579",
+          "present": true,
+          "authorityRevision": "rev_dd65df5a54cc4e1ac8630aaefbc352be",
+          "revisionNumber": 6,
+          "tabId": "a0748abc-be17-43cf-943a-678c1249c367",
+          "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+          "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
+          "state": "active"
+        },
+        "attachmentRevisionAfter": {
+          "attachmentId": "attachment-2540cd97-4690-42d6-af73-41c36ac1c579",
+          "present": true,
+          "authorityRevision": "rev_dd65df5a54cc4e1ac8630aaefbc352be",
+          "revisionNumber": 6,
+          "tabId": "a0748abc-be17-43cf-943a-678c1249c367",
+          "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+          "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
+          "state": "active"
+        },
+        "foregroundBefore": 4,
+        "foregroundAfter": 4
+      }
+    },
+    {
+      "id": "R8a",
+      "criterion": "8",
+      "observable": "A page that vetoes its unload retains the shell with an honest partial report, names the surviving page and promises no undo",
+      "status": "PASS",
+      "observed": {
+        "vetoTab": "cd21bed7-8bba-466c-ac35-ab41948ba462",
+        "gammaTabsBefore": [
+          "4a8d64e2-bd40-4381-a678-7dee17a65282",
+          "1647bcb5-c489-44c9-8ce7-c7a66822aabe",
+          "cd21bed7-8bba-466c-ac35-ab41948ba462"
+        ],
+        "gammaTabsAfter": [
+          "cd21bed7-8bba-466c-ac35-ab41948ba462"
+        ],
+        "report": {
+          "attemptId": 3,
+          "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d3",
+          "intent": "user",
+          "coalescedRequests": 0,
+          "coalesced": false,
+          "disposition": "retained",
+          "phase": "open",
+          "closed": [
+            {
+              "tabId": "4a8d64e2-bd40-4381-a678-7dee17a65282",
+              "outcome": "closed",
+              "attempted": true
+            },
+            {
+              "tabId": "1647bcb5-c489-44c9-8ce7-c7a66822aabe",
+              "outcome": "closed",
+              "attempted": true
+            }
+          ],
+          "skipped": [
+            {
+              "tabId": "cd21bed7-8bba-466c-ac35-ab41948ba462",
+              "outcome": "skipped",
+              "reason": "unload-veto",
+              "attempted": true
+            }
+          ],
+          "failed": [],
+          "refusals": [
+            {
+              "code": "unload-veto",
+              "detail": "Page cd21bed7-8bba-466c-ac35-ab41948ba462 refused to unload",
+              "controls": [],
+              "tabId": "cd21bed7-8bba-466c-ac35-ab41948ba462"
+            }
+          ],
+          "haltedBy": "unload-veto",
+          "surface": null,
+          "survivingTabIds": [
+            "cd21bed7-8bba-466c-ac35-ab41948ba462"
+          ],
+          "partial": true,
+          "lastBrowserShellGone": false,
+          "warnings": [],
+          "summary": "Close of project:project-00000000-0000-4000-8000-0000000000d3: shell retained, stopped by unload-veto (closed 2, skipped 1, failed 0); earlier closes stand and are not transactional."
+        },
+        "reservations": {
+          "reservedTabIds": [],
+          "inFlightOperations": 0,
+          "applicationReserved": false,
+          "reservedCount": 0
+        },
+        "disarmSucceeded": true
+      },
+      "ids": {
+        "windowIds": [
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d3",
+            "windowId": 5,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d3",
+            "tabIds": [
+              "cd21bed7-8bba-466c-ac35-ab41948ba462"
+            ],
+            "activeTabId": "cd21bed7-8bba-466c-ac35-ab41948ba462",
+            "visible": false,
+            "focused": false
+          },
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d2",
+            "windowId": 2,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+            "tabIds": [
+              "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb",
+              "ccce5436-ae39-4179-8dfe-f77852407b86",
+              "0b0f83a2-acad-4ac6-b8c0-d35ba42e687a",
+              "281df374-d933-4266-a32f-46a81695fa72",
+              "a0748abc-be17-43cf-943a-678c1249c367",
+              "0dce60ba-6bc6-4c4d-a644-36a0ca172327",
+              "c21b730e-a286-4286-9c4a-6594c670f175"
+            ],
+            "activeTabId": "ccce5436-ae39-4179-8dfe-f77852407b86",
+            "visible": true,
+            "focused": false
+          }
+        ],
+        "tabIds": [
+          "4a8d64e2-bd40-4381-a678-7dee17a65282",
+          "1647bcb5-c489-44c9-8ce7-c7a66822aabe",
+          "cd21bed7-8bba-466c-ac35-ab41948ba462"
+        ],
+        "foregroundBefore": 4,
+        "foregroundAfter": 4
+      }
+    },
+    {
+      "id": "R8b",
+      "criterion": "8",
+      "observable": "A new tab arriving during a close attempt survives, and the shell is retained",
+      "status": "PASS",
+      "observed": {
+        "arrivalTab": "be95dda9-3618-4a37-8867-bf8313f1e4f7",
+        "report": {
+          "attemptId": 4,
+          "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d4",
+          "intent": "user",
+          "coalescedRequests": 0,
+          "coalesced": false,
+          "disposition": "retained",
+          "phase": "open",
+          "closed": [
+            {
+              "tabId": "269188b0-c3c7-4ebc-b8b3-605086078ae9",
+              "outcome": "closed",
+              "attempted": true
+            },
+            {
+              "tabId": "e822e73c-eb91-4229-bc8a-8af36a9cd043",
+              "outcome": "closed",
+              "attempted": true
+            },
+            {
+              "tabId": "2b41a27d-930f-4c41-93ce-b5de6640e9e7",
+              "outcome": "closed",
+              "attempted": true
+            },
+            {
+              "tabId": "5e50dd71-f9b6-41ec-b780-f8b5ac330a17",
+              "outcome": "closed",
+              "attempted": true
+            }
+          ],
+          "skipped": [
+            {
+              "tabId": "be95dda9-3618-4a37-8867-bf8313f1e4f7",
+              "outcome": "skipped",
+              "reason": "new-arrival",
+              "attempted": false
+            }
+          ],
+          "failed": [],
+          "refusals": [
+            {
+              "code": "new-arrival",
+              "detail": "Pages appeared while the shell was closing: be95dda9-3618-4a37-8867-bf8313f1e4f7",
+              "controls": []
+            }
+          ],
+          "haltedBy": "new-arrival",
+          "surface": null,
+          "survivingTabIds": [
+            "be95dda9-3618-4a37-8867-bf8313f1e4f7"
+          ],
+          "partial": true,
+          "lastBrowserShellGone": false,
+          "warnings": [],
+          "summary": "Close of project:project-00000000-0000-4000-8000-0000000000d4: shell retained, stopped by new-arrival (closed 4, skipped 1, failed 0); earlier closes stand and are not transactional."
+        },
+        "deltaTabsAfter": [
+          "be95dda9-3618-4a37-8867-bf8313f1e4f7"
+        ],
+        "reservations": {
+          "reservedTabIds": [],
+          "inFlightOperations": 0,
+          "applicationReserved": false,
+          "reservedCount": 0
+        }
+      },
+      "ids": {
+        "windowIds": [
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d4",
+            "windowId": 6,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d4",
+            "tabIds": [
+              "be95dda9-3618-4a37-8867-bf8313f1e4f7"
+            ],
+            "activeTabId": "be95dda9-3618-4a37-8867-bf8313f1e4f7",
+            "visible": false,
+            "focused": false
+          },
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d2",
+            "windowId": 2,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+            "tabIds": [
+              "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb",
+              "ccce5436-ae39-4179-8dfe-f77852407b86",
+              "0b0f83a2-acad-4ac6-b8c0-d35ba42e687a",
+              "281df374-d933-4266-a32f-46a81695fa72",
+              "a0748abc-be17-43cf-943a-678c1249c367",
+              "0dce60ba-6bc6-4c4d-a644-36a0ca172327",
+              "c21b730e-a286-4286-9c4a-6594c670f175"
+            ],
+            "activeTabId": "ccce5436-ae39-4179-8dfe-f77852407b86",
+            "visible": true,
+            "focused": false
+          }
+        ],
+        "tabIds": [
+          "be95dda9-3618-4a37-8867-bf8313f1e4f7"
+        ],
+        "foregroundBefore": 4,
+        "foregroundAfter": 4
+      }
+    },
+    {
+      "id": "R8c",
+      "criterion": "8",
+      "observable": "A close attempt reserves its own pages synchronously, and a binding attempted while a page is reserved is refused (TARGET_STALE) rather than bound and then destroyed",
+      "status": "PASS",
+      "observed": {
+        "reservedTab": "d5819911-fb02-4b81-8fb0-282594afbfd0",
+        "reservedDuringAttempt": {
+          "reservedTabIds": [
+            "3cceae7e-d577-4ab3-8ac4-683ac6ca035a",
+            "d5819911-fb02-4b81-8fb0-282594afbfd0"
+          ],
+          "inFlightOperations": 0,
+          "applicationReserved": false,
+          "reservedCount": 2
+        },
+        "mintOutcome": {
+          "admitted": false,
+          "code": "TARGET_STALE"
+        },
+        "report": {
+          "attemptId": 5,
+          "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d5",
+          "intent": "user",
+          "coalescedRequests": 0,
+          "coalesced": false,
+          "disposition": "closed",
+          "phase": "closed",
+          "closed": [
+            {
+              "tabId": "3cceae7e-d577-4ab3-8ac4-683ac6ca035a",
+              "outcome": "closed",
+              "attempted": true
+            },
+            {
+              "tabId": "d5819911-fb02-4b81-8fb0-282594afbfd0",
+              "outcome": "closed",
+              "attempted": true
+            }
+          ],
+          "skipped": [],
+          "failed": [],
+          "refusals": [],
+          "haltedBy": null,
+          "surface": {
+            "key": "project:project-00000000-0000-4000-8000-0000000000d5",
+            "kind": "browser",
+            "outcome": "closed"
+          },
+          "survivingTabIds": [],
+          "partial": false,
+          "lastBrowserShellGone": false,
+          "warnings": [],
+          "summary": "Close of project:project-00000000-0000-4000-8000-0000000000d5: shell closed (closed 2, skipped 0, failed 0)."
+        },
+        "epsilonTabsAfter": null,
+        "reservationsAfter": {
+          "reservedTabIds": [],
+          "inFlightOperations": 0,
+          "applicationReserved": false,
+          "reservedCount": 0
+        }
+      },
+      "ids": {
+        "windowIds": [
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d5",
+            "present": false
+          },
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d2",
+            "windowId": 2,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+            "tabIds": [
+              "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb",
+              "ccce5436-ae39-4179-8dfe-f77852407b86",
+              "0b0f83a2-acad-4ac6-b8c0-d35ba42e687a",
+              "281df374-d933-4266-a32f-46a81695fa72",
+              "a0748abc-be17-43cf-943a-678c1249c367",
+              "0dce60ba-6bc6-4c4d-a644-36a0ca172327",
+              "c21b730e-a286-4286-9c4a-6594c670f175"
+            ],
+            "activeTabId": "ccce5436-ae39-4179-8dfe-f77852407b86",
+            "visible": true,
+            "focused": false
+          }
+        ],
+        "tabIds": [
+          "d5819911-fb02-4b81-8fb0-282594afbfd0"
+        ],
+        "attachmentRevisionAfter": null
+      }
+    },
+    {
+      "id": "R9a",
+      "criterion": "9",
+      "observable": "An explicit Quit with real shared work queued is refused: nothing commits, no shell closes, services keep answering and admission is released",
+      "status": "PASS",
+      "observed": {
+        "queuedRunId": "run-564d2522-ca0f-4afb-b46f-d1fb942b9f75",
+        "chatId": "chat-3911ff3f-4d4e-417b-a069-312ecf0c0ffb",
+        "report": {
+          "attemptId": 6,
+          "coalescedRequests": 0,
+          "coalesced": false,
+          "shutdown": "not-committed",
+          "phase": "open",
+          "admissionReserved": false,
+          "shells": [],
+          "auxiliaries": [],
+          "closedShells": [],
+          "survivingShells": [
+            "project:project-00000000-0000-4000-8000-0000000000d2",
+            "project:project-00000000-0000-4000-8000-0000000000d3",
+            "project:project-00000000-0000-4000-8000-0000000000d4",
+            "unassigned",
+            "project:project-00000000-0000-4000-8000-0000000000d1",
+            "project:project-00000000-0000-4000-8000-0000000000d5"
+          ],
+          "refusals": [
+            {
+              "code": "unknown-live-use",
+              "detail": "Run run-d6a1f092-190f-4633-9278-3adde5adfdb7 reports state 'unverifiable', which is not a live-use state; 1 active attachment(s) hold page a0748abc-be17-43cf-943a-678c1249c367: attachment-2540cd97-4690-42d6-af73-41c36ac1c579; Run run-564d2522-ca0f-4afb-b46f-d1fb942b9f75 is queued",
+              "controls": [
+                {
+                  "id": "antifan:workflow:abort",
+                  "label": "Stop the run where it was started (the toolbar stop button for a workflow, the agent client for its own run), or wait for it to finish"
+                },
+                {
+                  "id": "antifan.cli.endSession",
+                  "label": "Stop the agent session that holds this page where it was started; a binding whose owner process is gone is released automatically"
+                }
+              ]
+            }
+          ],
+          "haltedBy": "unknown-live-use",
+          "warnings": [
+            "No surface was closed and no service was torn down."
+          ],
+          "summary": "Application quit: not committed, 0 browser shell(s) closed, 0 auxiliary surface(s) closed, stopped by unknown-live-use; services remain available for recovery."
+        },
+        "applicationPhase": "open",
+        "reservations": {
+          "reservedTabIds": [],
+          "inFlightOperations": 0,
+          "applicationReserved": false,
+          "reservedCount": 0
+        },
+        "shellCountBefore": 6,
+        "shellCountAfter": 6,
+        "runsAfter": [
+          {
+            "id": "run-564d2522-ca0f-4afb-b46f-d1fb942b9f75",
+            "state": "queued"
+          }
+        ],
+        "servicesAnswer": true
+      },
+      "ids": {
+        "windowIds": [
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d1",
+            "windowId": 9,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d1",
+            "tabIds": [
+              "143ceebc-027d-4bf1-a146-b07710c6f73e",
+              "278a692d-1367-4d8b-8c54-7b7a2efcdaa4",
+              "4065546d-4d12-444b-ba72-26af6cabf7d0",
+              "61cc3dc2-49e0-4bf4-887c-77b8f5b6ceda"
+            ],
+            "activeTabId": "61cc3dc2-49e0-4bf4-887c-77b8f5b6ceda",
+            "visible": false,
+            "focused": false
+          },
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d2",
+            "windowId": 2,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+            "tabIds": [
+              "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb",
+              "ccce5436-ae39-4179-8dfe-f77852407b86",
+              "0b0f83a2-acad-4ac6-b8c0-d35ba42e687a",
+              "281df374-d933-4266-a32f-46a81695fa72",
+              "a0748abc-be17-43cf-943a-678c1249c367",
+              "0dce60ba-6bc6-4c4d-a644-36a0ca172327",
+              "c21b730e-a286-4286-9c4a-6594c670f175"
+            ],
+            "activeTabId": "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb",
+            "visible": true,
+            "focused": true
+          }
+        ],
+        "projectIds": [
+          "project-00000000-0000-4000-8000-0000000000d1"
+        ],
+        "workspaceIds": [
+          "workspace-00000000-0000-4000-8000-0000000000d1"
+        ],
+        "attachmentRevisionBefore": {
+          "attachmentId": "attachment-2540cd97-4690-42d6-af73-41c36ac1c579",
+          "present": true,
+          "authorityRevision": "rev_dd65df5a54cc4e1ac8630aaefbc352be",
+          "revisionNumber": 6,
+          "tabId": "a0748abc-be17-43cf-943a-678c1249c367",
+          "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+          "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
+          "state": "active"
+        },
+        "attachmentRevisionAfter": {
+          "attachmentId": "attachment-2540cd97-4690-42d6-af73-41c36ac1c579",
+          "present": true,
+          "authorityRevision": "rev_dd65df5a54cc4e1ac8630aaefbc352be",
+          "revisionNumber": 6,
+          "tabId": "a0748abc-be17-43cf-943a-678c1249c367",
+          "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+          "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
+          "state": "active"
+        },
+        "foregroundBefore": 2,
+        "foregroundAfter": 2
+      }
+    },
+    {
+      "id": "R9b",
+      "criterion": "9",
+      "observable": "With no active work, the last browser shell closing drives the same gate to a committed, orderly quit: ordered teardown, no force exit, no surviving native window or auxiliary surface",
+      "status": "PASS",
+      "observed": {
+        "shellCountBefore": 6,
+        "terminalSessionsBefore": 2,
+        "auxiliariesBefore": 1,
+        "lastKey": "project:project-00000000-0000-4000-8000-0000000000d5",
+        "lastCloseRequested": true,
+        "willQuitSettled": "will-quit",
+        "report": {
+          "attemptId": 13,
+          "coalescedRequests": 1,
+          "coalesced": true,
+          "shutdown": "committed",
+          "phase": "closed",
+          "admissionReserved": true,
+          "shells": [],
+          "auxiliaries": [],
+          "closedShells": [],
+          "survivingShells": [],
+          "refusals": [],
+          "haltedBy": null,
+          "warnings": [],
+          "summary": "Application quit: committed after closing 0 browser shell(s) and 0 auxiliary surface(s)."
+        },
+        "finalShellCount": 0,
+        "liveWindows": [],
+        "auxiliaryWindowsAfter": [],
+        "journal": [
+          "window-closed.siblings-live",
+          "window-close.closed",
+          "tabhost.terminalWindowsLeftBehind",
+          "window-closed.siblings-live",
+          "window-close.closed",
+          "window-closed.siblings-live",
+          "window-close.closed",
+          "window-closed.siblings-live",
+          "window-close.closed",
+          "window-closed.siblings-live",
+          "window-close.closed",
+          "window-closed.last-browser-shell",
+          "quit.requested",
+          "window-all-closed",
+          "quit.requested",
+          "window-close.closed",
+          "shutdown.begin",
+          "shutdown.step.begin",
+          "shutdown.step.done",
+          "shutdown.step.begin",
+          "shutdown.step.done",
+          "shutdown.step.begin",
+          "shutdown.step.done",
+          "shutdown.step.begin",
+          "shutdown.step.done",
+          "shutdown.step.begin",
+          "shutdown.step.done",
+          "shutdown.step.begin",
+          "shutdown.step.done",
+          "shutdown.step.begin",
+          "shutdown.step.done",
+          "shutdown.step.begin",
+          "shutdown.step.done",
+          "shutdown.step.begin",
+          "shutdown.step.done",
+          "shutdown.clean",
+          "quit.outcome",
+          "app.quit",
+          "before-quit",
+          "will-quit",
+          "quit.outcome",
+          "app.quit",
+          "before-quit",
+          "will-quit"
+        ],
+        "journalDetail": [
+          {
+            "event": "quit.outcome",
+            "origin": "last-browser-shell-closed",
+            "shutdown": "committed",
+            "coalescedRequests": 1
+          },
+          {
+            "event": "will-quit"
+          },
+          {
+            "event": "quit.outcome",
+            "origin": "window-all-closed",
+            "shutdown": "committed",
+            "coalescedRequests": 1
+          },
+          {
+            "event": "will-quit"
+          }
+        ],
+        "willQuitEvents": 2,
+        "settleRunErrors": [],
+        "releasedAttachments": [
+          "attachment-2540cd97-4690-42d6-af73-41c36ac1c579",
+          "attachment-87c57a74-307b-4c62-81cc-a71df5d6a075"
+        ],
+        "refusedCloses": []
+      },
+      "ids": {
+        "windowIds": [
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d2",
+            "present": false
+          },
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d3",
+            "present": false
+          },
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d4",
+            "present": false
+          },
+          {
+            "ownerKey": "unassigned",
+            "present": false
+          },
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d1",
+            "present": false
+          },
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d5",
+            "present": false
+          }
+        ],
+        "projectIds": [
+          "project-00000000-0000-4000-8000-0000000000d1",
+          "project-00000000-0000-4000-8000-0000000000d2"
+        ],
+        "foregroundBefore": null,
+        "foregroundAfter": null
+      }
+    },
+    {
+      "id": "R9c",
+      "criterion": "9",
+      "observable": "Detached terminal host survival: after the shipping teardown the daemon identity is unchanged, the session created before the teardown still exists and an existing PTY still runs a command; then this harness stops the host it started",
+      "status": "PASS",
+      "observed": {
+        "beforeHandle": {
+          "mode": "attached",
+          "pid": 2448,
+          "port": 61551,
+          "token": "e1e97eebc86fc9e0a2d38040ae80d29da8a3b0c98713ef9d",
+          "version": "dd13ab84a1ffd111"
+        },
+        "afterHandle": {
+          "mode": "attached",
+          "pid": 2448,
+          "port": 61551,
+          "token": "e1e97eebc86fc9e0a2d38040ae80d29da8a3b0c98713ef9d",
+          "version": "dd13ab84a1ffd111"
+        },
+        "mode": "attached",
+        "sessionId": "terminal-2",
+        "phase": "closed",
+        "shellCount": 0,
+        "ping": {
+          "pong": true,
+          "pid": 2448,
+          "hostStartPid": 2448
+        },
+        "marker": "matrix-pty-mukdvbc0",
+        "sessionTail": "ents! https://aka.ms/PSWindows\\u001b[0K\\r\\n\\u001b[0K\\r\\n\\u001b[0K\\u001b[?25hPS C:\\\\Users\\\\Admin\\\\AppData\\\\Local\\\\Temp\\\\antifan-pw-matrix-WyWgKT\\\\beta>\\u001b[0K\\u001b[69G\\u001b[?25l\\rPS C:\\\\Users\\\\Admin\\\\AppData\\\\Local\\\\Temp\\\\antifan-pw-matrix-WyWgKT\\\\beta> \\u001b[0;33;93mecho\\u001b[0m matrix-pty-mu\\u001b[0Kkdvbc0\\u001b[0K\\r\\n\\u001b[0K\\u001b[?25hmatrix-pty-mukdvbc0\\u001b[0K\",\"snapshotThroughSeq\":6}",
+        "stoppedAfterwards": "pid 2448 is gone after shutdownHost()"
+      },
+      "ids": {
+        "windowIds": [],
+        "terminalSessionIds": [
+          "terminal-2"
+        ]
+      }
+    },
+    {
+      "id": "R9d",
+      "criterion": "9",
+      "observable": "After the committed teardown the process holds no page/renderer processes and no native windows for this instance",
+      "status": "PASS",
+      "observed": {
+        "inventory": {
+          "counts": {
+            "Browser": 1,
+            "GPU": 1,
+            "Utility": 1
+          },
+          "types": [
+            "Browser",
+            "GPU",
+            "Utility"
+          ],
+          "metrics": [
+            {
+              "pid": 18852,
+              "type": "Browser",
+              "workingSetKb": 223128,
+              "cpuPercent": 0
+            },
+            {
+              "pid": 28328,
+              "type": "GPU",
+              "workingSetKb": 216244,
+              "cpuPercent": 0
+            },
+            {
+              "pid": 27644,
+              "type": "Utility",
+              "workingSetKb": 123576,
+              "cpuPercent": 0
+            }
+          ],
+          "webContents": 0,
+          "nativeWindows": 0
+        },
+        "survivingPageProcessTypes": [],
+        "osChildren": [
+          20204,
+          28328,
+          27644,
+          9568,
+          6948
+        ],
+        "osChildrenSupported": true,
+        "windows": [],
+        "webContents": [],
+        "note": "this row judges the state after the committed teardown while the browser process is held open by the harness; the after-exit half is row R9E, decided by a second process",
+        "osChildrenNote": "the OS child-process inventory for row R9E was recorded here, before this process exits"
+      },
+      "ids": {
+        "orphanPids": [
+          20204,
+          28328,
+          27644,
+          9568,
+          6948
+        ]
+      }
+    },
+    {
+      "id": "R9E",
+      "criterion": "9",
+      "observable": "After this process exits, no process the harness started (browser, renderer, utility, daemon) survives it",
+      "status": "PASS",
+      "observed": {
+        "hostPid": 18852,
+        "recordedChildren": [
+          20204,
+          28328,
+          27644,
+          9568,
+          6948
+        ],
+        "watcher": {
+          "pid": 26916,
+          "reportPath": "E:\\Work\\apps\\AntiFan\\plans\\260927-0315-project-windows\\reports\\project-windows-matrix-orphans.json",
+          "logPath": "E:\\Work\\apps\\AntiFan\\plans\\260927-0315-project-windows\\reports\\project-windows-matrix-orphans.log",
+          "dataRootToken": "antifan-pw-matrix-WyWgKT",
+          "descendantCheckSupported": true
+        },
+        "reportPath": "E:\\Work\\apps\\AntiFan\\plans\\260927-0315-project-windows\\reports\\project-windows-matrix-orphans.json",
+        "note": "this row is BLOCKED in phase 1 by construction: nothing inside this process can observe a process that survives it",
+        "hostIdentityVerified": true,
+        "watcherReportToken": "antifan-pw-matrix-WyWgKT",
+        "supported": true,
+        "hostState": "gone",
+        "hostGone": true,
+        "survivorCheckRan": true,
+        "survivingPids": [],
+        "commandLineMatches": [],
+        "watcherCheckedAt": "2026-09-27T22:22:24.511Z",
+        "watcherPollCount": 6,
+        "watcherWindowMs": 180000,
+        "ancestorQueryUnanswered": 0
+      },
+      "ids": {
+        "orphanPids": []
+      }
+    },
+    {
+      "id": "R10a",
+      "criterion": "10",
+      "observable": "A page whose agent session ends keeps its user-visible tab and typed input state; a stale target refuses instead of being routed to another project's page",
+      "status": "PASS",
+      "observed": {
+        "emptyBefore": "",
+        "typed": "dang-go-form-state",
+        "stillListed": true,
+        "stillAlive": true,
+        "valueAfter": "dang-go-form-state",
+        "urlAfter": "http://127.0.0.1:61557/alpha",
+        "staleRetry": {
+          "ok": false,
+          "code": "AUTHENTICATION_DENIED",
+          "message": "Attachment attachment-fbcc7c07-08b7-49c8-a0bc-330b7de390b0 has been revoked",
+          "data": null,
+          "replacementAuthorityRevision": null
+        },
+        "urlAfterRetry": "http://127.0.0.1:61557/alpha",
+        "otherWindowsClaimingTheTab": [],
+        "alphaHostStillOwnsTheTab": true
+      },
+      "ids": {
+        "windowIds": [
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d1",
+            "windowId": 1,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d1",
+            "tabIds": [
+              "301df9a3-8403-4f21-bd71-548226444da0",
+              "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3"
+            ],
+            "activeTabId": "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3",
+            "visible": true,
+            "focused": true
+          },
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d2",
+            "windowId": 2,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+            "tabIds": [
+              "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb",
+              "ccce5436-ae39-4179-8dfe-f77852407b86",
+              "0b0f83a2-acad-4ac6-b8c0-d35ba42e687a",
+              "281df374-d933-4266-a32f-46a81695fa72",
+              "a0748abc-be17-43cf-943a-678c1249c367",
+              "0dce60ba-6bc6-4c4d-a644-36a0ca172327",
+              "c21b730e-a286-4286-9c4a-6594c670f175"
+            ],
+            "activeTabId": "ccce5436-ae39-4179-8dfe-f77852407b86",
+            "visible": true,
+            "focused": false
+          }
+        ],
+        "tabIds": [
+          "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3"
+        ],
+        "attachmentRevisionBefore": {
+          "attachmentId": "attachment-fbcc7c07-08b7-49c8-a0bc-330b7de390b0",
+          "present": true,
+          "authorityRevision": "rev_f330eee5d2a3583f88c0b6a9d9e14fe2",
+          "revisionNumber": 1,
+          "tabId": "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3",
+          "projectId": "project-00000000-0000-4000-8000-0000000000d1",
+          "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d1",
+          "state": "revoked"
+        },
+        "attachmentRevisionAfter": {
+          "attachmentId": "attachment-fbcc7c07-08b7-49c8-a0bc-330b7de390b0",
+          "present": true,
+          "authorityRevision": "rev_f330eee5d2a3583f88c0b6a9d9e14fe2",
+          "revisionNumber": 1,
+          "tabId": "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3",
+          "projectId": "project-00000000-0000-4000-8000-0000000000d1",
+          "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d1",
+          "state": "revoked"
+        },
+        "foregroundBefore": 1,
+        "foregroundAfter": 1
+      }
+    },
+    {
+      "id": "R10b",
+      "criterion": "10",
+      "observable": "A real bridge transport client that drops mid-session (abrupt socket close) leaves the window, its tabs, the tab's resolution and the in-page form value intact, and a fresh connection still works",
+      "status": "PASS",
+      "observed": {
+        "callBeforeDrop": {
+          "success": true,
+          "error": null,
+          "hasData": true
+        },
+        "callAfterReconnect": {
+          "success": true,
+          "error": null,
+          "hasData": true
+        },
+        "emptyBefore": "",
+        "typedBeforeDrop": "dang-go-form-state-transport-drop",
+        "typedAfterDrop": "dang-go-form-state-transport-drop",
+        "tabsBefore": [
+          "301df9a3-8403-4f21-bd71-548226444da0",
+          "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3"
+        ],
+        "tabsAfter": [
+          "301df9a3-8403-4f21-bd71-548226444da0",
+          "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3"
+        ],
+        "pageAlive": true,
+        "windowStillOwnsTab": true,
+        "tabStillListedForUser": true,
+        "socketState": {
+          "readyState": 3,
+          "destroyed": true
+        },
+        "windowCount": 2
+      },
+      "ids": {
+        "windowIds": [
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d1",
+            "windowId": 1,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d1",
+            "tabIds": [
+              "301df9a3-8403-4f21-bd71-548226444da0",
+              "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3"
+            ],
+            "activeTabId": "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3",
+            "visible": true,
+            "focused": true
+          },
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d2",
+            "windowId": 2,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+            "tabIds": [
+              "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb",
+              "ccce5436-ae39-4179-8dfe-f77852407b86",
+              "0b0f83a2-acad-4ac6-b8c0-d35ba42e687a",
+              "281df374-d933-4266-a32f-46a81695fa72",
+              "a0748abc-be17-43cf-943a-678c1249c367",
+              "0dce60ba-6bc6-4c4d-a644-36a0ca172327",
+              "c21b730e-a286-4286-9c4a-6594c670f175"
+            ],
+            "activeTabId": "ccce5436-ae39-4179-8dfe-f77852407b86",
+            "visible": true,
+            "focused": false
+          }
+        ],
+        "tabIds": [
+          "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3"
+        ],
+        "projectIds": [
+          "project-00000000-0000-4000-8000-0000000000d1"
+        ],
+        "workspaceIds": [
+          "workspace-00000000-0000-4000-8000-0000000000d1"
+        ],
+        "attachmentRevisionBefore": {
+          "attachmentId": "attachment-260ecf7a-909d-480d-811c-04fb6a582946",
+          "present": true,
+          "authorityRevision": "rev_6440fabac244008555f0028f3452f787",
+          "revisionNumber": 1,
+          "tabId": "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3",
+          "projectId": "project-00000000-0000-4000-8000-0000000000d1",
+          "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d1",
+          "state": "active"
+        },
+        "attachmentRevisionAfter": {
+          "attachmentId": "attachment-260ecf7a-909d-480d-811c-04fb6a582946",
+          "present": true,
+          "authorityRevision": "rev_6440fabac244008555f0028f3452f787",
+          "revisionNumber": 1,
+          "tabId": "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3",
+          "projectId": "project-00000000-0000-4000-8000-0000000000d1",
+          "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d1",
+          "state": "active"
+        },
+        "foregroundBefore": 1,
+        "foregroundAfter": 1
+      }
+    },
+    {
+      "id": "R11",
+      "criterion": "11",
+      "observable": "Opening separate windows manufactures no cookie isolation: A's tabs keep the same partition names and the same live Session objects, and each window's partitions are recorded",
+      "status": "PASS",
+      "observed": {
+        "alphaPartitionsBeforeSecondWindow": [
+          "persist:profile-default"
+        ],
+        "alphaPartitionsNow": [
+          "persist:profile-default"
+        ],
+        "betaPartitions": [
+          "persist:profile-default"
+        ],
+        "sessionIdentity": {
+          "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3": {
+            "sameLiveSessionObject": true,
+            "sessionPresent": true,
+            "partitionBefore": "persist:profile-default",
+            "partitionNow": "persist:profile-default",
+            "partitionNamesForSession": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-WyWgKT\\Profile\\Partitions\\profile-default"
+          }
+        },
+        "betaTabRecords": [
+          {
+            "tabId": "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb",
+            "url": "https://www.google.com/",
+            "title": "Google",
+            "capsuleId": "capsule-matrix-beta",
+            "partition": "persist:profile-default",
+            "devicePresetId": "responsive",
+            "splitMode": false,
+            "splitDesktopPresetId": null,
+            "splitMobilePresetId": null,
+            "splitFocusedPane": null,
+            "offscreen": false,
+            "ephemeral": false,
+            "windowOwnerKey": "project:project-00000000-0000-4000-8000-0000000000d2"
+          },
+          {
+            "tabId": "ccce5436-ae39-4179-8dfe-f77852407b86",
+            "url": "http://127.0.0.1:61557/beta",
+            "title": "Matrix Beta Page",
+            "capsuleId": "capsule-matrix-beta",
+            "partition": "persist:profile-default",
+            "devicePresetId": "responsive",
+            "splitMode": false,
+            "splitDesktopPresetId": null,
+            "splitMobilePresetId": null,
+            "splitFocusedPane": null,
+            "offscreen": false,
+            "ephemeral": false,
+            "windowOwnerKey": "project:project-00000000-0000-4000-8000-0000000000d2"
+          },
+          {
+            "tabId": "0b0f83a2-acad-4ac6-b8c0-d35ba42e687a",
+            "url": "about:blank",
+            "title": "New Tab",
+            "capsuleId": "capsule-matrix-beta",
+            "partition": "persist:profile-default",
+            "devicePresetId": "responsive",
+            "splitMode": false,
+            "splitDesktopPresetId": null,
+            "splitMobilePresetId": null,
+            "splitFocusedPane": null,
+            "offscreen": false,
+            "ephemeral": false,
+            "windowOwnerKey": "project:project-00000000-0000-4000-8000-0000000000d2"
+          },
+          {
+            "tabId": "281df374-d933-4266-a32f-46a81695fa72",
+            "url": "http://127.0.0.1:61557/child",
+            "title": "Matrix Child Page",
+            "capsuleId": "capsule-matrix-beta",
+            "partition": "persist:profile-default",
+            "devicePresetId": "responsive",
+            "splitMode": false,
+            "splitDesktopPresetId": null,
+            "splitMobilePresetId": null,
+            "splitFocusedPane": null,
+            "offscreen": false,
+            "ephemeral": false,
+            "windowOwnerKey": "project:project-00000000-0000-4000-8000-0000000000d2"
+          },
+          {
+            "tabId": "a0748abc-be17-43cf-943a-678c1249c367",
+            "url": "http://127.0.0.1:61557/agent-child?owner=first",
+            "title": "Matrix Agent Child Page",
+            "capsuleId": "capsule-matrix-beta",
+            "partition": "persist:profile-default",
+            "devicePresetId": "responsive",
+            "splitMode": false,
+            "splitDesktopPresetId": null,
+            "splitMobilePresetId": null,
+            "splitFocusedPane": null,
+            "offscreen": false,
+            "ephemeral": false,
+            "windowOwnerKey": "project:project-00000000-0000-4000-8000-0000000000d2"
+          },
+          {
+            "tabId": "0dce60ba-6bc6-4c4d-a644-36a0ca172327",
+            "url": "about:blank",
+            "title": "New Tab",
+            "capsuleId": "capsule-matrix-beta",
+            "partition": "persist:profile-default",
+            "devicePresetId": "responsive",
+            "splitMode": false,
+            "splitDesktopPresetId": null,
+            "splitMobilePresetId": null,
+            "splitFocusedPane": null,
+            "offscreen": false,
+            "ephemeral": false,
+            "windowOwnerKey": "project:project-00000000-0000-4000-8000-0000000000d2"
+          },
+          {
+            "tabId": "c21b730e-a286-4286-9c4a-6594c670f175",
+            "url": "http://127.0.0.1:61557/beta?owner=second",
+            "title": "Matrix Beta Page",
+            "capsuleId": "capsule-matrix-beta",
+            "partition": "persist:profile-default",
+            "devicePresetId": "responsive",
+            "splitMode": false,
+            "splitDesktopPresetId": null,
+            "splitMobilePresetId": null,
+            "splitFocusedPane": null,
+            "offscreen": false,
+            "ephemeral": false,
+            "windowOwnerKey": "project:project-00000000-0000-4000-8000-0000000000d2"
+          }
+        ]
+      },
+      "ids": {
+        "windowIds": [
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d1",
+            "windowId": 1,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d1",
+            "tabIds": [
+              "301df9a3-8403-4f21-bd71-548226444da0",
+              "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3"
+            ],
+            "activeTabId": "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3",
+            "visible": true,
+            "focused": true
+          },
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d2",
+            "windowId": 2,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+            "tabIds": [
+              "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb",
+              "ccce5436-ae39-4179-8dfe-f77852407b86",
+              "0b0f83a2-acad-4ac6-b8c0-d35ba42e687a",
+              "281df374-d933-4266-a32f-46a81695fa72",
+              "a0748abc-be17-43cf-943a-678c1249c367",
+              "0dce60ba-6bc6-4c4d-a644-36a0ca172327",
+              "c21b730e-a286-4286-9c4a-6594c670f175"
+            ],
+            "activeTabId": "ccce5436-ae39-4179-8dfe-f77852407b86",
+            "visible": true,
+            "focused": false
+          }
+        ],
+        "tabIds": [
+          "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3"
+        ],
+        "projectIds": [
+          "project-00000000-0000-4000-8000-0000000000d1",
+          "project-00000000-0000-4000-8000-0000000000d2"
+        ],
+        "workspaceIds": [
+          "workspace-00000000-0000-4000-8000-0000000000d1",
+          "workspace-00000000-0000-4000-8000-0000000000d2"
+        ]
+      }
+    },
+    {
+      "id": "R12a",
+      "criterion": "12",
+      "observable": "At 960x640 DIP the chrome is laid out inside the window, the native tab view starts exactly at the toolbar's bottom edge and never inside it, every control is reachable, and the search control's keyboard contract works",
+      "status": "PASS",
+      "observed": {
+        "windowBounds": {
+          "x": 10,
+          "y": 10,
+          "width": 960,
+          "height": 640
+        },
+        "requestedOuterSize": {
+          "width": 960,
+          "height": 640
+        },
+        "display": {
+          "id": 3582874238,
+          "scaleFactor": 1,
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "width": 1920,
+            "height": 1080
+          },
+          "workArea": {
+            "x": 0,
+            "y": 0,
+            "width": 1920,
+            "height": 1032
+          }
+        },
+        "plainTab": "8899ad19-be0a-4321-8b14-befd85fa6ebb",
+        "native": {
+          "windowId": 1,
+          "contentBounds": {
+            "x": 18,
+            "y": 67,
+            "width": 944,
+            "height": 575
+          },
+          "geometry": {
+            "width": 944,
+            "height": 575,
+            "toolbarHeight": 76,
+            "availableWidth": 944,
+            "availableHeight": 499,
+            "sidebarActualWidth": 0
+          },
+          "toolbarHeight": 76,
+          "toolbarRect": {
+            "x": 0,
+            "y": 0,
+            "width": 944,
+            "height": 76
+          },
+          "sidebarRect": {
+            "x": 944,
+            "y": 0,
+            "width": 0,
+            "height": 0
+          },
+          "sidebarOpen": false,
+          "pageRect": {
+            "x": 0,
+            "y": 76,
+            "width": 944,
+            "height": 499
+          },
+          "viewRects": {
+            "rects": [
+              {
+                "contentsId": 3,
+                "bounds": {
+                  "x": 0,
+                  "y": 76,
+                  "width": 944,
+                  "height": 499
+                },
+                "type": "WebContentsView"
+              },
+              {
+                "contentsId": 19,
+                "bounds": {
+                  "x": 0,
+                  "y": 76,
+                  "width": 944,
+                  "height": 499
+                },
+                "type": "WebContentsView"
+              },
+              {
+                "contentsId": 4,
+                "bounds": {
+                  "x": 944,
+                  "y": 0,
+                  "width": 0,
+                  "height": 0
+                },
+                "type": "WebContentsView"
+              },
+              {
+                "contentsId": 2,
+                "bounds": {
+                  "x": 0,
+                  "y": 0,
+                  "width": 944,
+                  "height": 76
+                },
+                "type": "WebContentsView"
+              }
+            ]
+          }
+        },
+        "layout": {
+          "viewport": {
+            "width": 944,
+            "height": 76
+          },
+          "rects": {
+            "projectChip": {
+              "x": 8,
+              "y": 7,
+              "width": 240,
+              "height": 26,
+              "right": 248,
+              "bottom": 33,
+              "display": "flex",
+              "visibility": "visible",
+              "overflow": "visible"
+            },
+            "projectChipTitle": {
+              "x": 35,
+              "y": 13,
+              "width": 88,
+              "height": 15,
+              "right": 123,
+              "bottom": 28,
+              "display": "block",
+              "visibility": "visible",
+              "overflow": "hidden"
+            },
+            "projectChipPath": {
+              "x": 129,
+              "y": 13,
+              "width": 110,
+              "height": 14,
+              "right": 239,
+              "bottom": 27,
+              "display": "block",
+              "visibility": "visible",
+              "overflow": "hidden"
+            },
+            "tabStrip": {
+              "x": 0,
+              "y": 0,
+              "width": 944,
+              "height": 38,
+              "right": 944,
+              "bottom": 38,
+              "display": "flex",
+              "visibility": "visible",
+              "overflow": "auto"
+            },
+            "btnTabSearch": {
+              "x": 873,
+              "y": 6,
+              "width": 28,
+              "height": 28,
+              "right": 901,
+              "bottom": 34,
+              "display": "flex",
+              "visibility": "visible",
+              "overflow": "visible"
+            },
+            "btnNewTab": {
+              "x": 908,
+              "y": 6,
+              "width": 28,
+              "height": 28,
+              "right": 936,
+              "bottom": 34,
+              "display": "flex",
+              "visibility": "visible",
+              "overflow": "visible"
+            },
+            "urlInput": {
+              "x": 167,
+              "y": 49,
+              "width": 183,
+              "height": 16,
+              "right": 350,
+              "bottom": 65,
+              "display": "block",
+              "visibility": "visible",
+              "overflow": "clip"
+            },
+            "btnToggleSplit": {
+              "x": 397,
+              "y": 43,
+              "width": 28,
+              "height": 28,
+              "right": 425,
+              "bottom": 71,
+              "display": "flex",
+              "visibility": "visible",
+              "overflow": "visible"
+            }
+          },
+          "tabStrip": {
+            "x": 0,
+            "y": 0,
+            "width": 944,
+            "height": 38,
+            "right": 944,
+            "bottom": 38,
+            "display": "flex",
+            "visibility": "visible",
+            "overflow": "auto"
+          },
+          "laidOutCount": 8,
+          "clippedHorizontally": [],
+          "clippedVertically": [],
+          "collisions": [],
+          "overlay": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "right": 0,
+            "bottom": 0,
+            "display": "none",
+            "visibility": "visible",
+            "overflow": "visible"
+          },
+          "overlayPanel": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "right": 0,
+            "bottom": 0,
+            "display": "flex",
+            "visibility": "visible",
+            "overflow": "hidden"
+          },
+          "overlayRows": [],
+          "rowsOutsideOverlay": 0,
+          "chipTitle": "Matrix Storefront [DEV]",
+          "chipPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-WyWgKT\\alpha",
+          "activeElementId": null,
+          "tabSearchDisplay": "none",
+          "tabSearchInlineDisplay": "none",
+          "tabSearchState": "idle",
+          "tabSearchActiveDescendant": "",
+          "tabSearchStatus": "",
+          "tabSearchRowCount": 0
+        },
+        "overlayOpen": {
+          "overlay": {
+            "x": 0,
+            "y": 0,
+            "width": 944,
+            "height": 575,
+            "right": 944,
+            "bottom": 575,
+            "display": "flex",
+            "visibility": "visible",
+            "overflow": "visible"
+          },
+          "panel": {
+            "x": 132,
+            "y": 56,
+            "width": 680,
+            "height": 58,
+            "right": 812,
+            "bottom": 114,
+            "display": "flex",
+            "visibility": "visible",
+            "overflow": "hidden"
+          },
+          "viewport": {
+            "width": 944,
+            "height": 575
+          }
+        },
+        "overlayWithRows": {
+          "rowCount": 10,
+          "layerState": "results",
+          "status": "10 tab đang mở",
+          "rowsOutsideOverlay": 0,
+          "firstRows": [
+            {
+              "x": 143,
+              "y": 129,
+              "width": 648,
+              "height": 53,
+              "right": 791,
+              "bottom": 182,
+              "display": "flex",
+              "visibility": "visible",
+              "overflow": "visible"
+            },
+            {
+              "x": 143,
+              "y": 186,
+              "width": 648,
+              "height": 53,
+              "right": 791,
+              "bottom": 239,
+              "display": "flex",
+              "visibility": "visible",
+              "overflow": "visible"
+            },
+            {
+              "x": 143,
+              "y": 243,
+              "width": 648,
+              "height": 53,
+              "right": 791,
+              "bottom": 296,
+              "display": "flex",
+              "visibility": "visible",
+              "overflow": "visible"
+            }
+          ]
+        },
+        "afterArrowDown": {
+          "activeDescendant": "tabSearchOption1"
+        },
+        "keyTrail": [
+          "ArrowDown",
+          "Escape"
+        ],
+        "afterEscape": {
+          "activeElementId": "btnTabSearch",
+          "keyTrail": [
+            "ArrowDown",
+            "Escape"
+          ]
+        }
+      },
+      "ids": {
+        "windowIds": [
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d1",
+            "windowId": 1,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d1",
+            "tabIds": [
+              "301df9a3-8403-4f21-bd71-548226444da0",
+              "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3",
+              "8899ad19-be0a-4321-8b14-befd85fa6ebb"
+            ],
+            "activeTabId": "8899ad19-be0a-4321-8b14-befd85fa6ebb",
+            "visible": true,
+            "focused": true
+          }
+        ],
+        "tabIds": [
+          "8899ad19-be0a-4321-8b14-befd85fa6ebb",
+          "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3"
+        ],
+        "foregroundBefore": 1,
+        "foregroundAfter": 1
+      }
+    },
+    {
+      "id": "R12b",
+      "criterion": "12",
+      "observable": "At the maximized size the chrome stays laid out inside the window, the native tab view stays inside the content area, and the window sits inside its display's usable work area",
+      "status": "PASS",
+      "observed": {
+        "maximized": true,
+        "bounds": {
+          "x": -8,
+          "y": -8,
+          "width": 1936,
+          "height": 1048
+        },
+        "display": {
+          "id": 3582874238,
+          "scaleFactor": 1,
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "width": 1920,
+            "height": 1080
+          },
+          "workArea": {
+            "x": 0,
+            "y": 0,
+            "width": 1920,
+            "height": 1032
+          }
+        },
+        "plainTab": "8899ad19-be0a-4321-8b14-befd85fa6ebb",
+        "native": {
+          "windowId": 1,
+          "contentBounds": {
+            "x": 0,
+            "y": 49,
+            "width": 1920,
+            "height": 983
+          },
+          "geometry": {
+            "width": 1920,
+            "height": 983,
+            "toolbarHeight": 76,
+            "availableWidth": 1920,
+            "availableHeight": 907,
+            "sidebarActualWidth": 0
+          },
+          "toolbarHeight": 76,
+          "toolbarRect": {
+            "x": 0,
+            "y": 0,
+            "width": 1920,
+            "height": 76
+          },
+          "sidebarRect": {
+            "x": 1920,
+            "y": 0,
+            "width": 0,
+            "height": 0
+          },
+          "sidebarOpen": false,
+          "pageRect": {
+            "x": 0,
+            "y": 76,
+            "width": 1920,
+            "height": 907
+          },
+          "viewRects": {
+            "rects": [
+              {
+                "contentsId": 3,
+                "bounds": {
+                  "x": 0,
+                  "y": 76,
+                  "width": 1920,
+                  "height": 907
+                },
+                "type": "WebContentsView"
+              },
+              {
+                "contentsId": 19,
+                "bounds": {
+                  "x": 0,
+                  "y": 76,
+                  "width": 1920,
+                  "height": 907
+                },
+                "type": "WebContentsView"
+              },
+              {
+                "contentsId": 4,
+                "bounds": {
+                  "x": 1920,
+                  "y": 0,
+                  "width": 0,
+                  "height": 0
+                },
+                "type": "WebContentsView"
+              },
+              {
+                "contentsId": 2,
+                "bounds": {
+                  "x": 0,
+                  "y": 0,
+                  "width": 1920,
+                  "height": 76
+                },
+                "type": "WebContentsView"
+              }
+            ]
+          }
+        },
+        "layout": {
+          "viewport": {
+            "width": 1920,
+            "height": 76
+          },
+          "rects": {
+            "projectChip": {
+              "x": 8,
+              "y": 7,
+              "width": 240,
+              "height": 26,
+              "right": 248,
+              "bottom": 33,
+              "display": "flex",
+              "visibility": "visible",
+              "overflow": "visible"
+            },
+            "projectChipTitle": {
+              "x": 35,
+              "y": 13,
+              "width": 88,
+              "height": 15,
+              "right": 123,
+              "bottom": 28,
+              "display": "block",
+              "visibility": "visible",
+              "overflow": "hidden"
+            },
+            "projectChipPath": {
+              "x": 129,
+              "y": 13,
+              "width": 110,
+              "height": 14,
+              "right": 239,
+              "bottom": 27,
+              "display": "block",
+              "visibility": "visible",
+              "overflow": "hidden"
+            },
+            "tabStrip": {
+              "x": 0,
+              "y": 0,
+              "width": 1920,
+              "height": 38,
+              "right": 1920,
+              "bottom": 38,
+              "display": "flex",
+              "visibility": "visible",
+              "overflow": "auto"
+            },
+            "btnTabSearch": {
+              "x": 988,
+              "y": 6,
+              "width": 28,
+              "height": 28,
+              "right": 1016,
+              "bottom": 34,
+              "display": "flex",
+              "visibility": "visible",
+              "overflow": "visible"
+            },
+            "btnNewTab": {
+              "x": 1023,
+              "y": 6,
+              "width": 28,
+              "height": 28,
+              "right": 1051,
+              "bottom": 34,
+              "display": "flex",
+              "visibility": "visible",
+              "overflow": "visible"
+            },
+            "urlInput": {
+              "x": 167,
+              "y": 49,
+              "width": 995,
+              "height": 16,
+              "right": 1162,
+              "bottom": 65,
+              "display": "block",
+              "visibility": "visible",
+              "overflow": "clip"
+            },
+            "btnToggleSplit": {
+              "x": 1209,
+              "y": 43,
+              "width": 28,
+              "height": 28,
+              "right": 1237,
+              "bottom": 71,
+              "display": "flex",
+              "visibility": "visible",
+              "overflow": "visible"
+            }
+          },
+          "tabStrip": {
+            "x": 0,
+            "y": 0,
+            "width": 1920,
+            "height": 38,
+            "right": 1920,
+            "bottom": 38,
+            "display": "flex",
+            "visibility": "visible",
+            "overflow": "auto"
+          },
+          "laidOutCount": 8,
+          "clippedHorizontally": [],
+          "clippedVertically": [],
+          "collisions": [],
+          "overlay": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "right": 0,
+            "bottom": 0,
+            "display": "none",
+            "visibility": "visible",
+            "overflow": "visible"
+          },
+          "overlayPanel": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "right": 0,
+            "bottom": 0,
+            "display": "flex",
+            "visibility": "visible",
+            "overflow": "hidden"
+          },
+          "overlayRows": [],
+          "rowsOutsideOverlay": 0,
+          "chipTitle": "Matrix Storefront [DEV]",
+          "chipPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-WyWgKT\\alpha",
+          "activeElementId": "btnTabSearch",
+          "tabSearchDisplay": "none",
+          "tabSearchInlineDisplay": "none",
+          "tabSearchState": "idle",
+          "tabSearchActiveDescendant": null,
+          "tabSearchStatus": "",
+          "tabSearchRowCount": 0
+        }
+      },
+      "ids": {
+        "windowIds": [
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d1",
+            "windowId": 1,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d1",
+            "tabIds": [
+              "301df9a3-8403-4f21-bd71-548226444da0",
+              "2eac2af1-3c5a-490c-8dd2-5d60d87cd2a3",
+              "8899ad19-be0a-4321-8b14-befd85fa6ebb"
+            ],
+            "activeTabId": "8899ad19-be0a-4321-8b14-befd85fa6ebb",
+            "visible": true,
+            "focused": true
+          }
+        ],
+        "tabIds": [
+          "8899ad19-be0a-4321-8b14-befd85fa6ebb"
+        ],
+        "foregroundBefore": 1,
+        "foregroundAfter": 1
+      }
+    },
+    {
+      "id": "S1",
+      "criterion": "Search supplement",
+      "observable": "Every window lists the same cross-project inventory, including foreign and Unassigned rows with Main labels, and literal case-insensitive title/URL matching filters it",
+      "status": "PASS",
+      "observed": {
+        "fromAlpha": {
+          "status": "OK",
+          "rowCount": 13
+        },
+        "fromBeta": {
+          "status": "OK",
+          "rowCount": 13
+        },
+        "fromUnassigned": {
+          "status": "OK",
+          "rowCount": 13
+        },
+        "ownerLabels": [
+          "Matrix Beta [DEV]",
+          "Matrix Gamma [DEV]",
+          "Matrix Storefront [DEV]",
+          "Unassigned [DEV]"
+        ],
+        "duplicateNamePaths": [
+          "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-WyWgKT\\delta",
+          "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-WyWgKT\\alpha",
+          "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-WyWgKT\\alpha"
+        ],
+        "literalQueries": {
+          "title": {
+            "query": "matrix alpha page",
+            "status": "OK",
+            "rowCount": 1
+          },
+          "url": {
+            "query": "HTTP://127.0.0.1",
+            "status": "OK",
+            "rowCount": 8
+          },
+          "unmatched": {
+            "query": "matrix-no-such-page-7c1f",
+            "status": "OK",
+            "rowCount": 0
+          }
+        },
+        "literalSample": [
+          {
+            "tabId": "278a692d-1367-4d8b-8c54-7b7a2efcdaa4",
+            "title": "Matrix Alpha Page",
+            "url": "http://127.0.0.1:61557/alpha",
+            "ownerLabel": "Matrix Storefront [DEV]"
+          }
+        ],
+        "urlLiteralSample": [
+          {
+            "tabId": "ccce5436-ae39-4179-8dfe-f77852407b86",
+            "url": "http://127.0.0.1:61557/beta"
+          },
+          {
+            "tabId": "281df374-d933-4266-a32f-46a81695fa72",
+            "url": "http://127.0.0.1:61557/child"
+          },
+          {
+            "tabId": "a0748abc-be17-43cf-943a-678c1249c367",
+            "url": "http://127.0.0.1:61557/agent-child?owner=first"
+          },
+          {
+            "tabId": "c21b730e-a286-4286-9c4a-6594c670f175",
+            "url": "http://127.0.0.1:61557/beta?owner=second"
+          },
+          {
+            "tabId": "cd21bed7-8bba-466c-ac35-ab41948ba462",
+            "url": "http://127.0.0.1:61557/veto"
+          }
+        ],
+        "alphaSupplementTab": "278a692d-1367-4d8b-8c54-7b7a2efcdaa4",
+        "alphaSupplementTitle": "Matrix Alpha Page"
+      },
+      "ids": {
+        "windowIds": [
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d1",
+            "windowId": 9,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d1",
+            "tabIds": [
+              "143ceebc-027d-4bf1-a146-b07710c6f73e",
+              "278a692d-1367-4d8b-8c54-7b7a2efcdaa4"
+            ],
+            "activeTabId": "278a692d-1367-4d8b-8c54-7b7a2efcdaa4",
+            "visible": false,
+            "focused": false
+          },
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d2",
+            "windowId": 2,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+            "tabIds": [
+              "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb",
+              "ccce5436-ae39-4179-8dfe-f77852407b86",
+              "0b0f83a2-acad-4ac6-b8c0-d35ba42e687a",
+              "281df374-d933-4266-a32f-46a81695fa72",
+              "a0748abc-be17-43cf-943a-678c1249c367",
+              "0dce60ba-6bc6-4c4d-a644-36a0ca172327",
+              "c21b730e-a286-4286-9c4a-6594c670f175"
+            ],
+            "activeTabId": "ccce5436-ae39-4179-8dfe-f77852407b86",
+            "visible": true,
+            "focused": false
+          },
+          {
+            "ownerKey": "unassigned",
+            "windowId": 8,
+            "projectId": "unassigned",
+            "tabIds": [
+              "701f8080-7888-4687-9b68-a4bb764ab94d",
+              "0b172761-bed7-4026-ae44-f31df02ee6a0"
+            ],
+            "activeTabId": "701f8080-7888-4687-9b68-a4bb764ab94d",
+            "visible": false,
+            "focused": false
+          }
+        ],
+        "tabIds": [
+          "278a692d-1367-4d8b-8c54-7b7a2efcdaa4",
+          "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb",
+          "ccce5436-ae39-4179-8dfe-f77852407b86",
+          "0b0f83a2-acad-4ac6-b8c0-d35ba42e687a",
+          "281df374-d933-4266-a32f-46a81695fa72",
+          "a0748abc-be17-43cf-943a-678c1249c367",
+          "0dce60ba-6bc6-4c4d-a644-36a0ca172327",
+          "c21b730e-a286-4286-9c4a-6594c670f175",
+          "cd21bed7-8bba-466c-ac35-ab41948ba462",
+          "be95dda9-3618-4a37-8867-bf8313f1e4f7",
+          "701f8080-7888-4687-9b68-a4bb764ab94d",
+          "0b172761-bed7-4026-ae44-f31df02ee6a0",
+          "143ceebc-027d-4bf1-a146-b07710c6f73e",
+          "278a692d-1367-4d8b-8c54-7b7a2efcdaa4"
+        ]
+      }
+    },
+    {
+      "id": "S2",
+      "criterion": "Search supplement",
+      "observable": "Explicit activation of a foreign result focuses that tab's owner window and selects exactly that tab, without changing the invoking window's active tab or rotating attachment authority",
+      "status": "PASS",
+      "observed": {
+        "inventoryRowCount": 13,
+        "chosenTabId": "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb",
+        "chosenRow": {
+          "tabId": "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb",
+          "ownerLabel": "Matrix Beta [DEV]",
+          "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-WyWgKT\\beta"
+        },
+        "result": {
+          "status": "ACTIVATED",
+          "tabId": "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb"
+        },
+        "betaActiveAfter": "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb",
+        "alphaActiveBefore": "278a692d-1367-4d8b-8c54-7b7a2efcdaa4",
+        "alphaActiveAfter": "278a692d-1367-4d8b-8c54-7b7a2efcdaa4",
+        "foregroundAfter": "project:project-00000000-0000-4000-8000-0000000000d2",
+        "revisionBefore": {
+          "attachmentId": "attachment-2540cd97-4690-42d6-af73-41c36ac1c579",
+          "present": true,
+          "authorityRevision": "rev_dd65df5a54cc4e1ac8630aaefbc352be",
+          "revisionNumber": 6,
+          "tabId": "a0748abc-be17-43cf-943a-678c1249c367",
+          "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+          "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
+          "state": "active"
+        },
+        "revisionAfter": {
+          "attachmentId": "attachment-2540cd97-4690-42d6-af73-41c36ac1c579",
+          "present": true,
+          "authorityRevision": "rev_dd65df5a54cc4e1ac8630aaefbc352be",
+          "revisionNumber": 6,
+          "tabId": "a0748abc-be17-43cf-943a-678c1249c367",
+          "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+          "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
+          "state": "active"
+        }
+      },
+      "ids": {
+        "windowIds": [
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d1",
+            "windowId": 9,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d1",
+            "tabIds": [
+              "143ceebc-027d-4bf1-a146-b07710c6f73e",
+              "278a692d-1367-4d8b-8c54-7b7a2efcdaa4"
+            ],
+            "activeTabId": "278a692d-1367-4d8b-8c54-7b7a2efcdaa4",
+            "visible": false,
+            "focused": false
+          },
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d2",
+            "windowId": 2,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+            "tabIds": [
+              "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb",
+              "ccce5436-ae39-4179-8dfe-f77852407b86",
+              "0b0f83a2-acad-4ac6-b8c0-d35ba42e687a",
+              "281df374-d933-4266-a32f-46a81695fa72",
+              "a0748abc-be17-43cf-943a-678c1249c367",
+              "0dce60ba-6bc6-4c4d-a644-36a0ca172327",
+              "c21b730e-a286-4286-9c4a-6594c670f175"
+            ],
+            "activeTabId": "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb",
+            "visible": true,
+            "focused": true
+          }
+        ],
+        "tabIds": [
+          "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb"
+        ],
+        "attachmentRevisionBefore": {
+          "attachmentId": "attachment-2540cd97-4690-42d6-af73-41c36ac1c579",
+          "present": true,
+          "authorityRevision": "rev_dd65df5a54cc4e1ac8630aaefbc352be",
+          "revisionNumber": 6,
+          "tabId": "a0748abc-be17-43cf-943a-678c1249c367",
+          "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+          "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
+          "state": "active"
+        },
+        "attachmentRevisionAfter": {
+          "attachmentId": "attachment-2540cd97-4690-42d6-af73-41c36ac1c579",
+          "present": true,
+          "authorityRevision": "rev_dd65df5a54cc4e1ac8630aaefbc352be",
+          "revisionNumber": 6,
+          "tabId": "a0748abc-be17-43cf-943a-678c1249c367",
+          "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+          "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
+          "state": "active"
+        },
+        "foregroundBefore": 2,
+        "foregroundAfter": 2
+      }
+    },
+    {
+      "id": "S3",
+      "criterion": "Search supplement",
+      "observable": "A stale search result reports unavailable with no substitute tab and no focus change",
+      "status": "PASS",
+      "observed": {
+        "result": {
+          "status": "UNAVAILABLE",
+          "tabId": "tab-that-never-existed",
+          "reasonCode": "TAB_CLOSED",
+          "reason": "TAB_UNAVAILABLE"
+        },
+        "activeTabsBefore": [
+          [
+            "project:project-00000000-0000-4000-8000-0000000000d2",
+            "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb"
+          ],
+          [
+            "project:project-00000000-0000-4000-8000-0000000000d3",
+            "cd21bed7-8bba-466c-ac35-ab41948ba462"
+          ],
+          [
+            "project:project-00000000-0000-4000-8000-0000000000d4",
+            "be95dda9-3618-4a37-8867-bf8313f1e4f7"
+          ],
+          [
+            "unassigned",
+            "701f8080-7888-4687-9b68-a4bb764ab94d"
+          ],
+          [
+            "project:project-00000000-0000-4000-8000-0000000000d1",
+            "278a692d-1367-4d8b-8c54-7b7a2efcdaa4"
+          ]
+        ],
+        "activeTabsAfter": [
+          [
+            "project:project-00000000-0000-4000-8000-0000000000d2",
+            "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb"
+          ],
+          [
+            "project:project-00000000-0000-4000-8000-0000000000d3",
+            "cd21bed7-8bba-466c-ac35-ab41948ba462"
+          ],
+          [
+            "project:project-00000000-0000-4000-8000-0000000000d4",
+            "be95dda9-3618-4a37-8867-bf8313f1e4f7"
+          ],
+          [
+            "unassigned",
+            "701f8080-7888-4687-9b68-a4bb764ab94d"
+          ],
+          [
+            "project:project-00000000-0000-4000-8000-0000000000d1",
+            "278a692d-1367-4d8b-8c54-7b7a2efcdaa4"
+          ]
+        ],
+        "foregroundBefore": 2,
+        "foregroundAfter": 2
+      },
+      "ids": {
+        "windowIds": [
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d1",
+            "windowId": 9,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d1",
+            "tabIds": [
+              "143ceebc-027d-4bf1-a146-b07710c6f73e",
+              "278a692d-1367-4d8b-8c54-7b7a2efcdaa4"
+            ],
+            "activeTabId": "278a692d-1367-4d8b-8c54-7b7a2efcdaa4",
+            "visible": false,
+            "focused": false
+          },
+          {
+            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d2",
+            "windowId": 2,
+            "projectId": "project-00000000-0000-4000-8000-0000000000d2",
+            "tabIds": [
+              "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb",
+              "ccce5436-ae39-4179-8dfe-f77852407b86",
+              "0b0f83a2-acad-4ac6-b8c0-d35ba42e687a",
+              "281df374-d933-4266-a32f-46a81695fa72",
+              "a0748abc-be17-43cf-943a-678c1249c367",
+              "0dce60ba-6bc6-4c4d-a644-36a0ca172327",
+              "c21b730e-a286-4286-9c4a-6594c670f175"
+            ],
+            "activeTabId": "1f41b1a2-100b-49c1-a1a6-84d0fd2259bb",
+            "visible": true,
+            "focused": true
+          }
+        ],
+        "tabIds": [
+          "tab-that-never-existed"
+        ],
+        "foregroundBefore": 2,
+        "foregroundAfter": 2
+      }
+    }
+  ],
+  "environment": {
+    "dataRoot": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-WyWgKT",
+    "profileDir": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-WyWgKT\\Profile",
+    "bridgePort": 21352,
+    "compiledRoot": "E:\\Work\\apps\\AntiFan\\.compiled",
+    "rendererBundlePresent": true,
+    "daemonEntryPresent": true,
+    "daemonStaged": true,
+    "daemonStagingError": null,
+    "lifecycleLogPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-WyWgKT\\runtime\\logs\\main.log",
+    "displays": [
+      {
+        "id": 3582874238,
+        "scaleFactor": 1,
+        "bounds": {
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1080
+        },
+        "workArea": {
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1032
+        }
+      },
+      {
+        "id": 1621057772,
+        "scaleFactor": 1,
+        "bounds": {
+          "x": -941,
+          "y": -1085,
+          "width": 1920,
+          "height": 1080
+        },
+        "workArea": {
+          "x": -941,
+          "y": -1085,
+          "width": 1920,
+          "height": 1032
+        }
+      },
+      {
+        "id": 4240234152,
+        "scaleFactor": 1,
+        "bounds": {
+          "x": 979,
+          "y": -1080,
+          "width": 1920,
+          "height": 1080
+        },
+        "workArea": {
+          "x": 979,
+          "y": -1080,
+          "width": 1920,
+          "height": 1032
+        }
+      }
+    ]
+  },
+  "observations": {
+    "environment": {
+      "dataRoot": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-WyWgKT",
+      "profileDir": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-WyWgKT\\Profile",
+      "bridgePort": 21352,
+      "compiledRoot": "E:\\Work\\apps\\AntiFan\\.compiled",
+      "rendererBundlePresent": true,
+      "daemonEntryPresent": true,
+      "daemonStaged": true,
+      "daemonStagingError": null,
+      "lifecycleLogPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-WyWgKT\\runtime\\logs\\main.log",
+      "displays": [
+        {
+          "id": 3582874238,
+          "scaleFactor": 1,
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "width": 1920,
+            "height": 1080
+          },
+          "workArea": {
+            "x": 0,
+            "y": 0,
+            "width": 1920,
+            "height": 1032
+          }
+        },
+        {
+          "id": 1621057772,
+          "scaleFactor": 1,
+          "bounds": {
+            "x": -941,
+            "y": -1085,
+            "width": 1920,
+            "height": 1080
+          },
+          "workArea": {
+            "x": -941,
+            "y": -1085,
+            "width": 1920,
+            "height": 1032
+          }
+        },
+        {
+          "id": 4240234152,
+          "scaleFactor": 1,
+          "bounds": {
+            "x": 979,
+            "y": -1080,
+            "width": 1920,
+            "height": 1080
+          },
+          "workArea": {
+            "x": 979,
+            "y": -1080,
+            "width": 1920,
+            "height": 1032
+          }
+        }
+      ]
+    },
+    "boot": {
+      "entry": {
+        "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d1",
+        "owner": {
+          "kind": "project",
+          "projectId": "project-00000000-0000-4000-8000-0000000000d1"
+        },
+        "title": "Matrix Storefront [DEV]",
+        "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-WyWgKT\\alpha",
+        "windowId": 1,
+        "visible": false,
+        "focused": false,
+        "hostOwnerKey": "project:project-00000000-0000-4000-8000-0000000000d1",
+        "hostOwnerLabel": "project-00000000-0000-4000-8000-0000000000d1",
+        "tabIds": [
+          "301df9a3-8403-4f21-bd71-548226444da0"
+        ],
+        "activeTabId": "301df9a3-8403-4f21-bd71-548226444da0",
+        "identity": {
+          "owner": {
+            "kind": "project",
+            "projectId": "project-00000000-0000-4000-8000-0000000000d1"
+          },
+          "title": "Matrix Storefront [DEV]",
+          "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-WyWgKT\\alpha",
+          "workspacePath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-WyWgKT\\alpha"
+        },
+        "terminalCwd": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-WyWgKT\\alpha",
+        "terminalCwdSource": "window-workspace"
+      },
+      "displays": [
+        {
+          "id": 3582874238,
+          "scaleFactor": 1,
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "width": 1920,
+            "height": 1080
+          },
+          "workArea": {
+            "x": 0,
+            "y": 0,
+            "width": 1920,
+            "height": 1032
+          }
+        },
+        {
+          "id": 1621057772,
+          "scaleFactor": 1,
+          "bounds": {
+            "x": -941,
+            "y": -1085,
+            "width": 1920,
+            "height": 1080
+          },
+          "workArea": {
+            "x": -941,
+            "y": -1085,
+            "width": 1920,
+            "height": 1032
+          }
+        },
+        {
+          "id": 4240234152,
+          "scaleFactor": 1,
+          "bounds": {
+            "x": 979,
+            "y": -1080,
+            "width": 1920,
+            "height": 1080
+          },
+          "workArea": {
+            "x": 979,
+            "y": -1080,
+            "width": 1920,
+            "height": 1032
+          }
+        }
+      ],
+      "rendererBundlePresent": true
+    },
+    "daemon": {
+      "mode": "attached",
+      "handle": {
+        "mode": "attached",
+        "pid": 2448,
+        "port": 61551,
+        "token": "e1e97eebc86fc9e0a2d38040ae80d29da8a3b0c98713ef9d",
+        "version": "dd13ab84a1ffd111"
+      }
+    },
+    "foregroundDuringR2": {
+      "before": 1,
+      "after": 1
+    },
+    "lifecycleJournal": {
+      "source": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-WyWgKT\\runtime\\logs\\main.log",
+      "copy": "E:\\Work\\apps\\AntiFan\\plans\\260927-0315-project-windows\\reports\\project-windows-matrix-journal.log"
+    }
+  },
+  "postExitVerification": {
+    "verdict": "PASS",
+    "witness": "E:\\Work\\apps\\AntiFan\\plans\\260927-0315-project-windows\\reports\\project-windows-matrix-orphans.json",
+    "verifiedAt": "2026-09-27T22:22:24.884Z",
+    "survivingPids": []
+  },
+  "notes": [
+    "Phase-5 acceptance matrix for plans/260927-0315-project-windows/phase-05-certification.md.",
+    "Every declared row is emitted: unobserved rows are BLOCKED, never omitted and never passed.",
+    "Rows that need physical hardware or a human observer are BLOCKED with their reason and are not simulated with a fixture.",
+    "Row R9E stays BLOCKED until the second process merges the post-exit watcher report.",
+    "Row coverage: 39 declared, 39 emitted, 39 judged by this process, 0 emitted without a judge (each carries its BLOCKED reason).",
+    "Exit codes: 0 all rows PASS; 1 at least one FAIL; 2 no FAIL but BLOCKED rows remain. This run: passed=35 failed=0 blocked=4.",
+    "Post-exit orphan verdict merged by a second process at 2026-09-27T22:22:24.884Z: no owned process survived the GUI exit."
+  ],
+  "at": "2026-09-27T22:21:58.197Z"
+}
