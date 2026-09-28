@@ -19,7 +19,10 @@
 import { spawn, spawnSync } from 'node:child_process';
 import process from 'node:process';
 
-const STATIC_LANES = ['audit', 'plans:check'];
+// The static gates run before anything compiles and every lane that needs a build depends on
+// 'compile' separately. 'typecheck' belongs here: the script existed but no lane ran it, so a green
+// pipeline proved nothing about the TypeScript surface.
+const STATIC_LANES = ['audit', 'plans:check', 'typecheck'];
 const TEST_LANES = [
   ...STATIC_LANES,
   'compile',
