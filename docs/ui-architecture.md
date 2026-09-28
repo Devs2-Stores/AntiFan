@@ -73,6 +73,12 @@ tab identity, queues, sessions and automation stay in one shared authority. The
   tab-authority directory (`src/main/browser/tab-authority-directory.ts`), which is what
   makes the window's tabs routable and its IPC sender-resolvable. A duplicate open, or a
   second caller racing the same owner, joins the live shell instead of building a host.
+  A creation with **user** intent is presented from here, on its first paint
+  (`presentShellOnFirstPaint`: ready-to-show, with a bounded fallback, at that owner's own
+  saved placement), because a shell never shows itself: without it a window a user asked
+  for would exist, answer its chrome and stay invisible. Agent intent is never presented,
+  and the bootstrap's `firstVisible` marker is armed by that same presentation instead of
+  a second presenter racing it for the same window.
 
 Each window's shell presents:
 
@@ -135,6 +141,28 @@ whose parent is gone leaves no orphan tab behind.
   terminals, annotations, and QA targets never retarget.
 - Runs bind exact immutable targets (tab/runtime/document generation,
   workspace revision); no active-tab or focus-derived fallback.
+- A session's **edit mode** scopes what it may write, and it is a property of the
+  session rather than of the window: `[⚡Direct-Edit]`, `[🚀Super-Fast]` and
+  `[🧠Core-Context]` (the Element Picker's mode chips, `ElementPicker` in
+  `src/main/browser/element-picker.ts`) latch per session, and an explicit tag
+  always wins — including `[🧠Core-Context]` as the way out of a latched scoped
+  mode, so no channel can trap a session in a mode the person is leaving. In a
+  scoped mode the writable set is the resolved theme root's content directories
+  plus the workspace's own bookkeeping, resolved from the session `cwd` by the
+  same `.antifan/` walk the QA gate uses (`resolveWorkspaceShape`,
+  `src/omp-hooks/theme-paths.ts`); a write outside it is refused, not silently
+  allowed, and an unresolvable workspace refuses everything. Super-Fast
+  additionally drops the shell, dispatch, the network and every live-browser
+  device call, while Direct keeps read-only storefront inspection. The mode
+  travels to spawned subagents through `ANTIFAN_EDIT_MODE`, survives resume as an
+  `antifan.edit-mode` session entry, mirrors to
+  `%ANTIFAN_DATA_ROOT%/runtime/edit-mode/<ompSessionId>.json`, and audits every
+  decision to `<workspaceRoot>/.antifan/edit-guard/<ompSessionId>.jsonl`. While a
+  scoped mode is latched the storefront QA gate stops demanding receipts and
+  states once per turn what changed. Enforcement lives in the user-scope hooks
+  installed from repo source (`src/omp-hooks/`, `scripts/install-omp-hooks.mjs`),
+  so a customer workspace behaves the same as an AntiFan one. Design:
+  [edit-mode guard](superpowers/specs/2026-09-28-edit-mode-guard-design.md).
 - Terminal/process bindings are created per explicit Workspace and never
   follow the selected Workspace. A session created without an explicit `cwd`
   is rooted in its own window's verified workspace (`resolveTerminalCreationTarget`),
@@ -153,17 +181,36 @@ whose parent is gone leaves no orphan tab behind.
   it is the one window whose terminal list reaches every project, while every
   project window keeps showing only its own. Its reach is a view plus control
   over project and unassigned rows — an `agent:<tab>` row stays view-only, listed
-  and streamed but never typed into — and it is reachable only from that window's
-  own chrome renderer, so MCP and bridge callers keep their refusal for naming no
-  window. Assigning a row to a capsule from the manager's tab context menu ensures
-  the target capsule's window exists and then re-stamps the row's owner key and
-  capsule together: the one user-ordered reassignment of a minted owner key.
-  Nothing implicit — window focus, tab activation, capsule switch — gains that
-  power, and `setCapsule` keeps its capsule-only rule. The reach lives in
-  `windowSessionScope` / `isSessionVisibleToWindow` / `admitsSessionForWindow` and
-  the `antifan:terminal:assign-capsule` route
+  and streamed but never typed into. The Terminal menu's `Cửa sổ Terminal chung
+  (Shared Terminal Manager)` (`CmdOrCtrl+Shift+M`) is the one launch path that opens or
+  reveals it (`openSharedTerminalManagerWindow` in `src/main/index.ts`, through the same
+  `ensureProjectWindow` factory every window uses), and no chrome route reaches
+  that window kind, so MCP and bridge callers keep their refusal for naming no
+  window. Assigning a row to a project from either its owning project window's
+  tab context menu or the shared manager ensures the target project's window exists
+  and then re-stamps the row's owner key — and, when the target resolves to one
+  canonical capsule, its workspace stamp with it: the one user-ordered
+  reassignment of a minted owner key. Project windows cannot move another owner's
+  rows, and agent-owned rows remain read-only. The shell process and working
+  directory are preserved during the transfer.
+  Both pickers read `PROJECT_LIST`: one row per project, and the transfer names that
+  `projectId` — never a capsule the renderer inferred. Main resolves the destination
+  itself (`resolveProjectAssignment` in `src/main/index.ts`): exactly one capsule with
+  a validated affiliation stamps its `capsuleId`, a known project with no capsule
+  record at all moves the row with the stamp cleared, and two or more claims resolve
+  to nothing — such a row stays visible but cannot receive a terminal
+  (`canAssignTerminal: false`, hint `hồ sơ dự án không rõ ràng`). Historical duplicate
+  capsules are not additional projects and are never offered as separate transfer
+  destinations. Nothing implicit — window focus, tab activation, capsule switch —
+  gains that power, and `setCapsule` keeps its capsule-only rule. The reach lives in
+  `windowSessionScope` / `isSessionVisibleToWindow` / `admitsSessionForWindow` and the
+  `antifan:terminal:assign-project` route
   (`src/main/browser/native-tab-host.ts`), with the record-level seam in
   `TerminalManager.transferSessionOwner` (`src/main/browser/terminal-manager.ts`).
+  A terminal's URL follows the same scope: a link click in a row posts
+  `antifan:terminal:open-link`, and Main opens it in the window that owns that exact
+  session (`openTerminalLinkInOwner`) — never in whichever window has focus, and
+  never in the system browser.
   Design and the seams it orders:
   [shared Terminal Manager](superpowers/specs/2026-09-28-shared-terminal-manager-capsule-assignment-design.md).
   This paragraph is the contract; the tree answers for how much of it is wired, and
@@ -197,6 +244,14 @@ stable id as its title and claims no path; it never presents the process
 directory as the project's, and a capsule whose affiliation does not validate is
 the same as no capsule).
 
+The built-in project (`project-00000000-0000-4000-8000-000000000001`) is labelled
+**Tổng hợp** instead of its generated ID label: it is the destination that needs no
+workspace, so a terminal or tab can be handed to it and have the old workspace stamp
+cleared. Its owner key, saved tabs, terminal associations and workspace remain
+unchanged; an explicit capsule or registry project name takes precedence. This label
+is resolved by Main, so an already running process needs an application restart to
+pick up the change.
+
 Opening a project has one Main-owned surface, reached from both entrypoints — the
 File menu's `Mở dự án…` (`CmdOrCtrl+Shift+O`) and the sidebar header chip. Neither
 entrypoint names a project: `openProjectWindow` with no id builds its inventory from
@@ -205,9 +260,10 @@ Main's own records (`collectProjectOpenCandidates`/`projectOpenDialogSpec` in
 boot and live-window identities, and then validates the answer through the same path
 an explicit request takes. A renderer that sent its own window's id would turn "open
 another project" into "focus the one already open", which is why the sidebar request
-carries none — and the chip, not an Unassigned-only shell, is what makes the action
-reachable at all: this build boots a project window and no launch path creates an
-Unassigned one.
+carries none — and the chip, not the menu, is what makes the action reachable from a
+window that already exists. The Unassigned shell is no longer unreachable — the
+Terminal menu's shared-manager entry is its one launch path — but it exists for the
+cross-project terminal list, never as a second way to open a project.
 
 That dialog also offers `Chọn thư mục…`, the one path by which a project comes into
 existence on a user's request: `resolveProjectFromFolder` (`src/main/index.ts`) resolves
