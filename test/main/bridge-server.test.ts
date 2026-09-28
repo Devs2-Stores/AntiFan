@@ -307,6 +307,9 @@ describe('AntiFan Bridge Server', () => {
         attachments: {
           getRecord: () => ({ runId: 'run-test-123456789012', attemptId: 'attempt-test-123456789012' }),
           verifyAttachmentSecret: () => true,
+          // Closing the socket releases the attachment's connection-scoped renewal through this
+          // member; a double without it throws asynchronously and fails the whole file.
+          revokeForConnection: async () => {},
         },
       },
       endCliSession: () => ({ ok: true }),

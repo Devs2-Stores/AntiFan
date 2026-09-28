@@ -27,6 +27,8 @@ export interface CreateCliSessionOptions {
   ownerPid?: number;
   lease: RuntimeLease;
   leaseToken: string;
+  /** Terminal the CLI session was minted from; stamped onto the attachment record. */
+  originTerminalSessionId?: string;
 }
 export interface CliSessionResult {
   run: RunRecord;
@@ -243,6 +245,7 @@ export class RunService {
       boundPid: options.ownerPid,
       lease: options.lease,
       leaseToken: options.leaseToken,
+      originTerminalSessionId: options.originTerminalSessionId,
     });
 
     return { run: { ...run }, attempt: { ...attempt }, launch };
@@ -277,7 +280,10 @@ export class RunService {
     return { ok: true };
   }
 
-  async renewCliSession(attachmentId: string, secret: string, options?: { extensionMs?: number; ownerPid?: number }): Promise<{ expiresAt: number }> {
+  async renewCliSession(attachmentId: string, secret: string, options?: { extensionMs?: number; ownerPid?: number; connectionId?: string }): Promise<{ expiresAt: number }> {
+    // `connectionId` travels untouched to the registry: it names the renewing transport
+    // so `revokeForConnection` can release a record whose every renewing connection is
+    // gone — the liveness half `ownerPid` cannot answer for a pid-less client.
     return await this.attachments.renewAttachment(attachmentId, secret, options);
   }
   async createWorkflowSession(options: CreateWorkflowSessionOptions): Promise<WorkflowSessionResult> {

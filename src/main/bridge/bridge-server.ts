@@ -263,6 +263,10 @@ export class BridgeServer {
   private httpServer: http.Server | null = null;
   private clients: Set<WebSocket> = new Set();
   private readonly socketAttachmentIds: WeakMap<WebSocket, string> = new WeakMap();
+  // One stable identity per socket, minted on its first renewal: the registry releases
+  // an attachment whose every renewing connection is gone, and a WeakMap lets the id
+  // die with the socket it names.
+  private readonly socketConnectionIds: WeakMap<WebSocket, string> = new WeakMap();
   private tabHost: NativeTabHost;
   private closeAdmission?: PageCloseAdmission;
   private pairingQueueDir: string;
@@ -1888,6 +1892,18 @@ export class BridgeServer {
 
       ws.on('close', () => {
         this.clients.delete(ws);
+        const connectionId = this.socketConnectionIds.get(ws);
+        const registry = this.attachmentRegistry || this.controlPlaneRuntime?.runs?.attachments;
+        if (connectionId && registry) {
+          // The releasing half of connection-scoped renewal: an attachment whose every
+          // renewing socket is gone holds a page the close gate counts as live use
+          // forever — including owners whose renewals never carried a pid the
+          // gone-owner sweep could check. Records another live socket still renews are
+          // left alone inside `revokeForConnection`.
+          registry.revokeForConnection(connectionId).catch((err) => {
+            console.warn(`[antifan] connection ${connectionId} release failed:`, err);
+          });
+        }
       });
 
       ws.on('error', () => {
@@ -2152,6 +2168,11 @@ export class BridgeServer {
             break;
           }
           try {
+            // Hoisted: the terminal id both steers tab selection below and stamps the
+            // minted attachment's origin so the control plane scopes it to the
+            // terminal's own project (and re-checks that scope on every dispatch).
+            const terminalSessionId = typeof p.terminalSessionId === 'string' && p.terminalSessionId.trim() ? p.terminalSessionId.trim() : undefined;
+            const terminalGen = typeof p.terminalGeneration === 'string' || typeof p.terminalGeneration === 'number' ? p.terminalGeneration : undefined;
             let tabId = typeof p.tabId === 'string' && p.tabId.trim() ? p.tabId.trim() : undefined;
             if (tabId) {
               const canonical = typeof this.tabHost.resolveTargetTabId === 'function'
@@ -2163,8 +2184,6 @@ export class BridgeServer {
               }
               tabId = effective;
             } else {
-              const terminalSessionId = typeof p.terminalSessionId === 'string' && p.terminalSessionId.trim() ? p.terminalSessionId.trim() : undefined;
-              const terminalGen = typeof p.terminalGeneration === 'string' || typeof p.terminalGeneration === 'number' ? p.terminalGeneration : undefined;
               if (terminalSessionId) {
                 if (typeof this.tabHost.getTerminalAgentAffinity === 'function') {
                   const affinity = this.tabHost.getTerminalAgentAffinity(terminalSessionId, terminalGen);
@@ -2266,6 +2285,7 @@ export class BridgeServer {
               browserEpoch: p.browserEpoch,
               ttlMs: typeof p.ttlMs === 'number' ? Math.min(Math.max(p.ttlMs, 10_000), 86_400_000) : 7_200_000,
               ownerPid,
+              originTerminalSessionId: terminalSessionId,
             });
             if (sessionFilter) {
               this.sessionCapabilityFilters.set(res.launch.attachmentId, sessionFilter);
@@ -2383,7 +2403,18 @@ export class BridgeServer {
           try {
             const extensionMs = typeof p.extensionMs === 'number' && p.extensionMs > 0 ? p.extensionMs : undefined;
             const ownerPid = typeof p.ownerPid === 'number' ? p.ownerPid : undefined;
-            const res = await this.controlPlaneRuntime.renewCliSession(attachmentId, secret, { extensionMs, ownerPid });
+            // The renewing transport's identity: the registry counts this socket among
+            // the record's live owners and releases it when the last one closes — the
+            // only reachable release for an attachment whose renewals carry no pid.
+            let connectionId = this.socketConnectionIds.get(ws);
+            if (!connectionId) {
+              connectionId = `conn-${randomUUID()}`;
+              this.socketConnectionIds.set(ws, connectionId);
+            }
+            // Forwarded untouched through the runtime seam to the registry, which is
+            // where `connectionId` is declared (the runtime signature stays narrower).
+            const renewal = { extensionMs, ownerPid, connectionId };
+            const res = await this.controlPlaneRuntime.renewCliSession(attachmentId, secret, renewal);
             respond(true, res);
           } catch (err: unknown) {
             const errorMsg = err instanceof Error ? err.message : String(err);

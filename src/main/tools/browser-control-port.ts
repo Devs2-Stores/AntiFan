@@ -3555,20 +3555,38 @@ export class BrowserControlPort {
       );
     }
     if (!affiliation.projectId || !affiliation.workspaceId) {
-      throw new CapabilityError(
-        'POLICY_DENIED',
-        `Cannot open a routed tab for session '${boundTabId}': anchor tab belongs to capsule '${affiliation.capsuleId ?? 'unknown'}' which is explicitly Unassigned (measured project: '${affiliation.projectId ?? 'none'}', workspace: '${affiliation.workspaceId ?? 'none'}', target requires project: '${target.projectId}', workspace: '${target.workspaceId}'). This request will not inherit the active capsule. Open the project/workspace explicitly, then retry.`,
-        {
-          boundTabId,
-          capsuleId: affiliation.capsuleId,
-          measuredProjectId: affiliation.projectId,
-          measuredWorkspaceId: affiliation.workspaceId,
-          targetProjectId: target.projectId,
-          targetWorkspaceId: target.workspaceId,
-          state: 'Unassigned',
-          recovery: 'open the project/workspace explicitly',
-        }
+      // An unassigned anchor capsule is the absence of an affiliation, not a conflicting one,
+      // and the child is still pinned to the anchor's own capsule below - so nothing here
+      // inherits the globally active capsule. Refusing instead stranded every session whose
+      // anchor tab lives in a capsule no project claims (measured: `anti.browser.tabs.create`
+      // refused with POLICY_DENIED for an automation tab in an unassigned capsule while the
+      // authority still carried the boot project/workspace).
+      //
+      // The pin is what makes proceeding safe, so a capsule that cannot be named still
+      // refuses: an unnamed capsule would let `createTab` fall back to the window's or the
+      // active capsule, which is exactly the inheritance this gate exists to prevent.
+      if (!affiliation.capsuleId) {
+        throw new CapabilityError(
+          'POLICY_DENIED',
+          `Cannot open a routed tab for session '${boundTabId}': the anchor tab's capsule is Unassigned (measured project: 'none', workspace: 'none') and names no capsule to pin the new tab to, so the creation could only inherit the active capsule. Rebind the session to a tab in an assigned capsule (anti.browser.rebind_target), then retry.`,
+          {
+            boundTabId,
+            measuredProjectId: affiliation.projectId,
+            measuredWorkspaceId: affiliation.workspaceId,
+            targetProjectId: target.projectId,
+            targetWorkspaceId: target.workspaceId,
+            state: 'Unassigned',
+            recovery: 'anti.browser.rebind_target',
+          }
+        );
+      }
+      console.warn(
+        `[browser-control-port] Opening a tab for session '${boundTabId}' in unassigned capsule ` +
+        `'${affiliation.capsuleId}': the anchor tab's capsule claims no project/workspace, while the request names ` +
+        `project '${target.projectId}', workspace '${target.workspaceId}'. The tab is pinned to the anchor's own ` +
+        'capsule and does not inherit the active capsule; open the project/workspace explicitly to route it there.'
       );
+      return affiliation.capsuleId;
     }
     if (affiliation.projectId !== target.projectId || affiliation.workspaceId !== target.workspaceId) {
       throw new CapabilityError(

@@ -99,6 +99,13 @@ export interface IssueAttachmentOptions {
   browserEpoch?: number;
   documentGeneration?: number;
   boundPid?: number;
+  /**
+   * Terminal session this attachment was minted from (`antifan.cli.startSession`
+   * `terminalSessionId`). Stamped on the record so every later validate re-resolves
+   * the terminal's owning project: a terminal moved to another project must lose the
+   * authority minted under the old one, not retain it silently.
+   */
+  originTerminalSessionId?: string;
 }
 
 function cloneBrowserTarget(target?: BrowserTarget): BrowserTarget | undefined {
@@ -160,6 +167,31 @@ export class AttachmentRegistry {
    * write tracked directly rather than derived from deadline arithmetic.
    */
   private readonly lastPersistedAtMs = new Map<string, number>();
+  /**
+   * Live connections renewing each attachment (attachmentId -> connection ids the last
+   * renewal arrived through). The pid half of "is the owner gone" cannot answer for a
+   * client whose renewals never carried a `boundPid`, so the connection is the second
+   * liveness proof: a record only connection-renewed stays held while any of its
+   * connections lives and is released by `revokeForConnection` when the last one is gone.
+   * In-memory on purpose — a replayed record has no live connections, so nothing here
+   * survives restart; the next live renewal re-stamps it.
+   */
+  private readonly connectionIndex = new Map<string, Set<string>>();
+  /**
+   * Project scope the composition root measures for a terminal session, used to
+   * re-check an attachment minted from a terminal (`originTerminalSessionId`)
+   * against where that terminal lives NOW. Absent → the check cannot verify and
+   * refuses (terminal-origin authority is never trusted unmeasured).
+   */
+  private resolveTerminalProjectScope?: (terminalSessionId: string) => { projectId: string; workspaceId: string } | undefined;
+  /**
+   * Measured capsule affiliation of a tab. Used to refuse a terminal-origin
+   * attachment whose bound tab provably belongs to a different project than the
+   * attachment was minted under (e.g. an agent tab provisioned in the wrong
+   * window). Undefined answer = unmeasured, not foreign — only positive foreign
+   * evidence refuses.
+   */
+  private resolveTabAffiliation?: (tabId: string) => { projectId?: string; workspaceId?: string; capsuleId?: string } | undefined;
   constructor(
     private readonly delegate?: AttachmentValidatorDelegate,
     private readonly dataRoot?: string,
@@ -297,6 +329,7 @@ export class AttachmentRegistry {
     this.activeRevisionByAttachment.clear();
     this.revisionHistoryByAttachment.clear();
     this.attemptIndex.clear();
+    this.connectionIndex.clear();
     this.invocationNonces.clear();
     this.lastPersistedAtMs.clear();
     const quarantinePath = `${filePath}.quarantine-${Date.now()}`;
@@ -464,6 +497,7 @@ export class AttachmentRegistry {
         browserEpoch: options.browserEpoch,
         documentGeneration: resolvedDocGen,
         boundPid: options.boundPid,
+        ...(options.originTerminalSessionId ? { originTerminalSessionId: options.originTerminalSessionId } : {}),
         authorityRevision: initialRevision,
         revisionNumber: 1,
       };
@@ -636,6 +670,41 @@ export class AttachmentRegistry {
     return record;
   }
 
+  /**
+   * Terminal-origin attachments stay bound to the project their terminal lives
+   * in: re-resolve the minting terminal's scope on every dispatch/validate so a
+   * terminal moved to another project loses the authority minted under the old
+   * one instead of silently retaining it. An unattributable terminal fails closed.
+   * One level down, the bound tab itself must measure inside the minted project —
+   * a measured-foreign tab is proof it was provisioned in another project's
+   * window; an unmeasured affiliation is allowed (the bootstrap default capsule
+   * legitimately carries none).
+   */
+  private assertTerminalOriginScope(record: ExecutionAttachmentRecord, tabId: string | undefined): void {
+    if (!record.originTerminalSessionId) return;
+    const scope = this.resolveTerminalProjectScope?.(record.originTerminalSessionId);
+    if (!scope || scope.projectId !== record.projectId || scope.workspaceId !== record.workspaceId) {
+      throw new CapabilityError(
+        'PROJECT_MISMATCH',
+        `Attachment ${record.id} was minted from terminal '${record.originTerminalSessionId}' under project '${record.projectId}'; ` +
+          `that terminal now resolves to ${scope ? `project '${scope.projectId}'` : 'no attributable project'}, so this authority is refused. ` +
+          'Re-mint the session from the terminal in its current project.',
+        { attachmentId: record.id, originTerminalSessionId: record.originTerminalSessionId, mintedProjectId: record.projectId, mintedWorkspaceId: record.workspaceId, resolvedProjectId: scope?.projectId, resolvedWorkspaceId: scope?.workspaceId }
+      );
+    }
+    if (tabId && this.resolveTabAffiliation) {
+      const affiliation = this.resolveTabAffiliation(tabId);
+      if (affiliation?.projectId && affiliation.projectId !== record.projectId) {
+        throw new CapabilityError(
+          'POLICY_DENIED',
+          `Attachment ${record.id} is bound to tab '${tabId}' which measures in project '${affiliation.projectId}', ` +
+            `not the terminal's minted project '${record.projectId}'. Rebind to a tab owned by that project's window.`,
+          { attachmentId: record.id, boundTabId: tabId, mintedProjectId: record.projectId, measuredTabProjectId: affiliation.projectId }
+        );
+      }
+    }
+  }
+
   authenticateLineage(
     attachmentId: string,
     secret: string,
@@ -685,6 +754,11 @@ export class AttachmentRegistry {
     if (record.state === 'revoked') {
       throw new CapabilityError('ATTACHMENT_STALE', `Attachment ${record.id} has been revoked`);
     }
+
+    // Terminal-origin attachments stay bound to the project their terminal lives
+    // in: re-resolve the minting terminal's scope on every dispatch so a terminal
+    // moved to another project loses the authority minted under the old one.
+    this.assertTerminalOriginScope(record, record.browserTarget?.tabId);
 
     const activeRevision = this.activeRevisionByAttachment.get(record.id);
     if (activeRevision !== revision) {
@@ -906,6 +980,9 @@ export class AttachmentRegistry {
         docGen = dynamicGen;
       }
     }
+    // Terminal-origin attachments stay bound to the project their terminal lives
+    // in — enforced by the shared gate before the target snapshot is returned.
+    this.assertTerminalOriginScope(record, targetTabId || record.browserTarget?.tabId);
     const effectiveBrowserTarget: BrowserTarget = record.browserTarget ? {
       ...record.browserTarget,
       tabId: targetTabId || record.browserTarget.tabId,
@@ -1058,7 +1135,7 @@ export class AttachmentRegistry {
   async renewAttachment(
     attachmentId: string,
     secret: string,
-    options?: { extensionMs?: number; ownerPid?: number }
+    options?: { extensionMs?: number; ownerPid?: number; connectionId?: string }
   ): Promise<{ expiresAt: number }> {
     return await this.runWithMutationLock(async () => {
       if (this.isQuarantined) {
@@ -1152,6 +1229,7 @@ export class AttachmentRegistry {
         expiresAt: newExpiresAt,
         lease: updatedLease,
         boundPid: options?.ownerPid ?? record.boundPid,
+        connectionId: options?.connectionId ?? record.connectionId,
       };
 
       const existingRevisions = Array.from(this.revisions.values()).filter((r) => r.attachmentId === attachmentId);
@@ -1171,12 +1249,25 @@ export class AttachmentRegistry {
       const lastPersistedAt = this.lastPersistedAtMs.get(attachmentId);
       if (
         candidateRecord.boundPid !== record.boundPid ||
+        candidateRecord.connectionId !== record.connectionId ||
         lastPersistedAt === undefined ||
         now - lastPersistedAt >= RENEWAL_PERSIST_THRESHOLD_MS
       ) {
         await this.appendPersistenceFrameUnlocked(candidateRecord, existingRevisions);
       }
       this.records.set(attachmentId, candidateRecord);
+      if (options?.connectionId) {
+        // Every renewal from a connection counts it among this record's live owners;
+        // `revokeForConnection` removes it when the socket closes. A renewal without a
+        // connection id changes nothing here — whoever renewed last keeps the release
+        // reachable, and a connection-less path never steals another owner's binding.
+        let conns = this.connectionIndex.get(attachmentId);
+        if (!conns) {
+          conns = new Set<string>();
+          this.connectionIndex.set(attachmentId, conns);
+        }
+        conns.add(options.connectionId);
+      }
       return { expiresAt: candidateRecord.expiresAt };
     });
   }
@@ -1184,6 +1275,9 @@ export class AttachmentRegistry {
   private async revokeAttachmentUnlocked(attachmentId: string): Promise<void> {
     const record = this.records.get(attachmentId);
     if (record) {
+      // A terminal record renews nothing, so its renewing connections stop counting it:
+      // otherwise a socket that outlives the revocation would hold a dead claim here.
+      this.connectionIndex.delete(attachmentId);
       const candidateRecord: ExecutionAttachmentRecord = {
         ...record,
         state: 'revoked',
@@ -1194,6 +1288,44 @@ export class AttachmentRegistry {
       this.records.set(attachmentId, candidateRecord);
       this.notifyDispose(candidateRecord);
     }
+  }
+
+  /**
+   * Releases every active binding whose only renewing connections are gone.
+   *
+   * The pid half of "is the owner gone" cannot answer for a client whose renewals
+   * carried no `boundPid`: `revokeGoneOwnerAttachments` must retain that record and its
+   * page counts as live use forever (the defect this fixes). The connection is the
+   * second liveness proof — the caller reports which transport closed, every record
+   * that connection renewed drops its id, and a record left with no live renewing
+   * connection is released. A record another live connection still renews is NOT
+   * revoked: its set stays non-empty until the last one is gone.
+   *
+   * Revocation is the same durable mutation as `revokeForAttempt`, so the record, its
+   * persisted frame and the ownership-disposal hook stay consistent with any other end
+   * of session.
+   */
+  async revokeForConnection(connectionId: string): Promise<void> {
+    await this.runWithMutationLock(async () => {
+      if (!connectionId || typeof connectionId !== 'string') return;
+      const releasable: string[] = [];
+      for (const [attachmentId, conns] of this.connectionIndex) {
+        // A record this connection never renewed stays untouched: only a record it
+        // renewed can be released by its close, and only when it was the last renewing
+        // connection standing.
+        if (!conns.delete(connectionId)) continue;
+        if (conns.size === 0) {
+          this.connectionIndex.delete(attachmentId);
+          const record = this.records.get(attachmentId);
+          if (record && record.state === 'active') {
+            releasable.push(attachmentId);
+          }
+        }
+      }
+      for (const attachmentId of releasable) {
+        await this.revokeAttachmentUnlocked(attachmentId);
+      }
+    });
   }
 
   async revokeAttachment(attachmentId: string): Promise<void> {
@@ -1219,6 +1351,28 @@ export class AttachmentRegistry {
    */
   setCloseAdmission(admission?: PageCloseAdmission): void {
     this.closeAdmission = admission;
+  }
+
+  /**
+   * Bind the terminal project-scope resolver after construction: RunService builds
+   * this registry inside its own constructor, before the runtime's resolver exists,
+   * so the seam arrives here instead of through AttachmentValidatorDelegate.
+   */
+  setTerminalProjectScopeResolver(
+    resolver?: (terminalSessionId: string) => { projectId: string; workspaceId: string } | undefined
+  ): void {
+    this.resolveTerminalProjectScope = resolver;
+  }
+
+  /**
+   * Bind the measured tab-affiliation resolver (same probe the browser port uses for
+   * routed tab creation). Terminal-origin attachments consult it per validate so a
+   * bound tab in a foreign window refuses instead of silently retaining authority.
+   */
+  setTabAffiliationResolver(
+    resolver?: (tabId: string) => { projectId?: string; workspaceId?: string; capsuleId?: string } | undefined
+  ): void {
+    this.resolveTabAffiliation = resolver;
   }
 
   /**
@@ -1348,6 +1502,9 @@ export class AttachmentRegistry {
           const existingRevisions = Array.from(this.revisions.values()).filter((r) => r.attachmentId === record.id);
           await this.appendPersistenceFrameUnlocked(candidateRecord, existingRevisions);
           this.records.set(record.id, candidateRecord);
+          // Same cleanup as revocation: an expired record renews nothing, so no
+          // connection keeps a claim on it for `revokeForConnection` to release later.
+          this.connectionIndex.delete(record.id);
           this.notifyDispose(candidateRecord);
           expired.push(record.id);
           continue;

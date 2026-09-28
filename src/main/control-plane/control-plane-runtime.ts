@@ -64,6 +64,20 @@ export interface ControlPlaneRuntimeOptions {
    */
   terminalAuthority?: TerminalHostAuthority;
   /**
+   * Terminal session → owning project/workspace, measured by the composition root
+   * (terminal capsule → capsule affiliation, with owner-key fallback inside the
+   * runtime). A `createCliSession` carrying `terminalSessionId` is minted under
+   * this scope — never under a cwd-derived or caller-claimed one — and is refused
+   * when the terminal cannot be attributed.
+   */
+  resolveTerminalProjectScope?: (terminalSessionId: string) => { projectId: string; workspaceId: string } | undefined;
+  /**
+   * Measured capsule affiliation of a tab (same probe the browser port uses for
+   * routed tab creation). Terminal-origin sessions refuse a bound/provisioned tab
+   * that measures in a different project than the terminal resolved to.
+   */
+  resolveTabAffiliation?: (tabId: string) => { projectId?: string; workspaceId?: string; capsuleId?: string } | undefined;
+  /**
    * Artifact capacity overrides (root is always owned by the runtime). Populated ONLY by explicit
    * canary/benchmark startup configuration; production leaves it undefined so the default limits stand.
    */
@@ -127,6 +141,8 @@ export class ControlPlaneRuntime {
    */
   private devicePort: DeviceControlPort | null = null;
   private deviceManager: DeviceRegistryPort | null = null;
+  private readonly resolveTerminalProjectScopeOption?: (terminalSessionId: string) => { projectId: string; workspaceId: string } | undefined;
+  private readonly resolveTabAffiliationOption?: (tabId: string) => { projectId?: string; workspaceId?: string; capsuleId?: string } | undefined;
   // Memoized workspace-root resolution: wether resolving from a workspace record
   // or the fallback chain, the sync fs.existsSync checks only need to run once
   // per (workspaceId, explicitRoot) pair. Invalidation is explicit below.
@@ -214,6 +230,17 @@ export class ControlPlaneRuntime {
     });
     this.transport = new CapabilityTransportAdapter(this.capabilities, this.runs.attachments, this.ledger);
     this.terminal = options.terminal ?? TerminalManager.getInstance();
+    this.resolveTerminalProjectScopeOption = options.resolveTerminalProjectScope;
+    this.resolveTabAffiliationOption = options.resolveTabAffiliation;
+    // Terminal-origin scope gates on the attachment registry: minting records the
+    // terminal id, and every later validate re-measures it through these seams. Only a
+    // measured scope answers here — an unattributed terminal is never stamped with an
+    // origin, so the registry never has to re-measure one.
+    this.runs.attachments.setTerminalProjectScopeResolver((terminalSessionId) => {
+      const scope = this.resolveTerminalScope(terminalSessionId);
+      return scope.kind === 'measured' ? { projectId: scope.projectId, workspaceId: scope.workspaceId } : undefined;
+    });
+    this.runs.attachments.setTabAffiliationResolver(this.resolveTabAffiliationOption);
     this.themeTransactions = new ThemeTransactionRegistry(
       { projectId: options.projectId, workspaceId: options.workspaceId, runtimeId: this.leaseState.runtimeId },
       this.files,
@@ -459,6 +486,56 @@ export class ControlPlaneRuntime {
     return defaultWs;
   }
 
+  /**
+   * Where a terminal session lives, answered as one of three distinct things — never as a
+   * bare `undefined`, because the gate must tell "this row belongs to no project" apart from
+   * "this row belongs to a project whose workspace cannot be singled out".
+   *
+   * - `measured`   — the capsule seam named the terminal's own workspace, or its owner key
+   *                  (`project:<id>`) has exactly one attached workspace.
+   * - `unattributed` — no project claims the row at all: a legacy record written before owner
+   *                  keys existed, a terminal of the workspace-less built-in project, or a daemon
+   *                  boot shell. Nothing says where it lives, so it cannot be *foreign* to any
+   *                  project, and terminal-origin authority is simply not minted from it.
+   * - `unmeasurable` — a project window claimed the row, but its workspace cannot be resolved
+   *                  (none attached, or more than one), or its project stamp is unusable. That is
+   *                  ambiguity about a real claim, and it fails closed rather than guessing.
+   */
+  private resolveTerminalScope(terminalSessionId: string):
+    | { kind: 'measured'; projectId: string; workspaceId: string }
+    | { kind: 'unattributed' }
+    | { kind: 'unmeasurable' } {
+    if (!terminalSessionId) return { kind: 'unattributed' };
+    const measured = this.resolveTerminalProjectScopeOption?.(terminalSessionId);
+    if (measured && typeof measured.projectId === 'string' && typeof measured.workspaceId === 'string') {
+      return { kind: 'measured', projectId: measured.projectId, workspaceId: measured.workspaceId };
+    }
+    const owner = typeof this.terminal.sessionOwnerKey === 'function'
+      ? this.terminal.sessionOwnerKey(terminalSessionId)
+      : undefined;
+    // No presence check belongs here. In the default daemon-owned terminal host the proxy's
+    // session summaries carry neither `capsuleId` nor `ownerKey` at all (verified against the
+    // live daemon: every session answers `undefined` on both reads), so "unknown id" and
+    // "known row that claims nothing" are indistinguishable there. Treating an absent read as
+    // unknown would refuse every terminal the daemon owns — the whole surface this gate must
+    // keep working. Provenance that the proxy cannot report is the daemon's problem to expose,
+    // not a reason to guess at mint time.
+    if (typeof owner === 'string' && owner.startsWith('project:')) {
+      // A `project:`-prefixed key is a project claim even when its id is malformed: an
+      // empty id is a corrupted stamp, not the absence of one, so it must not fall
+      // through to the ambient path.
+      const claimedProjectId = owner.slice('project:'.length).trim();
+      if (!claimedProjectId) return { kind: 'unmeasurable' };
+      try {
+        const workspaces = this.projects.listWorkspaces(claimedProjectId).filter((w) => w.state === 'attached');
+        const sole = workspaces.length === 1 ? workspaces[0] : undefined;
+        if (sole) return { kind: 'measured', projectId: claimedProjectId, workspaceId: sole.id };
+      } catch {}
+      return { kind: 'unmeasurable' };
+    }
+    return { kind: 'unattributed' };
+  }
+
   private isExplicitTerminalCwd(candidateCwd: string): boolean {
     if (!this.terminal) return false;
     try {
@@ -539,9 +616,75 @@ export class ControlPlaneRuntime {
       browserEpoch?: number;
       ttlMs?: number;
       ownerPid?: number;
+      /**
+       * Terminal the CLI session was started from (`antifan.cli.startSession`
+       * `terminalSessionId`). When the terminal is attributed to a project the session is
+       * minted under that measured scope — caller-supplied projectId/workspaceId/cwd cannot
+       * widen or redirect it — and stamped onto the attachment so a terminal later moved to
+       * another project loses this authority on the next validate.
+       */
+      originTerminalSessionId?: string;
     } = {}
   ) {
-    const targetWs = this.resolveWorkspaceForSession(options);
+    // A terminal-origin session is scoped by WHERE THE TERMINAL LIVES, not by the
+    // caller's cwd or claimed ids: resolveWorkspaceForSession's cwd containment is
+    // exactly how a foreign project's terminal minted authority under this project.
+    const terminalSessionId = typeof options.originTerminalSessionId === 'string' && options.originTerminalSessionId.trim()
+      ? options.originTerminalSessionId.trim()
+      : undefined;
+    const terminalScope = terminalSessionId ? this.resolveTerminalScope(terminalSessionId) : undefined;
+    const measuredTerminalScope = terminalScope?.kind === 'measured' ? terminalScope : undefined;
+    if (terminalSessionId && measuredTerminalScope) {
+      if (options.projectId && options.projectId !== measuredTerminalScope.projectId) {
+        throw new CapabilityError(
+          'PROJECT_MISMATCH',
+          `Requested project '${options.projectId}' conflicts with the origin terminal's measured project '${measuredTerminalScope.projectId}'`
+        );
+      }
+      if (options.workspaceId && options.workspaceId !== measuredTerminalScope.workspaceId) {
+        throw new CapabilityError(
+          'WORKSPACE_MISMATCH',
+          `Requested workspace '${options.workspaceId}' conflicts with the origin terminal's measured workspace '${measuredTerminalScope.workspaceId}'`
+        );
+      }
+      // The bound tab must measure inside the same project: a foreign affiliation is
+      // proof the tab was provisioned in another project's window, which would keep
+      // this session driving that window. An unmeasured affiliation is allowed —
+      // the bootstrap default capsule legitimately carries none.
+      if (options.tabId && this.resolveTabAffiliationOption) {
+        const affiliation = this.resolveTabAffiliationOption(options.tabId);
+        if (affiliation?.projectId && affiliation.projectId !== measuredTerminalScope.projectId) {
+          throw new CapabilityError(
+            'POLICY_DENIED',
+            `Refusing to mint terminal-origin session: bound tab '${options.tabId}' measures in project '${affiliation.projectId}', ` +
+              `not the terminal's project '${measuredTerminalScope.projectId}'. The agent tab must be provisioned in the terminal's own project window.`,
+            { tabId: options.tabId, measuredProjectId: affiliation.projectId, terminalProjectId: measuredTerminalScope.projectId }
+          );
+        }
+      }
+    }
+    // A window claimed this terminal but its workspace cannot be singled out (none
+    // attached, or more than one). That is ambiguity about a real claim, so it fails
+    // closed: minting it under the caller's cwd would hand a project's terminal to
+    // whichever project that cwd resolved to.
+    if (terminalSessionId && terminalScope?.kind === 'unmeasurable') {
+      throw new CapabilityError(
+        'TERMINAL_SCOPE_UNRESOLVED',
+        `Cannot mint a session from terminal '${terminalSessionId}': a project owns it, but no single workspace could be measured for it ` +
+          '(none attached, or more than one). Terminal-origin browser authority is never minted from the caller cwd. ' +
+          'Attach exactly one workspace to the owning project, or start the session without terminal affinity.'
+      );
+    }
+    // No project claims this terminal at all — the app stamps terminal affinity into every
+    // PTY it mints, and a legacy row written before owner keys existed, a terminal of the
+    // workspace-less built-in project, or a daemon boot shell legitimately carries neither a
+    // capsule affiliation nor an owner key. Nothing says where such a terminal lives, so it
+    // cannot be foreign to any project, and refusing it would make the app's own terminal
+    // unable to mint at all. The caller's own resolution stands instead, and no
+    // terminal-origin binding is stamped: there is no claim for a later dispatch to re-measure.
+    const targetWs = measuredTerminalScope
+      ? this.resolveWorkspaceForSession({ projectId: measuredTerminalScope.projectId, workspaceId: measuredTerminalScope.workspaceId })
+      : this.resolveWorkspaceForSession(options);
     const ttlMs = typeof options.ttlMs === 'number' && options.ttlMs > 0 ? options.ttlMs : 7_200_000;
     const isDefault = targetWs.projectId === this.leaseState.projectId && targetWs.id === this.leaseState.workspaceId;
     const baseLease = isDefault ? this.getLease() : issueRuntimeLease(targetWs.projectId, targetWs.id, ttlMs, this.leaseState.hostEpoch);
@@ -567,6 +710,7 @@ export class ControlPlaneRuntime {
       ownerPid: options.ownerPid,
       lease,
       leaseToken: lease.token,
+      originTerminalSessionId: measuredTerminalScope ? terminalSessionId : undefined,
     });
   }
 

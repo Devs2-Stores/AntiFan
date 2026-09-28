@@ -602,6 +602,14 @@ export interface ExecutionAttachmentRecord {
   connectionId?: string;
   grant?: 'read' | 'write' | 'execute' | 'eval';
   tabId?: string;
+  /**
+   * When the session was minted from an in-app terminal (startSession carried a
+   * `terminalSessionId`), the minting terminal's id is stamped here. The registry
+   * re-resolves that terminal's owning project on every validate: a terminal moved
+   * to another project must refuse instead of silently retaining browser authority
+   * over the project it was minted under.
+   */
+  originTerminalSessionId?: string;
   browserEpoch?: number;
   documentGeneration?: number;
   lease?: RuntimeLease;
@@ -738,6 +746,7 @@ export type CapabilityErrorCode =
   | 'TRANSACTION_CONFLICT'
   | 'BASELINE_TAMPERED'
   | 'TERMINAL_FORBIDDEN'
+  | 'TERMINAL_SCOPE_UNRESOLVED'
   | 'USER_VISIBLE_OPERATION_FORBIDDEN'
   | 'NO_RENDER_SURFACE'
   | 'VIEWPORT_NOT_APPLIED'
