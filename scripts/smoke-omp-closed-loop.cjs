@@ -461,6 +461,12 @@ function runElectronWorkload() {
         // separately below; it is advertised here only as a coverage requirement.
         { id: 'quota', required: true, mutating: true, patterns: [/tabs[._-]?create/i], args: () => ({}) },
         { id: 'visual_compare', required: false, everyN: 10, patterns: [/visual[._-]?compare/i], args: () => ({}) },
+        // Heavy families are measured, not graded: their latency and typed code are
+        // recorded every probe, but a refusal (e.g. QA on a non-theme fixture) is
+        // cost evidence, not a failed sample.
+        { id: 'heavy_responsive', required: false, graded: false, everyN: 5, patterns: [/inspect[._-]?responsive[._-]?matrix/i, /responsive[._-]?check/i], args: () => ({}) },
+        { id: 'heavy_reference', required: false, graded: false, everyN: 10, patterns: [/reference[._-]?capture/i], args: () => ({}) },
+        { id: 'theme_qa', required: false, graded: false, everyN: 10, patterns: [/qa[._-]?validate/i, /debug[._-]?bundle/i], args: () => ({}) },
       ];
 
       const familyMatrix = FAMILY_SPECS.map((spec) => {
@@ -469,6 +475,7 @@ function runElectronWorkload() {
           id: spec.id,
           required: spec.required,
           mutating: Boolean(spec.mutating),
+          graded: spec.graded !== false,
           everyN: spec.everyN || 1,
           tools,
           tool: tools[0] || null,
@@ -622,10 +629,12 @@ function runElectronWorkload() {
           const outcome = describeToolResult(resp);
           // Every family probe expects success: a refusal is a failed sample,
           // counted — a 100%-refused family can never read as 0 failures again.
-          const verdict = checkExpectation(`family.${family.id}`, 'success', outcome, `${family.id} via ${toolName}`);
+          const verdict = family.graded
+            ? checkExpectation(`family.${family.id}`, 'success', outcome, `${family.id} via ${toolName}`)
+            : { pass: true };
           familyResults[family.id] = {
             tool: toolName,
-            expect: 'success',
+            expect: family.graded ? 'success' : 'measure',
             ok: verdict.pass,
             callOk: outcome.ok,
             code: outcome.code || null,
