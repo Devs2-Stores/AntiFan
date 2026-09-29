@@ -6580,6 +6580,11 @@ export class NativeTabHost extends EventEmitter {
       folderKey: canonicalFolderKey(input),
       folderLabel: path.basename(canonicalPath) || canonicalPath,
     };
+    // Bounded: every distinct spelling a row ever reported is a key, so evict the oldest.
+    if (this.folderFactsCache.size >= 512) {
+      const oldest = this.folderFactsCache.keys().next();
+      if (!oldest.done) this.folderFactsCache.delete(oldest.value);
+    }
     this.folderFactsCache.set(input, facts);
     return facts;
   }

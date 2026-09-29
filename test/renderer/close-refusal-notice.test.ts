@@ -95,6 +95,7 @@ const RENDERER_SCRIPT_DIR = (() => {
  */
 interface BridgeStub {
   pushRefusal: (notice: unknown) => void;
+  overlayCalls: Array<{ active: boolean; height: number | undefined }>;
 }
 
 function makeApi(state: Record<string, unknown>, stub: BridgeStub) {
@@ -121,7 +122,10 @@ function makeApi(state: Record<string, unknown>, stub: BridgeStub) {
     getPhoneStatus: () => Promise.resolve({ state: 'unknown' }),
     // The overlay owner chain reports its strip height to Main; the stub records nothing,
     // but the call must exist so a passing run has no stray TypeErrors in its output.
-    setOverlay: () => Promise.resolve(),
+    setOverlay: (active: boolean, height?: number) => {
+      stub.overlayCalls.push({ active, height });
+      return Promise.resolve();
+    },
     onCloseRefused: (callback: (notice: unknown) => void) => {
       refusalSubscribers.push(callback);
       return () => {
@@ -144,7 +148,7 @@ async function flush(rounds = 12) {
 
 async function loadToolbar(projectWindow: unknown, tabs: unknown[] = []) {
   // Replaced by `makeApi` with the real channel to the chrome's own subscription.
-  const stub: BridgeStub = { pushRefusal: () => { throw new Error('the bridge was never installed'); } };
+  const stub: BridgeStub = { pushRefusal: () => { throw new Error('the bridge was never installed'); }, overlayCalls: [] };
   const { JSDOM } = loadJsdom();
   const html = fs.readFileSync(path.join(RENDERER_MARKUP_DIR, 'toolbar.html'), 'utf8');
   const dom = new JSDOM(html, { runScripts: 'outside-only', url: 'http://localhost/' });
@@ -288,6 +292,25 @@ describe('Refused close/quit notice', () => {
       id: 'antifan:terminal:close-session',
       label: 'Close the terminal session that owns this page (✕ on the terminal tab in the terminal workbench), or stop the agent session running in it',
     }]);
+  });
+
+  test('the overlay expansion is the panel bottom minus the 74px strip, never below the floor', async () => {
+    const ctx = await loadToolbar({ owner: { kind: 'unassigned' } });
+    dom = ctx.dom;
+    const { doc, stub } = ctx;
+    const last = () => stub.overlayCalls[stub.overlayCalls.length - 1];
+
+    // Tall panel: bottom 300 + 12 margin - 74 strip = 238 extra pixels.
+    noticeEl(doc).getBoundingClientRect = () => ({ bottom: 300 }) as DOMRect;
+    stub.pushRefusal(REFUSED_CLOSE);
+    await flush();
+    assert.deepStrictEqual(last(), { active: true, height: 238 });
+
+    // Short panel: the floor keeps the expansion from collapsing under the panel.
+    noticeEl(doc).getBoundingClientRect = () => ({ bottom: 100 }) as DOMRect;
+    stub.pushRefusal(REFUSED_CLOSE);
+    await flush();
+    assert.deepStrictEqual(last(), { active: true, height: 96 });
   });
 
   test('a vetoed close names the tab that is blocking it and the one route past it', async () => {

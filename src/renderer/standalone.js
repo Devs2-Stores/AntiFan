@@ -7101,6 +7101,7 @@ function renderTabs() {
     if (!isSidebarLayout || !liveKeys.has(key)) {
       header.remove();
       categoryHeaders.delete(key);
+      folderHeaderSessionIds.delete(key);
     }
   }
 

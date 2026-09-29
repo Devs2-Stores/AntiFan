@@ -30,8 +30,17 @@ Prove the contract end-to-end on the real app, not only unit tests.
    - picker shows optgroups.
 4. `code-reviewer` pass on the diff; update `docs/ui-architecture.md` + `CHANGELOG.md`.
 
+## Evidence (2026-09-29)
+
+- `tsc` clean. `test:fast` 1703/1703 (unit + renderer). `test:unit` 1396/1396.
+- `test:main` 2029 pass, 1 fail: `terminal-daemon-provenance` #5 ("Daemon host exited early with code 1") under full-lane load; 6/6 pass in isolation. Treated as spawn contention, not proven baseline.
+- `history-manager` and `playwright-parity-kernel` (earlier flaky): 3/3 green runs on HEAD.
+- `npm run smoke:terminal-hub` 5/5 PASS (real Electron, stubbed Main).
+- `code-review.md`: F1-F13 resolved.
+
 ## Success Criteria
 
-- [ ] All plan.md Success Criteria checked with evidence (log or screenshot receipt)
-- [ ] No existing test deleted or weakened
-- [ ] Docs + changelog updated
+- [x] Typecheck + unit/renderer/main lanes (one load-flaky daemon spawn test noted)
+- [x] No existing test deleted or weakened
+- [x] Docs + changelog updated
+- [ ] Live smoke on an app running this build (folder dialog at `E:\Work`, `+` in two folders, Space idempotent, sync sleep refused, picker optgroups) - NOT DONE: needs an app restart, which ends the user's production session

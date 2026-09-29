@@ -114,4 +114,19 @@ folderFactsCache (native-tab-host.ts:1138) keys every cwd spelling ever seen and
 6. F7/F8/F10/F11 — hardening cleanups.
 7. F12 — reconcile the batcher change with the sibling plan before phase-7 verification runs their suites.
 
-## Status: DONE_WITH_CONCERNS
+## Status: DONE_WITH_CONCERNS -> RESOLVED (2026-09-29)
+
+| Finding | Resolution |
+|---|---|
+| F1, F2 | Fixed, regression tests `(k3)` (terminal-sleep-lifecycle) and duplicate/concurrent-open cases (space-open) |
+| F3 | `antifanDirUnignoredInGit` (linked worktree `.git` file, negation, last rule wins); scaffold warns |
+| F4 | `visibleTerminalSessions` required on `TabDevToolsContext`; test `4b` asserts stamped rows reach the picker |
+| F5 | `wake` dep: sleeping declared terminals are woken and get their command; `terminalsWoken` reported |
+| F6 | `hasTab` compares exact capsule + path via the preview URL, not a suffix |
+| F7 | Win32 device names / `:` segments refused in `relativeTabPath` |
+| F8 | mint button queried by `data-role="mint"` |
+| F9 | `typeCommand` false -> `CREATE_FAILED` |
+| F10 | confirmation store keeps only string-array entries |
+| F11 | `TerminalSleepResult` widened with `INVALID_PAYLOAD` / `NOT_PERMITTED` |
+| F12 | Intentional: the batcher edit is the real bug behind plan 260928's failing batcher suite; `output-batcher.test.ts` pins immediate emit past `flushMs` (test tightened, not removed) |
+| F13 | `folderFactsCache` capped at 512 (oldest evicted); `folderHeaderSessionIds` pruned with its header |

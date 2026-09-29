@@ -82,6 +82,8 @@ function createHost(tabIds: string[]): PerTabHost {
   host.isInspecting = false;
   host.inspectGeneration = 0;
   host.broadcastState = () => {};
+  // The picker now reads the host's stamped, owner-scoped list, which consults the window map.
+  (host as unknown as { terminalWindowMeta: Map<number, unknown> }).terminalWindowMeta = new Map();
   return host;
 }
 
