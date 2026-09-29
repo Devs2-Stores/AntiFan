@@ -111,19 +111,32 @@ export class RunService {
   }
 
   /**
-   * Reap runs whose owning process is provably dead. A CLI/workflow session that
-   * lost its owner never calls endCliSession, so its run would sit in a
-   * non-terminal state forever — and the close gate counts every non-terminal
-   * run as busy evidence. The owner pid is the same authority the attachment
-   * registry releases on: dispatch refuses a dead boundPid, so no live client
-   * can lose work here. Runs without a recorded owner pid keep their state —
-   * pid-less clients are the fail-closed direction, exactly like the registry.
+   * Reap runs that can never be driven to a terminal state again:
+   *
+   * - The owning process is provably dead (attempt pid). The owner pid is the
+   *   same authority the attachment registry releases on: dispatch refuses a
+   *   dead boundPid, so no live client can lose work here.
+   * - No live dispatchable binding remains for the run's attempt. Sessions mint
+   *   their attachment at creation, so a run left 'streaming' with no active,
+   *   unexpired record is unreachable work — a pid-less client whose transport
+   *   died hard can never call endSession again. This is the only path that
+   *   covers owners the pid check cannot see.
+   *
+   * Queued runs are exempt: they legitimately wait for `start()` with no
+   * binding minted yet. Runs with a live binding keep their state — the
+   * fail-closed direction, exactly like the registry.
    */
   public reapGoneOwnerRuns(): { interrupted: string[] } {
     const interrupted: string[] = [];
     const now = Date.now();
     for (const run of this.runs.values()) {
-      if (run.state === 'completed' || run.state === 'failed' || run.state === 'interrupted' || run.state === 'unknown') {
+      if (
+        run.state === 'queued' ||
+        run.state === 'completed' ||
+        run.state === 'failed' ||
+        run.state === 'interrupted' ||
+        run.state === 'unknown'
+      ) {
         continue;
       }
       let attempt: ExecutionAttempt | undefined;
@@ -134,22 +147,48 @@ export class RunService {
         if (typeof candidatePid === 'number' && candidatePid > 0) {
           attempt = candidate;
           pid = candidatePid;
+        } else if (!attempt) {
+          // A pid-less attempt still names the run's attempt for the binding
+          // check below; a later pid-bound attempt replaces it.
+          attempt = candidate;
         }
       }
-      if (!attempt || !pid) continue;
-      let alive = true;
-      try {
-        // A liveness read that fails is not evidence of death: keep the run.
-        alive = isPidAlive(pid) !== false;
-      } catch {
-        alive = true;
+      if (!attempt) continue;
+
+      let gone: 'owner-process-gone' | 'dispatch-binding-gone' | undefined;
+      if (pid) {
+        let alive = true;
+        try {
+          // A liveness read that fails is not evidence of death: keep the run.
+          alive = isPidAlive(pid) !== false;
+        } catch {
+          alive = true;
+        }
+        if (!alive) gone = 'owner-process-gone';
       }
-      if (alive) continue;
+      if (!gone) {
+        let boundLive = false;
+        for (const attachmentId of this.attachments.getActiveRecordIds()) {
+          const record = this.attachments.getRecord(attachmentId);
+          if (
+            record &&
+            record.attemptId === attempt.id &&
+            record.state === 'active' &&
+            (typeof record.expiresAt !== 'number' || record.expiresAt > now)
+          ) {
+            boundLive = true;
+            break;
+          }
+        }
+        if (!boundLive) gone = 'dispatch-binding-gone';
+      }
+      if (!gone) continue;
+
       run.state = 'interrupted';
       run.updatedAt = now;
       attempt.state = 'interrupted';
       attempt.updatedAt = now;
-      this.append('backend/status', { state: 'interrupted', reason: 'owner-process-gone' }, run, attempt);
+      this.append('backend/status', { state: 'interrupted', reason: gone }, run, attempt);
       void this.attachments.revokeForAttempt(attempt.id).catch(() => {});
       interrupted.push(run.id);
     }

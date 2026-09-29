@@ -100,4 +100,43 @@ describe('run service gone-owner reap', () => {
       cleanup([dataRoot, workspaceRoot]);
     }
   });
+  it('keeps a pid-less run while its dispatch binding is live — the transport may still end it', async () => {
+    const { runtime, dataRoot, workspaceRoot, projectId, workspaceId } = makeRuntime();
+    try {
+      const lease = issueRuntimeLease(projectId, workspaceId, 3_600_000, 1);
+      const session = await runtime.runs.createCliSession({
+        projectId,
+        workspaceId,
+        lease,
+        leaseToken: lease.token,
+      });
+      const reaped = runtime.runs.reapGoneOwnerRuns();
+      assert.deepEqual(reaped.interrupted, []);
+      assert.equal(runtime.runs.getRun(session.run.id).state, 'streaming');
+    } finally {
+      cleanup([dataRoot, workspaceRoot]);
+    }
+  });
+
+  it('interrupts a streaming run with no live dispatch binding — an owner that can never return', async () => {
+    const { runtime, dataRoot, workspaceRoot, projectId, workspaceId } = makeRuntime();
+    try {
+      const lease = issueRuntimeLease(projectId, workspaceId, 3_600_000, 1);
+      const session = await runtime.runs.createCliSession({
+        projectId,
+        workspaceId,
+        lease,
+        leaseToken: lease.token,
+      });
+      // The client vanished without a clean release: its record is gone or
+      // terminal, so no transport can ever drive this run to endSession again.
+      await runtime.runs.attachments.revokeForAttempt(session.attempt.id);
+
+      const reaped = runtime.runs.reapGoneOwnerRuns();
+      assert.deepEqual(reaped.interrupted, [session.run.id]);
+      assert.equal(runtime.runs.getRun(session.run.id).state, 'interrupted');
+    } finally {
+      cleanup([dataRoot, workspaceRoot]);
+    }
+  });
 });
