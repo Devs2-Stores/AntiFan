@@ -23,6 +23,10 @@
  *      the window's own owner key, a record written before ownership keeps the capsule rule
  *      it was created under, an unattributable session is refused rather than passed through,
  *      and a seam that cannot scope yields an empty projection instead of the unscoped one.
+ *   7. Persist no-op skip: an unchanged projection never re-reads or rewrites
+ *      saved-tabs.json, while a changed projection or a missing file still does.
+ *   8. Terminal activity envelopes: non-displaying surfaces receive a bounded
+ *      data tail, never the full batch payload.
  */
 import { describe, it, before, after, afterEach, beforeEach } from 'node:test';
 import * as assert from 'node:assert/strict';
@@ -250,6 +254,9 @@ function createHost(options: HostOptions = {}): AnyRecord {
   host.agentInputInFlight = 0;
   host.lastUserInputAtMs = 0;
   host.terminalDataFlushTimer = null;
+  host.lastPersistedProjection = undefined;
+  host.lastPersistedFileMtimeMs = undefined;
+  host.lastPersistedFileSize = undefined;
   // Field initializers do not run on a prototype-built double; withTerminalSubscriptions
   // pushes each seam listener's release here, and afterEach resets the router + manager.
   host.terminalSubscriptionReleases = [];
@@ -538,6 +545,64 @@ describe('saved tabs: one record per owner', () => {
 
     const record = readSavedTabsFile().owners[ownerKey(PROJECT_A)];
     assert.deepEqual(record.tabs.map((tab: AnyRecord) => tab.id), ['tab-a']);
+  });
+
+  it('skips all disk work when the projection is unchanged, still writes on change or missing file', () => {
+    freshUserData('persist-noop-skip');
+    const host = createHost({ owner: PROJECT_A, tabs: [['tab-a', {}]], activeTabId: 'tab-a' });
+
+    let reads = 0;
+    let writes = 0;
+    const originalMergeRead = host.normalizeSavedTabsFileForMerge;
+    const originalWrite = host.writeSavedTabsDocumentSync;
+    host.normalizeSavedTabsFileForMerge = (...args: unknown[]) => {
+      reads += 1;
+      return originalMergeRead.apply(host, args as [string]);
+    };
+    host.writeSavedTabsDocumentSync = (...args: unknown[]) => {
+      writes += 1;
+      return originalWrite.apply(host, args as [string, AnyRecord]);
+    };
+
+    // First persist lands the projection.
+    host.persistSync();
+    assert.equal(writes, 1);
+    const firstRecord = readSavedTabsFile().owners[ownerKey(PROJECT_A)];
+
+    // Triggering persist again with identical projected state does no disk work:
+    // no merge read, no document write, no rename — this is the broadcast-driven
+    // path flushBroadcastState hits at up to ~2.5 Hz during tab activity.
+    host.persistSync();
+    host.persistSync();
+    assert.equal(reads, 1, 'only the first persist reads; an unchanged projection must not re-read the file');
+    assert.equal(writes, 1, 'an unchanged projection must not rewrite the file');
+    assert.deepEqual(readSavedTabsFile().owners[ownerKey(PROJECT_A)], firstRecord);
+
+    // A real state change still persists.
+    host.mutedSites.add('example.test');
+    host.persistSync();
+    assert.equal(writes, 2, 'a changed projection must write');
+    assert.ok((readSavedTabsFile().mutedSites || []).includes('example.test'));
+
+    // Same projected state: quiet again.
+    host.persistSync();
+    assert.equal(writes, 2);
+
+    // Crash-durability: the file vanished after our last write, so even an
+    // identical projection has to be rewritten rather than left absent.
+    fs.unlinkSync(savedTabsPath());
+    host.persistSync();
+    assert.equal(writes, 3, 'a missing saved-tabs.json must be rewritten');
+    assert.ok(fs.existsSync(savedTabsPath()));
+
+    // An external rewrite bumps mtime, so the window merges again instead of
+    // trusting its cached projection stamp.
+    const tampered = readSavedTabsFile();
+    tampered.bookmarks = [{ url: 'https://other-window.test/', title: 'other window' }];
+    fs.writeFileSync(savedTabsPath(), JSON.stringify(tampered, null, 2), 'utf8');
+    host.persistSync();
+    assert.equal(reads, 4, 'every landed persist merges exactly once');
+    assert.equal(writes, 4);
   });
 });
 
@@ -1552,5 +1617,61 @@ describe('project window identity', () => {
     const unassignedHarness: ChromeRouteHarness = createChromeRouteHarness({ host: asHost(unassigned) });
     const unassignedState = (await unassignedHarness.invoke(SIDEBAR_CHANNELS.GET_INITIAL_STATE)) as AnyRecord;
     assert.deepEqual(unassignedState.projectWindow.owner, { kind: 'unassigned' });
+  });
+});
+
+describe('terminal activity envelopes', () => {
+  it('bounds the data a non-displaying surface receives to a trailing tail', () => {
+    const host = createHost({ owner: PROJECT_A });
+    const sidebarWc = attachSidebar(host);
+    (sidebarWc as unknown as { id?: number }).id = 31;
+
+    const winWc = makeWebContents();
+    (winWc as unknown as { id?: number }).id = 32;
+    host.terminalWindows.set(7, { isDestroyed: () => false, webContents: winWc });
+
+    // Window 7 displays the session; the sidebar only watches it in the strip.
+    host.terminalDisplayedSessions.set('w7', new Set(['sess-activity']));
+
+    const head = 'HEAD-ONLY-CONTENT-NOT-WORTH-CLONING ';
+    const marker = '\x1b]777;antifan;wait=1';
+    const data = head.repeat(400) + marker;
+    host.dispatchTerminalData({
+      sessionId: 'sess-activity',
+      data,
+      seq: 9,
+      fromSeq: 5,
+      throughSeq: 9,
+      generation: 2,
+    });
+
+    // The displaying surface still receives the full payload on the data channel.
+    const dataFrame = winWc.sent.find((m) => m.channel === TERMINAL_CHANNELS.DATA);
+    assert.ok(dataFrame, 'the displaying surface keeps the full data frame');
+    assert.equal((dataFrame.args[0] as AnyRecord).data, data);
+    assert.equal((dataFrame.args[0] as AnyRecord).fromSeq, 5);
+
+    // The non-displaying surface gets the activity channel — same envelope
+    // shape, data bounded to the trailing tail the classifier consumes, and
+    // fromSeq honest about the range that tail covers so a pane going live
+    // recovers via the seq gap instead of accepting a head-truncated batch.
+    const activityFrame = sidebarWc.sent.find((m) => m.channel === TERMINAL_CHANNELS.ACTIVITY);
+    assert.ok(activityFrame, 'a non-displaying surface must get an activity frame');
+    const envelope = activityFrame.args[0] as AnyRecord;
+    assert.equal(envelope.sessionId, 'sess-activity');
+    assert.equal(envelope.generation, 2);
+    assert.equal(envelope.seq, 9);
+    assert.equal(envelope.throughSeq, 9, 'the ack cursor still names the real batch end');
+    assert.equal(envelope.fromSeq, 9, 'the envelope names only the range its data covers');
+    assert.ok(envelope.data.length <= 4096, `activity data is bounded, got ${envelope.data.length}`);
+    assert.ok(envelope.data.endsWith(marker), 'trailing wait markers survive the tail cut');
+
+    // Small payloads pass through untouched — truncation only pays for big bursts.
+    sidebarWc.sent.length = 0;
+    const small = { sessionId: 'sess-activity', data: 'echo', seq: 10, fromSeq: 10, throughSeq: 10 };
+    host.dispatchTerminalData(small);
+    const smallFrame = sidebarWc.sent.find((m) => m.channel === TERMINAL_CHANNELS.ACTIVITY);
+    assert.ok(smallFrame);
+    assert.deepEqual(smallFrame.args[0], small);
   });
 });

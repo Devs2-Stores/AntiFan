@@ -18,6 +18,7 @@ import { ControlPlaneRuntime } from '../../src/main/control-plane/control-plane-
 import { AttachmentRegistry, type PageCloseAdmission } from '../../src/main/run/attachment-registry';
 import { BRIDGE_FAILURE_RECENCY_MS, subscribeBridgeHealth } from '../../src/main/bridge/bridge-health';
 import { makeControlPlaneId } from '../../src/shared/control-plane-contracts';
+import { hasProtectedFileDacl, resolveCurrentUserSid } from '../../src/main/security/windows-acl';
 // Mock NativeTabHost for pure isolated bridge test
 class MockTabHost extends EventEmitter {
   private tabs: any[] = [{ id: 'tab-1', url: 'https://google.com', title: 'Google', isLoading: false, canGoBack: false, canGoForward: false, zoomFactor: 1.0 }];
@@ -1553,6 +1554,46 @@ describe('Bridge failure ledger, derived health, and record publish', () => {
         assert.ok((republished.updatedAt as number) >= (degraded.updatedAt as number));
         assert.strictEqual(republished.startedAt, first.startedAt, 'startedAt stays frozen across the heartbeat');
         assert.strictEqual(republished.pid, process.pid);
+      } finally {
+        server.dispose();
+      }
+    });
+  });
+
+  it('refreshes the published Windows discovery record in place, keeping its protected DACL', { skip: process.platform !== 'win32' }, async () => {
+    // Each DACL'd publish spawns icacls + powershell. A 5 s heartbeat that went
+    // through that path pinned a CPU core on its own; the refresh must reuse the
+    // file object whose DACL was already verified.
+    await withIsolatedRoots(async ({ configDir }) => {
+      const mockHost = new MockTabHost() as unknown as NativeTabHost;
+      const server = new BridgeServer(mockHost, await freePort(), true);
+      const recordPath = path.join(configDir, 'bridge-dev.json');
+      const sid = await resolveCurrentUserSid();
+      try {
+        await server.start();
+        const ledger = surface(server);
+        await ledger.persistBridgeInfo();
+        const published = fs.statSync(recordPath, { bigint: true });
+        const first = readRecord(recordPath)!;
+
+        server.recordBridgeFailure('PAIRING_REFUSED', 'pairing code expired');
+        await ledger.persistBridgeInfo();
+        const refreshed = fs.statSync(recordPath, { bigint: true });
+        const degraded = readRecord(recordPath)!;
+        assert.strictEqual(refreshed.ino, published.ino, 'the heartbeat rewrites the same file object instead of renaming a new one over it');
+        assert.strictEqual(refreshed.size, published.size, 'the padded record never changes size, so readers never see a truncated file');
+        assert.strictEqual(degraded.health, 'degraded', 'the in-place refresh carries the new payload');
+        assert.ok((degraded.updatedAt as number) >= (first.updatedAt as number));
+        assert.ok(await hasProtectedFileDacl(recordPath, sid), 'the refreshed record keeps its protected DACL');
+
+        // A file replaced behind the bridge's back is not the verified object: the
+        // next publish must go through the full DACL'd write again.
+        fs.rmSync(recordPath);
+        fs.writeFileSync(recordPath, '{}');
+        assert.strictEqual(await hasProtectedFileDacl(recordPath, sid), false);
+        await ledger.persistBridgeInfo();
+        assert.strictEqual(readRecord(recordPath)?.pid, process.pid);
+        assert.ok(await hasProtectedFileDacl(recordPath, sid), 'a replaced record is republished with the protected DACL');
       } finally {
         server.dispose();
       }

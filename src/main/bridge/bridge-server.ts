@@ -149,6 +149,22 @@ export async function applyProtectedFileDacl(filePath: string): Promise<void> {
   await applyProtectedPathsDaclBridge([filePath]);
 }
 
+/**
+ * Windows discovery records are space-padded to this fixed size so a heartbeat
+ * refresh is one same-size write at offset 0 into the already-protected file:
+ * no truncation window, no new file object, no DACL re-apply. JSON.parse accepts
+ * the trailing whitespace. A payload that outgrows it falls back to the full
+ * DACL'd atomic write on every publish.
+ */
+const DISCOVERY_RECORD_BYTES = 4096;
+
+function discoveryRecordContent(info: Record<string, unknown>): string {
+  const json = JSON.stringify(info, null, 2);
+  if (process.platform !== 'win32') return json;
+  const bytes = Buffer.byteLength(json, 'utf8');
+  return bytes < DISCOVERY_RECORD_BYTES ? json + ' '.repeat(DISCOVERY_RECORD_BYTES - bytes) : json;
+}
+
 export function isAuthorizedCompanionOrigin(rawOrigin: string): boolean {
   if (!rawOrigin || typeof rawOrigin !== 'string') return false;
   if (!rawOrigin.startsWith('chrome-extension://')) return false;
@@ -307,6 +323,13 @@ export class BridgeServer {
   private listening = false;
   private healthTimer: NodeJS.Timeout | null = null;
   private readonly startedAt = Date.now();
+  // Discovery files this process last published through the DACL'd atomic write,
+  // keyed by target path and pinned to that file object's identity. Refreshing the
+  // same object in place keeps its verified protected DACL, so the 5 s heartbeat
+  // spawns no icacls/powershell (each spawn cost seconds of CPU, every beat).
+  private readonly publishedDiscoveryFiles = new Map<string, { dev: bigint; ino: bigint; size: number }>();
+  private persistRunning: Promise<void> | null = null;
+  private persistQueued: Promise<void> | null = null;
 
   public issueExtensionGrant(targetPartitionId: string, allowedDomains: string[] = DEFAULT_EXTENSION_ALLOWED_DOMAINS, ttlMs = 3600_000): ExtensionSessionGrant {
     this.pruneExpiredGrants();
@@ -2078,31 +2101,103 @@ export class BridgeServer {
     }
   }
 
-  private async persistBridgeInfo(): Promise<void> {
+  /**
+   * Single-flight publish: at most one write runs and one waits. A full DACL'd
+   * write takes seconds, so the listen publish, its 1.5 s follow-up, and the
+   * heartbeat would otherwise race the same temp/rename and double every spawn.
+   * The waiting run reads the payload when it starts, so every caller's state
+   * change lands and every awaiting caller observes a write that includes it.
+   */
+  private persistBridgeInfo(): Promise<void> {
+    if (this.persistQueued) return this.persistQueued;
+    if (!this.persistRunning) return this.startPersist();
+    this.persistQueued = this.persistRunning.then(() => {
+      this.persistQueued = null;
+      return this.startPersist();
+    });
+    return this.persistQueued;
+  }
+
+  private startPersist(): Promise<void> {
+    const run = this.persistBridgeInfoNow().finally(() => {
+      if (this.persistRunning === run) this.persistRunning = null;
+    });
+    this.persistRunning = run;
+    return run;
+  }
+
+  private async persistBridgeInfoNow(): Promise<void> {
     if (this.isDisposed) return;
     if (!this.publishesDiscovery) return;
     const info = this.bridgeInfoPayload();
     try {
-      const content = JSON.stringify(info, null, 2);
-      const itemsToWrite: Array<{ targetPath: string; content: string }> = [
-        { targetPath: this.bridgeInfoPath, content },
-      ];
-      console.log(`[antifan] Persisted non-secret bridge info to ${this.bridgeInfoPath}`);
+      const content = discoveryRecordContent(info);
+      const targets: string[] = [this.bridgeInfoPath];
 
       const geminiDir = path.join(os.homedir(), '.gemini');
       if (fs.existsSync(geminiDir)) {
         const geminiFileName = this.isDev ? 'antifan_bridge_dev.json' : 'antifan_bridge.json';
         const mirrorPath = path.join(geminiDir, geminiFileName);
         if (this.canPublishLegacyMirror(mirrorPath)) {
-          itemsToWrite.push({ targetPath: mirrorPath, content });
+          targets.push(mirrorPath);
         } else {
           console.warn(`[antifan] Keeping the existing entry in ${mirrorPath}: it is held by a live instance.`);
         }
       }
 
-      await this.atomicWriteManyWithDacl(itemsToWrite);
+      const pending = targets.filter((targetPath) => !this.refreshPublishedDiscoveryInPlace(targetPath, content));
+      if (pending.length === 0) return;
+      await this.atomicWriteManyWithDacl(pending.map((targetPath) => ({ targetPath, content })));
+      this.rememberPublishedDiscoveryFiles(pending, content);
+      console.log(`[antifan] Persisted non-secret bridge info to ${this.bridgeInfoPath}`);
     } catch (err) {
       console.error('[antifan] Failed to persist bridge info:', err);
+    }
+  }
+
+  /**
+   * Overwrites a discovery file this process published and DACL-verified, in
+   * place. Only the same file object (volume + file id) at the same padded size
+   * qualifies: a replaced, resized, or missing file takes the full DACL'd path.
+   */
+  private refreshPublishedDiscoveryInPlace(targetPath: string, content: string): boolean {
+    if (process.platform !== 'win32') return false;
+    const published = this.publishedDiscoveryFiles.get(targetPath);
+    if (!published) return false;
+    const buffer = Buffer.from(content, 'utf8');
+    if (buffer.length !== published.size) return false;
+    let fd: number | null = null;
+    try {
+      fd = fs.openSync(targetPath, 'r+');
+      const stat = fs.fstatSync(fd, { bigint: true });
+      if (stat.dev !== published.dev || stat.ino !== published.ino || stat.size !== BigInt(published.size)) {
+        this.publishedDiscoveryFiles.delete(targetPath);
+        return false;
+      }
+      fs.writeSync(fd, buffer, 0, buffer.length, 0);
+      return true;
+    } catch {
+      this.publishedDiscoveryFiles.delete(targetPath);
+      return false;
+    } finally {
+      if (fd !== null) {
+        try { fs.closeSync(fd); } catch {}
+      }
+    }
+  }
+
+  private rememberPublishedDiscoveryFiles(targetPaths: string[], content: string): void {
+    if (process.platform !== 'win32' || this.isDisposed) return;
+    const size = Buffer.byteLength(content, 'utf8');
+    for (const targetPath of targetPaths) {
+      try {
+        const stat = fs.statSync(targetPath, { bigint: true });
+        if (stat.size === BigInt(size)) {
+          this.publishedDiscoveryFiles.set(targetPath, { dev: stat.dev, ino: stat.ino, size });
+          continue;
+        }
+      } catch {}
+      this.publishedDiscoveryFiles.delete(targetPath);
     }
   }
 
@@ -2232,7 +2327,8 @@ export class BridgeServer {
         // Prevent mobile client from operating on agent-owned terminal sessions. Only methods
         // that target a session fall back to the active one: listing and session creation stay
         // reachable so the companion can render (and extend) the user-plane session list.
-        const targetSessionId = typeof p.id === 'string' ? p.id : (typeof p.sessionId === 'string' ? p.sessionId : undefined);
+        const rawSessionId = typeof p.id === 'string' ? p.id : (typeof p.sessionId === 'string' ? p.sessionId : undefined);
+        const targetSessionId = rawSessionId?.trim() || undefined;
         const targetsTerminalSession =
           cleanMethod === 'terminalInput' ||
           cleanMethod === 'terminalSendKey' ||
@@ -2872,10 +2968,6 @@ export class BridgeServer {
             : tm.getActiveSessionId();
           if (mobileGrant && !this.userPlaneMayReachTerminal(targetId)) {
             respond(false, undefined, 'TERMINAL_FORBIDDEN: caller may not read an agent-owned terminal session');
-            break;
-          }
-          if (boundAttachmentId && !this.terminalWriteForAttachment(targetId, boundAttachmentId, p.attachmentId)) {
-            respond(false, undefined, 'TERMINAL_FORBIDDEN: attachment does not own the target terminal session');
             break;
           }
           respond(true, await Promise.resolve(tm.getFullBuffer(targetId)));

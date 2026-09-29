@@ -15,7 +15,7 @@ import * as http from 'node:http';
 import * as crypto from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { WebSocketServer, WebSocket } from 'ws';
-import { TerminalManager } from '../browser/terminal-manager';
+import { TerminalManager, safeSliceTail } from '../browser/terminal-manager';
 import { HOST_METHOD, HOST_EVENT } from './protocol';
 import { OutputBatcher } from './output-batcher';
 import type { BridgeRequestPayload, BridgeResponsePayload, BridgeEventPayload, TerminalDataPayload } from '../../shared/contracts';
@@ -447,13 +447,13 @@ function main(): void {
             break;
 
           case HOST_METHOD.shutdown: {
-            // Only the explicit "quit everything" action reaches here. Cleaning up before exit keeps
-            // the invariant that the host is the single writer: the state file is flushed once, by
-            // the process that owns it, instead of being left to the next restore.
+            // Only the explicit "quit everything" action reaches here. dispose() is the
+            // shutdown-grade path: it persists once, then tears down EVERY session's PTY —
+            // tm.kill() only releases the active session and its split, which orphaned the
+            // other N-1 shells on every daemon exit.
             respond(true, { shuttingDown: true });
             log('shutdown requested by client');
-            try { tm.persistSync(); } catch (err) { log(`persist on shutdown failed: ${String(err)}`); }
-            try { await tm.kill(); } catch (err) { log(`kill on shutdown failed: ${String(err)}`); }
+            try { await tm.dispose(); } catch (err) { log(`dispose on shutdown failed: ${String(err)}`); }
             setTimeout(() => process.exit(0), 50).unref?.();
             break;
           }
@@ -555,10 +555,18 @@ const KEY_MAP: Record<string, string> = {
 };
 
 async function waitForShellReady(tm: TerminalManager, sessionId: string, timeoutMs: number): Promise<boolean> {
+  // Hydrating the session is the readiness touch: a restored record's shell
+  // starts here before the prompt watch begins (getFullBuffer materializes it).
+  tm.getFullBuffer(sessionId);
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
-      if (shellLooksReady(tm.getFullBuffer(sessionId).buffer)) return true;
+      const record = tm.getSession(sessionId);
+      if (!record || record.state !== 'running') return false;
+      // The prompt lives in the newest output; polling an 8KB tail instead of
+      // the full transcript keeps each 100ms tick O(tail) — getFullBuffer
+      // materialized multi-MB strings per iteration.
+      if (shellLooksReady(safeSliceTail(record.chunks || [], 8 * 1024))) return true;
     } catch {
       return false;
     }

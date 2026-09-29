@@ -235,6 +235,14 @@ export class SessionRecord {
   public inputLineBuffer?: string;
   public category?: string;
   public sleptAt?: number;
+  /**
+   * True on a record restored from disk without a shell. It is what lets a read
+   * path tell "the shell this tab owns was never restarted" apart from "this
+   * record simply holds no PTY" (a seeded record, a sleeping tab's record): the
+   * first real touch — write, switch, resize, attach, wait — mints the shell
+   * through ensureSessionPty, which clears the flag.
+   */
+  public restoredPendingPty = false;
   public pausedForBackpressure = false;
   public pendingEmitQueue: Array<{ data: string; seq: number; generation: number; bytes: number }> = [];
   public pendingEmitBytes = 0;
@@ -298,6 +306,15 @@ export class SessionRecord {
       return this._materialized;
     }
     this._materialized = Buffer.concat(this.chunks, this.bufferBytes).toString('utf8');
+    return this._materialized;
+  }
+
+  /**
+   * The sealed buffer string while one exists, else null. The persist fragment
+   * cache keys on this so a record whose content changed without advancing
+   * lastSeq/bufferBytes can never serve a stale fragment.
+   */
+  public get materializedBuffer(): string | null {
     return this._materialized;
   }
 
@@ -376,6 +393,10 @@ type SavedSession = {
   state?: 'running' | 'exited' | 'closed' | 'sleeping';
   category?: string;
   restoredTail?: string;
+  // Exit metadata is persisted so an exited tab comes back with its real status;
+  // absent on rows written before the fields existed.
+  exitCode?: number;
+  exitedAt?: number;
 };
 // Interactive TUIs (agent spinners, status bars) redraw continuously and consume
 // a transcript tail fast: a 512KB ceiling evicted output within a couple of
@@ -386,6 +407,11 @@ const MAX_PERSISTED_BYTES = 1024 * 1024; // 1MB per session on disk (restart rec
 // Re-slicing the transcript copies the whole retained tail, so only trim after a
 // generous overshoot instead of on every 64KB of new output.
 const TRANSCRIPT_TRIM_OVERSHOOT_BYTES = 256 * 1024;
+// The boundary stamped between the restored on-disk transcript and the live
+// shell output inside composeTranscript. Kept as a constant so the wire
+// preview builder slices the same seam the full composer inserts.
+export const RESTORE_SEPARATOR = '\r\n── phiên trước ──\r\n';
+const RESTORE_SEPARATOR_BYTES = Buffer.byteLength(RESTORE_SEPARATOR, 'utf8');
 /**
  * Default preference for Windows Pseudo Console (ConPTY) on Windows 10 build 18309+ / Windows 11.
  * Off by default: measured on this machine, a ConPTY-backed session leaves the Electron
@@ -395,9 +421,6 @@ const TRANSCRIPT_TRIM_OVERSHOOT_BYTES = 256 * 1024;
  * ANTIFAN_USE_CONPTY=0 forces the winpty fallback.
  */
 export const DEFAULT_USE_CONPTY = false;
-// Gap between deferred shell starts during session restore. Each Windows PTY spawn
-// blocks the main thread, so the queue yields to the event loop between starts.
-const DEFERRED_PTY_START_DELAY_MS = 250;
 const MIN_TERMINAL_ROWS = 8;
 const MIN_SPLIT_TERMINAL_ROWS = 4;
 const SPLIT_TERMINAL_FRACTION = 0.2;
@@ -433,7 +456,7 @@ const WAIT_MATCH_WINDOW_BYTES = 64 * 1024;
 // preview's first paint and the no-RPC hydration fallback — so broadcast cost
 // stays bounded by tab metadata instead of transcript size. The pre-pruning
 // budget was 160 KiB; listSessions(paged=false) still returns full transcripts.
-export const GLOBAL_JSON_BUFFER_BUDGET_BYTES = 16 * 1024; // 16 KiB total wire budget for all session previews
+export const GLOBAL_JSON_BUFFER_BUDGET_BYTES = 16 * 1024; // 16 KiB pacing budget per session push — ~6.4 KiB active + ~9.6 KiB split across remaining previews (≈22 KiB+ total at N=7 bases+splits)
 export const ACTIVE_SNAPSHOT_BUDGET_BYTES = Math.floor(GLOBAL_JSON_BUFFER_BUDGET_BYTES * 0.4);
 export const BACKGROUND_SNAPSHOT_BUDGET_BYTES = Math.floor(GLOBAL_JSON_BUFFER_BUDGET_BYTES * 0.6);
 
@@ -747,8 +770,6 @@ export class TerminalManager extends EventEmitter {
   private lastCols = 120;
   private lastRows = 30;
   private isDisposed = false;
-  private deferredPtyIds: string[] = [];
-  private deferredPtyTimer: NodeJS.Timeout | null = null;
   private benchmarkChunkSeq = 0;
   private benchmarkChunkBytes = 0;
   private conptyFallbackLogged = false;
@@ -760,7 +781,12 @@ export class TerminalManager extends EventEmitter {
   private dirtySessionIds = new Set<string>();
   private persistedFragments = new Map<string, {
     fragment: string;
-    buffer: string;
+    lastSeq: number;
+    bufferBytes: number;
+    // The sealed buffer string, or the raw buffer of a record that never grew
+    // chunks. Content has to be part of the key for every record that cannot
+    // advance lastSeq/bufferBytes, or a same-id record can serve a stale row.
+    materialized: string;
     name: string;
     cwd: string;
     splitOf?: string;
@@ -770,7 +796,7 @@ export class TerminalManager extends EventEmitter {
     rows: number;
     state: 'running' | 'exited' | 'closed' | 'sleeping';
     category?: string;
-    restoredTail?: string;
+    restoredTailSource?: string;
   }>();
   // True once any session record existed this run. Persisting an empty session
   // list is only meaningful after that point; before it, an empty write would
@@ -862,29 +888,35 @@ export class TerminalManager extends EventEmitter {
 
   /**
    * Serializes one session's persisted record, reusing the cached JSON fragment
-   * when nothing the file stores has changed. The buffer is compared by
-   * reference: every in-place producer (appendData, clear-screen reset) assigns
-   * a new string, so a changed reference means the content changed; an identical
-   * reference means it cannot have. The remaining scalar fields are compared by
-   * value so a rename/resize/capsule move on a clean session still re-serializes.
-   * `restoredTail` is deliberately absent for a live session — it is display-only
-   * history and re-writing it would stack one history banner per restart — but it
-   * IS written for a sleeping session, where it is the only surviving copy of the
-   * transcript (a sleeping record keeps its live `buffer` empty).
+   * when nothing the file stores has changed. The transcript is compared by the
+   * cheap counters every producer maintains (lastSeq, bufferBytes) plus the
+   * restored-tail reference — never by materializing the buffer, which would
+   * Buffer.concat up to 4MB per session per persist. The remaining scalar
+   * fields are compared by value so a rename/resize/capsule move on a clean
+   * session still re-serializes.
+   *
+   * `restoredTail` is written for every record that has no live shell: for
+   * those rows it carries the only surviving copy of the transcript, exactly
+   * as it does for a sleeping session. For a live session it stays
+   * display-only history and is never persisted — re-writing it would stack
+   * one history banner per restart.
    */
   private serializeSessionFragment(s: Session): string {
     const cols = s.pendingCols || s.pty?.cols || this.lastCols || 120;
     const rows = s.pendingRows || s.pty?.rows || this.lastRows || 30;
     const state = s.state;
     const category = s.category;
-    const restoredTail = state === 'sleeping' && s.restoredTail
-      ? safeSliceTail(s.restoredTail, MAX_PERSISTED_BYTES)
-      : undefined;
+    const restoredTailSource = s.pty ? undefined : s.restoredTail;
+    // The sealed string when the accessor holds one (O(1)); for a record with
+    // no chunk array it is the raw buffer itself, which is already a string.
+    const materialized = s.materializedBuffer ?? (s.chunks && s.chunks.length > 0 ? '' : (s.buffer || ''));
     const cached = this.persistedFragments.get(s.id);
     if (
       cached &&
       !this.dirtySessionIds.has(s.id) &&
-      cached.buffer === s.buffer &&
+      cached.lastSeq === (s.lastSeq || 0) &&
+      cached.bufferBytes === s.bufferBytes &&
+      cached.materialized === materialized &&
       cached.name === s.name &&
       cached.cwd === s.cwd &&
       cached.splitOf === s.splitOf &&
@@ -894,7 +926,7 @@ export class TerminalManager extends EventEmitter {
       cached.rows === rows &&
       cached.state === state &&
       cached.category === category &&
-      cached.restoredTail === restoredTail
+      cached.restoredTailSource === restoredTailSource
     ) {
       return cached.fragment;
     }
@@ -902,7 +934,10 @@ export class TerminalManager extends EventEmitter {
       id: s.id,
       name: s.name,
       cwd: s.cwd,
-      buffer: safeSliceTail(s.buffer, MAX_PERSISTED_BYTES),
+      // Slice the persisted tail straight off the chunk array: the buffer
+      // getter's Buffer.concat materialization is never needed for a value
+      // that is itself a bounded tail.
+      buffer: s.chunks && s.chunks.length > 0 ? safeSliceTail(s.chunks, MAX_PERSISTED_BYTES) : safeSliceTail(s.buffer || '', MAX_PERSISTED_BYTES),
       splitOf: s.splitOf,
       capsuleId: s.capsuleId,
       ownerKey: s.ownerKey,
@@ -910,11 +945,15 @@ export class TerminalManager extends EventEmitter {
       rows,
       state,
       category,
-      restoredTail,
+      restoredTail: restoredTailSource ? safeSliceTail(restoredTailSource, MAX_PERSISTED_BYTES) : undefined,
+      exitCode: s.exitCode,
+      exitedAt: s.exitedAt,
     });
     this.persistedFragments.set(s.id, {
       fragment,
-      buffer: s.buffer,
+      lastSeq: s.lastSeq || 0,
+      bufferBytes: s.bufferBytes,
+      materialized,
       name: s.name,
       cwd: s.cwd,
       splitOf: s.splitOf,
@@ -924,7 +963,7 @@ export class TerminalManager extends EventEmitter {
       rows,
       state,
       category,
-      restoredTail,
+      restoredTailSource,
     });
     return fragment;
   }
@@ -1110,15 +1149,20 @@ export class TerminalManager extends EventEmitter {
     const mayAdopt = target !== undefined
       && (!target.capsuleId || target.capsuleId === this.currentCapsuleId);
     if (mayAdopt && target) {
-      // User explicitly targeted a specific session for this capsule/workspace folder
-      target.capsuleId = this.currentCapsuleId;
-      if (cwd && !target.disposed) {
-        const oldCwd = target.cwd;
-        target.cwd = cwd;
+      // User explicitly targeted a specific session for this capsule/workspace folder.
+      // Adopting IS the touch that resolves the session's shell: a restored
+      // record gets its PTY here, the same way a tab click materializes it.
+      const live = target.state === 'sleeping'
+        ? target
+        : (this.materializeOnTouch(target.id) || target);
+      live.capsuleId = this.currentCapsuleId;
+      if (cwd && !live.disposed) {
+        const oldCwd = live.cwd;
+        live.cwd = cwd;
         if (oldCwd !== cwd) {
           const isWin = process.platform === 'win32';
           const cdCmd = isWin ? `Set-Location -LiteralPath "${cwd}"\r\n` : `cd "${cwd}"\n`;
-          try { target.pty?.write(cdCmd); } catch {}
+          try { live.pty?.write(cdCmd); } catch {}
         }
       }
       this.activeSessionId = target.id;
@@ -1126,6 +1170,10 @@ export class TerminalManager extends EventEmitter {
       // Find an existing active/base session belonging to this capsule
       const matching = [...this.sessions.values()].find(s => !s.splitOf && s.capsuleId === this.currentCapsuleId);
       if (matching) {
+        // Adopting the capsule's own row is the activation touch: a restored
+        // record gets its shell now; a sleeping row stays asleep for a plain
+        // capsule switch — the user's tab click wakes it.
+        if (matching.state !== 'sleeping') this.materializeOnTouch(matching.id);
         this.activeSessionId = matching.id;
       } else if (this.sessions.size > 0) {
         // Live sessions exist for other capsules, but none for this capsule: spawn a new dedicated session
@@ -1134,18 +1182,21 @@ export class TerminalManager extends EventEmitter {
         this.spawn(id, this.currentCwd);
       } else {
         // No live sessions at all: restore from saved sessions or spawn fresh.
-        // Synchronously spawning every saved session blocks the main thread for seconds,
-        // so mirror startTerminal(): spawn eagerly only the active base session and its split,
-        // reserving background sessions to start from a deferred queue.
+        // Spawning every saved session costs one Windows PTY each (150-800ms
+        // measured), so only the tab the user lands on gets its shell here;
+        // every other row comes back shell-free and materializes on first
+        // touch through ensureSessionPty.
         const { activeSessionId: savedActiveId, sessions: saved } = this.readSavedSessions();
         const baseSessions = saved.filter(item => !item.splitOf);
         if (baseSessions.length > 0) {
-          const targetEntry = targetSessionId ? saved.find(item => item.id === targetSessionId) : undefined;
-          const targetBaseId = targetEntry ? (targetEntry.splitOf || targetEntry.id) : undefined;
           const matchingSaved = baseSessions.find(item => (item.capsuleId || this.currentCapsuleId) === this.currentCapsuleId);
           const savedActiveEntry = savedActiveId ? saved.find(item => item.id === savedActiveId) : undefined;
           const savedBaseId = savedActiveEntry ? (savedActiveEntry.splitOf || savedActiveEntry.id) : undefined;
-
+          // The caller's explicit target also resolves to its base row: a split id
+          // lands on the tab that owns it, and only a target the save actually
+          // contains may redirect the eager spawn.
+          const targetSavedEntry = targetSessionId ? saved.find(item => item.id === targetSessionId) : undefined;
+          const targetBaseId = targetSavedEntry ? (targetSavedEntry.splitOf || targetSavedEntry.id) : undefined;
           const activeBaseId = (targetBaseId && baseSessions.some(item => item.id === targetBaseId))
             ? targetBaseId
             : (matchingSaved
@@ -1154,27 +1205,27 @@ export class TerminalManager extends EventEmitter {
                 ? savedBaseId
                 : baseSessions[0]!.id));
 
-          const deferredIds: string[] = [];
           for (const item of baseSessions) {
-            if (item.id === activeBaseId) {
+            if (item.state === 'sleeping') {
               // A session the user put to sleep before quitting comes back asleep:
-              // restoring it must not cost a shell (its transcript is enough).
-              if (item.state === 'sleeping') {
-                this.restoreSleepingSession(item, item.cols, item.rows, MIN_TERMINAL_ROWS);
-              } else {
-                const s = this.spawn(item.id, item.cwd || this.currentCwd, item.buffer || '', item.cols, item.rows);
-                s.name = item.name || s.name;
-                s.capsuleId = item.capsuleId || this.currentCapsuleId;
-                s.ownerKey = item.ownerKey;
-                s.category = item.category;
-              }
-            } else if (item.state === 'sleeping') {
-              this.restoreSleepingSession(item, item.cols, item.rows, MIN_TERMINAL_ROWS);
+              // restoring it must not cost a shell, not even for the landing tab.
+              this.restoreShellFreeSession(item, 'sleeping', item.cols, item.rows, MIN_TERMINAL_ROWS);
+            } else if (item.state === 'exited' || item.state === 'closed') {
+              // A tab whose shell had already died comes back as a transcript:
+              // its content and exit status, and zero processes.
+              this.restoreShellFreeSession(item, 'exited', item.cols, item.rows, MIN_TERMINAL_ROWS);
+            } else if (item.id === activeBaseId) {
+              const s = this.spawn(item.id, item.cwd || this.currentCwd, item.restoredTail || item.buffer || '', item.cols, item.rows);
+              s.name = item.name || s.name;
+              s.capsuleId = item.capsuleId || this.currentCapsuleId;
+              s.ownerKey = item.ownerKey;
+              s.category = item.category;
             } else {
+              // Background tabs stay shell-free records: their transcript is
+              // available immediately, their PTY materializes on first touch.
               const s = this.reserveRestoredSession(item, item.cols, item.rows, MIN_TERMINAL_ROWS);
               s.capsuleId = item.capsuleId || this.currentCapsuleId;
               s.ownerKey = item.ownerKey;
-              deferredIds.push(item.id);
             }
           }
           const splitSessions = saved.filter(item => item.splitOf && this.sessions.has(item.splitOf));
@@ -1184,11 +1235,14 @@ export class TerminalManager extends EventEmitter {
             const initialRows = item.rows || this.getInitialSplitRows(parentRows || this.lastRows);
             // A pane cannot outlive its parent's live shell, so a save that predates the
             // sleep cascade (or a parent parked while this pane still ran) restores the
-            // pane asleep instead of resurrecting a shell under a parked tab.
+            // pane asleep instead of resurrecting a shell under a parked tab. The same
+            // holds for a pane under a shell that had already exited.
             if (item.state === 'sleeping' || parent?.state === 'sleeping') {
-              this.restoreSleepingSession(item, item.cols, initialRows, MIN_SPLIT_TERMINAL_ROWS, item.splitOf, parent?.sessionGeneration);
+              this.restoreShellFreeSession(item, 'sleeping', item.cols, initialRows, MIN_SPLIT_TERMINAL_ROWS, item.splitOf, parent?.sessionGeneration);
+            } else if (item.state === 'exited' || item.state === 'closed' || parent?.state === 'exited' || parent?.state === 'closed') {
+              this.restoreShellFreeSession(item, 'exited', item.cols, initialRows, MIN_SPLIT_TERMINAL_ROWS, item.splitOf, parent?.sessionGeneration);
             } else if (item.splitOf === activeBaseId) {
-              const s = this.spawn(item.id, item.cwd || this.currentCwd, item.buffer || '', item.cols, initialRows, MIN_SPLIT_TERMINAL_ROWS, item.splitOf, parent?.sessionGeneration);
+              const s = this.spawn(item.id, item.cwd || this.currentCwd, item.restoredTail || item.buffer || '', item.cols, initialRows, MIN_SPLIT_TERMINAL_ROWS, item.splitOf, parent?.sessionGeneration);
               s.name = item.name || s.name;
               s.splitOf = item.splitOf;
               s.capsuleId = item.capsuleId || this.currentCapsuleId;
@@ -1198,10 +1252,9 @@ export class TerminalManager extends EventEmitter {
               const s = this.reserveRestoredSession(item, item.cols, initialRows, MIN_SPLIT_TERMINAL_ROWS, item.splitOf, parent?.sessionGeneration);
               s.capsuleId = item.capsuleId || this.currentCapsuleId;
               s.ownerKey = item.ownerKey;
-              deferredIds.push(item.id);
             }
           }
-          this.scheduleDeferredPtyStarts(deferredIds);
+
 
           if (targetSessionId && this.sessions.has(targetSessionId)) {
             this.activeSessionId = targetSessionId;
@@ -1291,8 +1344,8 @@ export class TerminalManager extends EventEmitter {
   /**
    * Creates the session record (transcript, generation, identity) without a shell.
    * Restoring several Windows PTYs in one loop blocked the main thread for 3.5-7.9s
-   * (measured: 150-800ms per spawn), so restored background sessions are recorded
-   * synchronously and start their shell from a deferred queue.
+   * (measured: 150-800ms per spawn), so every restored session starts life as one
+   * of these records and mints its shell on first touch via ensureSessionPty.
    */
   private createSessionRecord(
     id: string,
@@ -1344,7 +1397,7 @@ export class TerminalManager extends EventEmitter {
     const s = this.createSessionRecord(
       item.id,
       item.cwd || this.currentCwd,
-      item.buffer || '',
+      item.restoredTail ?? item.buffer ?? '',
       effectiveCols,
       effectiveRows,
       minimumRows,
@@ -1357,18 +1410,21 @@ export class TerminalManager extends EventEmitter {
     s.capsuleId = item.capsuleId || this.effectiveCreationCapsuleId;
     s.ownerKey = item.ownerKey;
     s.category = item.category;
+    s.restoredPendingPty = true;
     return s;
   }
 
   /**
-   * Restores a session the user had put to sleep when the app last exited: the
-   * record, its generation, its category and its whole transcript come back
-   * without a shell, so the tab renders instantly and costs no process. The
-   * generation is reserved here so a later wake reuses it and the
+   * Restores a session that comes back without a shell: a tab the user put to
+   * sleep (`'sleeping'`) or a tab whose shell had already died (`'exited'`).
+   * The record, its generation, its category and its whole transcript come
+   * back, so the tab renders instantly and costs no process. The generation
+   * is reserved here so a later wake reuses it and the
    * `${terminalId}@${generation}` affinity key never migrates.
    */
-  private restoreSleepingSession(
+  private restoreShellFreeSession(
     item: SavedSession,
+    state: 'sleeping' | 'exited',
     initialCols: number | undefined,
     initialRows: number | undefined,
     minimumRows: number,
@@ -1379,8 +1435,8 @@ export class TerminalManager extends EventEmitter {
     this.sessionGenerations.set(item.id, generation);
     const effectiveCols = initialCols || item.cols;
     const effectiveRows = initialRows || item.rows;
-    // A sleeping record keeps its transcript in `restoredTail`; `buffer` is the
-    // fallback for a file written before the sleep fields existed.
+    // A shell-free record keeps its transcript in `restoredTail`; `buffer` is
+    // the fallback for a file written before that field existed.
     const transcript = item.restoredTail ?? item.buffer ?? '';
     const s = this.createSessionRecord(
       item.id,
@@ -1398,22 +1454,30 @@ export class TerminalManager extends EventEmitter {
     s.capsuleId = item.capsuleId || this.effectiveCreationCapsuleId;
     s.ownerKey = item.ownerKey;
     s.category = item.category;
-    s.state = 'sleeping';
-    s.sleptAt = Date.now();
+    s.state = state;
+    if (state === 'sleeping') {
+      s.sleptAt = Date.now();
+    } else {
+      s.exitCode = item.exitCode;
+      s.exitedAt = item.exitedAt;
+      // A dead shell still resolves like every restored one: the first touch
+      // (write, resize, attach) mints a fresh shell in the same cwd — typing
+      // is how a user revives an exited tab.
+      s.restoredPendingPty = true;
+    }
     return s;
   }
 
   /**
-   * Guarantees the session has a live shell, materializing a deferred restore on
-   * demand. Returns the live record (the reserved record is replaced by the spawned
-   * one, which is bound to the PTY's data/exit subscriptions).
+   * Guarantees the session has a live shell, materializing a shell-free
+   * restored record on demand. Returns the live record (the reserved record
+   * is replaced by the spawned one, which is bound to the PTY's data/exit
+   * subscriptions).
    */
   private ensureSessionPty(id: string): Session | undefined {
     // Disposal is authoritative over materialization: once dispose() begins, no
-    // queued or in-flight restore may mint a PTY that would outlive teardown.
+    // in-flight restore may mint a PTY that would outlive teardown.
     if (this.isDisposed) return undefined;
-    const queuedIdx = this.deferredPtyIds.indexOf(id);
-    if (queuedIdx !== -1) this.deferredPtyIds.splice(queuedIdx, 1);
     const reserved = this.sessions.get(id);
     if (!reserved || reserved.disposed) return undefined;
     if (reserved.pty) return reserved;
@@ -1453,41 +1517,19 @@ export class TerminalManager extends EventEmitter {
     return live;
   }
 
-  private scheduleDeferredPtyStarts(ids: string[]): void {
-    // A disposed manager cannot queue starts: anything still arriving here
-    // raced the teardown and must be refused, not parked for a pump that will
-    // never legitimately run.
-    if (this.isDisposed) return;
-    for (const id of ids) {
-      if (!this.deferredPtyIds.includes(id)) this.deferredPtyIds.push(id);
+  /**
+   * The touch path every read/attach route shares: a record restored without
+   * a shell (`restoredPendingPty`) is materialized through ensureSessionPty;
+   * anything else — a live session, a sleeping tab, a record that simply
+   * holds no PTY — is returned as-is so reads can never mint shells on rows
+   * that were never restored in the first place.
+   */
+  private materializeOnTouch(id: string): Session | undefined {
+    const s = this.sessions.get(id);
+    if (!s || s.disposed || s.state === 'sleeping' || s.pty || !s.restoredPendingPty) {
+      return s;
     }
-    this.pumpDeferredPtyQueue();
-  }
-
-  private pumpDeferredPtyQueue(): void {
-    if (this.isDisposed || this.deferredPtyTimer || this.deferredPtyIds.length === 0) return;
-    this.deferredPtyTimer = setTimeout(() => {
-      this.deferredPtyTimer = null;
-      // A pump armed while dispose() waited on an in-flight write survives the
-      // timer clear; it must defer to disposal instead of minting a shell whose
-      // owner is already gone.
-      if (this.isDisposed) return;
-      // A session put to sleep after it was queued must never be resurrected by
-      // the queue: drop it (not merely skip it, which would wedge the head) so
-      // the nap really costs zero processes.
-      while (this.deferredPtyIds.length > 0) {
-        const candidate = this.deferredPtyIds[0]!;
-        if (this.sessions.get(candidate)?.state === 'sleeping') {
-          this.deferredPtyIds.shift();
-          continue;
-        }
-        break;
-      }
-      const nextId = this.deferredPtyIds[0];
-      if (nextId) this.ensureSessionPty(nextId);
-      this.pumpDeferredPtyQueue();
-    }, DEFERRED_PTY_START_DELAY_MS);
-    this.deferredPtyTimer.unref();
+    return this.ensureSessionPty(id) || this.sessions.get(id);
   }
 
   private spawn(id: string, cwd: string, restoredBuffer = '', initialCols?: number, initialRows?: number, minimumRows = MIN_TERMINAL_ROWS, parentSessionId?: string, parentGeneration?: number, reservedGeneration?: number): Session {
@@ -1577,7 +1619,7 @@ export class TerminalManager extends EventEmitter {
     }
     const s = this.createSessionRecord(id, validCwd, restoredBuffer, cols, rows, minimumRows, parentSessionId, generation, parentGeneration);
     // The record must carry its own shell handle: `writeTo`/`resizeTo` route through it, teardown
-    // kills it, and `ensureSessionPty` reads it to tell a live session from a deferred restore.
+    // kills it, and `ensureSessionPty` reads it to tell a live session from a restored shell-free one.
     s.pty = child;
     const dataSub = child.onData(data => {
       if (s.disposed) return;
@@ -1710,34 +1752,32 @@ export class TerminalManager extends EventEmitter {
       const { activeSessionId: savedActiveId, sessions: saved } = this.readSavedSessions();
       const baseSessions = saved.filter(item => !item.splitOf);
       if (baseSessions.length > 0) {
-        // Only the session the user lands on starts its shell eagerly: restoring every
-        // saved session synchronously blocked the main thread for seconds. The others
-        // get their restored transcript record now and start from a deferred queue,
-        // materializing immediately if anything touches them first.
+        // Only the tab the user lands on gets its shell at boot: every other
+        // saved row comes back as a shell-free record whose PTY materializes
+        // on first touch. Spawning them all eagerly cost one Windows process
+        // (~150-800ms, ~68MB RSS) per historic session the user never opens.
         const savedActiveEntry = savedActiveId ? saved.find(item => item.id === savedActiveId) : undefined;
         const requestedBaseId = savedActiveEntry ? (savedActiveEntry.splitOf || savedActiveEntry.id) : '';
         const activeBaseId = baseSessions.some(item => item.id === requestedBaseId)
           ? requestedBaseId
           : baseSessions[0]!.id;
-        const deferredIds: string[] = [];
         for (const item of baseSessions) {
-          if (item.id === activeBaseId) {
+          if (item.state === 'sleeping') {
             // A tab the user put to sleep before quitting must come back asleep:
             // restoring it may not cost a shell, not even for the landing tab.
-            if (item.state === 'sleeping') {
-              this.restoreSleepingSession(item, item.cols, item.rows, MIN_TERMINAL_ROWS);
-            } else {
-              const s = this.spawn(item.id, item.cwd || this.currentCwd, item.buffer || '', item.cols, item.rows);
-              s.name = item.name || s.name;
-              s.capsuleId = item.capsuleId || this.effectiveCreationCapsuleId;
-              s.ownerKey = item.ownerKey;
-              s.category = item.category;
-            }
-          } else if (item.state === 'sleeping') {
-            this.restoreSleepingSession(item, item.cols, item.rows, MIN_TERMINAL_ROWS);
+            this.restoreShellFreeSession(item, 'sleeping', item.cols, item.rows, MIN_TERMINAL_ROWS);
+          } else if (item.state === 'exited' || item.state === 'closed') {
+            // A tab whose shell had already died is transcript + status, not a
+            // fresh process: resurrecting it eagerly was pure process churn.
+            this.restoreShellFreeSession(item, 'exited', item.cols, item.rows, MIN_TERMINAL_ROWS);
+          } else if (item.id === activeBaseId) {
+            const s = this.spawn(item.id, item.cwd || this.currentCwd, item.restoredTail || item.buffer || '', item.cols, item.rows);
+            s.name = item.name || s.name;
+            s.capsuleId = item.capsuleId || this.effectiveCreationCapsuleId;
+            s.ownerKey = item.ownerKey;
+            s.category = item.category;
           } else {
             this.reserveRestoredSession(item, item.cols, item.rows, MIN_TERMINAL_ROWS);
-            deferredIds.push(item.id);
           }
         }
         const splitSessions = saved.filter(item => item.splitOf && this.sessions.has(item.splitOf));
@@ -1747,11 +1787,14 @@ export class TerminalManager extends EventEmitter {
           const initialRows = item.rows || this.getInitialSplitRows(parentRows || this.lastRows);
           // A pane cannot outlive its parent's live shell, so a save that predates the
           // sleep cascade (or a parent parked while this pane still ran) restores the
-          // pane asleep instead of resurrecting a shell under a parked tab.
+          // pane asleep instead of resurrecting a shell under a parked tab. The same
+          // holds for a pane under a shell that had already exited.
           if (item.state === 'sleeping' || parent?.state === 'sleeping') {
-            this.restoreSleepingSession(item, item.cols, initialRows, MIN_SPLIT_TERMINAL_ROWS, item.splitOf, parent?.sessionGeneration);
+            this.restoreShellFreeSession(item, 'sleeping', item.cols, initialRows, MIN_SPLIT_TERMINAL_ROWS, item.splitOf, parent?.sessionGeneration);
+          } else if (item.state === 'exited' || item.state === 'closed' || parent?.state === 'exited' || parent?.state === 'closed') {
+            this.restoreShellFreeSession(item, 'exited', item.cols, initialRows, MIN_SPLIT_TERMINAL_ROWS, item.splitOf, parent?.sessionGeneration);
           } else if (item.splitOf === activeBaseId) {
-            const s = this.spawn(item.id, item.cwd || this.currentCwd, item.buffer || '', item.cols, initialRows, MIN_SPLIT_TERMINAL_ROWS, item.splitOf, parent?.sessionGeneration);
+            const s = this.spawn(item.id, item.cwd || this.currentCwd, item.restoredTail || item.buffer || '', item.cols, initialRows, MIN_SPLIT_TERMINAL_ROWS, item.splitOf, parent?.sessionGeneration);
             s.name = item.name || s.name;
             s.splitOf = item.splitOf;
             s.capsuleId = item.capsuleId || this.effectiveCreationCapsuleId;
@@ -1759,10 +1802,8 @@ export class TerminalManager extends EventEmitter {
             s.category = item.category ?? parent?.category;
           } else {
             this.reserveRestoredSession(item, item.cols, initialRows, MIN_SPLIT_TERMINAL_ROWS, item.splitOf, parent?.sessionGeneration);
-            deferredIds.push(item.id);
           }
         }
-        this.scheduleDeferredPtyStarts(deferredIds);
         if (savedActiveId && this.sessions.has(savedActiveId)) {
           const savedTarget = this.sessions.get(savedActiveId);
           this.activeSessionId = savedTarget?.splitOf || savedActiveId;
@@ -1878,7 +1919,11 @@ export class TerminalManager extends EventEmitter {
   }
 
   public resizeTo(id: string, cols: number, rows: number): void {
-    const target = this.sessions.get(id);
+    // A resize aimed at a named session is a real touch: the pane it drives is
+    // on screen, so a restored record mints its shell here instead of only
+    // remembering geometry. Sleeping tabs stay asleep — a layout pass is not
+    // the user asking for the tab back.
+    const target = this.materializeOnTouch(id);
     const minRows = target?.splitOf ? MIN_SPLIT_TERMINAL_ROWS : MIN_TERMINAL_ROWS;
     const validCols = Math.max(40, cols);
     const validRows = Math.max(minRows, rows);
@@ -2245,16 +2290,15 @@ export class TerminalManager extends EventEmitter {
    */
   private parkRecord(s: Session | undefined): boolean {
     if (!s || s.disposed || s.state !== 'running') return false;
-    // A queued deferred start would spawn the shell we are about to release.
-    const queuedIdx = this.deferredPtyIds.indexOf(s.id);
-    if (queuedIdx !== -1) this.deferredPtyIds.splice(queuedIdx, 1);
     // Disposes the data/exit subscriptions first, so no chunk can land between
     // the fold and the kill.
     void this.teardownSessionPty(s);
     // Fold the live output behind the restored tail so getFullBuffer /
     // listSessions / mobile-remote-html keep serving the whole transcript from a
-    // record that has no shell and an empty live buffer.
-    s.restoredTail = this.composeTranscript(s);
+    // record that has no shell and an empty live buffer. A record that never
+    // grew live output (a restored shell never touched) keeps its tail as-is:
+    // re-composing it would stack a second history separator onto the first.
+    if (s.bufferBytes > 0) s.restoredTail = this.composeTranscript(s);
     s.buffer = '';
     s.bufferBytes = 0;
     s.deliveryJournal.clear();
@@ -2337,7 +2381,29 @@ export class TerminalManager extends EventEmitter {
    * listSessions so the two views can never drift apart.
    */
   private composeTranscript(s: Session): string {
-    return (s.restoredTail ? s.restoredTail + '\r\n── phiên trước ──\r\n' : '') + s.buffer;
+    return (s.restoredTail ? s.restoredTail + RESTORE_SEPARATOR : '') + s.buffer;
+  }
+
+  /**
+   * The transcript's last `maxBytes` UTF-8 bytes built without materializing
+   * the live chunks: the restored tail is a string already, and the live
+   * portion is sliced straight off the chunk array. Every wire preview needs
+   * exactly this — composeTranscript + a byte slice would Buffer.concat up to
+   * 4MB per session on every session-list answer.
+   */
+  private transcriptTail(s: Session, maxBytes: number): string {
+    if (maxBytes <= 0) return '';
+    const liveTail = s.chunks && s.chunks.length > 0
+      ? safeSliceTail(s.chunks, maxBytes)
+      // No chunk array: the buffer accessor is O(1) on an empty record, and a
+      // record that only carries a materialized buffer still previews it.
+      : safeSliceTail(s.buffer || '', maxBytes);
+    const liveBytes = Buffer.byteLength(liveTail, 'utf8');
+    if (liveBytes >= maxBytes) return liveTail;
+    if (!s.restoredTail) return liveTail;
+    const headBudget = maxBytes - RESTORE_SEPARATOR_BYTES - liveBytes;
+    const head = headBudget > 0 ? safeSliceTail(s.restoredTail, headBudget) : '';
+    return head + (head ? RESTORE_SEPARATOR : '') + liveTail;
   }
 
   /**
@@ -2415,15 +2481,15 @@ export class TerminalManager extends EventEmitter {
       const baseSlotBudget = isActive ? activeBudget : bgBudget;
 
       summaries.push({
-        ...summarize(s, isActive, safeSliceTailJsonBounded(this.composeTranscript(s), baseSlotBudget)),
+        ...summarize(s, isActive, safeSliceTailJsonBounded(this.transcriptTail(s, baseSlotBudget), baseSlotBudget)),
         splitSessionId: first?.id,
-        splitBuffer: first ? safeSliceTailJsonBounded(this.composeTranscript(first), bgBudget) : '',
+        splitBuffer: first ? safeSliceTailJsonBounded(this.transcriptTail(first, bgBudget), bgBudget) : '',
         splitSnapshotThroughSeq: first ? (first.lastSeq || 0) : 0,
       });
       // Each split carries its own transcript, so a sibling split can never be rendered
       // in another split's place.
       for (const split of splits) {
-        summaries.push(summarize(split, false, safeSliceTailJsonBounded(this.composeTranscript(split), bgBudget)));
+        summaries.push(summarize(split, false, safeSliceTailJsonBounded(this.transcriptTail(split, bgBudget), bgBudget)));
       }
     }
     return summaries;
@@ -2451,7 +2517,9 @@ export class TerminalManager extends EventEmitter {
   }
 
   public getFullBuffer(sessionId: string): { sessionId: string; buffer: string; snapshotThroughSeq: number } {
-    const s = this.sessions.get(sessionId);
+    // Hydration is the attach touch: a pane asking for the transcript is a pane
+    // on screen, so a restored record's shell starts here.
+    const s = this.materializeOnTouch(sessionId);
     return {
       sessionId,
       buffer: s ? this.composeTranscript(s) : '',
@@ -2475,7 +2543,7 @@ export class TerminalManager extends EventEmitter {
         sessionId: s.id,
         generation: s.sessionGeneration || 0,
         lastSeq: s.lastSeq || 0,
-        bufferBytes: Buffer.byteLength(s.buffer || '', 'utf8'),
+        bufferBytes: s.bufferBytes ?? Buffer.byteLength(s.buffer || '', 'utf8'),
         state: s.state,
         splitOf: s.splitOf,
         altScreen: Boolean(s.altScreen),
@@ -2512,7 +2580,7 @@ export class TerminalManager extends EventEmitter {
       lastHeartbeatAt: Date.now(),
     });
     // The ack covers a contiguous seq prefix; subtract every emitted chunk it covers.
-    const session = this.sessions.get(ack.sessionId);
+    const session = this.materializeOnTouch(ack.sessionId);
     if (session && newLastAckedSeq > 0) {
       let decremented = 0;
       for (const [seq, bytes] of session.inFlightChunkBytes) {
@@ -2565,7 +2633,7 @@ export class TerminalManager extends EventEmitter {
   }
 
   public getTerminalDelta(sessionId: string, generation: number, fromSeq: number): TerminalDeltaResult {
-    const s = this.sessions.get(sessionId);
+    const s = this.materializeOnTouch(sessionId);
     if (!s || s.state === 'closed') {
       return { status: 'SESSION_CLOSED', finalSeq: s?.lastSeq || 0 };
     }
@@ -2576,7 +2644,7 @@ export class TerminalManager extends EventEmitter {
   }
 
   public syncTerminalView(query: { sessionId: string; knownGeneration: number; lastAppliedSeq: number }): TerminalSyncViewResult {
-    const s = this.sessions.get(query.sessionId);
+    const s = this.materializeOnTouch(query.sessionId);
     if (!s || s.state === 'closed') {
       return { status: 'SESSION_CLOSED', finalSeq: s?.lastSeq || 0 };
     }
@@ -2646,7 +2714,7 @@ export class TerminalManager extends EventEmitter {
     // its shell here would silently undo the nap on a plain tab click.
     const target = s.splitOf ? this.sessions.get(targetId) : s;
     if (!target || target.state !== 'sleeping') {
-      this.ensureSessionPty(targetId);
+      this.materializeOnTouch(targetId);
     }
     this.activeSessionId = targetId;
     this.emitSession();
@@ -2712,15 +2780,6 @@ export class TerminalManager extends EventEmitter {
     return out;
   }
 
-  private minAckedSeqForSession(sessionId: string): number {
-    let min = Infinity;
-    for (const sub of this.subscribers.values()) {
-      if (sub.sessionId === sessionId) {
-        min = Math.min(min, sub.lastAckedSeq || 0);
-      }
-    }
-    return Number.isFinite(min) ? min : 0;
-  }
 
   /**
    * Drain the paused session's pending queue until the low-watermark budget is spent,
@@ -2760,10 +2819,6 @@ export class TerminalManager extends EventEmitter {
    * when there is room below the high watermark.
    */
   public emitChunkOrQueue(s: Session, data: string, seq: number, generation: number, bytes: number): void {
-    if (process.env.ANTIFAN_BACKPRESSURE_OFF === '1') {
-      this.emit('data', { sessionId: s.id, data, seq, generation });
-      return;
-    }
     const hasSubs = this.subscribersForSession(s.id).length > 0;
     if (!hasSubs) {
       this.emit('data', { sessionId: s.id, data, seq, generation });
@@ -2802,7 +2857,7 @@ export class TerminalManager extends EventEmitter {
       activeSessionId: this.activeSessionId,
       sessions: sessionsList,
       splitSessionId: activeSummary?.splitSessionId,
-      snapshot: activeSummary?.buffer || (s ? safeSliceTailJsonBounded(this.composeTranscript(s), ACTIVE_SNAPSHOT_BUDGET_BYTES) : ''),
+      snapshot: activeSummary?.buffer || (s ? safeSliceTailJsonBounded(this.transcriptTail(s, ACTIVE_SNAPSHOT_BUDGET_BYTES), ACTIVE_SNAPSHOT_BUDGET_BYTES) : ''),
       snapshotThroughSeq: s ? (s.lastSeq || 0) : 0,
     };
   }
@@ -2829,19 +2884,14 @@ export class TerminalManager extends EventEmitter {
 
   public async dispose(): Promise<void> {
     if (this.isDisposed) return;
-    // Disposal must be authoritative from the first synchronous step: the pump,
-    // ensureSessionPty and spawn all refuse on this flag, so nothing queued or
-    // materializing behind the persists below can mint a PTY that outlives this
-    // teardown. The flag therefore goes up BEFORE any await, not after.
+    // Disposal must be authoritative from the first synchronous step:
+    // ensureSessionPty and spawn refuse on this flag, so nothing materializing
+    // behind the persists below can mint a PTY that outlives this teardown.
+    // The flag therefore goes up BEFORE any await, not after.
     this.isDisposed = true;
     // Allow a later canonical to be constructed after teardown (test isolation etc.):
     // each process still holds at most ONE live instance at any moment.
     TerminalManager.constructionCount = 0;
-    if (this.deferredPtyTimer) {
-      clearTimeout(this.deferredPtyTimer);
-      this.deferredPtyTimer = null;
-    }
-    this.deferredPtyIds = [];
     if (this.persistTimer) {
       clearTimeout(this.persistTimer);
       this.persistTimer = null;

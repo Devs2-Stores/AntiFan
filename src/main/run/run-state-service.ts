@@ -78,6 +78,33 @@ export function safeFileSegment(value: string): string {
   return value.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 96);
 }
 
+interface RunLivenessInputs {
+  stamp: string;
+  /** Mirrors getRunsSync's projection filter; an invalid file projects no card. */
+  valid: boolean;
+  ended: boolean;
+  pid: number;
+  updatedAt: number;
+}
+
+function readRunLivenessInputs(filePath: string, stamp: string): RunLivenessInputs {
+  const invalid: RunLivenessInputs = { stamp, valid: false, ended: false, pid: 0, updatedAt: 0 };
+  let data: Partial<TerminalRunStateFile>;
+  try {
+    data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch {
+    return invalid;
+  }
+  if (!data || typeof data !== 'object' || data.schema !== 1 || !data.terminalSessionId) return invalid;
+  return {
+    stamp,
+    valid: true,
+    ended: data.state === 'ended',
+    pid: typeof data.pid === 'number' ? data.pid : 0,
+    updatedAt: typeof data.updatedAt === 'number' ? data.updatedAt : 0,
+  };
+}
+
 export class RunStateService extends EventEmitter {
   private readonly runsDir: string;
   private readonly options: RunStateServiceOptions;
@@ -89,6 +116,13 @@ export class RunStateService extends EventEmitter {
   private watcher?: fs.FSWatcher;
   private sweepTimer?: NodeJS.Timeout;
   private debounceTimer?: NodeJS.Timeout;
+  // Fingerprint (name + mtime + size) of the run files 'change' last announced.
+  // A sweep that observes the same set the last emit did has nothing new for
+  // listeners: their only read, getRunsSync, projects exactly these files.
+  private lastEmittedRunFingerprint: string | null = null;
+  // Parsed liveness inputs per run file, reused while the file's mtime:size stamp
+  // holds, so each sweep re-derives staleness without re-reading unchanged files.
+  private readonly runLivenessInputs = new Map<string, RunLivenessInputs>();
 
   constructor(options: RunStateServiceOptions) {
     super();
@@ -161,10 +195,17 @@ export class RunStateService extends EventEmitter {
   }
 
   private scheduleDebouncedEmit(): void {
-    if (this.debounceTimer) clearTimeout(this.debounceTimer);
     this.debounceTimer = setTimeout(() => {
       this.debounceTimer = undefined;
+      // Snapshot BEFORE emitting: a file landing mid-emit must not be folded
+      // into the baseline without having been announced — the sweep fallback
+      // exists for exactly the watch events the OS drops.
+      const fingerprint = this.collectRunFileFingerprint();
       this.emit('change');
+      // The emit consumed every queued watch event, so re-baseline here too —
+      // the next sweep must compare against what was last announced, or it
+      // would re-announce the same file change the watch already pushed.
+      this.lastEmittedRunFingerprint = fingerprint;
     }, 100);
     if (typeof this.debounceTimer.unref === 'function') {
       this.debounceTimer.unref();
@@ -172,8 +213,66 @@ export class RunStateService extends EventEmitter {
   }
 
   public sweepSync(): void {
-    this.pruneSync();
-    this.emit('change');
+    const pruned = this.pruneSync();
+    const fingerprint = this.collectRunFileFingerprint();
+    // Emit only on an observable change: prune deleted something, or the set
+    // of run files the card projection reads changed since the last emit.
+    if (pruned || fingerprint !== this.lastEmittedRunFingerprint) {
+      this.emit('change');
+      this.lastEmittedRunFingerprint = fingerprint;
+    }
+  }
+
+  /**
+   * name:mtimeMs:size plus the derived liveness of every run file (*.json minus
+   * *.brief.json and the control subtree) — exactly the inputs getRunsSync reads.
+   * A non-ended run turns stale when its pid dies or its heartbeat ages past
+   * staleMs, with no file change, so that verdict is part of the fingerprint:
+   * a hard-killed run still flips its card. Null when the runs dir is absent,
+   * so a dir appearing/disappearing registers as a change.
+   */
+  private collectRunFileFingerprint(): string | null {
+    if (!fs.existsSync(this.runsDir)) return null;
+    let entries: string[];
+    try {
+      entries = fs.readdirSync(this.runsDir);
+    } catch {
+      // A transient read failure proves nothing changed; keep the baseline.
+      return this.lastEmittedRunFingerprint;
+    }
+    const now = this.clock();
+    const seen = new Set<string>();
+    const parts: string[] = [];
+    for (const entry of entries) {
+      if (!entry.endsWith('.json') || entry.endsWith('.brief.json')) continue;
+      const filePath = path.join(this.runsDir, entry);
+      let stat: fs.Stats | null = null;
+      try {
+        stat = fs.statSync(filePath);
+      } catch {}
+      if (!stat || !stat.isFile()) {
+        parts.push(`${entry}!`);
+        continue;
+      }
+      seen.add(entry);
+      const stamp = `${stat.mtimeMs}:${stat.size}`;
+      let inputs = this.runLivenessInputs.get(entry);
+      if (!inputs || inputs.stamp !== stamp) {
+        inputs = readRunLivenessInputs(filePath, stamp);
+        this.runLivenessInputs.set(entry, inputs);
+      }
+      const verdict = !inputs.valid
+        ? 'x'
+        : inputs.ended
+          ? 'e'
+          : (inputs.pid > 0 && this.isProcessAliveFn(inputs.pid) && (now - inputs.updatedAt) <= this.staleMs ? 'l' : 's');
+      parts.push(`${entry}:${stamp}:${verdict}`);
+    }
+    for (const name of this.runLivenessInputs.keys()) {
+      if (!seen.has(name)) this.runLivenessInputs.delete(name);
+    }
+    parts.sort();
+    return parts.join('|');
   }
 
   public async sweep(): Promise<void> {
@@ -406,14 +505,14 @@ export class RunStateService extends EventEmitter {
    * - Orphaned control/<ompSessionId> dirs vanish with their run file.
    * - A brief mirror is pruned ONLY with the run file of the session its own filename names.
    */
-  public pruneSync(): void {
-    if (!fs.existsSync(this.runsDir)) return;
-
+  public pruneSync(): boolean {
+    let changed = false;
+    if (!fs.existsSync(this.runsDir)) return changed;
     let entries: string[];
     try {
       entries = fs.readdirSync(this.runsDir);
     } catch {
-      return;
+      return changed;
     }
 
     const now = this.clock();
@@ -453,6 +552,7 @@ export class RunStateService extends EventEmitter {
       }
 
       if (shouldPrune) {
+        changed = true;
         try {
           fs.unlinkSync(filePath);
         } catch {}
@@ -487,6 +587,7 @@ export class RunStateService extends EventEmitter {
         const sid = file.slice(0, -'.brief.json'.length);
         const session = this.options.lookupSession?.(sid);
         if (!session) {
+          changed = true;
           try {
             fs.unlinkSync(path.join(this.runsDir, file));
           } catch {}
@@ -515,6 +616,7 @@ export class RunStateService extends EventEmitter {
 
         // Orphaned control dir: no active run file
         if (!activeOmpSessions.has(ompSid)) {
+          changed = true;
           try {
             fs.rmSync(ompDir, { recursive: true, force: true });
           } catch {}
@@ -538,6 +640,7 @@ export class RunStateService extends EventEmitter {
               if (parsed && typeof parsed.expiresAt === 'number') {
                 if (now > (parsed.expiresAt + RUN_CONTROL_EXPIRED_MARGIN_MS)) {
                   fs.unlinkSync(cfPath);
+                  changed = true;
                 }
               }
             } else if (cf.endsWith('.ack.json')) {
@@ -546,12 +649,14 @@ export class RunStateService extends EventEmitter {
               const ackTime = (parsed && typeof parsed.at === 'number') ? parsed.at : stat.mtimeMs;
               if (now > (ackTime + RUN_CONTROL_EXPIRED_MARGIN_MS)) {
                 fs.unlinkSync(cfPath);
+                changed = true;
               }
             }
           } catch {}
         }
       }
     }
+    return changed;
   }
 
   public async prune(): Promise<void> {

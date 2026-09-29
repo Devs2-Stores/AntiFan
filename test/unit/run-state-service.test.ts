@@ -7,7 +7,12 @@ const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 
 // Stage TypeScript files as .mts in a temporary directory for ESM dynamic loading in Node.
-const repoRoot = path.resolve(__dirname, '..', '..');
+// __dirname is test/unit in source and .compiled/test/unit after tsc — probe the
+// anchor file so both layouts resolve the real repository root.
+let repoRoot = path.resolve(__dirname, '..', '..');
+if (!fs.existsSync(path.join(repoRoot, 'src', 'shared', 'contracts.ts'))) {
+  repoRoot = path.resolve(repoRoot, '..');
+}
 const stageDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-run-state-stage-'));
 
 // 1. Stage contracts.mts
@@ -61,6 +66,8 @@ interface RunStateServiceConstructor {
     start(): void;
     stop(): void;
     sweepSync(): void;
+    on(event: string, listener: () => void): unknown;
+    removeListener(event: string, listener: () => void): unknown;
     getRunsSync(): RunCardLike[];
     runCardsForWindow(runs: RunCardLike[], senderId?: string | number): RunCardLike[];
     readChanges(cwd?: string, ompSessionId?: string, runSeq?: number): { files: string[]; fileCount: number; blockedCount: number } | undefined;
@@ -522,5 +529,121 @@ describe('RunStateService Suite', () => {
     const projectCards = service.runCardsForWindow(baseRuns, 'project-window');
     const agentCardInProject = projectCards.find((c) => c.terminalSessionId === 'session-agent');
     assert.strictEqual(agentCardInProject?.viewOnly, false, 'agent-owned row in non-manager window must have viewOnly: false');
+  });
+
+  test('9. sweep emits change only when the run-file set changes or prune deletes', () => {
+    const sweepRunsDir = path.join(tempRoot, 'sweep-emit-runs');
+    fs.mkdirSync(sweepRunsDir, { recursive: true });
+
+    const liveSessions = new Set(['sweep-live']);
+    const service = new RunStateService({
+      runsDir: sweepRunsDir,
+      lookupSession: (id: string) => (liveSessions.has(id) ? { id } : undefined),
+      isProcessAlive: () => true,
+      clock: () => clockTime,
+      watch: false,
+    });
+
+    let changes = 0;
+    const onChange = () => { changes += 1; };
+    service.on('change', onChange);
+
+    // First observation of the (currently empty) run-file set announces it.
+    service.sweepSync();
+    assert.strictEqual(changes, 1, 'the first sweep emits once so surfaces seed');
+
+    // Nothing changed since that emit: a quiet sweep must not emit again.
+    service.sweepSync();
+    service.sweepSync();
+    assert.strictEqual(changes, 1, 'a no-op sweep never re-announces an unchanged set');
+
+    // A real run file appearing since the last emit is a change.
+    const runPath = path.join(sweepRunsDir, 'sweep-live.json');
+    const writeRun = (updatedAt: number) => fs.writeFileSync(
+      runPath,
+      JSON.stringify({
+        schema: 1,
+        terminalSessionId: 'sweep-live',
+        ompSessionId: 'omp-sweep',
+        pid: 4242,
+        cwd: workspaceDir,
+        mode: 'direct',
+        state: 'running',
+        runSeq: 1,
+        updatedAt,
+      }),
+      'utf8',
+    );
+    writeRun(clockTime);
+    service.sweepSync();
+    assert.strictEqual(changes, 2, 'a new run file since the last emit must emit');
+
+    // Same file, same bytes: still no emit.
+    service.sweepSync();
+    assert.strictEqual(changes, 2);
+
+    // A heartbeat rewrite changes mtime+size observation: emit once, then quiet.
+    writeRun(clockTime + 1000);
+    service.sweepSync();
+    assert.strictEqual(changes, 3, 'a run-file rewrite must emit');
+    service.sweepSync();
+    assert.strictEqual(changes, 3);
+
+    // Session gone → prune removes the run file inside sweepSync: the deletion
+    // itself is the change even if the fingerprint were somehow identical.
+    liveSessions.delete('sweep-live');
+    service.sweepSync();
+    assert.strictEqual(fs.existsSync(runPath), false);
+    assert.strictEqual(changes, 4, 'prune deleting the run file must emit');
+
+    // Converged: deleting again prunes nothing and emits nothing.
+    service.sweepSync();
+    assert.strictEqual(changes, 4);
+
+    service.removeListener('change', onChange);
+  });
+
+  test('10. sweep announces a run turning stale with no file change (hard kill, heartbeat age)', () => {
+    const staleRunsDir = path.join(tempRoot, 'sweep-stale-runs');
+    fs.mkdirSync(staleRunsDir, { recursive: true });
+    let alive = true;
+    let now = 500_000;
+    const service = new RunStateService({
+      runsDir: staleRunsDir,
+      lookupSession: (id: string) => ({ id }),
+      isProcessAlive: () => alive,
+      clock: () => now,
+      staleMs: 45_000,
+      watch: false,
+    });
+    const writeRun = (id: string) => fs.writeFileSync(
+      path.join(staleRunsDir, `${id}.json`),
+      JSON.stringify({ schema: 1, terminalSessionId: id, ompSessionId: `omp-${id}`, pid: 7777, cwd: workspaceDir, mode: 'direct', state: 'running', runSeq: 1, updatedAt: now }),
+      'utf8',
+    );
+    writeRun('stale-run');
+
+    let changes = 0;
+    service.on('change', () => { changes += 1; });
+    service.sweepSync();
+    assert.strictEqual(changes, 1);
+    assert.strictEqual(service.getRunsSync()[0]?.state, 'running');
+
+    // The agent process is killed hard: its run file never records 'ended'.
+    alive = false;
+    service.sweepSync();
+    assert.strictEqual(changes, 2, 'a dead pid must re-announce so the card leaves running');
+    assert.strictEqual(service.getRunsSync()[0]?.state, 'ended');
+    service.sweepSync();
+    assert.strictEqual(changes, 2, 'the stale verdict is announced once');
+
+    // A live pid whose heartbeat ages past staleMs flips the same way.
+    alive = true;
+    writeRun('aging-run');
+    service.sweepSync();
+    const afterWrite = changes;
+    now += 46_000;
+    service.sweepSync();
+    assert.strictEqual(changes, afterWrite + 1, 'heartbeat aging past staleMs must re-announce');
   });
 });

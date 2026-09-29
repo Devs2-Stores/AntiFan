@@ -312,13 +312,13 @@ describe('Terminal Split Hardened 10-Round Verification Suite', () => {
   });
 });
 
-describe('Deferred PTY queue vs dispose — no orphan shells', () => {
+describe('PTY mint vs dispose — no orphan shells', () => {
   /**
    * Rows share ONE manager deliberately: row 1 disposes it mid-flight, rows 2
    * and 3 assert the disposed state stays authoritative over everything that
    * can still mint a shell. Only node-pty is stubbed (the same seam
-   * terminal-stream-invariants uses); the queue, pump, dispose and kill path
-   * are the shipped code.
+   * terminal-stream-invariants uses); materialization, dispose and the kill
+   * path are the shipped code.
    */
   class DeferredFakePty {
     public cols: number;
@@ -361,11 +361,11 @@ describe('Deferred PTY queue vs dispose — no orphan shells', () => {
       name?: string;
       splitOf?: string;
       capsuleId?: string;
+      restoredPendingPty?: boolean;
     }>;
     sessionGenerations: Map<string, number>;
     activePersistPromise: Promise<void> | null;
-    deferredPtyIds: string[];
-    scheduleDeferredPtyStarts: (ids: string[]) => void;
+    ensureSessionPty: (id: string) => unknown;
     createSessionRecord: (
       id: string,
       cwd: string,
@@ -376,7 +376,7 @@ describe('Deferred PTY queue vs dispose — no orphan shells', () => {
       parentSessionId: string | undefined,
       generation: number,
       parentGeneration?: number,
-    ) => unknown;
+    ) => { restoredPendingPty?: boolean };
     spawn: (...args: unknown[]) => unknown;
     statePath: () => string;
   };
@@ -413,26 +413,21 @@ describe('Deferred PTY queue vs dispose — no orphan shells', () => {
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it('does not mint a PTY when a deferred materialization races dispose and its record reappears after the kill snapshot', async (t) => {
-    // Hold the persist drain open so the pump can be armed while dispose() is
-    // still suspended inside its own first await — the window where a queued
-    // start used to schedule a timer that survived the kill pass. Mock timers
-    // make the 250ms pump delay deterministic instead of a wall-clock sleep.
-    t.mock.timers.enable({ apis: ['setTimeout'] });
+  it('does not mint a PTY when a materialization request races dispose', async () => {
+    // Hold the persist drain open so a touch can arrive while dispose() is
+    // still suspended inside its own first await — the window where an
+    // in-flight restore used to mint a shell that survived the kill pass.
     const drainGate = Promise.withResolvers<void>();
     internals.activePersistPromise = drainGate.promise;
+    const record = internals.createSessionRecord('terminal-deferred-1', 'E:/Work', '', 120, 30, 8, undefined, 1);
+    record.restoredPendingPty = true;
     const disposal = tm.dispose();
 
-    internals.scheduleDeferredPtyStarts(['terminal-deferred-1']);
+    internals.ensureSessionPty.call(tm, 'terminal-deferred-1');
     drainGate.resolve();
     await disposal;
 
-    // A record materializing after the kill snapshot is exactly what the
-    // deferred queue resurrected: the armed pump must refuse it too.
-    internals.createSessionRecord('terminal-deferred-1', 'E:/Work', '', 120, 30, 8, undefined, 1);
-    t.mock.timers.runAll();
-
-    assert.equal(deferredSpawnedPtys.length, 0, 'dispose must stay authoritative over the armed deferred pump');
+    assert.equal(deferredSpawnedPtys.length, 0, 'dispose must stay authoritative over a mid-flight materialization');
     const session = tm.getSession('terminal-deferred-1');
     assert.equal(session?.pty ?? null, null, 'a post-dispose record may exist but must never own a shell');
   });

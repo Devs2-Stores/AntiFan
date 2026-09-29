@@ -15,7 +15,7 @@ import { randomUUID, createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { performance } from 'node:perf_hooks';
 import { StorageLocations } from '../config/storage-locations';
-import { AntiFanTab, SplitPaneId, AntiFanPickedElement, TOOLBAR_CHANNELS, SIDEBAR_CHANNELS, TERMINAL_CHANNELS, FRAME_BACKDROP_CHANNELS, TerminalAckPayload, TerminalDataPayload, TerminalTabLayout, TerminalTabPrefs, TERMINAL_TAB_LAYOUT_DEFAULT_WIDTH, clampTerminalTabSidebarWidth, TERMINAL_CATEGORY_COLORS_MAX, TERMINAL_CATEGORY_COLOR_PATTERN, ToolbarPhoneStatus, TerminalAgentAffinityInfo, TabsUpdatedPayload, ProjectWindowIdentity, BRIDGE_CHANNELS, RunCardState, RunControlOp, RunControlReason, RunControlResult, CapsuleBrief, CapsuleBriefResult, CapsuleBriefReason } from '../../shared/contracts';
+import { AntiFanTab, SplitPaneId, AntiFanPickedElement, TOOLBAR_CHANNELS, SIDEBAR_CHANNELS, TERMINAL_CHANNELS, FRAME_BACKDROP_CHANNELS, TerminalAckPayload, TerminalDataPayload, TerminalTabLayout, TerminalTabPrefs, TERMINAL_TAB_LAYOUT_DEFAULT_WIDTH, clampTerminalTabSidebarWidth, TERMINAL_CATEGORY_COLORS_MAX, TERMINAL_CATEGORY_COLOR_PATTERN, ToolbarPhoneStatus, TerminalAgentAffinityInfo, ProjectWindowIdentity, BRIDGE_CHANNELS, RunCardState, RunControlOp, RunControlReason, RunControlResult, CapsuleBrief, CapsuleBriefResult, CapsuleBriefReason } from '../../shared/contracts';
 import { buildBridgeHealthReport, subscribeBridgeHealth } from '../bridge/bridge-health';
 import { RunStateService } from '../run/run-state-service';
 import type { ExecutionBackend } from '../agent/execution-backend';
@@ -124,6 +124,12 @@ const TITLE_BROADCAST_INTERVAL_MS = 200;
 const TERMINAL_DATA_COALESCE_BYPASS_LENGTH = 256;
 // Upper bound on how long a coalesced batch may wait before it is flushed.
 const TERMINAL_DATA_FLUSH_MS = 4;
+// The activity envelope's bounded copy of the batch data. The activity
+// classifier consumes only the tail: its wait/idle OSC markers are emitted
+// trailing, prompt detection is $-anchored, and the cross-chunk tail window
+// is 64 chars — so the head of a big batch buys the non-displaying surface
+// nothing and is not worth the structured clone.
+const TERMINAL_ACTIVITY_DATA_TAIL_CHARS = 4096;
 // Upper bound on persisted collapsed-category names so a corrupt saved-tabs.json
 // cannot smuggle in an unbounded array.
 const TERMINAL_COLLAPSED_CATEGORIES_MAX = 64;
@@ -1926,7 +1932,7 @@ export class NativeTabHost extends EventEmitter {
     // bound browser tab that closed during the nap leaves `closedAt` set, and
     // `isTerminalAllowedForTab` rejects a tombstoned entry outright, which would
     // wedge the agent that owns the terminal. `reviveTerminalAgentAffinity` also
-    // repairs the entry, because the next badge read would otherwise re-arm it.
+    // repairs the entry, because the next affinity read would otherwise re-arm it.
     const onTerminalSessionWoken = (payload: { id: string; generation?: number | string }): void => {
       const id = payload?.id;
       if (!id) return;
@@ -2821,7 +2827,9 @@ export class NativeTabHost extends EventEmitter {
     sessionArgs: (args) => [(args[0] as { sessionId?: string } | undefined)?.sessionId],
     run: ({ host }, event, args) => {
       const payload = args[0] as TerminalAckPayload;
-      TerminalManager.getInstance().recordSubscriberAck(payload);
+      // The daemon-mode proxy returns a promise; a dropped daemon socket must not
+      // surface as an unhandled rejection on a fire-and-forget ack path.
+      void Promise.resolve(TerminalManager.getInstance().recordSubscriberAck(payload)).catch(() => {});
     },
   },
   {
@@ -3321,78 +3329,6 @@ export class NativeTabHost extends EventEmitter {
     },
   },
   {
-    channel: 'antifan:terminal:rebind-affinity',
-    surface: ['toolbar', 'sidebar', 'terminalPopout'],
-    sessionArgs: (args) => [(args[0] as { terminalId?: string } | undefined)?.terminalId],
-    run: ({ host }, event, args) => {
-      const { tabId, terminalId } = (args[0] || {}) as { tabId?: string; terminalId?: string };
-      const targetTabId = tabId || host.activeTabId;
-      const targetTerminalId = terminalId || host.windowActiveSessionId(event?.sender);
-      if (!host.hasTab(targetTabId)) return false;
-      const canonicalTabId = host.resolveTargetTabId(targetTabId) || targetTabId;
-      const session = TerminalManager.getInstance().getSession(targetTerminalId);
-      if (!session) return false;
-      const ok = host.bindTerminalAgentAffinity(targetTerminalId, session.sessionGeneration, canonicalTabId);
-      if (ok) {
-        host.broadcastState();
-      }
-      return ok;
-    },
-  },
-  {
-    channel: 'antifan:terminal:adopt-tab',
-    surface: ['sidebar', 'terminalPopout'],
-    sessionArgs: (args) => [(args[0] as { terminalId?: string } | undefined)?.terminalId],
-    run: ({ host }, event, args) => {
-      const { tabId, terminalId } = (args[0] || {}) as { tabId?: string; terminalId?: string };
-      const targetTabId = tabId || host.activeTabId;
-      const targetTerminalId = terminalId || host.windowActiveSessionId(event?.sender);
-      if (!targetTerminalId || !host.hasTab(targetTabId)) return false;
-      const canonicalTabId = host.resolveTargetTabId(targetTabId) || targetTabId;
-      const session = TerminalManager.getInstance().getSession(targetTerminalId);
-      if (!session) return false;
-      const ok = host.adoptChildTab(targetTerminalId, canonicalTabId, session.sessionGeneration);
-      if (ok) {
-        host.broadcastState();
-      }
-      return ok;
-    },
-  },
-  {
-    channel: 'antifan:terminal:remove-tab',
-    surface: ['sidebar', 'terminalPopout'],
-    sessionArgs: (args) => [(args[0] as { terminalId?: string } | undefined)?.terminalId],
-    run: ({ host }, event, args) => {
-      const { tabId, terminalId } = (args[0] || {}) as { tabId?: string; terminalId?: string };
-      const targetTabId = tabId || host.activeTabId;
-      const targetTerminalId = terminalId || host.windowActiveSessionId(event?.sender);
-      if (!targetTerminalId) return false;
-      const canonicalTabId = host.resolveTargetTabId(targetTabId) || targetTabId;
-      const session = TerminalManager.getInstance().getSession(targetTerminalId);
-      if (!session) return false;
-      return host.removeManagedTab(targetTerminalId, canonicalTabId, session.sessionGeneration);
-    },
-  },
-  {
-    channel: 'antifan:tabs:get-list',
-    surface: ['sidebar', 'terminalPopout'],
-    run: ({ host }) => {
-      return host.getTabList().map((t) => ({
-        id: t.id,
-        title: t.title || 'Tab',
-        url: t.url || 'about:blank',
-      }));
-    },
-  },
-  {
-    channel: 'antifan:terminal:get-affinity',
-    surface: ['sidebar', 'terminalPopout'],
-    sessionArgs: (args) => [typeof args[0] === 'string' ? args[0] : undefined],
-    run: ({ host }, event, args) => { const targetId = (typeof args[0] === 'string' ? args[0] : undefined) || host.windowActiveSessionId(event?.sender);
-      if (!targetId) return undefined;
-      return host.getTerminalAgentAffinity(targetId); },
-  },
-  {
     channel: TERMINAL_CHANNELS.SLEEP_SESSION,
     surface: ['sidebar', 'terminalPopout'],
     sessionArgs: (args, host) => [host.resolveTerminalChannelId(args[0])],
@@ -3490,16 +3426,6 @@ export class NativeTabHost extends EventEmitter {
         categoryColors: host.terminalCategoryColors,
         starredCategories: host.terminalStarredCategories,
       } satisfies TerminalTabPrefs;
-    },
-  },
-  {
-    channel: TERMINAL_CHANNELS.GET_ALL_AFFINITIES,
-    surface: ['sidebar', 'terminalPopout'],
-    run: ({ host }) => {
-      // One round-trip for every badge on the strip, over the same projection the tab
-      // broadcast carries. A refresh that follows a mutation the renderer just made
-      // pulls it instead of waiting for the next broadcast to echo its own change back.
-      return host.buildTerminalAffinityMap();
     },
   },
   {
@@ -11007,20 +10933,46 @@ export class NativeTabHost extends EventEmitter {
    */
   private dispatchTerminalData(payload: TerminalDataPayload): void {
     let sent = 0;
+    // Activity envelopes share the data tail, so the truncation is built once
+    // per dispatch instead of per non-displaying surface.
+    let activityPayload: TerminalDataPayload | undefined;
+    const activityEnvelope = (): TerminalDataPayload => {
+      if (activityPayload) return activityPayload;
+      if (payload.data.length <= TERMINAL_ACTIVITY_DATA_TAIL_CHARS) {
+        activityPayload = payload;
+      } else {
+        let tail = payload.data.slice(-TERMINAL_ACTIVITY_DATA_TAIL_CHARS);
+        // The cut point may land inside a UTF-16 surrogate pair; a lone low
+        // surrogate at the head renders as a replacement char in the classifier
+        // and in any pane that ends up writing the frame.
+        const first = tail.charCodeAt(0);
+        if (first >= 0xdc00 && first <= 0xdfff) tail = tail.slice(1);
+        // The retained data covers only the last chunk of the batch, so the
+        // envelope names the range it honestly carries. If a pane goes live
+        // mid-suppression, lastRenderedSeq+1 < throughSeq reads as a seq gap
+        // and recovers through the delta path instead of materializing a
+        // head-truncated batch as the full range.
+        const end = typeof payload.throughSeq === 'number' ? payload.throughSeq : payload.seq;
+        activityPayload = { ...payload, data: tail, fromSeq: end };
+      }
+      return activityPayload;
+    };
     const sidebarContents = this.shell.isSidebarOpen ? this.shell.sidebarView?.webContents : undefined;
     if (sidebarContents && !sidebarContents.isDestroyed()) {
-      const channel = this.rendererDisplaysSession(`c${sidebarContents.id}`, payload.sessionId)
-        ? TERMINAL_CHANNELS.DATA
-        : TERMINAL_CHANNELS.ACTIVITY;
-      safeSendWebContents(sidebarContents, channel, payload);
+      if (this.rendererDisplaysSession(`c${sidebarContents.id}`, payload.sessionId)) {
+        safeSendWebContents(sidebarContents, TERMINAL_CHANNELS.DATA, payload);
+      } else {
+        safeSendWebContents(sidebarContents, TERMINAL_CHANNELS.ACTIVITY, activityEnvelope());
+      }
       sent += 1;
     }
     for (const [id, win] of this.terminalWindows.entries()) {
       if (win && !win.isDestroyed()) {
-        const channel = this.rendererDisplaysSession(`w${id}`, payload.sessionId)
-          ? TERMINAL_CHANNELS.DATA
-          : TERMINAL_CHANNELS.ACTIVITY;
-        safeSendWebContents(win.webContents, channel, payload);
+        if (this.rendererDisplaysSession(`w${id}`, payload.sessionId)) {
+          safeSendWebContents(win.webContents, TERMINAL_CHANNELS.DATA, payload);
+        } else {
+          safeSendWebContents(win.webContents, TERMINAL_CHANNELS.ACTIVITY, activityEnvelope());
+        }
         sent += 1;
       } else {
         this.terminalWindows.delete(id);
@@ -11347,10 +11299,10 @@ export class NativeTabHost extends EventEmitter {
    *
    * Lifting the flag is not enough by itself. `getTerminalAgentAffinity` re-arms
    * `closedAt` whenever the entry's primary pointer names a tab that no longer
-   * exists, so the first badge refresh after the wake (GET_ALL_AFFINITIES) would
-   * restore the tombstone and wedge the agent again. This therefore also drops dead
-   * ids from the entry and re-points a stale primary at a live tab from the
-   * surviving session pool.
+   * exists, so the first affinity read after the wake (the bridge gate, the close
+   * gate's affinity map) would restore the tombstone and wedge the agent again. This
+   * therefore also drops dead ids from the entry and re-points a stale primary at a
+   * live tab from the surviving session pool.
    *
    * `generation` is the generation the wake reused. The manager keeps
    * `reservedGeneration`, so the entry is expected to be keyed under it already and
@@ -12120,6 +12072,13 @@ export class NativeTabHost extends EventEmitter {
   private terminalSubscriptionReleases: Array<() => void> = [];
   private isPersistingTabs = false;
   private hasPendingPersist = false;
+  // Serialized projection of the last successful saved-tabs write, and the file
+  // mtime it carried. When the next projection serializes identical AND the
+  // file is untouched since our write, the read-modify-write would land the
+  // same bytes — persist skips the whole disk trip in that case.
+  private lastPersistedProjection: string | undefined;
+  private lastPersistedFileMtimeMs: number | undefined;
+  private lastPersistedFileSize: number | undefined;
   private broadcastStatePending = false;
   private broadcastMicrotaskQueued = false;
   private broadcastTimer?: NodeJS.Timeout;
@@ -12311,6 +12270,47 @@ export class NativeTabHost extends EventEmitter {
     };
   }
 
+  /**
+   * The projection written on a successful persist, serialized the way the
+   * merged document would use it. `updatedAt` is volatile per call — the merge
+   * stamps its own — so it is masked before comparison.
+   */
+  private serializedPersistProjection(data: Record<string, unknown>): string {
+    return JSON.stringify({ ...data, updatedAt: 0 });
+  }
+
+  /**
+   * Whether the persisted file still carries this window's last write and the
+   * projected data is identical: in that case the read-modify-write would
+   * produce the same bytes and is skipped wholesale. An identical projection
+   * against a deleted or externally rewritten file is still written — the
+   * file-not-found and mtime checks keep crash-durability semantics exact.
+   */
+  private persistProjectionIsUnchanged(filePath: string, serialized: string): boolean {
+    if (this.lastPersistedProjection !== serialized || this.lastPersistedFileMtimeMs === undefined) {
+      return false;
+    }
+    try {
+      const stat = fs.statSync(filePath);
+      return stat.mtimeMs === this.lastPersistedFileMtimeMs && stat.size === this.lastPersistedFileSize;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Records the projection + file stamp of a confirmed write for the skip above. */
+  private notePersistedProjection(filePath: string, serialized: string): void {
+    this.lastPersistedProjection = serialized;
+    try {
+      const stat = fs.statSync(filePath);
+      this.lastPersistedFileMtimeMs = stat.mtimeMs;
+      this.lastPersistedFileSize = stat.size;
+    } catch {
+      this.lastPersistedFileMtimeMs = undefined;
+      this.lastPersistedFileSize = undefined;
+    }
+  }
+
   public async persistTabsAsync(): Promise<void> {
     if (this.isDisposed) return;
     if (this.isPersistingTabs) {
@@ -12323,6 +12323,10 @@ export class NativeTabHost extends EventEmitter {
         this.hasPendingPersist = false;
         const filePath = this.getTabsStoragePath();
         const data = this.buildPersistData();
+        const serialized = this.serializedPersistProjection(data);
+        if (this.persistProjectionIsUnchanged(filePath, serialized)) {
+          continue;
+        }
         await enqueueSavedTabsWrite(filePath, async () => {
           // Merge and swap in ONE uninterrupted synchronous step. The read has to see what
           // another window wrote since this window last looked, and the rename has to happen
@@ -12332,6 +12336,7 @@ export class NativeTabHost extends EventEmitter {
           const existing = this.normalizeSavedTabsFileForMerge(filePath);
           this.writeSavedTabsDocumentSync(filePath, this.buildSavedTabsDocument(existing, data));
         });
+        this.notePersistedProjection(filePath, serialized);
         console.log('[native-tab-host] Persisted tabs async to:', filePath);
       } while (this.hasPendingPersist && !this.isDisposed);
     } catch (err) {
@@ -12354,13 +12359,18 @@ export class NativeTabHost extends EventEmitter {
     try {
       const filePath = this.getTabsStoragePath();
       const data = this.buildPersistData();
-      const document = this.buildSavedTabsDocument(this.normalizeSavedTabsFileForMerge(filePath), data);
-      this.writeSavedTabsDocumentSync(filePath, document);
-      console.log('[native-tab-host] Persisted tabs sync to:', filePath);
+      const serialized = this.serializedPersistProjection(data);
+      if (!this.persistProjectionIsUnchanged(filePath, serialized)) {
+        const document = this.buildSavedTabsDocument(this.normalizeSavedTabsFileForMerge(filePath), data);
+        this.writeSavedTabsDocumentSync(filePath, document);
+        this.notePersistedProjection(filePath, serialized);
+        console.log('[native-tab-host] Persisted tabs sync to:', filePath);
+      }
     } catch (err) {
       console.warn('[native-tab-host] Failed to persist tabs sync:', err);
     }
   }
+
 
   public restoreTabs(fallbackUrl?: string, options?: { safeStart?: boolean }): void {
     try {
@@ -12603,26 +12613,6 @@ export class NativeTabHost extends EventEmitter {
       projectWindow: this.projectWindowIdentity(),
     };
     safeSendWebContents(this.shell.toolbarView?.webContents, TOOLBAR_CHANNELS.STATE_UPDATED, payload);
-    // The sidebar and every terminal window read the tab list; the ones showing a
-    // terminal tab strip also read the affinity map behind its badges. Both ride one
-    // channel because the map is a projection of the state this broadcast already
-    // carries, and fetching it separately cost a second `invoke` per broadcast —
-    // ~72,000 over one 4 h soak — each allocating a correlation entry, a promise and
-    // a deserialized map on the main thread that every switch, bridge RPC and
-    // terminal fanout also runs on. Built once here, however many windows read it.
-    const tabTargets = [
-      this.shell.sidebarView?.webContents,
-      ...(this.terminalWindows ? Array.from(this.terminalWindows.values(), (win) => win?.webContents) : []),
-    ].filter((wc): wc is Electron.WebContents => Boolean(wc));
-    if (tabTargets.length > 0) {
-      const tabsPayload: TabsUpdatedPayload = {
-        tabs: payload.tabs,
-        terminalAffinities: this.buildTerminalAffinityMap(),
-      };
-      for (const wc of tabTargets) {
-        safeSendWebContents(wc, 'antifan:tabs:updated', tabsPayload);
-      }
-    }
     this.schedulePersist();
   }
 

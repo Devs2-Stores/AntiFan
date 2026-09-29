@@ -6,6 +6,28 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 
 ## [v1.3.6] - Unreleased
 
+### Sửa — Heartbeat bridge 5 giây spawn icacls/powershell liên tục (máy lag)
+
+- **Triệu chứng**: tiến trình main Electron liên tục spawn `icacls.exe` + `powershell.exe` (đo được 34 lần spawn/30 giây), ngốn CPU dù chỉ mở vài tab.
+- **Nguyên nhân**: heartbeat `BRIDGE_HEALTH_HEARTBEAT_MS = 5000` gọi `persistBridgeInfo()`, mỗi lần đi qua đường ghi atomic + áp/xác minh DACL cho `bridge-dev.json` và mirror `~/.gemini/antifan_bridge*.json`.
+- **Sửa**: trên Windows, bản ghi discovery được pad khoảng trắng tới 4096 byte; nếu file đích vẫn là đúng file object (volume + file id, cùng kích thước) mà process này đã publish và xác minh DACL, heartbeat ghi đè tại chỗ, không spawn gì. File bị thay/xoá hoặc payload vượt 4096 byte thì quay về đường ghi atomic + DACL đầy đủ.
+- **Single-flight**: `persistBridgeInfo()` chỉ cho 1 lần ghi chạy + 1 lần chờ (lần chờ đọc payload lúc bắt đầu). Trước đây publish lúc `listen`, lần publish sau 1.5 giây và heartbeat chạy chồng lên nhau trên cùng một file tạm/rename, nên số spawn DACL lúc khởi động bị nhân đôi.
+- **Đo trên app thật**: 0 spawn/30 giây, main dùng 1.09 giây CPU/30 giây, bản ghi 4096 byte, `updatedAt` mới 122 ms.
+
+### Sửa — Audit hiệu năng toàn app: terminal daemon hồi sinh shell cho mọi project, observer preload không throttle, write/sync đồng bộ lặp lại
+
+- **Rò rỉ PTY (chính)**: mỗi lần daemon khởi động lạnh, `startTerminalWithProvenance`/`setCapsule` spawn `powershell.exe` cho **mọi** row trong `terminal-sessions.json` (đo live: 10 shell ~68 MB = ~700 MB khi người dùng chỉ mở 1-2 tab). Bây giờ chỉ session active được spawn; các row khác khôi phục dạng record có transcript, PTY chỉ được tạo lại khi session được chạm (mở tab, gõ input, resize, hydrate, run/wait…). Row `exited`/`closed` khôi phục transcript-only. `HOST_METHOD.shutdown` của daemon gọi `tm.dispose()` giết **tất cả** session (trước đây chỉ active → N-1 shell bị bỏ mồ côi).
+- **Tiết kiệm bộ nhớ daemon**: `serializeSessionFragment`/cache không còn buộc materialize transcript 4 MB mỗi lần persist; `listSessions`/`transcriptTail` dựng preview giới hạn ~16 KB trực tiếp từ tail của chunks thay vì concat toàn bộ; `waitForShellReady` poll trên tail ≤8 KB thay vì getFullBuffer 100 ms một lần.
+- **Preload (mỗi tab web)**: theme-error sentinel chỉ chạy một lần quét `innerText` ≤500 ms và không chạy khi tab ẩn; password-vault `setupCapture` debounce 400 ms; AI-streaming detector tạm ngừng khi tab ẩn và reconcile khi quay lại.
+- **Steady-state main**: `persistTabsAsync` bỏ qua ghi đĩa khi dữ liệu chiếu (đã mask `updatedAt`) giống hệt lần ghi trước và file stamp chưa đổi; `RunStateService` chỉ `emit('change')` khi thật sự có thay đổi (fingerprint file + liveness stale), không còn 2 lượt đọc/parse toàn bộ `runs/*.json` mỗi 5 giây.
+- **Terminal renderer**: chỉ pane đang hiển thị gắn `WebglAddon` (gắn khi show, dispose khi hide, fallback DOM khi mất context) — giảm CPU renderer + GPU process khi TUI vẽ lại liên tục; pane ẩn vẫn không render.
+
+### Xoá — Gán tab trình duyệt cho terminal từ Terminal Manager
+
+- **Khoảng trống**: badge affinity trên mỗi tab terminal, popover "Gán thêm Tab khác vào Terminal", mục menu chuột phải "Gán Tab Trình Duyệt… (Rebind Tab)" của sidebar và "Gán vào Terminal đang mở" của toolbar không có tác dụng thực tế với luồng làm việc; người dùng yêu cầu bỏ hẳn.
+- **Xoá**: renderer `standalone.js` (`updateAffinityBadges`, `showAffinityPicker`, badge, handler `rebind-tab`), markup/CSS tương ứng trong `standalone.html`/`standalone.css`, API preload (`getTabs`, `focusTab`, `getTerminalAffinities`, `rebindTerminalAffinity`, `onTabsUpdated`…), mục `menuItemBindTerminal` của toolbar; 6 route Main (`terminal:rebind-affinity`, `terminal:adopt-tab`, `terminal:remove-tab`, `terminal:get-affinity`, `tabs:get-list`, `TERMINAL_CHANNELS.GET_ALL_AFFINITIES`) và broadcast `antifan:tabs:updated` cùng contract `TabsUpdatedPayload`. Route table 126→120.
+- **Giữ nguyên**: affinity phía agent (bind/adopt qua bridge, gate `isTerminalAllowedForTab`, close gate đọc `buildTerminalAffinityMap`). Control mà refusal đóng tab chỉ tới nay là `antifan:terminal:close-session` (✕ trên tab terminal) thay cho route `remove-tab` đã xoá.
+
 ### Sửa — Bốn mục lộ trình audit: capture/focus, bridge health, run cards, test-harness honesty
 
 - **Khoảng trống**: ngày 2026-09-28 bốn vùng mù đo được trên hai phiên OMP thật (Comnieusiba, Phukienmaymoc): (1) một capture agent nâng pane riêng lên che tab đang dùng và giành focus giữa lúc gõ; (2) bridge MCP chết hàng chục phút mà Manager không báo, launcher cứ kết nối vào một socket đã tắt, QA gate vẫn đòi receipt; (3) Terminal Manager không có cách nào nhìn “run nào đang chạy, đang làm gì, chạm file nào, dừng/khuyên được không”; (4) bộ test xanh trong khi các receiver Main không tồn tại, các kiểm soát mutation giả được gọi là mutants mà không đảo được kết quả, và một số receiver thật sự thiếu mà không test nào nhìn thấy.

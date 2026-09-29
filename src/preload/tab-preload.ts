@@ -261,12 +261,20 @@ window.addEventListener(
   };
 
   const scheduleCheck = () => {
-    if (checkThrottleTimer) return;
+    // MutationObserver callbacks are not timer-throttled on hidden pages, but the state
+    // badge this feeds is invisible there — queue nothing while hidden and reconcile once
+    // when the page becomes visible again.
+    if (checkThrottleTimer || document.visibilityState === 'hidden') return;
     checkThrottleTimer = setTimeout(() => {
       checkThrottleTimer = null;
+      if (document.visibilityState === 'hidden') return;
       checkAiStreaming();
     }, 200);
   };
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') scheduleCheck();
+  });
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
@@ -327,9 +335,22 @@ window.addEventListener(
     }
   };
 
+  let errorCheckTimer: number | NodeJS.Timeout | null = null;
   const scheduleErrorCheck = () => {
-    setTimeout(checkThemeError, 250);
+    // A single trailing timer: every mutation batch used to queue another scan, and each
+    // scan reads document.body.innerText, which forces layout over the whole page. While
+    // hidden the report is unobservable, so scans are skipped and reconciled on visible.
+    if (errorCheckTimer !== null || document.visibilityState === 'hidden') return;
+    errorCheckTimer = setTimeout(() => {
+      errorCheckTimer = null;
+      if (document.visibilityState === 'hidden') return;
+      checkThemeError();
+    }, 500);
   };
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') scheduleErrorCheck();
+  });
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', scheduleErrorCheck);
@@ -485,9 +506,18 @@ window.addEventListener(
     setupCapture();
     setTimeout(attemptAutofill, 800);
   });
-  // Re-hook dynamically injected forms (SPA login overlays).
+  // Re-hook dynamically injected forms (SPA login overlays). Trailing debounce: a mutation
+  // burst schedules one pass instead of walking document.forms per batch.
+  let spawnCheckTimer: number | NodeJS.Timeout | null = null;
+  const scheduleCaptureSetup = () => {
+    if (spawnCheckTimer !== null) return;
+    spawnCheckTimer = setTimeout(() => {
+      spawnCheckTimer = null;
+      setupCapture();
+    }, 400);
+  };
   try {
-    const spawnObserver = new MutationObserver(() => setupCapture());
+    const spawnObserver = new MutationObserver(() => scheduleCaptureSetup());
     // `document` for the same document-start reason: `documentElement` may not exist yet, and
     // an observe(null) throw here is swallowed, leaving overlays injected later unhooked.
     spawnObserver.observe(document, { childList: true, subtree: true });

@@ -106,6 +106,7 @@ interface SessionRecord {
   pendingCols?: number;
   pendingRows?: number;
   splitOf?: string;
+  restoredPendingPty?: boolean;
   deliveryJournal: { getRetainedRange: () => { chunks: number } };
 }
 
@@ -128,18 +129,17 @@ interface TerminalManagerInternals {
   sessions: Map<string, SessionRecord>;
   sessionGenerations: Map<string, number>;
   activeSessionId: string;
-  deferredPtyIds: string[];
   isDisposed: boolean;
   persistTimer: NodeJS.Timeout | null;
-  restoreSleepingSession: (
+  restoreShellFreeSession: (
     item: SavedSessionLike,
+    state: 'sleeping' | 'exited',
     initialCols: number | undefined,
     initialRows: number | undefined,
     minimumRows: number,
     parentSessionId?: string,
     parentGeneration?: number,
   ) => SessionRecord;
-  pumpDeferredPtyQueue: () => void;
   schedulePersist: (sessionId?: string) => void;
 }
 
@@ -258,8 +258,6 @@ describe('Phase 5: Terminal sleep / wake lifecycle', () => {
 
   beforeEach(() => {
     internals.sessions.clear();
-    internals.sessionGenerations.clear();
-    internals.deferredPtyIds.length = 0;
     internals.activeSessionId = '';
     // afterEach calls dispose(); a fresh manager is live again (createSession /
     // startTerminal both clear this flag themselves).
@@ -500,12 +498,12 @@ describe('Phase 5: Terminal sleep / wake lifecycle', () => {
     assert.strictEqual(restored.pty, null, 'restoring a sleeping tab must not spawn a PTY');
     assert.strictEqual(restored.category, 'Archived');
     assert.match(restored.restoredTail || '', /deep work output/);
-    assert.strictEqual(spawnedPtys.length, 0, 'not even the eager active session may spawn a shell');
-    assert.strictEqual(internals.deferredPtyIds.includes(id), false, 'a sleeping tab must not be queued for a deferred start');
+    assert.strictEqual(spawnedPtys.length, 0, 'not even the eager active session may spawn a shell for a sleeping row');
 
-    // The deferred queue really stays quiet for a sleeping session.
+    // Nothing in the restore path ever arms a deferred start: the record simply
+    // has no PTY and no timer exists that could mint one behind the user.
     await delay(400);
-    assert.strictEqual(spawnedPtys.length, 0, 'the deferred queue must not resurrect a sleeping session');
+    assert.strictEqual(spawnedPtys.length, 0, 'a sleeping session must never resurrect a shell on its own');
 
     // The transcript is fully readable for every consumer that reads s.buffer.
     const summary = tm.listSessions().find(item => item.id === id);
@@ -561,23 +559,53 @@ describe('Phase 5: Terminal sleep / wake lifecycle', () => {
     );
   });
 
-  it('(i) the deferred PTY queue drops a session that fell asleep while queued', async () => {
-    const restored = internals.restoreSleepingSession(
-      { id: 'terminal-9', name: 'Napping', cwd: 'E:/Work/project', state: 'sleeping', category: 'Z', restoredTail: 'old output\r\n' },
-      undefined,
-      undefined,
-      8,
-    );
-    assert.strictEqual(restored.state, 'sleeping');
-    assert.strictEqual(restored.pty, null);
-    assert.strictEqual(restored.category, 'Z');
+  it('(i) a restored non-active session has no PTY until touched, then materializes one on write', async () => {
+    const active = tm.createSession('E:/Work/active');
+    assert.strictEqual(spawnedPtys.length, 1, 'the active session owns the only shell');
+    tm.persistSync();
 
-    internals.deferredPtyIds.push('terminal-9');
-    internals.pumpDeferredPtyQueue();
-    await delay(400);
+    // Simulate a fresh process: two saved rows, one lands on the active tab, the
+    // other is a background row the user never opened.
+    internals.sessions.clear();
+    internals.sessionGenerations.clear();
+    internals.activeSessionId = '';
+    spawnedPtys.length = 0;
 
-    assert.strictEqual(internals.deferredPtyIds.includes('terminal-9'), false, 'a sleeping id must be dropped, not head-blocking');
-    assert.strictEqual(spawnedPtys.length, 0, 'the queue must not spawn a shell for a sleeping session');
+    const saved = readStateFile(stateFile);
+    fs.writeFileSync(stateFile, JSON.stringify({
+      activeSessionId: active,
+      sessions: [
+        ...saved.sessions,
+        { id: 'terminal-bg-1', name: 'Background', cwd: 'E:/Work/project', state: 'running', restoredTail: 'bg transcript\r\n', cols: 120, rows: 30 },
+      ],
+    }));
+
+    assert.strictEqual(tm.startTerminal('E:/Work/project'), true);
+    assert.strictEqual(spawnedPtys.length, 1, 'only the active saved session gets a shell at restore');
+    assert.strictEqual(record(active).state, 'running');
+    const bg = record('terminal-bg-1');
+    assert.strictEqual(bg.pty, null, 'a restored background row must stay shell-free');
+    assert.strictEqual(bg.state, 'running', 'the row still reports running');
+    assert.strictEqual(bg.restoredPendingPty, true, 'the record must carry the pending-materialization marker');
+    assert.match(tm.listSessions(false).find(item => item.id === 'terminal-bg-1')?.buffer || '', /bg transcript/, 'the transcript must be readable before any touch');
+    assert.strictEqual(spawnedPtys.length, 1, 'listing sessions is not a touch and must never mint a shell');
+
+    // Touch = a write routed at the session: the shell materializes now.
+    tm.writeTo('terminal-bg-1', 'echo touched\r');
+    const liveBg = record('terminal-bg-1');
+    assert.notStrictEqual(liveBg.pty, null, 'the first touch mints the restored shell');
+    assert.strictEqual(liveBg.restoredPendingPty, false, 'the spawned record drops the marker');
+    assert.strictEqual(spawnedPtys.length, 2, 'exactly one shell was materialized by the touch');
+    assert.deepStrictEqual(latestPty().writes, ['echo touched\r'], 'the keystroke reaches the new shell');
+
+    // A restore that stays untouched forever never pays for the second shell.
+    internals.sessions.clear();
+    internals.sessionGenerations.clear();
+    internals.activeSessionId = '';
+    spawnedPtys.length = 0;
+    assert.strictEqual(tm.startTerminal('E:/Work/project'), true);
+    await delay(300);
+    assert.strictEqual(spawnedPtys.length, 1, 'no pump or timer may resurrect the background shell');
   });
 
   it('(j) resize() leaves a sleeping session geometry untouched', () => {
