@@ -8,7 +8,7 @@ import { performance } from 'node:perf_hooks';
 import { isBenchmarkEnabled, recordBenchmark } from '../benchmark/telemetry';
 import { StorageLocations } from '../config/storage-locations';
 import { TerminalWaitInput, TerminalWaitResult, CapabilityError } from '../../shared/control-plane-contracts';
-import { TerminalDeltaResult, TerminalJournalEntry, TerminalAckPayload, TerminalSyncViewResult } from '../../shared/contracts';
+import { TerminalDeltaResult, TerminalJournalEntry, TerminalAckPayload, TerminalSyncViewResult, TerminalSleepResult, TerminalRoleMeta } from '../../shared/contracts';
 import { ownerKey } from './window-owner';
 export function resolveScriptsDir(): string | undefined {
   let dir = __dirname;
@@ -35,6 +35,35 @@ export function resolveScriptsDir(): string | undefined {
 export const BACKPRESSURE_HIGH_WATERMARK_BYTES = 256 * 1024; // 256 KiB
 export const BACKPRESSURE_LOW_WATERMARK_BYTES = 64 * 1024;  // 64 KiB
 export const BACKPRESSURE_MAX_PENDING_BYTES = 1024 * 1024;   // 1 MiB ring buffer
+
+/** What a terminal is for. `sync` is a theme watcher: its process tree must stay alive. */
+export type SpaceTerminalRole = 'agent' | 'sync' | 'shell';
+/** `never` refuses sleep; `manual` is today's behaviour (the user may sleep it). */
+export type TerminalIdlePolicy = 'never' | 'manual';
+const SPACE_TERMINAL_ROLES: Record<string, true> = { agent: true, sync: true, shell: true };
+const SPACE_TERMINAL_ID_PATTERN = /^[A-Za-z0-9_-]{1,32}$/;
+
+/**
+ * The only role metadata a record may hold. Values arrive from IPC and from the user-writable
+ * sessions file, so anything unknown is dropped. `sync` always resolves to `never`: a watcher
+ * that can be slept is the failure this metadata exists to prevent.
+ */
+export function sanitizeRoleMeta(meta: { role?: unknown; idlePolicy?: unknown; spaceTerminalId?: unknown }): {
+  role?: SpaceTerminalRole;
+  idlePolicy?: TerminalIdlePolicy;
+  spaceTerminalId?: string;
+} {
+  const role = typeof meta.role === 'string' && Object.hasOwn(SPACE_TERMINAL_ROLES, meta.role)
+    ? meta.role as SpaceTerminalRole
+    : undefined;
+  const idlePolicy: TerminalIdlePolicy | undefined = role === 'sync'
+    ? 'never'
+    : meta.idlePolicy === 'never' || meta.idlePolicy === 'manual' ? meta.idlePolicy : undefined;
+  const spaceTerminalId = typeof meta.spaceTerminalId === 'string' && SPACE_TERMINAL_ID_PATTERN.test(meta.spaceTerminalId)
+    ? meta.spaceTerminalId
+    : undefined;
+  return { role, idlePolicy, spaceTerminalId };
+}
 
 export function killProcessTree(pid: number | undefined): Promise<void> {
   if (!pid || typeof pid !== 'number' || pid <= 0 || !Number.isFinite(pid)) {
@@ -236,7 +265,16 @@ export class SessionRecord {
   public category?: string;
   public sleptAt?: number;
   /**
-   * True on a record restored from disk without a shell. It is what lets a read
+   * What the shell is for, and whether it may be slept. Sleeping kills the process tree, so a
+   * `never` session — a theme watcher above all — is refused by `sleepSession` rather than
+   * silently losing its uploads. `spaceTerminalId` names the manifest entry that minted it, so a
+   * second Space open reuses the shell instead of starting another.
+   */
+  public role?: SpaceTerminalRole;
+  public idlePolicy?: TerminalIdlePolicy;
+  public spaceTerminalId?: string;
+  /**
+   * True on a record restored without a shell. It is what lets a read
    * path tell "the shell this tab owns was never restarted" apart from "this
    * record simply holds no PTY" (a seeded record, a sleeping tab's record): the
    * first real touch — write, switch, resize, attach, wait — mints the shell
@@ -392,6 +430,9 @@ type SavedSession = {
   // place it lives (its live `buffer` is empty by definition).
   state?: 'running' | 'exited' | 'closed' | 'sleeping';
   category?: string;
+  role?: SpaceTerminalRole;
+  idlePolicy?: TerminalIdlePolicy;
+  spaceTerminalId?: string;
   restoredTail?: string;
   // Exit metadata is persisted so an exited tab comes back with its real status;
   // absent on rows written before the fields existed.
@@ -481,6 +522,10 @@ export interface SessionSummary {
   // Sleep/archive metadata for the tab strip: the user-assigned group and the
   // moment the tab was put to sleep (absent while it is awake).
   category?: string;
+  /** What the tab is for and whether it may sleep; see `Session.role`. Absent when never set. */
+  role?: SpaceTerminalRole;
+  idlePolicy?: TerminalIdlePolicy;
+  spaceTerminalId?: string;
   sleptAt?: number;
   cols?: number;
   rows?: number;
@@ -503,6 +548,25 @@ export interface SessionSummary {
    * a session written before owner keys existed, which keeps the capsule rule's visibility.
    */
   ownerKey?: string;
+  /**
+   * The one identity the session's folder has however it was spelled (junction, 8.3 name,
+   * letter case): `canonicalFolderKey` of the capsule's workspace root, or of `cwd` when no
+   * capsule names one. Projection-only, stamped by the host when the window's state is
+   * built — never persisted, so the session record keeps the folder it was told, not a
+   * frozen canonicalization of it.
+   */
+  folderKey?: string;
+  /** Basename of the canonical folder path, original casing — what a folder group is titled. */
+  folderLabel?: string;
+  /** Canonical real path `folderKey` is the key of — what a folder-scoped action opens. */
+  folderPath?: string;
+  /**
+   * Display name the hub shows for a session still wearing its minted `Terminal N` name:
+   * `<folderLabel> · <n>` where `n` counts this window's visible rows in the same folder,
+   * in list order. A user-renamed session shows `name` instead, so this stays the *badge*
+   * a minted name never earned rather than a second name fighting the user's.
+   */
+  displayLabel?: string;
 }
 export interface TerminalManagerStats {
   sessionCount: number;
@@ -796,6 +860,9 @@ export class TerminalManager extends EventEmitter {
     rows: number;
     state: 'running' | 'exited' | 'closed' | 'sleeping';
     category?: string;
+    role?: SpaceTerminalRole;
+    idlePolicy?: TerminalIdlePolicy;
+    spaceTerminalId?: string;
     restoredTailSource?: string;
   }>();
   // True once any session record existed this run. Persisting an empty session
@@ -926,6 +993,9 @@ export class TerminalManager extends EventEmitter {
       cached.rows === rows &&
       cached.state === state &&
       cached.category === category &&
+      cached.role === s.role &&
+      cached.idlePolicy === s.idlePolicy &&
+      cached.spaceTerminalId === s.spaceTerminalId &&
       cached.restoredTailSource === restoredTailSource
     ) {
       return cached.fragment;
@@ -945,6 +1015,9 @@ export class TerminalManager extends EventEmitter {
       rows,
       state,
       category,
+      role: s.role,
+      idlePolicy: s.idlePolicy,
+      spaceTerminalId: s.spaceTerminalId,
       restoredTail: restoredTailSource ? safeSliceTail(restoredTailSource, MAX_PERSISTED_BYTES) : undefined,
       exitCode: s.exitCode,
       exitedAt: s.exitedAt,
@@ -963,6 +1036,9 @@ export class TerminalManager extends EventEmitter {
       rows,
       state,
       category,
+      role: s.role,
+      idlePolicy: s.idlePolicy,
+      spaceTerminalId: s.spaceTerminalId,
       restoredTailSource,
     });
     return fragment;
@@ -1220,6 +1296,7 @@ export class TerminalManager extends EventEmitter {
               s.capsuleId = item.capsuleId || this.currentCapsuleId;
               s.ownerKey = item.ownerKey;
               s.category = item.category;
+              this.restoreRoleMeta(s, item);
             } else {
               // Background tabs stay shell-free records: their transcript is
               // available immediately, their PTY materializes on first touch.
@@ -1410,8 +1487,21 @@ export class TerminalManager extends EventEmitter {
     s.capsuleId = item.capsuleId || this.effectiveCreationCapsuleId;
     s.ownerKey = item.ownerKey;
     s.category = item.category;
+    this.restoreRoleMeta(s, item);
     s.restoredPendingPty = true;
     return s;
+  }
+
+  /**
+   * Carry a saved row's role metadata onto its record. The file is user-writable, so only values
+   * the setters themselves could have produced survive; anything else restores as "no role".
+   */
+  private restoreRoleMeta(s: Session, item: SavedSession): void {
+    if (item.splitOf) return;
+    const meta = sanitizeRoleMeta(item);
+    s.role = meta.role;
+    s.idlePolicy = meta.idlePolicy;
+    s.spaceTerminalId = meta.spaceTerminalId;
   }
 
   /**
@@ -1454,6 +1544,7 @@ export class TerminalManager extends EventEmitter {
     s.capsuleId = item.capsuleId || this.effectiveCreationCapsuleId;
     s.ownerKey = item.ownerKey;
     s.category = item.category;
+    this.restoreRoleMeta(s, item);
     s.state = state;
     if (state === 'sleeping') {
       s.sleptAt = Date.now();
@@ -1776,6 +1867,7 @@ export class TerminalManager extends EventEmitter {
             s.capsuleId = item.capsuleId || this.effectiveCreationCapsuleId;
             s.ownerKey = item.ownerKey;
             s.category = item.category;
+            this.restoreRoleMeta(s, item);
           } else {
             this.reserveRestoredSession(item, item.cols, item.rows, MIN_TERMINAL_ROWS);
           }
@@ -2143,6 +2235,10 @@ export class TerminalManager extends EventEmitter {
     const prevCategory = targetSession?.category;
     const prevCapsuleId = targetSession?.capsuleId;
     const prevOwnerKey = targetSession?.ownerKey;
+    // A restarted watcher is still a watcher: its sleep guard and Space identity travel with the tab.
+    const prevRole = targetSession
+      ? { role: targetSession.role, idlePolicy: targetSession.idlePolicy, spaceTerminalId: targetSession.spaceTerminalId }
+      : undefined;
     if (targetSession) {
       await this.safelyKillSession(targetSession);
       this.sessions.delete(id);
@@ -2152,6 +2248,12 @@ export class TerminalManager extends EventEmitter {
     if (prevCapsuleId) s.capsuleId = prevCapsuleId;
     if (prevOwnerKey) s.ownerKey = prevOwnerKey;
     if (prevCategory) s.category = prevCategory;
+    if (prevRole) {
+      const clean = sanitizeRoleMeta(prevRole);
+      s.role = clean.role;
+      s.idlePolicy = clean.idlePolicy;
+      s.spaceTerminalId = clean.spaceTerminalId;
+    }
     this.persist();
     this.emitSession();
     this.emit('session-restarted', { id, generation: s.sessionGeneration });
@@ -2172,24 +2274,31 @@ export class TerminalManager extends EventEmitter {
    * `ownerKey` is the window (or agent) the new session belongs to, and decides which window's
    * sidebar may show the row. Omitted, the session lands on {@link DEFAULT_TERMINAL_OWNER_KEY}.
    */
-  public createSession(cwd?: string, capsuleId?: string, ownerKey?: string): string {
-    if (!capsuleId && !ownerKey) return this.createSessionWithProvenance(cwd);
+  public createSession(cwd?: string, capsuleId?: string, ownerKey?: string, meta?: TerminalRoleMeta): string {
+    if (!capsuleId && !ownerKey && !meta) return this.createSessionWithProvenance(cwd);
     const previousCreationCapsuleId = this.creationCapsuleId;
     const previousCreationOwnerKey = this.creationOwnerKey;
     if (capsuleId) this.creationCapsuleId = capsuleId;
     if (ownerKey) this.creationOwnerKey = ownerKey;
     try {
-      return this.createSessionWithProvenance(cwd);
+      return this.createSessionWithProvenance(cwd, meta);
     } finally {
       this.creationCapsuleId = previousCreationCapsuleId;
       this.creationOwnerKey = previousCreationOwnerKey;
     }
   }
 
-  private createSessionWithProvenance(cwd?: string): string {
+  private createSessionWithProvenance(cwd?: string, meta?: TerminalRoleMeta): string {
     const id = this.nextTerminalId();
     this.activeSessionId = id;
     const s = this.spawn(id, cwd || this.currentCwd);
+    if (meta) {
+      // Stamped before the first persist/emit: a watcher is never visible without its guard.
+      const clean = sanitizeRoleMeta(meta);
+      s.role = clean.role;
+      s.idlePolicy = clean.idlePolicy;
+      s.spaceTerminalId = clean.spaceTerminalId;
+    }
     this.persist();
     this.emitSession();
     this.emit('session-created', { id, generation: s.sessionGeneration });
@@ -2265,9 +2374,10 @@ export class TerminalManager extends EventEmitter {
    * permanently unwakeable and wedge the owning agent. The only event is the
    * ordinary `'session'` broadcast.
    */
-  public sleepSession(id: string): boolean {
+  public sleepSession(id: string): TerminalSleepResult {
     const s = this.sessions.get(id);
-    if (!s || s.disposed || s.state !== 'running') return false;
+    if (!s || s.disposed || s.state !== 'running') return { ok: false, reason: 'NOT_RUNNING' };
+    if (this.hasWatcherGuard(id)) return { ok: false, reason: 'SLEEP_REFUSED_WATCHER' };
     // A pane is subordinate to the tab it splits, so parking the parent parks its panes
     // in the same breath. A split left running under a sleeping parent keeps a PTY
     // alive for a tab the user believes is parked, and the sidebar files that pane by
@@ -2280,7 +2390,7 @@ export class TerminalManager extends EventEmitter {
     // One broadcast for the whole cascade: the panes and their parent change state
     // together, and a per-record emit would paint the sidebar mid-park.
     this.emitSession();
-    return parked;
+    return parked ? { ok: true } : { ok: false, reason: 'NOT_RUNNING' };
   }
 
   /**
@@ -2376,6 +2486,40 @@ export class TerminalManager extends EventEmitter {
   }
 
   /**
+   * Whether `sleepSession(id)` must refuse because the tab (or one of its panes) is declared
+   * `never`. A tab sleeps with its panes, so a pane declared `never` protects its parent as well.
+   */
+  private hasWatcherGuard(id: string): boolean {
+    const direct = this.sessions.get(id);
+    if (!direct) return false;
+    const baseId = direct.splitOf || id;
+    for (const s of this.sessions.values()) {
+      if ((s.id === baseId || s.splitOf === baseId) && !s.disposed && s.idlePolicy === 'never') return true;
+    }
+    return false;
+  }
+
+  /**
+   * Set (or clear, with `role: undefined`) what a tab is for. A `sync` role always carries
+   * `idlePolicy: 'never'`, so marking a shell as a watcher is what protects it from sleep. The
+   * metadata lives on the base session; a pane id addresses its tab.
+   */
+  public setSessionRole(id: string, meta: { role?: unknown; idlePolicy?: unknown; spaceTerminalId?: unknown }): boolean {
+    const direct = this.sessions.get(id);
+    if (!direct || direct.disposed) return false;
+    const baseId = direct.splitOf || id;
+    const s = this.sessions.get(baseId) || direct;
+    const clean = sanitizeRoleMeta(meta);
+    s.role = clean.role;
+    s.idlePolicy = clean.idlePolicy;
+    s.spaceTerminalId = clean.spaceTerminalId;
+    this.dirtySessionIds.add(baseId);
+    this.schedulePersist(baseId);
+    this.emitSession();
+    return true;
+  }
+
+  /**
    * The transcript a viewer should render: the restored on-disk tail behind a
    * separator, then the live shell output. Single source for getFullBuffer and
    * listSessions so the two views can never drift apart.
@@ -2442,6 +2586,9 @@ export class TerminalManager extends EventEmitter {
       exitedAt: s.exitedAt,
       closedAt: s.closedAt,
       category: s.category,
+      ...(s.role ? { role: s.role } : {}),
+      ...(s.idlePolicy ? { idlePolicy: s.idlePolicy } : {}),
+      ...(s.spaceTerminalId ? { spaceTerminalId: s.spaceTerminalId } : {}),
       sleptAt: s.sleptAt,
       cols: s.pendingCols || s.pty?.cols || this.lastCols || 120,
       rows: s.pendingRows || s.pty?.rows || this.lastRows || 30,

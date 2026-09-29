@@ -56,8 +56,14 @@ function resolveDataRoot() {
  * Type-only imports (erased at compile time) do not survive into the emitted JS, so scanning the
  * compiled output rather than the TypeScript is what keeps the closure honest.
  */
+// Compiled JS comments can contain prose like from 'x' that the specifier scan
+// below would otherwise read as an import specifier (it did, and staged a
+// package called 'this record…' off a JSDoc block). Strip block comments only;
+// line comments after code are rare in tsc output, but the /url-less comment in
+// a string is never mistaken for a specifier anyway.
+const COMMENT_STRIP = /\/\*[\s\S]*?\*\//g;
 function specifiersIn(file) {
-  const source = fs.readFileSync(file, 'utf8');
+  const source = fs.readFileSync(file, 'utf8').replace(COMMENT_STRIP, ' ');
   const specs = new Set();
   const patterns = [
     /\brequire\(\s*['"]([^'"]+)['"]\s*\)/g,

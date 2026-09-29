@@ -15,29 +15,11 @@ import type {
   RunControlOp,
   RunControlResult,
   TerminalDataPayload,
+  TerminalNewInFolderResult,
+  SpaceOpenResult,
+  SpaceInitResult,
   TerminalTabPrefs,
-  TabsUpdatedPayload,
 } from '../shared/contracts';
-
-/**
- * The tab broadcast is one object carrying both halves the renderer reads. Normalizing
- * at this boundary keeps that contract total: a payload from a build that predates the
- * affinity map — or a malformed one — reads as "no affinities" instead of arriving as a
- * shape the renderer would index blindly.
- */
-function normalizeTabsUpdatedPayload(d: unknown): TabsUpdatedPayload {
-  const source: Record<string, unknown> = (d && typeof d === 'object' && !Array.isArray(d))
-    ? d as Record<string, unknown>
-    : { tabs: d };
-  const tabs = source.tabs;
-  const affinities = source.terminalAffinities;
-  return {
-    tabs: Array.isArray(tabs) ? tabs as TabsUpdatedPayload['tabs'] : [],
-    terminalAffinities: (affinities && typeof affinities === 'object')
-      ? affinities as TabsUpdatedPayload['terminalAffinities']
-      : {},
-  };
-}
 
 const api = {
   copyToClipboard: (text: string) => clipboard.writeText(text),
@@ -80,6 +62,22 @@ const api = {
   resizeTerminal: (cols: number, rows: number) => ipcRenderer.invoke('antifan:terminal:resize', { cols, rows }),
   resizeTerminalTo: (id: string, cols: number, rows: number) => ipcRenderer.invoke('antifan:terminal:resize-session', { id, cols, rows }),
   newTerminal: (cwd?: string) => ipcRenderer.invoke('antifan:terminal:new-session', cwd),
+  // Mint a terminal bound to one real folder and nothing else: no capsule switch, no cwd
+  // re-point, no other window touched. `folder` skips the chooser — the hub's per-group
+  // mint and its header button differ only in who picked the directory.
+  newTerminalInFolder: (folder?: string): Promise<TerminalNewInFolderResult> =>
+    ipcRenderer.invoke(TERMINAL_CHANNELS.NEW_IN_FOLDER, folder ? { folder } : {}),
+  // The picker's folder choice without the picker: Main resolves the directory to the
+  // project that owns it or creates one, exactly as its folder chooser would.
+  openProjectFromFolder: (folder: string): Promise<ProjectOpenResult> =>
+    ipcRenderer.invoke(PROJECT_WINDOW_CHANNELS.PROJECT_OPEN, { folder }),
+  // Open a folder's declared Space. The first call may answer NEEDS_CONFIRM with the exact
+  // commands; the confirming call echoes the hash it was shown.
+  openSpace: (folder: string, confirmHash?: string): Promise<SpaceOpenResult> =>
+    ipcRenderer.invoke(TERMINAL_CHANNELS.SPACE_OPEN, confirmHash ? { folder, confirmHash } : { folder }),
+  // Scaffold `.antifan/space.json` from the folder's current terminals and tabs (never overwrites).
+  createSpaceManifest: (folder: string): Promise<SpaceInitResult> =>
+    ipcRenderer.invoke(TERMINAL_CHANNELS.SPACE_INIT, { folder }),
   splitTerminal: (parentId: string, options?: string | { cwd?: string; cols?: number; rows?: number }) => {
     const payload = typeof options === 'string' ? { parentId, cwd: options } : { parentId, ...(options || {}) };
     return ipcRenderer.invoke('antifan:terminal:split-session', payload);
@@ -89,17 +87,10 @@ const api = {
   switchTerminal: (id: string) => ipcRenderer.invoke('antifan:terminal:switch-session', id),
   renameTerminal: (id: string, name: string) => ipcRenderer.invoke('antifan:terminal:rename-session', { id, name }),
   reorderTerminals: (orderIds: string[]) => ipcRenderer.invoke('antifan:terminal:reorder-sessions', orderIds),
-  rebindTerminalAffinity: (tabId?: string, terminalId?: string) => ipcRenderer.invoke('antifan:terminal:rebind-affinity', { tabId, terminalId }),
-  adoptTabAffinity: (tabId: string, terminalId?: string) => ipcRenderer.invoke('antifan:terminal:adopt-tab', { tabId, terminalId }),
-  removeTabAffinity: (tabId: string, terminalId?: string) => ipcRenderer.invoke('antifan:terminal:remove-tab', { tabId, terminalId }),
-  getTerminalAffinity: (terminalId?: string) => ipcRenderer.invoke('antifan:terminal:get-affinity', terminalId),
-  // One round-trip for every tab's affinity: the per-id loop was N+1 IPC calls
-  // per tab-strip render and each generation-less lookup cost an O(E) scan.
-  getTerminalAffinities: () => ipcRenderer.invoke(TERMINAL_CHANNELS.GET_ALL_AFFINITIES),
   sleepTerminal: (id: string) => ipcRenderer.invoke(TERMINAL_CHANNELS.SLEEP_SESSION, id),
+  setTerminalRole: (id: string, role: 'sync' | null, opts?: { acknowledgeDuplicate?: boolean }) => ipcRenderer.invoke(TERMINAL_CHANNELS.SET_ROLE, { id, role, acknowledgeDuplicate: opts?.acknowledgeDuplicate === true }),
   wakeTerminal: (id: string) => ipcRenderer.invoke(TERMINAL_CHANNELS.WAKE_SESSION, id),
   setCategory: (id: string, category?: string) => ipcRenderer.invoke(TERMINAL_CHANNELS.SET_CATEGORY, { id, category }),
-  getTabs: () => ipcRenderer.invoke('antifan:tabs:get-list'),
   closeTerminal: (id: string) => ipcRenderer.invoke('antifan:terminal:close-session', id),
   listCapsules: () => ipcRenderer.invoke('antifan:capsule:list'),
   pickWorkspaceFolder: (sessionId?: string) => ipcRenderer.invoke('antifan:capsule:pick-folder', { sessionId }),
@@ -133,7 +124,6 @@ const api = {
   toggleFullScreen: () => ipcRenderer.invoke('antifan:window:toggle-fullscreen'),
   createTab: (url?: string) => ipcRenderer.invoke('antifan:toolbar:create-tab', url),
   openExternal: (url?: string) => ipcRenderer.invoke('antifan:toolbar:open-external', url),
-  focusTab: (tabId: string) => ipcRenderer.invoke('antifan:toolbar:switch-tab', tabId),
   onTerminalPopoutChanged: (cb: (isPopout: boolean) => void) => {
     const h = (_e: unknown, v: boolean) => cb(v);
     ipcRenderer.on('antifan:terminal:popout-state-changed', h);
@@ -150,11 +140,6 @@ const api = {
   onTerminalData: (cb: (data: TerminalDataPayload) => void) => { const h = (_e: unknown, d: TerminalDataPayload) => cb(d); ipcRenderer.on('antifan:terminal:data', h); return () => ipcRenderer.removeListener('antifan:terminal:data', h); },
   onTerminalActivity: (cb: (data: TerminalDataPayload) => void) => { const h = (_e: unknown, d: TerminalDataPayload) => cb(d); ipcRenderer.on(TERMINAL_CHANNELS.ACTIVITY, h); return () => ipcRenderer.removeListener(TERMINAL_CHANNELS.ACTIVITY, h); },
   onTerminalSession: (cb: (state: unknown) => void) => { const h = (_e: unknown, d: unknown) => cb(d); ipcRenderer.on('antifan:terminal:session', h); return () => ipcRenderer.removeListener('antifan:terminal:session', h); },
-  onTabsUpdated: (cb: (payload: TabsUpdatedPayload) => void) => {
-    const h = (_e: unknown, d: unknown) => cb(normalizeTabsUpdatedPayload(d));
-    ipcRenderer.on('antifan:tabs:updated', h);
-    return () => ipcRenderer.removeListener('antifan:tabs:updated', h);
-  },
   getBridgeStatus: (): Promise<BridgeHealthReport> =>
     ipcRenderer.invoke(BRIDGE_CHANNELS.GET_STATUS),
   onBridgeStatus: (cb: (report: BridgeHealthReport) => void) => {

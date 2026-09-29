@@ -194,7 +194,6 @@ app.whenReady().then(async () => {
   });
 
   ipcMain.handle('antifan:toolbar:set-overlay', () => true);
-  ipcMain.handle('antifan:tabs:get-list', () => []);
   ipcMain.handle('antifan:toolbar:get-mobile-remote-info', () => null);
 
   win = new BrowserWindow({

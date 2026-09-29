@@ -1,7 +1,7 @@
 {
   "scenario": "project-windows-lifecycle",
-  "passed": 16,
-  "failed": 2,
+  "passed": 17,
+  "failed": 1,
   "checks": [
     {
       "name": "window.startup-single-project-shell",
@@ -25,8 +25,7 @@
     },
     {
       "name": "window.split-layout-independent",
-      "ok": false,
-      "error": "window A's focused pane was mobile"
+      "ok": true
     },
     {
       "name": "window.native-popup-inherits-window-affiliation",
@@ -43,7 +42,7 @@
     {
       "name": "window.background-surface-and-capture-ready",
       "ok": false,
-      "error": "timed out after 30000ms waiting for window B's page to stop reporting itself hidden (last observed: false)"
+      "error": "capturing window B's background tab moved the foreground to B: before false, after true"
     },
     {
       "name": "window.search-lists-every-window",
@@ -92,26 +91,26 @@
         "projectId": "project-00000000-0000-4000-8000-0000000000b2"
       },
       "title": "Window Beta",
-      "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-e2e-Cjmh7q\\window-beta",
+      "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-e2e-FbcBqb\\window-beta",
       "windowId": 2,
       "visible": true,
       "focused": true,
       "hostOwnerKey": "project:project-00000000-0000-4000-8000-0000000000b2",
       "hostOwnerLabel": "project-00000000-0000-4000-8000-0000000000b2",
       "tabIds": [
-        "2e18ffd2-2510-4da3-add7-3810638560cd"
+        "2615aa4a-cca6-4d1e-b3ff-d01a9bfeb9e9"
       ],
-      "activeTabId": "2e18ffd2-2510-4da3-add7-3810638560cd",
+      "activeTabId": "2615aa4a-cca6-4d1e-b3ff-d01a9bfeb9e9",
       "identity": {
         "owner": {
           "kind": "project",
           "projectId": "project-00000000-0000-4000-8000-0000000000b2"
         },
         "title": "Window Beta",
-        "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-e2e-Cjmh7q\\window-beta",
-        "workspacePath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-e2e-Cjmh7q\\window-beta"
+        "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-e2e-FbcBqb\\window-beta",
+        "workspacePath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-e2e-FbcBqb\\window-beta"
       },
-      "terminalCwd": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-e2e-Cjmh7q\\window-beta",
+      "terminalCwd": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-e2e-FbcBqb\\window-beta",
       "terminalCwdSource": "window-workspace"
     },
     "duplicateOpen": {
@@ -125,42 +124,48 @@
     },
     "tabs": {
       "alpha": [
-        "1f67e931-6422-4205-bf80-3150163ef03d",
-        "1f60d7bb-4f24-40fe-aaef-38df7f68e5af",
-        "fcc53a02-215c-4259-88cd-91667cea568d"
+        "27069edb-b061-4ec7-9940-032f28f4d71e",
+        "5730bfa9-3bed-475c-9af9-25b29993dc27",
+        "01b34ae2-970e-4351-a0e1-76a7fcf2e2a5"
       ],
       "beta": [
-        "2e18ffd2-2510-4da3-add7-3810638560cd",
-        "4aba3dfe-b5c0-4eca-84cf-824db061e06f",
-        "c0bc85b2-7a34-4770-abd9-39ce791da81c"
+        "2615aa4a-cca6-4d1e-b3ff-d01a9bfeb9e9",
+        "b870d17f-e1c8-4917-b117-f4a7ffd066b4",
+        "006b0515-0250-4091-9962-3697d2a937f1"
       ]
     },
     "activeTabs": {
-      "alpha": "1f60d7bb-4f24-40fe-aaef-38df7f68e5af",
-      "beta": "c0bc85b2-7a34-4770-abd9-39ce791da81c"
+      "alpha": "5730bfa9-3bed-475c-9af9-25b29993dc27",
+      "beta": "006b0515-0250-4091-9962-3697d2a937f1"
     },
     "splitState": {
       "alpha": {
-        "tabId": "fcc53a02-215c-4259-88cd-91667cea568d",
+        "tabId": "01b34ae2-970e-4351-a0e1-76a7fcf2e2a5",
         "mobile": "ipad-mini",
         "desktop": "laptop-macbook13",
-        "focused": "mobile"
+        "focused": "desktop"
       },
       "beta": {
-        "tabId": "c0bc85b2-7a34-4770-abd9-39ce791da81c",
+        "tabId": "006b0515-0250-4091-9962-3697d2a937f1",
         "mobile": "mobile-small",
         "desktop": "laptop-macbook13",
         "focused": "mobile"
       }
     },
+    "splitGeometry": {
+      "alphaMobile": 383,
+      "betaMobileBefore": 311,
+      "betaMobileAfter": 383,
+      "alphaMobileAfter": 383
+    },
     "splitOpenerPopup": {
-      "callerTabId": "fcc53a02-215c-4259-88cd-91667cea568d",
+      "callerTabId": "01b34ae2-970e-4351-a0e1-76a7fcf2e2a5",
       "backgroundScriptProbe": {
         "expression": "1 + 1",
         "settled": true,
         "value": "2",
         "error": null,
-        "settledAfterMs": 393,
+        "settledAfterMs": 5056,
         "settledWithinBound": true,
         "settledOncePresented": true
       },
@@ -169,7 +174,7 @@
         "settled": true,
         "value": "4",
         "error": null,
-        "settledAfterMs": 79,
+        "settledAfterMs": 14,
         "settledWithinBound": true
       },
       "probePath": {
@@ -186,11 +191,11 @@
       }
     },
     "nativePopupOpen": {
-      "parentTabId": "1f60d7bb-4f24-40fe-aaef-38df7f68e5af",
+      "parentTabId": "5730bfa9-3bed-475c-9af9-25b29993dc27",
       "windowOpenResult": "null"
     },
     "nativePopup": {
-      "childTabId": "91b4587b-e078-45b6-9e5c-685a0d932534",
+      "childTabId": "12a46dc3-e30d-4804-9590-165e3c39e7c9",
       "capsuleId": "capsule-pw-a1",
       "partition": "persist:profile-default",
       "userAgentMode": "clean",
@@ -206,35 +211,35 @@
     },
     "minimizeRestore": {
       "minimized": {
-        "alphaTarget": "fcc53a02-215c-4259-88cd-91667cea568d",
-        "betaTarget": "4aba3dfe-b5c0-4eca-84cf-824db061e06f",
+        "alphaTarget": "01b34ae2-970e-4351-a0e1-76a7fcf2e2a5",
+        "betaTarget": "b870d17f-e1c8-4917-b117-f4a7ffd066b4",
         "betaVisible": true
       },
       "restored": {
-        "alphaTarget": "fcc53a02-215c-4259-88cd-91667cea568d",
-        "betaTarget": "4aba3dfe-b5c0-4eca-84cf-824db061e06f",
+        "alphaTarget": "01b34ae2-970e-4351-a0e1-76a7fcf2e2a5",
+        "betaTarget": "b870d17f-e1c8-4917-b117-f4a7ffd066b4",
         "visible": true
       },
       "foreignTarget": {
-        "requested": "4aba3dfe-b5c0-4eca-84cf-824db061e06f",
+        "requested": "b870d17f-e1c8-4917-b117-f4a7ffd066b4",
         "adopted": null
       }
     },
     "sameProjectSessions": {
-      "tabOne": "1f60d7bb-4f24-40fe-aaef-38df7f68e5af",
-      "tabTwo": "fcc53a02-215c-4259-88cd-91667cea568d",
+      "tabOne": "5730bfa9-3bed-475c-9af9-25b29993dc27",
+      "tabTwo": "01b34ae2-970e-4351-a0e1-76a7fcf2e2a5",
       "ownReadFailed": null,
       "crossRefused": true,
-      "crossText": "{\"code\":\"TARGET_MISMATCH\",\"message\":\"Tab ID mismatch: expected 1f60d7bb-4f24-40fe-aaef-38df7f68e5af, got fcc53a02-215c-4259-88cd-91667cea568d. Note: In split review mode, use the bound tabId with paneId: \\\"mobile\\\" to target the mobile pane.\",\"requestId\":\"request-ed98ba0b-5f68-45a2-a731-d2ae77e62ad3\",\"invocationId\":\"invocation-7593b2a8-4eb2-474e-b7b8-4a8224dee79b\"}",
+      "crossText": "{\"code\":\"TARGET_MISMATCH\",\"message\":\"Tab ID mismatch: expected 5730bfa9-3bed-475c-9af9-25b29993dc27, got 01b34ae2-970e-4351-a0e1-76a7fcf2e2a5. Note: In split review mode, use the bound tabId with paneId: \\\"mobile\\\" to target the mobile pane.\",\"requestId\":\"request-b4bee3ec-ec4d-4daf-801c-94ec67d04267\",\"invocationId\":\"invocation-99391c2c-f293-4d83-b84c-e46832ec7e47\"}",
       "domReadsBeforeSibling": [
-        "1f60d7bb-4f24-40fe-aaef-38df7f68e5af",
-        "1f60d7bb-4f24-40fe-aaef-38df7f68e5af"
+        "5730bfa9-3bed-475c-9af9-25b29993dc27",
+        "5730bfa9-3bed-475c-9af9-25b29993dc27"
       ],
       "siblingReadFailed": null,
       "domReads": [
-        "1f60d7bb-4f24-40fe-aaef-38df7f68e5af",
-        "1f60d7bb-4f24-40fe-aaef-38df7f68e5af",
-        "fcc53a02-215c-4259-88cd-91667cea568d"
+        "5730bfa9-3bed-475c-9af9-25b29993dc27",
+        "5730bfa9-3bed-475c-9af9-25b29993dc27",
+        "01b34ae2-970e-4351-a0e1-76a7fcf2e2a5"
       ]
     },
     "backgroundSurface": {
@@ -253,63 +258,88 @@
         "scrollY": 0,
         "docH": 832,
         "readyState": "complete",
-        "hidden": true
+        "hidden": false
       },
-      "activeTabId": "c0bc85b2-7a34-4770-abd9-39ce791da81c",
+      "activeTabId": "006b0515-0250-4091-9962-3697d2a937f1",
       "visible": true,
       "focused": false,
       "presented": true,
-      "foregroundBeforeCapture": true
+      "foregroundBeforeCapture": true,
+      "presentedSurface": {
+        "vw": 1280,
+        "vh": 832,
+        "layoutWidth": 1280,
+        "layoutHeight": 832,
+        "dpr": 1,
+        "scrollX": 0,
+        "scrollY": 0,
+        "docH": 832,
+        "readyState": "complete",
+        "hidden": false
+      }
+    },
+    "backgroundCapture": {
+      "backend": "cdp",
+      "rasterSize": {
+        "width": 1280,
+        "height": 832
+      },
+      "bytes": 19460,
+      "betaFocused": {
+        "before": false,
+        "after": true
+      },
+      "alphaFocusedAfterCapture": false
     },
     "inventory": {
       "status": "OK",
       "rows": [
         {
-          "tabId": "1f67e931-6422-4205-bf80-3150163ef03d",
+          "tabId": "27069edb-b061-4ec7-9940-032f28f4d71e",
           "title": "Google",
           "url": "https://www.google.com/",
           "ownerLabel": "Window Alpha",
-          "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-e2e-Cjmh7q\\window-alpha",
+          "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-e2e-FbcBqb\\window-alpha",
           "live": true
         },
         {
-          "tabId": "1f60d7bb-4f24-40fe-aaef-38df7f68e5af",
+          "tabId": "5730bfa9-3bed-475c-9af9-25b29993dc27",
           "title": "Example Domain",
           "url": "https://example.com/",
           "ownerLabel": "Window Alpha",
-          "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-e2e-Cjmh7q\\window-alpha",
+          "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-e2e-FbcBqb\\window-alpha",
           "live": true
         },
         {
-          "tabId": "fcc53a02-215c-4259-88cd-91667cea568d",
+          "tabId": "01b34ae2-970e-4351-a0e1-76a7fcf2e2a5",
           "title": "Example Domain",
           "url": "https://example.com/",
           "ownerLabel": "Window Alpha",
-          "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-e2e-Cjmh7q\\window-alpha",
+          "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-e2e-FbcBqb\\window-alpha",
           "live": true
         },
         {
-          "tabId": "2e18ffd2-2510-4da3-add7-3810638560cd",
+          "tabId": "2615aa4a-cca6-4d1e-b3ff-d01a9bfeb9e9",
           "title": "Google",
           "url": "https://www.google.com/",
           "ownerLabel": "Window Beta",
-          "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-e2e-Cjmh7q\\window-beta",
+          "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-e2e-FbcBqb\\window-beta",
           "live": true
         },
         {
-          "tabId": "4aba3dfe-b5c0-4eca-84cf-824db061e06f",
+          "tabId": "b870d17f-e1c8-4917-b117-f4a7ffd066b4",
           "title": "Example Domain",
           "url": "https://example.com/",
           "ownerLabel": "Window Beta",
-          "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-e2e-Cjmh7q\\window-beta",
+          "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-e2e-FbcBqb\\window-beta",
           "live": true
         },
         {
-          "tabId": "c0bc85b2-7a34-4770-abd9-39ce791da81c",
+          "tabId": "006b0515-0250-4091-9962-3697d2a937f1",
           "title": "Example Domain",
           "url": "https://example.com/",
           "ownerLabel": "Window Beta",
-          "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-e2e-Cjmh7q\\window-beta",
+          "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-e2e-FbcBqb\\window-beta",
           "live": true
         }
       ]
@@ -317,13 +347,13 @@
     "activation": {
       "result": {
         "status": "ACTIVATED",
-        "tabId": "4aba3dfe-b5c0-4eca-84cf-824db061e06f"
+        "tabId": "b870d17f-e1c8-4917-b117-f4a7ffd066b4"
       },
-      "alphaActiveBefore": "fcc53a02-215c-4259-88cd-91667cea568d",
-      "alphaActiveAfter": "fcc53a02-215c-4259-88cd-91667cea568d",
-      "betaActiveAfter": "4aba3dfe-b5c0-4eca-84cf-824db061e06f",
-      "alphaAutomation": "fcc53a02-215c-4259-88cd-91667cea568d",
-      "betaAutomation": "c0bc85b2-7a34-4770-abd9-39ce791da81c"
+      "alphaActiveBefore": "01b34ae2-970e-4351-a0e1-76a7fcf2e2a5",
+      "alphaActiveAfter": "01b34ae2-970e-4351-a0e1-76a7fcf2e2a5",
+      "betaActiveAfter": "b870d17f-e1c8-4917-b117-f4a7ffd066b4",
+      "alphaAutomation": "01b34ae2-970e-4351-a0e1-76a7fcf2e2a5",
+      "betaAutomation": "006b0515-0250-4091-9962-3697d2a937f1"
     },
     "staleActivation": {
       "never": {
@@ -334,7 +364,7 @@
       },
       "closedTab": {
         "status": "UNAVAILABLE",
-        "tabId": "c0bc85b2-7a34-4770-abd9-39ce791da81c",
+        "tabId": "006b0515-0250-4091-9962-3697d2a937f1",
         "reasonCode": "TAB_CLOSED",
         "reason": "TAB_UNAVAILABLE"
       }
@@ -346,56 +376,56 @@
         {
           "ownerKey": "project:project-00000000-0000-4000-8000-0000000000a1",
           "label": "Window Alpha",
-          "path": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-e2e-Cjmh7q\\window-alpha",
+          "path": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-e2e-FbcBqb\\window-alpha",
           "tabIds": [
-            "1f67e931-6422-4205-bf80-3150163ef03d",
-            "1f60d7bb-4f24-40fe-aaef-38df7f68e5af",
-            "fcc53a02-215c-4259-88cd-91667cea568d",
-            "c44cc565-8a01-4399-87f1-fe04f050afc8"
+            "27069edb-b061-4ec7-9940-032f28f4d71e",
+            "5730bfa9-3bed-475c-9af9-25b29993dc27",
+            "01b34ae2-970e-4351-a0e1-76a7fcf2e2a5",
+            "d84ec047-cc2c-4bd2-b309-57515020a273"
           ]
         },
         {
           "ownerKey": "project:project-00000000-0000-4000-8000-0000000000b2",
           "label": "Window Beta",
-          "path": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-e2e-Cjmh7q\\window-beta",
+          "path": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-e2e-FbcBqb\\window-beta",
           "tabIds": [
-            "2e18ffd2-2510-4da3-add7-3810638560cd",
-            "4aba3dfe-b5c0-4eca-84cf-824db061e06f",
-            "c8c2b99c-61f0-419d-8a57-fd5fa2c313fd",
-            "7328a33b-e4a9-4151-a754-1b4e6dbe1693"
+            "2615aa4a-cca6-4d1e-b3ff-d01a9bfeb9e9",
+            "b870d17f-e1c8-4917-b117-f4a7ffd066b4",
+            "a7fcfbb4-409f-41e7-9f59-7865ba9b21dc",
+            "3dc5ddc7-3b46-4ab6-a167-00613824ecf1"
           ]
         },
         {
           "ownerKey": "project:project-00000000-0000-4000-8000-0000000000c3",
           "label": "Window Gamma",
-          "path": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-e2e-Cjmh7q\\window-gamma",
+          "path": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-e2e-FbcBqb\\window-gamma",
           "tabIds": [
-            "ce28b66b-4e48-410c-a75b-06cde64f07ea",
-            "5bf3d9c0-8bc4-4e04-8064-09b19bbb25a3",
-            "a1242f2c-0e5f-40ef-9874-5e9f02cf07d8",
-            "8e1117e0-1d28-45c9-9133-2612db08db3a"
+            "32b69977-43c1-482d-b737-1ff4f771f17c",
+            "782dc4a6-e765-45cc-8515-011b757409f8",
+            "35d1cb1b-846c-4e4a-990a-254c7431e83a",
+            "f02a6090-c9e0-44b6-adc2-78ef7d726a1a"
           ]
         },
         {
           "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d4",
           "label": "Window Delta",
-          "path": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-e2e-Cjmh7q\\window-delta",
+          "path": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-e2e-FbcBqb\\window-delta",
           "tabIds": [
-            "1fc43f5b-a6a5-4135-9b2d-42c4487c08c2",
-            "c27a7ac2-a59d-45be-a52e-c9ec814aa1fb",
-            "e52a00fd-7b1c-498c-8eb3-015cbb5406a1",
-            "bc4e2f94-9696-4f7d-b51e-ff96ca34c44c"
+            "22807ccb-1e6f-498e-b330-475e25eed968",
+            "132b0570-1540-4e1a-8d5b-50e000b6ee9e",
+            "b06dd734-2a76-490b-9abe-4dad0f9c3cba",
+            "1ab39bb8-49e6-4693-9efb-d9cbed6077b6"
           ]
         },
         {
           "ownerKey": "project:project-00000000-0000-4000-8000-0000000000e5",
           "label": "Window Epsilon",
-          "path": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-e2e-Cjmh7q\\window-epsilon",
+          "path": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-e2e-FbcBqb\\window-epsilon",
           "tabIds": [
-            "9a5c04eb-b41f-47a4-a53c-78d0d8d5144d",
-            "5c77020d-84d4-4dcc-949d-880a39e5b42c",
-            "79f6226b-e48f-42f2-934c-70a80d2a4d33",
-            "7d51073d-9e8d-4a57-b0b3-98557e29bf69"
+            "169ee7a1-355f-49a1-abb6-5f209a2e219a",
+            "3736a8b6-75e6-425f-90f8-9f00fbfc95e4",
+            "e5766453-c638-4605-92ed-6ce0c1d8849d",
+            "f69d7de0-233f-49e5-8e6b-0dd05c755fd3"
           ]
         }
       ],
@@ -415,9 +445,9 @@
         "hostOwnerKey": "project:project-00000000-0000-4000-8000-0000000000f6",
         "hostOwnerLabel": "project-00000000-0000-4000-8000-0000000000f6",
         "tabIds": [
-          "13b0ee17-3f1b-4270-97f6-e9bc131c18d1"
+          "64e4edf6-7af2-4989-84b6-de462f44d950"
         ],
-        "activeTabId": "13b0ee17-3f1b-4270-97f6-e9bc131c18d1",
+        "activeTabId": "64e4edf6-7af2-4989-84b6-de462f44d950",
         "identity": {
           "owner": {
             "kind": "project",
@@ -442,9 +472,9 @@
       ]
     },
     "survivorPaths": {
-      "toolbarTab": "2e2a29d3-7420-4557-b90f-e6dabfd8fc3f",
-      "acceleratorTab": "97dd52b2-06b0-4d34-bc78-ee550c6042f6",
-      "acceleratorActive": "97dd52b2-06b0-4d34-bc78-ee550c6042f6",
+      "toolbarTab": "e1fc69b0-e430-4e66-a809-2a2eb1285aac",
+      "acceleratorTab": "7b2fbe8a-f690-4543-bfb4-1e364bb3ac2a",
+      "acceleratorActive": "7b2fbe8a-f690-4543-bfb4-1e364bb3ac2a",
       "windowCount": 4
     },
     "teardown": {
@@ -459,5 +489,5 @@
     "native.unload-veto-and-close-races",
     "daemon.detached-session-survival"
   ],
-  "at": "2026-09-28T16:51:37.250Z"
+  "at": "2026-09-29T08:21:15.174Z"
 }

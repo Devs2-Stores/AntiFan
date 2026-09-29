@@ -1,0 +1,95 @@
+{
+  "label": "dbg-n7",
+  "compiledRoot": "E:\\Work\\apps\\AntiFan\\.compiled",
+  "projects": 7,
+  "daemon": true,
+  "stagedDaemon": {
+    "version": "38a6c18549749e2b",
+    "stageDir": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-perf-probe-vzfkyc\\daemon-host\\38a6c18549749e2b",
+    "entry": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-perf-probe-vzfkyc\\daemon-host\\38a6c18549749e2b\\src\\main\\terminal-daemon\\daemon-entry.js",
+    "files": 48,
+    "bytes": 2981353,
+    "packages": [
+      "node-pty",
+      "ws"
+    ],
+    "pruned": [],
+    "dataRoot": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-perf-probe-vzfkyc"
+  },
+  "burstSeconds": 45.25,
+  "windowOpenMs": 1947,
+  "eventLoopDelayMs": {
+    "p50": 5.01,
+    "p95": 10.17,
+    "p99": 34.37,
+    "max": 235.01
+  },
+  "statSyncPerSecond": 0.64,
+  "statSyncCallers": {
+    "at enforceProtectedPathsDacl (\\src\\main\\security\\windows-acl.js:376": 19,
+    "at enforceProtectedPathsDacl (\\src\\main\\security\\windows-acl.js:406": 10
+  },
+  "terminalDataIpcPerSecond": 1.83,
+  "terminalDataIpcByTarget": {
+    "Perf 0:sidebar": 78,
+    "Perf 1:sidebar": 8,
+    "Perf 6:sidebar": 1
+  },
+  "rendererLongtasks": {
+    "Perf 0": {
+      "count": 4,
+      "max": 18343,
+      "totalMs": 39850
+    },
+    "Perf 1": {
+      "count": 0,
+      "max": 0,
+      "totalMs": 0
+    },
+    "Perf 2": {
+      "count": 0,
+      "max": 0,
+      "totalMs": 0
+    },
+    "Perf 3": {
+      "count": 0,
+      "max": 0,
+      "totalMs": 0
+    },
+    "Perf 4": {
+      "count": 0,
+      "max": 0,
+      "totalMs": 0
+    },
+    "Perf 5": {
+      "count": 0,
+      "max": 0,
+      "totalMs": 0
+    },
+    "Perf 6": {
+      "count": 0,
+      "max": 0,
+      "totalMs": 0
+    }
+  },
+  "daemonWsFramesPerSecond": 2.81,
+  "daemonWsKiBPerSecond": 47.71,
+  "tabsPerProject": 5,
+  "echoLatencyMs": {
+    "samples": 0,
+    "lost": 23,
+    "p50": null,
+    "p95": null,
+    "max": null
+  },
+  "workingSetMb": {
+    "idle": 1243.44,
+    "burstMax": null
+  },
+  "tree": {
+    "root": "E:\\Work\\apps\\AntiFan",
+    "head": "2fc82e31",
+    "dirty": true
+  },
+  "measuredAt": "2026-09-29T03:46:30.446Z"
+}

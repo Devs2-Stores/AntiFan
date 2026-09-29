@@ -6,6 +6,16 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 
 ## [v1.3.6] - Unreleased
 
+### Thêm — Terminal Manager theo thư mục dự án: nhóm theo thư mục, Terminal mới trong thư mục, Space manifest, chặn ngủ watcher
+
+- **Khoảng trống**: Terminal Manager chung chỉ liệt kê terminal theo capsule/cwd không nhất quán; không có cách mở terminal thẳng trong một thư mục, không khai báo được bộ terminal + tab của một dự án, và một terminal đang chạy watcher đồng bộ theme bị ngủ sẽ mất tiến trình (mất upload).
+- **Hộp thoại thư mục**: `workspaceDialogDefaultPath()` chuẩn hoá `E:\Work` (Windows chọn thư mục bỏ qua `defaultPath` dạng `E:/Work`); `canonicalFolderKey()` là khoá thư mục duy nhất (realpath + hạ chữ thường trên Windows) cho `findCapsuleByRoot` và mọi nhóm phía sau.
+- **Terminal mới trong thư mục** (`antifan:terminal:new-in-folder`): mint shell gắn đúng một thư mục; cửa sổ dự án chỉ được mở trong workspace của chính nó, Manager chung mở được ở mọi thư mục (chọn hộp thoại hoặc nút `+` trên nhóm).
+- **Nhóm theo thư mục + picker**: hàng terminal ở Manager chung nhóm theo `folderKey` (`folderLabel`, `folderPath`, `displayLabel`); danh sách terminal trong picker phần tử nhóm theo thư mục.
+- **Space manifest** (`<thư mục>/.antifan/space.json`, `antifan:space:open`): khai báo terminal (`agent|sync|shell`, `idlePolicy`) và tab web/`path`. Lệnh tự chạy hiển thị nguyên văn và phải xác nhận theo hash nội dung (lưu trong data root, không nằm trong thư mục); mở lần hai không nhân đôi (khớp `spaceTerminalId`); tab `path` bị chặn thoát khỏi thư mục (tồn tại + realpath containment). Shift+click nút Space tạo `space.json` từ terminal/tab hiện có (`antifan:space:init`, ghi `wx`, không bao giờ ghi đè).
+- **Chặn ngủ watcher**: terminal `role: 'sync'` hoặc `idlePolicy: 'never'` bị `sleepSession` từ chối (`{ ok: false, reason: 'SLEEP_REFUSED_WATCHER' }`, kể cả qua daemon và sau khi restart); menu chuột phải “Đánh dấu là sync”; cùng danh tính Haravan (`org_id + theme_id` từ `.haravan-cli_local.json`, rơi về brief/thư mục) mà đã có watcher chạy thì hỏi xác nhận (`SYNC_DUPLICATE`). `sleepSession` trả `TerminalSleepResult` thay vì boolean.
+- **Watcher không mất bảo vệ khi restart / mở Space**: `restart` giữ `role`, `idlePolicy`, `spaceTerminalId` (trước đây tab watcher restart xong lại ngủ được và Space mở thêm bản trùng); mở Space không tạo terminal `sync` thứ hai cho cùng theme đang có watcher chạy — bỏ qua và báo trong `syncDuplicates` + thông báo UI.
+
 ### Sửa — Heartbeat bridge 5 giây spawn icacls/powershell liên tục (máy lag)
 
 - **Triệu chứng**: tiến trình main Electron liên tục spawn `icacls.exe` + `powershell.exe` (đo được 34 lần spawn/30 giây), ngốn CPU dù chỉ mở vài tab.

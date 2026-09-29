@@ -231,8 +231,6 @@ app.whenReady().then(async () => {
     activeWorkspace: process.cwd(),
   }));
   ipcMain.handle('antifan:terminal:start', () => true);
-  ipcMain.handle('antifan:tabs:get-list', () => []);
-  ipcMain.handle('antifan:terminal:get-affinity', () => null);
   ipcMain.handle('antifan:terminal:set-affinity', () => true);
 
   win = new BrowserWindow({

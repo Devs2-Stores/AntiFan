@@ -1028,3 +1028,94 @@ describe('Element Picker Resolution & Artifact Upgrades', () => {
     win.close();
   });
 });
+
+describe('Element Picker Send-To Terminal Groups', () => {
+  const groupedSessions = [
+    { id: 's-a1', name: 'Terminal 1', cwd: 'E:\\Work\\mn-bakery', folderKey: 'e:\\work\\mn-bakery', folderLabel: 'mn-bakery', displayLabel: 'mn-bakery · 1' },
+    { id: 's-b1', name: 'Terminal 2', cwd: 'E:\\Work\\f1genz', folderKey: 'e:\\work\\f1genz', folderLabel: 'f1genz', displayLabel: 'f1genz · 1' },
+    { id: 's-a2', name: 'Terminal 3', cwd: 'E:\\Work\\mn-bakery', folderKey: 'e:\\work\\mn-bakery', folderLabel: 'mn-bakery', displayLabel: 'mn-bakery · 2' },
+  ];
+
+  const openSelect = (initialContext: Record<string, unknown>) => {
+    const { JSDOM } = loadJsdom();
+    const h = createPickerHarness(JSDOM, { sessions: groupedSessions, selectedSessionId: 'auto', ...initialContext });
+    const modal = h.openModal();
+    assert.ok(modal, 'clicking a target must open the annotation modal');
+    const select = modal.querySelector('#antifanTerminalSelect') as HTMLSelectElement | null;
+    assert.ok(select, 'modal must render the send-to select');
+    return { h, select };
+  };
+
+  it('renders one optgroup per folder with displayLabel options and auto first', () => {
+    const { h, select } = openSelect({});
+    const children = Array.from(select.children);
+    assert.strictEqual(children.length, 3, 'auto option plus two optgroups');
+    const [autoOpt, groupA, groupB] = children as [HTMLOptionElement, HTMLOptGroupElement, HTMLOptGroupElement];
+    assert.strictEqual(autoOpt.tagName, 'OPTION');
+    assert.strictEqual(autoOpt.value, 'auto');
+    assert.strictEqual(autoOpt.textContent, 'Tự động (theo site URL)');
+    assert.strictEqual(select.value, 'auto', 'a tab with no own choice resolves to auto');
+
+    for (const [group, label] of [[groupA, 'mn-bakery'], [groupB, 'f1genz']] as const) {
+      assert.strictEqual(group.tagName, 'OPTGROUP');
+      assert.strictEqual(group.label, label);
+    }
+    assert.deepStrictEqual(
+      Array.from(groupA.querySelectorAll('option')).map((o) => o.textContent),
+      ['mn-bakery · 1', 'mn-bakery · 2'],
+    );
+    h.win.__antifanPickerCleanup?.();
+    h.win.close();
+  });
+
+  it('preselects the option matching the tab annotationSessionId', () => {
+    const { h, select } = openSelect({ annotationSessionId: 's-b1' });
+    assert.strictEqual(select.value, 's-b1');
+    const chosen = select.querySelector('option:checked') as HTMLOptionElement | null;
+    assert.ok(chosen);
+    assert.strictEqual(chosen.value, 's-b1');
+    assert.strictEqual((chosen.parentElement as HTMLOptGroupElement).tagName, 'OPTGROUP');
+    h.win.__antifanPickerCleanup?.();
+    h.win.close();
+  });
+
+  it('ignores origin-shared storage so sibling tabs keep independent choices', () => {
+    const { JSDOM } = loadJsdom();
+    const h = createPickerHarness(JSDOM, { sessions: groupedSessions, selectedSessionId: 'auto' });
+    h.win.localStorage.setItem('antifan_annotation_session_id', 's-b1');
+    const modal = h.openModal();
+    assert.ok(modal);
+    const select = modal.querySelector('#antifanTerminalSelect') as HTMLSelectElement | null;
+    assert.ok(select);
+    assert.strictEqual(select.value, 'auto', 'a stored cross-tab choice must not retarget this tab');
+    assert.strictEqual(h.win.localStorage.length, 1, 'the picker must not write terminal routing keys');
+    h.win.__antifanPickerCleanup?.();
+    h.win.close();
+  });
+
+  it('falls back to a flat name list when sessions carry no folder projection', () => {
+    const { JSDOM } = loadJsdom();
+    const h = createPickerHarness(JSDOM, {
+      sessions: [
+        { id: 's-1', name: 'Terminal 1', cwd: 'E:\\Work\\a' },
+        { id: 's-2', name: 'Terminal 2', cwd: 'E:\\Work\\b' },
+      ],
+      selectedSessionId: 'auto',
+    });
+    const modal = h.openModal();
+    assert.ok(modal);
+    const select = modal.querySelector('#antifanTerminalSelect') as HTMLSelectElement | null;
+    assert.ok(select);
+    assert.strictEqual(select.querySelectorAll('optgroup').length, 0);
+    assert.deepStrictEqual(
+      Array.from(select.querySelectorAll('option')).map((o) => [o.value, o.textContent]),
+      [
+        ['auto', 'Tự động (theo site URL)'],
+        ['s-1', 'Terminal 1'],
+        ['s-2', 'Terminal 2'],
+      ],
+    );
+    h.win.__antifanPickerCleanup?.();
+    h.win.close();
+  });
+});

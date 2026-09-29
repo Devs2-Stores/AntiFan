@@ -6,6 +6,7 @@ priority: P1
 effort: "~3 tuần"
 tags: [performance, terminal, electron, project-windows, ui]
 created: 2026-09-28
+related: [260929-0622-terminal-hub-project-spaces]
 ---
 
 # Smooth multi-project terminal + project manager

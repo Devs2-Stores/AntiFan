@@ -9,12 +9,12 @@
  * Coverage:
  *   1. Affinity Zombie Guard: a tombstone written while a terminal slept is lifted
  *      by the 'session-woken' listener, and the entry is repaired so a subsequent
- *      badge read cannot re-arm it.
+ *      affinity read cannot re-arm it.
  *   2. The listener never migrates the `${terminalId}@${generation}` key.
  *   3. writeTo (implicit wake) lifts the tombstone too — the host needs no second
  *      emitter for that path.
- *   4. GET_ALL_AFFINITIES: one round-trip, one O(1) exact-generation lookup per
- *      session, no O(N*E) prefix scan, no transcript slicing.
+ *   4. buildTerminalAffinityMap: one O(1) exact-generation lookup per session, no
+ *      O(N*E) prefix scan, no transcript slicing.
  *   5. sleep/wake/set-category handlers enforce agent ownership and return the
  *      manager's boolean.
  *   6. Sleep flushes a pending coalesced data batch BEFORE the state broadcast, and
@@ -369,8 +369,8 @@ describe('sleep/wake affinity zombie guard (native-tab-host)', () => {
     assert.doesNotThrow(() => host.assertTerminalAccess('tab-helper', 'terminal-1'));
     assert.equal(host.terminalAgentAffinity.get('terminal-1@1').closedAt, undefined);
 
-    // A badge refresh (GET_ALL_AFFINITIES -> getTerminalAgentAffinity) must not
-    // re-arm the tombstone: the entry's primary has to name a live tab.
+    // A later affinity read (getTerminalAgentAffinity) must not re-arm the tombstone:
+    // the entry's primary has to name a live tab.
     const affinity = host.getTerminalAgentAffinity('terminal-1', 1);
     assert.equal(affinity?.status, 'alive');
     assert.equal(affinity?.primaryTabId, 'tab-helper');
@@ -459,11 +459,11 @@ describe('sleep/wake affinity zombie guard (native-tab-host)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 2. GET_ALL_AFFINITIES
+// 2. buildTerminalAffinityMap
 // ---------------------------------------------------------------------------
 
-describe('GET_ALL_AFFINITIES bulk contract (native-tab-host)', () => {
-  it('answers every badge in one round-trip with one exact-generation lookup per session', () => {
+describe('buildTerminalAffinityMap bulk contract (native-tab-host)', () => {
+  it('answers every session with one exact-generation lookup per session', () => {
     seedSession('terminal-a', 2);
     seedSession('terminal-b', 5);
     seedSession('terminal-sleep', 1, 'sleeping');
@@ -482,21 +482,18 @@ describe('GET_ALL_AFFINITIES bulk contract (native-tab-host)', () => {
       return originalResolve(terminalId, generation);
     };
     listSessionsCalls = 0;
-    const invokesBefore = fakeIpcMain.count(TERMINAL_CHANNELS.GET_ALL_AFFINITIES);
 
     let result: AnyRecord;
     try {
-      result = fakeIpcMain.invoke(TERMINAL_CHANNELS.GET_ALL_AFFINITIES, { sender: makeWebContents() }) as AnyRecord;
+      result = host.buildTerminalAffinityMap() as AnyRecord;
     } finally {
       delete host.resolveTerminalAffinityEntry;
     }
 
-    // One round-trip for all three badges.
-    assert.equal(fakeIpcMain.count(TERMINAL_CHANNELS.GET_ALL_AFFINITIES) - invokesBefore, 1);
     assert.deepEqual(Object.keys(result).sort(), ['terminal-a', 'terminal-b', 'terminal-sleep']);
     assert.equal(result['terminal-a'].status, 'alive');
     assert.deepEqual(result['terminal-a'].managedTabIds, ['tab-a']);
-    // A sleeping session still reports its affinity, so its badge survives the nap.
+    // A sleeping session still reports its affinity: sleep is not a release.
     assert.equal(result['terminal-sleep'].status, 'alive');
     // A session without an affinity contributes nothing.
     assert.equal('terminal-none' in result, false);
@@ -520,7 +517,8 @@ describe('sleep/wake/set-category IPC handlers (native-tab-host)', () => {
   const originalSetCategory = tm.setCategory;
 
   function stubManager(calls: string[]): void {
-    tm.sleepSession = (id: string) => { calls.push(`sleep:${id}`); return true; };
+    // sleepSession answers the TerminalSleepResult shape P6 introduced, not a bare boolean.
+    tm.sleepSession = (id: string) => { calls.push(`sleep:${id}`); return { ok: true }; };
     tm.wakeSession = (id: string) => { calls.push(`wake:${id}`); return true; };
     tm.setCategory = (id: string, category?: string) => {
       calls.push(`setCategory:${id}:${JSON.stringify(category)}`);
@@ -534,7 +532,11 @@ describe('sleep/wake/set-category IPC handlers (native-tab-host)', () => {
     tm.setCategory = originalSetCategory;
   });
 
-  it('enforces agent ownership on an agent-owned tab and returns the manager boolean', () => {
+  function isForbidden(err: unknown): boolean {
+    return typeof err === 'object' && err !== null && 'code' in err && err.code === 'TERMINAL_FORBIDDEN';
+  }
+
+  it('enforces agent ownership on an agent-owned tab and returns the manager boolean', async () => {
     seedSession('terminal-own', 1);
     seedSession('terminal-foreign', 1);
     const agentTab = addTab('tab-agent', { ephemeral: true });
@@ -547,7 +549,7 @@ describe('sleep/wake/set-category IPC handlers (native-tab-host)', () => {
     stubManager(calls);
     const agentEvent = { sender: agentTab.view.webContents };
 
-    assert.equal(fakeIpcMain.invoke(TERMINAL_CHANNELS.SLEEP_SESSION, agentEvent, 'terminal-own'), true);
+    assert.deepEqual(await fakeIpcMain.invoke(TERMINAL_CHANNELS.SLEEP_SESSION, agentEvent, 'terminal-own'), { ok: true });
     assert.equal(fakeIpcMain.invoke(TERMINAL_CHANNELS.WAKE_SESSION, agentEvent, 'terminal-own'), true);
     assert.equal(
       fakeIpcMain.invoke(TERMINAL_CHANNELS.SET_CATEGORY, agentEvent, { id: 'terminal-own', category: ' build ' }),
@@ -563,9 +565,10 @@ describe('sleep/wake/set-category IPC handlers (native-tab-host)', () => {
 
     // A terminal bound to a different tab is refused before the manager is reached.
     for (const channel of [TERMINAL_CHANNELS.SLEEP_SESSION, TERMINAL_CHANNELS.WAKE_SESSION, TERMINAL_CHANNELS.SET_CATEGORY]) {
-      assert.throws(
-        () => fakeIpcMain.invoke(channel, agentEvent, { id: 'terminal-foreign', category: 'x' }),
-        (err: any) => err.code === 'TERMINAL_FORBIDDEN',
+      // sleep is async, so its refusal is a rejection; the sibling routes throw synchronously.
+      await assert.rejects(
+        async () => fakeIpcMain.invoke(channel, agentEvent, { id: 'terminal-foreign', category: 'x' }),
+        isForbidden,
         `${channel} must refuse a foreign terminal`
       );
     }
@@ -577,9 +580,9 @@ describe('sleep/wake/set-category IPC handlers (native-tab-host)', () => {
 
     // The automation tab counts as agent-plane too.
     host.automationTabId = 'tab-owner';
-    assert.throws(
-      () => fakeIpcMain.invoke(TERMINAL_CHANNELS.SLEEP_SESSION, { sender: host.tabs.get('tab-owner').view.webContents }, 'terminal-own'),
-      (err: any) => err.code === 'TERMINAL_FORBIDDEN'
+    await assert.rejects(
+      async () => fakeIpcMain.invoke(TERMINAL_CHANNELS.SLEEP_SESSION, { sender: host.tabs.get('tab-owner').view.webContents }, 'terminal-own'),
+      isForbidden
     );
     host.automationTabId = null;
 
@@ -589,15 +592,16 @@ describe('sleep/wake/set-category IPC handlers (native-tab-host)', () => {
       true
     );
 
-    // Malformed / missing ids never reach the manager.
-    assert.equal(fakeIpcMain.invoke(TERMINAL_CHANNELS.SLEEP_SESSION, agentEvent, undefined), false);
-    assert.equal(fakeIpcMain.invoke(TERMINAL_CHANNELS.SLEEP_SESSION, agentEvent, { sessionId: '  ' }), false);
+    // Malformed / missing ids never reach the manager; sleep answers the typed refusal, the siblings a bare `false`.
+    const invalid = { ok: false, reason: 'INVALID_PAYLOAD' };
+    assert.deepEqual(await fakeIpcMain.invoke(TERMINAL_CHANNELS.SLEEP_SESSION, agentEvent, undefined), invalid);
+    assert.deepEqual(await fakeIpcMain.invoke(TERMINAL_CHANNELS.SLEEP_SESSION, agentEvent, { sessionId: '  ' }), invalid);
     assert.equal(fakeIpcMain.invoke(TERMINAL_CHANNELS.SET_CATEGORY, agentEvent, undefined), false);
     assert.equal(fakeIpcMain.invoke(TERMINAL_CHANNELS.SET_CATEGORY, agentEvent, { category: 'x' }), false);
     assert.equal(calls.length, 4);
   });
 
-  it('accepts both the positional and the wrapped call shapes', () => {
+  it('accepts both the positional and the wrapped call shapes', async () => {
     seedSession('terminal-own', 1);
     const agentTab = addTab('tab-agent', { ephemeral: true });
     assert.equal(host.bindTerminalAgentAffinity('terminal-own', 1, 'tab-agent'), true);
@@ -606,7 +610,7 @@ describe('sleep/wake/set-category IPC handlers (native-tab-host)', () => {
     stubManager(calls);
     const agentEvent = { sender: agentTab.view.webContents };
 
-    assert.equal(fakeIpcMain.invoke(TERMINAL_CHANNELS.SLEEP_SESSION, agentEvent, { id: 'terminal-own' }), true);
+    assert.deepEqual(await fakeIpcMain.invoke(TERMINAL_CHANNELS.SLEEP_SESSION, agentEvent, { id: 'terminal-own' }), { ok: true });
     assert.equal(fakeIpcMain.invoke(TERMINAL_CHANNELS.WAKE_SESSION, agentEvent, { sessionId: 'terminal-own' }), true);
     assert.equal(fakeIpcMain.invoke(TERMINAL_CHANNELS.SET_CATEGORY, agentEvent, 'terminal-own', 'qa'), true);
     assert.deepEqual(calls, ['sleep:terminal-own', 'wake:terminal-own', 'setCategory:terminal-own:"qa"']);
@@ -618,7 +622,7 @@ describe('sleep/wake/set-category IPC handlers (native-tab-host)', () => {
 // ---------------------------------------------------------------------------
 
 describe('sleep transition vs coalesced terminal data (native-tab-host)', () => {
-  it('flushes the pending batch before the sleep broadcast and honours the sidebar gate', () => {
+  it('flushes the pending batch before the sleep broadcast and honours the sidebar gate', async () => {
     const sidebarWc = makeWebContents('antifan:terminal');
     shell.sidebarView = { webContents: sidebarWc } as unknown as ShellDouble['sidebarView'];
     shell.isSidebarOpen = true;
@@ -643,7 +647,7 @@ describe('sleep transition vs coalesced terminal data (native-tab-host)', () => 
     assert.equal(host.terminalDataBatches.size, 1);
 
     // The real sleep transition (terminal-manager) emits ONLY 'session'.
-    assert.equal(tm.sleepSession('terminal-sleep-order'), true);
+    assert.deepStrictEqual(await tm.sleepSession('terminal-sleep-order'), { ok: true });
     assert.equal(record.state, 'sleeping');
 
     const channels = sidebarWc.sent.map((m) => m.channel);

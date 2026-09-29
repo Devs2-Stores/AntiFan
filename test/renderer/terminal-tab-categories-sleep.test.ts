@@ -516,129 +516,12 @@ describe('Renderer sleeping terminal sessions', () => {
   });
 });
 
-describe('Renderer bulk affinity badges', () => {
-  it('collapses the per-tab affinity loop into exactly one bulk call', async () => {
-    const harness = loadStandalone();
-    await flush();
-    const list = [
-      { id: 'a1', name: 'A', state: 'running' },
-      { id: 'a2', name: 'B', state: 'running' },
-      { id: 'a3', name: 'C', state: 'running' },
-    ];
-    seed(harness, list, 'a1');
-    harness.apiCalls.length = 0;
-
-    harness.renderTabs();
-    await flush();
-
-    assert.strictEqual(harness.queryAll('.terminal-tab-affinity-badge').length, 3, 'every tab carries a badge');
-    assert.strictEqual(countCalls(harness, 'getTerminalAffinities'), 1, 'one bulk affinity round-trip');
-    assert.strictEqual(countCalls(harness, 'getTerminalAffinity'), 0, 'no per-id affinity call may remain');
-
-    // The bulk map is what decorates the badges.
-    harness.api.getTerminalAffinities = async () => ({ a2: { tabId: 'tab-9', managedTabIds: ['tab-9'], status: 'alive' } });
-    harness.api.getTabs = async () => [{ id: 'tab-9', title: 'Docs', url: 'https://example.com' }];
-    await harness.updateAffinityBadges();
-    assert.match(wrapFor(harness, 'a2').querySelector('.terminal-tab-affinity-badge')?.textContent ?? '', /Docs/);
-
-    // The tab broadcast already carries the list, so the caller that holds it hands it in.
-    // The two sources are given different titles: a badge reading the delivered one proves
-    // the argument is used, and the call count proves the list is not fetched a second time
-    // on the main thread that every switch, bridge RPC and terminal fanout also runs on.
-    const delivered = [{ id: 'tab-9', title: 'Delivered', url: 'https://example.com' }];
-    harness.api.getTabs = async () => [{ id: 'tab-9', title: 'Refetched', url: 'https://example.com' }];
-    const fetchesBefore = countCalls(harness, 'getTabs');
-    await harness.updateAffinityBadges(delivered);
-    assert.strictEqual(countCalls(harness, 'getTabs'), fetchesBefore, 'a delivered tab list must not be re-fetched');
-    const deliveredBadge = wrapFor(harness, 'a2').querySelector('.terminal-tab-affinity-badge')?.textContent ?? '';
-    assert.match(deliveredBadge, /Delivered/, 'the delivered list is what decorates the badge');
-    assert.doesNotMatch(deliveredBadge, /Refetched/, 'the badge must not read a re-fetched list');
-  });
-
-  it('uses the affinity map a caller delivered instead of re-fetching it', async () => {
-    const harness = loadStandalone();
-    await flush();
-    seed(harness, [{ id: 'b1', name: 'B', state: 'running' }], 'b1');
-    harness.renderTabs();
-    await flush();
-    harness.apiCalls.length = 0;
-
-    // Both maps answer for b1 and both tabs are in the delivered list, so the badge's
-    // text names which of the two the renderer read. The call count is the property that
-    // matters: the map is a projection of the same host state the list came from, so a
-    // caller holding it must not spend a second `invoke` per broadcast on it.
-    harness.api.getTerminalAffinities = async () => ({ b1: { tabId: 'tab-rpc', managedTabIds: ['tab-rpc'], status: 'alive' } });
-    const deliveredTabs = [
-      { id: 'tab-pushed', title: 'Pushed', url: 'https://example.com' },
-      { id: 'tab-rpc', title: 'Refetched', url: 'https://example.com' },
-    ];
-    const deliveredAffinities = { b1: { tabId: 'tab-pushed', managedTabIds: ['tab-pushed'], status: 'alive' } };
-    const fetchesBefore = countCalls(harness, 'getTerminalAffinities');
-    await harness.updateAffinityBadges(deliveredTabs, deliveredAffinities);
-
-    assert.strictEqual(countCalls(harness, 'getTerminalAffinities'), fetchesBefore, 'a delivered affinity map must not be re-fetched');
-    const badge = wrapFor(harness, 'b1').querySelector('.terminal-tab-affinity-badge')?.textContent ?? '';
-    assert.match(badge, /Pushed/, 'the delivered map is what binds the badge');
-    assert.doesNotMatch(badge, /Refetched/, 'the badge must not read a re-fetched map');
-  });
-
-  it('binds every badge from one tab broadcast with no round-trip of its own', async () => {
-    const harness = loadStandalone();
-    await flush();
-    seed(harness, [{ id: 'c1', name: 'C', state: 'running' }], 'c1');
-    harness.renderTabs();
-    await flush();
-    harness.apiCalls.length = 0;
-
-    const fetchesBefore = countCalls(harness, 'getTabs');
-    const affinityFetchesBefore = countCalls(harness, 'getTerminalAffinities');
-    harness.emitTabsUpdated({
-      tabs: [{ id: 'tab-live', title: 'Live', url: 'https://example.com' }],
-      terminalAffinities: { c1: { tabId: 'tab-live', managedTabIds: ['tab-live'], status: 'alive' } },
-    });
-    await flush();
-    await flush();
-
-    assert.strictEqual(countCalls(harness, 'getTabs'), fetchesBefore, 'the broadcast list must not be re-fetched');
-    assert.strictEqual(countCalls(harness, 'getTerminalAffinities'), affinityFetchesBefore, 'the broadcast map must not be re-fetched');
-    assert.match(wrapFor(harness, 'c1').querySelector('.terminal-tab-affinity-badge')?.textContent ?? '', /Live/);
-  });
-
-  it('repaints badges from the delivered broadcast on the 5 Hz session push', async () => {
-    const harness = loadStandalone();
-    await flush();
-    seed(harness, [{ id: 'd1', name: 'D', state: 'running' }], 'd1');
-    harness.renderTabs();
-    await flush();
-
-    // The tab broadcast carries both halves, and it is what the badges render from.
-    harness.emitTabsUpdated({
-      tabs: [{ id: 'tab-push', title: 'Pushed', url: 'https://example.com' }],
-      terminalAffinities: { d1: { tabId: 'tab-push', managedTabIds: ['tab-push'], status: 'alive' } },
-    });
-    await flush();
-    harness.apiCalls.length = 0;
-
-    // `renderTabs()` runs from the session push, which arrives at 5 Hz. Both halves are already in
-    // this process, so a re-fetch here is two `invoke`s plus two payload deserializations per push
-    // — ~144,000 over one 4 h soak — inside the renderer whose committed bytes are what grows.
-    for (let push = 0; push < 5; push += 1) {
-      harness.emitSession({ sessions: [{ id: 'd1', name: 'D', state: 'running' }], activeSessionId: 'd1' });
-      await flush();
-    }
-
-    assert.strictEqual(countCalls(harness, 'getTabs'), 0, 'a session push must not re-fetch the tab list');
-    assert.strictEqual(countCalls(harness, 'getTerminalAffinities'), 0, 'a session push must not re-fetch the affinity map');
-    assert.match(wrapFor(harness, 'd1').querySelector('.terminal-tab-affinity-badge')?.textContent ?? '', /Pushed/, 'the delivered broadcast still decorates the badge');
-  });
-});
-
 describe('Renderer tab context-menu actions', () => {
   it('wires sleep, wake and the category picker, and refuses impossible actions', async () => {
     const harness = loadStandalone({
       // `assign-capsule` is the tab→project handover: its item must exist for the menu to offer
       // the move, and the picker it opens is driven in terminal-capsule-picker.test.ts.
-      contextMenuActions: ['sleep', 'wake', 'category', 'rebind-tab', 'assign-capsule', 'close'],
+      contextMenuActions: ['sleep', 'wake', 'category', 'assign-capsule', 'close'],
     });
     await flush();
     const list = [
@@ -817,14 +700,14 @@ describe('Renderer group header: reachable and operable from the keyboard', () =
 });
 
 /**
- * Structural CSS check for the sidebar affinity-badge alignment.
+ * Structural CSS check for the sidebar tab-row alignment.
  *
  * The vm harness has no layout engine, so this can only prove the rules exist and
  * are mutually consistent (exactly one `margin-left: auto` per row, a shrinkable
- * name). The PIXEL result — badge flush against the right edge, immediately left
- * of the × — is unverified by test and must be confirmed in the running app.
+ * name). The PIXEL result — the status beacon flush against the right edge — is
+ * unverified by test and must be confirmed in the running app.
  */
-describe('Sidebar tab row: affinity badge pinned right (CSS structure only)', () => {
+describe('Sidebar tab row: status beacon pinned right (CSS structure only)', () => {
   const css = fs.readFileSync(path.join(RENDERER_DIR, 'standalone.css'), 'utf8');
 
   const ruleBody = (selector: string): string | null => {
@@ -837,25 +720,10 @@ describe('Sidebar tab row: affinity badge pinned right (CSS structure only)', ()
     const beacon = ruleBody('.standalone.tabs-sidebar .terminal-tab-status-beacon');
     assert.ok(beacon, 'the sidebar beacon rule must exist');
     assert.match(beacon, /margin-left:\s*auto/, 'the beacon carries the row\'s single auto margin');
-    assert.match(beacon, /order:\s*1/, 'the beacon is ordered before the badge so the badge is last');
-
-    const badge = ruleBody('.standalone.tabs-sidebar .terminal-tab-affinity-badge');
-    assert.ok(badge, 'the sidebar badge rule must exist');
-    assert.match(badge, /order:\s*2/);
-    assert.doesNotMatch(badge, /margin-left:\s*auto/, 'only one element per row may take the auto margin');
-    assert.match(badge, /margin-left:\s*4px/);
+    assert.match(beacon, /order:\s*1/, 'the beacon is ordered after the name');
   });
 
-  it('leaves the horizontal badge placement untouched', () => {
-    const base = ruleBody('.terminal-tab-affinity-badge');
-    assert.ok(base, 'the base badge rule must exist');
-    assert.match(base, /width:\s*78px/);
-    assert.match(base, /flex-shrink:\s*0/);
-    assert.doesNotMatch(base, /margin-left:\s*auto/, 'horizontal mode must keep its inline badge slot');
-    assert.doesNotMatch(base, /\border\s*:/, 'no `order` may leak into the base rule');
-  });
-
-  it('lets the sidebar name shrink so the badge, not the name, is what gets pinned', () => {
+  it('lets the sidebar name shrink so the beacon, not the name, is what gets pinned', () => {
     const title = ruleBody('.standalone.tabs-sidebar .terminal-tab-title');
     assert.ok(title, 'the sidebar title rule must exist');
     assert.match(title, /min-width:\s*0/);
@@ -1304,40 +1172,6 @@ describe('Renderer sleeping bucket: parked, and returned to its own group', () =
     );
   });
 
-  it('keeps the affinity badge on the tab that owns the pane, never on a pane row', async () => {
-    const harness = loadStandalone({ contextMenuActions: ['rebind-tab'] });
-    await flush();
-    seed(harness, [
-      { id: 'p1', name: 'Parent', state: 'running' },
-      { id: 'p2', name: 'Terminal split-1', splitOf: 'p1', state: 'running' },
-    ], 'p1');
-    harness.renderTabs();
-
-    const ownerBadge = wrapFor(harness, 'p1').querySelector('.terminal-tab-affinity-badge');
-    assert.ok(ownerBadge, 'the owning tab keeps its affinity badge');
-    assert.strictEqual(ownerBadge.getAttribute('data-session-id'), 'p1');
-    assert.strictEqual(
-      wrapFor(harness, 'p2').querySelector('.terminal-tab-affinity-badge'),
-      null,
-      'a pane row offers no binding: its shell reports the parent session id',
-    );
-
-    // The right-click path still reaches the picker, for the parent.
-    const menuEvent = {
-      key: '', clientX: 10, clientY: 10, preventDefault: () => {}, stopPropagation: () => {},
-    };
-    harness.showContextMenu(menuEvent, 'p2');
-    const rebind = harness.contextMenu.querySelector('.context-item[data-action="rebind-tab"]');
-    assert.ok(rebind, 'the pane row still offers the affinity action');
-    rebind.dispatch('click', {});
-    await flush();
-    assert.strictEqual(
-      harness.elements.get('affinityPickerPopover')?.getAttribute('data-active-session-id'),
-      'p1',
-      'the pane rebinds the tab it splits, not itself',
-    );
-  });
-
   it('returns a woken tab to its own group, because sleep never rewrote its category', async () => {
     const harness = loadStandalone();
     await flush();
@@ -1386,21 +1220,6 @@ describe('Renderer sleeping bucket: parked, and returned to its own group', () =
       'a state bucket must never be armed as a drop target');
     sleeping.dispatch('drop', { dataTransfer: dataTransfer('s1') });
     assert.strictEqual(countCalls(harness, 'setCategory'), 0, 'no drag can file a tab under a state');
-  });
-
-  it('refuses to bind a browser tab to a sleeping terminal at all', async () => {
-    const harness = loadStandalone();
-    await flush();
-    seed(harness, [{ id: 's1', name: 'Asleep', state: 'sleeping' }], 's1');
-    harness.renderTabs();
-    harness.apiCalls.length = 0;
-
-    // A sleeping session has no PTY, so a binding could never be honoured: the picker
-    // must not even start down that path.
-    await harness.showAffinityPicker('s1', wrapFor(harness, 's1'));
-    assert.strictEqual(countCalls(harness, 'getTabs'), 0,
-      'the picker must not fetch tabs for a sleeping session');
-    assert.strictEqual(countCalls(harness, 'setTerminalAffinity'), 0);
   });
 });
 

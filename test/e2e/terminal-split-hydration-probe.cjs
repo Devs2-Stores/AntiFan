@@ -90,8 +90,6 @@ app.whenReady().then(async () => {
       }
       return { status: 'OK', chunks };
     });
-    ipcMain.handle('antifan:tabs:get-list', () => []);
-    ipcMain.handle('antifan:terminal:get-affinity', () => null);
     ipcMain.handle('antifan:terminal:split-session', async () => {
       win.webContents.send('antifan:terminal:data', {
         sessionId: 'split-race-test',

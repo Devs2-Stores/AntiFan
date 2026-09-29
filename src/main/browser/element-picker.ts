@@ -3,6 +3,98 @@
  * 100% Parity with Antigravity Browser Element Annotation & Multi-Add Pipeline.
  */
 
+
+/**
+ * One "Gửi tới" option in the annotation target select. `value` is a terminal
+ * session id, or the literal 'auto' resolver entry (route by site URL).
+ */
+export interface AnnotationTargetOption {
+  value: string;
+  label: string;
+  selected: boolean;
+}
+
+/**
+ * Grouped annotation target menu: 'auto' plus folder-less sessions as flat
+ * options (first-seen order), then one optgroup per canonical folder (groups
+ * ordered by first appearance of each folder). Sessions whose projection lacks
+ * `folderKey` degrade to the flat list, so the select stays a single ungrouped
+ * menu when folder fields are absent.
+ */
+export interface AnnotationTargetMenu {
+  /** Resolved select value: the tab's own persisted choice, else 'auto'. */
+  selectedValue: string;
+  /** Flat options: 'auto' first, then sessions without a folderKey. */
+  options: AnnotationTargetOption[];
+  groups: Array<{ label: string; options: AnnotationTargetOption[] }>;
+}
+
+/**
+ * Builds the "Gửi tới" select menu from SessionSummary-like rows. Pure and
+ * self-contained on purpose: the same declaration is unit-tested in Node and
+ * injected into the page by interpolating `buildAnnotationTargetMenu.toString()`
+ * into ELEMENT_PICKER_SCRIPT, so the body must never reference module scope.
+ * `requestedId` is the tab's own persisted choice; a stale or absent value
+ * resolves to 'auto' — no other selection memory exists.
+ */
+export function buildAnnotationTargetMenu(sessions: unknown, requestedId: unknown): AnnotationTargetMenu {
+  interface TargetRow {
+    id: string;
+    name?: string;
+    displayLabel?: string;
+    folderKey?: string;
+    folderLabel?: string;
+  }
+  const pickRow = (row: unknown): TargetRow | undefined => {
+    if (!row || typeof row !== 'object') return undefined;
+    // Probed field-by-field: untrusted payload rows narrow to unknown members.
+    const rec = row as Record<string, unknown>;
+    const id = typeof rec.id === 'string' ? rec.id : '';
+    if (!id) return undefined;
+    return {
+      id,
+      name: typeof rec.name === 'string' ? rec.name : undefined,
+      displayLabel: typeof rec.displayLabel === 'string' ? rec.displayLabel : undefined,
+      folderKey: typeof rec.folderKey === 'string' ? rec.folderKey : undefined,
+      folderLabel: typeof rec.folderLabel === 'string' ? rec.folderLabel : undefined,
+    };
+  };
+  const list: TargetRow[] = [];
+  if (Array.isArray(sessions)) {
+    for (const row of sessions) {
+      const parsed = pickRow(row);
+      if (parsed) list.push(parsed);
+    }
+  }
+  const ids = list.map((s) => s.id);
+  const selected = typeof requestedId === 'string' && requestedId && (requestedId === 'auto' || ids.includes(requestedId))
+    ? requestedId
+    : 'auto';
+  const options: AnnotationTargetOption[] = [
+    { value: 'auto', label: 'Tự động (theo site URL)', selected: selected === 'auto' },
+  ];
+  const groups: Array<{ label: string; options: AnnotationTargetOption[] }> = [];
+  const groupIndex = new Map<string, { label: string; options: AnnotationTargetOption[] }>();
+  for (const s of list) {
+    const option: AnnotationTargetOption = {
+      value: s.id,
+      label: s.displayLabel || s.name || s.id,
+      selected: s.id === selected,
+    };
+    if (!s.folderKey) {
+      options.push(option);
+      continue;
+    }
+    let group = groupIndex.get(s.folderKey);
+    if (!group) {
+      group = { label: s.folderLabel || s.folderKey, options: [] };
+      groupIndex.set(s.folderKey, group);
+      groups.push(group);
+    }
+    group.options.push(option);
+  }
+  return { selectedValue: selected, options, groups };
+}
 export const ELEMENT_PICKER_SCRIPT = `(() => {
   if (window.__antifanPickerActive) return;
   window.__antifanPickerActive = true;
@@ -757,6 +849,10 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
     });
   };
 
+  // Same declaration as the exported buildAnnotationTargetMenu in this module —
+  // the template interpolates its .toString() so page and tests share one builder.
+  ${buildAnnotationTargetMenu.toString()}
+
   const showCommentModal = (el) => {
     if (isModalOpen) return;
     isModalOpen = true;
@@ -819,33 +915,22 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
     termSelect.style.cssText = 'flex:1;min-width:0;background:#0f172a;color:#38bdf8;border:1px solid #263b50;border-radius:4px;padding:2px 4px;font-size:11px;font-weight:500;outline:none;cursor:pointer;text-overflow:ellipsis;';
 
     if (termContext.sessions && termContext.sessions.length > 0) {
-      const availableSessionIds = termContext.sessions.map((s) => s.id);
-      let preferredSessionId = rememberedSessionId && (rememberedSessionId === 'auto' || availableSessionIds.includes(rememberedSessionId))
-        ? rememberedSessionId
-        : '';
-      if (!preferredSessionId) {
-        try {
-          const stored = localStorage.getItem('antifan_annotation_session_id');
-          if (stored && (stored === 'auto' || availableSessionIds.includes(stored))) {
-            preferredSessionId = stored;
-          }
-        } catch {}
-      }
-      if (!preferredSessionId) preferredSessionId = 'auto';
+      const targetMenu = buildAnnotationTargetMenu(termContext.sessions, rememberedSessionId);
+      const preferredSessionId = targetMenu.selectedValue;
 
-      const autoOpt = document.createElement('option');
-      autoOpt.value = 'auto';
-      autoOpt.textContent = 'Tự động (theo site URL)';
-      autoOpt.selected = preferredSessionId === 'auto';
-      termSelect.appendChild(autoOpt);
-      termContext.sessions.forEach((s) => {
+      const appendItem = (host, item) => {
         const opt = document.createElement('option');
-        opt.value = s.id;
-        opt.selected = s.id === preferredSessionId;
-        const cleanCwd = (s.cwd || '').replace(/\\\\/g, '/');
-        const folder = cleanCwd ? cleanCwd.split('/').filter(Boolean).pop() : '';
-        opt.textContent = (s.name || s.id) + (folder ? ' (' + folder + ')' : '');
-        termSelect.appendChild(opt);
+        opt.value = item.value;
+        opt.selected = item.selected;
+        opt.textContent = item.label;
+        host.appendChild(opt);
+      };
+      targetMenu.options.forEach((item) => appendItem(termSelect, item));
+      targetMenu.groups.forEach((group) => {
+        const optgroup = document.createElement('optgroup');
+        optgroup.label = group.label;
+        group.options.forEach((item) => appendItem(optgroup, item));
+        termSelect.appendChild(optgroup);
       });
       termSelect.value = preferredSessionId;
       termContext.annotationSessionId = preferredSessionId;
@@ -854,7 +939,6 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
         termContext.annotationSessionId = selectedSessionId;
         window.__antifanTerminalContext = window.__antifanTerminalContext || {};
         window.__antifanTerminalContext.annotationSessionId = selectedSessionId;
-        try { localStorage.setItem('antifan_annotation_session_id', selectedSessionId); } catch {}
       });
     } else {
       const opt = document.createElement('option');
@@ -1407,7 +1491,6 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
             const chosen = termSelect ? termSelect.value : (termContext.selectedSessionId || undefined);
             if (chosen && window.__antifanTerminalContext) {
               window.__antifanTerminalContext.annotationSessionId = chosen;
-              try { localStorage.setItem('antifan_annotation_session_id', chosen); } catch {}
             }
             return chosen;
           })(),

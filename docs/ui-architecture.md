@@ -203,6 +203,17 @@ whose parent is gone leaves no orphan tab behind.
   reassignment of a minted owner key. Project windows cannot move another owner's
   rows, and agent-owned rows remain read-only. The shell process and working
   directory are preserved during the transfer.
+- The shared manager groups rows by **folder** (`canonicalFolderKey` in
+  `src/main/project/workspace-capsule.ts`; `SessionSummary.folderKey/folderLabel/folderPath`)
+  and mints a shell in one folder with `antifan:terminal:new-in-folder`; a project window may
+  only mint in its own workspace root. A folder may declare a **Space** in
+  `.antifan/space.json` (`src/main/project/space-manifest.ts`, opened by
+  `src/main/project/space-open.ts` through `antifan:space:open`): the file is untrusted, so its
+  commands are shown and confirmed by content hash (stored in the data root), reopening reuses
+  terminals by `spaceTerminalId`, and `path` tabs must resolve inside the folder. A terminal with
+  `role: 'sync'` or `idlePolicy: 'never'` (a theme watcher) is refused by `sleepSession`
+  (`SLEEP_REFUSED_WATCHER`), because sleeping kills its process tree; identity for duplicate
+  watchers comes from `src/main/project/sync-identity.ts`.
   Both pickers read `PROJECT_LIST`: one row per project, and the transfer names that
   `projectId` — never a capsule the renderer inferred. Main resolves the destination
   itself (`resolveProjectAssignment` in `src/main/index.ts`): exactly one capsule with

@@ -38,19 +38,15 @@ export const DAEMON_OUTPUT_FLUSH_MS = 8;
 export const DAEMON_OUTPUT_MAX_CHARS = 64 * 1024;
 
 /**
- * The coalescing window cannot shrink below the producer's cadence, or every read is its own
- * frame and the batcher never engages: winpty's backend polls at ~16ms, so a fixed 8ms window
- * yields 1 chunk/frame forever (measured on Windows). The effective window adapts to the
- * observed inter-push gap of a session — gap*1.5 — clamped to [flushMs, FLUSH_MS_CAP], so a
- * fast ConPTY stream keeps the spec'd 8-16ms latency while a 16ms winpty cadence still
- * coalesces (>=2 reads per frame).
+ * Chunks arriving inside `flushMs` of the last emit coalesce into one frame; anything
+ * past the window emits immediately so echo never waits. A ~16 ms winpty cadence is
+ * therefore a stream of single-chunk frames — that is the intended latency contract,
+ * not a lost optimization.
  */
-export const DAEMON_OUTPUT_FLUSH_MS_CAP = 48;
 
 export class OutputBatcher {
   private readonly pending = new Map<string, PendingBatch>();
   private readonly lastEmitAt = new Map<string, number>();
-  private readonly lastPushAt = new Map<string, number>();
   private timer: unknown = null;
   private readonly flushMs: number;
   private readonly maxChars: number;
@@ -77,18 +73,9 @@ export class OutputBatcher {
     const fromSeq = payload.fromSeq ?? payload.seq;
     const now = this.now();
 
-    // Compute the effective window: if the producer pushes at a cadence slower than flushMs
-    // (e.g. winpty ~16ms), expand the window to 1.5x the observed gap (capped at 48ms) so
-    // consecutive reads can actually coalesce. Idle producers (>100ms gap) fall back to flushMs.
-    const prevPush = this.lastPushAt.get(sessionId);
-    this.lastPushAt.set(sessionId, now);
-    let win = this.flushMs;
-    if (prevPush !== undefined) {
-      const gap = now - prevPush;
-      if (gap > 0 && gap <= 100) {
-        win = Math.min(Math.max(this.flushMs, Math.ceil(gap * 1.5)), DAEMON_OUTPUT_FLUSH_MS_CAP);
-      }
-    }
+    // Coalescing applies only to chunks arriving inside one flush window; the fast
+    // path below already emits anything past flushMs immediately (a ~16 ms winpty
+    // cadence is a stream of single-chunk frames — correct, not a bug).
 
     let batch = this.pending.get(sessionId);
     if (batch && batch.generation !== payload.generation) {
@@ -115,7 +102,7 @@ export class OutputBatcher {
       this.timer = this.setTimer(() => {
         this.timer = null;
         this.flushAll();
-      }, win);
+      }, this.flushMs);
     }
   }
 
@@ -146,7 +133,6 @@ export class OutputBatcher {
   forget(sessionId: string): void {
     this.flushSession(sessionId);
     this.lastEmitAt.delete(sessionId);
-    this.lastPushAt.delete(sessionId);
   }
 
   private send(payload: TerminalDataPayload): void {

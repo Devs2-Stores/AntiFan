@@ -22,7 +22,7 @@ import { EventEmitter } from 'node:events';
 import WebSocket from 'ws';
 import { HOST_METHOD, HOST_EVENT, HOST_EVENT_TO_LOCAL } from './protocol';
 import type { HostNewSessionParams, HostNewSessionResult, HostRestartParams, HostStartParams, HostStartResult, HostTransferOwnerParams } from './protocol';
-import type { BridgeRequestPayload, BridgeResponsePayload, BridgeEventPayload, TerminalAckPayload } from '../../shared/contracts';
+import type { BridgeRequestPayload, BridgeResponsePayload, BridgeEventPayload, TerminalAckPayload, TerminalSleepResult, TerminalRoleMeta } from '../../shared/contracts';
 import type { TerminalWaitInput, TerminalWaitResult } from '../../shared/control-plane-contracts';
 
 const HOST = '127.0.0.1';
@@ -450,11 +450,16 @@ export class DaemonTerminalProxy extends EventEmitter {
    *   capsule attribution.
    * @returns Promise resolving to the created session ID string
    */
-  async createSession(cwd?: string, capsuleId?: string, ownerKey?: string): Promise<string> {
+  async createSession(cwd?: string, capsuleId?: string, ownerKey?: string, meta?: TerminalRoleMeta): Promise<string> {
     const payload: HostNewSessionParams = {};
     if (typeof cwd === 'string' && cwd) payload.cwd = cwd;
     if (typeof capsuleId === 'string' && capsuleId) payload.capsuleId = capsuleId;
     if (typeof ownerKey === 'string' && ownerKey) payload.ownerKey = ownerKey;
+    if (meta) {
+      if (typeof meta.role === 'string') payload.role = meta.role;
+      if (typeof meta.idlePolicy === 'string') payload.idlePolicy = meta.idlePolicy;
+      if (typeof meta.spaceTerminalId === 'string') payload.spaceTerminalId = meta.spaceTerminalId;
+    }
     const r = await this.client.call<HostNewSessionResult>(HOST_METHOD.newSession, payload);
     return r.sessionId;
   }
@@ -496,13 +501,18 @@ export class DaemonTerminalProxy extends EventEmitter {
     await this.client.call(HOST_METHOD.restart, payload);
   }
 
-  async sleepSession(sessionId: string): Promise<boolean> {
-    const r = await this.client.call<{ slept: boolean }>(HOST_METHOD.sleepSession, { sessionId });
-    return r.slept;
+  async sleepSession(sessionId: string): Promise<TerminalSleepResult> {
+    const r = await this.client.call<{ result: TerminalSleepResult }>(HOST_METHOD.sleepSession, { sessionId });
+    return r.result;
   }
 
   async setCategory(sessionId: string, category?: string): Promise<boolean> {
     const r = await this.client.call<{ ok: boolean }>(HOST_METHOD.setCategory, { sessionId, category });
+    return r.ok;
+  }
+
+  async setSessionRole(sessionId: string, meta: { role?: unknown; idlePolicy?: unknown; spaceTerminalId?: unknown }): Promise<boolean> {
+    const r = await this.client.call<{ ok: boolean }>(HOST_METHOD.setSessionRole, { sessionId, ...meta });
     return r.ok;
   }
 

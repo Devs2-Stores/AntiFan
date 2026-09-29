@@ -510,6 +510,7 @@ describe('Eval execution guard ceiling', () => {
       getAllTabs: () => [][Symbol.iterator]() as unknown as IterableIterator<[string, NativeTabRecord]>,
       broadcastState: () => {},
       getTabTerminalSession: () => undefined,
+      visibleTerminalSessions: () => [],
       resolveTargetWorkspace: () => 'E:/Work/project',
       resolveAnnotationWorkspace: () => 'E:/Work/project',
       createTab: () => 'tab-created',

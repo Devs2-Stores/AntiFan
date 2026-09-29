@@ -102,6 +102,9 @@ interface SessionRecord {
   state: 'running' | 'exited' | 'closed' | 'sleeping';
   disposed?: boolean;
   category?: string;
+  role?: string;
+  idlePolicy?: string;
+  spaceTerminalId?: string;
   sleptAt?: number;
   pendingCols?: number;
   pendingRows?: number;
@@ -121,6 +124,9 @@ interface SavedSessionLike {
   rows?: number;
   state?: 'running' | 'exited' | 'closed' | 'sleeping';
   category?: string;
+  role?: string;
+  idlePolicy?: string;
+  spaceTerminalId?: string;
   restoredTail?: string;
 }
 
@@ -298,7 +304,7 @@ describe('Phase 5: Terminal sleep / wake lifecycle', () => {
 
     const recorder = recordLifecycleEvents(tm);
     try {
-      assert.strictEqual(tm.sleepSession(id), true);
+      assert.deepStrictEqual(tm.sleepSession(id), { ok: true });
     } finally {
       recorder.stop();
     }
@@ -337,8 +343,8 @@ describe('Phase 5: Terminal sleep / wake lifecycle', () => {
     assert.strictEqual(tm.getDiagnostics().sessions.find(item => item.sessionId === id)?.state, 'sleeping');
 
     // A second sleep is a no-op.
-    assert.strictEqual(tm.sleepSession(id), false);
-    assert.strictEqual(tm.sleepSession('terminal-does-not-exist'), false);
+    assert.deepStrictEqual(tm.sleepSession(id), { ok: false, reason: 'NOT_RUNNING' });
+    assert.deepStrictEqual(tm.sleepSession('terminal-does-not-exist'), { ok: false, reason: 'NOT_RUNNING' });
   });
 
   it('(b) sleep keeps disposed false and wake restores the same generation with a live PTY', async () => {
@@ -347,7 +353,7 @@ describe('Phase 5: Terminal sleep / wake lifecycle', () => {
     const before = record(id);
     const generation = before.sessionGeneration;
 
-    assert.strictEqual(tm.sleepSession(id), true);
+    assert.deepStrictEqual(tm.sleepSession(id), { ok: true });
     assert.strictEqual(before.disposed, false);
 
     const recorder = recordLifecycleEvents(tm);
@@ -388,7 +394,7 @@ describe('Phase 5: Terminal sleep / wake lifecycle', () => {
   it('(c) switching to a sleeping tab never respawns its shell', () => {
     const other = tm.createSession('E:/Work/other');
     const sleeping = tm.createSession('E:/Work/project');
-    assert.strictEqual(tm.sleepSession(sleeping), true);
+    assert.deepStrictEqual(tm.sleepSession(sleeping), { ok: true });
     const sleepingRecord = record(sleeping);
     assert.strictEqual(sleepingRecord.pty, null);
 
@@ -408,7 +414,7 @@ describe('Phase 5: Terminal sleep / wake lifecycle', () => {
   it('(d) write/writeTo on a sleeping session wakes it and then delivers the input', () => {
     const id = tm.createSession('E:/Work/project');
     latestPty().emitData('$ ');
-    assert.strictEqual(tm.sleepSession(id), true);
+    assert.deepStrictEqual(tm.sleepSession(id), { ok: true });
     assert.strictEqual(record(id).pty, null);
 
     const recorder = recordLifecycleEvents(tm);
@@ -428,7 +434,7 @@ describe('Phase 5: Terminal sleep / wake lifecycle', () => {
     assert.match(afterWrite.buffer, /\$ /, 'the folded transcript must survive the wake');
 
     // Targeted write path on a freshly slept session.
-    assert.strictEqual(tm.sleepSession(id), true);
+    assert.deepStrictEqual(tm.sleepSession(id), { ok: true });
     assert.strictEqual(record(id).pty, null);
     const secondRecorder = recordLifecycleEvents(tm);
     try {
@@ -472,7 +478,7 @@ describe('Phase 5: Terminal sleep / wake lifecycle', () => {
   it('(f) persist round-trip restores a sleeping session with its transcript and no PTY', async () => {
     const id = tm.createSession('E:/Work/project');
     latestPty().emitData('deep work output\r\nDONE\r\n');
-    assert.strictEqual(tm.sleepSession(id), true);
+    assert.deepStrictEqual(tm.sleepSession(id), { ok: true });
     assert.strictEqual(tm.setCategory(id, 'Archived'), true);
     const expectedTranscript = record(id).restoredTail;
     assert.ok(expectedTranscript && expectedTranscript.includes('deep work output'));
@@ -521,7 +527,7 @@ describe('Phase 5: Terminal sleep / wake lifecycle', () => {
   it('(g) waitTerminal refuses to spawn a shell for a sleeping session', async () => {
     const id = tm.createSession('E:/Work/project');
     latestPty().emitData('one chunk\r\n');
-    assert.strictEqual(tm.sleepSession(id), true);
+    assert.deepStrictEqual(tm.sleepSession(id), { ok: true });
     const before = spawnedPtys.length;
     ensureSessionPtyCalls.length = 0;
 
@@ -544,7 +550,7 @@ describe('Phase 5: Terminal sleep / wake lifecycle', () => {
     const running = tm.captureBaselineSeq(id);
     assert.strictEqual(running.baselineSeq, 2);
 
-    assert.strictEqual(tm.sleepSession(id), true);
+    assert.deepStrictEqual(tm.sleepSession(id), { ok: true });
     const sleeping = tm.captureBaselineSeq(id);
     assert.strictEqual(sleeping.baselineSeq, 2, 'a sleeping session keeps its monotonic sequence');
     assert.strictEqual(sleeping.sessionGeneration, running.sessionGeneration);
@@ -611,7 +617,7 @@ describe('Phase 5: Terminal sleep / wake lifecycle', () => {
   it('(j) resize() leaves a sleeping session geometry untouched', () => {
     const id = tm.createSession('E:/Work/project');
     const session = record(id);
-    assert.strictEqual(tm.sleepSession(id), true);
+    assert.deepStrictEqual(tm.sleepSession(id), { ok: true });
     session.pendingCols = 80;
     session.pendingRows = 20;
 
@@ -625,5 +631,82 @@ describe('Phase 5: Terminal sleep / wake lifecycle', () => {
     tm.resize(200, 50);
     assert.strictEqual(record(awake).pendingCols, 200);
     assert.strictEqual(record(awake).pendingRows, 50);
+  });
+
+  it('(k) a sync-role tab refuses sleep, keeps its shell, and the guard survives restart', () => {
+    const id = tm.createSession('E:/Work/theme');
+    latestPty().emitData('hrv theme watch\r\n');
+    assert.strictEqual(tm.setSessionRole(id, { role: 'sync', idlePolicy: 'manual', spaceTerminalId: 'sync' }), true);
+    assert.strictEqual(record(id).idlePolicy, 'never', 'a watcher can never be declared sleepable');
+    assert.deepStrictEqual(tm.sleepSession(id), { ok: false, reason: 'SLEEP_REFUSED_WATCHER' });
+    assert.strictEqual(record(id).state, 'running');
+    assert.notStrictEqual(record(id).pty, null, 'the watcher process tree must not be killed');
+
+    tm.persistSync();
+    const onDisk = readStateFile(stateFile).sessions.find(item => item.id === id);
+    assert.strictEqual(onDisk?.role, 'sync');
+    assert.strictEqual(onDisk?.idlePolicy, 'never');
+    assert.strictEqual(onDisk?.spaceTerminalId, 'sync');
+
+    internals.sessions.clear();
+    internals.sessionGenerations.clear();
+    internals.activeSessionId = '';
+    spawnedPtys.length = 0;
+    assert.strictEqual(tm.startTerminal('E:/Work/theme'), true);
+    assert.strictEqual(record(id).role, 'sync');
+    assert.deepStrictEqual(tm.sleepSession(id), { ok: false, reason: 'SLEEP_REFUSED_WATCHER' }, 'the guard must hold after a restart');
+    assert.strictEqual(tm.listSessions().find(item => item.id === id)?.idlePolicy, 'never');
+  });
+
+  it('(k2) a watcher minted with role meta carries its guard in the first emitted snapshot', () => {
+    const snapshots: Array<{ sessions?: Array<{ id: string; idlePolicy?: string; role?: string }> }> = [];
+    tm.on('session', (state: { sessions?: Array<{ id: string; idlePolicy?: string; role?: string }> }) => snapshots.push(state));
+    const id = tm.createSession('E:/Work/theme', undefined, undefined, { role: 'sync', idlePolicy: 'manual', spaceTerminalId: 'w' });
+    const first = snapshots.map((s) => s.sessions?.find((x) => x.id === id)).find(Boolean);
+    assert.strictEqual(first?.idlePolicy, 'never');
+    assert.strictEqual(first?.role, 'sync');
+  });
+
+  it('(k3) restarting a watcher tab keeps its role, guard and Space identity', async () => {
+    const id = tm.createSession('E:/Work/theme', undefined, undefined, { role: 'sync', idlePolicy: 'manual', spaceTerminalId: 'w' });
+    await tm.restart('E:/Work/theme');
+    assert.strictEqual(record(id).role, 'sync');
+    assert.strictEqual(record(id).idlePolicy, 'never');
+    assert.strictEqual(record(id).spaceTerminalId, 'w');
+    assert.deepStrictEqual(tm.sleepSession(id), { ok: false, reason: 'SLEEP_REFUSED_WATCHER' });
+  });
+
+  it('(l) a never pane protects its tab; clearing the role makes it sleepable again', () => {
+    const id = tm.createSession('E:/Work/theme');
+    const pane = tm.createSplitSession(id);
+    assert.ok(pane, 'split must mint a pane');
+    assert.strictEqual(tm.setSessionRole(pane, { idlePolicy: 'never' }), true);
+    assert.strictEqual(record(id).idlePolicy, 'never', 'role metadata lives on the base tab');
+    assert.deepStrictEqual(tm.sleepSession(pane), { ok: false, reason: 'SLEEP_REFUSED_WATCHER' });
+    assert.deepStrictEqual(tm.sleepSession(id), { ok: false, reason: 'SLEEP_REFUSED_WATCHER' });
+
+    assert.strictEqual(tm.setSessionRole(id, {}), true);
+    assert.deepStrictEqual(tm.sleepSession(id), { ok: true });
+  });
+
+  it('(m) unknown role values from a hand-edited file restore as no role', () => {
+    const id = tm.createSession('E:/Work/theme');
+    tm.persistSync();
+    const file = readStateFile(stateFile);
+    const row = file.sessions.find(item => item.id === id)!;
+    row.role = 'root';
+    row.idlePolicy = 'forever';
+    row.spaceTerminalId = '../x';
+    fs.writeFileSync(stateFile, JSON.stringify(file));
+
+    internals.sessions.clear();
+    internals.sessionGenerations.clear();
+    internals.activeSessionId = '';
+    spawnedPtys.length = 0;
+    assert.strictEqual(tm.startTerminal('E:/Work/theme'), true);
+    assert.strictEqual(record(id).role, undefined);
+    assert.strictEqual(record(id).idlePolicy, undefined);
+    assert.strictEqual(record(id).spaceTerminalId, undefined);
+    assert.deepStrictEqual(tm.sleepSession(id), { ok: true });
   });
 });

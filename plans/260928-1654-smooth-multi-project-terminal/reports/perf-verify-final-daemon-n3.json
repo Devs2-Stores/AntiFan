@@ -1,0 +1,76 @@
+{
+  "label": "verify-final-daemon",
+  "compiledRoot": "E:\\Work\\apps\\AntiFan\\.compiled",
+  "projects": 3,
+  "daemon": true,
+  "stagedDaemon": {
+    "version": "38a6c18549749e2b",
+    "stageDir": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-perf-probe-BOY2lU\\daemon-host\\38a6c18549749e2b",
+    "entry": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-perf-probe-BOY2lU\\daemon-host\\38a6c18549749e2b\\src\\main\\terminal-daemon\\daemon-entry.js",
+    "files": 48,
+    "bytes": 2981353,
+    "packages": [
+      "node-pty",
+      "ws"
+    ],
+    "pruned": [],
+    "dataRoot": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-perf-probe-BOY2lU"
+  },
+  "burstSeconds": 30.09,
+  "windowOpenMs": 530,
+  "eventLoopDelayMs": {
+    "p50": 15.45,
+    "p95": 18.76,
+    "p99": 35.55,
+    "max": 1007.68
+  },
+  "statSyncPerSecond": 1.23,
+  "statSyncCallers": {
+    "at enforceProtectedPathsDacl (\\src\\main\\security\\windows-acl.js:376": 19,
+    "at enforceProtectedPathsDacl (\\src\\main\\security\\windows-acl.js:406": 10,
+    "at HistoryManager.importChromeHistory (\\src\\main\\browser\\history-manager.js:298": 8
+  },
+  "terminalDataIpcPerSecond": 9.97,
+  "terminalDataIpcByTarget": {
+    "Perf 1:sidebar": 202,
+    "Perf 0:sidebar": 103,
+    "Perf 2:sidebar": 2
+  },
+  "rendererLongtasks": {
+    "Perf 0": {
+      "count": 6,
+      "max": 547,
+      "totalMs": 1228
+    },
+    "Perf 1": {
+      "count": 0,
+      "max": 0,
+      "totalMs": 0
+    },
+    "Perf 2": {
+      "count": 0,
+      "max": 0,
+      "totalMs": 0
+    }
+  },
+  "daemonWsFramesPerSecond": 17.42,
+  "daemonWsKiBPerSecond": 140.69,
+  "tabsPerProject": 5,
+  "echoLatencyMs": {
+    "samples": 82,
+    "lost": 0,
+    "p50": 49.4,
+    "p95": 9471.67,
+    "max": 10134
+  },
+  "workingSetMb": {
+    "idle": 994.73,
+    "burstMax": 1021.63
+  },
+  "tree": {
+    "root": "E:\\Work\\apps\\AntiFan",
+    "head": "2fc82e31",
+    "dirty": true
+  },
+  "measuredAt": "2026-09-29T03:20:17.626Z"
+}

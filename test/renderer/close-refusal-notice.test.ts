@@ -186,8 +186,8 @@ const REFUSED_CLOSE = {
       tabId: 'tab-acme-2',
       controls: [
         {
-          id: 'antifan:terminal:remove-tab',
-          label: 'Unbind this page from the terminal in the terminal workbench (✕ on the terminal tab), or stop or sleep the session using it',
+          id: 'antifan:terminal:close-session',
+          label: 'Close the terminal session that owns this page (✕ on the terminal tab in the terminal workbench), or stop the agent session running in it',
         },
       ],
     },
@@ -208,8 +208,8 @@ const REFUSED_CLOSE_AFTER_RELEASE = {
       tabId: 'tab-acme-2',
       controls: [
         {
-          id: 'antifan:terminal:remove-tab',
-          label: 'Unbind this page from the terminal in the terminal workbench (✕ on the terminal tab), or stop or sleep the session using it',
+          id: 'antifan:terminal:close-session',
+          label: 'Close the terminal session that owns this page (✕ on the terminal tab in the terminal workbench), or stop the agent session running in it',
         },
       ],
     },
@@ -285,8 +285,8 @@ describe('Refused close/quit notice', () => {
       label: 'Stop the run where it was started (the toolbar stop button for a workflow, the agent client for its own run), or wait for it to finish',
     }]);
     assert.deepStrictEqual(rowControls(rows[1]), [{
-      id: 'antifan:terminal:remove-tab',
-      label: 'Unbind this page from the terminal in the terminal workbench (✕ on the terminal tab), or stop or sleep the session using it',
+      id: 'antifan:terminal:close-session',
+      label: 'Close the terminal session that owns this page (✕ on the terminal tab in the terminal workbench), or stop the agent session running in it',
     }]);
   });
 
@@ -351,8 +351,8 @@ describe('Refused close/quit notice', () => {
       );
     }
     assert.deepStrictEqual(rowControls(otherRows[1]), [{
-      id: 'antifan:terminal:remove-tab',
-      label: 'Unbind this page from the terminal in the terminal workbench (✕ on the terminal tab), or stop or sleep the session using it',
+      id: 'antifan:terminal:close-session',
+      label: 'Close the terminal session that owns this page (✕ on the terminal tab in the terminal workbench), or stop the agent session running in it',
     }]);
   });
 

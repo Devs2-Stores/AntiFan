@@ -116,7 +116,7 @@ describe('Terminal Split Hardened 10-Round Verification Suite', () => {
     // the same transition. A split left running under a sleeping parent keeps a shell
     // alive for a tab the user believes is parked, and its row leaks out of the parent's
     // group in the sidebar — the group a pane inherits comes from the awake parent.
-    assert.strictEqual(tm.sleepSession(parent), true);
+    assert.deepStrictEqual(tm.sleepSession(parent), { ok: true });
     assert.strictEqual(tm.getSession(parent)?.state, 'sleeping');
     assert.strictEqual(tm.getSession(split)?.state, 'sleeping');
     assert.strictEqual(tm.getSession(split)?.pty, null, 'the parked pane releases its shell');
@@ -128,14 +128,14 @@ describe('Terminal Split Hardened 10-Round Verification Suite', () => {
 
     // The mirror rule: waking a pane wakes the tab that owns it, so a keystroke in the
     // lower pane can never leave a live shell under a parked parent.
-    assert.strictEqual(tm.sleepSession(parent), true);
+    assert.deepStrictEqual(tm.sleepSession(parent), { ok: true });
     assert.strictEqual(tm.wakeSession(split), true);
     assert.strictEqual(tm.getSession(parent)?.state, 'running');
     assert.strictEqual(tm.getSession(split)?.state, 'running');
 
     // A pane can still be parked on its own; the tab it splits keeps running, and the
     // toggle is still the pane's wake path.
-    assert.strictEqual(tm.sleepSession(split), true);
+    assert.deepStrictEqual(tm.sleepSession(split), { ok: true });
     assert.strictEqual(tm.getSession(parent)?.state, 'running');
     assert.strictEqual(tm.getSession(split)?.state, 'sleeping');
     assert.strictEqual(tm.createSplitSession(parent), split);

@@ -42,6 +42,7 @@ export const HOST_METHOD = {
   sleepSession: 'terminalSleepSession',
   wakeSession: 'terminalWakeSession',
   setCategory: 'terminalSetCategory',
+  setSessionRole: 'terminalSetSessionRole',
   setCapsule: 'terminalSetCapsule',
   /**
    * Re-stamp one live session's owner key and capsule. Dotted deliberately: unlike its siblings,
@@ -79,6 +80,10 @@ export interface HostNewSessionParams {
    * the legacy capsule/workspace-tag attribution so old clients keep today's visibility.
    */
   ownerKey?: string;
+  /** `role`, `idlePolicy`, `spaceTerminalId`: stamped at creation, never by a follow-up call. */
+  role?: string;
+  idlePolicy?: string;
+  spaceTerminalId?: string;
   parentId?: string;
   cols?: number;
   rows?: number;

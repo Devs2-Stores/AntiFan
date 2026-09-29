@@ -71,6 +71,7 @@ function applyShellScope(source) {
   shellScope.workspacePath = scopedWorkspace || legacyWorkspace;
 
   renderShellScopeChip();
+  refreshManagerHubButtons();
 
   // A manager shell presents terminals from many capsules and labels them by capsule, so it
   // needs the id→name index before it can name what it is showing. The picker refreshes
@@ -775,7 +776,8 @@ let pointerTabDrag = null;
 function commitCategoryDrop(sourceId, header) {
   if (!sourceId || !header) return;
   const key = header.getAttribute('data-category') || UNCATEGORIZED_CATEGORY;
-  if (key === SLEEPING_CATEGORY) return;
+  // A derived key is a record Main owns, so a drop can never spell one into a category.
+  if (key === SLEEPING_CATEGORY || isDerivedGroupKey(key)) return;
   const session = findSession(sourceId);
   if (!session) return;
   const target = key === UNCATEGORIZED_CATEGORY ? '' : key;
@@ -1000,6 +1002,21 @@ function isCapsuleGroupKey(key) {
   return typeof key === 'string' && key.startsWith(CAPSULE_GROUP_PREFIX) && key.length > CAPSULE_GROUP_PREFIX.length;
 }
 
+/** Group-key namespace for a folder section — the manager's real grouping. Prefixed for the
+ *  same reason the capsule namespace is: a key is never a user-typed group name. */
+const FOLDER_GROUP_PREFIX = 'folder:';
+
+function isFolderGroupKey(key) {
+  return typeof key === 'string' && key.startsWith(FOLDER_GROUP_PREFIX) && key.length > FOLDER_GROUP_PREFIX.length;
+}
+
+/** A key derived from Main's own records (a folder, a capsule) rather than typed by the user.
+ *  This is the guard every `terminalCategories` write goes through: the user list must never
+ *  be able to capture a key the process invented. */
+function isDerivedGroupKey(key) {
+  return isCapsuleGroupKey(key) || isFolderGroupKey(key);
+}
+
 /** Capsule id -> { id, name, workspacePath, projectId } behind the rows on screen. */
 let capsuleIndex = new Map();
 let capsuleIndexLoaded = false;
@@ -1075,17 +1092,45 @@ function capsulePathOf(capsuleId) {
 }
 
 /**
- * The group a row belongs in for this shell: its capsule in the manager, its category
- * everywhere else — and its category in the manager too when it carries no capsule, which is
- * what keeps a terminal that was never given a workspace reachable.
+ * The group a row belongs in for this shell: its real folder in the manager, its category
+ * everywhere else — and its category in the manager too when the row carries no stamped
+ * folder, which is what keeps a terminal that was never given a workspace reachable. A
+ * manager row predating the projection keeps its capsule section: grouping by a missing
+ * `folderKey` would collapse every older row into the catch-all.
  */
 function rowGroupKeyOf(session) {
-  const capsuleId = isSharedManagerShell() ? capsuleIdOf(session) : '';
-  return capsuleId ? CAPSULE_GROUP_PREFIX + capsuleId : categoryKeyOf(session);
+  if (isSharedManagerShell()) {
+    const folderKey = session && typeof session.folderKey === 'string' ? session.folderKey.trim() : '';
+    if (folderKey) return FOLDER_GROUP_PREFIX + folderKey;
+    const capsuleId = capsuleIdOf(session);
+    if (capsuleId) return CAPSULE_GROUP_PREFIX + capsuleId;
+  }
+  return categoryKeyOf(session);
 }
 
-/** The group record for one key: a capsule section in the manager, a category group otherwise. */
-function buildGroupForKey(key) {
+/**
+ * The group record for one key, seeded by the row that created it: a folder section in the
+ * manager carries the folder's label, its real path and the capsule that can speak for it,
+ * while a user group keeps its own name. The `row` is optional because a seeded category has
+ * no row behind it.
+ */
+function buildGroupForKey(key, row) {
+  if (isFolderGroupKey(key)) {
+    const folderLabel = row && typeof row.folderLabel === 'string' && row.folderLabel.trim()
+      ? row.folderLabel.trim()
+      : key.slice(FOLDER_GROUP_PREFIX.length);
+    const folderPath = row && typeof row.folderPath === 'string' ? row.folderPath : '';
+    return {
+      key,
+      kind: 'folder',
+      capsuleId: capsuleIdOf(row) || '',
+      folderPath,
+      label: folderLabel,
+      color: derivedCategoryColorOf(key),
+      hint: folderPath,
+      items: [],
+    };
+  }
   if (isCapsuleGroupKey(key)) {
     const capsuleId = key.slice(CAPSULE_GROUP_PREFIX.length);
     return {
@@ -1136,10 +1181,16 @@ function groupSessionsByCategory(list) {
     const key = groupKeyOf(s, keyBySessionId);
     let group = byKey.get(key);
     if (!group) {
-      group = buildGroupForKey(key);
+      group = buildGroupForKey(key, s);
       byKey.set(key, group);
       groups.push(group);
       if (!categoryOrder.includes(key)) categoryOrder.push(key);
+    }
+    // A later row in the same folder may carry the capsule its group could not name at
+    // creation; the first usable one wins so the header's actions can always find it.
+    if (group.kind === 'folder' && !group.capsuleId) {
+      const rowCapsule = capsuleIdOf(s);
+      if (rowCapsule) group.capsuleId = rowCapsule;
     }
     group.items.push(s);
   }
@@ -3146,9 +3197,25 @@ btnNewCategory.onclick = (e) => {
   startNewCategory(btnNewCategory);
 };
 
+// The manager's folder-scoped mint lives beside the generic one: `+` asks the workspace of
+// the window it sits in, this asks the user for the folder. Hidden until Main describes the
+// shell — `refreshManagerHubButtons` owns its visibility.
+const btnNewInFolder = document.createElement('button');
+btnNewInFolder.type = 'button';
+btnNewInFolder.id = 'btnNewInFolder';
+btnNewInFolder.className = 'terminal-tab-new-folder';
+btnNewInFolder.textContent = '+';
+btnNewInFolder.title = 'Terminal mới trong thư mục…';
+btnNewInFolder.setAttribute('aria-label', 'Terminal mới trong thư mục…');
+btnNewInFolder.style.display = 'none';
+btnNewInFolder.onclick = (e) => {
+  e.stopPropagation();
+  void createTerminalInFolder('');
+};
+
 // `#btnNewTerminal` is declared in standalone.html as the strip's first child; it moves
 // into this row so the search field can take the remaining width.
-tabToolbar.append(tabSearchField, btnNewTerminal, btnNewCategory);
+tabToolbar.append(tabSearchField, btnNewTerminal, btnNewInFolder, btnNewCategory);
 if (tabsEl) tabsEl.insertBefore(tabToolbar, tabsEl.firstChild);
 
 tabSearchInput.addEventListener('input', () => {
@@ -3683,12 +3750,58 @@ function compareCapsuleNames(a, b) {
 
 
 /**
+ * "Dự án mới từ thư mục này": resolve the session's own folder to a project, open it, then
+ * hand the session to that project's window. The folder on the wire is the session row's —
+ * a generic picker could attach the terminal to a project it was never running in.
+ */
+async function assignSessionToNewProjectFromFolder(sessionId) {
+  const baseId = findSession(sessionId)?.splitOf || sessionId;
+  const session = findSession(baseId);
+  const folder = typeof session?.folderPath === 'string' ? session.folderPath.trim() : '';
+  if (!folder) {
+    showTerminalNotice('Terminal này không biết đang chạy trong thư mục nào', true);
+    return;
+  }
+  if (capsuleAssignmentsInFlight.has(baseId)) return;
+  if (!api?.openProjectFromFolder) {
+    showTerminalNotice('Không thể mở dự án: preload thiếu openProjectFromFolder', true);
+    return;
+  }
+  capsuleAssignmentsInFlight.add(baseId);
+  showTerminalNotice(`Đang mở dự án của thư mục ${folder}…`, false);
+  try {
+    const result = await api.openProjectFromFolder(folder);
+    if (!result || (result.status !== 'OPENED' && result.status !== 'FOCUSED')) {
+      if (result && result.status !== 'CANCELLED') {
+        showTerminalNotice(projectOpenFailureText(result.reason), true);
+      }
+      return;
+    }
+    const projectId = typeof result.projectId === 'string' ? result.projectId : '';
+    if (!projectId) {
+      showTerminalNotice('Dự án mở nhưng không rõ định danh', true);
+      return;
+    }
+    const assign = await api.assignTerminalProject?.(baseId, projectId);
+    if (!assign || assign.ok !== true) {
+      showTerminalNotice(assignRefusalText(assign && assign.reason, assign && assign.message), true);
+      return;
+    }
+    showTerminalNotice(`Đã gắn "${(session && session.name) || baseId}" vào dự án`, false);
+  } catch (err) {
+    showTerminalNotice(`Không gắn được dự án: ${bridgeErrorText(err)}`, true);
+  } finally {
+    capsuleAssignmentsInFlight.delete(baseId);
+  }
+}
+
+/**
  * The searchable project picker.
  *
  * Uses the same Main-owned project inventory as Open Project, never the historical
  * capsule store. Main reports whether each project's ownership can be resolved safely.
  */
-function showCapsulePicker(sessionId, anchorEl) {
+function showCapsulePicker(sessionId, anchorEl, options) {
   const popover = document.getElementById('capsulePickerPopover');
   if (!popover) return;
 
@@ -3696,6 +3809,10 @@ function showCapsulePicker(sessionId, anchorEl) {
   const currentCapsuleId = capsuleIdOf(session);
   const currentOwner = typeof session?.ownerKey === 'string' ? session.ownerKey : '';
   const currentProjectId = currentOwner.startsWith('project:') ? currentOwner.slice('project:'.length) : '';
+  // `newFromFolder` pins the folder-scoped open on top of the inventory: the triage row's
+  // "Gắn vào…" offers it, and its answer is the session's own folder — never a guess.
+  const opts = options && typeof options === 'object' ? options : {};
+  const newFromFolder = Boolean(opts.newFromFolder) && typeof api?.openProjectFromFolder === 'function';
 
   if (activeCapsulePickerClose) activeCapsulePickerClose();
   popover.innerHTML = '';
@@ -3727,6 +3844,20 @@ function showCapsulePicker(sessionId, anchorEl) {
   list.setAttribute('role', 'listbox');
   list.setAttribute('aria-label', 'Danh sách dự án');
   popover.appendChild(list);
+  if (newFromFolder) {
+    const folderItem = document.createElement('div');
+    folderItem.className = 'terminal-capsule-picker-item terminal-capsule-picker-new-folder';
+    folderItem.setAttribute('role', 'option');
+    folderItem.setAttribute('aria-selected', 'false');
+    folderItem.textContent = 'Dự án mới từ thư mục này';
+    folderItem.title = 'Mở (hoặc tạo) dự án đúng thư mục Terminal đang chạy, rồi gắn nó vào';
+    folderItem.onclick = (ev) => {
+      ev.stopPropagation();
+      close();
+      void assignSessionToNewProjectFromFolder(sessionId);
+    };
+    popover.appendChild(folderItem);
+  }
 
   let entries = [];
   /** Rows that can actually be picked this paint, in paint order. */
@@ -4668,6 +4799,18 @@ function showContextMenu(e, sessionId) {
       ? 'Khởi động lại shell trong cùng thư mục làm việc'
       : 'Chỉ áp dụng cho tab đang ngủ';
   }
+  const syncItem = contextMenu.querySelector('.context-item[data-action="sync-role"]');
+  if (syncItem) {
+    const isSync = Boolean(targetSession && targetSession.role === 'sync');
+    const syncLabel = syncItem.querySelector('span:last-child');
+    if (syncLabel) syncLabel.textContent = isSync ? 'Bỏ đánh dấu sync (Clear sync)' : 'Đánh dấu là sync (Mark as sync)';
+    const syncBlocked = isAgentOwnedSession(targetSession) || Boolean(targetSession && targetSession.splitOf);
+    syncItem.classList.toggle('is-disabled', syncBlocked);
+    syncItem.setAttribute('aria-disabled', syncBlocked ? 'true' : 'false');
+    syncItem.title = isSync
+      ? 'Cho phép tab này ngủ trở lại'
+      : 'Tab chạy watcher đồng bộ theme: không bao giờ bị ngủ nhầm (ngủ sẽ giết tiến trình)';
+  }
   const categoryItem = contextMenu.querySelector('.context-item[data-action="category"]');
   if (categoryItem) {
     const currentCategory = (targetSession && typeof targetSession.category === 'string') ? targetSession.category.trim() : '';
@@ -4792,7 +4935,20 @@ contextMenu?.querySelectorAll('.context-item').forEach((item) => {
       // Sleeping an already-sleeping tab is a no-op: main would have nothing to
       // release, and the round-trip only risks a redundant broadcast.
       if (targetId && !isSessionSleeping(targetId)) {
-        await api?.sleepTerminal?.(targetId);
+        const slept = await api?.sleepTerminal?.(targetId);
+        if (slept && slept.ok === false && slept.reason === 'SLEEP_REFUSED_WATCHER') {
+          showTerminalNotice('Tab này được đánh dấu sync: ngủ sẽ giết watcher. Bỏ đánh dấu sync trước khi cho ngủ.');
+        }
+      }
+    } else if (action === 'sync-role') {
+      if (targetId && !isAgentOwnedSession(findSession(targetId))) {
+        const owner = findSession(targetId)?.splitOf || targetId;
+        const wantSync = findSession(owner)?.role !== 'sync';
+        let res = await api?.setTerminalRole?.(owner, wantSync ? 'sync' : null);
+        if (res && res.reason === 'SYNC_DUPLICATE' && window.confirm(`Đã có terminal sync "${res.duplicate?.label || ''}" cho cùng theme. Hai watcher cùng đẩy lên một theme sẽ ghi đè nhau. Vẫn đánh dấu?`)) {
+          res = await api?.setTerminalRole?.(owner, 'sync', { acknowledgeDuplicate: true });
+        }
+        if (res && res.ok === false && res.reason !== 'SYNC_DUPLICATE') showTerminalNotice('Không đổi được vai trò sync của terminal này');
       }
     } else if (action === 'wake') {
       if (targetId && isSessionSleeping(targetId)) {
@@ -4870,7 +5026,10 @@ function startInlineRename(sessionId, tabWrapEl, titleSpanEl) {
   if (tabWrapEl.classList.contains('renaming')) return;
   tabWrapEl.classList.add('renaming');
 
-  const currentName = titleSpanEl.textContent || '';
+  // The rename field edits the session's real name, not the folder badge a minted row
+  // shows: seeding the badge would write "myFolder · 1" over the persisted name.
+  const renamed = sessions.find((s) => s.id === sessionId);
+  const currentName = (renamed && typeof renamed.name === 'string' && renamed.name) || titleSpanEl.textContent || '';
   const input = document.createElement('input');
   input.type = 'text';
   input.className = 'terminal-tab-rename-input';
@@ -5232,6 +5391,10 @@ function applyRunCardStates(payload) {
     const sid = wrap.getAttribute('data-session-id');
     if (sid) applyRunCardToWrap(wrap, sid);
   }
+  // A run card's state also paints its folder header's tally and the triage row that lists
+  // the session; the triage rebuild is the repaint its stale button state needs.
+  refreshAllFolderHeaderCounts();
+  if (triageEl && triageEl.parentNode === tabsEl) ensureTriageSection();
 }
 
 /** Create or repaint the run card of one tab wrap from `runCards`. */
@@ -5239,6 +5402,47 @@ function applyRunCardToWrap(wrap, sessionId) {
   const card = runCards.get(sessionId);
   let cardEl = wrap.querySelector('.terminal-run-card');
   let stripDot = wrap.querySelector('.terminal-run-strip-dot');
+
+  // The run's state is text, not just colour: the strip dot and the sidebar card carry it
+  // spatially, while this badge is what a row actually *says* is happening on it. A row with
+  // no run and a finished one both wear nothing — noise is the state that says "idle".
+  let badge = wrap.querySelector('.terminal-tab-run-badge');
+  if (card && (card.state === 'running' || card.state === 'waiting_user' || card.state === 'idle')) {
+    if (!badge) {
+      const btn = wrap.querySelector('.terminal-tab');
+      if (btn) {
+        badge = document.createElement('span');
+        badge.className = 'terminal-tab-run-badge';
+        btn.appendChild(badge);
+      }
+    }
+    if (badge) {
+      const badgeClass = `terminal-tab-run-badge run-${card.state}`;
+      if (badge.className !== badgeClass) badge.className = badgeClass;
+      const text = RUN_CARD_STATE_LABELS[card.state] || card.state;
+      if (badge.textContent !== text) badge.textContent = text;
+    }
+  } else if (badge) {
+    badge.remove();
+  }
+
+  // A sync-role terminal is a theme watcher: its badge says why it cannot be slept.
+  const rowSession = findSession(sessionId);
+  let syncBadge = wrap.querySelector('.terminal-tab-sync-badge');
+  if (rowSession && rowSession.role === 'sync') {
+    if (!syncBadge) {
+      const btn = wrap.querySelector('.terminal-tab');
+      if (btn) {
+        syncBadge = document.createElement('span');
+        syncBadge.className = 'terminal-tab-sync-badge';
+        syncBadge.textContent = 'sync';
+        syncBadge.title = 'Watcher đồng bộ theme: không tự ngủ';
+        btn.appendChild(syncBadge);
+      }
+    }
+  } else if (syncBadge) {
+    syncBadge.remove();
+  }
 
   if (!card) {
     if (cardEl) cardEl.remove();
@@ -5740,7 +5944,7 @@ function ensureTerminalTabWrap(s, currentWraps) {
 
     const titleSpan = document.createElement('span');
     titleSpan.className = 'terminal-tab-title';
-    titleSpan.textContent = s.name;
+    titleSpan.textContent = s.displayLabel || s.name;
 
     // A split row is drawn one level in (CSS) and carries this glyph, so "Terminal
     // split-1" reads as a pane of the tab above it instead of a tab of its own.
@@ -5754,7 +5958,7 @@ function ensureTerminalTabWrap(s, currentWraps) {
     if (isSessionSleeping(s.id)) beacon.classList.add('sleeping');
 
     b.append(icon, splitGlyph, titleSpan, beacon);
-    b.title = `${s.name} (Nhấp đúp hoặc chuột phải để đổi tên, kéo thả để sắp xếp)`;
+    b.title = `${s.name}${s.folderPath ? ` — ${s.folderPath}` : ''} (Nhấp đúp hoặc chuột phải để đổi tên, kéo thả để sắp xếp)`;
 
     b.onclick = () => {
       if (wrap.classList.contains('renaming')) return;
@@ -5811,10 +6015,11 @@ function ensureTerminalTabWrap(s, currentWraps) {
   } else {
     wrap.classList.toggle('active', isActive);
     const titleSpan = wrap.querySelector('.terminal-tab-title');
-    if (titleSpan && !wrap.classList.contains('renaming') && titleSpan.textContent !== s.name) {
-      titleSpan.textContent = s.name;
+    const shownName = s.displayLabel || s.name;
+    if (titleSpan && !wrap.classList.contains('renaming') && titleSpan.textContent !== shownName) {
+      titleSpan.textContent = shownName;
     }
-    wrap.querySelector('.terminal-tab')?.setAttribute('title', `${s.name} (Nhấp đúp hoặc chuột phải để đổi tên, kéo thả để sắp xếp)`);
+    wrap.querySelector('.terminal-tab')?.setAttribute('title', `${s.name}${s.folderPath ? ` — ${s.folderPath}` : ''} (Nhấp đúp hoặc chuột phải để đổi tên, kéo thả để sắp xếp)`);
     // The glyph is created with the wrap, but the parent's name is live: a renamed
     // parent has to show up in the child's tooltip, not the name it had at creation.
     const splitGlyph = wrap.querySelector('.terminal-tab-split-glyph');
@@ -5861,16 +6066,16 @@ function ensureCategoryHeader(group) {
     // Marking, colouring and reordering are the same right as renaming, so they share
     // one guard: neither derived bucket can be renamed — the catch-all has no name to
     // change, and the sleep bucket's name is a state, not a category — and neither can
-    // be marked, coloured or moved for the same reason. A capsule section is out for the
-    // same reason again: it is named by the project store, not by the user, and letting the
-    // group menu write one into `terminalCategories` would file a project as a group.
-    // Dropping is the opposite — releasing a tab onto the catch-all is precisely how a tab
-    // leaves its group — so the sleep bucket and capsule sections refuse drops, because
-    // "file this terminal under a state" and "file this terminal under a storefront" are not
-    // operations a drag can mean.
-    const isCapsuleGroup = group.kind === 'capsule';
-    const canManage = !isCapsuleGroup && group.key !== UNCATEGORIZED_CATEGORY && group.key !== SLEEPING_CATEGORY;
-    const canAcceptDrop = !isCapsuleGroup && group.key !== SLEEPING_CATEGORY;
+    // be marked, coloured or moved for the same reason. A folder or capsule section is out
+    // for the same reason again: it is named by a record Main owns, not by the user, and
+    // letting the group menu write one into `terminalCategories` would file a filesystem
+    // path as a group. Dropping is the opposite — releasing a tab onto the catch-all is
+    // precisely how a tab leaves its group — so the sleep bucket and the derived sections
+    // refuse drops, because "file this terminal under a state" and "file this terminal
+    // under a folder" are not operations a drag can mean.
+    const isDerivedGroup = group.kind === 'capsule' || group.kind === 'folder';
+    const canManage = !isDerivedGroup && group.key !== UNCATEGORIZED_CATEGORY && group.key !== SLEEPING_CATEGORY;
+    const canAcceptDrop = !isDerivedGroup && group.key !== SLEEPING_CATEGORY;
 
     // A rename affordance owned by the header itself: renaming a group is its own
     // operation and must not require right-clicking a tab.
@@ -5903,9 +6108,10 @@ function ensureCategoryHeader(group) {
     };
 
     header.append(toggle, star, label);
-    if (isCapsuleGroup && typeof api?.capsuleGetBrief === 'function') {
-      // The pinned brief is capsule metadata; its editor opens from the header that
-      // names the capsule. The key is read back live, like the rename beside it.
+    if (isDerivedGroup && typeof api?.capsuleGetBrief === 'function') {
+      // The pinned brief is capsule metadata; its editor opens from whichever section can
+      // speak for that capsule — a capsule group names it in the key, a folder group keeps
+      // the id its rows carried as `data-capsule-id`, refreshed below.
       const briefBtn = document.createElement('button');
       briefBtn.type = 'button';
       briefBtn.className = 'terminal-tab-category-brief';
@@ -5917,9 +6123,48 @@ function ensureCategoryHeader(group) {
         const key = header.getAttribute('data-category');
         if (isCapsuleGroupKey(key)) {
           openCapsuleBriefDialog(key.slice(CAPSULE_GROUP_PREFIX.length));
+          return;
         }
+        const capsuleId = header.getAttribute('data-capsule-id') || '';
+        if (capsuleId) openCapsuleBriefDialog(capsuleId);
       };
       header.appendChild(briefBtn);
+    }
+    if (group.kind === 'folder' && typeof api?.newTerminalInFolder === 'function') {
+      // The mint's folder is the group's own: `data-folder-path` is read back live because
+      // the header element is reused while its group object is rebuilt every render.
+      const mintBtn = document.createElement('button');
+      mintBtn.type = 'button';
+      mintBtn.className = 'terminal-tab-category-mint';
+      mintBtn.setAttribute('data-role', 'mint');
+      mintBtn.textContent = '+';
+      mintBtn.title = 'Terminal mới trong thư mục này';
+      mintBtn.setAttribute('aria-label', 'Terminal mới trong thư mục này');
+      mintBtn.onclick = (e) => {
+        e.stopPropagation();
+        void createTerminalInFolder(header.getAttribute('data-folder-path') || '');
+      };
+      header.appendChild(mintBtn);
+    }
+    if (group.kind === 'folder' && typeof api?.openSpace === 'function') {
+      const spaceBtn = document.createElement('button');
+      spaceBtn.type = 'button';
+      spaceBtn.className = 'terminal-tab-category-mint';
+      spaceBtn.textContent = 'Space';
+      spaceBtn.title = 'Mở Space của thư mục này (.antifan/space.json). Shift+click: tạo space.json từ trạng thái hiện tại';
+      spaceBtn.setAttribute('aria-label', 'Mở Space của thư mục này');
+      spaceBtn.onclick = (e) => {
+        e.stopPropagation();
+        void openFolderSpace(header.getAttribute('data-folder-path') || '', e.shiftKey);
+      };
+      header.appendChild(spaceBtn);
+    }
+    if (group.kind === 'folder') {
+      // Live run-state counts for the section: a span `renderTabs` fills and the run-card
+      // push refreshes, so "đang chạy / chờ bạn" is read without opening the group.
+      const counts = document.createElement('span');
+      counts.className = 'terminal-tab-category-run-counts';
+      header.appendChild(counts);
     }
     if (canManage) header.append(rename, menu);
     header.addEventListener('click', (e) => {
@@ -5978,7 +6223,24 @@ function ensureCategoryHeader(group) {
   // Which axis the section names is refreshed here rather than only at creation: a key is
   // reused across renders, and the marker is what tells a project section from a user group.
   header.classList.toggle('is-capsule-group', group.kind === 'capsule');
-  header.setAttribute('data-group-kind', group.kind === 'capsule' ? 'capsule' : 'category');
+  header.classList.toggle('is-folder-group', group.kind === 'folder');
+  header.setAttribute('data-group-kind', group.kind === 'capsule' || group.kind === 'folder' ? group.kind : 'category');
+  // The group's folder is stamped live because the capsule and path behind a reused header
+  // can change while its key cannot: one folder, always the folder Main reports now.
+  if (group.kind === 'folder') {
+    header.setAttribute('data-folder-path', typeof group.folderPath === 'string' ? group.folderPath : '');
+    if (typeof group.capsuleId === 'string' && group.capsuleId) header.setAttribute('data-capsule-id', group.capsuleId);
+    else header.removeAttribute('data-capsule-id');
+    const briefBtn = header.querySelector('.terminal-tab-category-brief');
+    if (briefBtn) briefBtn.style.display = group.capsuleId ? '' : 'none';
+    const mintBtn = header.querySelector('[data-role="mint"]');
+    if (mintBtn) mintBtn.style.display = group.folderPath ? '' : 'none';
+    folderHeaderSessionIds.set(group.key, group.items.map((item) => (item && typeof item.id === 'string') ? item.id : '').filter(Boolean));
+    refreshFolderHeaderCounts(header);
+  } else {
+    header.removeAttribute('data-folder-path');
+    if (group.kind !== 'capsule') header.removeAttribute('data-capsule-id');
+  }
 
   // While a filter is applied every surviving group is shown open: a collapsed group
   // hiding the very match the user just searched for would look like a failed search.
@@ -5989,6 +6251,212 @@ function ensureCategoryHeader(group) {
   // storefronts with the same title apart — the workspace behind it does that.
   header.title = group.hint ? `${collapseTitle} — ${group.hint}` : collapseTitle;
   return header;
+}
+
+/** Session ids behind each live folder header, so a run-card push can re-count without a
+ *  second render pass. Keys are folder group keys; entries die with the header itself. */
+const folderHeaderSessionIds = new Map();
+
+/** Repaint one folder header's "đang chạy / chờ bạn" tally from the pushed run cards. */
+function refreshFolderHeaderCounts(header) {
+  const counts = header && header.querySelector ? header.querySelector('.terminal-tab-category-run-counts') : null;
+  if (!counts) return;
+  const ids = folderHeaderSessionIds.get(header.getAttribute('data-category') || '') || [];
+  let running = 0;
+  let waiting = 0;
+  for (const id of ids) {
+    const card = runCards.get(id);
+    if (!card) continue;
+    if (card.state === 'running') running += 1;
+    else if (card.state === 'waiting_user') waiting += 1;
+  }
+  const text = `${running ? `▶ ${running}` : ''}${running && waiting ? '  ' : ''}${waiting ? `◔ ${waiting}` : ''}`;
+  if (counts.textContent !== text) counts.textContent = text;
+}
+
+/** Re-count every live folder header after the run-card projection changes. */
+function refreshAllFolderHeaderCounts() {
+  for (const [key, header] of categoryHeaders) {
+    if (isFolderGroupKey(key)) refreshFolderHeaderCounts(header);
+  }
+}
+
+/**
+ * Mint a terminal bound to one folder and nothing else. `folder` of '' asks for the chooser;
+ * a path is sent to Main as-is and resolved there — this call never moves a capsule, a cwd,
+ * or another window's shell, which is what makes it safe for a group header to fire.
+ */
+async function createTerminalInFolder(folder) {
+  if (!api?.newTerminalInFolder) {
+    showTerminalNotice('Không tạo được Terminal: preload thiếu newTerminalInFolder');
+    return;
+  }
+  const path = typeof folder === 'string' ? folder.trim() : '';
+  try {
+    const result = await api.newTerminalInFolder(path || undefined);
+    if (result && typeof result === 'object' && result.ok === true) return;
+    const reason = result && typeof result === 'object' ? result.reason : '';
+    if (reason === 'CANCELLED') return;
+    const text = reason === 'FOLDER_INVALID' ? 'Thư mục không hợp lệ hoặc không truy cập được'
+      : reason === 'FOLDER_NOT_OWNED' ? 'Cửa sổ này chỉ mở Terminal trong đúng thư mục workspace của nó'
+      : (result && typeof result === 'object' && typeof result.message === 'string' && result.message) || 'Không tạo được Terminal';
+    showTerminalNotice(`Không tạo được Terminal: ${text}`);
+  } catch (err) {
+    showTerminalNotice(`Không tạo được Terminal: ${bridgeErrorText(err)}`);
+  }
+}
+
+const SPACE_REFUSAL_TEXT = {
+  NO_MANIFEST: 'Thư mục chưa có .antifan/space.json (Shift+click nút Space để tạo)',
+  MANIFEST_INVALID: 'space.json không hợp lệ',
+  CONFIRM_MISMATCH: 'space.json đã đổi sau khi hiển thị lệnh; mở lại để xem lại',
+  FOLDER_INVALID: 'Thư mục không hợp lệ hoặc không truy cập được',
+  FOLDER_NOT_OWNED: 'Cửa sổ này chỉ mở Space của thư mục workspace của nó',
+  ALREADY_EXISTS: 'space.json đã tồn tại, không ghi đè',
+};
+
+/**
+ * Open (or, with `create`, scaffold) the Space a folder declares. Main answers the first call with
+ * the exact commands and a content hash; the confirming call echoes that hash, so what the user
+ * approved is what runs.
+ */
+async function openFolderSpace(folder, create) {
+  const path = typeof folder === 'string' ? folder.trim() : '';
+  if (!path) return;
+  try {
+    if (create) {
+      if (typeof api?.createSpaceManifest !== 'function') return;
+      const made = await api.createSpaceManifest(path);
+      showTerminalNotice(made && made.ok === true
+        ? `Đã tạo .antifan/space.json — kiểm tra file rồi bấm Space để mở${made.gitignoreWarning ? '. Lưu ý: thư mục là repo git mà .gitignore chưa chặn .antifan/ (URL có thể riêng tư)' : ''}`
+        : `Không tạo được space.json: ${SPACE_REFUSAL_TEXT[made?.reason] || made?.message || 'lỗi'}`);
+      return;
+    }
+    let result = await api.openSpace(path);
+    if (result && result.ok === false && result.reason === 'NEEDS_CONFIRM') {
+      const lines = result.commands.map((c) => `  ${c.label}: ${c.command}`).join('\n');
+      if (!window.confirm(`Space này sẽ chạy các lệnh sau trong Terminal:\n\n${lines}\n\nTiếp tục?`)) return;
+      result = await api.openSpace(path, result.hash);
+    }
+    if (result && result.ok === true) {
+      const skipped = Array.isArray(result.syncDuplicates) ? result.syncDuplicates : [];
+      const dupNote = skipped.length
+        ? ` - bỏ qua ${skipped.length} watcher sync trùng theme (đang chạy: ${skipped.map((d) => d.duplicate.label).join(', ')})`
+        : '';
+      showTerminalNotice(`Space: +${result.terminalsOpened} terminal, +${result.tabsOpened} tab (đã có: ${result.terminalsReused + result.tabsReused})${dupNote}`);
+      return;
+    }
+    const detail = result && Array.isArray(result.errors) && result.errors.length
+      ? `${result.errors[0].path}: ${result.errors[0].message}`
+      : '';
+    showTerminalNotice(`Không mở được Space: ${SPACE_REFUSAL_TEXT[result?.reason] || result?.message || 'lỗi'}${detail ? ` (${detail})` : ''}`);
+  } catch (err) {
+    showTerminalNotice(`Không mở được Space: ${bridgeErrorText(err)}`);
+  }
+}
+
+/**
+ * Manager-only chrome: the "+ Terminal trong thư mục…" toolbar button and the folder
+ * section affordances are the hub's own reach, so a shell Main has not described — or any
+ * project shell — shows none of them.
+ */
+function refreshManagerHubButtons() {
+  const visible = isSharedManagerShell() && typeof api?.newTerminalInFolder === 'function';
+  if (btnNewInFolder) btnNewInFolder.style.display = visible ? '' : 'none';
+}
+
+/** Session rows the manager may hand to a project: `unassigned` or ownerless, awake or
+ *  asleep, never `agent:` (Main refuses those, and offering them would mint a dead click). */
+function unassignedHubSessions() {
+  if (!isSharedManagerShell()) return [];
+  const list = Array.isArray(sessions) ? sessions : [];
+  return list.filter((s) => {
+    if (!s || s.splitOf || isAgentOwnedSession(s)) return false;
+    const owner = typeof s.ownerKey === 'string' ? s.ownerKey.trim() : '';
+    return !owner || owner === 'unassigned';
+  });
+}
+
+/** The "Chưa gắn dự án" block at the top of the manager's tab strip, or null when the hub
+ *  has nothing unassigned (and for every shell that is not the hub). */
+let triageEl = null;
+function ensureTriageSection() {
+  const rows = unassignedHubSessions();
+  if (rows.length === 0) {
+    if (triageEl && triageEl.parentNode) triageEl.remove();
+    return null;
+  }
+  if (!triageEl) {
+    triageEl = document.createElement('div');
+    triageEl.className = 'terminal-triage-section';
+    const head = document.createElement('div');
+    head.className = 'terminal-triage-header';
+    const title = document.createElement('span');
+    title.className = 'terminal-triage-title';
+    title.textContent = 'Chưa gắn dự án';
+    const count = document.createElement('span');
+    count.className = 'terminal-triage-count';
+    head.append(title, count);
+    if (typeof api?.newTerminalInFolder === 'function') {
+      // The same mint the toolbar button fires: folder-less means "ask the user".
+      const mint = document.createElement('button');
+      mint.type = 'button';
+      mint.className = 'terminal-triage-mint';
+      mint.textContent = '+ Terminal trong thư mục…';
+      mint.title = 'Tạo Terminal mới trong một thư mục chọn';
+      mint.onclick = (e) => { e.stopPropagation(); void createTerminalInFolder(''); };
+      head.appendChild(mint);
+    }
+    const list = document.createElement('div');
+    list.className = 'terminal-triage-list';
+    triageEl.append(head, list);
+  }
+  const count = triageEl.querySelector('.terminal-triage-count');
+  const countText = `${rows.length}`;
+  if (count && count.textContent !== countText) count.textContent = countText;
+  const list = triageEl.querySelector('.terminal-triage-list');
+  if (list) {
+    // The row set changes wholesale on every render: rebuilding it is what keeps a closed
+    // session from leaving a dead assign button on screen.
+    list.innerHTML = '';
+    while (list.firstChild) list.removeChild(list.firstChild);
+    for (const s of rows) list.appendChild(buildTriageRow(s));
+  }
+  return triageEl;
+}
+
+/** One triage row: the terminal's label and folder, its run state, and its assign button. */
+function buildTriageRow(s) {
+  const row = document.createElement('div');
+  row.className = 'terminal-triage-row';
+  row.setAttribute('data-session-id', s.id);
+  const name = document.createElement('span');
+  name.className = 'terminal-triage-name';
+  name.textContent = s.displayLabel || s.name || s.id;
+  name.title = s.name || '';
+  const path = document.createElement('span');
+  path.className = 'terminal-triage-path';
+  path.textContent = s.folderPath || s.cwd || '';
+  path.title = s.folderPath || s.cwd || '';
+  const card = runCards.get(s.id);
+  const state = document.createElement('span');
+  state.className = `terminal-triage-state${card && card.state === 'waiting_user' ? ' is-waiting' : ''}`;
+  state.textContent = card ? (RUN_CARD_STATE_LABELS[card.state] || card.state || '') : '';
+  const assign = document.createElement('button');
+  assign.type = 'button';
+  assign.className = 'terminal-triage-assign';
+  assign.textContent = 'Gắn vào…';
+  assign.title = 'Chọn dự án để gắn Terminal này';
+  assign.onclick = (e) => {
+    e.stopPropagation();
+    showCapsulePicker(s.id, assign, { newFromFolder: true });
+  };
+  row.append(name, path, state, assign);
+  // The row itself opens the terminal; only the button is its own action.
+  row.onclick = () => {
+    try { api?.switchTerminal?.(s.id); } catch {}
+  };
+  return row;
 }
 
 function toggleCategoryCollapsed(key) {
@@ -6004,10 +6472,10 @@ function displayCategoryOrder() {
   const seen = new Set();
   const add = (key) => {
     if (!key || key === UNCATEGORIZED_CATEGORY || key === SLEEPING_CATEGORY) return;
-    // A capsule section is drawn in the same sidebar but is not a user group: this list is
-    // what the group menu reorders and writes back into `terminalCategories`, which is the
-    // list Main persists, so a project key must never be able to enter it.
-    if (isCapsuleGroupKey(key)) return;
+    // A folder or capsule section is drawn in the same sidebar but is not a user group:
+    // this list is what the group menu reorders and writes back into `terminalCategories`,
+    // which is the list Main persists, so a key the process derived must never enter it.
+    if (isDerivedGroupKey(key)) return;
     if (seen.has(key)) return;
     seen.add(key);
     out.push(key);
@@ -6072,7 +6540,7 @@ function moveCategory(key, delta) {
 function showCategoryMenu(key, anchorEl) {
   const popover = document.getElementById('categoryPickerPopover');
   if (!popover) return;
-  if (!key || key === UNCATEGORIZED_CATEGORY || key === SLEEPING_CATEGORY) return;
+  if (!key || key === UNCATEGORIZED_CATEGORY || key === SLEEPING_CATEGORY || isDerivedGroupKey(key)) return;
 
   popover.innerHTML = '';
   // A group-level surface, so a leftover per-session binding must not linger.
@@ -6441,6 +6909,11 @@ function sessionMatchesQuery(session, tokens) {
   const capsuleId = capsuleIdOf(session);
   const haystack = [
     foldForSearch(session.name),
+    // The minted row badge is searchable text: typing the folder a row paints is how a user
+    // narrows a mixed hub strip to one project's terminals.
+    foldForSearch(session.displayLabel),
+    foldForSearch(session.folderLabel),
+    foldForSearch(session.folderPath),
     foldForSearch(session.cwd),
     foldForSearch(session.category),
     // In the manager the capsule is the row's grouping, so a query that names a storefront
@@ -6632,6 +7105,10 @@ function renderTabs() {
   }
 
   const ordered = [];
+  // The triage block precedes every group: rows no window owns are the hub's first
+  // business, and it stays reachable in the horizontal strip as a full-width row.
+  const triageNode = ensureTriageSection();
+  if (triageNode) ordered.push(triageNode);
   for (const group of visibleGroups) {
     if (isSidebarLayout) {
       const header = ensureCategoryHeader(group);

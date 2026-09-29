@@ -342,7 +342,7 @@ describe('P1-8: Resource Stability & Eviction Bounds', () => {
 
       // Sleep session: PTY process and subscriptions are torn down
       const slept = tm.sleepSession(sessionId);
-      assert.strictEqual(slept, true, 'sleepSession must succeed');
+      assert.deepStrictEqual(slept, { ok: true }, 'sleepSession must succeed');
 
       const sleepingStats = tm.getStats();
       assert.strictEqual(sleepingStats.sessionCount, 1, 'Session record remains in map');

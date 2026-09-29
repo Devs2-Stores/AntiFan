@@ -35,6 +35,20 @@ test('a chunk after a quiet flush window is emitted immediately so echo never wa
   assert.equal(h.timerArmed(), false);
 });
 
+test('steady-cadence output still emits immediately when a gap exceeds flushMs', () => {
+  // Regression pin: the immediate-emit gate must compare against flushMs, not
+  // the adaptive window. At a steady ~9 ms cadence the adaptive window grows
+  // to ~14 ms; the old gate (`>= win`) batched every chunk even though each
+  // arrived past flushMs, so echo always paid an extra coalesce delay.
+  const h = harness();
+  for (let i = 1; i <= 6; i++) {
+    h.batcher.push(chunk(i, String(i)));
+    h.advance(9);
+  }
+  assert.deepEqual(h.out.map((p) => p.data), ['1', '2', '3', '4', '5', '6']);
+  assert.equal(h.timerArmed(), false);
+});
+
 test('chunks inside the flush window coalesce into one payload with a contiguous seq range', () => {
   const h = harness();
   h.batcher.push(chunk(1, 'a'));

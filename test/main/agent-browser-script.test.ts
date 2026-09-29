@@ -360,7 +360,9 @@ describe('Agent Browser & Element Picker Injected Scripts', () => {
   it('restores the last explicitly selected annotation terminal route', () => {
     assert.ok(ELEMENT_PICKER_SCRIPT.includes('annotationSessionId'), 'Picker must persist annotation terminal selection');
     assert.ok(ELEMENT_PICKER_SCRIPT.includes('rememberedSessionId'), 'Picker must read remembered annotation terminal selection');
-    assert.ok(ELEMENT_PICKER_SCRIPT.includes('opt.selected = s.id === preferredSessionId'), 'Picker must restore selected terminal option');
+    assert.ok(ELEMENT_PICKER_SCRIPT.includes('opt.selected = item.selected'), 'Picker must restore selected terminal option');
+    assert.ok(ELEMENT_PICKER_SCRIPT.includes("createElement('optgroup')"), 'Picker must group options by workspace folder');
+    assert.ok(!ELEMENT_PICKER_SCRIPT.includes('antifan_annotation_session_id'), 'Picker must not persist the choice through origin-shared storage');
     assert.ok(ELEMENT_PICKER_SCRIPT.includes("const selectedSessionId = termSelect.value || 'auto'"), 'Picker must persist Auto when explicitly selected');
     assert.ok(ELEMENT_PICKER_SCRIPT.includes('termContext.annotationSessionId = selectedSessionId'), 'the selected route lands back on the terminal context');
   });

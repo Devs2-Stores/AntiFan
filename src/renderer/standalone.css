@@ -1924,10 +1924,11 @@ button {
   background: rgba(148, 163, 184, 0.18);
 }
 
-/* The two create actions. Icon-only, so each carries an `aria-label`; both are square
-   and fixed-size so adding the search field can never squash them. */
+/* The three create actions. Icon-only (or a `+` glyph), so each carries an `aria-label`;
+   all are square and fixed-size so adding the search field can never squash them. */
 .terminal-tab-toolbar #btnNewTerminal,
-.terminal-tab-new-category {
+.terminal-tab-new-category,
+.terminal-tab-new-folder {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1935,6 +1936,8 @@ button {
   width: 26px;
   height: 26px;
   padding: 0;
+  font-size: 14px;
+  font-weight: 600;
   color: #94a3b8;
   background: #0b1220;
   border: 1px solid rgba(100, 116, 139, 0.35);
@@ -1944,14 +1947,16 @@ button {
 }
 
 .terminal-tab-toolbar #btnNewTerminal:hover,
-.terminal-tab-new-category:hover {
+.terminal-tab-new-category:hover,
+.terminal-tab-new-folder:hover {
   color: #e2e8f0;
   border-color: rgba(56, 189, 248, 0.55);
   background: rgba(56, 189, 248, 0.1);
 }
 
 .terminal-tab-toolbar #btnNewTerminal:focus-visible,
-.terminal-tab-new-category:focus-visible {
+.terminal-tab-new-category:focus-visible,
+.terminal-tab-new-folder:focus-visible {
   outline: 2px solid #38bdf8;
   outline-offset: 1px;
 }
@@ -2583,4 +2588,207 @@ button {
   border-color: rgba(56, 189, 248, 0.6);
   background: rgba(14, 116, 144, 0.5);
   color: #e0f2fe;
+}
+
+/* ---------------------------------------------------------------------------
+   Folder-hub chrome: the manager's grouping sections, per-folder mint, the
+   triage block for sessions no window owns, and the textual run badge.
+   --------------------------------------------------------------------------- */
+
+.terminal-tab-category-mint {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 0 6px;
+  height: 18px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  color: #64748b;
+  background: transparent;
+  border: 1px solid rgba(100, 116, 139, 0.35);
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.terminal-tab-category-mint:hover {
+  color: #e2e8f0;
+  border-color: rgba(56, 189, 248, 0.55);
+  background: rgba(56, 189, 248, 0.12);
+}
+
+.terminal-tab-category-run-counts {
+  flex: 0 0 auto;
+  margin-left: 6px;
+  font-size: 10px;
+  color: #475569;
+  white-space: nowrap;
+}
+
+.terminal-tab-run-badge {
+  flex: 0 0 auto;
+  padding: 0 5px;
+  margin-left: 4px;
+  border-radius: 4px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #94a3b8;
+  background: rgba(100, 116, 139, 0.18);
+}
+
+.terminal-tab-sync-badge {
+  flex: 0 0 auto;
+  padding: 0 5px;
+  margin-left: 4px;
+  border-radius: 4px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #c4b5fd;
+  background: rgba(139, 92, 246, 0.18);
+}
+
+.terminal-tab-run-badge.run-running {
+  color: #5eead4;
+  background: rgba(45, 212, 191, 0.15);
+}
+
+.terminal-tab-run-badge.run-waiting_user {
+  color: #fbbf24;
+  background: rgba(245, 158, 11, 0.15);
+}
+
+.terminal-tab-run-badge.run-idle {
+  color: #94a3b8;
+  background: rgba(100, 116, 139, 0.18);
+}
+
+.terminal-capsule-picker-new-folder {
+  border-bottom: 1px solid rgba(100, 116, 139, 0.2);
+  font-weight: 600;
+  color: #7dd3fc;
+}
+
+.terminal-triage-section {
+  display: block;
+  width: 100%;
+  flex: 0 0 100%;
+  margin: 4px 4px 8px;
+  border: 1px solid rgba(245, 158, 11, 0.28);
+  border-radius: 7px;
+  background: rgba(30, 41, 59, 0.45);
+}
+
+.terminal-triage-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 9px 5px;
+}
+
+.terminal-triage-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #fbbf24;
+}
+
+.terminal-triage-count {
+  font-size: 10px;
+  color: #64748b;
+}
+
+.terminal-triage-mint {
+  margin-left: auto;
+  padding: 1px 7px;
+  height: 18px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #94a3b8;
+  background: transparent;
+  border: 1px solid rgba(100, 116, 139, 0.4);
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.terminal-triage-mint:hover {
+  color: #e2e8f0;
+  border-color: rgba(56, 189, 248, 0.55);
+  background: rgba(56, 189, 248, 0.12);
+}
+
+.terminal-triage-list {
+  padding: 0 5px 5px;
+}
+
+.terminal-triage-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 4px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.terminal-triage-row:hover {
+  background: rgba(148, 163, 184, 0.08);
+}
+
+.terminal-triage-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 600;
+  color: #cbd5e1;
+}
+
+.terminal-triage-path {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+  font-size: 10px;
+  color: #475569;
+}
+
+.terminal-triage-state {
+  flex: 0 0 auto;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 9px;
+  font-weight: 600;
+  color: #94a3b8;
+  background: rgba(100, 116, 139, 0.18);
+}
+
+.terminal-triage-state.run-running {
+  color: #5eead4;
+  background: rgba(45, 212, 191, 0.15);
+}
+
+.terminal-triage-state.run-waiting_user {
+  color: #fbbf24;
+  background: rgba(245, 158, 11, 0.15);
+}
+
+.terminal-triage-assign {
+  flex: 0 0 auto;
+  padding: 1px 7px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #7dd3fc;
+  background: rgba(56, 189, 248, 0.08);
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.terminal-triage-assign:hover {
+  color: #e0f2fe;
+  background: rgba(56, 189, 248, 0.18);
 }

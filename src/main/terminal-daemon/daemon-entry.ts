@@ -308,7 +308,14 @@ function main(): void {
             const ownerKey = typeof p.ownerKey === 'string' && p.ownerKey ? p.ownerKey : undefined;
             const sessionId = typeof p.parentId === 'string' && p.parentId
               ? tm.createSplitSession(p.parentId, cwd, Number(p.cols) || undefined, Number(p.rows) || undefined)
-              : tm.createSession(cwd, capsuleId, ownerKey);
+              : tm.createSession(
+                  cwd,
+                  capsuleId,
+                  ownerKey,
+                  p.role !== undefined || p.idlePolicy !== undefined || p.spaceTerminalId !== undefined
+                    ? { role: p.role, idlePolicy: p.idlePolicy, spaceTerminalId: p.spaceTerminalId }
+                    : undefined,
+                );
             respond(true, { sessionId, sessions: tm.listSessions(), activeSessionId: tm.getActiveSessionId() });
             break;
           }
@@ -333,8 +340,8 @@ function main(): void {
               respond(false, undefined, 'Missing sessionId');
               break;
             }
-            const slept = tm.sleepSession(sessionId);
-            respond(slept, { slept, sessions: tm.listSessions(), activeSessionId: tm.getActiveSessionId() });
+            const result = tm.sleepSession(sessionId);
+            respond(true, { result, sessions: tm.listSessions(), activeSessionId: tm.getActiveSessionId() });
             break;
           }
 
@@ -345,6 +352,17 @@ function main(): void {
               break;
             }
             const ok = tm.setCategory(sessionId, typeof p.category === 'string' ? p.category : undefined);
+            respond(ok, { ok });
+            break;
+          }
+
+          case HOST_METHOD.setSessionRole: {
+            const sessionId = String(p.sessionId || '');
+            if (!sessionId) {
+              respond(false, undefined, 'Missing sessionId');
+              break;
+            }
+            const ok = tm.setSessionRole(sessionId, { role: p.role, idlePolicy: p.idlePolicy, spaceTerminalId: p.spaceTerminalId });
             respond(ok, { ok });
             break;
           }

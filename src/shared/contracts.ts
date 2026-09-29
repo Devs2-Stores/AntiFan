@@ -474,16 +474,30 @@ export type ProjectTabActivationResult =
   | { status: 'ACTIVATED'; tabId: string }
   | { status: 'UNAVAILABLE'; tabId: string; reasonCode: ProjectTabUnavailableCode; reason: string };
 
+
+/** `OPENED` created a shell; `FOCUSED` presented the one that already existed. */
 /** An absent `projectId` asks Main to present its existing project-opening surface. */
 export interface ProjectOpenRequest {
   projectId?: string;
+  /**
+   * Open the project that owns this folder, creating one for it when Main knows none —
+   * the same resolution the picker's folder chooser runs, without the dialog.
+   */
+  folder?: string;
 }
 
-/** `OPENED` created a shell; `FOCUSED` presented the one that already existed. */
+/**
+ * The answer `PROJECT_OPEN` gives the renderer. `OPENED` created a shell, `FOCUSED`
+ * presented the one that already existed, `CANCELLED` is the user closing the picker,
+ * and `FAILED` carries a classed reason (`INVALID_PROJECT_ID`, `UNKNOWN_PROJECT`,
+ * `PROJECT_FOLDER_INVALID`, `AMBIGUOUS_PROJECT_FOLDER`, or a message). `projectId` is
+ * present on every answer that names a real project — including a refused one — so the
+ * caller never has to guess which id the outcome belongs to.
+ */
 export type ProjectOpenResult =
   | { status: 'OPENED'; projectId: string }
   | { status: 'FOCUSED'; projectId: string }
-  | { status: 'CANCELLED' }
+  | { status: 'CANCELLED'; projectId?: string }
   | { status: 'FAILED'; projectId?: string; reason: string };
 
 /**
@@ -635,6 +649,21 @@ export const SIDEBAR_CHANNELS = {
   SET_WIDTH: 'antifan:sidebar:set-width',
 } as const;
 
+/** What a terminal is for, stamped when it is created (or re-stamped by a person). Values are sanitised by the manager. */
+export interface TerminalRoleMeta {
+  role?: unknown;
+  idlePolicy?: unknown;
+  spaceTerminalId?: unknown;
+}
+
+/**
+ * The outcome of one attempt to sleep a terminal: refused for a reason, or done. The IPC route
+ * adds the two envelope refusals (`INVALID_PAYLOAD`, `NOT_PERMITTED`) before the manager is reached.
+ */
+export type TerminalSleepResult =
+  | { ok: true }
+  | { ok: false; reason: 'SLEEP_REFUSED_WATCHER' | 'NOT_RUNNING' | 'INVALID_PAYLOAD' | 'NOT_PERMITTED' };
+
 export const TERMINAL_CHANNELS = {
   START: 'antifan:terminal:start',
   INPUT: 'antifan:terminal:input',
@@ -669,14 +698,81 @@ export const TERMINAL_CHANNELS = {
   WAKE_SESSION: 'antifan:terminal:wake-session',
   SET_CATEGORY: 'antifan:terminal:set-category',
   ASSIGN_PROJECT: 'antifan:terminal:assign-project',
+  /** Mark a human-owned terminal as a theme-sync watcher (or clear it): a watcher refuses sleep. */
+  SET_ROLE: 'antifan:terminal:set-role',
+  /**
+   * Mint a terminal bound to one folder — from a chooser or an explicit `{ folder }` —
+   * without re-pointing any window's capsule or cwd. The folder a project window names
+   * must be its own; the shared manager may name any real directory.
+   */
+  NEW_IN_FOLDER: 'antifan:terminal:new-in-folder',
+  /** Open a folder's declared Space (`.antifan/space.json`): its terminals and web tabs. */
+  SPACE_OPEN: 'antifan:space:open',
+  /** Scaffold `.antifan/space.json` from the folder's current terminals and tabs. Never overwrites. */
+  SPACE_INIT: 'antifan:space:init',
   OPEN_LINK: 'antifan:terminal:open-link',
-  GET_ALL_AFFINITIES: 'antifan:terminal:get-all-affinities',
   SET_TAB_PREFS: 'antifan:terminal:set-tab-prefs',
   /** One run-control request (cancel or steer) aimed at a run bound to a terminal session. */
   RUN_CONTROL: 'antifan:run:control',
   /** The per-window run-card projection, pushed on every run-state change. */
   RUN_STATE: 'antifan:run:state',
 } as const;
+
+/**
+ * Why a folder-bound terminal mint was refused. Each member is a class the renderer can
+ * translate, and none of them is invented success: a chooser the user closed is `CANCELLED`,
+ * a folder the asking window does not own is `FOLDER_NOT_OWNED`, never `ok`.
+ */
+export type TerminalNewInFolderReason =
+  | 'INVALID_PAYLOAD'
+  | 'CANCELLED'
+  | 'FOLDER_INVALID'
+  | 'FOLDER_NOT_OWNED'
+  | 'SENDER_NOT_ADMITTED'
+  | 'CREATE_FAILED';
+
+/**
+ * The answer `antifan:terminal:new-in-folder` gives the renderer: the minted session and
+ * the capsule it was bound to, or a refusal with its class.
+ */
+export type TerminalNewInFolderResult =
+  | { ok: true; sessionId: string; capsuleId: string }
+  | { ok: false; reason: TerminalNewInFolderReason; message: string };
+
+/**
+ * The answer `antifan:space:open` gives the renderer. `NEEDS_CONFIRM` carries the exact commands
+ * the manifest would type into shells and the content hash the confirming call must echo back.
+ */
+export type SpaceOpenReason =
+  | 'INVALID_PAYLOAD'
+  | 'FOLDER_INVALID'
+  | 'FOLDER_NOT_OWNED'
+  | 'NO_MANIFEST'
+  | 'MANIFEST_INVALID'
+  | 'CONFIRM_MISMATCH'
+  | 'WINDOW_FAILED'
+  | 'CREATE_FAILED'
+  | 'SENDER_NOT_ADMITTED';
+
+export type SpaceOpenResult =
+  | {
+      ok: true;
+      terminalsOpened: number;
+      terminalsReused: number;
+      /** Of the reused terminals, how many were sleeping and were woken to run their declared command. */
+      terminalsWoken?: number;
+      tabsOpened: number;
+      tabsReused: number;
+      /** Declared `sync` terminals not minted because a live watcher already pushes to their remote. */
+      syncDuplicates?: Array<{ spaceTerminalId: string; duplicate: { id: string; label: string } }>;
+    }
+  | { ok: false; reason: 'NEEDS_CONFIRM'; hash: string; commands: Array<{ label: string; command: string }> }
+  | { ok: false; reason: SpaceOpenReason; message: string; errors?: Array<{ path: string; message: string }> };
+
+export type SpaceInitResult =
+  | { ok: true; terminals: number; tabs: number; gitignoreWarning?: true }
+  | { ok: false; reason: 'INVALID_PAYLOAD' | 'FOLDER_INVALID' | 'FOLDER_NOT_OWNED' | 'ALREADY_EXISTS' | 'WRITE_FAILED'; message: string };
+
 
 /** Which control a run card can send. */
 export type RunControlOp = 'cancel' | 'steer';
@@ -843,20 +939,6 @@ export interface TerminalAgentAffinityInfo {
   isEphemeral?: boolean;
   title?: string;
   url?: string;
-}
-
-/**
- * What the sidebar and the terminal windows receive on the tab broadcast.
- *
- * The tab list and the terminal-affinity map are two projections of the same host
- * state, and the affinity badge needs both. Sending them on one channel is what
- * removes a second round-trip per broadcast: each one allocated a correlation
- * entry, a promise and a deserialized map on the main thread that every switch,
- * bridge RPC and terminal fanout also runs on.
- */
-export interface TabsUpdatedPayload {
-  tabs: AntiFanTab[];
-  terminalAffinities: Record<string, TerminalAgentAffinityInfo>;
 }
 
 /** Cap on stored colour overrides, so a corrupt file cannot smuggle in an unbounded map. */

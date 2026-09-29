@@ -120,27 +120,44 @@ export function resolveUniqueAffiliationForRoot(
 }
 
 /**
- * Capsules that already spell `resolvedRoot`, compared resolved and case-insensitively the way the
- * registry compares workspace roots — Windows does not distinguish `E:\Work` from `e:\work` — and
- * then, when that finds nothing, through the filesystem, because a capsule may have been created
- * from a junction or an 8.3 path that spells the same directory differently.
+ * The one identity a folder has, however it was spelled: the filesystem's own path for it (so a
+ * junction, an 8.3 name or a trailing separator collapse onto the directory they name), lowercased
+ * on Windows where `E:\Work` and `e:\work` are the same directory. A folder that cannot be resolved
+ * — deleted, or on a drive that is offline — keys by its resolved spelling instead of throwing, so a
+ * row for a vanished folder still groups with its siblings.
+ */
+export function canonicalFolderKey(folder: string): string {
+  let canonical: string;
+  try {
+    canonical = fs.realpathSync.native(folder);
+  } catch {
+    canonical = path.resolve(folder);
+  }
+  return process.platform === 'win32' ? canonical.toLowerCase() : canonical;
+}
+
+/**
+ * Where a workspace folder chooser opens. The Windows chooser hands `defaultPath` to
+ * `SHCreateItemFromParsingName`, which rejects forward slashes (`E:/Work` → E_INVALIDARG) and the
+ * dialog then silently falls back to its last-used folder, so the path is normalised to the
+ * platform separator here rather than spelled in whichever form the probe happened to find.
+ */
+export function workspaceDialogDefaultPath(): string {
+  const preferred = path.normalize('E:\\Work');
+  return fs.existsSync(preferred) ? preferred : path.normalize(process.cwd());
+}
+
+/**
+ * Capsules whose workspace folder is the same directory as `resolvedRoot`, compared by canonical
+ * key on both sides: the filesystem's own spelling (junctions and 8.3 names collapse), lowercased
+ * only where the platform's filesystem is case-insensitive, so `Foo` and `foo` stay distinct on
+ * POSIX and identical on Windows.
  */
 function matchesByRoot(capsules: WorkspaceCapsule[], resolvedRoot: string): WorkspaceCapsule[] {
-  // Both sides resolve, so a caller that hands over a drive-relative or unnormalized spelling
-  // still compares against the path each capsule stores the same way.
-  const target = path.resolve(resolvedRoot).toLowerCase();
-  const bySpelling = capsules.filter(
-    (capsule) => typeof capsule.workspacePath === 'string' && capsule.workspacePath.trim().length > 0
-      && path.resolve(capsule.workspacePath).toLowerCase() === target,
-  );
-  if (bySpelling.length > 0) return bySpelling;
-  return capsules.filter((capsule) => {
-    try {
-      return fs.realpathSync(capsule.workspacePath).toLowerCase() === target;
-    } catch {
-      return false;
-    }
-  });
+  const targetKey = canonicalFolderKey(resolvedRoot);
+  return capsules.filter((capsule) => typeof capsule.workspacePath === 'string'
+    && capsule.workspacePath.trim().length > 0
+    && canonicalFolderKey(capsule.workspacePath) === targetKey);
 }
 
 /** The active match wins, then the most recently touched one. */

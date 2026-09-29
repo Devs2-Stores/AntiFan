@@ -123,6 +123,8 @@ export interface TabDevToolsContext {
   emitElementPicked?: (picked: AntiFanPickedElement) => void;
   sendToolbarElementPicked?: (picked: AntiFanPickedElement) => void;
   getTabTerminalSession: (tabId: string) => string | undefined;
+  /** The stamped, owner-scoped session list (folder facts included) the annotation picker groups by. */
+  visibleTerminalSessions: () => Parameters<typeof selectAnnotationTargets>[0];
   resolveTargetWorkspace: (targetSessionId?: string, tabUrl?: string) => string;
   resolveAnnotationWorkspace: (targetSessionId?: string, tabUrl?: string) => string;
   getDiagnostics?: (tabId: string, level?: string) => { console?: Array<{ message: string; source?: string; line?: number; level?: number }>; failures?: Array<{ validatedURL?: string; errorDescription?: string; errorCode?: number }> } | null;
@@ -267,7 +269,6 @@ function findChildFrameByUrl(wc: Electron.WebContents, frameUrl: string, tabId: 
 export class TabDevToolsHost {
   public static lastAnnotationMode: string = 'direct';
   public static lastAnnotationActionChip: string | null = null;
-  public static lastAnnotationSessionId: string | null = null;
   private readonly ctx: TabDevToolsContext;
   private isFontFinderActive: boolean = false;
   private isLensActive: boolean = false;
@@ -505,15 +506,13 @@ export class TabDevToolsHost {
     const tabSessionId = this.ctx.getTabTerminalSession(activeTabId);
     const termContextData: Record<string, unknown> = {
       tabId: activeTabId,
-      sessions: selectAnnotationTargets(tm.listSessions()),
+      sessions: selectAnnotationTargets(this.ctx.visibleTerminalSessions()),
       selectedSessionId: activeSessionId,
       annotationMode: TabDevToolsHost.lastAnnotationMode,
       annotationActionChip: TabDevToolsHost.lastAnnotationActionChip,
     };
     if (tabSessionId !== undefined) {
       termContextData.annotationSessionId = tabSessionId;
-    } else if (TabDevToolsHost.lastAnnotationSessionId) {
-      termContextData.annotationSessionId = TabDevToolsHost.lastAnnotationSessionId;
     }
     const termContextScript = `(() => {
       window.__antifanTerminalContext = Object.assign(window.__antifanTerminalContext || {}, ${JSON.stringify(termContextData)});
@@ -716,9 +715,6 @@ export class TabDevToolsHost {
       }
       if (typeof rawResult.actionChip === 'string' || rawResult.actionChip === null) {
         TabDevToolsHost.lastAnnotationActionChip = rawResult.actionChip ?? null;
-      }
-      if (typeof rawResult.targetSessionId === 'string' && rawResult.targetSessionId) {
-        TabDevToolsHost.lastAnnotationSessionId = rawResult.targetSessionId;
       }
       const rawComment = rawResult.userComment?.trim() || 'Inspect the attached browser annotation, report observed evidence, and ask for the intended outcome before editing.';
       const promptText = rawComment.replace(/^(\s*\/queue\b\s*)+/gi, '/queue ');

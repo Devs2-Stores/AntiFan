@@ -4,6 +4,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
+  canonicalFolderKey,
   findCapsuleByRoot,
   findReusableCapsule,
   WorkspaceCapsuleManager,
@@ -894,5 +895,43 @@ describe('sanitizeCapsuleBrief', () => {
 
   it('refuses unknown keys with INVALID_BRIEF', () => {
     assert.deepStrictEqual(sanitizeCapsuleBrief({ siteName: 'Ok', unexpectedProperty: 123 }), { ok: false, reason: 'INVALID_BRIEF' });
+  });
+});
+
+describe('canonicalFolderKey', () => {
+  it('keys every spelling of one existing folder identically', () => {
+    const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-key-')));
+    const folder = path.join(root, 'Theme');
+    fs.mkdirSync(folder);
+    const key = canonicalFolderKey(folder);
+    assert.equal(canonicalFolderKey(`${folder}${path.sep}`), key);
+    assert.equal(canonicalFolderKey(path.join(folder, 'sub', '..')), key);
+    if (process.platform === 'win32') {
+      assert.equal(canonicalFolderKey(folder.toUpperCase()), key);
+      assert.equal(canonicalFolderKey(folder.replace(/\\/g, '/')), key);
+    }
+  });
+
+  it('keys two distinct folders differently', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-key-'));
+    fs.mkdirSync(path.join(root, 'a'));
+    fs.mkdirSync(path.join(root, 'b'));
+    assert.notEqual(canonicalFolderKey(path.join(root, 'a')), canonicalFolderKey(path.join(root, 'b')));
+  });
+
+  it('falls back to the resolved spelling for a folder that does not exist instead of throwing', () => {
+    const missing = path.join(os.tmpdir(), `antifan-missing-${process.pid}-${Date.now()}`, 'x');
+    const expected = process.platform === 'win32' ? path.resolve(missing).toLowerCase() : path.resolve(missing);
+    assert.equal(canonicalFolderKey(`${missing}${path.sep}`), expected);
+  });
+
+  it('lets findCapsuleByRoot match a capsule recorded through a junction', { skip: process.platform !== 'win32' }, () => {
+    const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-key-')));
+    const real = path.join(root, 'real');
+    const link = path.join(root, 'link');
+    fs.mkdirSync(real);
+    fs.symlinkSync(real, link, 'junction');
+    const capsule = { id: 'c1', name: 'x', workspacePath: link, updatedAt: 1, state: {} } as unknown as WorkspaceCapsule;
+    assert.equal(findCapsuleByRoot([capsule], real, '')?.id, 'c1');
   });
 });

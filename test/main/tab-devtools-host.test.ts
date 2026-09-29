@@ -137,6 +137,7 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
         broadcastCount++;
       },
       getTabTerminalSession: () => 'session-1',
+      visibleTerminalSessions: () => [],
       resolveTargetWorkspace: () => 'E:/Work/project',
       resolveAnnotationWorkspace: () => 'E:/Work/project',
       createTab: (url) => {
@@ -251,6 +252,17 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
     assert.strictEqual(devTools.getInspectedTabId(), null);
     assert.strictEqual(getBroadcastCount(), 2);
     assert.ok(scriptsExecuted.some((s) => s.includes('__antifanPickerActive = false')));
+  });
+
+  it('4b. the inspect picker is fed the stamped, owner-scoped rows, folder facts included', () => {
+    const { ctx, scriptsExecuted } = createMockContext();
+    const stamped = { id: 'sess-folder', name: 'Terminal 1', state: 'running', folderKey: 'e:/work/x', folderLabel: 'x' };
+    ctx.visibleTerminalSessions = () => [stamped] as never;
+    new TabDevToolsHost(ctx).startInspect();
+    const context = scriptsExecuted.find((s) => s.includes('__antifanTerminalContext'));
+    assert.ok(context, 'the picker context script was injected');
+    assert.ok(context.includes('"folderKey":"e:/work/x"'), 'folder facts reach the picker');
+    assert.ok(context.includes('"id":"sess-folder"'));
   });
 
   it('5. captures screenshot, queries DOM, evaluates JS, and manages FindInPage', async () => {

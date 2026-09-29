@@ -329,7 +329,7 @@ class RecordingTerminalManager {
   }
   public writeTo(sessionId: string): boolean { this.calls.push(`writeTo:${sessionId}`); return true; }
   public closeSession(sessionId: string): boolean { this.calls.push(`closeSession:${sessionId}`); return true; }
-  public sleepSession(sessionId: string): boolean { this.calls.push(`sleepSession:${sessionId}`); return true; }
+  public sleepSession(sessionId: string): { ok: true } { this.calls.push(`sleepSession:${sessionId}`); return { ok: true }; }
   public wakeSession(sessionId: string): boolean { this.calls.push(`wakeSession:${sessionId}`); return true; }
   public renameSession(sessionId: string, name: string): boolean { this.calls.push(`renameSession:${sessionId}:${name}`); return true; }
   public createSplitSession(parentId: string): string { this.calls.push(`createSplitSession:${parentId}`); return 'terminal-split'; }
@@ -563,7 +563,7 @@ describe('Terminal project handover — what the manager may do with an agent ro
 
     // Every mutation it has is refused, and never reaches the shared manager.
     assert.equal(await harness.invoke('antifan:terminal:close-session', AGENT_ROW.id), false, 'a close resolves the refusal');
-    assert.equal(await harness.invoke(TERMINAL_CHANNELS.SLEEP_SESSION, { id: AGENT_ROW.id }), false, 'and so does a sleep');
+    assert.deepEqual(await harness.invoke(TERMINAL_CHANNELS.SLEEP_SESSION, { id: AGENT_ROW.id }), { ok: false, reason: 'NOT_PERMITTED' }, 'and so does a sleep, now a typed refusal');
 
     const warnings: string[] = [];
     const originalWarn = console.warn;

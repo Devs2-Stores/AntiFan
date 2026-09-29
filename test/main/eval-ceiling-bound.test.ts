@@ -138,6 +138,7 @@ describe('withEvalCeiling & TabDevToolsHost bounded eval', () => {
       resolveTargetWorkspace: () => '',
       resolveAnnotationWorkspace: () => '',
       getTabTerminalSession: () => undefined,
+      visibleTerminalSessions: () => [],
       createTab: () => 'tab-1',
       withTabAgentWorking: async (_tabId, action) => action(),
       evalSoftBudgetMs: options.evalSoftBudgetMs,

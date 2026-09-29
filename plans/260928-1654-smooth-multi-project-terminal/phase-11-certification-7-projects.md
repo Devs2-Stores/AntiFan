@@ -34,7 +34,9 @@ Harness phase 1 + e2e `test/e2e/project-windows.test.ts`.
 Gate fail → không claim done; replan phase liên quan.
 
 ## Run Notes (2026-09-29, CertRunner)
-Unit/e2e certification: **10/12 suites pass** — see `reports/cert-run.md`.
-- FAIL (deterministic): `terminal-output-router.test.js` — test invariant predates detach-on-empty (`unregisterHost` → 0 listeners when last host leaves); test needs updating, behavior correct.
-- FAIL (deterministic): `output-batcher.test.js` — quiet-window fast path uses adaptive `win` (1.5×gap) instead of `flushMs`; immediate emit never fires.
-- Not run: perf harness N=3/N=7 gates, `test/e2e/project-windows` — metrics table still missing, criteria unmet.
+Unit/e2e certification: **111/111 pass** after two deterministic fixes — see `reports/cert-run.md` + `reports/test-quality-review.md` (verdict STRONG).
+- FIXED: `output-batcher.ts:100` fast path used adaptive `win` instead of `flushMs` → every chunk batched → daemon echo p50 33491ms → post-fix p50 49.4ms, lost=0 (`reports/perf-verify-final-daemon-n3.json`). Regression pin test added.
+- FIXED: router test stale assertion (`detach` on last host is intended pruning).
+- Perf gates: N=3 daemon VERIFIED. N=7 daemon FAILS: renderer `Perf 0` single longtask 18,343ms starves acks → backpressure pauses sessions → echo lost. Attribution in flight (`reports/longtask-attribution.md`); GUI main + daemon loops healthy (p50 5ms).
+- In-proc (daemon off) still regressed: synchronous `pty.spawn`/`pty.resize` block main thread (spawn 5618ms, resize ≤2676ms) — follow-up issue; daemon mode is the fix path.
+- `test/e2e/project-windows` still unrun.

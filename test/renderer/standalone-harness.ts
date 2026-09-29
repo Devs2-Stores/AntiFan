@@ -567,7 +567,6 @@ export interface StandaloneHarness {
   terminalDataListeners: Array<(payload: unknown) => void>;
   terminalActivityListeners: Array<(payload: unknown) => void>;
   terminalSessionListeners: Array<(state: unknown) => void>;
-  tabsUpdatedListeners: Array<(payload: unknown) => void>;
   getSplitGeometry: () => SplitGeometry;
   applySplitRatio: (ratio?: number, resizePty?: boolean) => void;
   mountSplit: (sessionId: string, snapshot?: string, snapshotSeq?: number) => void;
@@ -579,8 +578,6 @@ export interface StandaloneHarness {
   queryAll(selector: string): FakeElement[];
   /** Push a session broadcast through the renderer's `onTerminalSession` listener. */
   emitSession(state: unknown): void;
-  /** Push a tab broadcast through the renderer's `onTabsUpdated` listener. */
-  emitTabsUpdated(payload: unknown): void;
   /** Push a project-open request through the renderer's `onProjectOpenPicker` listener. */
   emitProjectPicker(payload: unknown): void;
   /** Push a terminal data payload through the renderer's `onTerminalData` listener. */
@@ -594,11 +591,9 @@ export interface StandaloneHarness {
   getActiveId(): string;
   renderTabs: () => void;
   syncTerminalPool: (allSessions: unknown[], currentActiveId: string, snapshot?: string, snapshotThroughSeq?: number) => void;
-  updateAffinityBadges: (deliveredTabs?: unknown[], deliveredAffinities?: unknown) => Promise<void>;
   /** The read-only transcript preview mounted for a sleeping active session. */
   sleepPreview(): FakeElement | null;
   showCategoryPicker: (sessionId: string, anchorEl: FakeElement) => void;
-  showAffinityPicker: (sessionId: string, anchorEl: FakeElement) => Promise<void>;
   bridgeStatusListeners: Array<(report: unknown) => void>;
   emitBridgeStatus: (report: unknown) => void;
   renderBridgeChip: (report: unknown) => void;
@@ -675,7 +670,6 @@ export function loadStandalone(options: {
     item.appendChild(new FakeElement('span'));
     contextMenuElement.appendChild(item);
   }
-  standaloneElement.appendChild(elementById('affinityPickerPopover'));
   standaloneElement.appendChild(elementById('categoryPickerPopover'));
   // The capsule picker the tab context menu opens. It is read by id at open time and filled
   // with created nodes, exactly like the category picker beside it.
@@ -812,7 +806,6 @@ export function loadStandalone(options: {
   const terminalDataListeners: Array<(payload: unknown) => void> = [];
   const terminalSessionListeners: Array<(state: unknown) => void> = [];
   const terminalActivityListeners: Array<(payload: unknown) => void> = [];
-  const tabsUpdatedListeners: Array<(payload: unknown) => void> = [];
   const projectPickerListeners: Array<(payload: unknown) => void> = [];
   const bridgeStatusListeners: Array<(report: unknown) => void> = [];
   const runCardListeners: Array<(payload: unknown) => void> = [];
@@ -822,13 +815,8 @@ export function loadStandalone(options: {
     unsplitTerminal: async () => undefined,
     syncTerminalView: async () => null,
     getFullBuffer: async () => null,
-    // Per-id affinity is deliberately a no-op that still records the call, so a
-    // test can prove the bulk `getTerminalAffinities` path replaced the N+1 loop.
-    getTerminalAffinity: async () => undefined,
-    getTerminalAffinities: async () => ({} as Record<string, unknown>),
     sleepTerminal: async () => true,
     wakeTerminal: async () => true,
-    focusTab: async () => undefined,
     setCategory: async () => true,
     listCapsules: async () => ({ activeCapsuleId: '', capsules: [] as unknown[] }),
     assignTerminalProject: async (sessionId: string, projectId: string) => ({ ok: true, sessionId, projectId, ownerKey: `project:${projectId}` }),
@@ -838,7 +826,6 @@ export function loadStandalone(options: {
     onTerminalData: (listener: (payload: unknown) => void) => { terminalDataListeners.push(listener); },
     onTerminalActivity: (listener: (payload: unknown) => void) => { terminalActivityListeners.push(listener); },
     onTerminalSession: (listener: (state: unknown) => void) => { terminalSessionListeners.push(listener); },
-    onTabsUpdated: (listener: (payload: unknown) => void) => { tabsUpdatedListeners.push(listener); },
     // The project-open push channel: listeners are captured so a test can deliver the
     // requestId exactly as Main's send would.
     onProjectOpenPicker: (listener: (payload: unknown) => void) => { projectPickerListeners.push(listener); },
@@ -980,7 +967,6 @@ export function loadStandalone(options: {
     terminalDataListeners,
     terminalActivityListeners,
     terminalSessionListeners,
-    tabsUpdatedListeners,
     getSplitGeometry: read<StandaloneHarness['getSplitGeometry']>('getSplitGeometry'),
     applySplitRatio: read<StandaloneHarness['applySplitRatio']>('applySplitRatio'),
     mountSplit: read<StandaloneHarness['mountSplit']>('mountSplit'),
@@ -991,9 +977,6 @@ export function loadStandalone(options: {
     queryAll: (selector: string) => standaloneElement.querySelectorAll(selector),
     emitSession: (state: unknown) => {
       for (const listener of [...terminalSessionListeners]) listener(state);
-    },
-    emitTabsUpdated: (payload: unknown) => {
-      for (const listener of [...tabsUpdatedListeners]) listener(payload);
     },
     emitData: (payload: unknown) => {
       for (const listener of [...terminalDataListeners]) listener(payload);
@@ -1014,10 +997,8 @@ export function loadStandalone(options: {
     getActiveId: () => read<string>('activeId'),
     renderTabs: read<StandaloneHarness['renderTabs']>('renderTabs'),
     syncTerminalPool: read<StandaloneHarness['syncTerminalPool']>('syncTerminalPool'),
-    updateAffinityBadges: read<StandaloneHarness['updateAffinityBadges']>('updateAffinityBadges'),
     sleepPreview: () => read<FakeElement | null>('sleepPreviewEl'),
     showCategoryPicker: read<StandaloneHarness['showCategoryPicker']>('showCategoryPicker'),
-    showAffinityPicker: read<StandaloneHarness['showAffinityPicker']>('showAffinityPicker'),
     bridgeStatusListeners,
     emitBridgeStatus: (report: unknown) => {
       for (const listener of [...bridgeStatusListeners]) listener(report);

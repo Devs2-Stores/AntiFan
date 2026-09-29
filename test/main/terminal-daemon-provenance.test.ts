@@ -340,6 +340,30 @@ describe('Terminal Daemon Provenance & Async Seam Invariants (RC2)', () => {
           'TerminalManager must record capsuleId from production daemon-entry newSession dispatch'
         );
 
+        // (a2) A watcher minted with role meta is already guarded in the very reply that names it,
+        // and the daemon refuses to sleep it.
+        const watcherRes = await call(HOST_METHOD.newSession, {
+          cwd: 'E:/Work/project-b',
+          capsuleId: 'capsule-window-b',
+          role: 'sync',
+          idlePolicy: 'never',
+          spaceTerminalId: 'sync',
+        });
+        assert.strictEqual(watcherRes.success, true, 'newSession with role meta must succeed');
+        const watcherData = watcherRes.data as {
+          sessionId: string;
+          sessions: Array<{ id: string; role?: string; idlePolicy?: string; spaceTerminalId?: string }>;
+        };
+        const minted = watcherData.sessions.find((s) => s.id === watcherData.sessionId);
+        assert.strictEqual(minted?.role, 'sync');
+        assert.strictEqual(minted?.idlePolicy, 'never');
+        assert.strictEqual(minted?.spaceTerminalId, 'sync');
+        const sleepRes = await call(HOST_METHOD.sleepSession, { sessionId: watcherData.sessionId });
+        assert.deepStrictEqual(
+          (sleepRes.data as { result?: unknown }).result,
+          { ok: false, reason: 'SLEEP_REFUSED_WATCHER' },
+        );
+
         // (b) Execute production HOST_METHOD.start dispatch in daemon-entry.ts
         const listRes = await call(HOST_METHOD.listSessions, {});
         const listData = listRes.data as ListSessionsData;

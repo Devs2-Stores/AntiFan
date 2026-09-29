@@ -85,7 +85,6 @@ interface AntiFanToolbarApi {
   closeOtherTabs: (tabId: string) => Promise<void>;
   closeTabsToRight: (tabId: string) => Promise<void>;
   setTabTerminalSession: (tabId: string, terminalSessionId: string) => Promise<boolean>;
-  rebindTerminalAffinity: (tabId?: string, terminalId?: string) => Promise<boolean>;
   navigate: (url: string, tabId?: string) => Promise<boolean>;
   reload: (tabId?: string) => Promise<boolean>;
   reloadWindow: () => Promise<boolean>;
@@ -4465,21 +4464,6 @@ if (menuItemCopyTabId) {
   });
 }
 
-
-const menuItemBindTerminal = document.getElementById('menuItemBindTerminal');
-if (menuItemBindTerminal) {
-  menuItemBindTerminal.addEventListener('click', async () => {
-    if (contextMenuTargetTabId) {
-      const ok = await getApi()?.rebindTerminalAffinity(contextMenuTargetTabId);
-      if (ok) {
-        showToolbarToast('🎯 Đã gán tab vào Terminal hoạt động');
-      } else {
-        showToolbarToast('Không thể gán tab vào Terminal');
-      }
-    }
-    hideTabContextMenu();
-  });
-}
 const menuItemSetAlias = document.getElementById('menuItemSetAlias');
 if (menuItemSetAlias) {
   menuItemSetAlias.addEventListener('click', async () => {
@@ -5149,6 +5133,8 @@ const CLOSE_REFUSAL_OVERLAY_TOKEN = 'close-refusal';
  * clip the very region this notice exists to show.
  */
 const CLOSE_REFUSAL_MIN_HEIGHT = 96;
+/** The clipped toolbar strip the overlay expansion is added to (the strip's 74px clip). */
+const CLOSE_REFUSAL_STRIP_HEIGHT = 74;
 
 /**
  * This renderer's one refusal-notice subscription. Held so a repeated init replaces the
@@ -5303,10 +5289,20 @@ function renderCloseRefusalNotice(raw: unknown): void {
   clearCloseRefusalReasons();
   for (const reason of notice.reasons) closeRefusalReasonsEl.appendChild(buildCloseRefusalReasonRow(reason));
   closeRefusalNoticeEl.style.display = 'flex';
-  acquireOverlay(CLOSE_REFUSAL_OVERLAY_TOKEN, Math.max(CLOSE_REFUSAL_MIN_HEIGHT, closeRefusalNoticeEl.offsetHeight));
+  // The panel is fixed below the strip, and the overlay expansion is added to the strip height
+  // (see `applyChromeBounds`), so the extra needed is the panel's bottom edge minus the strip.
+  const bottom = Math.ceil(closeRefusalNoticeEl.getBoundingClientRect().bottom);
+  acquireOverlay(CLOSE_REFUSAL_OVERLAY_TOKEN, Math.max(CLOSE_REFUSAL_MIN_HEIGHT, bottom + 12 - CLOSE_REFUSAL_STRIP_HEIGHT));
 }
 
 if (closeRefusalDismissEl) closeRefusalDismissEl.addEventListener('click', hideCloseRefusalNotice);
+// Escape dismisses from anywhere in this chrome; the notice never takes focus, so a
+// keyboard user has no other way to reach the button.
+document.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Escape' && closeRefusalNoticeEl && closeRefusalNoticeEl.style.display !== 'none') {
+    hideCloseRefusalNotice();
+  }
+});
 
 // ===========================================================================
 // CROSS-PROJECT WINDOW IDENTITY & TAB SEARCH

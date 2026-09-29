@@ -101,13 +101,6 @@
         </svg>
         <span>Mở tab mới (New Tab)</span>
       </div>
-      <div class="context-item" data-action="rebind-tab">
-        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-          <circle cx="8" cy="8" r="6"/>
-          <circle cx="8" cy="8" r="2"/>
-        </svg>
-        <span>🎯 Gán Tab Trình Duyệt... (Rebind Tab)</span>
-      </div>
       <div class="context-item" data-action="sleep">
         <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
           <path d="M13.5 9.5A5.5 5.5 0 1 1 6.5 2.5a4.5 4.5 0 0 0 7 7z"/>
@@ -120,6 +113,13 @@
           <path d="M8 1.5v1.5M8 13v1.5M1.5 8H3M13 8h1.5M3.2 3.2l1 1M11.8 11.8l1 1M12.8 3.2l-1 1M4.2 11.8l-1 1"/>
         </svg>
         <span>Đánh thức (Wake)</span>
+      </div>
+      <div class="context-item" data-action="sync-role">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M13 8a5 5 0 0 1-8.6 3.5M3 8a5 5 0 0 1 8.6-3.5"/>
+          <path d="M11.8 2v3h-3M4.2 14v-3h3"/>
+        </svg>
+        <span>Đánh dấu là sync (Mark as sync)</span>
       </div>
       <div class="context-item" data-action="category">
         <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -157,8 +157,6 @@
         <span>Đóng các tab khác (Close Others)</span>
       </div>
     </div>
-    <!-- AFFINITY TAB PICKER POPOVER -->
-    <div id="affinityPickerPopover" class="terminal-affinity-picker" style="display:none;"></div>
     <!-- CATEGORY PICKER POPOVER -->
     <div id="categoryPickerPopover" class="terminal-category-picker" style="display:none;"></div>
     <!-- PROJECT PICKER POPOVER — searchable, because the store holds hundreds of capsules -->

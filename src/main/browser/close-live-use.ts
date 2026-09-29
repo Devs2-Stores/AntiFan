@@ -156,14 +156,15 @@ export const CLOSE_LIVE_USE_CONTROLS: {
   readonly runs: LiveUseControl;
 } = {
   /**
-   * The terminal workbench's per-page unbind. `antifan:terminal:remove-tab` (registered in
-   * `browser/native-tab-host.ts`, wired to the terminal tab's ✕ in the workbench) drops the
-   * page from the session's affinity, and the host reports no affinity for a session that
-   * no longer exists — which is what the `agent-affinity` evidence reads.
+   * The terminal workbench's close. `antifan:terminal:close-session` (registered in
+   * `browser/native-tab-host.ts`, wired to the ✕ on the terminal tab) clears the session's
+   * affinity before closing it, and the host reports no affinity for a session that no
+   * longer exists — which is what the `agent-affinity` evidence reads. Sleeping a session
+   * keeps its affinity, so sleep is not a release.
    */
   terminalPanel: {
-    id: 'antifan:terminal:remove-tab',
-    label: 'Unbind this page from the terminal in the terminal workbench (✕ on the terminal tab), or stop or sleep the session using it',
+    id: 'antifan:terminal:close-session',
+    label: 'Close the terminal session that owns this page (✕ on the terminal tab in the terminal workbench), or stop the agent session running in it',
   },
   /**
    * The agent session that minted the binding. `antifan.cli.endSession` (bridge-server)

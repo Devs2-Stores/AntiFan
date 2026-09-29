@@ -24,6 +24,11 @@ const api = {
   switchTerminal: (id) => ipcRenderer.invoke('antifan:terminal:switch-session', id),
   setActiveSession: (sessionId) => ipcRenderer.invoke('antifan:terminal:set-active-session', { sessionId }),
   newTerminal: () => ipcRenderer.invoke('antifan:terminal:new-session'),
+  // Manager-hub routes: exposed exactly like the shipped preload, so a shell Main has not
+  // described as the shared manager still hides every hub affordance.
+  newTerminalInFolder: (folder) => ipcRenderer.invoke('antifan:terminal:new-in-folder', folder ? { folder } : {}),
+  setTerminalRole: (id, role, opts) => ipcRenderer.invoke('antifan:terminal:set-role', { id, role, acknowledgeDuplicate: opts?.acknowledgeDuplicate === true }),
+  openSpace: (folder, confirmHash) => ipcRenderer.invoke('antifan:space:open', confirmHash ? { folder, confirmHash } : { folder }),
   renameTerminal: (id, name) => typeof id === 'string' && name === undefined ? ipcRenderer.invoke('antifan:terminal:rename-session', id) : ipcRenderer.invoke('antifan:terminal:rename-session', { id, name }),
   renameTerminalSession: (id, name) => ipcRenderer.invoke('antifan:terminal:rename-session', { id, name }),
   closeTerminal: (id) => ipcRenderer.invoke('antifan:terminal:close-session', id),

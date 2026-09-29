@@ -1,0 +1,81 @@
+{
+  "label": "cert-n7b",
+  "compiledRoot": "E:\\Work\\apps\\AntiFan\\.compiled",
+  "projects": 7,
+  "daemon": false,
+  "stagedDaemon": null,
+  "burstSeconds": 45.04,
+  "windowOpenMs": 40743,
+  "eventLoopDelayMs": {
+    "p50": 15.43,
+    "p95": 20.17,
+    "p99": 51.45,
+    "max": 2449.47
+  },
+  "statSyncPerSecond": 0.56,
+  "statSyncCallers": {
+    "at enforceProtectedPathsDacl (\\src\\main\\security\\windows-acl.js:376": 17,
+    "at enforceProtectedPathsDacl (\\src\\main\\security\\windows-acl.js:406": 8
+  },
+  "terminalDataIpcPerSecond": 1.8,
+  "terminalDataIpcByTarget": {
+    "Perf 1:sidebar": 84
+  },
+  "rendererLongtasks": {
+    "Perf 0": {
+      "count": 4,
+      "max": 279,
+      "totalMs": 861
+    },
+    "Perf 1": {
+      "count": 5,
+      "max": 587,
+      "totalMs": 1338
+    },
+    "Perf 2": {
+      "count": 0,
+      "max": 0,
+      "totalMs": 0
+    },
+    "Perf 3": {
+      "count": 0,
+      "max": 0,
+      "totalMs": 0
+    },
+    "Perf 4": {
+      "count": 0,
+      "max": 0,
+      "totalMs": 0
+    },
+    "Perf 5": {
+      "count": 0,
+      "max": 0,
+      "totalMs": 0
+    },
+    "Perf 6": {
+      "count": 0,
+      "max": 0,
+      "totalMs": 0
+    }
+  },
+  "daemonWsFramesPerSecond": 0,
+  "daemonWsKiBPerSecond": 0,
+  "tabsPerProject": 5,
+  "echoLatencyMs": {
+    "samples": 11,
+    "lost": 51,
+    "p50": 1555.34,
+    "p95": 27887.96,
+    "max": 27887.96
+  },
+  "workingSetMb": {
+    "idle": 1221.32,
+    "burstMax": 1278.33
+  },
+  "tree": {
+    "root": "E:\\Work\\apps\\AntiFan",
+    "head": "2fc82e31",
+    "dirty": true
+  },
+  "measuredAt": "2026-09-29T03:37:35.367Z"
+}

@@ -15,7 +15,10 @@ import { randomUUID, createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { performance } from 'node:perf_hooks';
 import { StorageLocations } from '../config/storage-locations';
-import { AntiFanTab, SplitPaneId, AntiFanPickedElement, TOOLBAR_CHANNELS, SIDEBAR_CHANNELS, TERMINAL_CHANNELS, FRAME_BACKDROP_CHANNELS, TerminalAckPayload, TerminalDataPayload, TerminalTabLayout, TerminalTabPrefs, TERMINAL_TAB_LAYOUT_DEFAULT_WIDTH, clampTerminalTabSidebarWidth, TERMINAL_CATEGORY_COLORS_MAX, TERMINAL_CATEGORY_COLOR_PATTERN, ToolbarPhoneStatus, TerminalAgentAffinityInfo, ProjectWindowIdentity, BRIDGE_CHANNELS, RunCardState, RunControlOp, RunControlReason, RunControlResult, CapsuleBrief, CapsuleBriefResult, CapsuleBriefReason } from '../../shared/contracts';
+import { openSpace, createConfirmationStore, type SpaceOpenDeps } from '../project/space-open';
+import { buildSpaceTemplate, writeSpaceManifestExclusive, antifanDirUnignoredInGit } from '../project/space-manifest';
+import type { SpaceInitResult } from '../../shared/contracts';
+import { AntiFanTab, SplitPaneId, AntiFanPickedElement, TOOLBAR_CHANNELS, SIDEBAR_CHANNELS, TERMINAL_CHANNELS, FRAME_BACKDROP_CHANNELS, TerminalAckPayload, TerminalDataPayload, TerminalNewInFolderResult, SpaceOpenResult, TerminalTabLayout, TerminalTabPrefs, TERMINAL_TAB_LAYOUT_DEFAULT_WIDTH, clampTerminalTabSidebarWidth, TERMINAL_CATEGORY_COLORS_MAX, TERMINAL_CATEGORY_COLOR_PATTERN, ToolbarPhoneStatus, TerminalAgentAffinityInfo, ProjectWindowIdentity, BRIDGE_CHANNELS, RunCardState, RunControlOp, RunControlReason, RunControlResult, CapsuleBrief, CapsuleBriefResult, CapsuleBriefReason } from '../../shared/contracts';
 import { buildBridgeHealthReport, subscribeBridgeHealth } from '../bridge/bridge-health';
 import { RunStateService } from '../run/run-state-service';
 import type { ExecutionBackend } from '../agent/execution-backend';
@@ -42,7 +45,8 @@ import { TabDiagnosticsManager, computeOrigin, normalizeConsoleLevel } from './t
 import type { CaptureViewportTransaction, RenderSurfaceSnapshot, VerificationCaptureEnvelope } from '../verification/visual-capture';
 import { buildKeyboardInputEvents } from './keyboard-normalizer';
 import { FirstPartyNetworkTracker, type NetworkTrackerStats } from './first-party-network-tracker';
-import { WorkspaceCapsuleManager, findCapsuleByRoot, findReusableCapsule, type WorkspaceCapsule, type CapsuleAffiliation } from '../project/workspace-capsule';
+import { WorkspaceCapsuleManager, canonicalFolderKey, findCapsuleByRoot, findReusableCapsule, workspaceDialogDefaultPath, type WorkspaceCapsule, type CapsuleAffiliation } from '../project/workspace-capsule';
+import { findSyncDuplicate, syncIdentity } from '../project/sync-identity';
 import { PreviewWatcherPool, type PreviewChangeEvent } from '../server/preview-watcher-pool';
 import { buildPreviewUrl, parsePreviewUrl } from '../server/preview-url-codec';
 import type { ControlPlaneResourceStats, ControlPlaneRuntime } from '../control-plane/control-plane-runtime';
@@ -1128,6 +1132,15 @@ export class NativeTabHost extends EventEmitter {
    * focus or from the process-wide active capsule.
    */
   private windowWorkspaceAffiliation: WindowWorkspaceAffiliation | null = null;
+  /**
+   * Canonical folder facts per input path spelling — `folderKey`/`folderLabel` are stamped on
+   * every session row of every window's projection, so each realpath the stamping needs is
+   * paid once per spelling, not once per row per broadcast. Entries never expire on their own:
+   * a capsule rename or an affiliation change renames nothing on disk, so nothing cached here
+   * can be orphaned by the records it is read beside. A spelling that stops resolving keeps
+   * its last answer, which is also its correct one for a deleted folder.
+   */
+  private folderFactsCache = new Map<string, { canonicalPath: string; folderKey: string; folderLabel: string }>();
   /** Off-screen window that hosts a background pane for one raster so MCP capture does not paint that pane over the user's tab. */
   private captureHostWindow: BrowserWindow | null = null;
   /**
@@ -1429,6 +1442,7 @@ export class NativeTabHost extends EventEmitter {
         emitElementPicked: (picked) => this.emit('element-picked', picked),
         sendToolbarElementPicked: (picked) => safeSendWebContents(this.shell.toolbarView?.webContents, TOOLBAR_CHANNELS.ELEMENT_PICKED, picked),
         getTabTerminalSession: (tabId) => this.getTabTerminalSession(tabId),
+        visibleTerminalSessions: () => this.visibleTerminalSessions(),
         resolveTargetWorkspace: (targetSessionId, tabUrl) => this.resolveTargetWorkspace(targetSessionId, tabUrl),
         resolveAnnotationWorkspace: (targetSessionId, tabUrl) => this.resolveAnnotationWorkspace(targetSessionId, tabUrl),
         getDiagnostics: (tabId, level) => (this.diagnosticsManager && typeof this.diagnosticsManager.getDiagnostics === 'function') ? this.diagnosticsManager.getDiagnostics(tabId, level as any) : null,
@@ -3332,10 +3346,10 @@ export class NativeTabHost extends EventEmitter {
     channel: TERMINAL_CHANNELS.SLEEP_SESSION,
     surface: ['sidebar', 'terminalPopout'],
     sessionArgs: (args, host) => [host.resolveTerminalChannelId(args[0])],
-    run: ({ host }, event, args) => {
+    run: async ({ host }, event, args) => {
       const payload = args[0];
       const id = host.resolveTerminalChannelId(payload);
-      if (!id) return false;
+      if (!id) return { ok: false, reason: 'INVALID_PAYLOAD' };
       const senderInfo = host.findTabByWebContents(event?.sender);
       const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === host.automationTabId);
       if (isAgent) {
@@ -3345,9 +3359,11 @@ export class NativeTabHost extends EventEmitter {
       const gate = host.assertManagerMayOperate(id, event?.sender?.id);
       if (gate !== true) {
         host.reportManagerWriteRefusal('antifan:terminal:sleep-session', gate);
-        return false;
+        return { ok: false, reason: 'NOT_PERMITTED' };
       }
-      return TerminalManager.getInstance().sleepSession(id);
+      const manager = TerminalManager.getInstance();
+      const result = await manager.sleepSession(id);
+      return result.ok ? { ok: true } : { ok: false, reason: result.reason };
     },
   },
   {
@@ -3404,6 +3420,56 @@ export class NativeTabHost extends EventEmitter {
       const result = TerminalManager.getInstance().setCategory(id, category);
       host.schedulePersist();
       return result;
+    },
+  },
+  {
+    channel: TERMINAL_CHANNELS.SET_ROLE,
+    surface: ['sidebar', 'terminalPopout'],
+    sessionArgs: (args, host) => [host.resolveTerminalChannelId(args[0])],
+    run: async ({ host }, event, args) => {
+      const raw = args[0];
+      const payload = raw && typeof raw === 'object' ? raw as { role?: unknown; acknowledgeDuplicate?: unknown } : {};
+      const id = host.resolveTerminalChannelId(raw);
+      if (!id) return { ok: false, reason: 'INVALID_PAYLOAD' };
+      // Marking is an operation on a shell the manager shows, so it takes the same gate as
+      // sleep: an agent-owned row is not the manager's to relabel.
+      const gate = host.assertManagerMayOperate(id, event?.sender?.id);
+      if (gate !== true) {
+        host.reportManagerWriteRefusal(TERMINAL_CHANNELS.SET_ROLE, gate);
+        return { ok: false, reason: 'NOT_PERMITTED' };
+      }
+      const manager = TerminalManager.getInstance();
+      const sessions = manager.listSessions() as unknown as Array<Record<string, unknown>>;
+      const target = sessions.find((item) => item.id === id);
+      if (!target) return { ok: false, reason: 'NOT_FOUND' };
+      const baseId = typeof target.splitOf === 'string' ? target.splitOf : id;
+      if (payload.role === 'sync') {
+        const briefOf = (item: Record<string, unknown>) => {
+          const capsuleId = typeof item.capsuleId === 'string' ? item.capsuleId : '';
+          return capsuleId ? host.capsuleManager.get(capsuleId)?.brief : undefined;
+        };
+        const base = sessions.find((item) => item.id === baseId) ?? target;
+        const identity = syncIdentity(String(base.cwd || ''), briefOf(base));
+        const live = sessions
+          .filter((item) => item.role === 'sync' && item.state === 'running' && !item.splitOf)
+          .map((item) => ({
+            id: String(item.id),
+            label: String(item.displayLabel || item.name || item.id),
+            folder: String(item.cwd || ''),
+            brief: briefOf(item),
+          }));
+        const duplicate = findSyncDuplicate(identity, live, baseId);
+        if (duplicate && payload.acknowledgeDuplicate !== true) {
+          return { ok: false, reason: 'SYNC_DUPLICATE', duplicate: { id: duplicate.id, label: duplicate.label }, identityKind: identity.kind };
+        }
+        const ok = await manager.setSessionRole(id, { role: 'sync', spaceTerminalId: base.spaceTerminalId });
+        host.schedulePersist();
+        return ok ? { ok: true, identityKind: identity.kind } : { ok: false, reason: 'NOT_FOUND' };
+      }
+      if (payload.role !== null && payload.role !== undefined) return { ok: false, reason: 'INVALID_PAYLOAD' };
+      const ok = await manager.setSessionRole(id, { spaceTerminalId: target.spaceTerminalId });
+      host.schedulePersist();
+      return ok ? { ok: true } : { ok: false, reason: 'NOT_FOUND' };
     },
   },
   {
@@ -3832,15 +3898,7 @@ export class NativeTabHost extends EventEmitter {
     run: async ({ host }, event, args) => {
       host.assertApplicationAdmitsHostWork('antifan:capsule:pick-folder');
       const opts = args[0] as { sessionId?: string } | undefined;
-      const defaultDir = fs.existsSync('E:/Work')
-        ? 'E:/Work'
-        : (fs.existsSync('E:\\Work')
-          ? 'E:\\Work'
-          : (fs.existsSync('e:\\Work')
-            ? 'e:\\Work'
-            : (fs.existsSync('e:/Work')
-              ? 'e:/Work'
-              : process.cwd())));
+      const defaultDir = workspaceDialogDefaultPath();
       const result = await dialog.showOpenDialog(host.shell.window, {
         defaultPath: defaultDir,
         properties: ['openDirectory', 'createDirectory'],
@@ -3944,6 +4002,262 @@ export class NativeTabHost extends EventEmitter {
         });
       }
       return true;
+    },
+  },
+  {
+    channel: TERMINAL_CHANNELS.NEW_IN_FOLDER,
+    surface: ['sidebar', 'terminalPopout'],
+    run: async ({ host }, event, args): Promise<TerminalNewInFolderResult> => {
+      // This route mints a shell bound to ONE folder and nothing else: the capsule that
+      // already records that folder is attached, or one is created for it — but nothing
+      // re-points. `antifan:capsule:pick-folder` would answer the same chooser and then
+      // switch the shell's capsule AND type `Set-Location` into the selected live shell,
+      // which is exactly how one project's agent used to end up inside another folder.
+      host.assertApplicationAdmitsHostWork(TERMINAL_CHANNELS.NEW_IN_FOLDER);
+      const senderId = event?.sender?.id;
+      const rawFolder = args[0] && typeof args[0] === 'object'
+        ? (args[0] as { folder?: unknown }).folder
+        : undefined;
+      let chosen = typeof rawFolder === 'string' && rawFolder.trim() ? rawFolder.trim() : '';
+      if (!chosen) {
+        if (rawFolder !== undefined) {
+          // A caller that named a folder field at all asked for a filesystem answer, and a
+          // dialog popping open instead would answer a question nobody put to the user.
+          return { ok: false, reason: 'INVALID_PAYLOAD', message: 'folder must be a non-empty string' };
+        }
+        // A chooser the user closes cancels the mint; a quit that commits while it hangs is
+        // the same refusal, re-checked below, so nothing mints into a closing shell.
+        const defaultDir = workspaceDialogDefaultPath();
+        const result = await dialog.showOpenDialog(host.shell.window, {
+          defaultPath: defaultDir,
+          properties: ['openDirectory', 'createDirectory'],
+          title: 'Chọn thư mục cho Terminal mới (Select Terminal Folder)',
+        });
+        chosen = !result.canceled && result.filePaths && result.filePaths.length > 0 ? result.filePaths[0] ?? '' : '';
+        if (!chosen) return { ok: false, reason: 'CANCELLED', message: 'No folder chosen' };
+      }
+      // One canonical spelling serves the capsule lookup, the session cwd and the group the
+      // row lands in: an 8.3 or junction alias minting a second row is how one folder used
+      // to grow nine identically named capsules. A path that is not a real directory is
+      // refused — the minted shell would otherwise run somewhere the user never asked for.
+      let realPath = '';
+      try {
+        realPath = fs.realpathSync.native(chosen);
+        if (!fs.statSync(realPath).isDirectory()) realPath = '';
+      } catch {
+        realPath = '';
+      }
+      if (!realPath) {
+        return { ok: false, reason: 'FOLDER_INVALID', message: `'${chosen}' is not a readable directory` };
+      }
+      // A folder a window may mint into is its own workspace's: a project window naming a
+      // foreign folder would land an owned terminal behind a path that window was never
+      // shown, so it is refused rather than secretly re-owned. The shared manager owns no
+      // folder, which is what lets it mint anywhere.
+      if (!host.isSharedTerminalManagerSender(senderId)) {
+        const ownRoot = host.resolveWindowWorkspaceRoot();
+        if (!ownRoot || canonicalFolderKey(ownRoot) !== canonicalFolderKey(realPath)) {
+          return {
+            ok: false,
+            reason: 'FOLDER_NOT_OWNED',
+            message: ownRoot
+              ? 'This window can only start terminals inside its own workspace folder'
+              : 'This window owns no workspace folder to start a terminal in',
+          };
+        }
+      }
+      try {
+        // The chooser may have hung open across a quit commit, so the admission is taken
+        // now — the capsule lookup, any capsule create and the mint all run under it, with
+        // no await between the reservation and the write that could interleave them.
+        return await host.admitThenRun(
+          TERMINAL_CHANNELS.NEW_IN_FOLDER,
+          { ownerKey: host.shellOwnerKeyForSender(senderId) },
+          async () => {
+            const activeId = host.capsuleManager.getActive()?.id ?? '';
+            const existing = findCapsuleByRoot(host.capsuleManager.list(), realPath, activeId);
+            const capsule = existing ?? host.capsuleManager.create(path.basename(realPath) || 'Workspace', realPath);
+            try {
+              // The daemon mints the PTY after this call resolves: held until it settles, so a
+              // Promise-shaped id is awaited exactly like the in-process string id.
+              const sessionId = await TerminalManager.getInstance().createSession(
+                realPath,
+                capsule.id,
+                host.shellOwnerKeyForSender(senderId),
+              );
+              if (typeof sessionId !== 'string' || !sessionId) {
+                return { ok: false, reason: 'CREATE_FAILED', message: 'Terminal minted no session id' };
+              }
+              return { ok: true, sessionId, capsuleId: capsule.id };
+            } catch (err) {
+              return { ok: false, reason: 'CREATE_FAILED', message: String(err instanceof Error ? err.message : err) };
+            }
+          },
+        );
+      } catch (err) {
+        return { ok: false, reason: 'SENDER_NOT_ADMITTED', message: String(err instanceof Error ? err.message : err) };
+      }
+    },
+  },
+  {
+    channel: TERMINAL_CHANNELS.SPACE_OPEN,
+    surface: ['sidebar'],
+    run: async ({ host }, event, args): Promise<SpaceOpenResult> => {
+      host.assertApplicationAdmitsHostWork(TERMINAL_CHANNELS.SPACE_OPEN);
+      const senderId = event?.sender?.id;
+      const payload = args[0] && typeof args[0] === 'object' ? (args[0] as { folder?: unknown; confirmHash?: unknown }) : {};
+      const folder = typeof payload.folder === 'string' ? payload.folder.trim() : '';
+      if (!folder || (payload.confirmHash !== undefined && typeof payload.confirmHash !== 'string')) {
+        return { ok: false, reason: 'INVALID_PAYLOAD', message: 'folder must be a non-empty string' };
+      }
+      let realPath = '';
+      try {
+        realPath = fs.realpathSync.native(folder);
+        if (!fs.statSync(realPath).isDirectory()) realPath = '';
+      } catch {
+        realPath = '';
+      }
+      if (!realPath) return { ok: false, reason: 'FOLDER_INVALID', message: `'${folder}' is not a readable directory` };
+      if (!host.isSharedTerminalManagerSender(senderId)) {
+        const ownRoot = host.resolveWindowWorkspaceRoot();
+        if (!ownRoot || canonicalFolderKey(ownRoot) !== canonicalFolderKey(realPath)) {
+          return { ok: false, reason: 'FOLDER_NOT_OWNED', message: 'This window can only open its own workspace Space' };
+        }
+      }
+      const opener = host.getSpaceWindowOpener();
+      if (!opener) return { ok: false, reason: 'WINDOW_FAILED', message: 'No project window opener is installed' };
+      const manager = TerminalManager.getInstance();
+      let targetOwnerKey = '';
+      const store = createConfirmationStore(path.join(StorageLocations.getControlPlaneDir(), 'space-confirmed.json'));
+      const deps: SpaceOpenDeps = {
+        folderKey: canonicalFolderKey,
+        admit: () => host.assertApplicationAdmitsHostWork(TERMINAL_CHANNELS.SPACE_OPEN),
+        isConfirmed: store.isConfirmed,
+        recordConfirmed: store.recordConfirmed,
+        openWindow: async (folderPath) => {
+          const opened = await opener(folderPath);
+          if (!opened.ok) return opened;
+          targetOwnerKey = opened.ownerKey;
+          const activeId = opened.host.capsuleManager.getActive()?.id ?? '';
+          const capsule = findCapsuleByRoot(opened.host.capsuleManager.list(), folderPath, activeId);
+          if (!capsule) return { ok: false, message: 'The project window has no workspace capsule for this folder' };
+          const capsuleId = capsule.id;
+          const windowHost = opened.host;
+          return {
+            ok: true,
+            window: {
+              capsuleId,
+              hasTab: (spec) =>
+                windowHost.getTabList().some((tab) => {
+                  const url = typeof tab.url === 'string' ? tab.url : '';
+                  if (spec.kind === 'url') return url.replace(/\/+$/, '') === spec.url.replace(/\/+$/, '');
+                  if (!url.startsWith('antifan-preview://')) return false;
+                  // Exact capsule + path equality (not a suffix): a different file or another
+                  // capsule's preview of the same relative path is not the tab this Space declares.
+                  try {
+                    const parsed = parsePreviewUrl(url);
+                    return parsed.capsuleId === capsuleId.toLowerCase() && parsed.relativePath === `/${spec.path}`;
+                  } catch {
+                    return false;
+                  }
+                }),
+              openTab: (spec, absolutePath) => {
+                const tabId =
+                  spec.kind === 'url'
+                    ? windowHost.createTab(spec.url, false, { capsuleId })
+                    : absolutePath
+                      ? windowHost.createPreviewTab(absolutePath, capsuleId)
+                      : null;
+                if (!tabId) return false;
+                if (spec.alias || spec.role) windowHost.setTabAlias(tabId, spec.alias, spec.role);
+                return true;
+              },
+            },
+          };
+        },
+        sessions: () =>
+          (manager.listSessions() as SessionSummary[]).map((s) => ({
+            id: s.id,
+            cwd: s.cwd,
+            state: s.state,
+            spaceTerminalId: s.spaceTerminalId,
+          })),
+        mint: async (folderPath, capsuleId, spec) =>
+          await host.admitThenRun<string | null>(TERMINAL_CHANNELS.SPACE_OPEN, { ownerKey: targetOwnerKey }, async () => {
+            const sessionId = await manager.createSession(folderPath, capsuleId, targetOwnerKey, {
+              role: spec.role,
+              idlePolicy: spec.idlePolicy,
+              spaceTerminalId: spec.id,
+            });
+            if (typeof sessionId !== 'string' || !sessionId) return null;
+            await manager.renameSession(sessionId, spec.label);
+            return sessionId;
+          }),
+        findSyncDuplicate: (folderPath, capsuleId) => {
+          const briefOf = (id: string) => (id ? host.capsuleManager.get(id)?.brief : undefined);
+          const live = (manager.listSessions() as SessionSummary[])
+            .filter((s) => s.role === 'sync' && s.state === 'running' && !s.splitOf)
+            .map((s) => ({
+              id: s.id,
+              label: String(s.displayLabel || s.name || s.id),
+              folder: String(s.cwd || ''),
+              brief: briefOf(typeof s.capsuleId === 'string' ? s.capsuleId : ''),
+            }));
+          const duplicate = findSyncDuplicate(syncIdentity(folderPath, briefOf(capsuleId)), live);
+          return duplicate ? { id: duplicate.id, label: duplicate.label } : undefined;
+        },
+        typeCommand: (sessionId, text) => manager.writeTo(sessionId, text),
+        wake: async (sessionId) => (await manager.wakeSession(sessionId)) !== false,
+      };
+      return openSpace(deps, realPath, typeof payload.confirmHash === 'string' ? payload.confirmHash : undefined);
+    },
+  },
+  {
+    channel: TERMINAL_CHANNELS.SPACE_INIT,
+    surface: ['sidebar'],
+    run: async ({ host }, event, args): Promise<SpaceInitResult> => {
+      host.assertApplicationAdmitsHostWork(TERMINAL_CHANNELS.SPACE_INIT);
+      const senderId = event?.sender?.id;
+      const rawFolder = args[0] && typeof args[0] === 'object' ? (args[0] as { folder?: unknown }).folder : undefined;
+      const folder = typeof rawFolder === 'string' ? rawFolder.trim() : '';
+      if (!folder) return { ok: false, reason: 'INVALID_PAYLOAD', message: 'folder must be a non-empty string' };
+      let realPath = '';
+      try {
+        realPath = fs.realpathSync.native(folder);
+        if (!fs.statSync(realPath).isDirectory()) realPath = '';
+      } catch {
+        realPath = '';
+      }
+      if (!realPath) return { ok: false, reason: 'FOLDER_INVALID', message: `'${folder}' is not a readable directory` };
+      const isManager = host.isSharedTerminalManagerSender(senderId);
+      if (!isManager) {
+        const ownRoot = host.resolveWindowWorkspaceRoot();
+        if (!ownRoot || canonicalFolderKey(ownRoot) !== canonicalFolderKey(realPath)) {
+          return { ok: false, reason: 'FOLDER_NOT_OWNED', message: 'This window can only scaffold its own workspace Space' };
+        }
+      }
+      const key = canonicalFolderKey(realPath);
+      const terminals = (TerminalManager.getInstance().listSessions() as SessionSummary[])
+        .filter((s) => (s.state === 'running' || s.state === 'sleeping') && typeof s.cwd === 'string' && canonicalFolderKey(s.cwd) === key)
+        .map((s) => ({ label: s.name, role: s.role, idlePolicy: s.idlePolicy }));
+      // Tabs belong to a project window; the shared manager owns none, so it scaffolds terminals only.
+      const tabs = isManager
+        ? []
+        : host.getTabList().map((tab) => ({ url: typeof tab.url === 'string' ? tab.url : '', alias: tab.alias, role: tab.role }));
+      const manifest = buildSpaceTemplate(path.basename(realPath), terminals, tabs);
+      try {
+        if (writeSpaceManifestExclusive(realPath, manifest) === 'exists') {
+          return { ok: false, reason: 'ALREADY_EXISTS', message: 'space.json already exists' };
+        }
+      } catch (err) {
+        return { ok: false, reason: 'WRITE_FAILED', message: String(err instanceof Error ? err.message : err) };
+      }
+      return {
+        ok: true,
+        terminals: manifest.terminals.length,
+        tabs: manifest.tabs.length,
+        ...(antifanDirUnignoredInGit(realPath) ? { gitignoreWarning: true as const } : {}),
+      };
     },
   },
   {
@@ -6101,7 +6415,7 @@ export class NativeTabHost extends EventEmitter {
    * terminal windows, its diagnostics), and the host's own window is the only scope it can be
    * speaking for.
    */
-  private isSharedTerminalManagerSender(senderId?: number): boolean {
+  public isSharedTerminalManagerSender(senderId?: number): boolean {
     if (this.windowOwnerKey() !== UNASSIGNED_OWNER_KEY) return false;
     return senderId === undefined || this.ownsChromeSender(senderId);
   }
@@ -6183,11 +6497,91 @@ export class NativeTabHost extends EventEmitter {
       : undefined;
     return {
       activeSessionId,
-      sessions,
+      sessions: this.stampFolderProjection(sessions),
       ...(splitSessionId ? { splitSessionId } : {}),
       snapshot: transcriptKept && typeof projection.snapshot === 'string' ? projection.snapshot : '',
       snapshotThroughSeq: transcriptKept && typeof projection.snapshotThroughSeq === 'number' ? projection.snapshotThroughSeq : 0,
     };
+  }
+
+  /**
+   * The folder identity a row was minted with, stamped onto its summary copy. The stamped
+   * fields answer "which folder" one way — `canonicalFolderKey` of the capsule's workspace
+   * root when a capsule records one, else of the session's own cwd — so two spellings of one
+   * directory, however they arrived, land the same key. The stamps are projection-only: the
+   * session record keeps the path it was told, and nothing here is what gets persisted.
+   *
+   * `displayLabel` names the rows still wearing the minted `Terminal N` name — and only
+   * those, because a name the user typed is the label they asked for. `n` counts this
+   * window's visible rows of the same folder in list order, so each window's numbering is
+   * contiguous over exactly the rows it renders.
+   */
+  private stampFolderProjection(rows: readonly SessionSummary[]): SessionSummary[] {
+    if (rows.length === 0) return [];
+    // The capsule index is built once per projection: `list()` already clones, and a row's
+    // own capsule lookup over the full index is then O(1).
+    const capsuleById = new Map<string, WorkspaceCapsule>();
+    try {
+      for (const capsule of this.capsuleManager.list()) capsuleById.set(capsule.id, capsule);
+    } catch {
+      // A manager that cannot list attributes nothing — rows keep their `name`, which is the
+      // same absence of projection any pre-capsule session renders under.
+    }
+    // Folder a session claims: its capsule's workspace root is the anchor of record when one
+    // exists; the spawn cwd stands in only when nothing else can say.
+    const rawFolderOf = (row: SessionSummary): string => {
+      const capsule = typeof row.capsuleId === 'string' ? capsuleById.get(row.capsuleId) : undefined;
+      if (capsule && typeof capsule.workspacePath === 'string' && capsule.workspacePath.trim()) return capsule.workspacePath;
+      return typeof row.cwd === 'string' ? row.cwd : '';
+    };
+    const counts = new Map<string, number>();
+    return rows.map((row) => {
+      const raw = rawFolderOf(row);
+      const facts = raw.trim() ? this.folderFactsFor(raw) : null;
+      if (!facts) return row;
+      const n = (counts.get(facts.folderKey) ?? 0) + 1;
+      counts.set(facts.folderKey, n);
+      const stamped: SessionSummary = { ...row, folderKey: facts.folderKey, folderLabel: facts.folderLabel, folderPath: facts.canonicalPath };
+      // `Terminal N` is what the mint wrote, so it is the name the badge replaces; a user-set
+      // name that happens to spell the same words is still theirs and shows instead.
+      const mintedName = `Terminal ${row.id.replace('terminal-', '')}`;
+      if (row.name === mintedName || !row.name.trim()) {
+        stamped.displayLabel = `${facts.folderLabel} · ${n}`;
+      }
+      return stamped;
+    });
+  }
+
+  /**
+   * Canonical folder facts for one input path, cached per spelling: `realpath` is the one
+   * filesystem answer every grouping and label needs, and the per-window broadcast would pay
+   * it for every row without the cache. A path that no longer resolves keeps its last facts —
+   * the row's folder is still the folder it ran in — while one that never resolved is keyed
+   * by `path.resolve` with the basename of the spelling itself, so a stale row can still land
+   * beside a live one that names the same folder.
+   */
+  private folderFactsFor(folder: string): { canonicalPath: string; folderKey: string; folderLabel: string } {
+    const input = folder.trim();
+    // `private readonly` initializers do not run on `Object.create` test doubles, so the map
+    // is made here rather than assumed — the field stays the single owner of the cache.
+    const cache = (this.folderFactsCache ??= new Map());
+    const cached = cache.get(input);
+    if (cached) return cached;
+    let canonicalPath = input;
+    try {
+      canonicalPath = fs.realpathSync.native(input);
+    } catch {
+      // An unreadable folder keys on its resolved spelling: it is still the one identity that
+      // spelling has for this process, and the label below renders what the row told us.
+      canonicalPath = path.resolve(input);
+    }
+    const facts = {
+      canonicalPath,
+      folderKey: canonicalFolderKey(input),
+      folderLabel: path.basename(canonicalPath) || canonicalPath,
+    };
+    this.folderFactsCache.set(input, facts);
+    return facts;
   }
 
   /**
@@ -7069,8 +7463,6 @@ export class NativeTabHost extends EventEmitter {
         };
         if (tabSessionId !== undefined) {
           termContextData.annotationSessionId = tabSessionId;
-        } else if (TabDevToolsHost.lastAnnotationSessionId) {
-          termContextData.annotationSessionId = TabDevToolsHost.lastAnnotationSessionId;
         }
         const termContextScript = `(() => {
           window.__antifanTerminalContext = Object.assign(window.__antifanTerminalContext || {}, ${JSON.stringify(termContextData)});
@@ -12045,6 +12437,24 @@ export class NativeTabHost extends EventEmitter {
    */
   public setTerminalLinkOpener(opener: ((ownerKey: string, url: string) => Promise<boolean> | boolean) | null): void {
     this.terminalLinkOpener = typeof opener === 'function' ? opener : null;
+  }
+
+  /**
+   * Main-owned resolver for the project window a Space opens into: adopts or creates the project for
+   * the folder, presents its window, and names the host and owner key its terminals belong to.
+   */
+  private spaceWindowOpener:
+    | ((realFolder: string) => Promise<{ ok: true; host: NativeTabHost; ownerKey: string } | { ok: false; message: string }>)
+    | null = null;
+
+  public setSpaceWindowOpener(
+    opener: ((realFolder: string) => Promise<{ ok: true; host: NativeTabHost; ownerKey: string } | { ok: false; message: string }>) | null,
+  ): void {
+    this.spaceWindowOpener = typeof opener === 'function' ? opener : null;
+  }
+
+  public getSpaceWindowOpener(): NativeTabHost['spaceWindowOpener'] {
+    return this.spaceWindowOpener;
   }
   /**
    * Nesting depth of admitted agent actions. The keyboard action the automation host

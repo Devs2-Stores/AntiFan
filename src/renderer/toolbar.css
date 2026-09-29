@@ -4270,14 +4270,16 @@ body, html {
 }
 
 .close-refusal-dismiss {
-  border: none;
-  background: transparent;
+  border: 1px solid rgba(248, 113, 113, 0.55);
+  background: rgba(248, 113, 113, 0.18);
   color: #f8fafc;
   cursor: pointer;
   font-size: 12px;
+  font-weight: 600;
   line-height: 1;
-  padding: 2px 6px;
-  border-radius: 4px;
+  min-height: 28px;
+  padding: 6px 12px;
+  border-radius: 6px;
 }
 
 .close-refusal-dismiss:hover {

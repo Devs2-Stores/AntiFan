@@ -284,7 +284,7 @@ describe('Terminal sleep: tool surface + Haravan sync barrier tolerance', () => 
     ptyOf(id).emitData('[14:20:00] Uploaded: snippets/old.liquid\n');
     assert.strictEqual(manager.captureBaselineSeq(id).baselineSeq, 1);
 
-    assert.strictEqual(manager.sleepSession(id), true);
+    assert.deepStrictEqual(manager.sleepSession(id), { ok: true });
     assert.strictEqual(manager.getSession(id)?.state, 'sleeping');
     assert.strictEqual(manager.getSession(id)?.pty, null, 'sleeping must release the PTY handle synchronously');
     // The process-tree teardown is asynchronous by design (`void teardownSessionPty`).
@@ -316,7 +316,7 @@ describe('Terminal sleep: tool surface + Haravan sync barrier tolerance', () => 
   it('2. terminal.write is the wake path: it wakes the sleeping session and delivers the input in one spawn', async () => {
     const id = manager.createSession(process.cwd());
     ptyOf(id).emitData('MARKER-before-sleep\r\n');
-    assert.strictEqual(manager.sleepSession(id), true);
+    assert.deepStrictEqual(manager.sleepSession(id), { ok: true });
     assert.strictEqual(manager.getSession(id)?.state, 'sleeping');
 
     const spawnsBefore = countSpawns(id);
@@ -359,7 +359,7 @@ describe('Terminal sleep: tool surface + Haravan sync barrier tolerance', () => 
 
   it('3. terminal.write reports an un-woken sleeping session honestly instead of claiming delivery', async () => {
     const id = manager.createSession(process.cwd());
-    assert.strictEqual(manager.sleepSession(id), true);
+    assert.deepStrictEqual(manager.sleepSession(id), { ok: true });
 
     const mutable = manager as unknown as { spawn: (...args: any[]) => any };
     const workingSpawn = mutable.spawn;
@@ -409,7 +409,7 @@ describe('Terminal sleep: tool surface + Haravan sync barrier tolerance', () => 
     const cursorWhileRunning = barrier.captureBaselineCursor(id);
     assert.strictEqual(cursorWhileRunning.baselineSeq, 1);
 
-    assert.strictEqual(manager.sleepSession(id), true);
+    assert.deepStrictEqual(manager.sleepSession(id), { ok: true });
     // A nap must not invalidate the cursor: sequence numbers stay monotonic.
     const cursor = barrier.captureBaselineCursor(id);
     assert.strictEqual(cursor.baselineSeq, 1, 'sleep must not reset the baseline sequence');

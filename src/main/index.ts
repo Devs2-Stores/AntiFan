@@ -954,6 +954,7 @@ function attachSharedServices(host: NativeTabHost): void {
   host.setOwnerWindowPresence((ownerKeyValue) => liveShellFor(ownerKeyValue) !== undefined);
   host.setProjectAssignmentResolver(resolveProjectAssignment);
   host.setTerminalLinkOpener(openTerminalLinkInOwner);
+  host.setSpaceWindowOpener(openSpaceWindow);
   if (runStateService) {
     host.setRunStateService(runStateService);
   }
@@ -2180,14 +2181,9 @@ async function pickProjectToOpen(parent: BrowserWindow | null): Promise<ProjectO
  * A folder Main already registered as an attached workspace is adopted, never duplicated: the
  * registry is the identity of record, and a second project for one directory would leave two
  * windows whose terminals share a working directory but not a close gate. Two attached
- * workspaces on one root is ambiguity, not a choice, and is refused rather than tie-broken.
- *
- * A folder no record describes becomes a project of its own. Its durability is the capsule
- * affiliation and nothing else: `workspace-capsules.json` is what the next boot's
- * `synchronizeCapsulesWithRegistry` re-registers the project from, so the affiliation has to land
- * before this reports success — and without the capsule manager no affiliation can be written, so
- * such a project would vanish at the next boot and take the window's identity with it. That is why
- * a missing manager refuses before any record moves, rather than creating what cannot persist.
+ * workspaces on one root is ambiguity, not a choice, and is refused rather than tie-broken —
+ * those rules live in `projectIdForResolvedFolder`, which this resolves the pick into and
+ * every non-dialog folder open shares.
  *
  * The chosen path is resolved through the filesystem exactly as the capsule routes resolve theirs:
  * a workspace is a filesystem anchor for PTY cwd and preview containment, so the anchor has to be
@@ -2199,9 +2195,11 @@ async function resolveProjectFromFolder(
   // The chooser opens where the user already works when Main knows the boot project's workspace;
   // without one it is omitted, which leaves the platform's own last-used directory in charge.
   const bootProjectId = bootProjectIdValue;
-  const defaultPath = bootProjectId
+  // Normalised: the Windows chooser drops a forward-slash `defaultPath` without a word.
+  const bootWorkspacePath = bootProjectId
     ? resolveWindowRecord({ kind: 'project', projectId: bootProjectId }).workspacePath
     : undefined;
+  const defaultPath = bootWorkspacePath ? path.normalize(bootWorkspacePath) : undefined;
   const options: OpenDialogOptions = {
     properties: ['openDirectory', 'createDirectory'],
     title: 'Chọn thư mục dự án',
@@ -2224,6 +2222,31 @@ async function resolveProjectFromFolder(
   }
   if (!resolved) return { result: { status: 'FAILED', reason: 'PROJECT_FOLDER_INVALID' } };
 
+  return projectIdForResolvedFolder(resolved);
+}
+
+/**
+ * The project id one already-resolved directory opens to: the attached workspace's project,
+ * or a project minted for the folder — and it is *already resolved*, because every caller
+ * (the folder chooser, a `{folder}` open payload, a later space-open that names a root) has
+ * to reach the same identity through the same adoption rules rather than grow its own copy
+ * of them.
+ *
+ * A folder Main already registered as an attached workspace is adopted, never duplicated: the
+ * registry is the identity of record, and a second project for one directory would leave two
+ * windows whose terminals share a working directory but not a close gate. Two attached
+ * workspaces on one root is ambiguity, not a choice, and is refused rather than tie-broken.
+ *
+ * A folder no record describes becomes a project of its own. Its durability is the capsule
+ * affiliation and nothing else: `workspace-capsules.json` is what the next boot's
+ * `synchronizeCapsulesWithRegistry` re-registers the project from, so the affiliation has to land
+ * before this reports success — and without the capsule manager no affiliation can be written, so
+ * such a project would vanish at the next boot and take the window's identity with it. That is why
+ * a missing manager refuses before any record moves, rather than creating what cannot persist.
+ */
+function projectIdForResolvedFolder(
+  resolved: string,
+): { projectId: string } | { result: ProjectOpenResult } {
   const attached = projectRegistry.findWorkspacesByRoot(resolved);
   if (attached.length > 1) {
     return { result: { status: 'FAILED', reason: 'AMBIGUOUS_PROJECT_FOLDER' } };
@@ -2238,11 +2261,12 @@ async function resolveProjectFromFolder(
     }
   }
 
-  // A folder chooser can stay open as long as the user likes, so the admission is re-read now and
-  // the mutation below follows it with no await in between: a quit that committed around the dialog
-  // would otherwise end with a project — and a window — created after it counted the windows it
-  // intends to end. The wrap is not for tidiness: a rejection here would surface as a dead click,
-  // while every refusal, the admission included, becomes the same FAILED envelope the caller reads.
+  // The chooser's caller can keep the user waiting as long as a dialog stays open, so the
+  // admission is re-read now and the mutation below follows it with no await in between: a
+  // quit that committed meanwhile would otherwise end with a project — and a window —
+  // created after it counted the windows it intends to end. The wrap is not for tidiness: a
+  // rejection here would surface as a dead click, while every refusal, the admission
+  // included, becomes the same FAILED envelope the caller reads.
   try {
     assertApplicationAdmitsWork(closeReservations, 'open project from folder');
     // Bound once: the manager has to be the same instance for both calls below, and a manager that
@@ -2307,11 +2331,36 @@ function senderWindowFor(event: unknown): BrowserWindow | null {
  * The picker may answer with a folder instead of an id. That answer is resolved into a project id
  * here and the open then continues below unchanged, so a folder open and an id open end in the
  * same validation and the same window factory rather than in two paths that could drift apart.
+ * The payload may also name a `folder` instead of a `projectId`: the directory is resolved
+ * through the filesystem, adopted or minted by `projectIdForResolvedFolder` exactly as the
+ * picker's folder answer is, and the open continues with the id that came back.
  */
 async function openProjectWindow(payload: unknown, parent?: BrowserWindow | null): Promise<ProjectOpenResult> {
   let requested = payload && typeof payload === 'object' && 'projectId' in payload && typeof payload.projectId === 'string'
     ? payload.projectId.trim()
     : '';
+  if (!requested) {
+    // An explicit folder answers the question the picker's chooser would have asked: resolve
+    // the directory to its project (adopt or mint) and continue into the same open below.
+    const folder = payload && typeof payload === 'object' && 'folder' in payload && typeof payload.folder === 'string'
+      ? payload.folder.trim()
+      : '';
+    if (folder) {
+      // Same filesystem boundary the chooser's answer crosses: the anchor is the directory
+      // itself, never an alias a later containment check would compare against.
+      let resolved = '';
+      try {
+        resolved = fs.realpathSync(folder);
+        if (!fs.statSync(resolved).isDirectory()) resolved = '';
+      } catch {
+        resolved = '';
+      }
+      if (!resolved) return { status: 'FAILED', reason: 'PROJECT_FOLDER_INVALID' };
+      const fromFolder = projectIdForResolvedFolder(resolved);
+      if ('result' in fromFolder) return fromFolder.result;
+      requested = fromFolder.projectId;
+    }
+  }
   if (!requested) {
     recordLifecycleEvent('project-open.without-target', {});
     // One parent for both dialogs: the folder chooser belongs to the window whose picker the user
@@ -2350,6 +2399,24 @@ async function openProjectWindow(payload: unknown, parent?: BrowserWindow | null
     recordLifecycleEvent('project-open.failed', { projectId, detail: String(err) });
     return { status: 'FAILED', projectId, reason: redactCredentials(String(err)) };
   }
+}
+
+/**
+ * The window a Space opens into: the project that owns the folder (adopted or created exactly as a
+ * folder open does, no dialog), its window presented, and the host plus owner key its shells and
+ * tabs belong to. The folder is already a realpath the route validated.
+ */
+async function openSpaceWindow(
+  realFolder: string,
+): Promise<{ ok: true; host: NativeTabHost; ownerKey: string } | { ok: false; message: string }> {
+  const opened = await openProjectWindow({ folder: realFolder });
+  if (opened.status !== 'OPENED' && opened.status !== 'FOCUSED') {
+    return { ok: false, message: opened.status === 'FAILED' ? opened.reason : 'Project window was not opened' };
+  }
+  const key = ownerKey({ kind: 'project', projectId: opened.projectId });
+  const host = hostForOwnerKey(key);
+  if (!host) return { ok: false, message: 'The project window closed before its Space could open' };
+  return { ok: true, host, ownerKey: key };
 }
 
 /**

@@ -177,7 +177,7 @@ describe('refusal notice mapping', () => {
     // force, and no field a chrome could turn into a way past the refusal.
     assert.deepEqual(Object.keys(notice).sort(), ['haltedBy', 'kind', 'ownerKey', 'reasons', 'summary']);
     assert.deepEqual(notice.reasons[1]?.controls.map((control) => control.id), [
-      'antifan:terminal:remove-tab',
+      'antifan:terminal:close-session',
       'antifan.cli.endSession',
     ]);
   });

@@ -141,6 +141,27 @@ const mainProcess = require(compiledModule('index.js'));
 
 // Stage timing under ANTIFAN_DBG_ECHO=1: sentAt → writeTo → appendData → host dispatch.
 if (process.env.ANTIFAN_DBG_ECHO === '1') {
+  const cpMod = require('node:child_process');
+  const spawnLog = [];
+  const hookSpawn = (name) => {
+    const orig = cpMod[name];
+    if (typeof orig !== 'function') return;
+    cpMod[name] = function (...args) {
+      const cmd = typeof args[0] === 'string' ? args[0] : String(args[0]);
+      if (/icacls|powershell|winpty|conhost|OpenConsole|cmd\.exe/i.test(cmd)) {
+        spawnLog.push(`${performance.now().toFixed(0)} ${name} ${cmd.split(/[\\/]/).pop()}`);
+      }
+      return orig.apply(this, args);
+    };
+  };
+  for (const m of ['spawn', 'execFile', 'execFileSync', 'execSync']) hookSpawn(m);
+  setInterval(() => {
+    if (spawnLog.length) {
+      console.log(`[dbg ${performance.now().toFixed(0)}] spawns: ${spawnLog.slice(-12).join('; ')}`);
+      spawnLog.length = 0;
+    }
+  }, 5000).unref();
+
   const tmMod = require(compiledModule('browser/terminal-manager.js'));
   const hostMod = require(compiledModule('browser/native-tab-host.js'));
   const dbg = (msg) => console.log(`[dbg ${performance.now().toFixed(1)}] ${msg}`);
@@ -217,6 +238,84 @@ if (process.env.ANTIFAN_DBG_ECHO === '1') {
     setImmediate(gapLoop);
   };
   setImmediate(gapLoop);
+  // Duration timers over the heavy synchronous candidates; report per-5s so the
+  // saturating call names itself.
+  const timed = new Map();
+  const wrap = (owner, name, label) => {
+    const orig = owner[name];
+    if (typeof orig !== 'function') { dbg(`wrap-miss ${label}`); return; }
+    owner[name] = function (...args) {
+      const t0 = performance.now();
+      try { return orig.apply(this, args); }
+      finally {
+        const d = performance.now() - t0;
+        const rec = timed.get(label) || { n: 0, total: 0, max: 0 };
+        rec.n++; rec.total += d; if (d > rec.max) rec.max = d;
+        timed.set(label, rec);
+      }
+    };
+  };
+  wrap(TM.prototype, 'serializePersistPayload', 'serializePersist');
+  wrap(TM.prototype, 'getSessionState', 'getSessionState');
+  wrap(TM.prototype, 'getDelta', 'getDelta');
+  wrap(TM.prototype, 'getFullBuffer', 'getFullBuffer');
+  wrap(TM.prototype, 'listSessions', 'listSessions');
+  wrap(TM.prototype, 'persistSync', 'persistSync');
+  wrap(hostMod.NativeTabHost.prototype, 'terminalStateForWindow', 'stateForWindow');
+  wrap(hostMod.NativeTabHost.prototype, 'sendTerminalProjections', 'sendProjections');
+  wrap(hostMod.NativeTabHost.prototype, 'dispatchTerminalData', 'dispatchData');
+  wrap(hostMod.NativeTabHost.prototype, 'isSessionVisibleToWindow', 'visibleCheck');
+  try {
+    const wc0 = allWebContents.getAllWebContents()[0];
+    if (wc0) wrap(Object.getPrototypeOf(wc0), 'send', 'wc.send');
+  } catch (e) { dbg(`wc.wrap ${e}`); }
+  setInterval(() => {
+    const parts = [];
+    for (const [k, r] of timed) {
+      if (r.n || r.max > 0) parts.push(`${k}: n=${r.n} total=${r.total.toFixed(0)}ms max=${r.max.toFixed(0)}ms`);
+      timed.set(k, { n: 0, total: 0, max: 0 });
+    }
+    if (parts.length) dbg(`timed ${parts.join(' | ')}`);
+  }, 5000).unref();
+  // Time every ipcMain.on / ipcMain.handle callback so a slow synchronous IPC
+  // handler exposes its channel name.
+  try {
+    const { ipcMain } = require('electron');
+    for (const m of ['on', 'handle']) {
+      const orig = ipcMain[m].bind(ipcMain);
+      ipcMain[m] = (channel, listener, ...rest) => orig(channel, function (...args) {
+        const t0 = performance.now();
+        try { return listener.apply(this, args); }
+        finally {
+          const d = performance.now() - t0;
+          const key = `ipc.${m}:${String(channel).slice(0, 48)}`;
+          const rec = timed.get(key) || { n: 0, total: 0, max: 0 };
+          rec.n++; rec.total += d; if (d > rec.max) rec.max = d;
+          timed.set(key, rec);
+        }
+      }, ...rest);
+    }
+  } catch (e) { dbg(`ipcMain.wrap ${e}`); }
+  // OS-level flow per pty: outSocket.bytesRead rate (agent→node drain) and
+  // inSocket.writableLength (node→agent unsent input). A low bytesRead rate with
+  // growing inputToPty means the agent/worker side is starving delivery.
+  const sockStats = new Map();
+  setInterval(() => {
+    try {
+      const tm = TM.getInstance();
+      if (!tm || !tm.sessions) return;
+      for (const s of tm.sessions.values()) {
+        const ag = s.pty && s.pty._agent;
+        if (!ag) continue;
+        const st = sockStats.get(s.id) || { lastRead: 0, lastT: 0 };
+        const read = ag.outSocket?.bytesRead || 0;
+        const now = performance.now();
+        const rate = st.lastT ? Math.round((read - st.lastRead) / ((now - st.lastT) / 1000)) : 0;
+        dbg(`sock sess=${s.id} outBps=${rate} inBuf=${ag.inSocket?.writableLength || 0} outFlowing=${ag.outSocket?.readableFlowing}`);
+        sockStats.set(s.id, { lastRead: read, lastT: now });
+      }
+    } catch (e) { dbg(`sock.err ${e}`); }
+  }, 5000).unref();
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -349,7 +448,7 @@ async function run() {
     } catch {}
   }
   const startedAt = performance.now();
-  await sendInput(burst, `${producer}\r`);
+  if (process.env.ANTIFAN_PERF_NO_PRODUCER !== '1') await sendInput(burst, `${producer}\r`);
   const sentAt = new Map();
   let marker = 0;
   const rssSamples = [];

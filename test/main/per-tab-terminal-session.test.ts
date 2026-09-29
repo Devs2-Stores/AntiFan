@@ -274,5 +274,6 @@ describe('Per-tab terminal memory in Popup Annotation', () => {
   it('element-picker source no longer reads or writes the origin-shared localStorage key', () => {
     const pickerSrc = fs.readFileSync(path.join(ROOT, 'src', 'main', 'browser', 'element-picker.ts'), 'utf8');
     assert.ok(!pickerSrc.includes('antifan_last_annotation_session_id'), 'origin-shared localStorage key must be gone from element-picker');
+    assert.ok(!pickerSrc.includes('antifan_annotation_session_id'), 'cross-tab localStorage key must be gone from element-picker');
   });
 });
