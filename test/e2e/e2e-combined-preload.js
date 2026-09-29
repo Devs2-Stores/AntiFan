@@ -40,24 +40,10 @@ const api = {
   unsplitTerminal: (parentId) => ipcRenderer.invoke('antifan:terminal:unsplit-session', parentId),
   setSplitRatio: (id, ratio) => ipcRenderer.invoke('antifan:terminal:set-split-ratio', { id, ratio }),
   closeSplit: (id) => ipcRenderer.invoke('antifan:terminal:close-split', { id }),
-  togglePopout: () => ipcRenderer.invoke('antifan:terminal:popout'),
-  isPopout: () => {
-    try {
-      const sp = new URLSearchParams(window.location.search);
-      return sp.get('mode') === 'popout';
-    } catch {
-      return false;
-    }
-  },
   // The other `kind: 'on'` route the renderer calls: a renderer that acks a chunk it
   // painted must reach the manager in this harness too, or the ack path is never
   // exercised here.
   ackTerminalChunk: (payload) => ipcRenderer.send('antifan:terminal:ack', payload),
-  onPopoutStateChanged: (cb) => {
-    const h = (_e, v) => cb(v);
-    ipcRenderer.on('antifan:terminal:popout-state-changed', h);
-    return () => ipcRenderer.removeListener('antifan:terminal:popout-state-changed', h);
-  },
   onTerminalData: (cb) => {
     const h = (_e, d) => cb(d);
     ipcRenderer.on('antifan:terminal:data', h);

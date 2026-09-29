@@ -25,6 +25,16 @@ import { registerPreviewProtocolHandler } from './server/preview-protocol-handle
 import { StorageLocations, DISK_CACHE_BYTES, MEDIA_CACHE_BYTES } from './config/storage-locations';
 import { WorkspaceCapsuleManager, findReusableCapsule, type WorkspaceCapsule } from './project/workspace-capsule';
 import { ProjectRegistry } from './project/project-registry';
+import { ProjectPreferences, PROJECT_PREFERENCES_FILE } from './project/project-preferences';
+import { reconcileProjectRecords } from './project/project-reconcile';
+import {
+  hasValidatedAffiliation,
+  parseOwnerKey,
+  resolveProjectContext,
+  uniqueValidatedClaim,
+  type ProjectContextPorts,
+  type ValidatedAffiliationCapsule,
+} from './project/project-context';
 import {
   collectProjectOpenCandidates,
   projectOpenDialogSpec,
@@ -34,7 +44,7 @@ import {
   type ProjectOpenChoice,
   type ProjectOpenDialogSpec,
 } from './project/project-open-picker';
-import { NativeTabHost, collectTabSearchInventory, activateTabSearchResult, isUnhostedTerminalWindow, type TabSearchInventoryRow, type TabSearchActivationFailure } from './browser/native-tab-host';
+import { NativeTabHost, collectTabSearchInventory, activateTabSearchResult, isUnhostedTerminalWindow, purgeSavedTabsFileForProject, savedTabsFilePath, type TabSearchInventoryRow, type TabSearchActivationFailure } from './browser/native-tab-host';
 import { closeAuxiliaryWindow } from './browser/auxiliary-close';
 import { ProjectWindowManager, type OpenIntent } from './browser/project-window-manager';
 import { ProjectWindowShell, ownerKey, ownerLabel, type ChromeSurface, type WindowOwner } from './browser/project-window-shell';
@@ -99,9 +109,12 @@ import { validateControlPlaneId, makeControlPlaneId, type ProjectRecord } from '
 import {
   PROJECT_WINDOW_CHANNELS,
   type ProjectOpenListCandidate,
+  type ProjectOpenListResult,
+  type ProjectStoredStatus,
   type ProjectOpenResult,
   type ProjectRemoveResult,
   type ProjectRenameResult,
+  type ProjectAppearanceResult,
   type ProjectTabActivationResult,
   type ProjectTabSearchRow,
   type ProjectTabSearchResult,
@@ -298,46 +311,7 @@ export const projectRegistry = new ProjectRegistry();
 let projectWindows: ProjectWindowManager | null = null;
 let capsuleManager: WorkspaceCapsuleManager | null = null;
 
-/** A capsule record whose affiliation Main can trust on the evidence of the record alone. */
-export type ValidatedAffiliationCapsule = WorkspaceCapsule & { projectId: string; workspaceId: string };
-
-/**
- * Whether a capsule carries an explicit, control-plane-safe affiliation: both ids present and
- * well formed. Ambiguity — two records claiming one project — is a separate rule, settled by
- * `uniqueValidatedClaim`, never here.
- *
- * A persisted record can carry `migrationMarker: 'explicit'` without a workspace id (the store
- * trusts a marker it reads from disk). Such a record must NOT count as a known project: the
- * synchronizer registers nothing for it, so opening it would mint a workspace id from nothing.
- */
-export function hasValidatedAffiliation(capsule: WorkspaceCapsule): capsule is ValidatedAffiliationCapsule {
-  if (!capsule.projectId || typeof capsule.projectId !== 'string' || capsule.projectId.trim().length === 0) {
-    return false;
-  }
-  if (!capsule.workspaceId || typeof capsule.workspaceId !== 'string' || capsule.workspaceId.trim().length === 0) {
-    return false;
-  }
-  try {
-    validateControlPlaneId(capsule.projectId, 'project');
-    validateControlPlaneId(capsule.workspaceId, 'workspace');
-  } catch {
-    return false;
-  }
-  return true;
-}
-
-/**
- * The capsule record authorizing an open of `projectId`, when exactly one exists and it carries a
- * validated affiliation. This is the same evidence the synchronizer registers from, so an open can
- * never name a project the registry refuses to know — and a second claim stays a refusal rather
- * than a tiebreak.
- */
-export function uniqueValidatedClaim(capsules: WorkspaceCapsule[], projectId: string): ValidatedAffiliationCapsule | undefined {
-  const matches = capsules.filter((capsule) => capsule.projectId === projectId);
-  const [onlyMatch, ...rest] = matches;
-  if (!onlyMatch || rest.length > 0) return undefined;
-  return hasValidatedAffiliation(onlyMatch) ? onlyMatch : undefined;
-}
+export { hasValidatedAffiliation, uniqueValidatedClaim, type ValidatedAffiliationCapsule } from './project/project-context';
 
 /**
  * Synchronize explicit capsule project/workspace affiliations into the ProjectRegistry.
@@ -484,6 +458,15 @@ const DEFAULT_BOOT_PROJECT_ID = 'project-00000000-0000-4000-8000-000000000001';
 const DEFAULT_BOOT_WORKSPACE_ID = 'workspace-00000000-0000-4000-8000-000000000001';
 /** Identity this process booted for, recorded when the bootstrap window opens. */
 let bootProjectIdValue: string | null = null;
+/**
+ * The project the singleton 'web' hub currently presents, or null — the replacement for
+ * "which project owns this window" now that project windows are retired. The answer is
+ * read off the hub's live host (NativeTabHost.activeProject), not kept as parallel
+ * state in Main, so it cannot drift from what the window actually shows.
+ */
+function webHubActiveProjectId(): string | null {
+  return hostForOwnerKey('web')?.activeProject() ?? null;
+}
 /** This app's own surfaces: a launch URL pointing at one is not a page to restore. */
 const LOCAL_SURFACE_HOSTS = ['localhost:20128', 'localhost:20129', 'localhost:20130'];
 
@@ -512,9 +495,40 @@ function consumeLaunchUrlArgument(): string | undefined {
   return url;
 }
 
+/**
+ * Test-only shells merged into the live-shell answer. `node --test` runs never reach
+ * `createWindow()` (the Electron stub leaves `app.whenReady()` pending), so paths that
+ * distinguish "a window is live" from "its host resolved" could never see the first
+ * half. Module export only — unreachable from IPC, MCP or any renderer surface.
+ */
+const testingShells = new Set<ProjectWindowShell>();
+
+/**
+ * Register a shell-like as live (and, when given, its host) so `liveShellFor` /
+ * `hostForOwnerKey` answer the same way they would for a real window. Omit the host to
+ * model a live window whose host could not be resolved — the state removal must treat
+ * as fail-closed rather than as "no window, nothing live to purge under". Returns the
+ * unregister the test must run.
+ */
+export function installShellForTesting(shell: ProjectWindowShell, host?: NativeTabHost): () => void {
+  testingShells.add(shell);
+  if (host) tabAuthorities.register(shell, host);
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    testingShells.delete(shell);
+    if (host) tabAuthorities.unregister(shell);
+  };
+}
+
 /** Live project shells, in the directory's registration order. */
 function liveProjectShells(): ProjectWindowShell[] {
-  return projectWindows?.listShells() ?? [];
+  const shells = projectWindows?.listShells() ?? [];
+  for (const shell of testingShells) {
+    if (!shell.window.isDestroyed()) shells.push(shell);
+  }
+  return shells;
 }
 
 /** The shell whose native window this is, or undefined when no shell owns it. */
@@ -546,7 +560,9 @@ function appIconPath(): string | undefined {
 function toWindowOwner(owner: ProjectWindowOwner): WindowOwner {
   return owner.kind === 'project'
     ? { kind: 'project', projectId: validateControlPlaneId(owner.projectId, 'project') }
-    : { kind: 'unassigned' };
+    : owner.kind === 'web'
+      ? { kind: 'web' }
+      : { kind: 'unassigned' };
 }
 
 /**
@@ -564,17 +580,20 @@ export function resolveWindowRecord(owner: WindowOwner): {
   projectId?: string;
   workspaceId?: string;
 } {
+  // The web hub is a singleton multi-project surface: it owns no workspace itself
+  // (the active project is a host concern, not a window identity), so its record is
+  // just the stable product title — the same treatment the Unassigned shell gets.
+  if (owner.kind === 'web') return { title: 'AntiFan Browser' };
   if (owner.kind !== 'project') return { title: ownerLabel(owner) };
 
   // Look for unambiguous matching capsule in capsule store
-  const matches = capsuleManager?.list().filter((capsule) => capsule.projectId === owner.projectId) ?? [];
-  // Two records claiming one project is ambiguity, not a choice: until they are
-  // reconciled, the window shows its stable id and claims no workspace. A lone record with no
-  // well-formed workspace id is the record an open refuses (`uniqueValidatedClaim`), so it may
-  // not hand a window a path or a capsule tag the registry never registered: such a project is
-  // described by the registry fallback below alone, exactly as if no capsule store existed.
-  const claimed = matches.length === 1 ? matches[0] : undefined;
-  const capsule = claimed && hasValidatedAffiliation(claimed) ? claimed : undefined;
+  // A lone validated record speaks for the project; two records claiming one project is
+  // ambiguity, not a choice — until they are reconciled, the window shows its stable id and
+  // claims no workspace. A lone record with no well-formed workspace id is the record an open
+  // refuses (`uniqueValidatedClaim`), so it may not hand a window a path or a capsule tag the
+  // registry never registered: such a project is described by the registry fallback below
+  // alone, exactly as if no capsule store existed.
+  const capsule = uniqueValidatedClaim(capsuleManager?.list() ?? [], owner.projectId);
 
   // 1. Registry workspace root (first in fallback order)
   let registryWorkspaceRoot: string | undefined;
@@ -631,6 +650,20 @@ export function resolveWindowRecord(owner: WindowOwner): {
  * A renderer-supplied id no record carries is refused rather than opened under a
  * name the renderer invented.
  */
+/**
+ * Whether a project id names one the Manager/picker lists: a validated record
+ * (`isKnownProjectId`) OR a registry record still stored after close — the appearance
+ * controls the stored sections render must answer to the same ids the inventory shows.
+ */
+function isListedProjectId(projectId: string): boolean {
+  if (isKnownProjectId(projectId)) return true;
+  try {
+    return Boolean(projectRegistry.getProject(projectId));
+  } catch {
+    return false;
+  }
+}
+
 export function isKnownProjectId(projectId: string): boolean {
   if (projectId === bootProjectIdValue) return true;
   // Branch A: Registry open (project exists in shared ProjectRegistry and state is 'open')
@@ -642,32 +675,50 @@ export function isKnownProjectId(projectId: string): boolean {
   // evidence the synchronizer registers from, so an incomplete record (a persisted 'explicit'
   // marker with no workspace id) cannot authorize an open the registry knows nothing about.
   if (uniqueValidatedClaim(capsuleManager?.list() ?? [], projectId)) return true;
+  // Project windows are retired: "a window open for it" is now "the web hub is showing it".
+  if (projectId === webHubActiveProjectId()) return true;
   return liveProjectShells().some((shell) => shell.owner.kind === 'project' && shell.owner.projectId === projectId);
 }
+
+/**
+ * The ports `resolveProjectContext` reads: the live capsule store and the durable registry.
+ * Terminal/tab ports stay unset — this resolver only ever answers owner-key and project-id
+ * subjects from the two stores.
+ */
+const projectContextPorts: ProjectContextPorts = {
+  capsules: () => capsuleManager?.list() ?? [],
+  registry: projectRegistry,
+};
 
 /** Resolve transfer ownership from project identity; ambiguous capsule claims never become a capsule-less destination. */
 function resolveProjectAssignment(projectId: string): { capsuleId?: string } | undefined {
   if (!isKnownProjectId(projectId)) return undefined;
-  const record = resolveWindowRecord({ kind: 'project', projectId });
-  if (record.capsuleId) return { capsuleId: record.capsuleId };
-  if (capsuleManager?.list().some((capsule) => capsule.projectId === projectId)) return undefined;
-  return {};
+  const context = resolveProjectContext(projectContextPorts, { kind: 'projectId', projectId });
+  if (context.kind !== 'project') return undefined;
+  if (context.claim === 'ambiguous' || context.claim === 'invalid') return undefined;
+  return context.capsuleId ? { capsuleId: context.capsuleId } : {};
 }
 
-/** A terminal click opens in the project window that owns that exact session, never the focused host. */
+/** A terminal click opens in the window that owns that exact session's project, never the focused host. */
 async function openTerminalLinkInOwner(ownerKeyValue: string, url: string): Promise<boolean> {
   if (!ownerKeyValue || typeof url !== 'string' || !url) return false;
   let host = hostForOwnerKey(ownerKeyValue);
   if (!host) {
-    const shellOwner = ownerKeyValue.startsWith('project:')
-      ? { kind: 'project' as const, projectId: ownerKeyValue.slice('project:'.length) }
-      : ownerKeyValue === 'unassigned'
-        ? { kind: 'unassigned' as const }
+    const parsedOwner = parseOwnerKey(ownerKeyValue);
+    // Project windows are retired: a session stamped `project:X` (and the hub's own
+    // 'web' key) belongs to the single web hub, which activates that project before
+    // the link opens. 'unassigned' keeps its own Terminal Manager shell.
+    const shellOwner: WindowOwner | null = parsedOwner.kind === 'project' || parsedOwner.kind === 'web'
+      ? { kind: 'web' }
+      : parsedOwner.kind === 'unassigned'
+        ? { kind: 'unassigned' }
         : null;
     if (!shellOwner) return false;
-    if (shellOwner.kind === 'project' && !isKnownProjectId(shellOwner.projectId)) return false;
+    if (parsedOwner.kind === 'project' && !isKnownProjectId(parsedOwner.projectId)) return false;
     assertApplicationAdmitsWork(closeReservations, 'Open terminal link owner');
-    host = (await ensureProjectWindow(shellOwner, 'user')).host;
+    host = (await ensureProjectWindow(shellOwner, 'user', {
+      ...(parsedOwner.kind === 'project' ? { activateProjectId: parsedOwner.projectId } : {}),
+    })).host;
   }
   return Boolean(host.createTab(url));
 }
@@ -1508,7 +1559,9 @@ function attachShellLifecycle(shell: ProjectWindowShell): void {
 }
 
 /**
- * The ONLY path that creates a project window.
+ * The ONLY path that creates a browser shell — the singleton 'web' hub or the
+ * 'unassigned' Terminal Manager. Project owners are normalised to the 'web' shell
+ * (see the routing below); `kind:'project'` windows are never admitted anymore.
  *
  * The startup bootstrap and 'antifan:project:open' both come through here, so a
  * window opened later is wired exactly like the first one: its own NativeTabHost
@@ -1524,21 +1577,34 @@ function attachShellLifecycle(shell: ProjectWindowShell): void {
 async function ensureProjectWindow(
   owner: WindowOwner,
   intent: OpenIntent,
-  options?: { onFirstPresented?: () => void },
+  options?: { onFirstPresented?: () => void; activateProjectId?: string },
 ): Promise<ProjectWindowRuntime> {
   const manager = projectWindows;
   if (!manager) throw new Error('The project window manager is not up yet');
 
-  if (owner.kind === 'project' && capsuleManager) {
+  // Phương án A: project windows are retired. Any caller still naming a project
+  // owner is routed to the single 'web' hub shell, and the project becomes the
+  // hub's active project instead of a window identity. `activateProjectId` lets a
+  // caller that already holds the 'web' owner say which project the hub is for.
+  const requestedProjectId = owner.kind === 'project' ? owner.projectId : undefined;
+  const activateProjectId = options?.activateProjectId ?? requestedProjectId;
+  const shellOwner: WindowOwner = owner.kind === 'project' ? { kind: 'web' } : owner;
+
+  if (activateProjectId !== undefined && capsuleManager) {
     synchronizeCapsulesWithRegistry(capsuleManager, projectRegistry, StorageLocations.getControlPlaneDir());
   }
 
-  const shell = await manager.ensureWindow(owner, intent);
+  const shell = await manager.ensureWindow(shellOwner, intent);
   // A join — a duplicate open, or a second caller racing the first — already owns its
   // host. Only the creation path wires one, and it does so with no await between the
   // check and the registration, so two callers cannot both build a host for one shell.
   const existingHost = tabAuthorities.hostForShell(shell);
-  if (existingHost) return { shell, host: existingHost, created: false };
+  if (existingHost) {
+    // Joining the hub still switches which project it is showing: the window is
+    // shared, the active project is not.
+    if (activateProjectId) activateWebHubProject(existingHost, activateProjectId);
+    return { shell, host: existingHost, created: false };
+  }
 
   // A window the user asked for must be shown; the manager only presents a shell it joins, and
   // construction never presents, so a creation with no presenter would leave the window alive,
@@ -1551,29 +1617,15 @@ async function ensureProjectWindow(
   // created inside an async close window would otherwise exist for exactly as long as it
   // takes the attempt to destroy its window.
   host.setCloseAdmission(closeReservations);
+  host.setOpenTerminalManagerHandler(() => { void openSharedTerminalManagerWindow(); });
   tabAuthorities.register(shell, host);
   recordBenchmark({ surface: 'startup', name: 'tabHostCtor' });
 
-  const record = resolveWindowRecord(shell.owner);
-  if (record.workspacePath) {
-    // This window's terminals belong to its own verified workspace. The host refuses a
-    // path it cannot verify, which leaves the association unset rather than moving this
-    // window's terminals into another window's directory.
-    host.setWindowWorkspaceAffiliation({
-      workspacePath: record.workspacePath,
-      ...(record.capsuleId ? { capsuleId: record.capsuleId } : {}),
-    });
-  }
-  if (owner.kind === 'project') {
-    const targetWorkspaceId = record.workspaceId || projectRegistry.listWorkspaces(owner.projectId)[0]?.id || makeControlPlaneId('workspace');
-    const targetWorkspaceRoot = record.workspacePath || process.cwd();
-    projectRegistry.ensureInitialWorkspace(
-      owner.projectId,
-      targetWorkspaceId,
-      targetWorkspaceRoot,
-      StorageLocations.getControlPlaneDir(),
-    );
-  }
+  // The hub's active project — identity, workspace affiliation and initial
+  // workspace seeding — is established before any tab is restored, so restored
+  // or minted tabs never see the hub under a different (or no) project.
+  if (activateProjectId) activateWebHubProject(host, activateProjectId);
+
   windowStateManager?.manage(shell.window, ownerKey(shell.owner));
   attachShellLifecycle(shell);
   // Restore this owner's tabs immediately so pages start loading and the layout is
@@ -1584,6 +1636,54 @@ async function ensureProjectWindow(
   recordBenchmark({ surface: 'startup', name: 'tabsRestored' });
   attachSharedServices(host);
   return { shell, host, created: true };
+}
+
+/**
+ * Point the web hub at one project: the host's active-project state, its terminal
+ * workspace affiliation, and the initial-workspace seeding a project window used to
+ * do for itself. A project with no verified workspace clears the affiliation rather
+ * than inheriting the previous project's — a hub's terminals never belong to another
+ * project's directory.
+ */
+function activateWebHubProject(host: NativeTabHost, projectId: string): void {
+  // The seams a scoped hub needs before any project work runs: the descriptor
+  // resolver the identity and the restore-path validation read, and the delegate a
+  // user-plane activation of a foreign-stamped tab reports back through — this
+  // same path, so a flip and a picked switch are the one authority. Idempotent,
+  // so the boot call and every later flip re-assert it.
+  host.setWebHubProjectDescriptorResolver((id) => {
+    if (!isKnownProjectId(id)) return undefined;
+    const descriptor = resolveWindowRecord({ kind: 'project', projectId: id });
+    return { title: descriptor.title, ...(descriptor.pathLabel ? { pathLabel: descriptor.pathLabel } : {}) };
+  });
+  host.setForeignProjectActivatedHandler((id) => { activateWebHubProject(host, id); });
+  const record = resolveWindowRecord({ kind: 'project', projectId });
+  if (record.workspacePath) {
+    // This window's terminals belong to the active project's verified workspace.
+    // The host refuses a path it cannot verify and keeps the PREVIOUS association — so a
+    // refused set must be followed by an explicit clear, otherwise terminals minted under
+    // the new project run in the old project's directory with its provenance stamp.
+    if (!host.setWindowWorkspaceAffiliation({
+      workspacePath: record.workspacePath,
+      ...(record.capsuleId ? { capsuleId: record.capsuleId } : {}),
+    })) {
+      host.setWindowWorkspaceAffiliation(null);
+    }
+  } else {
+    host.setWindowWorkspaceAffiliation(null);
+  }
+  const targetWorkspaceId = record.workspaceId || projectRegistry.listWorkspaces(projectId)[0]?.id || makeControlPlaneId('workspace');
+  const targetWorkspaceRoot = record.workspacePath || process.cwd();
+  projectRegistry.ensureInitialWorkspace(
+    projectId,
+    targetWorkspaceId,
+    targetWorkspaceRoot,
+    StorageLocations.getControlPlaneDir(),
+  );
+  // The project scope lands last: setActiveProject repoints the presented tab to the
+  // remembered/most-recent/newly-minted tab under the verified affiliation and pushes
+  // the identity broadcast that carries the new scope to the chrome.
+  host.setActiveProject(projectId);
 }
 
 /**
@@ -1705,9 +1805,13 @@ function activationFailureCode(reason: TabSearchActivationFailure, tabId: string
  * refused by the open below and a button that cannot work is worse than no button.
  */
 function projectOpenCandidates(): ProjectOpenCandidate[] {
+  // No project windows remain: "a project a window owns" is now "the project the web
+  // hub is showing" (the shared Terminal Manager owns nothing).
   const liveProjectIds = liveProjectShells()
     .map((shell) => (shell.owner.kind === 'project' ? shell.owner.projectId : ''))
     .filter((projectId) => projectId.length > 0);
+  const hubActive = webHubActiveProjectId();
+  if (hubActive) liveProjectIds.push(hubActive);
   return collectProjectOpenCandidates({
     registryProjects: projectRegistry.listProjects(),
     knownProjectIds: bootProjectIdValue ? [bootProjectIdValue, ...liveProjectIds] : liveProjectIds,
@@ -1766,10 +1870,11 @@ function isStandaloneRendererContents(contents: Electron.WebContents | null | un
 
 /**
  * The webContents that can host the in-window picker for one parent window, and the shell
- * that owns it. A shell parent is picked by its chrome views — the toolbar first because a
- * pushed modal is chrome work, then the sidebar — and a non-shell parent only when its own
- * page is the standalone workbench (a terminal popout or workbench window). Any other
- * parent yields nothing and the caller falls back to the native dialog.
+ * that owns it. A shell parent is hosted by its toolbar: the toolbar already floats overlays
+ * (tab search, menus) over the page, so choosing a project neither opens nor resizes the
+ * terminal sidebar. A non-shell parent is hosted only when its own page is the standalone
+ * workbench (a terminal popout or workbench window). Any other parent yields nothing and the
+ * caller falls back to the native dialog.
  */
 function projectPickerHostFor(
   parent: BrowserWindow | null,
@@ -1777,54 +1882,16 @@ function projectPickerHostFor(
   if (!parent || parent.isDestroyed()) return null;
   const shell = shellForBrowserWindow(parent) ?? null;
   if (shell) {
-    // The sidebar is the chrome surface that hosts the modal. Its open/closed state is
-    // layout only — the webContents exists either way — so the host resolves the same
-    // contents in both states and the caller decides whether the sidebar must be
-    // opened before the push goes out.
-    const contents = shell.sidebarView?.webContents;
-    if (!contents || contents.isDestroyed()) return null;
-    return shell.chromeSurfaceFor(contents.id) === 'sidebar' ? { contents, shell } : null;
+    // Terminal-only shells collapse the toolbar to a 0x0 pane (availableWidth 0), so the
+    // picker would paint invisibly there — host it in the always-visible sidebar instead.
+    const view = shell.isTerminalOnly() ? shell.sidebarView : shell.toolbarView;
+    const contents = view?.webContents;
+    if (!contents || contents.isDestroyed() || contents.isLoading()) return null;
+    const surface = shell.chromeSurfaceFor(contents.id);
+    return surface === 'toolbar' || surface === 'sidebar' ? { contents, shell } : null;
   }
   const contents = parent.webContents;
   return isStandaloneRendererContents(contents) ? { contents, shell: null } : null;
-}
-
-/**
- * The picker host once the asking shell's sidebar is actually present. A closed
- * sidebar used to bounce the request to the native `dialog.showMessageBox` — the
- * cramped row of buttons the modal exists to replace. The sidebar's webContents is
- * alive in both states, so the only gap between a closed sidebar and a hosted modal
- * is the layout toggle itself; flip it, wait (bounded) for the contents to finish
- * loading, and the push below reaches the same surface the user can see. A shell
- * whose sidebar cannot come up inside the deadline still falls back to the native
- * dialog rather than leaving the request unanswered.
- */
-async function projectPickerHostReadyFor(
-  parent: BrowserWindow | null,
-): Promise<{ contents: Electron.WebContents; shell: ProjectWindowShell | null } | null> {
-  const host = projectPickerHostFor(parent);
-  if (!host?.shell || host.shell.isSidebarOpen) return host;
-  if (host.shell.window.isDestroyed()) return null;
-  const tabHost = tabAuthorities.hostForShell(host.shell);
-  if (tabHost) {
-    tabHost.toggleSidebar();
-  } else {
-    // No host instance to run the layout update for: flip the flag so the renderer
-    // surface at least has room; the contents were already verified above.
-    host.shell.isSidebarOpen = true;
-  }
-  const contents = host.contents;
-  const deadline = Date.now() + 5000;
-  while (Date.now() < deadline) {
-    if (contents.isDestroyed() || host.shell.window.isDestroyed()) return null;
-    if (typeof contents.isLoading !== 'function' || !contents.isLoading()) return host;
-    const { promise: pause, resolve: unpause } = Promise.withResolvers<void>();
-    setTimeout(unpause, 50);
-    await pause;
-  }
-  // A contents that never settles is a surface that will never answer: the caller's
-  // bounded wait would burn two minutes before the same fallback fires.
-  return null;
 }
 
 /**
@@ -1840,13 +1907,87 @@ function shellForPickerContents(sender: Electron.WebContents | undefined): Proje
 }
 
 /**
- * The inventory `PROJECT_LIST` answers with: the same candidates `projectOpenCandidates()`
- * builds for Main's own picker, split back into the name/path fields a row list renders,
- * with `isCurrent` on the project the asking window already owns.
+ * Reconcile the whole stored inventory - every registry record, open or closed, plus the
+ * projects a window owns that the registry does not hold - into LIVE / DEAD / STALE.
+ * This is deliberately independent of `projectOpenCandidates()`, which drops closed records
+ * because the picker cannot open them: a closed record with a vanished folder is exactly
+ * the STALE row the Manager must be able to show. LIVE wins over a missing path.
  */
-function projectOpenListFor(sender: Electron.WebContents | undefined): { candidates: ProjectOpenListCandidate[] } {
+export function projectStoredStatuses(): ProjectStoredStatus[] {
+  const liveWindowProjectIds = new Set(
+    liveProjectShells()
+      .map((shell) => (shell.owner.kind === 'project' ? shell.owner.projectId : ''))
+      .filter((projectId) => projectId.length > 0),
+  );
+  const registryProjects = projectRegistry.listProjects();
+  const allWorkspaces = projectRegistry.listAllWorkspaces();
+  const ids = new Set<string>(registryProjects.map((project) => project.id));
+  for (const id of liveWindowProjectIds) ids.add(id);
+  if (bootProjectIdValue) ids.add(bootProjectIdValue);
+  const liveSessionProjectIds = new Set<string>();
+  const registeredProjects = new Map(registryProjects.map((project) => [project.id, project]));
+  // LIVE rule under the web hub: a project is live when a terminal session belongs to
+  // it (the `projectTerminalSessions` leg) OR a tab in the web hub carries that
+  // projectId — the hub shows every project's tabs, so the second leg is what keeps a
+  // session-less project LIVE while it is being browsed.
+  const webHost = hostForOwnerKey('web');
+  // Third leg: the project the hub is presenting is live even when none of its tabs carry
+  // the stamp — presenting IS being browsed, so the record the user is looking at can
+  // never be DEAD/STALE.
+  const presentedId = webHubActiveProjectId();
+  if (presentedId) liveSessionProjectIds.add(presentedId);
+  const stored = Array.from(ids).map((id) => {
+    const record = resolveWindowRecord({ kind: 'project', projectId: id });
+    if (projectTerminalSessions(id).open.length > 0 || (webHost?.tabsForProject(id).length ?? 0) > 0) {
+      liveSessionProjectIds.add(id);
+    }
+    // A closed project detaches its workspace, so the record's path may be blank; the
+    // registry still remembers the root the project was closed at.
+    const registered = allWorkspaces
+      .filter((w) => w.projectId === id)
+      .sort((a, b) => (a.state === b.state ? 0 : a.state === 'attached' ? -1 : 1))[0];
+    return {
+      id,
+      name: record.title || registeredProjects.get(id)?.name || id,
+      workspacePath: record.workspacePath || registered?.rootPath || '',
+    };
+  });
+  const reconciled = reconcileProjectRecords({
+    stored: stored.map(({ id, workspacePath }) => ({ id, workspacePath })),
+    liveSessionProjectIds,
+    liveWindowProjectIds,
+    pathExists: (candidatePath) => {
+      try {
+        return fs.existsSync(candidatePath);
+      } catch {
+        return false;
+      }
+    },
+  });
+  const byId = new Map(stored.map((entry) => [entry.id, entry]));
+  return reconciled.map((entry) => ({
+    projectId: entry.id,
+    name: byId.get(entry.id)?.name ?? entry.id,
+    workspacePath: byId.get(entry.id)?.workspacePath ?? '',
+    status: entry.status,
+    statusReason: entry.reason,
+    ...projectAppearanceOf(entry.id),
+  }));
+}
+
+/**
+ * The inventory `PROJECT_LIST` answers with: `candidates` are the projects the picker may
+ * act on (Main's own picker list, with `isCurrent`), `stored` is the separate reconciled
+ * view of every stored record for display.
+ */
+export function projectOpenListFor(sender: Electron.WebContents | undefined): ProjectOpenListResult {
   const shell = shellForPickerContents(sender);
-  const currentProjectId = shell && shell.owner.kind === 'project' ? shell.owner.projectId : '';
+  // The web hub is shared: "current" is the project it is showing, not an owner kind.
+  const currentProjectId = shell && shell.owner.kind === 'project'
+    ? shell.owner.projectId
+    : shell && shell.owner.kind === 'web'
+      ? (webHubActiveProjectId() ?? '')
+      : '';
   return {
     candidates: projectOpenCandidates().map((candidate) => {
       const record = resolveWindowRecord({ kind: 'project', projectId: candidate.projectId });
@@ -1856,9 +1997,11 @@ function projectOpenListFor(sender: Electron.WebContents | undefined): { candida
         workspacePath: record.workspacePath || record.pathLabel || '',
         canAssignTerminal: resolveProjectAssignment(candidate.projectId) !== undefined,
         ...(record.capsuleId ? { capsuleId: record.capsuleId } : {}),
+        ...projectAppearanceOf(candidate.projectId),
         ...(candidate.projectId === currentProjectId ? { isCurrent: true } : {}),
       };
     }),
+    stored: projectStoredStatuses(),
   };
 }
 
@@ -1957,6 +2100,65 @@ export function renameProjectEntry(payload: unknown): ProjectRenameResult {
   return { status: 'RENAMED', projectId: validatedId, name };
 }
 
+/** Colour/star of a project as the registry holds them, spread into list candidates. */
+function projectAppearanceOf(projectId: string): { color?: string; starred?: boolean } {
+  try {
+    const project = projectRegistry.getProject(projectId);
+    return {
+      ...(project.color ? { color: project.color } : {}),
+      ...(project.starred ? { starred: true } : {}),
+    };
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Set a project's colour and/or star. The registry validates and persists (its store is the
+ * durable authority), so a refusal - bad colour, cap reached, unwritable file - leaves the
+ * record exactly as it was and nothing is reported as saved.
+ */
+export function setProjectAppearanceEntry(payload: unknown): ProjectAppearanceResult {
+  const body = payload && typeof payload === 'object' ? payload as Record<string, unknown> : {};
+  const projectId = typeof body.projectId === 'string' ? body.projectId.trim() : '';
+  let validatedId: string;
+  try {
+    validatedId = validateControlPlaneId(projectId, 'project');
+  } catch {
+    return { status: 'FAILED', projectId, reason: 'INVALID_PROJECT_ID' };
+  }
+  if (!isListedProjectId(validatedId)) {
+    return { status: 'UNKNOWN_PROJECT', projectId: validatedId };
+  }
+  const patch: { color?: string | null; starred?: boolean } = {};
+  if (body.color !== undefined) {
+    if (body.color !== null && typeof body.color !== 'string') {
+      return { status: 'FAILED', projectId: validatedId, reason: 'APPEARANCE_REFUSED' };
+    }
+    patch.color = body.color;
+  }
+  if (body.starred !== undefined) {
+    if (typeof body.starred !== 'boolean') {
+      return { status: 'FAILED', projectId: validatedId, reason: 'APPEARANCE_REFUSED' };
+    }
+    patch.starred = body.starred;
+  }
+  if (patch.color === undefined && patch.starred === undefined) {
+    return { status: 'FAILED', projectId: validatedId, reason: 'EMPTY_PATCH' };
+  }
+  const record = projectRegistry.setProjectAppearance(validatedId, patch);
+  if (!record) {
+    return { status: 'FAILED', projectId: validatedId, reason: 'APPEARANCE_REFUSED' };
+  }
+  recordLifecycleEvent('project-appearance-set', { projectId: validatedId });
+  return {
+    status: 'UPDATED',
+    projectId: validatedId,
+    ...(record.color ? { color: record.color } : {}),
+    ...(record.starred ? { starred: true } : {}),
+  };
+}
+
 /**
  * Remove a project from the manager list. Removal never deletes a byte: the project
  * record closes, the capsule's affiliation clears (the capsule itself — name, path,
@@ -1987,23 +2189,61 @@ export async function removeProjectEntry(payload: unknown): Promise<ProjectRemov
     return { status: 'CONFIRM_REQUIRED', projectId: validatedId, liveSessions: sessions.live.length };
   }
 
-  const key = `project:${validatedId}`;
-  const shell = liveShellFor(key);
-  if (shell && !shell.window.isDestroyed()) {
+  // Project windows are retired: there is no `project:` shell to close for removal.
+  // The project's web tabs live in the shared 'web' hub and close individually through
+  // closePage — the same unload-aware path a shell close uses — so a vetoing page of
+  // this project refuses the removal while every other project's tabs stay put.
+  const webHub = hostForOwnerKey('web');
+  // If the removed project is the one the hub presents, drop the pointer BEFORE closing its
+  // tabs: closing the presented tab repoints presentation, and with the pointer still set it
+  // would mint a fresh tab stamped with the project being removed. Every failure below puts
+  // the pointer back, so a refused or failed removal leaves the hub exactly as it was.
+  const wasActive = Boolean(webHub) && webHubActiveProjectId() === validatedId;
+  const savedAffiliation = wasActive && webHub ? webHub.getWindowWorkspaceAffiliation() : null;
+  if (wasActive && webHub) {
+    webHub.setWindowWorkspaceAffiliation(null);
+    webHub.setActiveProject(null);
+  }
+  const restoreActive = () => {
+    if (!wasActive || !webHub) return;
+    webHub.setWindowWorkspaceAffiliation(savedAffiliation);
+    webHub.setActiveProject(validatedId);
+  };
+  if (webHub) {
+    let tabClose: { closed: string[]; vetoed: string[] };
     try {
-      const report = await closeCoordinator.attemptClose(key, 'user');
-      recordCloseReport(report);
-      if (report.disposition !== 'closed') {
-        recordLifecycleEvent('project-remove.refused', {
-          projectId: validatedId,
-          haltedBy: report.haltedBy ?? 'unknown',
-        });
-        return { status: 'CLOSE_REFUSED', projectId: validatedId, reason: report.summary };
-      }
+      tabClose = await webHub.closeTabsForProject(validatedId);
     } catch (err) {
+      restoreActive();
       recordLifecycleEvent('project-remove.failed', { projectId: validatedId, detail: String(err) });
       return { status: 'FAILED', projectId: validatedId, reason: redactCredentials(String(err)) };
     }
+    if (tabClose.vetoed.length > 0) {
+      restoreActive();
+      recordLifecycleEvent('project-remove.refused', {
+        projectId: validatedId,
+        haltedBy: 'tab-unload',
+      });
+      return { status: 'CLOSE_REFUSED', projectId: validatedId, reason: `${tabClose.vetoed.length} tab(s) refused to close` };
+    }
+  }
+
+  // Live close above is not enough: rows stamped with this projectId persist under
+  // `owners.web` in saved-tabs.json and would resurrect a removed project on the next
+  // boot. A live 'web' shell whose host cannot be resolved is fail-closed — its tabs
+  // may still be open, so their persisted rows must survive. With no web window at all
+  // nothing can be live, and the file purge runs host-free through the same
+  // read-modify-write the hub's own host method delegates to.
+  if (!webHub && liveShellFor(ownerKey({ kind: 'web' }))) {
+    recordLifecycleEvent('project-remove.failed', { projectId: validatedId, detail: 'web window live but its host is unresolvable' });
+    return { status: 'FAILED', projectId: validatedId, reason: 'WEB_HUB_UNAVAILABLE' };
+  }
+  try {
+    await purgeSavedTabsFileForProject(savedTabsFilePath(), validatedId);
+  } catch (err) {
+    restoreActive();
+    recordLifecycleEvent('project-remove.failed', { projectId: validatedId, detail: String(err) });
+    return { status: 'FAILED', projectId: validatedId, reason: redactCredentials(String(err)) };
   }
 
   // Sessions are released only after the window is gone (or never existed): a failed
@@ -2018,6 +2258,15 @@ export async function removeProjectEntry(payload: unknown): Promise<ProjectRemov
     await Promise.all(sessions.open.map((sessionId) => manager!.closeSession(sessionId).catch(() => false)));
   }
 
+  // The appearance belongs to the list entry. It must still be durable for the removal to
+  // count: a failure here is reported, never swallowed. The hub's active project/affiliation
+  // is restored like every other failure path — tabs and sessions are already closed, so a
+  // retry repairs registry state but the user keeps their scope either way.
+  if (!projectRegistry.forgetProjectAppearance(validatedId)) {
+    restoreActive();
+    recordLifecycleEvent('project-remove.appearance-failed', { projectId: validatedId });
+    return { status: 'FAILED', projectId: validatedId, reason: 'APPEARANCE_NOT_CLEARED' };
+  }
   try {
     projectRegistry.closeProject(validatedId);
   } catch {
@@ -2140,7 +2389,7 @@ type ProjectOpenPick =
  */
 async function pickProjectToOpen(parent: BrowserWindow | null): Promise<ProjectOpenPick> {
   const spec = projectOpenDialogSpec(projectOpenCandidates());
-  const host = await projectPickerHostReadyFor(parent);
+  const host = projectPickerHostFor(parent);
   if (host) {
     const choice = await awaitProjectPickerAnswer(spec, host.contents);
     if (choice !== null) {
@@ -2392,7 +2641,10 @@ async function openProjectWindow(payload: unknown, parent?: BrowserWindow | null
     // teardown. Raised inside the try so the refusal is the same FAILED envelope every
     // other refusal uses, not a rejected invoke.
     assertApplicationAdmitsWork(closeReservations, 'Open project window');
-    const { created } = await ensureProjectWindow({ kind: 'project', projectId }, 'user');
+    // Phương án A: opening a project never creates a project window. The singleton
+    // 'web' hub is ensured and the project becomes its active project; OPENED means
+    // the hub shell was just created, FOCUSED means the user joined a live hub.
+    const { created } = await ensureProjectWindow({ kind: 'web' }, 'user', { activateProjectId: projectId });
     recordLifecycleEvent('project-open', { projectId, created });
     return created ? { status: 'OPENED', projectId } : { status: 'FOCUSED', projectId };
   } catch (err) {
@@ -2413,8 +2665,11 @@ async function openSpaceWindow(
   if (opened.status !== 'OPENED' && opened.status !== 'FOCUSED') {
     return { ok: false, message: opened.status === 'FAILED' ? opened.reason : 'Project window was not opened' };
   }
+  // The opened project lives in the shared web hub, never in a `project:` window, so the
+  // project-scoped key resolves nothing directly — route to the hub host while keeping
+  // the project owner key in the result for the downstream contract that reads it.
   const key = ownerKey({ kind: 'project', projectId: opened.projectId });
-  const host = hostForOwnerKey(key);
+  const host = hostForOwnerKey(key) ?? hostForOwnerKey('web');
   if (!host) return { ok: false, message: 'The project window closed before its Space could open' };
   return { ok: true, host, ownerKey: key };
 }
@@ -2425,9 +2680,9 @@ async function openSpaceWindow(
  *
  * It is created through `ensureProjectWindow` like every other window — the same factory the
  * bootstrap and `antifan:project:open` use — so its host joins the window directory, its placement
- * is its own owner-keyed record, and the close gate counts it. Nothing calls it but the
- * application menu: a chrome route would let a renderer ask for a window kind no project owns, and
- * the menu already reaches Main directly.
+ is its own owner-keyed record, and the close gate counts it. Callers are the application menu
+ entry plus the renderer's "open a terminal window" routes (`POPOUT`/`NEW_WINDOW`), which
+ delegate here through each host's `openTerminalManager` — there is exactly one such window.
  */
 async function openSharedTerminalManagerWindow(): Promise<void> {
   try {
@@ -2529,6 +2784,12 @@ export const PROJECT_WINDOW_ROUTES: readonly IpcRoute[] = [
     run: (_target, _event, args) => removeProjectEntry(args[0]),
   },
   {
+    channel: PROJECT_WINDOW_CHANNELS.PROJECT_SET_APPEARANCE,
+    surface: PROJECT_OPEN_ROUTE_SURFACES,
+    kind: 'handle',
+    run: (_target, _event, args) => setProjectAppearanceEntry(args[0]),
+  },
+  {
     channel: PROJECT_WINDOW_CHANNELS.PROJECT_REMOVE_ANSWER,
     surface: PROJECT_OPEN_ROUTE_SURFACES,
     kind: 'handle',
@@ -2567,12 +2828,13 @@ function installProjectWindowChromeRoutes(): void {
 async function createWindow(): Promise<void> {
   windowStateManager = new WindowStateManager(StorageLocations.getConfigDir(), 1360, 880);
 
-  // The project identity this build boots for. It keys the window directory, the
-  // control plane and every owner-keyed record, so it is resolved (and validated)
-  // once, before any window is admitted.
+  // The project identity this build boots for. It keys the control plane and every
+  // owner-keyed record, so it is resolved (and validated) once, before any window is
+  // admitted. The boot shell itself is the singleton 'web' hub — project windows are
+  // retired — with `projectId` as the hub's active project at first paint.
   const projectId = validateControlPlaneId(process.env.ANTIFAN_PROJECT_ID || DEFAULT_BOOT_PROJECT_ID, 'project');
   bootProjectIdValue = projectId;
-  const owner: WindowOwner = { kind: 'project', projectId };
+  const owner: WindowOwner = { kind: 'web' };
 
   projectWindows = new ProjectWindowManager({
     // Labels come from Main's validated records, never from a renderer or a page:
@@ -2834,6 +3096,10 @@ async function createWindow(): Promise<void> {
   // the measurement of that moment is armed with the presentation itself, never by a second
   // presenter racing it for the same window.
   const { shell, host: bootstrapHost } = await ensureProjectWindow(owner, 'user', {
+    // The boot project is the hub's active project from its first paint: the call
+    // inside the factory sets `setActiveProject` plus the workspace affiliation and
+    // seeding, before any tab is restored.
+    activateProjectId: projectId,
     onFirstPresented: () => {
       recordBenchmark({ surface: 'startup', name: 'firstVisible' });
       recordProcessMetrics('afterFirstVisible');
@@ -2890,11 +3156,31 @@ async function createWindow(): Promise<void> {
     const host = tabAuthorities.hostForTab(tabId);
     if (!host) return;
     if (host.isTabOffscreen(tabId) !== true) return; // never close a user-visible tab
+    // Snapshot managed children BEFORE closing the anchor: `closeTab` prunes the
+    // anchor's pool entries, so a post-close read would return an empty set and
+    // strand every adopted child the session was driving.
+    const managedBefore = new Set(host.getManagedTabIds?.(tabId) ?? []);
+    managedBefore.delete(tabId);
     try {
       host.closeTab(tabId);
       console.log(`[antifan] Attachment ${attachmentId} disposed; closed owned agent tab ${tabId}`);
     } catch (err) {
       console.warn(`[antifan] Attachment ${attachmentId} disposal: failed to close agent tab ${tabId}`, err);
+    }
+    // Pool membership is shared between attachments bound into the same terminal
+    // pool, so a child closes only when the claim guard exists AND reports it
+    // unclaimed; a host without the guard fails closed, not open.
+    const claimGuard = host.isAgentTabClaimed?.bind(host);
+    if (typeof claimGuard !== 'function') return;
+    for (const childId of managedBefore) {
+      try {
+        if (host.isTabOffscreen(childId) !== true) continue;
+        if (claimGuard(childId)) continue;
+        host.closeTab(childId);
+        console.log(`[antifan] Attachment ${attachmentId} disposed; closed unclaimed agent child tab ${childId}`);
+      } catch (err) {
+        console.warn(`[antifan] Attachment ${attachmentId} disposal: failed to close agent child tab ${childId}`, err);
+      }
     }
   });
   const browserPortLocal = new BrowserControlPort({
@@ -2909,6 +3195,10 @@ async function createWindow(): Promise<void> {
     },
     adoptChildTab: (primaryOrBoundTabId, childTabId) => hostForTabOrBootstrap(primaryOrBoundTabId).adoptChildTabForBoundTab(primaryOrBoundTabId, childTabId),
     getManagedTabIds: (primaryOrBoundTabId) => hostForTabOrBootstrap(primaryOrBoundTabId).getManagedTabIdsForBoundTab(primaryOrBoundTabId),
+    noteAgentTabActivity: (tabId) => {
+      if (!tabId) return;
+      tabAuthorities.hostForTab(tabId)?.noteAgentTabActivity(tabId);
+    },
     isTabAllowed: (primaryOrBoundTabId, requestedTabId) => hostForTabOrBootstrap(primaryOrBoundTabId).isTabAllowedForPrimary(primaryOrBoundTabId, requestedTabId),
     getTabList: () => tabAuthorities.hosts().flatMap((h) => h.getTabList()),
     getSessionTabList: (boundTabId) => hostForTabOrBootstrap(boundTabId).getSessionTabRecords(boundTabId),
@@ -3341,6 +3631,9 @@ app.whenReady().then(async () => {
   }
   // Configure default session policies cleanly without global header tampering
   configureBrowserSessionPartition('', 'clean');
+  // Colour/star are durable per-project state the registry owns: attach before the first
+  // capsule sync so every registration reads the store back.
+  projectRegistry.attachAppearanceStore(new ProjectPreferences(path.join(StorageLocations.getConfigDir(), PROJECT_PREFERENCES_FILE)));
   const capsuleStoragePath = path.join(StorageLocations.getConfigDir(), 'workspace-capsules.json');
   capsuleManager = new WorkspaceCapsuleManager({
     filePath: capsuleStoragePath,

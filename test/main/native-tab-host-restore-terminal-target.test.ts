@@ -1,19 +1,12 @@
 /**
- * Restoring a window's terminals is not provenance-free.
+ * Terminals no longer get windows of their own per browser window: every "own window" entry
+ * opens the one shared Terminal Manager. A saved record written before that change still
+ * names popouts and docked terminal windows; restoring it must neither resurrect those
+ * windows nor boot a terminal on the window's behalf (a boot without a target would also
+ * stamp the session with the ambient process-wide cwd and capsule).
  *
- * `restoreTabs()` used to boot the shared manager with `startTerminal()` and no target. That is
- * not a passive boot: `TerminalManager.startTerminal(cwd?, capsuleId?, ownerKey?)` passes a `cwd`
- * straight into the process-wide `currentCwd` — which another window's workspace switch may have
- * set — and without a `capsuleId` and an `ownerKey` stamps the session with the ambient creation
- * capsule and the manager's own default owner key, so a restored window could come back as a
- * `'default'`-capsule PTY in another project's directory. A `'default'` session is filtered out of
- * a project window's own sidebar projection, and so is a session whose owner key names no window,
- * so the result is an invisible orphaned shell that still shows up through `listSessions()`.
- *
- * The rows below drive the real `restoreTabs()` and the real `resolveTerminalCreationTarget()`
- * over a window affiliation, and judge the one call the fix is about: what the boot asks the
- * manager for. `TerminalManager.getInstance()` is replaced for the duration, so nothing here
- * spawns a process.
+ * The rows drive the real `restoreTabs()` with `TerminalManager.getInstance()` replaced, so
+ * nothing here spawns a process or a window.
  */
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
@@ -21,190 +14,195 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { NativeTabHost, SAVED_TABS_SCHEMA_VERSION } from '../../src/main/browser/native-tab-host';
-import { TerminalManager, DEFAULT_TERMINAL_OWNER_KEY } from '../../src/main/browser/terminal-manager';
+import { TerminalManager } from '../../src/main/browser/terminal-manager';
 import { ownerKey } from '../../src/main/browser/project-window-shell';
 
 const PROJECT_ID = 'project-00000000-0000-4000-8000-0000000007e1';
-const WINDOW_CAPSULE_ID = 'capsule-window-own';
-/** Where another window's workspace switch left the process-wide working directory. */
-const OTHER_WINDOW_CWD = path.join(os.tmpdir(), 'antifan-other-window-workspace');
 const SAVED_SESSION_ID = 'term-saved-1';
 
-/** One boot the restore path asked for, after the manager's own provenance rules. */
-interface TerminalBoot {
-  cwd: string;
-  capsuleId: string;
-  ownerKey: string;
-  provenance: 'argument' | 'ambient';
-  ownerProvenance: 'argument' | 'ambient';
-}
-
-/**
- * `TerminalManager.getInstance()` as the boot path uses it, implementing the two provenance
- * rules of the real `startTerminal(cwd?, capsuleId?, ownerKey?)`: an argument wins, and an
- * absent argument keeps whatever the process-wide state already holds.
- */
 class RecordingTerminalManager {
-  public currentCwd = OTHER_WINDOW_CWD;
-  public creationCapsuleId = 'default';
-  /** What a caller that names no window leaves behind: the manager's own default owner key. */
-  public creationOwnerKey = DEFAULT_TERMINAL_OWNER_KEY;
-  public readonly boots: TerminalBoot[] = [];
+  public readonly boots: unknown[][] = [];
 
   public listSessions(): unknown[] {
     return [];
   }
 
-  public startTerminal(cwd?: string, capsuleId?: string, ownerKey?: string): boolean {
-    if (cwd) this.currentCwd = cwd;
-    this.boots.push({
-      cwd: cwd || this.currentCwd,
-      capsuleId: capsuleId || this.creationCapsuleId,
-      ownerKey: ownerKey || this.creationOwnerKey,
-      provenance: capsuleId ? 'argument' : 'ambient',
-      ownerProvenance: ownerKey ? 'argument' : 'ambient',
-    });
+  public startTerminal(...args: unknown[]): boolean {
+    this.boots.push(args);
     return true;
   }
 }
 
-interface Fixture {
-  host: Record<string, unknown>;
-  workspaceRoot: string;
-  opened: { popout: unknown[]; window: unknown[] };
-  cleanup: () => void;
-}
-
-/** A window whose saved record names one terminal window (popout or docked). */
-function createFixture(record: Record<string, unknown>): Fixture {
+function restoreWith(record: Record<string, unknown>, owner: Record<string, unknown> = { kind: 'project', projectId: PROJECT_ID }): { boots: unknown[][]; created: string[] } {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-restore-target-'));
-  const workspaceRoot = path.join(tempRoot, 'project-alpha');
-  fs.mkdirSync(workspaceRoot, { recursive: true });
-  const tabsPath = path.join(tempRoot, 'tabs.json');
+  const tabsPath = path.join(tempRoot, 'saved-tabs.json');
   fs.writeFileSync(
     tabsPath,
     JSON.stringify({
       version: SAVED_TABS_SCHEMA_VERSION,
       owners: {
-        [ownerKey({ kind: 'project', projectId: PROJECT_ID })]: {
-          tabs: [],
-          updatedAt: Date.now(),
-          ...record,
-        },
+        [ownerKey(owner as never)]: { tabs: [], updatedAt: Date.now(), ...record },
       },
       updatedAt: Date.now(),
     }),
     'utf8',
   );
 
-  const opened = { popout: [] as unknown[], window: [] as unknown[] };
   const host: Record<string, unknown> = Object.create(NativeTabHost.prototype);
-  host.shell = { owner: { kind: 'project', projectId: PROJECT_ID }, isSidebarOpen: false, sidebarWidth: 380 };
+  host.shell = { owner, isSidebarOpen: false, sidebarWidth: 380 };
+  const created: string[] = [];
+  host.createTab = (url: string) => { created.push(url); return 'tab-fallback'; };
   host.getTabsStoragePath = () => tabsPath;
   host.applyTerminalTabPrefs = () => {};
   host.restoreMutedSites = () => {};
-  host.createTab = () => 'tab-fallback';
-  host.openNewTerminalWindow = (...args: unknown[]) => { opened.window.push(args); };
-  host.togglePopoutTerminal = (...args: unknown[]) => { opened.popout.push(args); return true; };
-  // The real resolution the fix must use, over the window's own verified affiliation.
-  host.windowWorkspaceAffiliation = { workspacePath: workspaceRoot, capsuleId: WINDOW_CAPSULE_ID };
+  // Layout touches real views; the restore paths under test only need it to be a no-op.
+  host.updateLayout = () => {};
+  host.getToolbarHeight = () => 0;
 
-  return {
-    host,
-    workspaceRoot,
-    opened,
-    cleanup: () => {
-      try {
-        fs.rmSync(tempRoot, { recursive: true, force: true });
-      } catch {}
-    },
-  };
-}
-
-/** Run one restore with the shared manager replaced; the real one is put back afterwards. */
-function withRecordingManager<T>(manager: RecordingTerminalManager, run: () => T): T {
+  const manager = new RecordingTerminalManager();
   const previous = TerminalManager.getInstance();
   TerminalManager.setInstance(manager as unknown as TerminalManager);
   try {
-    return run();
+    (host.restoreTabs as () => void)();
   } finally {
     TerminalManager.setInstance(previous);
+    fs.rmSync(tempRoot, { recursive: true, force: true });
   }
+  return { boots: manager.boots, created };
 }
 
-function assertBootWasThisWindow(boot: TerminalBoot | undefined, workspaceRoot: string): void {
-  assert.ok(boot, 'the restore path never booted the terminal manager');
-  assert.equal(
-    boot!.cwd,
-    path.normalize(workspaceRoot),
-    `the restored terminal spawned on '${boot!.cwd}' instead of this window's workspace root ` +
-    `(a bare startTerminal() keeps the process-wide cwd, which another window may have set: '${OTHER_WINDOW_CWD}')`,
-  );
-  assert.equal(
-    boot!.provenance,
-    'argument',
-    'the boot passed no capsule, so the session was stamped with the ambient creation capsule',
-  );
-  assert.notEqual(boot!.capsuleId, 'default', 'the restored session was minted as a default-capsule session');
-  assert.equal(boot!.capsuleId, WINDOW_CAPSULE_ID);
-  assert.equal(
-    boot!.ownerProvenance,
-    'argument',
-    'the boot passed no owner key, so the restored session would belong to no window and its own sidebar would hide it',
-  );
-  assert.equal(
-    boot!.ownerKey,
-    ownerKey({ kind: 'project', projectId: PROJECT_ID }),
-    `the restored terminal was minted for '${boot!.ownerKey}' instead of the window restoring it`,
-  );
-}
-
-describe('NativeTabHost restore — terminal creation target', () => {
-  it('boots a saved terminal window on this window\'s workspace and capsule', () => {
-    const fixture = createFixture({
+describe('NativeTabHost restore — legacy terminal windows', () => {
+  it('does not reopen a saved docked terminal window or boot a terminal for it', () => {
+    const result = restoreWith({
       wasSidebarOpenBeforePopout: true,
       terminalWindows: [{ sessionId: SAVED_SESSION_ID, isPopout: false, bounds: { width: 720, height: 420 } }],
     });
-    const manager = new RecordingTerminalManager();
-    try {
-      withRecordingManager(manager, () => (fixture.host.restoreTabs as () => void)());
-    } finally {
-      fixture.cleanup();
-    }
-
-    assert.equal(fixture.opened.window.length, 1, 'the saved docked terminal window was not reopened');
-    assert.equal(manager.boots.length, 1, `the restore booted the manager ${manager.boots.length} time(s)`);
-    assertBootWasThisWindow(manager.boots[0], fixture.workspaceRoot);
+    assert.deepEqual(result.boots, [], 'restore booted a terminal for a window that no longer exists');
   });
 
-  it('boots a saved terminal popout on this window\'s workspace and capsule', () => {
-    const fixture = createFixture({
+  it('does not reopen a saved popout or boot a terminal for it', () => {
+    const result = restoreWith({
       isTerminalPopoutOpen: true,
       wasSidebarOpenBeforePopout: true,
       popoutSessionId: SAVED_SESSION_ID,
+      terminalWindows: [{ sessionId: SAVED_SESSION_ID, isPopout: true }],
     });
-    const manager = new RecordingTerminalManager();
-    try {
-      withRecordingManager(manager, () => (fixture.host.restoreTabs as () => void)());
-    } finally {
-      fixture.cleanup();
-    }
-
-    assert.equal(fixture.opened.popout.length, 1, 'the saved popout was not reopened');
-    assert.equal(manager.boots.length, 1, `the restore booted the manager ${manager.boots.length} time(s)`);
-    assertBootWasThisWindow(manager.boots[0], fixture.workspaceRoot);
+    assert.deepEqual(result.boots, [], 'restore booted a terminal for a popout that no longer exists');
   });
 
-  it('boots nothing when the saved record has no terminal window', () => {
-    const fixture = createFixture({ wasSidebarOpenBeforePopout: true });
-    const manager = new RecordingTerminalManager();
-    try {
-      withRecordingManager(manager, () => (fixture.host.restoreTabs as () => void)());
-    } finally {
-      fixture.cleanup();
-    }
+  it('restores the Terminal Manager with no pages even when tabs were saved under it', () => {
+    const result = restoreWith(
+      { tabs: [{ id: 'old-1', url: 'https://example.com/', title: 'Old' }], activeTabId: 'old-1' },
+      { kind: 'unassigned' },
+    );
+    assert.deepEqual(result.created, [], 'the terminals-only window minted a page');
+  });
+  it('folds tabs saved under legacy project: owner keys into the web hub record', () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-restore-migrate-'));
+    const tabsPath = path.join(tempRoot, 'saved-tabs.json');
+    fs.writeFileSync(
+      tabsPath,
+      JSON.stringify({
+        version: SAVED_TABS_SCHEMA_VERSION,
+        owners: {
+          'project:project-legacy-a': {
+            tabs: [
+              { id: 'dup-id', url: 'https://a.example/', title: 'A' },
+              { id: 'old-a', url: 'https://a-unique.example/', title: 'A unique' },
+            ],
+            activeTabId: 'old-a',
+            updatedAt: 1000,
+          },
+          'project:project-legacy-b': {
+            tabs: [{ id: 'old-b', url: 'https://b.example/', title: 'B' }],
+            updatedAt: 2000,
+          },
+          // A live web record merges too: its tab wins over a duplicate id, and its
+          // activeTabId is never overwritten by a legacy record's.
+          web: {
+            tabs: [{ id: 'dup-id', url: 'https://a-current.example/', title: 'A current' }],
+            activeTabId: 'web-active',
+            updatedAt: 500,
+          },
+        },
+        updatedAt: Date.now(),
+      }),
+      'utf8',
+    );
 
-    assert.deepEqual(manager.boots, []);
-    assert.deepEqual(fixture.opened, { popout: [], window: [] });
+    const host: Record<string, unknown> = Object.create(NativeTabHost.prototype);
+    host.shell = { owner: { kind: 'web' } };
+    host.getTabsStoragePath = () => tabsPath;
+
+    type Doc = { owners: Record<string, { tabs: Array<Record<string, unknown>>; activeTabId?: string }> };
+    try {
+      const document = (host.loadSavedTabsDocument as () => Doc)();
+
+      const webRecord = document.owners.web;
+      assert.ok(webRecord, 'the fold produced no web owner record');
+      const webTabs = webRecord.tabs;
+      assert.equal(document.owners['project:project-legacy-a'], undefined, 'the legacy owner key survived the fold');
+      assert.equal(document.owners['project:project-legacy-b'], undefined, 'the second legacy owner key survived the fold');
+      // legacy-a's 'dup-id' tab duplicates web's by id, so the live copy wins; legacy-a's
+      // unique tab still arrives stamped, and legacy-b's tab follows: 3 tabs total.
+      assert.equal(webTabs.length, 3, 'duplicate ids must not double the merged record: ' + JSON.stringify(webTabs));
+      assert.deepEqual(
+        webTabs.map((t) => [t.url, t.projectId]),
+        [
+          ['https://a-current.example/', undefined],
+          ['https://a-unique.example/', 'project-legacy-a'],
+          ['https://b.example/', 'project-legacy-b'],
+        ],
+        'merged tabs must carry the project id their old owner key named',
+      );
+      assert.equal(webRecord.activeTabId, 'web-active', 'a live web record lost its active tab to a legacy record');
+
+      // The merge is durable: the file itself already shows one 'web' record, so a second
+      // launch finds nothing left to fold.
+      const onDisk = JSON.parse(fs.readFileSync(tabsPath, 'utf8')) as Doc;
+      assert.equal(onDisk.owners['project:project-legacy-a'], undefined, 'the persisted file still carries the legacy owner key');
+      assert.ok(onDisk.owners.web, 'the persisted file lost the web owner record');
+      assert.equal(onDisk.owners.web.tabs.length, 3, 'the persisted file does not show the merged record');
+
+      const second = (host.loadSavedTabsDocument as () => Doc)();
+      assert.ok(second.owners.web);
+      assert.equal(second.owners.web.tabs.length, 3, 'a second load re-merged records instead of converging');
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('leaves legacy project: owner records alone when a non-web host loads the document', () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-restore-noweb-'));
+    const tabsPath = path.join(tempRoot, 'saved-tabs.json');
+    const raw = {
+      version: SAVED_TABS_SCHEMA_VERSION,
+      owners: {
+        'project:project-legacy-a': { tabs: [{ id: 'old-a', url: 'https://a.example/' }], updatedAt: 1000 },
+      },
+      updatedAt: Date.now(),
+    };
+    fs.writeFileSync(tabsPath, JSON.stringify(raw), 'utf8');
+
+    const host: Record<string, unknown> = Object.create(NativeTabHost.prototype);
+    host.shell = { owner: { kind: 'unassigned' } };
+    host.getTabsStoragePath = () => tabsPath;
+
+    type Doc = { owners: Record<string, { tabs: Array<Record<string, unknown>> }> };
+    try {
+      const document = (host.loadSavedTabsDocument as () => Doc)();
+      // The Terminal Manager has no page area: folding its way would only hide the
+      // legacy record for the web hub's own fold later. Untouched, unread, unwritten.
+      assert.ok(document.owners['project:project-legacy-a'], 'a non-web load consumed the legacy record');
+      assert.equal(document.owners.web, undefined, 'a non-web load invented a web record');
+      const onDisk = JSON.parse(fs.readFileSync(tabsPath, 'utf8')) as Doc;
+      assert.ok(onDisk.owners['project:project-legacy-a'], 'a non-web load rewrote the legacy file');
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+  it('still gives a project window its default page when nothing was saved', () => {
+    const result = restoreWith({});
+    assert.equal(result.created.length, 1, 'a browser window must never come back empty');
   });
 });

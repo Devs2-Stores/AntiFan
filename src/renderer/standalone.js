@@ -4,6 +4,10 @@ const mainPane = document.getElementById('terminal-main');
 const tabsEl = document.getElementById('terminalTabs');
 const contextMenu = document.getElementById('tabContextMenu');
 
+// `mode=popout` windows are gone: the Terminal Manager is the one terminal window, so
+// every "own window" entry opens it instead of spawning a renderer variant. The flag is
+// still read so a webContents that identifies as a popout cannot mint Space buttons whose
+// route only admits the sidebar surface.
 const urlParams = new URLSearchParams(window.location.search);
 const isPopoutMode = urlParams.get('mode') === 'popout';
 if (isPopoutMode) {
@@ -56,6 +60,12 @@ function applyShellScope(source) {
     shellScope.projectId = owner.projectId;
     shellScope.title = typeof identity.title === 'string' ? identity.title : '';
     shellScope.pathLabel = typeof identity.pathLabel === 'string' ? identity.pathLabel : '';
+  } else if (owner && owner.kind === 'web') {
+    // The web hub is a described shell of its own: never Unassigned (which is the Terminal
+    // Manager that shows every project). Its title is the project it currently presents.
+    shellScope.ownerKind = 'web';
+    shellScope.title = typeof identity.title === 'string' ? identity.title : '';
+    shellScope.pathLabel = typeof identity.pathLabel === 'string' ? identity.pathLabel : '';
   } else if (owner && owner.kind === 'unassigned') {
     shellScope.ownerKind = 'unassigned';
     shellScope.title = typeof identity.title === 'string' ? identity.title : '';
@@ -78,6 +88,9 @@ function applyShellScope(source) {
   // these labels when opened; project shells do not need the cross-project label map.
   if (isSharedManagerShell()) {
     void ensureCapsuleIndex().then((changed) => {
+      if (changed && typeof renderTabs === 'function') renderTabs();
+    });
+    void ensureProjectAppearance().then((changed) => {
       if (changed && typeof renderTabs === 'function') renderTabs();
     });
   }
@@ -1014,7 +1027,24 @@ function isFolderGroupKey(key) {
  *  This is the guard every `terminalCategories` write goes through: the user list must never
  *  be able to capture a key the process invented. */
 function isDerivedGroupKey(key) {
-  return isCapsuleGroupKey(key) || isFolderGroupKey(key);
+  return isCapsuleGroupKey(key) || isFolderGroupKey(key) || isProjectGroupKey(key);
+}
+
+/** Group-key namespace for a project section: the manager's primary grouping. */
+const PROJECT_GROUP_PREFIX = 'project:';
+
+function isProjectGroupKey(key) {
+  return typeof key === 'string' && key.startsWith(PROJECT_GROUP_PREFIX) && key.length > PROJECT_GROUP_PREFIX.length;
+}
+
+/** A folder section and a project section both speak for a workspace folder: they share the
+ *  new-terminal, Space, run-count and appearance controls. */
+function isFolderLikeGroupKey(key) {
+  return isFolderGroupKey(key) || isProjectGroupKey(key);
+}
+
+function isFolderLikeGroup(group) {
+  return Boolean(group) && (group.kind === 'folder' || group.kind === 'project');
 }
 
 /** Capsule id -> { id, name, workspacePath, projectId } behind the rows on screen. */
@@ -1073,6 +1103,98 @@ function ensureCapsuleIndex(force = false) {
   return read;
 }
 
+/**
+ * Colour and star per project id, read from the same inventory the picker uses. Main owns the
+ * values; this map is a display copy, replaced wholesale on every read so it can never drift.
+ */
+let projectAppearance = new Map();
+let projectAppearancePending = null;
+/** projectId -> 'LIVE' | 'DEAD' | 'STALE', from Main's reconciled stored inventory. */
+let projectStatus = new Map();
+/** projectId -> { name, workspacePath } from Main's stored inventory. */
+let projectStoredInfo = new Map();
+
+function ensureProjectAppearance() {
+  if (projectAppearancePending) return projectAppearancePending;
+  const read = (async () => {
+    try {
+      const reply = await api?.listProjects?.();
+      if (!Array.isArray(reply?.candidates)) return false;
+      const next = new Map();
+      // Stored rows carry appearance too: a DEAD/STALE project keeps the colour/star it
+      // was saved with, so building the map only from open candidates erased it every
+      // refresh.
+      const rows = [...(reply.candidates || []), ...(reply.stored || [])];
+      const seen = new Set();
+      for (const candidate of rows) {
+        if (!candidate || typeof candidate.projectId !== 'string' || seen.has(candidate.projectId)) continue;
+        seen.add(candidate.projectId);
+        next.set(candidate.projectId, {
+          color: typeof candidate.color === 'string' ? candidate.color : '',
+          starred: candidate.starred === true,
+          name: typeof candidate.name === 'string' && candidate.name.trim()
+            ? candidate.name.trim()
+            : (typeof candidate.title === 'string' ? candidate.title.trim() : ''),
+        });
+      }
+      projectAppearance = next;
+      const nextStatus = new Map();
+      if (Array.isArray(reply.stored)) {
+        for (const row of reply.stored) {
+          if (row && typeof row.projectId === 'string' && typeof row.status === 'string') nextStatus.set(row.projectId, row.status);
+        }
+      }
+      projectStatus = nextStatus;
+      const nextInfo = new Map();
+      if (Array.isArray(reply.stored)) {
+        for (const row of reply.stored) {
+          if (row && typeof row.projectId === 'string') {
+            nextInfo.set(row.projectId, {
+              name: typeof row.name === 'string' ? row.name.trim() : '',
+              workspacePath: typeof row.workspacePath === 'string' ? row.workspacePath : '',
+            });
+          }
+        }
+      }
+      projectStoredInfo = nextInfo;
+      return true;
+    } catch {
+      return false;
+    }
+  })();
+  projectAppearancePending = read;
+  const settle = () => { if (projectAppearancePending === read) projectAppearancePending = null; };
+  read.then(settle, settle);
+  return read;
+}
+
+/** The project a row belongs to, taken from its owner key; '' for unassigned and agent rows. */
+function projectIdOfRow(row) {
+  const owner = row && typeof row.ownerKey === 'string' ? row.ownerKey : '';
+  if (!owner.startsWith('project:')) return '';
+  const id = owner.slice('project:'.length).trim();
+  return id; // a whitespace-only stamp is malformed, same as Main's parseOwnerKey rules
+}
+
+/** Write a colour or star through Main; the display copy follows Main's answer, not the click. */
+async function writeProjectAppearance(projectId, patch) {
+  try {
+    const result = await api?.setProjectAppearance?.({ projectId, ...patch });
+    if (result && result.status === 'UPDATED') {
+      const current = projectAppearance.get(projectId) || {};
+      projectAppearance.set(projectId, {
+        color: typeof result.color === 'string' ? result.color : (patch.color === null ? '' : current.color || ''),
+        starred: result.starred === true,
+        name: current.name || '',
+      });
+      if (typeof renderTabs === 'function') renderTabs();
+      return true;
+    }
+  } catch {}
+  if (typeof showTerminalNotice === 'function') showTerminalNotice('Không lưu được màu/sao của dự án', 'error');
+  return false;
+}
+
 /** The capsule a session is filed under, or '' when it carries none. */
 function capsuleIdOf(session) {
   return session && typeof session.capsuleId === 'string' ? session.capsuleId.trim() : '';
@@ -1100,12 +1222,31 @@ function capsulePathOf(capsuleId) {
  */
 function rowGroupKeyOf(session) {
   if (isSharedManagerShell()) {
+    // The project is the manager's primary axis: every folder and capsule of one project
+    // lands under one header. Only a row Main cannot attribute to a project falls back to
+    // its folder or capsule, so nothing is ever dropped from the list.
+    const projectId = projectIdForGrouping(session);
+    if (projectId) return PROJECT_GROUP_PREFIX + projectId;
     const folderKey = session && typeof session.folderKey === 'string' ? session.folderKey.trim() : '';
     if (folderKey) return FOLDER_GROUP_PREFIX + folderKey;
     const capsuleId = capsuleIdOf(session);
     if (capsuleId) return CAPSULE_GROUP_PREFIX + capsuleId;
+    return UNCATEGORIZED_CATEGORY;
   }
-  return categoryKeyOf(session);
+  // A project shell shows one flat list of its own terminals. The legacy category
+  // classification (`session.category` / `terminalCategories`) is retired: it mirrored
+  // project names and duplicated what the chip already tells the user, so a stored
+  // value can never divide the list into dead headers again.
+  return UNCATEGORIZED_CATEGORY;
+}
+
+/** Project a manager row is grouped under: its own stamped owner first, then the project the
+ *  capsule index resolves for the row's capsule; '' when neither names one. */
+function projectIdForGrouping(session) {
+  const owned = projectIdOfRow(session);
+  if (owned) return owned;
+  const entry = capsuleIndex.get(capsuleIdOf(session));
+  return entry && entry.projectId ? entry.projectId : '';
 }
 
 /**
@@ -1115,6 +1256,25 @@ function rowGroupKeyOf(session) {
  * no row behind it.
  */
 function buildGroupForKey(key, row) {
+  const projectId = isProjectGroupKey(key) ? key.slice(PROJECT_GROUP_PREFIX.length) : projectIdOfRow(row);
+  const projectColor = projectId ? (projectAppearance.get(projectId) || {}).color : undefined;
+  if (isProjectGroupKey(key)) {
+    const known = projectAppearance.get(projectId) || {};
+    const folderPath = row && typeof row.folderPath === 'string' ? row.folderPath : '';
+    const folderLabel = row && typeof row.folderLabel === 'string' ? row.folderLabel.trim() : '';
+    return {
+      key,
+      kind: 'project',
+      projectId,
+      capsuleId: capsuleIdOf(row) || '',
+      folderPath,
+      folderPaths: folderPath ? [folderPath] : [],
+      label: known.name || folderLabel || projectId,
+      color: projectColor || derivedCategoryColorOf(key),
+      hint: folderPath,
+      items: [],
+    };
+  }
   if (isFolderGroupKey(key)) {
     const folderLabel = row && typeof row.folderLabel === 'string' && row.folderLabel.trim()
       ? row.folderLabel.trim()
@@ -1123,10 +1283,11 @@ function buildGroupForKey(key, row) {
     return {
       key,
       kind: 'folder',
+      projectId,
       capsuleId: capsuleIdOf(row) || '',
       folderPath,
       label: folderLabel,
-      color: derivedCategoryColorOf(key),
+      color: projectColor || derivedCategoryColorOf(key),
       hint: folderPath,
       items: [],
     };
@@ -1136,9 +1297,10 @@ function buildGroupForKey(key, row) {
     return {
       key,
       kind: 'capsule',
+      projectId,
       capsuleId,
       label: capsuleLabelOf(capsuleId),
-      color: derivedCategoryColorOf(capsuleId),
+      color: projectColor || derivedCategoryColorOf(capsuleId),
       hint: capsulePathOf(capsuleId),
       items: [],
     };
@@ -1155,25 +1317,10 @@ function buildGroupForKey(key, row) {
 function groupSessionsByCategory(list) {
   const groups = [];
   const byKey = new Map();
-  // User-created groups seed the list first, in their own order, and are emitted even
-  // with no tabs in them: `session.category` alone cannot represent an empty group,
-  // and a group the user created has to stay visible whether or not anything is
-  // currently filed under it.
-  for (const name of terminalCategories) {
-    if (byKey.has(name)) continue;
-    const seeded = { key: name, kind: 'category', label: name, color: categoryColorOf(name), items: [] };
-    byKey.set(name, seeded);
-    groups.push(seeded);
-    if (!categoryOrder.includes(name)) {
-      // A group created at runtime must land with the real groups, not below the
-      // "Chưa phân nhóm" catch-all — which already holds a slot by the time the user
-      // creates one. Inserting in front of that slot leaves every existing key exactly
-      // where it was, so the sticky order still holds for everything already on screen.
-      const uncategorizedAt = categoryOrder.indexOf(UNCATEGORIZED_CATEGORY);
-      if (uncategorizedAt === -1) categoryOrder.push(name);
-      else categoryOrder.splice(uncategorizedAt, 0, name);
-    }
-  }
+  // `terminalCategories` is retired with the legacy classification it drove: no category
+  // is seeded from the stored list, in any shell (project sections are seeded further
+  // below, Terminal Manager only). The order array still holds group keys so
+  // first-appearance ordering keeps working for the sections that remain.
   // Every session's own key, so a pane can be filed under the key of the tab it splits.
   const keyBySessionId = new Map();
   for (const s of (list || [])) keyBySessionId.set(s.id, rowGroupKeyOf(s));
@@ -1188,11 +1335,42 @@ function groupSessionsByCategory(list) {
     }
     // A later row in the same folder may carry the capsule its group could not name at
     // creation; the first usable one wins so the header's actions can always find it.
-    if (group.kind === 'folder' && !group.capsuleId) {
+    if (isFolderLikeGroup(group) && !group.capsuleId) {
       const rowCapsule = capsuleIdOf(s);
       if (rowCapsule) group.capsuleId = rowCapsule;
     }
+    // A project owns several folders: keep every distinct one so the header can name them all
+    // while its actions act on the first.
+    if (group.kind === 'project') {
+      const rowFolder = typeof s.folderPath === 'string' ? s.folderPath : '';
+      if (rowFolder && !group.folderPaths.includes(rowFolder)) {
+        group.folderPaths.push(rowFolder);
+        if (!group.folderPath) group.folderPath = rowFolder;
+        group.hint = group.folderPaths.join(' · ');
+      }
+    }
     group.items.push(s);
+  }
+  if (isSharedManagerShell()) {
+    // The Terminal Manager lists every stored project, terminal or not: it is the one place
+    // the whole inventory is seen without clicking into anything. A project with no live
+    // terminal has no row to carry its section, so it is seeded from Main's stored list.
+    for (const [projectId] of projectStatus) {
+      // LIVE, DEAD and STALE are all shown; the status only dims/marks the header.
+      const key = PROJECT_GROUP_PREFIX + projectId;
+      if (byKey.has(key)) continue;
+      const info = projectStoredInfo.get(projectId) || {};
+      const seeded = buildGroupForKey(key, null);
+      if (info.name) seeded.label = info.name;
+      if (info.workspacePath) {
+        seeded.folderPath = info.workspacePath;
+        seeded.folderPaths = [info.workspacePath];
+        seeded.hint = info.workspacePath;
+      }
+      byKey.set(key, seeded);
+      groups.push(seeded);
+      if (!categoryOrder.includes(key)) categoryOrder.push(key);
+    }
   }
   // A key keeps the slot it first appeared in, so dragging a tab between groups
   // can never reshuffle the sidebar: only the tabs inside a group move.
@@ -2037,7 +2215,7 @@ const coalescedAckMap = new Map();
 
 function scheduleCoalescedAck(sessionId, generation, seq, role) {
   if (!sessionId || typeof seq !== 'number' || seq <= 0) return;
-  const currentRole = role || (isPopoutMode ? 'POPOUT' : 'DOCK');
+  const currentRole = role || 'DOCK';
   let state = coalescedAckMap.get(sessionId);
   if (!state) {
     state = {
@@ -3183,20 +3361,6 @@ tabSearchIcon.className = 'terminal-tab-search-icon';
 tabSearchIcon.innerHTML = iconSvg(ICON_SEARCH, 13);
 tabSearchField.append(tabSearchIcon, tabSearchInput, btnClearTabSearch);
 
-// Group management is a first-class action, not a right-click on a tab: an empty group
-// has no tab to right-click, which is exactly the case this control exists for.
-const btnNewCategory = document.createElement('button');
-btnNewCategory.type = 'button';
-btnNewCategory.id = 'btnNewCategory';
-btnNewCategory.className = 'terminal-tab-new-category';
-btnNewCategory.innerHTML = iconSvg(ICON_LAYERS, 14);
-btnNewCategory.title = 'Tạo nhóm mới (nhóm rỗng vẫn được giữ lại)';
-btnNewCategory.setAttribute('aria-label', 'Tạo nhóm mới');
-btnNewCategory.onclick = (e) => {
-  e.stopPropagation();
-  startNewCategory(btnNewCategory);
-};
-
 // The manager's folder-scoped mint lives beside the generic one: `+` asks the workspace of
 // the window it sits in, this asks the user for the folder. Hidden until Main describes the
 // shell — `refreshManagerHubButtons` owns its visibility.
@@ -3215,7 +3379,7 @@ btnNewInFolder.onclick = (e) => {
 
 // `#btnNewTerminal` is declared in standalone.html as the strip's first child; it moves
 // into this row so the search field can take the remaining width.
-tabToolbar.append(tabSearchField, btnNewTerminal, btnNewInFolder, btnNewCategory);
+tabToolbar.append(tabSearchField, btnNewTerminal, btnNewInFolder);
 if (tabsEl) tabsEl.insertBefore(tabToolbar, tabsEl.firstChild);
 
 tabSearchInput.addEventListener('input', () => {
@@ -6031,8 +6195,18 @@ function ensureTerminalTabWrap(s, currentWraps) {
   return wrap;
 }
 
-/** Create-or-refresh the collapsible group header for one category. */
+/** Create-or-refresh the collapsible group header for one section. The retired
+ *  classification (and its 'Chưa phân nhóm' catch-all) renders no header — a flat
+ *  list does not need a caption. Real sections (project, folder, capsule, the
+ *  sleep bucket) still get one. */
 function ensureCategoryHeader(group) {
+  if (group.kind === 'category') {
+    // A header cached from a render that still had categories must be deleted now:
+    // the sweep keys on visible groups, so skipping here alone would leave it live.
+    const stale = categoryHeaders.get(group.key);
+    if (stale) { stale.remove(); categoryHeaders.delete(group.key); folderHeaderSessionIds.delete(group.key); }
+    return null;
+  }
   let header = categoryHeaders.get(group.key);
   if (!header) {
     header = document.createElement('div');
@@ -6073,7 +6247,7 @@ function ensureCategoryHeader(group) {
     // precisely how a tab leaves its group — so the sleep bucket and the derived sections
     // refuse drops, because "file this terminal under a state" and "file this terminal
     // under a folder" are not operations a drag can mean.
-    const isDerivedGroup = group.kind === 'capsule' || group.kind === 'folder';
+    const isDerivedGroup = group.kind === 'capsule' || isFolderLikeGroup(group);
     const canManage = !isDerivedGroup && group.key !== UNCATEGORIZED_CATEGORY && group.key !== SLEEPING_CATEGORY;
     const canAcceptDrop = !isDerivedGroup && group.key !== SLEEPING_CATEGORY;
 
@@ -6130,7 +6304,7 @@ function ensureCategoryHeader(group) {
       };
       header.appendChild(briefBtn);
     }
-    if (group.kind === 'folder' && typeof api?.newTerminalInFolder === 'function') {
+    if (isFolderLikeGroup(group) && typeof api?.newTerminalInFolder === 'function') {
       // The mint's folder is the group's own: `data-folder-path` is read back live because
       // the header element is reused while its group object is rebuilt every render.
       const mintBtn = document.createElement('button');
@@ -6146,7 +6320,7 @@ function ensureCategoryHeader(group) {
       };
       header.appendChild(mintBtn);
     }
-    if (group.kind === 'folder' && typeof api?.openSpace === 'function') {
+    if (isFolderLikeGroup(group) && !isPopoutMode && typeof api?.openSpace === 'function') {
       const spaceBtn = document.createElement('button');
       spaceBtn.type = 'button';
       spaceBtn.className = 'terminal-tab-category-mint';
@@ -6159,12 +6333,37 @@ function ensureCategoryHeader(group) {
       };
       header.appendChild(spaceBtn);
     }
-    if (group.kind === 'folder') {
+    if (isFolderLikeGroup(group)) {
       // Live run-state counts for the section: a span `renderTabs` fills and the run-card
       // push refreshes, so "đang chạy / chờ bạn" is read without opening the group.
       const counts = document.createElement('span');
       counts.className = 'terminal-tab-category-run-counts';
       header.appendChild(counts);
+    }
+    if (isDerivedGroup) {
+      const projectStar = document.createElement('button');
+      projectStar.type = 'button';
+      projectStar.className = 'terminal-tab-project-star';
+      projectStar.setAttribute('data-role', 'project-star');
+      projectStar.setAttribute('aria-label', 'Đánh dấu sao dự án');
+      projectStar.onclick = (e) => {
+        e.stopPropagation();
+        const projectId = header.getAttribute('data-project-id') || '';
+        if (!projectId) return;
+        void writeProjectAppearance(projectId, { starred: !(projectAppearance.get(projectId) || {}).starred });
+      };
+      const projectColor = document.createElement('input');
+      projectColor.type = 'color';
+      projectColor.className = 'terminal-tab-project-color';
+      projectColor.setAttribute('data-role', 'project-color');
+      projectColor.title = 'Màu dự án';
+      projectColor.setAttribute('aria-label', 'Màu dự án');
+      projectColor.addEventListener('click', (e) => e.stopPropagation());
+      projectColor.addEventListener('change', () => {
+        const projectId = header.getAttribute('data-project-id') || '';
+        if (projectId) void writeProjectAppearance(projectId, { color: projectColor.value });
+      });
+      header.append(projectColor, projectStar);
     }
     if (canManage) header.append(rename, menu);
     header.addEventListener('click', (e) => {
@@ -6223,11 +6422,12 @@ function ensureCategoryHeader(group) {
   // Which axis the section names is refreshed here rather than only at creation: a key is
   // reused across renders, and the marker is what tells a project section from a user group.
   header.classList.toggle('is-capsule-group', group.kind === 'capsule');
-  header.classList.toggle('is-folder-group', group.kind === 'folder');
-  header.setAttribute('data-group-kind', group.kind === 'capsule' || group.kind === 'folder' ? group.kind : 'category');
+  header.classList.toggle('is-folder-group', isFolderLikeGroup(group));
+  header.classList.toggle('is-project-group', group.kind === 'project');
+  header.setAttribute('data-group-kind', group.kind === 'capsule' || group.kind === 'folder' || group.kind === 'project' ? group.kind : 'category');
   // The group's folder is stamped live because the capsule and path behind a reused header
   // can change while its key cannot: one folder, always the folder Main reports now.
-  if (group.kind === 'folder') {
+  if (isFolderLikeGroup(group)) {
     header.setAttribute('data-folder-path', typeof group.folderPath === 'string' ? group.folderPath : '');
     if (typeof group.capsuleId === 'string' && group.capsuleId) header.setAttribute('data-capsule-id', group.capsuleId);
     else header.removeAttribute('data-capsule-id');
@@ -6241,6 +6441,33 @@ function ensureCategoryHeader(group) {
     header.removeAttribute('data-folder-path');
     if (group.kind !== 'capsule') header.removeAttribute('data-capsule-id');
   }
+  // Project appearance: a section that names a project carries its colour and star, and the
+  // controls that write them. A user group has no project, so it keeps neither.
+  const projectStarBtn = header.querySelector('[data-role="project-star"]');
+  const projectColorInput = header.querySelector('[data-role="project-color"]');
+  const groupProjectId = typeof group.projectId === 'string' ? group.projectId : '';
+  const groupAppearance = groupProjectId ? (projectAppearance.get(groupProjectId) || {}) : {};
+  if (groupProjectId) header.setAttribute('data-project-id', groupProjectId);
+  else header.removeAttribute('data-project-id');
+  header.classList.toggle('is-project-starred', Boolean(groupAppearance.starred));
+  // Reconciled health from Main: LIVE / DEAD / STALE. STALE (folder gone) dims the section
+  // and says why; LIVE wins over a missing path, so a running project is never marked stale.
+  const groupStatus = groupProjectId ? (projectStatus.get(groupProjectId) || '') : '';
+  if (groupStatus) header.setAttribute('data-project-status', groupStatus);
+  else header.removeAttribute('data-project-status');
+  header.classList.toggle('is-project-stale', groupStatus === 'STALE');
+  if (projectStarBtn) {
+    projectStarBtn.style.display = groupProjectId ? '' : 'none';
+    const starred = Boolean(groupAppearance.starred);
+    projectStarBtn.textContent = starred ? '★' : '☆';
+    projectStarBtn.setAttribute('aria-pressed', starred ? 'true' : 'false');
+    projectStarBtn.title = starred ? 'Bỏ đánh dấu sao dự án' : 'Đánh dấu sao dự án';
+  }
+  if (projectColorInput) {
+    projectColorInput.style.display = groupProjectId ? '' : 'none';
+    const shown = groupAppearance.color || '#64748b';
+    if (projectColorInput.value !== shown) projectColorInput.value = shown;
+  }
 
   // While a filter is applied every surviving group is shown open: a collapsed group
   // hiding the very match the user just searched for would look like a failed search.
@@ -6249,7 +6476,9 @@ function ensureCategoryHeader(group) {
   const collapseTitle = isCollapsed ? `Mở nhóm ${group.label}` : `Thu gọn nhóm ${group.label}`;
   // A capsule section names a project, and the name alone is not enough to tell two
   // storefronts with the same title apart — the workspace behind it does that.
-  header.title = group.hint ? `${collapseTitle} — ${group.hint}` : collapseTitle;
+  const staleNote = group.kind === 'project' && projectStatus.get(group.projectId) === 'STALE' ? 'thư mục dự án không còn tồn tại' : '';
+  const titleHint = [group.hint, staleNote].filter(Boolean).join(' · ');
+  header.title = titleHint ? `${collapseTitle} — ${titleHint}` : collapseTitle;
   return header;
 }
 
@@ -6277,7 +6506,7 @@ function refreshFolderHeaderCounts(header) {
 /** Re-count every live folder header after the run-card projection changes. */
 function refreshAllFolderHeaderCounts() {
   for (const [key, header] of categoryHeaders) {
-    if (isFolderGroupKey(key)) refreshFolderHeaderCounts(header);
+    if (isFolderLikeGroupKey(key)) refreshFolderHeaderCounts(header);
   }
 }
 
@@ -6363,18 +6592,31 @@ async function openFolderSpace(folder, create) {
 function refreshManagerHubButtons() {
   const visible = isSharedManagerShell() && typeof api?.newTerminalInFolder === 'function';
   if (btnNewInFolder) btnNewInFolder.style.display = visible ? '' : 'none';
+  // Every "own window" entry now opens the Terminal Manager; inside it they would only
+  // re-focus the window already in front of the user.
+  for (const id of ['btnPopoutWindow', 'btnNewTerminalWindow']) {
+    const btn = document.getElementById(id);
+    if (btn) btn.style.display = isSharedManagerShell() ? 'none' : '';
+  }
 }
 
-/** Session rows the manager may hand to a project: `unassigned` or ownerless, awake or
- *  asleep, never `agent:` (Main refuses those, and offering them would mint a dead click). */
+/**
+ * The rows "Chưa gắn dự án" presents and the group list must not: ownerless or
+ * `unassigned`, awake or asleep, never `agent:` (Main refuses those, and offering
+ * them would mint a dead click), never a split pane (its owning tab carries it).
+ * One predicate shared by both render paths, so a row is painted exactly once.
+ */
+function isTriageHubRow(s) {
+  if (!isSharedManagerShell() || !s || s.splitOf || isAgentOwnedSession(s)) return false;
+  const owner = typeof s.ownerKey === 'string' ? s.ownerKey.trim() : '';
+  return !owner || owner === 'unassigned';
+}
+
+/** Session rows the manager may hand to a project. */
 function unassignedHubSessions() {
   if (!isSharedManagerShell()) return [];
   const list = Array.isArray(sessions) ? sessions : [];
-  return list.filter((s) => {
-    if (!s || s.splitOf || isAgentOwnedSession(s)) return false;
-    const owner = typeof s.ownerKey === 'string' ? s.ownerKey.trim() : '';
-    return !owner || owner === 'unassigned';
-  });
+  return list.filter((s) => isTriageHubRow(s));
 }
 
 /** The "Chưa gắn dự án" block at the top of the manager's tab strip, or null when the hub
@@ -6714,28 +6956,6 @@ function promptCategoryName(anchorEl, options) {
 }
 
 /**
- * Create an empty group. The name is registered before any tab joins it, which is the
- * whole point: the persisted group list is the only thing that can hold a group with
- * no tabs in it.
- */
-function startNewCategory(anchorEl) {
-  promptCategoryName(anchorEl, {
-    title: 'Tạo nhóm mới',
-    placeholder: 'Tên nhóm mới… (Enter để tạo)',
-    hint: 'Nhóm rỗng vẫn được giữ lại. Kéo tab vào header để xếp vào nhóm.',
-    onSubmit: (value) => {
-      if (!value) return;
-      const folded = value.toLowerCase();
-      // Idempotent rather than a silent duplicate header.
-      if (terminalCategories.some((name) => name.toLowerCase() === folded)) return;
-      terminalCategories.push(value);
-      persistTerminalTabPrefs();
-      renderTabs();
-    },
-  });
-}
-
-/**
  * Rename a group, or delete it when the new name is empty.
  *
  * Every tab filed under the old name follows the rename, so renaming can never
@@ -7050,6 +7270,7 @@ function renderTabs() {
   );
   for (const s of allSessions) {
     if (!s) continue;
+    if (isTriageHubRow(s)) continue;
     if (s.state === 'sleeping') {
       // Sleeping split panes are implementation rows, not independent tabs.
       // The split toggle wakes the existing session when the row is hidden.
@@ -7098,7 +7319,9 @@ function renderTabs() {
   // header must be dropped too or it would be stranded outside the ordered run.
   const liveKeys = new Set(visibleGroups.map((g) => g.key));
   for (const [key, header] of Array.from(categoryHeaders.entries())) {
-    if (!isSidebarLayout || !liveKeys.has(key)) {
+    // The category axis is retired: a header cached from a render that still knew it
+    // keeps its key in `visibleGroups`, so the liveness check alone can never drop it.
+    if (!isSidebarLayout || !liveKeys.has(key) || header.getAttribute('data-group-kind') === 'category') {
       header.remove();
       categoryHeaders.delete(key);
       folderHeaderSessionIds.delete(key);
@@ -7115,7 +7338,7 @@ function renderTabs() {
       const header = ensureCategoryHeader(group);
       if (header) ordered.push(header);
     }
-    const isCollapsed = isSidebarLayout && collapsedCategories.has(group.key) && !tabSearchActive;
+    const isCollapsed = group.key !== UNCATEGORIZED_CATEGORY && isSidebarLayout && collapsedCategories.has(group.key) && !tabSearchActive;
     for (const s of orderGroupItems(group.items)) {
       const wrap = ensureTerminalTabWrap(s, currentWraps);
       wrap.classList.toggle('is-sleeping', s.state === 'sleeping');
@@ -7174,18 +7397,7 @@ api?.onTerminalSession((state) => {
   initialPushReceived = true;
   const prevActiveId = activeId;
   sessions = state.sessions || [];
-  if (!isPopoutMode) {
-    activeId = state.activeSessionId || activeId;
-  } else {
-    if (!activeId || !sessions.some((s) => s.id === activeId)) {
-      const initialSessionId = urlParams.get('sessionId');
-      if (initialSessionId && sessions.some((s) => s.id === initialSessionId)) {
-        activeId = initialSessionId;
-      } else {
-        activeId = state.activeSessionId || sessions[0]?.id || '';
-      }
-    }
-  }
+  activeId = state.activeSessionId || activeId;
   const activeSession = sessions.find((s) => s.id === activeId);
   const switchedTabs = prevActiveId !== activeId;
   // `splitSessionId` names only the first split a parent owns, so a split the user
@@ -7506,15 +7718,7 @@ const btnPopoutWindow = document.getElementById('btnPopoutWindow');
 const btnNewTerminalWindow = document.getElementById('btnNewTerminalWindow');
 const btnFullscreenHeader = document.getElementById('btnFullscreenHeader');
 
-if (isPopoutMode) {
-  if (btnPopoutWindow) {
-    btnPopoutWindow.title = 'Gắn lại vào cửa sổ chính (Re-dock)';
-    btnPopoutWindow.innerHTML = `
-      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M6 2H2v4M2 2l6 6M10 4h3a1 1 0 011 1v8a1 1 0 01-1 1H5a1 1 0 01-1-1v-3"/>
-      </svg>`;
-  }
-}
+
 document.getElementById('btnOpenFolder')?.addEventListener('click', async () => {
   await api?.pickWorkspaceFolder?.(activeId);
 });
@@ -7524,13 +7728,7 @@ const openNewWin = () => {
 
 btnNewTerminalWindow?.addEventListener('click', openNewWin);
 
-btnPopoutWindow?.addEventListener('click', () => {
-  if (isPopoutMode) {
-    api?.redockTerminal?.();
-  } else {
-    api?.popoutTerminal?.();
-  }
-});
+btnPopoutWindow?.addEventListener('click', () => api?.popoutTerminal?.());
 
 const toggleFs = () => api?.toggleFullScreen?.();
 btnFullscreenHeader?.addEventListener('click', toggleFs);

@@ -4,6 +4,8 @@ import type {
   BridgeHealthReport,
   CapsuleBrief,
   CapsuleBriefResult,
+  ProjectAppearanceRequest,
+  ProjectAppearanceResult,
   ProjectOpenListResult,
   ProjectOpenPickerAnswerPayload,
   ProjectOpenPickerPush,
@@ -49,6 +51,8 @@ const api = {
   // `answerProjectRemove` exists only for the test/probe seam that answers explicitly.
   renameProject: (request: { projectId: string; name: string }): Promise<ProjectRenameResult> =>
     ipcRenderer.invoke(PROJECT_WINDOW_CHANNELS.PROJECT_RENAME, request),
+  setProjectAppearance: (request: ProjectAppearanceRequest): Promise<ProjectAppearanceResult> =>
+    ipcRenderer.invoke(PROJECT_WINDOW_CHANNELS.PROJECT_SET_APPEARANCE, request),
   removeProject: (request: ProjectRemoveRequest): Promise<ProjectRemoveResult> =>
     ipcRenderer.invoke(PROJECT_WINDOW_CHANNELS.PROJECT_REMOVE, request),
   answerProjectRemove: (payload: { projectId: string; confirmed: boolean }): Promise<ProjectRemoveResult> =>
@@ -119,16 +123,9 @@ const api = {
   openNewTerminalWindow: (sessionId?: string) => ipcRenderer.invoke('antifan:terminal:new-window', { sessionId }),
   closeTerminalWindow: () => ipcRenderer.invoke('antifan:terminal:close-window'),
   setActiveTerminalSession: (sessionId: string, splitSessionId?: string) => ipcRenderer.invoke('antifan:terminal:set-active-session', { sessionId, splitSessionId }),
-  redockTerminal: () => ipcRenderer.invoke('antifan:terminal:redock'),
-  isTerminalPopout: () => ipcRenderer.invoke('antifan:terminal:get-popout-state'),
   toggleFullScreen: () => ipcRenderer.invoke('antifan:window:toggle-fullscreen'),
   createTab: (url?: string) => ipcRenderer.invoke('antifan:toolbar:create-tab', url),
   openExternal: (url?: string) => ipcRenderer.invoke('antifan:toolbar:open-external', url),
-  onTerminalPopoutChanged: (cb: (isPopout: boolean) => void) => {
-    const h = (_e: unknown, v: boolean) => cb(v);
-    ipcRenderer.on('antifan:terminal:popout-state-changed', h);
-    return () => ipcRenderer.removeListener('antifan:terminal:popout-state-changed', h);
-  },
   getFullBuffer: (sessionId?: string) => ipcRenderer.invoke('antifan:terminal:get-full-buffer', sessionId),
   getTerminalDelta: (sessionId: string, generation: number, fromSeq: number) =>
     ipcRenderer.invoke('antifan:terminal:get-delta', { sessionId, generation, fromSeq }),

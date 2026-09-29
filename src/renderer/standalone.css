@@ -1924,10 +1924,9 @@ button {
   background: rgba(148, 163, 184, 0.18);
 }
 
-/* The three create actions. Icon-only (or a `+` glyph), so each carries an `aria-label`;
+/* The create actions. Icon-only (or a `+` glyph), so each carries an `aria-label`;
    all are square and fixed-size so adding the search field can never squash them. */
 .terminal-tab-toolbar #btnNewTerminal,
-.terminal-tab-new-category,
 .terminal-tab-new-folder {
   display: flex;
   align-items: center;
@@ -1947,7 +1946,6 @@ button {
 }
 
 .terminal-tab-toolbar #btnNewTerminal:hover,
-.terminal-tab-new-category:hover,
 .terminal-tab-new-folder:hover {
   color: #e2e8f0;
   border-color: rgba(56, 189, 248, 0.55);
@@ -1955,7 +1953,6 @@ button {
 }
 
 .terminal-tab-toolbar #btnNewTerminal:focus-visible,
-.terminal-tab-new-category:focus-visible,
 .terminal-tab-new-folder:focus-visible {
   outline: 2px solid #38bdf8;
   outline-offset: 1px;
@@ -2026,6 +2023,21 @@ button {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Project/folder/capsule sections carry the most controls (new terminal, Space, brief, counts,
+   colour, star). At the 220px sidebar they cannot share one row with a readable name, so only
+   these headers may wrap: the name keeps a readable floor and the rest drops to a second row.
+   User-group headers keep the single-row layout above. */
+.standalone.tabs-sidebar .terminal-tab-category-header.is-folder-group,
+.standalone.tabs-sidebar .terminal-tab-category-header.is-capsule-group {
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+
+.standalone.tabs-sidebar .terminal-tab-category-header.is-folder-group .terminal-tab-category-label,
+.standalone.tabs-sidebar .terminal-tab-category-header.is-capsule-group .terminal-tab-category-label {
+  min-width: 56px;
 }
 
 /* The `*` marker: a literal asterisk next to the name, in the same amber the tab strip
@@ -2623,6 +2635,69 @@ button {
   color: #475569;
   white-space: nowrap;
 }
+
+/* Project appearance controls on a derived (folder/capsule) section header: a star
+   toggle and a colour picker. Their size is fixed so the header keeps its one row at
+   the narrowest sidebar width (220px), leaving the label to absorb the squeeze. A
+   header with no project hides both inline; these rules only style the visible pair. */
+.standalone.tabs-sidebar .terminal-tab-project-star {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  font-size: 12px;
+  line-height: 1;
+  color: #64748b;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: color 0.12s ease;
+}
+
+.standalone.tabs-sidebar .terminal-tab-category-header.is-project-starred .terminal-tab-project-star,
+.standalone.tabs-sidebar .terminal-tab-project-star:hover {
+  color: #fbbf24;
+}
+
+/* A stored project whose folder is gone: dimmed, still readable, never mistaken for a live one. */
+.standalone.tabs-sidebar .terminal-tab-category-header.is-project-stale .terminal-tab-category-label {
+  opacity: 0.55;
+  text-decoration: line-through;
+}
+
+.standalone.tabs-sidebar .terminal-tab-project-star:focus-visible {
+  outline: 2px solid #38bdf8;
+  outline-offset: 1px;
+}
+
+.standalone.tabs-sidebar .terminal-tab-project-color {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+}
+
+/* WebKit pads and borders a colour input even at border: 0; the inner swatch has to be
+   cleared too or the picked colour never reaches the control's edge. */
+.standalone.tabs-sidebar .terminal-tab-project-color::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.standalone.tabs-sidebar .terminal-tab-project-color::-webkit-color-swatch {
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  border-radius: 4px;
+}
+
+.standalone.tabs-sidebar .terminal-tab-project-color:focus-visible {
+  outline: 2px solid #38bdf8;
+  outline-offset: 1px;
+}
+
 
 .terminal-tab-run-badge {
   flex: 0 0 auto;

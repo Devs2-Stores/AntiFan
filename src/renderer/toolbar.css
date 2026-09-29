@@ -3973,7 +3973,18 @@ body, html {
   border: 1px solid rgba(56, 189, 248, 0.35);
   color: var(--tb-fg-strong);
   font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
   user-select: none;
+}
+
+.project-chip:hover {
+  background: rgba(56, 189, 248, 0.20);
+}
+
+.project-chip:focus-visible {
+  outline: 2px solid #38bdf8;
+  outline-offset: 1px;
 }
 
 .project-chip.unassigned {

@@ -237,6 +237,23 @@ whose parent is gone leaves no orphan tab behind.
   This paragraph is the contract; the tree answers for how much of it is wired, and
   each half names its own owner — the route table (`NativeTabHost.CHROME_ROUTES`),
   `windowSessionScope` with its manager gate, and the sidebar's tab context menu.
+- "Which project owns this subject" has one Main-side answer:
+  `resolveProjectContext` (`src/main/project/project-context.ts`, Electron-free) resolves a
+  `terminal`, `tab`, `ownerKey`, or `projectId` subject through injected ports — the terminal's
+  own capsule first, its stamped owner key second — and `parseOwnerKey` is the single reader of
+  the `project:<id>`/`unassigned`/`agent:<tabId>` key spellings. A subject it cannot place comes
+  back `unresolved` (`UNKNOWN_SUBJECT`/`MALFORMED_OWNER_KEY`/`STALE_CAPSULE`) instead of being
+  guessed into a project.
+  A project's appearance is durable, Main-owned state: `ProjectRecord.color`/`starred` are
+  applied by `ProjectRegistry.setProjectAppearance` and persisted through a `ProjectPreferences`
+  store (`project-preferences.json` in the config dir, capped at `PROJECT_PREFERENCES_MAX`
+  entries); `PROJECT_LIST` candidates already carry them, and `PROJECT_SET_APPEARANCE`
+  (`antifan:project:set-appearance`, routed on toolbar/sidebar/terminalPopout) is the one write
+  path for both the picker and the Manager — whose folder/capsule section headers render the
+  colour plus a star toggle and colour picker bound to that project id. `removeProjectEntry`
+  refuses with `APPEARANCE_NOT_CLEARED` when the appearance delete cannot be persisted, so the
+  record is left untouched and the removal can simply be retried rather than letting colour/star
+  silently reappear on the next boot.
 - Composer attachments are immutable artifact refs; raw bytes never live in
   renderer state.
 

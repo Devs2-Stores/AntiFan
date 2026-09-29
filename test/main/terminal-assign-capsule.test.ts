@@ -791,7 +791,10 @@ function assignRouteFixture(options: { owner?: WindowOwner; rows?: RecordedRow[]
     rows: options.rows ?? [OWN_ROW, AGENT_ROW],
     capsuleManager: capsuleRegistry(capsules, AFFILIATIONS_BY_ROOT),
   });
-  fixture.host.setOwnerWindowPresence(options.windows ?? ((ownerKeyValue: string) => ownerKeyValue === PHUKIEN_OWNER_KEY));
+  // The route asks for the Terminal Manager's presence ('unassigned'), the one shell that
+  // renders a moved `project:` row no matter what. A manager sender answers for itself, so
+  // this predicate is only consulted for windows that are not the manager.
+  fixture.host.setOwnerWindowPresence(options.windows ?? ((ownerKeyValue: string) => ownerKeyValue === MANAGER_OWNER_KEY));
   fixture.host.setProjectAssignmentResolver(assignmentResolverFor(capsules, [WORKSPACELESS_PROJECT]));
   return fixture;
 }
@@ -891,8 +894,11 @@ describe('Terminal project handover — the assign route', () => {
     assert.equal(unknownProjectResult.ok === false && unknownProjectResult.reason, 'PROJECT_UNAVAILABLE');
     assert.deepEqual(unknownProject.recording.calls, [], 'a refusal before the move never reaches the manager');
 
-    // The project's window was closed between the renderer's open request and this call.
-    const absentWindow = assignRouteFixture({ windows: () => false });
+    // The Terminal Manager was closed between the renderer's open request and this call — the
+    // one window that can show the moved row. A non-manager window cannot answer for itself
+    // (`isSharedTerminalManagerSender` only exempts the manager's own chrome), so a window
+    // scoped to another project hits the same presence gate.
+    const absentWindow = assignRouteFixture({ owner: PROJECT_A, windows: () => false });
     const absentWindowResult = assign(absentWindow.harness, OWN_ROW.id, PHUKIEN_PROJECT);
     assert.equal(absentWindowResult.ok, false);
     assert.equal(absentWindowResult.ok === false && absentWindowResult.reason, 'TARGET_WINDOW_ABSENT');

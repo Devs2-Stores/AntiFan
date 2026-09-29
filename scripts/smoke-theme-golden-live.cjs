@@ -777,7 +777,13 @@ async function run() {
     }));
     assert.equal(drawerTrace.verdict, 'DRAWER_EXPANDED');
     assert.equal(drawerTrace.evidence.observationIntegrity.status, 'COMPLETE');
-    assert.equal(tabHost.getMutationRevision(tabId), drawerRevisionBefore + 1);
+    // Production contract (verification-evaluator / browser-capabilities) is
+    // currentMutationRev >= targetMutationRev: the trace reservation bumps once
+    // and the page's own debounced dom-mutation report may legitimately add a
+    // second increment. Exact equality would reject a valid observation.
+    assert.ok(tabHost.getMutationRevision(tabId) >= drawerRevisionBefore + 1 &&
+      tabHost.getMutationRevision(tabId) <= drawerRevisionBefore + 2,
+      `drawer mutation revision must advance exactly 1 (reservation) or 2 (+ observed dom-mutation report): ${tabHost.getMutationRevision(tabId)} vs baseline ${drawerRevisionBefore}`);
     const drawerMutationRevisionAdvanced = true;
     assert.equal(drawerTrace.evidence.delta.target.aria.status, 'changed');
     assert.equal(drawerTrace.evidence.delta.document.bodyClasses.status, 'changed');

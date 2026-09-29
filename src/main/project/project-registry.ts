@@ -5,10 +5,19 @@ import {
   makeControlPlaneId,
   validateControlPlaneId,
 } from '../../shared/control-plane-contracts';
+import type { ProjectAppearance, ProjectAppearancePatch } from './project-preferences';
+
+/** What the registry needs from a durable appearance store (satisfied by `ProjectPreferences`). */
+export interface ProjectAppearanceStore {
+  get(projectId: string): ProjectAppearance;
+  set(projectId: string, patch: ProjectAppearancePatch): ProjectAppearance | undefined;
+  remove(projectId: string): boolean;
+}
 
 export class ProjectRegistry {
   private readonly projects = new Map<string, ProjectRecord>();
   private readonly workspaces = new Map<string, WorkspaceRecord>();
+  private appearanceStore: ProjectAppearanceStore | undefined;
 
   createProject(name: string, dataRoot: string): ProjectRecord {
     if (!name.trim()) throw new Error('Project name is required');
@@ -21,19 +30,63 @@ export class ProjectRegistry {
       createdAt: now,
       updatedAt: now,
     };
-    this.projects.set(project.id, project);
-    return { ...project };
+    const stored = this.withStoredAppearance(project);
+    this.projects.set(stored.id, stored);
+    return { ...stored };
   }
 
   registerProject(project: ProjectRecord): ProjectRecord {
     const id = validateControlPlaneId(project.id, 'project');
-    const record: ProjectRecord = {
+    const record: ProjectRecord = this.withStoredAppearance({
       ...project,
       id,
       dataRoot: path.resolve(project.dataRoot),
-    };
+    });
     this.projects.set(id, record);
     return { ...record };
+  }
+
+  /**
+   * Back colour/star with a durable store. The store is authoritative for those two fields:
+   * every registration (boot re-sync, rename, create) re-reads it, so a record can never
+   * drift from what the user last chose. Records already registered are hydrated now.
+   */
+  attachAppearanceStore(store: ProjectAppearanceStore): void {
+    this.appearanceStore = store;
+    for (const [id, record] of this.projects) this.projects.set(id, this.withStoredAppearance(record));
+  }
+
+  /** Persist a colour/star change and reflect it on the record. `undefined` = refused or unknown. */
+  setProjectAppearance(projectId: string, patch: ProjectAppearancePatch): ProjectRecord | undefined {
+    const id = validateControlPlaneId(projectId, 'project');
+    const existing = this.projects.get(id);
+    if (!existing || !this.appearanceStore) return undefined;
+    if (!this.appearanceStore.set(id, patch)) return undefined;
+    const record = this.withStoredAppearance({ ...existing, updatedAt: Date.now() });
+    this.projects.set(id, record);
+    return { ...record };
+  }
+
+  /**
+   * Forget a project's appearance durably (project removed from the list). Returns false when
+   * the deletion could not be persisted; the record then keeps what the store still holds.
+   */
+  forgetProjectAppearance(projectId: string): boolean {
+    const id = validateControlPlaneId(projectId, 'project');
+    const forgotten = this.appearanceStore ? this.appearanceStore.remove(id) : true;
+    const existing = this.projects.get(id);
+    if (existing) this.projects.set(id, this.withStoredAppearance(existing));
+    return forgotten;
+  }
+
+  private withStoredAppearance(record: ProjectRecord): ProjectRecord {
+    if (!this.appearanceStore) return record;
+    const { color, starred, ...rest } = record;
+    const stored = this.appearanceStore.get(record.id);
+    const next: ProjectRecord = { ...rest };
+    if (stored.color) next.color = stored.color;
+    if (stored.starred) next.starred = true;
+    return next;
   }
 
   registerWorkspace(workspace: WorkspaceRecord): WorkspaceRecord {

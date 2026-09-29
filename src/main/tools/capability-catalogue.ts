@@ -177,6 +177,15 @@ export class CapabilityCatalogue {
     }
     return undefined;
   }
+  /** Session-ownership check delegating to the host seam, false when unwired. */
+  isTabAllowed(primaryTabId: string, requestedTabId: string): boolean {
+    if (this.options.isTabAllowed) {
+      try {
+        return this.options.isTabAllowed(primaryTabId, requestedTabId) === true;
+      } catch {}
+    }
+    return false;
+  }
 
   /**
    * Names a live replacement tab for a bound tab that no longer exists, so a session

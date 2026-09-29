@@ -300,9 +300,192 @@ describe('target transition lifecycle error semantics', () => {
       name: 'browser.navigate',
       params: { url: 'https://example.com' },
     });
-
     assert.strictEqual(resp.ok, true, 'Navigate must succeed');
     assert.ok(resp.replacementAuthorityRevision, 'Replacement authority revision must be issued');
     assert.strictEqual(registry.getAttachment(launch.attachmentId)?.tabId, destinationTab, 'Attachment must be rotated to destination tab');
+  });
+
+  it('stale-bound retarget to an unrelated live user tab is refused before dispatch', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-target-trans-hijack-'));
+    const projectId = makeControlPlaneId('project');
+    const workspaceId = makeControlPlaneId('workspace');
+    const runId = makeControlPlaneId('run');
+    const attemptId = makeControlPlaneId('attempt');
+    const lease = issueRuntimeLease(projectId, workspaceId, 30_000, 1);
+
+    const catalogue = new CapabilityCatalogue({
+      runtime: { mode: 'standalone', lifecycle: 'active' },
+      projectId,
+      workspaceId,
+      runtimeId: lease.runtimeId,
+      hostEpoch: 1,
+      // The session's bound tab is gone; only the unrelated user tab is live.
+      resolveTabId: (id) => (id === 'tab-user-youtube' ? 'tab-user-youtube' : undefined),
+      resolveFailoverTabId: () => undefined,
+      getDocumentGeneration: () => 1,
+      isTabAllowed: (primaryId, requestedId) => primaryId === requestedId,
+    });
+
+    let setTargetExecuted = false;
+    catalogue.register({
+      name: 'browser.set-automation-target',
+      description: 'Retargets automation',
+      risk: 'write',
+      requiresBrowserTarget: false,
+      inputSchema: { type: 'object', properties: { tabId: { type: 'string' } } },
+      policy: basePolicy({ effect: 'write' }),
+      execute: async () => {
+        setTargetExecuted = true;
+        return { success: true, tabId: 'tab-user-youtube' };
+      },
+    });
+
+    const registry = new AttachmentRegistry(undefined, root);
+    const ledger = new InvocationLedger({ dataRoot: root });
+    await ledger.initialize();
+    const transport = new CapabilityTransportAdapter(catalogue, registry, ledger);
+
+    const { launch } = await registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+      backendId: 'test-backend',
+      grant: 'write',
+      lease,
+      leaseToken: lease.token,
+      tabId: 'tab-agent-dead',
+    });
+
+    const resp = await transport.dispatchIntent({
+      requestId: makeControlPlaneId('request'),
+      idempotencyKey: `test:${makeControlPlaneId('request')}`,
+      attachmentId: launch.attachmentId,
+      attachmentSecret: launch.secret,
+      authorityRevision: launch.authorityRevision,
+      name: 'browser.set-automation-target',
+      params: { tabId: 'tab-user-youtube' },
+    });
+
+    assert.strictEqual(setTargetExecuted, false, 'Retarget must be refused before the handler runs');
+    assert.strictEqual(resp.ok, false);
+    assert.strictEqual(resp.error?.code, 'TARGET_MISMATCH');
+  });
+
+  it('stale-bound rebind to the session failover sibling succeeds', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-target-trans-sibling-'));
+    const projectId = makeControlPlaneId('project');
+    const workspaceId = makeControlPlaneId('workspace');
+    const runId = makeControlPlaneId('run');
+    const attemptId = makeControlPlaneId('attempt');
+    const lease = issueRuntimeLease(projectId, workspaceId, 30_000, 1);
+
+    const catalogue = new CapabilityCatalogue({
+      runtime: { mode: 'standalone', lifecycle: 'active' },
+      projectId,
+      workspaceId,
+      runtimeId: lease.runtimeId,
+      hostEpoch: 1,
+      resolveTabId: (id) => (id === 'tab-agent-sibling' ? 'tab-agent-sibling' : undefined),
+      resolveFailoverTabId: (stale) => (stale === 'tab-agent-dead' ? 'tab-agent-sibling' : undefined),
+      getDocumentGeneration: () => 1,
+      isTabAllowed: (primaryId, requestedId) => primaryId === requestedId,
+    });
+
+    let reboundTabId: string | undefined;
+    catalogue.register({
+      name: 'browser.rebind-target',
+      description: 'Rebinds target tab',
+      risk: 'write',
+      requiresBrowserTarget: false,
+      inputSchema: { type: 'object', properties: { tabId: { type: 'string' } } },
+      policy: basePolicy({ effect: 'idempotent-write' }),
+      execute: async (params: { tabId?: string }) => {
+        reboundTabId = params.tabId;
+        return { success: true, tabId: params.tabId, documentGeneration: 1, browserEpoch: 1 };
+      },
+    });
+
+    const registry = new AttachmentRegistry(undefined, root);
+    const ledger = new InvocationLedger({ dataRoot: root });
+    await ledger.initialize();
+    const transport = new CapabilityTransportAdapter(catalogue, registry, ledger);
+
+    const { launch } = await registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+      backendId: 'test-backend',
+      grant: 'write',
+      lease,
+      leaseToken: lease.token,
+      tabId: 'tab-agent-dead',
+    });
+
+    const resp = await transport.dispatchIntent({
+      requestId: makeControlPlaneId('request'),
+      idempotencyKey: `test:${makeControlPlaneId('request')}`,
+      attachmentId: launch.attachmentId,
+      attachmentSecret: launch.secret,
+      authorityRevision: launch.authorityRevision,
+      name: 'browser.rebind-target',
+      params: { tabId: 'tab-agent-sibling' },
+    });
+
+    assert.strictEqual(resp.ok, true, `Managed sibling rebind must succeed, got ${JSON.stringify(resp.error)}`);
+    assert.strictEqual(reboundTabId, 'tab-agent-sibling');
+    assert.strictEqual(registry.getAttachment(launch.attachmentId)?.tabId, 'tab-agent-sibling', 'Authority must rotate to the sibling');
+  });
+
+  it('stale-bound rebind to a foreign live tab is refused before dispatch', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-target-trans-rebind-foreign-'));
+    const projectId = makeControlPlaneId('project');
+    const workspaceId = makeControlPlaneId('workspace');
+    const runId = makeControlPlaneId('run');
+    const attemptId = makeControlPlaneId('attempt');
+    const lease = issueRuntimeLease(projectId, workspaceId, 30_000, 1);
+
+    const catalogue = new CapabilityCatalogue({
+      runtime: { mode: 'standalone', lifecycle: 'active' },
+      projectId,
+      workspaceId,
+      runtimeId: lease.runtimeId,
+      hostEpoch: 1,
+      resolveTabId: (id) => (id === 'tab-user-youtube' ? 'tab-user-youtube' : undefined),
+      resolveFailoverTabId: () => undefined,
+      getDocumentGeneration: () => 1,
+      isTabAllowed: (primaryId, requestedId) => primaryId === requestedId,
+    });
+
+    let rebindExecuted = false;
+    catalogue.register({
+      name: 'browser.rebind-target',
+      description: 'Rebinds target tab',
+      risk: 'write',
+      requiresBrowserTarget: false,
+      inputSchema: { type: 'object', properties: { tabId: { type: 'string' } } },
+      policy: basePolicy({ effect: 'idempotent-write' }),
+      execute: async () => { rebindExecuted = true; return { success: true, tabId: 'tab-user-youtube', documentGeneration: 1, browserEpoch: 1 }; },
+    });
+
+    const registry = new AttachmentRegistry(undefined, root);
+    const ledger = new InvocationLedger({ dataRoot: root });
+    await ledger.initialize();
+    const transport = new CapabilityTransportAdapter(catalogue, registry, ledger);
+
+    const { launch } = await registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+      backendId: 'test-backend',
+      grant: 'write',
+      lease,
+      leaseToken: lease.token,
+      tabId: 'tab-agent-dead',
+    });
+
+    const resp = await transport.dispatchIntent({
+      requestId: makeControlPlaneId('request'),
+      idempotencyKey: `test:${makeControlPlaneId('request')}`,
+      attachmentId: launch.attachmentId,
+      attachmentSecret: launch.secret,
+      authorityRevision: launch.authorityRevision,
+      name: 'browser.rebind-target',
+      params: { tabId: 'tab-user-youtube' },
+    });
+
+    assert.strictEqual(rebindExecuted, false, 'Foreign rebind must be refused before the handler runs');
+    assert.strictEqual(resp.ok, false);
+    assert.strictEqual(resp.error?.code, 'TARGET_MISMATCH');
   });
 });

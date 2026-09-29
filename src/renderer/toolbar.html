@@ -25,13 +25,13 @@
       <!-- PROJECT IDENTITY. Every label here is a projection of the identity Main resolved
            for this shell; the renderer never names its own project, so an absent identity
            hides the chip instead of inventing one. -->
-      <div class="project-chip" id="projectChip" style="display:none;" role="group" aria-label="Dự án của cửa sổ này">
+      <button type="button" class="project-chip" id="projectChip" style="display:none;" aria-label="Dự án của cửa sổ này - bấm để mở dự án" aria-haspopup="dialog">
         <span class="project-chip-icon" aria-hidden="true">
           <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M1.75 2.5A1.75 1.75 0 0 0 0 4.25v7.5C0 12.716.784 13.5 1.75 13.5h12.5A1.75 1.75 0 0 0 16 11.75v-6A1.75 1.75 0 0 0 14.25 4H7.81a.25.25 0 0 1-.195-.094L6.177 2.094A1.75 1.75 0 0 0 4.81 1.5H1.75z"/></svg>
         </span>
         <span class="project-chip-title" id="projectChipTitle"></span>
         <span class="project-chip-path" id="projectChipPath"></span>
-      </div>
+      </button>
       <div class="tab-list" id="tabList"></div>
       <button class="btn-tab-search" id="btnTabSearch" title="Tìm tab trong mọi cửa sổ dự án" aria-label="Tìm tab trong mọi cửa sổ dự án" aria-haspopup="dialog" aria-expanded="false">
         <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
@@ -236,7 +236,7 @@
             </svg>
           </button>
 
-          <button class="nav-btn" id="btnPopoutTerminal" title="Tách Terminal ra cửa sổ riêng (Pop out Terminal Window)">
+          <button class="nav-btn" id="btnPopoutTerminal" title="Mở Terminal Manager (Ctrl+Shift+M)" aria-label="Mở Terminal Manager">
             <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
               <path d="M10 2h4v4M14 2L8 8M6 4H3a1 1 0 00-1 1v8a1 1 0 001 1h8a1 1 0 001-1v-3"/>
             </svg>
@@ -885,6 +885,22 @@
         <div class="tab-search-results" id="tabSearchResults" role="listbox" aria-label="Tab trong mọi dự án" data-state="idle"></div>
         <div class="tab-search-status" id="tabSearchStatus" role="status" aria-live="polite" aria-atomic="true"></div>
         <div class="tab-search-hint">↑ ↓ chọn · Enter mở tab · Esc quay lại nút vừa bấm</div>
+      </div>
+    </div>
+
+    <!-- PROJECT PICKER. Hosted here (not in the terminal sidebar) so choosing a project never
+         opens or resizes the sidebar over the page the user is looking at. -->
+    <div class="tab-search-overlay" id="projectPickerOverlay" style="display:none;">
+      <div class="tab-search-modal" id="projectPickerModal" role="dialog" aria-modal="true" aria-labelledby="projectPickerTitle">
+        <div class="tab-search-header">
+          <span class="tab-search-title" id="projectPickerTitle">Mở dự án</span>
+          <button class="shortcuts-close" id="projectPickerClose" aria-label="Đóng danh sách dự án">&times;</button>
+        </div>
+        <div class="tab-search-results" id="projectPickerList" role="listbox" aria-label="Dự án" data-state="idle"></div>
+        <div class="tab-search-hint">
+          <button type="button" class="prompt-btn" id="projectPickerFolder">Chọn thư mục…</button>
+          Mỗi dự án mở trong cửa sổ riêng; dự án đang mở sẽ được đưa lên trước.
+        </div>
       </div>
     </div>
 

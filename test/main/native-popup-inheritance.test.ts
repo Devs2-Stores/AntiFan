@@ -187,6 +187,8 @@ describe('native window.open popup inheritance', () => {
         capsuleId: PARENT_CAPSULE,
         partition: PARENT_PARTITION,
         userAgentMode: PARENT_USER_AGENT_MODE,
+        // The child joins the opener's project; this opener carries none.
+        projectId: null,
       },
     });
     assert.deepEqual(harness.adopted, [{

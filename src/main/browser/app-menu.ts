@@ -556,11 +556,6 @@ export function buildApplicationMenu(mainWindow: BrowserWindow, tabHost?: Native
           accelerator: 'CmdOrCtrl+`',
           click: (_item, focusedWindow: BaseWindow | undefined) => hostForClick(focusedWindow)?.toggleSidebar(),
         },
-        {
-          label: 'Pop out Terminal Workbench',
-          accelerator: 'CmdOrCtrl+Shift+N',
-          click: (_item, focusedWindow: BaseWindow | undefined) => hostForClick(focusedWindow)?.togglePopoutTerminal(),
-        },
       ],
     },
 

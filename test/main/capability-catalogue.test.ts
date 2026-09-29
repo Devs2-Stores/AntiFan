@@ -1165,15 +1165,26 @@ describe('Capability catalogue', () => {
 
   it('rebinds host automation target upon antifan_set_automation_target and fails closed on unknown tabs', async () => {
     let currentAutomationTab: string | null = 'tab-1';
+    const fixtureTabs = [
+      { id: 'tab-1', url: 'https://example.com/one' },
+      { id: 'tab-2', url: 'https://example.com/two' },
+    ];
     const mockHost = {
-      getTabList: () => [
-        { id: 'tab-1', url: 'https://example.com/one' },
-        { id: 'tab-2', url: 'https://example.com/two' },
-      ],
+      getTabList: () => fixtureTabs,
       getActiveTabId: () => 'tab-1',
       getAutomationTabId: () => currentAutomationTab,
       setAutomationTabId: (id?: string) => { currentAutomationTab = id || null; },
+      // Port retarget gate (browser-control-port.setAutomationTarget) asks the host seam
+      // whether the hop stays inside this session; these fixture tabs all belong to it.
+      isTabAllowed: (_bound: string, requested: string) => ['tab-1', 'tab-2', 'tab-3'].includes(requested),
+      // Routed openTab verifies the anchor's affiliation before minting a child tab; the
+      // fixture answers with the same project/workspace the test targets.
+      resolveTabAffiliation: (id: string) => (fixtureTabs.some((t) => t.id === id) ? { projectId, workspaceId } : undefined),
+      // The openTab rotation rebinds the session to the created tab, so the fixture
+      // must treat it as live — otherwise the bound target reads stale and masks the
+      // TARGET_MISMATCH contract the final block asserts.
       createTab: () => {
+        fixtureTabs.push({ id: 'tab-3', url: 'https://example.com/three' });
         currentAutomationTab = 'tab-3';
         return 'tab-3';
       },
@@ -1186,7 +1197,7 @@ describe('Capability catalogue', () => {
     const projectId = makeControlPlaneId('project');
     const workspaceId = makeControlPlaneId('workspace');
     const lease = issueRuntimeLease(projectId, workspaceId, 30_000, 1);
-    const catalogue = new CapabilityCatalogue({ runtime: { mode: 'standalone', lifecycle: 'active' }, projectId, workspaceId, runtimeId: lease.runtimeId, hostEpoch: 1 });
+    const catalogue = new CapabilityCatalogue({ runtime: { mode: 'standalone', lifecycle: 'active' }, projectId, workspaceId, runtimeId: lease.runtimeId, hostEpoch: 1, isTabAllowed: (_primary: string, requested: string) => fixtureTabs.some((t) => t.id === requested), resolveTabId: (id: string) => (fixtureTabs.some((t) => t.id === id) ? id : undefined) });
     const browser = new BrowserControlPort(mockHost as any);
     registerBrowserCapabilities(catalogue, browser);
 
@@ -1212,21 +1223,24 @@ describe('Capability catalogue', () => {
     const rebindRes = await server.callTool('antifan_set_automation_target', {
       tabId: 'tab-2',
     });
-    assert.strictEqual(rebindRes.isError, undefined);
+    assert.strictEqual(rebindRes.isError, undefined, rebindRes.content?.[0]?.text);
     assert.strictEqual(currentAutomationTab, 'tab-2', 'Host automation tab must be updated to tab-2');
 
-    // 2. Call with non-existent tab ID must fail closed
+    // 2. A tab outside the session's ownership fails closed before the host's
+    // existence check, so the refusal code is TARGET_MISMATCH (ownership gate),
+    // and the automation target is untouched.
     const failRes = await server.callTool('antifan_set_automation_target', {
       tabId: 'tab-unknown-999',
     });
-    assert.match(failRes.content[0]?.text || '', /not found/);
+    const failPayload = JSON.parse(failRes.content[0]?.text || '{}');
+    assert.strictEqual(failPayload.code, 'TARGET_MISMATCH', `expected TARGET_MISMATCH, got ${failRes.content[0]?.text}`);
     assert.strictEqual(currentAutomationTab, 'tab-2', 'Host automation tab must NOT be corrupted by failed call');
 
     // 3. Opening a new tab via MCP tool automatically rebinds the automation target (Phase 02 invariant)
     const openRes = await server.callTool('antifan_open_tab', {
       url: 'https://example.com/three',
     });
-    assert.strictEqual(openRes.isError, undefined);
+    assert.strictEqual(openRes.isError, undefined, openRes.content?.[0]?.text);
     assert.strictEqual(currentAutomationTab, 'tab-3', 'Automation tab must be updated to tab-3 after openTab');
     assert.strictEqual(registry.getRecord(launch.attachmentId)?.tabId, 'tab-3', 'Attachment registry must be updated to tab-3');
 

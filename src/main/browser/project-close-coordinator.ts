@@ -1,7 +1,7 @@
 /**
  * AntiFan Browser Desktop — Project Close Coordinator
  *
- * One state machine owns every destructive close of a project browser shell and of
+ * One state machine owns every destructive close of a browser shell and of
  * the application itself. It is deliberately electron-free: the native shell, the
  * tab authority, the live-use evidence queries and the shutdown routine are injected,
  * so the machine is deterministic under test and the real wiring stays in one place
@@ -35,7 +35,7 @@
  *   process: an idle process is not evidence of agent activity.
  * - Browser shells are counted from the injected surface list, never from
  *   `BrowserWindow.getAllWindows`: capture hosts and terminal popouts are auxiliary
- *   surfaces — outside a project snapshot, inside application-scope busy checks.
+ *   surfaces — outside a shell snapshot, inside application-scope busy checks.
  * - No force override exists anywhere in this module, and a refused attempt never
  *   destroys a page, a shell or a service.
  * - Reservations are released on every terminal path (refusal, veto, failure, success);
@@ -140,7 +140,7 @@ export interface LiveUseReport {
 
 export interface LiveUseRequest {
   /**
-   * `shell` — the member pages of one shell (a project snapshot);
+   * `shell` — the member pages of one shell (a shell snapshot);
    * `page` — exactly one page, immediately before its close;
    * `application` — every shared-work owner: all browser member pages plus auxiliaries.
    */
@@ -178,7 +178,7 @@ export interface SurfaceOutcome {
 }
 
 /**
- * One closable presentation surface. Browser shells participate in project snapshots;
+ * One closable presentation surface. Browser shells participate in shell snapshots;
  * auxiliaries (capture hosts, terminal popouts) only in application-scope checks.
  */
 export interface CloseSurface {
@@ -204,7 +204,7 @@ export interface CloseSurface {
 export interface ProjectCloseCoordinatorDeps {
   /** The singleton tab authority's close-admission seam; one instance per process. */
   readonly reservations: PageCloseReservations;
-  /** Live presentation surfaces. Injected — `BrowserWindow.getAllWindows` is not a project snapshot. */
+  /** Live presentation surfaces. Injected — `BrowserWindow.getAllWindows` is not a shell snapshot. */
   listSurfaces(): readonly CloseSurface[];
   /** Current surface for an owner key, or undefined once the surface is gone. */
   surfaceForOwner(ownerKey: string): CloseSurface | undefined;
@@ -801,7 +801,7 @@ export class ProjectCloseCoordinator {
 
       // Snapshot first, then ask policy about exactly those pages. Closing the last
       // browser shell is application-scoped: shared work elsewhere must refuse it, and
-      // auxiliaries stay outside the project snapshot but inside that scope.
+      // auxiliaries stay outside the shell snapshot but inside that scope.
       const surfaces = this.readSurfaces();
       const lastBrowserShell =
         surface.kind === 'browser' && surfaces.filter((entry) => entry.kind === 'browser').length <= 1;

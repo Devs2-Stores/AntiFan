@@ -169,7 +169,7 @@ describe('application menu: Cửa sổ Terminal chung (Shared Terminal Manager)'
     assert.doesNotThrow(() => item.click?.(undefined, { id: 2 }));
   });
 
-  it('leaves the per-window terminal commands as they were, and keeps the manager a separate command', () => {
+  it('keeps the sidebar toggles and has no per-window terminal pop-out: the manager is the one terminal window', () => {
     capturedTemplates = [];
     appMenu.buildApplicationMenu({ id: 1 } as unknown as BrowserWindow, hostDouble as never, {
       openSharedTerminalManager: () => undefined,
@@ -181,7 +181,6 @@ describe('application menu: Cửa sổ Terminal chung (Shared Terminal Manager)'
       'separator',
       'Toggle Sidebar Terminal',
       'Toggle Terminal Workbench',
-      'Pop out Terminal Workbench',
     ]);
   });
 });

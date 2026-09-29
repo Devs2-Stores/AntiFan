@@ -25,6 +25,12 @@ export interface AntiFanTab {
   capsuleId?: string;
   userAgentMode?: 'clean' | 'native';
   partition?: string;
+  /**
+   * The project this tab was minted under on the 'web' hub, or absent for a shared
+   * tab (visible under every project) or a tab on a non-web shell. Stamped at mint
+   * and persisted verbatim: never re-resolved against the hub's current project.
+   */
+  projectId?: string;
   ephemeral?: boolean;
   offscreen?: boolean;
   /**
@@ -401,6 +407,7 @@ export const PROJECT_WINDOW_CHANNELS = {
   PROJECT_OPEN_PICKER_ANSWER: 'antifan:project:open-picker-answer',
   PROJECT_RENAME: 'antifan:project:rename',
   PROJECT_REMOVE: 'antifan:project:remove',
+  PROJECT_SET_APPEARANCE: 'antifan:project:set-appearance',
   PROJECT_REMOVE_ANSWER: 'antifan:project:remove-answer',
   CLOSE_REFUSED: 'antifan:close:refused',
 } as const;
@@ -411,6 +418,7 @@ export const PROJECT_WINDOW_CHANNELS = {
  */
 export type ProjectWindowOwner =
   | { kind: 'project'; projectId: string }
+  | { kind: 'web' }
   | { kind: 'unassigned' };
 
 /**
@@ -425,6 +433,12 @@ export type ProjectWindowOwner =
 export interface ProjectWindowIdentity {
   owner: ProjectWindowOwner;
   title: string;
+  /**
+   * The project a 'web' hub is presenting, or null for no active project. Carried
+   * only for the web owner — a project shell's membership lives on `owner` — so a
+   * renderer that cannot read a definite id shows the whole strip (fail-open).
+   */
+  activeProjectId?: string | null;
   /** Workspace path that disambiguates duplicate project titles. */
   pathLabel?: string;
   /** Workspace root this shell's terminals and workspace-scoped tools belong to. */
@@ -514,11 +528,28 @@ export interface ProjectOpenListCandidate {
   /** False only when Main currently refuses terminal assignment (unknown or ambiguous capsule claim). */
   canAssignTerminal?: boolean;
   isCurrent?: boolean;
+  /** Project-level appearance, from the durable per-project store; absent when never set. */
+  color?: string;
+  starred?: boolean;
 }
 
-/** Answer to `PROJECT_LIST`: the same inventory Main's own picker is built from. */
+/** One stored project record reconciled against live state; independent of picker actionability. */
+export interface ProjectStoredStatus {
+  projectId: string;
+  name: string;
+  workspacePath: string;
+  /** LIVE (window/session bound, even if the path is gone), STALE (closed and folder gone), DEAD (closed, resumable). */
+  status: 'LIVE' | 'DEAD' | 'STALE';
+  statusReason: string;
+  /** Saved accent colour, if the user set one. */
+  color?: string;
+  starred?: boolean;
+}
+
+/** Answer to `PROJECT_LIST`. */
 export interface ProjectOpenListResult {
   candidates: ProjectOpenListCandidate[];
+  stored: ProjectStoredStatus[];
 }
 
 /** `PROJECT_OPEN_PICKER` push: the request a chrome's modal answers under. */
@@ -556,6 +587,22 @@ export interface ProjectRenameRequest {
  */
 export type ProjectRenameResult =
   | { status: 'RENAMED'; projectId: string; name: string }
+  | { status: 'UNKNOWN_PROJECT'; projectId: string }
+  | { status: 'FAILED'; projectId: string; reason: string };
+
+/**
+ * `PROJECT_SET_APPEARANCE` request body. One project-level appearance shared by the picker and
+ * the Terminal Manager: `color` is a plain 6-digit hex or `null` to clear, `starred` a boolean.
+ */
+export interface ProjectAppearanceRequest {
+  projectId: string;
+  color?: string | null;
+  starred?: boolean;
+}
+
+/** `PROJECT_SET_APPEARANCE` result: the appearance now stored, or a refusal. */
+export type ProjectAppearanceResult =
+  | { status: 'UPDATED'; projectId: string; color?: string; starred?: boolean }
   | { status: 'UNKNOWN_PROJECT'; projectId: string }
   | { status: 'FAILED'; projectId: string; reason: string };
 
@@ -686,9 +733,6 @@ export const TERMINAL_CHANNELS = {
   NEW_WINDOW: 'antifan:terminal:new-window',
   CLOSE_WINDOW: 'antifan:terminal:close-window',
   SET_ACTIVE_SESSION: 'antifan:terminal:set-active-session',
-  REDOCK: 'antifan:terminal:redock',
-  GET_POPOUT_STATE: 'antifan:terminal:get-popout-state',
-  POPOUT_STATE_CHANGED: 'antifan:terminal:popout-state-changed',
   OPEN_IN_VSCODE: 'antifan:terminal:open-in-vscode',
   DUMP_DIAGNOSTICS: 'antifan:terminal:dump-diagnostics',
   GET_DELTA: 'antifan:terminal:get-delta',

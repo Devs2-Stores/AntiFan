@@ -656,6 +656,31 @@ export class CapabilityTransportAdapter {
       // and the attachment is rotated below so the rebind is durable, not per-call.
       let healedBoundTabId: string | undefined;
       const isOpenTab = intent.name === 'browser.open-tab' || intent.name === 'antifan_open_tab' || intent.name === 'anti.browser.tabs.create';
+      // Retarget intents are gated against the attachment's original authority
+      // (record.tabId / pre-heal browserTarget) BEFORE healing rewrites it, so a
+      // dead binding still refuses foreign tabs. Live-target dispatch keeps the
+      // catalogue gate and switch/activate keeps its documented owner policy.
+      const requestedTabParam = (intent.params as Record<string, unknown> | undefined)?.tabId;
+      const isRetargetOp = intent.name === 'browser.set-automation-target' || intent.name === 'antifan_set_automation_target' || intent.name === 'anti.browser.set_automation_target'
+        || intent.name === 'browser.rebind-target' || intent.name === 'antifan_rebind_target' || intent.name === 'anti.browser.rebind_target';
+      const authorityTabId = authContext.browserTarget?.tabId || record.tabId;
+      if (isRetargetOp && typeof requestedTabParam === 'string' && requestedTabParam.trim() && authorityTabId) {
+        const resolvedRequested = this.catalogue.resolveTabId(requestedTabParam.trim()) || requestedTabParam.trim();
+        const resolvedAuthority = this.catalogue.resolveTabId(authorityTabId) || authorityTabId;
+        if (resolvedRequested !== resolvedAuthority) {
+          // Managed-sibling recovery: the host only names failover targets the
+          // stale session owns, so an exact failover match authorizes the retarget.
+          const failoverId = this.catalogue.resolveFailoverTabId(authorityTabId);
+          const allowed = resolvedRequested === failoverId ||
+            (this.catalogue.isTabAllowed ? this.catalogue.isTabAllowed(authorityTabId, resolvedRequested) === true : false);
+          if (!allowed) {
+            throw new CapabilityError(
+              'TARGET_MISMATCH',
+              `Tab ID '${resolvedRequested}' is outside this session's ownership (bound '${authorityTabId}'). Rebind only to session-managed tabs.`,
+            );
+          }
+        }
+      }
       const staleBoundTabId = authContext.browserTarget?.tabId;
       if (staleBoundTabId && !this.catalogue.resolveTabId(staleBoundTabId)) {
         const replacement = this.catalogue.resolveFailoverTabId(staleBoundTabId);
@@ -718,7 +743,7 @@ export class CapabilityTransportAdapter {
       // the authority's tab and an explicit tab the intent asks for are attributed:
       // over-attribution can only refuse a close that would otherwise be allowed, while
       // under-attribution would let a close destroy the page the work is running on.
-      const requestedTabParam = (intent.params as Record<string, unknown> | undefined)?.tabId;
+      // requestedTabParam declared once above, before the admission call.
       releaseAdmission = onceCloseAdmissionRelease(
         this.closeAdmission?.beginAdmittedOperation(
           [operationTargetTabId, typeof requestedTabParam === 'string' ? requestedTabParam : undefined].filter(

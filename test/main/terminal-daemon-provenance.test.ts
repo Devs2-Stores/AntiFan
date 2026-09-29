@@ -256,6 +256,10 @@ describe('Terminal Daemon Provenance & Async Seam Invariants (RC2)', () => {
     });
 
     let port = 0;
+    let stderrBuf = '';
+    child.stderr?.on('data', (d) => {
+      stderrBuf += d.toString();
+    });
     try {
       await new Promise<void>((resolve, reject) => {
         let buf = '';
@@ -268,7 +272,7 @@ describe('Terminal Daemon Provenance & Async Seam Invariants (RC2)', () => {
           }
         });
         child.on('error', reject);
-        child.on('exit', (code) => reject(new Error('Daemon host exited early with code ' + code)));
+        child.on('exit', (code) => reject(new Error('Daemon host exited early with code ' + code + '\n' + stderrBuf)));
       });
 
       const ws = new WebSocket(`ws://127.0.0.1:${port}`, {

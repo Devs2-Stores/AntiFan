@@ -1,16 +1,19 @@
 /**
- * Live E2E: one terminal, many projects — capsule assignment through the shipping app.
+ * Live E2E: one terminal manager, many projects — capsule assignment through the shipping app.
  *
- * A terminal window, a project window and the shared Terminals window all read the same
- * process-wide terminal manager, so the only thing that keeps one project's shells out of
- * another project's list is the window-derived owner key. This suite boots the real Electron
- * process with two project windows live, opens the shared manager (the window whose shell
- * owner is `unassigned`), and then moves sessions between scopes through the same chrome IPC
- * a user's tab context menu drives: one session minted by the manager and handed to a project,
- * one session minted by a project and taken away from it, and one handed to a capsule whose
- * window is not open yet. A caller that names no window at all — a renderer no shell owns, or
- * an MCP/attachment caller — must stay refused, because the manager's superset view is a
- * privilege of being a window, not a process-wide default.
+ * The 'web' hub shell reads the process-wide terminal manager under the project it is currently
+ * presenting (`project:<activeId>`), while the shared Terminals window — the shell whose owner
+ * is `unassigned` — is the one `managerAll` surface that lists every project's rows. The only
+ * thing that keeps one project's shells out of another project's rows is the `project:<id>`
+ * owner key stamped at mint time. This suite boots the real Electron process with the hub live,
+ * opens the shared manager, and then moves sessions between project scopes through the same
+ * chrome IPC a user's tab context menu drives: one session minted by the manager and handed to
+ * a project, one session minted by the hub under one presented project and re-stamped to another
+ * through the shipped renderer's own context-menu flow, and one handed to a project while no
+ * manager window exists to show the moved row — refused (`TARGET_WINDOW_ABSENT`) first, then
+ * landed once the user's own menu entry recreates the manager. A caller that names no window at
+ * all — a renderer no shell owns, or an MCP/attachment caller — must stay refused, because the
+ * manager's superset view is a privilege of being a window, not a process-wide default.
  *
  * How it runs: the scenario is a real Electron main-process script, generated into a throwaway
  * directory from `TERMINAL_CAPSULE_ASSIGN_DRIVER_SOURCE` below and launched through the
@@ -25,18 +28,19 @@
  * its capsule to point at. Every write this run performs happens inside those temp roots: the
  * driver's evidence file lives in a per-run evidence directory, and the developer's profile,
  * data root and capsules are never read or written.
- *
  * Coverage split:
  *
  *   Automated here (a scripted harness observes them):
- *     - two project windows live on distinct owners, each listing only its own terminal
- *     - the manager window's own list is the superset: every live project's session
+ *     - the web hub lists the scope of the project it is presenting; the shared manager lists
+ *       the superset — per-project separation is carried by `project:<id>` owner stamps,
+ *       asserted on the sessions themselves and on the rows both windows list
  *     - a session minted by the manager, assigned to a project through the real
- *       `TERMINAL_CHANNELS.ASSIGN_PROJECT` invoke, appears in the target window's scope
- *     - a session moved out of the project window that minted it disappears from that
- *       window's scope while the manager keeps listing it
- *     - a target capsule whose window is closed is refused first (`TARGET_WINDOW_ABSENT`),
- *       then the renderer's own open-then-assign flow lands the session in the opened window
+ *       `TERMINAL_CHANNELS.ASSIGN_PROJECT` invoke, flips its ownerKey stamp on both lists
+ *     - a session minted by the hub under one presented project is re-stamped to another through
+ *       the shipped renderer's own context-menu flow, keeping pid and cwd
+ *     - assigning while NO Terminal Manager exists — and the sender is not the manager's own
+ *       chrome — is refused (`TARGET_WINDOW_ABSENT`), and never spawns a `project:` shell;
+ *       the same assign lands once the menu entry recreates the manager
  *     - a renderer no live shell owns, and an MCP attachment caller naming no window, are
  *       both refused instead of receiving the superset
  *     - every shell this run opened is closed again
@@ -60,11 +64,11 @@ import * as path from 'node:path';
 
 /** Every row the driver must report, and the only ones it may report. */
 const EXPECTED_ROWS: readonly string[] = [
-  'terminal.two-project-windows-hold-their-own-scopes',
+  'terminal.web-hub-and-manager-hold-project-scopes',
   'terminal.manager-window-lists-every-project-scope',
   'terminal.manager-assigns-session-through-ipc',
-  'terminal.assignment-moves-session-scope',
-  'terminal.assign-opens-closed-target-window',
+  'terminal.assignment-moves-session-stamp',
+  'terminal.assign-refuses-when-manager-window-absent',
   'terminal.window-less-chrome-caller-refused',
   'terminal.window-less-mcp-caller-refused',
   'terminal.cleanup-closes-every-shell',
@@ -101,15 +105,18 @@ interface DriverObservations {
   moved: {
     sessionId: string;
     previousOwnerKey: string;
-    previousOwnerListed: boolean;
+    ownerKeyAfter: string;
     targetListed: boolean;
+    sourceDropped: boolean;
     managerListed: boolean;
   };
   closedTarget: {
     refusal: { ok: boolean; reason?: string };
-    openResult: { status?: string };
+    reopenResult: { ownerKey?: string; windowId?: number };
     assignReply: { ok: boolean; ownerKey?: string };
     targetListed: boolean;
+    previousManagerWindowId: number;
+    unmappedCandidate?: unknown;
   };
   refusals: {
     chrome: { refused: boolean; message: string } | null;
@@ -137,7 +144,7 @@ interface DriverEvidence {
  * Ownership is the `proc` handle: the PID is the child this test created with `spawn`, the
  * tree flag takes the helpers that child started, and no other process is ever matched by
  * name. A hung child is the only reason this runs — the watchdog below — and it is the same
- * teardown the repository's own two-window lane performs.
+ * teardown the repository's own multi-shell lane performs.
  */
 function killOwnedChildTree(proc: ChildProcess): void {
   if (!proc.pid || proc.exitCode !== null || proc.signalCode !== null) return;
@@ -211,8 +218,8 @@ const makeProject = function (suffix, name) {
 };
 const ALPHA = makeProject('a1', 'Capsule Alpha');
 const BETA = makeProject('b2', 'Capsule Beta');
-// Gamma's capsule exists from boot; its window is deliberately NOT open, which is what the
-// closed-target row needs.
+// Gamma's capsule exists from boot; the only surface a project may ever render on is the 'web'
+// hub, which the absent-target row deliberately closes.
 const GAMMA = makeProject('c3', 'Capsule Gamma');
 const PROJECTS = [ALPHA, BETA, GAMMA];
 
@@ -350,23 +357,23 @@ async function check(name, fn, cleanup) {
 let authority = null;
 let managerEntry = null;
 let managerSidebar = null;
-let alphaSidebar = null;
-let betaSidebar = null;
-let gammaSidebar = null;
+let webSidebar = null;
 let unknownCallerWindow = null;
 let alphaSession = null;
 let betaSession = null;
 let managerSession = null;
 let gammaSession = null;
+let refusedSession = null;
 
 const surfaceOf = function (shell, surface) {
   const view = surface === 'sidebar' ? shell && shell.sidebarView : shell && shell.toolbarView;
   return view && view.webContents && !view.webContents.isDestroyed() ? view.webContents : null;
 };
-const ownerOfProject = function (project) { return 'project:' + project.projectId; };
 const entryFor = function (ownerKeyValue) {
   return authority.snapshot().find(function (entry) { return entry.ownerKey === ownerKeyValue; }) || null;
 };
+const hubHost = function () { return authority.hostForOwner('web'); };
+const projectOwnerKey = function (project) { return 'project:' + project.projectId; };
 /**
  * The menu item the user clicks, found the way Electron finds one: by label in the menu this
  * process installed. No row may open a window through a path the user cannot, so the manager row
@@ -393,15 +400,27 @@ const listOf = async function (surface) {
 const idsOf = function (rows) {
   return rows.map(function (row) { return String(row && row.id); }).sort();
 };
+const rowFor = function (rows, sessionId) {
+  return rows.find(function (row) { return String(row && row.id) === String(sessionId); }) || null;
+};
 const waitForRowIn = async function (surface, sessionId, description) {
   await waitFor(
-    async function () { return idsOf(await listOf(surface)).includes(String(sessionId)) ? true : false; },
+    async function () { return rowFor(await listOf(surface), sessionId) ? true : false; },
+    description,
+  );
+};
+const waitForRowOwner = async function (surface, sessionId, ownerKey, description) {
+  await waitFor(
+    async function () {
+      const row = rowFor(await listOf(surface), sessionId);
+      return row && String(row.ownerKey || '') === ownerKey ? true : false;
+    },
     description,
   );
 };
 const waitForRowGone = async function (surface, sessionId, description) {
   await waitFor(
-    async function () { return idsOf(await listOf(surface)).includes(String(sessionId)) ? false : true; },
+    async function () { return rowFor(await listOf(surface), sessionId) === null ? true : false; },
     description,
   );
 };
@@ -414,113 +433,100 @@ const assignProject = async function (surface, sessionId, projectId) {
     true,
   );
 };
-/** Open one project the way its own opening surface does, and wait for its presentable window. */
+/**
+ * Open one project the way its own opening surface does. Under the hub contract there is no
+ * per-project window: the open has landed when the single 'web' shell is presented AND its host
+ * reports the project as active.
+ */
 async function openProjectAndWait(surface, project) {
   const result = await surface.executeJavaScript(
     'window.antifanStandalone.openProject(' + JSON.stringify(project.projectId) + ')',
     true,
   );
   const entry = await waitFor(
-    function () { return entryFor(ownerOfProject(project)) || false; },
-    'the project window for ' + project.name,
-  );
-  // The entry existing is not the window reaching the user: a shell is built hidden, so a user
-  // open must be shown by Main's own presentation, and every row here waits for that.
-  const presented = await waitFor(
     function () {
-      const current = entryFor(ownerOfProject(project));
-      return current && current.visible === true ? current : false;
+      const current = entryFor('web');
+      if (!current || current.visible !== true) return false;
+      const host = hubHost();
+      return host && host.activeProject() === project.projectId ? current : false;
     },
-    'the window opened for ' + project.name + ' to be presented',
+    'the web hub to be presented under ' + project.name,
   );
-  return { result: result, entry: presented };
+  return { result: result, entry: entry };
 }
 
 async function run() {
   authority = mainProcess.projectWindowAuthority;
   await app.whenReady();
 
-  // ----------------------------------- (1) two project windows, each with its own scope
+  // --------------------------- (1) the web hub and the manager, scope carried by stamps
   const startup = await waitFor(
-    function () { return entryFor(ownerOfProject(ALPHA)) || false; },
-    'the startup project window',
+    function () {
+      const snapshot = authority.snapshot();
+      return snapshot.length === 1 ? snapshot[0] : false;
+    },
+    'the startup web shell',
   );
-  const alphaKey = startup.ownerKey;
-  observations.startup = { ownerKey: alphaKey, windowId: startup.windowId, shellCount: authority.browserShellCount() };
+  observations.startup = { ownerKey: startup.ownerKey, windowId: startup.windowId, shellCount: authority.browserShellCount() };
 
-  let betaEntry = null;
-
-  await check('terminal.two-project-windows-hold-their-own-scopes', async function () {
-    expect(startup.owner.kind === 'project', 'the startup owner kind was ' + String(startup.owner.kind));
-    expect(startup.owner.projectId === ALPHA.projectId, 'the startup owner project was ' + String(startup.owner.projectId));
-    const alphaShell = authority.shellFor(alphaKey);
-    expect(alphaShell, 'the startup window has no shell');
-    alphaSidebar = surfaceOf(alphaShell, 'sidebar');
-    expect(alphaSidebar, 'the startup window has no sidebar surface');
-    await waitForApi(alphaSidebar, "typeof window.antifanStandalone === 'object' && typeof window.antifanStandalone.assignTerminalProject === 'function'");
-    const alphaToolbar = surfaceOf(alphaShell, 'toolbar');
-    const alphaChip = alphaToolbar
-      ? await alphaToolbar.executeJavaScript('document.getElementById("projectChipTitle")?.textContent || null', true)
+  await check('terminal.web-hub-and-manager-hold-project-scopes', async function () {
+    expect(startup.ownerKey === 'web', 'the startup owner key was ' + String(startup.ownerKey));
+    expect(startup.owner.kind === 'web', 'the startup owner kind was ' + String(startup.owner.kind));
+    expect(startup.title === 'AntiFan Browser', 'the startup title was ' + String(startup.title));
+    const webShell = authority.shellFor('web');
+    expect(webShell, 'the web hub has no shell');
+    webSidebar = surfaceOf(webShell, 'sidebar');
+    expect(webSidebar, 'the web hub has no sidebar surface');
+    await waitForApi(webSidebar, "typeof window.antifanStandalone === 'object' && typeof window.antifanStandalone.assignTerminalProject === 'function'");
+    const webToolbar = surfaceOf(webShell, 'toolbar');
+    const webChip = webToolbar
+      ? await webToolbar.executeJavaScript('document.getElementById("projectChipTitle")?.textContent || null', true)
       : null;
-    // The two names a project shell presents, captured before either is judged: the native
-    // title Main set, and the record title the entry carries. Alpha's project carries two
-    // capsule records on purpose (the transfer row needs an ambiguous destination), so both
-    // must land on the stable label rather than on either record's name.
-    observations.alphaPresentation = {
-      nativeTitle: alphaShell.window.getTitle(),
+    // The hub's own name is the multi-project surface, not one project's claim — an ambiguous
+    // capsule set (ALPHA carries two claims on purpose) cannot name a window the surface is not.
+    observations.webPresentation = {
+      nativeTitle: webShell.window.getTitle(),
       recordTitle: startup.title,
-      chip: alphaChip,
+      chip: webChip,
     };
-    const alphaRecordTitle = startup.title;
-    expect(alphaShell.window.getTitle() === alphaRecordTitle, 'the native title ' + JSON.stringify(alphaShell.window.getTitle()) + ' differs from the record title ' + JSON.stringify(alphaRecordTitle));
-    expect(alphaShell.window.getTitle().includes(ALPHA.projectId), 'the ambiguous project was presented as ' + JSON.stringify(alphaShell.window.getTitle()) + ' instead of a label naming ' + ALPHA.projectId);
-    expect(alphaShell.window.getTitle() !== ALPHA.name && alphaShell.window.getTitle() !== 'Ambiguous Alpha', 'an ambiguous claim was presented as a project name: ' + JSON.stringify(alphaShell.window.getTitle()));
-    await waitForApi(alphaToolbar, 'document.getElementById("projectChipTitle")?.textContent === ' + JSON.stringify(alphaRecordTitle));
+    expect(webShell.window.getTitle() === 'AntiFan Browser', 'the hub native title was ' + JSON.stringify(webShell.window.getTitle()));
+    expect(hubHost() && hubHost().activeProject() === ALPHA.projectId, 'the hub is not showing the boot project: ' + String(hubHost() && hubHost().activeProject()));
 
-    const opened = await openProjectAndWait(alphaSidebar, BETA);
-    betaEntry = opened.entry;
-    expect(opened.result && opened.result.status === 'OPENED', 'the second project open returned ' + JSON.stringify(opened.result));
-    expect(betaEntry.ownerKey !== alphaKey, 'both windows reported the owner ' + String(betaEntry.ownerKey));
-    expect(betaEntry.owner.projectId === BETA.projectId, 'the second window owner was ' + JSON.stringify(betaEntry.owner));
-    // Exactly the two project windows under test: a third shell here would mean the boot opened
-    // something else, and every later count in this run would be measuring more than the pair.
-    expect(authority.browserShellCount() === 2, 'browserShellCount() was ' + authority.browserShellCount() + ' with two projects open');
-    const betaShell = authority.shellFor(betaEntry.ownerKey);
-    expect(betaShell, 'the second window has no shell');
-    betaSidebar = surfaceOf(betaShell, 'sidebar');
-    expect(betaSidebar, 'the second window has no sidebar surface');
-    await waitForApi(betaSidebar, "typeof window.antifanStandalone === 'object' && typeof window.antifanStandalone.listTerminals === 'function'");
-    // Beta's claim is unambiguous — exactly one record names its project — so this is the window
-    // where a capsule's own name must reach the user, in the record the window directory holds and
-    // in the native title the shell was built with.
-    observations.betaPresentation = { nativeTitle: betaShell.window.getTitle(), recordTitle: betaEntry.title };
-    expect(betaEntry.title === BETA.name, 'the second window record presented ' + JSON.stringify(betaEntry.title) + ' instead of its capsule name');
-    expect(betaShell.window.getTitle() === BETA.name, 'the second window native title was ' + JSON.stringify(betaShell.window.getTitle()) + ' instead of ' + JSON.stringify(BETA.name));
+    // Each session the hub mints is stamped with the project it was minted under — the mint
+    // owner key is the whole of per-project scope now that one window holds every project.
+    // And the hub's list is that scope, not the superset: while ALPHA is the presented
+    // project the hub shows ALPHA's rows and nothing else's.
+    alphaSession = await newTerminal(webSidebar, ALPHA.path);
+    expect(typeof alphaSession === 'string' && alphaSession.length > 0, 'the hub minted no ALPHA session: ' + JSON.stringify(alphaSession));
+    await waitForRowIn(webSidebar, alphaSession, 'the hub to list the session it minted');
+    expect(ownerKeyOf(alphaSession) === projectOwnerKey(ALPHA), 'the ALPHA session owner was ' + String(ownerKeyOf(alphaSession)));
+    const alphaScope = idsOf(await listOf(webSidebar));
 
-    // Each window mints its own terminal through its own chrome. The working directory is a real
-    // path inside this run's temp root, so no shell can spawn anywhere else.
-    alphaSession = await newTerminal(alphaSidebar, ALPHA.path);
-    betaSession = await newTerminal(betaSidebar, BETA.path);
-    expect(typeof alphaSession === 'string' && alphaSession.length > 0, 'the first window minted no session: ' + JSON.stringify(alphaSession));
-    expect(typeof betaSession === 'string' && betaSession.length > 0, 'the second window minted no session: ' + JSON.stringify(betaSession));
-    expect(alphaSession !== betaSession, 'both windows minted the same session id');
+    const betaJoin = await openProjectAndWait(webSidebar, BETA);
+    expect(betaJoin.result && betaJoin.result.status === 'FOCUSED', 'the BETA switch returned ' + JSON.stringify(betaJoin.result));
+    betaSession = await newTerminal(webSidebar, BETA.path);
+    expect(typeof betaSession === 'string' && betaSession.length > 0, 'the hub minted no BETA session: ' + JSON.stringify(betaSession));
+    expect(betaSession !== alphaSession, 'the hub minted the same session id twice');
+    await waitForRowIn(webSidebar, betaSession, 'the hub to list the session it minted under BETA');
+    expect(ownerKeyOf(betaSession) === projectOwnerKey(BETA), 'the BETA session owner was ' + String(ownerKeyOf(betaSession)));
 
-    await waitForRowIn(alphaSidebar, alphaSession, 'the first window to list the session it minted');
-    await waitForRowIn(betaSidebar, betaSession, 'the second window to list the session it minted');
-    const alphaRows = await listOf(alphaSidebar);
-    const betaRows = await listOf(betaSidebar);
+    // A stamp made under ALPHA does not follow the hub's active project: the whole point of
+    // recording the owner at mint time is that the switch to BETA cannot rewrite it. What the
+    // switch DOES change is which scope the hub renders — ALPHA's row leaves the presented
+    // view the moment the hub stops presenting ALPHA, which is the same isolation the retired
+    // per-project windows gave by construction.
+    expect(ownerKeyOf(alphaSession) === projectOwnerKey(ALPHA), 'the ALPHA session moved owners when the hub switched: ' + String(ownerKeyOf(alphaSession)));
+    await waitForRowGone(webSidebar, alphaSession, 'the hub under BETA to drop the ALPHA-stamped session');
+    const betaScope = idsOf(await listOf(webSidebar));
     observations.projectScopes = {
-      alphaOwnerKey: alphaKey,
-      betaOwnerKey: betaEntry.ownerKey,
-      alpha: idsOf(alphaRows),
-      beta: idsOf(betaRows),
+      alphaOwnerKey: ownerKeyOf(alphaSession),
+      betaOwnerKey: ownerKeyOf(betaSession),
+      alpha: alphaScope,
+      beta: betaScope,
     };
-    expect(idsOf(alphaRows).includes(String(betaSession)) === false, 'the first window lists the second window session: ' + JSON.stringify(observations.projectScopes.alpha));
-    expect(idsOf(betaRows).includes(String(alphaSession)) === false, 'the second window lists the first window session: ' + JSON.stringify(observations.projectScopes.beta));
-    // The row's owner stamp, read from the manager itself: the list above is a scope decision
-    // made from this stamp, so a scope that agreed by accident would still be visible here.
-    expect(ownerKeyOf(alphaSession) === alphaKey, 'the first session owner was ' + String(ownerKeyOf(alphaSession)));
-    expect(ownerKeyOf(betaSession) === betaEntry.ownerKey, 'the second session owner was ' + String(ownerKeyOf(betaSession)));
+    expect(alphaScope.includes(String(alphaSession)), 'the hub never listed the session ALPHA minted: ' + JSON.stringify(alphaScope));
+    expect(betaScope.includes(String(betaSession)), 'the hub never listed the session BETA minted: ' + JSON.stringify(betaScope));
+    expect(betaScope.includes(String(alphaSession)) === false, 'the hub still lists the ALPHA session while presenting BETA: ' + JSON.stringify(betaScope));
   });
 
   // ------------------------------------ (2) the shared manager window and its superset view
@@ -546,7 +552,7 @@ async function run() {
       'the manager window the menu opened to be presented',
     );
     managerEntry = presented;
-    expect(authority.browserShellCount() === 3, 'the menu click left ' + authority.browserShellCount() + ' shells with two projects and one manager');
+    expect(authority.browserShellCount() === 2, 'the menu click left ' + authority.browserShellCount() + ' shells: the hub plus the manager');
     // A second click is the same window again: the manager is one window per process, and a
     // duplicate would split the cross-project list in two.
     const managerWindowId = managerEntry.windowId;
@@ -554,7 +560,7 @@ async function run() {
     await sleep(500);
     const reclicked = entryFor('unassigned');
     expect(reclicked && reclicked.windowId === managerWindowId, 'the second click opened window ' + String(reclicked && reclicked.windowId) + ' instead of focusing ' + String(managerWindowId));
-    expect(authority.browserShellCount() === 3, 'the second click left ' + authority.browserShellCount() + ' shells');
+    expect(authority.browserShellCount() === 2, 'the second click left ' + authority.browserShellCount() + ' shells');
     const managerShell = authority.shellFor('unassigned');
     expect(managerShell, 'the manager window has no shell');
     managerSidebar = surfaceOf(managerShell, 'sidebar');
@@ -569,18 +575,22 @@ async function run() {
       'the manager window to list both projects sessions',
     );
     observations.managerScope = { ownerKey: managerEntry.ownerKey, list: idsOf(rows) };
-    expect(idsOf(rows).includes(String(alphaSession)), 'the manager window does not list the first project session: ' + JSON.stringify(observations.managerScope.list));
-    expect(idsOf(rows).includes(String(betaSession)), 'the manager window does not list the second project session: ' + JSON.stringify(observations.managerScope.list));
+    expect(idsOf(rows).includes(String(alphaSession)), 'the manager window does not list the ALPHA session: ' + JSON.stringify(observations.managerScope.list));
+    expect(idsOf(rows).includes(String(betaSession)), 'the manager window does not list the BETA session: ' + JSON.stringify(observations.managerScope.list));
+    // The manager renders the stamps it sees; both project scopes arrive intact.
+    expect(rowFor(rows, alphaSession) && rowFor(rows, alphaSession).ownerKey === projectOwnerKey(ALPHA), 'the manager listed the ALPHA session under a foreign owner');
+    expect(rowFor(rows, betaSession) && rowFor(rows, betaSession).ownerKey === projectOwnerKey(BETA), 'the manager listed the BETA session under a foreign owner');
   });
 
-  // ------------------------- (3) a manager-minted session assigned to a capsule through IPC
+  // ------------------------- (3) a manager-minted session assigned to a project through IPC
   await check('terminal.manager-assigns-session-through-ipc', async function () {
     managerSession = await newTerminal(managerSidebar, tempRoot);
     expect(typeof managerSession === 'string' && managerSession.length > 0, 'the manager window minted no session: ' + JSON.stringify(managerSession));
     await waitForRowIn(managerSidebar, managerSession, 'the manager window to list the session it minted');
     expect(ownerKeyOf(managerSession) === 'unassigned', 'the manager session owner was ' + String(ownerKeyOf(managerSession)));
-    expect(idsOf(await listOf(alphaSidebar)).includes(String(managerSession)) === false, 'the first project window lists the unassigned session before any assignment');
-    expect(idsOf(await listOf(betaSidebar)).includes(String(managerSession)) === false, 'the second project window lists the unassigned session before any assignment');
+    // Scope is the presented project, not the superset: a session no project owns stays out of
+    // the hub's rows while it presents BETA — the unassigned row is the manager's view, alone.
+    expect(rowFor(await listOf(webSidebar), managerSession) === null, 'the hub lists a session no project owns while presenting BETA');
 
     const reply = await assignProject(managerSidebar, managerSession, BETA.projectId);
     observations.assignReply = reply;
@@ -588,34 +598,44 @@ async function run() {
     expect(reply.ok === true, 'the assign invoke refused: ' + JSON.stringify(reply));
     expect(reply.sessionId === managerSession, 'the assign answered for ' + String(reply.sessionId));
     expect(reply.capsuleId === BETA.capsuleId, 'the assign named capsule ' + String(reply.capsuleId));
-    expect(reply.ownerKey === ownerOfProject(BETA), 'the assign named owner ' + String(reply.ownerKey));
+    expect(reply.ownerKey === projectOwnerKey(BETA), 'the assign named owner ' + String(reply.ownerKey));
     // The reply is a projection; the manager's own stamp is what every later scope decision
     // reads, so it is asserted separately rather than inferred from the answer.
-    expect(ownerKeyOf(managerSession) === ownerOfProject(BETA), 'the session owner stayed ' + String(ownerKeyOf(managerSession)));
+    expect(ownerKeyOf(managerSession) === projectOwnerKey(BETA), 'the session owner stayed ' + String(ownerKeyOf(managerSession)));
     expect(capsuleOf(managerSession) === BETA.capsuleId, 'the session capsule stayed ' + String(capsuleOf(managerSession)));
+    // No per-project window exists to open: the stamp is the destination, and assigning must
+    // not conjure one.
+    expect(entryFor(projectOwnerKey(BETA)) === null, 'the assign spawned a per-project shell');
+    expect(authority.browserShellCount() === 2, 'the assign left ' + authority.browserShellCount() + ' shells');
   });
 
-  // ---------------------------------------------- (4) the scope move, both directions
-  await check('terminal.assignment-moves-session-scope', async function () {
-    await waitForRowIn(betaSidebar, managerSession, 'the target window to list the assigned session');
-    expect(idsOf(await listOf(alphaSidebar)).includes(String(managerSession)) === false, 'a project window that was never the target lists the assigned session');
-    await waitForRowIn(managerSidebar, managerSession, 'the manager window to still list the assigned session');
+  // ---------------------------------------------- (4) the scope move, driven by the renderer
+  await check('terminal.assignment-moves-session-stamp', async function () {
+    // The assigned session is now listed under its new stamp on both surfaces that can see
+    // that scope: the hub (still presenting BETA) and the manager (which sees everything).
+    await waitForRowOwner(webSidebar, managerSession, projectOwnerKey(BETA), 'the hub to list the assigned session under BETA');
+    await waitForRowOwner(managerSidebar, managerSession, projectOwnerKey(BETA), 'the manager to list the assigned session under BETA');
+    // The row the move below acts on is ALPHA's own: minted under ALPHA, still stamped for it,
+    // and listed nowhere while the hub presents BETA. Switching the hub back to ALPHA is the
+    // user's own click — it restores exactly that session, because the stamp never moved.
+    await openProjectAndWait(webSidebar, ALPHA);
+    await waitForRowIn(webSidebar, alphaSession, 'the hub back under ALPHA to list the session it minted');
 
     // Drive the shipped project renderer's context menu, not just the preload IPC:
     // a renderer-only scope gate must not hide a transfer that Main permits.
     const beforeMove = TerminalManager.getInstance().getSession(alphaSession);
     const originalPid = beforeMove.pty.pid;
     const originalCwd = beforeMove.cwd;
-    await waitForApi(alphaSidebar, "typeof showContextMenu === 'function'");
-    const menu = await alphaSidebar.executeJavaScript(
+    await waitForApi(webSidebar, "typeof showContextMenu === 'function'");
+    const menu = await webSidebar.executeJavaScript(
       '(function () { showContextMenu({ preventDefault() {}, stopPropagation() {}, clientX: 20, clientY: 20 }, ' + JSON.stringify(alphaSession) + '); const item = document.querySelector("[data-action=assign-capsule]"); const state = { disabled: item.getAttribute("aria-disabled"), title: item.title }; item.click(); return state; })()',
       true,
     );
     expect(menu.disabled === 'false', 'project terminal move is disabled: ' + menu.title);
     const targetSelector = JSON.stringify('[data-project-id=' + BETA.projectId + ']');
-    await waitForApi(alphaSidebar, 'Boolean(document.querySelector(' + targetSelector + '))');
-    const destinations = await alphaSidebar.executeJavaScript('Array.from(document.querySelectorAll("#capsulePickerPopover [data-project-id]")).map(row => ({ projectId: row.getAttribute("data-project-id"), capsuleId: row.getAttribute("data-capsule-id"), ariaDisabled: row.getAttribute("aria-disabled"), pickable: typeof row.onclick === "function" }))', true);
-    const inventory = await alphaSidebar.executeJavaScript('window.antifanStandalone.listProjects()', true);
+    await waitForApi(webSidebar, 'Boolean(document.querySelector(' + targetSelector + '))');
+    const destinations = await webSidebar.executeJavaScript('Array.from(document.querySelectorAll("#capsulePickerPopover [data-project-id]")).map(row => ({ projectId: row.getAttribute("data-project-id"), capsuleId: row.getAttribute("data-capsule-id"), ariaDisabled: row.getAttribute("aria-disabled"), pickable: typeof row.onclick === "function" }))', true);
+    const inventory = await webSidebar.executeJavaScript('window.antifanStandalone.listProjects()', true);
     expect(destinations.length === inventory.candidates.length, 'terminal destinations differ from Open Project inventory');
     expect(new Set(destinations.map(row => row.projectId)).size === destinations.length, 'duplicate project destinations');
     const betaRow = destinations.find(row => row.projectId === BETA.projectId);
@@ -626,71 +646,128 @@ async function run() {
     const alphaRow = destinations.find(row => row.projectId === ALPHA.projectId);
     expect(alphaRow.capsuleId === null, 'ambiguous claims still offered a transfer capsule');
     expect(alphaRow.ariaDisabled === 'true' && alphaRow.pickable === false, 'an ambiguous destination is offered as pickable: ' + JSON.stringify(alphaRow));
-    await alphaSidebar.executeJavaScript('document.querySelector(' + targetSelector + ').click()', true);
+    await webSidebar.executeJavaScript('document.querySelector(' + targetSelector + ').click()', true);
     // The click answers through the renderer's own notice, and reading it is what separates
     // "Main refused the move" from "the row never acted" when the ownership wait below fails.
     const transferNotice = await waitFor(
       async function () {
-        const text = await alphaSidebar.executeJavaScript('(document.getElementById("terminalNotice") || {}).textContent || null', true);
-        return text && text.indexOf('Đang mở') === -1 ? text : false;
+        const text = await webSidebar.executeJavaScript('(document.getElementById("terminalNotice") || {}).textContent || null', true);
+        // Terminal answers only: a progress notice ("Đang mở…", "Đang chuyển…") or any stale
+        // text the toast kept on screen is not the answer this click produced.
+        const terminal = typeof text === 'string' && (
+          text.indexOf('Đã chuyển') !== -1 || text.indexOf('Không chuyển được') !== -1
+          || text.indexOf('Không mở được') !== -1 || text.indexOf('Đã huỷ') !== -1
+          || text.indexOf('Không gắn được') !== -1
+        );
+        return terminal ? text : false;
       },
       'the renderer notice answering the transfer click',
     );
     observations.transferNotice = transferNotice;
-    await waitFor(function () { return ownerKeyOf(alphaSession) === ownerOfProject(BETA); }, 'project menu to transfer ownership after ' + JSON.stringify(transferNotice));
+    await waitFor(function () { return ownerKeyOf(alphaSession) === projectOwnerKey(BETA); }, 'project menu to transfer ownership after ' + JSON.stringify(transferNotice));
     const afterMove = TerminalManager.getInstance().getSession(alphaSession);
     expect(afterMove.pty.pid === originalPid, 'transfer restarted the running shell');
     expect(afterMove.cwd === originalCwd, 'transfer changed the running shell working directory');
     expect(capsuleOf(alphaSession) === BETA.capsuleId, 'transfer did not update the capsule');
-    await waitForRowIn(betaSidebar, alphaSession, 'the target window to list the moved session');
-    await waitForRowGone(alphaSidebar, alphaSession, 'the previous owner window to drop the moved session');
+    // The scope the row left and the scope it joined are the two surfaces this row is about:
+    // the move's own open-the-destination step left the hub presenting BETA, so the row is
+    // listed there first — then switching the hub back to ALPHA (the user's own click) must
+    // drop it, because the stamp it carries no longer matches the presented scope.
+    await waitForRowIn(webSidebar, alphaSession, 'the hub under BETA to list the moved session');
+    const movedTargetListed = true;
+    await openProjectAndWait(webSidebar, ALPHA);
+    await waitForRowGone(webSidebar, alphaSession, 'the hub under ALPHA to drop the moved session');
+    await waitForRowOwner(managerSidebar, alphaSession, projectOwnerKey(BETA), 'the manager to re-stamp the moved session to BETA');
     observations.moved = {
       sessionId: alphaSession,
-      previousOwnerKey: alphaKey,
-      previousOwnerListed: idsOf(await listOf(alphaSidebar)).includes(String(alphaSession)),
-      targetListed: idsOf(await listOf(betaSidebar)).includes(String(alphaSession)),
+      previousOwnerKey: projectOwnerKey(ALPHA),
+      ownerKeyAfter: ownerKeyOf(alphaSession),
+      targetListed: movedTargetListed,
+      sourceDropped: rowFor(await listOf(webSidebar), alphaSession) === null,
       managerListed: idsOf(await listOf(managerSidebar)).includes(String(alphaSession)),
     };
-    expect(observations.moved.targetListed === true, 'the target window does not list the moved session');
-    expect(observations.moved.previousOwnerListed === false, 'the window the session moved out of still lists it: ' + JSON.stringify(observations.moved));
+    expect(observations.moved.ownerKeyAfter === projectOwnerKey(BETA), 'the moved session owner was ' + String(observations.moved.ownerKeyAfter));
+    expect(observations.moved.sourceDropped === true, 'the scope the session moved out of still lists it: ' + JSON.stringify(observations.moved));
     expect(observations.moved.managerListed === true, 'the manager window stopped listing the moved session');
-    expect(ownerKeyOf(alphaSession) === ownerOfProject(BETA), 'the moved session owner was ' + String(ownerKeyOf(alphaSession)));
+    expect(entryFor(projectOwnerKey(ALPHA)) === null && entryFor(projectOwnerKey(BETA)) === null, 'a transfer spawned a per-project shell');
   });
 
-  // ------------------------- (5) a target capsule whose window is not open yet
-  await check('terminal.assign-opens-closed-target-window', async function () {
-    expect(entryFor(ownerOfProject(GAMMA)) === null, 'the third project window was already open before the row started');
+  // ------------- (5) assigning needs the surface that can show the moved row
+  await check('terminal.assign-refuses-when-manager-window-absent', async function () {
+    // The intent of the retired "closed target window" row: the move requires the one surface
+    // that can render a project's row the presented scope does not own — the Terminal Manager.
+    // With it open, the same assign simply lands: no project ever needs another window to
+    // receive a session.
     gammaSession = await newTerminal(managerSidebar, tempRoot);
-    expect(typeof gammaSession === 'string' && gammaSession.length > 0, 'the manager window minted no session for the closed target: ' + JSON.stringify(gammaSession));
+    expect(typeof gammaSession === 'string' && gammaSession.length > 0, 'the manager window minted no session for the absent target: ' + JSON.stringify(gammaSession));
+    const firstAssign = await assignProject(managerSidebar, gammaSession, GAMMA.projectId);
+    expect(firstAssign && firstAssign.ok === true, 'assigning with the manager open refused: ' + JSON.stringify(firstAssign));
+    expect(firstAssign.ownerKey === projectOwnerKey(GAMMA), 'the manager-open assign named owner ' + String(firstAssign.ownerKey));
+    expect(ownerKeyOf(gammaSession) === projectOwnerKey(GAMMA), 'the manager-open assign did not stamp ' + String(ownerKeyOf(gammaSession)));
+    expect(entryFor(projectOwnerKey(GAMMA)) === null, 'a per-project shell appeared for GAMMA');
 
-    // The route refuses a target no window owns rather than moving a session into a scope that
-    // does not exist yet: a silently dropped row would be the worst outcome here.
-    const refusal = await assignProject(managerSidebar, gammaSession, GAMMA.projectId);
-    observations.closedTarget = { refusal: refusal, openResult: {}, assignReply: {}, targetListed: false };
-    expect(refusal && typeof refusal === 'object', 'the closed-target assign answered ' + JSON.stringify(refusal));
-    expect(refusal.ok === false, 'assigning to a capsule whose window is closed was accepted: ' + JSON.stringify(refusal));
-    expect(refusal.reason === 'TARGET_WINDOW_ABSENT', 'the closed-target refusal reason was ' + String(refusal.reason));
-    expect(ownerKeyOf(gammaSession) === 'unassigned', 'a refused assignment moved the session to ' + String(ownerKeyOf(gammaSession)));
-    expect(idsOf(await listOf(managerSidebar)).includes(String(gammaSession)), 'the manager window lost the session the refusal left alone');
+    // Now the gate's own refusal: close the manager window itself. The hub stays open, so this
+    // is a shell close, never an app quit.
+    const previousManagerWindowId = managerEntry.windowId;
+    const managerWindow = authority.windowFor('unassigned');
+    expect(managerWindow && !managerWindow.isDestroyed(), 'the manager has no native window to close');
+    expect(authority.requestClose('unassigned') === true, 'the close request never reached the manager window');
+    await waitFor(
+      function () { return entryFor('unassigned') === null && authority.browserShellCount() === 1; },
+      'the manager window to close while the hub stays open',
+    );
+    expect(entryFor('web') !== null, 'the hub went away with the manager');
+    managerEntry = null;
 
-    // Then the flow the manager renderer performs: open the capsule's project window first, and
-    // assign once it is live.
-    const opened = await openProjectAndWait(managerSidebar, GAMMA);
-    observations.closedTarget.openResult = opened.result;
-    expect(opened.result && opened.result.status === 'OPENED', 'opening the third project returned ' + JSON.stringify(opened.result));
-    const gammaShell = authority.shellFor(opened.entry.ownerKey);
-    expect(gammaShell, 'the opened window has no shell');
-    gammaSidebar = surfaceOf(gammaShell, 'sidebar');
-    expect(gammaSidebar, 'the opened window has no sidebar surface');
-    await waitForApi(gammaSidebar, "typeof window.antifanStandalone === 'object' && typeof window.antifanStandalone.listTerminals === 'function'");
+    // The route refuses the move rather than moving a session into a scope no live window can
+    // render: a silently dropped row would be the worst outcome here. The sender is the hub's
+    // own sidebar — inside the manager gate, so the refusal is the missing surface, not the
+    // caller's standing.
+    refusedSession = await newTerminal(webSidebar, tempRoot);
+    expect(typeof refusedSession === 'string' && refusedSession.length > 0, 'the hub minted no session for the refusal: ' + JSON.stringify(refusedSession));
+    // The mint stamp is whatever project the hub presents at mint time — the refusal must leave
+    // exactly that stamp alone, not a hard-coded project's.
+    const mintedOwner = ownerKeyOf(refusedSession);
+    const refusal = await assignProject(webSidebar, refusedSession, GAMMA.projectId);
+    observations.closedTarget = { refusal: refusal, reopenResult: {}, assignReply: {}, targetListed: false, previousManagerWindowId: previousManagerWindowId };
+    expect(refusal && typeof refusal === 'object', 'the manager-absent assign answered ' + JSON.stringify(refusal));
+    expect(refusal.ok === false, 'assigning with no Terminal Manager was accepted: ' + JSON.stringify(refusal));
+    expect(refusal.reason === 'TARGET_WINDOW_ABSENT', 'the manager-absent refusal reason was ' + String(refusal.reason));
+    expect(ownerKeyOf(refusedSession) === mintedOwner, 'a refused assignment moved the session to ' + String(ownerKeyOf(refusedSession)));
+    expect(rowFor(await listOf(webSidebar), refusedSession) !== null, 'the hub lost the session the refusal left alone');
+    expect(entryFor(projectOwnerKey(GAMMA)) === null, 'a refused assign spawned a per-project shell');
+    try { await closeOwnedSession(refusedSession); } catch (err) { console.log('  NOTE  the refused session did not close: ' + messageOf(err)); }
+
+    // Then the flow the user performs: reopen the manager through the same menu entry that
+    // opened it — the only door that window has — and assign once the surface is live.
+    const reopenMenuItem = applicationMenuItem('Cửa sổ Terminal chung (Shared Terminal Manager)');
+    expect(reopenMenuItem, 'the Terminal menu has no shared-manager entry');
+    reopenMenuItem.click({}, BrowserWindow.getAllWindows()[0]);
+    const reopenedEntry = await waitFor(
+      function () { const entry = entryFor('unassigned'); return entry && entry.visible === true ? entry : false; },
+      'the menu click to reopen the manager window',
+    );
+    observations.closedTarget.reopenResult = { ownerKey: reopenedEntry.ownerKey, windowId: reopenedEntry.windowId };
+    expect(reopenedEntry.ownerKey === 'unassigned', 'the recreated surface is not the manager: ' + JSON.stringify(reopenedEntry.ownerKey));
+    expect(reopenedEntry.windowId !== previousManagerWindowId, 'the reopened manager claims the destroyed window id');
+    expect(authority.browserShellCount() === 2, 'the reopened manager left ' + authority.browserShellCount() + ' shells');
+    const reopenedShell = authority.shellFor('unassigned');
+    expect(reopenedShell, 'the recreated manager has no shell');
+    managerSidebar = surfaceOf(reopenedShell, 'sidebar');
+    managerEntry = reopenedEntry;
+    expect(managerSidebar, 'the recreated manager has no sidebar surface');
+    await waitForApi(managerSidebar, "typeof window.antifanStandalone === 'object' && typeof window.antifanStandalone.assignTerminalProject === 'function'");
 
     const accepted = await assignProject(managerSidebar, gammaSession, GAMMA.projectId);
     observations.closedTarget.assignReply = accepted;
-    expect(accepted && accepted.ok === true, 'the assign was refused after the window opened: ' + JSON.stringify(accepted));
-    expect(accepted.ownerKey === ownerOfProject(GAMMA), 'the accepted assign named owner ' + String(accepted.ownerKey));
-    await waitForRowIn(gammaSidebar, gammaSession, 'the opened window to list the assigned session');
+    expect(accepted && accepted.ok === true, 'the assign was refused after the manager reopened: ' + JSON.stringify(accepted));
+    expect(accepted.ownerKey === projectOwnerKey(GAMMA), 'the accepted assign named owner ' + String(accepted.ownerKey));
+    expect(ownerKeyOf(gammaSession) === projectOwnerKey(GAMMA), 'the assigned session owner was ' + String(ownerKeyOf(gammaSession)));
+    // The landing the refusal gate protects: under the destination's own scope the hub lists
+    // the moved row. Presenting GAMMA is the user's own project-switch click.
+    await openProjectAndWait(webSidebar, GAMMA);
+    await waitForRowIn(webSidebar, gammaSession, 'the hub under GAMMA to list the assigned session');
     observations.closedTarget.targetListed = true;
-    expect(ownerKeyOf(gammaSession) === ownerOfProject(GAMMA), 'the assigned session owner was ' + String(ownerKeyOf(gammaSession)));
 
     // The built-in capsule-less project is the durable destination itself: assigning to it
     // clears the old capsule stamp instead of inventing a workspace link. A project no capsule
@@ -717,21 +794,38 @@ async function run() {
       name: 'Tổng hợp',
       path: tempRoot,
     });
-    expect(bootOpened.result && (bootOpened.result.status === 'OPENED' || bootOpened.result.status === 'FOCUSED'), 'the capsule-less project window did not open');
+    expect(bootOpened.result && bootOpened.result.status === 'FOCUSED', 'the capsule-less project open did not join the hub: ' + JSON.stringify(bootOpened.result));
+    expect(entryFor('project:' + unmappedProjectId) === null, 'a per-project shell appeared for the capsule-less project');
     const boot = await assignProject(managerSidebar, managerSession, unmappedProjectId);
     expect(boot && boot.ok === true, 'the unmapped project refused a terminal: ' + JSON.stringify(boot));
     expect(boot.projectId === unmappedProjectId, 'the assign named project ' + String(boot.projectId));
     expect(boot.capsuleId === undefined, 'the unmapped project answered with capsule ' + String(boot.capsuleId));
     expect(ownerKeyOf(managerSession) === 'project:' + unmappedProjectId, 'the unmapped owner was ' + String(ownerKeyOf(managerSession)));
     expect(capsuleOf(managerSession) === undefined, 'the unmapped project kept capsule ' + String(capsuleOf(managerSession)));
-    // The stamp is cleared, not re-pointed, and the row lands in the destination's own window:
-    // both halves are what the user sees after the move.
-    const unmappedShell = authority.shellFor('project:' + unmappedProjectId);
-    expect(unmappedShell, 'the capsule-less project has no shell to read');
-    const unmappedSidebar = surfaceOf(unmappedShell, 'sidebar');
-    expect(unmappedSidebar, 'the capsule-less project has no sidebar surface');
-    await waitForApi(unmappedSidebar, "typeof window.antifanStandalone === 'object' && typeof window.antifanStandalone.listTerminals === 'function'");
-    await waitForRowIn(unmappedSidebar, managerSession, 'the capsule-less project window to list the session handed to it');
+    // The stamp is cleared, not re-pointed, and the row lands on the hub under the destination's
+    // own project stamp — which is the scope the hub is now presenting.
+    await waitForRowIn(webSidebar, managerSession, 'the hub under the capsule-less project to list the session handed to it');
+  }, async function () {
+    // Rows that never got past the refusal leave the manager closed; the caller-refusal rows
+    // that follow need it back, so a mid-row failure reopens it rather than leaking the close.
+    if (managerEntry === null) {
+      try {
+        // Same door the row itself uses: the installed menu entry is the only path that
+        // creates the shared manager window.
+        const menuItem = applicationMenuItem('Cửa sổ Terminal chung (Shared Terminal Manager)');
+        if (!menuItem) throw new Error('the Terminal menu has no shared-manager entry');
+        menuItem.click({}, BrowserWindow.getAllWindows()[0]);
+        const entry = await waitFor(
+          function () { const e = entryFor('unassigned'); return e && e.visible === true ? e : false; },
+          'the row-level manager restore to reopen the window',
+        );
+        const shell = authority.hostForOwner('unassigned');
+        managerSidebar = surfaceOf(shell, 'sidebar');
+        managerEntry = entry;
+      } catch (err) {
+        console.log('the row-level manager restore never reopened the window: ' + String(err));
+      }
+    }
   });
 
   // ------------------------- (6) a caller that names no window: a renderer no shell owns
@@ -855,7 +949,7 @@ async function run() {
 
   // ------------------------------------------------------- (8) orderly owned teardown
   await check('terminal.cleanup-closes-every-shell', async function () {
-    for (const sessionId of [alphaSession, betaSession, managerSession, gammaSession]) {
+    for (const sessionId of [alphaSession, betaSession, managerSession, gammaSession, refusedSession]) {
       if (!sessionId) continue;
       try { await closeOwnedSession(sessionId); } catch (err) { console.log('  NOTE  session ' + sessionId + ' did not close: ' + messageOf(err)); }
     }
@@ -885,7 +979,7 @@ async function cleanup() {
     console.log('  NOTE  the unknown-caller window survived: ' + messageOf(err));
   }
   try {
-    for (const sessionId of [alphaSession, betaSession, managerSession, gammaSession]) {
+    for (const sessionId of [alphaSession, betaSession, managerSession, gammaSession, refusedSession]) {
       if (sessionId) await closeOwnedSession(sessionId);
     }
   } catch (err) {
@@ -946,7 +1040,7 @@ app.whenReady()
   });
 `;
 
-describe('Live E2E: terminal capsule assignment across project windows', () => {
+describe('Live E2E: terminal capsule assignment across project scopes', () => {
   it('moves a session between project scopes through the real assign IPC, and refuses a window-less caller', async () => {
     const rootDir = process.cwd();
     const runnerScript = path.join(rootDir, 'scripts', 'run-electron.cjs');
@@ -1048,15 +1142,26 @@ describe('Live E2E: terminal capsule assignment across project windows', () => {
       assert.deepEqual(evidence.deferred, [...DEFERRED_ROWS], 'the deferred-row list changed without the suite following');
 
       const observed = evidence.observations;
-      // (1) two windows, two owners, two disjoint terminal sets. The driver's own row also
-      // asserts the live shell count at that moment; here the recorded owners must differ.
+      // (1) one window, two project scopes carried by `project:<id>` stamps. The driver's own
+      // row also asserts the live shell count at that moment; here the recorded owners must be
+      // the distinct per-project keys the sessions were minted under.
+      assert.equal(
+        observed.projectScopes.alphaOwnerKey,
+        'project:project-00000000-0000-4000-8000-0000000000a1',
+        'the ALPHA session was not stamped with its own project owner',
+      );
+      assert.equal(
+        observed.projectScopes.betaOwnerKey,
+        'project:project-00000000-0000-4000-8000-0000000000b2',
+        'the BETA session was not stamped with its own project owner',
+      );
       assert.notEqual(
         observed.projectScopes.alphaOwnerKey,
         observed.projectScopes.betaOwnerKey,
-        'both project windows reported the same owner key',
+        'both project sessions reported the same owner key',
       );
-      assert.ok(observed.projectScopes.alpha.length > 0, 'the first window listed no terminal of its own');
-      assert.ok(observed.projectScopes.beta.length > 0, 'the second window listed no terminal of its own');
+      assert.ok(observed.projectScopes.alpha.length > 0, 'the hub listed no terminal under the ALPHA stamp');
+      assert.ok(observed.projectScopes.beta.length > 0, 'the hub listed no terminal under the BETA stamp');
       // (2)+(3) the manager lists both projects, and the assignment answers for the target.
       assert.ok(observed.managerScope.list.length >= 2, 'the manager window did not list both projects');
       assert.equal(observed.managerScope.ownerKey, 'unassigned', 'the manager window owner key changed');
@@ -1064,18 +1169,28 @@ describe('Live E2E: terminal capsule assignment across project windows', () => {
       assert.equal(
         observed.assignReply.ownerKey,
         observed.projectScopes.betaOwnerKey,
-        'the assign answered with an owner other than the target window',
+        'the assign answered with an owner other than the target project',
       );
-      // (4) the move happened in both directions, and the manager kept the row.
-      assert.equal(observed.moved.targetListed, true, 'the target window never listed the moved session');
-      assert.equal(observed.moved.previousOwnerListed, false, 'the previous owner window still listed the moved session');
+      // (4) the move re-stamped the session: the scope it left dropped the row, the manager
+      // kept listing it.
+      assert.equal(observed.moved.ownerKeyAfter, observed.projectScopes.betaOwnerKey, 'the moved session was not re-stamped to the target project');
+      // The move's own open-the-destination step left the hub presenting BETA, so the row was
+      // listed there before the user switched the scope back.
+      assert.equal(observed.moved.targetListed, true, 'the hub never listed the moved session under the target scope');
+      assert.equal(observed.moved.sourceDropped, true, 'the scope the session moved out of still lists it');
       assert.equal(observed.moved.managerListed, true, 'the manager window stopped listing the moved session');
-      // (5) the closed target was refused first, then opened, then accepted.
-      assert.equal(observed.closedTarget.refusal.ok, false, 'the closed-target assign was accepted');
-      assert.equal(observed.closedTarget.refusal.reason, 'TARGET_WINDOW_ABSENT', 'the closed-target refusal reason changed');
-      assert.equal(observed.closedTarget.openResult.status, 'OPENED', 'the closed target window was not opened');
-      assert.equal(observed.closedTarget.assignReply.ok, true, 'the assign was refused after the target window opened');
-      assert.equal(observed.closedTarget.targetListed, true, 'the opened window never listed the assigned session');
+      // (5) assigning with no Terminal Manager is refused; recreating the manager through its
+      // menu entry makes the same assign land on the destination's scope.
+      assert.equal(observed.closedTarget.refusal.ok, false, 'the manager-absent assign was accepted');
+      assert.equal(observed.closedTarget.refusal.reason, 'TARGET_WINDOW_ABSENT', 'the manager-absent refusal reason changed');
+      assert.equal(observed.closedTarget.reopenResult.ownerKey, 'unassigned', 'the recreated surface is not the manager');
+      assert.notEqual(
+        observed.closedTarget.reopenResult.windowId,
+        observed.closedTarget.previousManagerWindowId,
+        'the reopened manager claims the destroyed window id',
+      );
+      assert.equal(observed.closedTarget.assignReply.ok, true, 'the assign was refused after the manager reopened');
+      assert.equal(observed.closedTarget.targetListed, true, 'the destination scope never listed the assigned session');
       // (6)+(7) a caller that names no window is refused, and receives no rows.
       assert.equal(observed.refusals.chrome?.refused, true, 'a renderer no live shell owns was not refused');
       assert.equal(

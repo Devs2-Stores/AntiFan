@@ -1,7 +1,7 @@
 /**
  * AntiFan Browser Desktop — Project Window Manager
  *
- * Maps a stable window owner (project or Unassigned) to exactly one live
+ * Maps a stable window owner (a project, the web hub or Unassigned) to exactly one live
  * ProjectWindowShell.
  *
  * It is a directory and an admission point — not a second tab authority. Tab identity, tab
@@ -201,7 +201,7 @@ export class ProjectWindowManager {
       // busy-checked, reserved or closed. Unknown membership fails the attempt instead.
       visibleMemberIds: () => {
         throw new Error(
-          `the project window directory does not track the pages of ${key}; ` +
+          `the window directory does not track the pages of ${key}; ` +
             'read them from the hosting tab authority at the close wiring',
         );
       },

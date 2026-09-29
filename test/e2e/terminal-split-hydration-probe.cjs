@@ -366,7 +366,11 @@ app.whenReady().then(async () => {
       telemetry.checks.remountHydrationGuard.emptyCallHydratedFromBackend &&
       telemetry.checks.sameIdEarlyReturnTrap.acceptedNewerSnapshot &&
       telemetry.checks.sameIdEarlyReturnTrap.oldMarkerReplacedCleanly &&
-      telemetry.checks.creationMisrouting.phantomObservedDuringRace &&
+      // Contract: the renderer must NEVER materialize a pooled pane for a session
+      // it does not display (handleIncomingTerminalChunk peeks, never gets). The
+      // split mount owns its own xterm; the pool entry for 'split-race-test' must
+      // not exist at any point of the race window.
+      telemetry.checks.creationMisrouting.phantomObservedDuringRace === false &&
       telemetry.checks.creationMisrouting.phantomCleanedUpByMountClean &&
       telemetry.checks.creationMisrouting.splitPaneHydratedCleanly &&
       telemetry.checks.nullChunkRetryResilience.handledWithoutTypeError &&

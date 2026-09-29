@@ -4,7 +4,7 @@
  */
 import { contextBridge, ipcRenderer } from 'electron';
 import { PROJECT_WINDOW_CHANNELS } from '../shared/contracts';
-import type { CloseRefusalNotice, ProjectOpenListResult, ProjectOpenPickerAnswerPayload, ProjectOpenPickerPush, ProjectTabActivationResult, ProjectTabSearchResult } from '../shared/contracts';
+import type { CloseRefusalNotice, ProjectAppearanceRequest, ProjectAppearanceResult, ProjectOpenListResult, ProjectOpenPickerAnswerPayload, ProjectOpenPickerPush, ProjectOpenResult, ProjectTabActivationResult, ProjectTabSearchResult } from '../shared/contracts';
 
 const CHANNELS = {
   GET_INITIAL_STATE: 'antifan:toolbar:get-initial-state',
@@ -123,12 +123,16 @@ const toolbarApi = {
   activateProjectTab: (tabId: string): Promise<ProjectTabActivationResult> =>
     ipcRenderer.invoke(PROJECT_WINDOW_CHANNELS.TABS_SEARCH_ACTIVATE, { tabId } satisfies { tabId: string }),
 
+  openProject: (projectId?: string): Promise<ProjectOpenResult> =>
+    ipcRenderer.invoke(PROJECT_WINDOW_CHANNELS.PROJECT_OPEN, { projectId }),
   // The in-window project picker. `listProjects` reads the same inventory Main's own
   // dialog is built from, `onProjectOpenPicker` is the push that asks this chrome to host
   // the modal, and the answer echoes Main's requestId back with the user's choice — the
   // only three calls the modal needs, each one channel and one payload shape.
   listProjects: (): Promise<ProjectOpenListResult> =>
     ipcRenderer.invoke(PROJECT_WINDOW_CHANNELS.PROJECT_LIST),
+  setProjectAppearance: (request: ProjectAppearanceRequest): Promise<ProjectAppearanceResult> =>
+    ipcRenderer.invoke(PROJECT_WINDOW_CHANNELS.PROJECT_SET_APPEARANCE, request),
   onProjectOpenPicker: (callback: (payload: ProjectOpenPickerPush) => void) => {
     const handler = (_event: unknown, payload: ProjectOpenPickerPush) => callback(payload);
     ipcRenderer.on(PROJECT_WINDOW_CHANNELS.PROJECT_OPEN_PICKER, handler);

@@ -111,8 +111,8 @@ const SAVE_DEBOUNCE_MS = 500;
 
 /**
  * Collision-free storage key for an owner. Callers pass the serialized owner key
- * (`project:<id>` or `unassigned`), so a project named "unassigned" cannot alias the
- * Unassigned owner and two projects can never share one record.
+ * (`project:<id>`, `web` or `unassigned`), so a project named "unassigned" cannot
+ * alias the Unassigned owner and two projects can never share one record.
  */
 export function normalizeOwnerKey(ownerKey?: string | null): string {
   const trimmed = typeof ownerKey === 'string' ? ownerKey.trim() : '';

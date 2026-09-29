@@ -117,6 +117,7 @@ export interface BrowserHostPort {
   getActiveTabId?(): string;
   getAutomationTabId?(): string | null;
   setAutomationTabId?(tabId?: string): void;
+  noteAgentTabActivity?(tabId?: string): void;
   isTabOffscreen?(tabId?: string): boolean;
   isTabEphemeral?(tabId?: string): boolean;
   /**
@@ -3734,6 +3735,22 @@ export class BrowserControlPort {
     if (!exists) {
       throw new CapabilityError('INVALID_ARGUMENT', `Tab with id '${cleanId}' not found`);
     }
+    const boundId = this.host.getAutomationTabId ? this.host.getAutomationTabId() : null;
+    if (boundId && boundId.trim() && boundId.trim() !== cleanId) {
+      const liveBoundId = this.host.resolveTargetTabId ? this.host.resolveTargetTabId(boundId) : boundId;
+      if (!liveBoundId) {
+        // Binding is stale: claiming a listed tab would be the hijack this gate
+        // exists to stop, so recovery must go through the explicit rebind path.
+        throw new CapabilityError('TARGET_STALE', `Bound tab '${boundId.trim()}' no longer exists. Rebind via anti.browser.rebind_target.`, { canRebind: true });
+      }
+      const allowed = this.host.isTabAllowed ? this.host.isTabAllowed(liveBoundId.trim(), cleanId) : false;
+      if (!allowed) {
+        throw new CapabilityError(
+          'TARGET_MISMATCH',
+          `Cannot retarget to tab "${cleanId}". This session is isolated to tab "${liveBoundId.trim()}" and its managed tabs.`,
+        );
+      }
+    }
     this.host.setAutomationTabId(cleanId);
     return { success: true, tabId: cleanId };
   }
@@ -3741,10 +3758,8 @@ export class BrowserControlPort {
     let effectiveTabId = options.tabId && typeof options.tabId === 'string' ? options.tabId.trim() : (target?.tabId ? target.tabId.trim() : '');
     if (this.host.getTabList) {
       const tabs = (this.host.getTabList() || []).filter(isTabRecord);
-      if (!effectiveTabId && tabs.length > 0 && tabs[0]?.id) {
-        effectiveTabId = tabs[0].id;
-      }
       if (!effectiveTabId) {
+        // Never default to tabs[0]: an implicit pick can name a user tab.
         throw new CapabilityError('TARGET_REQUIRED', 'Browser target tabId is required to rebind');
       }
       const matched = tabs.find(t => t.id === effectiveTabId);
@@ -3753,6 +3768,22 @@ export class BrowserControlPort {
           tabId: effectiveTabId,
           canRebind: false,
         });
+      }
+      // Rebind is the recovery path, but it may only move within tabs this
+      // session owns — same isolation rule as every other mutation.
+      const priorBoundId = this.host.getAutomationTabId ? this.host.getAutomationTabId() : null;
+      if (priorBoundId && priorBoundId.trim() && priorBoundId.trim() !== effectiveTabId) {
+        const managed = this.host.getManagedTabIds ? this.host.getManagedTabIds(priorBoundId.trim()) : null;
+        const ownedBySession = managed ? managed.has(effectiveTabId) : false;
+        const livePrior = this.host.resolveTargetTabId ? this.host.resolveTargetTabId(priorBoundId) : null;
+        const allowed = ownedBySession ||
+          (livePrior && this.host.isTabAllowed ? this.host.isTabAllowed(livePrior.trim(), effectiveTabId) : false);
+        if (!allowed) {
+          throw new CapabilityError(
+            'TARGET_MISMATCH',
+            `Cannot rebind to tab "${effectiveTabId}". This session is isolated to tab "${priorBoundId.trim()}" and its managed tabs.`,
+          );
+        }
       }
       const rawLiveDocGen = this.host.getDocumentGeneration ? this.host.getDocumentGeneration(effectiveTabId) : target?.documentGeneration;
       const liveDocGen = typeof rawLiveDocGen === 'number' && Number.isFinite(rawLiveDocGen) && rawLiveDocGen > 0
@@ -7748,12 +7779,7 @@ export class BrowserControlPort {
         if (resolved && typeof this.host.setAutomationTabId === 'function') {
           this.host.setAutomationTabId(resolved);
         }
-        // A tab created on behalf of a session belongs to that session: without
-        // adoption the listing stays empty and the session cannot even close the
-        // tab it is working in.
-        if (resolved && target?.tabId && this.host.adoptChildTab) {
-          this.host.adoptChildTab(target.tabId, resolved);
-        }
+        this.host.noteAgentTabActivity?.(resolved);
       } else {
         // Dual-Plane Runtime Isolation (fail-closed): NEVER fall back to the user's
         // active foreground tab. Ambient fallback to getActiveTabId() previously let
@@ -7803,6 +7829,7 @@ export class BrowserControlPort {
       };
       this.assertCurrent(currentTarget);
     }
+    this.host.noteAgentTabActivity?.(resolved);
     return resolved;
   }
 

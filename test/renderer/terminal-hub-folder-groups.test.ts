@@ -60,7 +60,10 @@ function groupHeaders(harness: StandaloneHarness): FakeElement[] {
 }
 
 function folderHeaders(harness: StandaloneHarness): FakeElement[] {
-  return harness.tabsRoot.querySelectorAll('.terminal-tab-category-header[data-group-kind="folder"]');
+  return [
+    ...harness.tabsRoot.querySelectorAll('.terminal-tab-category-header[data-group-kind="folder"]'),
+    ...harness.tabsRoot.querySelectorAll('.terminal-tab-category-header[data-group-kind="project"]'),
+  ];
 }
 
 describe('hub folder grouping', () => {
@@ -162,6 +165,31 @@ describe('hub folder grouping', () => {
     mint.dispatch('click');
     await flush();
     assert.deepStrictEqual(lastArgs(harness, 'newTerminalInFolder'), ['E:\\Work\\x']);
+  });
+
+  it('offers Space on a docked folder header but not in a popout: popout-mode renderers cannot invoke a sidebar-only route', async () => {
+    const row = { id: 't-1', name: 'Terminal 1', state: 'running', ownerKey: 'project:p1', folderKey: 'e:\\work\\x', folderLabel: 'x', folderPath: 'E:\\Work\\x', displayLabel: 'x · 1' };
+    const spaceButton = (harness: StandaloneHarness): FakeElement | undefined =>
+      folderHeaders(harness)[0]?.querySelectorAll('.terminal-tab-category-mint').find((el) => el.textContent === 'Space');
+
+    // Docked: the sidebar surface is the one the main-process handler admits.
+    const docked = await loadManagerSidebar();
+    docked.api.openSpace = async () => ({ ok: true });
+    seed(docked, [row], 't-1');
+    docked.renderTabs();
+    assert.ok(spaceButton(docked), 'a docked folder header carries its Space button');
+
+    // Popout: `antifan:space:open` only admits the sidebar surface, so a renderer that
+    // identifies as a popout must not paint a button guaranteed to be refused.
+    const popout = loadStandalone({ popout: true, contextMenuActions: ['assign-capsule'], initialState: MANAGER_STATE });
+    await flush();
+    popout.assign("terminalTabLayout = 'sidebar';");
+    popout.api.openSpace = async () => ({ ok: true });
+    seed(popout, [row], 't-1');
+    popout.renderTabs();
+    assert.ok(folderHeaders(popout)[0], 'the popout still paints the folder section');
+    assert.strictEqual(spaceButton(popout), undefined, 'a popout folder header omits Space');
+    assert.ok(folderHeaders(popout)[0]?.querySelector('.terminal-tab-category-mint'), 'and keeps its + terminal');
   });
 });
 

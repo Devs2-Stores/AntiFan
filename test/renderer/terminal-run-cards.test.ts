@@ -100,8 +100,8 @@ describe('Renderer run cards', () => {
   it('paints one card per pushed run inside its own tab wrap', async () => {
     const harness = await loadManager();
     seed(harness, [
-      { id: 's1', name: 'S1', state: 'running', capsuleId: 'capsule-comnieu' },
-      { id: 's2', name: 'S2', state: 'running', capsuleId: 'capsule-phukien' },
+      { id: 's1', name: 'S1', state: 'running', capsuleId: 'capsule-comnieu', ownerKey: 'project:proj-comnieu' },
+      { id: 's2', name: 'S2', state: 'running', capsuleId: 'capsule-phukien', ownerKey: 'project:proj-phukien' },
     ], 's1');
     harness.renderTabs();
 
@@ -131,7 +131,7 @@ describe('Renderer run cards', () => {
 
   it('waits state paints amber-waiting and hides the mode badge for unset', async () => {
     const harness = await loadManager();
-    seed(harness, [{ id: 's1', name: 'S1', state: 'running', capsuleId: 'capsule-comnieu' }], 's1');
+    seed(harness, [{ id: 's1', name: 'S1', state: 'running', capsuleId: 'capsule-comnieu', ownerKey: 'project:proj-comnieu' }], 's1');
     harness.renderTabs();
     harness.emitRunCardState({ runs: [runningCard({ state: 'waiting_user', mode: 'unset' })] });
 
@@ -143,7 +143,7 @@ describe('Renderer run cards', () => {
 
   it('ticks the elapsed counter locally without touching IPC', async () => {
     const harness = await loadManager();
-    seed(harness, [{ id: 's1', name: 'S1', state: 'running' }], 's1');
+    seed(harness, [{ id: 's1', name: 'S1', state: 'running', ownerKey: 'project:proj-comnieu' }], 's1');
     harness.renderTabs();
     harness.emitRunCardState({ runs: [runningCard({ runStartedAt: Date.now() - 60_500 })] });
     const elapsed = () => cardFor(harness, 's1').querySelector('.terminal-run-elapsed')?.textContent;
@@ -183,7 +183,7 @@ describe('Renderer run cards', () => {
 
   it('renders ended+stale as a compact one-line card with the kết thúc chip and no buttons', async () => {
     const harness = await loadManager();
-    seed(harness, [{ id: 's1', name: 'S1', state: 'running' }], 's1');
+    seed(harness, [{ id: 's1', name: 'S1', state: 'running', ownerKey: 'project:proj-comnieu' }], 's1');
     harness.renderTabs();
     harness.emitRunCardState({ runs: [runningCard({ state: 'ended', stale: true })] });
 
@@ -206,7 +206,7 @@ describe('Renderer run cards', () => {
   it('sends cancel through runControl and surfaces a refused reason verbatim', async () => {
     const harness = await loadManager();
     harness.api.runControl = async () => ({ ok: false, reason: 'STALE_RUN_SEQ', message: 'run moved on' });
-    seed(harness, [{ id: 's1', name: 'S1', state: 'running' }], 's1');
+    seed(harness, [{ id: 's1', name: 'S1', state: 'running', ownerKey: 'project:proj-comnieu' }], 's1');
     harness.renderTabs();
     harness.emitRunCardState({ runs: [runningCard()] });
 
@@ -225,7 +225,7 @@ describe('Renderer run cards', () => {
   it('steers through the inline row and posts runControl with the typed text', async () => {
     const harness = await loadManager();
     harness.api.runControl = async () => ({ ok: true, op: 'steer', at: Date.now() });
-    seed(harness, [{ id: 's1', name: 'S1', state: 'running' }], 's1');
+    seed(harness, [{ id: 's1', name: 'S1', state: 'running', ownerKey: 'project:proj-comnieu' }], 's1');
     harness.renderTabs();
     harness.emitRunCardState({ runs: [runningCard()] });
 
@@ -247,7 +247,7 @@ describe('Renderer run cards', () => {
 
   it('Escape closes the steer row without posting', async () => {
     const harness = await loadManager();
-    seed(harness, [{ id: 's1', name: 'S1', state: 'running' }], 's1');
+    seed(harness, [{ id: 's1', name: 'S1', state: 'running', ownerKey: 'project:proj-comnieu' }], 's1');
     harness.renderTabs();
     harness.emitRunCardState({ runs: [runningCard()] });
 
@@ -264,7 +264,7 @@ describe('Renderer run cards', () => {
 
   it('shows the change-review footer, expands files, and opens a path in VS Code', async () => {
     const harness = await loadManager();
-    seed(harness, [{ id: 's1', name: 'S1', state: 'running' }], 's1');
+    seed(harness, [{ id: 's1', name: 'S1', state: 'running', ownerKey: 'project:proj-comnieu' }], 's1');
     harness.renderTabs();
     harness.emitRunCardState({ runs: [runningCard({
       changes: { files: ['sections/header.liquid', 'assets/theme.css'], fileCount: 2, blockedCount: 1 },
@@ -287,7 +287,7 @@ describe('Renderer run cards', () => {
 
   it('omits the footer when the run changed nothing', async () => {
     const harness = await loadManager();
-    seed(harness, [{ id: 's1', name: 'S1', state: 'running' }], 's1');
+    seed(harness, [{ id: 's1', name: 'S1', state: 'running', ownerKey: 'project:proj-comnieu' }], 's1');
     harness.renderTabs();
     harness.emitRunCardState({ runs: [runningCard({ changes: { files: [], fileCount: 0, blockedCount: 0 } })] });
     assert.strictEqual(cardFor(harness, 's1').querySelector('.terminal-run-changes'), null);
@@ -295,7 +295,7 @@ describe('Renderer run cards', () => {
 
   it('clears the card when the projection drops the run', async () => {
     const harness = await loadManager();
-    seed(harness, [{ id: 's1', name: 'S1', state: 'running' }], 's1');
+    seed(harness, [{ id: 's1', name: 'S1', state: 'running', ownerKey: 'project:proj-comnieu' }], 's1');
     harness.renderTabs();
     harness.emitRunCardState({ runs: [runningCard()] });
     assert.ok(wrapFor(harness, 's1').querySelector('.terminal-run-card'));
@@ -305,7 +305,7 @@ describe('Renderer run cards', () => {
 
   it('folds the run state into a strip dot in the horizontal layout and mounts no card', async () => {
     const harness = await loadManager(MANAGER_HORIZONTAL_STATE);
-    seed(harness, [{ id: 's1', name: 'S1', state: 'running' }], 's1');
+    seed(harness, [{ id: 's1', name: 'S1', state: 'running', ownerKey: 'project:proj-comnieu' }], 's1');
     harness.renderTabs();
     harness.emitRunCardState({ runs: [runningCard()] });
 
@@ -319,8 +319,8 @@ describe('Renderer run cards', () => {
   it('never activates or retargets the session when the card is clicked', async () => {
     const harness = await loadManager();
     seed(harness, [
-      { id: 's1', name: 'S1', state: 'running' },
-      { id: 's2', name: 'S2', state: 'running' },
+      { id: 's1', name: 'S1', state: 'running', ownerKey: 'project:proj-comnieu' },
+      { id: 's2', name: 'S2', state: 'running', ownerKey: 'project:proj-phukien' },
     ], 's1');
     harness.renderTabs();
     harness.emitRunCardState({ runs: [runningCard({ terminalSessionId: 's2' })] });
@@ -334,7 +334,7 @@ describe('Renderer run cards', () => {
 
 describe('Renderer capsule pinned brief', () => {
   function capsuleHeader(harness: StandaloneHarness, capsuleId: string): FakeElement {
-    const header = harness.tabsRoot.querySelector(`.terminal-tab-category-header[data-category="capsule:${capsuleId}"]`);
+    const header = harness.tabsRoot.querySelector(`.terminal-tab-category-header[data-capsule-id="${capsuleId}"]`);
     assert.ok(header, `expected a capsule group header for ${capsuleId}`);
     return header;
   }
@@ -350,7 +350,7 @@ describe('Renderer capsule pinned brief', () => {
       brief: options.brief ?? null,
     });
     harness.api.capsuleSetBrief = async () => options.setReply ?? { ok: true, capsuleId: 'capsule-comnieu', brief: null };
-    seed(harness, [{ id: 's1', name: 'S1', state: 'running', capsuleId: 'capsule-comnieu' }], 's1');
+    seed(harness, [{ id: 's1', name: 'S1', state: 'running', capsuleId: 'capsule-comnieu', ownerKey: 'project:proj-comnieu' }], 's1');
     harness.renderTabs();
     const btn = capsuleHeader(harness, 'capsule-comnieu').querySelector('.terminal-tab-category-brief');
     assert.ok(btn, 'the capsule header carries the brief pin');

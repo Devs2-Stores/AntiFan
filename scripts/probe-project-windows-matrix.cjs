@@ -3044,8 +3044,13 @@ async function run() {
     expect(sessionCapsule === BETA.capsuleId, `the created terminal session's capsule provenance was '${String(sessionCapsule)}', expected '${BETA.capsuleId}'`);
 
     await sleep(400);
-    const popoutOpened = betaHostNow.togglePopoutTerminal(terminalSessionId);
+    // The one auxiliary window that exists now: the shared Terminal Manager. R7's real
+    // invariant — a detached window survives window A's close — exercises through it.
+    // `openTerminalManager` only reports that the ask reached Main, so presence is read
+    // from the directory after the settle, same as every other window.
+    betaHostNow.openTerminalManager();
     await sleep(800);
+    const popoutOpened = entryFor('unassigned') !== null;
     const auxiliariesBefore = auxiliaryWindows();
     const betaTabsBefore = [...(entryFor(betaKey)?.tabIds ?? [])];
     const betaActiveBefore = requireActiveTab(betaKey);
@@ -3098,12 +3103,15 @@ async function run() {
     expect(attachmentState(betaAgentAttachment.attachmentId).authorityRevision === attachmentBefore.authorityRevision, 'A\'s close rotated B\'s attachment authority revision');
     expect(terminalAfter.includes(terminalSessionId), `B's terminal session ${terminalSessionId} vanished when A closed (before: ${JSON.stringify(terminalBefore)})`);
     if (popoutOpened) {
-      expect(auxiliariesAfter.length >= auxiliariesBefore.length, `a detached auxiliary window vanished when A closed: before ${JSON.stringify(auxiliariesBefore)}, after ${JSON.stringify(auxiliariesAfter)}`);
+      expect(entryFor('unassigned') !== null, 'the shared Terminal Manager vanished when A closed');
+      const managerWindow = court.windowFor('unassigned');
+      expect(managerWindow && !managerWindow.isDestroyed(), 'the Terminal Manager native window was destroyed with A');
+      expect(court.hostForOwner('unassigned'), 'the Terminal Manager lost its host when A closed');
     } else {
-      // I2: popout-open failure in this environment must be BLOCKED with bucket environment, never PASS
+      // I2: manager-open failure in this environment must be BLOCKED with bucket environment, never PASS
       row.status = 'BLOCKED';
       row.bucket = 'environment';
-      row.reason = 'the terminal popout could not be opened in this environment, so the auxiliary-survival half of this row is unproven; the daemon/popout teardown half is judged in R9B/R9C';
+      row.reason = 'the shared Terminal Manager could not be opened in this environment, so the auxiliary-survival half of this row is unproven; the daemon/close teardown half is judged in R9B/R9C';
       row.observed.auxiliaryNote = row.reason;
       return;
     }

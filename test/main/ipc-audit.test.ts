@@ -383,7 +383,7 @@ describe('Webview & Extension IPC Audit Invariants', () => {
       'CmdOrCtrl+F',
       'CmdOrCtrl+Alt+B',
       'CmdOrCtrl+`',
-      'CmdOrCtrl+Shift+N',
+      'CmdOrCtrl+Shift+M',
     ];
     for (const acc of requiredAccelerators) {
       const occurrence = counts.get(acc) || 0;

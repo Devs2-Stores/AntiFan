@@ -32,6 +32,8 @@ interface AntiFanTab {
   alias?: string;
   role?: string;
   aliasColor?: string;
+  /** Web-hub scope stamp: absent means shared — the tab renders under every project. */
+  projectId?: string;
 }
 interface ThemeQaState { status: 'idle' | 'running' | 'pass' | 'fail' | 'error'; issueCount: number; reportArtifactId?: string; report?: Record<string, unknown>; error?: string; updatedAt: number; }
 interface ToolbarPhoneStatus {
@@ -52,9 +54,11 @@ interface ToolbarPhoneStatus {
  * address a tab id nobody reported.
  */
 interface ProjectWindowIdentity {
-  owner: { kind: 'project'; projectId: string } | { kind: 'unassigned' };
+  owner: { kind: 'project'; projectId: string } | { kind: 'web' } | { kind: 'unassigned' };
   title: string;
   pathLabel?: string;
+  /** The project a 'web' hub presents; the strip filters to it only when this is a definite id. */
+  activeProjectId?: string | null;
 }
 
 interface ProjectTabSearchRow {
@@ -73,6 +77,9 @@ type ProjectTabSearchResult =
 type ProjectTabActivationResult =
   | { status: 'ACTIVATED'; tabId: string }
   | { status: 'UNAVAILABLE'; tabId: string; reasonCode: string; reason: string };
+type ProjectOpenResult =
+  | { status: 'OPENED' | 'FOCUSED' | 'CANCELLED'; projectId?: string }
+  | { status: 'FAILED'; projectId?: string; reason: string };
 
 interface AntiFanToolbarApi {
   getInitialState: () => Promise<any>;
@@ -157,6 +164,18 @@ interface AntiFanToolbarApi {
   searchProjectTabs?: (query: string) => Promise<ProjectTabSearchResult>;
   /** The only path that may present another window, for one explicit user action. */
   activateProjectTab?: (tabId: string) => Promise<ProjectTabActivationResult>;
+  /**
+   * The one explicit user intention to open a project. With no id Main presents its own
+   * picker. Optional so a renderer hot-swapped ahead of its preload cannot fail at init.
+   */
+  openProject?: (projectId?: string) => Promise<ProjectOpenResult>;
+  /** The picker this chrome hosts: Main pushes a requestId, this lists candidates and answers. */
+  listProjects?: () => Promise<unknown>;
+  onProjectOpenPicker?: (callback: (payload: { requestId?: unknown }) => void) => unknown;
+  answerProjectOpenPicker?: (payload: {
+    requestId: string;
+    choice: { kind: 'project'; projectId: string } | { kind: 'folder' } | { kind: 'cancelled' };
+  }) => Promise<unknown>;
   /**
    * Reasons Main refused a close or quit, pushed for display only. The payload arrives
    * unvalidated like every other cross-process message, so it is typed `unknown` here and
@@ -1262,6 +1281,10 @@ function openThemeQaSummary() {
 }
 
 let currentTabs: AntiFanTab[] = [];
+// The web hub's presented project when Main has reported one; null renders the
+// whole strip (fail-open: an absent or retracted identity never hides tabs).
+// Set by renderProjectWindowIdentity from the identity broadcast, read by renderTabs.
+let stripProjectScope: string | null = null;
 let currentBookmarks: Array<{ id: string; title: string; url: string }> = [];
 let activeTabId: string = '';
 let isInspecting = false;
@@ -2766,7 +2789,10 @@ let lastAppliedForwardDisabled: boolean | null = null;
 let lastAppliedAgentControlled: boolean | null = null;
 
 function computeTabsSignature(tabs: AntiFanTab[], activeId: string): string {
-  let sig = activeId + ':' + tabs.length;
+  // The scope itself is part of the signature: a project switch that keeps the same
+  // shared tab active would otherwise produce an identical signature and the strip
+  // would keep showing the previous project's rows.
+  let sig = `${stripProjectScope ?? ''}:${activeId}:${tabs.length}`;
   for (let i = 0; i < tabs.length; i++) {
     const t = tabs[i];
     if (!t) continue;
@@ -2822,11 +2848,28 @@ function cacheTabRefs(tabEl: HTMLElement): TabElementRefs {
   return refs;
 }
 
+/**
+ * The tabs the strip renders: the presented project's own rows plus shared
+ * (unstamped) ones when the web identity carries a definite scope, every row
+ * otherwise. renderTabs paints it and the pushState signature compares on it,
+ * so the two must read the same set — the filter lives exactly once.
+ */
+function visibleStripTabs(): AntiFanTab[] {
+  return stripProjectScope
+    ? currentTabs.filter((tab) => !tab.projectId || tab.projectId === stripProjectScope)
+    : currentTabs;
+}
+
 function renderTabs() {
   if (!tabList) return;
-  lastTabsSignature = computeTabsSignature(currentTabs, activeTabId);
+  // The web hub presents one project at a time: only its tabs plus the shared
+  // (unstamped) ones render. Filtering is a strip concern — `currentTabs` still
+  // holds the full inventory for the url/active lookups elsewhere. Fail-open:
+  // with no definite scope every tab renders.
+  const visibleTabs = visibleStripTabs();
+  lastTabsSignature = computeTabsSignature(visibleTabs, activeTabId);
 
-  const currentTabIds = new Set(currentTabs.map((t) => t.id));
+  const currentTabIds = new Set(visibleTabs.map((t) => t.id));
   
   // 1. Remove closed tabs
   Array.from(tabList.children).forEach((child) => {
@@ -2845,7 +2888,7 @@ function renderTabs() {
   }
 
   // 2. Update or insert tabs
-  currentTabs.forEach((tab, index) => {
+  visibleTabs.forEach((tab, index) => {
     // The condition below guarantees an element: every current tab is either already in
     // the map or created and appended in this iteration. The assertion keeps the type
     // the previous per-tab `querySelector(...) as HTMLElement` gave its closures.
@@ -3897,6 +3940,7 @@ phoneStatusOverlay?.addEventListener('click', (e) => {
 });
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
+  if (projectPickerOverlay?.style.display === 'flex') { answerProjectPicker({ kind: 'cancelled' }); return; }
   if (tabSearchOverlay?.style.display === 'flex') { closeTabSearch(true); return; }
   if (phoneStatusOverlay?.style.display === 'flex') { closePhoneStatusModal(); return; }
   if (tabContextMenu?.classList.contains('active')) { hideTabContextMenu(); return; }
@@ -4865,7 +4909,8 @@ async function initToolbar() {
       // is carrying no identity news and must not blank a chip that is already correct,
       // while an explicit `projectWindow: null` retracts it.
       if ('projectWindow' in s) renderProjectWindowIdentity(s.projectWindow);
-      const newTabsSig = computeTabsSignature(currentTabs, activeTabId);
+      const stripTabs = visibleStripTabs();
+      const newTabsSig = computeTabsSignature(stripTabs, activeTabId);
       if (newTabsSig !== lastTabsSignature) {
         renderTabs();
       }
@@ -5152,6 +5197,8 @@ interface CloseRefusalReasonView {
 
 interface CloseRefusalView {
   kind: 'close' | 'quit';
+  /** Optional override; Main's own notices omit it and fall back to the kind defaults. */
+  title?: string;
   summary: string;
   reasons: CloseRefusalReasonView[];
 }
@@ -5194,7 +5241,10 @@ function toCloseRefusalView(value: unknown): CloseRefusalView | null {
     const reason = toCloseRefusalReason(raw);
     if (reason) reasons.push(reason);
   }
-  return { kind: value.kind === 'quit' ? 'quit' : 'close', summary: value.summary, reasons };
+  // `title` is optional: Main's own notices omit it and get the close/quit defaults,
+  // while renderer-raised notices (e.g. a refused project open) name themselves.
+  const title = typeof value.title === 'string' && value.title.length > 0 ? value.title : undefined;
+  return { kind: value.kind === 'quit' ? 'quit' : 'close', title, summary: value.summary, reasons };
 }
 
 /**
@@ -5283,7 +5333,7 @@ function renderCloseRefusalNotice(raw: unknown): void {
   if (!closeRefusalNoticeEl || !closeRefusalSummaryEl || !closeRefusalReasonsEl) return;
   closeRefusalSummaryEl.textContent = notice.summary;
   if (closeRefusalTitleEl) {
-    closeRefusalTitleEl.textContent = notice.kind === 'quit' ? 'Không thể thoát AntiFan' : 'Không thể đóng cửa sổ này';
+    closeRefusalTitleEl.textContent = notice.title ?? (notice.kind === 'quit' ? 'Không thể thoát AntiFan' : 'Không thể đóng cửa sổ này');
   }
   closeRefusalNoticeEl.setAttribute('data-kind', notice.kind);
   clearCloseRefusalReasons();
@@ -5361,6 +5411,9 @@ function parseProjectWindowIdentity(source: unknown): ProjectWindowIdentity | nu
   let parsedOwner: ProjectWindowIdentity['owner'];
   if (owner.kind === 'project' && typeof owner.projectId === 'string' && owner.projectId) {
     parsedOwner = { kind: 'project', projectId: owner.projectId };
+  } else if (owner.kind === 'web') {
+    // The web hub presents one project at a time and is where switching happens.
+    parsedOwner = { kind: 'web' };
   } else if (owner.kind === 'unassigned') {
     parsedOwner = { kind: 'unassigned' };
   } else {
@@ -5370,6 +5423,8 @@ function parseProjectWindowIdentity(source: unknown): ProjectWindowIdentity | nu
     owner: parsedOwner,
     title: typeof source.title === 'string' ? source.title : '',
     pathLabel: typeof source.pathLabel === 'string' ? source.pathLabel : undefined,
+    // A definite non-empty string is the strip's scope; null/absent means no filter.
+    activeProjectId: typeof source.activeProjectId === 'string' && source.activeProjectId ? source.activeProjectId : null,
   };
 }
 
@@ -5378,8 +5433,15 @@ function parseProjectWindowIdentity(source: unknown): ProjectWindowIdentity | nu
  * workspace path label, which is also the chip's tooltip.
  */
 function renderProjectWindowIdentity(source: unknown) {
-  if (!projectChip || !projectChipTitle || !projectChipPath) return;
   const identity = parseProjectWindowIdentity(source);
+  // The strip scope follows the identity's own definite answer (H6): a web hub
+  // presenting a project filters to its tabs plus shared ones; a retraction or a
+  // shell that is not the hub renders everything rather than hiding tabs behind a
+  // stale scope.
+  stripProjectScope = identity && identity.owner.kind === 'web' && identity.activeProjectId
+    ? identity.activeProjectId
+    : null;
+  if (!projectChip || !projectChipTitle || !projectChipPath) return;
   if (!identity) {
     projectChip.style.display = 'none';
     projectChipTitle.textContent = '';
@@ -5389,7 +5451,7 @@ function renderProjectWindowIdentity(source: unknown) {
   }
   // A project with no resolved title still shows its stable id, and an Unassigned shell
   // shows the bucket it is in. Both come from Main's vocabulary, not from this renderer.
-  const title = identity.title || (identity.owner.kind === 'project' ? identity.owner.projectId : 'Unassigned');
+  const title = identity.title || (identity.owner.kind === 'project' ? identity.owner.projectId : identity.owner.kind === 'web' ? 'AntiFan Browser' : 'Unassigned');
   projectChip.style.display = '';
   projectChip.classList.toggle('unassigned', identity.owner.kind === 'unassigned');
   projectChipTitle.textContent = title;
@@ -5702,6 +5764,133 @@ function closeTabSearch(restoreFocus: boolean) {
 if (btnTabSearch) {
   btnTabSearch.addEventListener('click', () => { void openTabSearch(btnTabSearch); });
 }
+// The chip is the one visible door to Main's project surface: the click asks Main to
+// present its picker (no id, so the renderer never names a project itself) and the
+// answer arrives through the same `onProjectOpenPicker` modal every other entry uses.
+projectChip?.addEventListener('click', () => {
+  // The Terminal Manager shows every project at once: nothing to switch, so its chip is view-only.
+  if (projectChip.classList.contains('unassigned')) return;
+  const api = getApi();
+  const report = (detail: string) => renderCloseRefusalNotice({
+    kind: 'close',
+    title: 'Không mở được dự án',
+    summary: 'Cửa sổ mở dự án không phản hồi. Thử lại hoặc dùng menu Terminal > Mở dự án (Ctrl+Shift+O).',
+    reasons: [{ code: 'open-failed', detail, controls: [] }],
+  });
+  if (!api?.openProject) {
+    report('Preload thiếu openProject; bản build không có cửa gọi dự án.');
+    return;
+  }
+  void api.openProject().then((result) => {
+    // FAILED is a classed answer, not a thrown IPC error; both must be shown, or the
+    // chip reads as a dead button.
+    if (result && isPlainRecord(result) && result.status === 'FAILED') {
+      const reason = typeof result.reason === 'string' && result.reason.length > 0 ? result.reason : 'không rõ lý do';
+      report(`Main từ chối mở dự án: ${reason}`);
+    }
+  }).catch((err) => report(`IPC mở dự án lỗi: ${err instanceof Error ? err.message : String(err)}`));
+});
+
+// ---------------------------------------------------------------------------
+// Project picker, hosted in the toolbar. Main pushes `onProjectOpenPicker` with a requestId
+// when the chip (or the menu) asks to open a project; the answer echoes that id back.
+// Living here means the terminal sidebar stays exactly as the user left it.
+// ---------------------------------------------------------------------------
+const projectPickerOverlay = document.getElementById('projectPickerOverlay') as HTMLElement | null;
+const projectPickerList = document.getElementById('projectPickerList') as HTMLElement | null;
+const projectPickerClose = document.getElementById('projectPickerClose') as HTMLElement | null;
+const projectPickerFolder = document.getElementById('projectPickerFolder') as HTMLElement | null;
+let projectPickerRequestId: string | null = null;
+
+function answerProjectPicker(choice: { kind: 'project'; projectId: string } | { kind: 'folder' } | { kind: 'cancelled' }) {
+  const requestId = projectPickerRequestId;
+  projectPickerRequestId = null;
+  if (projectPickerOverlay) {
+    projectPickerOverlay.style.display = 'none';
+    releaseOverlay('project-picker');
+  }
+  if (projectPickerList) projectPickerList.textContent = '';
+  if (!requestId) return;
+  void Promise.resolve(getApi()?.answerProjectOpenPicker?.({ requestId, choice })).catch(() => {});
+}
+
+function renderProjectPickerRows(candidates: unknown[]) {
+  if (!projectPickerList) return;
+  projectPickerList.textContent = '';
+  projectPickerList.dataset.state = candidates.length ? 'ready' : 'empty';
+  if (!candidates.length) {
+    const empty = document.createElement('div');
+    empty.className = 'tab-search-message';
+    empty.textContent = 'Chưa có dự án nào. Dùng “Chọn thư mục…” để thêm.';
+    projectPickerList.appendChild(empty);
+    return;
+  }
+  for (const raw of candidates) {
+    if (!isPlainRecord(raw) || typeof raw.projectId !== 'string' || !raw.projectId) continue;
+    const projectId = raw.projectId;
+    const row = document.createElement('div');
+    row.className = 'tab-search-row';
+    row.setAttribute('role', 'option');
+    row.tabIndex = 0;
+    const main = document.createElement('div');
+    main.className = 'tab-search-row-main';
+    const title = document.createElement('span');
+    title.className = 'tab-search-row-title';
+    title.textContent = (typeof raw.name === 'string' && raw.name) || projectId;
+    const pathEl = document.createElement('span');
+    pathEl.className = 'tab-search-row-url';
+    pathEl.textContent = typeof raw.workspacePath === 'string' ? raw.workspacePath : '';
+    main.appendChild(title);
+    main.appendChild(pathEl);
+    row.appendChild(main);
+    if (raw.isCurrent === true) {
+      const here = document.createElement('span');
+      here.className = 'tab-search-row-project';
+      here.textContent = 'Cửa sổ này';
+      row.appendChild(here);
+    }
+    const pick = () => answerProjectPicker({ kind: 'project', projectId });
+    row.addEventListener('click', pick);
+    row.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); pick(); }
+    });
+    projectPickerList.appendChild(row);
+  }
+}
+
+async function showProjectPicker(requestId: string) {
+  if (!projectPickerOverlay) {
+    // No surface to host it: an unanswered request would hold Main until its timeout.
+    void Promise.resolve(getApi()?.answerProjectOpenPicker?.({ requestId, choice: { kind: 'cancelled' } })).catch(() => {});
+    return;
+  }
+  // A second push supersedes an unanswered one rather than stacking two modals.
+  if (projectPickerRequestId) answerProjectPicker({ kind: 'cancelled' });
+  projectPickerRequestId = requestId;
+  projectPickerOverlay.style.display = 'flex';
+  acquireOverlay('project-picker');
+  if (projectPickerList) {
+    projectPickerList.textContent = '';
+    projectPickerList.dataset.state = 'loading';
+  }
+  try {
+    const listed = await getApi()?.listProjects?.();
+    if (projectPickerRequestId !== requestId) return;
+    renderProjectPickerRows(listed && isPlainRecord(listed) && Array.isArray(listed.candidates) ? listed.candidates : []);
+    (projectPickerList?.querySelector('.tab-search-row') as HTMLElement | null)?.focus();
+  } catch {
+    if (projectPickerRequestId === requestId) renderProjectPickerRows([]);
+  }
+}
+
+getApi()?.onProjectOpenPicker?.((payload) => {
+  if (payload && typeof payload.requestId === 'string' && payload.requestId) void showProjectPicker(payload.requestId);
+});
+projectPickerClose?.addEventListener('click', () => answerProjectPicker({ kind: 'cancelled' }));
+projectPickerFolder?.addEventListener('click', () => answerProjectPicker({ kind: 'folder' }));
+projectPickerOverlay?.addEventListener('click', (event) => {
+  if (event.target === projectPickerOverlay) answerProjectPicker({ kind: 'cancelled' });
+});
 tabSearchClose?.addEventListener('click', () => closeTabSearch(true));
 tabSearchOverlay?.addEventListener('click', (event) => {
   if (event.target === tabSearchOverlay) closeTabSearch(true);

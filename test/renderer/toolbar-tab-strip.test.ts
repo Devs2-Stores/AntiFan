@@ -53,6 +53,9 @@ interface BridgeStub {
   closedTabs: string[];
 }
 
+const pickerListeners: Array<(payload: unknown) => void> = [];
+const pickerAnswers: unknown[] = [];
+
 function makeApi(initialState: Record<string, unknown>, stub: BridgeStub) {
   const noop = () => () => undefined;
   const stateSubscribers: Array<(state: unknown) => void> = [];
@@ -63,6 +66,12 @@ function makeApi(initialState: Record<string, unknown>, stub: BridgeStub) {
     getInitialState: () => Promise.resolve(initialState),
     getWorkflowState: () => Promise.resolve({ workflows: [], tools: [] }),
     searchProjectTabs: () => Promise.resolve({ status: 'OK', rows: [] }),
+    listProjects: () => Promise.resolve({
+      candidates: [{ projectId: 'p1', name: 'Tổng hợp', workspacePath: 'E:\\a', isCurrent: true }, { projectId: 'p2', name: 'Shop', workspacePath: 'E:\\b' }],
+      stored: [],
+    }),
+    onProjectOpenPicker: (callback: (payload: unknown) => void) => { pickerListeners.push(callback); return () => undefined; },
+    answerProjectOpenPicker: (payload: unknown) => { pickerAnswers.push(payload); return Promise.resolve({ status: 'ACCEPTED' }); },
     activateProjectTab: () => Promise.resolve({ status: 'ACTIVATED', tabId: '' }),
     closeTab: (tabId: string) => {
       stub.closedTabs.push(tabId);
@@ -210,5 +219,127 @@ describe('Toolbar tab strip class and element rendering', () => {
 
     assert.ok(tabErr.classList.contains('tab'));
     assert.ok(tabErr.classList.contains('tab-has-error'));
+  });
+});
+
+describe('Project chip', () => {
+  test('chip click asks Main to open a project through the bridge', async () => {
+    const calls: Array<string | undefined> = [];
+    const { win, doc } = await loadToolbarWithTabs([{ id: 't1', title: 'A', url: 'https://a/' }], 't1');
+    const api = win.antifanToolbar as Record<string, unknown>;
+    api.openProject = (projectId?: string) => {
+      calls.push(projectId);
+      return Promise.resolve({ status: 'FOCUSED', projectId: 'p1' });
+    };
+    const chip = doc.getElementById('projectChip') as HTMLElement | null;
+    assert.ok(chip, 'chip exists');
+    assert.strictEqual(chip.tagName, 'BUTTON', 'chip is a real button, not a label');
+    chip.click();
+    await flush();
+    assert.deepStrictEqual(calls, [undefined], 'openProject called once with no id — Main picks the surface');
+  });
+
+  test('a FAILED open result is surfaced, not swallowed', async () => {
+    const { win, doc } = await loadToolbarWithTabs([{ id: 't1', title: 'A', url: 'https://a/' }], 't1');
+    const api = win.antifanToolbar as Record<string, unknown>;
+    api.openProject = () => Promise.resolve({ status: 'FAILED', reason: 'PROJECT_FOLDER_INVALID' });
+    const chip = doc.getElementById('projectChip') as HTMLElement | null;
+    chip!.click();
+    await flush();
+    const notice = doc.getElementById('closeRefusalNotice') as HTMLElement | null;
+    assert.ok(notice, 'refusal notice element exists');
+    assert.strictEqual(notice.style.display, 'flex', 'notice is shown after FAILED result');
+    const title = doc.getElementById('closeRefusalTitle');
+    assert.ok(title?.textContent?.includes('dự án'), 'notice names the project open failure');
+    const reasons = doc.getElementById('closeRefusalReasons');
+    assert.ok(reasons?.textContent?.includes('PROJECT_FOLDER_INVALID'), 'failure reason is visible');
+  });
+
+  test('a rejected IPC promise is surfaced, not swallowed', async () => {
+    const { win, doc } = await loadToolbarWithTabs([{ id: 't1', title: 'A', url: 'https://a/' }], 't1');
+    const api = win.antifanToolbar as Record<string, unknown>;
+    api.openProject = () => Promise.reject(new Error('ipc dead'));
+    const chip = doc.getElementById('projectChip') as HTMLElement | null;
+    chip!.click();
+    await flush();
+    const notice = doc.getElementById('closeRefusalNotice') as HTMLElement | null;
+    assert.strictEqual(notice?.style.display, 'flex', 'notice is shown after rejected promise');
+  });
+
+  test('the picker is hosted in the toolbar and answers with the row picked', async () => {
+    pickerListeners.length = 0;
+    pickerAnswers.length = 0;
+    const { doc } = await loadToolbarWithTabs([{ id: 't1', title: 'A', url: 'https://a/' }], 't1');
+    assert.strictEqual(pickerListeners.length, 1, 'toolbar subscribes to the picker push');
+    pickerListeners[0]!({ requestId: 'pick-1' });
+    await flush(30);
+    const overlay = doc.getElementById('projectPickerOverlay') as HTMLElement;
+    assert.strictEqual(overlay.style.display, 'flex', 'picker overlay is shown by the push');
+    const rows = doc.querySelectorAll('#projectPickerList .tab-search-row');
+    assert.strictEqual(rows.length, 2);
+    (rows[1] as HTMLElement).click();
+    assert.strictEqual(JSON.stringify(pickerAnswers), JSON.stringify([{ requestId: 'pick-1', choice: { kind: 'project', projectId: 'p2' } }]));
+    assert.strictEqual(overlay.style.display, 'none', 'picker closes after the answer');
+  });
+});
+
+describe('Web hub project scope', () => {
+  const webIdentity = (activeProjectId: string | null, title = 'Tổng hợp') => ({
+    owner: { kind: 'web' },
+    title,
+    pathLabel: 'E:\\Work\\projects\\tong-hop',
+    activeProjectId,
+  });
+
+  test('only the presented project\'s tabs and shared (unstamped) tabs render', async () => {
+    const tabs = [
+      { id: 'a1', title: 'A1', url: 'https://a1/', projectId: 'p1' },
+      { id: 'b1', title: 'B1', url: 'https://b1/', projectId: 'p2' },
+      { id: 'free', title: 'Shared', url: 'https://shared/' },
+    ];
+    const { doc, stub } = await loadToolbarWithTabs(tabs, 'a1');
+    const tabList = doc.getElementById('tabList')!;
+
+    // A web hub identity scopes the strip to p1: p1's tab + the shared one.
+    stub.pushState({ tabs, activeTabId: 'a1', projectWindow: webIdentity('p1') });
+    await flush();
+    assert.deepStrictEqual(
+      Array.from(tabList.children).map((el) => el.getAttribute('data-tab-id')).sort(),
+      ['a1', 'free'],
+      'the strip shows the presented project and its shared tabs only',
+    );
+
+    // The project switch repaints the strip: b1 in, a1 out, shared stays.
+    stub.pushState({ tabs, activeTabId: 'b1', projectWindow: webIdentity('p2', 'Shop') });
+    await flush();
+    assert.deepStrictEqual(
+      Array.from(tabList.children).map((el) => el.getAttribute('data-tab-id')).sort(),
+      ['b1', 'free'],
+      'switching the presented project re-filters the strip',
+    );
+
+    // Identity without a definite project (null) fails open: every tab renders.
+    stub.pushState({ tabs, activeTabId: 'a1', projectWindow: webIdentity(null, 'AntiFan Browser') });
+    await flush();
+    assert.strictEqual(tabList.children.length, 3, 'no scope renders the whole inventory');
+  });
+
+  test('the chip title follows the presented project\'s identity', async () => {
+    const tabs = [{ id: 'a1', title: 'A1', url: 'https://a1/', projectId: 'p1' }];
+    const { doc, stub } = await loadToolbarWithTabs(tabs, 'a1');
+
+    stub.pushState({ tabs, activeTabId: 'a1', projectWindow: webIdentity('p1') });
+    await flush();
+    const chipTitle = doc.getElementById('projectChipTitle');
+    assert.ok(chipTitle, 'chip title element exists');
+    assert.strictEqual(chipTitle.textContent, 'Tổng hợp', 'chip names the presented project');
+
+    stub.pushState({ tabs, activeTabId: 'a1', projectWindow: webIdentity('p2', 'Shop') });
+    await flush();
+    assert.strictEqual(chipTitle.textContent, 'Shop', 'switching the project repaints the chip');
+
+    stub.pushState({ tabs, activeTabId: 'a1', projectWindow: webIdentity(null, 'AntiFan Browser') });
+    await flush();
+    assert.strictEqual(chipTitle.textContent, 'AntiFan Browser', 'no presented project keeps the product title');
   });
 });

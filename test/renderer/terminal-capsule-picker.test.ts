@@ -124,7 +124,7 @@ async function openPicker(options: {
   // Main reports the window it opened, and only that answer lets step two run: the default here is
   // the successful open, so a row that means to fail the open has to say so on purpose.
   harness.api.openProject = options.openProject ?? (async () => ({ status: 'OPENED' }));
-  seed(harness, options.sessions ?? [{ id: 'c1', name: 'C1', state: 'running', capsuleId: 'capsule-comnieu' }], options.active ?? 'c1');
+  seed(harness, options.sessions ?? [{ id: 'c1', name: 'C1', state: 'running', capsuleId: 'capsule-comnieu', ownerKey: 'project:proj-comnieu' }], options.active ?? 'c1');
   harness.renderTabs();
 
   harness.showContextMenu(menuEvent(), options.rightClicked);
@@ -173,8 +173,8 @@ describe('Renderer capsule picker — opening from the tab context menu', () => 
       { id: 'capsule-new', name: 'New project', workspacePath: 'E:/Work/new' },
     ] });
     seed(harness, [
-      { id: 'c1', state: 'running', capsuleId: 'capsule-comnieu' },
-      { id: 'c2', state: 'running', capsuleId: 'capsule-new' },
+      { id: 'c1', state: 'running', capsuleId: 'capsule-comnieu', ownerKey: 'project:proj-comnieu' },
+      { id: 'c2', state: 'running', capsuleId: 'capsule-new', ownerKey: 'project:proj-new' },
     ], 'c1');
     harness.renderTabs();
     harness.showContextMenu(menuEvent(), 'c1');

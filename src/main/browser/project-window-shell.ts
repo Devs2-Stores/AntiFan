@@ -46,7 +46,8 @@ export { ownerKey, type WindowOwner };
 
 /** Human label for a title bar; disambiguation with a path stays the caller's job. */
 export function ownerLabel(owner: WindowOwner): string {
-  return owner.kind === 'project' ? owner.projectId : 'Unassigned';
+  if (owner.kind === 'project') return owner.projectId;
+  return owner.kind === 'web' ? 'AntiFan Browser' : 'Unassigned';
 }
 
 /**
@@ -266,7 +267,9 @@ export class ProjectWindowShell {
     this._title = options.title;
     this.pathLabel = options.pathLabel;
     this.native = native;
-    this.isSidebarOpen = sidebar?.isOpen ?? false;
+    // The Terminal Manager is a terminals-only surface: its sidebar is the whole window and
+    // never closes, so it is born open whatever the persisted state said.
+    this.isSidebarOpen = this.isTerminalOnly() || (sidebar?.isOpen ?? false);
     this.sidebarWidth = sidebar?.width ?? 380;
 
     this.window = native.createWindow({
@@ -486,6 +489,14 @@ export class ProjectWindowShell {
   }
 
   /**
+   * The shared Terminal Manager (the `unassigned` owner) shows terminals only: no toolbar, no
+   * tab strip, no page area. Web content lives in the `web` hub; this window is its companion.
+   */
+  public isTerminalOnly(): boolean {
+    return this.owner.kind === 'unassigned';
+  }
+
+  /**
    * A view's contents while that view can still be inspected. A view whose native object is
    * gone raises on the property read itself, so `undefined` answers "this surface cannot be
    * asked anything" rather than aborting a teardown step that was only reporting on it.
@@ -535,6 +546,9 @@ export class ProjectWindowShell {
   public getContentGeometry(toolbarHeight: number): ShellContentGeometry | undefined {
     if (this.isWindowGone()) return undefined;
     const { width, height } = this.window.getContentBounds();
+    if (this.isTerminalOnly()) {
+      return { width, height, toolbarHeight: 0, availableWidth: 0, availableHeight: 0, sidebarActualWidth: width };
+    }
     const availableWidth = this.isSidebarOpen ? Math.max(400, width - this.sidebarWidth) : width;
     return {
       width,
@@ -566,7 +580,7 @@ export class ProjectWindowShell {
     }
 
     if (this.toolbarView) {
-      if (toolbarOverlay.active) {
+      if (toolbarOverlay.active && !this.isTerminalOnly()) {
         const overlayHeight = toolbarOverlay.extraHeight > 0
           ? Math.min(geometry.height, geometry.toolbarHeight + toolbarOverlay.extraHeight)
           : geometry.height;

@@ -80,6 +80,15 @@ const realSession = {
   sessionGeneration: 1,
   state: 'running',
   deliveryJournal: new SessionDeliveryJournal(),
+  // Transport bookkeeping the real SessionRecord initializes — recordSubscriberAck
+  // and the backpressure drain iterate these, so a hand-built record that omits
+  // them throws inside the ack path and stalls the lane.
+  restoredPendingPty: false,
+  pausedForBackpressure: false,
+  pendingEmitQueue: [],
+  pendingEmitBytes: 0,
+  unackedBytes: 0,
+  inFlightChunkBytes: new Map()
 };
 privates.sessions.set(sessionId, realSession);
 privates.activeSessionId = sessionId;

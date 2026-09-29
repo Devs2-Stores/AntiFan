@@ -90,7 +90,6 @@ interface ComprehensiveTestHost {
   setTabTerminalSession(tabId: string, sessionId?: string): boolean;
   resolveTabStrictWorkspace(targetSessionId?: string, tabUrl?: string): string;
   toggleSidebar(): boolean;
-  togglePopoutTerminal(sessionId?: string, options?: Record<string, unknown>): boolean;
   broadcastState(): void;
   countAttachedViews(): number;
   clearTabAgentWorking(tabId: string): void;

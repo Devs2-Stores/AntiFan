@@ -239,6 +239,8 @@ export class TabAutomationHost {
         `${actionName} requires an explicit target tabId or bound automation tab; refusing to target active foreground tab`
       );
     }
+    const stamped = this.ctx.getTabRecord(targetId);
+    if (stamped) stamped.agentActivityAt = Date.now();
     return targetId;
   }
 

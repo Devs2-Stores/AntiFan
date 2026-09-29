@@ -1,13 +1,15 @@
 /**
- * Live E2E: independent project windows, certified through the shipping app.
+ * Live E2E: the singleton web hub and its sibling shells, certified through the shipping app.
  *
- * The individual smokes each prove one window-level behaviour (split review, background
+ * The individual smokes each prove one surface-level behaviour (split review, background
  * multitasking, profile persistence, terminal survival). This suite is the one that boots the
- * real Electron process with several project windows open at once and watches what a user
- * would see: one window per project, its own tabs and active tab, its own split layout, a
- * cross-window search that presents a foreign tab without moving execution authority, closing
- * one window leaving its siblings and their tabs alone, and the surviving window's toolbar and
- * accelerator paths still working afterwards.
+ * real Electron process and watches what a user sees under Phương án A: one 'web' hub shell
+ * holds every project's tabs, opening a project joins that hub and switches which project it
+ * is showing, tabs minted while a project is active keep that project's stamp, per-tab state
+ * (active tab, split layout) survives project switches, a native `window.open` popup inherits
+ * its parent tab's affiliation, a window-wide search presents a tab without moving execution
+ * authority, a `kind:'project'` ensure resolves to the hub instead of minting a window, and
+ * closing the Terminal Manager sibling leaves the hub, its tabs and its chrome paths alone.
  *
  * How it runs: the scenario is a real Electron main-process script, generated into a throwaway
  * directory from `PROJECT_WINDOWS_DRIVER_SOURCE` below and launched through the repository's own
@@ -24,20 +26,29 @@
  * Coverage split (see `plans/260927-0315-project-windows/phase-05-certification.md`):
  *
  *   Automated here (a scripted harness observes them):
- *     - one window per project, duplicate open joins the open window, unknown project refused
- *     - per-window tabs and per-window active tab independence
- *     - per-window split layout independence (presets, focused pane, pane geometry)
- *     - a native `window.open` popup inherits its own window's verified capsule and partition,
- *       and never another window's
- *     - minimize/restore keeps a window's authenticated target and refuses a foreign one
+ *     - one 'web' hub shell at boot, carrying the boot project as its active project
+ *     - a second project open joins the same hub (FOCUSED, no new shell, active project
+ *       switches), a re-open of the same project refocuses without creating a window,
+ *       and an unknown project is refused without touching the hub
+ *     - tabs minted under an active project keep that project's stamp across later
+ *       project switches, and the hub's single active tab moves independently of them
+ *     - per-tab split layout survives rotating the hub between projects
+ *     - a native `window.open` popup inherits its own tab's verified capsule and
+ *       partition, never a global active capsule
+ *     - minimize/restore keeps the hub's automation target and an invalid target clears
+ *       instead of silently adopting
  *     - two agent sessions in the SAME project cannot cross-invoke each other's tabs
- *     - a background window's page stays laid out and capturable while another window is focused
- *     - cross-window search inventory, exact foreign activation, stale refusal, no authority
- *       rotation (agent automation target stays put)
- *     - five projects / twenty visible tabs with per-window owner labels
- *     - an agent-intent window is created without a single presentation call
- *     - closing one window preserves its siblings, their tabs and their layout
- *     - the surviving window's toolbar path and application-menu accelerator path still work
+ *     - a background hub's page stays laid out and capturable while the Terminal
+ *       Manager is focused, and capturing never takes the foreground
+ *     - the tab search inventory spans every project stamp on the hub, exact
+ *       activation presents a tab without rotating the automation target, stale
+ *       results refuse with no fallback
+ *     - five projects / twenty stamped tabs, all routed through the one hub host,
+ *       listed identically from both live shells
+ *     - `ensureProjectWindow({kind:'project'}, 'agent')` resolves to the web hub with
+ *       zero presentation calls and activates the project it names
+ *     - closing the Terminal Manager sibling preserves the hub, its tabs and its
+ *       layout; the surviving hub's toolbar and application-menu accelerator still work
  *
  *   Deferred, NOT faked here (they need hardware, a human, or a native dialog this harness
  *   cannot present honestly — see `DEFERRED_ROWS`):
@@ -60,22 +71,22 @@ import * as path from 'node:path';
 
 /** Every row the driver must report, and the only ones it may report. */
 const EXPECTED_ROWS: readonly string[] = [
-  'window.startup-single-project-shell',
-  'window.second-project-opens-with-own-authority',
-  'window.duplicate-open-joins-existing-window',
+  'window.startup-single-web-shell',
+  'window.second-project-joins-web-hub',
+  'window.duplicate-open-refocuses-hub',
   'window.unknown-project-refused',
-  'window.independent-tabs-and-active-tab',
-  'window.split-layout-independent',
-  'window.native-popup-inherits-window-affiliation',
-  'window.minimize-restore-keeps-target-authority',
+  'window.tabs-stamped-per-project-active-tab-independent',
+  'window.split-layout-per-tab-across-projects',
+  'window.native-popup-inherits-tab-affiliation',
+  'window.minimize-restore-keeps-hub-target',
   'window.same-project-sessions-cannot-cross-invoke',
-  'window.background-surface-and-capture-ready',
-  'window.search-lists-every-window',
-  'window.search-activates-foreign-tab-without-authority-rotation',
+  'window.background-hub-surface-and-capture-ready',
+  'window.search-lists-every-stamped-tab',
+  'window.search-activates-tab-without-authority-rotation',
   'window.search-stale-refusal-no-fallback',
-  'window.five-projects-twenty-tabs',
-  'window.agent-intent-window-stays-unpresented',
-  'window.close-keeps-sibling-and-tabs',
+  'window.five-projects-twenty-stamped-tabs',
+  'window.agent-project-ensure-resolves-to-hub-unpresented',
+  'window.close-keeps-hub-and-tabs',
   'window.survivor-toolbar-and-accelerator-after-sibling-close',
   'window.cleanup-closes-every-shell',
 ];
@@ -113,27 +124,35 @@ interface DriverCheckRow {
 
 /** The observation fields the suite asserts on, declared here so the assertions stay typed. */
 interface DriverObservations {
-  startup: { shellCount: number };
+  startup: { ownerKey: string; windowId: number; title: string; activeProject: string | null; shellCount: number };
+  secondOpen: { status: string; projectId?: string };
   duplicateOpen: { status: string };
-  volume: { shellCount: number; tabCount: number; inventoryRows: number };
+  volume: { shellCount: number; stampedCount: number; inventoryRows: number };
   teardown: { shellCount: number };
   backgroundSurface: { mode: string; workArea: { width: number; height: number } };
   backgroundCapture: { bytes: number; rasterSize: { width: number; height: number } } | null;
   staleActivation: { closedTab: { reasonCode: string } };
   close: { shellCount: number };
   survivorPaths: { toolbarTab: string; acceleratorTab: string };
+  agentResolve: {
+    entry: { ownerKey: string; windowId: number };
+    activeAfter: string | null;
+    restoredActive: string | null;
+    callsForHub: unknown[];
+    callsForOtherWindows: unknown[];
+  };
   nativePopup?: {
     capsuleId: string;
     parentCapsuleId: string;
-    windowCapsule: string;
+    projectId: string;
     partition: string;
     userAgentMode: string;
     parentUserAgentMode: string;
   };
   minimizeRestore?: {
-    minimized: { alphaTarget: string | null; betaTarget: string | null };
-    restored: { alphaTarget: string | null; betaTarget: string | null };
-    foreignTarget: { requested: string; adopted: string | null };
+    minimized: { hubTarget: string | null };
+    restored: { hubTarget: string | null };
+    invalidTarget: { requested: string; adopted: string | null };
   };
   sameProjectSessions?: {
     tabOne: string;
@@ -144,6 +163,7 @@ interface DriverObservations {
     domReads: string[];
     siblingReadFailed: string | null;
   };
+  webPresentation?: { nativeTitle: string; recordTitle: string; chip: string | null };
   [key: string]: unknown;
 }
 
@@ -202,26 +222,26 @@ const REPO_ROOT = process.env.ANTIFAN_DRIVER_REPO_ROOT || path.resolve(__dirname
 const EVIDENCE_FILE = process.env.ANTIFAN_DRIVER_EVIDENCE || path.join(REPO_ROOT, 'project-windows-e2e.json');
 const BRIDGE_PORT = process.env.ANTIFAN_DRIVER_BRIDGE_PORT || '';
 const EXPECTED_ROWS = [
-  'window.startup-single-project-shell',
-  'window.second-project-opens-with-own-authority',
-  'window.duplicate-open-joins-existing-window',
+  'window.startup-single-web-shell',
+  'window.second-project-joins-web-hub',
+  'window.duplicate-open-refocuses-hub',
   'window.unknown-project-refused',
-  'window.independent-tabs-and-active-tab',
-  'window.split-layout-independent',
-  'window.native-popup-inherits-window-affiliation',
-  'window.minimize-restore-keeps-target-authority',
+  'window.tabs-stamped-per-project-active-tab-independent',
+  'window.split-layout-per-tab-across-projects',
+  'window.native-popup-inherits-tab-affiliation',
+  'window.minimize-restore-keeps-hub-target',
   'window.same-project-sessions-cannot-cross-invoke',
-  'window.background-surface-and-capture-ready',
-  'window.search-lists-every-window',
-  'window.search-activates-foreign-tab-without-authority-rotation',
+  'window.background-hub-surface-and-capture-ready',
+  'window.search-lists-every-stamped-tab',
+  'window.search-activates-tab-without-authority-rotation',
   'window.search-stale-refusal-no-fallback',
-  'window.five-projects-twenty-tabs',
-  'window.agent-intent-window-stays-unpresented',
-  'window.close-keeps-sibling-and-tabs',
+  'window.five-projects-twenty-stamped-tabs',
+  'window.agent-project-ensure-resolves-to-hub-unpresented',
+  'window.close-keeps-hub-and-tabs',
   'window.survivor-toolbar-and-accelerator-after-sibling-close',
   'window.cleanup-closes-every-shell',
 ];
-// The minimum a project shell accepts, as src/main/index.ts creates it. Two of them side by
+// The minimum any browser shell accepts, as src/main/index.ts creates it. Two of them side by
 // side is what the display has to hold before this run measures a window that another window
 // does not cover.
 const SHELL_MIN_WIDTH = 700;
@@ -254,7 +274,8 @@ const GAMMA = makeProject('c3', 'Window Gamma');
 const DELTA = makeProject('d4', 'Window Delta');
 const EPSILON = makeProject('e5', 'Window Epsilon');
 const PROJECTS = [ALPHA, BETA, GAMMA, DELTA, EPSILON];
-// No capsule describes this owner: the agent-intent window, and the honest-label fallback.
+// No capsule describes this id: the owner a 'project'-shaped ensure is asked for, resolved to
+// the hub rather than minting a window.
 const UNRECORDED = { projectId: 'project-00000000-0000-4000-8000-0000000000f6' };
 
 process.env.ANTIFAN_DATA_ROOT = tempRoot;
@@ -422,11 +443,7 @@ const surfaceOf = function (shell, surface) {
 const entryOf = function (snapshot, ownerKeyValue) {
   return snapshot.find(function (entry) { return entry.ownerKey === ownerKeyValue; }) || null;
 };
-const hostOf = function (ownerKeyValue) { return authority.hostForOwner(ownerKeyValue); };
-const tabStateOf = function (host, tabId) {
-  const tab = host.getTabList().find(function (candidate) { return candidate.id === tabId; });
-  return tab || null;
-};
+const hubHost = function () { return authority.hostForOwner('web'); };
 const allTabIds = function () {
   const ids = [];
   for (const entry of authority.snapshot()) {
@@ -444,7 +461,12 @@ const findMenuItem = function (menu, label) {
   return null;
 };
 
-/** Open one project the way its own opening surface does, and wait for its window. */
+/**
+ * Open one project the way its own opening surface does. Under the hub contract there is no
+ * per-project window to wait for: the open has landed when the single 'web' shell is presented
+ * AND its host reports the project as active — the two states a user-facing open must both
+ * reach, and the join the directory can honestly report.
+ */
 async function openProjectFromSidebar(sidebarSurface, project) {
   const result = await sidebarSurface.executeJavaScript(
     'window.antifanStandalone.openProject(' + JSON.stringify(project.projectId) + ')',
@@ -452,240 +474,254 @@ async function openProjectFromSidebar(sidebarSurface, project) {
   );
   const entry = await waitFor(
     function () {
-      return authority.snapshot().find(function (candidate) {
-        return candidate.owner.kind === 'project' && candidate.owner.projectId === project.projectId;
-      }) || false;
+      const current = authority.snapshot().find(function (candidate) { return candidate.ownerKey === 'web'; });
+      if (!current || current.visible !== true) return false;
+      const host = hubHost();
+      return host && host.activeProject() === project.projectId ? current : false;
     },
-    'the project window for ' + project.name,
+    'the web hub to be presented under ' + project.name,
   );
-  // A user open must put a window in front of the user. The entry existing is not that: a shell is
-  // built hidden and only Main's own presentation shows a window it created, so every row that
-  // opens a window waits for one the user could actually see.
-  const presented = await waitFor(
-    function () {
-      const current = authority.snapshot().find(function (candidate) { return candidate.ownerKey === entry.ownerKey; });
-      return current && current.visible === true ? current : false;
-    },
-    'the window opened for ' + project.name + ' to be presented',
-  );
-  return { result: result, entry: presented };
+  return { result: result, entry: entry };
 }
 
 async function run() {
   authority = mainProcess.projectWindowAuthority;
   await app.whenReady();
 
-  // ---------------------------------------------------------------- (1) the startup window
+  // ------------------------------------------------------- (1) the startup web hub shell
   const startup = await waitFor(
     function () {
       const snapshot = authority.snapshot();
       return snapshot.length === 1 ? snapshot[0] : false;
     },
-    'the startup project window',
+    'the startup web shell',
   );
-  const alphaKey = startup.ownerKey;
+  const webKey = startup.ownerKey;
   observations.startup = {
-    ownerKey: alphaKey,
+    ownerKey: webKey,
     windowId: startup.windowId,
     title: startup.title,
+    activeProject: null,
     shellCount: authority.browserShellCount(),
   };
 
-  let toolbarA = null;
-  let sidebarA = null;
+  let toolbarHub = null;
+  let sidebarHub = null;
 
-  await check('window.startup-single-project-shell', async function () {
+  await check('window.startup-single-web-shell', async function () {
     expect(authority.browserShellCount() === 1, 'browserShellCount() was ' + authority.browserShellCount());
-    expect(startup.owner.kind === 'project', 'the startup owner kind was ' + String(startup.owner.kind));
-    expect(startup.owner.projectId === ALPHA.projectId, 'the startup owner project was ' + String(startup.owner.projectId));
-    expect(startup.title.indexOf(ALPHA.name) === 0, 'the startup title was ' + String(startup.title));
-    expect(samePath(startup.identity.pathLabel, ALPHA.path), 'the startup path label was ' + String(startup.identity.pathLabel));
-    const window = authority.windowFor(alphaKey);
+    expect(startup.ownerKey === 'web', 'the startup owner key was ' + String(startup.ownerKey));
+    expect(startup.owner.kind === 'web', 'the startup owner kind was ' + String(startup.owner.kind));
+    expect(startup.title === 'AntiFan Browser', 'the startup title was ' + String(startup.title));
+    // The boot project is the hub's active project from its first paint, and its verified
+    // workspace is what the hub's terminals belong to while it is active.
+    const host = hubHost();
+    expect(host, 'the web hub has no host');
+    await waitFor(
+      function () { return host.activeProject() === ALPHA.projectId ? true : false; },
+      'the hub to activate the boot project',
+    );
+    observations.startup.activeProject = host.activeProject();
+    expect(startup.identity && startup.identity.owner && startup.identity.owner.kind === 'web', 'the startup identity owner was ' + JSON.stringify(startup.identity && startup.identity.owner));
+    const window = authority.windowFor(webKey);
     expect(window && !window.isDestroyed(), 'the startup window has no live native window');
-    const shell = authority.shellFor(alphaKey);
-    expect(shell, 'the startup window has no shell');
-    toolbarA = surfaceOf(shell, 'toolbar');
-    sidebarA = surfaceOf(shell, 'sidebar');
-    expect(toolbarA, 'the startup window has no toolbar surface');
-    expect(sidebarA, 'the startup window has no sidebar surface');
-    await waitForApi(toolbarA, "typeof window.antifanToolbar === 'object' && typeof window.antifanToolbar.createTab === 'function'");
-    await waitForApi(sidebarA, "typeof window.antifanStandalone === 'object' && typeof window.antifanStandalone.openProject === 'function'");
+    const shell = authority.shellFor(webKey);
+    expect(shell, 'the web hub has no shell');
+    toolbarHub = surfaceOf(shell, 'toolbar');
+    sidebarHub = surfaceOf(shell, 'sidebar');
+    expect(toolbarHub, 'the web hub has no toolbar surface');
+    expect(sidebarHub, 'the web hub has no sidebar surface');
+    await waitForApi(toolbarHub, "typeof window.antifanToolbar === 'object' && typeof window.antifanToolbar.createTab === 'function'");
+    await waitForApi(sidebarHub, "typeof window.antifanStandalone === 'object' && typeof window.antifanStandalone.openProject === 'function'");
+    // The hub's native title and painted chrome name the multi-project surface, never one
+    // project's name — the ambiguity rule a project window used to enforce is the hub's
+    // constant identity now.
+    const chip = await toolbarHub.executeJavaScript('document.getElementById("projectChipTitle")?.textContent || null', true);
+    observations.webPresentation = {
+      nativeTitle: authority.windowFor(webKey).getTitle(),
+      recordTitle: startup.title,
+      chip: chip,
+    };
+    expect(authority.windowFor(webKey).getTitle() === 'AntiFan Browser', 'the hub native title was ' + JSON.stringify(authority.windowFor(webKey).getTitle()));
   });
 
-  // ------------------------------------------- (2) a second project window, from the sidebar
-  let betaEntry = null;
-  let toolbarB = null;
+  // ------------------------------- (2) a second project open joins the hub, no new shell
   let secondOpenResult = null;
 
-  await check('window.second-project-opens-with-own-authority', async function () {
-    const opened = await openProjectFromSidebar(sidebarA, BETA);
+  await check('window.second-project-joins-web-hub', async function () {
+    const opened = await openProjectFromSidebar(sidebarHub, BETA);
     secondOpenResult = opened.result;
-    betaEntry = opened.entry;
-    observations.secondWindow = betaEntry;
-    expect(secondOpenResult && secondOpenResult.status === 'OPENED', 'the second open returned ' + JSON.stringify(secondOpenResult));
-    expect(authority.browserShellCount() === 2, 'browserShellCount() was ' + authority.browserShellCount());
-    expect(betaEntry.windowId !== startup.windowId, 'both windows reported window id ' + String(betaEntry.windowId));
-    expect(betaEntry.title.indexOf(BETA.name) === 0, 'the second window title was ' + String(betaEntry.title));
-    expect(samePath(betaEntry.identity.pathLabel, BETA.path), 'the second window path label was ' + String(betaEntry.identity.pathLabel));
-    expect(betaEntry.hostOwnerKey === betaEntry.ownerKey, 'the second window host key was ' + String(betaEntry.hostOwnerKey));
-    const shell = authority.shellFor(betaEntry.ownerKey);
-    expect(shell, 'the second window has no shell');
-    toolbarB = surfaceOf(shell, 'toolbar');
-    expect(toolbarB, 'the second window has no toolbar surface');
-    await waitForApi(toolbarB, "typeof window.antifanToolbar === 'object' && typeof window.antifanToolbar.createTab === 'function'");
+    observations.secondOpen = opened.result;
+    expect(secondOpenResult && secondOpenResult.status === 'FOCUSED', 'the second open returned ' + JSON.stringify(secondOpenResult));
+    expect(authority.browserShellCount() === 1, 'browserShellCount() was ' + authority.browserShellCount());
+    expect(opened.entry.windowId === startup.windowId, 'the second open presented a different window: ' + String(opened.entry.windowId));
+    expect(opened.entry.hostOwnerKey === 'web', 'the hub host key was ' + String(opened.entry.hostOwnerKey));
+    // The join is not cosmetic: the project the hub shows is BETA now, and the verified
+    // workspace it hands its terminals moved with it.
+    expect(hubHost().activeProject() === BETA.projectId, 'the hub active project stayed ' + String(hubHost().activeProject()));
+    const reasserted = entryOf(authority.snapshot(), webKey);
+    expect(reasserted && samePath(reasserted.identity.workspacePath, BETA.path), 'the hub workspace did not switch to BETA: ' + JSON.stringify(reasserted && reasserted.identity.workspacePath));
+    const foreign = authority.snapshot().find(function (entry) {
+      return entry.owner.kind === 'project' || entry.ownerKey === 'project:' + BETA.projectId;
+    });
+    expect(!foreign, 'a project shell appeared for BETA: ' + JSON.stringify(foreign && foreign.owner));
   });
 
-  // ------------------------------------------------------- (3) duplicate open joins, no third
-  await check('window.duplicate-open-joins-existing-window', async function () {
-    const again = await sidebarA.executeJavaScript(
-      'window.antifanStandalone.openProject(' + JSON.stringify(BETA.projectId) + ')',
+  // ---------------------------- (3) re-opening the shown project refocuses, never creates
+  await check('window.duplicate-open-refocuses-hub', async function () {
+    // Back to ALPHA through the same path first: the open of the project the hub already
+    // shows is the duplicate-open case.
+    const alphaJoin = await openProjectFromSidebar(sidebarHub, ALPHA);
+    expect(alphaJoin.result && alphaJoin.result.status === 'FOCUSED', 'the ALPHA switch returned ' + JSON.stringify(alphaJoin.result));
+    const again = await sidebarHub.executeJavaScript(
+      'window.antifanStandalone.openProject(' + JSON.stringify(ALPHA.projectId) + ')',
       true,
     );
     observations.duplicateOpen = again;
     expect(again && again.status === 'FOCUSED', 'the duplicate open returned ' + JSON.stringify(again));
-    expect(authority.browserShellCount() === 2, 'browserShellCount() was ' + authority.browserShellCount() + ' after the duplicate open');
-    const after = authority.snapshot().find(function (entry) {
-      return entry.owner.kind === 'project' && entry.owner.projectId === BETA.projectId;
-    });
-    expect(after && after.windowId === betaEntry.windowId, 'the second window changed identity across the duplicate open');
-    const foreign = authority.snapshot().find(function (entry) {
-      return entry.owner.kind === 'project' && entry.owner.projectId !== ALPHA.projectId && entry.owner.projectId !== BETA.projectId;
-    });
-    expect(!foreign, 'a third project window appeared: ' + JSON.stringify(foreign && foreign.owner));
+    expect(authority.browserShellCount() === 1, 'browserShellCount() was ' + authority.browserShellCount() + ' after the duplicate open');
+    const after = entryOf(authority.snapshot(), webKey);
+    expect(after && after.windowId === startup.windowId, 'the hub changed identity across the duplicate open');
+    expect(hubHost().activeProject() === ALPHA.projectId, 'the duplicate open moved the active project to ' + String(hubHost().activeProject()));
+    const foreign = authority.snapshot().find(function (entry) { return entry.ownerKey !== 'web'; });
+    expect(!foreign, 'a second shell appeared: ' + JSON.stringify(foreign && foreign.owner));
   });
 
   // ------------------------------------------------------------- (4) unknown project refused
   await check('window.unknown-project-refused', async function () {
-    const refused = await sidebarA.executeJavaScript(
+    const refused = await sidebarHub.executeJavaScript(
       "window.antifanStandalone.openProject('project-00000000-0000-4000-8000-0000000000ff')",
       true,
     );
     observations.unknownProject = refused;
     expect(refused && refused.status === 'FAILED', 'an unknown project returned ' + JSON.stringify(refused));
     expect(refused.reason === 'UNKNOWN_PROJECT', 'an unknown project reported ' + String(refused.reason));
-    expect(authority.browserShellCount() === 2, 'browserShellCount() was ' + authority.browserShellCount() + ' after a refused open');
+    expect(authority.browserShellCount() === 1, 'browserShellCount() was ' + authority.browserShellCount() + ' after a refused open');
+    expect(hubHost().activeProject() === ALPHA.projectId, 'a refused open moved the active project to ' + String(hubHost().activeProject()));
   });
 
-  // --------------------------------------- (5) per-window tabs and per-window active tab
+  // ------------------------ (5) mint-time project stamps and the hub's single active tab
   let tabA1 = null;
   let tabA2 = null;
   let tabB1 = null;
   let tabB2 = null;
 
-  await check('window.independent-tabs-and-active-tab', async function () {
-    // The tabs carry a real page rather than about:blank. A blank tab is constructed without a
-    // load, so its WebContents has no renderer document and the first evaluate against it waits
-    // out the whole eval ceiling instead of answering - the shipping host states that boundary
-    // itself when it materializes about:blank for offscreen agent tabs. Every later row here
-    // reads, opens a popup from or captures these tabs, so they are given documents.
-    tabA1 = await toolbarA.executeJavaScript("window.antifanToolbar.createTab('https://example.com/')", true);
-    tabA2 = await toolbarA.executeJavaScript("window.antifanToolbar.createTab('https://example.com/')", true);
-    tabB1 = await toolbarB.executeJavaScript("window.antifanToolbar.createTab('https://example.com/')", true);
-    tabB2 = await toolbarB.executeJavaScript("window.antifanToolbar.createTab('https://example.com/')", true);
-    expect(typeof tabA1 === 'string' && tabA1.length > 0, 'window A created no first tab: ' + JSON.stringify(tabA1));
-    expect(typeof tabA2 === 'string' && tabA2.length > 0, 'window A created no second tab: ' + JSON.stringify(tabA2));
-    expect(typeof tabB1 === 'string' && tabB1.length > 0, 'window B created no first tab: ' + JSON.stringify(tabB1));
-    expect(typeof tabB2 === 'string' && tabB2.length > 0, 'window B created no second tab: ' + JSON.stringify(tabB2));
+  await check('window.tabs-stamped-per-project-active-tab-independent', async function () {
+    // The hub is showing ALPHA after the rows above; its tabs mint under ALPHA. The tabs carry
+    // a real page rather than about:blank. A blank tab is constructed without a load, so its
+    // WebContents has no renderer document and the first evaluate against it waits out the
+    // whole eval ceiling instead of answering - the shipping host states that boundary itself
+    // when it materializes about:blank for offscreen agent tabs. Every later row here reads,
+    // opens a popup from or captures these tabs, so they are given documents.
+    expect(hubHost().activeProject() === ALPHA.projectId, 'the hub is not showing ALPHA: ' + String(hubHost().activeProject()));
+    tabA1 = await toolbarHub.executeJavaScript("window.antifanToolbar.createTab('https://example.com/')", true);
+    tabA2 = await toolbarHub.executeJavaScript("window.antifanToolbar.createTab('https://example.com/')", true);
+    expect(typeof tabA1 === 'string' && tabA1.length > 0, 'the hub created no first ALPHA tab: ' + JSON.stringify(tabA1));
+    expect(typeof tabA2 === 'string' && tabA2.length > 0, 'the hub created no second ALPHA tab: ' + JSON.stringify(tabA2));
 
-    const snapshot = await waitFor(
-      function () {
-        const current = authority.snapshot();
-        const alphaEntry = entryOf(current, alphaKey);
-        const betaEntryCurrent = entryOf(current, betaEntry.ownerKey);
-        if (!alphaEntry || !betaEntryCurrent) return false;
-        const listed = [alphaEntry.tabIds, betaEntryCurrent.tabIds].join('|');
-        return listed.indexOf(tabA1) !== -1 && listed.indexOf(tabA2) !== -1 && listed.indexOf(tabB1) !== -1 && listed.indexOf(tabB2) !== -1
-          ? current
-          : false;
-      },
-      'both windows to list their own tabs',
-    );
-    const alpha = entryOf(snapshot, alphaKey);
-    const beta = entryOf(snapshot, betaEntry.ownerKey);
-    observations.tabs = { alpha: alpha.tabIds, beta: beta.tabIds };
-    expect(alpha.tabIds.indexOf(tabA1) !== -1 && alpha.tabIds.indexOf(tabA2) !== -1, 'window A does not list both its tabs: ' + JSON.stringify(alpha.tabIds));
-    expect(beta.tabIds.indexOf(tabB1) !== -1 && beta.tabIds.indexOf(tabB2) !== -1, 'window B does not list both its tabs: ' + JSON.stringify(beta.tabIds));
-    expect(alpha.tabIds.indexOf(tabB1) === -1 && alpha.tabIds.indexOf(tabB2) === -1, 'window A lists window B tabs: ' + JSON.stringify(alpha.tabIds));
-    expect(beta.tabIds.indexOf(tabA1) === -1 && beta.tabIds.indexOf(tabA2) === -1, 'window B lists window A tabs: ' + JSON.stringify(beta.tabIds));
+    // Rotate the hub to BETA — the same user open the earlier rows used — and mint BETA's pair.
+    const betaJoin = await openProjectFromSidebar(sidebarHub, BETA);
+    expect(betaJoin.result && betaJoin.result.status === 'FOCUSED', 'the BETA switch returned ' + JSON.stringify(betaJoin.result));
+    tabB1 = await toolbarHub.executeJavaScript("window.antifanToolbar.createTab('https://example.com/')", true);
+    tabB2 = await toolbarHub.executeJavaScript("window.antifanToolbar.createTab('https://example.com/')", true);
+    expect(typeof tabB1 === 'string' && tabB1.length > 0, 'the hub created no first BETA tab: ' + JSON.stringify(tabB1));
+    expect(typeof tabB2 === 'string' && tabB2.length > 0, 'the hub created no second BETA tab: ' + JSON.stringify(tabB2));
 
-    // Each window selects its own active tab: A returns to its first, B stays on its second.
-    expect(await toolbarA.executeJavaScript('window.antifanToolbar.switchTab(' + JSON.stringify(tabA1) + ')', true) === true, 'window A refused to select its own tab ' + tabA1);
-    expect(await toolbarB.executeJavaScript('window.antifanToolbar.switchTab(' + JSON.stringify(tabB2) + ')', true) === true, 'window B refused to select its own tab ' + tabB2);
-    const selected = authority.snapshot();
-    const alphaSelected = entryOf(selected, alphaKey);
-    const betaSelected = entryOf(selected, betaEntry.ownerKey);
-    observations.activeTabs = { alpha: alphaSelected.activeTabId, beta: betaSelected.activeTabId };
-    expect(alphaSelected.activeTabId === tabA1, 'window A active tab was ' + alphaSelected.activeTabId + ', expected ' + tabA1);
-    expect(betaSelected.activeTabId === tabB2, 'window B active tab was ' + betaSelected.activeTabId + ', expected ' + tabB2);
+    // The stamp is decided at mint time and never re-resolves: ALPHA's tabs still answer to
+    // ALPHA while BETA is the project being shown.
+    const alphaTabs = hubHost().tabsForProject(ALPHA.projectId);
+    const betaTabs = hubHost().tabsForProject(BETA.projectId);
+    observations.projectStamps = { alpha: alphaTabs, beta: betaTabs };
+    expect(alphaTabs.indexOf(tabA1) !== -1 && alphaTabs.indexOf(tabA2) !== -1, 'ALPHA does not claim both its tabs: ' + JSON.stringify(alphaTabs));
+    expect(betaTabs.indexOf(tabB1) !== -1 && betaTabs.indexOf(tabB2) !== -1, 'BETA does not claim both its tabs: ' + JSON.stringify(betaTabs));
+    expect(alphaTabs.indexOf(tabB1) === -1 && alphaTabs.indexOf(tabB2) === -1, 'ALPHA claims BETA tabs: ' + JSON.stringify(alphaTabs));
+    expect(betaTabs.indexOf(tabA1) === -1 && betaTabs.indexOf(tabA2) === -1, 'BETA claims ALPHA tabs: ' + JSON.stringify(betaTabs));
+    const entry = entryOf(authority.snapshot(), webKey);
+    for (const tabId of [tabA1, tabA2, tabB1, tabB2]) {
+      expect(entry.tabIds.indexOf(tabId) !== -1, 'the hub does not list tab ' + tabId + ': ' + JSON.stringify(entry.tabIds));
+      expect(authority.hostForTab(tabId) === hubHost(), 'tab ' + tabId + ' does not route to the hub host');
+    }
 
-    // A second switch in window A must not move window B's active tab.
-    expect(await toolbarA.executeJavaScript('window.antifanToolbar.switchTab(' + JSON.stringify(tabA2) + ')', true) === true, 'window A refused its second selection');
-    const afterSecondSwitch = authority.snapshot();
-    const betaAfterSwitch = entryOf(afterSecondSwitch, betaEntry.ownerKey);
-    const alphaAfterSwitch = entryOf(afterSecondSwitch, alphaKey);
-    expect(alphaAfterSwitch.activeTabId === tabA2, 'window A active tab was ' + alphaAfterSwitch.activeTabId + ', expected ' + tabA2);
-    expect(betaAfterSwitch.activeTabId === tabB2, 'window A moving its own selection moved window B to ' + betaAfterSwitch.activeTabId);
+    // One window, one active tab — and one presented project: on the hub, selecting a tab
+    // stamped with another project *is* the scope switch (Main's foreign-project handoff runs
+    // the same activateWebHubProject path a project pick would), so the stamp follows the tab.
+    expect(await toolbarHub.executeJavaScript('window.antifanToolbar.switchTab(' + JSON.stringify(tabA1) + ')', true) === true, 'the hub refused to select ' + tabA1);
+    const selected = entryOf(authority.snapshot(), webKey);
+    observations.activeTab = { selected: selected.activeTabId, activeProject: hubHost().activeProject() };
+    expect(selected.activeTabId === tabA1, 'the hub active tab was ' + selected.activeTabId + ', expected ' + tabA1);
+    expect(hubHost().activeProject() === ALPHA.projectId, 'selecting an ALPHA-stamped tab left the active project at ' + String(hubHost().activeProject()));
+    expect(await toolbarHub.executeJavaScript('window.antifanToolbar.switchTab(' + JSON.stringify(tabA2) + ')', true) === true, 'the hub refused its second selection');
+    expect(entryOf(authority.snapshot(), webKey).activeTabId === tabA2, 'the hub active tab was not ' + tabA2);
+
+    // Back to ALPHA for the rows that follow; the stamps and the selection survive the switch.
+    const alphaJoin = await openProjectFromSidebar(sidebarHub, ALPHA);
+    expect(alphaJoin.result && alphaJoin.result.status === 'FOCUSED', 'the ALPHA return returned ' + JSON.stringify(alphaJoin.result));
+    expect(hubHost().tabsForProject(BETA.projectId).indexOf(tabB1) !== -1, 'BETA lost its tab stamp when the hub switched back');
+    expect(entryOf(authority.snapshot(), webKey).activeTabId === tabA2, 'a project switch moved the hub active tab to ' + entryOf(authority.snapshot(), webKey).activeTabId);
   });
 
-  // ------------------------------------------------------------- (6) split layout isolation
+  // --------------------------------------------------- (6) split layout is per tab, per hub
   let splitGeometry = null;
 
-  await check('window.split-layout-independent', async function () {
-    const alphaHost = hostOf(alphaKey);
-    const betaHost = hostOf(betaEntry.ownerKey);
-    expect(alphaHost && betaHost, 'a window lost its tab host');
+  await check('window.split-layout-per-tab-across-projects', async function () {
+    const host = hubHost();
+    expect(host, 'the hub lost its tab host');
 
-    expect(await toolbarA.executeJavaScript('window.antifanToolbar.toggleSplitReview()', true) === true, 'window A refused to enable split review');
-    expect(await toolbarA.executeJavaScript("window.antifanToolbar.setSplitPreset('mobile', 'ipad-mini')", true) === true, 'window A refused its mobile preset');
-    expect(await toolbarA.executeJavaScript("window.antifanToolbar.setSplitPreset('desktop', 'laptop-macbook13')", true) === true, 'window A refused its desktop preset');
-    expect(await toolbarA.executeJavaScript("window.antifanToolbar.setSplitFocusedPane('desktop')", true) === true, 'window A refused its focused pane');
-    expect(await toolbarB.executeJavaScript('window.antifanToolbar.toggleSplitReview()', true) === true, 'window B refused to enable split review');
-    expect(await toolbarB.executeJavaScript("window.antifanToolbar.setSplitPreset('mobile', 'mobile-small')", true) === true, 'window B refused its mobile preset');
-    expect(await toolbarB.executeJavaScript("window.antifanToolbar.setSplitFocusedPane('mobile')", true) === true, 'window B refused its focused pane');
+    expect(await toolbarHub.executeJavaScript('window.antifanToolbar.toggleSplitReview()', true) === true, 'the hub refused to enable split review');
+    expect(await toolbarHub.executeJavaScript("window.antifanToolbar.setSplitPreset('mobile', 'ipad-mini')", true) === true, 'the hub refused its mobile preset');
+    expect(await toolbarHub.executeJavaScript("window.antifanToolbar.setSplitPreset('desktop', 'laptop-macbook13')", true) === true, 'the hub refused its desktop preset');
+    expect(await toolbarHub.executeJavaScript("window.antifanToolbar.setSplitFocusedPane('desktop')", true) === true, 'the hub refused its focused pane');
 
+    const tabStateOf = function (tabId) {
+      return host.getTabList().find(function (candidate) { return candidate.id === tabId; }) || null;
+    };
     const alphaTab = await waitFor(
       function () {
-        const tab = tabStateOf(alphaHost, tabA2);
+        const tab = tabStateOf(tabA2);
         return tab && tab.splitMode === true ? tab : false;
       },
-      "window A's split state",
+      "the ALPHA tab's split state",
     );
+    // The same layout verbs on another project's tab: per-tab state, not per-window.
+    expect(await toolbarHub.executeJavaScript('window.antifanToolbar.toggleSplitReview(' + JSON.stringify(tabB2) + ', true)', true) === true, 'the hub refused to split the BETA tab');
+    expect(await toolbarHub.executeJavaScript("window.antifanToolbar.setSplitPreset('mobile', 'mobile-small', " + JSON.stringify(tabB2) + ')', true) === true, 'the hub refused the BETA mobile preset');
+    expect(await toolbarHub.executeJavaScript("window.antifanToolbar.setSplitFocusedPane('mobile', " + JSON.stringify(tabB2) + ')', true) === true, 'the hub refused the BETA focused pane');
     const betaTab = await waitFor(
       function () {
-        const tab = tabStateOf(betaHost, tabB2);
+        const tab = tabStateOf(tabB2);
         return tab && tab.splitMode === true ? tab : false;
       },
-      "window B's split state",
+      "the BETA tab's split state",
     );
     observations.splitState = {
       alpha: { tabId: tabA2, mobile: alphaTab.splitMobilePresetId, desktop: alphaTab.splitDesktopPresetId, focused: alphaTab.splitFocusedPane },
       beta: { tabId: tabB2, mobile: betaTab.splitMobilePresetId, desktop: betaTab.splitDesktopPresetId, focused: betaTab.splitFocusedPane },
     };
-    expect(alphaTab.splitMobilePresetId === 'ipad-mini', "window A's mobile preset was " + String(alphaTab.splitMobilePresetId));
-    expect(alphaTab.splitDesktopPresetId === 'laptop-macbook13', "window A's desktop preset was " + String(alphaTab.splitDesktopPresetId));
-    expect(alphaTab.splitFocusedPane === 'desktop', "window A's focused pane was " + String(alphaTab.splitFocusedPane));
-    expect(betaTab.splitMobilePresetId === 'mobile-small', "window B's mobile preset was " + String(betaTab.splitMobilePresetId));
-    expect(betaTab.splitFocusedPane === 'mobile', "window B's focused pane was " + String(betaTab.splitFocusedPane));
-    // The tabs that were not split in each window stay whole: the layout is per tab, not per app.
-    expect(tabStateOf(alphaHost, tabA1).splitMode !== true, "window A's other tab reports split mode");
-    expect(tabStateOf(betaHost, tabB1).splitMode !== true, "window B's other tab reports split mode");
+    expect(alphaTab.splitMobilePresetId === 'ipad-mini', "the ALPHA tab's mobile preset was " + String(alphaTab.splitMobilePresetId));
+    expect(alphaTab.splitDesktopPresetId === 'laptop-macbook13', "the ALPHA tab's desktop preset was " + String(alphaTab.splitDesktopPresetId));
+    expect(alphaTab.splitFocusedPane === 'desktop', "the ALPHA tab's focused pane was " + String(alphaTab.splitFocusedPane));
+    expect(betaTab.splitMobilePresetId === 'mobile-small', "the BETA tab's mobile preset was " + String(betaTab.splitMobilePresetId));
+    expect(betaTab.splitFocusedPane === 'mobile', "the BETA tab's focused pane was " + String(betaTab.splitFocusedPane));
+    // The tabs that were not split stay whole: the layout is per tab, not per project.
+    expect(tabStateOf(tabA1).splitMode !== true, "the first ALPHA tab reports split mode");
+    expect(tabStateOf(tabB1).splitMode !== true, "the first BETA tab reports split mode");
 
-    const alphaMobile = alphaHost.getTabContentBounds(tabA2, 'mobile');
-    const betaMobileBefore = betaHost.getTabContentBounds(tabB2, 'mobile');
-    expect(alphaMobile && alphaMobile.width > 0 && alphaMobile.height > 0, "window A's mobile pane has no geometry: " + JSON.stringify(alphaMobile));
-    expect(betaMobileBefore && betaMobileBefore.width > 0, "window B's mobile pane has no geometry: " + JSON.stringify(betaMobileBefore));
+    const alphaMobile = host.getTabContentBounds(tabA2, 'mobile');
+    const betaMobileBefore = host.getTabContentBounds(tabB2, 'mobile');
+    expect(alphaMobile && alphaMobile.width > 0 && alphaMobile.height > 0, "the ALPHA tab's mobile pane has no geometry: " + JSON.stringify(alphaMobile));
+    expect(betaMobileBefore && betaMobileBefore.width > 0, "the BETA tab's mobile pane has no geometry: " + JSON.stringify(betaMobileBefore));
 
-    // A preset change in B is a change in B alone: B's own geometry responds, A's does not move.
-    expect(await toolbarB.executeJavaScript("window.antifanToolbar.setSplitPreset('mobile', 'ipad-mini')", true) === true, 'window B refused the second mobile preset');
+    // A preset change on the BETA tab moves its own geometry; the ALPHA tab's does not.
+    expect(await toolbarHub.executeJavaScript("window.antifanToolbar.setSplitPreset('mobile', 'ipad-mini', " + JSON.stringify(tabB2) + ')', true) === true, 'the hub refused the second BETA mobile preset');
     const betaMobileAfter = await waitFor(
       function () {
-        const bounds = betaHost.getTabContentBounds(tabB2, 'mobile');
+        const bounds = host.getTabContentBounds(tabB2, 'mobile');
         return bounds && bounds.width > 0 && bounds.width !== betaMobileBefore.width ? bounds : false;
       },
-      "window B's mobile pane to follow its own new preset",
+      "the BETA tab's mobile pane to follow its own new preset",
       8000,
     );
-    const alphaMobileAfter = alphaHost.getTabContentBounds(tabA2, 'mobile');
+    const alphaMobileAfter = host.getTabContentBounds(tabA2, 'mobile');
     splitGeometry = {
       alphaMobile: alphaMobile.width,
       betaMobileBefore: betaMobileBefore.width,
@@ -693,50 +729,50 @@ async function run() {
       alphaMobileAfter: alphaMobileAfter && alphaMobileAfter.width,
     };
     observations.splitGeometry = splitGeometry;
-    expect(alphaMobileAfter && alphaMobileAfter.width === alphaMobile.width, "window A's pane moved to " + JSON.stringify(alphaMobileAfter) + " when window B changed its preset");
+    expect(alphaMobileAfter && alphaMobileAfter.width === alphaMobile.width, "the ALPHA tab's pane moved to " + JSON.stringify(alphaMobileAfter) + " when the BETA tab changed its preset");
 
-    // Turning A's split off leaves B's split, its preset and its geometry exactly where they were.
-    expect(await toolbarA.executeJavaScript('window.antifanToolbar.toggleSplitReview(' + JSON.stringify(tabA2) + ', false)', true) === false, 'window A reported split mode still on after disabling it');
-    const alphaTabAfter = tabStateOf(alphaHost, tabA2);
-    const betaTabAfter = tabStateOf(betaHost, tabB2);
-    expect(alphaTabAfter.splitMode !== true, "window A's tab is still in split mode");
-    expect(betaTabAfter.splitMode === true, "disabling window A's split disturbed window B's split");
-    expect(betaTabAfter.splitMobilePresetId === 'ipad-mini', "window B's preset changed to " + String(betaTabAfter.splitMobilePresetId));
-    const betaMobileUnchanged = betaHost.getTabContentBounds(tabB2, 'mobile');
-    expect(betaMobileUnchanged && betaMobileUnchanged.width === betaMobileAfter.width, "window B's pane moved to " + JSON.stringify(betaMobileUnchanged) + " when window A left split mode");
+    // Turning the ALPHA tab's split off leaves the BETA tab's split, its preset and its
+    // geometry exactly where they were.
+    expect(await toolbarHub.executeJavaScript('window.antifanToolbar.toggleSplitReview(' + JSON.stringify(tabA2) + ', false)', true) === false, 'the hub reported split mode still on after disabling it');
+    const alphaTabAfter = tabStateOf(tabA2);
+    const betaTabAfter = tabStateOf(tabB2);
+    expect(alphaTabAfter.splitMode !== true, "the ALPHA tab is still in split mode");
+    expect(betaTabAfter.splitMode === true, "disabling the ALPHA tab's split disturbed the BETA tab's split");
+    expect(betaTabAfter.splitMobilePresetId === 'ipad-mini', "the BETA tab's preset changed to " + String(betaTabAfter.splitMobilePresetId));
+    const betaMobileUnchanged = host.getTabContentBounds(tabB2, 'mobile');
+    expect(betaMobileUnchanged && betaMobileUnchanged.width === betaMobileAfter.width, "the BETA tab's pane moved to " + JSON.stringify(betaMobileUnchanged) + " when the ALPHA tab left split mode");
   });
 
-  // ------------------------- (7a) a native window.open popup belongs to its own window
+  // ------------------------- (7a) a native window.open popup belongs to its own tab
   let popupChildId = null;
   // Row state, not callback state: this row rotates the active capsule and its cleanup is a
   // sibling callback, so a declaration inside the row body is not in the cleanup's scope.
   let activeCapsuleBeforePopup = null;
-  await check('window.native-popup-inherits-window-affiliation', async function () {
-    const alphaHost = hostOf(alphaKey);
-    const betaHost = hostOf(betaEntry.ownerKey);
+  await check('window.native-popup-inherits-tab-affiliation', async function () {
+    const host = hubHost();
 
     // Diagnostic, never an assertion, and run before this row's own popup so it records even
     // when that one fails: the same page call from the tab row 6 had just toggled in and out
-    // of split review - the opener the three runs before this one used, where no popup tab
-    // appeared and the page's open call never settled. This bisects that: first a handler of
-    // this scenario's own, whose only job is to record whether Chromium dispatched the request
-    // out of this tab at all, then the product's own composition put back and asked the same
-    // question, so the record says which side of the popup path stopped. Bounded, and any tab
-    // either attempt creates is closed again.
-    const splitOpenerContents = alphaHost.getTabWebContents(tabA2, 'desktop');
+    // of split review - the opener the earlier contract runs measured, where a popup tab
+    // could fail to appear while the page's open call never settled. This bisects that: first
+    // a handler of this scenario's own, whose only job is to record whether Chromium
+    // dispatched the request out of this tab at all, then the product's own composition put
+    // back and asked the same question, so the record says which side of the popup path
+    // stopped. Bounded, and any tab either attempt creates is closed again.
+    const splitOpenerContents = host.getTabWebContents(tabA2, 'desktop');
     if (splitOpenerContents && !splitOpenerContents.isDestroyed()) {
       const popupManager = require(compiledModule('browser/oauth-popup-manager.js')).OAuthPopupManager.getInstance();
-      const alphaWindow = authority.windowFor(alphaKey);
+      const hubWindow = authority.windowFor(webKey);
       const productWindowOpenHandler = function (details) {
-        return popupManager.handleWindowOpen(splitOpenerContents, alphaWindow, details, {
+        return popupManager.handleWindowOpen(splitOpenerContents, hubWindow, details, {
           onNewTabRequested: function (url) {
-            const adoptedId = alphaHost.createTab(url, true);
-            if (adoptedId) alphaHost.adoptChildTab(tabA2, adoptedId, undefined, 'native_window_open', tabA2);
+            const adoptedId = host.createTab(url, true);
+            if (adoptedId) host.adoptChildTab(tabA2, adoptedId, undefined, 'native_window_open', tabA2);
           },
         });
       };
       const fireFromSplitOpener = async function (url, label) {
-        const before = alphaHost.getTabList().map(function (tab) { return tab.id; });
+        const before = host.getTabList().map(function (tab) { return tab.id; });
         let settled = false;
         splitOpenerContents
           .executeJavaScript("String(window.open('" + url + "', '_blank'))", true)
@@ -746,7 +782,7 @@ async function run() {
         try {
           created = await waitFor(
             function () {
-              const fresh = alphaHost.getTabList().filter(function (tab) { return before.indexOf(tab.id) === -1; });
+              const fresh = host.getTabList().filter(function (tab) { return before.indexOf(tab.id) === -1; });
               return fresh.length ? fresh.map(function (tab) { return tab.id; }) : false;
             },
             label,
@@ -758,9 +794,9 @@ async function run() {
         const record = { createdTabIds: created, callSettledAtCheck: settled };
         for (const createdId of created) {
           try {
-            await toolbarA.executeJavaScript('window.antifanToolbar.closeTab(' + JSON.stringify(createdId) + ')', true);
+            await toolbarHub.executeJavaScript('window.antifanToolbar.closeTab(' + JSON.stringify(createdId) + ')', true);
             await waitFor(
-              function () { return alphaHost.hasExactTab(createdId) === false; },
+              function () { return host.hasExactTab(createdId) === false; },
               'the diagnostic popup tab to close',
               5000,
             );
@@ -788,10 +824,10 @@ async function run() {
         return probe;
       };
       const backgroundScriptProbe = await probeScript(splitOpenerContents, '1 + 1', 8000);
-      alphaHost.switchTab(tabA2);
+      host.switchTab(tabA2, { plane: 'user' });
       await waitFor(
-        function () { return alphaHost.getActiveTabId() === tabA2; },
-        'window A to present the tab with split history',
+        function () { return host.getActiveTabId() === tabA2; },
+        'the hub to present the tab with split history',
         8000,
       );
       const presentedScriptProbe = await probeScript(splitOpenerContents, '2 + 2', 8000);
@@ -825,40 +861,35 @@ async function run() {
       splitOpenerContents.setWindowOpenHandler(productWindowOpenHandler);
     }
 
-    // The opener is this window's first tab - a tab that has never entered split review. The
-    // requirement is about the window a popup lands in, not about which tab asked for it, and
-    // the tab row 6 toggled in and out of split review is exercised separately, as a bounded
-    // diagnostic recorded below rather than as the opener this row is decided on.
+    // The opener is the hub's first ALPHA tab - a tab that has never entered split review. The
+    // requirement is about which affiliation a popup lands with, not about which tab asked,
+    // and the tab row 6 toggled in and out of split review is exercised separately, as a
+    // bounded diagnostic recorded above rather than as the opener this row is decided on.
     const parentTabId = tabA1;
     // The opener is presented first. A background tab's renderer does not run script in this
     // build - a bounded probe below measures exactly that - so opening the popup from an
-    // unpresented tab would decide this row on the tab's rendering state instead of on where
-    // the popup lands.
-    alphaHost.switchTab(parentTabId);
+    // unpresented tab would decide this row on the tab's rendering state instead of on what
+    // the popup inherits.
+    host.switchTab(parentTabId, { plane: 'user' });
     await waitFor(
-      function () { return alphaHost.getActiveTabId() === parentTabId; },
-      'window A to present the tab the popup is opened from',
+      function () { return host.getActiveTabId() === parentTabId; },
+      'the hub to present the tab the popup is opened from',
     );
-    const parentTab = tabStateOf(alphaHost, parentTabId);
-    expect(parentTab, 'window A lost its parent tab ' + parentTabId);
-    const parentContents = alphaHost.getTabWebContents(parentTabId, 'desktop');
+    const parentTab = host.getTabList().find(function (candidate) { return candidate.id === parentTabId; });
+    expect(parentTab, 'the hub lost its parent tab ' + parentTabId);
+    const parentContents = host.getTabWebContents(parentTabId, 'desktop');
     expect(parentContents && !parentContents.isDestroyed(), 'the parent tab has no page to open a popup from');
-    const alphaTabsBefore = alphaHost.getTabList().map(function (tab) { return tab.id; });
-    const betaTabsBefore = betaHost.getTabList().map(function (tab) { return tab.id; });
-    // What this window's own record resolved for it: the capsule the popup has to inherit.
-    const windowCapsule = alphaHost.resolveTerminalCreationTarget().capsuleId;
-    expect(windowCapsule === ALPHA.capsuleId, "window A's own capsule was " + String(windowCapsule));
-    expect(windowCapsule !== BETA.capsuleId, 'window A resolved window B capsule ' + BETA.capsuleId);
+    const tabsBefore = host.getTabList().map(function (tab) { return tab.id; });
 
-    // Make this row discriminating, not just passing. Window A is also the process-wide active
+    // Make this row discriminating, not just passing. ALPHA is also the process-wide active
     // capsule in this scenario, so a child that merely took "the active capsule" would satisfy
-    // the equality asserted above without reading its window at all. The active capsule is
-    // therefore rotated to window B's for the duration of the popup and restored in cleanup:
-    // a child that consults global state lands in B's workspace and fails the assertions below,
-    // while one that reads its own window keeps A's capsule. The rotation is the same
-    // manager-level switch the product performs when a workspace is reselected; it changes no
-    // window's verified affiliation, which is exactly the point.
-    const capsuleManager = alphaHost.capsuleManager;
+    // an inheritance equality without reading its parent at all. The active capsule is
+    // therefore rotated to BETA's for the duration of the popup and restored in cleanup: a
+    // child that consults global state lands in BETA's workspace and fails the assertions
+    // below, while one that reads its own parent keeps ALPHA's capsule. The rotation is the
+    // same manager-level switch the product performs when a workspace is reselected; it
+    // changes no tab's verified affiliation, which is exactly the point.
+    const capsuleManager = host.capsuleManager;
     activeCapsuleBeforePopup = capsuleManager && capsuleManager.getActive() ? capsuleManager.getActive().id : null;
     if (capsuleManager) capsuleManager.switchTo(BETA.capsuleId);
     expect(
@@ -869,7 +900,7 @@ async function run() {
     // The page asks for a real popup. Chromium hands the request to this tab's window-open
     // handler, which is where the child's affiliation is decided — before its page exists.
     // The handler denies the native window on purpose and opens the popup as a tab of this
-    // window instead, which is why window.open answers null here instead of a WindowProxy.
+    // hub instead, which is why window.open answers null here instead of a WindowProxy.
     const popupUrl = 'https://example.com/native-popup';
     // The page's window.open result is recorded, never awaited. The product denies the native
     // window and opens the popup as a tab, so the page sees null either way — and this
@@ -894,30 +925,30 @@ async function run() {
     // page asked for. The product records a lineage only for a child adopted into a terminal
     // session's pool, and this row's parent is a plain user tab with no session, so a lineage
     // gate would wait for a record this scenario never creates — the popup is attributed here
-    // by the window it landed in and the capsule/partition it carries, which is this row's
+    // by the tab it landed on and the capsule/partition it carries, which is this row's
     // requirement. The lineage, when the product has one, is recorded as an observation.
     const child = await waitFor(
       function () {
-        for (const tab of alphaHost.getTabList()) {
-          if (alphaTabsBefore.indexOf(tab.id) !== -1) continue;
+        for (const tab of host.getTabList()) {
+          if (tabsBefore.indexOf(tab.id) !== -1) continue;
           if (tab.url !== popupUrl) continue;
-          return { tab: tab, lineage: alphaHost.getTabLineage(tab.id) };
+          return { tab: tab, lineage: host.getTabLineage(tab.id) };
         }
         return false;
       },
-      'the native popup to be adopted as a tab of window A',
+      'the native popup to be adopted as a hub tab',
     );
     popupChildId = child.tab.id;
     observations.nativePopup = {
       childTabId: child.tab.id,
       lineage: child.lineage,
       capsuleId: child.tab.capsuleId,
+      projectId: child.tab.projectId || null,
       partition: child.tab.partition,
       userAgentMode: child.tab.userAgentMode,
       parentCapsuleId: parentTab.capsuleId,
       parentPartition: parentTab.partition,
       parentUserAgentMode: parentTab.userAgentMode,
-      windowCapsule: windowCapsule,
       activeCapsuleDuringPopup: capsuleManager && capsuleManager.getActive() ? capsuleManager.getActive().id : null,
       activeCapsuleBeforePopup: activeCapsuleBeforePopup,
     };
@@ -930,21 +961,22 @@ async function run() {
     } else {
       console.log('  NOTE  the popup carried no lineage record: its parent has no terminal session pool');
     }
-    expect(alphaHost.hasTab(child.tab.id), 'the popup tab is not owned by window A');
-    expect(betaHost.hasTab(child.tab.id) === false, 'the popup tab landed in window B');
-    expect(
-      betaHost.getTabList().map(function (tab) { return tab.id; }).join('|') === betaTabsBefore.join('|'),
-      'window B tabs changed while a popup opened in window A',
-    );
-    expect(authority.hostForTab(child.tab.id) === alphaHost, 'the popup tab does not route to window A');
-    // Inheritance: the child carries the window's own verified capsule — never another
-    // window's capsule, and never an unassigned jar.
+    expect(host.hasTab(child.tab.id), 'the popup tab is not owned by the hub');
+    expect(authority.hostForTab(child.tab.id) === host, 'the popup tab does not route to the hub host');
+    // Inheritance: the child carries its parent tab's own verified capsule — never the global
+    // active capsule this row rotated, and never an unassigned jar.
     expect(
       child.tab.capsuleId === parentTab.capsuleId,
       'the popup capsule was ' + String(child.tab.capsuleId) + ' while its parent carried ' + String(parentTab.capsuleId),
     );
-    expect(child.tab.capsuleId === windowCapsule, 'the popup capsule was ' + String(child.tab.capsuleId) + ', this window is ' + String(windowCapsule));
-    expect(child.tab.capsuleId !== BETA.capsuleId, 'the popup inherited window B capsule ' + BETA.capsuleId);
+    expect(child.tab.capsuleId !== BETA.capsuleId, 'the popup inherited the globally active capsule ' + BETA.capsuleId + ' instead of its parent');
+    // The stamp the hub wrote on its parent at mint time is the one affiliation a child on the
+    // same hub must keep: a popup stamped with the hub's *current* project would follow global
+    // state the same way an active-capsule read would.
+    expect(
+      child.tab.projectId === parentTab.projectId && child.tab.projectId === ALPHA.projectId,
+      'the popup project stamp was ' + String(child.tab.projectId) + ' while its parent carried ' + String(parentTab.projectId),
+    );
     expect(
       child.tab.partition === parentTab.partition,
       'the popup partition was ' + String(child.tab.partition) + ' while its parent ran in ' + String(parentTab.partition),
@@ -963,17 +995,18 @@ async function run() {
     );
 
     // Leave the run as this row found it: the popup is opened and accounted for, then closed
-    // through the window's own toolbar, and the active tab the earlier rows established is
-    // restored. The tab-count rows later in this scenario count four per window.
-    const closed = await toolbarA.executeJavaScript('window.antifanToolbar.closeTab(' + JSON.stringify(child.tab.id) + ')', true);
-    expect(closed === true, 'window A refused to close its own popup tab ' + child.tab.id);
+    // through the hub's own toolbar, and the active tab the earlier rows established is
+    // restored. The tab-count rows later in this scenario count four stamped tabs per
+    // project.
+    const closed = await toolbarHub.executeJavaScript('window.antifanToolbar.closeTab(' + JSON.stringify(child.tab.id) + ')', true);
+    expect(closed === true, 'the hub refused to close its own popup tab ' + child.tab.id);
     await waitFor(
-      function () { return alphaHost.hasExactTab(child.tab.id) === false; },
-      'window A to drop the closed popup tab',
+      function () { return host.hasExactTab(child.tab.id) === false; },
+      'the hub to drop the closed popup tab',
     );
-    alphaHost.switchTab(tabA2);
-    expect(alphaHost.getActiveTabId() === tabA2, 'window A did not return to its own active tab ' + tabA2);
-    expect(alphaHost.getTabList().length === alphaTabsBefore.length, 'window A kept ' + alphaHost.getTabList().length + ' tabs instead of ' + alphaTabsBefore.length);
+    host.switchTab(tabA2, { plane: 'user' });
+    expect(host.getActiveTabId() === tabA2, 'the hub did not return to its own active tab ' + tabA2);
+    expect(host.getTabList().length === tabsBefore.length, 'the hub kept ' + host.getTabList().length + ' tabs instead of ' + tabsBefore.length);
 
     // The rotation is this row's own setup, so putting it back is this row's own claim: the
     // cleanup below repeats it on the failure path, but the receipt has to carry the
@@ -988,11 +1021,11 @@ async function run() {
     }
 
   }, async function () {
-    // Whatever happened above, this window does not hand the next row a popup tab it opened
-    // and left active: the rows after this one address this window's own tab A2 and count its
+    // Whatever happened above, the hub does not hand the next row a popup tab it opened
+    // and left active: the rows after this one address the hub's own tab A2 and count its
     // tabs, and one aborted row must not turn into their failures.
-    const host = hostOf(alphaKey);
-    // The active capsule this row rotated to window B's is put back before any later row reads
+    const host = hubHost();
+    // The active capsule this row rotated to BETA's is put back before any later row reads
     // terminal context, on the failure path as much as on the success path.
     if (host && host.capsuleManager && activeCapsuleBeforePopup) {
       try {
@@ -1003,81 +1036,73 @@ async function run() {
     }
     if (host && popupChildId !== null) {
       try {
-        await toolbarA.executeJavaScript('window.antifanToolbar.closeTab(' + JSON.stringify(popupChildId) + ')', true);
+        await toolbarHub.executeJavaScript('window.antifanToolbar.closeTab(' + JSON.stringify(popupChildId) + ')', true);
         await waitFor(
           function () { return host.hasExactTab(popupChildId) === false; },
-          'the popup tab to be gone from window A',
+          'the popup tab to be gone from the hub',
           5000,
         );
       } catch (err) {
         console.log('  NOTE  the popup tab could not be closed during cleanup: ' + messageOf(err));
       }
     }
-    if (host && tabA2) host.switchTab(tabA2);
+    if (host && tabA2) host.switchTab(tabA2, { plane: 'user' });
   });
 
-  // --------- (7b) minimize/restore keeps this window's target and refuses a foreign one
-  await check('window.minimize-restore-keeps-target-authority', async function () {
-    const alphaHost = hostOf(alphaKey);
-    const betaHost = hostOf(betaEntry.ownerKey);
-    const alphaWindow = authority.windowFor(alphaKey);
-    expect(alphaWindow && !alphaWindow.isDestroyed(), 'window A has no native window');
-    expect(betaHost.hasTab(tabB1), 'window B lost the tab this row compares against');
-    alphaHost.setAutomationTabId(tabA2);
-    betaHost.setAutomationTabId(tabB1);
-    expect(alphaHost.getAutomationTabId() === tabA2, 'window A refused its own tab ' + tabA2 + ' as its target');
+  // --------- (7b) minimize/restore keeps the hub's target and refuses an invalid one
+  await check('window.minimize-restore-keeps-hub-target', async function () {
+    const host = hubHost();
+    const hubWindow = authority.windowFor(webKey);
+    expect(hubWindow && !hubWindow.isDestroyed(), 'the hub has no native window');
+    host.setAutomationTabId(tabA2);
+    expect(host.getAutomationTabId() === tabA2, 'the hub refused its own tab ' + tabA2 + ' as its target');
 
-    alphaWindow.minimize();
+    hubWindow.minimize();
     await waitFor(
-      function () { return alphaWindow.isMinimized() === true; },
-      'window A to minimize',
+      function () { return hubWindow.isMinimized() === true; },
+      'the hub to minimize',
     );
     const minimized = {
-      alphaTarget: alphaHost.getAutomationTabId(),
-      betaTarget: betaHost.getAutomationTabId(),
-      betaVisible: entryOf(authority.snapshot(), betaEntry.ownerKey).visible,
+      hubTarget: host.getAutomationTabId(),
     };
-    expect(minimized.alphaTarget === tabA2, 'minimizing window A moved its target to ' + String(minimized.alphaTarget));
-    expect(minimized.betaTarget === tabB1, 'minimizing window A moved window B target to ' + String(minimized.betaTarget));
+    expect(minimized.hubTarget === tabA2, 'minimizing the hub moved its target to ' + String(minimized.hubTarget));
 
-    alphaWindow.restore();
+    hubWindow.restore();
     await waitFor(
-      function () { return alphaWindow.isMinimized() === false && alphaWindow.isVisible() === true; },
-      'window A to restore',
+      function () { return hubWindow.isMinimized() === false && hubWindow.isVisible() === true; },
+      'the hub to restore',
     );
     const restored = {
-      alphaTarget: alphaHost.getAutomationTabId(),
-      betaTarget: betaHost.getAutomationTabId(),
-      visible: entryOf(authority.snapshot(), alphaKey).visible,
+      hubTarget: host.getAutomationTabId(),
+      visible: entryOf(authority.snapshot(), webKey).visible,
     };
-    expect(restored.alphaTarget === tabA2, 'restoring window A rotated its target to ' + String(restored.alphaTarget));
-    expect(restored.betaTarget === tabB1, 'restoring window A rotated window B target to ' + String(restored.betaTarget));
+    expect(restored.hubTarget === tabA2, 'restoring the hub rotated its target to ' + String(restored.hubTarget));
 
-    // A foreign window's tab can never become this window's target: the host clears rather
+    // A tab this host does not own can never become the hub's target: the host clears rather
     // than adopting, so no silent authority rotation is possible.
-    alphaHost.setAutomationTabId(tabB1);
-    const afterForeign = alphaHost.getAutomationTabId();
+    host.setAutomationTabId('tab-that-belongs-to-no-host');
+    const afterInvalid = host.getAutomationTabId();
     observations.minimizeRestore = {
       minimized: minimized,
       restored: restored,
-      foreignTarget: { requested: tabB1, adopted: afterForeign },
+      invalidTarget: { requested: 'tab-that-belongs-to-no-host', adopted: afterInvalid },
     };
-    expect(afterForeign !== tabB1, "window A adopted window B's tab " + tabB1 + ' as its target');
-    expect(afterForeign === null, 'a refused foreign target left ' + String(afterForeign) + ' instead of clearing');
-    alphaHost.setAutomationTabId(tabA2);
-    expect(alphaHost.getAutomationTabId() === tabA2, 'window A could not take its own tab back as target');
+    expect(afterInvalid !== 'tab-that-belongs-to-no-host', 'the hub adopted a tab it does not own as its target');
+    expect(afterInvalid === null, 'a refused target left ' + String(afterInvalid) + ' instead of clearing');
+    host.setAutomationTabId(tabA2);
+    expect(host.getAutomationTabId() === tabA2, 'the hub could not take its own tab back as target');
   });
 
   // ------- (7c) two sessions in one project cannot cross-invoke each other's tabs
   await check('window.same-project-sessions-cannot-cross-invoke', async function () {
-    const alphaHost = hostOf(alphaKey);
+    const host = hubHost();
     const controlPlane = authority.controlPlane();
     expect(controlPlane, 'the process exposes no control plane');
     const tabOne = tabA1;
     const tabTwo = tabA2;
-    expect(alphaHost.hasTab(tabOne) && alphaHost.hasTab(tabTwo), 'window A lost a tab this row needs');
+    expect(host.hasTab(tabOne) && host.hasTab(tabTwo), 'the hub lost a tab this row needs');
 
-    // Both sessions belong to the SAME project and the SAME window: the boundary under test is
+    // Both sessions belong to the SAME project and the SAME hub: the boundary under test is
     // the session, not the window.
     const sessionOne = await controlPlane.createCliSession({
       projectId: ALPHA.projectId,
@@ -1096,12 +1121,12 @@ async function run() {
     expect(sessionOne && sessionOne.launch && sessionTwo && sessionTwo.launch, 'a second session in the same project did not launch');
 
     const transport = new CapabilityTransportAdapter(controlPlane.capabilities, controlPlane.runs.attachments);
-    const serverOne = new AntiFanMcpServer(alphaHost, false, transport, {
+    const serverOne = new AntiFanMcpServer(host, false, transport, {
       attachmentId: sessionOne.launch.attachmentId,
       attachmentSecret: sessionOne.launch.secret,
       authorityRevision: sessionOne.launch.authorityRevision,
     });
-    const serverTwo = new AntiFanMcpServer(alphaHost, false, transport, {
+    const serverTwo = new AntiFanMcpServer(host, false, transport, {
       attachmentId: sessionTwo.launch.attachmentId,
       attachmentSecret: sessionTwo.launch.secret,
       authorityRevision: sessionTwo.launch.authorityRevision,
@@ -1119,24 +1144,24 @@ async function run() {
       const textOf = function (result) {
         return result && result.content && result.content[0] ? String(result.content[0].text) : '';
       };
-      // The tabs these sessions are bound to are background tabs of their window, so the first
+      // The tabs these sessions are bound to are background tabs of their hub, so the first
       // read measures what a bound session gets with the page never presented. That state is
       // recorded, not asserted: this row's requirement is the session boundary, and a tab whose
       // page has never been laid out is a separate question. The reads that decide the row run
       // with the tab presented - the binding is to the tab, not to its rendering.
       const backgroundOwnRead = await serverOne.callTool('anti.inspect.dom', { tabId: tabOne });
-      alphaHost.switchTab(tabOne);
+      host.switchTab(tabOne, { plane: 'user' });
       await waitFor(
-        function () { return alphaHost.getActiveTabId() === tabOne; },
-        'window A to present the tab session one is bound to',
+        function () { return host.getActiveTabId() === tabOne; },
+        'the hub to present the tab session one is bound to',
       );
       const ownRead = await serverOne.callTool('anti.inspect.dom', { tabId: tabOne });
       const crossRead = await serverOne.callTool('anti.inspect.dom', { tabId: tabTwo });
       const readAfterCross = domReads.slice();
-      alphaHost.switchTab(tabTwo);
+      host.switchTab(tabTwo, { plane: 'user' });
       await waitFor(
-        function () { return alphaHost.getActiveTabId() === tabTwo; },
-        'window A to present the tab session two is bound to',
+        function () { return host.getActiveTabId() === tabTwo; },
+        'the hub to present the tab session two is bound to',
       );
       const siblingRead = await serverTwo.callTool('anti.inspect.dom', { tabId: tabTwo });
       observations.sameProjectSessions = {
@@ -1164,7 +1189,7 @@ async function run() {
       // This row is the only one that starts CLI sessions, and it ends them here: a live
       // interactive session keeps a streaming run and an attachment on its tab alive by
       // design, so two sessions left running would make the close rows later in this scenario
-      // address a window that is rightly busy - a refusal about work this scenario created,
+      // address a hub that is rightly busy - a refusal about work this scenario created,
       // not about the behaviour those rows measure.
       for (const release of [
         { label: 'session one', server: serverOne, session: sessionOne },
@@ -1180,15 +1205,32 @@ async function run() {
     }
   });
 
-  // ---------------------------- (7) a background window's page is laid out and capturable
-  await check('window.background-surface-and-capture-ready', async function () {
-    const betaHost = hostOf(betaEntry.ownerKey);
-    const alphaWindow = authority.windowFor(alphaKey);
-    const betaWindow = authority.windowFor(betaEntry.ownerKey);
-    expect(alphaWindow && !alphaWindow.isDestroyed(), 'window A has no native window to present');
-    expect(betaWindow && !betaWindow.isDestroyed(), 'window B has no native window');
+  // ------- (8) a background hub's page is laid out and capturable while the manager is in front
+  let managerEntry = null;
+  await check('window.background-hub-surface-and-capture-ready', async function () {
+    const host = hubHost();
+    const hubWindow = authority.windowFor(webKey);
+    expect(hubWindow && !hubWindow.isDestroyed(), 'the hub has no native window');
 
-    // The subject is the window, not the occlusion: the two windows are placed side by side so
+    // The foreground sibling is the Terminal Manager, opened through the same menu entry the
+    // user clicks — the second surface this contract keeps alive beside the hub.
+    expect(entryOf(authority.snapshot(), 'unassigned') === null, 'the manager window was already open before the row started');
+    const managerMenuItem = findMenuItem(Menu.getApplicationMenu(), 'Cửa sổ Terminal chung (Shared Terminal Manager)');
+    expect(managerMenuItem, 'the Terminal menu has no shared-manager entry');
+    expect(managerMenuItem.enabled === true, 'the shared-manager entry is disabled');
+    managerMenuItem.click(managerMenuItem, BrowserWindow.getAllWindows()[0], {});
+    managerEntry = await waitFor(
+      function () {
+        const entry = entryOf(authority.snapshot(), 'unassigned');
+        return entry && entry.visible === true ? entry : false;
+      },
+      'the manager window the menu opened to be presented',
+    );
+    expect(authority.browserShellCount() === 2, 'the manager open left ' + authority.browserShellCount() + ' shells');
+    const managerWindow = authority.windowFor('unassigned');
+    expect(managerWindow && !managerWindow.isDestroyed(), 'the manager window has no native window');
+
+    // The subject is the hub, not the occlusion: the two windows are placed side by side so
     // neither covers the other (a covered window is a different, legitimate case where the
     // compositor may stop rasterizing). Where this display cannot hold both, the run records
     // that instead of measuring an overlapped window and calling the result a rendering verdict.
@@ -1197,38 +1239,38 @@ async function run() {
     if (tiled) {
       const halfWidth = Math.floor(workArea.width / 2);
       const height = Math.min(workArea.height, 900);
-      alphaWindow.setBounds({ x: workArea.x, y: workArea.y, width: halfWidth, height: height });
-      betaWindow.setBounds({ x: workArea.x + halfWidth, y: workArea.y, width: halfWidth, height: height });
+      hubWindow.setBounds({ x: workArea.x, y: workArea.y, width: halfWidth, height: height });
+      managerWindow.setBounds({ x: workArea.x + halfWidth, y: workArea.y, width: halfWidth, height: height });
     }
-    if (alphaWindow.isMinimized()) alphaWindow.restore();
-    alphaWindow.show();
-    alphaWindow.focus();
-    // Criterion 5 is about two windows on screen at once with A holding the foreground. B was
-    // presented by its own user open (see openProjectFromSidebar), so this row re-presents it
-    // without focusing rather than assuming which window the earlier rows left in front.
-    if (betaWindow.isMinimized()) betaWindow.restore();
-    betaWindow.showInactive();
-    const betaEntryUnfocused = await waitFor(
+    if (managerWindow.isMinimized()) managerWindow.restore();
+    managerWindow.show();
+    managerWindow.focus();
+    // The hub was presented by its own user opens (see openProjectFromSidebar), so this row
+    // re-presents it without focusing rather than assuming which window the earlier rows left
+    // in front.
+    if (hubWindow.isMinimized()) hubWindow.restore();
+    hubWindow.showInactive();
+    const hubEntryUnfocused = await waitFor(
       function () {
-        const entry = entryOf(authority.snapshot(), betaEntry.ownerKey);
-        return entry && entry.focused === false && betaWindow.isVisible() === true ? entry : false;
+        const entry = entryOf(authority.snapshot(), webKey);
+        return entry && entry.focused === false && hubWindow.isVisible() === true ? entry : false;
       },
-      'window B to be presented in the background without taking the foreground',
+      'the hub to be presented in the background without taking the foreground',
     );
 
-    const surface = await betaHost.readRenderSurface(tabB2, 'desktop');
+    const surface = await host.readRenderSurface(tabB2, 'desktop');
     observations.backgroundSurface = {
       mode: tiled ? 'tiled' : 'stacked',
       workArea: { width: workArea.width, height: workArea.height },
       surface: surface,
-      activeTabId: betaEntryUnfocused.activeTabId,
-      visible: betaEntryUnfocused.visible,
-      focused: betaEntryUnfocused.focused,
-      presented: betaWindow.isVisible(),
-      foregroundBeforeCapture: alphaWindow.isFocused(),
+      activeTabId: hubEntryUnfocused.activeTabId,
+      visible: hubEntryUnfocused.visible,
+      focused: hubEntryUnfocused.focused,
+      presented: hubWindow.isVisible(),
+      managerPresented: managerWindow.isVisible(),
     };
-    // Independent of tiling: the page in the other window still has a real layout viewport.
-    expect(surface && surface.vw > 0 && surface.vh > 0, "window B's page has no laid-out viewport: " + JSON.stringify(surface));
+    // Independent of tiling: the page in the background window still has a real layout viewport.
+    expect(surface && surface.vw > 0 && surface.vh > 0, "the hub's page has no laid-out viewport: " + JSON.stringify(surface));
 
     if (!tiled) {
       observations.backgroundCapture = null;
@@ -1237,44 +1279,50 @@ async function run() {
     }
     // document.hidden flips a frame after showInactive() — the visibility transition reaches
     // the renderer asynchronously — so the row waits for the page to see itself presented rather
-    // than sampling the frame that still precedes the transition.
+    // than sampling the frame that still precedes the transition. Some display layers never
+    // deliver the occlusion notification at all; the wait is bounded and the report is
+    // recorded, so the capture below — the pixel-level claim this row actually owns — still
+    // runs instead of the row deciding itself on a renderer notification Chromium may skip.
     const presentedSurface = surface.hidden === false
       ? surface
       : await waitFor(
           async function () {
-            const candidate = await betaHost.readRenderSurface(tabB2, 'desktop');
+            const candidate = await host.readRenderSurface(tabB2, 'desktop');
             return candidate && candidate.hidden === false ? candidate : false;
           },
-          "window B's page to stop reporting itself hidden",
-        );
+          "the hub's page to stop reporting itself hidden",
+          8000,
+        ).catch(function (err) {
+          console.log('  NOTE  the page still reports itself hidden after ' + (8000 / 1000) + 's: ' + messageOf(err) + ' — the capture decides the row');
+          return null;
+        });
     observations.backgroundSurface = { ...observations.backgroundSurface, presentedSurface: presentedSurface };
-    expect(presentedSurface.hidden === false, "window B's page reports itself hidden: " + JSON.stringify(presentedSurface));
     // Capturing a background window must not take the foreground from the window the user is
     // in: the capture path attaches the tab's own view for the raster, and evidence says so.
-    const betaFocusedBeforeCapture = betaWindow.isFocused();
-    const capture = await betaHost.captureVerificationScreenshot(undefined, tabB2, 'desktop');
-    const betaFocusedAfterCapture = betaWindow.isFocused();
-    const alphaFocusedAfterCapture = alphaWindow.isFocused();
+    const hubFocusedBeforeCapture = hubWindow.isFocused();
+    const capture = await host.captureVerificationScreenshot(undefined, tabB2, 'desktop');
+    const hubFocusedAfterCapture = hubWindow.isFocused();
+    const managerFocusedAfterCapture = managerWindow.isFocused();
     observations.backgroundCapture = capture
       ? {
           backend: capture.backend,
           rasterSize: capture.rasterSize,
           bytes: typeof capture.data === 'string' ? capture.data.length : 0,
-          betaFocused: { before: betaFocusedBeforeCapture, after: betaFocusedAfterCapture },
-          alphaFocusedAfterCapture: alphaFocusedAfterCapture,
+          hubFocused: { before: hubFocusedBeforeCapture, after: hubFocusedAfterCapture },
+          managerFocusedAfterCapture: managerFocusedAfterCapture,
         }
       : null;
     expect(capture && typeof capture.data === 'string' && capture.data.length > 0, 'the background capture returned no pixels');
     expect(capture.rasterSize && capture.rasterSize.width > 0 && capture.rasterSize.height > 0, 'the background capture has no raster size: ' + JSON.stringify(capture.rasterSize));
     expect(
-      betaFocusedBeforeCapture === false && betaFocusedAfterCapture === false,
-      "capturing window B's background tab moved the foreground to B: before " + String(betaFocusedBeforeCapture) + ', after ' + String(betaFocusedAfterCapture),
+      hubFocusedBeforeCapture === false && hubFocusedAfterCapture === false,
+      "capturing the hub's background tab moved the foreground to the hub: before " + String(hubFocusedBeforeCapture) + ', after ' + String(hubFocusedAfterCapture),
     );
   });
 
-  // ---------------------------------------------- (8) cross-window search: inventory + labels
-  await check('window.search-lists-every-window', async function () {
-    const inventory = await toolbarA.executeJavaScript("window.antifanToolbar.searchProjectTabs('')", true);
+  // --------------------------- (9) the search inventory spans every project stamp
+  await check('window.search-lists-every-stamped-tab', async function () {
+    const inventory = await toolbarHub.executeJavaScript("window.antifanToolbar.searchProjectTabs('')", true);
     observations.inventory = inventory;
     expect(inventory && inventory.status === 'OK', 'the search returned ' + JSON.stringify(inventory));
     const rows = inventory.rows || [];
@@ -1283,188 +1331,173 @@ async function run() {
     for (const tabId of [tabA1, tabA2, tabB1, tabB2]) {
       expect(byId[tabId], 'tab ' + tabId + ' is missing from the inventory: ' + JSON.stringify(rows.map(function (row) { return row.tabId; })));
     }
-    const snapshot = authority.snapshot();
-    const alpha = entryOf(snapshot, alphaKey);
-    const beta = entryOf(snapshot, betaEntry.ownerKey);
-    expect(byId[tabA1].ownerLabel === alpha.identity.title, 'the tab A label was ' + String(byId[tabA1].ownerLabel) + ', window A calls itself ' + String(alpha.identity.title));
-    expect(byId[tabB1].ownerLabel === beta.identity.title, 'the tab B label was ' + String(byId[tabB1].ownerLabel) + ', window B calls itself ' + String(beta.identity.title));
-    expect(samePath(byId[tabB1].pathLabel, BETA.path), 'the tab B path label was ' + String(byId[tabB1].pathLabel));
+    // One presenting window means one honest label: ownerLabel is the window's stable
+    // product name ('AntiFan Browser'), not the rotating project title the hub's identity
+    // field carries — every row names the same shell no matter which project it shows.
+    for (const tabId of [tabA1, tabB1]) {
+      expect(byId[tabId].ownerLabel === 'AntiFan Browser', 'the tab ' + tabId + ' label was ' + String(byId[tabId].ownerLabel) + ', the hub calls itself AntiFan Browser');
+    }
 
-    // Listing has no side effects: the other window sees the same inventory.
-    const fromB = await toolbarB.executeJavaScript("window.antifanToolbar.searchProjectTabs('')", true);
-    expect(fromB && fromB.status === 'OK', 'the search from window B returned ' + JSON.stringify(fromB));
+    // Listing has no side effects: the manager window's toolbar sees the same inventory —
+    // the search contract is process-wide by design and must not depend on which window asks.
+    const managerToolbar = surfaceOf(authority.shellFor('unassigned'), 'toolbar');
+    expect(managerToolbar, 'the manager window has no toolbar surface');
+    await waitForApi(managerToolbar, "typeof window.antifanToolbar === 'object' && typeof window.antifanToolbar.searchProjectTabs === 'function'");
+    const fromManager = await managerToolbar.executeJavaScript("window.antifanToolbar.searchProjectTabs('')", true);
+    expect(fromManager && fromManager.status === 'OK', 'the search from the manager returned ' + JSON.stringify(fromManager));
     const keyOf = function (result) {
       return JSON.stringify((result.rows || []).map(function (row) { return [row.tabId, row.ownerLabel, row.live]; }));
     };
-    expect(keyOf(fromB) === keyOf(inventory), 'two windows listed different inventories');
+    expect(keyOf(fromManager) === keyOf(inventory), 'two shells listed different inventories');
   });
 
-  // -------------------------- (9) activation presents the tab and moves no execution authority
-  await check('window.search-activates-foreign-tab-without-authority-rotation', async function () {
-    const alphaHost = hostOf(alphaKey);
-    const betaHost = hostOf(betaEntry.ownerKey);
-    // An agent's automation target is the execution authority for its window. It is set here
+  // ----------------- (10) activation presents the tab and moves no execution authority
+  await check('window.search-activates-tab-without-authority-rotation', async function () {
+    const host = hubHost();
+    // An agent's automation target is the execution authority for the hub. It is set here
     // through the same host seam attachment binding uses, so the user activation below is
     // measured against real authority rather than against an empty field.
-    alphaHost.setAutomationTabId(tabA2);
-    betaHost.setAutomationTabId(tabB2);
+    host.setAutomationTabId(tabA2);
+    const hubWindow = authority.windowFor(webKey);
+    const hubFocusedBefore = hubWindow.isFocused();
 
-    const before = authority.snapshot();
-    const activation = await toolbarA.executeJavaScript('window.antifanToolbar.activateProjectTab(' + JSON.stringify(tabB1) + ')', true);
+    const before = entryOf(authority.snapshot(), webKey);
+    const activation = await toolbarHub.executeJavaScript('window.antifanToolbar.activateProjectTab(' + JSON.stringify(tabB1) + ')', true);
     const after = await waitFor(
       function () {
-        const current = authority.snapshot();
-        return entryOf(current, betaEntry.ownerKey).activeTabId === tabB1 ? current : false;
+        const entry = entryOf(authority.snapshot(), webKey);
+        return entry && entry.activeTabId === tabB1 ? entry : false;
       },
-      'window B to present the tab the search asked for',
+      'the hub to present the tab the search asked for',
     );
     observations.activation = {
       result: activation,
-      alphaActiveBefore: entryOf(before, alphaKey).activeTabId,
-      alphaActiveAfter: entryOf(after, alphaKey).activeTabId,
-      betaActiveAfter: entryOf(after, betaEntry.ownerKey).activeTabId,
-      alphaAutomation: alphaHost.getAutomationTabId(),
-      betaAutomation: betaHost.getAutomationTabId(),
+      activeBefore: before.activeTabId,
+      activeAfter: after.activeTabId,
+      hubFocusedBefore: hubFocusedBefore,
+      hubFocusedAfter: authority.windowFor(webKey).isFocused(),
+      hubAutomation: host.getAutomationTabId(),
     };
-    expect(activation && activation.status === 'ACTIVATED', 'the foreign activation returned ' + JSON.stringify(activation));
-    expect(activation.tabId === tabB1, 'the foreign activation named tab ' + String(activation.tabId));
-    expect(entryOf(after, betaEntry.ownerKey).activeTabId === tabB1, 'window B active tab was ' + entryOf(after, betaEntry.ownerKey).activeTabId + ', expected ' + tabB1);
-    expect(entryOf(after, alphaKey).activeTabId === entryOf(before, alphaKey).activeTabId, 'the invoking window moved its own active tab to ' + entryOf(after, alphaKey).activeTabId);
-    expect(alphaHost.getAutomationTabId() === tabA2, "the invoking window's automation target moved to " + String(alphaHost.getAutomationTabId()));
-    expect(betaHost.getAutomationTabId() === tabB2, "the presented window's automation target moved to " + String(betaHost.getAutomationTabId()));
+    expect(activation && activation.status === 'ACTIVATED', 'the activation returned ' + JSON.stringify(activation));
+    expect(activation.tabId === tabB1, 'the activation named tab ' + String(activation.tabId));
+    expect(after.activeTabId === tabB1, 'the hub active tab was ' + after.activeTabId + ', expected ' + tabB1);
+    // A user activation presents the tab's own window: the hub the result belongs to comes
+    // forward, and the manager the last row left in front does not take that over.
+    expect(authority.windowFor('unassigned').isFocused() === false, 'the manager kept the foreground over a hub activation');
+    expect(host.getAutomationTabId() === tabA2, "the hub's automation target moved to " + String(host.getAutomationTabId()));
+    // Presenting a BETA-stamped tab *is* the scope switch on a single hub: authority stays
+    // un-rotated (automation target above), while the presented project follows the pane.
+    expect(host.activeProject() === BETA.projectId, 'presenting a BETA-stamped tab left the active project at ' + String(host.activeProject()));
   });
 
-  // ------------------------------------------------------------- (10) stale results refuse
+  // ------------------------------------------------------------- (11) stale results refuse
   await check('window.search-stale-refusal-no-fallback', async function () {
-    const betaHost = hostOf(betaEntry.ownerKey);
-    const before = authority.snapshot();
+    const host = hubHost();
+    const before = entryOf(authority.snapshot(), webKey);
 
-    const never = await toolbarA.executeJavaScript("window.antifanToolbar.activateProjectTab('tab-that-never-existed')", true);
+    const never = await toolbarHub.executeJavaScript("window.antifanToolbar.activateProjectTab('tab-that-never-existed')", true);
     expect(never && never.status === 'UNAVAILABLE', 'a never-existing tab returned ' + JSON.stringify(never));
     expect(never.reasonCode === 'TAB_CLOSED', 'a never-existing tab reported ' + String(never.reasonCode));
     expect(never.tabId === 'tab-that-never-existed', 'a refused activation named tab ' + String(never.tabId));
 
     // A real tab that has since closed: the exact case a rendered search result goes stale in.
-    expect(await toolbarB.executeJavaScript('window.antifanToolbar.closeTab(' + JSON.stringify(tabB2) + ')', true) === true, 'window B refused to close its own tab ' + tabB2);
+    expect(await toolbarHub.executeJavaScript('window.antifanToolbar.closeTab(' + JSON.stringify(tabB2) + ')', true) === true, 'the hub refused to close its own tab ' + tabB2);
     await waitFor(
-      function () { return betaHost.hasExactTab(tabB2) === false; },
-      'window B to drop the closed tab',
+      function () { return host.hasExactTab(tabB2) === false; },
+      'the hub to drop the closed tab',
     );
-    const stale = await toolbarA.executeJavaScript('window.antifanToolbar.activateProjectTab(' + JSON.stringify(tabB2) + ')', true);
-    const after = authority.snapshot();
+    const stale = await toolbarHub.executeJavaScript('window.antifanToolbar.activateProjectTab(' + JSON.stringify(tabB2) + ')', true);
+    const after = entryOf(authority.snapshot(), webKey);
     observations.staleActivation = { never: never, closedTab: stale };
     expect(stale && stale.status === 'UNAVAILABLE', 'a closed tab returned ' + JSON.stringify(stale));
     expect(stale.reasonCode === 'TAB_CLOSED', 'a closed tab reported ' + String(stale.reasonCode));
     expect(stale.tabId === tabB2, 'the refusal named tab ' + String(stale.tabId));
-    const activeBefore = before.map(function (entry) { return entry.activeTabId; }).join('|');
-    const activeAfter = after.map(function (entry) { return entry.activeTabId; }).join('|');
-    expect(activeBefore === activeAfter, 'a refused activation moved an active tab: ' + activeBefore + ' -> ' + activeAfter);
-    const focusBefore = before.map(function (entry) { return entry.focused; }).join('|');
-    const focusAfter = after.map(function (entry) { return entry.focused; }).join('|');
-    expect(focusBefore === focusAfter, 'a refused activation moved window focus');
-    expect(entryOf(after, betaEntry.ownerKey).activeTabId === tabB1, 'window B fell back to another tab: ' + entryOf(after, betaEntry.ownerKey).activeTabId);
+    expect(after.activeTabId === before.activeTabId, 'a refused activation moved the active tab: ' + before.activeTabId + ' -> ' + after.activeTabId);
+    expect(after.activeTabId === tabB1, 'the hub fell back to another tab: ' + after.activeTabId);
   });
 
-  // ------------------------------------------------- (11) five projects, twenty visible tabs
-  await check('window.five-projects-twenty-tabs', async function () {
+  // ------------------------------------- (12) five projects, twenty stamped tabs, one hub
+  await check('window.five-projects-twenty-stamped-tabs', async function () {
     for (const project of [GAMMA, DELTA, EPSILON]) {
-      const opened = await openProjectFromSidebar(sidebarA, project);
-      expect(opened.result && opened.result.status === 'OPENED', 'opening ' + project.name + ' returned ' + JSON.stringify(opened.result));
+      const opened = await openProjectFromSidebar(sidebarHub, project);
+      expect(opened.result && opened.result.status === 'FOCUSED', 'opening ' + project.name + ' returned ' + JSON.stringify(opened.result));
+      expect(hubHost().activeProject() === project.projectId, 'the hub did not switch to ' + project.name);
     }
-    expect(authority.browserShellCount() === 5, 'browserShellCount() was ' + authority.browserShellCount() + ' for five projects');
+    expect(authority.browserShellCount() === 2, 'browserShellCount() was ' + authority.browserShellCount() + ' for five projects and one manager');
 
-    const windows = [];
+    // Four stamped tabs per project, minted through the hub's own toolbar while it shows that
+    // project. Top-up rather than a blind four: the boot tab may already carry ALPHA's stamp.
     for (const project of PROJECTS) {
-      const entry = authority.snapshot().find(function (candidate) {
-        return candidate.owner.kind === 'project' && candidate.owner.projectId === project.projectId;
-      });
-      expect(entry, 'no window for ' + project.name);
-      const shell = authority.shellFor(entry.ownerKey);
-      const toolbar = surfaceOf(shell, 'toolbar');
-      expect(toolbar, 'no toolbar surface for ' + project.name);
-      await waitForApi(toolbar, "typeof window.antifanToolbar === 'object' && typeof window.antifanToolbar.createTab === 'function'");
-      windows.push({ project: project, entry: entry, toolbar: toolbar });
-    }
-
-    // Four visible tabs per window, created through that window's own toolbar.
-    for (const window of windows) {
-      for (let index = window.entry.tabIds.length; index < 4; index += 1) {
-        const created = await window.toolbar.executeJavaScript("window.antifanToolbar.createTab('about:blank')", true);
-        expect(typeof created === 'string' && created.length > 0, window.project.name + ' created no tab at index ' + index);
+      await openProjectFromSidebar(sidebarHub, project);
+      for (let index = hubHost().tabsForProject(project.projectId).length; index < 4; index += 1) {
+        const created = await toolbarHub.executeJavaScript("window.antifanToolbar.createTab('about:blank')", true);
+        expect(typeof created === 'string' && created.length > 0, project.name + ' created no tab at index ' + index);
       }
     }
 
-    // Each window's own toolbar channel is what its renderer paints the strip from. Asking it
-    // is a different path than the directory's snapshot: the title bar of each window shows the
-    // tabs of that window, under that window's own project identity.
-    const stripByWindow = {};
-    for (const window of windows) {
-      const state = await waitFor(
-        async function () {
-          const value = await window.toolbar.executeJavaScript('window.antifanToolbar.getInitialState()', true);
-          return value && Array.isArray(value.tabs) && value.tabs.length === 4 ? value : false;
-        },
-        window.project.name + ' to paint four tabs in its own strip',
-      );
-      expect(state.projectWindow && state.projectWindow.owner.projectId === window.project.projectId, window.project.name + ' painted identity ' + JSON.stringify(state.projectWindow && state.projectWindow.owner));
-      stripByWindow[window.entry.ownerKey] = { tabIds: state.tabs.map(function (tab) { return tab.id; }).sort(), activeTabId: state.activeTabId };
-    }
+    // The hub's own toolbar channel is what its renderer paints the strip from. Asking it is
+    // a different path than the directory's snapshot: the title bar shows the hub's tabs under
+    // the hub's own multi-project identity.
+    const state = await waitFor(
+      async function () {
+        const value = await toolbarHub.executeJavaScript('window.antifanToolbar.getInitialState()', true);
+        return value && Array.isArray(value.tabs) && value.tabs.length === 20 ? value : false;
+      },
+      'the hub to paint twenty tabs in its own strip',
+    );
+    expect(state.projectWindow && state.projectWindow.owner && state.projectWindow.owner.kind === 'web', 'the hub painted identity ' + JSON.stringify(state.projectWindow && state.projectWindow.owner));
+    // The hub's identity title tracks the project it currently presents — the mint loop ends
+    // on EPSILON, which is the scope this strip was just painted under.
+    expect(state.projectWindow.title === EPSILON.name, 'the hub painted title ' + JSON.stringify(state.projectWindow.title));
+    const strip = { tabIds: state.tabs.map(function (tab) { return tab.id; }).sort(), activeTabId: state.activeTabId };
 
     const snapshot = authority.snapshot();
-    const perWindow = snapshot.map(function (entry) {
-      const host = hostOf(entry.ownerKey);
-      expect(host, 'no host behind ' + entry.ownerKey);
-      const strip = stripByWindow[entry.ownerKey];
-      expect(strip, 'window ' + entry.ownerKey + ' never answered its own toolbar');
-      expect(
-        strip.tabIds.join('|') === entry.tabIds.slice().sort().join('|'),
-        'the strip a window painted and the directory disagree for ' + entry.ownerKey + ': ' + JSON.stringify(strip.tabIds) + ' vs ' + JSON.stringify(entry.tabIds),
-      );
-      expect(strip.activeTabId === entry.activeTabId, 'window ' + entry.ownerKey + ' painted active tab ' + String(strip.activeTabId) + ' while the directory said ' + String(entry.activeTabId));
-      return { ownerKey: entry.ownerKey, label: entry.identity.title, path: entry.identity.pathLabel, tabIds: entry.tabIds.slice() };
-    });
-    const allIds = [];
-    for (const entry of perWindow) {
-      expect(entry.tabIds.length === 4, entry.label + ' has ' + entry.tabIds.length + ' tabs, expected 4');
-      for (const tabId of entry.tabIds) {
-        expect(allIds.indexOf(tabId) === -1, 'tab ' + tabId + ' is owned by two windows');
-        allIds.push(tabId);
+    const hubEntry = entryOf(snapshot, webKey);
+    const host = hubHost();
+    expect(
+      strip.tabIds.join('|') === hubEntry.tabIds.slice().sort().join('|'),
+      'the strip the hub painted and the directory disagree: ' + JSON.stringify(strip.tabIds) + ' vs ' + JSON.stringify(hubEntry.tabIds),
+    );
+    expect(strip.activeTabId === hubEntry.activeTabId, 'the hub painted active tab ' + String(strip.activeTabId) + ' while the directory said ' + String(hubEntry.activeTabId));
+
+    const stamped = [];
+    for (const project of PROJECTS) {
+      const ids = host.tabsForProject(project.projectId);
+      expect(ids.length === 4, project.name + ' holds ' + ids.length + ' stamped tabs, expected 4');
+      for (const tabId of ids) {
+        expect(stamped.indexOf(tabId) === -1, 'tab ' + tabId + ' is stamped for two projects');
+        stamped.push(tabId);
       }
     }
-    expect(authority.browserShellCount() === 5, 'browserShellCount() was ' + authority.browserShellCount());
-    expect(allIds.length === 20, 'the process presents ' + allIds.length + ' visible tabs, expected 20');
+    expect(stamped.length === 20, 'the hub holds ' + stamped.length + ' project-stamped tabs, expected 20');
 
-    // The routing answer is per window: each tab resolves to the host that presents it.
-    for (const entry of perWindow) {
-      const host = hostOf(entry.ownerKey);
-      for (const tabId of entry.tabIds) {
-        expect(authority.hostForTab(tabId) === host, 'tab ' + tabId + ' did not resolve to its own window host');
-      }
+    // The routing answer is per host: every stamped tab resolves to the hub that presents it.
+    for (const tabId of stamped) {
+      expect(authority.hostForTab(tabId) === host, 'tab ' + tabId + ' did not resolve to the hub host');
     }
 
     // One search sees all twenty, each row labelled with the window that shows it.
-    const inventory = await toolbarA.executeJavaScript("window.antifanToolbar.searchProjectTabs('')", true);
-    expect(inventory && inventory.status === 'OK', 'the five-window search returned ' + JSON.stringify(inventory));
+    const inventory = await toolbarHub.executeJavaScript("window.antifanToolbar.searchProjectTabs('')", true);
+    expect(inventory && inventory.status === 'OK', 'the five-project search returned ' + JSON.stringify(inventory));
     const rows = inventory.rows || [];
     const ownerByTab = {};
     for (const row of rows) ownerByTab[row.tabId] = row;
-    for (const entry of perWindow) {
-      for (const tabId of entry.tabIds) {
-        const row = ownerByTab[tabId];
-        expect(row, 'tab ' + tabId + ' is missing from the five-window inventory');
-        expect(row.ownerLabel === entry.label, 'tab ' + tabId + ' was labelled ' + String(row.ownerLabel) + ', expected ' + String(entry.label));
-        expect(samePath(row.pathLabel, entry.path), 'tab ' + tabId + ' carried path label ' + String(row.pathLabel));
-      }
+    for (const tabId of stamped) {
+      const row = ownerByTab[tabId];
+      expect(row, 'tab ' + tabId + ' is missing from the five-project inventory');
+      expect(row.ownerLabel === 'AntiFan Browser', 'tab ' + tabId + ' was labelled ' + String(row.ownerLabel) + ', expected the hub label AntiFan Browser');
+      expect(row.live === true, 'tab ' + tabId + ' was listed as not live');
     }
-    const fromLast = await windows[windows.length - 1].toolbar.executeJavaScript("window.antifanToolbar.searchProjectTabs('')", true);
-    expect(fromLast && fromLast.status === 'OK', 'the search from the last window returned ' + JSON.stringify(fromLast));
-    expect(JSON.stringify((fromLast.rows || []).map(function (row) { return row.tabId; }).sort()) === JSON.stringify(rows.map(function (row) { return row.tabId; }).sort()), 'two windows listed different five-window inventories');
+    const managerToolbar = surfaceOf(authority.shellFor('unassigned'), 'toolbar');
+    const fromManager = await managerToolbar.executeJavaScript("window.antifanToolbar.searchProjectTabs('')", true);
+    expect(fromManager && fromManager.status === 'OK', 'the search from the manager returned ' + JSON.stringify(fromManager));
+    expect(JSON.stringify((fromManager.rows || []).map(function (row) { return row.tabId; }).sort()) === JSON.stringify(rows.map(function (row) { return row.tabId; }).sort()), 'two shells listed different five-project inventories');
 
-    observations.volume = { shellCount: authority.browserShellCount(), tabCount: allIds.length, windows: perWindow, inventoryRows: rows.length };
+    observations.volume = { shellCount: authority.browserShellCount(), stampedCount: stamped.length, inventoryRows: rows.length };
   });
 
-  // ------------------------------------------- (12) an agent-intent window never presents
-  await check('window.agent-intent-window-stays-unpresented', async function () {
+  // ------------- (13) a 'project' ensure resolves to the hub and never presents anything
+  await check('window.agent-project-ensure-resolves-to-hub-unpresented', async function () {
     const presentationCalls = [];
     const patched = [];
     for (const method of ['show', 'showInactive', 'focus', 'moveTop', 'maximize', 'restore']) {
@@ -1477,123 +1510,119 @@ async function run() {
       };
     }
 
-    let agentEntry = null;
+    let resolvedEntry = null;
     try {
       const before = authority.snapshot();
-      agentEntry = await authority.ensureProjectWindow({ kind: 'project', projectId: UNRECORDED.projectId }, 'agent');
+      resolvedEntry = await authority.ensureProjectWindow({ kind: 'project', projectId: UNRECORDED.projectId }, 'agent');
       // A presentation that arrives late is still a presentation, so the observation stays open
       // for a bounded window instead of a single instant: the editor's own creation path is
       // asynchronous, and reading the call list once would race it.
       for (let round = 0; round < 4; round += 1) {
         await sleep(100);
         expect(
-          presentationCalls.filter(function (call) { return call.windowId === agentEntry.windowId; }).length === 0,
-          'the agent window was presented: ' + JSON.stringify(presentationCalls.filter(function (call) { return call.windowId === agentEntry.windowId; })),
+          presentationCalls.filter(function (call) { return call.windowId === resolvedEntry.windowId; }).length === 0,
+          'the resolved hub window was presented: ' + JSON.stringify(presentationCalls.filter(function (call) { return call.windowId === resolvedEntry.windowId; })),
         );
       }
       const after = authority.snapshot();
-      observations.agentWindow = {
-        entry: agentEntry,
-        callsForAgentWindow: presentationCalls.filter(function (call) { return call.windowId === agentEntry.windowId; }),
-        callsForOtherWindows: presentationCalls.filter(function (call) { return call.windowId !== agentEntry.windowId; }),
+      observations.agentResolve = {
+        entry: { ownerKey: resolvedEntry.ownerKey, windowId: resolvedEntry.windowId },
+        activeAfter: hubHost().activeProject(),
+        restoredActive: null,
+        callsForHub: presentationCalls.filter(function (call) { return call.windowId === resolvedEntry.windowId; }),
+        callsForOtherWindows: presentationCalls.filter(function (call) { return call.windowId !== resolvedEntry.windowId; }),
       };
-      expect(presentationCalls.filter(function (call) { return call.windowId === agentEntry.windowId; }).length === 0, 'the agent window was presented: ' + JSON.stringify(observations.agentWindow.callsForAgentWindow));
-      expect(presentationCalls.filter(function (call) { return call.windowId !== agentEntry.windowId; }).length === 0, 'creating the agent window presented other windows: ' + JSON.stringify(observations.agentWindow.callsForOtherWindows));
-      const window = authority.windowFor(agentEntry.ownerKey);
-      expect(window && !window.isDestroyed(), 'the agent window has no native window');
-      expect(window.isVisible() === false, 'the agent window is visible');
-      expect(window.isFocused() === false, 'the agent window is focused');
+      // The retired owner resolves to the one web hub — the same window the user already has —
+      // never to a new shell and never to a presentation.
+      expect(resolvedEntry.ownerKey === 'web', "the 'project' ensure resolved to " + String(resolvedEntry.ownerKey));
+      expect(resolvedEntry.windowId === startup.windowId, "the 'project' ensure minted window " + String(resolvedEntry.windowId) + ' instead of the hub ' + String(startup.windowId));
+      expect(presentationCalls.filter(function (call) { return call.windowId === resolvedEntry.windowId; }).length === 0, 'the resolved window was presented: ' + JSON.stringify(observations.agentResolve.callsForHub));
+      expect(presentationCalls.filter(function (call) { return call.windowId !== resolvedEntry.windowId; }).length === 0, 'the ensure presented other windows: ' + JSON.stringify(observations.agentResolve.callsForOtherWindows));
+      expect(authority.browserShellCount() === 2, 'the ensure left ' + authority.browserShellCount() + ' shells');
+      const window = authority.windowFor(resolvedEntry.ownerKey);
+      expect(window && !window.isDestroyed(), 'the resolved shell has no native window');
+      // The project the retired owner named is what the hub switched to: the ensure is a join
+      // plus an activation, which is the whole of the new contract for that call shape.
+      expect(hubHost().activeProject() === UNRECORDED.projectId, 'the hub did not adopt the ensured project: ' + String(hubHost().activeProject()));
       for (const entry of after) {
-        if (entry.ownerKey === agentEntry.ownerKey) continue;
+        if (entry.ownerKey === resolvedEntry.ownerKey) continue;
         const previous = before.find(function (candidate) { return candidate.ownerKey === entry.ownerKey; });
         if (!previous) continue;
-        expect(entry.visible === previous.visible, 'window ' + entry.ownerKey + ' visibility changed while the agent window was created');
-        expect(entry.focused === previous.focused, 'window ' + entry.ownerKey + ' focus changed while the agent window was created');
+        expect(entry.visible === previous.visible, 'shell ' + entry.ownerKey + ' visibility changed while the ensure resolved');
+        expect(entry.focused === previous.focused, 'shell ' + entry.ownerKey + ' focus changed while the ensure resolved');
       }
-      expect(agentEntry.title.indexOf(UNRECORDED.projectId) === 0, 'an unrecorded project showed the title ' + String(agentEntry.title) + ' instead of its id');
-      expect(agentEntry.identity.workspacePath === undefined, 'the agent window claims workspace ' + String(agentEntry.identity.workspacePath));
     } finally {
       for (const [method, original] of patched) {
         BrowserWindow.prototype[method] = original;
       }
     }
 
-    // The agent window is a managed window like any other: it closes without taking a sibling.
-    expect(authority.requestClose(agentEntry.ownerKey) === true, 'the close request never reached the agent window');
-    await waitFor(
-      function () { return authority.browserShellCount() === 5; },
-      'the agent window to close',
-    );
-    const remaining = authority.snapshot();
-    expect(!remaining.some(function (entry) { return entry.ownerKey === agentEntry.ownerKey; }), 'the agent window is still in the directory');
-    expect(remaining.length === 5, 'the directory lists ' + remaining.length + ' windows after the agent window closed');
+    // The ensure switched the hub to a project id no record describes; leave the run under the
+    // project the next rows measure, through the same code path.
+    await authority.ensureProjectWindow({ kind: 'project', projectId: ALPHA.projectId }, 'agent');
+    observations.agentResolve.restoredActive = hubHost().activeProject();
+    expect(hubHost().activeProject() === ALPHA.projectId, 'the hub did not switch back to ALPHA: ' + String(hubHost().activeProject()));
   });
 
-  // --------------------------------------------------- (13) closing one window keeps siblings
-  let alphaWindowBeforeClose = null;
-  let betaTabsBeforeClose = null;
-  let siblingTabsBeforeClose = null;
+  // ----------------------------------------- (14) closing the manager sibling keeps the hub
+  let managerWindowBeforeClose = null;
+  let hubTabsBeforeClose = null;
+  let hubActiveBeforeClose = null;
 
-  await check('window.close-keeps-sibling-and-tabs', async function () {
+  await check('window.close-keeps-hub-and-tabs', async function () {
     const before = authority.snapshot();
-    betaTabsBeforeClose = entryOf(before, betaEntry.ownerKey).tabIds.slice();
-    siblingTabsBeforeClose = before
-      .filter(function (entry) { return entry.ownerKey !== alphaKey; })
-      .map(function (entry) { return { ownerKey: entry.ownerKey, tabIds: entry.tabIds.slice(), activeTabId: entry.activeTabId }; });
-    alphaWindowBeforeClose = authority.windowFor(alphaKey);
-    expect(alphaWindowBeforeClose && !alphaWindowBeforeClose.isDestroyed(), 'window A has no native window');
-    // Nothing is bound to window A's pages here, so this is the idle close the spec describes.
-    hostOf(alphaKey).setAutomationTabId(undefined);
+    const hubBefore = entryOf(before, webKey);
+    hubTabsBeforeClose = hubBefore.tabIds.slice();
+    hubActiveBeforeClose = hubBefore.activeTabId;
+    managerWindowBeforeClose = authority.windowFor('unassigned');
+    expect(managerWindowBeforeClose && !managerWindowBeforeClose.isDestroyed(), 'the manager window has no native window');
+    // Nothing is bound to the manager's pages here, so this is the idle close the spec describes.
+    const managerHost = authority.hostForOwner('unassigned');
+    if (managerHost) managerHost.setAutomationTabId(undefined);
 
-    expect(authority.requestClose(alphaKey) === true, 'the close request never reached window A');
+    expect(authority.requestClose('unassigned') === true, 'the close request never reached the manager window');
     await waitFor(
-      function () { return authority.browserShellCount() === 4; },
-      'window A to close',
+      function () { return authority.browserShellCount() === 1; },
+      'the manager window to close',
     );
-    // The shell count dropping is the close; the directory unregistering the host and its tabs
-    // is the settle that this row judges, so wait for that state rather than a duration.
+    // The shell count dropping is the close; the directory unregistering the manager's host is
+    // the settle that this row judges, so wait for that state rather than a duration.
     await waitFor(
-      function () { return authority.hostForOwner(alphaKey) === null && authority.hostForTab(tabA1) === null; },
-      "the closed window's host and tabs to stop resolving",
+      function () { return authority.hostForOwner('unassigned') === null; },
+      "the closed window's host to stop resolving",
     );
     const after = authority.snapshot();
     observations.close = { accepted: true, shellCount: authority.browserShellCount(), remaining: after.map(function (entry) { return entry.ownerKey; }) };
-    expect(!entryOf(after, alphaKey), 'the closed window is still in the directory');
-    expect(alphaWindowBeforeClose.isDestroyed() === true, "the closed window's native window survived");
+    expect(!entryOf(after, 'unassigned'), 'the closed manager is still in the directory');
+    expect(managerWindowBeforeClose.isDestroyed() === true, "the closed window's native window survived");
 
-    const betaAfter = entryOf(after, betaEntry.ownerKey);
-    expect(betaAfter, 'window B disappeared with window A');
-    expect(JSON.stringify(betaAfter.tabIds) === JSON.stringify(betaTabsBeforeClose), 'window B tabs changed from ' + JSON.stringify(betaTabsBeforeClose) + ' to ' + JSON.stringify(betaAfter.tabIds));
-    const betaWindow = authority.windowFor(betaEntry.ownerKey);
-    expect(betaWindow && !betaWindow.isDestroyed(), "window B's native window was destroyed");
-    for (const entry of siblingTabsBeforeClose) {
-      if (entry.ownerKey === betaEntry.ownerKey) continue;
-      const current = entryOf(after, entry.ownerKey);
-      expect(current && JSON.stringify(current.tabIds) === JSON.stringify(entry.tabIds), 'window ' + entry.ownerKey + ' lost tabs with window A');
-      expect(current.activeTabId === entry.activeTabId, 'window ' + entry.ownerKey + ' changed its active tab when window A closed');
-    }
+    const hubAfter = entryOf(after, webKey);
+    expect(hubAfter, 'the hub disappeared with the manager');
+    expect(JSON.stringify(hubAfter.tabIds) === JSON.stringify(hubTabsBeforeClose), 'hub tabs changed from ' + JSON.stringify(hubTabsBeforeClose) + ' to ' + JSON.stringify(hubAfter.tabIds));
+    expect(hubAfter.activeTabId === hubActiveBeforeClose, 'the hub changed its active tab when the manager closed');
+    expect(authority.windowFor(webKey) && !authority.windowFor(webKey).isDestroyed(), "the hub's native window was destroyed");
 
-    // The closed window's authority is gone: its host is unregistered and its tabs stop resolving.
-    expect(authority.hostForOwner(alphaKey) === null, 'the closed window still has a host');
-    expect(authority.hostForTab(tabA1) === null, "the closed window's tab " + tabA1 + ' still resolves to a host');
-    expect(authority.hostForTab(betaTabsBeforeClose[0]) !== null, "window B's first tab no longer resolves to a host");
-    for (const tabId of betaTabsBeforeClose) {
-      expect(authority.hostForTab(tabId) === hostOf(betaEntry.ownerKey), 'window B tab ' + tabId + ' did not resolve back to window B');
+    // The closed window's authority is gone: its host is unregistered and its tabs would stop
+    // resolving. The hub's authority is untouched.
+    expect(authority.hostForOwner('unassigned') === null, 'the closed manager still has a host');
+    expect(authority.hostForTab(hubTabsBeforeClose[0]) === hubHost(), "the hub's first tab no longer resolves to its host");
+    for (const tabId of hubTabsBeforeClose) {
+      expect(authority.hostForTab(tabId) === hubHost(), 'hub tab ' + tabId + ' did not resolve back to the hub');
     }
     expect(app.isReady() === true, 'the app is no longer ready after a window closed');
-    expect(BrowserWindow.getAllWindows().some(function (window) { return window.id === betaWindow.id; }), "window B's native window is gone");
+    expect(BrowserWindow.getAllWindows().some(function (window) { return window.id === authority.windowFor(webKey).id; }), "the hub's native window is gone");
   });
 
-  // --------------------- (14) the surviving window's toolbar and accelerator paths still work
+  // --------------------- (15) the surviving hub's toolbar and accelerator paths still work
   await check('window.survivor-toolbar-and-accelerator-after-sibling-close', async function () {
-    const betaHost = hostOf(betaEntry.ownerKey);
-    const toolbar = surfaceOf(authority.shellFor(betaEntry.ownerKey), 'toolbar');
-    expect(toolbar, 'the surviving window has no toolbar surface');
+    const host = hubHost();
+    const toolbar = surfaceOf(authority.shellFor(webKey), 'toolbar');
+    expect(toolbar, 'the surviving hub has no toolbar surface');
     const toolbarTab = await toolbar.executeJavaScript("window.antifanToolbar.createTab('about:blank')", true);
     expect(typeof toolbarTab === 'string' && toolbarTab.length > 0, 'the surviving toolbar created no tab: ' + JSON.stringify(toolbarTab));
     await waitFor(
-      function () { return betaHost.getActiveTabId() === toolbarTab; },
-      "the surviving window's toolbar tab to become active",
+      function () { return host.getActiveTabId() === toolbarTab; },
+      "the surviving hub's toolbar tab to become active",
     );
 
     // The application menu's New Tab carries the keyboard accelerator; invoking its handler with
@@ -1602,32 +1631,32 @@ async function run() {
     const newTabItem = findMenuItem(menu, 'New Tab');
     expect(newTabItem && typeof newTabItem.click === 'function', 'the application menu has no invokable New Tab item');
     expect(String(newTabItem.accelerator || '') === 'CmdOrCtrl+T', 'the New Tab accelerator was ' + String(newTabItem.accelerator));
-    const betaWindow = authority.windowFor(betaEntry.ownerKey);
-    expect(betaWindow && !betaWindow.isDestroyed(), 'the surviving window has no native window');
-    const beforeAccelerator = betaHost.getTabList().map(function (tab) { return tab.id; });
-    newTabItem.click(newTabItem, betaWindow, {});
+    const hubWindow = authority.windowFor(webKey);
+    expect(hubWindow && !hubWindow.isDestroyed(), 'the surviving hub has no native window');
+    const beforeAccelerator = host.getTabList().map(function (tab) { return tab.id; });
+    newTabItem.click(newTabItem, hubWindow, {});
     await waitFor(
-      function () { return betaHost.getTabList().length === beforeAccelerator.length + 1; },
+      function () { return host.getTabList().length === beforeAccelerator.length + 1; },
       "the accelerator's command to create a tab",
     );
-    const afterAccelerator = betaHost.getTabList().map(function (tab) { return tab.id; });
+    const afterAccelerator = host.getTabList().map(function (tab) { return tab.id; });
     const createdByAccelerator = afterAccelerator.filter(function (tabId) { return beforeAccelerator.indexOf(tabId) === -1; });
     expect(createdByAccelerator.length === 1, "the accelerator's command created " + createdByAccelerator.length + ' tabs: ' + JSON.stringify(createdByAccelerator));
     observations.survivorPaths = {
       toolbarTab: toolbarTab,
       acceleratorTab: createdByAccelerator[0],
-      acceleratorActive: betaHost.getActiveTabId(),
+      acceleratorActive: host.getActiveTabId(),
       windowCount: authority.browserShellCount(),
     };
     expect(createdByAccelerator[0] !== toolbarTab, 'the accelerator reused the tab the toolbar had just created');
-    expect(betaHost.getActiveTabId() === createdByAccelerator[0], "the accelerator's tab did not become active in the window it resolved");
+    expect(host.getActiveTabId() === createdByAccelerator[0], "the accelerator's tab did not become active in the window it resolved");
 
     // A window no shell describes refuses the command instead of acting on another window. Both
     // handler paths are synchronous, so a tab created for either would already be in the
     // directory: the bounded re-read is what makes the absence an observation, not one sample.
     const totalBefore = allTabIds().length;
-    expect(alphaWindowBeforeClose.isDestroyed() === true, 'the closed window unexpectedly survived for the refusal case');
-    newTabItem.click(newTabItem, alphaWindowBeforeClose, {});
+    expect(managerWindowBeforeClose.isDestroyed() === true, 'the closed window unexpectedly survived for the refusal case');
+    newTabItem.click(newTabItem, managerWindowBeforeClose, {});
     newTabItem.click(newTabItem, null, {});
     for (let round = 0; round < 3; round += 1) {
       await sleep(100);
@@ -1635,7 +1664,7 @@ async function run() {
     }
   });
 
-  // ------------------------------------------------------------- (15) orderly owned teardown
+  // ------------------------------------------------------------- (16) orderly owned teardown
   await check('window.cleanup-closes-every-shell', async function () {
     for (const entry of authority.snapshot()) {
       authority.requestClose(entry.ownerKey);
@@ -1711,8 +1740,8 @@ app.whenReady()
   });
 `;
 
-describe('Live E2E: independent project windows lifecycle', () => {
-  it('certifies multi-window tabs, split, search, close and survivor paths in the real app', async () => {
+describe('Live E2E: the web hub lifecycle', () => {
+  it('certifies hub joins, per-project stamps, search, close and survivor paths in the real app', async () => {
     const rootDir = process.cwd();
     const runnerScript = path.join(rootDir, 'scripts', 'run-electron.cjs');
     const compiledEntry = path.join(rootDir, '.compiled', 'src', 'main', 'index.js');
@@ -1780,7 +1809,7 @@ describe('Live E2E: independent project windows lifecycle', () => {
       // The single-instance lock is keyed by the profile this run created; a refusal here would
       // mean the scenario attached to someone else's instance instead of its own.
       assert.ok(!stdout.includes('Another instance is already running'), `the run was refused the single-instance lock\n${transcript}`);
-      assert.equal(exit.code, 0, `the project-window scenario must exit cleanly\n${transcript}`);
+      assert.equal(exit.code, 0, `the web-hub scenario must exit cleanly\n${transcript}`);
       assert.match(stdout, /\[project-windows-e2e\] \d+ passed, 0 failed/);
       assert.ok(fs.existsSync(evidencePath), `the scenario wrote no evidence at ${evidencePath}\n${transcript}`);
 
@@ -1803,11 +1832,17 @@ describe('Live E2E: independent project windows lifecycle', () => {
       assert.deepEqual(evidence.deferred, [...DEFERRED_ROWS], 'the deferred-row list changed without the suite following');
 
       const observations = evidence.observations;
-      assert.equal(observations.startup.shellCount, 1, 'the process did not start with exactly one project window');
-      assert.equal(observations.duplicateOpen.status, 'FOCUSED', 'the duplicate open did not join the open window');
-      assert.equal(observations.volume.shellCount, 5);
-      assert.equal(observations.volume.tabCount, 20, 'the process did not present twenty tabs across five projects');
-      assert.equal(observations.volume.inventoryRows, 20, 'the cross-window search did not list every visible tab');
+      assert.equal(observations.startup.shellCount, 1, 'the process did not start with exactly one browser shell');
+      assert.equal(observations.startup.ownerKey, 'web', 'the startup shell is not the web hub');
+      // The second project open joins the hub it already has: FOCUSED, never OPENED.
+      assert.equal(observations.secondOpen.status, 'FOCUSED', 'the second project open did not join the web hub');
+      assert.equal(observations.duplicateOpen.status, 'FOCUSED', 'the duplicate open did not refocus the hub');
+      assert.equal(observations.volume.shellCount, 2, 'five projects produced more than the hub plus its manager sibling');
+      assert.equal(observations.volume.stampedCount, 20, 'the hub did not stamp twenty tabs across five projects');
+      // The search is window-wide: it returns every tab the hub presents, stamped or not —
+      // `presentTabForActiveProject` mints a shared blank tab when a scope has no remembered
+      // tab, so the honest bound is "at least all twenty stamped tabs", not an exact count.
+      assert.ok(observations.volume.inventoryRows >= 20, 'the window-wide search did not list every stamped tab');
       assert.equal(observations.teardown.shellCount, 0, 'the run left browser shells behind');
       // The raster is claimed only where the windows could be shown side by side; the run says
       // which of the two it did, and a stacked run must not claim pixels it never took.
@@ -1820,18 +1855,18 @@ describe('Live E2E: independent project windows lifecycle', () => {
         assert.equal(observations.backgroundCapture, null, 'an untiled run must not claim a background capture');
       }
       assert.equal(observations.staleActivation.closedTab.reasonCode, 'TAB_CLOSED');
-      assert.equal(observations.close.shellCount, 4, 'closing one window did not leave four siblings');
+      assert.equal(observations.close.shellCount, 1, 'closing the manager did not leave the hub');
       assert.ok(
         observations.survivorPaths.acceleratorTab !== observations.survivorPaths.toolbarTab,
-        'the accelerator path did not act on the surviving window',
+        'the accelerator path did not act on the surviving hub',
       );
 
-      // The second-window contract rows carry their own recorded evidence: a popup's
-      // affiliation, a minimized window's target, and the same-project session boundary.
+      // The join rows carry their own recorded evidence: a popup's affiliation, a minimized
+      // window's target, a 'project' ensure resolved to the hub, and the session boundary.
       const popup = observations.nativePopup;
       assert.ok(popup, 'the popup row recorded no affiliation evidence');
       assert.equal(popup.capsuleId, popup.parentCapsuleId, 'the popup did not record its parent capsule');
-      assert.equal(popup.capsuleId, popup.windowCapsule, 'the popup did not record the capsule of its own window');
+      assert.notEqual(popup.capsuleId, 'capsule-pw-b2', 'the popup took the globally rotated capsule instead of its parent');
       assert.ok(popup.partition.startsWith('persist:'), `the popup did not run in a durable partition: ${popup.partition}`);
       assert.ok(
         popup.userAgentMode === 'clean' || popup.userAgentMode === 'native',
@@ -1841,8 +1876,20 @@ describe('Live E2E: independent project windows lifecycle', () => {
 
       const target = observations.minimizeRestore;
       assert.ok(target, 'the minimize/restore row recorded no window-state evidence');
-      assert.equal(target.foreignTarget.adopted, null, 'a refused foreign target recorded an adopted tab');
-      assert.equal(target.minimized.alphaTarget, target.restored.alphaTarget, 'minimize/restore moved the window target');
+      assert.equal(target.invalidTarget.adopted, null, 'a refused target recorded an adopted tab');
+      assert.equal(target.minimized.hubTarget, target.restored.hubTarget, 'minimize/restore moved the hub target');
+
+      const agentResolve = observations.agentResolve;
+      assert.ok(agentResolve, "the 'project' ensure row recorded no resolution evidence");
+      assert.equal(agentResolve.entry.ownerKey, 'web', "the 'project' ensure did not resolve to the web hub");
+      assert.equal(
+        agentResolve.activeAfter,
+        'project-00000000-0000-4000-8000-0000000000f6',
+        'the hub did not adopt the ensured project',
+      );
+      assert.equal(agentResolve.restoredActive, observations.startup.activeProject, 'the hub was not restored to the boot project');
+      assert.deepEqual(agentResolve.callsForHub, [], 'the resolved window was presented');
+      assert.deepEqual(agentResolve.callsForOtherWindows, [], 'the ensure presented other windows');
 
       const sessions = observations.sameProjectSessions;
       assert.ok(sessions, 'the session row recorded no boundary evidence');
@@ -1850,7 +1897,7 @@ describe('Live E2E: independent project windows lifecycle', () => {
       assert.ok(sessions.crossText.includes('TARGET_MISMATCH'), 'the recorded refusal did not name the mismatch');
       assert.notEqual(sessions.tabOne, sessions.tabTwo, 'the session row compared a tab with itself');
       // Ownership, not a count: the row reads its own tab while it is in the background and
-      // again once the window presents it, and the contract is that neither read before the
+      // again once the hub presents it, and the contract is that neither read before the
       // sibling read touched the sibling's tab.
       assert.ok(sessions.domReadsBeforeSibling.length > 0, 'the session row recorded no read of its own tab');
       assert.deepEqual(

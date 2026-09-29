@@ -3537,6 +3537,7 @@ export class BridgeServer {
     if (!this.hostTabExists(effective)) {
       return { code: 'TARGET_CLOSED', error: `TARGET_CLOSED: Target tab '${candidateTabId}' not found or destroyed` };
     }
+    this.tabHost.noteAgentTabActivity?.(effective);
     return { tabId: effective };
   }
 

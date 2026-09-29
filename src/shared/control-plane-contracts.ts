@@ -129,6 +129,9 @@ export interface ProjectRecord {
   state: 'open' | 'closed';
   createdAt: number;
   updatedAt: number;
+  /** Project-level appearance shared by the picker and the Terminal Manager; absent when never set. */
+  color?: string;
+  starred?: boolean;
 }
 
 export interface WorkspaceRecord {

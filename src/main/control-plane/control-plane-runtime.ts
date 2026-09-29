@@ -1,4 +1,5 @@
 import * as fs from 'node:fs';
+import { parseOwnerKey } from '../project/project-context';
 import * as path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { recordBenchmark } from '../benchmark/telemetry';
@@ -520,12 +521,15 @@ export class ControlPlaneRuntime {
     // unknown would refuse every terminal the daemon owns — the whole surface this gate must
     // keep working. Provenance that the proxy cannot report is the daemon's problem to expose,
     // not a reason to guess at mint time.
-    if (typeof owner === 'string' && owner.startsWith('project:')) {
+    const parsedOwner = parseOwnerKey(owner);
+    if (parsedOwner.kind === 'malformed') {
       // A `project:`-prefixed key is a project claim even when its id is malformed: an
       // empty id is a corrupted stamp, not the absence of one, so it must not fall
       // through to the ambient path.
-      const claimedProjectId = owner.slice('project:'.length).trim();
-      if (!claimedProjectId) return { kind: 'unmeasurable' };
+      return { kind: 'unmeasurable' };
+    }
+    if (parsedOwner.kind === 'project') {
+      const claimedProjectId = parsedOwner.projectId;
       try {
         const workspaces = this.projects.listWorkspaces(claimedProjectId).filter((w) => w.state === 'attached');
         const sole = workspaces.length === 1 ? workspaces[0] : undefined;

@@ -15,6 +15,7 @@ import { randomUUID, createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { performance } from 'node:perf_hooks';
 import { StorageLocations } from '../config/storage-locations';
+import { parseOwnerKey } from '../project/project-context';
 import { openSpace, createConfirmationStore, type SpaceOpenDeps } from '../project/space-open';
 import { buildSpaceTemplate, writeSpaceManifestExclusive, antifanDirUnignoredInGit } from '../project/space-manifest';
 import type { SpaceInitResult } from '../../shared/contracts';
@@ -101,6 +102,7 @@ import {
   migratePersistedTab,
 } from './split-review-coordinator';
 import { shouldHibernate, HIBERNATE_IDLE_MS, HIBERNATE_SWEEP_INTERVAL_MS, type HibernationContext } from './tab-hibernation';
+import { shouldReapAgentTab, AGENT_TAB_IDLE_MS, AGENT_TAB_REAP_SWEEP_INTERVAL_MS, type ReapingContext } from './tab-reaping';
 export interface NativeTabHostResourceStats {
   disposed: boolean;
   tabCount: number;
@@ -152,11 +154,8 @@ export const SAVED_TABS_SCHEMA_VERSION = 2;
 /** Owner key of the Unassigned window; derived, never a second literal. */
 const UNASSIGNED_OWNER_KEY = ownerKey({ kind: 'unassigned' });
 
-/**
- * Owner-key prefix of a session an agent created (`window-owner.ts` spells the window
- * owners; this is the third class, and no window ever carries it).
- */
-const AGENT_OWNER_KEY_PREFIX = 'agent:';
+/** Owner key of the 'web' hub shell; derived, never a second literal. */
+const WEB_OWNER_KEY = ownerKey({ kind: 'web' });
 
 /**
  * Why handing one session to a project window was refused. One vocabulary for the route's own
@@ -245,6 +244,8 @@ export interface SavedTabsOwnerRecord {
   wasSidebarOpenBeforePopout?: boolean;
   popoutSessionId?: string;
   updatedAt: number;
+  /** The web hub's presented project at persist time; only the 'web' owner carries it. */
+  activeProjectId?: string;
 }
 
 /**
@@ -446,6 +447,7 @@ export function normalizeSavedTabsDocument(data: Record<string, unknown>): { doc
       if ('isTerminalPopoutOpen' in value && typeof value.isTerminalPopoutOpen === 'boolean') record.isTerminalPopoutOpen = value.isTerminalPopoutOpen;
       if ('wasSidebarOpenBeforePopout' in value && typeof value.wasSidebarOpenBeforePopout === 'boolean') record.wasSidebarOpenBeforePopout = value.wasSidebarOpenBeforePopout;
       if ('popoutSessionId' in value && typeof value.popoutSessionId === 'string') record.popoutSessionId = value.popoutSessionId;
+      if ('activeProjectId' in value && typeof value.activeProjectId === 'string') record.activeProjectId = value.activeProjectId;
       existingOwners[key] = record;
     }
   }
@@ -504,6 +506,97 @@ function enqueueSavedTabsWrite<T>(filePath: string, task: () => Promise<T>): Pro
   const run = previous.then(task, task);
   savedTabsWriteChains.set(filePath, run.then(() => undefined, () => undefined));
   return run;
+}
+
+/**
+ * The saved-tabs file's canonical location: the Chromium user-data directory a live
+ * app reports, the ANTIFAN_* override an isolated harness pins, or the config dir when
+ * Electron never materialized. Reading this without a host is what lets a removal
+ * purge persisted rows while no window exists to reach a file.
+ */
+export function savedTabsFilePath(): string {
+  const userData = process.env.ANTIFAN_USER_DATA
+    || process.env.ANTIFAN_USER_DATA_DIR
+    || (app ? app.getPath('userData') : '')
+    || StorageLocations.getConfigDir();
+  if (!fs.existsSync(userData)) {
+    try { fs.mkdirSync(userData, { recursive: true }); } catch {}
+  }
+  return path.join(userData, 'saved-tabs.json');
+}
+
+/** Raw parse of the saved-tabs file; null when absent, unreadable or not an object. */
+function readSavedTabsFile(filePath: string): Record<string, unknown> | null {
+  try {
+    if (!fs.existsSync(filePath)) return null;
+    const parsed: unknown = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    return parsed as Record<string, unknown>;
+  } catch (err) {
+    console.warn('[native-tab-host] Failed to read saved tabs:', err);
+    return null;
+  }
+}
+
+/**
+ * The one atomic write of the saved-tabs document. Throws on failure so a caller
+ * can retain what it was replacing; a partially written temp file is removed so it
+ * can never be mistaken for the document.
+ */
+function writeSavedTabsDocumentSync(filePath: string, document: SavedTabsDocument): void {
+  const tempPath = `${filePath}.tmp.${Date.now()}.${Math.random().toString(36).slice(2, 8)}`;
+  const json = JSON.stringify(document, null, 2);
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  try {
+    fs.writeFileSync(tempPath, json, 'utf8');
+    fs.renameSync(tempPath, filePath);
+  } catch (err) {
+    try { fs.rmSync(tempPath, { force: true }); } catch {}
+    throw err;
+  }
+}
+
+/**
+ * Purge one project's persisted rows from the 'web' owner record — the removal path's
+ * work when no live window exists to host it. Identical semantics to the instance
+ * method: absent file removes nothing, a present-but-unreadable file throws because
+ * the removal cannot prove the project's persisted tabs are gone.
+ */
+export function purgeSavedTabsFileForProject(filePath: string, projectId: string): Promise<number> {
+  const id = typeof projectId === 'string' ? projectId.trim() : '';
+  if (!id) return Promise.resolve(0);
+  return enqueueSavedTabsWrite(filePath, async () => {
+    const data = readSavedTabsFile(filePath);
+    // readSavedTabsFile cannot tell "no file" from "a file it could not parse":
+    // both come back null. Absent is empty and answers 0; present-but-unreadable
+    // is not — the removal cannot prove the project's persisted tabs are gone,
+    // so it fails closed instead of reporting a clean purge.
+    if (!data) {
+      if (fs.existsSync(filePath)) {
+        throw new Error(`saved-tabs.json at '${filePath}' exists but is unreadable or corrupt; refusing to purge '${id}'`);
+      }
+      return 0;
+    }
+    const { document } = normalizeSavedTabsDocument(data);
+    const record = document.owners[ownerKey({ kind: 'web' })];
+    const tabs = record && Array.isArray(record.tabs) ? record.tabs : [];
+    const kept = tabs.filter((t) => t && t.projectId !== id);
+    const removed = tabs.length - kept.length;
+    // A persisted presented-project pointer at the removed project would resurrect it
+    // on the next boot whenever the restore's knownness check still passes (the boot
+    // project always does), so it goes with the rows even when no row matched.
+    const clearsActive = Boolean(record && record.activeProjectId === id);
+    if (removed === 0 && !clearsActive) return 0;
+    if (record) {
+      record.tabs = kept;
+      if (clearsActive) delete record.activeProjectId;
+      if (record.activeTabId && !kept.some((t) => t && (t.id === record.activeTabId || (t.state as Record<string, unknown> | undefined)?.id === record.activeTabId))) {
+        delete record.activeTabId;
+      }
+    }
+    writeSavedTabsDocumentSync(filePath, document);
+    return removed;
+  });
 }
 
 /**
@@ -824,11 +917,24 @@ export interface NativeTabRecord {
   redirectChain?: string[];
   lastNavigationFailure?: { cause: string; message: string; timedOut: boolean };
   /**
+   * The project this tab was minted under while it was the web hub's active
+   * project (`setActiveProject`), or undefined for a tab minted with no active
+   * project. Stamping — not deriving — is what lets one 'web' window hold tabs
+   * of several projects at once: the key never re-resolves when the hub's
+   * active project changes. Persisted in saved-tabs as an optional field and
+   * restored verbatim; only the 'web' shell stamps it.
+   */
+  projectId?: string;
+  /**
    * Wall time the tab was last active or saw user input; the hibernation sweep
    * measures idleness from it. Never persisted — a restored tab starts at 0
    * (the idlest possible value), which is correct: it was not touched.
    */
   lastActiveAt?: number;
+  /** Last time an agent operation resolved this tab as its target. Distinct from
+   * `lastActiveAt` (which feeds hibernation): the agent-tab reaper uses this to
+   * tell a live-but-unclaimed automation tab from an orphan. */
+  agentActivityAt?: number;
 }
 
 /**
@@ -1060,11 +1166,21 @@ export interface SwitchTabOptions {
 }
 
 /** Why an activation was refused, in the shared capability vocabulary. */
-export type SwitchTabRefusalReason = 'TARGET_MISSING' | 'TARGET_NOT_ACTIVATABLE' | 'ACTIVATION_DEFERRED_USER_INPUT';
+export type SwitchTabRefusalReason = 'TARGET_MISSING' | 'TARGET_NOT_ACTIVATABLE' | 'ACTIVATION_DEFERRED_USER_INPUT' | 'PROJECT_MISMATCH';
 
 export type SwitchTabResult =
   | { ok: true; tabId: string }
   | { ok: false; tabId: string; reason: SwitchTabRefusalReason; retryAfterMs?: number };
+
+/**
+ * The project display facts the web hub's identity needs for its active project:
+ * Main resolves these through `resolveWindowRecord` — the same source the Terminal
+ * Manager's rows and the shell's own title read — and installs the resolver per host
+ * so this module never reaches across to Main. `undefined` means Main holds no
+ * validated record for the id, which is also the restore-path knownness check.
+ */
+export type WebHubProjectDescriptor = { title: string; pathLabel?: string };
+export type WebHubProjectDescriptorResolver = (projectId: string) => WebHubProjectDescriptor | undefined;
 /**
  * How recent user input has to be for an agent-plane activation to defer. The
  * window counts deliberate input only (keyDown, char, mouseDown, pointerDown,
@@ -1132,6 +1248,51 @@ export class NativeTabHost extends EventEmitter {
    * focus or from the process-wide active capsule.
    */
   private windowWorkspaceAffiliation: WindowWorkspaceAffiliation | null = null;
+  /**
+   * The project the 'web' hub shell is currently presenting — set by Main's
+   * window routing (S1's `openProjectWindow` path). It is NOT the workspace
+   * affiliation: that stays a separate verified fact this setter never touches.
+   * The value is read at mint time only — new web tabs are stamped `projectId`
+   * (see `NativeTabRecord.projectId`) and new terminals mint under
+   * `project:<id>` (see `terminalMintOwnerKey`).
+   */
+  private activeProjectId: string | null = null;
+  /**
+   * The tab the web hub most recently presented under each project. Updated on
+   * every successful activation: a stamped tab records under its own stamp, a
+   * shared (unstamped) tab records under the project being presented at the time.
+   * This is a memory, not an authority — a gone or re-stamped entry is skipped on
+   * read, and the map is pruned when a tab closes.
+   */
+  private lastActiveTabByProject: Map<string, string> = new Map();
+  /**
+   * The delegate Main installs to run a foreign-project activation: when a user-plane
+   * switch presents a tab stamped with a different project, the host emits the id
+   * here instead of writing `activeProjectId` itself, so the affiliation and the
+   * identity change together on the one `activateWebHubProject` path.
+   */
+  private foreignProjectActivatedHandler: ((projectId: string) => void) | null = null;
+  /** See `setOpenTerminalManagerHandler`. */
+  private openTerminalManagerHandler: (() => void) | null = null;
+  /**
+   * Depth of in-flight `closeTabsForProject` loops. While a project's tabs are being
+   * torn down, each close repoints presentation onto the next tab — often one of the
+   * same dying project — and a flip there would hand Main the project it is removing.
+   */
+  private foreignFlipSuppressed = 0;
+  /**
+   * Main's validated-record lookup for a project id: titles the hub identity and
+   * doubles as the knownness oracle the restore path validates a persisted active
+   * project against. Absent means this host answers from its own fields alone.
+   */
+  private webHubProjectDescriptorResolver: WebHubProjectDescriptorResolver | null = null;
+  /**
+   * `restoreTabs` has run to its end (success or not). `setActiveProject` repoints
+   * the presented tab only after this point: at boot the call lands before the
+   * persisted rows are read, and a repoint then would mint a stray default tab
+   * ahead of the restore.
+   */
+  private hasRestoredTabs = false;
   /**
    * Canonical folder facts per input path spelling — `folderKey`/`folderLabel` are stamped on
    * every session row of every window's projection, so each realpath the stamping needs is
@@ -1224,6 +1385,13 @@ export class NativeTabHost extends EventEmitter {
    * the probe/test seam may narrow it via `setHibernationIdleMsForTesting`.
    */
   private hibernationIdleMs: number = HIBERNATE_IDLE_MS;
+  /**
+   * The 60s sweep that closes leaked offscreen agent tabs (unclaimed + idle).
+   * Same shape as the hibernation sweep: lazy, `unref`'d, cleared in `dispose`.
+   */
+  private agentTabReapSweepTimer: NodeJS.Timeout | null = null;
+  /** Idle threshold for the reap sweep; test seam may narrow it. */
+  private agentTabReapIdleMs: number = AGENT_TAB_IDLE_MS;
   /** Tabs currently being destroyed by the hibernation sweep; their `destroyed`/`close` listeners must not run `closeTab`. */
   private hibernatingTabIds = new Set<string>();
   /** Tabs whose beforeunload vetoed a sleep probe in this cycle — never re-probed. */
@@ -1780,6 +1948,7 @@ export class NativeTabHost extends EventEmitter {
     // THIS window only, so it is created here with the subscriptions and cleared
     // by dispose. The timer is unref'd — it never keeps the process alive.
     this.ensureHibernationSweep();
+    this.ensureAgentTabReapSweep();
 
     this.setupTerminalSubscriptions();
     this.setupVaultIpc();
@@ -3505,34 +3674,34 @@ export class NativeTabHost extends EventEmitter {
       // The window mint is synchronous, so the asking window's own close is an assert too,
       // not a held admission: one synchronous step, no interleave to measure.
       host.assertOwnerAdmitsHostWork('antifan:terminal:popout', host.shellOwnerKeyForSender(event?.sender?.id));
-      return host.togglePopoutTerminal();
+      return host.openTerminalManager();
     },
   },
   {
     channel: TERMINAL_CHANNELS.NEW_WINDOW,
     surface: ['sidebar', 'terminalPopout'],
-    run: ({ host }, event, args) => {
-      const opts = args[0] as { sessionId?: string } | undefined;
+    run: ({ host }, event) => {
       // Same mint, same gate as the popout: a window opened into a committed teardown
       // would register its terminal after the quit passed the point of no return.
       host.assertApplicationAdmitsHostWork('antifan:window:new');
       // The window mint is synchronous, so the asking window's own close is an assert too,
       // not a held admission: one synchronous step, no interleave to measure.
       host.assertOwnerAdmitsHostWork('antifan:window:new', host.shellOwnerKeyForSender(event?.sender?.id));
-      return host.openNewTerminalWindow(opts?.sessionId);
+      return host.openTerminalManager();
     },
   },
   {
     channel: TERMINAL_CHANNELS.CLOSE_WINDOW,
     surface: ['sidebar', 'terminalPopout'],
     run: ({ host }, event) => {
+      // No popout window exists anymore: the only honest semantics left is to close the
+      // window that asked — the sender's own shell included.
       const senderWin = (event?.sender ? BrowserWindow.fromWebContents(event.sender) : null);
-      if (senderWin && !senderWin.isDestroyed() && senderWin !== host.shell.window) {
+      if (senderWin && !senderWin.isDestroyed()) {
         senderWin.close();
-      } else if (host.popoutWindow && !host.popoutWindow.isDestroyed()) {
-        host.popoutWindow.close();
+        return true;
       }
-      return true;
+      return false;
     },
   },
   {
@@ -3553,35 +3722,6 @@ export class NativeTabHost extends EventEmitter {
         { ownerKey: host.shellOwnerKeyForSender(event?.sender?.id) },
         () => TerminalManager.getInstance().switchSession(sessionId)
       );
-    },
-  },
-  {
-    channel: TERMINAL_CHANNELS.REDOCK,
-    surface: ['sidebar', 'terminalPopout'],
-    run: ({ host }, event) => {
-      const senderWin = (event?.sender ? BrowserWindow.fromWebContents(event.sender) : null);
-      if (senderWin && !senderWin.isDestroyed() && senderWin !== host.shell.window) {
-        senderWin.close();
-        if (host.wasSidebarOpenBeforePopout && !host.shell.isSidebarOpen) {
-          host.toggleSidebar();
-        }
-        host.wasSidebarOpenBeforePopout = false;
-      } else if (host.popoutWindow && !host.popoutWindow.isDestroyed()) {
-        host.popoutWindow.close();
-      } else {
-        if (host.wasSidebarOpenBeforePopout && !host.shell.isSidebarOpen) {
-          host.toggleSidebar();
-        }
-        host.wasSidebarOpenBeforePopout = false;
-      }
-      return true;
-    },
-  },
-  {
-    channel: TERMINAL_CHANNELS.GET_POPOUT_STATE,
-    surface: ['sidebar', 'terminalPopout'],
-    run: ({ host }) => {
-      return Boolean(host.popoutWindow && !host.popoutWindow.isDestroyed());
     },
   },
   {
@@ -4552,19 +4692,28 @@ export class NativeTabHost extends EventEmitter {
         return refused('PROJECT_UNAVAILABLE', `Project '${projectId}' has no unambiguous terminal assignment`);
       }
       const ownerKeyValue = ownerKey({ kind: 'project', projectId });
-      // A row's owner key IS the window that renders it, so the move is only legal onto a window
-      // that exists: a project-owned row no window claims would be visible to no window at all.
-      // Opening that window is the renderer's step (the same `openProject` call a user's own open
-      // goes through); this route never creates a window.
-      if (!host.ownerWindowPresenceFor(ownerKeyValue)) {
-        return refused('TARGET_WINDOW_ABSENT', `No open window owns '${ownerKeyValue}'`);
+      // No per-project window exists, and the Terminal Manager renders every `project:` row
+      // whether or not the web hub is open, so the target is always a window that can show
+      // the row; the visibility and manager gates below decide whether *this* sender may act.
+      if (!host.ownerWindowPresenceFor(ownerKey({ kind: 'unassigned' })) && !host.isSharedTerminalManagerSender(event?.sender?.id)) {
+        return refused('TARGET_WINDOW_ABSENT', 'No open Terminal Manager can show the moved session');
       }
       // The manager reads every row; it drives none of the agent-owned ones. A window that cannot
       // even see the session has no authority over it either, which is what keeps one project's
       // terminal from being re-homed by another project's window.
       const gate = host.assertManagerMayOperate(sessionId, event?.sender?.id);
       if (gate !== true) return refused(gate.reason, gate.message);
-      if (!host.isSessionVisibleToWindow(sessionId, undefined, event?.sender?.id)) {
+      // The web hub is every project's window, but its live scope is only the project it
+      // presents — and the shipped move flow switches that scope before this IPC resolves
+      // (`openProject` then `assignTerminalProject`), which would hide the source row and refuse
+      // its own user's gesture. The hub therefore re-homes a project/web/unassigned row without
+      // presenting it first; agent-owned rows keep the strict visibility check because the hub
+      // is never their owner.
+      const senderOwnerKey = host.shellOwnerKeyForSender(event?.sender?.id);
+      const rowKind = parseOwnerKey(TerminalManager.getInstance().sessionOwnerKey(sessionId) || '').kind;
+      const hubRowVisible = senderOwnerKey === WEB_OWNER_KEY
+        && (rowKind === 'project' || rowKind === 'unassigned' || rowKind === 'web');
+      if (!hubRowVisible && !host.isSessionVisibleToWindow(sessionId, undefined, event?.sender?.id)) {
         return refused('SESSION_NOT_VISIBLE', `Session '${sessionId}' does not belong to this window`);
       }
       const capsuleId = assignment.capsuleId;
@@ -4630,7 +4779,7 @@ export class NativeTabHost extends EventEmitter {
       // never saw the row is told so, and only a caller with neither objection - a popout
       // presenting the agent's own session, whose host-scope check passes - reaches this one,
       // where the honest answer is that no project window owns the row to open the link in.
-      if (ownerKeyValue.startsWith(AGENT_OWNER_KEY_PREFIX)) {
+      if (parseOwnerKey(ownerKeyValue).kind === 'agent') {
         return refused('TERMINAL_OWNER_UNAVAILABLE', `Session '${sessionId}' is owned by an agent, not a project window`);
       }
       const opener = host.terminalLinkOpener;
@@ -4815,7 +4964,18 @@ export class NativeTabHost extends EventEmitter {
     return path.join(process.cwd(), 'src', 'renderer', 'standalone.html');
   }
 
+  /**
+   * True for the shared Terminal Manager: a terminals-only window with no page area or tabs.
+   * Only an explicit `unassigned` owner qualifies; a host whose shell carries no owner keeps
+   * the browser behaviour (default tab, closable sidebar) rather than losing its pages.
+   */
+  private isTerminalOnlyWindow(): boolean {
+    return this.shell?.owner?.kind === 'unassigned';
+  }
+
   public toggleSidebar(): boolean {
+    // The Terminal Manager's sidebar is the whole window; closing it would leave nothing.
+    if (this.isTerminalOnlyWindow()) return true;
     this.shell.isSidebarOpen = !this.shell.isSidebarOpen;
     this.updateLayout();
     this.broadcastState();
@@ -6259,6 +6419,10 @@ export class NativeTabHost extends EventEmitter {
         const isAttached = Boolean(tab.view && this.isTabViewAttached(tab.view));
         return {
           ...tab.state,
+          // The stamp lives on the record, not the state, so the spread never
+          // carries it: the strip's project filter and the search inventory read
+          // the wire field and must see it on every row.
+          projectId: tab.projectId,
           customViewport: tab.customViewport,
           attached: isAttached,
           isAgentControlled: id === this.automationTabId,
@@ -6285,6 +6449,7 @@ export class NativeTabHost extends EventEmitter {
       const isAttached = Boolean(tab.view && this.isTabViewAttached(tab.view));
       records.push({
         ...tab.state,
+        projectId: tab.projectId,
         customViewport: tab.customViewport,
         attached: isAttached,
         isAgentControlled: tab.state.ephemeral === true || tab.state.offscreen === true || id === this.automationTabId,
@@ -6341,6 +6506,234 @@ export class NativeTabHost extends EventEmitter {
   }
 
   /**
+   * Set (or clear) the project the 'web' hub shell is presenting. Main calls
+   * this on `openProjectWindow({projectId})` and calls
+   * `setWindowWorkspaceAffiliation` separately — the two facts are different
+   * authorities and this setter deliberately does not re-resolve the
+   * affiliation. A blank id normalizes to null.
+   *
+   * On the 'web' shell the presented tab and the active project may never
+   * disagree, so a change also repoints the strip: the remembered tab for the
+   * new project if it still exists, else that project's most recent tab, else a
+   * fresh tab minted under it (stamped by `createTab`). Clearing the project
+   * repoints to the newest shared tab instead. Every call ends with a state
+   * broadcast so the identity the chrome paints can never lag the switch.
+   * Non-web shells keep the original field-only behaviour: the map and the
+   * repoint are hub concerns.
+   */
+  public setActiveProject(projectId: string | null): void {
+    const id = typeof projectId === 'string' ? projectId.trim() : '';
+    this.activeProjectId = id ? id : null;
+    // The repoint is a live-switch concern: during boot (restore not run yet) the
+    // window owns no tabs to repoint and creating one would shadow the restore.
+    if (this.windowOwnerKey() === WEB_OWNER_KEY && !this.isDisposed && this.hasRestoredTabs) {
+      this.presentTabForActiveProject();
+    }
+    this.broadcastState();
+  }
+
+  /**
+   * The tab Main's user-facing project switch should land on, or '' when the
+   * project owns no strip tab at all. The remembered tab wins while it still
+   * exists and still carries the stamp; after it the newest `lastActiveAt` among
+   * the project's tabs, with strip order breaking the all-zero restore tie.
+   * `projectId === null` means the shared pool: tabs with no stamp.
+   */
+  private presentationCandidateForProject(projectId: string | null): string {
+    if (projectId) {
+      const remembered = this.lastActiveTabByProject?.get(projectId);
+      if (remembered) {
+        const tab = this.tabs.get(remembered);
+        if (tab && tab.projectId === projectId && tab.state.ephemeral !== true && tab.state.offscreen !== true) {
+          return remembered;
+        }
+      }
+    }
+    let best = '';
+    let bestActiveAt = -1;
+    for (const tabId of this.tabOrder ?? []) {
+      const tab = tabId ? this.tabs.get(tabId) : undefined;
+      if (!tab) continue;
+      if (tab.state.ephemeral === true || tab.state.offscreen === true) continue;
+      const stamped = typeof tab.projectId === 'string' && tab.projectId ? tab.projectId : undefined;
+      if ((stamped ?? null) !== projectId) continue;
+      const at = typeof tab.lastActiveAt === 'number' ? tab.lastActiveAt : 0;
+      // `>=` keeps the later tab on an exact tie, which matters on restore where
+      // lastActiveAt repays equal (0) for every tab: the freshest strip row wins.
+      if (at >= bestActiveAt) {
+        bestActiveAt = at;
+        best = tabId;
+      }
+    }
+    return best;
+  }
+
+  /**
+   * Reconcile the presented pane with `activeProjectId` after a project change.
+   * A presented tab that already satisfies the scope (stamped with the project, or
+   * shared) is remembered and left in place — re-activating the same tab under a
+   * new project would flash the strip for no user-visible gain. All activation
+   * goes through `this.switchTab` so the flip bookkeeping and the deferral gate
+   * see the same call.
+   */
+  private presentTabForActiveProject(): void {
+    const activeId = this.activeProjectId;
+    const presented = this.activeTabId ? this.tabs.get(this.activeTabId) : undefined;
+    const presentedStamp = presented && typeof presented.projectId === 'string' && presented.projectId
+      ? presented.projectId
+      : null;
+    const presentedSatisfies = Boolean(
+      presented
+      && presented.state.ephemeral !== true
+      && presented.state.offscreen !== true
+      && (activeId === null ? presentedStamp === null : presentedStamp === activeId),
+    );
+    if (presentedSatisfies) {
+      this.notePresentedTabProject(this.activeTabId, presented);
+      return;
+    }
+    const candidateId = this.presentationCandidateForProject(activeId);
+    if (candidateId && candidateId !== this.activeTabId) {
+      this.switchTab(candidateId, { plane: 'user' });
+      const presentedNow = this.tabs.get(this.activeTabId);
+      if (this.activeTabId === candidateId && presentedNow) {
+        this.notePresentedTabProject(candidateId, presentedNow);
+      }
+      return;
+    }
+    if (candidateId && candidateId === this.activeTabId) {
+      const presentedNow = this.tabs.get(candidateId);
+      if (presentedNow) this.notePresentedTabProject(candidateId, presentedNow);
+      return;
+    }
+    // No tab under this scope: mint one, stamped (or shared when the scope is
+    // cleared) by the active project at mint time.
+    this.createTab('https://www.google.com');
+  }
+
+  /**
+   * Record the presented tab in the per-project last-active map: a stamped tab
+   * under its own stamp, a shared tab under the project being presented. The map
+   * is memory for the next switch, never an authority, so a partial host without
+   * the field simply skips the note.
+   */
+  private notePresentedTabProject(tabId: string, tab: NativeTabRecord | undefined): void {
+    if (!tabId || !tab || !this.lastActiveTabByProject) return;
+    const stamped = typeof tab.projectId === 'string' && tab.projectId ? tab.projectId : null;
+    const bucket = stamped ?? this.activeProjectId;
+    if (bucket) this.lastActiveTabByProject.set(bucket, tabId);
+  }
+
+  /**
+   * Install (or clear) the delegate a user-plane foreign-project activation is
+   * handed to. The host never writes `activeProjectId` on a flip: Main runs its
+   * own `activateWebHubProject` so the affiliation, the identity and the
+   * broadcast change together.
+   */
+  public setForeignProjectActivatedHandler(handler: ((projectId: string) => void) | null): void {
+    this.foreignProjectActivatedHandler = typeof handler === 'function' ? handler : null;
+  }
+
+  /**
+   * Main's opener for the shared Terminal Manager window. Every "give terminals their own
+   * window" entry (toolbar pop-out, sidebar new-window, Ctrl+Shift+N) lands there: terminals
+   * have exactly one window, never a per-host popout.
+   */
+  public setOpenTerminalManagerHandler(handler: (() => void) | null): void {
+    this.openTerminalManagerHandler = typeof handler === 'function' ? handler : null;
+  }
+
+  /** Ask Main to open (or focus) the Terminal Manager. False when no Main is wired. */
+  public openTerminalManager(): boolean {
+    const handler = this.openTerminalManagerHandler;
+    if (!handler) return false;
+    handler();
+    return true;
+  }
+
+
+  /**
+   * Install (or clear) Main's project-descriptor resolver — the validated
+   * title/pathLabel source the hub identity paints and the restore path's
+   * knownness check reads. Absent means "no validated record could be proven".
+   */
+  public setWebHubProjectDescriptorResolver(resolver: WebHubProjectDescriptorResolver | null): void {
+    this.webHubProjectDescriptorResolver = typeof resolver === 'function' ? resolver : null;
+  }
+
+  private describeWebHubProject(projectId: string): WebHubProjectDescriptor | undefined {
+    const resolver = this.webHubProjectDescriptorResolver;
+    if (!resolver) return undefined;
+    try {
+      const descriptor = resolver(projectId);
+      if (!descriptor || typeof descriptor.title !== 'string' || !descriptor.title) return undefined;
+      return descriptor;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** The project the 'web' hub shell is presenting, or null when none is active. */
+  public activeProject(): string | null {
+    return this.activeProjectId;
+  }
+
+  /**
+   * Tab ids whose record carries `projectId === projectId` — the membership
+   * answer for the web hub's per-project tab questions (a LIVE check reads
+   * `tabsForProject(id).length`; a renderer grouping reads the ids). Records
+   * carry no projectId outside the 'web' shell, so other hosts answer [].
+   */
+  public tabsForProject(projectId: string): string[] {
+    const id = typeof projectId === 'string' ? projectId.trim() : '';
+    if (!id) return [];
+    const tabIds: string[] = [];
+    for (const [tabId, tab] of this.tabs) {
+      if (tab?.projectId === id) tabIds.push(tabId);
+    }
+    return tabIds;
+  }
+
+  /**
+   * Durable removal of a project's persisted hub tabs. When the web hub is not open the
+   * live `closeTabsForProject` cannot run, and leaving the stamped rows in `owners.web`
+   * would resurrect a removed project's tabs on the next boot. The file is the source of
+   * truth here — rewritten atomically, serialized behind the same write chain live
+   * persists use, so a mid-write crash cannot half-remove the record.
+   *
+   * Returns the count of rows removed. Any read/parse/write failure throws: the caller
+   * must fail the removal rather than close the project over tabs it cannot prove gone.
+   */
+  public async purgePersistedTabsForProject(projectId: string): Promise<number> {
+    return purgeSavedTabsFileForProject(this.getTabsStoragePath(), projectId);
+  }
+
+  /**
+   * Unload-aware close of every tab stamped with a project, the removal path's web
+   * counterpart to the retired `project:`-shell close. Each page goes through the same
+   * `closePage()` an attempt's own close does, so a vetoing page — an unsaved form, a
+   * hanging unload — is reported rather than destroyed. Callers treat any entry in
+   * `vetoed` as the refusal the retired shell-close used to carry.
+   */
+  public async closeTabsForProject(projectId: string): Promise<{ closed: string[]; vetoed: string[] }> {
+    const closed: string[] = [];
+    const vetoed: string[] = [];
+    this.foreignFlipSuppressed = (this.foreignFlipSuppressed || 0) + 1;
+    try {
+      for (const tabId of this.tabsForProject(projectId)) {
+        const outcome = await this.closePage(tabId);
+        // 'unknown' for a tab that is already gone (closed by the user during the
+        // awaited loop) is a close, not a veto: nothing of the project survives.
+        if (outcome === 'closed' || (outcome === 'unknown' && !this.tabs.has(tabId))) closed.push(tabId);
+        else vetoed.push(tabId);
+      }
+    } finally {
+      this.foreignFlipSuppressed = (this.foreignFlipSuppressed || 1) - 1;
+    }
+    return { closed, vetoed };
+  }
+
+  /**
    * The workspace root this window's terminals belong to, or '' when the window has
    * no verified association. Never another window's workspace.
    */
@@ -6379,10 +6772,13 @@ export class NativeTabHost extends EventEmitter {
    * sees only what no window claimed (`DEFAULT_TERMINAL_CAPSULE_ID`, or a legacy record that
    * carries no tag).
    *
-   * `managerAll` is the third answer, and it is not a wider version of the two above: the shared
-   * manager window sees every row there is (see `isSharedTerminalManagerSender`). Everything that
-   * reads a terminal row on behalf of a window asks here, so the manager answers the same way for
-   * the projection it renders, the list it bootstraps from and the diagnostics it can read.
+   * `managerAll` is the third answer, and it is not a wider version of the two above: the
+   * shared Terminal Manager (the Unassigned shell) sees every row there is (see
+   * `isSharedTerminalManagerSender`). The 'web' hub is deliberately not one: its scope is
+   * the project it is presenting, and switching project is the hub's click. Everything
+   * that reads a terminal row on behalf of a window asks here, so each window answers the
+   * same way for the projection it renders, the list it bootstraps from and the
+   * diagnostics it can read.
    */
   private windowSessionScope(senderId?: number): { ownerKey: string; tags: Set<string>; acceptsUnclaimed: boolean; managerAll: boolean } {
     const tags = new Set<string>();
@@ -6390,8 +6786,14 @@ export class NativeTabHost extends EventEmitter {
     if (capsuleId) tags.add(capsuleId);
     const root = this.resolveWindowWorkspaceRoot();
     if (root) tags.add(workspaceTerminalProvenance(this.windowOwnerKey(), root));
+    // The web hub is not a manager: it shows the terminals of the project it is currently
+    // presenting (switching is its click), while only the Terminal Manager shows all of them.
+    // A hub with no active project falls back to its own 'web' key.
+    const scopeOwnerKey = this.windowOwnerKey() === WEB_OWNER_KEY && this.activeProjectId
+      ? ownerKey({ kind: 'project', projectId: this.activeProjectId })
+      : this.windowOwnerKey();
     return {
-      ownerKey: this.windowOwnerKey(),
+      ownerKey: scopeOwnerKey,
       tags,
       acceptsUnclaimed: tags.size === 0,
       managerAll: this.isSharedTerminalManagerSender(senderId),
@@ -6399,13 +6801,11 @@ export class NativeTabHost extends EventEmitter {
   }
 
   /**
-   * Whether a caller is the shared terminal manager — the one window that shows every project's
-   * terminals at once.
-   *
-   * The manager is the Unassigned shell: the window that belongs to no project, and whose whole
-   * purpose is one list spanning capsules. Its scope is therefore the process-wide one, `agent:`
-   * rows included, because an agent's terminal is exactly the kind of row a person watching all
-   * projects wants to see. What that scope may *do* with those rows is decided separately (see
+   * Whether a caller is the shared Terminal Manager — the window that belongs to no
+   * project and shows every project's terminals at once, `agent:` rows included, because
+   * an agent's terminal is exactly the kind of row a person watching all projects wants to
+   * see. The 'web' hub is not this: it shows one project at a time and switches on click.
+   * What that scope may *do* with those rows is decided separately (see
    * `assertManagerMayOperate`).
    *
    * Only that window's own chrome may ask. A page inside it is not the manager — a page is never a
@@ -6438,7 +6838,7 @@ export class NativeTabHost extends EventEmitter {
     if (!id) return true;
     if (!this.isSharedTerminalManagerSender(senderId)) return true;
     const owner = this.sessionOwnerKey(id);
-    if (!owner || !owner.startsWith(AGENT_OWNER_KEY_PREFIX)) return true;
+    if (!owner || parseOwnerKey(owner).kind !== 'agent') return true;
     return {
       ok: false,
       reason: 'MANAGER_AGENT_SESSION_READ_ONLY',
@@ -6790,7 +7190,8 @@ export class NativeTabHost extends EventEmitter {
    * terminal opens in another project's directory.
    *
    * The owner travels with the mint: the popout session's own owner when it has one, otherwise
-   * this window's key, which is what keeps two windows that share one folder apart. The
+   * `terminalMintOwnerKey` — the viewed project on the 'web' hub, else this window's key — which
+   * is what keeps two windows that share one folder apart. The
    * process-default arm attributes to this window too — the asking window's identity is always
    * known even when its workspace is not, and the sentinel would mint a row this window hides
    * from itself. `DEFAULT_TERMINAL_OWNER_KEY` stays the manager-level default for calls that
@@ -6805,7 +7206,7 @@ export class NativeTabHost extends EventEmitter {
         return {
           cwd: path.normalize(session.cwd),
           capsuleId: session.capsuleId || DEFAULT_TERMINAL_CAPSULE_ID,
-          ownerKey: (typeof tm.sessionOwnerKey === 'function' ? tm.sessionOwnerKey(popoutSessionId) : undefined) ?? this.windowOwnerKey(),
+          ownerKey: (typeof tm.sessionOwnerKey === 'function' ? tm.sessionOwnerKey(popoutSessionId) : undefined) ?? this.terminalMintOwnerKey(),
           source: 'popout-session',
         };
       }
@@ -6817,7 +7218,7 @@ export class NativeTabHost extends EventEmitter {
       return {
         cwd: windowRoot,
         capsuleId: this.windowTerminalProvenance() ?? DEFAULT_TERMINAL_CAPSULE_ID,
-        ownerKey: this.windowOwnerKey(),
+        ownerKey: this.terminalMintOwnerKey(),
         source: 'window-workspace',
       };
     }
@@ -6825,9 +7226,24 @@ export class NativeTabHost extends EventEmitter {
     return {
       cwd: defaultCwd,
       capsuleId: DEFAULT_TERMINAL_CAPSULE_ID,
-      ownerKey: this.windowOwnerKey(),
+      ownerKey: this.terminalMintOwnerKey(),
       source: 'process-default',
     };
+  }
+
+  /**
+   * Owner key a terminal minted from this host carries. On the 'web' hub the viewed project
+   * owns its rows — `project:<activeProjectId>` — so a project terminal stays attributed to
+   * its project even though the hub window itself is `web`. With no active project the mint
+   * falls back to this window's own key: `'web'` on the hub, deliberately NOT `'unassigned'` —
+   * `'unassigned'` is the Terminal Manager's owner key, and stamping it on hub-created
+   * terminals would attribute them to a window that never asked for them. Non-web shells are
+   * unaffected: they mint under their own key exactly as before.
+   */
+  private terminalMintOwnerKey(): string {
+    const activeId = this.activeProjectId;
+    if (this.windowOwnerKey() === WEB_OWNER_KEY && activeId) return `project:${activeId}`;
+    return this.windowOwnerKey();
   }
 
   /**
@@ -6853,6 +7269,21 @@ export class NativeTabHost extends EventEmitter {
     // contract has no "unknown" member: fail closed to Unassigned rather than
     // reporting a window that owns nothing.
     const owner = this.shell?.owner ?? { kind: 'unassigned' };
+    if (owner.kind === 'web') {
+      // The hub's chrome belongs to the project it presents, not to the singleton
+      // window: title/path come from the same validated record the Terminal
+      // Manager's rows read (Main's resolver), and `activeProjectId` is the strip's
+      // scope filter. With no active project the hub keeps its product title.
+      const activeId = this.activeProjectId;
+      const descriptor = activeId ? this.describeWebHubProject(activeId) : undefined;
+      return {
+        owner,
+        title: activeId ? (descriptor?.title ?? activeId) : (this.shell?.title || 'AntiFan Browser'),
+        activeProjectId: activeId,
+        ...(descriptor?.pathLabel ? { pathLabel: descriptor.pathLabel } : {}),
+        ...(workspacePath ? { workspacePath } : {}),
+      };
+    }
     return {
       owner,
       title: this.shell?.title ?? '',
@@ -7729,6 +8160,12 @@ export class NativeTabHost extends EventEmitter {
               // mode presents a different browser than the page that opened it, so the child
               // inherits all three from the opener.
               const parentState = this.tabs.get(parentTabId)?.state;
+              // The child keeps the opener's project: a popup a project's page opens
+              // belongs to that project even if the hub has since switched, and a
+              // shared opener mints a shared child (explicit null, never the ambient
+              // project). An unresolvable opener falls back to the mint-time rule.
+              const parentTabRecord = this.tabs.get(parentTabId);
+              const parentProjectId: string | null | undefined = parentTabRecord ? (parentTabRecord.projectId ?? null) : undefined;
               const parentCapsuleId = this.getTabCapsuleId(parentTabId);
               const parentPartition = parentState && typeof parentState.partition === 'string' && parentState.partition ? parentState.partition : undefined;
               const parentUserAgentMode = parentState?.userAgentMode;
@@ -7742,6 +8179,7 @@ export class NativeTabHost extends EventEmitter {
                   ...(parentCapsuleId ? { capsuleId: parentCapsuleId } : {}),
                   ...(parentPartition ? { partition: parentPartition } : {}),
                   ...(parentUserAgentMode ? { userAgentMode: parentUserAgentMode } : {}),
+                  ...(parentProjectId !== undefined ? { projectId: parentProjectId } : {}),
                 });
                 // Adoption failure cleans up only the child this call created and never
                 // retargets its parent, so an unowned child is closed instead of orphaned.
@@ -7785,6 +8223,13 @@ export class NativeTabHost extends EventEmitter {
       mobile?: boolean;
       /** Which plane the activation rides when `activate` is set; agent callers declare 'agent'. */
       plane?: SwitchPlane;
+      /**
+       * The project stamp the web hub mints the tab under. `undefined` resolves to the
+       * ambient `activeProjectId`; explicit `null` mints a shared tab; a string stamps
+       * that project (the window.open opener-inheritance path). Strip tabs only —
+       * ephemeral/offscreen records are never stamped.
+       */
+      projectId?: string | null;
     }
   ): string {
     if (this.isDisposed) return '';
@@ -7885,7 +8330,20 @@ export class NativeTabHost extends EventEmitter {
 
     const effectivePreset = initialPreset || (options?.mobile ? findDevicePreset('iphone-15') : undefined);
 
-    const tabEntry: { view: WebContentsView; state: AntiFanTab; focusedPane: 'desktop' | 'mobile'; customViewport?: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number }; lastActiveAt?: number } = { view, state, focusedPane: 'desktop', lastActiveAt: Date.now() };
+    const tabEntry: NativeTabRecord = { view, state, focusedPane: 'desktop', lastActiveAt: Date.now() };
+    // Mint-time stamp, strip tabs only: only the 'web' hub carries an active project,
+    // so other shells and the offscreen/ephemeral agent surfaces stamp nothing — the
+    // field stays absent rather than pinning a foreign project. An explicit request
+    // (window.open's opener) wins; `null` mints a shared tab on purpose.
+    const requestedStamp = options?.projectId;
+    const mintProjectId = requestedStamp === null
+      ? undefined
+      : requestedStamp !== undefined && typeof requestedStamp === 'string' && requestedStamp.trim()
+        ? requestedStamp.trim()
+        : this.activeProjectId ?? undefined;
+    if (this.windowOwnerKey() === WEB_OWNER_KEY && !isEphemeral && !isOffscreen && mintProjectId) {
+      tabEntry.projectId = mintProjectId;
+    }
     if (effectivePreset) {
       tabEntry.customViewport = {
         width: effectivePreset.width || 390,
@@ -8024,6 +8482,23 @@ export class NativeTabHost extends EventEmitter {
         // view at all when an earlier transaction took the presented one away.
         this.reassertPresentedView();
         return { ok: false, tabId: targetId, reason: 'TARGET_NOT_ACTIVATABLE', retryAfterMs: undefined };
+      }
+      // The web hub presents exactly one project at a time: an agent-plane switch
+      // on a tab stamped for another project would silently re-scope the window,
+      // so it is refused outright — background operations on that tab never pass
+      // through here and stay allowed. Shared tabs carry no stamp and activate
+      // under any project. The user plane alone may cross, and reports the flip
+      // to Main only after the switch below has succeeded.
+      const targetProject = typeof target.projectId === 'string' && target.projectId ? target.projectId : null;
+      if (
+        plane === 'agent'
+        && targetId !== this.activeTabId
+        && this.windowOwnerKey() === WEB_OWNER_KEY
+        && targetProject !== null
+        && targetProject !== this.activeProjectId
+      ) {
+        this.reassertPresentedView();
+        return { ok: false, tabId: targetId, reason: 'PROJECT_MISMATCH' };
       }
       if (plane === 'agent' && this.userInputRecentlySeen() && targetId !== this.activeTabId) {
         const retryAfterMs = Math.max(1, USER_INPUT_RECENCY_MS - (Date.now() - this.lastUserInputAtMs));
@@ -8225,6 +8700,29 @@ export class NativeTabHost extends EventEmitter {
         recordBenchmark({ surface: 'tabs', name: 'switched', value: performance.now() - switchStartMs, extra: { attachedViews: this.countAttachedViews() } });
         if (stepBucket) {
           recordBenchmark({ surface: 'tabs', name: 'switch-steps', value: Number((performance.now() - switchStartMs).toFixed(3)), extra: stepBucket });
+        }
+      }
+      // The presented pane is committed here: the map note and a possible foreign-project
+      // handoff run only after the view stack, layout and focus settled, so a failure
+      // earlier can still roll back to the previous tab through the catch below without
+      // leaving project state pointing at a tab it never showed.
+      this.notePresentedTabProject(targetId, target);
+      if (
+        plane === 'user'
+        && this.windowOwnerKey() === WEB_OWNER_KEY
+        && targetProject !== null
+        && targetProject !== this.activeProjectId
+        && !this.foreignFlipSuppressed
+        && this.hasRestoredTabs
+      ) {
+        // Main owns `activeProjectId`; the host emits the flip and Main runs the same
+        // activateWebHubProject path a project pick would, so affiliation, identity and
+        // the broadcast change together. The call is synchronous but guarded: a delegate
+        // failure must not roll back a switch the user already sees.
+        try {
+          this.foreignProjectActivatedHandler?.(targetProject);
+        } catch (err) {
+          console.warn('[native-tab-host] foreign project activation handler failed:', err);
         }
       }
       return { ok: true, tabId: targetId };
@@ -8447,6 +8945,14 @@ export class NativeTabHost extends EventEmitter {
     this.unindexTabWebContents(target);
     this.tabs.delete(tabId);
     this.tabOrder = this.tabOrder.filter((id) => id !== tabId);
+    // The last-active map is memory, not authority, but a dead entry would send a
+    // project switch looking for a tab that no longer exists; the candidate read
+    // tolerates it, pruning here just keeps the map honest and bounded.
+    if (this.lastActiveTabByProject) {
+      for (const [project, rememberedId] of Array.from(this.lastActiveTabByProject.entries())) {
+        if (rememberedId === tabId) this.lastActiveTabByProject.delete(project);
+      }
+    }
 
     if (this.activeTabId === tabId) {
       const userTabs = this.tabOrder.filter((id) => {
@@ -8464,8 +8970,11 @@ export class NativeTabHost extends EventEmitter {
         // rather than as a failure.
         this.activeTabId = '';
         this.broadcastState();
-      } else {
+      } else if (!this.isTerminalOnlyWindow()) {
         this.createTab('https://www.google.com');
+      } else {
+        this.activeTabId = '';
+        this.broadcastState();
       }
     } else {
       this.broadcastState();
@@ -8879,6 +9388,128 @@ export class NativeTabHost extends EventEmitter {
       }
     } catch {}
     return bound;
+  }
+
+  /** Ensure the agent-tab reap sweep timer exists (created lazily, `unref`'d). */
+  public ensureAgentTabReapSweep(): void {
+    if (this.isDisposed || this.agentTabReapSweepTimer) return;
+    this.agentTabReapSweepTimer = setInterval(() => {
+      this.runAgentTabReapSweep().catch((err) => {
+        console.warn('[native-tab-host] agent-tab reap sweep failed:', err);
+      });
+    }, AGENT_TAB_REAP_SWEEP_INTERVAL_MS);
+    this.agentTabReapSweepTimer.unref?.();
+  }
+
+  /** Test seam: narrow the reap idle threshold without touching production policy. */
+  public setAgentTabReapIdleMsForTesting(idleMs: number): void {
+    if (typeof idleMs === 'number' && idleMs > 0) this.agentTabReapIdleMs = idleMs;
+  }
+
+  /**
+   * Tab ids claimed by live authority, recomputed per call: ACTIVE attachment
+   * records only (tabId, browserTarget.tabId, allowedTabIds, and each anchor's
+   * managed pool) plus every non-tombstoned terminal affinity's primary/managed
+   * tabs. The process-global `automationTabId` is deliberately NOT a claim —
+   * it is ambient bookkeeping, not authority. Returns `null` when the registry
+   * read fails: reaping on incomplete ownership data could close tabs a live
+   * caller still drives, so callers must skip the pass.
+   */
+  private agentTabClaimedIds(): Set<string> | null {
+    const claimed = new Set<string>();
+    const registry = this.controlPlane?.runs?.attachments;
+    if (!registry || typeof registry.getActiveRecordIds !== 'function' || typeof registry.getRecord !== 'function') return null;
+    {
+      try {
+        for (const attachmentId of registry.getActiveRecordIds()) {
+          const rec = registry.getRecord?.(attachmentId);
+          // getActiveRecordIds includes expired records kept for retention; only
+          // a live attachment claims tabs.
+          if (!rec) return null;
+          if (rec.state !== 'active') continue;
+          const anchors = [rec.tabId, rec.browserTarget?.tabId];
+          for (const anchor of anchors) {
+            if (typeof anchor === 'string' && anchor) {
+              claimed.add(anchor);
+              for (const managed of this.getManagedTabIdsForBoundTab(anchor)) claimed.add(managed);
+            }
+          }
+        }
+      } catch {
+        return null;
+      }
+    }
+    for (const entry of this.terminalAgentAffinity.values()) {
+      if (entry.closedAt !== undefined) continue;
+      if (entry.primaryTabId) claimed.add(entry.primaryTabId);
+      for (const managed of entry.managedTabIds ?? []) claimed.add(managed);
+    }
+    return claimed;
+  }
+
+  /**
+   * Whether any live authority currently claims `tabId` — used by the dispose
+   * listener to decide which managed children survive an attachment's end.
+   * A registry read failure counts as claimed (fail closed).
+   */
+  public isAgentTabClaimed(tabId: string): boolean {
+    const claimed = this.agentTabClaimedIds();
+    return claimed === null || claimed.has(tabId);
+  }
+
+  /**
+   * Stamp agent activity on `tabId`. Called by the three target-resolution
+   * funnels (control-port resolveTargetTab, automation-host
+   * resolveAutomationTargetId, bridge resolveDirectRpcTargetTab) so a
+   * live-but-unclaimed automation tab is never mistaken for an orphan.
+   */
+  public noteAgentTabActivity(tabId?: string): void {
+    if (!tabId) return;
+    const tab = this.tabs.get(tabId);
+    if (tab) tab.agentActivityAt = Date.now();
+  }
+
+  /**
+   * One reap pass: close every offscreen tab that no live authority claims and
+   * whose agent activity is older than the idle threshold. `closeTab` performs
+   * all teardown (nulls `automationTabId`, tombstones affinity, strips pools)
+   * so a reaped tab self-heals: the next ambient call re-mints cleanly.
+   */
+  private async runAgentTabReapSweep(): Promise<void> {
+    if (this.isDisposed) return;
+    const claimed = this.agentTabClaimedIds();
+    // Fail closed: a probe error means ownership data is incomplete; closing on a
+    // partial claim set could destroy tabs a live caller still drives.
+    if (claimed === null) return;
+    const working = new Set<string>();
+    for (const [tabId, count] of this.automationHost?.agentWorkingRefs ?? []) {
+      if (count > 0) working.add(tabId);
+    }
+    const reserved = new Set<string>();
+    for (const [id, tab] of this.tabs.entries()) {
+      if (tab.state.offscreen === true && this.isPageReservedForClose(id)) reserved.add(id);
+    }
+    const ctx: ReapingContext = {
+      claimedTabIds: claimed,
+      agentWorkingTabIds: working,
+      reservedForCloseTabIds: reserved,
+      now: Date.now(),
+      idleMs: this.agentTabReapIdleMs,
+    };
+    for (const [id, tab] of [...this.tabs.entries()]) {
+      const decision = shouldReapAgentTab(
+        { id, state: tab.state, lastActiveAt: tab.lastActiveAt, agentActivityAt: tab.agentActivityAt },
+        ctx
+      );
+      if (!decision.reap) continue;
+      recordLifecycleEvent('tabhost.agentTabReaped', {
+        tabId: id,
+        url: tab.state.url,
+        lastActiveAt: tab.lastActiveAt,
+        agentActivityAt: tab.agentActivityAt,
+      });
+      this.closeTab(id);
+    }
   }
 
   /**
@@ -12196,29 +12827,64 @@ export class NativeTabHost extends EventEmitter {
   }
 
   private getTabsStoragePath(): string {
-    const userData = app ? app.getPath('userData') : StorageLocations.getConfigDir();
-    if (!fs.existsSync(userData)) {
-      try { fs.mkdirSync(userData, { recursive: true }); } catch {}
-    }
-    return path.join(userData, 'saved-tabs.json');
+    return savedTabsFilePath();
   }
 
-  /** Raw parse of the saved-tabs file; null when absent, unreadable or not an object. */
-  private readSavedTabsFile(filePath: string): Record<string, unknown> | null {
-    try {
-      if (!fs.existsSync(filePath)) return null;
-      const parsed: unknown = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
-      return parsed as Record<string, unknown>;
-    } catch (err) {
-      console.warn('[native-tab-host] Failed to read saved tabs:', err);
-      return null;
+
+  /**
+   * Fold 'project:<id>' owner records — written by the one-window-per-project era — into
+   * the 'web' record. Only a web host may call this: the Terminal Manager has no page
+   * area and non-web callers would consume tabs they cannot present. The owning
+   * project's id is stamped onto every tab (the old key was the only place it was
+   * recorded) and duplicates by tab id are skipped so a merge of two old records never
+   * double-restores a tab the current 'web' record already carries.
+   */
+  private foldLegacyProjectOwnerRecords(document: SavedTabsDocument): boolean {
+    let folded = false;
+    for (const legacyKey of Object.keys(document.owners)) {
+      if (!legacyKey.startsWith('project:')) continue;
+      const legacy = document.owners[legacyKey];
+      if (!legacy || typeof legacy !== 'object') continue;
+      const legacyProjectId = legacyKey.slice('project:'.length).trim();
+      if (!legacyProjectId) continue; // 'project:' alone is malformed, not an owner
+      const webRecord = (document.owners[WEB_OWNER_KEY] ??= { tabs: [], updatedAt: Date.now() });
+      const knownTabIds = new Set(
+        webRecord.tabs.map((t) => (t && typeof t === 'object' ? (t as Record<string, unknown>).id : undefined)),
+      );
+      for (const tab of Array.isArray(legacy.tabs) ? legacy.tabs : []) {
+        const tabId = tab && typeof tab === 'object' ? (tab as Record<string, unknown>).id : undefined;
+        if (tabId !== undefined && knownTabIds.has(tabId)) continue;
+        if (tab && typeof tab === 'object') {
+          (tab as Record<string, unknown>).projectId = legacyProjectId;
+          if (tabId !== undefined) knownTabIds.add(tabId);
+        }
+        webRecord.tabs.push(tab);
+      }
+      const knownAffinityKeys = new Set(
+        (webRecord.terminalAffinities ?? []).map((a) => `${a.terminalId}:${a.primaryTabId}`),
+      );
+      for (const aff of legacy.terminalAffinities ?? []) {
+        const key = `${aff.terminalId}:${aff.primaryTabId}`;
+        if (knownAffinityKeys.has(key)) continue;
+        knownAffinityKeys.add(key);
+        (webRecord.terminalAffinities ??= []).push(aff);
+      }
+      if (typeof webRecord.activeTabId !== 'string' && typeof legacy.activeTabId === 'string') {
+        webRecord.activeTabId = legacy.activeTabId;
+      }
+      if (typeof webRecord.activeProjectId !== 'string' && typeof legacy.activeProjectId === 'string') {
+        webRecord.activeProjectId = legacy.activeProjectId;
+      }
+      webRecord.updatedAt = Math.max(webRecord.updatedAt, legacy.updatedAt);
+      delete document.owners[legacyKey];
+      folded = true;
     }
+    return folded;
   }
 
   /** Read + normalize without writing; the caller's write persists the migration. */
   private normalizeSavedTabsFileForMerge(filePath: string): SavedTabsDocument | null {
-    const data = this.readSavedTabsFile(filePath);
+    const data = readSavedTabsFile(filePath);
     if (!data) return null;
     return normalizeSavedTabsDocument(data).document;
   }
@@ -12234,13 +12900,14 @@ export class NativeTabHost extends EventEmitter {
    */
   public loadSavedTabsDocument(): SavedTabsDocument | null {
     const filePath = this.getTabsStoragePath();
-    const data = this.readSavedTabsFile(filePath);
+    const data = readSavedTabsFile(filePath);
     if (!data) return null;
     const { document, migrated } = normalizeSavedTabsDocument(data);
-    if (migrated) {
+    const folded = this.windowOwnerKey() === WEB_OWNER_KEY ? this.foldLegacyProjectOwnerRecords(document) : false;
+    if (migrated || folded) {
       try {
         this.writeSavedTabsDocumentSync(filePath, document);
-        console.log('[native-tab-host] Migrated legacy saved tabs to the owner-keyed document');
+        console.log(`[native-tab-host] Migrated saved tabs to the owner-keyed document${folded ? ' (project owner records folded into web)' : ''}`);
       } catch (err) {
         console.warn('[native-tab-host] Saved-tabs migration write failed; legacy source retained:', err);
       }
@@ -12255,10 +12922,11 @@ export class NativeTabHost extends EventEmitter {
    */
   public migrateLegacySavedTabsFile(): SavedTabsMigrationResult {
     const filePath = this.getTabsStoragePath();
-    const data = this.readSavedTabsFile(filePath);
+    const data = readSavedTabsFile(filePath);
     if (!data) return { migrated: false, reason: 'no-document' };
     const { document, migrated } = normalizeSavedTabsDocument(data);
-    if (!migrated) return { migrated: false, reason: 'already-versioned' };
+    const folded = this.windowOwnerKey() === WEB_OWNER_KEY ? this.foldLegacyProjectOwnerRecords(document) : false;
+    if (!migrated && !folded) return { migrated: false, reason: 'already-versioned' };
     try {
       this.writeSavedTabsDocumentSync(filePath, document);
     } catch (err) {
@@ -12273,16 +12941,7 @@ export class NativeTabHost extends EventEmitter {
    * can never be mistaken for the document.
    */
   public writeSavedTabsDocumentSync(filePath: string, document: SavedTabsDocument): void {
-    const tempPath = `${filePath}.tmp.${Date.now()}.${Math.random().toString(36).slice(2, 8)}`;
-    const json = JSON.stringify(document, null, 2);
-    fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    try {
-      fs.writeFileSync(tempPath, json, 'utf8');
-      fs.renameSync(tempPath, filePath);
-    } catch (err) {
-      try { fs.rmSync(tempPath, { force: true }); } catch {}
-      throw err;
-    }
+    writeSavedTabsDocumentSync(filePath, document);
   }
 
   /** This window's record inside the document: tabs, its local active id, its auxiliaries. */
@@ -12299,6 +12958,7 @@ export class NativeTabHost extends EventEmitter {
     if (data.isTerminalPopoutOpen === true) record.isTerminalPopoutOpen = true;
     if (typeof data.wasSidebarOpenBeforePopout === 'boolean') record.wasSidebarOpenBeforePopout = data.wasSidebarOpenBeforePopout;
     if (typeof data.popoutSessionId === 'string') record.popoutSessionId = data.popoutSessionId;
+    if (typeof data.activeProjectId === 'string') record.activeProjectId = data.activeProjectId;
     return record;
   }
 
@@ -12312,6 +12972,7 @@ export class NativeTabHost extends EventEmitter {
     delete shared.isTerminalPopoutOpen;
     delete shared.wasSidebarOpenBeforePopout;
     delete shared.popoutSessionId;
+    delete shared.activeProjectId;
     return shared;
   }
 
@@ -12323,8 +12984,15 @@ export class NativeTabHost extends EventEmitter {
   private buildSavedTabsDocument(existing: SavedTabsDocument | null, data: Record<string, unknown>): SavedTabsDocument {
     const owners: Record<string, SavedTabsOwnerRecord> = { ...(existing?.owners ?? {}) };
     owners[this.windowOwnerKey()] = this.ownerRecordFromPersistData(data);
+    const shared = this.sharedPrefsFromPersistData(data);
+    // The Terminal Manager's sidebar is pinned open by construction; its write must not
+    // flip the browser windows' shared sidebar preference open.
+    if (this.isTerminalOnlyWindow()) {
+      if (typeof existing?.isSidebarOpen === 'boolean') shared.isSidebarOpen = existing.isSidebarOpen;
+      else delete shared.isSidebarOpen;
+    }
     return {
-      ...this.sharedPrefsFromPersistData(data),
+      ...shared,
       version: SAVED_TABS_SCHEMA_VERSION,
       owners,
       updatedAt: Date.now(),
@@ -12576,44 +13244,14 @@ export class NativeTabHost extends EventEmitter {
       const tab = this.tabs.get(id);
       if (!tab) return null;
       if (tab.state.ephemeral === true || tab.state.offscreen === true) return null;
-      return sanitizeTabForPersistence(tab.state);
+      // projectId lives on the record, not on AntiFanTab, so the sanitize/migrate
+      // whitelist never sees it: merge it onto the serialized row here and read it back
+      // verbatim in restoreTabs. Optional field — absent means "minted outside a project".
+      const persisted: Partial<AntiFanTab> & { projectId?: string } = sanitizeTabForPersistence(tab.state);
+      if (tab.projectId) persisted.projectId = tab.projectId;
+      return persisted;
     }).filter(Boolean);
 
-    const openTerminalWindows: Array<{
-      sessionId?: string;
-      bounds: {
-        x?: number;
-        y?: number;
-        width: number;
-        height: number;
-        isMaximized: boolean;
-      };
-      isPopout?: boolean;
-    }> = [];
-
-    for (const [winId, win] of this.terminalWindows.entries()) {
-      if (win && !win.isDestroyed()) {
-        let bounds = win.getBounds();
-        if ('getNormalBounds' in win && typeof (win as any).getNormalBounds === 'function') {
-          try {
-            bounds = (win as any).getNormalBounds();
-          } catch {}
-        }
-        const isMaximized = win.isMaximized();
-        const meta = this.terminalWindowMeta.get(winId);
-        openTerminalWindows.push({
-          sessionId: meta?.sessionId || undefined,
-          isPopout: win === this.popoutWindow,
-          bounds: {
-            x: bounds.x,
-            y: bounds.y,
-            width: bounds.width,
-            height: bounds.height,
-            isMaximized,
-          },
-        });
-      }
-    }
 
     const persistedAffinities: Array<{
       terminalId: string;
@@ -12664,6 +13302,10 @@ export class NativeTabHost extends EventEmitter {
 
     return {
       activeTabId: persistedActiveTabId,
+      // The hub's presented project is part of this window's scope record: restoring
+      // it puts the booted hub back under the same project instead of defaulting to
+      // "no project". Only the 'web' owner carries it; other shells have no scope.
+      ...(this.windowOwnerKey() === WEB_OWNER_KEY ? { activeProjectId: this.activeProjectId } : {}),
       tabs: tabList,
       bookmarks: this.bookmarks,
       mutedSites: Array.from(this.mutedSites),
@@ -12676,10 +13318,10 @@ export class NativeTabHost extends EventEmitter {
       terminalCategories: this.terminalCategories,
       terminalCategoryColors: this.terminalCategoryColors,
       terminalStarredCategories: this.terminalStarredCategories,
-      isTerminalPopoutOpen: Boolean(this.popoutWindow && !this.popoutWindow.isDestroyed()),
-      wasSidebarOpenBeforePopout: this.wasSidebarOpenBeforePopout,
-      popoutSessionId: this.popoutWindow && !this.popoutWindow.isDestroyed() ? TerminalManager.getInstance().getActiveSessionId() : undefined,
-      terminalWindows: openTerminalWindows,
+      // Popout/terminal-window fields are intentionally absent: the producers were
+      // removed with the one-Terminal-Manager cutover and the legacy keys only existed
+      // for restore-time reopen, which no longer happens. `normalizeSavedTabsDocument`
+      // still READS them so old files upgrade cleanly; we just stop writing constants.
       terminalAffinities: persistedAffinities,
       updatedAt: Date.now(),
     };
@@ -12797,7 +13439,7 @@ export class NativeTabHost extends EventEmitter {
         if (typeof document.sidebarWidth === 'number' && document.sidebarWidth >= 260 && document.sidebarWidth <= 850) {
           this.shell.sidebarWidth = document.sidebarWidth;
         }
-        if (typeof document.isSidebarOpen === 'boolean') {
+        if (typeof document.isSidebarOpen === 'boolean' && !this.isTerminalOnlyWindow()) {
           this.shell.isSidebarOpen = document.isSidebarOpen;
         }
         this.applyTerminalTabPrefs({
@@ -12809,30 +13451,36 @@ export class NativeTabHost extends EventEmitter {
           starredCategories: document.terminalStarredCategories,
         });
         const record = document.owners[this.windowOwnerKey()];
-        if (record && Array.isArray(record.terminalWindows) && record.terminalWindows.length > 0) {
-          // Booting the manager is not provenance-free: `startTerminal()` with no target
-          // keeps the process-wide `currentCwd` (another window's workspace may have set it)
-          // and stamps the session with the ambient creation capsule, so a restored window
-          // could come back as an invisible default-capsule PTY in the wrong directory. The
-          // saved windows belong to this window, so this window's resolved target decides.
-          const terminalTarget = this.resolveTerminalCreationTarget();
-          TerminalManager.getInstance().startTerminal(terminalTarget.cwd, terminalTarget.capsuleId, terminalTarget.ownerKey);
-          const wasOpen = typeof record.wasSidebarOpenBeforePopout === 'boolean' ? record.wasSidebarOpenBeforePopout : true;
-          for (const tw of record.terminalWindows) {
-            if (tw.isPopout) {
-              this.togglePopoutTerminal(tw.sessionId, { wasSidebarOpenBeforePopout: wasOpen, bounds: tw.bounds });
+        // The hub's presented project survives in the owner record (H5): restored here,
+        // before any tab is minted or activated, so the mint stamps and the switch below
+        // both run under the same scope. A persisted id is validated against Main's
+        // registry seam — an id no record describes (removed project, foreign file)
+        // clears to null rather than presenting a scope that cannot be proven. A host
+        // built without the resolver cannot validate, so it fails closed the same way.
+        // Restoring a different project than the boot one hands the change to Main
+        // through the same delegate a user-plane flip uses, so the affiliation follows.
+        if (record && this.windowOwnerKey() === WEB_OWNER_KEY) {
+          const persistedProject = typeof record.activeProjectId === 'string' && record.activeProjectId.trim()
+            ? record.activeProjectId.trim()
+            : null;
+          const restoredProject = persistedProject && this.describeWebHubProject(persistedProject) ? persistedProject : null;
+          // Main is the single writer of the hub's project scope: its boot activation has
+          // already set the affiliation for the project it chose, so a different persisted
+          // project goes back through the same delegate a flip uses (setActiveProject does
+          // not repoint before the restore finishes, so this cannot shadow it). A persisted
+          // id that cannot be proven leaves Main's scope alone instead of nulling it under
+          // a live affiliation. A host with no delegate (no Main) applies the field.
+          if (restoredProject && restoredProject !== this.activeProjectId) {
+            if (this.foreignProjectActivatedHandler) {
+              try {
+                this.foreignProjectActivatedHandler(restoredProject);
+              } catch (err) {
+                console.warn('[native-tab-host] restoring the persisted hub project failed:', err);
+              }
             } else {
-              this.openNewTerminalWindow(tw.sessionId, tw.bounds);
+              this.activeProjectId = restoredProject;
             }
           }
-        } else if (record && record.isTerminalPopoutOpen) {
-          // Same provenance rule as the saved-window branch above: the popout was this
-          // window's, so it boots on this window's workspace and capsule, never on the
-          // ambient process-wide ones.
-          const terminalTarget = this.resolveTerminalCreationTarget();
-          TerminalManager.getInstance().startTerminal(terminalTarget.cwd, terminalTarget.capsuleId, terminalTarget.ownerKey);
-          const wasOpen = typeof record.wasSidebarOpenBeforePopout === 'boolean' ? record.wasSidebarOpenBeforePopout : true;
-          this.togglePopoutTerminal(record.popoutSessionId, { wasSidebarOpenBeforePopout: wasOpen });
         }
         if (document.activeChromeProfileId) {
           ChromeProfileSyncManager.getInstance().activeProfileId = document.activeChromeProfileId;
@@ -12840,7 +13488,9 @@ export class NativeTabHost extends EventEmitter {
         if (Array.isArray(document.bookmarks) && document.bookmarks.length > 0) {
           this.bookmarks = document.bookmarks;
         }
-        if (record && Array.isArray(record.tabs) && record.tabs.length > 0) {
+        // The Terminal Manager has no page area: tabs persisted under it from before it
+        // became terminals-only are not resurrected into a window that cannot show them.
+        if (record && Array.isArray(record.tabs) && record.tabs.length > 0 && !this.isTerminalOnlyWindow()) {
           let restoredActiveId = record.activeTabId;
           const oldIdToNewId = new Map<string, string>();
 
@@ -12875,8 +13525,12 @@ export class NativeTabHost extends EventEmitter {
             if (migrated.id) {
               oldIdToNewId.set(migrated.id, id);
             }
+            const persistedProjectId = typeof rawTab.projectId === 'string' && rawTab.projectId ? rawTab.projectId : undefined;
             const tab = this.tabs.get(id);
             if (tab) {
+              // The persisted project decides the stamp, not whichever project happens to be
+              // active while the hub restores — a foreign record's stamp is authoritative.
+              tab.projectId = persistedProjectId;
               tab.state.url = safeUrl;
               if (isUnloadedStub) {
                 tab.state.isLoading = false;
@@ -12940,6 +13594,8 @@ export class NativeTabHost extends EventEmitter {
             this.switchTab(this.tabOrder[0]!, { plane: 'user' });
           }
           this.updateLayout();
+          // From here the host is live: `setActiveProject` repoints the strip.
+          this.hasRestoredTabs = true;
           return;
         }
       }
@@ -12947,8 +13603,13 @@ export class NativeTabHost extends EventEmitter {
       console.warn('[native-tab-host] Failed to restore tabs:', err);
     }
 
-    // Default fallback
-    this.createTab(fallbackUrl || 'https://www.google.com');
+    // Default fallback: a browser window is never empty. The Terminal Manager has no tabs.
+    if (this.isTerminalOnlyWindow()) {
+      this.updateLayout();
+    } else {
+      this.createTab(fallbackUrl || 'https://www.google.com');
+    }
+    this.hasRestoredTabs = true;
   }
 
   private injectAutoJsonViewer(wc: Electron.WebContents): void {
@@ -13691,242 +14352,6 @@ export class NativeTabHost extends EventEmitter {
       }
     }
   }
-  /**
-   * The session a terminal window may be created bound to: the requested id only when this
-   * host can already attribute that session to the window that asked.
-   *
-   * A session id is not a capability. A renderer that names another project's session would
-   * otherwise make this host present it, forward its output, and let the new window type
-   * into it — the binding enters `terminalWindowMeta`, which is exactly the positive
-   * attribution the scope is built on. An unadmitted request leaves the window unbound.
-   */
-  private admitTerminalWindowBinding(sessionId?: string): string | undefined {
-    return typeof sessionId === 'string' && sessionId && this.isSessionVisibleToWindow(sessionId) ? sessionId : undefined;
-  }
-
-  /** The active session of this window's own scope, never the process-wide one another window set. */
-  private ownActiveSessionId(): string {
-    return this.terminalStateForWindow(TerminalManager.getInstance().getSessionState()).activeSessionId;
-  }
-
-  public togglePopoutTerminal(sessionId?: string, options?: { wasSidebarOpenBeforePopout?: boolean; bounds?: Partial<WindowState> }): boolean {
-    if (this.popoutWindow && !this.popoutWindow.isDestroyed()) {
-      this.popoutWindow.close();
-      this.popoutWindow = null;
-      this.broadcastPopoutState(false);
-      if (this.wasSidebarOpenBeforePopout && !this.shell.isSidebarOpen) {
-        this.toggleSidebar();
-      }
-      this.wasSidebarOpenBeforePopout = false;
-      this.schedulePersist();
-      return false;
-    }
-
-    const admittedSessionId = this.admitTerminalWindowBinding(sessionId);
-
-    const bounds = WindowStateManager.validateBounds(options?.bounds || this.terminalWindowStateManager.getState(), 900, 600);
-    const win = new BrowserWindow({
-      x: bounds.x,
-      y: bounds.y,
-      width: bounds.width || 900,
-      height: bounds.height || 600,
-      minWidth: 500,
-      minHeight: 350,
-      backgroundColor: '#060a11',
-      title: 'AntiFan Terminal Workbench',
-      autoHideMenuBar: true,
-      show: false,
-      webPreferences: {
-        preload: path.join(__dirname, '..', '..', 'preload', 'standalone-preload.js'),
-        contextIsolation: true,
-        sandbox: false,
-        nodeIntegration: false,
-      },
-    });
-
-    const showPopoutWin = () => {
-      if (!win.isDestroyed() && !win.isVisible()) {
-        if (bounds.isMaximized) {
-          win.maximize();
-        }
-        win.show();
-      }
-    };
-    win.once('ready-to-show', showPopoutWin);
-    setTimeout(showPopoutWin, 300);
-    this.terminalWindowStateManager.manage(win);
-    this.popoutWindow = win;
-    this.terminalWindows.set(win.id, win);
-    const activeSessionId = admittedSessionId || this.ownActiveSessionId();
-    this.terminalWindowMeta.set(win.id, { sessionId: activeSessionId, isPopout: true });
-    this.terminalWindowBindingChanged();
-
-    const onWindowChange = () => {
-      this.schedulePersist();
-    };
-    win.on('resize', onWindowChange);
-    win.on('move', onWindowChange);
-    win.on('maximize', onWindowChange);
-    win.on('unmaximize', onWindowChange);
-    const standaloneHtml = this.resolveStandaloneRendererPage();
-
-    win.webContents.on('before-input-event', (event, input) => {
-      if (input.type === 'keyDown' && input.key === 'F11') {
-        event.preventDefault();
-        win.setFullScreen(!win.isFullScreen());
-      }
-    });
-
-    win.webContents.on('did-finish-load', async () => {
-      const tm = TerminalManager.getInstance();
-      // The sessions this window's own window may see, never another project's: the bound
-      // session stays in the list, and with no explicit binding the active one is this
-      // window's own active session rather than the process-wide one.
-      const scoped = this.terminalStateForWindow(tm.getSessionState(), admittedSessionId);
-      const activeId = admittedSessionId || scoped.activeSessionId || '';
-      const activeSession = scoped.sessions.find((summary) => summary.id === activeId);
-      const projection = {
-        activeSessionId: activeId,
-        sessions: scoped.sessions,
-        splitSessionId: activeSession?.splitSessionId,
-        // Preview only, like every row above: the pane hydrates the authoritative
-        // transcript via getFullBuffer (resolveHydrationSnapshot), so shipping the
-        // unbounded buffer here was pure broadcast cost.
-        snapshot: activeSession?.buffer || '',
-        snapshotThroughSeq: activeSession?.snapshotThroughSeq || 0,
-      };
-      // The projection the window displays is the set its data suppression uses.
-      this.terminalDisplayedSessions.set(`w${win.id}`, this.displayedSessionIdsOf(projection as TerminalSessionStateProjection));
-      safeSendWebContents(win.webContents, 'antifan:terminal:session', projection);
-    });
-
-    win.loadFile(standaloneHtml, { query: { mode: 'popout', ...(admittedSessionId ? { sessionId: admittedSessionId } : {}) } });
-    if (options && typeof options.wasSidebarOpenBeforePopout === 'boolean') {
-      this.wasSidebarOpenBeforePopout = options.wasSidebarOpenBeforePopout;
-    } else {
-      this.wasSidebarOpenBeforePopout = this.shell.isSidebarOpen;
-    }
-    if (this.shell.isSidebarOpen) {
-      this.toggleSidebar();
-    }
-    win.on('closed', () => {
-      this.terminalWindows.delete(win.id);
-      this.terminalWindowMeta.delete(win.id);
-      this.terminalDisplayedSessions.delete(`w${win.id}`);
-      this.terminalWindowBindingChanged();
-      if (this.popoutWindow === win) {
-        this.popoutWindow = null;
-        this.broadcastPopoutState(false);
-        if (this.wasSidebarOpenBeforePopout && !this.shell.isSidebarOpen) {
-          this.toggleSidebar();
-        }
-        this.wasSidebarOpenBeforePopout = false;
-      }
-      this.schedulePersist();
-    });
-    this.broadcastPopoutState(true);
-    this.schedulePersist();
-    return true;
-  }
-
-  public openNewTerminalWindow(sessionId?: string, customBounds?: Partial<WindowState>): boolean {
-    const admittedSessionId = this.admitTerminalWindowBinding(sessionId);
-    const baseBounds = customBounds ? WindowStateManager.validateBounds(customBounds, 900, 600) : this.terminalWindowStateManager.getValidBounds();
-    const count = this.terminalWindows.size;
-    const offsetX = (!customBounds && count > 0 && typeof baseBounds.x === 'number') ? baseBounds.x + (count * 25) : baseBounds.x;
-    const offsetY = (!customBounds && count > 0 && typeof baseBounds.y === 'number') ? baseBounds.y + (count * 25) : baseBounds.y;
-
-    const win = new BrowserWindow({
-      x: offsetX,
-      y: offsetY,
-      width: baseBounds.width || 900,
-      height: baseBounds.height || 600,
-      minWidth: 500,
-      minHeight: 350,
-      backgroundColor: '#060a11',
-      title: 'AntiFan Terminal Workbench',
-      autoHideMenuBar: true,
-      show: false,
-      webPreferences: {
-        preload: path.join(__dirname, '..', '..', 'preload', 'standalone-preload.js'),
-        contextIsolation: true,
-        sandbox: false,
-        nodeIntegration: false,
-      },
-    });
-
-    const showNewTermWin = () => {
-      if (!win.isDestroyed() && !win.isVisible()) {
-        if (baseBounds.isMaximized) {
-          win.maximize();
-        }
-        win.show();
-      }
-    };
-    win.once('ready-to-show', showNewTermWin);
-    setTimeout(showNewTermWin, 300);
-
-    this.terminalWindows.set(win.id, win);
-    const activeSessionId = admittedSessionId || this.ownActiveSessionId();
-    this.terminalWindowMeta.set(win.id, { sessionId: activeSessionId, isPopout: false });
-    this.terminalWindowBindingChanged();
-
-    const onWindowChange = () => {
-      this.schedulePersist();
-    };
-    win.on('resize', onWindowChange);
-    win.on('move', onWindowChange);
-    win.on('maximize', onWindowChange);
-    win.on('unmaximize', onWindowChange);
-
-    win.webContents.on('before-input-event', (event, input) => {
-      if (input.type === 'keyDown' && input.key === 'F11') {
-        event.preventDefault();
-        win.setFullScreen(!win.isFullScreen());
-      }
-    });
-    const standaloneHtml = this.resolveStandaloneRendererPage();
-
-    win.webContents.on('did-finish-load', async () => {
-      const tm = TerminalManager.getInstance();
-      // The sessions this window's own window may see, never another project's: the bound
-      // session stays in the list, and with no explicit binding the active one is this
-      // window's own active session rather than the process-wide one.
-      const scoped = this.terminalStateForWindow(tm.getSessionState(), admittedSessionId);
-      const activeId = admittedSessionId || scoped.activeSessionId || '';
-      const activeSession = scoped.sessions.find((summary) => summary.id === activeId);
-      const projection = {
-        activeSessionId: activeId,
-        sessions: scoped.sessions,
-        splitSessionId: activeSession?.splitSessionId,
-        // Preview only, like every row above: the pane hydrates the authoritative
-        // transcript via getFullBuffer (resolveHydrationSnapshot), so shipping the
-        // unbounded buffer here was pure broadcast cost.
-        snapshot: activeSession?.buffer || '',
-        snapshotThroughSeq: activeSession?.snapshotThroughSeq || 0,
-      };
-      this.terminalDisplayedSessions.set(`w${win.id}`, this.displayedSessionIdsOf(projection as TerminalSessionStateProjection));
-      safeSendWebContents(win.webContents, 'antifan:terminal:session', projection);
-    });
-
-    win.loadFile(standaloneHtml, { query: { mode: 'popout', ...(admittedSessionId ? { sessionId: admittedSessionId } : {}) } });
-
-    win.on('closed', () => {
-      this.terminalWindows.delete(win.id);
-      this.terminalWindowMeta.delete(win.id);
-      this.terminalDisplayedSessions.delete(`w${win.id}`);
-      this.terminalWindowBindingChanged();
-    });
-    this.schedulePersist();
-    return true;
-  }
-
-  private broadcastPopoutState(isPopout: boolean): void {
-    safeSendWebContents(this.shell.sidebarView?.webContents, 'antifan:terminal:popout-state-changed', isPopout);
-    for (const [, win] of this.terminalWindows) {
-      safeSendWebContents(win?.webContents, 'antifan:terminal:popout-state-changed', isPopout);
-    }
-  }
 
   public dispose(): void {
     if (this.isDisposed) return;
@@ -13950,6 +14375,10 @@ export class NativeTabHost extends EventEmitter {
     if (this.hibernationSweepTimer) {
       clearInterval(this.hibernationSweepTimer);
       this.hibernationSweepTimer = null;
+    }
+    if (this.agentTabReapSweepTimer) {
+      clearInterval(this.agentTabReapSweepTimer);
+      this.agentTabReapSweepTimer = null;
     }
     // A queued wake-and-wait must not hold a disposed host's promise open.
     this.tabReadyWaits?.clear();

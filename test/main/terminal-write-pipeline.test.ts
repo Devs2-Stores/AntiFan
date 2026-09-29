@@ -402,14 +402,12 @@ describe('Terminal route admission — write settlement and restart gate', () =>
     }
   });
 
-  it('refuses popout/new-window mints while the asking window is closing, and runs them once it is open', () => {
+  it('refuses popout/new-window requests while the asking window is closing, and opens the Terminal Manager once it is open', () => {
     const admission = new StubAdmission();
     admission.ownerReserved = true;
-    let popoutCalls = 0;
-    let newWindowCalls = 0;
+    let managerOpens = 0;
     const host = buildRouteHost(admission, 'project:test', {
-      togglePopoutTerminal: () => { popoutCalls += 1; return true; },
-      openNewTerminalWindow: () => { newWindowCalls += 1; return {}; },
+      openTerminalManager: () => { managerOpens += 1; return true; },
     });
     const popoutRoute = chromeRoute(TERMINAL_CHANNELS.POPOUT);
     const newWindowRoute = chromeRoute(TERMINAL_CHANNELS.NEW_WINDOW);
@@ -424,14 +422,12 @@ describe('Terminal route admission — write settlement and restart gate', () =>
       if (!(refusal instanceof CapabilityError)) assert.fail(`${name} must refuse with a CapabilityError`);
       assert.equal(refusal.code, 'TARGET_STALE', `${name} must refuse for its own closing window, not only for a quit`);
     }
-    assert.equal(popoutCalls, 0, 'a refused popout never reaches the mint');
-    assert.equal(newWindowCalls, 0, 'a refused window never reaches the mint');
+    assert.equal(managerOpens, 0, 'a refused request never opens a window');
 
     admission.ownerReserved = false;
     assert.equal(popoutRoute.run({ host, surface: 'sidebar' }, undefined, [undefined]), true);
-    assert.equal(popoutCalls, 1);
-    newWindowRoute.run({ host, surface: 'sidebar' }, undefined, [{ sessionId: 'terminal-1' }]);
-    assert.equal(newWindowCalls, 1);
+    assert.equal(newWindowRoute.run({ host, surface: 'sidebar' }, undefined, [{ sessionId: 'terminal-1' }]), true);
+    assert.equal(managerOpens, 2, 'both entries open the one shared Terminal Manager instead of a per-window terminal');
   });
 
   it('refuses capsule:switch into a draining or closing window before any mutation, and holds its setCapsule admission until the call settles', async () => {

@@ -242,7 +242,7 @@ app.whenReady().then(async () => {
       console.log(`  - Scroll position: strictly preserved at viewportY = ${stats.restoredViewportY} (Exact match, no jump/jank)`);
       console.log(`  - Inactive session snapshot race: historical buffer (50 lines) + live background chunk preserved exactly once`);
       console.log(`  - Authoritative empty buffer session: isHydrated === true, queue empty, marker count exactly 1`);
-      console.log(`  - Data-before-initial-session race: early chunk queued unrendered -> hydrated cleanly without duplicate`);
+      console.log(`  - Data-before-initial-session race: early chunk acked without materializing a pane -> hydrated once on activation`);
       console.log(`  - Wire-budgeted session snapshot: pane hydrated from the full transcript (head + tail retained)`);
       console.log(`  - Ctrl+K scrollback clear: baseY reset to 0 in live Chromium renderer`);
       if (stats.initialRatio !== undefined) {
@@ -329,7 +329,7 @@ app.whenReady().then(async () => {
         // sticky toolbar, which leads the strip, and every tab follows it. The button
         // used to be the strip's last child; the tab search field moved it into a
         // leading toolbar row (standalone.js: tabToolbar.append(searchField,
-        // btnNewTerminal, btnNewCategory) then insertBefore(tabToolbar, firstChild)),
+        // btnNewTerminal, btnNewInFolder) then insertBefore(tabToolbar, firstChild)),
         // so the pinned order is toolbar-first - the action must still never be
         // pushed out of reach by a long tab list.
         const tabsContainer = document.getElementById('terminalTabs');
@@ -438,13 +438,16 @@ app.whenReady().then(async () => {
         console.log('[SMOKE-RUNNER] Step 4b PASS: Authoritative empty Session 3 hydrated cleanly with 1 marker');
 
         // Step 5: Data-before-initial-session race (Session 4)
+        // Contract: a chunk for a session this surface does not display must NOT
+        // materialize an xterm — it is acked and the transcript lands in one hydrate
+        // on activation (standalone.js handleIncomingTerminalChunk: peek, never get).
         const s4EarlyChunk = '⚡ [S4-EARLY-CHUNK-BEFORE-STATE] Received before any session state exists\\r\\n';
         await helper.emitData('session-4', s4EarlyChunk);
         await sleep(100);
 
-        const s4Item = window.__antifanTerminalPool?.get('session-4');
-        if (!s4Item) throw new Error('Session 4 pane was not created on early data');
-        console.log('[SMOKE-RUNNER] Step 5a PASS: Session 4 early chunk queued unrendered in liveQueue');
+        const s4Early = window.__antifanTerminalPool?.get('session-4');
+        if (s4Early) throw new Error('Session 4 early data materialized a pane for an undisplayed session — the peek contract was broken');
+        console.log('[SMOKE-RUNNER] Step 5a PASS: Session 4 early chunk acked without materializing a pane');
 
         // Backend broadcasts Session 4 state
         const s4AuthoritativeBuffer = \`[S4-HISTORICAL-HEADER] Session 4 started\\r\\n\${s4EarlyChunk}\`;
@@ -457,8 +460,23 @@ app.whenReady().then(async () => {
         });
         await sleep(200);
 
-        if (s4Item.activeHydratingEpoch !== null) throw new Error('Session 4 must finish hydration after authoritative broadcast');
-        if (s4Item.liveQueue && s4Item.liveQueue.length !== 0) throw new Error('Session 4 liveQueue must be cleared after hydration');
+        // Activation is what materializes the pane; hydrate must carry the early
+        // chunk exactly once, from the authoritative buffer (there is no liveQueue
+        // copy to duplicate — the pre-state chunk was never retained).
+        const s4TabBtn = document.querySelector('.terminal-tab-wrap[data-session-id="session-4"] .terminal-tab');
+        if (s4TabBtn) s4TabBtn.click();
+        else window.antifanStandalone.switchTerminal('session-4');
+        let s4Item = null;
+        for (let retry = 0; retry < 60; retry++) {
+          if (window.__antifanTerminalPool?.has('session-4')) {
+            s4Item = window.__antifanTerminalPool.get('session-4');
+            if (s4Item && s4Item.term && s4Item.activeHydratingEpoch === null) break;
+          }
+          await sleep(50);
+        }
+        if (!s4Item) throw new Error('Session 4 pane was not created on activation');
+        if (s4Item.activeHydratingEpoch !== null) throw new Error('Session 4 did not finish hydration after activation');
+        if (s4Item.liveQueue && s4Item.liveQueue.length !== 0) throw new Error('Session 4 liveQueue must be empty after hydration');
 
         let headerCount = 0;
         let earlyChunkCount = 0;
@@ -475,7 +493,7 @@ app.whenReady().then(async () => {
         }
         if (headerCount !== 1) throw new Error(\`Session 4 headerCount expected 1, got \${headerCount}\`);
         if (earlyChunkCount !== 1) throw new Error(\`Session 4 earlyChunkCount expected 1, got \${earlyChunkCount}\`);
-        console.log('[SMOKE-RUNNER] Step 5b PASS: Session 4 hydrated from authoritative state, 0 duplication');
+        console.log('[SMOKE-RUNNER] Step 5b PASS: Session 4 hydrated on activation from authoritative state, 0 duplication');
 
         // Step 5c: wire-budgeted broadcast snapshot must not truncate pane history.
         // The session-state payload carries only a tail of each transcript; the pane

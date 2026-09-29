@@ -733,23 +733,6 @@ describe('Terminal Switching Regression & Viewport Integrity', () => {
     );
   });
 
-  it('verifies NativeTabHost popout lifecycle correctly tracks wasSidebarOpenBeforePopout', () => {
-    const nativeTabHostPath = path.resolve(process.cwd(), 'src/main/browser/native-tab-host.ts');
-    const content = fs.readFileSync(nativeTabHostPath, 'utf8');
-    assert.ok(
-      content.includes('wasSidebarOpenBeforePopout'),
-      'NativeTabHost must track wasSidebarOpenBeforePopout to avoid reopening sidebars that were closed before popout'
-    );
-    assert.ok(
-      content.includes('this.broadcastPopoutState(true)'),
-      'NativeTabHost must broadcast popout state active on creation'
-    );
-    assert.ok(
-      content.includes('this.broadcastPopoutState(false)'),
-      'NativeTabHost must broadcast popout state inactive on teardown'
-    );
-  });
-
   it('verifies createSplitSession creates and closes split sessions cleanly by parent ID and split ID', async () => {
     const s1 = tm.createSession();
     const splitId = tm.createSplitSession(s1);
@@ -803,23 +786,6 @@ describe('Terminal Switching Regression & Viewport Integrity', () => {
     assert.strictEqual(html.includes('id="btnFullscreenTerminalTab"'), false, 'btnFullscreenTerminalTab must be removed');
     assert.strictEqual(html.includes('id="btnNewWindowTerminalTab"'), false, 'btnNewWindowTerminalTab must be removed');
     assert.strictEqual(html.includes('id="btnPopoutTerminalTab"'), false, 'btnPopoutTerminalTab must be removed');
-  });
-
-  it('verifies NativeTabHost registers openNewTerminalWindow into terminalWindows and terminalWindowMeta for multi-screen sync', () => {
-    const nativeTabHostPath = path.resolve(process.cwd(), 'src/main/browser/native-tab-host.ts');
-    const content = fs.readFileSync(nativeTabHostPath, 'utf8');
-    assert.ok(
-      content.includes('this.terminalWindows.set(win.id, win)'),
-      'NativeTabHost must add openNewTerminalWindow BrowserWindow to this.terminalWindows'
-    );
-    assert.ok(
-      content.includes('this.terminalWindowMeta.set(win.id, { sessionId: activeSessionId, isPopout: false })'),
-      'NativeTabHost must track metadata for openNewTerminalWindow'
-    );
-    assert.ok(
-      content.includes('for (const [, win] of this.terminalWindows)'),
-      'broadcastPopoutState must broadcast state to all open terminal windows'
-    );
   });
 
 });

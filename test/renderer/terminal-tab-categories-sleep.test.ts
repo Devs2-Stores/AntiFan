@@ -10,8 +10,8 @@
  * The two properties the feature lives or dies on:
  *   1. A sleeping session must never build an xterm — that is the whole
  *      "zero-cost" guarantee, and `terminalPool.get` is its last line of defence.
- *   2. A category header must never be a reorder target — tab reordering must
- *      resolve both ends by SESSION ID, not by raw DOM position.
+ *   2. The sidebar is one flat list now — the legacy category axis is retired, so
+ *      reordering resolves both ends by SESSION ID, never by raw DOM position.
  */
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
@@ -92,7 +92,9 @@ const dragRowOnto = (harness: StandaloneHarness, sessionId: string, over: FakeEl
 
 /**
  * The strip's tabs bucketed under the header that precedes them. A wrap is a SIBLING of
- * a header, not a child, so membership is positional and has to be read that way.
+ * a header, not a child, so membership is positional and has to be read that way. With
+ * the category axis retired the only header left in a plain shell is the sleep bucket,
+ * so awake rows land under `__top__` and parked rows under `__sleeping__`.
  */
 const buckets = (harness: StandaloneHarness): Record<string, string[]> => {
   const out: Record<string, string[]> = { __top__: [] };
@@ -137,7 +139,7 @@ function seed(harness: StandaloneHarness, list: unknown[], active: string): void
 }
 
 describe('Renderer terminal tab categories', () => {
-  it('groups a sidebar into stable collapsible headers and never makes a header draggable', async () => {
+  it('renders the sidebar as one flat list — categorised rows get no header and no chip', async () => {
     const harness = loadStandalone();
     await flush();
     harness.assign("applyTerminalTabLayout('sidebar')");
@@ -149,77 +151,96 @@ describe('Renderer terminal tab categories', () => {
       { id: 's4', name: 'Four', category: 'Deploy', state: 'running' },
     ];
     seed(harness, list, 's1');
+    harness.assign("applyCategories(['Build', 'Deploy'])");
     harness.renderTabs();
 
-    const groupHeaders = headers(harness);
-    assert.deepStrictEqual(
-      groupHeaders.map((header) => header.getAttribute('data-category')),
-      ['Build', '__uncategorized__', 'Deploy'],
-      'groups must follow first appearance in the session list, with uncategorised as its own group',
+    // The legacy classification is retired: a stored category on the row — and even a
+    // registered name in `terminalCategories` — can no longer paint a header.
+    assert.strictEqual(headers(harness).length, 0, 'the retired category axis must render no header');
+    assert.strictEqual(
+      harness.tabsRoot.querySelectorAll('.terminal-tab-category-header[data-group-kind="category"]').length,
+      0,
+      'no legacy classification header may appear',
     );
-    for (const header of groupHeaders) {
-      assert.strictEqual(header.draggable, false, 'a category header must never be a drag source');
-      assert.strictEqual(header.getAttribute('role'), 'button');
-      assert.strictEqual(header.getAttribute('aria-expanded'), 'true');
-    }
+    assert.strictEqual(
+      harness.tabsRoot.querySelectorAll('.terminal-tab-category-chip').length,
+      0,
+      'a non-manager row never carries a category chip',
+    );
+    assert.strictEqual(
+      harness.tabsRoot.querySelectorAll('.terminal-tab-category-rename').length,
+      0,
+      'with no group headers there is no rename affordance left',
+    );
 
-    // The DOM order must be header, its own wraps, next header, … — i.e. a header
-    // can only ever sit directly above the tabs it actually groups.
+    // The DOM order is the session order, verbatim — nothing groups or re-files a row.
     const flattened = harness.tabsRoot.children
       .filter((el) => el.matches('.terminal-tab-category-header') || el.matches('.terminal-tab-wrap'))
       .map((el) => el.getAttribute('data-category') ?? el.getAttribute('data-session-id'));
-    assert.deepStrictEqual(flattened, ['Build', 's1', 's3', '__uncategorized__', 's2', 'Deploy', 's4']);
+    assert.deepStrictEqual(flattened, ['s1', 's2', 's3', 's4']);
 
-    // The row names the group and nothing more: the tab count badge was removed, so a
-    // numeric chip must never creep back into a header. Membership itself is proven by
-    // `flattened` above and by the label each header carries.
-    const buildHeader = groupHeaders[0];
-    assert.ok(buildHeader);
-    assert.strictEqual(
-      buildHeader.querySelector('.terminal-tab-category-count'),
-      null,
-      'the header must carry no tab count',
-    );
-    assert.strictEqual(buildHeader.querySelector('.terminal-tab-category-label')?.textContent, 'Build');
-    assert.strictEqual(
-      groupHeaders[1]?.querySelector('.terminal-tab-category-label')?.textContent,
-      'Chưa phân nhóm',
+    // The stored field survives untouched: retirement is a display concern only.
+    assert.deepStrictEqual(
+      Array.from(harness.getSessions(), (s) => s.category),
+      ['Build', undefined, 'Build', 'Deploy'],
+      'rendering never rewrites the stored category',
     );
   });
 
-  it('collapses a group, hides its tabs and persists the collapsed set once', async () => {
-    const harness = loadStandalone();
+  it('ignores persisted collapsed categories, so a stale collapse can never hide rows', async () => {
+    const harness = loadStandalone({
+      // A prefs payload from before the retirement may still carry names — including
+      // the catch-all key itself. None of them may collapse the flat list.
+      initialState: { terminalTabPrefs: { layout: 'sidebar', sidebarWidth: 240, collapsedCategories: ['Build', '__uncategorized__'] } },
+    });
     await flush();
-    harness.assign("applyTerminalTabLayout('sidebar')");
-    const list = [
+    seed(harness, [
       { id: 's1', name: 'One', category: 'Build', state: 'running' },
       { id: 's2', name: 'Two', category: 'Build', state: 'running' },
-      { id: 's3', name: 'Three', category: 'Deploy', state: 'running' },
-    ];
-    seed(harness, list, 's1');
+      { id: 's3', name: 'Three', state: 'sleeping', buffer: 'zzz' },
+    ], 's1');
     harness.renderTabs();
 
-    headers(harness)[0]?.dispatch('click', {});
+    assert.deepStrictEqual(
+      headers(harness).map((el) => el.getAttribute('data-category')),
+      ['__sleeping__'],
+      'the only remaining bucket header is the sleep state, not a stored name',
+    );
+    for (const id of ['s1', 's2', 's3']) {
+      assert.strictEqual(
+        wrapFor(harness, id).classList.contains('is-category-collapsed'),
+        false,
+        `a stale collapsedCategories entry must not hide ${id}`,
+      );
+    }
+
+    // The sleep bucket is still a real bucket: its own collapse gesture works, hides the
+    // parked row only, and persists the set once — the stale names are never elided.
+    const sleepingHeader = () => {
+      // The sweep recreates the bucket header every render, so it must be re-queried.
+      const found = headers(harness).find((el) => el.getAttribute('data-category') === '__sleeping__');
+      assert.ok(found, 'the sleep bucket header renders');
+      return found;
+    };
+    sleepingHeader().dispatch('click', {});
     await flush();
 
     assert.strictEqual(countCalls(harness, 'setTerminalTabPrefs'), 1, 'a collapse must persist exactly once');
     const payload = lastArgs(harness, 'setTerminalTabPrefs')?.[0] as { collapsedCategories?: string[] } | undefined;
-    assert.deepStrictEqual(plain(payload?.collapsedCategories), ['Build']);
+    assert.deepStrictEqual(plain(payload?.collapsedCategories).sort(), ['Build', '__sleeping__', '__uncategorized__']);
+    assert.strictEqual(wrapFor(harness, 's3').classList.contains('is-category-collapsed'), true, 'the parked row collapses');
+    assert.strictEqual(wrapFor(harness, 's1').classList.contains('is-category-collapsed'), false, 'flat rows never collapse');
+    assert.strictEqual(sleepingHeader().getAttribute('aria-expanded'), 'false');
 
-    assert.strictEqual(wrapFor(harness, 's1').classList.contains('is-category-collapsed'), true);
-    assert.strictEqual(wrapFor(harness, 's2').classList.contains('is-category-collapsed'), true);
-    assert.strictEqual(wrapFor(harness, 's3').classList.contains('is-category-collapsed'), false);
-    assert.strictEqual(headers(harness)[0]?.getAttribute('aria-expanded'), 'false');
-
-    // Expanding again restores the tabs and persists the empty set.
-    headers(harness)[0]?.dispatch('click', {});
+    // Expanding again restores the row and persists the set with the bucket removed.
+    sleepingHeader().dispatch('click', {});
     await flush();
-    assert.strictEqual(wrapFor(harness, 's1').classList.contains('is-category-collapsed'), false);
+    assert.strictEqual(wrapFor(harness, 's3').classList.contains('is-category-collapsed'), false);
     const restored = lastArgs(harness, 'setTerminalTabPrefs')?.[0] as { collapsedCategories?: string[] } | undefined;
-    assert.deepStrictEqual(plain(restored?.collapsedCategories), []);
+    assert.deepStrictEqual(plain(restored?.collapsedCategories).sort(), ['Build', '__uncategorized__']);
   });
 
-  it('restores the persisted collapsed categories on boot', async () => {
+  it('ignores the persisted collapsed categories on boot', async () => {
     const harness = loadStandalone({
       initialState: { terminalTabPrefs: { layout: 'sidebar', sidebarWidth: 240, collapsedCategories: ['Build'] } },
     });
@@ -227,11 +248,12 @@ describe('Renderer terminal tab categories', () => {
     seed(harness, [{ id: 'b1', name: 'Build', category: 'Build', state: 'running' }], 'b1');
     harness.renderTabs();
 
-    assert.strictEqual(wrapFor(harness, 'b1').classList.contains('is-category-collapsed'), true);
-    assert.strictEqual(headers(harness)[0]?.getAttribute('aria-expanded'), 'false');
+    assert.strictEqual(wrapFor(harness, 'b1').classList.contains('is-category-collapsed'), false);
+    assert.strictEqual(headers(harness).length, 0, 'a stored name must never boot a header back into existence');
+    assert.strictEqual(countCalls(harness, 'setTerminalTabPrefs'), 0, 'a render must never write prefs');
   });
 
-  it('renders a colour chip per categorised tab in horizontal mode and no headers', async () => {
+  it('paints no category chrome at all — no chips in the strip, no headers in the sidebar', async () => {
     const harness = loadStandalone();
     await flush();
     const list = [
@@ -242,139 +264,100 @@ describe('Renderer terminal tab categories', () => {
     seed(harness, list, 'h1');
     harness.renderTabs();
 
-    assert.strictEqual(headers(harness).length, 0, 'headers are a sidebar-only affordance');
-    const chips = harness.tabsRoot.querySelectorAll('.terminal-tab-category-chip');
-    assert.strictEqual(chips.length, 2, 'only categorised tabs carry a chip; uncategorised tabs carry none');
-    assert.deepStrictEqual(chips.map((chip) => chip.getAttribute('data-category')), ['Build', 'Deploy']);
-    assert.strictEqual(chips[0]?.textContent, 'Build');
-    assert.match(chips[0]?.style.getPropertyValue('background') ?? '', /^#[0-9a-f]{6}$/i);
-    assert.notStrictEqual(
-      chips[0]?.style.getPropertyValue('background'),
-      chips[1]?.style.getPropertyValue('background'),
-      'different categories must get different colours',
-    );
-
-    // The colour is a pure function of the name, so a re-render cannot reshuffle it.
-    const before = chips[0]?.style.getPropertyValue('background');
-    harness.renderTabs();
+    assert.strictEqual(headers(harness).length, 0, 'headers are gone in every layout');
     assert.strictEqual(
-      harness.tabsRoot.querySelectorAll('.terminal-tab-category-chip')[0]?.style.getPropertyValue('background'),
-      before,
+      harness.tabsRoot.querySelectorAll('.terminal-tab-category-chip').length,
+      0,
+      'a stored category must not paint a chip in the horizontal strip',
     );
 
-    // Switching to the sidebar drops the chips (grouping becomes headers instead).
-    harness.assign("applyTerminalTabLayout('sidebar')");
+    // A re-render cannot bring the retired chrome back.
+    harness.renderTabs();
     assert.strictEqual(harness.tabsRoot.querySelectorAll('.terminal-tab-category-chip').length, 0);
-    assert.strictEqual(headers(harness).length, 3, 'sidebar shows a header per group, including uncategorised');
+
+    // Switching to the sidebar stays flat too — no header per category, no catch-all header.
+    harness.assign("applyTerminalTabLayout('sidebar')");
+    assert.strictEqual(headers(harness).length, 0, 'the sidebar renders a flat list, not a header per category');
+    assert.strictEqual(harness.tabsRoot.querySelectorAll('.terminal-tab-category-chip').length, 0);
   });
 
-  it('reorders tabs by session id, so a category header can never corrupt the order', async () => {
+  it('reorders tabs by session id, and a drop onto the sleep bucket moves nothing', async () => {
     const harness = loadStandalone();
     await flush();
     harness.assign("applyTerminalTabLayout('sidebar')");
     const list = [
       { id: 's1', name: 'One', category: 'Build', state: 'running' },
       { id: 's2', name: 'Two', state: 'running' },
-      { id: 's3', name: 'Three', state: 'running' },
+      { id: 's3', name: 'Three', state: 'sleeping', buffer: 'zzz' },
     ];
     seed(harness, list, 's1');
     harness.renderTabs();
 
-    // A header is a category drop target, never a reorder target: a drop on it
-    // must leave the session order completely untouched. s3 is already
-    // uncategorised and this is the uncategorised header, so this drop is also a
-    // category no-op — the assertion is purely about the untouched order.
-    const header = headers(harness)[1];
-    assert.ok(header);
-    assert.strictEqual(header.getAttribute('data-category'), '__uncategorized__');
-    dragRowOnto(harness, 's3', header);
-    assert.deepStrictEqual(
-      sessionIds(harness),
-      ['s1', 's2', 's3'],
-      'dropping onto a header must never splice the session order',
-    );
+    // The only header left is the sleep bucket. A drop on it is a state write that does
+    // not exist, so the gesture is inert: no reorder, no category write.
+    const sleepHeader = headers(harness).find((el) => el.getAttribute('data-category') === '__sleeping__');
+    assert.ok(sleepHeader, 'the sleep bucket header renders');
+    dragRowOnto(harness, 's2', sleepHeader);
+    assert.deepStrictEqual(sessionIds(harness), ['s1', 's2', 's3'], 'a bucket drop must never splice the session order');
+    assert.strictEqual(countCalls(harness, 'setCategory'), 0, 'a state bucket is not a category target');
+    assert.strictEqual(countCalls(harness, 'reorderTerminals'), 0);
 
-    // Dropping onto a tab resolves both ends by session id, not by DOM index —
-    // indices would be shifted by the header interleaved between the wraps.
-    dragRowOnto(harness, 's3', wrapFor(harness, 's1'));
-    assert.deepStrictEqual(sessionIds(harness), ['s3', 's1', 's2']);
-    assert.deepStrictEqual(plain(lastArgs(harness, 'reorderTerminals')?.[0] as string[] | undefined), ['s3', 's1', 's2']);
+    // Dropping onto a tab resolves both ends by session id, not by DOM index.
+    dragRowOnto(harness, 's2', wrapFor(harness, 's1'));
+    assert.deepStrictEqual(sessionIds(harness), ['s2', 's1', 's3']);
+    assert.deepStrictEqual(plain(lastArgs(harness, 'reorderTerminals')?.[0] as string[] | undefined), ['s2', 's1', 's3']);
 
-    // A drop onto a tab adopts THAT tab's group. Without it the next render would file
-    // the tab back under its own header and the drag would read as undone — the same
-    // "a drag a later render would undo is not an affordance" rule the pane test states.
-    assert.strictEqual(harness.getSessions().find((s) => s.id === 's3')?.category, 'Build');
-
-    // The re-render keeps each tab inside its own group, and — because a group keeps the
-    // slot it first appeared in — the group order is unchanged even though a tab moved
-    // between groups.
+    // The drop still adopts the target's stored category: the field exists even though
+    // nothing renders it, and the re-render keeps the flat session order.
+    assert.strictEqual(harness.getSessions().find((s) => s.id === 's2')?.category, 'Build');
     const flattened = harness.tabsRoot.children
       .filter((el) => el.matches('.terminal-tab-category-header') || el.matches('.terminal-tab-wrap'))
       .map((el) => el.getAttribute('data-category') ?? el.getAttribute('data-session-id'));
-    assert.deepStrictEqual(flattened, ['Build', 's3', 's1', '__uncategorized__', 's2']);
+    assert.deepStrictEqual(flattened, ['s2', 's1', '__sleeping__', 's3']);
     assert.deepStrictEqual(
       headers(harness).map((header) => header.getAttribute('data-category')),
-      ['Build', '__uncategorized__'],
-      'reordering tabs must never reshuffle the group order',
+      ['__sleeping__'],
+      'a reorder can never mint a category header',
     );
   });
 
-  it('re-groups a tab dropped on a group header, and never reorders it', async () => {
+  it('refuses the sleep bucket as a category drop target — the release is inert', async () => {
     const harness = loadStandalone();
     await flush();
     harness.assign("applyTerminalTabLayout('sidebar')");
     seed(harness, [
       { id: 's1', name: 'One', category: 'Build', state: 'running' },
       { id: 's2', name: 'Two', state: 'running' },
-      { id: 's3', name: 'Three', state: 'running' },
+      { id: 's3', name: 'Asleep', state: 'sleeping', buffer: 'zzz' },
     ], 's1');
     harness.renderTabs();
 
-    const findHeader = (key: string): FakeElement => {
-      const header = headers(harness).find((el) => el.getAttribute('data-category') === key);
-      assert.ok(header, `expected a header for ${key}`);
-      return header;
+    // The sweep recreates the bucket header every render, so it must be re-queried
+    // rather than held across gestures.
+    const sleepHeader = () => {
+      const found = headers(harness).find((el) => el.getAttribute('data-category') === '__sleeping__');
+      assert.ok(found, 'the sleep bucket header renders');
+      return found;
     };
-    const buildHeader = findHeader('Build');
 
-    // A move with no tab drag in flight must not arm the header, so a drag the strip is
-    // not driving — a file, a link, a text selection — can never become a category drop.
-    harness.setElementFromPoint(buildHeader);
+    // A move with no tab drag in flight must not light the header up: the highlight is
+    // drag feedback, not ambient hover chrome.
+    harness.setElementFromPoint(sleepHeader());
     harness.dispatchWindowPointer('pointermove', { pointerId: POINTER_ID, clientX: 140, clientY: 140 });
-    assert.strictEqual(buildHeader.classList.contains('drag-over'), false);
+    assert.strictEqual(sleepHeader().classList.contains('drag-over'), false);
 
-    // Arming is pointer-driven: only a real tab drag in flight lights the header up.
-    pressRow(harness, wrapFor(harness, 's3'));
-    dragRowOver(harness, buildHeader);
-    assert.strictEqual(buildHeader.classList.contains('drag-over'), true, 'a live tab drag arms the header');
-
-    // Releasing over the header files the tab there.
-    releaseOver(harness, buildHeader);
-    assert.strictEqual(buildHeader.classList.contains('drag-over'), false, 'the highlight is cleared');
-    assert.strictEqual(harness.getSessions().find((s) => s.id === 's3')?.category, 'Build');
-    assert.deepStrictEqual(lastArgs(harness, 'setCategory'), ['s3', 'Build']);
-    // Membership moved; the session ORDER did not.
-    assert.deepStrictEqual(sessionIds(harness), ['s1', 's2', 's3']);
-    assert.deepStrictEqual(
-      headers(harness).map((el) => el.getAttribute('data-category')),
-      ['Build', '__uncategorized__'],
-      'a category drop must never reshuffle the group order either',
-    );
-
-    // Re-dropping into the group it already belongs to is inert: that guard is what
-    // keeps a stray drop from costing an IPC round-trip and a disk write.
-    const writes = countCalls(harness, 'setCategory');
-    buildHeader.dispatch('drop', { dataTransfer: dataTransfer('s3') });
-    assert.strictEqual(countCalls(harness, 'setCategory'), writes, 're-dropping into the same group is inert');
+    // Releasing over the bucket is refused by the drop itself: a state is not a
+    // category, so nothing is written and the order is untouched.
+    dragRowOnto(harness, 's2', sleepHeader());
+    assert.strictEqual(sleepHeader().classList.contains('drag-over'), false, 'the highlight is cleared after the drop');
+    assert.strictEqual(countCalls(harness, 'setCategory'), 0, 'dropping onto a state bucket must never file a category');
+    assert.deepStrictEqual(sessionIds(harness), ['s1', 's2', 's3'], 'the refused drop moves nothing');
+    assert.strictEqual(countCalls(harness, 'reorderTerminals'), 0);
+    assert.strictEqual(harness.getSessions().find((s) => s.id === 's2')?.category, undefined);
 
     // A payload that is not a session id is ignored outright.
-    findHeader('Build').dispatch('drop', { dataTransfer: dataTransfer('C:\\tmp\\file.txt') });
-    assert.strictEqual(countCalls(harness, 'setCategory'), writes, 'a non-session payload changes nothing');
-
-    // Dropping on the uncategorised header releases the tab back to ungrouped.
-    dragRowOnto(harness, 's3', findHeader('__uncategorized__'));
-    assert.strictEqual(harness.getSessions().find((s) => s.id === 's3')?.category, undefined);
-    assert.deepStrictEqual(lastArgs(harness, 'setCategory'), ['s3', undefined]);
+    sleepHeader().dispatch('drop', { dataTransfer: dataTransfer('C:\\tmp\\file.txt') });
+    assert.strictEqual(countCalls(harness, 'setCategory'), 0, 'a non-session payload changes nothing');
   });
 });
 
@@ -582,14 +565,20 @@ describe('Renderer tab context-menu actions', () => {
     await flush();
     assert.strictEqual(popover.style.display, 'none');
     assert.deepStrictEqual(lastArgs(harness, 'setCategory'), ['c1', 'Build']);
-    assert.strictEqual(wrapFor(harness, 'c1').querySelector('.terminal-tab-category-chip')?.textContent, 'Build');
+    assert.strictEqual(harness.getSessions().find((s) => s.id === 'c1')?.category, 'Build',
+      'the picker writes the stored field');
+    assert.strictEqual(
+      wrapFor(harness, 'c1').querySelector('.terminal-tab-category-chip'),
+      null,
+      'a stored category paints no chip — the axis is retired',
+    );
 
     // Clearing a category sends an explicit empty string.
     harness.showCategoryPicker('c1', wrapFor(harness, 'c1'));
     popover.querySelector('.terminal-category-picker-item.clear')?.dispatch('click', {});
     await flush();
     assert.deepStrictEqual(lastArgs(harness, 'setCategory'), ['c1', undefined]);
-    assert.strictEqual(wrapFor(harness, 'c1').querySelector('.terminal-tab-category-chip'), null);
+    assert.strictEqual(harness.getSessions().find((s) => s.id === 'c1')?.category, undefined);
   });
 });
 
@@ -653,49 +642,70 @@ describe('Renderer group header: reachable and operable from the keyboard', () =
       initialState: { terminalTabPrefs: { layout: 'sidebar', sidebarWidth: 240 } },
     });
     // The boot payload is applied asynchronously, so the render below must wait for it or
-    // it runs under the default layout and no group header exists to test.
+    // it runs under the default layout and no bucket header exists to test.
     await flush();
+    // The sleep bucket is the only header a plain shell still renders — category
+    // headers are retired — so it is the surface keyboard operability is proven on.
     const list = [
-      { id: 'k1', name: 'Build', category: 'Build', state: 'running' },
-      { id: 'k2', name: 'Deploy', category: 'Deploy', state: 'running' },
+      { id: 'k1', name: 'Live', state: 'running' },
+      { id: 'k2', name: 'Asleep', state: 'sleeping', buffer: 'zzz' },
     ];
     seed(harness, list, 'k1');
     harness.renderTabs();
 
-    const header = headers(harness)[0];
-    assert.ok(header, 'the Build header must render');
-    assert.strictEqual(header.getAttribute('role'), 'button');
-    assert.strictEqual(header.tabIndex, 0, 'a role="button" nothing can Tab to is unusable');
+    const header = (): FakeElement => {
+      // The sweep recreates the bucket header every render, so it must be re-queried.
+      const found = headers(harness).find((el) => el.getAttribute('data-category') === '__sleeping__');
+      assert.ok(found, 'the sleep bucket header must render');
+      return found;
+    };
+    assert.strictEqual(header().getAttribute('role'), 'button');
+    assert.strictEqual(header().tabIndex, 0, 'a role="button" nothing can Tab to is unusable');
 
-    header.dispatch('keydown', { key: 'Enter', target: header });
+    header().dispatch('keydown', { key: 'Enter', target: header() });
     await flush();
-    assert.strictEqual(header.getAttribute('aria-expanded'), 'false', 'Enter collapses');
-    assert.strictEqual(wrapFor(harness, 'k1').classList.contains('is-category-collapsed'), true);
+    assert.strictEqual(header().getAttribute('aria-expanded'), 'false', 'Enter collapses');
+    assert.strictEqual(wrapFor(harness, 'k2').classList.contains('is-category-collapsed'), true, 'the parked row hides');
+    assert.strictEqual(wrapFor(harness, 'k1').classList.contains('is-category-collapsed'), false, 'the live row stays');
 
-    header.dispatch('keydown', { key: ' ', target: header });
+    header().dispatch('keydown', { key: ' ', target: header() });
     await flush();
-    assert.strictEqual(header.getAttribute('aria-expanded'), 'true', 'Space expands again');
+    assert.strictEqual(header().getAttribute('aria-expanded'), 'true', 'Space expands again');
+    assert.strictEqual(wrapFor(harness, 'k2').classList.contains('is-category-collapsed'), false);
   });
 
-  it('does not collapse when Enter was aimed at the rename control inside it', async () => {
+  it('does not collapse when Enter was aimed at a control inside it', async () => {
+    // The surviving managed headers are the manager's project sections: they carry
+    // inner controls, so the target guard is proven there.
     const harness = loadStandalone({
-      initialState: { terminalTabPrefs: { layout: 'sidebar', sidebarWidth: 240 } },
+      contextMenuActions: ['assign-capsule'],
+      initialState: {
+        projectWindow: { owner: { kind: 'unassigned' }, title: 'Unassigned' },
+        terminalTabPrefs: { layout: 'sidebar', sidebarWidth: 240 },
+      },
     });
     await flush();
-    const list = [{ id: 'r1', name: 'Build', category: 'Build', state: 'running' }];
+    const list = [{ id: 'r1', name: 'X', state: 'running', ownerKey: 'project:p1', folderKey: 'e:\\work\\x', folderLabel: 'x', folderPath: 'E:\\Work\\x' }];
     seed(harness, list, 'r1');
     harness.renderTabs();
 
-    const header = headers(harness)[0];
-    assert.ok(header, 'the Build header must render');
-    const rename = header.querySelector('.terminal-tab-category-rename');
-    assert.ok(rename, 'the rename control must exist');
+    const header = headers(harness).find((el) => el.getAttribute('data-group-kind') === 'project');
+    assert.ok(header, 'the project section header must render');
+    const star = header.querySelector('[data-role="project-star"]');
+    assert.ok(star, 'the header must carry an inner control');
     // The keydown still bubbles to the header, but a bubbled Enter belongs to the control
     // that has focus, not to the collapse underneath it.
-    rename.dispatch('keydown', { key: 'Enter', target: rename });
+    header.dispatch('keydown', { key: 'Enter', target: star });
     await flush();
 
-    assert.strictEqual(header.getAttribute('aria-expanded'), 'true', 'the group must stay open');
+    assert.strictEqual(header.getAttribute('aria-expanded'), 'true', 'the section must stay open');
+
+    // The same key aimed at the header itself does collapse — the guard is about the
+    // target, not the key.
+    header.dispatch('keydown', { key: 'Enter', target: header });
+    await flush();
+    assert.strictEqual(header.getAttribute('aria-expanded'), 'false', 'Enter on the header collapses the section');
+    assert.strictEqual(wrapFor(harness, 'r1').classList.contains('is-category-collapsed'), true);
   });
 });
 
@@ -746,8 +756,7 @@ describe('Sidebar tab row: status beacon pinned right (CSS structure only)', () 
 });
 
 describe('Renderer group management: create and rename as their own operations', () => {
-  const headerKeys = (harness: StandaloneHarness): (string | null)[] =>
-    headers(harness).map((el) => el.getAttribute('data-category'));
+
 
   /**
    * The shared name popover. Selected by id, not by its styling class: the harness
@@ -780,75 +789,7 @@ describe('Renderer group management: create and rename as their own operations',
     return Array.isArray(value) ? Array.from(value) : undefined;
   };
 
-  it('creates an empty group from a strip control, without touching any tab', async () => {
-    const harness = loadStandalone();
-    await flush();
-    harness.assign("applyTerminalTabLayout('sidebar')");
-    seed(harness, [
-      { id: 's1', name: 'One', state: 'running' },
-      { id: 's2', name: 'Two', state: 'running' },
-    ], 's1');
-    harness.renderTabs();
-
-    // The control is a sibling of "+ Terminal" on the strip — not a tab context menu,
-    // which is the whole point: creating a group is its own operation.
-    const button = harness.tabsRoot.querySelector('.terminal-tab-new-category');
-    assert.ok(button, 'the strip must offer a dedicated new-group control');
-    // Icon-only, so its accessible name is what identifies it.
-    assert.match(button.getAttribute('aria-label') ?? '', /nhóm/i);
-    assert.match(button.innerHTML, /<svg/);
-    assert.deepStrictEqual(headerKeys(harness), ['__uncategorized__'], 'nothing exists yet');
-
-    button.dispatch('click');
-    await flush();
-    assert.strictEqual(popover(harness).style.display, 'block', 'the name popover opens');
-
-    submitName(harness, 'Khách hàng');
-    await flush();
-
-    // An empty group is real: it has a header, holds no tabs of its own (its wraps are
-    // siblings, never children), and survives a restart while empty.
-    assert.deepStrictEqual(headerKeys(harness), ['Khách hàng', '__uncategorized__']);
-    assert.deepStrictEqual(buckets(harness)['Khách hàng'], [], 'an empty group reports no tabs');
-    assert.strictEqual(
-      headers(harness)
-        .find((el) => el.getAttribute('data-category') === 'Khách hàng')
-        ?.querySelectorAll('.terminal-tab-wrap').length,
-      0,
-    );
-    // Registered and persisted, which is what lets it survive a restart while empty.
-    assert.deepStrictEqual(categories(harness), ['Khách hàng']);
-    assert.deepStrictEqual(persistedCategories(harness), ['Khách hàng']);
-  });
-
-  it('ignores a duplicate name and an empty submit instead of forking a header', async () => {
-    const harness = loadStandalone();
-    await flush();
-    harness.assign("applyTerminalTabLayout('sidebar')");
-    seed(harness, [{ id: 's1', name: 'One', state: 'running' }], 's1');
-    harness.assign("applyCategories(['Build'])");
-    harness.renderTabs();
-
-    const button = harness.tabsRoot.querySelector('.terminal-tab-new-category');
-    assert.ok(button);
-
-    // Case-insensitive duplicate: one header, never two.
-    button.dispatch('click');
-    await flush();
-    submitName(harness, 'build');
-    await flush();
-    assert.deepStrictEqual(categories(harness), ['Build']);
-    assert.deepStrictEqual(headerKeys(harness), ['Build', '__uncategorized__']);
-
-    // A blank submit is refused outright.
-    button.dispatch('click');
-    await flush();
-    submitName(harness, '   ');
-    await flush();
-    assert.deepStrictEqual(categories(harness), ['Build']);
-  });
-
-  it('renames a group from its own header and moves every tab with it', async () => {
+  it('renames a stored group and moves every tab with it — still flat on screen', async () => {
     const harness = loadStandalone();
     await flush();
     harness.assign("applyTerminalTabLayout('sidebar')");
@@ -860,11 +801,10 @@ describe('Renderer group management: create and rename as their own operations',
     harness.assign("applyCategories(['Build'])");
     harness.renderTabs();
 
-    const rename = headers(harness)
-      .find((el) => el.getAttribute('data-category') === 'Build')
-      ?.querySelector('.terminal-tab-category-rename');
-    assert.ok(rename, 'a real group header must offer rename');
-    rename.dispatch('click');
+    // The header that used to open this is gone, so the same operation runs through the
+    // rename path the header's pencil used to call.
+    assert.strictEqual(headers(harness).length, 0, 'no group header is left to click');
+    harness.assign("beginRenameCategory('Build')");
     await flush();
 
     const input = popover(harness).querySelector('.terminal-category-picker-input');
@@ -881,8 +821,9 @@ describe('Renderer group management: create and rename as their own operations',
       Array.from(harness.getSessions(), (s) => s.category),
       ['Xây dựng', 'Xây dựng', undefined],
     );
-    assert.deepStrictEqual(headerKeys(harness), ['Xây dựng', '__uncategorized__']);
-    assert.deepStrictEqual(buckets(harness)['Xây dựng'], ['s1', 's2'], 'the renamed group keeps both of its tabs');
+    // The strip stays flat: the renamed name still paints no header and no chip.
+    assert.strictEqual(headers(harness).length, 0, 'a renamed group still renders no header');
+    assert.strictEqual(harness.tabsRoot.querySelectorAll('.terminal-tab-category-chip').length, 0);
     assert.deepStrictEqual(
       harness.apiCallArgs.filter((e) => e.name === 'setCategory').map((e) => e.args),
       [['s1', 'Xây dựng'], ['s2', 'Xây dựng']],
@@ -890,23 +831,33 @@ describe('Renderer group management: create and rename as their own operations',
     assert.deepStrictEqual(persistedCategories(harness), ['Xây dựng']);
   });
 
-  it('renaming never also toggles the collapse it sits inside', async () => {
+  it('carries the collapsed marker across a rename without ever hiding a row', async () => {
     const harness = loadStandalone();
     await flush();
     harness.assign("applyTerminalTabLayout('sidebar')");
     seed(harness, [{ id: 's1', name: 'One', category: 'Build', state: 'running' }], 's1');
     harness.assign("applyCategories(['Build'])");
+    harness.assign("collapsedCategories.add('Build')");
     harness.renderTabs();
 
-    const header = headers(harness).find((el) => el.getAttribute('data-category') === 'Build');
-    assert.ok(header);
-    const rename = header.querySelector('.terminal-tab-category-rename');
-    assert.ok(rename);
-    // The control stops propagation, so the header's own click-to-collapse must not run.
-    rename.dispatch('click');
+    // Even with the group "collapsed" the flat list shows the row: collapse state is a
+    // per-key marker the retired axis can no longer spend.
+    assert.strictEqual(wrapFor(harness, 's1').classList.contains('is-category-collapsed'), false);
+
+    harness.assign("beginRenameCategory('Build')");
     await flush();
-    assert.strictEqual(header.getAttribute('aria-expanded'), 'true', 'the group stays expanded');
-    assert.strictEqual(popover(harness).style.display, 'block');
+    submitName(harness, 'Dock');
+    await flush();
+
+    // The marker follows the name, so a collapsed group stays collapsed in the stored
+    // prefs — and it still hides nothing, because nothing reads it for flat rows.
+    assert.deepStrictEqual(
+      Array.from(harness.read<Iterable<string>>('collapsedCategories')),
+      ['Dock'],
+      'the collapsed marker follows the rename',
+    );
+    assert.strictEqual(wrapFor(harness, 's1').classList.contains('is-category-collapsed'), false);
+    assert.strictEqual(headers(harness).length, 0);
   });
 
   it('deletes a group when the new name is left empty, releasing its tabs', async () => {
@@ -917,19 +868,17 @@ describe('Renderer group management: create and rename as their own operations',
     harness.assign("applyCategories(['Deploy'])");
     harness.renderTabs();
 
-    const rename = headers(harness)[0]?.querySelector('.terminal-tab-category-rename');
-    assert.ok(rename);
-    rename.dispatch('click');
+    harness.assign("beginRenameCategory('Deploy')");
     await flush();
     submitName(harness, '');
     await flush();
 
     assert.deepStrictEqual(categories(harness), []);
     assert.deepStrictEqual(Array.from(harness.getSessions(), (s) => s.category), [undefined]);
-    assert.deepStrictEqual(headerKeys(harness), ['__uncategorized__'], 'the group is gone');
+    assert.strictEqual(headers(harness).length, 0, 'the strip stays flat either way');
   });
 
-  it('makes the persisted group list, not first appearance, the header order', async () => {
+  it('keeps the persisted group list as data — it can never reorder the strip', async () => {
     const harness = loadStandalone();
     await flush();
     harness.assign("applyTerminalTabLayout('sidebar')");
@@ -940,25 +889,27 @@ describe('Renderer group management: create and rename as their own operations',
     harness.assign("applyCategories(['Zeta', 'Alpha'])");
     harness.renderTabs();
 
-    assert.deepStrictEqual(
-      headerKeys(harness),
-      ['Zeta', 'Alpha', '__uncategorized__'],
-      'the user-created order wins, and an empty group still keeps its slot',
-    );
-    assert.deepStrictEqual(buckets(harness)['Zeta'], [], 'Zeta holds no tab, yet still has a header');
-    assert.deepStrictEqual(buckets(harness)['Alpha'], ['s1']);
+    // The registry still holds the user order — it is the list Main persists — but it
+    // paints nothing: the strip is the session order and nothing else.
+    assert.deepStrictEqual(categories(harness), ['Zeta', 'Alpha'], 'the stored order survives as data');
+    assert.strictEqual(headers(harness).length, 0, 'no group gets a header, empty or not');
+    assert.deepStrictEqual(buckets(harness)['__top__'], ['s1', 's2'], 'the flat list is the session order');
   });
 
-  it('offers no rename on the uncategorised bucket, which is not a real group', async () => {
+  it('paints no group affordance anywhere — no header, no rename, no group menu', async () => {
     const harness = loadStandalone();
     await flush();
     harness.assign("applyTerminalTabLayout('sidebar')");
     seed(harness, [{ id: 's1', name: 'One', state: 'running' }], 's1');
     harness.renderTabs();
 
-    const uncat = headers(harness).find((el) => el.getAttribute('data-category') === '__uncategorized__');
-    assert.ok(uncat);
-    assert.strictEqual(uncat.querySelector('.terminal-tab-category-rename'), null);
+    assert.strictEqual(headers(harness).length, 0, 'even the catch-all renders no header');
+    assert.strictEqual(
+      harness.tabsRoot.querySelectorAll('.terminal-tab-category-rename').length,
+      0,
+      'there is no surface left that could offer rename',
+    );
+    assert.strictEqual(harness.tabsRoot.querySelectorAll('.terminal-tab-category-menu').length, 0);
   });
 
   it('registers a name typed into a tab\'s picker as a durable group too', async () => {
@@ -972,15 +923,16 @@ describe('Renderer group management: create and rename as their own operations',
     harness.assign("applyCategoryToSession('s1', 'Billing', null)");
     await flush();
 
-    // A group created from a tab is still a group: it outlives that tab.
+    // A group created from a tab is still registered: it outlives that tab in the
+    // persisted list, even though it never paints a header.
     assert.deepStrictEqual(categories(harness), ['Billing']);
     assert.deepStrictEqual(persistedCategories(harness), ['Billing']);
+    assert.strictEqual(headers(harness).length, 0);
   });
 });
 
 describe('Renderer split panes follow the tab that owns them', () => {
-  const headerKeys = (harness: StandaloneHarness): (string | null)[] =>
-    headers(harness).map((el) => el.getAttribute('data-category'));
+
 
   const menuEvent = () => ({
     key: '',
@@ -990,11 +942,11 @@ describe('Renderer split panes follow the tab that owns them', () => {
     stopPropagation: () => {},
   });
 
-  it('files a pane under its parent group, directly under its parent', async () => {
+  it('files a pane directly under its parent in the flat list', async () => {
     const harness = loadStandalone();
     await flush();
     harness.assign("applyTerminalTabLayout('sidebar')");
-    // Main creates a pane with no category of its own; the tab it splits is in a group.
+    // Main creates a pane with no category of its own; the tab it splits still carries one.
     seed(harness, [
       { id: 's1', name: 'App', category: 'Build', state: 'running' },
       { id: 's2', name: 'App split-1', splitOf: 's1', state: 'running' },
@@ -1003,36 +955,37 @@ describe('Renderer split panes follow the tab that owns them', () => {
     harness.assign("applyCategories(['Build'])");
     harness.renderTabs();
 
-    assert.deepStrictEqual(headerKeys(harness), ['Build', '__uncategorized__'],
-      'a pane must not fork a group of its own');
-    assert.deepStrictEqual(buckets(harness)['Build'], ['s1', 's2'],
-      'the pane sits in the parent group, directly under the tab it splits');
-    assert.deepStrictEqual(buckets(harness)['__uncategorized__'], ['s3']);
+    assert.strictEqual(headers(harness).length, 0, 'a pane must not fork a group of its own — nothing does anymore');
+    assert.deepStrictEqual(buckets(harness)['__top__'], ['s1', 's2', 's3'],
+      'the pane sits directly under the tab it splits in the flat session order');
     assert.strictEqual(wrapFor(harness, 's2').classList.contains('is-split-pane'), true);
   });
 
-  it('takes the pane along when the parent is dragged into another group', async () => {
+  it('takes the pane along when the owning tab reorders', async () => {
     const harness = loadStandalone();
     await flush();
     harness.assign("applyTerminalTabLayout('sidebar')");
     seed(harness, [
       { id: 's1', name: 'App', category: 'Build', state: 'running' },
       { id: 's2', name: 'App split-1', splitOf: 's1', state: 'running' },
+      { id: 's3', name: 'Other', state: 'running' },
     ], 's1');
-    harness.assign("applyCategories(['Build', 'Deploy'])");
     harness.renderTabs();
 
-    const deploy = headers(harness).find((el) => el.getAttribute('data-category') === 'Deploy');
-    assert.ok(deploy);
-    wrapFor(harness, 's1').dispatch('dragstart', { dataTransfer: dataTransfer('s1') });
-    deploy.dispatch('dragover', { dataTransfer: dataTransfer('s1') });
-    deploy.dispatch('drop', { dataTransfer: dataTransfer('s1') });
+    // The owning tab is the drag handle for the whole family: the gesture moves the tab,
+    // and the pane stays glued under it whatever position the list lands on.
+    dragRowOnto(harness, 's1', wrapFor(harness, 's3'));
     await flush();
 
-    assert.deepStrictEqual(lastArgs(harness, 'setCategory'), ['s1', 'Deploy'], 'the parent is what moves');
-    assert.deepStrictEqual(buckets(harness)['Deploy'], ['s1', 's2'],
-      'the pane follows its parent into the new group instead of staying behind');
-    assert.deepStrictEqual(buckets(harness)['Build'], [], 'nothing is left in the old group');
+    assert.deepStrictEqual(sessionIds(harness), ['s2', 's1', 's3'], 'the reorder resolves by session id');
+    assert.deepStrictEqual(plain(lastArgs(harness, 'reorderTerminals')?.[0] as string[] | undefined), ['s2', 's1', 's3']);
+    assert.deepStrictEqual(buckets(harness)['__top__'], ['s1', 's2', 's3'],
+      'the pane follows its parent instead of staying behind at the old slot');
+    assert.deepStrictEqual(
+      harness.apiCallArgs.filter((e) => e.name === 'setCategory').map((e) => e.args),
+      [['s1', undefined]],
+      'the drop adopts the target row\'s stored category on the parent — the pane is never written',
+    );
   });
 
   it('moves by the parent alone: a pane row is not a drag source', async () => {
@@ -1065,7 +1018,8 @@ describe('Renderer split panes follow the tab that owns them', () => {
     dragRowOnto(harness, 's1', wrapFor(harness, 's3'));
     assert.deepStrictEqual(sessionIds(harness), ['s2', 's1', 's3'], 'the owning tab still reorders');
     assert.deepStrictEqual(plain(lastArgs(harness, 'reorderTerminals')?.[0] as string[] | undefined), ['s2', 's1', 's3']);
-    assert.deepStrictEqual(lastArgs(harness, 'setCategory'), undefined, 'nothing was written by the render');
+    assert.deepStrictEqual(lastArgs(harness, 'setCategory'), undefined,
+      'both rows already share the stored category, so the reorder writes nothing');
   });
 
   it('resolves the category picker on a pane to the tab that owns it', async () => {
@@ -1097,11 +1051,12 @@ describe('Renderer split panes follow the tab that owns them', () => {
 
     assert.deepStrictEqual(lastArgs(harness, 'setCategory'), ['s1', 'Deploy'],
       'the write lands on the parent, so the pane can never be filed away from it');
-    assert.deepStrictEqual(buckets(harness)['Deploy'], ['s1', 's2']);
+    assert.deepStrictEqual(buckets(harness)['__top__'], ['s1', 's2'],
+      'the flat strip still keeps the pane glued under its tab');
   });
 });
 
-describe('Renderer sleeping bucket: parked, and returned to its own group', () => {
+describe('Renderer sleeping bucket: parked, and returned to the flat list', () => {
   const headerKeys = (harness: StandaloneHarness): (string | null)[] =>
     headers(harness).map((el) => el.getAttribute('data-category'));
 
@@ -1111,7 +1066,7 @@ describe('Renderer sleeping bucket: parked, and returned to its own group', () =
     return found;
   };
 
-  it('parks a sleeping tab in its own bucket instead of inside its group', async () => {
+  it('parks a sleeping tab in its own bucket at the end of the flat list', async () => {
     const harness = loadStandalone();
     await flush();
     harness.assign("applyTerminalTabLayout('sidebar')");
@@ -1121,12 +1076,12 @@ describe('Renderer sleeping bucket: parked, and returned to its own group', () =
     ], 's1');
     harness.renderTabs();
 
-    assert.deepStrictEqual(headerKeys(harness), ['Build', '__sleeping__'],
-      'an asleep tab leaves its group for the sleep bucket');
-    assert.deepStrictEqual(buckets(harness)['Build'], ['s1'], 'the group keeps only its live tab');
+    assert.deepStrictEqual(headerKeys(harness), ['__sleeping__'],
+      'a state is not a group: only the parked bucket keeps a header');
+    assert.deepStrictEqual(buckets(harness)['__top__'], ['s1'], 'the live tab stays in the flat list');
     assert.deepStrictEqual(buckets(harness)['__sleeping__'], ['s2'], 'the asleep tab is parked under the bucket');
   });
- 
+
   it('hides a sleeping split pane instead of leaking it into the parked bucket', async () => {
     const harness = loadStandalone();
     await flush();
@@ -1137,9 +1092,9 @@ describe('Renderer sleeping bucket: parked, and returned to its own group', () =
     ], 's1');
     harness.renderTabs();
 
-    assert.deepStrictEqual(headerKeys(harness), ['Build'],
-      'a sleeping split must not create a separate parked bucket row');
-    assert.deepStrictEqual(buckets(harness)['Build'], ['s1']);
+    assert.deepStrictEqual(headerKeys(harness), [],
+      'a sleeping split must not create a parked bucket row, and a group name paints no header');
+    assert.deepStrictEqual(buckets(harness)['__top__'], ['s1'], 'the parent stays in the flat list alone');
     assert.strictEqual(
       harness.tabsRoot.querySelector('.terminal-tab-wrap[data-session-id="s2"]'),
       null,
@@ -1147,14 +1102,14 @@ describe('Renderer sleeping bucket: parked, and returned to its own group', () =
     );
   });
 
-  it('parks a pane row with a parent that is already asleep, never into another group', async () => {
+  it('parks a pane row with a parent that is already asleep, never into a row of its own', async () => {
     const harness = loadStandalone();
     await flush();
     harness.assign("applyTerminalTabLayout('sidebar')");
     // The pane's own record has not flipped yet — this is the broadcast window where the
-    // parent is already parked. The pane inherits its group from that parent, so without
-    // the park-with-parent rule the row is filed by its own (absent) category and shows up
-    // in "Chưa phân nhóm" as a tab the user never opened.
+    // parent is already parked. The pane inherits its bucket from that parent, so without
+    // the park-with-parent rule the row is filed as a live tab and shows up as a terminal
+    // the user never opened.
     seed(harness, [
       { id: 's1', name: 'Hapas', state: 'sleeping' },
       { id: 's2', name: 'Terminal split-2', splitOf: 's1', state: 'running' },
@@ -1162,9 +1117,9 @@ describe('Renderer sleeping bucket: parked, and returned to its own group', () =
     harness.renderTabs();
 
     assert.deepStrictEqual(headerKeys(harness), ['__sleeping__'],
-      'the pane must not create a group of its own beside the parked parent');
+      'the pane must not create a row of its own beside the parked parent');
     assert.deepStrictEqual(buckets(harness)['__sleeping__'], ['s1'], 'only the parent keeps a parked row');
-    assert.strictEqual(buckets(harness)['__uncategorized__'], undefined, 'no leaked pane row');
+    assert.deepStrictEqual(buckets(harness)['__top__'], [], 'no leaked pane row in the flat list');
     assert.strictEqual(
       harness.tabsRoot.querySelector('.terminal-tab-wrap[data-session-id="s2"]'),
       null,
@@ -1172,7 +1127,7 @@ describe('Renderer sleeping bucket: parked, and returned to its own group', () =
     );
   });
 
-  it('returns a woken tab to its own group, because sleep never rewrote its category', async () => {
+  it('returns a woken tab to the flat list in session order, because sleep never rewrote its category', async () => {
     const harness = loadStandalone();
     await flush();
     harness.assign("applyTerminalTabLayout('sidebar')");
@@ -1180,10 +1135,11 @@ describe('Renderer sleeping bucket: parked, and returned to its own group', () =
       { id: 's1', name: 'Live', category: 'Build', state: 'running' },
       { id: 's2', name: 'Asher', category: 'Deploy', state: 'sleeping' },
     ], 's1');
-    // Both groups are registered, so each keeps its slot even while its only tab sleeps.
+    // The names are still registered — registration is data — but they paint nothing.
     harness.assign("applyCategories(['Build', 'Deploy'])");
     harness.renderTabs();
-    assert.deepStrictEqual(headerKeys(harness), ['Build', 'Deploy', '__sleeping__']);
+    assert.deepStrictEqual(headerKeys(harness), ['__sleeping__']);
+    assert.deepStrictEqual(buckets(harness)['__top__'], ['s1']);
 
     // Main reports the very same session awake again: same record, new state.
     harness.assign(
@@ -1191,10 +1147,10 @@ describe('Renderer sleeping bucket: parked, and returned to its own group', () =
     );
     harness.renderTabs();
 
-    assert.deepStrictEqual(headerKeys(harness), ['Build', 'Deploy'],
-      'the bucket disappears with its last tenant');
-    assert.deepStrictEqual(buckets(harness)['Deploy'], ['s2'],
-      'the wake returns the tab to its own group, not to the catch-all');
+    assert.deepStrictEqual(headerKeys(harness), [],
+      'the bucket disappears with its last tenant and nothing replaces it');
+    assert.deepStrictEqual(buckets(harness)['__top__'], ['s1', 's2'],
+      'the wake returns the tab to the flat list at its own session slot');
     assert.strictEqual(harness.getSessions().find((s) => s.id === 's2')?.category, 'Deploy');
     assert.strictEqual(countCalls(harness, 'setCategory'), 0,
       'parking and waking are a display concern and must never rewrite a category');
@@ -1241,7 +1197,7 @@ describe('Renderer smart tab search', () => {
     harness.renderTabs();
   };
 
-  it('filters by name, folder and group, and drops a group with no surviving tab', async () => {
+  it('filters by name, folder and the stored category string — flat list throughout', async () => {
     const harness = loadStandalone();
     await flush();
     seedThree(harness);
@@ -1249,14 +1205,11 @@ describe('Renderer smart tab search', () => {
 
     search(harness, 'seahorse');
     assert.deepStrictEqual(visibleIds(harness), ['s1'], 'the name is searchable');
-    assert.deepStrictEqual(
-      headers(harness).map((el) => el.getAttribute('data-category')),
-      ['Customizes'],
-      'a group whose every tab was filtered out drops out of the filtered view',
-    );
+    assert.strictEqual(headers(harness).length, 0,
+      'filtering never paints a header — the retired axis stays dead even mid-search');
 
     search(harness, 'apps');
-    assert.deepStrictEqual(visibleIds(harness), ['s2', 's3'], 'the group name is searchable too');
+    assert.deepStrictEqual(visibleIds(harness), ['s2', 's3'], 'the stored category text still feeds the query');
 
     search(harness, 'work\\apps');
     assert.deepStrictEqual(visibleIds(harness), ['s2'], 'the folder is searchable too');
@@ -1300,45 +1253,45 @@ describe('Renderer smart tab search', () => {
     assert.strictEqual(visibleIds(harness).length, 3, 'and restores every tab');
   });
 
-  it('filters without ever reordering the tabs or the groups', async () => {
+  it('filters without ever reordering the tabs', async () => {
     const harness = loadStandalone();
     await flush();
     seedThree(harness);
     const before = visibleIds(harness);
-    const groupsBefore = headers(harness).map((el) => el.getAttribute('data-category'));
 
     search(harness, 'uncommon');
     assert.deepStrictEqual(visibleIds(harness), ['s2'], 'only the match renders');
     search(harness, '');
     assert.deepStrictEqual(visibleIds(harness), before, 'a filter hides; clearing restores the exact order');
-    assert.deepStrictEqual(
-      headers(harness).map((el) => el.getAttribute('data-category')),
-      groupsBefore,
-      'and it must never reshuffle the group order either',
-    );
+    assert.strictEqual(headers(harness).length, 0, 'and the strip stays headerless either way');
   });
 
-  it('shows a collapsed group open while filtering, then restores its collapsed state', async () => {
+  it('opens the sleep bucket while a parked row matches, then restores its collapsed state', async () => {
     const harness = loadStandalone();
     await flush();
-    seedThree(harness);
-    const apps = (): FakeElement => {
-      const found = headers(harness).find((el) => el.getAttribute('data-category') === 'APPS');
+    harness.assign("applyTerminalTabLayout('sidebar')");
+    seed(harness, [
+      { id: 's1', name: 'Live', state: 'running' },
+      { id: 's2', name: 'Uncommon sleeper', state: 'sleeping', buffer: 'zzz' },
+    ], 's1');
+    harness.renderTabs();
+    const sleeping = (): FakeElement => {
+      const found = headers(harness).find((el) => el.getAttribute('data-category') === '__sleeping__');
       assert.ok(found);
       return found;
     };
 
-    apps().dispatch('click', {});
-    harness.renderTabs();
-    assert.strictEqual(apps().getAttribute('aria-expanded'), 'false');
+    sleeping().dispatch('click', {});
+    await flush();
+    assert.strictEqual(sleeping().getAttribute('aria-expanded'), 'false');
 
-    // Hiding the match inside a collapsed group would read as a failed search.
+    // Hiding the match inside a collapsed bucket would read as a failed search.
     search(harness, 'uncommon');
-    assert.strictEqual(apps().getAttribute('aria-expanded'), 'true', 'a filtered group is shown open');
+    assert.strictEqual(sleeping().getAttribute('aria-expanded'), 'true', 'a filtered bucket is shown open');
     assert.deepStrictEqual(visibleIds(harness), ['s2']);
 
     search(harness, '');
-    assert.strictEqual(apps().getAttribute('aria-expanded'), 'false',
+    assert.strictEqual(sleeping().getAttribute('aria-expanded'), 'false',
       'clearing the filter restores the user\'s own collapsed state');
   });
 
@@ -1353,7 +1306,7 @@ describe('Renderer smart tab search', () => {
     assert.strictEqual(toolbar.firstChild, toolbar.querySelector('.terminal-tab-search'),
       'the smart search field leads the row');
     assert.ok(toolbar.querySelector('#btnNewTerminal'), 'the new-terminal action moved into the row');
-    assert.ok(toolbar.querySelector('.terminal-tab-new-category'), 'and the new-group action sits beside it');
+    assert.strictEqual(toolbar.querySelector('.terminal-tab-new-category'), null, 'groups are made by the project flow, not a strip control');
 
     // A tab drag reorders tabs; it must never be able to move the row.
     wrapFor(harness, 's3').dispatch('dragstart', { dataTransfer: dataTransfer('s3') });
