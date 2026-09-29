@@ -177,17 +177,26 @@ describe('Renderer run cards', () => {
     assert.strictEqual(countCalls(harness, 'runControl'), 0, 'no IPC is sent for a viewed row');
   });
 
-  it('renders ended+stale as the dimmed kết thúc chip with no buttons', async () => {
+  it('renders ended+stale as a compact one-line card with the kết thúc chip and no buttons', async () => {
     const harness = await loadManager();
     seed(harness, [{ id: 's1', name: 'S1', state: 'running' }], 's1');
     harness.renderTabs();
     harness.emitRunCardState({ runs: [runningCard({ state: 'ended', stale: true })] });
 
     const card = cardFor(harness, 's1');
+    assert.ok(card.classList.contains('is-compact'), 'an ended run collapses to the compact card');
+    const head = card.querySelector('.terminal-run-head');
     const chip = card.querySelector('.terminal-run-ended-chip');
     assert.ok(chip, 'the corpse chip renders');
     assert.match(chip?.textContent ?? '', /kết thúc/);
+    assert.strictEqual(chip?.parent, head, 'the chip folds into the single head line');
+    assert.strictEqual(card.querySelector('.terminal-run-meta'), null, 'the meta row stays out of the compact card');
     assert.strictEqual(card.querySelector('.terminal-run-btn'), null, 'an ended run offers no controls');
+    assert.strictEqual(
+      Array.from(card.children).filter((c) => c !== head && !c.classList.contains('terminal-run-changes')).length,
+      0,
+      'nothing beside the head (and optional changes footer) survives on a compact card',
+    );
   });
 
   it('sends cancel through runControl and surfaces a refused reason verbatim', async () => {

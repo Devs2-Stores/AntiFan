@@ -730,18 +730,6 @@ function benchRecordPaint(sessionId) {
 const initialQuerySessionId = urlParams.get('sessionId') || '';
 let activeId = initialQuerySessionId || '';
 let sessions = [];
-/**
- * The halves of the last `antifan:tabs:updated` broadcast.
- *
- * `renderTabs()` runs on the session push, which arrives at 5 Hz, and its badge repaint used to
- * pull both halves back over IPC (`getTabs()` + `getTerminalAffinities()`) even though the
- * broadcast had just delivered them — ~144,000 round trips and 144,000 deserializations in the
- * renderer over a 4 h soak, on the one process whose committed bytes are what grows. Passing the
- * delivered pair is the same data the broadcast already rendered from, so the badges cannot go
- * stale relative to today's behaviour; only the round trips go away.
- */
-let deliveredTabs = null;
-let deliveredAffinities = null;
 let contextTargetSessionId = '';
 let globalResizeObserver = null;
 const MIN_TERMINAL_COLS = 40;
@@ -2545,9 +2533,41 @@ async function atomicHydrateSplitPane(splitSessionId, providedSnapshot, provided
     }
   }
 }
-function attachWebglAddon(_term) {
-  // Use standard high-performance DOM/Canvas renderer to avoid WebGL context loss and texture corruption across multiple tabs
-  return null;
+// A busy TUI redraw costs the DOM renderer a layout + paint pass per frame in this
+// renderer and the GPU process; WebGL draws the same frame from a glyph atlas. A page
+// only gets a few WebGL contexts, and a canvas hidden with its pane can come back with
+// a stale atlas, so only a visible pane owns a context: attached on show, disposed on
+// hide. A lost context disposes the addon and xterm falls back to its DOM renderer.
+function attachWebglAddon(term, onDisposed) {
+  if (typeof WebglAddon === 'undefined' || typeof WebglAddon.WebglAddon !== 'function') return null;
+  let addon = null;
+  try {
+    addon = new WebglAddon.WebglAddon();
+    addon.onContextLoss(() => {
+      try { addon.dispose(); } catch {}
+      onDisposed(addon);
+    });
+    term.loadAddon(addon);
+    return addon;
+  } catch {
+    try { addon?.dispose(); } catch {}
+    return null;
+  }
+}
+
+function setPaneWebgl(item, visible) {
+  if (!item || item.released) return;
+  if (visible) {
+    if (item.webglAddon) return;
+    item.webglAddon = attachWebglAddon(item.term, (lost) => {
+      if (item.webglAddon === lost) item.webglAddon = null;
+    });
+    return;
+  }
+  if (!item.webglAddon) return;
+  const addon = item.webglAddon;
+  item.webglAddon = null;
+  try { addon.dispose(); } catch {}
 }
 
 /**
@@ -2782,7 +2802,7 @@ function getOrCreateTerminalPane(sessionId, snapshot, snapshotSeq = 0, isAuthori
   const sFit = new FitAddon.FitAddon();
   sTerm.loadAddon(sFit);
   sTerm.open(paneEl);
-  const webglAddon = attachWebglAddon(sTerm);
+  // The WebGL renderer is attached once the pool item exists (setPaneWebgl below).
   const webLinksAddon = attachWebLinksAddon(sTerm, () => sessionId);
   setupTerminalClipboard(sTerm, () => sessionId);
 
@@ -2810,7 +2830,7 @@ function getOrCreateTerminalPane(sessionId, snapshot, snapshotSeq = 0, isAuthori
     term: sTerm,
     fit: sFit,
     paneEl,
-    webglAddon,
+    webglAddon: null,
     webLinksAddon,
     lastRenderedSeq: 0,
     sessionGeneration: (s && typeof s.sessionGeneration === 'number') ? s.sessionGeneration : 0,
@@ -2853,6 +2873,7 @@ function getOrCreateTerminalPane(sessionId, snapshot, snapshotSeq = 0, isAuthori
   });
 
   rawTerminalPool.set(sessionId, item);
+  if (isActive) setPaneWebgl(item, true);
   atomicHydratePane(item, sessionId, snapshot, snapshotSeq);
   syncPaneWithBackend(item, sessionId);
   return item;
@@ -2907,9 +2928,11 @@ function syncTerminalPool(allSessions, currentActiveId, snapshot, snapshotThroug
     if (wasActive && !isNowActive) {
       recordViewportReadPosition(item, item.term);
       item.paneEl.classList.remove('active');
+      setPaneWebgl(item, false);
     } else if (isNowActive) {
       const justBecameActive = !wasActive;
       item.paneEl.classList.add('active');
+      setPaneWebgl(item, true);
       if (globalResizeObserver) {
         try { globalResizeObserver.observe(item.paneEl); } catch {}
       }
@@ -2992,6 +3015,7 @@ function syncTerminalPool(allSessions, currentActiveId, snapshot, snapshotThroug
       }
     } else {
       item.paneEl.classList.remove('active');
+      setPaneWebgl(item, false);
     }
   }
   // Viewing a sleeping tab, or asking a live one for its transcript, is a read-only
@@ -3347,7 +3371,9 @@ function mountSplit(sessionId, snapshot = undefined, snapshotSeq = undefined) {
   splitFitAddon = new FitAddon.FitAddon();
   splitTerm.loadAddon(splitFitAddon);
   splitTerm.open(splitHost);
-  splitWebglAddon = attachWebglAddon(splitTerm);
+  splitWebglAddon = attachWebglAddon(splitTerm, (lost) => {
+    if (splitWebglAddon === lost) splitWebglAddon = null;
+  });
   splitWebLinksAddon = attachWebLinksAddon(splitTerm, () => splitId);
   setupTerminalClipboard(splitTerm, () => splitId);
 
@@ -3450,313 +3476,11 @@ if (splitButton) {
     }
   };
 }
-async function updateAffinityBadges(deliveredTabs, deliveredAffinities) {
-  if (!api?.getTerminalAffinities || !api?.getTabs) return;
-  const setBadgeState = (badge, cls, text, tip) => {
-    if (badge.className !== cls) badge.className = cls;
-    if (badge.textContent !== text) badge.textContent = text;
-    if (badge.title !== tip) badge.title = tip;
-  };
-  try {
-    // One round-trip for every badge: the per-id loop was N+1 IPC calls on every
-    // tab render, and each generation-less lookup cost an O(E) prefix scan.
-    // A caller that holds the broadcast hands in both halves of it: the tab list is
-    // `getTabList()` verbatim and the affinity map is the host's own projection, so
-    // re-fetching either bought nothing and cost an `invoke` per broadcast — ~106,800
-    // and ~72,000 over one 4 h soak — each allocating a correlation entry, a promise
-    // and a deserialized payload on the main thread that every switch, bridge RPC and
-    // terminal fanout also runs on. Callers that hold neither still pull both.
-    const [tabs, affinities] = await Promise.all([
-      Array.isArray(deliveredTabs) ? Promise.resolve(deliveredTabs) : api.getTabs(),
-      (deliveredAffinities && typeof deliveredAffinities === 'object')
-        ? Promise.resolve(deliveredAffinities)
-        : api.getTerminalAffinities(),
-    ]);
-    const tabsMap = new Map((tabs || []).map((t) => [t.id, t]));
-    const affinityMap = (affinities && typeof affinities === 'object') ? affinities : {};
-    const badges = document.querySelectorAll('.terminal-tab-affinity-badge');
-    for (const badge of badges) {
-      const sid = badge.getAttribute('data-session-id');
-      if (!sid) continue;
-      if (isSessionSleeping(sid)) {
-        setBadgeState(badge, 'terminal-tab-affinity-badge sleeping', '💤 Ngủ', 'Terminal đang ngủ — click để đánh thức');
-        continue;
-      }
-      const affinity = affinityMap[sid];
-      if (!affinity || !affinity.tabId) {
-        setBadgeState(badge, 'terminal-tab-affinity-badge unbound', '🎯 Chưa gán', 'Terminal này chưa gán tab nào (Click để chọn tab)');
-      } else if (affinity.status === 'closed') {
-        setBadgeState(badge, 'terminal-tab-affinity-badge closed', '🎯 Tab đã đóng', `Tab trước đó (${affinity.lastUrl || affinity.tabId}) đã bị đóng (Click để gán lại)`);
-      } else {
-        const validManaged = (affinity.managedTabIds || []).filter((id) => {
-          return tabsMap.has(id) || affinity.isOffscreen || affinity.isEphemeral;
-        });
-        const managedCount = validManaged.length;
-        if (managedCount > 1) {
-          const tabNames = validManaged.map((id) => {
-            const t = tabsMap.get(id);
-            if (t) return t.title || t.url || 'Tab mới';
-            return '🤖 Tab ngầm Agent (Headless / Sandbox)';
-          }).join('\n• ');
-          setBadgeState(badge, 'terminal-tab-affinity-badge multi', `🎯 ${managedCount} tabs`, `Terminal đang quản lý ${managedCount} tabs:\n• ${tabNames}\n(Click để quản lý nhóm tab)`);
-        } else {
-          const boundTab = tabsMap.get(affinity.tabId);
-          if (boundTab) {
-            const name = boundTab.title || boundTab.url || 'Tab mới';
-            setBadgeState(badge, 'terminal-tab-affinity-badge', `🎯 ${name.slice(0, 14)}`, `Đang gắn với Tab: ${name} (${boundTab.url || ''}) (Click để đổi/thêm)`);
-          } else if (affinity.isOffscreen || affinity.isEphemeral || affinity.status === 'alive') {
-            const agentName = affinity.isOffscreen ? '🤖 Headless' : '🤖 Sandbox';
-            setBadgeState(badge, 'terminal-tab-affinity-badge agent', agentName, `Terminal đang gắn với Tab ngầm Agent (Headless Sandbox: ${affinity.tabId}) (Click để gán tab hiển thị)`);
-          } else {
-            setBadgeState(badge, 'terminal-tab-affinity-badge closed', '🎯 Tab đã đóng', `Tab trước đó (${affinity.lastUrl || affinity.tabId}) đã bị đóng (Click để gán lại)`);
-          }
-        }
-      }
-    }
-  } catch {}
-}
-
-async function showAffinityPicker(sessionId, anchorEl) {
-  const popover = document.getElementById('affinityPickerPopover');
-  if (!popover || !api?.getTabs) return;
-  // A sleeping session has no PTY, so a browser tab bound to it has nowhere to send
-  // input. Instead of refusing silently, the click becomes the wake gesture: the
-  // session broadcast repaints the badge, and the user re-opens the picker once
-  // the terminal is awake.
-  if (isSessionSleeping(sessionId)) {
-    wakeSleepingSession(sessionId, '');
-    return;
-  }
-
-  const tabs = await api.getTabs();
-  const currentAffinity = api.getTerminalAffinity ? await api.getTerminalAffinity(sessionId) : undefined;
-  popover.innerHTML = '';
-  popover.setAttribute('data-active-session-id', sessionId);
-  const managedSet = new Set(Array.isArray(currentAffinity?.managedTabIds) ? currentAffinity.managedTabIds : (currentAffinity?.tabId ? [currentAffinity.tabId] : []));
-  const primaryId = currentAffinity?.primaryTabId || currentAffinity?.tabId;
-  // Rebuild signature: onTabsUpdated re-invokes this picker only when the set of
-  // managed tabs, the primary, or the visible tab count actually changed — title
-  // churn alone must not tear the DOM out from under a click.
-  popover.setAttribute('data-managed-sig', `${Array.from(managedSet).sort().join(',')}|${primaryId || ''}|${(tabs || []).length}`);
-  let renderedManagedCount = 0;
-
-  // Section 1: Tab thuộc Terminal này
-  if (managedSet.size > 0) {
-    const secHeader = document.createElement('div');
-    secHeader.className = 'terminal-affinity-picker-header';
-    popover.appendChild(secHeader);
-    (tabs || []).filter((t) => managedSet.has(t.id)).forEach((t) => {
-      const item = document.createElement('div');
-      const isPrimary = t.id === primaryId;
-      item.className = `terminal-affinity-picker-item managed${isPrimary ? ' active' : ''}`;
-      const tabIdx = (tabs || []).findIndex((x) => x.id === t.id);
-      const indexStr = tabIdx >= 0 ? `#${tabIdx + 1} ` : '';
-      const title = `${indexStr}${t.title || t.url || t.id}`;
-
-      const leftWrap = document.createElement('div');
-      leftWrap.style.display = 'flex';
-      leftWrap.style.alignItems = 'center';
-      leftWrap.style.gap = '6px';
-      leftWrap.style.overflow = 'hidden';
-
-      const targetIcon = document.createElement('span');
-      targetIcon.textContent = isPrimary ? '⭐' : '🎯';
-      targetIcon.title = isPrimary ? 'Tab chính (Primary)' : 'Tab phụ (Child)';
-
-      const textSpan = document.createElement('span');
-      textSpan.style.overflow = 'hidden';
-      textSpan.style.textOverflow = 'ellipsis';
-      textSpan.textContent = title;
-      leftWrap.append(targetIcon, textSpan);
-
-      const actionWrap = document.createElement('div');
-      actionWrap.style.display = 'flex';
-      actionWrap.style.alignItems = 'center';
-      actionWrap.style.gap = '4px';
-
-      const copyBtn = document.createElement('span');
-      copyBtn.className = 'affinity-item-copy-btn';
-      copyBtn.textContent = '📋';
-      copyBtn.title = `Sao chép Tab ID cho Agent (${t.id})`;
-      copyBtn.onclick = (ev) => {
-        ev.stopPropagation();
-        if (api?.copyToClipboard) {
-          api.copyToClipboard(t.id);
-        } else {
-          navigator.clipboard?.writeText(t.id);
-        }
-        copyBtn.textContent = '✅';
-        setTimeout(() => { copyBtn.textContent = '📋'; }, 1200);
-      };
-
-      const removeBtn = document.createElement('span');
-      removeBtn.className = 'affinity-item-remove-btn';
-      removeBtn.textContent = '✕';
-      removeBtn.title = 'Gỡ tab này khỏi Terminal';
-      removeBtn.onclick = async (ev) => {
-        ev.stopPropagation();
-        if (api?.removeTabAffinity) {
-          await api.removeTabAffinity(t.id, sessionId);
-          updateAffinityBadges();
-          showAffinityPicker(sessionId, anchorEl);
-        }
-      };
-
-      actionWrap.append(copyBtn, removeBtn);
-      item.append(leftWrap, actionWrap);
-      item.title = `${title} (${t.url}) - Click để chọn làm tab chính`;
-      item.onclick = async (ev) => {
-        ev.stopPropagation();
-        popover.style.display = 'none';
-        if (api?.rebindTerminalAffinity) {
-          await api.rebindTerminalAffinity(t.id, sessionId);
-          updateAffinityBadges();
-        }
-        // Rebind alone is invisible: bring the chosen tab to the front so the
-        // user sees the tab they just made primary.
-        api?.focusTab?.(t.id);
-      };
-      popover.appendChild(item);
-      renderedManagedCount++;
-    });
-
-    // Headless/offscreen agent tabs are filtered out of getTabs(), so they can never match the
-    // visible-tab loop above. Render them explicitly: Section 1 stays informative and the user
-    // still gets a copy + unbind action instead of a dangling raw UUID.
-    const visibleManagedIds = new Set((tabs || []).filter((t) => managedSet.has(t.id)).map((t) => t.id));
-    Array.from(managedSet).filter((id) => !visibleManagedIds.has(id)).forEach((hiddenId) => {
-      const item = document.createElement('div');
-      const isPrimary = hiddenId === primaryId;
-      item.className = `terminal-affinity-picker-item managed agent${isPrimary ? ' active' : ''}`;
-
-      const leftWrap = document.createElement('div');
-      leftWrap.style.display = 'flex';
-      leftWrap.style.alignItems = 'center';
-      leftWrap.style.gap = '6px';
-      leftWrap.style.overflow = 'hidden';
-
-      const agentIcon = document.createElement('span');
-      agentIcon.textContent = '🤖';
-      agentIcon.title = isPrimary ? 'Tab ngầm Agent (Primary)' : 'Tab ngầm Agent (Child)';
-
-      const textSpan = document.createElement('span');
-      textSpan.style.overflow = 'hidden';
-      textSpan.style.textOverflow = 'ellipsis';
-      textSpan.textContent = 'Tab ngầm Agent (Headless / Sandbox)';
-      leftWrap.append(agentIcon, textSpan);
-
-      const actionWrap = document.createElement('div');
-      actionWrap.style.display = 'flex';
-      actionWrap.style.alignItems = 'center';
-      actionWrap.style.gap = '4px';
-
-      const copyBtn = document.createElement('span');
-      copyBtn.className = 'affinity-item-copy-btn';
-      copyBtn.textContent = '📋';
-      copyBtn.title = `Sao chép Tab ID cho Agent (${hiddenId})`;
-      copyBtn.onclick = (ev) => {
-        ev.stopPropagation();
-        if (api?.copyToClipboard) {
-          api.copyToClipboard(hiddenId);
-        } else {
-          navigator.clipboard?.writeText(hiddenId);
-        }
-        copyBtn.textContent = '✅';
-        setTimeout(() => { copyBtn.textContent = '📋'; }, 1200);
-      };
-
-      const removeBtn = document.createElement('span');
-      removeBtn.className = 'affinity-item-remove-btn';
-      removeBtn.textContent = '✕';
-      removeBtn.title = 'Gỡ tab ngầm Agent khỏi Terminal';
-      removeBtn.onclick = async (ev) => {
-        ev.stopPropagation();
-        if (api?.removeTabAffinity) {
-          await api.removeTabAffinity(hiddenId, sessionId);
-          updateAffinityBadges();
-          showAffinityPicker(sessionId, anchorEl);
-        }
-      };
-
-      actionWrap.append(copyBtn, removeBtn);
-      item.append(leftWrap, actionWrap);
-      item.title = `Tab ngầm Agent (Headless / Sandbox) - ${hiddenId}`;
-      popover.appendChild(item);
-      renderedManagedCount++;
-    });
-
-    if (renderedManagedCount > 0) {
-      secHeader.textContent = `Tab thuộc Terminal này (${renderedManagedCount})`;
-    } else {
-      secHeader.remove();
-    }
-  }
-
-  // Section 2: Gán thêm Tab khác
-  const otherTabs = (tabs || []).filter((t) => !managedSet.has(t.id));
-  const addHeader = document.createElement('div');
-  addHeader.className = 'terminal-affinity-picker-header';
-  const hasManaged = renderedManagedCount > 0;
-  addHeader.style.marginTop = hasManaged ? '6px' : '0';
-  addHeader.textContent = hasManaged ? 'Gán thêm Tab khác vào Terminal' : 'Gán Tab Trình Duyệt cho Terminal';
-  popover.appendChild(addHeader);
-  if (otherTabs.length === 0) {
-    const empty = document.createElement('div');
-    empty.style.padding = '8px 12px';
-    empty.style.color = '#94a3b8';
-    empty.style.fontSize = '11px';
-    empty.textContent = managedSet.size > 0 ? 'Tất cả tab đang mở đều đã được gán' : 'Không có tab trình duyệt nào đang mở';
-    popover.appendChild(empty);
-  } else {
-    otherTabs.forEach((t) => {
-      const item = document.createElement('div');
-      item.className = 'terminal-affinity-picker-item';
-      const tabIdx = (tabs || []).findIndex((x) => x.id === t.id);
-      const indexStr = tabIdx >= 0 ? `#${tabIdx + 1} ` : '';
-      const title = `${indexStr}${t.title || t.url || t.id}`;
-      const addIcon = document.createElement('span');
-      addIcon.textContent = managedSet.size > 0 ? '➕' : '🎯';
-      const textSpan = document.createElement('span');
-      textSpan.style.overflow = 'hidden';
-      textSpan.style.textOverflow = 'ellipsis';
-      textSpan.textContent = title;
-      item.append(addIcon, textSpan);
-      item.title = `Gán tab này: ${title} (${t.url})`;
-      item.onclick = async (ev) => {
-        ev.stopPropagation();
-        popover.style.display = 'none';
-        if (managedSet.size > 0 && api?.adoptTabAffinity) {
-          await api.adoptTabAffinity(t.id, sessionId);
-        } else if (api?.rebindTerminalAffinity) {
-          await api.rebindTerminalAffinity(t.id, sessionId);
-        }
-        updateAffinityBadges();
-        // Same as the managed rows: the newly bound tab should come to the front
-        // so the assignment is visible, not just recorded.
-        api?.focusTab?.(t.id);
-      };
-      popover.appendChild(item);
-    });
-  }
-
-  const rect = anchorEl.getBoundingClientRect();
-  popover.style.display = 'block';
-  popover.style.left = `${Math.max(10, Math.min(window.innerWidth - 280, rect.left))}px`;
-  popover.style.top = `${rect.bottom + 4}px`;
-
-  const closeHandler = (e) => {
-    if (!popover.contains(e.target) && e.target !== anchorEl) {
-      popover.style.display = 'none';
-      document.removeEventListener('click', closeHandler);
-    }
-  };
-  setTimeout(() => document.addEventListener('click', closeHandler), 10);
-}
 
 /**
- * Category picker, following the `showAffinityPicker` conventions: a detached
- * popover re-parented to the anchor's rect, click-outside dismissal on the next
- * tick, and the authoritative value coming from main's `session` broadcast.
+ * Category picker: a detached popover re-parented to the anchor's rect, click-outside
+ * dismissal on the next tick, and the authoritative value coming from main's `session`
+ * broadcast.
  */
 function showCategoryPicker(sessionId, anchorEl) {
   const popover = document.getElementById('categoryPickerPopover');
@@ -5038,13 +4762,6 @@ contextMenu?.querySelectorAll('.context-item').forEach((item) => {
 
     if (action === 'open-folder') {
       api?.openWorkspace(targetId);
-    } else if (action === 'rebind-tab') {
-      // Affinity belongs to the tab that owns the pane: a right-click on a split row
-      // rebinds the parent, whose session id is the one the pane's shell reports.
-      const affinityTargetId = findSession(targetId)?.splitOf || targetId;
-      const wrap = tabsEl.querySelector(`.terminal-tab-wrap[data-session-id="${affinityTargetId}"]`);
-      const anchor = wrap?.querySelector('.terminal-tab-affinity-badge') || wrap || item;
-      showAffinityPicker(affinityTargetId, anchor);
     } else if (action === 'rename') {
       const wrap = tabsEl.querySelector(`[data-session-id="${targetId}"]`);
       const titleSpan = wrap?.querySelector('.terminal-tab-title');
@@ -5083,7 +4800,7 @@ contextMenu?.querySelectorAll('.context-item').forEach((item) => {
       }
     } else if (action === 'category') {
       const wrap = tabsEl.querySelector(`.terminal-tab-wrap[data-session-id="${targetId}"]`);
-      const anchor = wrap?.querySelector('.terminal-tab-affinity-badge') || wrap || item;
+      const anchor = wrap || item;
       // The picker speaks for the tab that owns the pane: that owner's group is the value
       // shown, and picking one moves the parent — with its panes — rather than filing a
       // pane into a group its parent is not in.
@@ -5095,7 +4812,7 @@ contextMenu?.querySelectorAll('.context-item').forEach((item) => {
         return;
       }
       const wrap = tabsEl.querySelector(`.terminal-tab-wrap[data-session-id="${targetId}"]`);
-      const anchor = wrap?.querySelector('.terminal-tab-affinity-badge') || wrap || item;
+      const anchor = wrap || item;
       // The move belongs to the tab that owns the pane: its session id is the one Main owns,
       // and a pane moved on its own would be a window split across two projects.
       showCapsulePicker(findSession(targetId)?.splitOf || targetId, anchor);
@@ -5575,7 +5292,10 @@ function applyRunCardToWrap(wrap, sessionId) {
 function buildRunCard(card, sessionId, wrap) {
   const el = document.createElement('div');
   const stateClass = `run-${typeof card.state === 'string' ? card.state : 'idle'}`;
-  el.className = `terminal-run-card ${stateClass}${card.stale ? ' is-stale' : ''}`;
+  const isEnded = card.state === 'ended';
+  // An ended run collapses to a single evidence line — the full card grid is for
+  // runs that still accept input.
+  el.className = `terminal-run-card ${stateClass}${card.stale ? ' is-stale' : ''}${isEnded ? ' is-compact' : ''}`;
   el.setAttribute('data-session-id', sessionId);
   // The structural signature `applyRunCardToWrap` compares before rebuilding.
   el.setAttribute('data-run-sig', [
@@ -5625,34 +5345,37 @@ function buildRunCard(card, sessionId, wrap) {
   }
   el.appendChild(head);
 
-  const meta = document.createElement('div');
-  meta.className = 'terminal-run-meta';
-  if (typeof card.lastTool === 'string' && card.lastTool) {
-    const tool = document.createElement('span');
-    tool.className = 'terminal-run-tool';
-    tool.textContent = card.lastTool;
-    meta.appendChild(tool);
+  // Live runs show the tool/capsule meta row; on a compact ended card the same
+  // facts stay reachable through the row's title tooltip instead of a second line.
+  if (!isEnded) {
+    const meta = document.createElement('div');
+    meta.className = 'terminal-run-meta';
+    if (typeof card.lastTool === 'string' && card.lastTool) {
+      const tool = document.createElement('span');
+      tool.className = 'terminal-run-tool';
+      tool.textContent = card.lastTool;
+      meta.appendChild(tool);
+    }
+    if (typeof card.capsuleId === 'string' && card.capsuleId) {
+      const capsule = document.createElement('span');
+      capsule.className = 'terminal-run-capsule';
+      capsule.textContent = capsuleLabelOf(card.capsuleId);
+      const path = capsulePathOf(card.capsuleId);
+      capsule.title = path ? `${card.capsuleId} — ${path}` : card.capsuleId;
+      meta.appendChild(capsule);
+    }
+    if (meta.firstChild) el.appendChild(meta);
   }
-  if (typeof card.capsuleId === 'string' && card.capsuleId) {
-    const capsule = document.createElement('span');
-    capsule.className = 'terminal-run-capsule';
-    capsule.textContent = capsuleLabelOf(card.capsuleId);
-    const path = capsulePathOf(card.capsuleId);
-    capsule.title = path ? `${card.capsuleId} — ${path}` : card.capsuleId;
-    meta.appendChild(capsule);
-  }
-  if (meta.firstChild) el.appendChild(meta);
 
   // An ended run is evidence, not a control surface: it shows what it last did and
   // offers nothing to press, exactly like a view-only row — except view-only rows
   // belong to a live run somebody else owns, so they name that instead.
-  const isEnded = card.state === 'ended';
   if (isEnded) {
     const chip = document.createElement('span');
     chip.className = 'terminal-run-ended-chip';
     chip.textContent = card.stale ? 'kết thúc · mất dấu' : 'kết thúc';
     if (card.stale) chip.title = 'Tiến trình agent đã mất — run bị đánh dấu cũ, không còn điều khiển được';
-    el.appendChild(chip);
+    head.appendChild(chip);
   } else if (card.viewOnly) {
     // A run somebody else's agent owns stays visible with its controls rendered
     // and disabled — the refusal title is the same string the context-menu gate
@@ -5728,7 +5451,10 @@ function buildRunCard(card, sessionId, wrap) {
       e.stopPropagation();
       list.style.display = list.style.display === 'none' ? 'block' : 'none';
     };
-    footer.append(summary, list);
+    footer.appendChild(list);
+    // Compact ended cards keep their single line: the count sits inside the head
+    // and only the expandable file list drops to a second row.
+    if (isEnded) head.appendChild(summary); else footer.prepend(summary);
     el.appendChild(footer);
   }
   return el;
@@ -5985,25 +5711,6 @@ function splitGlyphTitle(session) {
     : 'Pane chia đôi';
 }
 
-/** The tab-strip badge that opens the browser-tab affinity picker for one tab. */
-function createAffinityBadge(s) {
-  const badge = document.createElement('span');
-  badge.className = 'terminal-tab-affinity-badge unbound';
-  badge.setAttribute('data-session-id', s.id);
-  badge.textContent = '🎯 Gán Tab';
-  badge.title = 'Tab trình duyệt gắn với terminal này (Click để đổi)';
-  if (isSessionSleeping(s.id)) {
-    badge.className = 'terminal-tab-affinity-badge sleeping';
-    badge.textContent = '💤 Ngủ';
-    badge.title = 'Terminal đang ngủ — click để đánh thức';
-  }
-  badge.onclick = (e) => {
-    e.stopPropagation();
-    showAffinityPicker(s.id, badge);
-  };
-  return badge;
-}
-
 /**
  * Create-or-update the tab wrap for one session. Extracted from `renderTabs` so
  * the grouping pass can order wraps after every one of them exists.
@@ -6024,7 +5731,7 @@ function ensureTerminalTabWrap(s, currentWraps) {
     // broadcast mid-drag) swallows every later click in this page.
     wrap.addEventListener('pointerdown', (e) => {
       if (e.button !== 0 || s.splitOf) return;
-      if (e.target && e.target.closest && e.target.closest('.terminal-tab-close, .terminal-tab-affinity-badge, .terminal-run-card, .terminal-run-steer-row')) return;
+      if (e.target && e.target.closest && e.target.closest('.terminal-tab-close, .terminal-run-card, .terminal-run-steer-row')) return;
       pointerTabDrag = { sessionId: s.id, pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, active: false, wrap };
     });
 
@@ -6051,14 +5758,7 @@ function ensureTerminalTabWrap(s, currentWraps) {
     beacon.className = 'terminal-tab-status-beacon';
     if (isSessionSleeping(s.id)) beacon.classList.add('sleeping');
 
-    // Affinity is inherited, never owned by a pane: a split's shell reports its parent's
-    // session id, so a badge on a pane row could only ever read "chưa gán" and its picker
-    // would write a key no process advertises. The tab that owns the pane carries it.
-    const affinityBadge = s.splitOf ? null : createAffinityBadge(s);
-
-    b.append(icon, splitGlyph, titleSpan);
-    if (affinityBadge) b.append(affinityBadge);
-    b.append(beacon);
+    b.append(icon, splitGlyph, titleSpan, beacon);
     b.title = `${s.name} (Nhấp đúp hoặc chuột phải để đổi tên, kéo thả để sắp xếp)`;
 
     b.onclick = () => {
@@ -6118,19 +5818,6 @@ function ensureTerminalTabWrap(s, currentWraps) {
     const titleSpan = wrap.querySelector('.terminal-tab-title');
     if (titleSpan && !wrap.classList.contains('renaming') && titleSpan.textContent !== s.name) {
       titleSpan.textContent = s.name;
-    }
-    let affinityBadge = wrap.querySelector('.terminal-tab-affinity-badge');
-    if (s.splitOf) {
-      // A wrap that became a pane row keeps no badge: the tab it splits owns the binding,
-      // and `updateAffinityBadges` reads the key off whatever badge is in the DOM.
-      affinityBadge?.remove();
-    } else if (!affinityBadge) {
-      affinityBadge = createAffinityBadge(s);
-      const btn = wrap.querySelector('.terminal-tab');
-      const beacon = wrap.querySelector('.terminal-tab-status-beacon');
-      if (btn && beacon) {
-        btn.insertBefore(affinityBadge, beacon);
-      }
     }
     wrap.querySelector('.terminal-tab')?.setAttribute('title', `${s.name} (Nhấp đúp hoặc chuột phải để đổi tên, kéo thả để sắp xếp)`);
     // The glyph is created with the wrap, but the parent's name is live: a renamed
@@ -6688,12 +6375,12 @@ function applyCategoryChip(wrap, group, isSidebarLayout, session) {
   if (chip.textContent !== group.label) chip.textContent = group.label;
 }
 
-/** The chip element every grouping label shares, placed before the affinity badge. */
+/** The chip element every grouping label shares, placed before the status beacon. */
 function createCategoryChip(wrap, btn) {
   const chip = document.createElement('span');
   chip.className = 'terminal-tab-category-chip';
-  const badge = btn.querySelector('.terminal-tab-affinity-badge');
-  if (badge) btn.insertBefore(chip, badge);
+  const beacon = btn.querySelector('.terminal-tab-status-beacon');
+  if (beacon) btn.insertBefore(chip, beacon);
   else btn.appendChild(chip);
   return chip;
 }
@@ -7007,7 +6694,6 @@ function renderTabs() {
       }
     }
   }
-  updateAffinityBadges(deliveredTabs, deliveredAffinities);
 }
 
 let initialPushReceived = false;
@@ -7059,32 +6745,6 @@ api?.onTerminalSession((state) => {
   // The pane for a woken session exists only after the pool sync above, so the
   // keystroke that caused the wake is delivered here.
   flushDeferredWakeInput();
-});
-api?.onTabsUpdated?.(async (payload) => {
-  const tabs = payload?.tabs;
-  const affinities = payload?.terminalAffinities;
-  if (Array.isArray(tabs)) deliveredTabs = tabs;
-  if (affinities && typeof affinities === 'object') deliveredAffinities = affinities;
-  updateAffinityBadges(tabs, affinities);
-  const popover = document.getElementById('affinityPickerPopover');
-  if (popover && popover.style.display === 'block') {
-    const currentSid = popover.getAttribute('data-active-session-id') || activeId;
-    // Rebuild only when the picker's content actually changed. Tabs broadcasts
-    // fire on every title/loading update, and rebuilding mid-click eats the
-    // click by replacing the element under the cursor.
-    const currentAffinity = api.getTerminalAffinity ? await api.getTerminalAffinity(currentSid) : undefined;
-    const managed = Array.isArray(currentAffinity?.managedTabIds) ? currentAffinity.managedTabIds : (currentAffinity?.tabId ? [currentAffinity.tabId] : []);
-    const primaryId = currentAffinity?.primaryTabId || currentAffinity?.tabId;
-    const sig = `${managed.slice().sort().join(',')}|${primaryId || ''}|${(Array.isArray(tabs) ? tabs : []).length}`;
-    if (sig === popover.getAttribute('data-managed-sig')) return;
-    // The IPC round-trip above gave the user time to click-outside-dismiss;
-    // re-check before rebuilding so a dismissed popover never re-opens.
-    if (popover.style.display !== 'block') return;
-    const anchor = document.querySelector(`.terminal-tab-affinity-badge[data-session-id="${currentSid}"]`);
-    if (anchor) {
-      showAffinityPicker(currentSid, anchor);
-    }
-  }
 });
 // One handler for both channels. 'antifan:terminal:data' reaches this surface
 // only for sessions it displays; 'antifan:terminal:activity' is the lightweight

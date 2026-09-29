@@ -418,84 +418,6 @@ button {
   flex: 0 0 auto;
 }
 
-.terminal-tab-affinity-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  width: 78px;
-  box-sizing: border-box;
-  flex-shrink: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 10px;
-  padding: 1px 5px;
-  border-radius: 4px;
-  background: rgba(56, 189, 248, 0.12);
-  color: #38bdf8;
-  border: 1px solid rgba(56, 189, 248, 0.25);
-  margin-left: 4px;
-  cursor: pointer;
-  /* Explicit properties, never `all`: a shorthand transition would also animate layout
-     properties the moment one is added here, which is how hover states start to jitter. */
-  transition: background-color 0.15s cubic-bezier(0.25, 1, 0.5, 1),
-    border-color 0.15s cubic-bezier(0.25, 1, 0.5, 1),
-    color 0.15s cubic-bezier(0.25, 1, 0.5, 1);
-}
-.terminal-tab-affinity-badge:hover {
-  background: rgba(56, 189, 248, 0.25);
-  border-color: rgba(56, 189, 248, 0.5);
-  color: #e0f2fe;
-}
-
-/* An unbound tab is the DEFAULT state, so it has to read as absence, not as an alert.
-   The amber pill was the loudest thing in the sidebar while saying "nothing here", and it
-   repeated on every row, which is what made the strip look cluttered. Unbound is now
-   muted and traceless; the amber appears on hover, where it is an offer rather than
-   noise. Bound badges stay loud, so attention lands on the tabs that carry something. */
-.terminal-tab-affinity-badge.unbound {
-  background: transparent;
-  color: #64748b;
-  border-color: transparent;
-}
-
-.terminal-tab-affinity-badge.unbound:hover,
-.terminal-tab-affinity-badge.unbound:focus-visible {
-  background: rgba(245, 158, 11, 0.12);
-  color: #fbbf24;
-  border-color: rgba(245, 158, 11, 0.3);
-}
-
-.terminal-tab-affinity-badge.closed {
-  background: rgba(239, 68, 68, 0.12);
-  color: #f87171;
-  border-color: rgba(239, 68, 68, 0.3);
-}
-
-.terminal-tab-affinity-badge.multi {
-  background: rgba(168, 85, 247, 0.15);
-  color: #c084fc;
-  border-color: rgba(168, 85, 247, 0.35);
-  font-weight: 600;
-}
-.terminal-tab-affinity-badge.multi:hover {
-  background: rgba(168, 85, 247, 0.28);
-  border-color: rgba(168, 85, 247, 0.6);
-  color: #f3e8ff;
-}
-
-.terminal-tab-affinity-badge.agent {
-  background: rgba(139, 92, 246, 0.15);
-  color: #a78bfa;
-  border-color: rgba(139, 92, 246, 0.35);
-}
-.terminal-tab-affinity-badge.agent:hover {
-  background: rgba(139, 92, 246, 0.28);
-  border-color: rgba(139, 92, 246, 0.6);
-  color: #ede9fe;
-}
-
-.terminal-affinity-picker,
 .terminal-capsule-picker,
 .terminal-category-picker {
   position: absolute;
@@ -511,7 +433,6 @@ button {
   color: #e2e8f0;
 }
 
-.terminal-affinity-picker-header,
 .terminal-capsule-picker-header,
 .terminal-category-picker-header {
   font-weight: 600;
@@ -523,7 +444,6 @@ button {
   letter-spacing: 0.5px;
 }
 
-.terminal-affinity-picker-item,
 .terminal-capsule-picker-item,
 .terminal-category-picker-item {
   display: flex;
@@ -538,35 +458,6 @@ button {
   transition: background 0.15s ease;
 }
 
-.terminal-affinity-picker-item:hover {
-  background: rgba(56, 189, 248, 0.15);
-  color: #38bdf8;
-}
-
-.terminal-affinity-picker-item.active {
-  background: rgba(56, 189, 248, 0.25);
-  color: #38bdf8;
-  font-weight: 600;
-}
-.terminal-affinity-picker-item.managed {
-  justify-content: space-between;
-}
-.terminal-affinity-picker-item.agent {
-  cursor: default;
-}
-.affinity-item-remove-btn {
-  font-size: 11px;
-  color: #64748b;
-  padding: 1px 5px;
-  border-radius: 3px;
-  margin-left: 6px;
-  cursor: pointer;
-  transition: all 0.12s ease;
-}
-.affinity-item-remove-btn:hover {
-  background: rgba(239, 68, 68, 0.25);
-  color: #f87171;
-}
 .terminal-tab-rename-input {
   background: #040810;
   border: 1px solid #38bdf8;
@@ -1811,7 +1702,6 @@ button {
   position: fixed;
 }
 
-.standalone.tabs-sidebar > .terminal-affinity-picker,
 .standalone.tabs-sidebar > .terminal-capsule-picker,
 .standalone.tabs-sidebar > .terminal-category-picker {
   position: absolute;
@@ -1882,14 +1772,6 @@ button {
 .standalone.tabs-sidebar .terminal-tab-status-beacon {
   order: 1;
   margin-left: auto;
-}
-
-.standalone.tabs-sidebar .terminal-tab-affinity-badge {
-  order: 2;
-  margin-left: 4px;
-  /* Narrower than the horizontal slot: a 78px pill on a 220px sidebar spent a third of
-     the row restating that nothing is bound. */
-  width: 62px;
 }
 
 /* A capsule label can reach a sidebar row too — a sleeping terminal is parked in the state
@@ -2329,6 +2211,14 @@ button {
   opacity: 0.62;
   border-color: rgba(100, 116, 139, 0.25);
 }
+.terminal-run-card.is-compact {
+  padding: 2px 7px;
+}
+
+.terminal-run-card.is-compact .terminal-run-head {
+  flex-wrap: nowrap;
+}
+
 
 .terminal-run-head {
   display: flex;
