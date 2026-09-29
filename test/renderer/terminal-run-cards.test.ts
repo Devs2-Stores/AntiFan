@@ -111,7 +111,7 @@ describe('Renderer run cards', () => {
     ] });
 
     const card = cardFor(harness, 's1');
-    assert.ok(card.querySelector('.terminal-run-dot.run-running'), 'running dot');
+    assert.ok(card.classList.contains('is-compact'), 'every card renders the compact single-line form');
     const state = card.querySelector('.terminal-run-state');
     assert.strictEqual(state?.textContent, 'đang chạy');
     const elapsed = card.querySelector('.terminal-run-elapsed');
@@ -164,8 +164,12 @@ describe('Renderer run cards', () => {
 
     const card = cardFor(harness, 's1');
     assert.ok(card.querySelector('.terminal-run-viewonly'), 'a view-only tag names the read-only reason');
+    const head = card.querySelector('.terminal-run-head');
     const buttons = card.querySelectorAll('.terminal-run-btn');
     assert.strictEqual(buttons.length, 2, 'both controls render, disabled');
+    for (const btn of buttons) {
+      assert.strictEqual(btn.closest('.terminal-run-head'), head, 'disabled controls ride the head line');
+    }
     for (const btn of buttons) {
       assert.strictEqual(btn.disabled, true, 'the control is disabled');
       assert.strictEqual(

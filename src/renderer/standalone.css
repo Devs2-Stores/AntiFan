@@ -2212,11 +2212,29 @@ button {
   border-color: rgba(100, 116, 139, 0.25);
 }
 .terminal-run-card.is-compact {
-  padding: 2px 7px;
+  margin: 2px 6px;
+  padding: 1px 7px;
 }
 
 .terminal-run-card.is-compact .terminal-run-head {
   flex-wrap: nowrap;
+  overflow: hidden;
+}
+
+.terminal-run-card.is-compact .terminal-run-head > * {
+  flex: 0 0 auto;
+}
+
+.terminal-run-card.is-compact .terminal-run-head .terminal-run-tool,
+.terminal-run-card.is-compact .terminal-run-head .terminal-run-capsule {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.terminal-run-card.is-compact .terminal-run-actions {
+  margin-top: 0;
+  margin-left: auto;
+  flex: 0 0 auto;
 }
 
 

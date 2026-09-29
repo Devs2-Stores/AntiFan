@@ -5293,9 +5293,10 @@ function buildRunCard(card, sessionId, wrap) {
   const el = document.createElement('div');
   const stateClass = `run-${typeof card.state === 'string' ? card.state : 'idle'}`;
   const isEnded = card.state === 'ended';
-  // An ended run collapses to a single evidence line — the full card grid is for
-  // runs that still accept input.
-  el.className = `terminal-run-card ${stateClass}${card.stale ? ' is-stale' : ''}${isEnded ? ' is-compact' : ''}`;
+  // Every run card is a single head line — the row never grows for a card.
+  // Steer input and the changes file list are the only elements allowed to drop
+  // to a second row, and only after the user asks for them.
+  el.className = `terminal-run-card is-compact ${stateClass}${card.stale ? ' is-stale' : ''}`;
   el.setAttribute('data-session-id', sessionId);
   // The structural signature `applyRunCardToWrap` compares before rebuilding.
   el.setAttribute('data-run-sig', [
@@ -5343,29 +5344,23 @@ function buildRunCard(card, sessionId, wrap) {
     badge.textContent = modeLabel;
     head.appendChild(badge);
   }
-  el.appendChild(head);
-
-  // Live runs show the tool/capsule meta row; on a compact ended card the same
-  // facts stay reachable through the row's title tooltip instead of a second line.
-  if (!isEnded) {
-    const meta = document.createElement('div');
-    meta.className = 'terminal-run-meta';
-    if (typeof card.lastTool === 'string' && card.lastTool) {
-      const tool = document.createElement('span');
-      tool.className = 'terminal-run-tool';
-      tool.textContent = card.lastTool;
-      meta.appendChild(tool);
-    }
-    if (typeof card.capsuleId === 'string' && card.capsuleId) {
-      const capsule = document.createElement('span');
-      capsule.className = 'terminal-run-capsule';
-      capsule.textContent = capsuleLabelOf(card.capsuleId);
-      const path = capsulePathOf(card.capsuleId);
-      capsule.title = path ? `${card.capsuleId} — ${path}` : card.capsuleId;
-      meta.appendChild(capsule);
-    }
-    if (meta.firstChild) el.appendChild(meta);
+  // Tool and capsule ride the same head line; both ellipsize when the strip is
+  // narrow and the full strings stay on tooltips/the prompt title.
+  if (typeof card.lastTool === 'string' && card.lastTool) {
+    const tool = document.createElement('span');
+    tool.className = 'terminal-run-tool';
+    tool.textContent = card.lastTool;
+    head.appendChild(tool);
   }
+  if (typeof card.capsuleId === 'string' && card.capsuleId) {
+    const capsule = document.createElement('span');
+    capsule.className = 'terminal-run-capsule';
+    capsule.textContent = capsuleLabelOf(card.capsuleId);
+    const path = capsulePathOf(card.capsuleId);
+    capsule.title = path ? `${card.capsuleId} — ${path}` : card.capsuleId;
+    head.appendChild(capsule);
+  }
+  el.appendChild(head);
 
   // An ended run is evidence, not a control surface: it shows what it last did and
   // offers nothing to press, exactly like a view-only row — except view-only rows
@@ -5383,7 +5378,7 @@ function buildRunCard(card, sessionId, wrap) {
     const tag = document.createElement('span');
     tag.className = 'terminal-run-viewonly';
     tag.textContent = 'Chỉ xem';
-    el.appendChild(tag);
+    head.appendChild(tag);
     const actions = document.createElement('div');
     actions.className = 'terminal-run-actions';
     for (const [label, cls] of [['Hủy', 'is-cancel'], ['Chỉ đạo', 'is-steer']]) {
@@ -5396,7 +5391,7 @@ function buildRunCard(card, sessionId, wrap) {
       btn.setAttribute('title', AGENT_ROW_VIEW_TITLE);
       actions.appendChild(btn);
     }
-    el.appendChild(actions);
+    head.appendChild(actions);
   } else {
     const actions = document.createElement('div');
     actions.className = 'terminal-run-actions';
@@ -5419,7 +5414,7 @@ function buildRunCard(card, sessionId, wrap) {
       openRunSteerRow(wrap, sessionId, el);
     };
     actions.append(cancelBtn, steerBtn);
-    el.appendChild(actions);
+    head.appendChild(actions);
   }
 
   const changes = card.changes && typeof card.changes === 'object' ? card.changes : null;
@@ -5452,9 +5447,9 @@ function buildRunCard(card, sessionId, wrap) {
       list.style.display = list.style.display === 'none' ? 'block' : 'none';
     };
     footer.appendChild(list);
-    // Compact ended cards keep their single line: the count sits inside the head
-    // and only the expandable file list drops to a second row.
-    if (isEnded) head.appendChild(summary); else footer.prepend(summary);
+    // The count rides the head line on every state; only the expandable file
+    // list drops to a second row, and only when the user opens it.
+    head.appendChild(summary);
     el.appendChild(footer);
   }
   return el;
