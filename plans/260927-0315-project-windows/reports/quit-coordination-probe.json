@@ -12,7 +12,7 @@
       "ok": true
     },
     {
-      "name": "three browser shells exist, each with its own tab",
+      "name": "two browser shells exist: the hub with its tabs, the manager beside it",
       "ok": true
     },
     {
@@ -52,7 +52,7 @@
       "ok": true
     },
     {
-      "name": "a late veto in a terminal window keeps services alive, releases admission and never commits",
+      "name": "a late veto in a project shell while the Manager is open keeps services alive, releases admission and never commits",
       "ok": true
     },
     {
@@ -60,7 +60,7 @@
       "ok": true
     },
     {
-      "name": "a terminal window whose host is gone stays discoverable to the shipping enumerator",
+      "name": "the vetoed quit closed the page-less manager and retained the vetoing shell",
       "ok": true
     },
     {
@@ -94,7 +94,7 @@
   ],
   "observations": {
     "boot": {
-      "alphaKey": "project:project-00000000-0000-4000-8000-0000000000a1",
+      "alphaKey": "web",
       "browserShellCount": 1,
       "phase": "open",
       "reservations": {
@@ -105,52 +105,43 @@
       }
     },
     "queuedRun": {
-      "runId": "run-d4aae759-76cc-4717-8f44-96eefddd5813",
-      "chatId": "chat-80399225-cdce-4f53-b27a-a5b5b1939999",
+      "runId": "run-9492c0cd-e8e0-497c-877f-70cfa6ca1e89",
+      "chatId": "chat-92bdd0ce-52c1-4ad5-9dcf-353c8dd2f0b1",
       "state": "queued",
       "runs": [
         {
-          "id": "run-d4aae759-76cc-4717-8f44-96eefddd5813",
+          "id": "run-9492c0cd-e8e0-497c-877f-70cfa6ca1e89",
           "state": "queued"
         }
       ]
     },
     "windows": {
       "openB": {
-        "status": "OPENED",
+        "status": "FOCUSED",
         "projectId": "project-00000000-0000-4000-8000-0000000000b2"
       },
       "keys": {
-        "alphaKey": "project:project-00000000-0000-4000-8000-0000000000a1",
-        "betaKey": "project:project-00000000-0000-4000-8000-0000000000b2",
-        "gammaKey": "project:project-00000000-0000-4000-8000-0000000000c3"
+        "alphaKey": "web",
+        "betaKey": "unassigned",
+        "gammaKey": "web"
       },
       "tabs": {
-        "tabA": "66309ce2-cc1f-404c-baeb-1477f9a86d06",
-        "tabB": "8314a4e2-00d6-47fa-94e8-9036e6e410a7",
-        "tabG1": "7af0075c-37e2-4d10-b03e-78f4205e55ab"
+        "tabA": "38d7b7ca-5574-4c9a-b3f4-5bf89b56d153",
+        "tabB": "36b551ac-ac93-4d23-aff3-bcb82ccdd383"
       },
       "counts": [
         {
-          "key": "project:project-00000000-0000-4000-8000-0000000000a1",
+          "key": "web",
           "tabs": [
-            "5e8fd0ff-453d-4c58-bd1e-43917a3daddd",
-            "66309ce2-cc1f-404c-baeb-1477f9a86d06"
+            "4d4998fe-28c8-41a3-9aa2-f714f5824cc3",
+            "2bd1912d-223d-4615-992c-becaa8323267",
+            "38d7b7ca-5574-4c9a-b3f4-5bf89b56d153",
+            "36b551ac-ac93-4d23-aff3-bcb82ccdd383"
           ]
         },
         {
-          "key": "project:project-00000000-0000-4000-8000-0000000000b2",
-          "tabs": [
-            "8bde8dc9-8fb2-4f82-bec8-33fd1eacbec2",
-            "8314a4e2-00d6-47fa-94e8-9036e6e410a7"
-          ]
-        },
-        {
-          "key": "project:project-00000000-0000-4000-8000-0000000000c3",
-          "tabs": [
-            "aaa29d97-422f-4b86-b8f1-70f46c7bf258",
-            "7af0075c-37e2-4d10-b03e-78f4205e55ab"
-          ]
+          "key": "unassigned",
+          "tabs": []
         }
       ]
     },
@@ -170,16 +161,16 @@
         }
       ],
       "chromeTimeline": {
-        "elapsedMs": 0,
+        "elapsedMs": 1,
         "diedAt": {
-          "toolbar#2": 0,
-          "sidebar#4": 0,
-          "frameBackdrop#3": 0
+          "toolbar#2": 1,
+          "sidebar#4": 1,
+          "frameBackdrop#3": 1
         },
         "remaining": [],
         "samples": [
           {
-            "atMs": 0,
+            "atMs": 1,
             "reachable": []
           }
         ],
@@ -210,16 +201,18 @@
       "shellWarnings": [],
       "reservedDuringAttempt": {
         "reservedTabIds": [
-          "5e8fd0ff-453d-4c58-bd1e-43917a3daddd",
-          "66309ce2-cc1f-404c-baeb-1477f9a86d06"
+          "4d4998fe-28c8-41a3-9aa2-f714f5824cc3",
+          "2bd1912d-223d-4615-992c-becaa8323267",
+          "38d7b7ca-5574-4c9a-b3f4-5bf89b56d153",
+          "36b551ac-ac93-4d23-aff3-bcb82ccdd383"
         ],
         "inFlightOperations": 0,
         "applicationReserved": false,
-        "reservedCount": 2
+        "reservedCount": 4
       },
       "report": {
         "attemptId": 1,
-        "ownerKey": "project:project-00000000-0000-4000-8000-0000000000a1",
+        "ownerKey": "web",
         "intent": "user",
         "coalescedRequests": 0,
         "coalesced": false,
@@ -227,12 +220,22 @@
         "phase": "closed",
         "closed": [
           {
-            "tabId": "5e8fd0ff-453d-4c58-bd1e-43917a3daddd",
+            "tabId": "4d4998fe-28c8-41a3-9aa2-f714f5824cc3",
             "outcome": "closed",
             "attempted": true
           },
           {
-            "tabId": "66309ce2-cc1f-404c-baeb-1477f9a86d06",
+            "tabId": "2bd1912d-223d-4615-992c-becaa8323267",
+            "outcome": "closed",
+            "attempted": true
+          },
+          {
+            "tabId": "38d7b7ca-5574-4c9a-b3f4-5bf89b56d153",
+            "outcome": "closed",
+            "attempted": true
+          },
+          {
+            "tabId": "36b551ac-ac93-4d23-aff3-bcb82ccdd383",
             "outcome": "closed",
             "attempted": true
           }
@@ -242,7 +245,7 @@
         "refusals": [],
         "haltedBy": null,
         "surface": {
-          "key": "project:project-00000000-0000-4000-8000-0000000000a1",
+          "key": "web",
           "kind": "browser",
           "outcome": "closed"
         },
@@ -250,13 +253,10 @@
         "partial": false,
         "lastBrowserShellGone": false,
         "warnings": [],
-        "summary": "Close of project:project-00000000-0000-4000-8000-0000000000a1: shell closed (closed 2, skipped 0, failed 0)."
+        "summary": "Close of web: shell closed (closed 4, skipped 0, failed 0)."
       },
-      "count": 2,
-      "betaTabs": [
-        "8bde8dc9-8fb2-4f82-bec8-33fd1eacbec2",
-        "8314a4e2-00d6-47fa-94e8-9036e6e410a7"
-      ],
+      "count": 1,
+      "betaTabs": [],
       "reservationsAfter": {
         "reservedTabIds": [],
         "inFlightOperations": 0,
@@ -267,10 +267,10 @@
       "quitReported": null
     },
     "unloadVeto": {
-      "vetoTab": "d90d95bf-f510-4f89-a31a-232574c84964",
+      "vetoTab": "6c13a1ff-fd7c-4141-b516-31b83be09f38",
       "report": {
         "attemptId": 2,
-        "ownerKey": "project:project-00000000-0000-4000-8000-0000000000c3",
+        "ownerKey": "web",
         "intent": "user",
         "coalescedRequests": 0,
         "coalesced": false,
@@ -278,19 +278,19 @@
         "phase": "open",
         "closed": [
           {
-            "tabId": "aaa29d97-422f-4b86-b8f1-70f46c7bf258",
+            "tabId": "7e597382-57d4-4b61-8b04-42cd5b538af8",
             "outcome": "closed",
             "attempted": true
           },
           {
-            "tabId": "7af0075c-37e2-4d10-b03e-78f4205e55ab",
+            "tabId": "2408ad69-6c33-47e3-b61d-950047a7a944",
             "outcome": "closed",
             "attempted": true
           }
         ],
         "skipped": [
           {
-            "tabId": "d90d95bf-f510-4f89-a31a-232574c84964",
+            "tabId": "6c13a1ff-fd7c-4141-b516-31b83be09f38",
             "outcome": "skipped",
             "reason": "unload-veto",
             "attempted": true
@@ -300,23 +300,23 @@
         "refusals": [
           {
             "code": "unload-veto",
-            "detail": "Page d90d95bf-f510-4f89-a31a-232574c84964 refused to unload",
+            "detail": "Page 6c13a1ff-fd7c-4141-b516-31b83be09f38 refused to unload",
             "controls": [],
-            "tabId": "d90d95bf-f510-4f89-a31a-232574c84964"
+            "tabId": "6c13a1ff-fd7c-4141-b516-31b83be09f38"
           }
         ],
         "haltedBy": "unload-veto",
         "surface": null,
         "survivingTabIds": [
-          "d90d95bf-f510-4f89-a31a-232574c84964"
+          "6c13a1ff-fd7c-4141-b516-31b83be09f38"
         ],
         "partial": true,
         "lastBrowserShellGone": false,
         "warnings": [],
-        "summary": "Close of project:project-00000000-0000-4000-8000-0000000000c3: shell retained, stopped by unload-veto (closed 2, skipped 1, failed 0); earlier closes stand and are not transactional."
+        "summary": "Close of web: shell retained, stopped by unload-veto (closed 2, skipped 1, failed 0); earlier closes stand and are not transactional."
       },
       "gammaTabs": [
-        "d90d95bf-f510-4f89-a31a-232574c84964"
+        "6c13a1ff-fd7c-4141-b516-31b83be09f38"
       ],
       "reservations": {
         "reservedTabIds": [],
@@ -326,10 +326,10 @@
       }
     },
     "newArrival": {
-      "arrivalTab": "9d7b1ab5-391d-4062-bc41-5dead157f083",
+      "arrivalTab": "1bcbb7fb-b0d1-42ea-bc73-ca8ce40352d3",
       "report": {
         "attemptId": 3,
-        "ownerKey": "project:project-00000000-0000-4000-8000-0000000000c3",
+        "ownerKey": "web",
         "intent": "user",
         "coalescedRequests": 0,
         "coalesced": false,
@@ -337,14 +337,14 @@
         "phase": "open",
         "closed": [
           {
-            "tabId": "d90d95bf-f510-4f89-a31a-232574c84964",
+            "tabId": "6c13a1ff-fd7c-4141-b516-31b83be09f38",
             "outcome": "closed",
             "attempted": true
           }
         ],
         "skipped": [
           {
-            "tabId": "9d7b1ab5-391d-4062-bc41-5dead157f083",
+            "tabId": "1bcbb7fb-b0d1-42ea-bc73-ca8ce40352d3",
             "outcome": "skipped",
             "reason": "new-arrival",
             "attempted": false
@@ -354,22 +354,22 @@
         "refusals": [
           {
             "code": "new-arrival",
-            "detail": "Pages appeared while the shell was closing: 9d7b1ab5-391d-4062-bc41-5dead157f083",
+            "detail": "Pages appeared while the shell was closing: 1bcbb7fb-b0d1-42ea-bc73-ca8ce40352d3",
             "controls": []
           }
         ],
         "haltedBy": "new-arrival",
         "surface": null,
         "survivingTabIds": [
-          "9d7b1ab5-391d-4062-bc41-5dead157f083"
+          "1bcbb7fb-b0d1-42ea-bc73-ca8ce40352d3"
         ],
         "partial": true,
         "lastBrowserShellGone": false,
         "warnings": [],
-        "summary": "Close of project:project-00000000-0000-4000-8000-0000000000c3: shell retained, stopped by new-arrival (closed 1, skipped 1, failed 0); earlier closes stand and are not transactional."
+        "summary": "Close of web: shell retained, stopped by new-arrival (closed 1, skipped 1, failed 0); earlier closes stand and are not transactional."
       },
       "gammaTabs": [
-        "9d7b1ab5-391d-4062-bc41-5dead157f083"
+        "1bcbb7fb-b0d1-42ea-bc73-ca8ce40352d3"
       ]
     },
     "queuedQuit": {
@@ -379,18 +379,18 @@
         "coalesced": true,
         "shutdown": "not-committed",
         "phase": "open",
-        "admissionReserved": true,
+        "admissionReserved": false,
         "shells": [],
         "auxiliaries": [],
         "closedShells": [],
         "survivingShells": [
-          "project:project-00000000-0000-4000-8000-0000000000b2",
-          "project:project-00000000-0000-4000-8000-0000000000c3"
+          "unassigned",
+          "web"
         ],
         "refusals": [
           {
             "code": "busy",
-            "detail": "Run run-d4aae759-76cc-4717-8f44-96eefddd5813 is queued",
+            "detail": "Run run-9492c0cd-e8e0-497c-877f-70cfa6ca1e89 is queued",
             "controls": [
               {
                 "id": "antifan:workflow:abort",
@@ -415,7 +415,7 @@
       "phase": "open",
       "lastCloseReportForGamma": {
         "attemptId": 3,
-        "ownerKey": "project:project-00000000-0000-4000-8000-0000000000c3",
+        "ownerKey": "web",
         "intent": "user",
         "coalescedRequests": 0,
         "coalesced": false,
@@ -423,14 +423,14 @@
         "phase": "open",
         "closed": [
           {
-            "tabId": "d90d95bf-f510-4f89-a31a-232574c84964",
+            "tabId": "6c13a1ff-fd7c-4141-b516-31b83be09f38",
             "outcome": "closed",
             "attempted": true
           }
         ],
         "skipped": [
           {
-            "tabId": "9d7b1ab5-391d-4062-bc41-5dead157f083",
+            "tabId": "1bcbb7fb-b0d1-42ea-bc73-ca8ce40352d3",
             "outcome": "skipped",
             "reason": "new-arrival",
             "attempted": false
@@ -440,25 +440,25 @@
         "refusals": [
           {
             "code": "new-arrival",
-            "detail": "Pages appeared while the shell was closing: 9d7b1ab5-391d-4062-bc41-5dead157f083",
+            "detail": "Pages appeared while the shell was closing: 1bcbb7fb-b0d1-42ea-bc73-ca8ce40352d3",
             "controls": []
           }
         ],
         "haltedBy": "new-arrival",
         "surface": null,
         "survivingTabIds": [
-          "9d7b1ab5-391d-4062-bc41-5dead157f083"
+          "1bcbb7fb-b0d1-42ea-bc73-ca8ce40352d3"
         ],
         "partial": true,
         "lastBrowserShellGone": false,
         "warnings": [],
-        "summary": "Close of project:project-00000000-0000-4000-8000-0000000000c3: shell retained, stopped by new-arrival (closed 1, skipped 1, failed 0); earlier closes stand and are not transactional."
+        "summary": "Close of web: shell retained, stopped by new-arrival (closed 1, skipped 1, failed 0); earlier closes stand and are not transactional."
       }
     },
     "runCleanup": {
       "runStates": [
         {
-          "id": "run-d4aae759-76cc-4717-8f44-96eefddd5813",
+          "id": "run-9492c0cd-e8e0-497c-877f-70cfa6ca1e89",
           "state": "completed"
         }
       ],
@@ -471,14 +471,14 @@
       }
     },
     "bindingDuringUnload": {
-      "gammaPageForBinding": "9d7b1ab5-391d-4062-bc41-5dead157f083",
+      "gammaPageForBinding": "9b8d4f66-6734-455a-8280-c98c6e7b68eb",
       "mintOutcome": {
         "admitted": false,
         "code": "TARGET_STALE"
       },
       "report": {
         "attemptId": 5,
-        "ownerKey": "project:project-00000000-0000-4000-8000-0000000000c3",
+        "ownerKey": "web",
         "intent": "user",
         "coalescedRequests": 0,
         "coalesced": false,
@@ -486,7 +486,12 @@
         "phase": "closed",
         "closed": [
           {
-            "tabId": "9d7b1ab5-391d-4062-bc41-5dead157f083",
+            "tabId": "1bcbb7fb-b0d1-42ea-bc73-ca8ce40352d3",
+            "outcome": "closed",
+            "attempted": true
+          },
+          {
+            "tabId": "9b8d4f66-6734-455a-8280-c98c6e7b68eb",
             "outcome": "closed",
             "attempted": true
           }
@@ -496,7 +501,7 @@
         "refusals": [],
         "haltedBy": null,
         "surface": {
-          "key": "project:project-00000000-0000-4000-8000-0000000000c3",
+          "key": "web",
           "kind": "browser",
           "outcome": "closed"
         },
@@ -504,19 +509,21 @@
         "partial": false,
         "lastBrowserShellGone": false,
         "warnings": [],
-        "summary": "Close of project:project-00000000-0000-4000-8000-0000000000c3: shell closed (closed 1, skipped 0, failed 0)."
+        "summary": "Close of web: shell closed (closed 2, skipped 0, failed 0)."
       },
       "count": 1
     },
-    "auxiliary": {
-      "popoutOpened": true,
-      "terminalWindowId": 4,
+    "managerVeto": {
+      "managerKey": "unassigned",
+      "managerWindowId": 2,
+      "vetoKey": "web",
+      "vetoWindowId": 4,
       "armed": "function",
       "census": [
         {
           "id": 4,
           "destroyed": false,
-          "url": "file:///E:/Work/apps/AntiFan/src/renderer/standa"
+          "url": ""
         },
         {
           "id": 2,
@@ -528,78 +535,101 @@
     "auxQuit": {
       "report": {
         "attemptId": 6,
-        "coalescedRequests": 1,
-        "coalesced": true,
+        "coalescedRequests": 0,
+        "coalesced": false,
         "shutdown": "not-committed",
         "phase": "open",
-        "admissionReserved": true,
+        "admissionReserved": false,
         "shells": [
           {
             "attemptId": 7,
-            "ownerKey": "project:project-00000000-0000-4000-8000-0000000000b2",
+            "ownerKey": "unassigned",
             "intent": "quit",
             "coalescedRequests": 0,
             "coalesced": false,
             "disposition": "closed",
             "phase": "closed",
-            "closed": [
-              {
-                "tabId": "8bde8dc9-8fb2-4f82-bec8-33fd1eacbec2",
-                "outcome": "closed",
-                "attempted": true
-              },
-              {
-                "tabId": "8314a4e2-00d6-47fa-94e8-9036e6e410a7",
-                "outcome": "closed",
-                "attempted": true
-              },
-              {
-                "tabId": "6647818b-6ec8-4bcd-8439-a24907eabec0",
-                "outcome": "closed",
-                "attempted": true
-              }
-            ],
+            "closed": [],
             "skipped": [],
             "failed": [],
             "refusals": [],
             "haltedBy": null,
             "surface": {
-              "key": "project:project-00000000-0000-4000-8000-0000000000b2",
+              "key": "unassigned",
               "kind": "browser",
               "outcome": "closed"
             },
             "survivingTabIds": [],
             "partial": false,
-            "lastBrowserShellGone": true,
+            "lastBrowserShellGone": false,
             "warnings": [],
-            "summary": "Close of project:project-00000000-0000-4000-8000-0000000000b2: shell closed (closed 3, skipped 0, failed 0)."
-          }
-        ],
-        "auxiliaries": [
+            "summary": "Close of unassigned: shell closed (closed 0, skipped 0, failed 0)."
+          },
           {
-            "key": "terminal-window:4",
-            "kind": "auxiliary",
-            "outcome": "vetoed"
+            "attemptId": 8,
+            "ownerKey": "web",
+            "intent": "quit",
+            "coalescedRequests": 0,
+            "coalesced": false,
+            "disposition": "retained",
+            "phase": "open",
+            "closed": [
+              {
+                "tabId": "c5ba380b-a49e-48ed-8cc6-60e8e49b41bd",
+                "outcome": "closed",
+                "attempted": true
+              }
+            ],
+            "skipped": [
+              {
+                "tabId": "727d802c-819e-4fcf-8687-f688c0dc24f7",
+                "outcome": "skipped",
+                "reason": "unload-veto",
+                "attempted": true
+              }
+            ],
+            "failed": [],
+            "refusals": [
+              {
+                "code": "unload-veto",
+                "detail": "Page 727d802c-819e-4fcf-8687-f688c0dc24f7 refused to unload",
+                "controls": [],
+                "tabId": "727d802c-819e-4fcf-8687-f688c0dc24f7"
+              }
+            ],
+            "haltedBy": "unload-veto",
+            "surface": null,
+            "survivingTabIds": [
+              "727d802c-819e-4fcf-8687-f688c0dc24f7"
+            ],
+            "partial": true,
+            "lastBrowserShellGone": false,
+            "warnings": [],
+            "summary": "Close of web: shell retained, stopped by unload-veto (closed 1, skipped 1, failed 0); earlier closes stand and are not transactional."
           }
         ],
+        "auxiliaries": [],
         "closedShells": [
-          "project:project-00000000-0000-4000-8000-0000000000b2"
+          "unassigned"
         ],
-        "survivingShells": [],
+        "survivingShells": [
+          "web"
+        ],
         "refusals": [
           {
             "code": "unload-veto",
-            "detail": "Auxiliary surface terminal-window:4 refused to close",
-            "controls": []
+            "detail": "Page 727d802c-819e-4fcf-8687-f688c0dc24f7 refused to unload",
+            "controls": [],
+            "tabId": "727d802c-819e-4fcf-8687-f688c0dc24f7"
           }
         ],
         "haltedBy": "unload-veto",
         "warnings": [
-          "Shared services were retained; recovery controls stay available."
+          "Shell web was retained; later surfaces were left untouched."
         ],
         "summary": "Application quit: not committed, 1 browser shell(s) closed, 0 auxiliary surface(s) closed, stopped by unload-veto; services remain available for recovery."
       },
-      "count": 0,
+      "count": 1,
       "reservations": {
         "reservedTabIds": [],
         "inFlightOperations": 0,
@@ -607,170 +637,118 @@
         "reservedCount": 0
       },
       "phase": "open",
-      "terminalWindows": [],
       "census": [
         {
           "id": 4,
           "destroyed": false,
-          "url": "file:///E:/Work/apps/AntiFan/src/renderer/standa"
+          "url": ""
         }
       ],
-      "popoutEvents": [
-        "window-close(defaultPrevented=false)@61ms",
-        "window-close(defaultPrevented=false)@87ms",
-        "will-prevent-unload@87ms"
+      "managerEvents": [
+        "will-prevent-unload@68ms"
       ],
+      "journalReadError": null,
       "journal": [
         "quit.requested",
-        "window-closed.last-browser-shell",
-        "quit.requested",
+        "window-closed.siblings-live",
         "quit.outcome",
-        "quit.outcome",
-        "tabhost.terminalWindowsLeftBehind"
+        "close-refusal.presented"
       ]
     },
-    "orphanDiscovery": {
-      "afterHostLoss": [],
+    "managerDiscovery": {
+      "managerInDirectory": null,
+      "vetoInDirectory": {
+        "ownerKey": "web",
+        "tabIds": [
+          "727d802c-819e-4fcf-8687-f688c0dc24f7",
+          "5e5e0515-2184-40bd-8073-fdacbb0c4830",
+          "2c24d49e-874e-42f5-93b5-262f8dcd6662"
+        ]
+      },
       "censusWindowIds": [
-        5,
         4
       ],
-      "enumeratorInputs": [
-        {
-          "contentsId": 28,
-          "windowId": 5,
-          "windowTitle": "Probe Gamma [DEV]",
-          "url": "about:blank",
-          "terminalPopoutViaHosts": false,
-          "unhostedTerminalWindow": false,
-          "reachableByShippingGate": false
-        },
-        {
-          "contentsId": 27,
-          "windowId": 5,
-          "windowTitle": "Probe Gamma [DEV]",
-          "url": "https://www.google.com/",
-          "terminalPopoutViaHosts": false,
-          "unhostedTerminalWindow": false,
-          "reachableByShippingGate": false
-        },
-        {
-          "contentsId": 26,
-          "windowId": 5,
-          "windowTitle": "Probe Gamma [DEV]",
-          "url": "file:///E:/Work/apps/AntiFan/src/renderer/standalone.html",
-          "terminalPopoutViaHosts": false,
-          "unhostedTerminalWindow": false,
-          "reachableByShippingGate": false
-        },
-        {
-          "contentsId": 25,
-          "windowId": 5,
-          "windowTitle": "Probe Gamma [DEV]",
-          "url": "file:///E:/Work/apps/AntiFan/src/renderer/frame-backdrop.html",
-          "terminalPopoutViaHosts": false,
-          "unhostedTerminalWindow": false,
-          "reachableByShippingGate": false
-        },
-        {
-          "contentsId": 24,
-          "windowId": 5,
-          "windowTitle": "Probe Gamma [DEV]",
-          "url": "file:///E:/Work/apps/AntiFan/src/renderer/toolbar.html",
-          "terminalPopoutViaHosts": false,
-          "unhostedTerminalWindow": false,
-          "reachableByShippingGate": false
-        },
-        {
-          "contentsId": 23,
-          "windowId": 5,
-          "windowTitle": "Probe Gamma [DEV]",
-          "url": "",
-          "terminalPopoutViaHosts": false,
-          "unhostedTerminalWindow": false,
-          "reachableByShippingGate": false
-        },
-        {
-          "contentsId": 22,
-          "windowId": 4,
-          "windowTitle": "AntiFan Terminal",
-          "url": "file:///E:/Work/apps/AntiFan/src/renderer/standalone.html?mode=popout",
-          "terminalPopoutViaHosts": true,
-          "unhostedTerminalWindow": true,
-          "reachableByShippingGate": true
-        }
+      "managerGone": true
+    },
+    "disarmManager": {
+      "before": [
+        4
       ],
-      "discoveredByShippingEnumeration": [
-        22
+      "after": [
+        {
+          "id": 4,
+          "destroyed": false,
+          "url": ""
+        }
       ]
     },
     "unloadSettle": {
       "a": {
-        "tabId": "875c5b40-85a1-4d20-809b-f4b07f76e940",
+        "tabId": "5eb15dce-674d-40ff-91f3-4ccaf3cb7354",
         "handlerType": "none",
         "label": "a: no unload handler",
-        "contentsId": 29,
+        "contentsId": 30,
         "events": [
           "destroyed"
         ],
         "timings": {
-          "destroyed": 11
+          "destroyed": 23
         },
         "callError": null,
         "destroyed": true,
-        "elapsedMs": 726
+        "elapsedMs": 740
       },
       "b": {
-        "tabId": "4d5a71fa-0b70-40b1-88a8-eec2a7c49271",
+        "tabId": "2f414f3c-e897-4ef5-ad2c-d3defb65cddd",
         "handlerType": "function",
         "armed": {
           "label": "b: vetoing page",
-          "contentsId": 30,
+          "contentsId": 31,
           "events": [
             "will-prevent-unload"
           ],
           "timings": {
-            "will-prevent-unload": 0
+            "will-prevent-unload": 5
           },
           "callError": null,
           "destroyed": false,
-          "elapsedMs": 705
+          "elapsedMs": 706
         },
         "disarmed": {
           "label": "b: vetoing page, disarmed",
-          "contentsId": 30,
+          "contentsId": 31,
           "events": [
             "destroyed"
           ],
           "timings": {
-            "destroyed": 12
+            "destroyed": 21
           },
           "callError": null,
           "destroyed": true,
-          "elapsedMs": 718
+          "elapsedMs": 700
         }
       },
       "c": {
-        "tabId": "14b24b7e-8b28-4436-9a27-a8315c8549c9",
+        "tabId": "b9ee6325-c318-423d-b7b9-0f75e8bb1cac",
         "killed": true,
         "killError": null,
         "recordAfterDeath": "no longer in the directory",
         "label": "c: already-destroyed content",
-        "contentsId": 31,
+        "contentsId": 32,
         "events": [],
         "timings": {},
         "callError": "Object has been destroyed",
         "destroyed": true,
-        "elapsedMs": 700
+        "elapsedMs": 708
       },
       "d": {
-        "tabId": "d70aba2c-8364-4200-9d15-6715754a03b6",
+        "tabId": "1390bbf2-6911-4da5-902c-ba8957adb0a7",
         "handlerType": "function",
         "activationReadback": "true/true",
         "closeRequested": true,
         "report": {
-          "attemptId": 8,
-          "ownerKey": "project:project-00000000-0000-4000-8000-0000000000c3",
+          "attemptId": 9,
+          "ownerKey": "web",
           "intent": "user",
           "coalescedRequests": 0,
           "coalesced": false,
@@ -778,19 +756,24 @@
           "phase": "open",
           "closed": [
             {
-              "tabId": "f5d907c4-6326-4088-9012-20cca69979f6",
+              "tabId": "727d802c-819e-4fcf-8687-f688c0dc24f7",
               "outcome": "closed",
               "attempted": true
             },
             {
-              "tabId": "53bfee92-5bde-4990-a8c9-476105b3be14",
+              "tabId": "5e5e0515-2184-40bd-8073-fdacbb0c4830",
+              "outcome": "closed",
+              "attempted": true
+            },
+            {
+              "tabId": "2c24d49e-874e-42f5-93b5-262f8dcd6662",
               "outcome": "closed",
               "attempted": true
             }
           ],
           "skipped": [
             {
-              "tabId": "d70aba2c-8364-4200-9d15-6715754a03b6",
+              "tabId": "1390bbf2-6911-4da5-902c-ba8957adb0a7",
               "outcome": "skipped",
               "reason": "unload-veto",
               "attempted": true
@@ -800,96 +783,59 @@
           "refusals": [
             {
               "code": "unload-veto",
-              "detail": "Page d70aba2c-8364-4200-9d15-6715754a03b6 refused to unload",
+              "detail": "Page 1390bbf2-6911-4da5-902c-ba8957adb0a7 refused to unload",
               "controls": [],
-              "tabId": "d70aba2c-8364-4200-9d15-6715754a03b6"
+              "tabId": "1390bbf2-6911-4da5-902c-ba8957adb0a7"
             }
           ],
           "haltedBy": "unload-veto",
           "surface": null,
           "survivingTabIds": [
-            "d70aba2c-8364-4200-9d15-6715754a03b6"
+            "1390bbf2-6911-4da5-902c-ba8957adb0a7"
           ],
           "partial": true,
           "lastBrowserShellGone": false,
           "warnings": [],
-          "summary": "Close of project:project-00000000-0000-4000-8000-0000000000c3: shell retained, stopped by unload-veto (closed 2, skipped 1, failed 0); earlier closes stand and are not transactional."
+          "summary": "Close of web: shell retained, stopped by unload-veto (closed 3, skipped 1, failed 0); earlier closes stand and are not transactional."
         },
         "events": [
-          "page:will-prevent-unload@28ms"
+          "page:will-prevent-unload@61ms"
         ],
         "census": [
           {
-            "id": 5,
-            "destroyed": false,
-            "url": ""
-          },
-          {
             "id": 4,
             "destroyed": false,
-            "url": "file:///E:/Work/apps/AntiFan/src/renderer/standa"
+            "url": ""
           }
         ]
       }
-    },
-    "disarmPopout": {
-      "before": [
-        {
-          "id": 5,
-          "destroyed": false,
-          "url": ""
-        },
-        {
-          "id": 4,
-          "destroyed": false,
-          "url": "file:///E:/Work/apps/AntiFan/src/renderer/standa"
-        }
-      ],
-      "after": [
-        {
-          "id": 5,
-          "destroyed": false,
-          "url": ""
-        },
-        {
-          "id": 4,
-          "destroyed": false,
-          "url": "file:///E:/Work/apps/AntiFan/src/renderer/standa"
-        }
-      ]
     },
     "finalQuit": {
       "closeRequested": true,
       "quitSettled": "will-quit",
       "count": 0,
       "finalTabsBefore": [
-        "d70aba2c-8364-4200-9d15-6715754a03b6"
+        "1390bbf2-6911-4da5-902c-ba8957adb0a7"
       ],
       "report": {
-        "attemptId": 10,
-        "coalescedRequests": 0,
-        "coalesced": false,
+        "attemptId": 11,
+        "coalescedRequests": 1,
+        "coalesced": true,
         "shutdown": "committed",
         "phase": "closed",
         "admissionReserved": true,
         "shells": [],
-        "auxiliaries": [
-          {
-            "key": "terminal-window:4",
-            "kind": "auxiliary",
-            "outcome": "closed"
-          }
-        ],
+        "auxiliaries": [],
         "closedShells": [],
         "survivingShells": [],
         "refusals": [],
         "haltedBy": null,
         "warnings": [],
-        "summary": "Application quit: committed after closing 0 browser shell(s) and 1 auxiliary surface(s)."
+        "summary": "Application quit: committed after closing 0 browser shell(s) and 0 auxiliary surface(s)."
       },
       "closeReport": {
-        "attemptId": 9,
-        "ownerKey": "project:project-00000000-0000-4000-8000-0000000000c3",
+        "attemptId": 10,
+        "ownerKey": "web",
         "intent": "user",
         "coalescedRequests": 0,
         "coalesced": false,
@@ -897,7 +843,7 @@
         "phase": "closed",
         "closed": [
           {
-            "tabId": "d70aba2c-8364-4200-9d15-6715754a03b6",
+            "tabId": "1390bbf2-6911-4da5-902c-ba8957adb0a7",
             "outcome": "closed",
             "attempted": true
           }
@@ -907,7 +853,7 @@
         "refusals": [],
         "haltedBy": null,
         "surface": {
-          "key": "project:project-00000000-0000-4000-8000-0000000000c3",
+          "key": "web",
           "kind": "browser",
           "outcome": "closed"
         },
@@ -915,31 +861,28 @@
         "partial": false,
         "lastBrowserShellGone": true,
         "warnings": [],
-        "summary": "Close of project:project-00000000-0000-4000-8000-0000000000c3: shell closed (closed 1, skipped 0, failed 0)."
+        "summary": "Close of web: shell closed (closed 1, skipped 0, failed 0)."
       },
-      "terminalWindows": [],
       "censusBefore": [
-        {
-          "id": 5,
-          "destroyed": false,
-          "url": ""
-        },
         {
           "id": 4,
           "destroyed": false,
-          "url": "file:///E:/Work/apps/AntiFan/src/renderer/standa"
+          "url": ""
         }
       ],
       "censusAfter": [],
-      "popoutAliveAtFinalQuit": true,
+      "managerAliveAtFinalQuit": false,
       "reservations": {
         "reservedTabIds": [],
         "inFlightOperations": 0,
         "applicationReserved": false,
         "reservedCount": 0
       },
+      "journalReadError": null,
       "journal": [
         "window-closed.last-browser-shell",
+        "quit.requested",
+        "window-all-closed",
         "quit.requested",
         "window-close.closed",
         "shutdown.begin",
@@ -952,7 +895,8 @@
         "shutdown.step.begin",
         "shutdown.step.done",
         "shutdown.step.begin",
-        "window-all-closed",
+        "shutdown.step.done",
+        "shutdown.step.begin",
         "shutdown.step.done",
         "shutdown.step.begin",
         "shutdown.step.done",
@@ -966,10 +910,14 @@
         "quit.outcome",
         "app.quit",
         "before-quit",
+        "will-quit",
+        "quit.outcome",
+        "app.quit",
+        "before-quit",
         "will-quit"
       ]
     },
-    "heartbeatTicks": 40
+    "heartbeatTicks": 33
   },
-  "at": "2026-09-27T11:37:14.254Z"
+  "at": "2026-09-29T19:27:52.465Z"
 }
