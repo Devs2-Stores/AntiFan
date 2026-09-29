@@ -435,6 +435,7 @@ function runElectronWorkload() {
       // the proxy advertises right now — a tool list or a family count
       // hard-coded here would pass while the surface it describes is gone.
       // ---------------------------------------------------------------
+      let rpcId = 100;
       const catalogueResp = await callRpc(++rpcId, 'tools/list', {}, 20000, 'tools/list');
       assert.equal(catalogueResp.error, undefined, 'tools/list must not fail');
       const catalogueEntries = Array.isArray(catalogueResp.result?.tools) ? catalogueResp.result.tools : [];
@@ -536,7 +537,6 @@ function runElectronWorkload() {
       console.log(`[OMP-Closed-Loop] Execution mode: ${isTimeBounded ? `Time-bounded (${(targetDurationMs / 60000).toFixed(2)} min)` : `Iteration-bounded (${targetIterations} cycles)`}`);
 
       let iteration = 0;
-      let rpcId = 100;
       let totalArtifactBytes = 0;
       let lastRegisterBytes = 0;
 
