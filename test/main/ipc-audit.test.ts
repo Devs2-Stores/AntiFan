@@ -2,106 +2,138 @@ import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-
+import { NativeTabHost } from '../../src/main/browser/native-tab-host';
+import { createChromeRouteHarness } from '../support/chrome-route-harness';
+import {
+  TOOLBAR_CHANNELS,
+  SIDEBAR_CHANNELS,
+  TERMINAL_CHANNELS,
+} from '../../src/shared/contracts';
 describe('Webview & Extension IPC Audit Invariants', () => {
   const root = fs.existsSync(path.join(process.cwd(), 'src')) ? process.cwd() : path.resolve(__dirname, '..', '..');
+  const harness = createChromeRouteHarness({ host: Object.create(NativeTabHost.prototype) });
+  const registeredRoutes = new Set(harness.registeredChannels());
 
   it('verifies Message Contract parity across native-tab-host and shared contracts', () => {
-    const nativeTabHostPath = path.join(root, 'src', 'main', 'browser', 'native-tab-host.ts');
-    assert.ok(fs.existsSync(nativeTabHostPath), `native-tab-host.ts must exist at ${nativeTabHostPath}`);
-    const content = fs.readFileSync(nativeTabHostPath, 'utf8');
-
     // Check critical toolbar handlers
     const requiredToolbarChannels = [
-      'TOOLBAR_CHANNELS.CREATE_TAB',
-      'TOOLBAR_CHANNELS.SWITCH_TAB',
-      'TOOLBAR_CHANNELS.CLOSE_TAB',
-      'TOOLBAR_CHANNELS.MOVE_TAB',
-      'TOOLBAR_CHANNELS.NAVIGATE',
-      'TOOLBAR_CHANNELS.RELOAD',
-      'TOOLBAR_CHANNELS.STOP_LOADING',
-      'TOOLBAR_CHANNELS.GO_BACK',
-      'TOOLBAR_CHANNELS.GO_FORWARD',
-      'TOOLBAR_CHANNELS.TOGGLE_INSPECT',
-      'TOOLBAR_CHANNELS.TOGGLE_FONT_FINDER',
-      'TOOLBAR_CHANNELS.TOGGLE_LENS',
-      'TOOLBAR_CHANNELS.TOGGLE_RULER',
-      'TOOLBAR_CHANNELS.TOGGLE_DEVTOOLS',
-      'TOOLBAR_CHANNELS.TOGGLE_SIDEBAR',
-      'TOOLBAR_CHANNELS.SET_DEVICE_PRESET',
-      'TOOLBAR_CHANNELS.SET_ZOOM',
-      'TOOLBAR_CHANNELS.CAPTURE_FULL_PAGE',
-      'TOOLBAR_CHANNELS.CAPTURE_VIEWPORT',
-      'TOOLBAR_CHANNELS.OPEN_EXTERNAL',
-      'TOOLBAR_CHANNELS.TOGGLE_BOOKMARK',
-      'TOOLBAR_CHANNELS.FIND_IN_PAGE',
-      'TOOLBAR_CHANNELS.STOP_FIND_IN_PAGE',
-      'TOOLBAR_CHANNELS.SHOW_MENU',
-      'TOOLBAR_CHANNELS.SET_OVERLAY',
-      'TOOLBAR_CHANNELS.CLEAR_STORAGE',
-      'TOOLBAR_CHANNELS.GET_CHROME_PROFILES',
-      'TOOLBAR_CHANNELS.SYNC_CHROME_PROFILE',
-      'TOOLBAR_CHANNELS.TOGGLE_BOOKMARK_BAR',
-      'TOOLBAR_CHANNELS.ADD_BOOKMARK',
-      'TOOLBAR_CHANNELS.GET_SUGGESTIONS',
-      'TOOLBAR_CHANNELS.REMOVE_BOOKMARK',
+      TOOLBAR_CHANNELS.CREATE_TAB,
+      TOOLBAR_CHANNELS.SWITCH_TAB,
+      TOOLBAR_CHANNELS.CLOSE_TAB,
+      TOOLBAR_CHANNELS.MOVE_TAB,
+      TOOLBAR_CHANNELS.NAVIGATE,
+      TOOLBAR_CHANNELS.RELOAD,
+      TOOLBAR_CHANNELS.STOP_LOADING,
+      TOOLBAR_CHANNELS.GO_BACK,
+      TOOLBAR_CHANNELS.GO_FORWARD,
+      TOOLBAR_CHANNELS.TOGGLE_INSPECT,
+      TOOLBAR_CHANNELS.TOGGLE_FONT_FINDER,
+      TOOLBAR_CHANNELS.TOGGLE_LENS,
+      TOOLBAR_CHANNELS.TOGGLE_RULER,
+      TOOLBAR_CHANNELS.TOGGLE_DEVTOOLS,
+      TOOLBAR_CHANNELS.TOGGLE_SIDEBAR,
+      TOOLBAR_CHANNELS.SET_DEVICE_PRESET,
+      TOOLBAR_CHANNELS.SET_ZOOM,
+      TOOLBAR_CHANNELS.CAPTURE_FULL_PAGE,
+      TOOLBAR_CHANNELS.CAPTURE_VIEWPORT,
+      TOOLBAR_CHANNELS.OPEN_EXTERNAL,
+      TOOLBAR_CHANNELS.TOGGLE_BOOKMARK,
+      TOOLBAR_CHANNELS.FIND_IN_PAGE,
+      TOOLBAR_CHANNELS.STOP_FIND_IN_PAGE,
+      TOOLBAR_CHANNELS.SHOW_MENU,
+      TOOLBAR_CHANNELS.SET_OVERLAY,
+      TOOLBAR_CHANNELS.CLEAR_STORAGE,
+      TOOLBAR_CHANNELS.GET_CHROME_PROFILES,
+      TOOLBAR_CHANNELS.SYNC_CHROME_PROFILE,
+      TOOLBAR_CHANNELS.TOGGLE_BOOKMARK_BAR,
+      TOOLBAR_CHANNELS.ADD_BOOKMARK,
+      TOOLBAR_CHANNELS.GET_SUGGESTIONS,
+      TOOLBAR_CHANNELS.REMOVE_BOOKMARK,
     ];
 
     for (const channel of requiredToolbarChannels) {
       assert.ok(
-        content.includes(`channel: ${channel}`) || content.includes(`ipcMain.handle(${channel}`) || content.includes(`ipcMain.on(${channel}`),
-        `Missing IPC handler for ${channel} in native-tab-host.ts`
+        registeredRoutes.has(channel),
+        `Missing IPC handler for ${channel} in Chrome route table`
       );
     }
 
     // Check critical sidebar handlers
     const requiredSidebarChannels = [
-      'SIDEBAR_CHANNELS.GET_INITIAL_STATE',
-      'SIDEBAR_CHANNELS.CLOSE_SIDEBAR',
-      'SIDEBAR_CHANNELS.SET_WIDTH',
+      SIDEBAR_CHANNELS.GET_INITIAL_STATE,
+      SIDEBAR_CHANNELS.CLOSE_SIDEBAR,
+      SIDEBAR_CHANNELS.SET_WIDTH,
     ];
 
     for (const channel of requiredSidebarChannels) {
       assert.ok(
-        content.includes(`channel: ${channel}`) || content.includes(`ipcMain.handle(${channel}`),
-        `Missing IPC handler for ${channel} in native-tab-host.ts`
+        registeredRoutes.has(channel),
+        `Missing IPC handler for ${channel} in Chrome route table`
       );
     }
 
     // Check critical terminal channels
     const requiredTerminalChannels = [
-      'TERMINAL_CHANNELS.START',
-      'TERMINAL_CHANNELS.INPUT',
-      'TERMINAL_CHANNELS.KILL',
-      'TERMINAL_CHANNELS.RESTART',
+      TERMINAL_CHANNELS.START,
+      TERMINAL_CHANNELS.INPUT,
+      TERMINAL_CHANNELS.KILL,
+      TERMINAL_CHANNELS.RESTART,
       // The ownership handover the tab context menu drives: a session may be moved to
       // another project, and the host is the only side that may re-stamp it.
-      'TERMINAL_CHANNELS.ASSIGN_PROJECT',
+      TERMINAL_CHANNELS.ASSIGN_PROJECT,
     ];
 
     for (const channel of requiredTerminalChannels) {
       assert.ok(
-        content.includes(`channel: ${channel}`) || content.includes(`ipcMain.handle(${channel}`),
-        `Missing IPC handler for ${channel} in native-tab-host.ts`
+        registeredRoutes.has(channel),
+        `Missing IPC handler for ${channel} in Chrome route table`
       );
     }
   });
 
   it('scans renderer HTML templates for dead or duplicate script tags', () => {
-    const htmlFiles = [
-      path.join(root, 'src', 'renderer', 'toolbar.html'),
-      path.join(root, 'src', 'renderer', 'standalone.html'),
-    ];
+    // 1. toolbar.html static script tags
+    const toolbarHtmlPath = path.join(root, 'src', 'renderer', 'toolbar.html');
+    assert.ok(fs.existsSync(toolbarHtmlPath), `toolbar.html must exist at ${toolbarHtmlPath}`);
+    const toolbarHtml = fs.readFileSync(toolbarHtmlPath, 'utf8');
+    const toolbarScriptMatches = [...toolbarHtml.matchAll(/<script\b[^>]*src=["']([^"']+)["'][^>]*>/gi)].map((m) => m[1]!);
+    assert.ok(toolbarScriptMatches.length >= 1, 'toolbar.html must declare external scripts');
 
-    for (const file of htmlFiles) {
-      assert.ok(fs.existsSync(file), `HTML file ${file} must exist`);
-      const html = fs.readFileSync(file, 'utf8');
-      const externalScriptTags = html.match(/<script\b[^>]*src=[\s\S]*?<\/script>/gi) || [];
-      assert.ok(externalScriptTags.length >= 1, `File ${file} should have external script tags`);
+    const toolbarSrcCounts = new Map<string, number>();
+    for (const src of toolbarScriptMatches) {
+      toolbarSrcCounts.set(src, (toolbarSrcCounts.get(src) || 0) + 1);
+      const direct = path.resolve(path.dirname(toolbarHtmlPath), src);
+      const tsSource = src.endsWith('.js') ? path.resolve(path.dirname(toolbarHtmlPath), src.replace(/\.js$/, '.ts')) : null;
+      const targetExists = fs.existsSync(direct) || (tsSource && fs.existsSync(tsSource));
+      assert.ok(targetExists, `Target file for script '${src}' in toolbar.html must exist on disk`);
+    }
+    for (const [src, count] of toolbarSrcCounts.entries()) {
+      assert.strictEqual(count, 1, `Script '${src}' must appear exactly once in toolbar.html, found ${count}`);
+    }
+
+    // 2. standalone.html bootstrap script list
+    const standaloneHtmlPath = path.join(root, 'src', 'renderer', 'standalone.html');
+    assert.ok(fs.existsSync(standaloneHtmlPath), `standalone.html must exist at ${standaloneHtmlPath}`);
+    const standaloneHtml = fs.readFileSync(standaloneHtmlPath, 'utf8');
+    const standaloneScriptsBlock = standaloneHtml.match(/const scripts = \[([\s\S]*?)\];/);
+    assert.ok(standaloneScriptsBlock, 'standalone.html must define scripts array');
+    const standaloneScriptSrcs = [...standaloneScriptsBlock[1]!.matchAll(/['"]([^'"]+)['"]/g)].map((m) => m[1]!);
+    assert.ok(standaloneScriptSrcs.length >= 1, 'standalone.html scripts array must not be empty');
+
+    const standaloneSrcCounts = new Map<string, number>();
+    for (const src of standaloneScriptSrcs) {
+      standaloneSrcCounts.set(src, (standaloneSrcCounts.get(src) || 0) + 1);
+      const direct = path.resolve(path.dirname(standaloneHtmlPath), src);
+      const nm = path.resolve(root, 'node_modules', src);
+      const targetExists = fs.existsSync(direct) || fs.existsSync(nm);
+      assert.ok(targetExists, `Target file for script '${src}' in standalone.html must exist on disk`);
+    }
+    for (const [src, count] of standaloneSrcCounts.entries()) {
+      assert.strictEqual(count, 1, `Script '${src}' must appear exactly once in standalone.html, found ${count}`);
     }
   });
 
-  it('keeps the legacy bottom terminal drawer fully removed', () => {
+  it('keeps the legacy bottom terminal drawer fully removed [absence pin]', () => {
     const nativeTabHost = fs.readFileSync(path.join(root, 'src', 'main', 'browser', 'native-tab-host.ts'), 'utf8');
     const appMenu = fs.readFileSync(path.join(root, 'src', 'main', 'browser', 'app-menu.ts'), 'utf8');
     const toolbarPreload = fs.readFileSync(path.join(root, 'src', 'preload', 'toolbar-preload.ts'), 'utf8');
@@ -126,17 +158,17 @@ describe('Webview & Extension IPC Audit Invariants', () => {
   });
 
   it('audits static event listeners to ensure no duplicate bindings on tool buttons', () => {
+    const toolbarHtmlPath = path.join(root, 'src', 'renderer', 'toolbar.html');
     const toolbarTsPath = path.join(root, 'src', 'renderer', 'toolbar.ts');
+    assert.ok(fs.existsSync(toolbarHtmlPath), `toolbar.html must exist at ${toolbarHtmlPath}`);
     assert.ok(fs.existsSync(toolbarTsPath), `toolbar.ts must exist at ${toolbarTsPath}`);
+    const toolbarHtml = fs.readFileSync(toolbarHtmlPath, 'utf8');
     const toolbarTs = fs.readFileSync(toolbarTsPath, 'utf8');
 
-    // Extract all direct addEventListener calls on known button variables
-    const checkButtons = [
+    // Surviving active buttons in toolbar.html
+    const activeButtons = [
       'btnQuickInspect',
       'btnFontFinder',
-      'btnRuler',
-      'btnCaptureFullPage',
-      'btnDevTools',
       'btnToggleSidebar',
       'btnNewTab',
       'btnBack',
@@ -145,12 +177,27 @@ describe('Webview & Extension IPC Audit Invariants', () => {
       'btnStarBookmark',
     ];
 
-    for (const btn of checkButtons) {
-      const regex = new RegExp(`\\b${btn}\\s*\\?\\.addEventListener|if\\s*\\(${btn}\\)\\s*${btn}\\.addEventListener`, 'g');
+    for (const btn of activeButtons) {
+      // Must exist in toolbar.html
+      assert.ok(toolbarHtml.includes(`id="${btn}"`), `Button ${btn} must exist in toolbar.html`);
+
+      // Must have exactly 1 click listener binding in toolbar.ts
+      const regex = new RegExp(`\\b${btn}\\s*\\??\\.addEventListener\\s*\\(\\s*['"]click['"]`, 'g');
       const matches = toolbarTs.match(regex) || [];
-      assert.ok(
-        matches.length <= 1,
-        `Button variable ${btn} has duplicate addEventListener bindings (${matches.length}) in toolbar.ts`
+      assert.strictEqual(
+        matches.length,
+        1,
+        `Button variable ${btn} must have exactly one click addEventListener binding in toolbar.ts, found ${matches.length}`
+      );
+    }
+
+    // Dead buttons must remain deleted from toolbar.html [absence pin]
+    const deadButtons = ['btnRuler', 'btnCaptureFullPage', 'btnDevTools'];
+    for (const btn of deadButtons) {
+      assert.strictEqual(
+        toolbarHtml.includes(`id="${btn}"`),
+        false,
+        `Dead button ${btn} must not exist in toolbar.html [absence pin]`
       );
     }
   });
@@ -164,22 +211,23 @@ describe('Webview & Extension IPC Audit Invariants', () => {
 
     assert.match(preloadContent, /antifan:standalone:open-workspace/);
     assert.match(preloadContent, /antifan:terminal:new-session/);
-    assert.match(nativeContent, /antifan:standalone:open-workspace/);
-    assert.match(nativeContent, /antifan:terminal:new-session/);
+    assert.ok(registeredRoutes.has('antifan:standalone:open-workspace'), 'antifan:standalone:open-workspace must be registered in route table');
+    assert.ok(registeredRoutes.has('antifan:terminal:new-session'), 'antifan:terminal:new-session must be registered in route table');
     assert.match(preloadContent, /pickWorkspaceFolder:\s*\(sessionId\?: string\).*\{ sessionId \}/);
     // The tab context menu's ownership handover: the renderer names the session and the
     // project it is moving to, and the host owns the re-stamp. Both ends name the one
     // channel, and the payload keys are the frozen pair.
     assert.match(preloadContent, /assignTerminalProject/);
     assert.match(preloadContent, /invoke\(\s*TERMINAL_CHANNELS\.ASSIGN_PROJECT\s*,\s*\{[^}]*sessionId[^}]*projectId/);
-    assert.match(nativeContent, /channel:\s*TERMINAL_CHANNELS\.ASSIGN_PROJECT/);
+    assert.ok(registeredRoutes.has(TERMINAL_CHANNELS.ASSIGN_PROJECT), 'TERMINAL_CHANNELS.ASSIGN_PROJECT must be registered in route table');
     // A terminal's own URL clicks join the owning project through Main, never whichever window
     // currently has focus.
     assert.match(preloadContent, /openTerminalLink/);
     assert.match(preloadContent, /invoke\(\s*TERMINAL_CHANNELS\.OPEN_LINK\s*,\s*\{[^}]*sessionId[^}]*url/);
-    assert.match(nativeContent, /channel:\s*TERMINAL_CHANNELS\.OPEN_LINK/);
+    assert.ok(registeredRoutes.has(TERMINAL_CHANNELS.OPEN_LINK), 'TERMINAL_CHANNELS.OPEN_LINK must be registered in route table');
     // The audit pins the contract the picker must keep: the folder the user chose and the
     // session it was picked for reach setCapsule, for whichever capsule the route adopted.
+    assert.ok(registeredRoutes.has('antifan:capsule:pick-folder'), 'antifan:capsule:pick-folder must be registered in route table');
     assert.match(nativeContent, /capsule:pick-folder[^]*setCapsule\([\w$]+\.id, chosenPath, opts\?\.sessionId\)/);
   });
 
@@ -433,7 +481,7 @@ describe('Webview & Extension IPC Audit Invariants', () => {
   it('enforces single workflow authority in native-tab-host delegating through control-plane runtime', () => {
     const nativeTabHost = fs.readFileSync(path.join(root, 'src', 'main', 'browser', 'native-tab-host.ts'), 'utf8');
     
-    // Verify all 5 workflow IPC channels exist
+    // Verify all 5 workflow IPC channels exist in route table
     const requiredChannels = [
       'antifan:workflow:get-state',
       'antifan:workflow:save',
@@ -443,16 +491,16 @@ describe('Webview & Extension IPC Audit Invariants', () => {
     ];
     for (const ch of requiredChannels) {
       assert.ok(
-        nativeTabHost.includes(`channel: '${ch}'`) || nativeTabHost.includes(`ipcMain.handle('${ch}'`) || nativeTabHost.includes(`ipcMain.on('${ch}'`),
-        `native-tab-host.ts must register channel ${ch}`
+        registeredRoutes.has(ch),
+        `Chrome route table must register channel ${ch}`
       );
     }
 
-    // Enforce no separate WorkflowEngine is instantiated in native-tab-host
+    // Enforce no separate WorkflowEngine is instantiated in native-tab-host [absence pin]
     assert.strictEqual(
       nativeTabHost.includes('new WorkflowEngine'),
       false,
-      'native-tab-host.ts must NOT instantiate its own WorkflowEngine; ControlPlaneRuntime owns workflow execution'
+      'native-tab-host.ts must NOT instantiate its own WorkflowEngine; ControlPlaneRuntime owns workflow execution [absence pin]'
     );
 
     // Enforce workflow:run delegates to this.controlPlane.executeWorkflow
@@ -599,8 +647,9 @@ describe('Webview & Extension IPC Audit Invariants', () => {
     );
 
     // 2. TERMINAL_CHANNELS.START handler must directly return startTerminal without binding activeTabId
+    assert.ok(registeredRoutes.has(TERMINAL_CHANNELS.START), 'TERMINAL_CHANNELS.START route must be registered in Chrome route table');
     const startIdx = content.indexOf('channel: TERMINAL_CHANNELS.START');
-    assert.ok(startIdx !== -1, 'TERMINAL_CHANNELS.START handler must exist');
+    assert.ok(startIdx !== -1, 'TERMINAL_CHANNELS.START handler must exist in native-tab-host.ts');
     const nextIpcIdx = content.indexOf('channel: TERMINAL_CHANNELS.INPUT', startIdx);
     assert.ok(nextIpcIdx !== -1, 'TERMINAL_CHANNELS.INPUT boundary must exist');
     const startHandlerBlock = content.slice(startIdx, nextIpcIdx);
@@ -642,8 +691,9 @@ describe('Webview & Extension IPC Audit Invariants', () => {
     );
 
     // 3. antifan:terminal:new-session handler must directly return createSession without binding activeTabId
+    assert.ok(registeredRoutes.has('antifan:terminal:new-session'), 'antifan:terminal:new-session route must be registered in Chrome route table');
     const newSessionIdx = content.indexOf("channel: 'antifan:terminal:new-session'");
-    assert.ok(newSessionIdx !== -1, 'antifan:terminal:new-session handler must exist');
+    assert.ok(newSessionIdx !== -1, 'antifan:terminal:new-session handler must exist in native-tab-host.ts');
     const nextSplitIdx = content.indexOf("channel: 'antifan:terminal:split-session'", newSessionIdx);
     assert.ok(nextSplitIdx !== -1, 'antifan:terminal:split-session boundary must exist');
     const newSessionBlock = content.slice(newSessionIdx, nextSplitIdx);

@@ -258,4 +258,32 @@ describe('close live-use runs enumeration — orphaned and unlisted runs', () =>
       fs.rmSync(workspaceRoot, { recursive: true, force: true });
     }
   });
+
+  it('does not treat an active mcp transport attachment as an orphaned project run', async () => {
+    const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-runs-test-'));
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-ws-test-'));
+    const projectId = makeControlPlaneId('project');
+    const workspaceId = makeControlPlaneId('workspace');
+
+    try {
+      const runtime = new ControlPlaneRuntime({ projectId, workspaceId, dataRoot, workspaceRoot });
+      const mcpRunId = makeControlPlaneId('run');
+      const attemptId = makeControlPlaneId('attempt');
+      const lease = issueRuntimeLease(projectId, workspaceId, 3_600_000, 1);
+
+      await runtime.runs.attachments.issueAttachment(mcpRunId, attemptId, projectId, workspaceId, {
+        backendId: 'mcp',
+        lease,
+        leaseToken: lease.token,
+      });
+
+      // An MCP transport attachment mints a synthetic runId for capability dispatch authority
+      // and does not run project workflows in RunService. It must not be reported as an orphaned run.
+      const runs = enumerateCloseLiveUseRuns(runtime);
+      assert.deepEqual(runs, [], 'mcp transport attachment must not be enumerated as an orphaned run');
+    } finally {
+      fs.rmSync(dataRoot, { recursive: true, force: true });
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
 });

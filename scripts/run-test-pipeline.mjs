@@ -22,7 +22,11 @@ import process from 'node:process';
 // The static gates run before anything compiles and every lane that needs a build depends on
 // 'compile' separately. 'typecheck' belongs here: the script existed but no lane ran it, so a green
 // pipeline proved nothing about the TypeScript surface.
-const STATIC_LANES = ['audit', 'plans:check', 'typecheck'];
+//
+// 'check:rpc-surface' is extracted from Pass 1 of probe-rpc-surface-coverage.cjs to run in the
+// default static lanes. It covers ONLY the missing-method class (GUI tm.* call sites vs proxy methods);
+// it does NOT replace live dispatch coverage, which stays opt-in under 'test:probes'.
+const STATIC_LANES = ['audit', 'plans:check', 'typecheck', 'check:rpc-surface'];
 const TEST_LANES = [
   ...STATIC_LANES,
   'compile',
@@ -47,6 +51,12 @@ const TEST_LANES = [
 // 'test:probes' stays opt-in: it stages a daemon bundle and spawns detached hosts, which is heavier
 // than every other lane. Its wrapper pins a throwaway data root, so the lane no longer depends on
 // whatever happens to be staged on the machine.
+//
+// The three heavy GUI/screenshot probes are wired as named opt-in lanes, explicitly documented
+// as manual-only because they require full Electron/CDP runtimes and heavy budgets:
+// - 'probe:windows-matrix': full multi-window matrix probe (>3 min)
+// - 'probe:background-full-page': background full-page screenshot worker probe (~50 s)
+// - 'probe:headless-full-page': headless CDP full-page screenshot probe (~30 s)
 const KNOWN_LANES = new Set([
   ...STATIC_LANES,
   ...TEST_LANES,
@@ -55,6 +65,9 @@ const KNOWN_LANES = new Set([
   'test:unit',
   'test:e2e',
   'test:probes',
+  'probe:windows-matrix',
+  'probe:background-full-page',
+  'probe:headless-full-page',
 ]);
 const NON_COMPILE_LANES = new Set(['compile', 'test:canary', ...STATIC_LANES]);
 const COMPILE_DEPENDENT = new Set(
@@ -67,9 +80,21 @@ const COMPILE_DEPENDENT = new Set(
 // over the slowest measured lane (02:11 report: test:main 104.4 s, test:fast 65.5 s).
 const DEFAULT_LANE_TIMEOUT_MS = 8 * 60_000;
 const LANE_TIMEOUT_MS = new Map([
+  ['check:rpc-surface', 30_000],
   ['smoke:terminal', 15 * 60_000],
   ['test:e2e:strict', 10 * 60_000],
   ['test:probes', 20 * 60_000],
+  ['probe:windows-matrix', 15 * 60_000],
+  ['probe:background-full-page', 5 * 60_000],
+  ['probe:headless-full-page', 5 * 60_000],
+]);
+
+// Custom command overrides for lanes that do not map 1:1 to `npm run <lane>`.
+const LANE_COMMANDS = new Map([
+  ['check:rpc-surface', [process.execPath, 'scripts/probe-rpc-surface-coverage.cjs', '--static-only']],
+  ['probe:windows-matrix', ['node', 'scripts/run-electron.cjs', 'scripts/probe-project-windows-matrix.cjs']],
+  ['probe:background-full-page', ['node', 'scripts/run-electron.cjs', 'scripts/probe-background-full-page.cjs']],
+  ['probe:headless-full-page', ['node', 'scripts/run-electron.cjs', 'scripts/probe-headless-full-page.cjs']],
 ]);
 
 // Windows spawns `cmd.exe` as the direct child (shell: true), so killing only that pid orphans
@@ -138,11 +163,15 @@ function parseArgs(argv) {
 function runLane(lane, timeoutMs) {
   const startedAt = Date.now();
   return new Promise((resolve) => {
-    const child = spawn(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', lane], {
+    const custom = LANE_COMMANDS.get(lane);
+    const isWindows = process.platform === 'win32';
+    const cmd = custom ? custom[0] : (isWindows ? 'npm.cmd' : 'npm');
+    const args = custom ? custom.slice(1) : ['run', lane];
+    const child = spawn(cmd, args, {
       stdio: 'inherit',
-      shell: process.platform === 'win32',
+      shell: custom ? false : isWindows,
       // A POSIX process group lets the timeout kill the whole lane, not just its first process.
-      detached: process.platform !== 'win32',
+      detached: !isWindows,
     });
     let timedOut = false;
     const timer = setTimeout(() => {
@@ -184,6 +213,12 @@ overrides the budget for every lane (use it to prove the bound, or to buy room f
 
 Known lanes:
   ${[...KNOWN_LANES].sort().join(', ')}
+
+Manual opt-in lanes (heavy probes; excluded from default pipeline):
+  test:probes                 stages daemon bundle, spawns detached hosts (20 min budget)
+  probe:windows-matrix        drives multi-window Electron matrix probe (~3-10 min)
+  probe:background-full-page  drives Electron background worker full-page screenshot probe (~50 s)
+  probe:headless-full-page    drives headless Electron CDP full-page screenshot probe (~30 s)
 `);
     return 0;
   }

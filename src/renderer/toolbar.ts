@@ -23,6 +23,7 @@ interface AntiFanTab {
   themeError?: string | null;
   terminalSessionId?: string;
   ephemeral?: boolean;
+  hibernated?: boolean;
   splitMode?: boolean;
   splitDesktopPresetId?: string;
   splitMobilePresetId?: string;
@@ -2770,7 +2771,7 @@ function computeTabsSignature(tabs: AntiFanTab[], activeId: string): string {
   for (let i = 0; i < tabs.length; i++) {
     const t = tabs[i];
     if (!t) continue;
-    sig += `;${t.id},${t.title || ''},${t.url || ''},${t.favicon || ''},${t.isLoading ? 1 : 0},${t.themeError || ''},${t.isAudible ? 1 : 0},${t.isMuted ? 1 : 0},${t.aiState || ''},${t.isAgentControlled ? 1 : 0}`;
+    sig += `;${t.id},${t.title || ''},${t.url || ''},${t.favicon || ''},${t.isLoading ? 1 : 0},${t.themeError || ''},${t.isAudible ? 1 : 0},${t.isMuted ? 1 : 0},${t.aiState || ''},${t.isAgentControlled ? 1 : 0},${t.hibernated ? 1 : 0}`;
   }
   return sig;
 }
@@ -2994,13 +2995,14 @@ function renderTabs() {
     const isAgentWorking = tab.aiState === 'agent_working';
     const isAgentControlled = tab.isAgentControlled === true;
     const hasThemeError = Boolean(tab.themeError);
+    const isHibernated = tab.hibernated === true;
 
     // The strip re-renders on every state broadcast — a page that retitles itself drives this at
     // up to 5 Hz — and most of the properties below already hold the value being written. An
     // unchanged attribute write is not free: it replaces the attribute value and invalidates
     // style, which is what this path was paying per broadcast for a title that had moved and
     // nothing else. Compare first, as `titleSpan` below and the `lastApplied*` controls do.
-    const nextTabClassName = `tab ${isActive ? 'active' : ''} ${isAgentControlled ? 'agent-controlled' : ''} ${isAgentWorking ? 'agent-working' : isAiStreaming ? 'ai-streaming' : ''} ${hasThemeError ? 'tab-has-error' : ''}`;
+    const nextTabClassName = `tab ${isActive ? 'active' : ''} ${isAgentControlled ? 'agent-controlled' : ''} ${isAgentWorking ? 'agent-working' : isAiStreaming ? 'ai-streaming' : ''} ${hasThemeError ? 'tab-has-error' : ''} ${isHibernated ? 'hibernated' : ''}`;
     if (tabEl.className !== nextTabClassName) tabEl.className = nextTabClassName;
     const nextAriaSelected = isActive ? 'true' : 'false';
     if (tabEl.getAttribute('aria-selected') !== nextAriaSelected) tabEl.setAttribute('aria-selected', nextAriaSelected);
@@ -3085,6 +3087,25 @@ function renderTabs() {
         if (statusDot.className !== 'tab-status-dot theme-error') {
           statusDot.className = 'tab-status-dot theme-error';
           statusDot.title = `⚠️ Lỗi Theme: ${tab.themeError}`;
+        }
+      }
+    } else if (isHibernated) {
+      // Sleeping tab: renderer freed, only the record survives — reduced strip
+      // presentation (title + favicon, dimmed) and a marker dot instead of the
+      // spinner. Clicking the tab wakes it through the host's ensureTabAwake.
+      if (spinner && spinner.style.display !== 'none') spinner.style.display = 'none';
+      if (icon) {
+        if (icon.style.display !== 'inline-block') icon.style.display = 'inline-block';
+        const nextIconSrc =
+          tab.favicon ||
+          'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="%2394a3b8" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>';
+        if (icon.getAttribute('src') !== nextIconSrc) icon.src = nextIconSrc;
+      }
+      if (statusDot) {
+        if (statusDot.style.display !== 'inline-block') statusDot.style.display = 'inline-block';
+        if (statusDot.className !== 'tab-status-dot hibernated') {
+          statusDot.className = 'tab-status-dot hibernated';
+          statusDot.title = '💤 Tab đang ngủ để tiết kiệm bộ nhớ — bấm để đánh thức';
         }
       }
     } else if (tab.isLoading) {

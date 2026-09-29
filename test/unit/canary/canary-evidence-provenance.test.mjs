@@ -53,6 +53,23 @@ function writeEntry(entryPath, html) {
 /** An independent digest, computed without the module under test. */
 const digestOf = (value) => crypto.createHash('sha256').update(value).digest('hex');
 
+/**
+ * A pid the identity adapter observes as absent. The freshly exited child is tried
+ * first because it is the realistic case; when the host has already recycled that
+ * pid, pids above the range any host allocates are tried. A host where no pid is
+ * observable as absent fails the test: the reclamation path below is the only
+ * coverage of the dead-holder branch, and skipping it would report coverage that
+ * did not run.
+ */
+async function findAbsentPid(preferred) {
+  const candidates = [preferred, 4294967294, 2147483646, 1000000002].filter((pid) => Number.isInteger(pid) && pid > 0);
+  for (const pid of candidates) {
+    const proof = await proveHolderDead({ pid });
+    if (proof.dead === true && proof.reason === 'PID_ABSENT') return pid;
+  }
+  assert.fail(`no pid on this host is observable as absent (tried ${candidates.join(', ')}); the dead-holder reclamation path cannot be exercised`);
+}
+
 after(() => {
   for (const dir of fixtures) fs.rmSync(dir, { recursive: true, force: true });
 });
@@ -355,20 +372,17 @@ describe('campaign lock', () => {
     assert.equal(second.proof.dead, false);
   });
 
-  it('reclaims a lock whose recorded pid is gone', async (t) => {
+  it('reclaims a lock whose recorded pid is gone', async () => {
     const dir = fixtureDir('lock-dead');
     const lockPath = path.join(dir, '.campaign.lock');
 
     const child = spawn(process.execPath, ['-e', ''], { stdio: 'ignore' });
-    const deadPid = child.pid;
+    const childPid = child.pid;
     await once(child, 'exit');
+    // The recorded holder is a pid the adapter proves absent, so this branch is
+    // always exercised: a recycled child pid is replaced, never skipped over.
+    const deadPid = await findAbsentPid(childPid);
     writeRecordAtomic(lockPath, { runId: 'run-dead', pid: deadPid, startedAt: '1970-01-01T00:00:00.000Z' });
-
-    const proof = await proveHolderDead({ pid: deadPid });
-    if (proof.reason !== 'PID_ABSENT') {
-      t.skip(`pid ${deadPid} is not observable as absent on this host (${proof.reason}); the OS reused it`);
-      return;
-    }
 
     const acquired = await acquireCampaignLock({ lockPath, runId: 'run-after-death' });
     assert.equal(acquired.ok, true);

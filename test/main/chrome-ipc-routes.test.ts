@@ -8,12 +8,34 @@
  *    has its surface represented in the route's surface set.
  * 4. installChromeIpcOnce is idempotent: calling it twice with the table registers nothing
  *    the second time.
+ * 5. Preload transport consistency: every `ipcRenderer.invoke`/`send`/`on` call site in
+ *    `src/preload/*.ts` uses the transport its channel actually has. `invoke` must land
+ *    on a `kind:'handle'` receiver, `send` on a `kind:'on'` receiver, and `on` must
+ *    listen on a declared push channel that is not a registered route. A preload member
+ *    that invokes a channel nobody receives — or subscribes on a request channel —
+ *    fails here even though the route-table-only checks above cannot see it.
  */
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
 import * as fs from 'fs';
 import * as path from 'path';
+
+import { installElectronStub } from '../support/electron-stub';
+
+// The stub must be in the require cache before src/main/index is loaded: the module
+// registers its privileged schemes and reads app paths at import time, which no plain
+// node run can serve.
+installElectronStub();
+
 import { NativeTabHost } from '../../src/main/browser/native-tab-host';
+import { PROJECT_WINDOW_ROUTES } from '../../src/main/index';
+import {
+  BRIDGE_CHANNELS,
+  FRAME_BACKDROP_CHANNELS,
+  PROJECT_WINDOW_CHANNELS,
+  TERMINAL_CHANNELS,
+  TOOLBAR_CHANNELS,
+} from '../../src/shared/contracts';
 import {
   installChromeIpcOnce,
   listRegisteredChromeChannels,
@@ -52,7 +74,7 @@ describe('Chrome IPC Routes Table Audit', () => {
       seenChannels.add(route.channel);
     }
 
-    assert.strictEqual(routes.length, 117, 'Route table must contain exactly 117 routes');
+    assert.strictEqual(routes.length, 126, 'Route table must contain exactly 126 routes');
   });
 
   it('2. every route has at least one surface and every surface is in the taxonomy', () => {
@@ -113,13 +135,19 @@ describe('Chrome IPC Routes Table Audit', () => {
     // For each file, check every channel referenced in that file
     for (const [relPath, expectedSurfaces] of Object.entries(fileSurfaceMap)) {
       const fullPath = path.join(root, ...relPath.split('/'));
-      if (!fs.existsSync(fullPath)) continue;
+      assert.ok(fs.existsSync(fullPath), `Audited file ${relPath} must exist at ${fullPath}`);
       const fileContent = fs.readFileSync(fullPath, 'utf8');
+      // Strip comments so references in comments are not treated as active call sites
+      const cleanContent = fileContent.replace(/\/\*[\s\S]*?\*\/|\/\/.*/g, '');
 
       for (const [channelVal, surfaces] of routeMap.entries()) {
         const idents = channelIdentMap.get(channelVal) || [];
-        const hasLiteral = fileContent.includes(`'${channelVal}'`) || fileContent.includes(`"${channelVal}"`);
-        const hasIdent = idents.some((id) => fileContent.includes(id));
+        const hasLiteral = cleanContent.includes(`'${channelVal}'`) || cleanContent.includes(`"${channelVal}"`);
+        const hasIdent = idents.some((id) => {
+          const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const callSitePattern = new RegExp(`\\bipcRenderer\\s*\\.\\s*(?:invoke|send|sendSync|on|once|removeListener|postMessage)\\s*\\([^;\\n)]*\\b${escaped}\\b`);
+          return callSitePattern.test(cleanContent);
+        });
 
         if (hasLiteral || hasIdent) {
           const isAllowed = expectedSurfaces.some((surf) => surfaces.includes(surf));
@@ -170,5 +198,178 @@ describe('Chrome IPC Routes Table Audit', () => {
     if (initialChannels.length === 0) {
       assert.strictEqual(countAfterFirst, routes.length, 'First install must register all routes');
     }
+  });
+
+  it('5. preload transport consistency: every ipcRenderer call uses the transport its channel has', () => {
+    const root = fs.existsSync(path.join(process.cwd(), 'src')) ? process.cwd() : path.resolve(__dirname, '..', '..');
+
+    // Every channel Main installs through the router: the host's table plus the
+    // cross-window entries src/main/index unions in at install time. kind defaults
+    // to 'handle' when a route does not say otherwise, mirroring installChromeIpcOnce.
+    const routeKindByChannel = new Map<string, 'handle' | 'on'>();
+    for (const route of [...routes, ...PROJECT_WINDOW_ROUTES]) {
+      routeKindByChannel.set(route.channel, route.kind ?? 'handle');
+    }
+
+    // Receivers that bypass the route table (the vaults register their own ipcMain
+    // handlers). A preload member invoking one of these is wired, not a route-table gap.
+    const directReceivers = new Map<string, 'handle' | 'on'>();
+    const mainSourceFiles: string[] = [];
+    const walkMain = (dir: string): void => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) walkMain(full);
+        else if (entry.name.endsWith('.ts')) mainSourceFiles.push(full);
+      }
+    };
+    walkMain(path.join(root, 'src', 'main'));
+    for (const file of mainSourceFiles) {
+      const text = fs.readFileSync(file, 'utf8');
+      for (const match of text.matchAll(/\bipcMain\s*\.\s*(handle|handleOnce|on|once)\s*\(\s*['"]([^'"]+)['"]/g)) {
+        directReceivers.set(match[2] ?? '', (match[1] ?? '').startsWith('handle') ? 'handle' : 'on');
+      }
+      // The credential vault registers through an injectable `ipc` facade that is
+      // ipcMain in production; its channels use the same one-argument literal form.
+      for (const match of text.matchAll(/\bthis\.ipc\s*\.\s*(handle|on)\s*\(\s*['"]([^'"]+)['"]/g)) {
+        directReceivers.set(match[2] ?? '', match[1] === 'handle' ? 'handle' : 'on');
+      }
+    }
+
+    // The push channels a preload may legitimately listen on: channels Main sends to a
+    // webContents and never installs as a route, named through the contract constants
+    // (or literals) the call sites actually use. A channel in neither this set nor the
+    // route table fails the listener check — subscribing to a request channel, or to a
+    // channel nobody produces, is the mutation this audit exists to catch.
+    const pushChannels = new Set<string>([
+      BRIDGE_CHANNELS.STATUS_CHANGED,
+      PROJECT_WINDOW_CHANNELS.PROJECT_OPEN_PICKER,
+      PROJECT_WINDOW_CHANNELS.CLOSE_REFUSED,
+      FRAME_BACKDROP_CHANNELS.UPDATE_LAYOUT,
+      TERMINAL_CHANNELS.DATA,
+      TERMINAL_CHANNELS.RUN_STATE,
+      TERMINAL_CHANNELS.POPOUT_STATE_CHANGED,
+      TERMINAL_CHANNELS.ACTIVITY,
+      'antifan:terminal:session',
+      'antifan:tabs:updated',
+      'antifan:workflow:event',
+      'antifan:focus-find',
+      'antifan:focus-omnibox',
+      'antifan:show-shortcuts',
+      'antifan:screenshot-captured',
+      TOOLBAR_CHANNELS.STATE_UPDATED,
+      TOOLBAR_CHANNELS.ELEMENT_PICKED,
+      TOOLBAR_CHANNELS.FIND_RESULT,
+      TOOLBAR_CHANNELS.PHONE_STATUS,
+      TOOLBAR_CHANNELS.THEME_QA_STATE,
+    ]);
+
+    // Resolve CONSTANT.member call-site arguments to channel literals from the
+    // declared contract objects.
+    const contractsText = fs.readFileSync(path.join(root, 'src', 'shared', 'contracts.ts'), 'utf8');
+    const identToChannel = new Map<string, string>();
+    for (const match of contractsText.matchAll(/export\s+const\s+([A-Z_]+_CHANNELS)\s*=\s*\{([\s\S]*?)\}\s*(?:as\s+const)?;/g)) {
+      const objName = match[1] ?? '';
+      for (const line of (match[2] ?? '').split('\n')) {
+        const propMatch = line.match(/^\s*([A-Z0-9_]+)\s*:\s*['"]([^'"]+)['"]/);
+        if (propMatch && propMatch[1] && propMatch[2]) {
+          identToChannel.set(`${objName}.${propMatch[1]}`, propMatch[2]);
+        }
+      }
+    }
+
+    const preloadDir = path.join(root, 'src', 'preload');
+    const preloadFiles = fs.readdirSync(preloadDir).filter((name) => name.endsWith('.ts')).sort();
+    assert.ok(preloadFiles.length > 0, 'src/preload must contain preload scripts to audit');
+
+    const failures: string[] = [];
+    for (const fileName of preloadFiles) {
+      const relPath = `src/preload/${fileName}`;
+      const fileContent = fs.readFileSync(path.join(preloadDir, fileName), 'utf8');
+      // Strip comments so commented-out calls are not audited as live call sites.
+      const cleanContent = fileContent.replace(/\/\*[\s\S]*?\*\/|\/\/.*/g, '');
+
+      // A file-local channel object (toolbar-preload's CHANNELS) resolves like the
+      // contract objects; merge it over the shared map for this file only.
+      const fileIdentToChannel = new Map(identToChannel);
+      for (const match of cleanContent.matchAll(/\bconst\s+([A-Z_]+)\s*=\s*\{([\s\S]*?)\}\s*(?:as\s+const)?;/g)) {
+        const objName = match[1] ?? '';
+        for (const line of (match[2] ?? '').split('\n')) {
+          const propMatch = line.match(/^\s*([A-Z0-9_]+)\s*:\s*['"]([^'"]+)['"]/);
+          if (propMatch && propMatch[1] && propMatch[2]) {
+            fileIdentToChannel.set(`${objName}.${propMatch[1]}`, propMatch[2]);
+          }
+        }
+      }
+
+      // Member attribution: the api-object key nearest above the call site names the
+      // exposed member a renderer would call (module scope for bare sends).
+      const memberPositions: Array<{ name: string; at: number }> = [];
+      for (const match of cleanContent.matchAll(/^\s{2,4}([A-Za-z_$][\w$]*)\s*:/gm)) {
+        memberPositions.push({ name: match[1] ?? '', at: match.index ?? 0 });
+      }
+      const memberFor = (index: number): string => {
+        let name = '(module scope)';
+        for (const member of memberPositions) {
+          if (member.at < index) name = member.name;
+          else break;
+        }
+        return name;
+      };
+
+      const callSitePattern = /\bipcRenderer\s*\.\s*(invoke|send|sendSync|on|once|postMessage)\s*\(\s*([^,\n)]+)/g;
+      for (const match of cleanContent.matchAll(callSitePattern)) {
+        const method = match[1] ?? '';
+        const firstArg = (match[2] ?? '').trim();
+        const member = memberFor(match.index ?? 0);
+
+        let channel: string | undefined;
+        const literal = firstArg.match(/^['"`]([^'"`]+)['"`]/);
+        if (literal) {
+          channel = literal[1];
+        } else {
+          const ident = firstArg.match(/^([A-Za-z_$][\w$]*\.[A-Z0-9_]+)/);
+          if (ident && ident[1]) channel = fileIdentToChannel.get(ident[1]);
+        }
+        if (!channel) {
+          failures.push(`${relPath} → ${member}: ${method}(${firstArg.slice(0, 60)}) — channel argument is not a literal and does not resolve to a declared channel constant`);
+          continue;
+        }
+
+        const routedKind = routeKindByChannel.get(channel);
+        const directKind = directReceivers.get(channel);
+        if (method === 'invoke') {
+          if (routedKind !== undefined && routedKind !== 'handle') {
+            failures.push(`${relPath} → ${member} → invoke('${channel}'): expected kind:'handle' route, found kind:'${routedKind}'`);
+          } else if (routedKind === undefined && directKind === undefined) {
+            failures.push(`${relPath} → ${member} → invoke('${channel}'): expected a registered receiver, found none (not in route table, no ipcMain.handle)`);
+          } else if (routedKind === undefined && directKind !== 'handle') {
+            failures.push(`${relPath} → ${member} → invoke('${channel}'): expected an ipcMain.handle receiver, found ipcMain.${directKind ?? '?'}`);
+          }
+        } else if (method === 'send' || method === 'sendSync' || method === 'postMessage') {
+          if (routedKind !== undefined && routedKind !== 'on') {
+            failures.push(`${relPath} → ${member} → ${method}('${channel}'): expected kind:'on' route, found kind:'${routedKind}'`);
+          } else if (routedKind === undefined && directKind === undefined) {
+            failures.push(`${relPath} → ${member} → ${method}('${channel}'): expected a registered receiver, found none (not in route table, no ipcMain.on)`);
+          } else if (routedKind === undefined && directKind !== 'on') {
+            failures.push(`${relPath} → ${member} → ${method}('${channel}'): expected an ipcMain.on receiver, found ipcMain.${directKind ?? '?'}`);
+          }
+        } else {
+          // on / once: legal only on a channel Main pushes on. A registered route is a
+          // request channel — the sender is answered or refused, never broadcast back
+          // on the same channel — so listening on one is a dead subscription.
+          if (routedKind !== undefined) {
+            failures.push(`${relPath} → ${member} → ${method}('${channel}'): expected a declared push channel, found a registered kind:'${routedKind}' route`);
+          } else if (!pushChannels.has(channel)) {
+            failures.push(`${relPath} → ${member} → ${method}('${channel}'): expected a declared push channel or a route, found neither`);
+          }
+        }
+      }
+    }
+
+    assert.deepStrictEqual(
+      failures,
+      [],
+      `Preload IPC call sites disagree with the route table / push contract:\n  ${failures.join('\n  ')}`
+    );
   });
 });

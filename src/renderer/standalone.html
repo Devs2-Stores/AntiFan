@@ -168,6 +168,7 @@
       <div class="project-open-modal" role="dialog" aria-modal="true" aria-labelledby="projectOpenTitle">
         <div class="project-open-header">
           <span id="projectOpenTitle" class="project-open-title">Mở dự án</span>
+          <span id="projectOpenSubtitle" class="project-open-subtitle" style="display:none;"></span>
         </div>
         <input type="text" id="projectOpenInput" class="project-open-input" role="combobox"
                aria-expanded="true" aria-controls="projectOpenResults" aria-autocomplete="list"
@@ -176,6 +177,36 @@
         <div class="project-open-actions">
           <button type="button" id="projectOpenFolder" class="project-open-btn">Chọn thư mục…</button>
           <button type="button" id="projectOpenCancel" class="project-open-btn">Huỷ</button>
+        </div>
+      </div>
+    </div>
+    <!-- CAPSULE PINNED BRIEF — the storefront context every agent run on this project's terminals carries -->
+    <div id="capsuleBriefDialog" class="capsule-brief-overlay" style="display:none;">
+      <div class="capsule-brief-modal" role="dialog" aria-modal="true" aria-labelledby="capsuleBriefTitle">
+        <div class="capsule-brief-header">
+          <span id="capsuleBriefTitle" class="capsule-brief-title">Ghi chú dự án</span>
+        </div>
+        <label class="capsule-brief-field">
+          <span class="capsule-brief-label">Storefront URL</span>
+          <input type="text" id="capsuleBriefUrl" class="capsule-brief-input" placeholder="https://mystore.myharavan.com" autocomplete="off" spellcheck="false" />
+        </label>
+        <label class="capsule-brief-field">
+          <span class="capsule-brief-label">Tên site</span>
+          <input type="text" id="capsuleBriefSite" class="capsule-brief-input" placeholder="Tên site" autocomplete="off" spellcheck="false" />
+        </label>
+        <label class="capsule-brief-field">
+          <span class="capsule-brief-label">Theme ID</span>
+          <input type="text" id="capsuleBriefTheme" class="capsule-brief-input" placeholder="1001512680" autocomplete="off" spellcheck="false" />
+        </label>
+        <label class="capsule-brief-field">
+          <span class="capsule-brief-label">Quy tắc (mỗi dòng một quy tắc)</span>
+          <textarea id="capsuleBriefRules" class="capsule-brief-rules" rows="5" placeholder="Không sửa CSS generated&#10;Luôn kiểm tra responsive" spellcheck="false"></textarea>
+        </label>
+        <div id="capsuleBriefError" class="capsule-brief-error" role="alert"></div>
+        <div class="capsule-brief-actions">
+          <button type="button" id="capsuleBriefSave" class="capsule-brief-btn is-primary">Lưu</button>
+          <button type="button" id="capsuleBriefClear" class="capsule-brief-btn">Xoá ghi chú</button>
+          <button type="button" id="capsuleBriefCancel" class="capsule-brief-btn">Huỷ</button>
         </div>
       </div>
     </div>

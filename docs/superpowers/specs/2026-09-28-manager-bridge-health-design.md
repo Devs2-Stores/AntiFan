@@ -1,9 +1,11 @@
 # Bridge health surface — Manager status, client-failure journal, QA-gate suspension — design
 
-Status: decided with the user on 2026-09-28 as item S3 of the forensic-audit roadmap (S1 edit-mode
-guard, S2 capture/focus, S4 run cards are specced separately). This document is the target contract,
-not a release certificate: `BridgeServer`, `NativeTabHost.CHROME_ROUTES`, the standalone renderer
-bundle and the installed hook are the authority for what is wired. Code is cited by owning symbol
+Status: landed in the tree on 2026-09-28 (item S3 of the forensic-audit roadmap; S1 edit-mode
+guard, S2 capture/focus, S4 run cards are specced separately). `recordBridgeFailure` and
+the derived `AntiFanBridgeStatus.health`, the discovery-record publish cadence, the
+launcher journal in `scripts/antifan-omp-mcp.cjs`, the `antifan:bridge:get-status` route +
+`STATUS_CHANGED` push, and the chip/banner/poll surface in `src/renderer/standalone.js`
+are all on disk. Code is cited by owning symbol
 and file rather than by line, because these files were moving while it was written — search the
 symbol.
 

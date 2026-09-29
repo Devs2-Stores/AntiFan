@@ -196,6 +196,8 @@ interface MobileSurface {
   pills(): FakeNode[];
   pillForTitle(title: string): FakeNode | undefined;
   lastSent(method: string): SentFrame | undefined;
+  /** Answers antifan.terminalGetFullBuffer — the transcript the bridge would serve. */
+  transcripts: Map<string, string>;
   /** Fire DOMContentLoaded, open the socket, and answer the boot session RPC. */
   open(sessions: unknown[], activeSessionId?: string): Promise<void>;
   emitInitialSessions(sessions: unknown[], activeSessionId?: string): Promise<void>;
@@ -248,10 +250,29 @@ function createMobileSurface(): MobileSurface {
   };
   windowStub.window = windowStub;
 
+  // Answers the new transcript RPC the client issues when a broadcast row only
+  // carries a preview: the phone hydrates its pane from antifan.terminalGetFullBuffer
+  // exactly as the desktop renderer hydrates via getFullBuffer.
+  const transcripts = new Map<string, string>();
+
   class SurfaceWebSocket extends FakeWebSocket {
     constructor(url: string, protocols?: string[]) {
       super(url, protocols);
       socketInstances.push(this);
+    }
+
+    public override send(data: string): void {
+      super.send(data);
+      const frame = this.sent[this.sent.length - 1];
+      if (frame && frame.method === 'antifan.terminalGetFullBuffer') {
+        const sessionId = String(frame.params?.sessionId || '');
+        const buffer = transcripts.get(sessionId) || '';
+        queueMicrotask(() => {
+          this.onmessage?.({
+            data: JSON.stringify({ id: frame.id, success: true, data: { sessionId, buffer, snapshotThroughSeq: 0 } }),
+          });
+        });
+      }
     }
   }
 
@@ -291,6 +312,7 @@ function createMobileSurface(): MobileSurface {
   const surface: MobileSurface = {
     html,
     element,
+    transcripts,
     screen: () => element('terminalScreen'),
     strip: () => element('termSessionsStrip'),
     banner: () => element('sleepingBanner'),
@@ -599,4 +621,84 @@ test('waking a session from the phone clears the sleeping affordance', async () 
   assert.equal(surface.bannerText().textContent, '');
   assert.equal(surface.pillForTitle('build')?.className, 'terminal-tab-pill active');
   assert.ok(surface.screen().innerHTML.includes('nothing to commit'));
+});
+
+test('a preview broadcast never truncates a longer transcript the phone already holds', async () => {
+  const surface = createMobileSurface();
+  // The phone streamed this session while connected: its cache is longer than
+  // any preview tail a pruned broadcast can carry.
+  const running = {
+    id: 'term-1',
+    name: 'one',
+    buffer: 'one-live\r\n',
+    bufferLength: 60,
+    sessionGeneration: 1,
+    state: 'running',
+  };
+  await surface.open([running], 'term-1');
+  await surface.emitDataBroadcast({ sessionId: 'term-1', data: 'streamed-second-line\r\n', seq: 10 });
+  assert.ok(surface.screen().innerHTML.includes('streamed-second-line'));
+
+  // A pruned broadcast arrives with only a short preview of the same transcript.
+  await surface.emitSessionBroadcast({
+    activeSessionId: 'term-1',
+    sessions: [{ ...running, buffer: 'line\r\n' }],
+    snapshot: 'line\r\n',
+    snapshotThroughSeq: 10,
+  });
+
+  // The longer streamed transcript must survive: the preview is seed data, not authority.
+  assert.ok(
+    surface.screen().innerHTML.includes('one-live') && surface.screen().innerHTML.includes('streamed-second-line'),
+    `streamed content must not be truncated by a preview broadcast, got: ${JSON.stringify(surface.screen().innerHTML)}`,
+  );
+});
+
+test('a sleeping session hydrated only by preview fetches its full transcript via RPC', async () => {
+  const surface = createMobileSurface();
+  const fullTranscript = 'PS E:\\Work> build\r\n' + 'retained-line\r\n'.repeat(50) + 'retained-tail\r\n';
+  // The session summary only carries a preview tail now — the phone learns
+  // the rest through antifan.terminalGetFullBuffer.
+  const previewOnly = {
+    id: 'term-sleep',
+    name: 'build',
+    buffer: 'retained-tail\r\n',
+    bufferLength: 0,
+    sessionGeneration: 4,
+    state: 'sleeping',
+    sleptAt: 1757900000000,
+  };
+  surface.transcripts.set('term-sleep', fullTranscript);
+
+  await surface.open([previewOnly], 'term-sleep');
+  const fetch = surface.lastSent('antifan.terminalGetFullBuffer');
+  assert.ok(fetch, 'the client must fetch the full transcript for a preview-only sleeping session');
+  assert.equal(fetch.params?.sessionId, 'term-sleep');
+
+  const rendered = surface.screen().innerHTML;
+  assert.ok(rendered.includes('retained-line'), `the fetched transcript must render, got: ${JSON.stringify(rendered)}`);
+  assert.ok(rendered.includes('retained-tail'));
+  assert.ok(surface.banner().classList.contains('visible'));
+});
+
+test('a scrollback clear inside a data frame resets the phone transcript cache', async () => {
+  const surface = createMobileSurface();
+  const running = {
+    id: 'term-1',
+    name: 'one',
+    buffer: 'old-output\r\n',
+    bufferLength: 11,
+    sessionGeneration: 1,
+    state: 'running',
+  };
+  await surface.open([running], 'term-1');
+  assert.ok(surface.screen().innerHTML.includes('old-output'));
+
+  // The manager prepends the scrollback-clear sequence to the next chunk; the
+  // phone must drop the cleared history just like the desktop pane's term.reset().
+  await surface.emitDataBroadcast({ sessionId: 'term-1', data: '\x1b[3JPS E:\\Work> cls-done\r\n', seq: 12 });
+
+  const rendered = surface.screen().innerHTML;
+  assert.ok(!rendered.includes('old-output'), `cleared scrollback must not linger, got: ${JSON.stringify(rendered)}`);
+  assert.ok(rendered.includes('cls-done'));
 });

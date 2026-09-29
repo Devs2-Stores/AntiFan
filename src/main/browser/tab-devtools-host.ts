@@ -16,7 +16,7 @@ import { dispatchAnnotationToTerminal, stripDeliveryMode } from './annotation-di
 import { recordLifecycleEvent } from '../diagnostics/main-lifecycle-log';
 import { AnnotationManager } from '../bridge/annotation-manager';
 import { TerminalManager, selectAnnotationTargets } from './terminal-manager';
-import type { NativeTabRecord } from './native-tab-host';
+import type { CaptureLiftLease, NativeTabRecord, SwitchTabOptions } from './native-tab-host';
 import type { SemanticElementDescriptor } from './semantic-ref-types';
 import {
   CAPTURE_MAX_DIMENSION,
@@ -130,7 +130,7 @@ export interface TabDevToolsContext {
   withTabAgentWorking: <T>(tabId: string, action: () => Promise<T>) => Promise<T>;
   runWithAttachedTabView?: <T>(view: Electron.WebContentsView | null | undefined, action: () => Promise<T>, isMobile?: boolean) => Promise<T>;
   getTabContentBounds?: (tabId: string, paneId?: SplitPaneId) => { width: number; height: number } | undefined;
-  switchTab?: (tabId: string) => boolean;
+  switchTab?: (tabId: string, opts?: SwitchTabOptions) => boolean;
   getSemanticDocumentGeneration?: (tabId: string, paneId?: SplitPaneId) => number;
   getLegacyDocumentGeneration?: (tabId: string) => number;
   getMutationRevision?: (tabId: string) => number;
@@ -157,14 +157,17 @@ export interface TabDevToolsContext {
    */
   reassertPresentedView?: () => void;
   /**
-   * Lift a helper-attached background view above the user's tab for one raster.
-   * Occluded WebContentsViews on Windows produce no compositor frame.
-   * Does not change the active tab. Pair with reassertPresentedView after the CDP call.
-   * `inWindow: true` presents the view in the real window even when the capture
-   * host could take it — the frame gate's repair ladder uses that after a host
-   * raise left the pane frame-starved.
+   * Borrow the window's one capture lift for a helper-attached background view:
+   * the pane is parked on the off-screen capture host (or inside the window when
+   * `inWindow` is set or the host cannot take it) so Windows keeps compositing
+   * frames for the raster. The returned lease must be released in the caller's
+   * finally; its watchdog lowers a raster that abandoned its dispatch, and a
+   * queued acquire is refused `CAPTURE_LIFT_BUSY` rather than queuing a second
+   * visible lift. Does not change the active tab.
    */
-  raiseViewForCapture?: (view: Electron.WebContentsView, opts?: { inWindow?: boolean }) => void;
+  acquireCaptureLift?: (view: Electron.WebContentsView, opts?: { inWindow?: boolean; budgetMs?: number }) => Promise<CaptureLiftLease>;
+  /** The live lift for diagnostics, or null when no capture is borrowing a pane. */
+  captureLiftState?: () => { view: unknown; origin: string; liftedAtMs: number } | null;
   /**
    * Overrides `EVAL_JS_DEFAULT_TIMEOUT_MS` for the bounded eval sites so a test can
    * prove the refusal without waiting the production budget; production leaves it unset.
@@ -262,6 +265,9 @@ function findChildFrameByUrl(wc: Electron.WebContents, frameUrl: string, tabId: 
 }
 
 export class TabDevToolsHost {
+  public static lastAnnotationMode: string = 'direct';
+  public static lastAnnotationActionChip: string | null = null;
+  public static lastAnnotationSessionId: string | null = null;
   private readonly ctx: TabDevToolsContext;
   private isFontFinderActive: boolean = false;
   private isLensActive: boolean = false;
@@ -392,17 +398,20 @@ export class TabDevToolsHost {
   public async startLens(): Promise<void> {
     const active = this.ctx.getTabRecord(this.ctx.getActiveTabId());
     if (!active) return;
+    // The active tab is never hibernated (sweep excludes it), but `view` is
+    // optional on the record — guard rather than assume.
+    const lensWc = active.view?.webContents;
+    if (!lensWc || lensWc.isDestroyed()) return;
     this.isLensActive = true;
     try {
-      const wc = active.view.webContents;
       await withEvalCeiling({
-        wc,
+        wc: lensWc,
         label: 'lens capture',
         softBudgetMs: this.ctx.evalSoftBudgetMs ?? LENS_CAPTURE_SOFT_BUDGET_MS,
         work: async () => {
-          const img = await active.view.webContents.capturePage();
+          const img = await lensWc.capturePage();
           const dataUrl = img.toDataURL();
-          await active.view.webContents.executeJavaScript(`(() => {
+          await lensWc.executeJavaScript(`(() => {
             window.__antifanLensScreenshot = ${JSON.stringify(dataUrl)};
             if (window.__antifanLensUpdateSnapshot) {
               window.__antifanLensUpdateSnapshot(${JSON.stringify(dataUrl)});
@@ -414,15 +423,16 @@ export class TabDevToolsHost {
     } catch (err) {
       console.error('[tab-devtools-host] Failed to capture page for lens:', err);
     }
-    active.view.webContents.executeJavaScript(GPU_LENS_SCRIPT).catch(() => {});
+    lensWc.executeJavaScript(GPU_LENS_SCRIPT).catch(() => {});
     this.ctx.broadcastState();
   }
 
   public stopLens(): void {
     this.isLensActive = false;
     const active = this.ctx.getTabRecord(this.ctx.getActiveTabId());
-    if (active) {
-      active.view.webContents.executeJavaScript(`(() => {
+    const stopWc = active?.view?.webContents;
+    if (stopWc && !stopWc.isDestroyed()) {
+      stopWc.executeJavaScript(`(() => {
         if (window.__antifanLensCleanup) window.__antifanLensCleanup();
         const lens = document.getElementById('antifan-gpu-lens');
         if (lens) lens.remove();
@@ -444,16 +454,19 @@ export class TabDevToolsHost {
 
   public startRuler(): void {
     const active = this.ctx.getTabRecord(this.ctx.getActiveTabId());
-    if (!active) return;
+    const rulerWc = active?.view?.webContents;
+    if (!rulerWc || rulerWc.isDestroyed()) return;
     this.isRulerActive = true;
-    active.view.webContents.executeJavaScript(RULER_SCRIPT).catch(() => {});
+    rulerWc.executeJavaScript(RULER_SCRIPT).catch(() => {});
     this.ctx.broadcastState();
   }
 
   public stopRuler(): void {
     this.isRulerActive = false;
     for (const [, tab] of this.ctx.getAllTabs()) {
-      tab.view.webContents.executeJavaScript(`(() => {
+      const rulerCleanupWc = tab.view?.webContents;
+      if (!rulerCleanupWc || rulerCleanupWc.isDestroyed()) continue;
+      rulerCleanupWc.executeJavaScript(`(() => {
         if (window.__antifanRulerCleanup) window.__antifanRulerCleanup();
         const grid = document.getElementById('__antifan_ruler_grid');
         if (grid) grid.remove();
@@ -494,9 +507,13 @@ export class TabDevToolsHost {
       tabId: activeTabId,
       sessions: selectAnnotationTargets(tm.listSessions()),
       selectedSessionId: activeSessionId,
+      annotationMode: TabDevToolsHost.lastAnnotationMode,
+      annotationActionChip: TabDevToolsHost.lastAnnotationActionChip,
     };
     if (tabSessionId !== undefined) {
       termContextData.annotationSessionId = tabSessionId;
+    } else if (TabDevToolsHost.lastAnnotationSessionId) {
+      termContextData.annotationSessionId = TabDevToolsHost.lastAnnotationSessionId;
     }
     const termContextScript = `(() => {
       window.__antifanTerminalContext = Object.assign(window.__antifanTerminalContext || {}, ${JSON.stringify(termContextData)});
@@ -694,6 +711,15 @@ export class TabDevToolsHost {
         return p.replace(/\\/g, '/');
       };
 
+      if (typeof rawResult.mode === 'string' && ['direct', 'fast', 'core'].includes(rawResult.mode)) {
+        TabDevToolsHost.lastAnnotationMode = rawResult.mode;
+      }
+      if (typeof rawResult.actionChip === 'string' || rawResult.actionChip === null) {
+        TabDevToolsHost.lastAnnotationActionChip = rawResult.actionChip ?? null;
+      }
+      if (typeof rawResult.targetSessionId === 'string' && rawResult.targetSessionId) {
+        TabDevToolsHost.lastAnnotationSessionId = rawResult.targetSessionId;
+      }
       const rawComment = rawResult.userComment?.trim() || 'Inspect the attached browser annotation, report observed evidence, and ask for the intended outcome before editing.';
       const promptText = rawComment.replace(/^(\s*\/queue\b\s*)+/gi, '/queue ');
       let fullPrompt = promptText;
@@ -753,14 +779,16 @@ export class TabDevToolsHost {
   // ─── Find in Page ───
   public findInPage(text: string, forward = true, findNext = false): void {
     const active = this.ctx.getTabRecord(this.ctx.getActiveTabId());
-    if (!active || !text) return;
-    active.view.webContents.findInPage(text, { forward, findNext });
+    const findWc = active?.view?.webContents;
+    if (!findWc || findWc.isDestroyed() || !text) return;
+    findWc.findInPage(text, { forward, findNext });
   }
 
   public stopFindInPage(): void {
     const active = this.ctx.getTabRecord(this.ctx.getActiveTabId());
-    if (active) {
-      active.view.webContents.stopFindInPage('clearSelection');
+    const stopWc = active?.view?.webContents;
+    if (stopWc && !stopWc.isDestroyed()) {
+      stopWc.stopFindInPage('clearSelection');
     }
   }
 
@@ -1759,11 +1787,14 @@ export class TabDevToolsHost {
           }
 
           // A helper-attached background view is still occluded by the user's tab.
-          // Move it to the capture host for exactly this raster so fromSurface sees
-          // a compositor frame without changing the visible active tab.
-          const shouldRaiseForRaster = !isForeground && !isOffscreenTarget && Boolean(targetPaneView);
-          if (shouldRaiseForRaster) {
-            this.ctx.raiseViewForCapture?.(targetPaneView);
+          // Borrow the window's capture lift for exactly this raster so fromSurface
+          // sees a compositor frame without changing the visible active tab; the
+          // lease is released on every path and its watchdog covers a raster that
+          // abandons its dispatch.
+          const shouldRaiseForRaster = !isForeground && !isOffscreenTarget;
+          let liftLease: CaptureLiftLease | null = null;
+          if (shouldRaiseForRaster && targetPaneView && this.ctx.acquireCaptureLift) {
+            liftLease = await this.ctx.acquireCaptureLift(targetPaneView, { budgetMs: 4_000 });
             try {
               await this.evalJs(
                 'new Promise(r => { const t = setTimeout(r, 60); if (typeof requestAnimationFrame === "function") { requestAnimationFrame(() => requestAnimationFrame(() => { clearTimeout(t); r(); })); } })',
@@ -1793,12 +1824,13 @@ export class TabDevToolsHost {
               return cdpRes.data;
             }
           } catch (err) {
-            if (!shouldRaiseForRaster) {
+            if (!liftLease) {
               try { this.ctx.reassertPresentedView?.(); } catch {}
             }
             throw this.toCaptureError(err, `Page.captureScreenshot (viewport) on tab '${targetId}'`);
           } finally {
-            if (shouldRaiseForRaster) {
+            liftLease?.release('raster-finished');
+            if (liftLease) {
               try { this.ctx.reassertPresentedView?.(); } catch {}
             }
           }
@@ -1934,10 +1966,10 @@ export class TabDevToolsHost {
    * A starved windowed target gets one bounded repair ladder — invalidate the
    * compositor state, then re-present the view — each verified by a re-probe
    * before the capture proceeds. A pane that was raised onto the capture host
-   * skips the re-present step: reassertPresentedView lowers a raised pane back
-   * under the presented tab (its first act is lowerRaisedCaptureView), so for
-   * a raised pane that step is a dismantle, not a repair — the raise itself
-   * already invalidated a fresh surface. A raised pane that stays starved
+   * skips the re-present step: reassertPresentedView buries a lifted pane back
+   * under the presented tab (its first act is buryCaptureLift), so for
+   * a lifted pane that step is a dismantle, not a repair — the lift itself
+   * already invalidated a fresh surface. A lifted pane that stays starved
    * after the invalidate is instead re-raised into the real window: the
    * off-screen capture host is not a surface the Windows compositor drives
    * either (measured live — the main window maximized and visible, the raised
@@ -1952,9 +1984,10 @@ export class TabDevToolsHost {
     effectivePane: SplitPaneId | undefined,
     mode: CaptureMode,
     isOffscreenTarget: boolean,
-    raisedForCapture: boolean,
-    targetPaneView?: Electron.WebContentsView | null
+    liftLease: CaptureLiftLease | null,
+    rasterBoundMs?: number,
   ): Promise<void> {
+    const liftTelemetry = { liftedMs: liftLease ? Date.now() - liftLease.liftedAtMs : undefined, lowered: liftLease?.released ?? false };
     if (isOffscreenTarget) {
       recordLifecycleEvent('capture.frameGate', {
         tabId: targetId,
@@ -1962,6 +1995,7 @@ export class TabDevToolsHost {
         mode,
         engine: 'offscreen',
         probe: await this.probeFrameLiveness(targetId, effectivePane),
+        ...liftTelemetry,
       });
       return;
     }
@@ -1977,30 +2011,31 @@ export class TabDevToolsHost {
       }
     } catch {}
     if ((await this.probeFrameLiveness(targetId, effectivePane)) === true) {
-      recordLifecycleEvent('capture.frameGate', { tabId: targetId, paneId: effectivePane, mode, probe: initial, recovered: 'invalidate', window: windowState });
+      recordLifecycleEvent('capture.frameGate', { tabId: targetId, paneId: effectivePane, mode, probe: initial, recovered: 'invalidate', window: windowState, ...liftTelemetry });
       return;
     }
-    if (!raisedForCapture) {
+    if (!liftLease) {
       try { this.ctx.reassertPresentedView?.(); steps.push('reassert'); } catch {}
       if ((await this.probeFrameLiveness(targetId, effectivePane)) === true) {
-        recordLifecycleEvent('capture.frameGate', { tabId: targetId, paneId: effectivePane, mode, probe: initial, recovered: 'reassert', window: windowState });
+        recordLifecycleEvent('capture.frameGate', { tabId: targetId, paneId: effectivePane, mode, probe: initial, recovered: 'reassert', window: windowState, ...liftTelemetry });
         return;
       }
-    } else if (targetPaneView) {
+    } else {
       // The capture host parks the pane on a fully off-screen window, and that
       // is not a surface the Windows compositor drives either (measured live:
       // the raised pane starves while the main window is maximized and
-      // visible). Present the pane in the real window for this one raster —
-      // the same in-window lift the host-unavailable fallback uses; reassert
-      // lowers it after the dispatch.
-      try { this.ctx.raiseViewForCapture?.(targetPaneView, { inWindow: true }); steps.push('in-window-lift'); } catch {}
+      // visible). Upgrade the held lease to an in-window lift for this one
+      // raster — the user's pane returns when the lease ends or buries. The
+      // re-armed bound is the raster budget that remains, never wider than the
+      // in-window hard cap.
+      try { if (liftLease.upgradeToInWindow({ budgetMs: rasterBoundMs })) steps.push('in-window-lift'); } catch {}
       if ((await this.probeFrameLiveness(targetId, effectivePane)) === true) {
-        recordLifecycleEvent('capture.frameGate', { tabId: targetId, paneId: effectivePane, mode, probe: initial, recovered: 'in-window-lift', window: windowState });
+        recordLifecycleEvent('capture.frameGate', { tabId: targetId, paneId: effectivePane, mode, probe: initial, recovered: 'in-window-lift', window: windowState, ...liftTelemetry });
         return;
       }
     }
 
-    recordLifecycleEvent('capture.frameGate', { tabId: targetId, paneId: effectivePane, mode, probe: initial, steps, window: windowState });
+    recordLifecycleEvent('capture.frameGate', { tabId: targetId, paneId: effectivePane, mode, probe: initial, steps, window: windowState, ...liftTelemetry });
     const window = windowState
       ? `window is ${windowState.minimized ? 'minimized' : windowState.maximized ? 'maximized' : 'restored'} and ${windowState.visible ? 'visible' : 'not visible'}`
       : 'window presentation unknown';
@@ -2223,7 +2258,7 @@ export class TabDevToolsHost {
                 `Tab '${targetId}' pane '${effectivePane}' cannot rasterize a ${mode} capture: the window is hidden or minimized, so the compositor produces no beyond-viewport surface (${surface.vw}x${surface.vh} CSS px, readyState '${surface.readyState}', cause window-not-presented). Show the window or use a viewport capture.`
               );
             }
-            // Occluded background panes report document.hidden until raiseViewForCapture.
+            // Occluded background panes report document.hidden until the capture lift.
             // That flag is only a compositor-gone signal on the already-presented tab.
             if (isForeground && surface.hidden === true) {
               throw new CaptureError(
@@ -2401,9 +2436,10 @@ export class TabDevToolsHost {
             );
           }
 
-          const shouldRaiseForRaster = !isForeground && !isOffscreenTarget && Boolean(targetPaneView);
-          if (shouldRaiseForRaster) {
-            this.ctx.raiseViewForCapture?.(targetPaneView);
+          const shouldRaiseForRaster = !isForeground && !isOffscreenTarget;
+          let liftLease: CaptureLiftLease | null = null;
+          if (shouldRaiseForRaster && targetPaneView && this.ctx.acquireCaptureLift) {
+            liftLease = await this.ctx.acquireCaptureLift(targetPaneView, { budgetMs: cdpBoundMs });
             try {
               await this.evalJs(
                 'new Promise(r => { const t = setTimeout(r, 60); if (typeof requestAnimationFrame === "function") { requestAnimationFrame(() => requestAnimationFrame(() => { clearTimeout(t); r(); })); } })',
@@ -2421,7 +2457,7 @@ export class TabDevToolsHost {
           // every later command waits out the drain window (both measured).
           const rasterStartedAt = Date.now();
           try {
-            await this.ensureFramesForRaster(wc, targetId, effectivePane, mode, isOffscreenTarget, shouldRaiseForRaster, targetPaneView);
+            await this.ensureFramesForRaster(wc, targetId, effectivePane, mode, isOffscreenTarget, liftLease, cdpBoundMs);
             captureRes = await this.sendCdpCommand<{ data?: string }>(
               wc,
               'Page.captureScreenshot',
@@ -2442,7 +2478,7 @@ export class TabDevToolsHost {
             // view is still attached: the compositor stopped committing frames.
             // Re-assert restores z-order and invalidates so the user sees the page
             // again instead of a white content box (measured: dienmaycholan.com).
-            if (!shouldRaiseForRaster) {
+            if (!liftLease) {
               this.ctx.reassertPresentedView?.();
             }
             // Instrumentation and best-effort revive: the raster burned its whole
@@ -2468,8 +2504,9 @@ export class TabDevToolsHost {
             } catch {}
             throw this.toCaptureError(err, `Page.captureScreenshot (${mode}) on tab '${targetId}'`);
           } finally {
-            if (shouldRaiseForRaster) {
-              this.ctx.reassertPresentedView?.();
+            liftLease?.release('raster-finished');
+            if (liftLease) {
+              try { this.ctx.reassertPresentedView?.(); } catch {}
             }
           }
           recordLifecycleEvent('capture.raster', {
@@ -3840,9 +3877,10 @@ ${expression}
 
     if (!rawHtml) {
       for (const [, t] of this.ctx.getAllTabs()) {
-        if (t.state.url === targetUrl && !t.view.webContents.isDestroyed()) {
+        const tWc = t.view?.webContents;
+        if (t.state.url === targetUrl && tWc && !tWc.isDestroyed()) {
           try {
-            rawHtml = await t.view.webContents.executeJavaScript(
+            rawHtml = await tWc.executeJavaScript(
               'document.documentElement.outerHTML || document.body.outerHTML',
               true
             );
@@ -3898,9 +3936,10 @@ ${expression}
 
     const sourceUrl = targetTab.state.url || 'https://www.google.com';
     let initialHtml = '';
-    if (!targetTab.view.webContents.isDestroyed()) {
+    const srcWc = targetTab.view?.webContents;
+    if (srcWc && !srcWc.isDestroyed()) {
       try {
-        initialHtml = await targetTab.view.webContents.executeJavaScript(
+        initialHtml = await srcWc.executeJavaScript(
           'document.documentElement.outerHTML || document.body.outerHTML',
           true
         );
@@ -3910,12 +3949,13 @@ ${expression}
     const newTabId = this.ctx.createTab('about:blank');
     if (newTabId) {
       const newTab = this.ctx.getTabRecord(newTabId);
-      if (newTab && !newTab.view.webContents.isDestroyed()) {
+      const newWc = newTab?.view?.webContents;
+      if (newTab && newWc && !newWc.isDestroyed()) {
         newTab.state.url = `view-source:${sourceUrl}`;
         newTab.state.title = `view-source:${sourceUrl}`;
         newTab.state.isLoading = true;
         this.ctx.broadcastState();
-        await this.fetchAndLoadPageSource(newTab.view.webContents, sourceUrl, newTab.state, initialHtml);
+        await this.fetchAndLoadPageSource(newWc, sourceUrl, newTab.state, initialHtml);
       }
     }
     return newTabId;

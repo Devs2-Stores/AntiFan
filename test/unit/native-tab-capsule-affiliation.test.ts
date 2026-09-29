@@ -9,7 +9,41 @@
  */
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
-import { resolveNewTabCapsuleId } from '../../src/main/browser/native-tab-host';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { NativeTabHost, resolveNewTabCapsuleId } from '../../src/main/browser/native-tab-host';
+
+describe('window workspace root on the terminal routing path', () => {
+  it('is verified once by the setter and read without disk I/O afterwards', () => {
+    const first = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-root-'));
+    const second = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-root-'));
+    try {
+      // Built without the constructor (no Electron shell); the affiliation field starts
+      // undefined, which the setter overwrites.
+      const host = Object.create(NativeTabHost.prototype) as NativeTabHost;
+      assert.strictEqual(host.setWindowWorkspaceAffiliation({ workspacePath: first }), true);
+      assert.strictEqual(host.resolveWindowWorkspaceRoot(), path.normalize(first));
+
+      // Once verified, routing never re-stats: the answer survives the folder vanishing.
+      fs.rmSync(first, { recursive: true, force: true });
+      assert.strictEqual(host.resolveWindowWorkspaceRoot(), path.normalize(first));
+
+      // A missing folder is refused at the setter and the previous association kept.
+      assert.strictEqual(host.setWindowWorkspaceAffiliation({ workspacePath: first }), false);
+      assert.strictEqual(host.resolveWindowWorkspaceRoot(), path.normalize(first));
+
+      // Reassignment and clearing take effect immediately.
+      assert.strictEqual(host.setWindowWorkspaceAffiliation({ workspacePath: second }), true);
+      assert.strictEqual(host.resolveWindowWorkspaceRoot(), path.normalize(second));
+      assert.strictEqual(host.setWindowWorkspaceAffiliation(null), true);
+      assert.strictEqual(host.resolveWindowWorkspaceRoot(), '');
+    } finally {
+      fs.rmSync(first, { recursive: true, force: true });
+      fs.rmSync(second, { recursive: true, force: true });
+    }
+  });
+});
 
 describe('new-tab capsule resolution', () => {
   it('prefers a measured capsule over both the window and the process-wide selection', () => {

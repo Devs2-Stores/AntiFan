@@ -28,15 +28,18 @@ const os = require('node:os');
 const ROOT = path.resolve(__dirname, '..');
 const COMPILED = path.join(ROOT, '.compiled', 'src', 'main', 'terminal-daemon');
 const probeDir = process.env.PROBE_DIR || path.join(os.tmpdir(), 'antifan-rpc-coverage');
-
-process.env.ANTIFAN_DATA_ROOT = probeDir;
-process.env.ANTIFAN_CONFIG_DIR = probeDir;
+const staticOnly = process.argv.includes('--static-only');
 
 const { execFileSync } = require('node:child_process');
-const { ensureDaemon } = require(path.join(COMPILED, 'daemon-spawner.js'));
-const { DaemonClient, DaemonTerminalProxy } = require(path.join(COMPILED, 'daemon-client.js'));
-const { HOST_METHOD } = require(path.join(COMPILED, 'protocol.js'));
 
+let ensureDaemon, DaemonClient, DaemonTerminalProxy, HOST_METHOD;
+if (!staticOnly) {
+  process.env.ANTIFAN_DATA_ROOT = probeDir;
+  process.env.ANTIFAN_CONFIG_DIR = probeDir;
+  ({ ensureDaemon } = require(path.join(COMPILED, 'daemon-spawner.js')));
+  ({ DaemonClient, DaemonTerminalProxy } = require(path.join(COMPILED, 'daemon-client.js')));
+  ({ HOST_METHOD } = require(path.join(COMPILED, 'protocol.js')));
+}
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
@@ -132,6 +135,32 @@ function collectGuiCalls() {
   return calls;
 }
 
+function getProxyMethods() {
+  const compiledClient = path.join(COMPILED, 'daemon-client.js');
+  if (fs.existsSync(compiledClient)) {
+    try {
+      const mod = require(compiledClient);
+      if (mod.DaemonTerminalProxy && mod.DaemonTerminalProxy.prototype) {
+        return new Set(
+          Object.getOwnPropertyNames(mod.DaemonTerminalProxy.prototype).filter((n) => n !== 'constructor'),
+        );
+      }
+    } catch {}
+  }
+  const srcPath = path.join(ROOT, 'src', 'main', 'terminal-daemon', 'daemon-client.ts');
+  const text = fs.readFileSync(srcPath, 'utf8');
+  const classStart = text.indexOf('export class DaemonTerminalProxy');
+  const classBody = classStart !== -1 ? text.slice(classStart) : text;
+  const methods = new Set();
+  for (const m of classBody.matchAll(/^\s{2}(?:public\s+|override\s+)?(?:async\s+)?([A-Za-z_$][\w$]*)\s*\(/gm)) {
+    const name = m[1];
+    if (name !== 'constructor') {
+      methods.add(name);
+    }
+  }
+  return methods;
+}
+
 function alive(pid) {
   try { process.kill(pid, 0); return true; } catch { return false; }
 }
@@ -149,9 +178,7 @@ async function main() {
   const answeredFalse = [];
 
   // ---- Pass 1: static coverage ---------------------------------------------------------------
-  const proxyMethods = new Set(
-    Object.getOwnPropertyNames(DaemonTerminalProxy.prototype).filter(n => n !== 'constructor'),
-  );
+  const proxyMethods = getProxyMethods();
   const guiCalls = collectGuiCalls();
 
   lines.push(`GUI call sites reference ${guiCalls.size} distinct manager methods.`);
@@ -171,6 +198,15 @@ async function main() {
 
   // The reverse direction: proxy methods the daemon never dispatches answer UNKNOWN_METHOD.
   // Pass 2 proves dispatch by calling each one, so no separate source scan is needed here.
+  if (staticOnly) {
+    console.log(lines.join('\n'));
+    if (failures.length) {
+      console.log('\nFAILURES:');
+      for (const f of failures) console.log(`  - ${f}`);
+    }
+    console.log(`\nPROBE_RESULT ${JSON.stringify({ ok: failures.length === 0, mode: 'static-only', guiMethods: guiCalls.size, failures })}`);
+    return failures.length === 0 ? 0 : 1;
+  }
 
   // ---- Pass 2: live dispatch ------------------------------------------------------------------
   const exercised = [];

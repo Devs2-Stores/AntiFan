@@ -140,6 +140,12 @@ export interface TabAutomationContext {
   resolveTargetWorkspace?: (targetSessionId?: string, tabUrl?: string) => string;
   getTabTerminalSession?: (tabId: string) => string | undefined;
   sendKeyboardPress?: (params: { key: string; modifiers?: string[]; tabId?: string }) => Promise<{ success: boolean; key: string; modifiers: string[] }>;
+  /**
+   * Attribution wrapper around a trusted input dispatch: the counter stays
+   * incremented across the awaited work so a CDP `Input.*` event can never
+   * stamp the user-presence clock and defer a later activation.
+   */
+  withAgentInput?: <T>(action: () => Promise<T>) => Promise<T>;
   navigateAndWait?: (tabId: string, inputUrl: string, timeoutMs?: number) => Promise<boolean>;
 }
 
@@ -674,103 +680,108 @@ export class TabAutomationHost {
         return { success: false, fallbackNeeded: true, reason: `Debugger busy: ${detail}` };
       }
     }
-    let focusEmulationEnabled = false;
-    try {
-      if (typeof wc.focus === 'function') {
-        wc.focus();
-      }
-      await this.sendCdpInputCommand(wc, 'Emulation.setFocusEmulationEnabled', { enabled: true });
-      focusEmulationEnabled = true;
-    } catch {}
+    const dispatch = async (): Promise<{ success: boolean; data?: unknown; reason?: string; fallbackNeeded?: boolean; executionTier?: 'cdp_trusted' | 'isolated_synthetic' }> => {
+      let focusEmulationEnabled = false;
+      try {
+        // Focus emulation only — never wc.focus(): a real DOM focus move would
+        // steal the window's focus surface from whatever chrome the user is on.
+        await this.sendCdpInputCommand(wc, 'Emulation.setFocusEmulationEnabled', { enabled: true });
+        focusEmulationEnabled = true;
+      } catch {}
 
-    let dispatchStage: 'none' | 'moved' | 'pressed' | 'released' = 'none';
-    try {
-      wc.executeJavaScript(`(() => {
-        try {
-          if (typeof window.__antifanAgentClick === 'function') {
-            window.__antifanAgentClick('', ${clickX}, ${clickY}, 'Clicking...', false);
-          } else if (typeof window.__antifanAgentMove === 'function') {
-            window.__antifanAgentMove(${clickX}, ${clickY}, 'Clicking...');
+      let dispatchStage: 'none' | 'moved' | 'pressed' | 'released' = 'none';
+      try {
+        wc.executeJavaScript(`(() => {
+          try {
+            if (typeof window.__antifanAgentClick === 'function') {
+              window.__antifanAgentClick('', ${clickX}, ${clickY}, 'Clicking...', false);
+            } else if (typeof window.__antifanAgentMove === 'function') {
+              window.__antifanAgentMove(${clickX}, ${clickY}, 'Clicking...');
+            }
+          } catch {}
+        })()`).catch(() => {});
+
+        // Touch-capable viewports are handled by the page's touch emulation: the trusted path
+        // dispatches exactly one mouseMoved -> mousePressed -> mouseReleased and reports
+        // `inputType: 'touch'`. A second press/release pair here would double-fire the click and,
+        // on a rejected mouseReleased, cross tiers after the press had already landed.
+        await this.sendCdpInputCommand(wc, 'Input.dispatchMouseEvent', {
+          type: 'mouseMoved',
+          x: clickX,
+          y: clickY,
+        });
+        dispatchStage = 'moved';
+
+        await this.sendCdpInputCommand(wc, 'Input.dispatchMouseEvent', {
+          type: 'mousePressed',
+          x: clickX,
+          y: clickY,
+          button: 'left',
+          buttons: 1,
+          clickCount: 1,
+        });
+        dispatchStage = 'pressed';
+
+        await this.sendCdpInputCommand(wc, 'Input.dispatchMouseEvent', {
+          type: 'mouseReleased',
+          x: clickX,
+          y: clickY,
+          button: 'left',
+          buttons: 0,
+          clickCount: 1,
+        });
+        dispatchStage = 'released';
+
+        return {
+          success: true,
+          executionTier: 'cdp_trusted',
+          data: { ok: true, executed: true, tier: 'cdp_trusted', executionTier: 'cdp_trusted', inputType: touchCapable ? 'touch' : undefined, x: clickX, y: clickY, rect },
+        };
+      } catch (cdpErr) {
+        const errMsg = cdpErr instanceof Error ? cdpErr.message : String(cdpErr);
+        console.warn(`[tab-automation-host] Trusted click CDP failure at stage '${dispatchStage}': ${errMsg}`);
+        if (dispatchStage === 'pressed') {
+          try {
+            await Promise.race([
+              this.sendCdpInputCommand(wc, 'Input.dispatchMouseEvent', {
+                type: 'mouseReleased',
+                x: clickX,
+                y: clickY,
+                button: 'left',
+                buttons: 0,
+                clickCount: 1,
+              }),
+              new Promise((_, reject) => setTimeout(() => reject(new Error('Cleanup mouse release timed out')), 1000)),
+            ]);
+          } catch {
+            // Bounded cleanup error ignored
           }
-        } catch {}
-      })()`).catch(() => {});
-
-      // Touch-capable viewports are handled by the page's touch emulation: the trusted path
-      // dispatches exactly one mouseMoved -> mousePressed -> mouseReleased and reports
-      // `inputType: 'touch'`. A second press/release pair here would double-fire the click and,
-      // on a rejected mouseReleased, cross tiers after the press had already landed.
-      await this.sendCdpInputCommand(wc, 'Input.dispatchMouseEvent', {
-        type: 'mouseMoved',
-        x: clickX,
-        y: clickY,
-      });
-      dispatchStage = 'moved';
-
-      await this.sendCdpInputCommand(wc, 'Input.dispatchMouseEvent', {
-        type: 'mousePressed',
-        x: clickX,
-        y: clickY,
-        button: 'left',
-        buttons: 1,
-        clickCount: 1,
-      });
-      dispatchStage = 'pressed';
-
-      await this.sendCdpInputCommand(wc, 'Input.dispatchMouseEvent', {
-        type: 'mouseReleased',
-        x: clickX,
-        y: clickY,
-        button: 'left',
-        buttons: 0,
-        clickCount: 1,
-      });
-      dispatchStage = 'released';
-
-      return {
-        success: true,
-        executionTier: 'cdp_trusted',
-        data: { ok: true, executed: true, tier: 'cdp_trusted', executionTier: 'cdp_trusted', inputType: touchCapable ? 'touch' : undefined, x: clickX, y: clickY, rect },
-      };
-    } catch (cdpErr) {
-      const errMsg = cdpErr instanceof Error ? cdpErr.message : String(cdpErr);
-      console.warn(`[tab-automation-host] Trusted click CDP failure at stage '${dispatchStage}': ${errMsg}`);
-      if (dispatchStage === 'pressed') {
-        try {
-          await Promise.race([
-            this.sendCdpInputCommand(wc, 'Input.dispatchMouseEvent', {
-              type: 'mouseReleased',
-              x: clickX,
-              y: clickY,
-              button: 'left',
-              buttons: 0,
-              clickCount: 1,
-            }),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('Cleanup mouse release timed out')), 1000)),
-          ]);
-        } catch {
-          // Bounded cleanup error ignored
+          return {
+            success: false,
+            fallbackNeeded: false,
+            executionTier: 'cdp_trusted',
+            reason: `CDP mouse release failed after mousePressed: ${errMsg}`,
+          };
         }
+
         return {
           success: false,
-          fallbackNeeded: false,
+          fallbackNeeded: true,
           executionTier: 'cdp_trusted',
-          reason: `CDP mouse release failed after mousePressed: ${errMsg}`,
+          reason: `CDP dispatch failed: ${errMsg}`,
         };
+      } finally {
+        if (focusEmulationEnabled) {
+          try {
+            await this.sendCdpInputCommand(wc, 'Emulation.setFocusEmulationEnabled', { enabled: false }, 1000);
+          } catch {}
+        }
       }
-
-      return {
-        success: false,
-        fallbackNeeded: true,
-        executionTier: 'cdp_trusted',
-        reason: `CDP dispatch failed: ${errMsg}`,
-      };
-    } finally {
-      if (focusEmulationEnabled) {
-        try {
-          await this.sendCdpInputCommand(wc, 'Emulation.setFocusEmulationEnabled', { enabled: false }, 1000);
-        } catch {}
-      }
+    };
+    if (this.ctx.withAgentInput) {
+      return await this.ctx.withAgentInput(dispatch);
     }
+    return await dispatch();
   }
 
   private async executeTrustedHover(
@@ -822,52 +833,57 @@ export class TabAutomationHost {
       }
     }
 
-    let focusEmulationEnabled = false;
-    try {
-      if (typeof wc.focus === 'function') {
-        wc.focus();
-      }
-      await this.sendCdpInputCommand(wc, 'Emulation.setFocusEmulationEnabled', { enabled: true });
-      focusEmulationEnabled = true;
-    } catch {}
-    try {
-      wc.executeJavaScript(`(() => {
-        try {
-          if (typeof window.__antifanAgentHover === 'function') {
-            window.__antifanAgentHover('', ${hoverX}, ${hoverY}, 'Hovering');
-          } else if (typeof window.__antifanAgentMove === 'function') {
-            window.__antifanAgentMove(${hoverX}, ${hoverY}, 'Hovering');
-          }
-        } catch {}
-      })()`).catch(() => {});
+    const dispatch = async (): Promise<{ success: boolean; data?: unknown; reason?: string; fallbackNeeded?: boolean; executionTier?: 'cdp_trusted' | 'isolated_synthetic' }> => {
+      let focusEmulationEnabled = false;
+      try {
+        // Focus emulation only — never wc.focus(): a real DOM focus move would
+        // steal the window's focus surface from whatever chrome the user is on.
+        await this.sendCdpInputCommand(wc, 'Emulation.setFocusEmulationEnabled', { enabled: true });
+        focusEmulationEnabled = true;
+      } catch {}
+      try {
+        wc.executeJavaScript(`(() => {
+          try {
+            if (typeof window.__antifanAgentHover === 'function') {
+              window.__antifanAgentHover('', ${hoverX}, ${hoverY}, 'Hovering');
+            } else if (typeof window.__antifanAgentMove === 'function') {
+              window.__antifanAgentMove(${hoverX}, ${hoverY}, 'Hovering');
+            }
+          } catch {}
+        })()`).catch(() => {});
 
-      await this.sendCdpInputCommand(wc, 'Input.dispatchMouseEvent', {
-        type: 'mouseMoved',
-        x: hoverX,
-        y: hoverY,
-      });
-      return {
-        success: true,
-        executionTier: 'cdp_trusted',
-        data: { ok: true, executed: true, tier: 'cdp_trusted', executionTier: 'cdp_trusted', x: hoverX, y: hoverY, rect },
-      };
-    } catch (cdpErr) {
-      console.warn(`[tab-automation-host] CDP Input.dispatchMouseEvent (mouseMoved) failed, using fallback: ${cdpErr instanceof Error ? cdpErr.message : String(cdpErr)}`);
-      return {
-        success: false,
-        fallbackNeeded: true,
-        executionTier: 'cdp_trusted',
-        reason: `CDP dispatch failed: ${cdpErr instanceof Error ? cdpErr.message : String(cdpErr)}`,
-      };
-    } finally {
-      // Symmetric focus-emulation teardown: hover must not leave input focus
-      // emulated after the gesture completes, mirroring executeTrustedClick.
-      if (focusEmulationEnabled) {
-        try {
-          await this.sendCdpInputCommand(wc, 'Emulation.setFocusEmulationEnabled', { enabled: false }, 1000);
-        } catch {}
+        await this.sendCdpInputCommand(wc, 'Input.dispatchMouseEvent', {
+          type: 'mouseMoved',
+          x: hoverX,
+          y: hoverY,
+        });
+        return {
+          success: true,
+          executionTier: 'cdp_trusted',
+          data: { ok: true, executed: true, tier: 'cdp_trusted', executionTier: 'cdp_trusted', x: hoverX, y: hoverY, rect },
+        };
+      } catch (cdpErr) {
+        console.warn(`[tab-automation-host] CDP Input.dispatchMouseEvent (mouseMoved) failed, using fallback: ${cdpErr instanceof Error ? cdpErr.message : String(cdpErr)}`);
+        return {
+          success: false,
+          fallbackNeeded: true,
+          executionTier: 'cdp_trusted',
+          reason: `CDP dispatch failed: ${cdpErr instanceof Error ? cdpErr.message : String(cdpErr)}`,
+        };
+      } finally {
+        // Symmetric focus-emulation teardown: hover must not leave input focus
+        // emulated after the gesture completes, mirroring executeTrustedClick.
+        if (focusEmulationEnabled) {
+          try {
+            await this.sendCdpInputCommand(wc, 'Emulation.setFocusEmulationEnabled', { enabled: false }, 1000);
+          } catch {}
+        }
       }
+    };
+    if (this.ctx.withAgentInput) {
+      return await this.ctx.withAgentInput(dispatch);
     }
+    return await dispatch();
   }
   public async dispatchAgentAction(
     action: 'click' | 'type' | 'move' | 'hover' | 'scroll' | 'highlight' | 'clear' | 'trajectory',

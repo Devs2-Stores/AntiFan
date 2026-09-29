@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-20",
+  "updatedAt": "2026-09-28",
   "note": "Machine-checkable closure ledger. Every row carries a predicate that returns true when the defect is PRESENT at HEAD. `node scripts/check-bottlenecks.mjs` fails when a row marked `closed` still fires (REOPENED), when a row marked `open` no longer fires (FIXED_UNRECORDED), or when a row marked `refuted` fires (REFUTED_BUT_PRESENT). Rows here replace the prose findings list: a claim that cannot be machine-checked is a row with `kind: \"manual\"`, which is re-verified rather than trusted. Never delete a `refuted` row — it is what stops a dead finding from being re-derived.",
   "rows": [
     {
@@ -721,6 +721,38 @@
       "reVerifyWith": "assert a payload with an empty workload switch series fails `latencyOk`, and that `switchLatencyAllPhasesMs` reproduces the pre-change reading on a run whose warmup and workload distributions differ",
       "lastVerifiedBy": "AK soak-4h workflow-performance session (2026-09-20) — harness instrument fixes; `node scripts/check-bottlenecks.mjs` green",
       "updatedAt": "2026-09-20"
+    },
+    {
+      "id": "B43",
+      "group": "mcp",
+      "title": "Dispatch socket teardown rejects every in-flight call on the channel, destroying unrelated calls on healthy sockets",
+      "severity": "P1",
+      "status": "open",
+      "evidence": "In `scripts/antifan-omp-mcp.cjs` (`wireDispatchSocket`), socket close rejects all `pendingDispatchCalls` indiscriminately with `CONNECTION_CLOSED`. Forcing on test 4 in `test/main/dispatch-socket-teardown.test.ts` (`[activate with the proxy fix] a teardown must not destroy calls it did not carry`) fails with `AssertionError [ERR_ASSERTION]: a call that was in flight on a channel that did not die must keep its own outcome (actual: 'CONNECTION_CLOSED', expected: not 'CONNECTION_CLOSED')`. Owning surface: `scripts/antifan-omp-mcp.cjs` socket-scoped teardown rejection.",
+      "predicate": {
+        "kind": "file-regex",
+        "file": "scripts/antifan-omp-mcp.cjs",
+        "pattern": "for \\(const \\[, entry\\] of pendingDispatchCalls\\.entries\\(\\)\\) \\{\\s*clearTimeout\\(entry\\.timer\\);\\s*entry\\.reject\\(transportError\\('CONNECTION_CLOSED'"
+      },
+      "reVerifyWith": "node --test .compiled/test/main/dispatch-socket-teardown.test.js with test 4 un-skipped, asserting the surviving in-flight call retains its own outcome",
+      "lastVerifiedBy": "HarnessContractSuites via forced-on dispatch-socket-teardown run (2026-09-28)",
+      "updatedAt": "2026-09-28"
+    },
+    {
+      "id": "B44",
+      "group": "mcp",
+      "title": "Bridge pairing queue refills only on demand and races with concurrent bursts, causing client budget exhaustion",
+      "severity": "P1",
+      "status": "open",
+      "evidence": "With `ANTIFAN_PAIRING_CONTRACT=1`, `test/main/bridge-pairing-queue-concurrency.test.ts` fails 2 of 3 contract assertions: `client budget exhausted after 6000ms (/api/pairing/challenge)` and `timed out after 6000ms waiting for: depth restored to 3 without a further consumer request (saw 2)`. The bridge mints challenges into a shallow standing queue and only replenishes via `setImmediate` or on empty cache, racing with concurrent bursts and Windows ACL latency (`applyProtectedPathsDacl`). Owning surface: `src/main/bridge/bridge-server.ts` (`replenishPairingQueueNow` / `claimPairingChallenge`).",
+      "predicate": {
+        "kind": "file-regex",
+        "file": "src/main/bridge/bridge-server.ts",
+        "pattern": "const needed = Math\\.max\\(0, 3 - activeCount\\);"
+      },
+      "reVerifyWith": "ANTIFAN_PAIRING_CONTRACT=1 node --test .compiled/test/main/bridge-pairing-queue-concurrency.test.js",
+      "lastVerifiedBy": "HarnessContractSuites via ANTIFAN_PAIRING_CONTRACT=1 run (2026-09-28)",
+      "updatedAt": "2026-09-28"
     }
   ]
 }

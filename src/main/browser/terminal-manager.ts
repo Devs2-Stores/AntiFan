@@ -32,6 +32,10 @@ export function resolveScriptsDir(): string | undefined {
   return undefined;
 }
 
+export const BACKPRESSURE_HIGH_WATERMARK_BYTES = 256 * 1024; // 256 KiB
+export const BACKPRESSURE_LOW_WATERMARK_BYTES = 64 * 1024;  // 64 KiB
+export const BACKPRESSURE_MAX_PENDING_BYTES = 1024 * 1024;   // 1 MiB ring buffer
+
 export function killProcessTree(pid: number | undefined): Promise<void> {
   if (!pid || typeof pid !== 'number' || pid <= 0 || !Number.isFinite(pid)) {
     return Promise.resolve();
@@ -231,6 +235,12 @@ export class SessionRecord {
   public inputLineBuffer?: string;
   public category?: string;
   public sleptAt?: number;
+  public pausedForBackpressure = false;
+  public pendingEmitQueue: Array<{ data: string; seq: number; generation: number; bytes: number }> = [];
+  public pendingEmitBytes = 0;
+  public unackedBytes = 0;
+  public inFlightChunkBytes = new Map<number, number>();
+
 
   public chunks: Buffer[] = [];
   public bufferBytes = 0;
@@ -415,12 +425,17 @@ export const ALT_SCREEN_SEQ_LENGTH = ALT_SCREEN_ON_SEQ.length;
 // scan on every wait call stalls the main thread for a match that virtually
 // always lives in recent output.
 const WAIT_MATCH_WINDOW_BYTES = 64 * 1024;
-// Wire budget for the session-state payload (renderer fallback only; the renderer
-// hydrates from getFullBuffer). The legacy 40 KiB budget truncated the active
-// pane snapshot to ~16 KiB, which made a pane look mid-stream after a reattach.
-const GLOBAL_JSON_BUFFER_BUDGET_BYTES = 160 * 1024; // 160 KiB total wire budget for all session buffers
-const ACTIVE_SNAPSHOT_BUDGET_BYTES = Math.floor(GLOBAL_JSON_BUFFER_BUDGET_BYTES * 0.4);
-const BACKGROUND_SNAPSHOT_BUDGET_BYTES = Math.floor(GLOBAL_JSON_BUFFER_BUDGET_BYTES * 0.6);
+// Wire budget for the session-state payload (the `'session'` broadcast and every
+// session-list answer). Transcript content does NOT travel on this channel: the
+// renderer hydrates via getFullBuffer and resyncs via getDelta/syncTerminalView,
+// and the mobile surface fetches `antifan.terminalGetFullBuffer` the same way.
+// What remains is a small preview tail per session — enough for the sleep
+// preview's first paint and the no-RPC hydration fallback — so broadcast cost
+// stays bounded by tab metadata instead of transcript size. The pre-pruning
+// budget was 160 KiB; listSessions(paged=false) still returns full transcripts.
+export const GLOBAL_JSON_BUFFER_BUDGET_BYTES = 16 * 1024; // 16 KiB total wire budget for all session previews
+export const ACTIVE_SNAPSHOT_BUDGET_BYTES = Math.floor(GLOBAL_JSON_BUFFER_BUDGET_BYTES * 0.4);
+export const BACKGROUND_SNAPSHOT_BUDGET_BYTES = Math.floor(GLOBAL_JSON_BUFFER_BUDGET_BYTES * 0.6);
 
 export interface SessionSummary {
   id: string;
@@ -1657,7 +1672,7 @@ export class TerminalManager extends EventEmitter {
         stamps.delete(oldest.value);
       }
     }
-    this.emit('data', { sessionId: s.id, data, seq: s.lastSeq, generation: s.sessionGeneration });
+    this.emitChunkOrQueue(s, data, s.lastSeq, s.sessionGeneration, dataBytes);
   }
 
   /**
@@ -2005,6 +2020,15 @@ export class TerminalManager extends EventEmitter {
       if (sub.sessionId === sessionId) {
         this.subscribers.delete(key);
       }
+    }
+    // A session with no subscribers is unthrottled; no consumer to be backpressured for.
+    const s = this.sessions.get(sessionId);
+    if (s && s.pausedForBackpressure && this.subscribersForSession(sessionId).length === 0) {
+      s.pausedForBackpressure = false;
+      s.pendingEmitQueue = [];
+      s.pendingEmitBytes = 0;
+      s.unackedBytes = 0;
+      s.inFlightChunkBytes.clear();
     }
   }
   public async kill(): Promise<void> {
@@ -2412,7 +2436,7 @@ export class TerminalManager extends EventEmitter {
     let exitSubscriptionCount = 0;
     for (const session of this.sessions.values()) {
       if (session.pty && session.state === 'running' && !session.disposed) runningPtyCount++;
-      transcriptBytes += (session.bufferBytes ?? Buffer.byteLength(session.buffer, 'utf8'))
+      transcriptBytes += (session.bufferBytes ?? Buffer.byteLength(session.buffer || '', 'utf8'))
         + (session.restoredTail ? Buffer.byteLength(session.restoredTail, 'utf8') : 0);
       if (session.dataSubscription) dataSubscriptionCount++;
       if (session.exitSubscription) exitSubscriptionCount++;
@@ -2487,6 +2511,21 @@ export class TerminalManager extends EventEmitter {
       role: ack.role || existing?.role || 'DOCK',
       lastHeartbeatAt: Date.now(),
     });
+    // The ack covers a contiguous seq prefix; subtract every emitted chunk it covers.
+    const session = this.sessions.get(ack.sessionId);
+    if (session && newLastAckedSeq > 0) {
+      let decremented = 0;
+      for (const [seq, bytes] of session.inFlightChunkBytes) {
+        if (seq <= newLastAckedSeq) {
+          decremented += bytes;
+          session.inFlightChunkBytes.delete(seq);
+        }
+      }
+      session.unackedBytes = Math.max(0, session.unackedBytes - decremented);
+      if (session.pausedForBackpressure && session.unackedBytes < BACKPRESSURE_LOW_WATERMARK_BYTES) {
+        this.drainPendingEmitQueue(session);
+      }
+    }
     if (isBenchmarkEnabled()) {
       // Same-clock latency: the emit stamp was taken in this process when the
       // chunk was dispatched, so no renderer clock skew enters the measurement.
@@ -2665,33 +2704,80 @@ export class TerminalManager extends EventEmitter {
     return this.sessions.get(id);
   }
 
-  public pauseSession(id: string): boolean {
-    if (process.env.BRIDGE_PTY_BACKPRESSURE !== '1') return false;
-    const s = this.sessions.get(id);
-    if (!s || !s.pty) return false;
-    if (typeof s.pty.pause !== 'function') {
-      console.warn(`[antifan:terminal] pause() not available on this pty backend for session ${id}`);
-      return false;
+  private subscribersForSession(sessionId: string): TerminalSubscriberState[] {
+    const out: TerminalSubscriberState[] = [];
+    for (const sub of this.subscribers.values()) {
+      if (sub.sessionId === sessionId) out.push(sub);
     }
-    try {
-      s.pty.pause();
-      return true;
-    } catch (err) {
-      console.warn(`[antifan:terminal] failed to pause session ${id}:`, err);
-      return false;
+    return out;
+  }
+
+  private minAckedSeqForSession(sessionId: string): number {
+    let min = Infinity;
+    for (const sub of this.subscribers.values()) {
+      if (sub.sessionId === sessionId) {
+        min = Math.min(min, sub.lastAckedSeq || 0);
+      }
+    }
+    return Number.isFinite(min) ? min : 0;
+  }
+
+  /**
+   * Drain the paused session's pending queue until the low-watermark budget is spent,
+   * then re-engage backpressure if unacked is still above the high watermark.
+   */
+  private drainPendingEmitQueue(s: Session): void {
+    while (s.pendingEmitQueue.length > 0 && s.unackedBytes < BACKPRESSURE_HIGH_WATERMARK_BYTES) {
+      const chunk = s.pendingEmitQueue.shift()!;
+      this.emit('data', {
+        sessionId: s.id,
+        data: chunk.data,
+        seq: chunk.seq,
+        generation: chunk.generation,
+      });
+      s.unackedBytes += chunk.bytes;
+      s.inFlightChunkBytes.set(chunk.seq, chunk.bytes);
+      s.pendingEmitBytes -= chunk.bytes;
+    }
+    if (s.unackedBytes < BACKPRESSURE_HIGH_WATERMARK_BYTES && s.pendingEmitQueue.length === 0) {
+      s.pausedForBackpressure = false;
     }
   }
 
-  public resumeSession(id: string): boolean {
-    const s = this.sessions.get(id);
-    if (!s || !s.pty) return false;
-    if (typeof s.pty.resume !== 'function') return false;
-    try {
-      s.pty.resume();
-      return true;
-    } catch (err) {
-      console.warn(`[antifan:terminal] failed to resume session ${id}:`, err);
-      return false;
+  private enqueueBackpressureChunk(s: Session, data: string, seq: number, generation: number, bytes: number): void {
+    s.pendingEmitQueue.push({ data, seq, generation, bytes });
+    s.pendingEmitBytes += bytes;
+    while (s.pendingEmitBytes > BACKPRESSURE_MAX_PENDING_BYTES && s.pendingEmitQueue.length > 0) {
+      // The journal/transcript already captured this data; we are only dropping the
+      // immediate-emission copy. Read it back via getDelta/getFullBuffer if needed.
+      const dropped = s.pendingEmitQueue.shift()!;
+      s.pendingEmitBytes -= dropped.bytes;
+    }
+  }
+
+  /**
+   * Public entry point: session went backpressure-paused. Emits paused chunks only
+   * when there is room below the high watermark.
+   */
+  public emitChunkOrQueue(s: Session, data: string, seq: number, generation: number, bytes: number): void {
+    if (process.env.ANTIFAN_BACKPRESSURE_OFF === '1') {
+      this.emit('data', { sessionId: s.id, data, seq, generation });
+      return;
+    }
+    const hasSubs = this.subscribersForSession(s.id).length > 0;
+    if (!hasSubs) {
+      this.emit('data', { sessionId: s.id, data, seq, generation });
+      return;
+    }
+    if (!s.pausedForBackpressure) {
+      this.emit('data', { sessionId: s.id, data, seq, generation });
+      s.unackedBytes += bytes;
+      s.inFlightChunkBytes.set(seq, bytes);
+      if (s.unackedBytes > BACKPRESSURE_HIGH_WATERMARK_BYTES) {
+        s.pausedForBackpressure = true;
+      }
+    } else {
+      this.enqueueBackpressureChunk(s, data, seq, generation, bytes);
     }
   }
 

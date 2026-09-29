@@ -356,6 +356,24 @@ describe('close live-use evidence', () => {
     assert.match(details(report), /without a page binding/);
   });
 
+  it('does not refuse an application quit for an unbound mcp transport attachment', () => {
+    const report = collectCloseLiveUse(
+      APPLICATION,
+      idlePort({ attachments: () => [{ attachmentId: 'attachment-mcp-1', runId: 'run-mcp-1', backendId: 'mcp' }] })
+    );
+    assert.equal(report.state, 'idle', 'an unbound mcp transport connection must not refuse application quit');
+  });
+
+  it('refuses a close when an mcp transport attachment binds a page in scope', () => {
+    const report = collectCloseLiveUse(
+      APPLICATION,
+      idlePort({ attachments: () => [{ attachmentId: 'attachment-mcp-1', runId: 'run-mcp-1', tabId: 'tab-1', backendId: 'mcp' }] })
+    );
+    assert.equal(report.state, 'busy');
+    assert.deepEqual(categories(report), ['attachment-authority']);
+    assert.match(details(report), /1 active attachment\(s\) hold page tab-1/);
+  });
+
   it('protects a page from a live agent affinity and ignores a closed one', () => {
     const alive = collectCloseLiveUse(
       SHELL_A,

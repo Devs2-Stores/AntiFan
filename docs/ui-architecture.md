@@ -15,6 +15,14 @@ No chat, run, terminal, annotation, or QA view replaces or retargets the
 browser; changing what is *visible* in Chromium never changes what a run is
 *bound* to.
 
+AntiFan's place in the toolchain is narrower than its cockpit suggests: Orca orchestrates the
+development of AntiFan itself, while AntiFan is the cockpit for live client themes. The run cards
+in the shared Terminal Manager observe and steer agent runs that work on merchant storefronts —
+they are not a surface for driving this repository's own build or test agents, and they bind to a
+terminal session and a capsule, never to a focused tab. A pinned capsule brief carries storefront
+context (URL, site name, theme id, standing rules) into every prompt a terminal-bound agent run
+receives, keeping client-work state where client work lives.
+
 ## Visual Direction
 
 - Desktop developer tool: density 6/10, variance 3/10, motion 2/10.
@@ -99,7 +107,9 @@ Each window's shell presents:
 
 Auxiliary windows are not browser shells and never count as project windows: terminal
 workbench/popout `BrowserWindow`s load `standalone.html` from the owning host, and the
-offscreen capture host is a non-closable window the host raises for raster capture.
+offscreen capture host is a non-closable window the host raises for raster capture;
+a capture lift is a bounded, serialized per-window lease — an in-window lift caps at
+IN_WINDOW_CAPTURE_LIFT_MAX_MS and buries on real user input.
 Tab pages run in the host's persistent profile partition
 (`NativeTabHost.getSharedProfilePartition`, `src/main/browser/native-tab-host.ts`), and a
 separate window does not manufacture a separate jar: affiliation, not window count,
@@ -227,6 +237,15 @@ Capsules (`src/main/project/workspace-capsule.ts`), session stores (`invocation-
 `event-store.ts`, `receipt-store.ts` in `src/main/session/`), terminals (`src/main/browser/terminal-manager.ts`),
 and verification state.
 
+Run files are the one projection an agent process writes:
+`%ANTIFAN_DATA_ROOT%/runtime/runs/<terminalSessionId>.json` (plus the
+`<sid>.brief.json` mirror of a capsule's pinned brief and the `control/` request
+directory) is written by the OMP run-state hook and owned, swept and pruned by
+Main (`RunStateService`, `src/main/run/run-state-service.ts`). It is evidence
+*about* a terminal session, never a second authority over it: a stale or dead row
+is projected as ended, and the capsule's own record stays the only truth about a
+brief.
+
 Project identity has one runtime authority: the single `ProjectRegistry` instance
 exported from `src/main/index.ts` is shared by the capsule layer
 (`WorkspaceCapsuleManager`'s `affiliationAuthority`) and the control plane
@@ -311,6 +330,9 @@ instead of acting on a page the caller did not name
   chat, panes, browser utilities, terminal, annotation, QA, settings.
 - Dock close returns focus to the browser; modal/dialog Escape returns focus
   to the invoker.
+- Agent-plane work never moves real DOM focus — it uses focus emulation — and
+  agent-plane tab activation defers to ACTIVATION_DEFERRED_USER_INPUT while
+  recent user input (<2000ms) is in the window.
 - Every control reachable keyboard-only; tab order documented per surface in
   phase files.
 

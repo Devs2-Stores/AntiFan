@@ -124,11 +124,15 @@ describe('Terminal Switching Regression & Viewport Integrity', () => {
     assert.strictEqual(tm.switchSession(s3Id), true);
     assert.strictEqual(tm.getActiveSessionId(), s3Id);
 
-    // 8. Switch back to Session 1 and verify long scrollback is intact without truncation or race
+    // 8. Switch back to Session 1: the paged row keeps the newest tail while the
+    // full scrollback is served by getFullBuffer — the same RPC the panes
+    // hydrate from, so nothing is lost when rows only carry previews.
     assert.strictEqual(tm.switchSession(s1Id), true);
     const s1Restored = tm.listSessions().find((s) => s.id === s1Id);
-    assert.ok(s1Restored?.buffer.includes('Line 1'));
-    assert.ok(s1Restored?.buffer.includes('Line 200'));
+    assert.ok(s1Restored?.buffer.includes('Line 200'), 'the preview tail keeps the newest output');
+    const s1Full = tm.getFullBuffer(s1Id);
+    assert.ok(s1Full.buffer.includes('Line 1'));
+    assert.ok(s1Full.buffer.includes('Line 200'));
 
     // Cleanup created test sessions
     await tm.closeSession(s1Id);

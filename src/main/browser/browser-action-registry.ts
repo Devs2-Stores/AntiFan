@@ -142,7 +142,7 @@ export class BrowserActionRegistry {
         },
       },
       handler: (params: { url?: string; activate?: boolean; ephemeral?: boolean }, { tabHost }) => {
-        const tabId = tabHost.createTab(params?.url, params?.activate ?? true, { ephemeral: params?.ephemeral });
+        const tabId = tabHost.createTab(params?.url, params?.activate ?? true, { ephemeral: params?.ephemeral, plane: 'agent' });
         return { tabId, success: true };
       },
     });
@@ -208,7 +208,7 @@ export class BrowserActionRegistry {
         required: ['tabId'],
       },
       handler: (params: { tabId: string }, { tabHost }) => {
-        const ok = tabHost.switchTab(params.tabId);
+        const ok = tabHost.switchTab(params.tabId, { plane: 'agent' });
         return { switched: ok, success: ok };
       },
     });

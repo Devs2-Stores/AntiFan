@@ -3,8 +3,14 @@ import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import * as net from 'node:net';
 import { spawn } from 'node:child_process';
 import { WebSocketServer } from 'ws';
+import {
+  BRIDGE_CLIENT_FAILURE_JOURNAL_MAX_BYTES,
+  bridgeClientFailuresPath,
+  readRecentClientFailures,
+} from '../../src/main/bridge/bridge-health';
 
 /**
  * Bound the stdio handshakes below. The proxy writes newline-delimited JSON-RPC, so a child
@@ -1268,5 +1274,246 @@ describe('OMP MCP stdio proxy security & bootstrap fail-closed contract', () => 
     } finally {
       await new Promise<void>((resolve) => wss.close(() => resolve()));
     }
+  });
+});
+
+describe('bridge client-failure journal', () => {
+  const launcherScriptPath = (): string =>
+    fs.existsSync(path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs'))
+      ? path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs')
+      : path.resolve(__dirname, '../../scripts/antifan-omp-mcp.cjs');
+
+  const scrubJournalEnv = (env: NodeJS.ProcessEnv): NodeJS.ProcessEnv => {
+    delete env.ANTIFAN_DATA_ROOT;
+    delete env.ANTIFAN_TERMINAL_SESSION_ID;
+    delete env.ANTIFAN_TERMINAL_AFFINITY_SESSION_ID;
+    delete env.ANTIFAN_TERMINAL_PARENT_SESSION_ID;
+    delete env.ANTIFAN_BRIDGE_PID;
+    delete env.ANTIFAN_MCP_BOOTSTRAP;
+    delete env.ANTIFAN_ATTACHMENT_SECRET;
+    return env;
+  };
+
+  const runLauncherSnippet = async (code: string, env: NodeJS.ProcessEnv): Promise<{ code: number | null; stdout: string }> => {
+    const child = spawn(process.execPath, ['-e', code], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '';
+    child.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
+    const exitCode = await withDeadline(
+      new Promise<number | null>((resolve) => child.once('exit', resolve)),
+      'launcher journal snippet'
+    );
+    return { code: exitCode, stdout };
+  };
+
+  it('records a row the Manager reader accepts, stamped with the terminal session', async () => {
+    const scriptPath = launcherScriptPath();
+    const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-journal-'));
+    try {
+      const env = scrubJournalEnv({ ...process.env });
+      env.ANTIFAN_DATA_ROOT = dataRoot;
+      env.ANTIFAN_TERMINAL_SESSION_ID = 'ts-journal-test';
+      const child = await runLauncherSnippet(
+        `const m = require(${JSON.stringify(scriptPath)});` +
+          `m.recordClientFailure('CONNECT_FAILED', '127.0.0.1:41999 connect failed (ECONNREFUSED)');` +
+          `process.stdout.write(JSON.stringify(m.bridgeClientFailuresPath()));`,
+        env
+      );
+      assert.strictEqual(child.code, 0, 'journal write must not fail the launcher path');
+
+      const journalPath = path.join(dataRoot, 'runtime', 'bridge-client-failures.jsonl');
+      assert.strictEqual(child.stdout, JSON.stringify(journalPath), 'launcher resolves the same path the Manager reads');
+      const expectedPathEnv = process.env.ANTIFAN_DATA_ROOT;
+      process.env.ANTIFAN_DATA_ROOT = dataRoot;
+      try {
+        assert.strictEqual(bridgeClientFailuresPath(), journalPath, 'main-side resolver must agree on the journal path');
+      } finally {
+        if (expectedPathEnv === undefined) delete process.env.ANTIFAN_DATA_ROOT;
+        else process.env.ANTIFAN_DATA_ROOT = expectedPathEnv;
+      }
+
+      const lines = fs.readFileSync(journalPath, 'utf8').split('\n').filter((l) => l.trim().length > 0);
+      assert.strictEqual(lines.length, 1, 'exactly one journal row must be appended');
+      const row = JSON.parse(lines[0]!);
+      assert.strictEqual(row.code, 'CONNECT_FAILED');
+      assert.strictEqual(row.message, '127.0.0.1:41999 connect failed (ECONNREFUSED)');
+      assert.strictEqual(row.terminalSessionId, 'ts-journal-test', 'row must name which terminal is failing');
+      assert.strictEqual(typeof row.at, 'number', 'row carries its timestamp');
+      assert.strictEqual(typeof row.pid, 'number', 'row carries the launcher pid');
+
+      const recent = readRecentClientFailures(journalPath);
+      assert.strictEqual(recent.count, 1, 'reader must accept the launcher row inside the window');
+      assert.strictEqual(recent.latest?.terminalSessionId, 'ts-journal-test');
+    } finally {
+      fs.rmSync(dataRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('writes nothing and probes nothing when ANTIFAN_DATA_ROOT is absent', async () => {
+    const scriptPath = launcherScriptPath();
+    const probeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-journal-none-'));
+    try {
+      const env = scrubJournalEnv({ ...process.env });
+      const child = await runLauncherSnippet(
+        `process.chdir(${JSON.stringify(probeDir)});` +
+          `const m = require(${JSON.stringify(scriptPath)});` +
+          `m.recordClientFailure('CONNECT_FAILED', 'no data root available');` +
+          `process.stdout.write(String(m.bridgeClientFailuresPath()));`,
+        env
+      );
+      assert.strictEqual(child.code, 0, 'a missing data root must be a silent no-op');
+      assert.strictEqual(child.stdout, 'null', 'path resolver must refuse to name a location without env');
+      assert.deepStrictEqual(fs.readdirSync(probeDir), [], 'nothing may be created without the env-provided root');
+    } finally {
+      fs.rmSync(probeDir, { recursive: true, force: true });
+    }
+  });
+
+  it('rotates a journal past the cap to .1 and starts a fresh file', async () => {
+    const scriptPath = launcherScriptPath();
+    const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-journal-rotate-'));
+    try {
+      const journalPath = path.join(dataRoot, 'runtime', 'bridge-client-failures.jsonl');
+      const env = scrubJournalEnv({ ...process.env });
+      env.ANTIFAN_DATA_ROOT = dataRoot;
+      const child = await runLauncherSnippet(
+        `const fs = require('node:fs');` +
+          `const path = require('node:path');` +
+          `const m = require(${JSON.stringify(scriptPath)});` +
+          `const file = m.bridgeClientFailuresPath();` +
+          `fs.mkdirSync(path.dirname(file), { recursive: true });` +
+          `fs.writeFileSync(file, Buffer.alloc(${BRIDGE_CLIENT_FAILURE_JOURNAL_MAX_BYTES} + 64, 0x61));` +
+          `m.recordClientFailure('MCP_BRIDGE_OFFLINE', 'post-rotation row');`,
+        env
+      );
+      assert.strictEqual(child.code, 0, 'rotation must not fail the caller');
+      assert.ok(fs.existsSync(`${journalPath}.1`), 'the oversized journal must be renamed to .1');
+      assert.strictEqual(
+        fs.statSync(`${journalPath}.1`).size,
+        BRIDGE_CLIENT_FAILURE_JOURNAL_MAX_BYTES + 64,
+        'backup keeps the pre-rotation bytes'
+      );
+      const lines = fs.readFileSync(journalPath, 'utf8').split('\n').filter((l) => l.trim().length > 0);
+      assert.strictEqual(lines.length, 1, 'fresh journal holds only the post-rotation row');
+      assert.strictEqual(JSON.parse(lines[0]!).code, 'MCP_BRIDGE_OFFLINE');
+    } finally {
+      fs.rmSync(dataRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('swallows a failing rotate without losing the caller or the append', async () => {
+    const scriptPath = launcherScriptPath();
+    const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-journal-swallow-'));
+    try {
+      const journalPath = path.join(dataRoot, 'runtime', 'bridge-client-failures.jsonl');
+      const env = scrubJournalEnv({ ...process.env });
+      env.ANTIFAN_DATA_ROOT = dataRoot;
+      const child = await runLauncherSnippet(
+        `const fs = require('node:fs');` +
+          `const path = require('node:path');` +
+          `const m = require(${JSON.stringify(scriptPath)});` +
+          `const file = m.bridgeClientFailuresPath();` +
+          `fs.mkdirSync(path.dirname(file), { recursive: true });` +
+          `fs.writeFileSync(file, Buffer.concat([Buffer.alloc(${BRIDGE_CLIENT_FAILURE_JOURNAL_MAX_BYTES} + 64, 0x62), Buffer.from('\\n')]));` +
+          `fs.renameSync = () => { throw new Error('rename denied'); };` +
+          `m.recordClientFailure('CONNECT_FAILED', 'append after denied rotation');` +
+          `process.stdout.write('OK');`,
+        env
+      );
+      assert.strictEqual(child.code, 0, 'telemetry failure must never propagate to the launcher path');
+      assert.strictEqual(child.stdout, 'OK', 'the caller completes its own path');
+      assert.ok(!fs.existsSync(`${journalPath}.1`), 'denied rename leaves no backup generation');
+      const recent = readRecentClientFailures(journalPath);
+      assert.strictEqual(recent.count, 1, 'the appended row still lands in the journal tail');
+      assert.strictEqual(recent.latest?.message, 'append after denied rotation');
+    } finally {
+      fs.rmSync(dataRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('journals a launcher-verdict row when invoke reaches a refused bridge', async () => {
+    const scriptPath = launcherScriptPath();
+    const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-journal-invoke-'));
+    try {
+      const journalPath = path.join(dataRoot, 'runtime', 'bridge-client-failures.jsonl');
+      const env = scrubJournalEnv({ ...process.env });
+      env.ANTIFAN_DATA_ROOT = dataRoot;
+      env.ANTIFAN_ATTACHMENT_SECRET = 'journal-test-secret';
+      env.ANTIFAN_MCP_PORT = '41999';
+      const child = await runLauncherSnippet(
+        `const m = require(${JSON.stringify(scriptPath)});` +
+          `m.invoke('anti.browser.tabs.list', {}).then(` +
+          `  () => { process.stdout.write('SETTLED-OK'); },` +
+          `  (e) => { process.stdout.write('REJ:' + String(e && e.message ? e.message : e).slice(0, 80)); }` +
+          `).finally(() => process.exit(0));`,
+        env
+      );
+      assert.strictEqual(child.code, 0, `invoke must settle: ${child.stdout}`);
+      assert.ok(fs.existsSync(journalPath), 'a real invoke against a refused bridge must journal');
+      const rows = fs.readFileSync(journalPath, 'utf8').split('\n')
+        .filter((l) => l.trim().length > 0)
+        .map((l) => { try { return JSON.parse(l); } catch { return null; } })
+        .filter(Boolean);
+      const sawConnectFailed = rows.some(
+        (r) => r.code === 'CONNECT_FAILED' && String(r.message).includes('41999')
+      );
+      assert.ok(sawConnectFailed, 'per-candidate CONNECT_FAILED rows name the refused endpoint');
+      const recent = readRecentClientFailures(journalPath);
+      assert.ok(recent.count >= 1, 'journal rows are inside the reader window');
+    } finally {
+      fs.rmSync(dataRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('journals BRIDGE_NOT_RUNNING and the terminal verdict when no candidate exists', async () => {
+    const scriptPath = launcherScriptPath();
+    const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-journal-nobridge-'));
+    try {
+      const journalPath = path.join(dataRoot, 'runtime', 'bridge-client-failures.jsonl');
+      const env = scrubJournalEnv({ ...process.env });
+      env.ANTIFAN_DATA_ROOT = dataRoot;
+      const child = await runLauncherSnippet(
+        `const m = require(${JSON.stringify(scriptPath)});` +
+          `m.invoke('anti.browser.tabs.list', {}).then(` +
+          `  () => { process.stdout.write('SETTLED-OK'); },` +
+          `  (e) => { process.stdout.write('REJ'); }` +
+          `).finally(() => process.exit(0));`,
+        env
+      );
+      assert.strictEqual(child.code, 0, `invoke must settle: ${child.stdout}`);
+      assert.strictEqual(child.stdout, 'REJ', 'no bootstrap and no candidates must reject the call');
+      assert.ok(fs.existsSync(journalPath), 'the no-candidate verdict must journal');
+      const rows = fs.readFileSync(journalPath, 'utf8').split('\n')
+        .filter((l) => l.trim().length > 0)
+        .map((l) => { try { return JSON.parse(l); } catch { return null; } })
+        .filter(Boolean);
+      assert.ok(
+        rows.some((r) => r.code === 'BRIDGE_NOT_RUNNING' && String(r.message).includes('no endpoint discovered')),
+        'the zero-candidate branch records BRIDGE_NOT_RUNNING'
+      );
+      assert.ok(
+        rows.some(
+          (r) => r.code === 'MCP_BRIDGE_OFFLINE'
+            && String(r.message).startsWith('AntiFan Desktop Bridge did not grant access')
+        ),
+        'the post-autoheal no-grant path records the terminal verdict'
+      );
+      const recent = readRecentClientFailures(journalPath);
+      assert.strictEqual(recent.count, rows.length, 'every journaled row is inside the reader window');
+    } finally {
+      fs.rmSync(dataRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('pins the launcher rotation cap to the exported constant', () => {
+    const scriptPath = launcherScriptPath();
+    const content = fs.readFileSync(scriptPath, 'utf8');
+    const match = content.match(/BRIDGE_CLIENT_FAILURE_JOURNAL_MAX_BYTES\s*=\s*(\d+)\s*\*\s*(\d+)/);
+    assert.ok(match, 'launcher must define an inline rotation cap');
+    const inlineValue = Number(match[1]) * Number(match[2]);
+    assert.strictEqual(
+      inlineValue,
+      BRIDGE_CLIENT_FAILURE_JOURNAL_MAX_BYTES,
+      'the .cjs copy must match src/main/bridge/bridge-health.ts'
+    );
   });
 });

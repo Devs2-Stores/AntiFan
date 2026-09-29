@@ -146,6 +146,7 @@ export const HOST_EVENT = {
   sessionCreated: 'antifan:terminal:session-created',
   sessionRestarted: 'antifan:terminal:session-restarted',
   sessionWoken: 'antifan:terminal:session-woken',
+  exit: 'antifan:terminal:exit',
 } as const;
 
 export type HostEventName = (typeof HOST_EVENT)[keyof typeof HOST_EVENT];
@@ -164,4 +165,5 @@ export const HOST_EVENT_TO_LOCAL: Record<HostEventName, string> = {
   [HOST_EVENT.sessionCreated]: 'session-created',
   [HOST_EVENT.sessionRestarted]: 'session-restarted',
   [HOST_EVENT.sessionWoken]: 'session-woken',
+  [HOST_EVENT.exit]: 'exit',
 };

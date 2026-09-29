@@ -87,7 +87,9 @@ const RUN_TIMEOUT_MS = 300_000;
 interface DriverCheckRow {
   name: string;
   ok: boolean;
+  status?: string;
   error?: string;
+  cleanupError?: string;
 }
 
 /** The observation fields the suite asserts on, declared here so the assertions stay typed. */
@@ -317,24 +319,31 @@ async function check(name, fn, cleanup) {
   const rowTimer = setTimeout(function () {
     rowTimeout.reject(new Error('the row did not finish within ' + ROW_TIMEOUT_MS + 'ms'));
   }, ROW_TIMEOUT_MS);
+  let rowEntry = { name: name, ok: true };
   try {
     await Promise.race([fn(), rowTimeout.promise]);
-    checks.push({ name: name, ok: true });
     console.log('  PASS  ' + name);
   } catch (err) {
-    checks.push({ name: name, ok: false, error: messageOf(err) });
+    rowEntry.ok = false;
+    rowEntry.error = messageOf(err);
     console.log('  FAIL  ' + name + ': ' + messageOf(err));
   } finally {
     clearTimeout(rowTimer);
     // A row that fails must still leave the scenario as it found it, so one honest failure does
-    // not hand every later row its own leftovers. Cleanup is best-effort and never decides a row.
+    // not hand every later row its own leftovers. Cleanup failure is recorded in the row.
     if (cleanup) {
       try {
         await cleanup();
       } catch (err) {
-        console.log('  NOTE  row cleanup failed: ' + messageOf(err));
+        rowEntry.ok = false;
+        rowEntry.cleanupError = messageOf(err);
+        rowEntry.error = rowEntry.error
+          ? (rowEntry.error + '; cleanup failed: ' + messageOf(err))
+          : ('cleanup failed: ' + messageOf(err));
+        console.log('  FAIL  ' + name + ' [cleanup]: ' + messageOf(err));
       }
     }
+    checks.push(rowEntry);
   }
 }
 

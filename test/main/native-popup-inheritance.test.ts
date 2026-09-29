@@ -98,6 +98,10 @@ function createPopupHost(options: { adoptResult?: boolean } = {}): {
   host.recentlyClosedTabs = [];
   host.terminalWindows = new Map();
   host.terminalWindowMeta = new Map();
+  // Field initializers do not run on a prototype-built double; the input tracking the
+  // real trackUserActivityOnView listener feeds reads both counters from the host.
+  host.agentInputInFlight = 0;
+  host.lastUserInputAtMs = 0;
   host.documentGenerations = new Map();
   host.semanticDocumentGenerations = new Map();
   host.targetOperationQueues = new Map();
@@ -217,5 +221,25 @@ describe('native window.open popup inheritance', () => {
     assert.equal(harness.created.length, 1, 'the child was created');
     assert.equal(harness.adopted.length, 1, 'adoption was attempted');
     assert.deepEqual(harness.closed, ['tab-popup-child'], 'the unowned child is closed, and nothing else is');
+  });
+  it('creates nothing when the host was disposed before the deferred creation ran', async () => {
+    const harness = createPopupHost();
+    harness.windowOpenHandler()({ url: 'https://example.com/native-popup', disposition: 'new-window' });
+    harness.host.isDisposed = true;
+    await drainImmediates();
+
+    assert.deepEqual(harness.created, [], 'no child is created when host is disposed');
+    assert.deepEqual(harness.adopted, []);
+    assert.deepEqual(harness.closed, []);
+  });
+
+  it('creates the child when opened with foreground-tab disposition', async () => {
+    const harness = createPopupHost();
+    const response = harness.windowOpenHandler()({ url: 'https://example.com/native-popup-fg', disposition: 'foreground-tab' }) as { action?: string };
+    assert.equal(response.action, 'deny', 'foreground-tab disposition is handled and denied to become a tab');
+    await drainImmediates();
+
+    assert.equal(harness.created.length, 1, 'child tab is created for foreground-tab disposition');
+    assert.equal(harness.created[0]?.url, 'https://example.com/native-popup-fg');
   });
 });

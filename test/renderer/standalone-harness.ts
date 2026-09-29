@@ -21,8 +21,10 @@ import * as vm from 'node:vm';
 function resolveStandalonePath(): string {
   let dir = __dirname;
   for (let depth = 0; depth < 8; depth += 1) {
-    const candidate = path.join(dir, 'src', 'renderer', 'standalone.js');
-    if (fs.existsSync(candidate)) return candidate;
+    if (!dir.split(/[/\\]/).includes('.compiled')) {
+      const candidate = path.join(dir, 'src', 'renderer', 'standalone.js');
+      if (fs.existsSync(candidate)) return candidate;
+    }
     const parent = path.dirname(dir);
     if (parent === dir) break;
     dir = parent;
@@ -65,6 +67,13 @@ export interface StandaloneApi {
   listProjects: () => Promise<{ candidates: unknown[] }>;
   answerProjectOpenPicker: (payload: unknown) => Promise<unknown>;
   onProjectOpenPicker: (listener: (payload: unknown) => void) => unknown;
+  getBridgeStatus?: () => Promise<unknown>;
+  onBridgeStatus?: (listener: (report: unknown) => void) => () => void;
+  runControl?: (terminalSessionId: string, op: string, text?: string) => Promise<unknown>;
+  onRunCardState?: (listener: (payload: unknown) => void) => unknown;
+  capsuleGetBrief?: (capsuleId: string) => Promise<unknown>;
+  capsuleSetBrief?: (capsuleId: string, brief: unknown) => Promise<unknown>;
+  openInVSCode?: (path?: string) => Promise<unknown>;
   [key: string]: unknown;
 }
 
@@ -156,6 +165,12 @@ export class FakeElement {
   // data-* attributes live on `dataset` in the DOM; the renderer's modal state rows
   // publish `data-state` through it.
   public dataset: Record<string, string> = {};
+  // The graph edges are non-enumerable on purpose: `assert`/`node:test` serialise a
+  // failing element through its enumerable own properties, and `parent`/`children`/
+  // `listeners`/`registry` make the whole fake document reachable from any node —
+  // that walk once produced a serialization so large it exhausted external memory
+  // before the failure message could be printed. Hiding the edges keeps failure
+  // output to the element itself; the fields still behave exactly as before.
   public parent: FakeElement | null = null;
   public readonly children: FakeElement[] = [];
   public clientHeight = 400;
@@ -168,7 +183,31 @@ export class FakeElement {
   public readonly listeners: Record<string, Array<(event: KeyEventLike) => void>> = {};
   private readonly classes = new Set<string>();
 
-  constructor(public readonly tagName: string, public elementId = '') {}
+  public registry?: Map<string, FakeElement>;
+
+  constructor(public readonly tagName: string, public elementId = '') {
+    for (const edge of ['parent', 'children', 'listeners', 'registry'] as const) {
+      Object.defineProperty(this, edge, {
+        value: this[edge],
+        writable: true,
+        enumerable: false,
+        configurable: true,
+      });
+    }
+  }
+
+  /**
+   * `util.inspect` honours this, and `assert`/`node:test` format failures through it.
+   * Without it a failed `assert.strictEqual(el, …)` walks the whole fake document —
+   * every sibling subtree plus the shared registry map — into one serialization
+   * that can outgrow the heap before the message is ever printed. The compact
+   * form keeps a failing assertion readable and bounded.
+   */
+  public [Symbol.for('nodejs.util.inspect.custom')](): string {
+    const id = this.elementId ? `#${this.elementId}` : '';
+    const name = this.className ? `.${this.className.split(/\s+/).filter(Boolean).join('.')}` : '';
+    return `<${this.tagName}${id}${name}>`;
+  }
 
   /**
    * The DOM reflects `el.id = …` into the attribute, and `#id` selectors read it back. The
@@ -183,6 +222,9 @@ export class FakeElement {
   public set id(value: string) {
     this.elementId = String(value);
     this.attributes.id = this.elementId;
+    if (this.registry && this.elementId) {
+      this.registry.set(this.elementId, this);
+    }
   }
 
   public get className(): string {
@@ -241,6 +283,13 @@ export class FakeElement {
   public append(...nodes: FakeElement[]): void {
     for (const node of nodes) this.appendChild(node);
   }
+  public prepend(...nodes: FakeElement[]): void {
+    for (let i = nodes.length - 1; i >= 0; i--) {
+      const node = nodes[i]!;
+      this.insertBefore(node, this.firstChild);
+    }
+  }
+
 
   /** Mirrors Node.insertBefore, including the `null` reference = append case. */
   public insertBefore<T extends FakeElement>(node: T, reference: FakeElement | null): T {
@@ -266,6 +315,9 @@ export class FakeElement {
 
   public remove(): void {
     this.parent?.removeChild(this);
+    if (this.registry && this.elementId) {
+      this.registry.delete(this.elementId);
+    }
   }
 
   public querySelector(selector: string): FakeElement | null {
@@ -367,7 +419,12 @@ export class FakeElement {
 
   public setAttribute(name: string, value: string): void {
     this.attributes[name] = value;
-    if (name === 'id') this.elementId = value;
+    if (name === 'id') {
+      this.elementId = value;
+      if (this.registry && this.elementId) {
+        this.registry.set(this.elementId, this);
+      }
+    }
   }
 
   public getAttribute(name: string): string | null {
@@ -508,6 +565,7 @@ export interface StandaloneHarness {
   read<T>(expression: string): T;
   processIncomingChunk: (viewState: unknown, chunk: Chunk, isSplit: boolean) => Promise<void>;
   terminalDataListeners: Array<(payload: unknown) => void>;
+  terminalActivityListeners: Array<(payload: unknown) => void>;
   terminalSessionListeners: Array<(state: unknown) => void>;
   tabsUpdatedListeners: Array<(payload: unknown) => void>;
   getSplitGeometry: () => SplitGeometry;
@@ -527,6 +585,8 @@ export interface StandaloneHarness {
   emitProjectPicker(payload: unknown): void;
   /** Push a terminal data payload through the renderer's `onTerminalData` listener. */
   emitData(payload: unknown): void;
+  /** Push a lightweight activity envelope through the renderer's `onTerminalActivity` listener. */
+  emitActivity(payload: unknown): void;
   /** Replace the renderer's live `sessions` array (plain data only). */
   setSessions(list: unknown[]): void;
   getSessions(): Array<Record<string, unknown>>;
@@ -539,6 +599,22 @@ export interface StandaloneHarness {
   sleepPreview(): FakeElement | null;
   showCategoryPicker: (sessionId: string, anchorEl: FakeElement) => void;
   showAffinityPicker: (sessionId: string, anchorEl: FakeElement) => Promise<void>;
+  bridgeStatusListeners: Array<(report: unknown) => void>;
+  emitBridgeStatus: (report: unknown) => void;
+  renderBridgeChip: (report: unknown) => void;
+  renderBridgeBanner: (report: unknown) => void;
+  refreshBridgeStatus: () => Promise<void>;
+  localStorage: {
+    getItem: (key: string) => string | null;
+    setItem: (key: string, value: string) => void;
+    removeItem: (key: string) => void;
+    clear: () => void;
+  };
+  /** Push a run-card projection through the renderer's `onRunCardState` listener. */
+  runCardListeners: Array<(payload: unknown) => void>;
+  emitRunCardState: (payload: unknown) => void;
+  /** The capsule-brief dialog element (`#capsuleBriefDialog`). */
+  capsuleBriefDialog: FakeElement;
 }
 
 function computedStyle(): Record<string, string> {
@@ -547,7 +623,13 @@ function computedStyle(): Record<string, string> {
   }) as Record<string, string>;
 }
 
-export function loadStandalone(options: { initialState?: unknown; contextMenuActions?: string[]; popout?: boolean } = {}): StandaloneHarness {
+export function loadStandalone(options: {
+  initialState?: unknown;
+  contextMenuActions?: string[];
+  popout?: boolean;
+  localStorage?: Record<string, string>;
+  initialBridgeReport?: unknown;
+} = {}): StandaloneHarness {
   const elements = new Map<string, FakeElement>();
   const elementById = (id: string): FakeElement => {
     if (!elements.has(id)) elements.set(id, new FakeElement('div', id));
@@ -614,6 +696,25 @@ export function loadStandalone(options: { initialState?: unknown; contextMenuAct
   projectOpenActionsElement.appendChild(elementById('projectOpenCancel'));
   projectOpenModalElement.appendChild(projectOpenActionsElement);
   standaloneElement.appendChild(projectOpenOverlayElement);
+  // The capsule-brief dialog mirrors standalone.html's markup: one dialog whose
+  // named fields the renderer reads by id at open time.
+  const capsuleBriefDialogElement = elementById('capsuleBriefDialog');
+  const capsuleBriefModalElement = new FakeElement('div');
+  capsuleBriefModalElement.className = 'capsule-brief-modal';
+  capsuleBriefDialogElement.appendChild(capsuleBriefModalElement);
+  capsuleBriefModalElement.appendChild(elementById('capsuleBriefTitle'));
+  capsuleBriefModalElement.appendChild(elementById('capsuleBriefUrl'));
+  capsuleBriefModalElement.appendChild(elementById('capsuleBriefSite'));
+  capsuleBriefModalElement.appendChild(elementById('capsuleBriefTheme'));
+  capsuleBriefModalElement.appendChild(elementById('capsuleBriefRules'));
+  capsuleBriefModalElement.appendChild(elementById('capsuleBriefError'));
+  const capsuleBriefActionsElement = new FakeElement('div');
+  capsuleBriefActionsElement.className = 'capsule-brief-actions';
+  capsuleBriefModalElement.appendChild(capsuleBriefActionsElement);
+  capsuleBriefActionsElement.appendChild(elementById('capsuleBriefSave'));
+  capsuleBriefActionsElement.appendChild(elementById('capsuleBriefClear'));
+  capsuleBriefActionsElement.appendChild(elementById('capsuleBriefCancel'));
+  standaloneElement.appendChild(capsuleBriefDialogElement);
   const tabLayoutButtonElement = elementById('btnTerminalTabLayout');
 
   const documentKeydownListeners: Array<(event: KeyEventLike) => boolean | void> = [];
@@ -623,8 +724,21 @@ export function loadStandalone(options: { initialState?: unknown; contextMenuAct
   // `closest()` walk — the part that decides drop target vs. no drop — fully exercised.
   let elementFromPointHit: FakeElement | null = null;
   const documentStub = {
-    getElementById: elementById,
-    createElement: (tagName: string) => new FakeElement(tagName),
+    getElementById: (id: string) => {
+      if (standaloneElement.elementId === id) return standaloneElement;
+      const found = standaloneElement.querySelector('#' + id);
+      if (found) return found;
+      if (elements.has(id)) return elements.get(id)!;
+      const created = new FakeElement('div', id);
+      created.registry = elements;
+      elements.set(id, created);
+      return created;
+    },
+    createElement: (tagName: string) => {
+      const el = new FakeElement(tagName);
+      el.registry = elements;
+      return el;
+    },
     createTextNode: (text: string) => ({ textContent: text }),
     body: new FakeElement('body', 'body'),
     documentElement: new FakeElement('html', 'html'),
@@ -638,7 +752,12 @@ export function loadStandalone(options: { initialState?: unknown; contextMenuAct
       const index = documentKeydownListeners.indexOf(listener);
       if (index >= 0) documentKeydownListeners.splice(index, 1);
     },
-    querySelector: (selector: string) => (selector === '.standalone' ? standaloneElement : standaloneElement.querySelector(selector)),
+    querySelector: (selector: string) => {
+      if (selector === '.standalone' || selector === 'main.standalone' || selector === 'main' || standaloneElement.matches(selector)) {
+        return standaloneElement;
+      }
+      return standaloneElement.querySelector(selector);
+    },
     querySelectorAll: (selector: string) => standaloneElement.querySelectorAll(selector),
     readyState: 'complete',
     hidden: false,
@@ -670,15 +789,33 @@ export function loadStandalone(options: { initialState?: unknown; contextMenuAct
     setInterval,
     clearInterval,
     queueMicrotask,
-    localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
+    localStorage: (() => {
+      const storage = new Map<string, string>();
+      if (options.localStorage) {
+        for (const [k, v] of Object.entries(options.localStorage)) {
+          storage.set(k, String(v));
+        }
+      }
+      return {
+        getItem: (key: string) => (storage.has(String(key)) ? storage.get(String(key))! : null),
+        setItem: (key: string, value: string) => { storage.set(String(key), String(value)); },
+        removeItem: (key: string) => { storage.delete(String(key)); },
+        clear: () => { storage.clear(); },
+        get length() { return storage.size; },
+        key: (index: number) => [...storage.keys()][index] ?? null,
+      };
+    })(),
     matchMedia: () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} }),
     getComputedStyle: () => computedStyle(),
   };
   windowStub.window = windowStub;
   const terminalDataListeners: Array<(payload: unknown) => void> = [];
   const terminalSessionListeners: Array<(state: unknown) => void> = [];
+  const terminalActivityListeners: Array<(payload: unknown) => void> = [];
   const tabsUpdatedListeners: Array<(payload: unknown) => void> = [];
   const projectPickerListeners: Array<(payload: unknown) => void> = [];
+  const bridgeStatusListeners: Array<(report: unknown) => void> = [];
+  const runCardListeners: Array<(payload: unknown) => void> = [];
   const bridgeTarget: Record<string, unknown> = {
     getTerminalDelta: async () => null,
     splitTerminal: async () => '',
@@ -699,6 +836,7 @@ export function loadStandalone(options: { initialState?: unknown; contextMenuAct
     getInitialState: async () => options.initialState,
     // Capture push-channel listeners so tests can drive the data/session flow.
     onTerminalData: (listener: (payload: unknown) => void) => { terminalDataListeners.push(listener); },
+    onTerminalActivity: (listener: (payload: unknown) => void) => { terminalActivityListeners.push(listener); },
     onTerminalSession: (listener: (state: unknown) => void) => { terminalSessionListeners.push(listener); },
     onTabsUpdated: (listener: (payload: unknown) => void) => { tabsUpdatedListeners.push(listener); },
     // The project-open push channel: listeners are captured so a test can deliver the
@@ -706,6 +844,37 @@ export function loadStandalone(options: { initialState?: unknown; contextMenuAct
     onProjectOpenPicker: (listener: (payload: unknown) => void) => { projectPickerListeners.push(listener); },
     listProjects: async () => ({ candidates: [] as unknown[] }),
     answerProjectOpenPicker: async () => ({ status: 'ACCEPTED' }),
+    getBridgeStatus: async () => options.initialBridgeReport ?? {
+      active: true,
+      port: 20129,
+      clientCount: 1,
+      tabCount: 1,
+      inspecting: false,
+      health: 'listening',
+      state: 'listening',
+      record: { present: true, stale: false },
+      clientFailures: { count: 0 },
+    },
+    onBridgeStatus: (listener: (report: unknown) => void) => {
+      bridgeStatusListeners.push(listener);
+      return () => {
+        const idx = bridgeStatusListeners.indexOf(listener);
+        if (idx >= 0) bridgeStatusListeners.splice(idx, 1);
+      };
+    },
+    // The run-card push channel and its control route: listeners are captured so a
+    // test can deliver the `{ runs }` projection exactly as Main's fan-out would.
+    onRunCardState: (listener: (payload: unknown) => void) => {
+      runCardListeners.push(listener);
+      return () => {
+        const idx = runCardListeners.indexOf(listener);
+        if (idx >= 0) runCardListeners.splice(idx, 1);
+      };
+    },
+    runControl: async () => ({ ok: true, op: 'cancel', at: Date.now() }),
+    capsuleGetBrief: async () => ({ ok: true, capsuleId: '', brief: null }),
+    capsuleSetBrief: async () => ({ ok: true, capsuleId: '', brief: null }),
+    openInVSCode: async () => undefined,
   };
   // The renderer wires its whole preload bridge at load time, so unimplemented members are no-ops.
   // Every invocation is recorded so a test can prove which bridge calls a flow actually made.
@@ -809,6 +978,7 @@ export function loadStandalone(options: { initialState?: unknown; contextMenuAct
     read,
     processIncomingChunk: read<StandaloneHarness['processIncomingChunk']>('processIncomingChunk').bind(null) as StandaloneHarness['processIncomingChunk'],
     terminalDataListeners,
+    terminalActivityListeners,
     terminalSessionListeners,
     tabsUpdatedListeners,
     getSplitGeometry: read<StandaloneHarness['getSplitGeometry']>('getSplitGeometry'),
@@ -828,6 +998,9 @@ export function loadStandalone(options: { initialState?: unknown; contextMenuAct
     emitData: (payload: unknown) => {
       for (const listener of [...terminalDataListeners]) listener(payload);
     },
+    emitActivity: (payload: unknown) => {
+      for (const listener of [...terminalActivityListeners]) listener(payload);
+    },
     emitProjectPicker: (payload: unknown) => {
       for (const listener of [...projectPickerListeners]) listener(payload);
     },
@@ -845,6 +1018,19 @@ export function loadStandalone(options: { initialState?: unknown; contextMenuAct
     sleepPreview: () => read<FakeElement | null>('sleepPreviewEl'),
     showCategoryPicker: read<StandaloneHarness['showCategoryPicker']>('showCategoryPicker'),
     showAffinityPicker: read<StandaloneHarness['showAffinityPicker']>('showAffinityPicker'),
+    bridgeStatusListeners,
+    emitBridgeStatus: (report: unknown) => {
+      for (const listener of [...bridgeStatusListeners]) listener(report);
+    },
+    renderBridgeChip: (report: unknown) => read<(report: unknown) => void>('renderBridgeChip')(report),
+    renderBridgeBanner: (report: unknown) => read<(report: unknown) => void>('renderBridgeBanner')(report),
+    refreshBridgeStatus: () => read<() => Promise<void>>('refreshBridgeStatus')(),
+    runCardListeners,
+    emitRunCardState: (payload: unknown) => {
+      for (const listener of [...runCardListeners]) listener(payload);
+    },
+    capsuleBriefDialog: capsuleBriefDialogElement,
+    localStorage: windowStub.localStorage as StandaloneHarness['localStorage'],
   };
 }
 

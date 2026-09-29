@@ -228,6 +228,21 @@ body, html {
   border-left: 2px solid #087ff5 !important;
 }
 
+/* Hibernated tab: renderer freed, record survives — reduced, dimmed strip
+   presentation until a click wakes it through ensureTabAwake. */
+.tab.hibernated {
+  opacity: 0.55;
+}
+.tab.hibernated:hover {
+  opacity: 0.8;
+}
+.tab.hibernated .tab-icon {
+  filter: grayscale(0.7);
+}
+.tab.hibernated .tab-title {
+  font-style: italic;
+}
+
 .tab-status-dot {
   width: 6px;
   height: 6px;
@@ -272,6 +287,11 @@ body, html {
   box-shadow: 0 0 8px #f87171, 0 0 14px rgba(239, 68, 68, 0.8);
   animation: ag-error-pulse 0.8s ease-in-out infinite alternate;
 }
+.tab-status-dot.hibernated {
+  background: #94a3b8;
+  box-shadow: 0 0 5px rgba(148, 163, 184, 0.5);
+}
+
 
 .tab.tab-has-error::before {
   content: '';

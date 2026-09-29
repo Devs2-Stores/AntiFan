@@ -9,7 +9,10 @@ const api = {
   getInitialState: () => ipcRenderer.invoke('antifan:sidebar:get-initial-state'),
   startTerminal: (cwd) => ipcRenderer.invoke('antifan:terminal:start', cwd),
   sendTerminalInput: (input) => ipcRenderer.invoke('antifan:terminal:input', input),
-  sendTerminalInputTo: (id, input) => ipcRenderer.invoke('antifan:terminal:input-session', { id, input }),
+  // Fire-and-forget, exactly like the shipped preload: `native-tab-host` declares this
+  // channel `kind: 'on'`, so a promise-returning `invoke` here would model a transport
+  // production does not use and would resolve against a handler the app never registers.
+  sendTerminalInputTo: (id, input) => ipcRenderer.send('antifan:terminal:input-session', { id, input }),
   restartTerminal: (cwd) => ipcRenderer.invoke('antifan:terminal:restart', cwd),
   killTerminal: () => ipcRenderer.invoke('antifan:terminal:kill'),
   resizeTerminal: (cols, rows) => ipcRenderer.invoke('antifan:terminal:resize', { cols, rows }),
@@ -41,6 +44,10 @@ const api = {
       return false;
     }
   },
+  // The other `kind: 'on'` route the renderer calls: a renderer that acks a chunk it
+  // painted must reach the manager in this harness too, or the ack path is never
+  // exercised here.
+  ackTerminalChunk: (payload) => ipcRenderer.send('antifan:terminal:ack', payload),
   onPopoutStateChanged: (cb) => {
     const h = (_e, v) => cb(v);
     ipcRenderer.on('antifan:terminal:popout-state-changed', h);

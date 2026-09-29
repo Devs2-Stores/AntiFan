@@ -331,18 +331,21 @@ function windowCensus() {
   });
 }
 
+let lastJournalReadError = null;
 /** The journal the shipping process writes, read from disk (every line is appended synchronously). */
 function journalEvents() {
   try {
-    return fs
-      .readFileSync(getLifecycleLogPath(), 'utf8')
+    const raw = fs.readFileSync(getLifecycleLogPath(), 'utf8');
+    lastJournalReadError = null;
+    return raw
       .split('\n')
       .filter((line) => line.trim().length > 0)
       .map((line) => {
         try { return JSON.parse(line); } catch { return { event: 'unparsable' }; }
       });
   } catch (err) {
-    return [];
+    lastJournalReadError = messageOf(err);
+    return null;
   }
 }
 
@@ -948,7 +951,8 @@ async function run() {
   expect(typeof popoutUrl === 'string' && popoutUrl.length > 0, `the terminal popout never committed a document (url '${String(popoutUrl)}')`);
   await evalIn(popoutToContents, ARM_UNLOAD_VETO, 'arm the popout unload veto').catch(() => {});
   const popoutArmed = await evalIn(popoutToContents, 'typeof window.onbeforeunload', 'read the popout unload veto back');
-  const journalBeforeAux = journalEvents().length;
+  const journalBeforeAuxEvents = journalEvents();
+  const journalBeforeAux = journalBeforeAuxEvents ? journalBeforeAuxEvents.length : 0;
   // The platform's own account of the auxiliary close, recorded next to the app's: an attempt
   // that produces no report has to be judged by what the window and its contents actually said.
   const auxT0 = Date.now();
@@ -976,12 +980,14 @@ async function run() {
       census: windowCensus(),
       popoutEvents: [...popoutEvents],
       pages: pageStateDump(authority),
-      journal: journalEvents().slice(journalBeforeAux).map((entry) => entry.event),
+      journalReadError: lastJournalReadError,
+      journal: (journalEvents() || []).slice(journalBeforeAux).map((entry) => entry.event),
     };
     return null;
   });
   await sleep(400);
-  const auxJournal = journalEvents().slice(journalBeforeAux);
+  const auxEvents = journalEvents();
+  const auxJournal = auxEvents ? auxEvents.slice(journalBeforeAux) : null;
   const auxCensus = windowCensus();
   observations.auxQuit = {
     report: auxQuitReport,
@@ -991,7 +997,8 @@ async function run() {
     terminalWindows: terminalWindowsFor(authority).map((entry) => entry.window.id),
     census: auxCensus,
     popoutEvents: [...popoutEvents],
-    journal: auxJournal.map((entry) => entry.event),
+    journalReadError: lastJournalReadError,
+    journal: auxJournal ? auxJournal.map((entry) => entry.event) : null,
   };
 
   await check('a late veto in a terminal window keeps services alive, releases admission and never commits', () => {
@@ -1224,13 +1231,15 @@ async function run() {
   const finalKey = gammaReopened.ownerKey;
   const finalTabsBefore = authority.snapshot().find((entry) => entry.ownerKey === finalKey)?.tabIds || [];
   const beforeFinalQuit = authority.lastQuitReport()?.attemptId ?? 0;
-  const journalBeforeExit = journalEvents().length;
+  const journalBeforeExitEvents = journalEvents();
+  const journalBeforeExit = journalBeforeExitEvents ? journalBeforeExitEvents.length : 0;
   const censusBeforeFinalQuit = windowCensus();
   const closeRequested = authority.requestClose(finalKey);
   const quitSettled = await Promise.race([willQuitPromise, sleep(30000).then(() => 'timeout')]);
   const finalQuitReport = await waitForQuitReport(beforeFinalQuit, 'the committed quit report', 20000).catch(() => null);
   await sleep(300);
-  const journal = journalEvents().slice(journalBeforeExit);
+  const journalFinalEvents = journalEvents();
+  const journal = journalFinalEvents ? journalFinalEvents.slice(journalBeforeExit) : null;
   const finalCensus = windowCensus();
   const popoutAliveAtFinalQuit = censusBeforeFinalQuit.some((window) => window.id === terminalWindow.window.id && !window.destroyed);
   observations.finalQuit = {
@@ -1245,7 +1254,8 @@ async function run() {
     censusAfter: finalCensus,
     popoutAliveAtFinalQuit,
     reservations: authority.reservations(),
-    journal: journal.map((entry) => entry.event),
+    journalReadError: lastJournalReadError,
+    journal: journal ? journal.map((entry) => entry.event) : null,
   };
 
   await check('the last browser shell closing runs the same application gate and exits orderly', () => {
@@ -1274,6 +1284,8 @@ async function run() {
   });
 
   await check('the ordered teardown ran once and nothing forced the exit', () => {
+    // M9: Assert journal was read successfully before asserting negative event absence
+    expect(journal !== null, `the lifecycle journal could not be read (${lastJournalReadError}), so teardown events cannot be proven`);
     const events = journal.map((entry) => entry.event);
     expect(events.includes('shutdown.begin'), `the shutdown never began: ${JSON.stringify(events)}`);
     expect(events.includes('shutdown.clean'), `the shutdown never reached its clean marker: ${JSON.stringify(events)}`);

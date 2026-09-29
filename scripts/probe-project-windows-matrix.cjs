@@ -131,15 +131,22 @@ function verifyOrphans() {
     console.log(lines.join('\n'));
     if (receipt && r9e) {
       r9e.status = 'BLOCKED';
+      r9e.bucket = 'environment';
       delete r9e.error;
       r9e.reason = reason;
       const checks = Array.isArray(receipt.checks) ? receipt.checks : [];
       const check = checks.find((entry) => String(entry.name).startsWith('R9E '));
-      if (check) { check.ok = false; check.error = `BLOCKED: ${reason}`; }
+      if (check) { check.ok = false; check.error = `BLOCKED [environment]: ${reason}`; }
       receipt.blocked = receipt.rows.filter((entry) => entry.status === 'BLOCKED').length;
       receipt.passed = receipt.rows.filter((entry) => entry.status === 'PASS').length;
       receipt.failed = receipt.rows.filter((entry) => entry.status === 'FAIL').length;
-      receipt.postExitVerification = { verdict: 'BLOCKED', reason, witness: orphanReportPath, verifiedAt: new Date().toISOString(), survivingPids: [] };
+      receipt.blockedBuckets = {
+        hardware: receipt.rows.filter((entry) => entry.status === 'BLOCKED' && entry.bucket === 'hardware').length,
+        environment: receipt.rows.filter((entry) => entry.status === 'BLOCKED' && entry.bucket === 'environment').length,
+        cascade: receipt.rows.filter((entry) => entry.status === 'BLOCKED' && entry.bucket === 'cascade').length,
+        'test-bug': receipt.rows.filter((entry) => entry.status === 'BLOCKED' && entry.bucket === 'test-bug').length,
+      };
+      receipt.postExitVerification = { verdict: 'BLOCKED', reason, bucket: 'environment', witness: orphanReportPath, verifiedAt: new Date().toISOString(), survivingPids: [] };
       try { fs.writeFileSync(receiptPath, JSON.stringify(receipt, null, 2), 'utf8'); } catch {}
     }
     process.exit(2);
@@ -161,6 +168,7 @@ function verifyOrphans() {
       const row = rows.find((entry) => entry.id === 'R9E');
       if (row) {
         row.status = 'BLOCKED';
+        row.bucket = 'environment';
         delete row.error;
         row.reason = reason;
       }
@@ -168,9 +176,16 @@ function verifyOrphans() {
       const check = checks.find((entry) => String(entry.name).startsWith('R9E '));
       if (check) {
         check.ok = false;
-        check.error = `BLOCKED: ${reason}`;
+        check.error = `BLOCKED [environment]: ${reason}`;
       }
-      receipt.postExitVerification = { verdict: 'BLOCKED', reason, witness: orphanReportPath, verifiedAt: new Date().toISOString(), survivingPids: [] };
+      receipt.blocked = rows.filter((entry) => entry.status === 'BLOCKED').length;
+      receipt.blockedBuckets = {
+        hardware: rows.filter((entry) => entry.status === 'BLOCKED' && entry.bucket === 'hardware').length,
+        environment: rows.filter((entry) => entry.status === 'BLOCKED' && entry.bucket === 'environment').length,
+        cascade: rows.filter((entry) => entry.status === 'BLOCKED' && entry.bucket === 'cascade').length,
+        'test-bug': rows.filter((entry) => entry.status === 'BLOCKED' && entry.bucket === 'test-bug').length,
+      };
+      receipt.postExitVerification = { verdict: 'BLOCKED', reason, bucket: 'environment', witness: orphanReportPath, verifiedAt: new Date().toISOString(), survivingPids: [] };
       receipt.notes = [
         ...(Array.isArray(receipt.notes) ? receipt.notes : []),
         `Post-exit orphan verdict attempted at ${new Date().toISOString()}: BLOCKED (${reason}).`,
@@ -190,16 +205,20 @@ function verifyOrphans() {
   // the OS said the process was absent; an unsupported platform or a window that closed while the
   // process was still there (or while the OS could not answer) leaves this row BLOCKED — "unknown",
   // which is not the same answer as "idle" and not the same as a failure either.
-  const supported = report.supported !== false;
+  const supported = report.supported !== false && report.descendantCheckSupported !== false;
   const hostGone = report.hostGone === true;
-  const survivorCheckRan = report.survivorCheckRan !== false;
-  const observationAvailable = supported && hostGone && survivorCheckRan;
+  const survivorCheckRan = report.survivorCheckRan === true;
+  const descendantQueryFailed = report.descendantQueryFailed === true;
+  const observationAvailable = supported && hostGone && survivorCheckRan && !descendantQueryFailed;
   const observationMissingReason = !supported
-    ? `the post-exit process inventory is implemented for win32 only (this platform: ${String(report.platform ?? 'unknown')})`
-    : hostGone
-      ? 'the watcher reported an exit but did not run the survivor scan'
-      : `the host process (pid ${String(report.hostPid ?? 'unknown')}) was still alive — or the OS could not be asked — when the watcher's window closed (hostState: ${String(report.hostState ?? 'unknown')}), so no post-exit observation exists yet`;
-  const ok = observationAvailable && survivorPids.length === 0 && commandLineMatches.length === 0;
+    ? `the post-exit process inventory is not supported on this platform (${String(report.platform ?? 'unknown')}) or CimInstance query failed`
+    : !hostGone
+      ? `the host process (pid ${String(report.hostPid ?? 'unknown')}) was still alive — or the OS could not be asked — when the watcher's window closed (hostState: ${String(report.hostState ?? 'unknown')}), so no post-exit observation exists yet`
+      : !survivorCheckRan
+        ? 'the watcher reported an exit but did not run the survivor scan'
+        : descendantQueryFailed
+          ? `the post-exit survivor scan could not query the OS for descendant processes (${report.descendantQueriesUnanswered ?? 0} process queries unanswered, listing query failed: ${Boolean(report.listingQueryFailed)})`
+          : 'the post-exit survivor observation was unavailable';
   lines.push(`watcher supported on this platform: ${String(supported)}`);
   lines.push(`host process gone: ${String(hostGone)} (hostState: ${String(report.hostState ?? 'unknown')}${report.timedOut === true ? ', timed out' : ''})`);
   lines.push(`survivor scan ran after the exit: ${String(survivorCheckRan)}`);
@@ -229,6 +248,7 @@ function verifyOrphans() {
       if (!ok) row.error = `owned processes survived the GUI exit: pids=${JSON.stringify(survivorPids)} commandLine=${JSON.stringify(commandLineMatches)}`;
     } else {
       row.status = 'BLOCKED';
+      row.bucket = 'environment';
       delete row.error;
       row.reason = observationMissingReason;
     }
@@ -247,6 +267,10 @@ function verifyOrphans() {
       watcherPollCount: report.pollCount,
       watcherWindowMs: report.windowMs ?? null,
       ancestorQueryUnanswered: report.ancestorQueryUnanswered ?? null,
+      descendantCheckSupported: report.descendantCheckSupported ?? null,
+      descendantQueryFailed: report.descendantQueryFailed ?? null,
+      descendantQueriesUnanswered: report.descendantQueriesUnanswered ?? null,
+      listingQueryFailed: report.listingQueryFailed ?? null,
     };
     row.ids = { ...(row.ids || {}), orphanPids: survivorPids };
   }
@@ -255,21 +279,31 @@ function verifyOrphans() {
   if (check) {
     check.ok = observationAvailable && ok;
     delete check.error;
-    if (!observationAvailable) check.error = `BLOCKED: ${observationMissingReason}`;
+    if (!observationAvailable) check.error = `BLOCKED [environment]: ${observationMissingReason}`;
     else if (!ok) check.error = `owned processes survived the GUI exit: ${JSON.stringify(survivorPids)}`;
   }
-  const recount = () => ({
-    passed: rows.filter((entry) => entry.status === 'PASS').length,
-    failed: rows.filter((entry) => entry.status === 'FAIL').length,
-    blocked: rows.filter((entry) => entry.status === 'BLOCKED').length,
-  });
+  const recount = () => {
+    const blockedRows = rows.filter((entry) => entry.status === 'BLOCKED');
+    return {
+      passed: rows.filter((entry) => entry.status === 'PASS').length,
+      failed: rows.filter((entry) => entry.status === 'FAIL').length,
+      blocked: blockedRows.length,
+      blockedBuckets: {
+        hardware: blockedRows.filter((r) => r.bucket === 'hardware').length,
+        environment: blockedRows.filter((r) => r.bucket === 'environment').length,
+        cascade: blockedRows.filter((r) => r.bucket === 'cascade').length,
+        'test-bug': blockedRows.filter((r) => r.bucket === 'test-bug').length,
+      },
+    };
+  };
   const counted = recount();
   receipt.passed = counted.passed;
   receipt.failed = counted.failed;
   receipt.blocked = counted.blocked;
+  receipt.blockedBuckets = counted.blockedBuckets;
   receipt.postExitVerification = {
     verdict: observationAvailable ? (ok ? 'PASS' : 'FAIL') : 'BLOCKED',
-    ...(observationAvailable ? {} : { reason: observationMissingReason }),
+    ...(observationAvailable ? {} : { reason: observationMissingReason, bucket: 'environment' }),
     witness: orphanReportPath,
     verifiedAt: new Date().toISOString(),
     survivingPids: survivorPids,
@@ -733,7 +767,8 @@ async function automated(id, judge, budgetMs = ROW_BUDGET_MS) {
   }
   // A judge that outlived its budget keeps running and keeps driving windows. Freeze what it
   // reported so far, so its later mutations cannot appear in the receipt as this row's evidence.
-  const recorded = budgetExpired ? { ...row, observed: { ...row.observed }, ids: { ...row.ids } } : row;
+  // M7: structuredClone the row so nested objects (observed, ids) cannot be mutated afterwards.
+  const recorded = budgetExpired ? structuredClone(row) : row;
   rowResults.set(id, recorded);
   const detail = recorded.status === 'PASS' ? '' : `: ${recorded.error || recorded.reason}`;
   console.log(`  ${recorded.status.padEnd(7)} ${id}${detail}`);
@@ -745,13 +780,22 @@ async function automated(id, judge, budgetMs = ROW_BUDGET_MS) {
   return recorded;
 }
 
+function inferBucket(id, reason, explicitBucket) {
+  if (explicitBucket) return explicitBucket;
+  if (id.endsWith('-HW') || /hardware|two real monitors|physical/i.test(reason)) return 'hardware';
+  if (/cascade|earlier row failed|teardown never committed/i.test(reason)) return 'cascade';
+  if (/test-bug/i.test(reason)) return 'test-bug';
+  return 'environment';
+}
+
 /** A row whose subject this environment cannot produce. Never a pass, never a fixture. */
-function blocked(id, reason, observed = {}, ids = {}) {
+function blocked(id, reason, observed = {}, ids = {}, explicitBucket = undefined) {
   const plan = ROW_BY_ID.get(id);
   if (!plan) throw new Error(`undeclared matrix row '${id}'`);
-  const row = { id, criterion: plan.criterion, observable: plan.observable, status: 'BLOCKED', reason, observed, ids };
+  const bucket = inferBucket(id, reason, explicitBucket);
+  const row = { id, criterion: plan.criterion, observable: plan.observable, status: 'BLOCKED', bucket, reason, observed, ids };
   rowResults.set(id, row);
-  console.log(`  BLOCKED ${id}: ${reason}`);
+  console.log(`  BLOCKED ${id} [${bucket}]: ${reason}`);
   return row;
 }
 
@@ -1832,6 +1876,7 @@ async function run() {
    */
   const sawMarker = async (sessionId, marker, ms = 8000) => {
     let readError = null;
+    const startedAt = Date.now();
     try {
       await waitFor(
         async () => {
@@ -1849,10 +1894,18 @@ async function run() {
         `session ${sessionId} to show ${marker}`,
         ms,
       );
-      return { reached: true, readError: null };
+      return { reached: true, readError: null, latencyMs: Date.now() - startedAt };
     } catch {
-      return { reached: false, readError };
+      return { reached: false, readError, latencyMs: Date.now() - startedAt };
     }
+  };
+
+  // M8: Anchor negative marker windows to observed positive delivery time instead of fixed 1500ms
+  const negativeWindowMs = (positiveOutcome, fallbackMs = 8000) => {
+    if (positiveOutcome && positiveOutcome.reached && typeof positiveOutcome.latencyMs === 'number') {
+      return Math.min(Math.max(Math.round(positiveOutcome.latencyMs * 2), 2500), fallbackMs);
+    }
+    return fallbackMs;
   };
 
   await automated('R2b', async (row) => {
@@ -1881,7 +1934,8 @@ async function run() {
     );
     await send(sidebarA, `window.antifanStandalone.sendTerminalInput(${JSON.stringify(`echo ${markerOwn}\r`)})`, 'A sendTerminalInput');
     const ownA = await sawMarker(sessionA, markerOwn);
-    const ownB = await sawMarker(sessionB, markerOwn, 1500);
+    const ownBWindow = negativeWindowMs(ownA);
+    const ownB = await sawMarker(sessionB, markerOwn, ownBWindow);
 
     // B makes its own session the process-wide active one. A's next keystrokes must still land in
     // A's session: the active session is process-wide state, not this window's terminal.
@@ -1898,7 +1952,8 @@ async function run() {
     const bActiveAfterSwitch = diagnosticsBAfterSwitch && typeof diagnosticsBAfterSwitch === 'object' ? diagnosticsBAfterSwitch.activeSessionId : null;
     await send(sidebarA, `window.antifanStandalone.sendTerminalInput(${JSON.stringify(`echo ${markerAfterSwitch}\r`)})`, 'A sendTerminalInput after B switch');
     const afterSwitchA = await sawMarker(sessionA, markerAfterSwitch);
-    const afterSwitchB = await sawMarker(sessionB, markerAfterSwitch, 1500);
+    const afterSwitchBWindow = negativeWindowMs(afterSwitchA);
+    const afterSwitchB = await sawMarker(sessionB, markerAfterSwitch, afterSwitchBWindow);
 
     // Naming the other window's session explicitly is refused, and that session stays clean.
     // `sendTerminalInputTo` is fire-and-forget, so the refusal is observed where it lands: nowhere.
@@ -1907,7 +1962,8 @@ async function run() {
       `(() => { try { window.antifanStandalone.sendTerminalInputTo(${JSON.stringify(sessionB)}, ${JSON.stringify(`echo ${markerCross}\r`)}); return { sent: true }; } catch (err) { return { sent: false, error: String((err && err.message) || err) }; } })()`,
       'A cross-window send',
     );
-    const crossReachedB = await sawMarker(sessionB, markerCross, 1500);
+    const crossBWindow = negativeWindowMs(afterSwitchA);
+    const crossReachedB = await sawMarker(sessionB, markerCross, crossBWindow);
     // What a window may read is scoped by the same rule: its own sessions, never a sibling's.
     const listA = await send(sidebarA, 'window.antifanStandalone.listTerminals()', 'A listTerminals');
     const diagnosticsA = await send(sidebarA, 'window.antifanStandalone.dumpTerminalDiagnostics()', 'A dumpTerminalDiagnostics');
@@ -1926,6 +1982,9 @@ async function run() {
       selectedB: selectedB === true,
       activeSessionAfterBSwitch: bActiveAfterSwitch,
       crossSent,
+      ownBWindowMs: ownBWindow,
+      afterSwitchBWindowMs: afterSwitchBWindow,
+      crossBWindowMs: crossBWindow,
       ownMarkerReachedA: ownA.reached,
       ownMarkerReadErrorA: ownA.readError,
       ownMarkerReachedB: ownB.reached,
@@ -1961,6 +2020,8 @@ async function run() {
     expect(neverSawMarker(afterSwitchB), afterSwitchB.readError
       ? `window B's session ${sessionB} could not be read (${afterSwitchB.readError}), so "window A's typing reached B" is unproven`
       : `window A's typing reached window B's session ${sessionB} after B made it the active session`);
+    // I1: Assert cross-window send was executed before asserting the negative expectation
+    expect(crossSent && crossSent.sent === true, `window A failed to invoke sendTerminalInputTo cross-window: ${crossSent && crossSent.error ? crossSent.error : JSON.stringify(crossSent)}`);
     expect(neverSawMarker(crossReachedB), crossReachedB.readError
       ? `window B's session ${sessionB} could not be read (${crossReachedB.readError}), so the cross-window refusal is unproven`
       : `naming window B's session ${sessionB} from window A delivered input into it`);
@@ -2658,6 +2719,7 @@ async function run() {
   await automated('R12a', async (row) => {
     if (!rendererBundlePresent) {
       row.status = 'BLOCKED';
+      row.bucket = 'environment';
       row.reason = `this build root (${compiledRoot}) ships no renderer bundle (src/renderer/toolbar.js + toolbar.html), so the chrome DOM cannot be observed; run against the output of \`npm run compile\``;
       row.observed = { compiledRoot, rendererBundlePresent };
       return;
@@ -2785,6 +2847,7 @@ async function run() {
   await automated('R12b', async (row) => {
     if (!rendererBundlePresent) {
       row.status = 'BLOCKED';
+      row.bucket = 'environment';
       row.reason = `this build root (${compiledRoot}) ships no renderer bundle, so the chrome DOM cannot be observed; run against the output of \`npm run compile\``;
       row.observed = { compiledRoot, rendererBundlePresent };
       return;
@@ -3037,8 +3100,12 @@ async function run() {
     if (popoutOpened) {
       expect(auxiliariesAfter.length >= auxiliariesBefore.length, `a detached auxiliary window vanished when A closed: before ${JSON.stringify(auxiliariesBefore)}, after ${JSON.stringify(auxiliariesAfter)}`);
     } else {
-      expect(auxiliariesAfter.length === auxiliariesBefore.length, `the auxiliary window set changed while no popout was open: ${JSON.stringify(auxiliariesAfter)}`);
-      row.observed.auxiliaryNote = 'the terminal popout could not be opened in this environment, so the auxiliary-survival half of this row is unproven; the daemon/popout teardown half is judged in R9B/R9C';
+      // I2: popout-open failure in this environment must be BLOCKED with bucket environment, never PASS
+      row.status = 'BLOCKED';
+      row.bucket = 'environment';
+      row.reason = 'the terminal popout could not be opened in this environment, so the auxiliary-survival half of this row is unproven; the daemon/popout teardown half is judged in R9B/R9C';
+      row.observed.auxiliaryNote = row.reason;
+      return;
     }
     expect(app.isReady() === true, 'the app is no longer ready after A closed');
   });
@@ -3682,6 +3749,7 @@ async function run() {
   await automated('R9c', async (row) => {
     if (!daemon.staged) {
       row.status = 'BLOCKED';
+      row.bucket = 'environment';
       row.reason = daemonEntryPresent
         ? `the detached terminal host could not be staged into this run's data root: ${String(daemon.stagingError)}`
         : `no staged daemon bundle exists at ${path.join(compiledRoot, 'src', 'main', 'terminal-daemon', 'daemon-entry.js')}, so the app runs its terminals in-process and there is no daemon whose survival could be observed (run \`npm run compile\`, then this harness stages scripts/stage-daemon-host.mjs into its own data root)`;
@@ -3757,6 +3825,7 @@ async function run() {
     // row that drove the quit.
     if (willQuitSettled !== 'will-quit') {
       row.status = 'BLOCKED';
+      row.bucket = 'cascade';
       row.reason = `the teardown never committed (will-quit settled '${String(willQuitSettled)}'), so no post-commit state exists to judge; the failure belongs to row R9b`;
       row.observed = { willQuitSettled, shells: snapshot().map((entry) => entry.ownerKey) };
       return;
@@ -3883,7 +3952,13 @@ log('hostState=' + hostState + ' polls=' + pollCount + ' unanswered=' + unanswer
 // Inventory only after the exit. A descendant the OS is still tearing down is not a survivor,
 // so the scan waits out the exit's own settle time before it looks for what outlived it.
 if (hostGone) sleep(SURVIVOR_GRACE_MS);
-const survivorCheckRan = hostGone;
+// I3: descendantCheckSupported is probed via CimInstance Win32_Process, not hardcoded true
+let descendantCheckSupported = false;
+if (supportedPlatform) {
+  const probeOut = query('Get-CimInstance Win32_Process -Filter "ProcessId=' + process.pid + '" | Select-Object -ExpandProperty ProcessId');
+  descendantCheckSupported = probeOut !== null;
+}
+const survivorCheckRan = hostGone && descendantCheckSupported;
 // The parent's argv list is fixed at arm time; anything learned later (the R9d inventory, or a
 // mid-cleanup snapshot on an early exit) lands in the children file, merged here after the host
 // is confirmed gone.
@@ -3896,11 +3971,19 @@ if (childrenFilePath) {
     }
   } catch {}
 }
+let descendantQueryFailed = false;
+let descendantQueriesUnanswered = 0;
 const survivingPids = [];
 if (survivorCheckRan) {
   for (const pid of allChildren) {
     if (pid === process.pid) continue;
-    if (alive(pid) === true) survivingPids.push(pid);
+    const state = alive(pid);
+    if (state === true) {
+      survivingPids.push(pid);
+    } else if (state === null) {
+      descendantQueryFailed = true;
+      descendantQueriesUnanswered += 1;
+    }
   }
 }
 const matches = [];
@@ -3910,6 +3993,9 @@ const matches = [];
 const listing = survivorCheckRan
   ? query('Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $PID -and $_.ProcessId -ne ' + process.pid + ' -and $_.CommandLine -like "*' + token + '*" } | Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress')
   : null;
+if (survivorCheckRan && listing === null) {
+  descendantQueryFailed = true;
+}
 if (typeof listing === 'string' && listing.trim()) {
   try {
     const parsed = JSON.parse(listing.trim());
@@ -3931,7 +4017,10 @@ const report = {
   timedOut: !hostGone,
   ancestorQueryUnanswered: unansweredPolls,
   survivorCheckRan,
-  descendantCheckSupported: true,
+  descendantCheckSupported,
+  descendantQueryFailed,
+  descendantQueriesUnanswered,
+  listingQueryFailed: survivorCheckRan && listing === null,
   windowMs: WATCH_WINDOW_MS,
   observedAfterExitMs: exitObservedAtMs === null ? null : exitObservedAtMs - (deadline - WATCH_WINDOW_MS),
   survivingPids,
@@ -4046,6 +4135,7 @@ function writeReport() {
       criterion,
       observable,
       status: 'BLOCKED',
+      bucket: kind === 'hardware' ? 'hardware' : kind === 'post-exit' ? 'environment' : 'cascade',
       reason: kind === 'hardware'
         ? 'needs physical hardware/human, and the run ended before this row reported'
         : kind === 'post-exit'
@@ -4063,11 +4153,18 @@ function writeReport() {
     name: `${row.id} [criterion ${row.criterion}] ${row.observable}`,
     ok: row.status === 'PASS',
     ...(row.status === 'FAIL' ? { error: row.error } : {}),
-    ...(row.status === 'BLOCKED' ? { error: `BLOCKED: ${row.reason}` } : {}),
+    ...(row.status === 'BLOCKED' ? { error: `BLOCKED [${row.bucket || 'environment'}]: ${row.reason}` } : {}),
   }));
   const passed = rows.filter((row) => row.status === 'PASS').length;
   const failed = rows.filter((row) => row.status === 'FAIL').length;
-  const blockedCount = rows.filter((row) => row.status === 'BLOCKED').length;
+  const blockedRows = rows.filter((row) => row.status === 'BLOCKED');
+  const blockedCount = blockedRows.length;
+  const blockedBuckets = {
+    hardware: blockedRows.filter((r) => r.bucket === 'hardware').length,
+    environment: blockedRows.filter((r) => r.bucket === 'environment').length,
+    cascade: blockedRows.filter((r) => r.bucket === 'cascade').length,
+    'test-bug': blockedRows.filter((r) => r.bucket === 'test-bug').length,
+  };
   // A row that can silently not run is a defect in the harness, so the receipt carries the
   // coverage proof itself: the declared matrix, the emitted matrix, which rows this process
   // actually judged, and which ones were emitted without a judge.
@@ -4084,6 +4181,7 @@ function writeReport() {
     passed,
     failed,
     blocked: blockedCount,
+    blockedBuckets,
     coverage,
     checks,
     rows,
@@ -4112,7 +4210,7 @@ function writeReport() {
     exitCode = 1;
     return exitCode;
   }
-  console.log(`\n[matrix] ${passed} passed, ${failed} failed, ${blockedCount} blocked — evidence: ${receiptPath}`);
+  console.log(`\n[matrix] ${passed} passed, ${failed} failed, ${blockedCount} blocked (hardware: ${blockedBuckets.hardware}, environment: ${blockedBuckets.environment}, cascade: ${blockedBuckets.cascade}, test-bug: ${blockedBuckets['test-bug']}) — evidence: ${receiptPath}`);
   console.log(`[matrix] rows judged by this process: ${coverage.judgedByThisProcess.length}/${coverage.declared} (unjudged rows are emitted BLOCKED, never omitted)`);
   if (!coverage.everyDeclaredRowEmittedExactlyOnce) {
     // Only reachable if the writer itself is broken: the emitted rows are built from ROW_PLAN.
@@ -4124,9 +4222,9 @@ function writeReport() {
     console.log(`[matrix] failed rows: ${rows.filter((row) => row.status === 'FAIL').map((row) => row.id).join(', ')}`);
   }
   if (blockedCount > 0) {
-    console.log(`[matrix] blocked rows (hardware/human, post-exit or unobserved): ${rows.filter((row) => row.status === 'BLOCKED').map((row) => row.id).join(', ')}`);
-    for (const row of rows.filter((entry) => entry.status === 'BLOCKED')) {
-      console.log(`[matrix]   ${row.id}: ${row.reason}`);
+    console.log(`[matrix] blocked rows by bucket: hardware=${blockedBuckets.hardware} environment=${blockedBuckets.environment} cascade=${blockedBuckets.cascade} test-bug=${blockedBuckets['test-bug']}`);
+    for (const row of blockedRows) {
+      console.log(`[matrix]   ${row.id} [${row.bucket || 'environment'}]: ${row.reason}`);
     }
   }
   exitCode = failed > 0 ? 1 : blockedCount > 0 ? 2 : 0;

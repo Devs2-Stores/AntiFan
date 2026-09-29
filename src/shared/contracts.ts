@@ -27,6 +27,14 @@ export interface AntiFanTab {
   partition?: string;
   ephemeral?: boolean;
   offscreen?: boolean;
+  /**
+   * Set while the tab's WebContentsViews are destroyed to reclaim the renderer.
+   * The record (id, url, title, favicon, scroll) survives; wake recreates the
+   * views on first touch. History back/forward is NOT restored.
+   */
+  hibernated?: boolean;
+  /** Wall time the tab last was active or saw user input; 0/absent = never. */
+  lastActiveAt?: number;
   splitMode?: boolean;
   splitDesktopPresetId?: string;
   splitMobilePresetId?: string;
@@ -210,7 +218,79 @@ export interface AntiFanBridgeStatus {
   tabCount: number;
   inspecting: boolean;
   sidebarOpen?: boolean;
+  /** The bridge's own self-report; the evaluated verdict lives on `BridgeHealthReport.state`. */
+  health: BridgeHealthState;
+  /** The last refusal or lost client attempt the server recorded, when inside memory. */
+  lastFailure?: BridgeFailureRecord;
 }
+
+/**
+ * What the bridge believes about itself. This is the vocabulary the published discovery
+ * record and `AntiFanBridgeStatus.health` share; it is a *self-report*, and a consumer
+ * that needs a verdict reads `BridgeHealthReport.state`, which weighs the record against
+ * pid liveness and freshness.
+ */
+export type BridgeHealthState = 'listening' | 'degraded' | 'down';
+
+/**
+ * One refusal the server issued or one client attempt it lost. `message` is composed
+ * server-side per `code` and never echoes client input: this record is published to
+ * `bridge.json` and mirrored to `~/.gemini`, both of which other tools read.
+ */
+export interface BridgeFailureRecord {
+  code: string;
+  message: string;
+  at: number;
+}
+
+/** Why an evaluated report does not read `listening` when the record itself cannot say. */
+export type BridgeHealthReasonCode =
+  | 'HEALTH_RECORD_ABSENT'
+  | 'HEALTH_PID_DEAD'
+  | 'HEALTH_STALE'
+  | 'HEALTH_RECORD_CORRUPT'
+  | 'HEALTH_RECORD_LEGACY';
+
+/** One fresh row of the launcher's client-failure journal, as the report folds it in. */
+export interface BridgeClientFailureRow {
+  at: number;
+  code: string;
+  message: string;
+  terminalSessionId?: string;
+  pid?: number;
+}
+
+/**
+ * The Manager's bridge answer: the live snapshot, the evaluated verdict, and both evidence
+ * planes. `health` stays the writer's self-report while `state` is the verdict, so a
+ * server whose record is stale or whose pid is gone is reported `down` even when its own
+ * file still claims `listening`. A report is never thrown for a bridge that is down: a
+ * `down` bridge is an answer, and the renderer tells it apart from broken IPC by getting a
+ * well-formed payload back.
+ */
+export interface BridgeHealthReport {
+  active: boolean;
+  port: number;
+  clientCount: number;
+  activeTabId?: string;
+  tabCount: number;
+  inspecting: boolean;
+  sidebarOpen?: boolean;
+  /** The live process's self-report, or the record's when no instance is constructed yet. */
+  health: BridgeHealthState;
+  lastFailure?: BridgeFailureRecord;
+  /** The evaluated verdict a consumer renders. */
+  state: BridgeHealthState;
+  reasonCode?: BridgeHealthReasonCode;
+  record: { present: boolean; stale: boolean; updatedAt?: number };
+  clientFailures: { count: number; latestAt?: number; latest?: BridgeClientFailureRow };
+}
+
+/** The MCP bridge's own channels: one invoke route, one transition push. */
+export const BRIDGE_CHANNELS = {
+  GET_STATUS: 'antifan:bridge:get-status',
+  STATUS_CHANGED: 'antifan:bridge:status',
+} as const;
 
 export interface BridgeRequestPayload<T = unknown> {
   id: string;
@@ -261,7 +341,6 @@ export const TOOLBAR_CHANNELS = {
   OPEN_EXTERNAL: 'antifan:toolbar:open-external',
   OPEN_IN_VSCODE: 'antifan:toolbar:open-in-vscode',
   TOGGLE_BOOKMARK: 'antifan:toolbar:toggle-bookmark',
-  GET_BOOKMARKS: 'antifan:toolbar:get-bookmarks',
   FIND_IN_PAGE: 'antifan:toolbar:find-in-page',
   STOP_FIND_IN_PAGE: 'antifan:toolbar:stop-find-in-page',
   SHOW_MENU: 'antifan:toolbar:show-menu',
@@ -320,6 +399,9 @@ export const PROJECT_WINDOW_CHANNELS = {
   PROJECT_LIST: 'antifan:project:list',
   PROJECT_OPEN_PICKER: 'antifan:project:open-picker',
   PROJECT_OPEN_PICKER_ANSWER: 'antifan:project:open-picker-answer',
+  PROJECT_RENAME: 'antifan:project:rename',
+  PROJECT_REMOVE: 'antifan:project:remove',
+  PROJECT_REMOVE_ANSWER: 'antifan:project:remove-answer',
   CLOSE_REFUSED: 'antifan:close:refused',
 } as const;
 
@@ -446,6 +528,53 @@ export interface ProjectOpenPickerAnswerPayload {
   choice: ProjectOpenPickerChoice;
 }
 
+/** `PROJECT_RENAME` request body: the new label for a project Main already knows. */
+export interface ProjectRenameRequest {
+  projectId: string;
+  name: string;
+}
+
+/**
+ * `PROJECT_RENAME` result. `RENAMED` means the capsule store — the durable name
+ * authority — accepted the name, so the project list, the window chip and the next
+ * boot's re-registration all read it. `UNKNOWN_PROJECT` means the id named nothing
+ * Main could rename; `FAILED` carries a reason Main could not apply.
+ */
+export type ProjectRenameResult =
+  | { status: 'RENAMED'; projectId: string; name: string }
+  | { status: 'UNKNOWN_PROJECT'; projectId: string }
+  | { status: 'FAILED'; projectId: string; reason: string };
+
+/**
+ * `PROJECT_REMOVE` request body. `confirmed` is the consent the modal's own inline
+ * confirmation row produces; a first ask leaves it absent and Main answers with what
+ * removing this project would interrupt rather than acting.
+ */
+export interface ProjectRemoveRequest {
+  projectId: string;
+  confirmed?: boolean;
+}
+
+/**
+ * `PROJECT_REMOVE` result. `REMOVED` is a closed window plus a closed registry record
+ * — nothing on disk is touched, so the workspace files stay and the capsule keeps its
+ * path for a later re-open. `CONFIRM_REQUIRED` reports the live terminal count the
+ * confirmation row has to quote; `CLOSE_REFUSED` means the window's own close gate
+ * vetoed and the project stays; `UNKNOWN_PROJECT`/`FAILED` are the refusal envelope.
+ */
+export type ProjectRemoveResult =
+  | { status: 'REMOVED'; projectId: string }
+  | { status: 'CONFIRM_REQUIRED'; projectId: string; liveSessions: number }
+  | { status: 'CLOSE_REFUSED'; projectId: string; reason: string }
+  | { status: 'UNKNOWN_PROJECT'; projectId: string }
+  | { status: 'FAILED'; projectId: string; reason: string };
+
+/** `PROJECT_REMOVE_ANSWER` payload: the modal's confirmation of a `CONFIRM_REQUIRED` ask. */
+export interface ProjectRemoveAnswerPayload {
+  projectId: string;
+  confirmed: boolean;
+}
+
 /**
  * One reason a close or quit was refused, as a display projection.
  *
@@ -512,6 +641,12 @@ export const TERMINAL_CHANNELS = {
   KILL: 'antifan:terminal:kill',
   RESTART: 'antifan:terminal:restart',
   DATA: 'antifan:terminal:data',
+  /**
+   * Lightweight counterpart of DATA: same envelope, routed to surfaces that do
+   * not display the session, so their tab strip keeps streaming/ack bookkeeping
+   * without an xterm ever parsing the payload.
+   */
+  ACTIVITY: 'antifan:terminal:activity',
   GET_FULL_BUFFER: 'antifan:terminal:get-full-buffer',
   RESIZE: 'antifan:terminal:resize',
   NEW_SESSION: 'antifan:terminal:new-session',
@@ -537,7 +672,96 @@ export const TERMINAL_CHANNELS = {
   OPEN_LINK: 'antifan:terminal:open-link',
   GET_ALL_AFFINITIES: 'antifan:terminal:get-all-affinities',
   SET_TAB_PREFS: 'antifan:terminal:set-tab-prefs',
+  /** One run-control request (cancel or steer) aimed at a run bound to a terminal session. */
+  RUN_CONTROL: 'antifan:run:control',
+  /** The per-window run-card projection, pushed on every run-state change. */
+  RUN_STATE: 'antifan:run:state',
 } as const;
+
+/** Which control a run card can send. */
+export type RunControlOp = 'cancel' | 'steer';
+
+/**
+ * Why a run control was refused. Every member is a class the renderer can render, and
+ * none of them is invented success: an ack that cannot be read is `RUN_CONTROL_FAILED`,
+ * never `ok`.
+ */
+export type RunControlReason =
+  | 'INVALID_PAYLOAD'
+  | 'UNKNOWN_SESSION'
+  | 'SESSION_NOT_VISIBLE'
+  | 'MANAGER_AGENT_SESSION_READ_ONLY'
+  | 'RUN_NOT_ACTIVE'
+  | 'STALE_RUN_SEQ'
+  | 'RUN_CONTROL_TIMEOUT'
+  | 'RUN_CONTROL_UNSUPPORTED'
+  | 'RUN_BACKEND_UNAVAILABLE'
+  | 'ACTUATOR_FAILED'
+  | 'RUN_CONTROL_FAILED';
+
+/**
+ * The answer `antifan:run:control` gives the renderer: the control that landed, or a
+ * refusal with its class.
+ */
+export type RunControlResult =
+  | { ok: true; op: RunControlOp; at: number }
+  | { ok: false; reason: RunControlReason; message: string };
+
+/** The lifecycle an agent process reports about one terminal session's run. */
+export type RunCardLifecycle = 'idle' | 'running' | 'waiting_user' | 'ended';
+
+/** The edit-mode mirror (S1) as the run file records it. `unset` is "no scoped mode". */
+export type RunCardMode = 'unset' | 'core' | 'direct' | 'fast';
+
+/**
+ * One run card as Main projects it for a *receiving window*: the run file an agent
+ * process wrote about a terminal session, joined to the session, its capsule and any
+ * control-plane run, with `viewOnly` already computed for the window being answered.
+ */
+export interface RunCardState {
+  terminalSessionId: string;
+  ompSessionId?: string;
+  state: RunCardLifecycle;
+  /** The run file's process is gone or its heartbeat is older than the stale window. */
+  stale: boolean;
+  mode: RunCardMode;
+  runSeq: number;
+  runStartedAt?: number;
+  lastEventAt?: number;
+  lastTool?: string;
+  /** First ≤120 chars of the run's prompt: a preview, never a transcript. */
+  promptHead?: string;
+  cwd?: string;
+  capsuleId?: string;
+  /** True when this window may observe the run but not steer it (an agent-owned row). */
+  viewOnly: boolean;
+  controlPlane?: { runId: string; attemptId?: string; backendId: string };
+  changes?: { files: string[]; fileCount: number; blockedCount: number };
+}
+
+/**
+ * A capsule's pinned brief: the client-work context every prompt of an agent run bound to
+ * that capsule carries. Every field is optional; validation happens on the write path, and
+ * a bad field refuses the whole write rather than feeding an agent rules nobody agreed to.
+ */
+export interface CapsuleBrief {
+  /** http(s) only, ≤300 chars. */
+  storefrontUrl?: string;
+  /** ≤80 chars. */
+  siteName?: string;
+  /** ≤64 chars, `^[0-9A-Za-z_-]+$`. */
+  themeId?: string;
+  /** ≤8 entries, each ≤200 chars. */
+  rules?: string[];
+}
+
+/** Why a capsule brief read or write was refused. */
+export type CapsuleBriefReason = 'INVALID_BRIEF' | 'UNKNOWN_CAPSULE' | 'INVALID_PAYLOAD';
+
+/** The answer of the brief read and the brief write: the brief that is now in force. */
+export type CapsuleBriefResult =
+  | { ok: true; capsuleId: string; brief: CapsuleBrief | null }
+  | { ok: false; reason: CapsuleBriefReason; message: string };
 
 export type TerminalSyncViewResult =
   | { status: 'UP_TO_DATE'; generation: number; lastSeq: number }

@@ -56,6 +56,7 @@ export interface CloseLiveUseAttachment {
    * that shell destroys the binding even though the tab id is not in the member list.
    */
   readonly ownerKey?: string;
+  readonly backendId?: string;
 }
 
 /** One terminal affinity entry, with every page it may address. */
@@ -246,6 +247,7 @@ export interface CloseLiveUseAttachmentRecord {
   readonly runId: string;
   readonly tabId?: string;
   readonly browserTarget?: { readonly tabId?: string };
+  readonly backendId?: string;
 }
 
 /**
@@ -270,11 +272,15 @@ export function projectLiveUseAttachments(
     if (typeof record.expiresAt === 'number' && record.expiresAt <= now) continue;
     const tabId = record.browserTarget?.tabId ?? record.tabId;
     if (!tabId) {
-      attachments.push({ attachmentId: record.id, runId: record.runId });
+      attachments.push({ attachmentId: record.id, runId: record.runId, backendId: record.backendId });
       continue;
     }
     const owner = ownerOfPage(tabId);
-    attachments.push(owner ? { attachmentId: record.id, runId: record.runId, tabId, ownerKey: owner } : { attachmentId: record.id, runId: record.runId, tabId });
+    attachments.push(
+      owner
+        ? { attachmentId: record.id, runId: record.runId, tabId, ownerKey: owner, backendId: record.backendId }
+        : { attachmentId: record.id, runId: record.runId, tabId, backendId: record.backendId }
+    );
   }
   return attachments;
 }
@@ -520,7 +526,10 @@ export function collectCloseLiveUse(request: LiveUseRequest, port: CloseLiveUseP
         runPages.set(attachment.runId, bound);
       }
       if (!tabId) {
-        if (application) {
+        // An unbound MCP bridge transport connection (backendId === 'mcp' or 'omp') has no bound page,
+        // no admitted turn, and is waiting for capability commands. It does not hold any page and must
+        // not block application close.
+        if (application && attachment.backendId !== 'mcp' && attachment.backendId !== 'omp') {
           evidence.refuseWork(
             'attachment-authority',
             `Attachment ${attachment.attachmentId} is active without a page binding`,

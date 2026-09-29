@@ -221,21 +221,21 @@ function buildServer(): { server: BridgeServer; registry: AttachmentRegistry } {
  * Both tests in this block encode the CONTRACT the bridge does NOT meet yet: measured against the
  * current compiled bridge, 12 concurrent clients leave 6 of them with no code inside the budget, and
  * a single claim is never compensated back to the standing depth. The fix is a bridge-side change
- * (`replenishPairingQueueNow` / `claimPairingChallenge`) that could not be applied in this session —
- * see `antifan-core/pairing-autoheal-hardening.md`, section "bridge-side patch", which lists the
- * exact hunk. They are therefore gated rather than left red for every other agent in a shared
- * pipeline. Enforce them as soon as that hunk lands, and then delete this gate:
+ * (`replenishPairingQueueNow` / `claimPairingChallenge`) tracked in
+ * `docs/superpowers/specs/2026-09-28-test-harness-honesty-design.md` §3 row I11.
+ * They are gated behind ANTIFAN_PAIRING_CONTRACT=1 so this known bridge-side defect does not block
+ * unrelated lanes while the refill patch is staged. Enforce them as soon as that hunk lands, and
+ * then delete this gate:
  *
  *     ANTIFAN_PAIRING_CONTRACT=1 npm run test:main
  *
  * A ready-to-run reproduction that needs no compile step lives in
- * `scratch/pairing-concurrency-probe.cjs` and already fails these same assertions.
+ * `scratch/pairing-concurrency-probe.cjs` and fails these same assertions.
  */
 const CONTRACT_GATE =
   process.env.ANTIFAN_PAIRING_CONTRACT === '1'
     ? false
-    : 'RED until the bridge-side refill patch lands; run with ANTIFAN_PAIRING_CONTRACT=1 to enforce';
-
+    : 'RED until the bridge-side refill patch lands (see docs/superpowers/specs/2026-09-28-test-harness-honesty-design.md §3 row I11); run with ANTIFAN_PAIRING_CONTRACT=1 to enforce';
 describe('pairing queue serves a concurrent burst inside the client budget', { skip: CONTRACT_GATE }, () => {
   it('serves every concurrent client from a standing queue inside a bounded budget', async () => {
     await withIsolatedRoots(async () => {

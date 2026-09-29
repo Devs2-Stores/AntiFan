@@ -401,15 +401,16 @@ describe('Dispatch socket teardown: the caller must learn the real cause', () =>
    * ACTIVATION NOTE. The behaviour this asserts is the *desired* contract, and it
    * requires the socket-scoped rejection fix in `scripts/antifan-omp-mcp.cjs`
    * (reject only the calls whose own socket died, and surface the retry's real
-   * error instead of rethrowing the stale original). That file is owned by another
-   * agent and the fix is NOT in the tree, so this assertion would fail on today's
-   * code — which is precisely why it is skipped rather than green-washed. Un-skip
-   * it in the same change that lands that fix; test 3 above then inverts from
+   * error instead of rethrowing the stale original). The product fix is tracked in
+   * `docs/superpowers/specs/2026-09-28-test-harness-honesty-design.md` §3 row I10,
+   * and this assertion would fail on today's code (which multiplexes all calls
+   * over a single dispatchWs and clears all pending calls on any socket close).
+   * Un-skip it in the same change that lands that fix; test 3 above then inverts from
    * "every in-flight call dies" to "only the dead socket's calls die".
    *
-   * Skipped so the suite (and `tsc --noEmit`) stay green while the fix is staged.
+   * Skipped so the suite stays green while the product-side fix is staged.
    */
-  it('4. [activate with the proxy fix] a teardown must not destroy calls it did not carry', { skip: 'pending scripts/antifan-omp-mcp.cjs socket-scoped rejection (see antifan-core/dispatch-ws-crash.md P1)' }, async () => {
+  it('4. [activate with the proxy fix] a teardown must not destroy calls it did not carry', { skip: 'pending scripts/antifan-omp-mcp.cjs socket-scoped rejection (see docs/superpowers/specs/2026-09-28-test-harness-honesty-design.md §3 row I10)' }, async () => {
     const harness = await startHarness();
     try {
       const dump = harness.callTool(701, 'anti.browser.dump_dom', { outputPath: 'scratch/survivor.html' });

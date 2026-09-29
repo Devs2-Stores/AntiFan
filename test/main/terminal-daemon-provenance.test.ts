@@ -18,7 +18,8 @@ import * as http from 'node:http';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { WebSocketServer, type WebSocket } from 'ws';
+import { spawn } from 'node:child_process';
+import { WebSocketServer, WebSocket } from 'ws';
 import { DaemonTerminalProxy } from '../../src/main/terminal-daemon/daemon-client';
 import { HOST_METHOD } from '../../src/main/terminal-daemon/protocol';
 import type { BridgeRequestPayload, BridgeResponsePayload } from '../../src/shared/contracts';
@@ -238,89 +239,142 @@ describe('Terminal Daemon Provenance & Async Seam Invariants (RC2)', () => {
     }
   });
 
-  it('5. Daemon entry dispatch threads capsuleId into TerminalManager.createSession and startTerminal', () => {
-    interface TerminalManagerTestHarness {
-      spawn: (
-        id: string,
-        cwd: string,
-        restoredBuffer?: string,
-        initialCols?: number,
-        initialRows?: number,
-        minimumRows?: number,
-        parentSessionId?: string,
-        generation?: number,
-        parentGeneration?: number
-      ) => unknown;
-      sessions: Map<string, unknown>;
-      effectiveCreationCapsuleId?: string;
-      currentCapsuleId?: string;
-    }
-    const tm = TerminalManager.getInstance();
-    const tmInternal = tm as unknown as TerminalManagerTestHarness;
-    const originalSpawn = tmInternal.spawn.bind(tmInternal);
-    const spawnedSessions: Array<{ id: string; cwd: string; capsuleId: string }> = [];
+  it('5. Daemon entry dispatch threads capsuleId into TerminalManager.createSession and startTerminal', async () => {
+    const entryPath = path.resolve(process.cwd(), '.compiled/src/main/terminal-daemon/daemon-entry.js');
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'daemon-entry-prov-test-'));
+    const token = 'test-token-prov-' + Date.now();
 
-    tmInternal.spawn = function (
-      id: string,
-      cwd: string,
-      restoredBuffer = '',
-      initialCols?: number,
-      initialRows?: number,
-      minimumRows = 4,
-      parentSessionId?: string,
-      generation?: number,
-      parentGeneration?: number
-    ) {
-      const effectiveCapsuleId = tmInternal.effectiveCreationCapsuleId || tmInternal.currentCapsuleId || 'default';
-      const record = {
-        id,
-        name: `Terminal ${id.replace('terminal-', '')}`,
-        cwd: cwd || 'E:/Work/project',
-        pty: null,
-        buffer: restoredBuffer || '',
-        capsuleId: effectiveCapsuleId,
-        disposed: false,
-        lastSeq: 0,
-        sessionGeneration: 1,
-        state: 'running' as const,
-      };
-      tmInternal.sessions.set(id, record);
-      spawnedSessions.push({ id, cwd, capsuleId: effectiveCapsuleId });
-      return record;
-    };
+    const child = spawn(process.execPath, [entryPath, '--port', '0', '--cwd', tmpDir], {
+      env: {
+        ...process.env,
+        ELECTRON_RUN_AS_NODE: '1',
+        ANTIFAN_TERMINAL_HOST_TOKEN: token,
+        ANTIFAN_DATA_ROOT: tmpDir,
+        ANTIFAN_CONFIG_DIR: tmpDir,
+      },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    let port = 0;
     try {
-      // (a) Simulate HOST_METHOD.newSession dispatch in daemon-entry.ts
-      const pNew = { cwd: 'E:/Work/project-b', capsuleId: 'capsule-window-b' };
-      const cwdNew = typeof pNew.cwd === 'string' && pNew.cwd ? pNew.cwd : undefined;
-      const capsuleIdNew = typeof pNew.capsuleId === 'string' && pNew.capsuleId ? pNew.capsuleId : undefined;
-      const sessionIdNew = tm.createSession(cwdNew, capsuleIdNew);
+      await new Promise<void>((resolve, reject) => {
+        let buf = '';
+        child.stdout?.on('data', (d) => {
+          buf += d.toString();
+          const match = buf.match(/TERMINAL_HOST_READY\s+(\{[^\n]+\})/);
+          if (match && match[1]) {
+            port = JSON.parse(match[1]).port;
+            resolve();
+          }
+        });
+        child.on('error', reject);
+        child.on('exit', (code) => reject(new Error('Daemon host exited early with code ' + code)));
+      });
 
-      const sessionNew = tm.getSession(sessionIdNew);
-      assert.ok(sessionNew, 'session was created');
-      assert.strictEqual(
-        sessionNew?.capsuleId,
-        'capsule-window-b',
-        'TerminalManager must record capsuleId from daemon-entry dispatch'
-      );
+      const ws = new WebSocket(`ws://127.0.0.1:${port}`, {
+        headers: { 'x-antifan-token': token },
+      });
+      await new Promise<void>((resolve, reject) => {
+        ws.once('open', resolve);
+        ws.once('error', reject);
+      });
 
-      // (b) Simulate HOST_METHOD.start dispatch in daemon-entry.ts
-      tmInternal.sessions.clear();
-      const pStart = { cwd: 'E:/Work/project-start', capsuleId: 'capsule-window-start' };
-      const cwdStart = typeof pStart.cwd === 'string' && pStart.cwd ? pStart.cwd : undefined;
-      const capsuleIdStart = typeof pStart.capsuleId === 'string' && pStart.capsuleId ? pStart.capsuleId : undefined;
-      const started = tm.startTerminal(cwdStart, capsuleIdStart);
+      let reqId = 1;
+      function call(method: string, params: Record<string, unknown>): Promise<BridgeResponsePayload> {
+        const id = `prov-req-${reqId++}`;
+        return new Promise<BridgeResponsePayload>((resolve, reject) => {
+          const timeout = setTimeout(() => {
+            ws.off('message', handler);
+            reject(new Error(`Daemon RPC timeout for method ${method}`));
+          }, 10_000);
+          const handler = (raw: Buffer) => {
+            const msg = JSON.parse(raw.toString()) as BridgeResponsePayload;
+            if (msg.id === id) {
+              clearTimeout(timeout);
+              ws.off('message', handler);
+              resolve(msg);
+            }
+          };
+          ws.on('message', handler);
+          ws.send(JSON.stringify({ id, method, params }));
+        });
+      }
 
-      assert.strictEqual(started, true);
-      const activeId = tm.getActiveSessionId();
-      const sessionStart = tm.getSession(activeId);
-      assert.ok(sessionStart, 'startup session was created');
-      assert.strictEqual(
-        sessionStart?.capsuleId,
-        'capsule-window-start',
-        'TerminalManager startTerminal must record capsuleId from daemon-entry dispatch'
-      );
+      try {
+        interface NewSessionData {
+          sessionId: string;
+          sessions: Array<{ id: string; capsuleId?: string }>;
+        }
+        interface SessionSummaryRecord {
+          id: string;
+          capsuleId?: string;
+        }
+        interface GetSessionData {
+          session?: SessionSummaryRecord | null;
+        }
+        interface ListSessionsData {
+          sessions: Array<{ id: string }>;
+        }
+        interface StartSessionData {
+          started: boolean;
+          activeSessionId: string;
+        }
+
+        // (a) Execute production HOST_METHOD.newSession dispatch in daemon-entry.ts
+        const newRes = await call(HOST_METHOD.newSession, {
+          cwd: 'E:/Work/project-b',
+          capsuleId: 'capsule-window-b',
+        });
+        assert.strictEqual(newRes.success, true, 'HOST_METHOD.newSession must succeed');
+        const newData = newRes.data as NewSessionData;
+        const sessionIdNew = newData.sessionId;
+
+        const stateNew = await call(HOST_METHOD.getSession, { sessionId: sessionIdNew });
+        assert.strictEqual(stateNew.success, true, 'HOST_METHOD.getSession must succeed');
+        const stateData = stateNew.data as GetSessionData;
+        const sessionNew = stateData?.session;
+        assert.ok(sessionNew, 'session was created by production daemon-entry');
+        assert.strictEqual(
+          sessionNew?.capsuleId,
+          'capsule-window-b',
+          'TerminalManager must record capsuleId from production daemon-entry newSession dispatch'
+        );
+
+        // (b) Execute production HOST_METHOD.start dispatch in daemon-entry.ts
+        const listRes = await call(HOST_METHOD.listSessions, {});
+        const listData = listRes.data as ListSessionsData;
+        for (const s of listData.sessions) {
+          await call(HOST_METHOD.closeSession, { sessionId: s.id, force: true });
+        }
+        await call(HOST_METHOD.persistSync, {});
+        const startRes = await call(HOST_METHOD.start, {
+          cwd: 'E:/Work/project-start',
+          capsuleId: 'capsule-window-start',
+        });
+        assert.strictEqual(startRes.success, true, 'HOST_METHOD.start must succeed');
+        const startData = startRes.data as StartSessionData;
+        const activeId = startData.activeSessionId;
+
+        const stateStart = await call(HOST_METHOD.getSession, { sessionId: activeId });
+        assert.strictEqual(stateStart.success, true, 'HOST_METHOD.getSession must succeed for startup session');
+        const startStateData = stateStart.data as GetSessionData;
+        const sessionStart = startStateData?.session;
+        assert.ok(sessionStart, 'startup session was created by production daemon-entry');
+        assert.strictEqual(
+          sessionStart?.capsuleId,
+          'capsule-window-start',
+          'TerminalManager startTerminal must record capsuleId from production daemon-entry start dispatch'
+        );
+      } finally {
+        try { ws.close(); } catch {}
+      }
     } finally {
-      tmInternal.spawn = originalSpawn;
+      try { child.kill(); } catch {}
+      await new Promise<void>((resolve) => {
+        if (child.exitCode !== null) return resolve();
+        child.on('exit', () => resolve());
+      });
+      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
     }
   });
 

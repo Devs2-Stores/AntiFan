@@ -52,8 +52,9 @@ import {
   deriveCaptureFreezeMeasurement,
   type CaptureFreezeMeasurement,
 } from '../verification/visual-capture.js';
-import { withZeroNetworkDenialTransaction, CdpDebuggerInterface } from '../browser/zero-network-interceptor.js';
+import type { SwitchTabOptions, SwitchTabResult } from '../browser/native-tab-host';
 import { classifyNetworkUrl } from '../browser/network-policy.js';
+import { withZeroNetworkDenialTransaction, type CdpDebuggerInterface } from '../browser/zero-network-interceptor.js';
 import {
   normalizeVisualRegions,
   computeStructuralMetrics,
@@ -124,11 +125,13 @@ export interface BrowserHostPort {
    * one: the adapter resolves the host from it, so a child is created in its
    * parent's window instead of whichever window happens to be first.
    */
-  createTab?(url?: string, activate?: boolean, options?: { capsuleId?: string; userAgentMode?: BrowserSessionUserAgentMode; ephemeral?: boolean; offscreen?: boolean; devicePresetId?: string; mobile?: boolean; anchorTabId?: string }): string;
+  createTab?(url?: string, activate?: boolean, options?: { capsuleId?: string; userAgentMode?: BrowserSessionUserAgentMode; ephemeral?: boolean; offscreen?: boolean; devicePresetId?: string; mobile?: boolean; anchorTabId?: string; plane?: 'user' | 'agent' }): string;
   /** The capsule and project/workspace a tab was created in, or undefined when no capsule owns it. */
   resolveTabAffiliation?(tabId: string): { projectId?: string; workspaceId?: string; capsuleId?: string } | undefined;
   closeTab?(tabId: string): boolean;
-  switchTab?(tabId: string): boolean;
+  switchTab?(tabId: string, opts?: SwitchTabOptions): boolean;
+  /** Typed activation: reports why a switch did not happen. Preferred over the boolean form. */
+  trySwitchTab?(tabId: string, opts?: SwitchTabOptions): SwitchTabResult;
   navigate(tabId: string, url: string): Promise<boolean> | boolean;
   navigateAndWait?(tabId: string, url: string, timeoutMs?: number): Promise<boolean>;
   getLastNavigationFailure?(tabId: string): { cause: string; message: string; timedOut: boolean } | undefined;
@@ -2406,7 +2409,29 @@ export class BrowserControlPort {
    * never activate — an offscreen agent-plane tab is never shown in the window.
    */
   private requireActivatedTab(targetId: string, boundTabId?: string): { switched: boolean; tabId: string } {
-    if (this.host.switchTab && this.host.switchTab(targetId)) return { switched: true, tabId: targetId };
+    if (this.host.trySwitchTab) {
+      const result = this.host.trySwitchTab(targetId, { plane: 'agent' });
+      if (result.ok) return { switched: true, tabId: result.tabId };
+      if (result.reason === 'ACTIVATION_DEFERRED_USER_INPUT') {
+        const retryAfterMs = result.retryAfterMs ?? 0;
+        throw new CapabilityError(
+          'ACTIVATION_DEFERRED_USER_INPUT',
+          `Tab '${targetId}' not activated: user is typing; activation is presentation, not compositor repair — capture or anti.browser.reload the target instead, or retry after ${retryAfterMs}ms.`,
+          { tabId: targetId, retryAfterMs }
+        );
+      }
+      if (result.reason === 'TARGET_MISSING') {
+        throw new CapabilityError(
+          'TARGET_STALE',
+          `Tab '${targetId}' cannot be activated: it does not exist. Rebind the session to a live tab, then retry.`,
+          { tabId: targetId, ...(boundTabId ? { boundTabId } : {}) }
+        );
+      }
+      // TARGET_NOT_ACTIVATABLE falls through to the typed refusal below, which
+      // names the session's candidates.
+    } else if (this.host.switchTab && this.host.switchTab(targetId, { plane: 'agent' })) {
+      return { switched: true, tabId: targetId };
+    }
     const offscreen = this.host.isTabOffscreen ? this.host.isTabOffscreen(targetId) : undefined;
     const candidates = this.activationCandidates(boundTabId ?? targetId);
     throw new CapabilityError(
@@ -3642,12 +3667,14 @@ export class BrowserControlPort {
           mobile: options.mobile,
           capsuleId: verifiedCapsuleId,
           anchorTabId: boundTabId,
+          plane: 'agent' as const,
         }
       : {
           ephemeral: options.ephemeral,
           offscreen: options.offscreen,
           devicePresetId: options.devicePresetId,
           mobile: options.mobile,
+          plane: 'agent' as const,
         };
     const tabId = this.host.createTab(options.url || 'about:blank', options.activate ?? false, createOptions);
     if (boundTabId && this.host.adoptChildTab) {
@@ -3823,7 +3850,7 @@ export class BrowserControlPort {
       [key: string]: unknown;
     }
   ): { switched: boolean; tabId: string } {
-    if (!this.host.switchTab) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'switchTab is not supported by host');
+    if (!this.host.switchTab && !this.host.trySwitchTab) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'switchTab is not supported by host');
     if (!context || !context.target) {
       throw new CapabilityError('TARGET_REQUIRED', 'Browser target is required to switch tab');
     }

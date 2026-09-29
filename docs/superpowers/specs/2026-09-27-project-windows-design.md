@@ -122,19 +122,22 @@ No arbitrary duplicate windows per project; no cross-project tab dragging; no ne
 
 ### Retained limitation: a visible tab whose owning agent session is gone cannot be closed by a later session
 
-`plans/reports/260927-0916-tab-management-research.md` (§2) names this as a defect, and this spec
-keeps the behaviour deliberately rather than silently. Once the owning session is disposed, its tab is
-out of `sessionTabPools` and out of the affinity record, so `isTabAllowedForPrimary` no longer
-authorises it and the control port answers `TARGET_MISMATCH` for a tab that is still visible
-(`src/main/browser/native-tab-host.ts`, `src/main/browser/browser-control-port.ts`). Cleanup by a later
-session therefore deadlocks; the tab survives until its window closes.
+`plans/reports/260927-0916-tab-management-research.md` (§2) names an orphan-close deadlock as a defect.
+This spec explicitly records the conservative outcome as a **retained limitation**: orphaned visible
+tabs of a dead session are not reclaimed. Once the owning session is disposed, its tab is removed from
+`sessionTabPools` and from the active affinity record (`src/main/browser/native-tab-host.ts:9487-9513`),
+so `isTabAllowedForPrimary` returns `false`. When a subsequent session attempts cleanup via `closeTab`,
+the control port enforces `isTabAllowed` and answers `TARGET_MISMATCH` for a tab that is still visible
+(`src/main/tools/browser-control-port.ts:3791-3794`). Cleanup by a later session therefore deadlocks;
+the tab survives until the human closes it or its window closes.
 
 The refusal semantics stay: acceptance criterion 3 keeps cross-session target mismatches refused, and
-the Non-goals above forbid automatic tab eviction. The only alternative on the table — a
-capsule-scoped, dead-session-only reclaim path — is a new authority over tabs another live session may
-still own, and it needs a liveness witness for the owning session, which is its own design. Recording
-the cost here is the point: a reader must not take "no tab eviction" as evidence that no tab can be
-stranded.
+the Non-goals above explicitly forbid automatic tab eviction on inactivity or disconnect (visible
+tabs are intentionally spared for human review of storefront work). Auto-eviction was rejected because
+any capsule-scoped, dead-session-only reclaim path introduces a new authority over tabs another live
+session may still own, requiring an external liveness witness for the owning session, which is its own
+design. Recording the cost here is the point: a reader must not take "no tab eviction" as evidence
+that no tab can be stranded.
 
 ## Acceptance criteria
 

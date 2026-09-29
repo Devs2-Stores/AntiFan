@@ -427,6 +427,38 @@ describe('DaemonTerminalProxy — owner handover contract', () => {
     assert.equal(proxy.sessionOwnerKey('terminal-1'), 'project:proj-comnieu', 'a move that could not be asked leaves the row where it was');
     assert.equal(proxy.sessionCapsuleId('terminal-1'), 'capsule-comnieu');
   });
+
+  it('caches pruned broadcast rows verbatim — preview tails plus the seq cursor every resync reads', async () => {
+    const { proxy, pushSession } = proxyWithTransport();
+    // The daemon forwards the same pruned projection the renderer receives; the cache
+    // must store it verbatim so listSessions/getSessionState answer exactly what the
+    // host published — including the snapshotThroughSeq cursor hydration deltas from.
+    const previewRows = [
+      { id: 'terminal-1', state: 'running', buffer: 'recent tail only\r\n', bufferLength: 40000, snapshotThroughSeq: 91 },
+      { id: 'terminal-2', state: 'sleeping', buffer: 'sleeping preview\r\n', bufferLength: 0, snapshotThroughSeq: 12 },
+    ];
+    pushSession({ sessions: previewRows, activeSessionId: 'terminal-1', snapshot: 'recent tail only\r\n', snapshotThroughSeq: 91 });
+
+    const listed = proxy.listSessions() as Array<Record<string, unknown>>;
+    assert.deepEqual(
+      listed.map((s) => ({ id: s.id, buffer: s.buffer, snapshotThroughSeq: s.snapshotThroughSeq })),
+      [
+        { id: 'terminal-1', buffer: 'recent tail only\r\n', snapshotThroughSeq: 91 },
+        { id: 'terminal-2', buffer: 'sleeping preview\r\n', snapshotThroughSeq: 12 },
+      ],
+      'the cache must answer the preview rows verbatim — no fabrication, no drop of the seq cursor',
+    );
+
+    const state = proxy.getSessionState() as { activeSessionId?: string; snapshotThroughSeq?: number; sessions?: unknown[] };
+    assert.equal(state.activeSessionId, 'terminal-1');
+    assert.equal(state.snapshotThroughSeq, 91, 'the top-level seq cursor survives the cache round-trip');
+
+    // A second push with no snapshot fields must not erase the cursor a pane already learned.
+    pushSession({ sessions: previewRows, activeSessionId: 'terminal-2' });
+    const restated = proxy.getSessionState() as { snapshotThroughSeq?: number; snapshot?: string };
+    assert.equal(restated.snapshotThroughSeq, 91, 'a push without snapshot fields keeps the last cursor');
+    assert.equal(restated.snapshot, 'recent tail only\r\n');
+  });
 });
 
 describe('DaemonTerminalProxy — workspace capsule scope', () => {

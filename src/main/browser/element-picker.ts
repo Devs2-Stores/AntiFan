@@ -820,9 +820,18 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
 
     if (termContext.sessions && termContext.sessions.length > 0) {
       const availableSessionIds = termContext.sessions.map((s) => s.id);
-      const preferredSessionId = rememberedSessionId && (rememberedSessionId === 'auto' || availableSessionIds.includes(rememberedSessionId))
+      let preferredSessionId = rememberedSessionId && (rememberedSessionId === 'auto' || availableSessionIds.includes(rememberedSessionId))
         ? rememberedSessionId
-        : 'auto';
+        : '';
+      if (!preferredSessionId) {
+        try {
+          const stored = localStorage.getItem('antifan_annotation_session_id');
+          if (stored && (stored === 'auto' || availableSessionIds.includes(stored))) {
+            preferredSessionId = stored;
+          }
+        } catch {}
+      }
+      if (!preferredSessionId) preferredSessionId = 'auto';
 
       const autoOpt = document.createElement('option');
       autoOpt.value = 'auto';
@@ -842,9 +851,10 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
       termContext.annotationSessionId = preferredSessionId;
       termSelect.addEventListener('change', () => {
         const selectedSessionId = termSelect.value || 'auto';
-        termContext.annotationSessionId = termSelect.value || 'auto';
+        termContext.annotationSessionId = selectedSessionId;
         window.__antifanTerminalContext = window.__antifanTerminalContext || {};
         window.__antifanTerminalContext.annotationSessionId = selectedSessionId;
+        try { localStorage.setItem('antifan_annotation_session_id', selectedSessionId); } catch {}
       });
     } else {
       const opt = document.createElement('option');
@@ -860,7 +870,32 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
     chipRow.id = 'antifanChipRow';
     chipRow.style.cssText = 'display:flex;align-items:center;gap:5px;overflow-x:auto;padding:1px 0;box-sizing:border-box;scrollbar-width:none;';
 
-    let activeActionChip = null;
+    const VALID_MODES = ['direct', 'fast', 'core'];
+    const VALID_ACTION_CHIPS = ['theme', 'speed'];
+
+    let initialMode = 'direct';
+    if (typeof termContext.annotationMode === 'string' && VALID_MODES.includes(termContext.annotationMode)) {
+      initialMode = termContext.annotationMode;
+    } else {
+      try {
+        const storedMode = localStorage.getItem('antifan_annotation_mode');
+        if (storedMode && VALID_MODES.includes(storedMode)) initialMode = storedMode;
+      } catch {}
+    }
+
+    let initialActionChip = null;
+    if (termContext.annotationActionChip !== undefined) {
+      if (typeof termContext.annotationActionChip === 'string' && VALID_ACTION_CHIPS.includes(termContext.annotationActionChip)) {
+        initialActionChip = termContext.annotationActionChip;
+      }
+    } else {
+      try {
+        const storedChip = localStorage.getItem('antifan_annotation_action_chip');
+        if (storedChip && VALID_ACTION_CHIPS.includes(storedChip)) initialActionChip = storedChip;
+      } catch {}
+    }
+
+    let activeActionChip = initialActionChip;
     const QUEUE_PREFIX = '/queue ';
     const DIRECT_TAG = '[⚡Direct-Edit]';
     const CORE_TAG = '[🧠Core-Context]';
@@ -890,7 +925,7 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
     const coreTickInput = document.createElement('input');
     coreTickInput.type = 'checkbox';
     coreTickInput.id = 'antifanCoreTickInput';
-    coreTickInput.checked = false;
+    coreTickInput.checked = initialMode === 'core';
     coreTickInput.style.cssText = 'margin:0;width:11px;height:11px;accent-color:#38bdf8;cursor:pointer;';
     const coreTickText = document.createElement('span');
     coreTickText.textContent = 'Core';
@@ -899,10 +934,24 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
 
     const chipButtons = {};
     const MODE_TAGS = { direct: DIRECT_TAG, core: CORE_TAG, fast: SUPER_FAST_TAG };
-    let mode = 'direct';
+    let mode = initialMode;
+    const persistAnnotationPrefs = (nextMode, nextChip) => {
+      window.__antifanTerminalContext = window.__antifanTerminalContext || {};
+      window.__antifanTerminalContext.annotationMode = nextMode;
+      window.__antifanTerminalContext.annotationActionChip = nextChip;
+      try { localStorage.setItem('antifan_annotation_mode', nextMode); } catch {}
+      try {
+        if (nextChip) {
+          localStorage.setItem('antifan_annotation_action_chip', nextChip);
+        } else {
+          localStorage.removeItem('antifan_annotation_action_chip');
+        }
+      } catch {}
+    };
     const setMode = (next) => {
       mode = next;
       coreTickInput.checked = next === 'core';
+      persistAnnotationPrefs(mode, activeActionChip);
     };
     const applyChipState = () => {
       actionChips.forEach((c) => {
@@ -961,6 +1010,7 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
           setMode(c.id === 'direct' && mode === 'direct' ? 'core' : c.mode);
         } else {
           activeActionChip = activeActionChip === c.id ? null : c.id;
+          persistAnnotationPrefs(mode, activeActionChip);
         }
         syncPromptTags();
         textarea.focus();
@@ -1357,9 +1407,11 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
             const chosen = termSelect ? termSelect.value : (termContext.selectedSessionId || undefined);
             if (chosen && window.__antifanTerminalContext) {
               window.__antifanTerminalContext.annotationSessionId = chosen;
+              try { localStorage.setItem('antifan_annotation_session_id', chosen); } catch {}
             }
             return chosen;
           })(),
+          mode: mode,
           actionChip: activeActionChip || undefined,
           copyOnly: copyOnly || undefined,
           attachedImages: attachedImages.slice(0, 6),
@@ -1457,6 +1509,7 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
             targetSessionId: termSelect ? termSelect.value : undefined,
             attachedImages: attachedImages.slice(0, 6),
             timestamp: Date.now(),
+            mode: mode,
             actionChip: activeActionChip || undefined,
             copyOnly: copyOnly || undefined,
           });

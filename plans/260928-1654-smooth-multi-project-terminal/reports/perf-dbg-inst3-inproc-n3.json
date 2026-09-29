@@ -1,0 +1,62 @@
+{
+  "label": "dbg-inst3-inproc",
+  "compiledRoot": "E:\\Work\\apps\\AntiFan\\.compiled",
+  "projects": 3,
+  "daemon": false,
+  "stagedDaemon": null,
+  "burstSeconds": 21.39,
+  "windowOpenMs": 587,
+  "eventLoopDelayMs": {
+    "p50": 15.24,
+    "p95": 19.46,
+    "p99": 38.6,
+    "max": 122.75
+  },
+  "statSyncPerSecond": 1.45,
+  "statSyncCallers": {
+    "at enforceProtectedPathsDacl (\\src\\main\\security\\windows-acl.js:376": 16,
+    "at enforceProtectedPathsDacl (\\src\\main\\security\\windows-acl.js:406": 10,
+    "at HistoryManager.importChromeHistory (\\src\\main\\browser\\history-manager.js:298": 5
+  },
+  "terminalDataIpcPerSecond": 2.71,
+  "terminalDataIpcByTarget": {
+    "Perf 1:sidebar": 73
+  },
+  "rendererLongtasks": {
+    "Perf 0": {
+      "count": 0,
+      "max": 0,
+      "totalMs": 0
+    },
+    "Perf 1": {
+      "count": 0,
+      "max": 0,
+      "totalMs": 0
+    },
+    "Perf 2": {
+      "count": 0,
+      "max": 0,
+      "totalMs": 0
+    }
+  },
+  "daemonWsFramesPerSecond": 0,
+  "daemonWsKiBPerSecond": 0,
+  "tabsPerProject": 5,
+  "echoLatencyMs": {
+    "samples": 20,
+    "lost": 0,
+    "p50": 11168.6,
+    "p95": 14758.24,
+    "max": 14758.24
+  },
+  "workingSetMb": {
+    "idle": 906.97,
+    "burstMax": null
+  },
+  "tree": {
+    "root": "E:\\Work\\apps\\AntiFan",
+    "head": "aa0ce668",
+    "dirty": true
+  },
+  "measuredAt": "2026-09-29T02:33:08.052Z"
+}

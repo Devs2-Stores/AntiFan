@@ -30,8 +30,13 @@ function safeCopyFile(from, to) {
 }
 
 // Copy static renderer files
+// Same override the Electron probes and e2e drivers honor, so an isolated build tree
+// (`tsc --outDir <dir>`) can be completed with its static assets.
+const COMPILED_ROOT = process.env.ANTIFAN_COMPILED_ROOT
+  ? path.resolve(process.env.ANTIFAN_COMPILED_ROOT)
+  : path.join(ROOT, '.compiled');
 const rendererSrcDir = path.join(ROOT, 'src', 'renderer');
-const rendererOutDir = path.join(ROOT, '.compiled', 'src', 'renderer');
+const rendererOutDir = path.join(COMPILED_ROOT, 'src', 'renderer');
 
 const filesToCopy = [
   'exports-shim.js',
@@ -71,7 +76,7 @@ for (const jsFile of jsFiles) {
 }
 // Ship the shared TerminalWriteDispatcher to the standalone renderer as a classic-script
 // global (standalone.html loads classic scripts; it cannot `import` the compiled CJS module).
-const sharedSrcDir = path.join(ROOT, '.compiled', 'src', 'shared');
+const sharedSrcDir = path.join(COMPILED_ROOT, 'src', 'shared');
 const dispatcherDst = path.join(rendererOutDir, 'terminal-write-dispatcher.js');
 const dispatcherSrc = path.join(sharedSrcDir, 'terminal-write-dispatcher.js');
 if (fs.existsSync(dispatcherSrc)) {
@@ -91,18 +96,20 @@ if (fs.existsSync(dispatcherSrc)) {
       }
     }
   }
-  // The source-tree copy is a developer convenience: the runtime loads the .compiled asset
-  // written above, so a read-only src/ (container mount, locked checkout) must not fail the build.
-  const srcDst = path.join(rendererSrcDir, 'terminal-write-dispatcher.js');
-  try {
-    fs.writeFileSync(srcDst, dispatcherWrapped, 'utf8');
-  } catch (err) {
-    console.warn(`[antifan] copy-static: skipped the source-tree dispatcher copy (${srcDst}): ${err.message}`);
+  // The source-tree copy is a developer convenience for the default `.compiled` loop; an
+  // isolated build (ANTIFAN_COMPILED_ROOT set) must not mutate the source tree at all.
+  if (!process.env.ANTIFAN_COMPILED_ROOT) {
+    const srcDst = path.join(rendererSrcDir, 'terminal-write-dispatcher.js');
+    try {
+      fs.writeFileSync(srcDst, dispatcherWrapped, 'utf8');
+    } catch (err) {
+      console.warn(`[antifan] copy-static: skipped the source-tree dispatcher copy (${srcDst}): ${err.message}`);
+    }
   }
 }
 // Copy scripts to .compiled/scripts for standalone deployment
 const scriptsSrcDir = path.join(ROOT, 'scripts');
-const scriptsOutDir = path.join(ROOT, '.compiled', 'scripts');
+const scriptsOutDir = path.join(COMPILED_ROOT, 'scripts');
 const scriptsToCopy = ['antifan-agent.cjs', 'antifan-agent.cmd', 'antifan-omp-mcp.cjs', 'dev-watcher-helpers.mjs'];
 for (const scriptFile of scriptsToCopy) {
   const src = path.join(scriptsSrcDir, scriptFile);

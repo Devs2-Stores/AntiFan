@@ -17,7 +17,8 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { WebSocketServer, WebSocket } from 'ws';
 import { TerminalManager } from '../browser/terminal-manager';
 import { HOST_METHOD, HOST_EVENT } from './protocol';
-import type { BridgeRequestPayload, BridgeResponsePayload, BridgeEventPayload } from '../../shared/contracts';
+import { OutputBatcher } from './output-batcher';
+import type { BridgeRequestPayload, BridgeResponsePayload, BridgeEventPayload, TerminalDataPayload } from '../../shared/contracts';
 
 const HOST = '127.0.0.1';
 
@@ -126,30 +127,49 @@ function main(): void {
     }
   }
 
-  tm.on('data', (payload: { sessionId: string; data: string } | string) => {
-    const formatted = typeof payload === 'string'
-      ? { sessionId: tm.getActiveSessionId(), data: payload }
-      : payload;
-    broadcast(HOST_EVENT.data, formatted);
+  // Output is coalesced per session; every lifecycle event flushes first so a close, restart, or
+  // state push can never overtake output the PTY produced before it.
+  const batcher = new OutputBatcher((payload) => broadcast(HOST_EVENT.data, payload));
+  const sessionIdOf = (payload: unknown): string | null => {
+    if (!payload || typeof payload !== 'object') return null;
+    const record = payload as { sessionId?: unknown; id?: unknown };
+    const id = record.sessionId ?? record.id;
+    return typeof id === 'string' ? id : null;
+  };
+  const flushThenBroadcast = (event: string, payload: unknown, forget = false): void => {
+    const id = sessionIdOf(payload);
+    if (id && forget) batcher.forget(id);
+    else batcher.flushAll();
+    broadcast(event, payload);
+  };
+
+  // TerminalManager emits exactly one data shape (terminal-manager.ts `emit('data', …)`), always
+  // sequenced; there is no unsequenced path to preserve.
+  tm.on('data', (payload: TerminalDataPayload) => {
+    batcher.push(payload);
   });
 
   tm.on('session', (payload: unknown) => {
-    broadcast(HOST_EVENT.session, payload);
+    flushThenBroadcast(HOST_EVENT.session, payload);
   });
 
   // TerminalManager owns the real session lifecycle; the host mirrors those transitions onto the
   // wire so a GUI that attaches later still learns about closes, restarts, wakes, and splits.
   tm.on('session-closed', (payload: unknown) => {
-    broadcast(HOST_EVENT.sessionClosed, payload);
+    flushThenBroadcast(HOST_EVENT.sessionClosed, payload, true);
   });
   tm.on('session-restarted', (payload: unknown) => {
-    broadcast(HOST_EVENT.sessionRestarted, payload);
+    flushThenBroadcast(HOST_EVENT.sessionRestarted, payload);
   });
   tm.on('session-woken', (payload: unknown) => {
-    broadcast(HOST_EVENT.sessionWoken, payload);
+    flushThenBroadcast(HOST_EVENT.sessionWoken, payload);
   });
+  tm.on('exit', (payload: unknown) => {
+    flushThenBroadcast(HOST_EVENT.exit, payload);
+  });
+
   tm.on('session-created', (payload: unknown) => {
-    broadcast(HOST_EVENT.sessionCreated, payload);
+    flushThenBroadcast(HOST_EVENT.sessionCreated, payload);
   });
 
   // Upgrade is the only place the token is checked, so a client that passes it holds an

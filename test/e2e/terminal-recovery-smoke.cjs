@@ -98,7 +98,9 @@ app.whenReady().then(async () => {
   });
 
   ipcMain.handle('antifan:terminal:resize-session', () => true);
-  ipcMain.handle('antifan:terminal:input-session', () => ({ ok: true }));
+  // `input-session` is a `kind: 'on'` route in production (`native-tab-host`), and the
+  // fixture now sends it: a handler registered with `handle` would never fire.
+  ipcMain.on('antifan:terminal:input-session', () => {});
   ipcMain.handle('antifan:tabs:get-list', () => []);
   ipcMain.handle('antifan:terminal:get-affinity', () => undefined);
 

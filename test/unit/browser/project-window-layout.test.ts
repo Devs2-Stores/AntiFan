@@ -289,7 +289,7 @@ interface HostInternals {
   tabs: Map<string, TabRecord>;
   activeTabId: string;
   captureHostWindow: FakeBrowserWindow | null;
-  raisedCaptureView: FakeWebContentsView | null;
+  captureLift: { view: FakeWebContentsView; origin: 'capture-host' | 'in-window' } | null;
 }
 
 interface ShellHarness {
@@ -383,7 +383,7 @@ interface ShellSnapshot {
   tabBounds: Array<{ id: string; bounds: Bounds | null; writes: number }>;
   activeTabId: string;
   captureHostOpen: boolean;
-  raisedCaptureView: unknown;
+  captureLiftView: unknown;
 }
 
 function snapshotShell(harness: ShellHarness): ShellSnapshot {
@@ -401,7 +401,7 @@ function snapshotShell(harness: ShellHarness): ShellSnapshot {
     })),
     activeTabId: host.getActiveTabId(),
     captureHostOpen: internalsOf(host).captureHostWindow !== null,
-    raisedCaptureView: internalsOf(host).raisedCaptureView,
+    captureLiftView: internalsOf(host).captureLift?.view ?? null,
   };
 }
 
@@ -534,42 +534,44 @@ describe('project window per-shell layout isolation', () => {
 
   it('keeps capture-host ownership inside the shell that raised the pane', async () => {
     const { a, b } = await createTwoShellFixture();
-    // raiseViewForCapture takes the Electron view; the recording double stands in for it.
+    // acquireCaptureLift takes the Electron view; the recording double stands in for it.
     const aView = recordOf(a.host, a.firstTabId).view as unknown as WebContentsView;
     const bView = recordOf(b.host, b.firstTabId).view as unknown as WebContentsView;
     const bChildrenBefore = [...b.window.contentView.children];
 
-    // Raising A's pane parks it on A's own off-screen capture window.
-    a.host.raiseViewForCapture(aView);
+    // Lifting A's pane parks it on A's own off-screen capture window.
+    const aLease = await a.host.acquireCaptureLift(aView);
     const aCaptureHost = internalsOf(a.host).captureHostWindow;
-    assert.ok(aCaptureHost, "A's capture raise creates A's own capture host");
-    assert.equal(internalsOf(a.host).raisedCaptureView, aView, "A raises its own pane for capture");
+    assert.ok(aCaptureHost, "A's capture lift creates A's own capture host");
+    assert.equal(internalsOf(a.host).captureLift?.view, aView, "A lifts its own pane for capture");
+    assert.equal(internalsOf(a.host).captureLift?.origin, 'capture-host', "A's pane is parked offscreen, not over the presented tab");
     assert.ok(aCaptureHost!.contentView.children.includes(aView), "A's pane is hosted by A's own capture window");
     assert.ok(!a.window.contentView.children.includes(aView), "a captured pane leaves A's own window stack");
 
     assert.equal(internalsOf(b.host).captureHostWindow, null, "A's capture must not create a capture host for B");
-    assert.equal(internalsOf(b.host).raisedCaptureView, null, "B must never inherit A's raised capture pane");
+    assert.equal(internalsOf(b.host).captureLift, null, "B must never inherit A's lifted capture pane");
     assert.deepEqual(b.window.contentView.children, bChildrenBefore, "A's capture must not paint into B's window");
     assert.ok(b.window.contentView.children.includes(bView), "B keeps presenting its own tab while A captures");
     assert.ok(!b.window.contentView.children.includes(aView), "A's pane must never enter B's view stack");
 
     // B's own capture uses B's own host and leaves A's alone.
-    b.host.raiseViewForCapture(bView);
+    const bLease = await b.host.acquireCaptureLift(bView);
     const bCaptureHost = internalsOf(b.host).captureHostWindow;
-    assert.ok(bCaptureHost, "B's capture raise creates B's own capture host");
+    assert.ok(bCaptureHost, "B's capture lift creates B's own capture host");
     assert.notEqual(bCaptureHost, aCaptureHost, "each shell owns a separate capture host window");
-    assert.equal(internalsOf(b.host).raisedCaptureView, bView, "B raises its own pane");
+    assert.equal(internalsOf(b.host).captureLift?.view, bView, "B lifts its own pane");
     assert.ok(bCaptureHost!.contentView.children.includes(bView), "B's pane is hosted by B's own capture window");
     assert.ok(!b.window.contentView.children.includes(bView), "B's captured pane leaves B's window stack");
-    assert.equal(internalsOf(a.host).raisedCaptureView, aView, "A's raised pane survives B's capture");
+    assert.equal(internalsOf(a.host).captureLift?.view, aView, "A's lifted pane survives B's capture");
     assert.ok(aCaptureHost!.contentView.children.includes(aView), "A's capture host still holds A's pane");
 
-    // Lowering B's capture returns B's pane to B's window and touches nothing in A.
-    b.host.reassertPresentedView();
-    assert.equal(internalsOf(b.host).raisedCaptureView, null, "B's reassert lowers only B's raised pane");
+    // Releasing B's lease returns B's pane to B's window and touches nothing in A.
+    bLease.release('raster-finished');
+    assert.equal(internalsOf(b.host).captureLift, null, "B's release frees only B's lifted pane");
     assert.ok(b.window.contentView.children.includes(bView), "B's pane returns to B's own window");
-    assert.equal(internalsOf(a.host).raisedCaptureView, aView, "A's raised pane must survive B's reassert");
-    assert.ok(aCaptureHost!.contentView.children.includes(aView), "A's capture host is untouched by B's reassert");
+    assert.equal(internalsOf(a.host).captureLift?.view, aView, "A's lifted pane must survive B's release");
+    assert.ok(aCaptureHost!.contentView.children.includes(aView), "A's capture host is untouched by B's release");
     assert.equal(internalsOf(b.host).captureHostWindow, bCaptureHost, "B's own capture host stays B's");
+    aLease.release('raster-finished');
   });
 });

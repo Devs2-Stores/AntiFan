@@ -1,0 +1,100 @@
+{
+  "probe": "tab-hibernation",
+  "passed": 7,
+  "failed": 0,
+  "checks": [
+    {
+      "name": "a never-activated tab carries a fresh lastActiveAt, not epoch",
+      "ok": true
+    },
+    {
+      "name": "beginTabHibernation destroys the view; record, URL and id survive",
+      "ok": true
+    },
+    {
+      "name": "the hibernated renderer leaves app.getAppMetrics()",
+      "ok": true
+    },
+    {
+      "name": "activating a sleeping tab rebuilds its view and reloads the saved URL",
+      "ok": true
+    },
+    {
+      "name": "getTabWebContents on a sleeping tab wakes it before answering",
+      "ok": true
+    },
+    {
+      "name": "a dirty-form tab is never hibernated",
+      "ok": true
+    },
+    {
+      "name": "the sweep skips the vetoed tab and never re-probes it",
+      "ok": true
+    }
+  ],
+  "observations": {
+    "urls": {
+      "urlA": "http://127.0.0.1:59452/plain-a",
+      "urlB": "http://localhost:59452/plain-b",
+      "urlC": "http://localhost:59452/dirty",
+      "urlD": "http://127.0.0.1:59452/plain-d"
+    },
+    "tabs": {
+      "tabA": "0ec41170-860c-4474-8fa0-45259eb4a715",
+      "tabB": "4a48b699-53a8-4f4a-81c8-555216c6dec8",
+      "tabD": "5aa18476-1ca7-4d53-bd7a-8b778fa138f5"
+    },
+    "beforeSleep": {
+      "pidB": 27072,
+      "wcIdB": 7,
+      "metric": {
+        "cpu": {
+          "cumulativeCPUUsage": 0.144901,
+          "percentCPUUsage": 0,
+          "idleWakeupsPerSecond": 0
+        },
+        "pid": 27072,
+        "type": "Tab",
+        "creationTime": 1790643931386.169,
+        "memory": {
+          "workingSetSize": 132468,
+          "peakWorkingSetSize": 132468,
+          "privateBytes": 28488
+        },
+        "integrityLevel": "medium",
+        "sandboxed": false
+      }
+    },
+    "hibernationCtx": {
+      "boundTabIds": [],
+      "cdpBoundTabIds": [],
+      "automationTabId": null,
+      "activeTabId": "0ec41170-860c-4474-8fa0-45259eb4a715",
+      "stateB": {
+        "id": "4a48b699-53a8-4f4a-81c8-555216c6dec8",
+        "url": "http://localhost:59452/plain-b",
+        "title": "hib-probe",
+        "isLoading": false,
+        "canGoBack": false,
+        "canGoForward": false,
+        "zoomFactor": 1,
+        "devicePresetId": "responsive",
+        "crashed": false,
+        "capsuleId": "capsule-6aea538b-5476-4ff3-a5b4-bb829c7a589e",
+        "userAgentMode": "clean",
+        "partition": "persist:profile-default",
+        "ephemeral": false,
+        "offscreen": false,
+        "isMuted": false,
+        "role": "storefront",
+        "favicon": "http://localhost:59452/favicon.ico",
+        "scrollX": 0,
+        "scrollY": 0,
+        "hibernated": false,
+        "isAudible": false
+      }
+    },
+    "metricAfterSleep": null
+  },
+  "at": "2026-09-29T01:05:46.293Z"
+}

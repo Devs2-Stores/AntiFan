@@ -77,6 +77,8 @@ import { BridgeServer, DEFAULT_EXTENSION_ALLOWED_DOMAINS, redactCredentials } fr
 import { TerminalManager } from './browser/terminal-manager';
 import { ensureDaemon } from './terminal-daemon/daemon-spawner';
 import { DaemonTerminalProxy } from './terminal-daemon/daemon-client';
+import { TerminalOutputRouter } from './browser/terminal-output-router';
+import { EventEmitter } from 'node:events';
 import { buildApplicationMenu } from './browser/app-menu';
 import { WindowStateManager } from './browser/window-state';
 import { HistoryManager } from './browser/history-manager';
@@ -87,6 +89,8 @@ import { LocalIpcServer } from './native-messaging/local-ipc-server';
 import { installNativeHost, COMPANION_EXTENSION_ID } from './native-messaging/manifest-installer';
 import { chromeSessionUserAgent } from './browser/google-auth-identity';
 import { ControlPlaneRuntime, resolveArtifactStoreOptionsFromEnv } from './control-plane/control-plane-runtime';
+import { RunStateService } from './run/run-state-service';
+import type { ExecutionBackend } from './agent/execution-backend';
 import { BrowserControlPort, assertApplicationAdmitsWork } from './tools/browser-control-port';
 import { CapabilityTransportAdapter } from './tools/capability-transport';
 import { DeviceManager } from './device/device-manager';
@@ -96,6 +100,8 @@ import {
   PROJECT_WINDOW_CHANNELS,
   type ProjectOpenListCandidate,
   type ProjectOpenResult,
+  type ProjectRemoveResult,
+  type ProjectRenameResult,
   type ProjectTabActivationResult,
   type ProjectTabSearchRow,
   type ProjectTabSearchResult,
@@ -734,6 +740,14 @@ let terminalDaemonInitialized = false;
 /** Hosts already given the control plane; attaching twice would re-run its device query. */
 const hostsWithControlPlane = new WeakSet<NativeTabHost>();
 let profileLease: ProfileLease | null = null;
+let runStateService: RunStateService | null = null;
+const executionBackends = new Map<string, ExecutionBackend>();
+function resolveRunBackend(backendId: string): ExecutionBackend | undefined {
+  return executionBackends.get(backendId);
+}
+export function registerExecutionBackend(backend: ExecutionBackend): void {
+  executionBackends.set(backend.id, backend);
+}
 let localIpcServer: LocalIpcServer | null = null;
 // Enforce single instance lock
 const gotTheLock = app.requestSingleInstanceLock();
@@ -940,6 +954,10 @@ function attachSharedServices(host: NativeTabHost): void {
   host.setOwnerWindowPresence((ownerKeyValue) => liveShellFor(ownerKeyValue) !== undefined);
   host.setProjectAssignmentResolver(resolveProjectAssignment);
   host.setTerminalLinkOpener(openTerminalLinkInOwner);
+  if (runStateService) {
+    host.setRunStateService(runStateService);
+  }
+  host.setRunBackendResolver(resolveRunBackend);
 }
 
 /**
@@ -1104,6 +1122,11 @@ export function enumerateCloseLiveUseRuns(plane: ControlPlaneRuntime): CloseLive
     // treating it as evidence made a dead attachment refuse every quit for the whole retention
     // window.
     if (record.state !== 'active' || (typeof record.expiresAt === 'number' && record.expiresAt <= now)) continue;
+
+    // MCP transport attachments (backendId === 'mcp' or 'omp') mint an attachment with a synthetic runId
+    // for authority/lineage but do not run project workflows in RunService.runs. They are NOT orphaned runs.
+    if (record.backendId === 'mcp' || record.backendId === 'omp') continue;
+
     seenRunIds.add(record.runId);
 
     // This runId is active in attachments but was not listed under registered projects.
@@ -1178,6 +1201,7 @@ const closeLiveUsePort: CloseLiveUsePort = {
         runId: record.runId,
         tabId: record.tabId,
         browserTarget: record.browserTarget ? { tabId: record.browserTarget.tabId } : undefined,
+        backendId: record.backendId,
       });
     }
     // Reclaim and lease rules live in the projection (and are tested against it), so this
@@ -1742,16 +1766,54 @@ function projectPickerHostFor(
   if (!parent || parent.isDestroyed()) return null;
   const shell = shellForBrowserWindow(parent) ?? null;
   if (shell) {
-    // The sidebar is the chrome surface that hosts the modal — and only while it is open:
-    // a push into a 0×0 view is a push into nothing, and the user would wait out the
-    // timeout for a dialog that could have opened immediately.
-    if (!shell.isSidebarOpen) return null;
+    // The sidebar is the chrome surface that hosts the modal. Its open/closed state is
+    // layout only — the webContents exists either way — so the host resolves the same
+    // contents in both states and the caller decides whether the sidebar must be
+    // opened before the push goes out.
     const contents = shell.sidebarView?.webContents;
     if (!contents || contents.isDestroyed()) return null;
     return shell.chromeSurfaceFor(contents.id) === 'sidebar' ? { contents, shell } : null;
   }
   const contents = parent.webContents;
   return isStandaloneRendererContents(contents) ? { contents, shell: null } : null;
+}
+
+/**
+ * The picker host once the asking shell's sidebar is actually present. A closed
+ * sidebar used to bounce the request to the native `dialog.showMessageBox` — the
+ * cramped row of buttons the modal exists to replace. The sidebar's webContents is
+ * alive in both states, so the only gap between a closed sidebar and a hosted modal
+ * is the layout toggle itself; flip it, wait (bounded) for the contents to finish
+ * loading, and the push below reaches the same surface the user can see. A shell
+ * whose sidebar cannot come up inside the deadline still falls back to the native
+ * dialog rather than leaving the request unanswered.
+ */
+async function projectPickerHostReadyFor(
+  parent: BrowserWindow | null,
+): Promise<{ contents: Electron.WebContents; shell: ProjectWindowShell | null } | null> {
+  const host = projectPickerHostFor(parent);
+  if (!host?.shell || host.shell.isSidebarOpen) return host;
+  if (host.shell.window.isDestroyed()) return null;
+  const tabHost = tabAuthorities.hostForShell(host.shell);
+  if (tabHost) {
+    tabHost.toggleSidebar();
+  } else {
+    // No host instance to run the layout update for: flip the flag so the renderer
+    // surface at least has room; the contents were already verified above.
+    host.shell.isSidebarOpen = true;
+  }
+  const contents = host.contents;
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    if (contents.isDestroyed() || host.shell.window.isDestroyed()) return null;
+    if (typeof contents.isLoading !== 'function' || !contents.isLoading()) return host;
+    const { promise: pause, resolve: unpause } = Promise.withResolvers<void>();
+    setTimeout(unpause, 50);
+    await pause;
+  }
+  // A contents that never settles is a surface that will never answer: the caller's
+  // bounded wait would burn two minutes before the same fallback fires.
+  return null;
 }
 
 /**
@@ -1788,6 +1850,194 @@ function projectOpenListFor(sender: Electron.WebContents | undefined): { candida
     }),
   };
 }
+
+/**
+ * The terminal sessions Main can prove belong to a project: stamped with that
+ * window's owner key, or attributed to the project's own capsule. `live` is the
+ * subset a removal would interrupt — running sessions plus sleeping ones that can
+ * wake into work again; an exited shell is the only one provably not interrupted.
+ */
+function projectTerminalSessions(projectId: string): { live: string[]; open: string[] } {
+  const live: string[] = [];
+  const open: string[] = [];
+  let manager: TerminalManager;
+  try {
+    manager = TerminalManager.getInstance();
+  } catch {
+    return { live, open };
+  }
+  const capsuleId = resolveWindowRecord({ kind: 'project', projectId }).capsuleId;
+  const projectOwnerKey = `project:${projectId}`;
+  for (const summary of manager.listSessions()) {
+    const sessionId = summary?.id;
+    if (typeof sessionId !== 'string' || !sessionId) continue;
+    if (manager.sessionOwnerKey(sessionId) !== projectOwnerKey && (!capsuleId || manager.sessionCapsuleId(sessionId) !== capsuleId)) continue;
+    if (summary.state === 'closed') continue;
+    open.push(sessionId);
+    if (summary.state === 'running' || summary.state === 'sleeping' || typeof summary.splitOf === 'string') {
+      live.push(sessionId);
+    }
+  }
+  return { live, open };
+}
+
+/**
+ * Rename a project through its durable name record: the capsule store first — it is
+ * the authority `resolveWindowRecord` reads and the next boot's synchronization
+ * re-registers from — then the registry record, which seeds the same field when no
+ * capsule claims the id. A live shell owning the project is retitled in place and
+ * its chrome re-pushed, so the window's chip answers with the new name immediately.
+ * The id is revalidated against Main's own inventory: a renderer echo of a forged id
+ * is refused before any record moves.
+ */
+export function renameProjectEntry(payload: unknown): ProjectRenameResult {
+  const projectId = payload && typeof payload === 'object' && 'projectId' in payload && typeof payload.projectId === 'string'
+    ? payload.projectId.trim()
+    : '';
+  const name = payload && typeof payload === 'object' && 'name' in payload && typeof payload.name === 'string'
+    ? payload.name.trim()
+    : '';
+  let validatedId: string;
+  try {
+    validatedId = validateControlPlaneId(projectId, 'project');
+  } catch {
+    return { status: 'FAILED', projectId, reason: 'INVALID_PROJECT_ID' };
+  }
+  if (!name) {
+    return { status: 'FAILED', projectId: validatedId, reason: 'EMPTY_NAME' };
+  }
+  if (!isKnownProjectId(validatedId)) {
+    return { status: 'UNKNOWN_PROJECT', projectId: validatedId };
+  }
+
+  const record = resolveWindowRecord({ kind: 'project', projectId: validatedId });
+  let renamed = false;
+  if (record.capsuleId && capsuleManager) {
+    try {
+      capsuleManager.rename(record.capsuleId, name);
+      renamed = true;
+    } catch (err) {
+      return { status: 'FAILED', projectId: validatedId, reason: redactCredentials(String(err)) };
+    }
+  }
+  // The registry carries the same name for capsule-less projects and mirrors it for
+  // claimed ones. `getProject` throws on an absent record — the known-id check above
+  // already admitted the project, so the throw here means the capsule is the only
+  // name store and its rename alone is the durable change.
+  try {
+    const project = projectRegistry.getProject(validatedId);
+    if (project.name !== name) {
+      projectRegistry.registerProject({ ...project, name, updatedAt: Date.now() });
+    }
+    renamed = true;
+  } catch {
+    // No registry record: the capsule rename decides.
+  }
+  if (!renamed) {
+    return { status: 'FAILED', projectId: validatedId, reason: 'NO_NAME_RECORD' };
+  }
+
+  const shell = liveShellFor(`project:${validatedId}`);
+  if (shell) {
+    shell.retitle(name);
+    tabAuthorities.hostForShell(shell)?.broadcastState();
+  }
+  recordLifecycleEvent('project-renamed', { projectId: validatedId });
+  return { status: 'RENAMED', projectId: validatedId, name };
+}
+
+/**
+ * Remove a project from the manager list. Removal never deletes a byte: the project
+ * record closes, the capsule's affiliation clears (the capsule itself — name, path,
+ * brief — survives for a later re-open), and the owning window, when one is live, is
+ * shut through the same close gate a user close goes through so its unload vetoes
+ * still apply. Live terminals gate the whole path behind `confirmed`: the modal
+ * quotes `liveSessions` on the `CONFIRM_REQUIRED` answer, and only the confirmed ask
+ * tears sessions down — first the window, then whatever the manager still lists for
+ * the project, so no PTY outlives its project.
+ */
+export async function removeProjectEntry(payload: unknown): Promise<ProjectRemoveResult> {
+  const projectId = payload && typeof payload === 'object' && 'projectId' in payload && typeof payload.projectId === 'string'
+    ? payload.projectId.trim()
+    : '';
+  const confirmed = payload && typeof payload === 'object' && 'confirmed' in payload && payload.confirmed === true;
+  let validatedId: string;
+  try {
+    validatedId = validateControlPlaneId(projectId, 'project');
+  } catch {
+    return { status: 'FAILED', projectId, reason: 'INVALID_PROJECT_ID' };
+  }
+  if (!isKnownProjectId(validatedId)) {
+    return { status: 'UNKNOWN_PROJECT', projectId: validatedId };
+  }
+
+  const sessions = projectTerminalSessions(validatedId);
+  if (sessions.live.length > 0 && !confirmed) {
+    return { status: 'CONFIRM_REQUIRED', projectId: validatedId, liveSessions: sessions.live.length };
+  }
+
+  const key = `project:${validatedId}`;
+  const shell = liveShellFor(key);
+  if (shell && !shell.window.isDestroyed()) {
+    try {
+      const report = await closeCoordinator.attemptClose(key, 'user');
+      recordCloseReport(report);
+      if (report.disposition !== 'closed') {
+        recordLifecycleEvent('project-remove.refused', {
+          projectId: validatedId,
+          haltedBy: report.haltedBy ?? 'unknown',
+        });
+        return { status: 'CLOSE_REFUSED', projectId: validatedId, reason: report.summary };
+      }
+    } catch (err) {
+      recordLifecycleEvent('project-remove.failed', { projectId: validatedId, detail: String(err) });
+      return { status: 'FAILED', projectId: validatedId, reason: redactCredentials(String(err)) };
+    }
+  }
+
+  // Sessions are released only after the window is gone (or never existed): a failed
+  // close must not leave the project stripped of terminals it still shows.
+  let manager: TerminalManager | null = null;
+  try {
+    manager = TerminalManager.getInstance();
+  } catch {
+    manager = null;
+  }
+  if (manager && sessions.open.length > 0) {
+    await Promise.all(sessions.open.map((sessionId) => manager!.closeSession(sessionId).catch(() => false)));
+  }
+
+  try {
+    projectRegistry.closeProject(validatedId);
+  } catch {
+    // A project with no registry record still exists by capsule or window: the
+    // affiliation clear below is what removes it from the next inventory.
+  }
+  const record = resolveWindowRecord({ kind: 'project', projectId: validatedId });
+  if (record.capsuleId && capsuleManager) {
+    try {
+      capsuleManager.clearAffiliation(record.capsuleId);
+    } catch (err) {
+      recordLifecycleEvent('project-remove.affiliation-failed', { projectId: validatedId, detail: String(err) });
+    }
+  }
+  recordLifecycleEvent('project-removed', { projectId: validatedId });
+  return { status: 'REMOVED', projectId: validatedId };
+}
+
+/**
+ * The modal's explicit answer to a `CONFIRM_REQUIRED` ask. `confirmed: true` is the
+ * only consent this channel forwards — anything else never reaches the remove path,
+ * which is what a dismissal means.
+ */
+function answerProjectRemove(payload: unknown): Promise<ProjectRemoveResult> {
+  const confirmed = payload && typeof payload === 'object' && 'confirmed' in payload && payload.confirmed === true;
+  if (!confirmed) {
+    return Promise.resolve({ status: 'FAILED', projectId: '', reason: 'REMOVE_NOT_CONFIRMED' });
+  }
+  return removeProjectEntry(payload);
+}
+
 
 /**
  * An answer arriving on `PROJECT_OPEN_PICKER_ANSWER`. It settles the pending request only
@@ -1879,7 +2129,7 @@ type ProjectOpenPick =
  */
 async function pickProjectToOpen(parent: BrowserWindow | null): Promise<ProjectOpenPick> {
   const spec = projectOpenDialogSpec(projectOpenCandidates());
-  const host = projectPickerHostFor(parent);
+  const host = await projectPickerHostReadyFor(parent);
   if (host) {
     const choice = await awaitProjectPickerAnswer(spec, host.contents);
     if (choice !== null) {
@@ -2190,6 +2440,24 @@ export const PROJECT_WINDOW_ROUTES: readonly IpcRoute[] = [
     run: (_target, event, args) => acceptProjectPickerAnswer(event?.sender, args[0]),
   },
   {
+    channel: PROJECT_WINDOW_CHANNELS.PROJECT_RENAME,
+    surface: PROJECT_OPEN_ROUTE_SURFACES,
+    kind: 'handle',
+    run: (_target, _event, args) => renameProjectEntry(args[0]),
+  },
+  {
+    channel: PROJECT_WINDOW_CHANNELS.PROJECT_REMOVE,
+    surface: PROJECT_OPEN_ROUTE_SURFACES,
+    kind: 'handle',
+    run: (_target, _event, args) => removeProjectEntry(args[0]),
+  },
+  {
+    channel: PROJECT_WINDOW_CHANNELS.PROJECT_REMOVE_ANSWER,
+    surface: PROJECT_OPEN_ROUTE_SURFACES,
+    kind: 'handle',
+    run: (_target, _event, args) => answerProjectRemove(args[0]),
+  },
+  {
     channel: PROJECT_WINDOW_CHANNELS.TABS_SEARCH,
     surface: PROJECT_WINDOW_ROUTE_SURFACES,
     kind: 'handle',
@@ -2339,6 +2607,11 @@ async function createWindow(): Promise<void> {
   // UI IPC, Bridge, NativeTabHost, control-plane capabilities, and theme transactions.
   const terminalManager = TerminalManager.getInstance();
 
+  // One `data` listener for the whole process: the router owns the
+  // sessionId→host map and hands each chunk to the windows that present it,
+  // replacing the per-host listener+filter fan-out.
+  TerminalOutputRouter.getInstance().attach(terminalManager as unknown as EventEmitter);
+
   const workspaceId = validateControlPlaneId(process.env.ANTIFAN_WORKSPACE_ID || DEFAULT_BOOT_WORKSPACE_ID, 'workspace');
   /**
    * Measured affiliation of a tab: the capsule it was created under, read off the live host rather
@@ -2427,6 +2700,55 @@ async function createWindow(): Promise<void> {
   // Synchronize capsule affiliations into the shared ProjectRegistry before opening any window
   if (capsuleManager) {
     synchronizeCapsulesWithRegistry(capsuleManager, projectRegistry, StorageLocations.getControlPlaneDir());
+  }
+  runStateService = new RunStateService({
+    runsDir: path.join(StorageLocations.getRuntimeDir(), 'runs'),
+    lookupSession: (terminalSessionId) => {
+      const session = terminalManager.getSession(terminalSessionId);
+      if (!session) return undefined;
+      const ownerKey = terminalManager.sessionOwnerKey(session.id);
+      return {
+        id: session.id,
+        owner: ownerKey,
+        ownerKey,
+        capsuleId: terminalManager.sessionCapsuleId(session.id),
+      };
+    },
+    listSessions: () =>
+      terminalManager.listSessions().map((s) => {
+        const ownerKey = terminalManager.sessionOwnerKey(s.id);
+        return {
+          id: s.id,
+          owner: ownerKey,
+          ownerKey,
+          capsuleId: terminalManager.sessionCapsuleId(s.id),
+        };
+      }),
+    lookupCapsule: (terminalSessionId) => terminalManager.sessionCapsuleId(terminalSessionId),
+    lookupCapsuleBrief: (capsuleId) => {
+      const brief = capsuleManager?.getBrief(capsuleId);
+      if (!brief || !brief.ok || !brief.brief) return undefined;
+      return { brief: brief.brief, updatedAt: Date.now() };
+    },
+    lookupAttachment: (terminalSessionId) => {
+      if (!controlPlane) return undefined;
+      const registry = controlPlane.runs.attachments;
+      for (const id of registry.getActiveRecordIds()) {
+        const rec = registry.getRecord(id);
+        if (rec && rec.originTerminalSessionId === terminalSessionId) {
+          return {
+            runId: rec.runId,
+            attemptId: rec.attemptId,
+            backendId: rec.backendId,
+          };
+        }
+      }
+      return undefined;
+    },
+  });
+  runStateService.start();
+  for (const host of tabAuthorities.hosts()) {
+    host.setRunStateService(runStateService);
   }
 
   // Every window — this one and every later one — goes through the same factory. The startup
@@ -2558,7 +2880,8 @@ async function createWindow(): Promise<void> {
       return hostForTabOrBootstrap(anchorTabId).createTab(url, activate, hostOptions);
     },
     closeTab: (tabId) => hostForTabOrBootstrap(tabId).closeTab(tabId),
-    switchTab: (tabId) => hostForTabOrBootstrap(tabId).switchTab(tabId),
+    switchTab: (tabId, opts) => hostForTabOrBootstrap(tabId).switchTab(tabId, opts),
+    trySwitchTab: (tabId, opts) => hostForTabOrBootstrap(tabId).trySwitchTab(tabId, opts),
     navigate: (tabId, url) => hostForTabOrBootstrap(tabId).navigateAndWait(tabId, url),
     reload: (tabId: string) => hostForTabOrBootstrap(tabId).reloadAndWait(tabId),
     getTabDebugger: (tabId: string) => {
@@ -3046,6 +3369,7 @@ function shutdown(): Promise<void> {
     await step('tabHost.dispose', () => {
       for (const h of tabAuthorities.hosts()) h.dispose();
     });
+    await step('runStateService.dispose', () => runStateService?.dispose());
     await step('bridgeServer.dispose', () => bridgeServer?.dispose());
     await step('localIpcServer.close', () => localIpcServer?.close());
     await step('terminal.dispose', () => TerminalManager.getInstance().dispose());

@@ -1,7 +1,9 @@
 # Capture lifts and focus stay on the user plane — design
 
-Status: decided with the user on 2026-09-28 as roadmap item S2 (Không để agent chiếm màn
-hình và focus). This is the target contract; the code is cited by owning symbol and file
+Status: landed in the tree on 2026-09-28 (roadmap item S2, "Không để agent chiếm màn
+hình và focus"). `acquireCaptureLift`/`captureLiftState`, plane-aware `trySwitchTab`,
+`withAgentInput` focus emulation and the `ACTIVATION_DEFERRED_USER_INPUT` deferral are
+in the tree; the code is cited by owning symbol and file
 rather than by line, because those files move while this lands — search the symbol. The
 companion specs in this roadmap are the edit-mode guard (S1,
 `2026-09-28-edit-mode-guard-design.md`), bridge health reporting (S3) and run cards (S4);

@@ -43,7 +43,7 @@ const REMIND_EVERY = 1;
 const GATE_REMINDER_SENTINEL = "QA GATE PENDING";
 const CHURN_SENTINEL = "theme-qa-gate:churn";
 const MCP_FIRST_SENTINEL = "theme-qa-gate:mcp-first";
-
+const EDIT_GUARD_MARKER = "[edit-guard]";
 const hookSource = fs.readFileSync(HOOK_PATH, "utf8");
 const depSources = HOOK_DEPS.map((dep) => {
   const file = path.join(HOOK_SRC_DIR, dep);
@@ -92,16 +92,17 @@ function loadHook() {
   assert.equal(typeof factory, "function", "hook module must default-export a factory");
   const handlers = new Map();
   const sent = [];
+  const entries = [];
   factory({
     on: (event, handler) => handlers.set(event, handler),
     sendMessage: (message) => sent.push(message),
+    appendEntry: (customType, data) => entries.push({ customType, data }),
   });
   for (const event of ["tool_call", "tool_result", "context", "turn_end", "session_start"]) {
     assert.equal(typeof handlers.get(event), "function", `hook must register a ${event} handler`);
   }
-  return { handlers, sent };
+  return { handlers, sent, entries };
 }
-
 function makeWorkspace() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "qa-gate-ws-"));
   scratchDirs.push(root);
@@ -825,9 +826,91 @@ test("scoped mode: six unmarked results stay silent, turn_end states the changed
   assert.equal(sent[0].display, true);
   assert.equal(sent[0].attribution, "agent");
   assert.deepEqual(sent[0].details, { kind: "edit-guard-skip", mode: "direct", changedFiles: 2 });
-
+  // Calling turn_end again in the same run/turn without new activity stays silent (prevents ping-pong loop).
   handlers.get("turn_end")({ type: "turn_end" }, ctx);
-  assert.equal(sent.length, 2, "the next turn gets its own single line");
+  assert.equal(sent.length, 1, "consecutive turn_end without activity does not re-emit");
+
+  // Next run with a new runSeq emits its own skip line.
+  writeCall(handlers, ctx, path.join(root, "snippets", "footer.liquid"));
+  writeEditGuardLog(root, sessionId, [
+    auditRow(2, "sections/hero.liquid"),
+    auditRow(3, "snippets/footer.liquid"),
+  ]);
+  handlers.get("turn_end")({ type: "turn_end" }, ctx);
+  assert.equal(sent.length, 2, "the next run gets its own single line");
+  assert.equal(
+    sent[1].content,
+    "[edit-guard] Direct-Edit: 1 file(s) changed — storefront QA skipped (send [🧠Core-Context] to run it)"
+  );
+});
+
+test("scoped mode: intervening context without tool_call does not trigger duplicate turn_end skip", () => {
+  const { handlers, sent } = loadHook();
+  const root = makeWorkspace();
+  const branch = [modeEntry("fast")];
+  const ctx = sessionCtx(root, "01a0scoped-pingpong", branch);
+
+  // 1. Tool call runs in Super-Fast mode
+  writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
+  // 2. First turn ends -> emits skip line
+  handlers.get("turn_end")({ type: "turn_end" }, ctx);
+  assert.equal(sent.length, 1, "first turn_end emits skip line");
+
+  // 3. Intervening context event (assistant preparing reply to custom_message)
+  handlers.get("context")(
+    { messages: [{ role: "assistant", content: "Đang chờ yêu cầu từ bạn" }] },
+    ctx
+  );
+
+  // 4. Second turn ends (assistant finished reply without tool calls)
+  handlers.get("turn_end")({ type: "turn_end" }, ctx);
+  assert.equal(sent.length, 1, "intervening context without tool activity stays silent (no ping-pong)");
+
+  // 5. Another intervening context + turn_end cycle
+  handlers.get("context")({ messages: [] }, ctx);
+  handlers.get("turn_end")({ type: "turn_end" }, ctx);
+  assert.equal(sent.length, 1, "repeated context/turn_end cycles stay silent");
+
+  // 6. When a new tool call happens, the next turn_end emits again
+  writeCall(handlers, ctx, path.join(root, "sections", "banner.liquid"));
+  handlers.get("turn_end")({ type: "turn_end" }, ctx);
+  assert.equal(sent.length, 2, "turn_end emits again after genuine tool activity");
+});
+
+test("scoped mode: consecutive 0-change runs emit once per runSeq, not suppressed by identical count", () => {
+  const { handlers, sent } = loadHook();
+  const root = makeWorkspace();
+  const sessionId = "01a0scoped-zerochanges";
+  const ctx = sessionCtx(root, sessionId, [modeEntry("direct")]);
+
+  // Run 1: tool ran, but 0 allowed changes (e.g. refused or no writes)
+  writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
+  writeEditGuardLog(root, sessionId, [
+    auditRow(1, "sections/blocked.liquid", "block"),
+  ]);
+  handlers.get("turn_end")({ type: "turn_end" }, ctx);
+  assert.equal(sent.length, 1, "run 1 emits 0 file(s) changed");
+  assert.equal(
+    sent[0].content,
+    "[edit-guard] Direct-Edit: 0 file(s) changed — storefront QA skipped (send [🧠Core-Context] to run it)"
+  );
+
+  // Calling turn_end again within run 1 stays silent
+  handlers.get("turn_end")({ type: "turn_end" }, ctx);
+  assert.equal(sent.length, 1, "turn_end in run 1 without new activity is deduplicated");
+
+  // Run 2: tool runs, audit log advances to runSeq 2, still 0 allowed changes
+  writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
+  writeEditGuardLog(root, sessionId, [
+    auditRow(1, "sections/blocked.liquid", "block"),
+    auditRow(2, "sections/another-blocked.liquid", "block"),
+  ]);
+  handlers.get("turn_end")({ type: "turn_end" }, ctx);
+  assert.equal(sent.length, 2, "run 2 emits its own skip line despite changedFiles count being identical (0 === 0)");
+  assert.equal(
+    sent[1].content,
+    "[edit-guard] Direct-Edit: 0 file(s) changed — storefront QA skipped (send [🧠Core-Context] to run it)"
+  );
 });
 
 test("scoped mode: the branch latch silences the gate until a Core entry reopens it", () => {
@@ -846,6 +929,9 @@ test("scoped mode: the branch latch silences the gate until a Core entry reopens
   );
   handlers.get("turn_end")({ type: "turn_end" }, ctx);
   assert.equal(sent.length, 1);
+  // Calling turn_end again without new tool/context activity stays silent:
+  handlers.get("turn_end")({ type: "turn_end" }, ctx);
+  assert.equal(sent.length, 1, "does not re-emit when repeating turn_end without activity");
 
   // What a `[🧠Core-Context]` prompt makes the edit guard append.
   branch.push(modeEntry("core"));
@@ -901,6 +987,333 @@ test("unset and core modes keep today's reminder behaviour and stay quiet at tur
       handlers.get("turn_end")({ type: "turn_end" }, ctx);
       assert.equal(sent.length, 0, `${label} sends no turn_end line`);
     });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Bridge health & QA-gate suspension (Component 6)
+// ---------------------------------------------------------------------------
+
+test("outage constants: hook inline copies match bridge-health.ts or literal pins", () => {
+  const hbMatch = hookSource.match(/export const BRIDGE_HEALTH_HEARTBEAT_MS\s*=\s*(\d+)/);
+  const multMatch = hookSource.match(/export const BRIDGE_HEALTH_STALE_MULTIPLIER\s*=\s*(\d+)/);
+  assert.ok(hbMatch, "hook must define BRIDGE_HEALTH_HEARTBEAT_MS");
+  assert.ok(multMatch, "hook must define BRIDGE_HEALTH_STALE_MULTIPLIER");
+  const hookHb = Number(hbMatch[1]);
+  const hookMult = Number(multMatch[1]);
+  assert.equal(hookHb, 5000, "hook heartbeat constant is 5000");
+  assert.equal(hookMult, 3, "hook stale multiplier is 3");
+
+  const bridgeHealthPath = path.join(REPO, "src", "main", "bridge", "bridge-health.ts");
+  if (fs.existsSync(bridgeHealthPath)) {
+    const text = fs.readFileSync(bridgeHealthPath, "utf8");
+    const srcHb = text.match(/BRIDGE_HEALTH_HEARTBEAT_MS\s*=\s*(\d+)/);
+    const srcMult = text.match(/BRIDGE_HEALTH_STALE_MULTIPLIER\s*=\s*(\d+)/);
+    if (srcHb) assert.equal(hookHb, Number(srcHb[1]), "hook heartbeat matches src/main/bridge/bridge-health.ts");
+    if (srcMult) assert.equal(hookMult, Number(srcMult[1]), "hook multiplier matches src/main/bridge/bridge-health.ts");
+  }
+});
+
+test("suspension: no env => no record probe and no suspension", () => {
+  const prevDataRoot = process.env.ANTIFAN_DATA_ROOT;
+  const prevConfigDir = process.env.ANTIFAN_CONFIG_DIR;
+  delete process.env.ANTIFAN_DATA_ROOT;
+  delete process.env.ANTIFAN_CONFIG_DIR;
+
+  try {
+    const { handlers, entries } = loadHook();
+    const ws = makeWorkspace();
+    const ctx = { cwd: ws };
+    writeCall(handlers, ctx, "sections/header.liquid");
+    const res = result(handlers, ctx, "plain file content");
+    const text = resText(res);
+    assert.ok(!text.includes("[theme-qa-gate:bridge]"), "no bridge suspension notice without env");
+    assert.ok(text.includes(GATE_REMINDER_SENTINEL), "pending edits reminder is still emitted");
+    assert.equal(entries.filter((e) => e.customType.startsWith("antifan-bridge-")).length, 0, "no bridge entries appended");
+  } finally {
+    if (prevDataRoot !== undefined) process.env.ANTIFAN_DATA_ROOT = prevDataRoot;
+    if (prevConfigDir !== undefined) process.env.ANTIFAN_CONFIG_DIR = prevConfigDir;
+  }
+});
+
+test("suspension: stale/dead bridge record => one suspension notice and no second on next tool_result", () => {
+  const scratchDataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "antifan-data-"));
+  const configDir = path.join(scratchDataRoot, "config");
+  fs.mkdirSync(configDir, { recursive: true });
+  scratchDirs.push(scratchDataRoot);
+
+  const prevDataRoot = process.env.ANTIFAN_DATA_ROOT;
+  const prevConfigDir = process.env.ANTIFAN_CONFIG_DIR;
+  process.env.ANTIFAN_DATA_ROOT = scratchDataRoot;
+  process.env.ANTIFAN_CONFIG_DIR = configDir;
+
+  try {
+    // 1. Stale record test
+    const staleTime = Date.now() - 30_000;
+    fs.writeFileSync(
+      path.join(configDir, "bridge.json"),
+      JSON.stringify({ pid: process.pid, health: "listening", updatedAt: staleTime, heartbeatMs: 5000 }),
+      "utf8"
+    );
+
+    const { handlers, entries } = loadHook();
+    const ws = makeWorkspace();
+    const ctx = { cwd: ws };
+    writeCall(handlers, ctx, "sections/header.liquid");
+
+    const res1 = result(handlers, ctx, "read result 1");
+    const text1 = resText(res1);
+    assert.ok(text1.includes("[theme-qa-gate:bridge] QA gate suspended: bridge down (HEALTH_STALE)"), "first result carries suspension notice");
+    assert.ok(!text1.includes(GATE_REMINDER_SENTINEL), "pending edits reminder is suppressed while suspended");
+    assert.equal(entries.length, 1, "exactly one bridge entry on down edge");
+    assert.equal(entries[0].customType, "antifan-bridge-suspension");
+    assert.equal(entries[0].data.code, "HEALTH_STALE");
+    assert.equal(entries[0].data.key, `${process.pid}:HEALTH_STALE`);
+
+    // Next 16 results (the Phukienmaymoc 17-tool_result scenario) must produce ZERO reminders and ZERO duplicate suspension notices
+    let suspensionCount = 1;
+    let reminderCount = 0;
+    for (let i = 2; i <= 17; i++) {
+      const resI = result(handlers, ctx, `read result ${i}`);
+      const textI = resText(resI);
+      if (textI.includes("[theme-qa-gate:bridge]")) suspensionCount++;
+      if (textI.includes(GATE_REMINDER_SENTINEL)) reminderCount++;
+    }
+    assert.equal(suspensionCount, 1, "exactly one suspension notice across all 17 tool results");
+    assert.equal(reminderCount, 0, "zero reminders across all 17 tool results during outage");
+    assert.equal(entries.length, 1, "no duplicate entries on subsequent tool results");
+
+    // 2. Dead pid test: session_start resets, dead pid record
+    handlers.get("session_start")();
+    writeCall(handlers, ctx, "sections/header.liquid");
+    fs.writeFileSync(
+      path.join(configDir, "bridge.json"),
+      JSON.stringify({ pid: 99999999, health: "listening", updatedAt: Date.now(), heartbeatMs: 5000 }),
+      "utf8"
+    );
+    const deadRes1 = result(handlers, ctx, "read 1");
+    const deadText1 = resText(deadRes1);
+    assert.ok(deadText1.includes("[theme-qa-gate:bridge] QA gate suspended: bridge down (HEALTH_PID_DEAD)"), "dead pid produces HEALTH_PID_DEAD suspension");
+    const deadRes2 = result(handlers, ctx, "read 2");
+    assert.equal(deadRes2, undefined, "second tool_result during dead pid outage is completely silent");
+  } finally {
+    if (prevDataRoot !== undefined) process.env.ANTIFAN_DATA_ROOT = prevDataRoot;
+    else delete process.env.ANTIFAN_DATA_ROOT;
+    if (prevConfigDir !== undefined) process.env.ANTIFAN_CONFIG_DIR = prevConfigDir;
+    else delete process.env.ANTIFAN_CONFIG_DIR;
+  }
+});
+
+test("suspension: observed-marker lane suspends while record reads listening and with no record", () => {
+  const scratchDataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "antifan-data-"));
+  const configDir = path.join(scratchDataRoot, "config");
+  fs.mkdirSync(configDir, { recursive: true });
+  scratchDirs.push(scratchDataRoot);
+
+  const prevDataRoot = process.env.ANTIFAN_DATA_ROOT;
+  const prevConfigDir = process.env.ANTIFAN_CONFIG_DIR;
+  process.env.ANTIFAN_DATA_ROOT = scratchDataRoot;
+  process.env.ANTIFAN_CONFIG_DIR = configDir;
+
+  try {
+    // Record is healthy and listening with live pid
+    fs.writeFileSync(
+      path.join(configDir, "bridge.json"),
+      JSON.stringify({ pid: process.pid, health: "listening", updatedAt: Date.now(), heartbeatMs: 5000 }),
+      "utf8"
+    );
+
+    const { handlers, entries } = loadHook();
+    const ws = makeWorkspace();
+    const ctx = { cwd: ws };
+    writeCall(handlers, ctx, "sections/header.liquid");
+
+    // Tool result carries launcher failure marker MCP_BRIDGE_OFFLINE
+    const res1 = result(handlers, ctx, "Error: MCP_BRIDGE_OFFLINE: connection refused to 127.0.0.1:20129");
+    const text1 = resText(res1);
+    assert.ok(text1.includes("[theme-qa-gate:bridge] QA gate suspended: bridge down (MCP_BRIDGE_OFFLINE)"), "observed lane suspends even though record says listening");
+    assert.ok(!text1.includes(GATE_REMINDER_SENTINEL), "reminder is suppressed");
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0].customType, "antifan-bridge-suspension");
+    assert.equal(entries[0].data.code, "MCP_BRIDGE_OFFLINE");
+    assert.equal(entries[0].data.key, "MCP_BRIDGE_OFFLINE");
+
+    // Second result with same marker does not duplicate notice
+    const res2 = result(handlers, ctx, "MCP_BRIDGE_OFFLINE repeated");
+    assert.equal(res2, undefined, "repeated failure marker is silent");
+    assert.equal(entries.length, 1, "no duplicate entry appended");
+
+    // Also verify with no record present at all
+    fs.unlinkSync(path.join(configDir, "bridge.json"));
+    handlers.get("session_start")();
+    writeCall(handlers, ctx, "sections/header.liquid");
+    const resNoRec = result(handlers, ctx, "Connection to bridge failed: BRIDGE_UNREACHABLE");
+    const textNoRec = resText(resNoRec);
+    assert.ok(textNoRec.includes("[theme-qa-gate:bridge] QA gate suspended: bridge down (BRIDGE_UNREACHABLE)"), "observed lane suspends with no record on disk");
+  } finally {
+    if (prevDataRoot !== undefined) process.env.ANTIFAN_DATA_ROOT = prevDataRoot;
+    else delete process.env.ANTIFAN_DATA_ROOT;
+    if (prevConfigDir !== undefined) process.env.ANTIFAN_CONFIG_DIR = prevConfigDir;
+    else delete process.env.ANTIFAN_CONFIG_DIR;
+  }
+});
+
+test("suspension: resume emits exactly one notice and restores pending-edits reminder", () => {
+  const scratchDataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "antifan-data-"));
+  const configDir = path.join(scratchDataRoot, "config");
+  fs.mkdirSync(configDir, { recursive: true });
+  scratchDirs.push(scratchDataRoot);
+
+  const prevDataRoot = process.env.ANTIFAN_DATA_ROOT;
+  const prevConfigDir = process.env.ANTIFAN_CONFIG_DIR;
+  process.env.ANTIFAN_DATA_ROOT = scratchDataRoot;
+  process.env.ANTIFAN_CONFIG_DIR = configDir;
+
+  try {
+    // Start with bridge down (record down with failure code LISTEN_FAILED)
+    fs.writeFileSync(
+      path.join(configDir, "bridge.json"),
+      JSON.stringify({
+        pid: process.pid,
+        health: "down",
+        lastFailure: { code: "LISTEN_FAILED", message: "listen failed", at: Date.now() },
+        updatedAt: Date.now(),
+        heartbeatMs: 5000,
+      }),
+      "utf8"
+     );
+
+    const { handlers, entries } = loadHook();
+    const ws = makeWorkspace();
+    const ctx = { cwd: ws };
+    writeCall(handlers, ctx, "sections/header.liquid");
+
+    // 1. Outage edge
+    const res1 = result(handlers, ctx, "read 1");
+    assert.ok(resText(res1).includes("[theme-qa-gate:bridge] QA gate suspended: bridge down (LISTEN_FAILED)"));
+    assert.ok(!resText(res1).includes(GATE_REMINDER_SENTINEL));
+
+    // 2. Silence during outage
+    const res2 = result(handlers, ctx, "read 2");
+    assert.equal(res2, undefined, "silent while outage is unchanged");
+
+    // 3. Bridge recovers: write healthy record
+    fs.writeFileSync(
+      path.join(configDir, "bridge.json"),
+      JSON.stringify({ pid: process.pid, health: "listening", updatedAt: Date.now(), heartbeatMs: 5000 }),
+      "utf8"
+    );
+
+    const res3 = result(handlers, ctx, "read 3");
+    const text3 = resText(res3);
+    assert.ok(text3.includes("[theme-qa-gate:bridge] bridge recovered (listening) — QA gate reminders resumed"), "recovery notice emitted");
+    assert.ok(text3.includes(GATE_REMINDER_SENTINEL), "pending edits reminder restored on recovery");
+    const resumeEntries = entries.filter((e) => e.customType === "antifan-bridge-resumed");
+    assert.equal(resumeEntries.length, 1, "exactly one resumed entry");
+    assert.equal(resumeEntries[0].data.code, "listening");
+    assert.equal(resumeEntries[0].data.key, `${process.pid}:LISTEN_FAILED`);
+
+    // 4. Next result: recovery notice must NOT repeat, reminder must continue
+    const res4 = result(handlers, ctx, "read 4");
+    const text4 = resText(res4);
+    assert.ok(!text4.includes("bridge recovered"), "recovery notice does not repeat");
+    assert.ok(text4.includes(GATE_REMINDER_SENTINEL), "pending reminder continues on subsequent results");
+  } finally {
+    if (prevDataRoot !== undefined) process.env.ANTIFAN_DATA_ROOT = prevDataRoot;
+    else delete process.env.ANTIFAN_DATA_ROOT;
+    if (prevConfigDir !== undefined) process.env.ANTIFAN_CONFIG_DIR = prevConfigDir;
+    else delete process.env.ANTIFAN_CONFIG_DIR;
+  }
+});
+
+test("suspension: scoped (Direct/Super-Fast) session produces no bridge notices", () => {
+  const scratchDataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "antifan-data-"));
+  const configDir = path.join(scratchDataRoot, "config");
+  fs.mkdirSync(configDir, { recursive: true });
+  scratchDirs.push(scratchDataRoot);
+
+  const prevDataRoot = process.env.ANTIFAN_DATA_ROOT;
+  const prevConfigDir = process.env.ANTIFAN_CONFIG_DIR;
+  process.env.ANTIFAN_DATA_ROOT = scratchDataRoot;
+  process.env.ANTIFAN_CONFIG_DIR = configDir;
+
+  try {
+    // Dead PID in bridge.json
+    fs.writeFileSync(
+      path.join(configDir, "bridge.json"),
+      JSON.stringify({ pid: 99999999, health: "down", updatedAt: Date.now(), heartbeatMs: 5000 }),
+      "utf8"
+    );
+
+    for (const mode of ["fast", "direct"]) {
+      withEditMode(mode, () => {
+        const { handlers, entries, sent } = loadHook();
+        const ws = makeWorkspace();
+        const ctx = sessionCtx(ws, `sess-${mode}`);
+        writeCall(handlers, ctx, "sections/header.liquid");
+
+        // Tool result with error marker while record is also dead
+        const res = result(handlers, ctx, "Error: MCP_BRIDGE_OFFLINE");
+        assert.equal(res, undefined, `scoped mode (${mode}) produces no tool_result text`);
+
+        const ctxRes = handlers.get("context")({ messages: [{ role: "user", content: "edit file" }] }, ctx);
+        assert.equal(ctxRes, undefined, `scoped mode (${mode}) produces no context messages`);
+
+        assert.equal(entries.filter((e) => e.customType.startsWith("antifan-bridge-")).length, 0, `scoped mode (${mode}) appends no bridge entries`);
+
+        handlers.get("turn_end")({ type: "turn_end" }, ctx);
+        assert.equal(sent.length, 1, `scoped mode (${mode}) sends only the turn_end skip line`);
+        assert.ok(String(sent[0].content).includes(EDIT_GUARD_MARKER), "skip line has EDIT_GUARD_MARKER");
+      });
+    }
+  } finally {
+    if (prevDataRoot !== undefined) process.env.ANTIFAN_DATA_ROOT = prevDataRoot;
+    else delete process.env.ANTIFAN_DATA_ROOT;
+    if (prevConfigDir !== undefined) process.env.ANTIFAN_CONFIG_DIR = prevConfigDir;
+    else delete process.env.ANTIFAN_CONFIG_DIR;
+  }
+});
+
+test("bridge file selection: dev beside prod prefers the live pid's record", () => {
+  const scratchDataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "antifan-data-"));
+  const configDir = path.join(scratchDataRoot, "config");
+  fs.mkdirSync(configDir, { recursive: true });
+  scratchDirs.push(scratchDataRoot);
+
+  const prevDataRoot = process.env.ANTIFAN_DATA_ROOT;
+  const prevConfigDir = process.env.ANTIFAN_CONFIG_DIR;
+  process.env.ANTIFAN_DATA_ROOT = scratchDataRoot;
+  process.env.ANTIFAN_CONFIG_DIR = configDir;
+
+  try {
+    // dev record has newer timestamp but dead PID
+    fs.writeFileSync(
+      path.join(configDir, "bridge-dev.json"),
+      JSON.stringify({ pid: 99999999, health: "down", updatedAt: Date.now() + 5000, heartbeatMs: 5000 }),
+      "utf8"
+    );
+    // prod record has older timestamp but alive PID
+    fs.writeFileSync(
+      path.join(configDir, "bridge.json"),
+      JSON.stringify({ pid: process.pid, health: "listening", updatedAt: Date.now(), heartbeatMs: 5000 }),
+      "utf8"
+    );
+
+    const { handlers, entries } = loadHook();
+    const ws = makeWorkspace();
+    const ctx = { cwd: ws };
+    writeCall(handlers, ctx, "sections/header.liquid");
+
+    const res = result(handlers, ctx, "read content");
+    const text = resText(res);
+    assert.ok(!text.includes("HEALTH_PID_DEAD"), "dead pid from dev was not chosen because prod has live pid");
+    assert.ok(text.includes(GATE_REMINDER_SENTINEL), "healthy prod record allows reminder to be emitted");
+    assert.equal(entries.filter((e) => e.customType === "antifan-bridge-suspension").length, 0, "not suspended");
+  } finally {
+    if (prevDataRoot !== undefined) process.env.ANTIFAN_DATA_ROOT = prevDataRoot;
+    else delete process.env.ANTIFAN_DATA_ROOT;
+    if (prevConfigDir !== undefined) process.env.ANTIFAN_CONFIG_DIR = prevConfigDir;
+    else delete process.env.ANTIFAN_CONFIG_DIR;
   }
 });
 

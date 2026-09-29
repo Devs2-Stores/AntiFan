@@ -105,7 +105,10 @@ const EVIDENCE_PATH = path.join(
 interface DriverCheckRow {
   name: string;
   ok: boolean;
+  status?: string;
   error?: string;
+  cleanupError?: string;
+  timedOut?: boolean;
 }
 
 /** The observation fields the suite asserts on, declared here so the assertions stay typed. */
@@ -198,6 +201,26 @@ app.commandLine.appendSwitch('no-sandbox');
 const REPO_ROOT = process.env.ANTIFAN_DRIVER_REPO_ROOT || path.resolve(__dirname, '..');
 const EVIDENCE_FILE = process.env.ANTIFAN_DRIVER_EVIDENCE || path.join(REPO_ROOT, 'project-windows-e2e.json');
 const BRIDGE_PORT = process.env.ANTIFAN_DRIVER_BRIDGE_PORT || '';
+const EXPECTED_ROWS = [
+  'window.startup-single-project-shell',
+  'window.second-project-opens-with-own-authority',
+  'window.duplicate-open-joins-existing-window',
+  'window.unknown-project-refused',
+  'window.independent-tabs-and-active-tab',
+  'window.split-layout-independent',
+  'window.native-popup-inherits-window-affiliation',
+  'window.minimize-restore-keeps-target-authority',
+  'window.same-project-sessions-cannot-cross-invoke',
+  'window.background-surface-and-capture-ready',
+  'window.search-lists-every-window',
+  'window.search-activates-foreign-tab-without-authority-rotation',
+  'window.search-stale-refusal-no-fallback',
+  'window.five-projects-twenty-tabs',
+  'window.agent-intent-window-stays-unpresented',
+  'window.close-keeps-sibling-and-tabs',
+  'window.survivor-toolbar-and-accelerator-after-sibling-close',
+  'window.cleanup-closes-every-shell',
+];
 // The minimum a project shell accepts, as src/main/index.ts creates it. Two of them side by
 // side is what the display has to hold before this run measures a window that another window
 // does not cover.
@@ -329,33 +352,64 @@ async function waitForApi(webContents, expression, timeoutMs) {
 // A row that stalls must not abort the receipt: the run's own watchdog would otherwise kill
 // the process and every later row would be recorded as never observed, hiding the rows that
 // were fine. A stalled row is one honest FAIL and the run continues.
-const ROW_TIMEOUT_MS = 90000;
+const ROW_TIMEOUT_MS = Number(process.env.ANTIFAN_TEST_ROW_TIMEOUT_MS || 90000);
+let laneStopped = false;
+let frozenObservations = null;
 
 async function check(name, fn, cleanup) {
+  if (laneStopped) {
+    checks.push({
+      name: name,
+      ok: false,
+      status: 'BLOCKED',
+      error: 'cascade: lane stopped after an earlier row timed out',
+    });
+    console.log('  BLOCKED  ' + name + ' (cascade: lane stopped after timeout)');
+    return;
+  }
+  let timedOut = false;
   const rowTimeout = Promise.withResolvers();
   const rowTimer = setTimeout(function () {
+    timedOut = true;
     rowTimeout.reject(new Error('the row did not finish within ' + ROW_TIMEOUT_MS + 'ms'));
   }, ROW_TIMEOUT_MS);
+  let rowEntry = { name: name, ok: true };
   try {
     await Promise.race([fn(), rowTimeout.promise]);
-    checks.push({ name: name, ok: true });
     console.log('  PASS  ' + name);
   } catch (err) {
-    checks.push({ name: name, ok: false, error: messageOf(err) });
+    rowEntry.ok = false;
+    rowEntry.error = messageOf(err);
+    if (timedOut) {
+      rowEntry.status = 'FAIL';
+      rowEntry.timedOut = true;
+      laneStopped = true;
+      try {
+        frozenObservations = structuredClone(observations);
+      } catch {
+        frozenObservations = JSON.parse(JSON.stringify(observations));
+      }
+    }
     console.log('  FAIL  ' + name + ': ' + messageOf(err));
   } finally {
     clearTimeout(rowTimer);
     // A row that fails must still leave the scenario as it found it. An aborted row used to
     // hand every later row its own leftovers (an extra open and still-active tab), which
     // turned one honest failure into a cascade of unrelated ones — the receipt then blames
-    // rows that were never the cause. Cleanup is best-effort and never decides a row.
+    // rows that were never the cause. Cleanup failure is recorded in the row.
     if (cleanup) {
       try {
         await cleanup();
       } catch (err) {
-        console.log('  NOTE  row cleanup failed: ' + messageOf(err));
+        rowEntry.ok = false;
+        rowEntry.cleanupError = messageOf(err);
+        rowEntry.error = rowEntry.error
+          ? (rowEntry.error + '; cleanup failed: ' + messageOf(err))
+          : ('cleanup failed: ' + messageOf(err));
+        console.log('  FAIL  ' + name + ' [cleanup]: ' + messageOf(err));
       }
     }
+    checks.push(rowEntry);
   }
 }
 
@@ -898,6 +952,10 @@ async function run() {
     expect(
       typeof child.tab.partition === 'string' && child.tab.partition.indexOf('persist:') === 0,
       'the popup ran in an unassigned partition: ' + String(child.tab.partition),
+    );
+    expect(
+      child.tab.userAgentMode === 'clean' || child.tab.userAgentMode === 'native',
+      'the popup user agent mode was unassigned: ' + String(child.tab.userAgentMode),
     );
     expect(
       child.tab.userAgentMode === parentTab.userAgentMode,
@@ -1620,13 +1678,23 @@ app.whenReady()
   })
   .finally(async function () {
     await cleanup();
+    for (const expected of EXPECTED_ROWS) {
+      if (!checks.some(function (c) { return c.name === expected; })) {
+        checks.push({
+          name: expected,
+          ok: false,
+          status: 'BLOCKED',
+          error: 'cascade: lane stopped before row was reached',
+        });
+      }
+    }
     const failed = checks.filter(function (entry) { return !entry.ok; });
     const result = {
       scenario: 'project-windows-lifecycle',
-      passed: checks.length - failed.length,
+      passed: checks.filter(function (entry) { return entry.ok; }).length,
       failed: failed.length,
       checks: checks,
-      observations: observations,
+      observations: frozenObservations || observations,
       deferred: DEFERRED,
       at: new Date().toISOString(),
     };
@@ -1765,6 +1833,10 @@ describe('Live E2E: independent project windows lifecycle', () => {
       assert.equal(popup.capsuleId, popup.parentCapsuleId, 'the popup did not record its parent capsule');
       assert.equal(popup.capsuleId, popup.windowCapsule, 'the popup did not record the capsule of its own window');
       assert.ok(popup.partition.startsWith('persist:'), `the popup did not run in a durable partition: ${popup.partition}`);
+      assert.ok(
+        popup.userAgentMode === 'clean' || popup.userAgentMode === 'native',
+        `the popup user agent mode was unassigned: ${popup.userAgentMode}`,
+      );
       assert.equal(popup.userAgentMode, popup.parentUserAgentMode, 'the popup did not inherit its parent user agent mode');
 
       const target = observations.minimizeRestore;

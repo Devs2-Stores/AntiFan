@@ -111,18 +111,6 @@ describe('Phase 2: Terminal Transcript Lifecycle & Eviction Invariants', () => {
     });
   });
 
-  describe('Alt-Screen Detection Guard', () => {
-    const isAltScreenEnter = (data: string) => /\x1b\[\?1049h/.test(data);
-    const isAltScreenExit = (data: string) => /\x1b\[\?1049l/.test(data);
-
-    it('detects xterm alt-screen buffer switch (vim, htop, less)', () => {
-      assert.strictEqual(isAltScreenEnter('some text\x1b[?1049hmore text'), true);
-      assert.strictEqual(isAltScreenEnter('regular output'), false);
-      assert.strictEqual(isAltScreenExit('exit\x1b[?1049l'), true);
-      assert.strictEqual(isAltScreenExit('regular output'), false);
-    });
-  });
-
   describe('safeSliceTailJsonBounded UTF-8 multi-byte integrity', () => {
     it('preserves valid UTF-8 strings within budget without trailing split characters', () => {
       const sample = 'Xin chào thế giới terminal AntiFan\nĐang kiểm tra scrollback\n';

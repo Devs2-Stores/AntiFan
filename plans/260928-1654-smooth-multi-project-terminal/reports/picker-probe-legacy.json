@@ -1,0 +1,100 @@
+{
+  "probe": "project-picker",
+  "mode": "legacy",
+  "passed": 2,
+  "failed": 0,
+  "checks": [
+    {
+      "name": "sidebar closed + Ctrl+Shift+O reaches the in-app modal with no native dialog",
+      "ok": true,
+      "observed": "overlay=hidden sidebarOpen=false nativeDialogs=1 events=project-open.without-target"
+    },
+    {
+      "name": "sidebar open + Ctrl+Shift+O shows the in-app modal in the sidebar",
+      "ok": true,
+      "observed": "overlay=hidden nativeDialogs=1 events=project-open.without-target"
+    }
+  ],
+  "observations": {
+    "nativeDialogCalls": [
+      {
+        "kind": "showMessageBox",
+        "title": "Mở dự án",
+        "buttons": 4
+      },
+      {
+        "kind": "showMessageBox",
+        "title": "Mở dự án",
+        "buttons": 4
+      }
+    ],
+    "sends": [
+      {
+        "surface": "sidebar",
+        "channel": "antifan:tabs:updated"
+      },
+      {
+        "surface": "sidebar",
+        "channel": "antifan:tabs:updated"
+      },
+      {
+        "surface": "sidebar",
+        "channel": "antifan:terminal:session"
+      },
+      {
+        "surface": "sidebar",
+        "channel": "antifan:terminal:session"
+      },
+      {
+        "surface": "sidebar",
+        "channel": "antifan:tabs:updated"
+      },
+      {
+        "surface": "sidebar",
+        "channel": "antifan:tabs:updated"
+      }
+    ],
+    "scenarios": [
+      {
+        "name": "sidebar-closed",
+        "via": "menu-accelerator",
+        "events": [
+          "project-open.without-target"
+        ],
+        "sends": [],
+        "dialogs": [
+          {
+            "kind": "showMessageBox",
+            "title": "Mở dự án",
+            "buttons": 4
+          }
+        ]
+      },
+      {
+        "name": "sidebar-open",
+        "via": "menu-accelerator",
+        "events": [
+          "project-open.without-target"
+        ],
+        "sends": [],
+        "dialogs": [
+          {
+            "kind": "showMessageBox",
+            "title": "Mở dự án",
+            "buttons": 4
+          }
+        ]
+      }
+    ],
+    "afterClosedSidebar": {
+      "overlay": "hidden",
+      "sidebarOpen": false,
+      "nativeDialogs": 1
+    },
+    "afterOpenSidebar": {
+      "overlay": "hidden",
+      "nativeDialogs": 1
+    }
+  },
+  "at": "2026-09-29T00:24:19.243Z"
+}

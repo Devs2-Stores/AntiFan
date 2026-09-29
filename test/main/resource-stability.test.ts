@@ -383,5 +383,18 @@ describe('P1-8: Resource Stability & Eviction Bounds', () => {
       assert.strictEqual(freshInternals.isDisposed, false, 'Fresh instance must not be disposed');
       await freshTm.dispose();
     });
+
+    it('getStats() handles a malformed session row with neither bufferBytes nor buffer', () => {
+      const internals = tm as unknown as TerminalManagerInternals;
+      // Feed a malformed session row that lacks both bufferBytes and buffer fields
+      internals.sessions.set('malformed-session-1', {
+        id: 'malformed-session-1',
+        state: 'running',
+      });
+
+      const stats = tm.getStats();
+      assert.strictEqual(stats.sessionCount, 1);
+      assert.strictEqual(stats.transcriptBytes, 0, 'malformed session without buffer/bufferBytes must contribute 0 transcript bytes');
+    });
   });
 });

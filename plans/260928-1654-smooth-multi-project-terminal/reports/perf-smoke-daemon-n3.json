@@ -1,0 +1,44 @@
+{
+  "label": "smoke-daemon",
+  "compiledRoot": "E:\\Work\\apps\\AntiFan\\.compiled",
+  "projects": 3,
+  "daemon": true,
+  "stagedDaemon": {
+    "version": "cd1abe3d21a3099f",
+    "stageDir": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-perf-probe-MdXBAT\\daemon-host\\cd1abe3d21a3099f",
+    "entry": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-perf-probe-MdXBAT\\daemon-host\\cd1abe3d21a3099f\\src\\main\\terminal-daemon\\daemon-entry.js",
+    "files": 48,
+    "bytes": 2975396,
+    "packages": [
+      "node-pty",
+      "ws"
+    ],
+    "pruned": [],
+    "dataRoot": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-perf-probe-MdXBAT"
+  },
+  "burstSeconds": 15.17,
+  "windowOpenMs": 315,
+  "eventLoopDelayMs": {
+    "p50": 15,
+    "p95": 16.15,
+    "p99": 24.53,
+    "max": 481.56
+  },
+  "statSyncPerSecond": 1.25,
+  "terminalDataIpcPerSecond": 30.06,
+  "daemonWsFramesPerSecond": 42.92,
+  "daemonWsKiBPerSecond": 167.25,
+  "tabsPerProject": 5,
+  "echoLatencyMs": {
+    "samples": 72,
+    "lost": 0,
+    "p50": 482.86,
+    "p95": 3042.79,
+    "max": 3342.66
+  },
+  "workingSetMb": {
+    "idle": 885.68,
+    "burstMax": 923.86
+  },
+  "measuredAt": "2026-09-28T23:04:44.361Z"
+}

@@ -1,7 +1,7 @@
 # Test-harness honesty — design
 
-Status: spec only; nothing in this file is implemented except the one item marked **landed**
-(`typecheck` in the pipeline's static gates, this session). Written after a coverage audit of
+Status: landed in the tree on 2026-09-28 except the items named open below.
+Written after a coverage audit of
 `plans/reports/260928-0658-pending-changes-stage2-review.md` (34 findings) and the four 2026-09-27/28
 reports against `docs/superpowers/specs/*.md`: every finding still reproduces in the live tree and
 **none of them was owned by any spec**. This spec is that owner.

@@ -133,7 +133,9 @@ app.whenReady().then(async () => {
     }
     return true;
   });
-  ipcMain.handle('antifan:terminal:input-session', () => ({ ok: true }));
+  // The renderer's typing path calls `sendTerminalInputTo`, which the shipped preload
+  // sends on the `kind: 'on'` route `antifan:terminal:input-session`.
+  ipcMain.on('antifan:terminal:input-session', () => {});
   ipcMain.handle('antifan:terminal:input', () => ({ ok: true }));
   const splitRequests = [];
   const resizeRequests = [];

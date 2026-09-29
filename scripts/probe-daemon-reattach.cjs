@@ -155,16 +155,21 @@ async function run() {
       record('host pid is alive', alive(handle.pid), `pid=${handle.pid} port=${handle.port}`);
 
       // Edge-case coverage (U33): token mismatch rejection before connecting authorized proxy
+      // M11: Assert specific authentication/handshake rejection; transport errors (ECONNREFUSED, timeout) fail
       const badProxy = new DaemonTerminalProxy({ port: handle.port, token: 'invalid-token-mismatch' });
       let tokenRejected = false;
+      let rejectReason = null;
       try {
         await badProxy.connect();
-      } catch {
-        tokenRejected = true;
+      } catch (err) {
+        const msg = String(err && err.message ? err.message : err);
+        rejectReason = msg;
+        const isAuthRejection = /401|unauthorized|forbidden/i.test(msg);
+        tokenRejected = isAuthRejection;
       } finally {
         badProxy.dispose();
       }
-      record('invalid token rejected by host (token mismatch rejection)', tokenRejected);
+      record('invalid token rejected by host (token mismatch rejection)', tokenRejected, rejectReason ? `rejected: ${rejectReason}` : 'no error thrown');
 
       const proxy = new DaemonTerminalProxy({ port: handle.port, token: handle.token });
       await proxy.connect();

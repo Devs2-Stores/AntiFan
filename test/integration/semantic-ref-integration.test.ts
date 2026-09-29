@@ -98,6 +98,8 @@ function createIntegrationHost() {
   host.targetOperationQueues = new Map();
   host.agentWorkingTimers = new Map();
   host.agentWorkingRefs = new Map();
+  host.agentInputInFlight = 0;
+  host.lastUserInputAtMs = 0;
   host.broadcastState = () => {};
   host.persistTabs = () => {};
   host.isCurrentTarget = (target: BrowserTarget) => !target?.tabId || host.tabs.has(target.tabId);

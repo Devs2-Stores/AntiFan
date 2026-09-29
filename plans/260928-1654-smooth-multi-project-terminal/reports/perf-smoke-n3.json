@@ -1,0 +1,31 @@
+{
+  "label": "smoke",
+  "compiledRoot": "E:\\Work\\apps\\AntiFan\\.compiled",
+  "projects": 3,
+  "daemon": false,
+  "burstSeconds": 15.19,
+  "windowOpenMs": 307,
+  "eventLoopDelayMs": {
+    "p50": 15.01,
+    "p95": 16.09,
+    "p99": 27.87,
+    "max": 265.68
+  },
+  "statSyncPerSecond": 1.25,
+  "terminalDataIpcPerSecond": 30.55,
+  "daemonWsFramesPerSecond": 0,
+  "daemonWsKiBPerSecond": 0,
+  "tabsPerProject": 5,
+  "echoLatencyMs": {
+    "samples": 73,
+    "lost": 0,
+    "p50": 78.27,
+    "p95": 2519.43,
+    "max": 2681.31
+  },
+  "workingSetMb": {
+    "idle": 925.14,
+    "burstMax": 961.44
+  },
+  "measuredAt": "2026-09-28T23:02:21.955Z"
+}

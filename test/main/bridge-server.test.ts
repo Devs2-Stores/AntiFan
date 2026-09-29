@@ -16,6 +16,7 @@ import { StorageLocations } from '../../src/main/config/storage-locations';
 import { NativeTabHost } from '../../src/main/browser/native-tab-host';
 import { ControlPlaneRuntime } from '../../src/main/control-plane/control-plane-runtime';
 import { AttachmentRegistry, type PageCloseAdmission } from '../../src/main/run/attachment-registry';
+import { BRIDGE_FAILURE_RECENCY_MS, subscribeBridgeHealth } from '../../src/main/bridge/bridge-health';
 import { makeControlPlaneId } from '../../src/shared/control-plane-contracts';
 // Mock NativeTabHost for pure isolated bridge test
 class MockTabHost extends EventEmitter {
@@ -141,7 +142,7 @@ describe('AntiFan Bridge Server', () => {
       assert.strictEqual(mockHost.lastCreateTab?.activate, true);
       assert.deepStrictEqual(
         mockHost.lastCreateTab?.options,
-        { ephemeral: false, offscreen: false },
+        { ephemeral: false, offscreen: false, plane: 'agent' },
         'a tab the caller asked to activate must exist on screen'
       );
 
@@ -149,7 +150,7 @@ describe('AntiFan Bridge Server', () => {
       assert.strictEqual(inactive.success, true);
       assert.deepStrictEqual(
         mockHost.lastCreateTab?.options,
-        { ephemeral: true, offscreen: true },
+        { ephemeral: true, offscreen: true, plane: 'agent' },
         'without activation an agent tab stays an isolated offscreen surface'
       );
     } finally {
@@ -1170,6 +1171,484 @@ describe('Bridge discovery & pairing queue isolation from the live data root', (
   });
 });
 
+describe('Bridge failure ledger, derived health, and record publish', () => {
+  const withIsolatedRoots = async (
+    fn: (dirs: { configDir: string; dataRoot: string }) => Promise<void> | void
+  ): Promise<void> => {
+    const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-bridge-config-'));
+    const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-bridge-root-'));
+    const prevConfig = process.env.ANTIFAN_CONFIG_DIR;
+    const prevRoot = process.env.ANTIFAN_DATA_ROOT;
+    process.env.ANTIFAN_CONFIG_DIR = configDir;
+    process.env.ANTIFAN_DATA_ROOT = dataRoot;
+    StorageLocations.resetCache();
+    try {
+      await fn({ configDir, dataRoot });
+    } finally {
+      if (prevConfig === undefined) delete process.env.ANTIFAN_CONFIG_DIR;
+      else process.env.ANTIFAN_CONFIG_DIR = prevConfig;
+      if (prevRoot === undefined) delete process.env.ANTIFAN_DATA_ROOT;
+      else process.env.ANTIFAN_DATA_ROOT = prevRoot;
+      StorageLocations.resetCache();
+      try { fs.rmSync(configDir, { recursive: true, force: true }); } catch {}
+      try { fs.rmSync(dataRoot, { recursive: true, force: true }); } catch {}
+    }
+  };
+
+  interface TestBridgeSurface {
+    lastFailure: { code: string; message: string; at: number } | null;
+    listening: boolean;
+    healthTimer: NodeJS.Timeout | null;
+    startedAt: number;
+    clients: Set<WebSocket>;
+    pairingStore: Map<string, { revoked: boolean; consumed: boolean; expiresAt: number; failedAttempts: number; attemptBudget: number; clientClass: string; clientId?: string; requestedGrantCeiling?: string }>;
+    replenishPairingQueue: () => Promise<void>;
+    persistBridgeInfo: () => Promise<void>;
+    unlinkDiscoveryIfOwned: (filePath: string) => void;
+  }
+
+  const surface = (server: BridgeServer): TestBridgeSurface => server as unknown as TestBridgeSurface;
+
+  const bindEphemeralPort = async (server: net.Server): Promise<number> => {
+    const { promise, resolve, reject } = Promise.withResolvers<number>();
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      resolve(typeof address === 'object' && address ? address.port : 0);
+    });
+    return promise;
+  };
+
+  // Windows hands out ports still cooling in TIME_WAIT, so an ephemeral bind
+  // can land on an unusable socket — retry a few times before giving up.
+  const bindWithRetries = async (attempts = 5): Promise<{ server: net.Server; port: number }> => {
+    let lastError: unknown;
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      const server = net.createServer();
+      try {
+        const port = await bindEphemeralPort(server);
+        return { server, port };
+      } catch (err) {
+        lastError = err;
+        try { server.close(); } catch {}
+      }
+    }
+    throw lastError instanceof Error ? lastError : new Error('ephemeral port bind failed');
+  };
+
+  const freePort = async (): Promise<number> => {
+    const { server, port } = await bindWithRetries();
+    const { promise, resolve } = Promise.withResolvers<void>();
+    server.close(() => resolve());
+    await promise;
+    return port;
+  };
+
+  const readRecord = (file: string): Record<string, unknown> | null => {
+    try {
+      return JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  };
+
+  const waitFor = async (check: () => boolean | Promise<boolean>, timeoutMs: number, label: string): Promise<void> => {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (await check()) return;
+      const { promise, resolve } = Promise.withResolvers<void>();
+      setTimeout(resolve, 50);
+      await promise;
+    }
+    assert.fail(`timed out waiting for ${label}`);
+  };
+
+  const openRefusedSocket = async (port: number, options: { query?: string; headers?: Record<string, string>; origin?: string }): Promise<{ code: number; reason: string }> => {
+    const { promise, resolve, reject } = Promise.withResolvers<{ code: number; reason: string }>();
+    const ws = new WebSocket(`ws://127.0.0.1:${port}${options.query ?? ''}`, {
+      headers: options.headers,
+      origin: options.origin,
+    });
+    ws.on('unexpected-response', (_req, res) => {
+      resolve({ code: res.statusCode ?? 0, reason: String(res.statusMessage ?? '') });
+    });
+    ws.on('close', (code, reason) => resolve({ code, reason: reason.toString() }));
+    ws.on('error', () => {});
+    setTimeout(() => reject(new Error('socket neither refused nor closed')), 5000);
+    return promise;
+  };
+
+  const exchangePairing = async (port: number, body: Record<string, unknown>): Promise<{ status: number }> => {
+    const res = await fetch(`http://127.0.0.1:${port}/api/pairing/exchange`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    await res.text();
+    return { status: res.status };
+
+  };
+
+  it('derives listening/degraded/down and backdates across the recency boundary', async () => {
+    await withIsolatedRoots(async () => {
+      const mockHost = new MockTabHost() as unknown as NativeTabHost;
+      const server = new BridgeServer(mockHost, 0, true);
+      try {
+        assert.strictEqual(server.getStatus().health, 'down', 'unbound listener reads down before start resolves');
+        await server.start();
+        assert.strictEqual(server.getStatus().health, 'listening');
+        assert.strictEqual(server.getStatus().lastFailure, undefined);
+
+        server.recordBridgeFailure('PAIRING_REFUSED', 'pairing code already used');
+        assert.strictEqual(server.getStatus().health, 'degraded');
+        assert.strictEqual(server.getStatus().lastFailure?.code, 'PAIRING_REFUSED');
+        assert.strictEqual(server.getStatus().lastFailure?.message, 'pairing code already used');
+
+        const ledger = surface(server);
+        ledger.lastFailure!.at = Date.now() - BRIDGE_FAILURE_RECENCY_MS - 1;
+        assert.strictEqual(server.getStatus().health, 'listening', 'a failure outside the recency window decays back to listening');
+
+        server.recordBridgeFailure('PAIRING_REFUSED', 'pairing code expired');
+        ledger.lastFailure!.at = Date.now() - BRIDGE_FAILURE_RECENCY_MS + 500;
+        assert.strictEqual(server.getStatus().health, 'degraded', 'a failure still inside the window stays degraded');
+
+        server.dispose();
+        assert.strictEqual(server.getStatus().health, 'down');
+      } finally {
+        server.dispose();
+      }
+    });
+  });
+
+  it('records every pairing-exchange availability refusal with a server-composed phrase', async () => {
+    await withIsolatedRoots(async () => {
+      const mockHost = new MockTabHost() as unknown as NativeTabHost;
+      const registry = new AttachmentRegistry();
+      const server = new BridgeServer(mockHost, 0, true, undefined, undefined, registry);
+      try {
+        const port = await server.start();
+        const ledger = surface(server);
+
+        const notFound = await exchangePairing(port, { code: 'deadbeef'.repeat(8), clientClass: 'mcp' });
+        assert.strictEqual(notFound.status, 401);
+        assert.strictEqual(ledger.lastFailure?.code, 'PAIRING_REFUSED');
+        assert.strictEqual(ledger.lastFailure?.message, 'pairing code not found or invalid');
+
+        const live = server.issuePairingCode({ clientClass: 'mcp', attemptBudget: 3 });
+        const liveRecord = ledger.pairingStore.get(live.codeHash);
+        assert.ok(liveRecord, 'issued code must land in the pairing store');
+
+        const classMismatch = await exchangePairing(port, { code: live.code, clientClass: 'mobile' });
+        assert.strictEqual(classMismatch.status, 403);
+        assert.strictEqual(ledger.lastFailure?.message, 'pairing client class mismatch');
+
+        liveRecord.clientId = 'bound-client';
+        const idMismatch = await exchangePairing(port, { code: live.code, clientClass: 'mcp', clientId: 'other-client' });
+        assert.strictEqual(idMismatch.status, 403);
+        assert.strictEqual(ledger.lastFailure?.message, 'pairing client id mismatch');
+
+        const grantUnknown = await exchangePairing(port, { code: live.code, clientClass: 'mcp', clientId: 'bound-client', requestedGrant: 'root' });
+        assert.strictEqual(grantUnknown.status, 400);
+        assert.strictEqual(ledger.lastFailure?.message, 'requested grant unknown');
+
+        // The refusal sequence above exhausted the attempt budget exactly; reset
+        // so the remaining refusal branches stay reachable in order.
+        liveRecord.failedAttempts = 0;
+        liveRecord.requestedGrantCeiling = 'read';
+        const ceiling = await exchangePairing(port, { code: live.code, clientClass: 'mcp', clientId: 'bound-client', requestedGrant: 'execute' });
+        assert.strictEqual(ceiling.status, 403);
+        assert.strictEqual(ledger.lastFailure?.message, 'requested grant exceeds ceiling');
+
+        liveRecord.expiresAt = Date.now() - 1;
+        const expired = await exchangePairing(port, { code: live.code, clientClass: 'mcp', clientId: 'bound-client' });
+        assert.strictEqual(expired.status, 410);
+        assert.strictEqual(ledger.lastFailure?.message, 'pairing code expired');
+
+        liveRecord.expiresAt = Date.now() + 60_000;
+        liveRecord.revoked = true;
+        const revoked = await exchangePairing(port, { code: live.code, clientClass: 'mcp', clientId: 'bound-client' });
+        assert.strictEqual(revoked.status, 403);
+        assert.strictEqual(ledger.lastFailure?.message, 'pairing code revoked');
+
+        liveRecord.revoked = false;
+        liveRecord.consumed = true;
+        const consumed = await exchangePairing(port, { code: live.code, clientClass: 'mcp', clientId: 'bound-client' });
+        assert.strictEqual(consumed.status, 409);
+        assert.strictEqual(ledger.lastFailure?.message, 'pairing code already used');
+
+        liveRecord.consumed = false;
+        liveRecord.failedAttempts = liveRecord.attemptBudget;
+        const attempts = await exchangePairing(port, { code: live.code, clientClass: 'mcp', clientId: 'bound-client' });
+        assert.strictEqual(attempts.status, 429);
+        assert.strictEqual(ledger.lastFailure?.message, 'pairing attempt budget exhausted');
+        assert.ok(ledger.pairingStore.get(live.codeHash)?.revoked, 'budget exhaustion still revokes the code');
+      } finally {
+        server.dispose();
+      }
+    });
+  });
+
+  it('records the challenge-queue depletion and the expired extension grant', async () => {
+    await withIsolatedRoots(async () => {
+      const mockHost = new MockTabHost() as unknown as NativeTabHost;
+      const server = new BridgeServer(mockHost, 0, true);
+      try {
+        const port = await server.start();
+        const ledger = surface(server);
+
+        ledger.replenishPairingQueue = () => Promise.resolve();
+        const queueDir = (server as unknown as { pairingQueueDir: string }).pairingQueueDir;
+        for (const file of fs.readdirSync(queueDir)) fs.unlinkSync(path.join(queueDir, file));
+        const challenge = await fetch(`http://127.0.0.1:${port}/api/pairing/challenge`, { method: 'POST' });
+        assert.strictEqual(challenge.status, 404);
+        assert.strictEqual(ledger.lastFailure?.code, 'PAIRING_REFUSED');
+        assert.strictEqual(ledger.lastFailure?.message, 'pairing challenge queue depleted');
+
+        const grant = server.issueExtensionGrant('partition-x', undefined, -1);
+        const status = await fetch(`http://127.0.0.1:${port}/status`, {
+          headers: { Authorization: `Bearer ${grant.grantToken}` },
+        });
+        assert.strictEqual(status.status, 401);
+        assert.strictEqual(ledger.lastFailure?.message, 'extension session grant expired');
+      } finally {
+        server.dispose();
+      }
+    });
+  });
+
+  it('records the attachment-verify 401s and never the request-shape 400s', async () => {
+    await withIsolatedRoots(async () => {
+      const mockHost = new MockTabHost() as unknown as NativeTabHost;
+      const registry = new AttachmentRegistry();
+      const server = new BridgeServer(mockHost, 0, true, undefined, undefined, registry);
+      try {
+        const port = await server.start();
+        const ledger = surface(server);
+
+        const artifacts = await fetch(`http://127.0.0.1:${port}/api/artifacts/art-1`, {
+          headers: { 'x-antifan-attachment-secret': 'bogus-secret' },
+        });
+        assert.strictEqual(artifacts.status, 401);
+        assert.strictEqual(ledger.lastFailure?.code, 'PAIRING_REFUSED');
+        assert.strictEqual(ledger.lastFailure?.message, 'attachment secret invalid or expired');
+
+        // The top-level secrets-in-URL prohibition answers before the artifacts
+        // route's own check, so nothing new reaches the ledger.
+        const secretsInUrl = await fetch(`http://127.0.0.1:${port}/api/artifacts/art-1?token=abc`);
+        assert.strictEqual(secretsInUrl.status, 401);
+        assert.strictEqual(ledger.lastFailure?.message, 'attachment secret invalid or expired', 'the generic secrets-in-URL refusal is not an availability failure');
+
+        ledger.lastFailure = null;
+        const badJson = await fetch(`http://127.0.0.1:${port}/api/pairing/exchange`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: 'not-json{',
+        });
+        assert.strictEqual(badJson.status, 400);
+        const missingFields = await exchangePairing(port, {});
+        assert.strictEqual(missingFields.status, 400);
+        const badClass = await exchangePairing(port, { code: 'deadbeef'.repeat(8), clientClass: 'hacker' });
+        assert.strictEqual(badClass.status, 400);
+        assert.strictEqual(ledger.lastFailure, null, 'malformed requests must never feed the refusal ledger');
+        assert.strictEqual(server.getStatus().health, 'listening');
+      } finally {
+        server.dispose();
+      }
+    });
+  });
+
+  it('records WS_AUTH_REFUSED on every 4001/4003 close and CLIENT_SOCKET_ERROR on socket error', async () => {
+    await withIsolatedRoots(async () => {
+      const mockHost = new MockTabHost() as unknown as NativeTabHost;
+      const server = new BridgeServer(mockHost, 0, true);
+      try {
+        const port = await server.start();
+        const ledger = surface(server);
+        const expectations: Array<{ options: Parameters<typeof openRefusedSocket>[1]; code: number; reason: string }> = [
+          { options: { query: '?token=abc' }, code: 4001, reason: 'Unauthorized: SECRETS_IN_URL_FORBIDDEN - Tokens in URL query string are strictly prohibited' },
+          { options: { headers: { Authorization: 'Bearer wrong' } }, code: 4001, reason: 'Unauthorized: missing or invalid token' },
+          { options: { headers: { Authorization: `Bearer ${server.getToken()}` }, origin: 'https://evil.example' }, code: 4003, reason: 'Forbidden: untrusted origin' },
+          { options: { headers: { Authorization: `Bearer ${server.getToken()}`, origin: '!!not a url' } }, code: 4003, reason: 'Forbidden: malformed origin header' },
+        ];
+        for (const expected of expectations) {
+          const closed = await openRefusedSocket(port, expected.options);
+          assert.strictEqual(closed.code, expected.code);
+          assert.strictEqual(ledger.lastFailure?.code, 'WS_AUTH_REFUSED');
+          assert.strictEqual(ledger.lastFailure?.message, expected.reason);
+        }
+
+        const ws = new WebSocket(`ws://127.0.0.1:${port}`, {
+          headers: { Authorization: `Bearer ${server.getToken()}` },
+        });
+        const { promise: opened, resolve: markOpen, reject: failOpen } = Promise.withResolvers<void>();
+        ws.on('open', markOpen);
+        ws.on('error', failOpen);
+        await opened;
+        await waitFor(() => server.getStatus().clientCount === 1, 3000, 'client registration');
+        const serverSideSocket = [...ledger.clients][0];
+        assert.ok(serverSideSocket, 'server must hold the accepted socket');
+        serverSideSocket.emit('error', new Error('boom'));
+        assert.strictEqual(ledger.lastFailure?.code, 'CLIENT_SOCKET_ERROR');
+        assert.strictEqual(server.getStatus().clientCount, 0, 'the dead socket leaves the client set');
+        ws.close();
+      } finally {
+        server.dispose();
+      }
+    });
+  });
+
+  it('records LISTEN_EADDRINUSE before the port-0 retry and still recovers', async () => {
+    await withIsolatedRoots(async () => {
+      const { server: blocker, port: heldPort } = await bindWithRetries();
+      const mockHost = new MockTabHost() as unknown as NativeTabHost;
+      const server = new BridgeServer(mockHost, heldPort, false);
+      try {
+        const port = await server.start();
+        assert.notStrictEqual(port, heldPort, 'the retry binds an ephemeral port');
+        const ledger = surface(server);
+        assert.strictEqual(ledger.lastFailure?.code, 'LISTEN_EADDRINUSE');
+        assert.strictEqual(ledger.lastFailure?.message, 'configured bridge port already in use');
+        assert.strictEqual(server.getStatus().health, 'degraded', 'a recovered rebind keeps the failure inside the recency window');
+      } finally {
+        server.dispose();
+        blocker.close();
+      }
+    });
+  });
+
+  it('publishes the derived record, freezes startedAt across publishes, and republishes listening on the heartbeat', async () => {
+    await withIsolatedRoots(async ({ configDir }) => {
+      const mockHost = new MockTabHost() as unknown as NativeTabHost;
+      const server = new BridgeServer(mockHost, await freePort(), true);
+      const recordPath = path.join(configDir, 'bridge-dev.json');
+      try {
+        await server.start();
+        const ledger = surface(server);
+        // DACL'd writes cost seconds each on Windows; the awaited persist is the
+        // same write the deferred publish and the heartbeat perform.
+        await ledger.persistBridgeInfo();
+        const first = readRecord(recordPath)!;
+        assert.strictEqual(first.pid, process.pid);
+        assert.strictEqual(first.heartbeatMs, 5000);
+        assert.strictEqual(typeof first.updatedAt, 'number');
+        assert.strictEqual(first.health, 'listening');
+
+        server.recordBridgeFailure('PAIRING_REFUSED', 'pairing code expired');
+        await ledger.persistBridgeInfo();
+        const degraded = readRecord(recordPath)!;
+        assert.strictEqual(degraded.health, 'degraded');
+        assert.strictEqual(degraded.startedAt, first.startedAt, 'instance birth never moves between publishes');
+        assert.ok((degraded.updatedAt as number) >= (first.updatedAt as number));
+        const failure = degraded.lastFailure as { code?: string; message?: string } | null;
+        assert.strictEqual(failure?.code, 'PAIRING_REFUSED');
+        assert.strictEqual(failure?.message, 'pairing code expired');
+
+        assert.ok(ledger.healthTimer, 'start() arms the 5 s health heartbeat');
+        ledger.lastFailure!.at = Date.now() - BRIDGE_FAILURE_RECENCY_MS - 1;
+        // The heartbeat's whole job is one persist call; invoke that write
+        // directly rather than burning the real 5 s interval.
+        await ledger.persistBridgeInfo();
+        const republished = readRecord(recordPath)!;
+        assert.strictEqual(republished.health, 'listening', 'a republish past the recency window reads listening again');
+        assert.ok((republished.updatedAt as number) >= (degraded.updatedAt as number));
+        assert.strictEqual(republished.startedAt, first.startedAt, 'startedAt stays frozen across the heartbeat');
+        assert.strictEqual(republished.pid, process.pid);
+      } finally {
+        server.dispose();
+      }
+    });
+  });
+
+  it('writes the final down record before unlinkDiscoveryIfOwned removes it', async () => {
+    await withIsolatedRoots(async ({ configDir }) => {
+      const mockHost = new MockTabHost() as unknown as NativeTabHost;
+      const server = new BridgeServer(mockHost, await freePort(), true);
+      const recordPath = path.join(configDir, 'bridge-dev.json');
+      await server.start();
+      const ledger = surface(server);
+      await ledger.persistBridgeInfo();
+      assert.strictEqual(readRecord(recordPath)?.health, 'listening');
+
+      const seenAtUnlink: Array<{ file: string; health: unknown; pid: unknown }> = [];
+      const original = ledger.unlinkDiscoveryIfOwned.bind(server);
+      ledger.unlinkDiscoveryIfOwned = (filePath: string) => {
+        const rec = readRecord(filePath);
+        seenAtUnlink.push({ file: filePath, health: rec?.health, pid: rec?.pid });
+        original(filePath);
+      };
+
+      server.dispose();
+      const recordSeen = seenAtUnlink.find((s) => s.file === recordPath);
+      assert.ok(recordSeen, 'the unlink ran for the instance record');
+      assert.strictEqual(recordSeen!.health, 'down', 'the record on disk at unlink time reads down');
+      assert.strictEqual(recordSeen!.pid, process.pid);
+      assert.strictEqual(fs.existsSync(recordPath), false, 'the owned record is then removed');
+      assert.strictEqual(server.getStatus().health, 'down');
+      assert.strictEqual(ledger.healthTimer, null, 'the health heartbeat is cleared');
+    });
+  });
+
+  it('keeps a live holder mirror entry through a second instance heartbeats and its dispose', async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-home-'));
+    fs.mkdirSync(path.join(home, '.gemini'), { recursive: true });
+    const mirrorPath = path.join(home, '.gemini', 'antifan_bridge_dev.json');
+    const prevHome = process.env.HOME;
+    const prevProfile = process.env.USERPROFILE;
+    process.env.HOME = home;
+    process.env.USERPROFILE = home;
+    const holder = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+    try {
+      await withIsolatedRoots(async () => {
+        const mockHost = new MockTabHost() as unknown as NativeTabHost;
+        fs.writeFileSync(mirrorPath, JSON.stringify({ port: 20129, pid: holder.pid, host: '127.0.0.1', health: 'listening' }), 'utf8');
+
+        const server = new BridgeServer(mockHost, await freePort(), true);
+        try {
+          await server.start();
+          // Two heartbeat writes, awaited: each is the same publish a beat would
+          // run, so any mirror write the interval could have made has landed.
+          await surface(server).persistBridgeInfo();
+          await surface(server).persistBridgeInfo();
+          const mirror = readRecord(mirrorPath);
+          assert.strictEqual(mirror?.pid, holder.pid, 'a live holder keeps its mirror entry across heartbeats');
+
+          server.dispose();
+          const afterDispose = readRecord(mirrorPath);
+          assert.strictEqual(afterDispose?.pid, holder.pid, 'a foreign-owned mirror survives the final down publish and unlink');
+        } finally {
+          server.dispose();
+        }
+      });
+    } finally {
+      try { holder.kill(); } catch {}
+      if (prevHome === undefined) delete process.env.HOME; else process.env.HOME = prevHome;
+      if (prevProfile === undefined) delete process.env.USERPROFILE; else process.env.USERPROFILE = prevProfile;
+      try { fs.rmSync(home, { recursive: true, force: true }); } catch {}
+    }
+  });
+
+  it('emits on the module-level health channel for failures and lifecycle transitions', async () => {
+    await withIsolatedRoots(async () => {
+      const mockHost = new MockTabHost() as unknown as NativeTabHost;
+      let emissions = 0;
+      const unsubscribe = subscribeBridgeHealth(() => { emissions++; });
+      const server = new BridgeServer(mockHost, 0, true);
+      try {
+        await server.start();
+        assert.ok(emissions >= 1, 'the listen transition emits');
+        const afterListen = emissions;
+        server.recordBridgeFailure('PAIRING_REFUSED', 'pairing code expired');
+        assert.strictEqual(emissions, afterListen + 1, 'a recorded refusal emits');
+        server.dispose();
+        assert.strictEqual(emissions, afterListen + 2, 'dispose emits the down transition');
+      } finally {
+        unsubscribe();
+        server.dispose();
+      }
+    });
+  });
+});
+
 type TerminalWriteSurface = {
   writeTo: (sessionId: string, input: string) => void;
   write: (input: string) => void;
@@ -2162,6 +2641,89 @@ describe('Bridge direct RPC close admission', () => {
       tm.write = originalWrite;
       for (const socket of sockets) { try { socket.close(); } catch {} }
       cleanup();
+    }
+  });
+});
+
+describe('Bridge terminal transcript RPC', () => {
+  it('serves antifan.terminalGetFullBuffer to master and mobile callers, refused for agent-owned sessions', async () => {
+    const mockHost = new MockTabHost() as unknown as NativeTabHost;
+    const server = new BridgeServer(mockHost, 0, false);
+    const sockets: WebSocket[] = [];
+    const open = async (headers: Record<string, string>) => {
+      const socket = new WebSocket(`ws://127.0.0.1:${server.getPort()}`, { headers });
+      sockets.push(socket);
+      await new Promise<void>((resolve, reject) => { socket.on('open', resolve); socket.on('error', reject); });
+      return socket;
+    };
+    const call = (socket: WebSocket, id: string, method: string, params: Record<string, unknown>) => new Promise<{ success: boolean; error?: string; data?: unknown }>((resolve) => {
+      const onMessage = (raw: unknown) => {
+        let frame: unknown;
+        try { frame = JSON.parse(String(raw)); } catch { return; }
+        if (typeof frame !== 'object' || frame === null || !('id' in frame) || frame.id !== id) return;
+        socket.off('message', onMessage);
+        resolve({
+          success: 'success' in frame && frame.success === true,
+          error: 'error' in frame && typeof frame.error === 'string' ? frame.error : undefined,
+          data: 'data' in frame ? (frame as { data: unknown }).data : undefined,
+        });
+      };
+      socket.on('message', onMessage);
+      socket.send(JSON.stringify({ id, method, params }));
+    });
+
+    const terminalManager = TerminalManager.getInstance();
+    const tm = terminalManager as unknown as { getFullBuffer: (id: string) => { sessionId: string; buffer: string; snapshotThroughSeq: number } };
+    const originalGetFullBuffer = tm.getFullBuffer.bind(terminalManager);
+    tm.getFullBuffer = (sessionId: string) => ({ sessionId, buffer: `transcript-of-${sessionId}`, snapshotThroughSeq: 7 });
+
+    try {
+      await server.start();
+      const master = await open({ Authorization: `Bearer ${server.getToken()}` });
+
+      // The master socket reads the authoritative transcript — the same payload the
+      // desktop renderer hydrates from after the broadcast lost its tail.
+      const masterRead = await call(master, 'buf-master', 'antifan.terminalGetFullBuffer', { sessionId: 'session-alpha' });
+      assert.strictEqual(masterRead.success, true, masterRead.error);
+      const masterData = masterRead.data as { buffer?: string; snapshotThroughSeq?: number };
+      assert.strictEqual(masterData.buffer, 'transcript-of-session-alpha');
+      assert.strictEqual(masterData.snapshotThroughSeq, 7);
+
+      // A companion grant with terminal.sync can hydrate its panes the same way.
+      const grant: MobileSessionGrant = {
+        grantToken: 'grant-transcript-read',
+        sessionId: 'session-mobile',
+        clientClass: 'mobile',
+        issuedAt: Date.now(),
+        expiresAt: Date.now() + 60_000,
+        revoked: false,
+        allowedScopes: ['terminal.sync'],
+      };
+      (server as unknown as MobileGrantSurface).mobileGrants.set(grant.grantToken, grant);
+      const mobile = await open({ Authorization: `Bearer ${grant.grantToken}` });
+
+      const mobileRead = await call(mobile, 'buf-mobile', 'antifan.terminalGetFullBuffer', { sessionId: 'session-alpha' });
+      assert.strictEqual(mobileRead.success, true, mobileRead.error);
+      assert.strictEqual((mobileRead.data as { buffer?: string }).buffer, 'transcript-of-session-alpha');
+
+      // Without the sync scope the method never reaches the manager.
+      const narrow: MobileSessionGrant = { ...grant, grantToken: 'grant-narrow', allowedScopes: ['tabs.view'] };
+      (server as unknown as MobileGrantSurface).mobileGrants.set(narrow.grantToken, narrow);
+      const narrowSocket = await open({ Authorization: `Bearer ${narrow.grantToken}` });
+      const narrowRead = await call(narrowSocket, 'buf-narrow', 'antifan.terminalGetFullBuffer', { sessionId: 'session-alpha' });
+      assert.strictEqual(narrowRead.success, false);
+      assert.match(narrowRead.error || '', /FORBIDDEN/);
+
+      // Agent-owned sessions stay out of the companion plane even for reads.
+      (mockHost as unknown as { getTerminalAgentAffinity?: (id: string) => unknown }).getTerminalAgentAffinity =
+        (id: string) => (id === 'session-agent' ? { status: 'alive' } : undefined);
+      const agentRead = await call(mobile, 'buf-agent', 'antifan.terminalGetFullBuffer', { sessionId: 'session-agent' });
+      assert.strictEqual(agentRead.success, false);
+      assert.match(agentRead.error || '', /TERMINAL_FORBIDDEN/);
+    } finally {
+      tm.getFullBuffer = originalGetFullBuffer;
+      for (const socket of sockets) { try { socket.close(); } catch {} }
+      server.dispose();
     }
   });
 });

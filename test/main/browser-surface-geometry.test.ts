@@ -60,6 +60,7 @@ function makeHost(options: {
   applied: unknown[];
   isTabOffscreen?: (tabId?: string) => boolean;
   switchTab?: () => boolean;
+  trySwitchTab?: (tabId: string) => { ok: true; tabId: string } | { ok: false; tabId: string; reason: string; retryAfterMs?: number };
 }): BrowserHostPort {
   const host = {
     getTabList: () => [{ id: BOUND_TAB }, { id: OTHER_TAB }],
@@ -73,6 +74,7 @@ function makeHost(options: {
     evalJs: async () => ({ ok: true }),
     isTabOffscreen: options.isTabOffscreen ?? (() => false),
     switchTab: options.switchTab ?? (() => true),
+    ...(options.trySwitchTab ? { trySwitchTab: options.trySwitchTab } : {}),
   };
   // Only the seams under test are modeled here; the rest of the host surface is unused.
   return host as unknown as BrowserHostPort;
@@ -166,5 +168,27 @@ describe('Tab activation refusals', () => {
   it('returns the activated tab when the switch happens', () => {
     const port = new BrowserControlPort(makeHost({ probe: () => sized(1440, 900), applied: [], switchTab: () => true }));
     assert.deepStrictEqual(port.switchTab(OTHER_TAB, { target: TARGET, isAgent: true }), { switched: true, tabId: OTHER_TAB });
+  });
+
+  it('maps a deferred host refusal to ACTIVATION_DEFERRED_USER_INPUT with retryAfterMs', () => {
+    const port = new BrowserControlPort(
+      makeHost({
+        probe: () => zeroBounds,
+        applied: [],
+        trySwitchTab: (tabId: string) => ({ ok: false, tabId, reason: 'ACTIVATION_DEFERRED_USER_INPUT', retryAfterMs: 1400 }),
+      })
+    );
+
+    assert.throws(
+      () => port.switchTab(OTHER_TAB, { target: TARGET, isAgent: true }),
+      (error: unknown) => {
+        assert.ok(error instanceof CapabilityError);
+        assert.strictEqual(error.code, 'ACTIVATION_DEFERRED_USER_INPUT', 'the agent must see the deferral code, not a boolean false');
+        assert.strictEqual(error.details?.retryAfterMs, 1400, 'the caller is told how long the window stays reserved');
+        assert.strictEqual(error.details?.tabId, OTHER_TAB);
+        assert.match(error.message, /user is typing/);
+        return true;
+      }
+    );
   });
 });

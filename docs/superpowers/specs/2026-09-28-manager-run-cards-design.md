@@ -1,8 +1,11 @@
 # Manager run cards and capsule briefs — design
 
-Status: target contract, decided with the user on 2026-09-28. Symbols and files are the authority
+Status: landed in the tree on 2026-09-28 (S4 of the day's set). The run-state hook,
+`RunStateService`, the `RUN_CONTROL`/`RUN_STATE` and capsule-brief routes, and the
+sidebar run cards + `#capsuleBriefDialog` in the standalone renderer are on disk.
+Symbols and files are the authority
 for what is wired — `NativeTabHost.CHROME_ROUTES`, `TerminalManager`, `WorkspaceCapsuleManager` and
-the standalone sidebar renderer — not this prose. This spec is S4 of the day's set; S1's edit-mode
+the standalone sidebar renderer — not this prose. S1's edit-mode
 guard (`2026-09-28-edit-mode-guard-design.md`) owns the mode file, the guard log and the
 `install-omp-hooks.mjs` installer this design's hook ships through.
 
@@ -529,4 +532,4 @@ Named lanes, each owning what can actually regress:
 | What the user reads on the card | `src/renderer/standalone.js` (+ `standalone.html`, `standalone.css`) |
 | Where the run files live | `StorageLocations.getRuntimeDir()` |
 
-Status: complete spec; implementation lands under the shared S1–S4 contract.
+Status: implementation landed under the shared S1–S4 contract on 2026-09-28.

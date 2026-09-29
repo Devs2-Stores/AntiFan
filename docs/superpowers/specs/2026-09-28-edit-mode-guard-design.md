@@ -281,9 +281,21 @@ discovered), and the loader is syntax-driven rather than extension-driven. `pack
 The mode must be reachable without hand-typing tags. `element-picker.ts` gains the third mode chip
 (`[🚀Super-Fast]`) beside the existing `[⚡Direct-Edit]` (default) and `[🧠Core-Context]`; the chip logic
 stays single-select over the mode slot, exactly as `test/main/element-picker-resolution.test.ts` pins it
-today. `ANTIFAN_EDIT_MODE` is also set by the AntiFan main process on terminal spawn when the user
-launches a terminal through a mode-scoped affordance — a two-line change on top of the env block in
-`TerminalManager` (`ANTIFAN_TERMINAL_SESSION_ID`, `ANTIFAN_BRIDGE_*`).
+today.
+
+**Correction (2026-09-28, verified against the tree):** this section originally claimed that
+`ANTIFAN_EDIT_MODE` is "also set by the AntiFan main process on terminal spawn when the user launches a
+terminal through a mode-scoped affordance — a two-line change on top of the env block in
+`TerminalManager`". That is not true of the shipped code and the affordance it names does not exist:
+the picker's mode travels as a *tag inside the composed prompt* (`AnnotationManager`, which writes the
+annotation and images and spawns nothing), no main-process path launches a terminal with a mode, and
+`ANTIFAN_EDIT_MODE` has no writer outside the guard itself (`applyEnvMirror`,
+`src/omp-hooks/edit-guard.ts`, read back by `inheritedEditMode` in the core bridge). The env channel
+therefore works exactly as designed — a spawned child process inherits the parent session's mode — and
+nothing in `src/main` stamps it. Stamping it at spawn would need a real affordance to attach to (which
+terminal gets which mode at launch is a product decision, not a two-line change), and a value read at
+spawn time would be `unset` for every fresh session, because the mode is resolved from the prompt or
+the guard's latch after the process starts.
 
 ## Non-goals
 
@@ -447,7 +459,8 @@ Where each criterion has actually been observed (2026-09-28):
 | QA gate (moved source, mode silence, run summary) | `src/omp-hooks/theme-qa-gate.ts`; source of truth moved off `~/.omp/agent/hooks/post/theme-qa-gate.ts` | landed |
 | Installer | `scripts/install-omp-hooks.mjs`; `package.json` scripts (`hooks:check` / `hooks:install` / `hooks:rollback`) | landed |
 | Shared derivation in the repo bridge | `.omp/hooks/pre/antifan-core-bridge.ts` (imports `deriveEditMode`) | landed |
-| Prompt surface (chips, `ANTIFAN_EDIT_MODE` on terminal spawn) | `src/main/browser/element-picker.ts`, `src/main/terminal/terminal-manager.ts` | landed |
+| Prompt surface (chips) | `src/main/browser/element-picker.ts` (chip + tag), `src/main/bridge/annotation-manager.ts` (tag reaches the composed prompt) | landed |
+| `ANTIFAN_EDIT_MODE` on terminal spawn | — | **not implemented, and not implementable as written**: no mode-scoped terminal-launch affordance exists in `src/main`, so there is no spawn site to stamp (see *Prompt surface*, correction). The env channel is written by the guard (`applyEnvMirror`) and inherited by child processes |
 | Tests | `test/unit/edit-guard.test.mjs`, `test/unit/install-omp-hooks.test.mjs`, `test/unit/theme-qa-gate-hook.test.mjs` (extended), `test/main/element-picker-resolution.test.ts` (extended) | landed |
 | Docs | `docs/ui-architecture.md` (edit-mode paragraph under Scope Rules), `CHANGELOG.md` | landed |
 

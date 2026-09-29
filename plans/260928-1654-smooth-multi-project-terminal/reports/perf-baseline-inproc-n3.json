@@ -1,0 +1,65 @@
+{
+  "label": "baseline-inproc",
+  "compiledRoot": "E:\\Work\\apps\\AntiFan-baseline\\.compiled",
+  "projects": 3,
+  "daemon": false,
+  "stagedDaemon": null,
+  "burstSeconds": 60.19,
+  "windowOpenMs": 330,
+  "eventLoopDelayMs": {
+    "p50": 14.78,
+    "p95": 17.17,
+    "p99": 26.13,
+    "max": 1180.7
+  },
+  "statSyncPerSecond": 71.97,
+  "statSyncCallers": {
+    "at isExistingDirectory (\\src\\main\\browser\\native-tab-host.js:224": 4313,
+    "at HistoryManager.importChromeHistory (\\src\\main\\browser\\history-manager.js:298": 8,
+    "at enforceProtectedPathsDacl (\\src\\main\\security\\windows-acl.js:376": 7,
+    "at enforceProtectedPathsDacl (\\src\\main\\security\\windows-acl.js:406": 4
+  },
+  "terminalDataIpcPerSecond": 18.57,
+  "terminalDataIpcByTarget": {
+    "Perf 0:sidebar": 782,
+    "Perf 1:sidebar": 349,
+    "Perf 2:sidebar": 1
+  },
+  "rendererLongtasks": {
+    "Perf 0": {
+      "count": 0,
+      "max": 0,
+      "totalMs": 0
+    },
+    "Perf 1": {
+      "count": 2,
+      "max": 288,
+      "totalMs": 358
+    },
+    "Perf 2": {
+      "count": 0,
+      "max": 0,
+      "totalMs": 0
+    }
+  },
+  "daemonWsFramesPerSecond": 0,
+  "daemonWsKiBPerSecond": 0,
+  "tabsPerProject": 5,
+  "echoLatencyMs": {
+    "samples": 207,
+    "lost": 47,
+    "p50": 4815.64,
+    "p95": 20371.91,
+    "max": 20711.77
+  },
+  "workingSetMb": {
+    "idle": 987.38,
+    "burstMax": 1032.26
+  },
+  "tree": {
+    "root": "E:\\Work\\apps\\AntiFan-baseline",
+    "head": "3577fadf",
+    "dirty": true
+  },
+  "measuredAt": "2026-09-29T00:31:00.747Z"
+}

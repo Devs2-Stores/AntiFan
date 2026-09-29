@@ -254,6 +254,228 @@ function showTerminalNotice(message, tone) {
   }, 8000);
 }
 
+let bridgeHealthChipEl = null;
+let bridgeHealthBannerEl = null;
+let bridgePollInterval = null;
+let bridgeStatusUnsubscribe = null;
+const BRIDGE_DISMISSED_KEY = 'antifan.bridgeHealth.dismissed';
+
+const BRIDGE_CHIP_BASE_STYLE =
+  'display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 8px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;user-select:none;font-family:inherit;line-height:1.2;';
+
+const BRIDGE_CHIP_TONES = {
+  listening: 'border:1px solid rgba(74,222,128,0.5);background:rgba(6,45,26,0.94);color:#bbf7d0;',
+  degraded: 'border:1px solid rgba(251,191,36,0.55);background:rgba(69,45,10,0.94);color:#fef08a;',
+  down: 'border:1px solid rgba(248,113,113,0.55);background:rgba(69,10,10,0.94);color:#fecaca;',
+};
+
+/**
+ * Creates and updates the bridge health chip in header .header-actions.
+ * Always rendered (including listening), carrying port + client count in tooltip,
+ * showing lastFailure.code when degraded/down, clicking re-invokes getBridgeStatus.
+ */
+function renderBridgeChip(report) {
+  if (!report || typeof report !== 'object') return;
+
+  const headerActions = document.querySelector('header .header-actions') || document.querySelector('.header-actions');
+  if (!headerActions) return;
+
+  if (!bridgeHealthChipEl) {
+    bridgeHealthChipEl = headerActions.querySelector('#bridgeHealthChip');
+    if (!bridgeHealthChipEl) {
+      bridgeHealthChipEl = document.createElement('button');
+      bridgeHealthChipEl.id = 'bridgeHealthChip';
+      bridgeHealthChipEl.setAttribute('type', 'button');
+      bridgeHealthChipEl.className = 'bridge-health-chip';
+      bridgeHealthChipEl.textContent = '● Bridge';
+    }
+  }
+  bridgeHealthChipEl.onclick = () => {
+    void refreshBridgeStatus();
+  };
+
+  // Prepend into header .header-actions: exactly one instance, at the beginning
+  if (headerActions.firstChild !== bridgeHealthChipEl) {
+    headerActions.insertBefore(bridgeHealthChipEl, headerActions.firstChild);
+  }
+
+  // Tones
+  let chipTone = BRIDGE_CHIP_TONES.listening;
+  if (report.state === 'down') {
+    chipTone = BRIDGE_CHIP_TONES.down;
+  } else if (report.state === 'degraded' || (report.clientFailures && report.clientFailures.count > 0)) {
+    chipTone = BRIDGE_CHIP_TONES.degraded;
+  }
+  bridgeHealthChipEl.setAttribute('style', BRIDGE_CHIP_BASE_STYLE + chipTone);
+
+  // Tooltip carries port + client count, shows lastFailure.code when degraded/down
+  const port = typeof report.port === 'number' ? report.port : (report.port || 0);
+  const clientCount = typeof report.clientCount === 'number' ? report.clientCount : (report.clientCount || 0);
+  let tooltip = `Port: ${port}, Clients: ${clientCount}`;
+  const failureCode = report.lastFailure?.code || report.reasonCode;
+  if (report.state !== 'listening' && failureCode) {
+    tooltip += ` (${failureCode})`;
+  }
+  bridgeHealthChipEl.title = tooltip;
+  bridgeHealthChipEl.setAttribute('title', tooltip);
+  bridgeHealthChipEl.textContent = '● Bridge';
+}
+
+/**
+ * Signature rule: `state | lastFailure.code | hasClientFailures` (no timestamps).
+ */
+function getBridgeDismissSignature(report) {
+  const state = report?.state || '';
+  const code = report?.lastFailure?.code || report?.reasonCode || '';
+  const hasClientFailures = Boolean(report?.clientFailures && report.clientFailures.count > 0);
+  return `${state}|${code}|${hasClientFailures}`;
+}
+
+/**
+ * Maintains exactly one #bridgeHealthBanner as the first child of main.standalone with role="alert".
+ * Shown only while report.state !== 'listening' || report.clientFailures.count > 0.
+ * Recovery to listening removes banner and clears stored signature.
+ */
+function renderBridgeBanner(report) {
+  if (!report || typeof report !== 'object') return;
+
+  const main = document.querySelector('main.standalone') || document.querySelector('.standalone');
+  if (!main) return;
+
+  // Listening with no client failures in the recency window is the healthy
+  // state: any banner from an earlier condition is removed and its dismissal
+  // cleared so a future outage surfaces fresh.
+  const isHealthy =
+    report.state === 'listening' && !(report.clientFailures && report.clientFailures.count > 0);
+  if (isHealthy) {
+    if (bridgeHealthBannerEl) {
+      bridgeHealthBannerEl.remove();
+      bridgeHealthBannerEl = null;
+    }
+    const existing = main.querySelector('#bridgeHealthBanner');
+    if (existing) existing.remove();
+    try {
+      window.localStorage?.removeItem(BRIDGE_DISMISSED_KEY);
+    } catch {}
+    return;
+  }
+
+  // Dismissal check
+  const signature = getBridgeDismissSignature(report);
+  let dismissed = null;
+  try {
+    dismissed = window.localStorage?.getItem(BRIDGE_DISMISSED_KEY);
+  } catch {}
+
+  if (dismissed === signature) {
+    // Dismissed signature stays dismissed across pushes of the same condition
+    if (bridgeHealthBannerEl) {
+      bridgeHealthBannerEl.remove();
+      bridgeHealthBannerEl = null;
+    }
+    const existing = main.querySelector('#bridgeHealthBanner');
+    if (existing) existing.remove();
+    return;
+  }
+
+  // Determine branch message
+  let message = '';
+  let bannerClass = '';
+  if (report.state === 'down') {
+    const code = report.reasonCode || report.lastFailure?.code || 'UNKNOWN';
+    message = `Bridge MCP không hoạt động — agent không thể điều khiển trình duyệt (${code})`;
+    bannerClass = 'bridge-banner-down';
+  } else if (report.state === 'degraded') {
+    const code = report.lastFailure?.code || report.reasonCode || 'UNKNOWN';
+    message = `Bridge MCP đang suy giảm — ${code}`;
+    bannerClass = 'bridge-banner-degraded';
+  } else if (report.clientFailures && report.clientFailures.count > 0) {
+    const count = report.clientFailures.count;
+    const sessionId = report.clientFailures.latest?.terminalSessionId;
+    message = sessionId
+      ? `${count} MCP client kết nối thất bại trong 2 phút qua — server vẫn đang lắng nghe (${sessionId})`
+      : `${count} MCP client kết nối thất bại trong 2 phút qua — server vẫn đang lắng nghe`;
+    bannerClass = 'bridge-banner-client-failures';
+  }
+
+  if (!bridgeHealthBannerEl) {
+    bridgeHealthBannerEl = main.querySelector('#bridgeHealthBanner');
+    if (!bridgeHealthBannerEl) {
+      bridgeHealthBannerEl = document.createElement('div');
+      bridgeHealthBannerEl.id = 'bridgeHealthBanner';
+    }
+  }
+  bridgeHealthBannerEl.setAttribute('role', 'alert');
+
+  bridgeHealthBannerEl.className = `bridge-health-banner ${bannerClass}`;
+
+  // Content
+  let textSpan = bridgeHealthBannerEl.querySelector('.bridge-health-banner-text');
+  if (!textSpan) {
+    textSpan = document.createElement('span');
+    textSpan.className = 'bridge-health-banner-text';
+    bridgeHealthBannerEl.appendChild(textSpan);
+  }
+  textSpan.textContent = message;
+
+  let closeBtn = bridgeHealthBannerEl.querySelector('.bridge-health-banner-close');
+  if (!closeBtn) {
+    closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'bridge-health-banner-close';
+    closeBtn.setAttribute('aria-label', 'Đóng thông báo');
+    closeBtn.textContent = '✕';
+    bridgeHealthBannerEl.appendChild(closeBtn);
+  }
+  closeBtn.onclick = () => {
+    try {
+      window.localStorage?.setItem(BRIDGE_DISMISSED_KEY, signature);
+    } catch {}
+    if (bridgeHealthBannerEl) {
+      bridgeHealthBannerEl.remove();
+      bridgeHealthBannerEl = null;
+    }
+  };
+  // Inserted once as first child of main.standalone
+  if (main.firstChild !== bridgeHealthBannerEl) {
+    main.insertBefore(bridgeHealthBannerEl, main.firstChild);
+  }
+}
+
+/**
+ * Re-invokes getBridgeStatus and paints chip & banner.
+ */
+async function refreshBridgeStatus() {
+  if (typeof api?.getBridgeStatus !== 'function') return;
+  try {
+    const report = await api.getBridgeStatus();
+    if (report && typeof report === 'object') {
+      renderBridgeChip(report);
+      renderBridgeBanner(report);
+    }
+  } catch (err) {
+    console.error('[bridge-health] refreshBridgeStatus error:', err);
+  }
+}
+
+if (typeof api?.onBridgeStatus === 'function') {
+  try {
+    bridgeStatusUnsubscribe = api.onBridgeStatus((report) => {
+      if (report && typeof report === 'object') {
+        renderBridgeChip(report);
+        renderBridgeBanner(report);
+      }
+    });
+  } catch (err) {
+    console.error('[bridge-health] onBridgeStatus subscription error:', err);
+  }
+}
+
+window.renderBridgeChip = renderBridgeChip;
+window.renderBridgeBanner = renderBridgeBanner;
+window.refreshBridgeStatus = refreshBridgeStatus;
+window.getBridgeDismissSignature = getBridgeDismissSignature;
+
 /**
  * Run a terminal-creation request against Main and say why nothing appeared when it refuses.
  *
@@ -4034,6 +4256,7 @@ const projectOpenInput = document.getElementById('projectOpenInput');
 const projectOpenResults = document.getElementById('projectOpenResults');
 const projectOpenFolderBtn = document.getElementById('projectOpenFolder');
 const projectOpenCancelBtn = document.getElementById('projectOpenCancel');
+const projectOpenSubtitle = document.getElementById('projectOpenSubtitle');
 
 /** The request this modal is answering right now, or '' when closed. */
 let projectOpenRequestId = '';
@@ -4049,12 +4272,21 @@ let projectOpenRowCandidates = [];
 let projectOpenActiveIndex = -1;
 /** The element that held focus before the modal took it, restored on close. */
 let projectOpenReturnFocus = null;
+/** Row-level CRUD states: at most one row is renaming or confirming removal at a time. */
+let projectOpenRenamingId = '';
+let projectOpenRemovingId = '';
+/** The live-session count a CONFIRM_REQUIRED answer quoted, for the confirm strip's text. */
+let projectOpenRemoveLive = 0;
+/** Row-level error text after a refused rename/remove: `{ projectId, text }`. */
+let projectOpenRowError = null;
 
 /** The interactive elements Tab cycles through while the modal is up. */
 function projectOpenFocusables() {
-  return [projectOpenInput, projectOpenFolderBtn, projectOpenCancelBtn].filter(Boolean);
+  const rowControls = projectOpenResults
+    ? Array.from(projectOpenResults.querySelectorAll('.project-open-row-action, .project-open-row-rename-input, .project-open-row-confirm-btn'))
+    : [];
+  return [projectOpenInput, projectOpenFolderBtn, projectOpenCancelBtn, ...rowControls].filter(Boolean);
 }
-
 /** One answer per request: the payload leaves exactly once, then the modal closes. */
 function answerProjectOpen(choice) {
   if (!projectOpenRequestId) return;
@@ -4073,7 +4305,14 @@ function hideProjectOpenPicker() {
   projectOpenRowElements = [];
   projectOpenRowCandidates = [];
   projectOpenActiveIndex = -1;
-  document.removeEventListener('keydown', onProjectOpenKeydown, true);
+  projectOpenRenamingId = '';
+  projectOpenRemovingId = '';
+  projectOpenRemoveLive = 0;
+  projectOpenRowError = null;
+  if (projectOpenSubtitle) {
+    projectOpenSubtitle.style.display = 'none';
+    projectOpenSubtitle.textContent = '';
+  }
   const returnTo = projectOpenReturnFocus;
   projectOpenReturnFocus = null;
   // Focus goes back to whatever had it: the modal took it once, it gives it back once.
@@ -4156,28 +4395,144 @@ function paintProjectOpenRows() {
     row.setAttribute('aria-selected', 'false');
     row.setAttribute('data-project-id', candidate.projectId);
 
-    const nameEl = document.createElement('div');
-    nameEl.className = 'project-open-row-name';
-    nameEl.textContent = candidate.name || candidate.projectId;
-    row.appendChild(nameEl);
-    if (candidate.isCurrent) {
-      const currentEl = document.createElement('span');
-      currentEl.className = 'project-open-row-current';
-      currentEl.textContent = '✓ Hiện tại';
-      nameEl.appendChild(document.createTextNode(' '));
-      nameEl.appendChild(currentEl);
+    const mainEl = document.createElement('div');
+    mainEl.className = 'project-open-row-main';
+    row.appendChild(mainEl);
+
+    const isRenaming = projectOpenRenamingId === candidate.projectId;
+    const isRemoving = projectOpenRemovingId === candidate.projectId;
+    const rowError = projectOpenRowError && projectOpenRowError.projectId === candidate.projectId
+      ? projectOpenRowError.text
+      : '';
+
+    if (isRenaming) {
+      // Inline rename: the input replaces the row's name line; Enter commits through
+      // the bridge, Esc/click-out abandons the edit. A refused commit keeps the input
+      // up with the reason on its title so the user corrects rather than restarts.
+      const renameInput = document.createElement('input');
+      renameInput.type = 'text';
+      renameInput.className = `project-open-row-rename-input${rowError ? ' is-error' : ''}`;
+      renameInput.value = candidate.name || '';
+      renameInput.setAttribute('aria-label', `Đổi tên ${candidate.name || candidate.projectId}`);
+      if (rowError) renameInput.setAttribute('title', rowError);
+      renameInput.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          void commitProjectRename(candidate, renameInput.value);
+        }
+      });
+      mainEl.appendChild(renameInput);
+      if (rowError) {
+        const errorEl = document.createElement('div');
+        errorEl.className = 'project-open-row-error';
+        errorEl.textContent = rowError;
+        mainEl.appendChild(errorEl);
+      }
+      try { renameInput.focus(); } catch {}
+    } else if (isRemoving) {
+      // Inline confirm strip: removal always asks once inside the row — with live
+      // terminals it quotes the count Main reported, without it the prompt is the
+      // one destructive-action confirmation the row owes the user.
+      const confirmWrap = document.createElement('div');
+      confirmWrap.className = 'project-open-row-confirm';
+      const confirmText = document.createElement('span');
+      confirmText.className = 'project-open-row-confirm-text';
+      confirmText.textContent = projectOpenRemoveLive > 0
+        ? `Đóng ${projectOpenRemoveLive} Terminal đang chạy và bỏ “${candidate.name}” khỏi danh sách?`
+        : `Bỏ “${candidate.name}” khỏi danh sách? (Không xoá thư mục)`;
+      confirmWrap.appendChild(confirmText);
+      const confirmBtn = document.createElement('button');
+      confirmBtn.type = 'button';
+      confirmBtn.className = 'project-open-row-confirm-btn is-danger';
+      confirmBtn.textContent = 'Bỏ khỏi danh sách';
+      confirmBtn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        void confirmProjectRemove(candidate);
+      });
+      confirmWrap.appendChild(confirmBtn);
+      const cancelBtn = document.createElement('button');
+      cancelBtn.type = 'button';
+      cancelBtn.className = 'project-open-row-confirm-btn';
+      cancelBtn.textContent = 'Huỷ';
+      cancelBtn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        projectOpenRemovingId = '';
+        projectOpenRowError = null;
+        paintProjectOpenRows();
+      });
+      confirmWrap.appendChild(cancelBtn);
+      mainEl.appendChild(confirmWrap);
+      if (rowError) {
+        const errorEl = document.createElement('div');
+        errorEl.className = 'project-open-row-error';
+        errorEl.textContent = rowError;
+        mainEl.appendChild(errorEl);
+      }
+    } else {
+      const nameEl = document.createElement('div');
+      nameEl.className = 'project-open-row-name';
+      nameEl.textContent = candidate.name || candidate.projectId;
+      mainEl.appendChild(nameEl);
+      if (candidate.isCurrent) {
+        const currentEl = document.createElement('span');
+        currentEl.className = 'project-open-row-current';
+        currentEl.textContent = '✓ Hiện tại';
+        nameEl.appendChild(document.createTextNode(' '));
+        nameEl.appendChild(currentEl);
+      }
+      if (rowError) {
+        const errorEl = document.createElement('div');
+        errorEl.className = 'project-open-row-error';
+        errorEl.textContent = rowError;
+        mainEl.appendChild(errorEl);
+      }
     }
+
     const pathEl = document.createElement('div');
     pathEl.className = 'project-open-row-path';
     pathEl.textContent = candidate.workspacePath || '';
-    row.appendChild(pathEl);
+    mainEl.appendChild(pathEl);
+
+    // Row actions ride the same row: rename edits inline, remove asks in place.
+    // They are buttons so the actions are reachable by Tab and by focus-visible,
+    // and their clicks stop before the row's own pick handler.
+    if (!isRemoving && !isRenaming) {
+      const actions = document.createElement('div');
+      actions.className = 'project-open-row-actions';
+      const renameBtn = document.createElement('button');
+      renameBtn.type = 'button';
+      renameBtn.className = 'project-open-row-action';
+      renameBtn.setAttribute('aria-label', `Đổi tên ${candidate.name || candidate.projectId}`);
+      renameBtn.setAttribute('title', 'Đổi tên dự án');
+      renameBtn.textContent = '✎';
+      renameBtn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        beginProjectRename(candidate);
+      });
+      actions.appendChild(renameBtn);
+      const removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.className = 'project-open-row-action is-danger';
+      removeBtn.setAttribute('aria-label', `Bỏ ${candidate.name || candidate.projectId} khỏi danh sách`);
+      removeBtn.setAttribute('title', 'Bỏ dự án khỏi danh sách (không xoá thư mục)');
+      removeBtn.textContent = '✕';
+      removeBtn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        void beginProjectRemove(candidate);
+      });
+      actions.appendChild(removeBtn);
+      row.appendChild(actions);
+    }
 
     row.addEventListener('mouseenter', () => setProjectOpenActive(index));
     // One click is the whole interaction: the answer leaves on the click, there is no
-    // selection-then-confirm step for a second click to complete.
-    row.addEventListener('click', () => {
-      answerProjectOpen({ kind: 'project', projectId: candidate.projectId });
-    });
+    // selection-then-confirm step for a second click to complete. A row mid-edit —
+    // renaming or mid-confirm — never answers a pick.
+    if (!isRenaming && !isRemoving) {
+      row.addEventListener('click', () => {
+        answerProjectOpen({ kind: 'project', projectId: candidate.projectId });
+      });
+    }
     projectOpenResults.appendChild(row);
     projectOpenRowElements.push(row);
   });
@@ -4185,6 +4540,155 @@ function paintProjectOpenRows() {
   // The first row is highlighted, never picked: Enter opens what the user can see is
   // selected, and a click is what opens without the keyboard.
   setProjectOpenActive(0);
+}
+
+/** Two projects sharing a name are told apart by their paths — the subtitle says so. */
+function paintProjectOpenSubtitle() {
+  if (!projectOpenSubtitle) return;
+  const seen = new Set();
+  const collides = projectOpenCandidates.some((candidate) => {
+    const name = candidate.name || candidate.projectId;
+    if (seen.has(name)) return true;
+    seen.add(name);
+    return false;
+  });
+  projectOpenSubtitle.style.display = collides ? 'block' : 'none';
+  projectOpenSubtitle.textContent = collides ? 'Các dự án trùng tên — hãy nhìn đường dẫn để chọn đúng dự án' : '';
+}
+
+/**
+ * Put one row into its inline rename state. Another open edit or confirm is dropped
+ * first: one row answers at a time keeps the state and the keyboard model simple.
+ */
+function beginProjectRename(candidate) {
+  projectOpenRemovingId = '';
+  projectOpenRowError = null;
+  projectOpenRenamingId = candidate.projectId;
+  paintProjectOpenRows();
+}
+
+/**
+ * Commit the inline rename through Main's rename route. Success keeps the new name
+ * in place and returns the row to normal; a refusal pins the reason to the input so
+ * the user can fix it instead of losing the typed name.
+ */
+async function commitProjectRename(candidate, rawName) {
+  const projectId = candidate.projectId;
+  const next = typeof rawName === 'string' ? rawName.trim() : '';
+  if (!next) {
+    projectOpenRowError = { projectId, text: 'Tên dự án không được để trống' };
+    paintProjectOpenRows();
+    return;
+  }
+  if (next === candidate.name) {
+    projectOpenRenamingId = '';
+    projectOpenRowError = null;
+    paintProjectOpenRows();
+    return;
+  }
+  try {
+    const result = await api?.renameProject?.({ projectId, name: next });
+    if (projectOpenRenamingId !== projectId) return; // the modal moved on while the invoke was in flight
+    const status = result && typeof result === 'object' ? result.status : '';
+    if (status === 'RENAMED') {
+      candidate.name = next;
+      projectOpenRenamingId = '';
+      projectOpenRowError = null;
+      paintProjectOpenRows();
+      paintProjectOpenSubtitle();
+      return;
+    }
+    const reason = result && typeof result === 'object' && typeof result.reason === 'string' ? result.reason : '';
+    projectOpenRowError = {
+      projectId,
+      text: status === 'UNKNOWN_PROJECT' ? 'Dự án này không còn tồn tại' : `Không đổi tên được${reason ? `: ${reason}` : ''}`,
+    };
+    paintProjectOpenRows();
+  } catch (err) {
+    if (projectOpenRenamingId !== projectId) return;
+    projectOpenRowError = { projectId, text: `Không đổi tên được: ${err instanceof Error ? err.message : String(err)}` };
+    paintProjectOpenRows();
+  }
+}
+
+/**
+ * The first remove ask. Main counts the live terminals it would interrupt: a project
+ * with none moves straight to the row's inline confirm strip; one with live
+ * terminals gets the same strip quoting that count. The strip — never the row click —
+ * is what confirms.
+ */
+async function beginProjectRemove(candidate) {
+  const projectId = candidate.projectId;
+  projectOpenRenamingId = '';
+  projectOpenRowError = null;
+  projectOpenRemovingId = projectId;
+  projectOpenRemoveLive = 0;
+  paintProjectOpenRows();
+  try {
+    const result = await api?.removeProject?.({ projectId });
+    if (projectOpenRemovingId !== projectId) return;
+    const status = result && typeof result === 'object' ? result.status : '';
+    if (status === 'REMOVED') {
+      finishProjectRemove(candidate);
+      return;
+    }
+    if (status === 'CONFIRM_REQUIRED') {
+      projectOpenRemoveLive = typeof result.liveSessions === 'number' ? result.liveSessions : 0;
+      paintProjectOpenRows();
+      return;
+    }
+    projectOpenRemovingId = '';
+    projectOpenRowError = {
+      projectId,
+      text: status === 'UNKNOWN_PROJECT'
+        ? 'Dự án này không còn tồn tại'
+        : `Không bỏ được${typeof result?.reason === 'string' && result.reason ? `: ${result.reason}` : ''}`,
+    };
+    paintProjectOpenRows();
+  } catch (err) {
+    if (projectOpenRemovingId !== projectId) return;
+    projectOpenRemovingId = '';
+    projectOpenRowError = { projectId, text: `Không bỏ được: ${err instanceof Error ? err.message : String(err)}` };
+    paintProjectOpenRows();
+  }
+}
+
+/**
+ * The confirm strip's yes: the explicit `REMOVE_ANSWER` consent, carrying the id the
+ * row names — `confirmed:true` on that channel is the only consent Main accepts.
+ */
+async function confirmProjectRemove(candidate) {
+  const projectId = candidate.projectId;
+  try {
+    const result = await api?.answerProjectRemove?.({ projectId, confirmed: true });
+    const status = result && typeof result === 'object' ? result.status : '';
+    if (status === 'REMOVED') {
+      finishProjectRemove(candidate);
+      return;
+    }
+    projectOpenRemovingId = '';
+    projectOpenRowError = {
+      projectId,
+      text: status === 'UNKNOWN_PROJECT'
+        ? 'Dự án này không còn tồn tại'
+        : `Không bỏ được${typeof result?.reason === 'string' && result.reason ? `: ${result.reason}` : ''}`,
+    };
+    paintProjectOpenRows();
+  } catch (err) {
+    projectOpenRemovingId = '';
+    projectOpenRowError = { projectId, text: `Không bỏ được: ${err instanceof Error ? err.message : String(err)}` };
+    paintProjectOpenRows();
+  }
+}
+
+/** A reported removal drops the row from the inventory the modal paints. */
+function finishProjectRemove(candidate) {
+  projectOpenRemovingId = '';
+  projectOpenRemoveLive = 0;
+  projectOpenRowError = null;
+  projectOpenCandidates = projectOpenCandidates.filter((entry) => entry.projectId !== candidate.projectId);
+  paintProjectOpenRows();
+  paintProjectOpenSubtitle();
 }
 
 /**
@@ -4200,6 +4704,10 @@ async function openProjectOpenPicker(payload) {
   if (!requestId) return;
   if (projectOpenRequestId) answerProjectOpen({ kind: 'cancelled' });
   projectOpenRequestId = requestId;
+  projectOpenRenamingId = '';
+  projectOpenRemovingId = '';
+  projectOpenRemoveLive = 0;
+  projectOpenRowError = null;
   projectOpenReturnFocus = document.activeElement || null;
   projectOpenOverlay.style.display = 'flex';
   if (projectOpenInput) {
@@ -4226,6 +4734,7 @@ async function openProjectOpenPicker(payload) {
         isCurrent: candidate.isCurrent === true,
       }));
     paintProjectOpenRows();
+    paintProjectOpenSubtitle();
   } catch {
     if (projectOpenRequestId !== requestId) return;
     paintProjectOpenMessage('error', 'Không đọc được danh sách dự án — chọn thư mục hoặc huỷ');
@@ -4243,14 +4752,27 @@ function onProjectOpenKeydown(e) {
   if (e.key === 'Escape') {
     e.preventDefault();
     e.stopPropagation();
+    if (projectOpenRenamingId || projectOpenRemovingId) {
+      // Esc while editing backs out of the row state only — dismissing the whole
+      // modal underneath an open edit would answer a pick request the user is still
+      // in the middle of.
+      projectOpenRenamingId = '';
+      projectOpenRemovingId = '';
+      projectOpenRowError = null;
+      paintProjectOpenRows();
+      return;
+    }
     answerProjectOpen({ kind: 'cancelled' });
     return;
   }
   if (e.key === 'Enter') {
     // A focused footer button keeps its native click: Enter on "Chọn thư mục…" means the
-    // folder chooser, not the highlighted row.
+    // folder chooser, not the highlighted row. Row controls (rename input, confirm
+    // buttons, action buttons) keep their own Enter handling too.
     const focused = typeof document !== 'undefined' ? document.activeElement : null;
     if (focused === projectOpenFolderBtn || focused === projectOpenCancelBtn) return;
+    if (focused && typeof focused.closest === 'function' && focused.closest('.project-open-row-action, .project-open-row-rename-input, .project-open-row-confirm-btn')) return;
+    if (projectOpenRenamingId || projectOpenRemovingId) return;
     e.preventDefault();
     e.stopPropagation();
     const candidate = projectOpenRowCandidates[projectOpenActiveIndex];
@@ -4914,6 +5436,543 @@ function updateTabActivityUi(sessionId) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Run cards: one card per terminal session that has a run, maintained from the
+// per-window `onRunCardState` projection Main pushes. A card only ever observes
+// and steers the run bound to ITS terminal row — clicking it never retargets a
+// browser tab, and its capsule label is attribution, not navigation.
+// ---------------------------------------------------------------------------
+
+/** Live run cards for this window, keyed by terminalSessionId. */
+const runCards = new Map();
+let runCardsUnsubscribe = null;
+let runCardElapsedTimer = null;
+
+/** Refusal every agent-owned row answers, verbatim from the context-menu gate. */
+const AGENT_ROW_VIEW_TITLE = 'Terminal do agent sở hữu chỉ được xem, không chuyển được';
+
+/** The lifecycle states the card and the strip dot can show. */
+const RUN_CARD_STATE_LABELS = {
+  running: 'đang chạy',
+  waiting_user: 'chờ bạn',
+  idle: 'nghỉ',
+  ended: 'kết thúc',
+};
+
+/** Mode badge text; `unset` means "no scoped mode" and shows no badge. */
+const RUN_CARD_MODE_LABELS = {
+  core: 'Core',
+  direct: 'Direct',
+  fast: 'Fast',
+};
+
+/** `mm:ss` while under an hour, `h:mm:ss` past it — the timer never climbs a unit. */
+function runCardElapsedText(startedAt) {
+  if (typeof startedAt !== 'number' || !Number.isFinite(startedAt)) return '';
+  const seconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+  const mm = Math.floor(seconds / 60);
+  const ss = seconds % 60;
+  if (mm >= 60) {
+    const hh = Math.floor(mm / 60);
+    return `${hh}:${String(mm % 60).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
+  }
+  return `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
+}
+
+/** `lastEventAt` rendered as a wall-clock time, like "14:03:22". */
+function runCardLastEventText(lastEventAt) {
+  if (typeof lastEventAt !== 'number' || !Number.isFinite(lastEventAt) || lastEventAt <= 0) return '';
+  const d = new Date(lastEventAt);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+/**
+ * Accept the pushed projection in its wire shape `{ runs: RunCardState[] }` and the
+ * bare array the preload types it as; anything else replaces nothing.
+ */
+function runCardListFromPayload(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (payload && typeof payload === 'object' && Array.isArray(payload.runs)) return payload.runs;
+  return null;
+}
+
+/**
+ * Rebuild the map from a pushed projection and repaint every wrap that has one.
+ * Wraps for sessions not yet rendered paint their card on the next renderTabs.
+ */
+function applyRunCardStates(payload) {
+  const list = runCardListFromPayload(payload);
+  if (!list) return;
+  runCards.clear();
+  for (const card of list) {
+    if (card && typeof card === 'object' && typeof card.terminalSessionId === 'string' && card.terminalSessionId) {
+      runCards.set(card.terminalSessionId, card);
+    }
+  }
+  if (!tabsEl) return;
+  for (const wrap of tabsEl.querySelectorAll('.terminal-tab-wrap')) {
+    const sid = wrap.getAttribute('data-session-id');
+    if (sid) applyRunCardToWrap(wrap, sid);
+  }
+}
+
+/** Create or repaint the run card of one tab wrap from `runCards`. */
+function applyRunCardToWrap(wrap, sessionId) {
+  const card = runCards.get(sessionId);
+  let cardEl = wrap.querySelector('.terminal-run-card');
+  let stripDot = wrap.querySelector('.terminal-run-strip-dot');
+
+  if (!card) {
+    if (cardEl) cardEl.remove();
+    if (stripDot) stripDot.remove();
+    wrap.classList.remove('has-run-card');
+    return;
+  }
+
+  // The horizontal strip has no room for a card: the run's state folds into one
+  // small dot inside the tab button and the card element stays out of the DOM.
+  if (terminalTabLayout !== 'sidebar') {
+    if (cardEl) cardEl.remove();
+    wrap.classList.remove('has-run-card');
+    const btn = wrap.querySelector('.terminal-tab');
+    if (!stripDot && btn) {
+      stripDot = document.createElement('span');
+      stripDot.className = 'terminal-run-strip-dot';
+      btn.appendChild(stripDot);
+    }
+    if (stripDot) {
+      stripDot.className = `terminal-run-strip-dot run-${card.state}${card.stale ? ' is-stale' : ''}`;
+    }
+    return;
+  }
+  if (stripDot) stripDot.remove();
+
+  // Structural fields rebuild the card subtree; the elapsed counter repaints alone
+  // so a 1s tick never re-creates the buttons under the user's pointer.
+  const sig = [
+    card.state, card.stale ? 'stale' : 'fresh', card.mode || 'unset',
+    card.lastTool || '', card.promptHead || '', card.capsuleId || '',
+    card.viewOnly ? 'view' : 'operate',
+    card.changes ? `${card.changes.fileCount}/${card.changes.blockedCount}/${card.changes.files.join('|')}` : '',
+    card.lastEventAt || 0,
+  ].join('~');
+  if (!cardEl || cardEl.getAttribute('data-run-sig') !== sig) {
+    if (cardEl) cardEl.remove();
+    cardEl = buildRunCard(card, sessionId, wrap);
+    wrap.appendChild(cardEl);
+  }
+
+  const elapsedEl = cardEl.querySelector('.terminal-run-elapsed');
+  if (elapsedEl) {
+    const text = runCardElapsedText(card.runStartedAt);
+    if (elapsedEl.textContent !== text) elapsedEl.textContent = text;
+  }
+  wrap.classList.add('has-run-card');
+}
+
+/** The whole card subtree for one run. Every agent-supplied string is textContent. */
+function buildRunCard(card, sessionId, wrap) {
+  const el = document.createElement('div');
+  const stateClass = `run-${typeof card.state === 'string' ? card.state : 'idle'}`;
+  el.className = `terminal-run-card ${stateClass}${card.stale ? ' is-stale' : ''}`;
+  el.setAttribute('data-session-id', sessionId);
+  // The structural signature `applyRunCardToWrap` compares before rebuilding.
+  el.setAttribute('data-run-sig', [
+    card.state, card.stale ? 'stale' : 'fresh', card.mode || 'unset',
+    card.lastTool || '', card.promptHead || '', card.capsuleId || '',
+    card.viewOnly ? 'view' : 'operate',
+    card.changes ? `${card.changes.fileCount}/${card.changes.blockedCount}/${card.changes.files.join('|')}` : '',
+    card.lastEventAt || 0,
+  ].join('~'));
+  if (typeof card.promptHead === 'string' && card.promptHead) {
+    el.title = card.promptHead;
+    el.setAttribute('title', card.promptHead);
+  }
+
+  const head = document.createElement('div');
+  head.className = 'terminal-run-head';
+
+  const dot = document.createElement('span');
+  dot.className = `terminal-run-dot ${stateClass}`;
+  head.appendChild(dot);
+
+  const stateEl = document.createElement('span');
+  stateEl.className = 'terminal-run-state';
+  stateEl.textContent = RUN_CARD_STATE_LABELS[card.state] || card.state || '';
+  head.appendChild(stateEl);
+
+  const elapsed = document.createElement('span');
+  elapsed.className = 'terminal-run-elapsed';
+  elapsed.textContent = runCardElapsedText(card.runStartedAt);
+  head.appendChild(elapsed);
+
+  const lastEvent = runCardLastEventText(card.lastEventAt);
+  if (lastEvent) {
+    const lastEl = document.createElement('span');
+    lastEl.className = 'terminal-run-lastevent';
+    lastEl.textContent = lastEvent;
+    lastEl.title = 'Sự kiện cuối của run';
+    head.appendChild(lastEl);
+  }
+
+  const modeLabel = RUN_CARD_MODE_LABELS[card.mode] || '';
+  if (modeLabel) {
+    const badge = document.createElement('span');
+    badge.className = `terminal-run-mode mode-${card.mode}`;
+    badge.textContent = modeLabel;
+    head.appendChild(badge);
+  }
+  el.appendChild(head);
+
+  const meta = document.createElement('div');
+  meta.className = 'terminal-run-meta';
+  if (typeof card.lastTool === 'string' && card.lastTool) {
+    const tool = document.createElement('span');
+    tool.className = 'terminal-run-tool';
+    tool.textContent = card.lastTool;
+    meta.appendChild(tool);
+  }
+  if (typeof card.capsuleId === 'string' && card.capsuleId) {
+    const capsule = document.createElement('span');
+    capsule.className = 'terminal-run-capsule';
+    capsule.textContent = capsuleLabelOf(card.capsuleId);
+    const path = capsulePathOf(card.capsuleId);
+    capsule.title = path ? `${card.capsuleId} — ${path}` : card.capsuleId;
+    meta.appendChild(capsule);
+  }
+  if (meta.firstChild) el.appendChild(meta);
+
+  // An ended run is evidence, not a control surface: it shows what it last did and
+  // offers nothing to press, exactly like a view-only row — except view-only rows
+  // belong to a live run somebody else owns, so they name that instead.
+  const isEnded = card.state === 'ended';
+  if (isEnded) {
+    const chip = document.createElement('span');
+    chip.className = 'terminal-run-ended-chip';
+    chip.textContent = card.stale ? 'kết thúc · mất dấu' : 'kết thúc';
+    if (card.stale) chip.title = 'Tiến trình agent đã mất — run bị đánh dấu cũ, không còn điều khiển được';
+    el.appendChild(chip);
+  } else if (card.viewOnly) {
+    // A run somebody else's agent owns stays visible with its controls rendered
+    // and disabled — the refusal title is the same string the context-menu gate
+    // shows, and sendRunControl re-guards by session owner before any IPC.
+    const tag = document.createElement('span');
+    tag.className = 'terminal-run-viewonly';
+    tag.textContent = 'Chỉ xem';
+    el.appendChild(tag);
+    const actions = document.createElement('div');
+    actions.className = 'terminal-run-actions';
+    for (const [label, cls] of [['Hủy', 'is-cancel'], ['Chỉ đạo', 'is-steer']]) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = `terminal-run-btn ${cls}`;
+      btn.textContent = label;
+      btn.disabled = true;
+      btn.title = AGENT_ROW_VIEW_TITLE;
+      btn.setAttribute('title', AGENT_ROW_VIEW_TITLE);
+      actions.appendChild(btn);
+    }
+    el.appendChild(actions);
+  } else {
+    const actions = document.createElement('div');
+    actions.className = 'terminal-run-actions';
+    const cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.className = 'terminal-run-btn is-cancel';
+    cancelBtn.textContent = 'Hủy';
+    cancelBtn.title = 'Huỷ run đang chạy trên terminal này';
+    cancelBtn.onclick = (e) => {
+      e.stopPropagation();
+      sendRunControl(sessionId, 'cancel');
+    };
+    const steerBtn = document.createElement('button');
+    steerBtn.type = 'button';
+    steerBtn.className = 'terminal-run-btn is-steer';
+    steerBtn.textContent = 'Chỉ đạo';
+    steerBtn.title = 'Gửi chỉ đạo tới run đang chạy trên terminal này';
+    steerBtn.onclick = (e) => {
+      e.stopPropagation();
+      openRunSteerRow(wrap, sessionId, el);
+    };
+    actions.append(cancelBtn, steerBtn);
+    el.appendChild(actions);
+  }
+
+  const changes = card.changes && typeof card.changes === 'object' ? card.changes : null;
+  if (changes && (changes.fileCount > 0 || changes.blockedCount > 0)) {
+    const footer = document.createElement('div');
+    footer.className = 'terminal-run-changes';
+    const summary = document.createElement('button');
+    summary.type = 'button';
+    summary.className = 'terminal-run-changes-summary';
+    const parts = [];
+    if (changes.fileCount > 0) parts.push(`${changes.fileCount} file đã sửa`);
+    if (changes.blockedCount > 0) parts.push(`${changes.blockedCount} bị chặn`);
+    summary.textContent = parts.join(' · ');
+    const list = document.createElement('div');
+    list.className = 'terminal-run-changes-list';
+    list.style.display = 'none';
+    for (const file of Array.isArray(changes.files) ? changes.files : []) {
+      const row = document.createElement('div');
+      row.className = 'terminal-run-file';
+      row.textContent = file;
+      row.title = `${file} — mở trong VS Code`;
+      row.onclick = (e) => {
+        e.stopPropagation();
+        if (typeof api?.openInVSCode === 'function') void api.openInVSCode(file);
+      };
+      list.appendChild(row);
+    }
+    summary.onclick = (e) => {
+      e.stopPropagation();
+      list.style.display = list.style.display === 'none' ? 'block' : 'none';
+    };
+    footer.append(summary, list);
+    el.appendChild(footer);
+  }
+  return el;
+}
+
+/** The inline steer field inside the wrap: Enter posts, Esc closes. */
+function openRunSteerRow(wrap, sessionId, cardEl) {
+  const card = cardEl || wrap.querySelector('.terminal-run-card');
+  if (!card) return;
+  let row = card.querySelector('.terminal-run-steer-row');
+  if (row) {
+    row.remove();
+    return;
+  }
+  row = document.createElement('div');
+  row.className = 'terminal-run-steer-row';
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'terminal-run-steer-input';
+  input.placeholder = 'Chỉ đạo run này… (Enter gửi, Esc đóng)';
+  input.setAttribute('aria-label', 'Chỉ đạo run');
+  const send = document.createElement('button');
+  send.type = 'button';
+  send.className = 'terminal-run-btn is-steer-send';
+  send.textContent = 'Gửi';
+  const submit = () => {
+    const text = input.value.trim();
+    if (!text) {
+      row.remove();
+      return;
+    }
+    row.remove();
+    sendRunControl(sessionId, 'steer', text);
+  };
+  send.onclick = (e) => { e.stopPropagation(); submit(); };
+  input.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    if (e.key === 'Enter') { e.preventDefault(); submit(); }
+    else if (e.key === 'Escape') { e.preventDefault(); row.remove(); }
+  });
+  input.addEventListener('click', (e) => e.stopPropagation());
+  row.append(input, send);
+  card.appendChild(row);
+  try { input.focus(); } catch {}
+}
+
+/**
+ * One control request against Main. The refusal is rendered verbatim — the reason
+ * token is the class of failure the user is looking at, and the message is Main's.
+ */
+function sendRunControl(sessionId, op, text) {
+  if (isAgentOwnedSession(findSession(sessionId))) {
+    showTerminalNotice(AGENT_ROW_VIEW_TITLE);
+    return;
+  }
+  if (typeof api?.runControl !== 'function') {
+    showTerminalNotice(`Không ${op === 'cancel' ? 'hủy' : 'chỉ đạo'} được run: preload thiếu runControl`);
+    return;
+  }
+  Promise.resolve(api.runControl(sessionId, op, text))
+    .then((result) => {
+      if (!result || result.ok !== true) {
+        const reason = result && typeof result.reason === 'string' ? result.reason : 'RUN_CONTROL_FAILED';
+        const message = result && typeof result.message === 'string' && result.message ? ` — ${result.message}` : '';
+        showTerminalNotice(`Không ${op === 'cancel' ? 'hủy' : 'chỉ đạo'} được run: ${reason}${message}`);
+      }
+    })
+    .catch((err) => {
+      showTerminalNotice(`Không ${op === 'cancel' ? 'hủy' : 'chỉ đạo'} được run: ${bridgeErrorText(err)}`);
+    });
+}
+
+if (typeof api?.onRunCardState === 'function') {
+  try {
+    runCardsUnsubscribe = api.onRunCardState((payload) => {
+      applyRunCardStates(payload);
+    });
+  } catch (err) {
+    console.error('[run-cards] onRunCardState subscription error:', err);
+  }
+}
+// The elapsed counter ticks locally from runStartedAt — a paint of what the run
+// file already said, never an IPC round-trip.
+runCardElapsedTimer = setInterval(() => {
+  let hasLive = false;
+  for (const card of runCards.values()) {
+    if (card.state === 'running' || card.state === 'waiting_user') { hasLive = true; break; }
+  }
+  if (!hasLive || !tabsEl) return;
+  for (const wrap of tabsEl.querySelectorAll('.terminal-tab-wrap')) {
+    const sid = wrap.getAttribute('data-session-id');
+    if (sid && runCards.has(sid)) applyRunCardToWrap(wrap, sid);
+  }
+}, 1000);
+if (runCardElapsedTimer && typeof runCardElapsedTimer.unref === 'function') {
+  runCardElapsedTimer.unref();
+}
+
+// ---------------------------------------------------------------------------
+// Capsule pinned brief: the storefront context every agent run on this project's
+// terminals receives. Edited from the capsule group header in the manager; a
+// refused write surfaces its reason instead of silently keeping the old text.
+// ---------------------------------------------------------------------------
+let activeCapsuleBriefClose = null;
+
+/** Close the brief dialog if one is open (called from the teardown path too). */
+function closeCapsuleBriefDialog() {
+  if (typeof activeCapsuleBriefClose === 'function') activeCapsuleBriefClose();
+}
+
+/**
+ * Open the pinned-brief dialog for one capsule. The dialog edits capsule metadata,
+ * never the run or the browser: saving changes what context the next prompt carries,
+ * not where anything is displayed.
+ */
+function openCapsuleBriefDialog(capsuleId) {
+  if (typeof api?.capsuleGetBrief !== 'function' || typeof api?.capsuleSetBrief !== 'function') {
+    showTerminalNotice('Không mở được ghi chú dự án: preload thiếu capsule brief');
+    return;
+  }
+  const dialog = document.getElementById('capsuleBriefDialog');
+  if (!dialog) return;
+  if (activeCapsuleBriefClose) activeCapsuleBriefClose();
+
+  const titleEl = document.getElementById('capsuleBriefTitle');
+  const urlEl = document.getElementById('capsuleBriefUrl');
+  const siteEl = document.getElementById('capsuleBriefSite');
+  const themeEl = document.getElementById('capsuleBriefTheme');
+  const rulesEl = document.getElementById('capsuleBriefRules');
+  const errorEl = document.getElementById('capsuleBriefError');
+  const saveBtn = document.getElementById('capsuleBriefSave');
+  const clearBtn = document.getElementById('capsuleBriefClear');
+  const cancelBtn = document.getElementById('capsuleBriefCancel');
+
+  const label = capsuleLabelOf(capsuleId);
+  if (titleEl) titleEl.textContent = `Ghi chú dự án — ${label}`;
+  if (urlEl) urlEl.value = '';
+  if (siteEl) siteEl.value = '';
+  if (themeEl) themeEl.value = '';
+  if (rulesEl) rulesEl.value = '';
+  const setError = (text) => {
+    if (errorEl) errorEl.textContent = text || '';
+  };
+  setError('');
+  dialog.setAttribute('data-capsule-id', capsuleId);
+  dialog.style.display = 'flex';
+
+  let closed = false;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    dialog.style.display = 'none';
+    document.removeEventListener('keydown', onDocumentKeydown);
+    document.removeEventListener('click', onDocumentClick);
+    if (activeCapsuleBriefClose === close) activeCapsuleBriefClose = null;
+  };
+  const onDocumentClick = (e) => {
+    if (!dialog.contains(e.target)) close();
+  };
+  const onDocumentKeydown = (e) => {
+    if (e.key === 'Escape') close();
+  };
+
+  const writeBrief = async (brief) => {
+    try {
+      const reply = await api.capsuleSetBrief(capsuleId, brief);
+      if (reply && reply.ok === true) {
+        close();
+        showTerminalNotice(brief ? 'Đã lưu ghi chú dự án' : 'Đã xoá ghi chú dự án', 'success');
+      } else {
+        const reason = reply && typeof reply.reason === 'string' ? reply.reason : 'INVALID_PAYLOAD';
+        const message = reply && typeof reply.message === 'string' && reply.message ? ` — ${reply.message}` : '';
+        setError(`Không lưu được ghi chú: ${reason}${message}`);
+      }
+    } catch (err) {
+      setError(`Không lưu được ghi chú: ${bridgeErrorText(err)}`);
+    }
+  };
+
+  if (saveBtn) {
+    saveBtn.onclick = (e) => {
+      e.stopPropagation();
+      const brief = {
+        storefrontUrl: urlEl && urlEl.value.trim() ? urlEl.value.trim() : undefined,
+        siteName: siteEl && siteEl.value.trim() ? siteEl.value.trim() : undefined,
+        themeId: themeEl && themeEl.value.trim() ? themeEl.value.trim() : undefined,
+        rules: rulesEl
+          ? rulesEl.value.split('\n').map((line) => line.trim()).filter(Boolean)
+          : undefined,
+      };
+      if (brief.rules && brief.rules.length === 0) brief.rules = undefined;
+      const hasAnyField = Object.values(brief).some((value) => value !== undefined);
+      void writeBrief(hasAnyField ? brief : null);
+    };
+  }
+  if (clearBtn) {
+    clearBtn.onclick = (e) => {
+      e.stopPropagation();
+      void writeBrief(null);
+    };
+  }
+  if (cancelBtn) {
+    cancelBtn.onclick = (e) => {
+      e.stopPropagation();
+      close();
+    };
+  }
+  for (const field of [urlEl, siteEl, themeEl, rulesEl]) {
+    if (!field) continue;
+    field.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Escape') { e.preventDefault(); close(); }
+    });
+    field.addEventListener('click', (e) => e.stopPropagation());
+  }
+  setTimeout(() => {
+    if (closed) return;
+    document.addEventListener('click', onDocumentClick);
+    document.addEventListener('keydown', onDocumentKeydown);
+  }, 10);
+  activeCapsuleBriefClose = close;
+  try { if (urlEl) urlEl.focus(); } catch {}
+
+  void (async () => {
+    try {
+      const reply = await api.capsuleGetBrief(capsuleId);
+      if (closed) return;
+      if (reply && reply.ok === true) {
+        const brief = reply.brief && typeof reply.brief === 'object' ? reply.brief : null;
+        if (urlEl) urlEl.value = brief?.storefrontUrl || '';
+        if (siteEl) siteEl.value = brief?.siteName || '';
+        if (themeEl) themeEl.value = brief?.themeId || '';
+        if (rulesEl) rulesEl.value = Array.isArray(brief?.rules) ? brief.rules.join('\n') : '';
+      } else {
+        const reason = reply && typeof reply.reason === 'string' ? reply.reason : 'INVALID_PAYLOAD';
+        const message = reply && typeof reply.message === 'string' && reply.message ? ` — ${reply.message}` : '';
+        setError(`Không đọc được ghi chú: ${reason}${message}`);
+      }
+    } catch (err) {
+      if (!closed) setError(`Không đọc được ghi chú: ${bridgeErrorText(err)}`);
+    }
+  })();
+}
+
 /**
  * A split row's tooltip names the tab it splits. The parent's name is live, so the
  * lookup happens per render rather than being baked in when the row is created: a
@@ -4965,7 +6024,7 @@ function ensureTerminalTabWrap(s, currentWraps) {
     // broadcast mid-drag) swallows every later click in this page.
     wrap.addEventListener('pointerdown', (e) => {
       if (e.button !== 0 || s.splitOf) return;
-      if (e.target && e.target.closest && e.target.closest('.terminal-tab-close, .terminal-tab-affinity-badge')) return;
+      if (e.target && e.target.closest && e.target.closest('.terminal-tab-close, .terminal-tab-affinity-badge, .terminal-run-card, .terminal-run-steer-row')) return;
       pointerTabDrag = { sessionId: s.id, pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, active: false, wrap };
     });
 
@@ -5162,6 +6221,24 @@ function ensureCategoryHeader(group) {
     };
 
     header.append(toggle, star, label);
+    if (isCapsuleGroup && typeof api?.capsuleGetBrief === 'function') {
+      // The pinned brief is capsule metadata; its editor opens from the header that
+      // names the capsule. The key is read back live, like the rename beside it.
+      const briefBtn = document.createElement('button');
+      briefBtn.type = 'button';
+      briefBtn.className = 'terminal-tab-category-brief';
+      briefBtn.textContent = '📌';
+      briefBtn.title = 'Ghi chú dự án (storefront, site, theme, quy tắc cho agent)';
+      briefBtn.setAttribute('aria-label', 'Ghi chú dự án');
+      briefBtn.onclick = (e) => {
+        e.stopPropagation();
+        const key = header.getAttribute('data-category');
+        if (isCapsuleGroupKey(key)) {
+          openCapsuleBriefDialog(key.slice(CAPSULE_GROUP_PREFIX.length));
+        }
+      };
+      header.appendChild(briefBtn);
+    }
     if (canManage) header.append(rename, menu);
     header.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -5893,6 +6970,7 @@ function renderTabs() {
       wrap.classList.toggle('is-category-collapsed', isCollapsed);
       applyCategoryChip(wrap, group, isSidebarLayout, s);
       updateTabActivityUi(s.id);
+      applyRunCardToWrap(wrap, s.id);
       ordered.push(wrap);
     }
   }
@@ -6008,7 +7086,16 @@ api?.onTabsUpdated?.(async (payload) => {
     }
   }
 });
-api?.onTerminalData(({ sessionId, data, seq, generation, fromSeq, throughSeq }) => {
+// One handler for both channels. 'antifan:terminal:data' reaches this surface
+// only for sessions it displays; 'antifan:terminal:activity' is the lightweight
+// envelope main sends for every other admitted session. They share the whole
+// path: the tab strip keeps its streaming indicator and the subscriber ack for
+// either channel, and a chunk NEVER materializes an xterm — a session with no
+// pane is acked and left to hydrate from the authoritative transcript the next
+// time it is activated. An active pane on an activity chunk still applies it:
+// main suppresses by surface visibility, which can lag a local activation by a
+// projection push, and the live write is always the cheaper recovery.
+function handleIncomingTerminalChunk({ sessionId, data, seq, generation, fromSeq, throughSeq }) {
   __terminalBench?.record('T1', { sessionId, seq, len: data ? data.length : 0 });
   const chunkSeq = typeof seq === 'number' ? seq : 0;
   const chunkGen = typeof generation === 'number' ? generation : 0;
@@ -6053,16 +7140,17 @@ api?.onTerminalData(({ sessionId, data, seq, generation, fromSeq, throughSeq }) 
     return;
   }
 
-  let item = terminalPool.get(sessionId);
+  // Peek, never get: terminalPool.get would build the pane on first data. A
+  // session this surface does not display keeps no xterm at all — the burst
+  // only moves the activity indicator and the ack cursor, and the transcript
+  // lands in one hydrate on activation (tail + seq deltas via
+  // atomicHydratePane/syncPaneWithBackend, full buffer if the seq chain broke).
+  const item = rawTerminalPool.get(sessionId);
   if (!item) {
-    const s = sessions.find((x) => x.id === sessionId);
-    if (s) {
-      item = getOrCreateTerminalPane(sessionId, s.buffer ?? '', 0, true);
-    } else {
-      item = getOrCreateTerminalPane(sessionId, '', 0, false);
-    }
+    const end = (typeof throughSeq === 'number' && throughSeq > 0) ? throughSeq : chunkSeq;
+    if (end > 0) scheduleCoalescedAck(sessionId, chunkGen, end);
+    return;
   }
-  if (!item) return;
 
   if (!item.paneEl.classList.contains('active')) {
     // Hidden pane: skip the xterm parse/paint entirely. Still advance the
@@ -6083,7 +7171,9 @@ api?.onTerminalData(({ sessionId, data, seq, generation, fromSeq, throughSeq }) 
   }
 
   processIncomingChunk(item, chunk, false);
-});
+}
+api?.onTerminalData(handleIncomingTerminalChunk);
+api?.onTerminalActivity?.(handleIncomingTerminalChunk);
 async function bootstrapTerminalState() {
   let initialCwd = undefined;
   try {
@@ -6101,6 +7191,9 @@ async function bootstrapTerminalState() {
     applyCategoryColors(s?.terminalTabPrefs?.categoryColors);
     applyStarredCategories(s?.terminalTabPrefs?.starredCategories);
     applyTerminalTabLayout(s?.terminalTabPrefs?.layout, s?.terminalTabPrefs?.sidebarWidth);
+    // The boot projection paints the same cards the push channel maintains, so a
+    // freshly mounted surface shows live runs before the first sweep lands.
+    if (Array.isArray(s?.runCards)) applyRunCardStates(s.runCards);
   } catch {}
   try {
     await api?.startTerminal?.(initialCwd);
@@ -6141,6 +7234,13 @@ async function bootstrapTerminalState() {
       await createTerminal();
     }
   } catch {}
+  void refreshBridgeStatus();
+  if (!bridgePollInterval) {
+    bridgePollInterval = setInterval(() => { void refreshBridgeStatus(); }, 10000);
+    if (bridgePollInterval && typeof bridgePollInterval.unref === 'function') {
+      bridgePollInterval.unref();
+    }
+  }
 }
 bootstrapTerminalState();
 
@@ -6211,9 +7311,45 @@ if (window.ResizeObserver) {
 }
 
 window.addEventListener('beforeunload', () => {
+  if (bridgePollInterval) {
+    clearInterval(bridgePollInterval);
+    bridgePollInterval = null;
+  }
+  if (typeof bridgeStatusUnsubscribe === 'function') {
+    try { bridgeStatusUnsubscribe(); } catch {}
+    bridgeStatusUnsubscribe = null;
+  }
+  if (runCardElapsedTimer) {
+    clearInterval(runCardElapsedTimer);
+    runCardElapsedTimer = null;
+  }
+  if (typeof runCardsUnsubscribe === 'function') {
+    try { runCardsUnsubscribe(); } catch {}
+    runCardsUnsubscribe = null;
+  }
+  closeCapsuleBriefDialog();
   if (globalResizeObserver) {
     try { globalResizeObserver.disconnect(); } catch {}
   }
+});
+window.addEventListener('unload', () => {
+  if (bridgePollInterval) {
+    clearInterval(bridgePollInterval);
+    bridgePollInterval = null;
+  }
+  if (typeof bridgeStatusUnsubscribe === 'function') {
+    try { bridgeStatusUnsubscribe(); } catch {}
+    bridgeStatusUnsubscribe = null;
+  }
+  if (runCardElapsedTimer) {
+    clearInterval(runCardElapsedTimer);
+    runCardElapsedTimer = null;
+  }
+  if (typeof runCardsUnsubscribe === 'function') {
+    try { runCardsUnsubscribe(); } catch {}
+    runCardsUnsubscribe = null;
+  }
+  closeCapsuleBriefDialog();
 });
 
 window.addEventListener('resize', () => {

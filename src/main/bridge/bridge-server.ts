@@ -25,7 +25,14 @@ import {
   BridgeEventPayload,
   AntiFanPickedElement,
   AntiFanTab,
+  BridgeFailureRecord,
+  BridgeHealthState,
 } from '../../shared/contracts';
+import {
+  BRIDGE_FAILURE_RECENCY_MS,
+  BRIDGE_HEALTH_HEARTBEAT_MS,
+  emitBridgeHealthChanged,
+} from './bridge-health';
 import { CapabilityTransportAdapter } from '../tools/capability-transport';
 import { CapabilityRequestContext, CapabilityError, BrowserTarget, RuntimeLease, ArtifactRef, ClientInvocationIntent, makeControlPlaneId, hashSecret, verifySecret } from '../../shared/control-plane-contracts';
 import { AttachmentRegistry, type PageCloseAdmission } from '../run/attachment-registry';
@@ -293,6 +300,13 @@ export class BridgeServer {
   private readonly socketBridgeTokens: WeakSet<WebSocket> = new WeakSet();
   private readonly sessionCapabilityFilters: Map<string, SessionCapabilityFilter> = new Map();
   private lanOptIn: boolean = false;
+  // Health bookkeeping: `lastFailure` is the only refusal memory the bridge keeps;
+  // `listening` tracks the bound listener; `startedAt` is frozen at construction so the
+  // launcher's newer-instance-wins ranking stays deterministic across heartbeat republishes.
+  private lastFailure: BridgeFailureRecord | null = null;
+  private listening = false;
+  private healthTimer: NodeJS.Timeout | null = null;
+  private readonly startedAt = Date.now();
 
   public issueExtensionGrant(targetPartitionId: string, allowedDomains: string[] = DEFAULT_EXTENSION_ALLOWED_DOMAINS, ttlMs = 3600_000): ExtensionSessionGrant {
     this.pruneExpiredGrants();
@@ -460,6 +474,7 @@ export class BridgeServer {
     const oldWss = this.wss;
     this.httpServer = null;
     this.wss = null;
+    this.listening = false;
     const conns = new Set<WebSocket>();
     if (oldWss) {
       oldWss.clients.forEach((c) => conns.add(c));
@@ -491,13 +506,19 @@ export class BridgeServer {
     this.setupWssEvents();
 
     await new Promise<void>((resolve, reject) => {
-      newServer.once('error', reject);
+      newServer.once('error', (err: NodeJS.ErrnoException) => {
+        this.listening = false;
+        this.recordBridgeFailure('LISTEN_REBIND_FAILED', 'bridge listener rebind failed');
+        reject(err);
+      });
       newServer.listen(port, targetHost, () => {
         const address = newServer.address();
         if (address && typeof address === 'object') {
           this.port = address.port;
         }
+        this.listening = true;
         void this.persistBridgeInfo();
+        emitBridgeHealthChanged();
         resolve();
       });
     });
@@ -734,7 +755,10 @@ export class BridgeServer {
   }
   private async atomicWriteManyWithDacl(items: Array<{ targetPath: string; content: string }>): Promise<void> {
     if (!items || items.length === 0) return;
-
+    // A write queued before dispose() must not land afterwards: the final 'down'
+    // record and `unlinkDiscoveryIfOwned` already ran, so a late bridge-info or
+    // pairing write would resurrect a stale record the teardown just removed.
+    if (this.isDisposed) return;
     const prepared: Array<{ targetPath: string; content: string; tempPath: string }> = [];
     for (const item of items) {
       const parentDir = path.dirname(item.targetPath);
@@ -755,6 +779,7 @@ export class BridgeServer {
       await applyProtectedPathsDaclBridge(prepared.map((p) => p.tempPath));
 
       // Write content and atomic rename with fallback
+      if (this.isDisposed) return; // dispose() raced the DACL batch: drop, never resurrect
       for (const p of prepared) {
         fs.writeFileSync(p.tempPath, p.content, { encoding: 'utf8', mode: 0o600 });
         try {
@@ -941,24 +966,28 @@ export class BridgeServer {
             const record = this.pairingStore.get(codeHash);
 
             if (!record) {
+              this.recordPairingRefusal('PAIRING_CODE_NOT_FOUND');
               res.writeHead(401, responseHeaders);
               res.end(JSON.stringify({ error: 'PAIRING_CODE_NOT_FOUND', message: 'Pairing code not found or invalid' }));
               return;
             }
 
             if (record.revoked) {
+              this.recordPairingRefusal('PAIRING_CODE_REVOKED');
               res.writeHead(403, responseHeaders);
               res.end(JSON.stringify({ error: 'PAIRING_CODE_REVOKED', message: 'Pairing code has been revoked' }));
               return;
             }
 
             if (record.consumed) {
+              this.recordPairingRefusal('PAIRING_CODE_ALREADY_USED');
               res.writeHead(409, responseHeaders);
               res.end(JSON.stringify({ error: 'PAIRING_CODE_ALREADY_USED', message: 'Pairing code has already been consumed (replay rejected)' }));
               return;
             }
 
             if (Date.now() > record.expiresAt) {
+              this.recordPairingRefusal('PAIRING_CODE_EXPIRED');
               res.writeHead(410, responseHeaders);
               res.end(JSON.stringify({ error: 'PAIRING_CODE_EXPIRED', message: 'Pairing code has expired' }));
               return;
@@ -966,6 +995,7 @@ export class BridgeServer {
 
             if (record.failedAttempts >= record.attemptBudget) {
               record.revoked = true;
+              this.recordPairingRefusal('PAIRING_ATTEMPTS_EXCEEDED');
               res.writeHead(429, responseHeaders);
               res.end(JSON.stringify({ error: 'PAIRING_ATTEMPTS_EXCEEDED', message: 'Pairing code attempt budget exceeded; code revoked' }));
               return;
@@ -973,6 +1003,7 @@ export class BridgeServer {
 
             if (record.clientClass !== clientClass) {
               record.failedAttempts++;
+              this.recordPairingRefusal('PAIRING_CLIENT_CLASS_MISMATCH');
               res.writeHead(403, responseHeaders);
               res.end(JSON.stringify({
                 error: 'PAIRING_CLIENT_CLASS_MISMATCH',
@@ -983,6 +1014,7 @@ export class BridgeServer {
 
             if (record.clientId && clientId && record.clientId !== clientId) {
               record.failedAttempts++;
+              this.recordPairingRefusal('PAIRING_CLIENT_ID_MISMATCH');
               res.writeHead(403, responseHeaders);
               res.end(JSON.stringify({ error: 'PAIRING_CLIENT_ID_MISMATCH', message: 'Client ID does not match bound pairing record' }));
               return;
@@ -994,6 +1026,7 @@ export class BridgeServer {
             // by name so a typo surfaces as a pairing error instead of a mystery POLICY_DENIED.
             if (requestedGrant !== undefined && (typeof requestedGrant !== 'string' || !(requestedGrant in grantRanks))) {
               record.failedAttempts++;
+              this.recordPairingRefusal('PAIRING_GRANT_UNKNOWN');
               res.writeHead(400, responseHeaders);
               res.end(JSON.stringify({
                 error: 'PAIRING_GRANT_UNKNOWN',
@@ -1006,6 +1039,7 @@ export class BridgeServer {
               const ceilingRank = grantRanks[record.requestedGrantCeiling] ?? 0;
               if (requestedRank > ceilingRank) {
                 record.failedAttempts++;
+                this.recordPairingRefusal('PAIRING_GRANT_CEILING_EXCEEDED');
                 res.writeHead(403, responseHeaders);
                 res.end(JSON.stringify({
                   error: 'PAIRING_GRANT_CEILING_EXCEEDED',
@@ -1187,6 +1221,7 @@ export class BridgeServer {
         if (isAllowedOrigin) responseHeaders['Access-Control-Allow-Origin'] = rawOrigin;
 
         if (!challenge) {
+          this.recordPairingRefusal('CHALLENGE_QUEUE_DEPLETED');
           res.writeHead(404, responseHeaders);
           res.end(JSON.stringify({
             error: 'CHALLENGE_QUEUE_DEPLETED',
@@ -1217,6 +1252,7 @@ export class BridgeServer {
         if (isExpiredGrant) {
           const expiredHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
           if (isAllowedOrigin) expiredHeaders['Access-Control-Allow-Origin'] = rawOrigin;
+          this.recordPairingRefusal('EXPIRED_GRANT');
           res.writeHead(401, expiredHeaders);
           res.end(JSON.stringify({ error: 'EXPIRED_GRANT', message: 'Extension session grant has expired. Please re-authenticate via Native Host.' }));
           return;
@@ -1318,6 +1354,7 @@ export class BridgeServer {
 
         const verifiedAttachmentId = this.attachmentRegistry.verifyConnectionToken(secret);
         if (!verifiedAttachmentId) {
+          this.recordPairingRefusal('ATTACHMENT_SECRET_INVALID');
           res.writeHead(401, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'Unauthorized: Invalid or expired attachment secret' }));
           return;
@@ -1325,6 +1362,7 @@ export class BridgeServer {
 
         const record = this.attachmentRegistry.getAttachment(verifiedAttachmentId);
         if (!record || record.state !== 'active' || Date.now() > record.expiresAt) {
+          this.recordPairingRefusal('ATTACHMENT_RECORD_INACTIVE');
           res.writeHead(401, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'Unauthorized: Inactive or expired attachment record' }));
           return;
@@ -1659,6 +1697,10 @@ export class BridgeServer {
   }
 
   public async start(): Promise<number> {
+    // The heartbeat rides the discovery record the whole time this process is
+    // alive: `updatedAt` is the liveness readers judge, including while the
+    // listener is still unbound and the record honestly reads 'down'.
+    this.ensureHealthTimer();
     return new Promise<number>((resolve, reject) => {
       const handler = this.createHttpHandler();
       this.httpServer = http.createServer(handler);
@@ -1675,6 +1717,10 @@ export class BridgeServer {
 
       this.httpServer.on('error', (err: NodeJS.ErrnoException) => {
         if (err.code === 'EADDRINUSE') {
+          // The port-0 retry recovers this server, but every client pinned to
+          // the configured port now fails — record the refusal before rebinding.
+          this.listening = false;
+          this.recordBridgeFailure('LISTEN_EADDRINUSE', 'configured bridge port already in use');
           console.log(`[antifan] Port ${this.port} is busy. Retrying with port 0...`);
           try {
             this.wss?.close();
@@ -1684,7 +1730,11 @@ export class BridgeServer {
             this.httpServer?.close();
           } catch {}
           const altServer = http.createServer(this.createHttpHandler());
-          altServer.on('error', (altErr) => reject(altErr));
+          altServer.on('error', (altErr) => {
+            this.listening = false;
+            this.recordBridgeFailure('LISTEN_FAILED', 'bridge listener failed to start');
+            reject(altErr);
+          });
           this.httpServer = altServer;
           this.wss = new WebSocketServer({
             server: altServer,
@@ -1701,12 +1751,16 @@ export class BridgeServer {
             if (addr && typeof addr === 'object') {
               this.port = addr.port;
             }
+            this.listening = true;
             setTimeout(() => {
               void this.persistBridgeInfo();
             }, 1500);
+            emitBridgeHealthChanged();
             resolve(this.port);
           });
         } else {
+          this.listening = false;
+          this.recordBridgeFailure('LISTEN_FAILED', 'bridge listener failed to start');
           reject(err);
         }
       });
@@ -1716,12 +1770,14 @@ export class BridgeServer {
         if (address && typeof address === 'object') {
           this.port = address.port;
         }
+        this.listening = true;
         // persistBridgeInfo carries DACL spawns per file; delay it past first
         // paint so the listening socket resolves and the window shows first.
         // Discovery consumers poll the file.
         setTimeout(() => {
           void this.persistBridgeInfo();
         }, 1500);
+        emitBridgeHealthChanged();
         resolve(this.port);
       });
     });
@@ -1738,12 +1794,21 @@ export class BridgeServer {
   private setupWssEvents(): void {
     if (!this.wss) return;
 
+    // `ws` relays the bound http server's 'error' onto the WebSocketServer, and
+    // an unhandled 'error' event on an EventEmitter throws — without this the
+    // listener's own 'error' handler never gets to recover the bind. Refusals
+    // are still recorded there (EADDRINUSE, rebind, alt-server failures), so
+    // this listener exists purely to keep the relay non-fatal.
+    this.wss.on('error', () => {});
+
+
     this.wss.on('connection', (ws: WebSocket, req) => {
       const url = new URL(req.url || '/', `http://localhost`);
       const host = req.headers.host || `127.0.0.1:${this.port}`;
       // 1. Strict Query Parameter Prohibition on WebSockets
       if (url.searchParams.has('token') || url.searchParams.has('secret') || url.searchParams.has('code') || (url.search && /token=|secret=|code=/i.test(url.search))) {
         ws.close(4001, 'Unauthorized: SECRETS_IN_URL_FORBIDDEN - Tokens in URL query string are strictly prohibited');
+        this.recordBridgeFailure('WS_AUTH_REFUSED', 'Unauthorized: SECRETS_IN_URL_FORBIDDEN - Tokens in URL query string are strictly prohibited');
         return;
       }
 
@@ -1752,6 +1817,7 @@ export class BridgeServer {
       const isLoopback = remoteIp === '127.0.0.1' || remoteIp === '::1' || remoteIp === '::ffff:127.0.0.1';
       if (!this.lanOptIn && !isLoopback) {
         ws.close(4003, 'Forbidden: LAN access disabled');
+        this.recordBridgeFailure('WS_AUTH_REFUSED', 'Forbidden: LAN access disabled');
         return;
       }
 
@@ -1762,6 +1828,7 @@ export class BridgeServer {
       const verifiedMobileGrant = clientToken ? this.getMobileGrant(clientToken) : null;
       if (!isBridgeToken && !verifiedAttachmentId && !verifiedMobileGrant) {
         ws.close(4001, 'Unauthorized: missing or invalid token');
+        this.recordBridgeFailure('WS_AUTH_REFUSED', 'Unauthorized: missing or invalid token');
         return;
       }
 
@@ -1790,10 +1857,12 @@ export class BridgeServer {
 
           if (!isAllowedOrigin) {
             ws.close(4003, 'Forbidden: untrusted origin');
+            this.recordBridgeFailure('WS_AUTH_REFUSED', 'Forbidden: untrusted origin');
             return;
           }
         } catch {
           ws.close(4003, 'Forbidden: malformed origin header');
+          this.recordBridgeFailure('WS_AUTH_REFUSED', 'Forbidden: malformed origin header');
           return;
         }
       }
@@ -1908,16 +1977,58 @@ export class BridgeServer {
 
       ws.on('error', () => {
         this.clients.delete(ws);
+        this.recordBridgeFailure('CLIENT_SOCKET_ERROR', 'client socket error');
       });
     });
   }
-  private async persistBridgeInfo(): Promise<void> {
-    if (!this.publishesDiscovery) return;
-    const info = {
+  /**
+   * The server's own report: `down` until the listener binds (and after dispose),
+   * `degraded` while the last refusal is inside the shared recency window,
+   * `listening` otherwise. Derived on read, never stored.
+   */
+  private deriveBridgeHealth(): BridgeHealthState {
+    if (this.isDisposed || !this.listening) return 'down';
+    if (this.lastFailure && Date.now() - this.lastFailure.at < BRIDGE_FAILURE_RECENCY_MS) return 'degraded';
+    return 'listening';
+  }
+
+  /**
+   * One refusal or lost client attempt worth remembering. `message` is composed
+   * server-side only: this record rides the published discovery file and its
+   * `~/.gemini` mirror, so it can never echo a token, origin, or pairing code.
+   */
+  public recordBridgeFailure(code: string, message: string): void {
+    if (this.isDisposed) return;
+    this.lastFailure = { code, message, at: Date.now() };
+    void this.persistBridgeInfo();
+    emitBridgeHealthChanged();
+  }
+
+  /** Fixed phrases per availability code — never the client's own text. */
+  private recordPairingRefusal(reasonCode: string): void {
+    this.recordBridgeFailure('PAIRING_REFUSED', pairingRefusalMessage(reasonCode));
+  }
+
+  private ensureHealthTimer(): void {
+    if (this.healthTimer) return;
+    this.healthTimer = setInterval(() => {
+      if (this.isDisposed) return;
+      void this.persistBridgeInfo();
+    }, BRIDGE_HEALTH_HEARTBEAT_MS);
+    this.healthTimer.unref?.();
+  }
+
+  /**
+   * The discovery payload every publish path shares. `health` and `lastFailure`
+   * describe this process at write time; `updatedAt` is the publish stamp while
+   * `startedAt` stays the frozen instance birth.
+   */
+  private bridgeInfoPayload(): Record<string, unknown> {
+    return {
       port: this.port,
       host: this.host,
       pid: process.pid,
-      startedAt: Date.now(),
+      startedAt: this.startedAt,
       isDev: this.isDev,
       protocolVersion: 1,
       endpoints: {
@@ -1927,7 +2038,50 @@ export class BridgeServer {
         mobile: '/mobile',
         ws: '/',
       },
+      health: this.deriveBridgeHealth(),
+      lastFailure: this.lastFailure,
+      heartbeatMs: BRIDGE_HEALTH_HEARTBEAT_MS,
+      updatedAt: Date.now(),
     };
+  }
+
+  /**
+   * Synchronous final publish for `dispose()`: the 'down' record must land before
+   * `unlinkDiscoveryIfOwned` runs — a reader arriving between the two sees 'down',
+   * never a stale 'listening'. Only files this instance owns are touched, so a
+   * port-collision loser cannot erase or rewrite the winner's entry. The DACL
+   * pass is skipped: the record is deleted microseconds later.
+   */
+  private publishFinalBridgeRecord(): void {
+    const content = JSON.stringify(this.bridgeInfoPayload(), null, 2);
+    const targets: string[] = [this.bridgeInfoPath];
+    const geminiDir = path.join(os.homedir(), '.gemini');
+    const geminiFileName = this.isDev ? 'antifan_bridge_dev.json' : 'antifan_bridge.json';
+    targets.push(path.join(geminiDir, geminiFileName));
+    for (const targetPath of targets) {
+      try {
+        if (!fs.existsSync(targetPath)) continue;
+        const parsed = JSON.parse(fs.readFileSync(targetPath, 'utf8')) as { pid?: unknown };
+        if (parsed?.pid !== process.pid) continue;
+        const tempPath = path.join(
+          path.dirname(targetPath),
+          `.${path.basename(targetPath)}.tmp.${Date.now()}-${Math.random().toString(16).slice(2)}`
+        );
+        try {
+          fs.writeFileSync(tempPath, content, 'utf8');
+          fs.renameSync(tempPath, targetPath);
+        } catch {
+          try { fs.writeFileSync(targetPath, content, 'utf8'); } catch {}
+          try { fs.unlinkSync(tempPath); } catch {}
+        }
+      } catch {}
+    }
+  }
+
+  private async persistBridgeInfo(): Promise<void> {
+    if (this.isDisposed) return;
+    if (!this.publishesDiscovery) return;
+    const info = this.bridgeInfoPayload();
     try {
       const content = JSON.stringify(info, null, 2);
       const itemsToWrite: Array<{ targetPath: string; content: string }> = [
@@ -2049,7 +2203,8 @@ export class BridgeServer {
         } else if (
           cleanMethod === 'getTerminalSessions' ||
           cleanMethod === 'terminalListSessions' ||
-          cleanMethod === 'terminalSwitchSession'
+          cleanMethod === 'terminalSwitchSession' ||
+          cleanMethod === 'terminalGetFullBuffer'
         ) {
           requiredScope = 'terminal.sync';
         } else if (
@@ -2085,7 +2240,8 @@ export class BridgeServer {
           cleanMethod === 'terminalCloseSession' ||
           cleanMethod === 'terminalRenameSession' ||
           cleanMethod === 'terminalRestart' ||
-          cleanMethod === 'terminalSwitchSession';
+          cleanMethod === 'terminalSwitchSession' ||
+          cleanMethod === 'terminalGetFullBuffer';
         const effectiveTerminalId = targetSessionId || (targetsTerminalSession ? TerminalManager.getInstance().getActiveSessionId() : undefined);
         if (effectiveTerminalId && !this.userPlaneMayReachTerminal(effectiveTerminalId)) {
           respond(false, { code: 'TERMINAL_FORBIDDEN', message: 'Access to agent-owned terminal is forbidden' }, 'TERMINAL_FORBIDDEN: Access to agent-owned terminal is forbidden');
@@ -2474,7 +2630,7 @@ export class BridgeServer {
           const targetTabId = this.boundTabIdFor(boundAttachmentId) || this.tabHost.getActiveTabId?.() || undefined;
           const release = this.admitDirectRpcOperation('antifan.openTab', targetTabId);
           try {
-            const tabId = this.tabHost.createTab(p.url, activate, { ephemeral: isEphemeral, offscreen: isOffscreen });
+            const tabId = this.tabHost.createTab(p.url, activate, { ephemeral: isEphemeral, offscreen: isOffscreen, ...(isAgentCaller ? { plane: 'agent' as const } : {}) });
             respond(true, { tabId });
           } finally {
             release();
@@ -2484,7 +2640,7 @@ export class BridgeServer {
 
         case 'switchTab':
         case 'antifan.switchTab': {
-          const ok = this.tabHost.switchTab(p.tabId);
+          const ok = this.tabHost.switchTab(p.tabId, { plane: 'agent' });
           respond(ok, { switched: ok });
           break;
         }
@@ -2700,6 +2856,29 @@ export class BridgeServer {
             sessions,
             activeSessionId: this.visibleTerminalActiveId(sessions),
           });
+          break;
+        }
+
+        case 'terminalGetFullBuffer':
+        case 'antifan.terminalGetFullBuffer': {
+          // The transcript RPC: session broadcasts carry only preview tails, so the
+          // companion phone fetches the full retained buffer here — the same
+          // getFullBuffer the desktop renderer hydrates from. Mobile grants already
+          // passed the terminal.sync + user-plane gate above; a bound attachment may
+          // only read a session it owns.
+          const tm = TerminalManager.getInstance();
+          const targetId = typeof p.sessionId === 'string' && p.sessionId.trim()
+            ? p.sessionId.trim()
+            : tm.getActiveSessionId();
+          if (mobileGrant && !this.userPlaneMayReachTerminal(targetId)) {
+            respond(false, undefined, 'TERMINAL_FORBIDDEN: caller may not read an agent-owned terminal session');
+            break;
+          }
+          if (boundAttachmentId && !this.terminalWriteForAttachment(targetId, boundAttachmentId, p.attachmentId)) {
+            respond(false, undefined, 'TERMINAL_FORBIDDEN: attachment does not own the target terminal session');
+            break;
+          }
+          respond(true, await Promise.resolve(tm.getFullBuffer(targetId)));
           break;
         }
 
@@ -3788,14 +3967,20 @@ export class BridgeServer {
       ...(answer.refusal ? { activeTabRefusal: answer.refusal } : {}),
       tabCount: this.tabHost.getTabList().length,
       inspecting: false,
+      health: this.deriveBridgeHealth(),
+      ...(this.lastFailure ? { lastFailure: this.lastFailure } : {}),
     };
   }
 
   public dispose(): void {
     this.isDisposed = true;
+    this.listening = false;
     if (this.publishesDiscovery) {
-      // Only remove discovery metadata this process wrote. Another live instance (or a
+      // The final 'down' record lands BEFORE removal so a reader arriving in
+      // between sees 'down', never a stale 'listening'. Then only discovery
+      // metadata this process wrote is removed — another live instance (or a
       // port-collision fallback that lost the bind race) may own the current file.
+      this.publishFinalBridgeRecord();
       this.unlinkDiscoveryIfOwned(this.bridgeInfoPath);
       const geminiDir = path.join(os.homedir(), '.gemini');
       const geminiFileName = this.isDev ? 'antifan_bridge_dev.json' : 'antifan_bridge.json';
@@ -3815,6 +4000,10 @@ export class BridgeServer {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
     }
+    if (this.healthTimer) {
+      clearInterval(this.healthTimer);
+      this.healthTimer = null;
+    }
 
     for (const client of this.clients) {
       try { client.close(); } catch {}
@@ -3822,6 +4011,7 @@ export class BridgeServer {
     this.clients.clear();
     this.wss?.close();
     this.httpServer?.close();
+    emitBridgeHealthChanged();
   }
 
   private unlinkDiscoveryIfOwned(filePath: string): void {
@@ -3885,4 +4075,30 @@ function extractAuthToken(req: http.IncomingMessage): string | null {
   }
 
   return null;
+}
+
+/**
+ * Fixed server-composed phrases for each pairing/attachment availability code the
+ * refusal ledger understands. The record lands in `bridge.json` and its
+ * `~/.gemini` mirror, both read by other tools — it must carry a stable phrase,
+ * never client-supplied text (a pairing code, a grant name, an origin string).
+ */
+function pairingRefusalMessage(reasonCode: string): string {
+  switch (reasonCode) {
+    case 'PAIRING_CODE_NOT_FOUND': return 'pairing code not found or invalid';
+    case 'PAIRING_CODE_REVOKED': return 'pairing code revoked';
+    case 'PAIRING_CODE_ALREADY_USED': return 'pairing code already used';
+    case 'PAIRING_CODE_EXPIRED': return 'pairing code expired';
+    case 'PAIRING_ATTEMPTS_EXCEEDED': return 'pairing attempt budget exhausted';
+    case 'PAIRING_CLIENT_CLASS_MISMATCH': return 'pairing client class mismatch';
+    case 'PAIRING_CLIENT_ID_MISMATCH': return 'pairing client id mismatch';
+    case 'PAIRING_GRANT_UNKNOWN': return 'requested grant unknown';
+    case 'PAIRING_GRANT_CEILING_EXCEEDED': return 'requested grant exceeds ceiling';
+    case 'CHALLENGE_QUEUE_DEPLETED': return 'pairing challenge queue depleted';
+    case 'EXPIRED_GRANT': return 'extension session grant expired';
+    case 'ATTACHMENT_SECRET_INVALID': return 'attachment secret invalid or expired';
+    case 'ATTACHMENT_RECORD_INACTIVE': return 'attachment record inactive or expired';
+    case 'SECRETS_IN_URL_FORBIDDEN': return 'secrets in URL forbidden';
+    default: return 'pairing refused';
+  }
 }

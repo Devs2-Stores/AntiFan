@@ -1745,6 +1745,60 @@ function rememberAutohealFailure(text) {
   if (lastAutohealFailures.length > 8) lastAutohealFailures.shift();
 }
 
+// ─── Client-failure journal ──────────────────────────────────────────────────
+// The launcher's own plane: every autoheal verdict this process reaches is
+// appended to <ANTIFAN_DATA_ROOT>/runtime/bridge-client-failures.jsonl so the
+// Manager's health surface can name WHICH terminal's agent is failing. The
+// write is scoped exactly like the rest of this file's instance context: the
+// data root arrives only when the app's TerminalManager spawned this session
+// (injected beside ANTIFAN_TERMINAL_SESSION_ID/ANTIFAN_BRIDGE_*), so a
+// hand-invoked or foreign proxy inherits nothing, writes nothing, and probes
+// no app directories — the boundary hasTerminalInstanceContext() draws for
+// discovery. The Manager reads the identical path via
+// StorageLocations.getRuntimeDir() = <dataRoot>/runtime.
+const bridgeJournalPath = require('node:path');
+// Inline copy of BRIDGE_CLIENT_FAILURE_JOURNAL_MAX_BYTES in
+// src/main/bridge/bridge-health.ts: a .cjs script cannot import the TS module,
+// so the same contract the QA-gate hook uses applies — the literal is
+// duplicated and test/main/omp-mcp-adapter.test.ts pins it against the export.
+const BRIDGE_CLIENT_FAILURE_JOURNAL_MAX_BYTES = 256 * 1024;
+
+function bridgeClientFailuresPath() {
+  const dataRoot = process.env.ANTIFAN_DATA_ROOT;
+  if (typeof dataRoot !== 'string' || dataRoot.trim() === '') return null;
+  return bridgeJournalPath.join(dataRoot, 'runtime', 'bridge-client-failures.jsonl');
+}
+
+// One JSON line { at, code, message, terminalSessionId, pid }; the reader in
+// bridge-health.ts folds it into the banner. Synchronous and swallowed like
+// the main lifecycle journal — a log line must never cost a real reconnect.
+// Rotation keeps one generation: a file past the cap is renamed to .1 first.
+function recordClientFailure(code, message) {
+  try {
+    const file = bridgeClientFailuresPath();
+    if (!file) return;
+    const line = JSON.stringify({
+      at: Date.now(),
+      code: String(code),
+      message: String(message),
+      terminalSessionId: process.env.ANTIFAN_TERMINAL_SESSION_ID || null,
+      pid: process.pid,
+    }) + '\n';
+    const dir = bridgeJournalPath.dirname(file);
+    try { fs.mkdirSync(dir, { recursive: true }); } catch {}
+    try {
+      if (fs.existsSync(file) && fs.statSync(file).size > BRIDGE_CLIENT_FAILURE_JOURNAL_MAX_BYTES) {
+        const rotated = `${file}.1`;
+        try { if (fs.existsSync(rotated)) fs.unlinkSync(rotated); } catch {}
+        try { fs.renameSync(file, rotated); } catch {}
+      }
+    } catch {}
+    fs.appendFileSync(file, line, 'utf8');
+  } catch {
+    // Best-effort telemetry: the caller's error path owns the process.
+  }
+}
+
 // Availability facts, most specific first, without the duplicate socket errors that a
 // pairing-then-held-secret retry produces (both attempts fail with the same message, but only one
 // of them explains anything).
@@ -1869,7 +1923,9 @@ async function autohealSession() {
   const candidates = resolveFailoverCandidates();
   lastAutohealFailures = [];
   if (candidates.length === 0) {
-    rememberAutohealFailure('BRIDGE_NOT_RUNNING: no endpoint discovered (no pin and no discovery file)');
+    const noCandidateCause = 'BRIDGE_NOT_RUNNING: no endpoint discovered (no pin and no discovery file)';
+    rememberAutohealFailure(noCandidateCause);
+    recordClientFailure('BRIDGE_NOT_RUNNING', noCandidateCause);
     process.stderr.write('MCP_BRIDGE_OFFLINE: AntiFan Desktop Bridge is not running (no candidates discovered).\n');
     return null;
   }
@@ -2134,7 +2190,9 @@ async function autohealSession() {
       startHeartbeat(dynamicBootstrap);
       return dynamicBootstrap;
     } catch (err) {
-      rememberAutohealFailure(`${candidate.host}:${candidate.port} connect failed (${err.message})`);
+      const candidateCause = `${candidate.host}:${candidate.port} connect failed (${err.message})`;
+      rememberAutohealFailure(candidateCause);
+      recordClientFailure('CONNECT_FAILED', candidateCause);
       process.stderr.write(`[AntiFan Autoheal] Candidate ${candidate.host}:${candidate.port} failed: ${err.message}\n`);
     }
   }
@@ -2149,13 +2207,13 @@ async function autohealSession() {
   // "failed to connect" is the misleading-availability defect this whole path exists to remove.
   const allRefused = lastAutohealFailures.length > 0
     && lastAutohealFailures.every((f) => /BRIDGE_UNREACHABLE|ECONNREFUSED|ECONNRESET|EPIPE|not running|no endpoint discovered/i.test(f));
-  process.stderr.write(
-    'MCP_BRIDGE_OFFLINE: ' +
-      (allRefused
-        ? 'AntiFan Desktop Bridge is not listening'
-        : 'AntiFan Desktop Bridge is up but did not grant access (this is NOT a down bridge)') +
-      ` — ${cause}\n`
-  );
+  const offlineMessage =
+    (allRefused
+      ? 'AntiFan Desktop Bridge is not listening'
+      : 'AntiFan Desktop Bridge is up but did not grant access (this is NOT a down bridge)') +
+    ` — ${cause}`;
+  recordClientFailure('MCP_BRIDGE_OFFLINE', offlineMessage);
+  process.stderr.write(`MCP_BRIDGE_OFFLINE: ${offlineMessage}\n`);
   return null;
 }
 
@@ -2363,9 +2421,9 @@ async function invoke(method, params = {}, callerRequestId) {
     }
     bootstrap = getBootstrap();
     if (!bootstrap || !bootstrap.secret) {
-      process.stderr.write(
-        `MCP_BRIDGE_OFFLINE: AntiFan Desktop Bridge did not grant access — ${lastAutohealFailure || 'no candidate answered'}\n`
-      );
+      const noGrantCause = `AntiFan Desktop Bridge did not grant access — ${lastAutohealFailure || 'no candidate answered'}`;
+      recordClientFailure('MCP_BRIDGE_OFFLINE', noGrantCause);
+      process.stderr.write(`MCP_BRIDGE_OFFLINE: ${noGrantCause}\n`);
       throw transportError('MCP_CONTEXT_REQUIRED', JSON.stringify({ code: 'MCP_CONTEXT_REQUIRED', message: 'OMP MCP proxy requires an authoritative Main bootstrap' }));
     }
   }
@@ -2849,6 +2907,7 @@ if (require.main === module) {
   if (process.stdin.isTTY && !bootstrap) {
     const candidates = resolveBridgeCandidates();
     if (candidates.length === 0) {
+      recordClientFailure('MCP_BRIDGE_OFFLINE', 'AntiFan Desktop Bridge is not running.');
       process.stderr.write('MCP_BRIDGE_OFFLINE: AntiFan Desktop Bridge is not running.\n');
       process.exit(1);
     }
@@ -2857,6 +2916,10 @@ if (require.main === module) {
     .then(() => startHeartbeat(getBootstrap()))
     .catch((error) => {
       stopHeartbeat();
+      // Deliberately NOT journaled: a stdio transport-attach failure can happen
+      // while the bridge is healthy, so a journal row here would report an
+      // outage the bridge never had. The journal is scoped to bridge-state
+      // failures only.
       process.stderr.write(`MCP_BRIDGE_OFFLINE: ${error}\n`);
       process.exit(1);
     });
@@ -2872,6 +2935,8 @@ module.exports = {
   invokeCore,
   DEFAULT_CLIENT_TIMEOUT_MS,
   ambientTargetFieldFor,
+  recordClientFailure,
+  bridgeClientFailuresPath,
 };
 
 function shutdown() {

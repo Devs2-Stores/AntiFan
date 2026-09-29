@@ -713,9 +713,21 @@ export function renderMobileRemoteHtml(tokenOrPort: string | number, maybePort?:
     let terminalSessions = [];
     let activeTerminalId = '';
     const sessionBuffers = new Map();
+    // sessionId -> generation whose authoritative transcript already landed via
+    // antifan.terminalGetFullBuffer. The fetch is once per generation: broadcast
+    // rows only carry a preview tail now, so every full transcript arrives here.
+    const sessionTranscriptFetched = new Map();
+    const transcriptFetchInFlight = new Set();
+    // sessionId -> sessionGeneration the phone cache currently describes. A
+    // different generation means the session was restarted and the old buffer is
+    // a different incarnation's history — never merge the two.
+    const sessionBuffersGeneration = new Map();
     let isAiMode = false;
     let userScrolledUp = false;
     let renamingSessionId = '';
+    // The pane renders at most this much of the fetched transcript (same cap the
+    // live-append path already applies).
+    const MOBILE_TRANSCRIPT_RENDER_CAP = 1000000;
 
     // ---- Sleeping / archived sessions -------------------------------------
     // A sleeping tab has no live PTY, so no antifan:terminal:data frame will ever
@@ -745,21 +757,99 @@ export function renderMobileRemoteHtml(tokenOrPort: string | number, maybePort?:
       if (typeof snapshot === 'string' && snapshot.length > 0) return snapshot;
       return '';
     }
-    // Adopts retained transcripts for sleeping sessions from any session list.
-    // Running/closed sessions are deliberately untouched: their panes are fed by
-    // the live stream exactly as before.
+    // Adopts transcripts from any session list, for every session — broadcast rows
+    // only carry a preview tail since the 16 KiB wire budget, so they are fallback
+    // seed data, not transcript authority. Two guards keep a small preview from
+    // ever erasing a longer buffer the phone already holds:
+    //  1. generation: a restarted session's preview replaces the old incarnation's
+    //     cache unconditionally (their histories never merge);
+    //  2. coverage: a preview whose text is already the tail of the cached buffer
+    //     is a re-broadcast of what we have — skip it. Only a preview that is NOT
+    //     a suffix of the cache replaces it (a genuine transcript divergence, e.g.
+    //     a sleep fold), which is exactly what the broadcast exists to correct.
+    //    Long retained transcripts arrive via ensureTranscriptForActive's
+    //    antifan.terminalGetFullBuffer fetch, not via the broadcast.
+    // Buffers under this many characters are compared whole instead of by suffix.
+    const PREVIEW_SUFFIX_MIN_CHARS = 64;
+    function coveredBy(incoming, existing) {
+      if (!incoming || !existing) return false;
+      if (incoming.length >= existing.length) return false;
+      const probe = incoming.length > PREVIEW_SUFFIX_MIN_CHARS ? incoming.slice(-PREVIEW_SUFFIX_MIN_CHARS) : incoming;
+      return existing.endsWith(probe);
+    }
+    function adoptBroadcastRow(session) {
+      const id = session.id;
+      const generation = typeof session.sessionGeneration === 'number' ? session.sessionGeneration : 0;
+      const retained = retainedTranscriptOf(session);
+      const existing = sessionBuffers.get(id);
+      if ((sessionBuffersGeneration.get(id) || 0) !== generation) {
+        // New incarnation: replace wholesale — the old buffer describes a shell
+        // that no longer exists. Missing generation (0) only resets when the
+        // stored generation was different, so legacy rows stay additive.
+        sessionBuffersGeneration.set(id, generation);
+        sessionBuffers.set(id, retained || '');
+        return;
+      }
+      if (existing === undefined || existing === '') {
+        sessionBuffers.set(id, retained || '');
+        return;
+      }
+      if (retained && !coveredBy(retained, existing)) sessionBuffers.set(id, retained);
+    }
+    function adoptPreview(sessionId, preview) {
+      if (!sessionId || typeof preview !== 'string' || !preview) return;
+      const existing = sessionBuffers.get(sessionId);
+      if (existing === undefined || existing === '' || !coveredBy(preview, existing)) {
+        sessionBuffers.set(sessionId, preview);
+      }
+    }
     function adoptSleepingTranscripts(sessions) {
       if (!Array.isArray(sessions)) return;
       for (const session of sessions) {
         if (!session || typeof session.id !== 'string' || !session.id) continue;
-        if (!isSleepingSession(session)) continue;
-        const retained = retainedTranscriptOf(session);
-        if (retained) {
-          sessionBuffers.set(session.id, retained);
-        } else if (!sessionBuffers.has(session.id)) {
+        adoptBroadcastRow(session);
+        if (isSleepingSession(session) && !sessionBuffers.has(session.id)) {
           sessionBuffers.set(session.id, '');
         }
       }
+    }
+    // The full transcript source while broadcasts carry previews: fetch the
+    // active session's retained buffer over the bridge once per generation,
+    // exactly as the desktop renderer hydrates via getFullBuffer. Sleeping
+    // sessions always qualify (they will never stream again); running sessions
+    // qualify when the declared buffer is larger than the cache we hold.
+    function ensureTranscriptForActive() {
+      const session = sessionById(activeTerminalId);
+      if (!session || !session.id) return;
+      const id = session.id;
+      const generation = typeof session.sessionGeneration === 'number' ? session.sessionGeneration : 0;
+      if (transcriptFetchInFlight.has(id)) return;
+      if (sessionTranscriptFetched.get(id) === generation) return;
+      const declared = Math.max(
+        typeof session.bufferLength === 'number' ? session.bufferLength : 0,
+        (typeof session.buffer === 'string' ? session.buffer.length : 0),
+        (typeof session.snapshot === 'string' ? session.snapshot.length : 0),
+      );
+      const cached = sessionBuffers.get(id);
+      const missing = declared - (cached ? cached.length : 0);
+      if (!(isSleepingSession(session) || cached === undefined || missing > 0)) return;
+      transcriptFetchInFlight.add(id);
+      sendRpc('antifan.terminalGetFullBuffer', { sessionId: id }).then(res => {
+        transcriptFetchInFlight.delete(id);
+        const text = res && typeof res.buffer === 'string' ? res.buffer : '';
+        const current = sessionById(id);
+        if (!current) return;
+        const currentGen = typeof current.sessionGeneration === 'number' ? current.sessionGeneration : 0;
+        sessionTranscriptFetched.set(id, currentGen);
+        sessionBuffersGeneration.set(id, currentGen);
+        const prev = sessionBuffers.get(id);
+        if (prev === undefined || text.length >= prev.length) {
+          sessionBuffers.set(id, text.slice(-MOBILE_TRANSCRIPT_RENDER_CAP));
+        }
+        if (id === activeTerminalId) renderActiveTerminal();
+      }).catch(() => {
+        transcriptFetchInFlight.delete(id);
+      });
     }
     // Tells "sleeping with a retained transcript" apart from "sleeping with
     // nothing" (and from "not sleeping at all").
@@ -946,9 +1036,6 @@ export function renderMobileRemoteHtml(tokenOrPort: string | number, maybePort?:
           if (res && Array.isArray(res.sessions)) {
             terminalSessions = res.sessions;
             activeTerminalId = res.activeSessionId || (terminalSessions[0] && terminalSessions[0].id) || '';
-            terminalSessions.forEach(s => {
-              if (s.buffer) sessionBuffers.set(s.id, s.buffer);
-            });
             adoptSleepingTranscripts(terminalSessions);
             renderTabs();
             renderActiveTerminal();
@@ -972,9 +1059,6 @@ export function renderMobileRemoteHtml(tokenOrPort: string | number, maybePort?:
             if (Array.isArray(data.terminalSessions)) {
               terminalSessions = data.terminalSessions;
               activeTerminalId = data.activeTerminalSessionId || (terminalSessions[0] && terminalSessions[0].id) || '';
-              terminalSessions.forEach(s => {
-                if (s.buffer) sessionBuffers.set(s.id, s.buffer);
-              });
               adoptSleepingTranscripts(terminalSessions);
               renderTabs();
               renderActiveTerminal();
@@ -985,7 +1069,10 @@ export function renderMobileRemoteHtml(tokenOrPort: string | number, maybePort?:
               terminalSessions = data.sessions;
               if (data.activeSessionId) activeTerminalId = data.activeSessionId;
               if (typeof data.snapshot === 'string' && activeTerminalId) {
-                sessionBuffers.set(activeTerminalId, data.snapshot);
+                // The broadcast snapshot is a preview tail: adopt it only when it
+                // is not already covered by what the phone holds — a smaller
+                // preview must never truncate a longer streamed/fetched transcript.
+                adoptPreview(activeTerminalId, data.snapshot);
               }
               // A sleep transition broadcasts this shape with the folded
               // transcript as the session record's buffer field; without
@@ -998,9 +1085,18 @@ export function renderMobileRemoteHtml(tokenOrPort: string | number, maybePort?:
             const d = msg.data || {};
             const sid = d.sessionId || activeTerminalId;
             const text = d.data || '';
-            const existing = sessionBuffers.get(sid) || '';
-            sessionBuffers.set(sid, (existing + text).slice(-1000000));
+            // A scrollback clear arrives inline in the stream (the manager prepends
+            // it to the next chunk); the phone cache must reset with it or the
+            // cleared lines linger as ghost text — same semantics as the desktop
+            // pane's term.reset().
+            const resetFirst = text.indexOf('\\x1b[3J') !== -1;
+            const existing = resetFirst ? '' : (sessionBuffers.get(sid) || '');
+            sessionBuffers.set(sid, (existing + text).slice(-MOBILE_TRANSCRIPT_RENDER_CAP));
             if (sid === activeTerminalId) {
+              if (resetFirst) {
+                const screen = document.getElementById('terminalScreen');
+                if (screen) screen.innerHTML = '';
+              }
               appendTerminalData(text);
             }
           }
@@ -1186,6 +1282,10 @@ export function renderMobileRemoteHtml(tokenOrPort: string | number, maybePort?:
     function renderActiveTerminal() {
       const screen = document.getElementById('terminalScreen');
       if (!screen) return;
+      // Preview-only broadcasts mean the cache below can be just a tail; the
+      // authoritative fetch fills in the full retained transcript once per
+      // generation and re-renders when it lands.
+      ensureTranscriptForActive();
       const buf = sessionBuffers.get(activeTerminalId) || '';
       screen.innerHTML = ansiToHtml(buf);
       renderSleepBanner();

@@ -699,6 +699,7 @@ describe('ProjectWindowManager and ProjectWindowShell over a stubbed Electron', 
 
     assert.strictEqual(first, second, 'a duplicate open must reuse the live shell');
     assert.strictEqual(stub.windows.length, 1, 'one BrowserWindow for the owner');
+    assert.strictEqual(stub.windows[0]?.options.autoHideMenuBar, true, 'project window must auto-hide native menu bar');
     assert.strictEqual(presented.length, 1, 'the duplicate user open presents the shell it reused');
     assert.strictEqual(presented[0], first);
     assert.strictEqual(stub.windows[0]?.calls.show, 1);

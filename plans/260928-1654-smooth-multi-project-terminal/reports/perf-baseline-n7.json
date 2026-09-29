@@ -1,0 +1,94 @@
+{
+  "label": "baseline",
+  "compiledRoot": "E:\\Work\\apps\\AntiFan-baseline\\.compiled",
+  "projects": 7,
+  "daemon": true,
+  "stagedDaemon": {
+    "version": "ec504773898b052d",
+    "stageDir": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-perf-probe-kPHrYY\\daemon-host\\ec504773898b052d",
+    "entry": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-perf-probe-kPHrYY\\daemon-host\\ec504773898b052d\\src\\main\\terminal-daemon\\daemon-entry.js",
+    "files": 47,
+    "bytes": 2971365,
+    "packages": [
+      "node-pty",
+      "ws"
+    ],
+    "pruned": [],
+    "dataRoot": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-perf-probe-kPHrYY"
+  },
+  "burstSeconds": 60.16,
+  "windowOpenMs": 2149,
+  "eventLoopDelayMs": {
+    "p50": 10.4,
+    "p95": 16.05,
+    "p99": 18.92,
+    "max": 20.66
+  },
+  "statSyncPerSecond": 265.05,
+  "statSyncCallers": {
+    "at isExistingDirectory (\\src\\main\\browser\\native-tab-host.js:224": 15945
+  },
+  "terminalDataIpcPerSecond": 35.79,
+  "terminalDataIpcByTarget": {
+    "Perf 0:sidebar": 1503,
+    "Perf 1:sidebar": 651,
+    "Perf 6:sidebar": 1
+  },
+  "rendererLongtasks": {
+    "Perf 0": {
+      "count": 0,
+      "max": 0,
+      "totalMs": 0
+    },
+    "Perf 1": {
+      "count": 0,
+      "max": 0,
+      "totalMs": 0
+    },
+    "Perf 2": {
+      "count": 0,
+      "max": 0,
+      "totalMs": 0
+    },
+    "Perf 3": {
+      "count": 0,
+      "max": 0,
+      "totalMs": 0
+    },
+    "Perf 4": {
+      "count": 0,
+      "max": 0,
+      "totalMs": 0
+    },
+    "Perf 5": {
+      "count": 0,
+      "max": 0,
+      "totalMs": 0
+    },
+    "Perf 6": {
+      "count": 0,
+      "max": 0,
+      "totalMs": 0
+    }
+  },
+  "daemonWsFramesPerSecond": 50.32,
+  "daemonWsKiBPerSecond": 219.18,
+  "tabsPerProject": 5,
+  "echoLatencyMs": {
+    "samples": 294,
+    "lost": 0,
+    "p50": 33.91,
+    "p95": 174.28,
+    "max": 522.17
+  },
+  "workingSetMb": {
+    "idle": 1001.58,
+    "burstMax": 1027.77
+  },
+  "tree": {
+    "root": "E:\\Work\\apps\\AntiFan-baseline",
+    "head": "3577fadf",
+    "dirty": true
+  },
+  "measuredAt": "2026-09-29T00:16:15.428Z"
+}

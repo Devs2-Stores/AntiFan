@@ -1,6 +1,23 @@
 import { contextBridge, ipcRenderer, clipboard } from 'electron';
-import { PROJECT_WINDOW_CHANNELS, TERMINAL_CHANNELS } from '../shared/contracts';
-import type { ProjectOpenListResult, ProjectOpenPickerAnswerPayload, ProjectOpenPickerPush, ProjectOpenResult, TerminalDataPayload, TerminalTabPrefs, TabsUpdatedPayload } from '../shared/contracts';
+import { BRIDGE_CHANNELS, PROJECT_WINDOW_CHANNELS, TERMINAL_CHANNELS } from '../shared/contracts';
+import type {
+  BridgeHealthReport,
+  CapsuleBrief,
+  CapsuleBriefResult,
+  ProjectOpenListResult,
+  ProjectOpenPickerAnswerPayload,
+  ProjectOpenPickerPush,
+  ProjectOpenResult,
+  ProjectRemoveRequest,
+  ProjectRenameResult,
+  ProjectRemoveResult,
+  RunCardState,
+  RunControlOp,
+  RunControlResult,
+  TerminalDataPayload,
+  TerminalTabPrefs,
+  TabsUpdatedPayload,
+} from '../shared/contracts';
 
 /**
  * The tab broadcast is one object carrying both halves the renderer reads. Normalizing
@@ -26,7 +43,6 @@ const api = {
   copyToClipboard: (text: string) => clipboard.writeText(text),
   readFromClipboard: () => clipboard.readText(),
   pasteImageFromClipboard: () => ipcRenderer.invoke('antifan:terminal:paste-image'),
-  savePastedImageBuffer: (dataUrlOrBase64: string) => ipcRenderer.invoke('antifan:terminal:save-pasted-image', dataUrlOrBase64),
   openWorkspace: (sessionId?: string) => ipcRenderer.invoke('antifan:standalone:open-workspace', { sessionId }),
   // The one explicit user intention to open a project. With no id, Main presents its own
   // project-opening surface; the renderer never guesses a project from a title, a path or
@@ -46,6 +62,15 @@ const api = {
   },
   answerProjectOpenPicker: (payload: ProjectOpenPickerAnswerPayload) =>
     ipcRenderer.invoke(PROJECT_WINDOW_CHANNELS.PROJECT_OPEN_PICKER_ANSWER, payload),
+  // Rename/remove asks the picker modal drives on a row. `confirmed` rides the remove
+  // request — the modal's inline confirmation is the answer, and
+  // `answerProjectRemove` exists only for the test/probe seam that answers explicitly.
+  renameProject: (request: { projectId: string; name: string }): Promise<ProjectRenameResult> =>
+    ipcRenderer.invoke(PROJECT_WINDOW_CHANNELS.PROJECT_RENAME, request),
+  removeProject: (request: ProjectRemoveRequest): Promise<ProjectRemoveResult> =>
+    ipcRenderer.invoke(PROJECT_WINDOW_CHANNELS.PROJECT_REMOVE, request),
+  answerProjectRemove: (payload: { projectId: string; confirmed: boolean }): Promise<ProjectRemoveResult> =>
+    ipcRenderer.invoke(PROJECT_WINDOW_CHANNELS.PROJECT_REMOVE_ANSWER, payload),
   getInitialState: () => ipcRenderer.invoke('antifan:sidebar:get-initial-state'),
   startTerminal: (cwd?: string) => ipcRenderer.invoke('antifan:terminal:start', cwd),
   sendTerminalInput: (input: string) => ipcRenderer.invoke('antifan:terminal:input', input),
@@ -80,6 +105,10 @@ const api = {
   pickWorkspaceFolder: (sessionId?: string) => ipcRenderer.invoke('antifan:capsule:pick-folder', { sessionId }),
   createCapsule: (name: string, workspacePath: string) => ipcRenderer.invoke('antifan:capsule:create', { name, workspacePath }),
   switchCapsule: (id: string, sessionId?: string) => ipcRenderer.invoke('antifan:capsule:switch', { capsuleId: id, sessionId }),
+  capsuleGetBrief: (capsuleId: string): Promise<CapsuleBriefResult> =>
+    ipcRenderer.invoke('antifan:capsule:get-brief', { capsuleId }),
+  capsuleSetBrief: (capsuleId: string, brief: CapsuleBrief | null): Promise<CapsuleBriefResult> =>
+    ipcRenderer.invoke('antifan:capsule:set-brief', { capsuleId, brief }),
   // Hand one terminal to the window that owns the target project. Distinct from `switchCapsule`,
   // which re-points the whole calling window: this moves one session out of the window it is in.
   // Main decides whether the caller may (the shared manager may) and answers with a refusal
@@ -90,10 +119,11 @@ const api = {
   // focus when the link handler runs.
   openTerminalLink: (sessionId: string, url: string) =>
     ipcRenderer.invoke(TERMINAL_CHANNELS.OPEN_LINK, { sessionId, url }),
+  openInVSCode: (path?: string) =>
+    ipcRenderer.invoke(TERMINAL_CHANNELS.OPEN_IN_VSCODE, path),
   togglePanel: () => ipcRenderer.invoke('antifan:toolbar:toggle-sidebar'),
   setPanelWidth: (width: number) => ipcRenderer.invoke('antifan:sidebar:set-width', width),
   setTerminalTabPrefs: (prefs: Partial<TerminalTabPrefs>) => ipcRenderer.invoke(TERMINAL_CHANNELS.SET_TAB_PREFS, prefs),
-  setTerminalHeight: (height: number, finish: boolean = false) => ipcRenderer.invoke('antifan:terminal:set-height', { height, finish }),
   popoutTerminal: () => ipcRenderer.invoke('antifan:terminal:popout'),
   openNewTerminalWindow: (sessionId?: string) => ipcRenderer.invoke('antifan:terminal:new-window', { sessionId }),
   closeTerminalWindow: () => ipcRenderer.invoke('antifan:terminal:close-window'),
@@ -118,11 +148,26 @@ const api = {
   ackTerminalChunk: (payload: { rendererInstanceId: string; sessionId: string; generation: number; seq: number; role?: 'DOCK' | 'POPOUT' }) =>
     ipcRenderer.send('antifan:terminal:ack', payload),
   onTerminalData: (cb: (data: TerminalDataPayload) => void) => { const h = (_e: unknown, d: TerminalDataPayload) => cb(d); ipcRenderer.on('antifan:terminal:data', h); return () => ipcRenderer.removeListener('antifan:terminal:data', h); },
+  onTerminalActivity: (cb: (data: TerminalDataPayload) => void) => { const h = (_e: unknown, d: TerminalDataPayload) => cb(d); ipcRenderer.on(TERMINAL_CHANNELS.ACTIVITY, h); return () => ipcRenderer.removeListener(TERMINAL_CHANNELS.ACTIVITY, h); },
   onTerminalSession: (cb: (state: unknown) => void) => { const h = (_e: unknown, d: unknown) => cb(d); ipcRenderer.on('antifan:terminal:session', h); return () => ipcRenderer.removeListener('antifan:terminal:session', h); },
   onTabsUpdated: (cb: (payload: TabsUpdatedPayload) => void) => {
     const h = (_e: unknown, d: unknown) => cb(normalizeTabsUpdatedPayload(d));
     ipcRenderer.on('antifan:tabs:updated', h);
     return () => ipcRenderer.removeListener('antifan:tabs:updated', h);
+  },
+  getBridgeStatus: (): Promise<BridgeHealthReport> =>
+    ipcRenderer.invoke(BRIDGE_CHANNELS.GET_STATUS),
+  onBridgeStatus: (cb: (report: BridgeHealthReport) => void) => {
+    const h = (_e: unknown, report: BridgeHealthReport) => cb(report);
+    ipcRenderer.on(BRIDGE_CHANNELS.STATUS_CHANGED, h);
+    return () => ipcRenderer.removeListener(BRIDGE_CHANNELS.STATUS_CHANGED, h);
+  },
+  runControl: (terminalSessionId: string, op: RunControlOp, text?: string): Promise<RunControlResult> =>
+    ipcRenderer.invoke(TERMINAL_CHANNELS.RUN_CONTROL, { terminalSessionId, op, text }),
+  onRunCardState: (cb: (cards: RunCardState[]) => void) => {
+    const h = (_e: unknown, cards: RunCardState[]) => cb(cards);
+    ipcRenderer.on(TERMINAL_CHANNELS.RUN_STATE, h);
+    return () => ipcRenderer.removeListener(TERMINAL_CHANNELS.RUN_STATE, h);
   },
 };
 contextBridge.exposeInMainWorld('antifanStandalone', api);

@@ -6,6 +6,12 @@ import path from 'node:path';
 import os from 'node:os';
 import { assessCanaryReplay } from '../fixtures/canary-run/replay-precondition.mjs';
 
+const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..');
+const FIXTURE_ARTIFACTS = path.join(REPO_ROOT, 'test', 'fixtures', 'canary-run', 'artifacts');
+if (fs.existsSync(FIXTURE_ARTIFACTS) && !process.env.ANTIFAN_ARTIFACT_ROOT) {
+  process.env.ANTIFAN_ARTIFACT_ROOT = FIXTURE_ARTIFACTS;
+}
+
 describe('build-report embedded selfDrift handling', () => {
   it('does not crash when selfDrift is embedded without an external drift document and exceeds limit', (t) => {
     // The tracked fixture is a copy of a real 15-page canary run: run3-390.json has embedded selfDrift with

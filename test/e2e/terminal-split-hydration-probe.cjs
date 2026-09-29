@@ -77,7 +77,9 @@ app.whenReady().then(async () => {
     ipcMain.handle('antifan:terminal:switch-session', () => true);
     ipcMain.handle('antifan:terminal:set-active-session', () => true);
     ipcMain.handle('antifan:terminal:resize-session', () => ({ ok: true }));
-    ipcMain.handle('antifan:terminal:input-session', () => ({ ok: true }));
+    // This probe loads the shipped preload, which sends on `antifan:terminal:input-session`
+    // (a `kind: 'on'` route): a `handle` registration would never fire.
+    ipcMain.on('antifan:terminal:input-session', () => {});
     ipcMain.handle('antifan:terminal:input', () => ({ ok: true }));
     ipcMain.handle('antifan:terminal:sync-view', () => ({ status: 'UP_TO_DATE', generation: 1, lastSeq: 0 }));
     ipcMain.handle('antifan:terminal:get-delta', (_e, { fromSeq }) => {

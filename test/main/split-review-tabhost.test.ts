@@ -104,6 +104,8 @@ function createTestHost() {
   host.terminalWindowMeta = new Map();
   host.documentGenerations = new Map();
   host.semanticDocumentGenerations = new Map();
+  host.hibernatingTabIds = new Set();
+  host.terminalDisplayedSessions = new Map();
   host.semanticRefRegistry = new SemanticRefRegistry();
   host.targetOperationQueues = new Map();
   host.lastNavigationFailures = new Map();

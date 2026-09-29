@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { ProjectRegistry } from './project-registry';
+import type { CapsuleBrief, CapsuleBriefReason, CapsuleBriefResult } from '../../shared/contracts.js';
 
 export interface CapsuleBrowserTab {
   id: string;
@@ -48,6 +49,7 @@ export interface WorkspaceCapsule {
   projectId?: string;
   workspaceId?: string;
   migrationMarker?: CapsuleAffiliationMarker;
+  brief?: CapsuleBrief;
 }
 
 export interface WorkspaceCapsuleManagerOptions {
@@ -196,6 +198,133 @@ export function findCapsuleByRoot(
   return preferActiveThenNewest(free.length > 0 ? free : matches, activeCapsuleId);
 }
 
+const THEME_ID_PATTERN = /^[0-9A-Za-z_-]+$/;
+const ALLOWED_BRIEF_KEYS: Record<string, true> = {
+  storefrontUrl: true,
+  siteName: true,
+  themeId: true,
+  rules: true,
+};
+
+export function isValidStorefrontUrl(url: unknown): url is string {
+  if (typeof url !== 'string') return false;
+  const trimmed = url.trim();
+  if (!trimmed || trimmed.length > 300 || url.length > 300) return false;
+  try {
+    const parsed = new URL(trimmed);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+export function isValidThemeId(themeId: unknown): themeId is string {
+  if (typeof themeId !== 'string') return false;
+  const trimmed = themeId.trim();
+  return trimmed.length > 0 && trimmed.length <= 64 && THEME_ID_PATTERN.test(trimmed);
+}
+
+export function isValidRules(rules: unknown): rules is string[] {
+  if (!Array.isArray(rules) || rules.length > 8) return false;
+  for (const entry of rules) {
+    if (typeof entry !== 'string' || entry.length > 200 || entry.trim().length > 200) {
+      return false;
+    }
+  }
+  return true;
+}
+
+export function sanitizeCapsuleBrief(
+  input: unknown,
+): { ok: true; brief: CapsuleBrief } | { ok: false; reason: CapsuleBriefReason } {
+  if (typeof input !== 'object' || input === null || Array.isArray(input)) {
+    return { ok: false, reason: 'INVALID_BRIEF' };
+  }
+
+  const raw = input as Record<string, unknown>;
+  for (const key of Object.keys(raw)) {
+    if (!ALLOWED_BRIEF_KEYS[key]) {
+      return { ok: false, reason: 'INVALID_BRIEF' };
+    }
+  }
+
+  const brief: CapsuleBrief = {};
+
+  if (raw.storefrontUrl !== undefined) {
+    if (!isValidStorefrontUrl(raw.storefrontUrl)) {
+      return { ok: false, reason: 'INVALID_BRIEF' };
+    }
+    brief.storefrontUrl = raw.storefrontUrl.trim();
+  }
+
+  if (raw.siteName !== undefined) {
+    if (typeof raw.siteName !== 'string' || raw.siteName.length > 80 || raw.siteName.trim().length > 80) {
+      return { ok: false, reason: 'INVALID_BRIEF' };
+    }
+    const trimmed = raw.siteName.trim();
+    if (trimmed) {
+      brief.siteName = trimmed;
+    }
+  }
+
+  if (raw.themeId !== undefined) {
+    if (!isValidThemeId(raw.themeId)) {
+      return { ok: false, reason: 'INVALID_BRIEF' };
+    }
+    brief.themeId = raw.themeId.trim();
+  }
+
+  if (raw.rules !== undefined) {
+    if (!isValidRules(raw.rules)) {
+      return { ok: false, reason: 'INVALID_BRIEF' };
+    }
+    brief.rules = raw.rules.map((r) => r.trim());
+  }
+
+  return { ok: true, brief };
+}
+
+function loadTolerantBrief(raw: unknown): CapsuleBrief | undefined {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    return undefined;
+  }
+  const item = raw as Record<string, unknown>;
+  const brief: CapsuleBrief = {};
+  let hasAny = false;
+
+  if (item.storefrontUrl !== undefined && isValidStorefrontUrl(item.storefrontUrl)) {
+    brief.storefrontUrl = item.storefrontUrl.trim();
+    hasAny = true;
+  }
+  if (item.siteName !== undefined && typeof item.siteName === 'string' && item.siteName.length <= 80 && item.siteName.trim().length <= 80) {
+    const trimmed = item.siteName.trim();
+    if (trimmed) {
+      brief.siteName = trimmed;
+      hasAny = true;
+    }
+  }
+  if (item.themeId !== undefined && isValidThemeId(item.themeId)) {
+    brief.themeId = item.themeId.trim();
+    hasAny = true;
+  }
+  if (item.rules !== undefined && Array.isArray(item.rules)) {
+    const validRules: string[] = [];
+    for (const rule of item.rules) {
+      if (typeof rule === 'string' && rule.length <= 200 && rule.trim().length <= 200) {
+        const trimmed = rule.trim();
+        validRules.push(trimmed);
+        if (validRules.length === 8) break;
+      }
+    }
+    if (validRules.length > 0) {
+      brief.rules = validRules;
+      hasAny = true;
+    }
+  }
+
+  return hasAny ? brief : undefined;
+}
+
 export class WorkspaceCapsuleManager {
   private readonly now: () => number;
   private readonly idFactory: () => string;
@@ -318,6 +447,88 @@ export class WorkspaceCapsuleManager {
     return this.clone(capsule);
   }
 
+  /**
+   * Sever a capsule's project/workspace claim without touching the capsule itself —
+   * name, path, state and brief all stay, so removing the project from the list never
+   * deletes or loses the workspace the capsule still describes. This is the removal
+   * counterpart of `setAffiliation`: a sync pass reads only capsules whose affiliation
+   * validates, so the cleared record stops re-registering the closed project at boot.
+   * The `explicit` marker stays: the claim was made deliberately, its withdrawal does
+   * not make the capsule a migration legacy.
+   */
+  clearAffiliation(capsuleId: string): WorkspaceCapsule {
+    const capsule = this.capsules.get(capsuleId);
+    if (!capsule) throw new Error(`Capsule not found: ${capsuleId}`);
+    if (!capsule.projectId && !capsule.workspaceId) return this.clone(capsule);
+    delete capsule.projectId;
+    delete capsule.workspaceId;
+    capsule.updatedAt = this.now();
+    this.persist();
+    return this.clone(capsule);
+  }
+
+  getBrief(capsuleId: string): CapsuleBriefResult {
+    const capsule = this.capsules.get(capsuleId);
+    if (!capsule) {
+      return {
+        ok: false,
+        reason: 'UNKNOWN_CAPSULE',
+        message: `Capsule not found: ${capsuleId}`,
+      };
+    }
+    return {
+      ok: true,
+      capsuleId: capsule.id,
+      brief: capsule.brief ? JSON.parse(JSON.stringify(capsule.brief)) : null,
+    };
+  }
+
+  setBrief(
+    capsuleId: string,
+    brief: unknown,
+  ): CapsuleBriefResult & { capsule?: WorkspaceCapsule } {
+    const capsule = this.capsules.get(capsuleId);
+    if (!capsule) {
+      return {
+        ok: false,
+        reason: 'UNKNOWN_CAPSULE',
+        message: `Capsule not found: ${capsuleId}`,
+      };
+    }
+
+    if (brief === null) {
+      delete capsule.brief;
+      capsule.updatedAt = this.now();
+      this.persist();
+      return {
+        ok: true,
+        capsuleId: capsule.id,
+        brief: null,
+        capsule: this.clone(capsule),
+      };
+    }
+
+    const sanitized = sanitizeCapsuleBrief(brief);
+    if (!sanitized.ok) {
+      return {
+        ok: false,
+        reason: sanitized.reason,
+        message: 'Invalid capsule brief',
+      };
+    }
+
+    capsule.brief = sanitized.brief;
+    capsule.updatedAt = this.now();
+    this.persist();
+    return {
+      ok: true,
+      capsuleId: capsule.id,
+      brief: JSON.parse(JSON.stringify(capsule.brief)),
+      capsule: this.clone(capsule),
+    };
+
+  }
+
   private load(): void {
     try {
       const raw = JSON.parse(fs.readFileSync(this.options.filePath, 'utf8')) as {
@@ -352,6 +563,10 @@ export class WorkspaceCapsuleManager {
           capsule.migrationMarker = 'explicit';
         } else {
           capsule.migrationMarker = 'legacy';
+        }
+        const brief = loadTolerantBrief(item.brief);
+        if (brief) {
+          capsule.brief = brief;
         }
         this.capsules.set(capsule.id, capsule);
       }

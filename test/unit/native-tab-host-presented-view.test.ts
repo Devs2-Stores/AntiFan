@@ -1,9 +1,9 @@
-import { describe, it } from 'node:test';
+import { describe, it, mock } from 'node:test';
 import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { NativeTabHost, NativeTabRecord } from '../../src/main/browser/native-tab-host';
+import { NativeTabHost, NativeTabRecord, type CaptureLiftLease } from '../../src/main/browser/native-tab-host';
 import { parseBenchmarkLine } from '../../src/main/benchmark/telemetry';
 import { AntiFanTab } from '../../src/shared/contracts';
 import { createShellDouble, ShellDouble, ShellDoubleView, ShellDoubleWindow } from '../support/project-window-shell-double';
@@ -43,6 +43,7 @@ interface RecordedTab {
   setBoundsCalls: PaneBounds[];
   currentBounds: () => PaneBounds;
   invalidateCalls: number;
+  focusCalls: number;
 }
 
 interface PresentedHost {
@@ -66,7 +67,7 @@ function createTestTab(id: string, overrides: Partial<AntiFanTab> = {}): Recorde
 
   const bounds: PaneBounds = { x: 0, y: 0, width: 0, height: 0 };
   const setBoundsCalls: PaneBounds[] = [];
-  const recorder = { invalidateCalls: 0 };
+  const recorder = { invalidateCalls: 0, focusCalls: 0 };
 
   const webContents = {
     isDestroyed: () => false,
@@ -77,7 +78,9 @@ function createTestTab(id: string, overrides: Partial<AntiFanTab> = {}): Recorde
     invalidate: () => {
       recorder.invalidateCalls += 1;
     },
-    focus: () => {},
+    focus: () => {
+      recorder.focusCalls += 1;
+    },
     setBackgroundThrottling: (_enabled: boolean) => {},
     executeJavaScript: async (_script: string) => undefined,
     loadURL: async (_url: string) => undefined,
@@ -101,6 +104,9 @@ function createTestTab(id: string, overrides: Partial<AntiFanTab> = {}): Recorde
     get invalidateCalls() {
       return recorder.invalidateCalls;
     },
+    get focusCalls() {
+      return recorder.focusCalls;
+    },
   };
 }
 
@@ -108,12 +114,18 @@ function createPresentedHost(params: { tabs: RecordedTab[]; activeTabId: string;
   const children: unknown[] = [...params.attached];
   const host: any = Object.create(NativeTabHost.prototype);
   host.isDisposed = false;
+  host.agentInputInFlight = 0;
+  host.lastUserInputAtMs = 0;
+  host.captureLift = null;
+  host.captureLiftQueue = [];
+  host.captureLiftToken = 0;
+  host.tabOrder = params.tabs.map((recorded) => recorded.tab.state.id);
   host.tabs = new Map(params.tabs.map((recorded) => [recorded.tab.state.id, recorded.tab]));
   host.activeTabId = params.activeTabId;
   host.defaultUserAgent = 'MockDesktopUA';
   host.temporaryViewAttachCounts = new WeakMap();
   host.tabByWebContents = new WeakMap(
-    params.tabs.map((recorded) => [recorded.tab.view.webContents, { tabId: recorded.tab.state.id, tab: recorded.tab }])
+    params.tabs.map((recorded) => [recorded.tab.view!.webContents, { tabId: recorded.tab.state.id, tab: recorded.tab }])
   );
   const windowDouble: ShellDoubleWindow = {
     isDestroyed: () => false,
@@ -204,7 +216,7 @@ describe('Presented view invariant', () => {
     assert.deepStrictEqual(children, [presented.tab.view], 'releasing the capture must hand the window back to the presented tab only');
   });
 
-  it('raiseViewForCapture lifts a background view above the user tab without switching it', async () => {
+  it('a capture lift presents the borrowed pane above the user tab, never switches it, and release buries it again', async () => {
     const presented = createTestTab('tab-visible');
     const background = createTestTab('tab-bg');
     const { host, children } = createPresentedHost({
@@ -218,19 +230,151 @@ describe('Presented view invariant', () => {
       const buriedBackground = children.indexOf(background.tab.view);
       assert.ok(buriedPresented > buriedBackground && buriedBackground >= 0, 'the attach helper keeps the capture view occluded');
 
-      host.raiseViewForCapture(background.tab.view);
+      // The capture host cannot be constructed in this lane, so the lease grants
+      // on the in-window origin — the same fallback the production path takes
+      // when BrowserWindow refuses.
+      const lease = await host.acquireCaptureLift(background.tab.view);
       const raisedPresented = children.indexOf(presented.tab.view);
       const raisedBackground = children.indexOf(background.tab.view);
-      assert.ok(raisedBackground > raisedPresented && raisedPresented >= 0, 'raiseViewForCapture must sit the capture view above the user tab');
-      assert.strictEqual(host.activeTabId, 'tab-visible', 'raise must not switch the visible tab');
+      assert.ok(raisedBackground > raisedPresented && raisedPresented >= 0, 'the lift must sit the capture view above the user tab');
+      assert.strictEqual(host.activeTabId, 'tab-visible', 'a lift must not switch the visible tab');
+      assert.strictEqual(lease.released, false, 'the lease is held while the raster runs');
+      assert.deepStrictEqual(host.captureLiftState()?.origin, 'in-window', 'the held lift records where the pane was parked');
 
-      host.reassertPresentedView();
+      lease.release('raster-finished');
+      assert.strictEqual(lease.released, true, 'release reports on the same lease object');
+      assert.strictEqual(host.captureLiftState(), null, 'release clears the window slot');
       const restoredPresented = children.indexOf(presented.tab.view);
       const restoredBackground = children.indexOf(background.tab.view);
-      assert.ok(restoredPresented > restoredBackground && restoredBackground >= 0, 'reassertPresentedView must put the user tab back on top while capture still holds the view');
+      assert.ok(restoredPresented > restoredBackground && restoredBackground >= 0, 'release must put the user tab back on top');
     });
 
     assert.deepStrictEqual(children, [presented.tab.view], 'releasing the capture must hand the window back to the presented tab only');
+  });
+
+  it('a lift takes its raster without taking the user focus', async () => {
+    const presented = createTestTab('tab-visible');
+    const background = createTestTab('tab-bg');
+    const { host, children } = createPresentedHost({
+      tabs: [presented, background],
+      activeTabId: 'tab-visible',
+      attached: [presented.tab.view],
+    });
+
+    await host.runWithAttachedTabView(background.tab.view, async () => {
+      const lease = await host.acquireCaptureLift(background.tab.view);
+      assert.strictEqual(children[children.length - 1], background.tab.view, 'the lifted pane presents for its raster');
+      assert.strictEqual(background.focusCalls, 0, 'the lift never moves real DOM focus');
+      assert.strictEqual(presented.focusCalls, 0, 'the presented pane is never refocused either');
+      lease.release('raster-finished');
+    });
+  });
+
+  it('a second acquire queues on the held lift and is granted only when it frees', async () => {
+    const presented = createTestTab('tab-visible');
+    const backgroundA = createTestTab('tab-bg-a');
+    const backgroundB = createTestTab('tab-bg-b');
+    const { host, children } = createPresentedHost({
+      tabs: [presented, backgroundA, backgroundB],
+      activeTabId: 'tab-visible',
+      attached: [presented.tab.view],
+    });
+
+    await host.runWithAttachedTabView(backgroundA.tab.view, async () => {
+      await host.runWithAttachedTabView(backgroundB.tab.view, async () => {
+        const leaseA = await host.acquireCaptureLift(backgroundA.tab.view);
+        assert.strictEqual(host.captureLiftState()?.view, backgroundA.tab.view, 'the first acquire owns the slot');
+
+        let grantedB: { view: unknown } | null = null;
+        const pendingB = host.acquireCaptureLift(backgroundB.tab.view).then((lease: CaptureLiftLease) => {
+          grantedB = lease;
+          return lease;
+        });
+        await new Promise((resolve) => setImmediate(resolve));
+        assert.strictEqual(grantedB, null, 'the second acquire waits on the held lease rather than stealing it');
+        assert.strictEqual(host.captureLiftState()?.view, backgroundA.tab.view, 'the holder is undisturbed while a waiter queues');
+
+        leaseA.release('raster-finished');
+        const leaseB = await pendingB;
+        assert.ok(leaseB, 'the queued acquire resolves once the window frees the slot');
+        assert.strictEqual(host.captureLiftState()?.view, backgroundB.tab.view, 'the waiter is granted in FIFO order');
+        assert.strictEqual(children[children.length - 1], backgroundB.tab.view, 'the second pane is the one now presented for its raster');
+        leaseB.release('raster-finished');
+      });
+    });
+  });
+
+  it('the watchdog lowers a raster that outlives its bound and frees the queue', async () => {
+    const presented = createTestTab('tab-visible');
+    const background = createTestTab('tab-bg');
+    const { host, children } = createPresentedHost({
+      tabs: [presented, background],
+      activeTabId: 'tab-visible',
+      attached: [presented.tab.view],
+    });
+
+    mock.timers.enable({ apis: ['setTimeout'] });
+    try {
+      await host.runWithAttachedTabView(background.tab.view, async () => {
+        const lease = await host.acquireCaptureLift(background.tab.view, { budgetMs: 200 });
+        assert.strictEqual(children[children.length - 1], background.tab.view, 'the pane is lifted for its raster');
+
+        // A raster that abandons its dispatch never releases; the watchdog is
+        // the backstop that buries the pane and frees the slot on its own.
+        mock.timers.tick(200);
+        assert.strictEqual(lease.released, true, 'the watchdog releases the held lease');
+        assert.strictEqual(host.captureLiftState(), null, 'the slot is freed for the next capture');
+        const restoredPresented = children.indexOf(presented.tab.view);
+        const restoredBackground = children.indexOf(background.tab.view);
+        assert.ok(restoredPresented > restoredBackground && restoredBackground >= 0, 'the user pane is back on top after the watchdog fired');
+      });
+    } finally {
+      mock.timers.reset();
+    }
+  });
+
+  it('an agent-plane switch while the user is typing defers instead of moving the presented pane', () => {
+    const presented = createTestTab('tab-visible');
+    const background = createTestTab('tab-bg');
+    const { host, children } = createPresentedHost({
+      tabs: [presented, background],
+      activeTabId: 'tab-visible',
+      attached: [presented.tab.view],
+    });
+
+    host.noteUserActivity('keyDown');
+    const deferred = host.trySwitchTab('tab-bg', { plane: 'agent' });
+    assert.strictEqual(deferred.ok, false, 'the agent-plane activation must refuse while recent input owns the window');
+    if (!deferred.ok) {
+      assert.strictEqual(deferred.reason, 'ACTIVATION_DEFERRED_USER_INPUT', 'the refusal names the deferral, not a generic failure');
+      assert.ok(typeof deferred.retryAfterMs === 'number' && deferred.retryAfterMs > 0, 'the caller is told how long to wait');
+    }
+    assert.strictEqual(host.activeTabId, 'tab-visible', 'a deferred switch leaves the active tab untouched');
+    assert.deepStrictEqual(children, [presented.tab.view], 'a deferred switch never moves the presented pane');
+    assert.strictEqual(background.focusCalls, 0, 'a deferred switch never takes focus');
+
+    host.lastUserInputAtMs = 0;
+    const switched = host.trySwitchTab('tab-bg', { plane: 'agent' });
+    assert.strictEqual(switched.ok, true, 'the same call proceeds once the recency window has passed');
+    assert.deepStrictEqual(children, [background.tab.view], 'the agent-plane switch still presents its tab');
+    assert.strictEqual(background.focusCalls, 0, 'the agent-plane switch presents but never focuses');
+  });
+
+  it('a user-plane switch succeeds during recent input and takes focus', () => {
+    const presented = createTestTab('tab-visible');
+    const background = createTestTab('tab-bg');
+    const { host, children } = createPresentedHost({
+      tabs: [presented, background],
+      activeTabId: 'tab-visible',
+      attached: [presented.tab.view],
+    });
+
+    host.noteUserActivity('keyDown');
+    const switched = host.trySwitchTab('tab-bg', { plane: 'user' });
+    assert.strictEqual(switched.ok, true, 'the user plane is immune to the deferral gate');
+    assert.deepStrictEqual(children, [background.tab.view], 'the user-plane switch presents its tab');
+    assert.strictEqual(background.focusCalls, 1, 'the user plane takes real DOM focus — that is the asymmetry the agent plane lacks');
+    assert.strictEqual(background.invalidateCalls >= 1, true, 'the presented pane is still repainted');
   });
 
   it('reassert on an already-attached pane recycles the compositor layer without a getBounds kick', () => {
@@ -246,7 +390,7 @@ describe('Presented view invariant', () => {
       width: WINDOW_CONTENT_BOX.width,
       height: WINDOW_CONTENT_BOX.height - TOOLBAR_HEIGHT,
     };
-    presented.tab.view.setBounds(laidOut);
+    presented.tab.view!.setBounds(laidOut);
     const boundsBeforeRecycle = presented.setBoundsCalls.length;
     let removes = 0;
     let adds = 0;

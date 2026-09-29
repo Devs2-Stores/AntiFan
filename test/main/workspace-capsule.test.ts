@@ -8,8 +8,10 @@ import {
   findReusableCapsule,
   WorkspaceCapsuleManager,
   resolveUniqueAffiliationByRoot,
+  sanitizeCapsuleBrief,
   type WorkspaceCapsule,
 } from '../../src/main/project/workspace-capsule';
+import type { CapsuleBrief } from '../../src/shared/contracts.js';
 import { ProjectRegistry } from '../../src/main/project/project-registry';
 
 describe('WorkspaceCapsuleManager', () => {
@@ -323,6 +325,298 @@ describe('WorkspaceCapsuleManager', () => {
     assert.deepStrictEqual(match2, { projectId: project2.id, workspaceId: ws2.id });
     assert.notDeepStrictEqual(match1, match2);
   });
+
+  it('brief round-trips through persist and load', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-capsule-brief-rt-'));
+    try {
+      const statePath = path.join(root, 'capsules.json');
+      const manager = new WorkspaceCapsuleManager({ filePath: statePath });
+      const capsule = manager.create('Storefront WS', path.join(root, 'ws'));
+
+      const brief: CapsuleBrief = {
+        storefrontUrl: 'https://store.example.com/checkout',
+        siteName: 'My Awesome Store',
+        themeId: 'theme_12345-v2',
+        rules: ['No breaking CSS changes', 'Preserve accessibility tokens'],
+      };
+
+      const result = manager.setBrief(capsule.id, brief);
+      assert.strictEqual(result.ok, true);
+      assert.strictEqual(result.capsuleId, capsule.id);
+      assert.deepStrictEqual(result.brief, brief);
+      assert.deepStrictEqual(manager.get(capsule.id).brief, brief);
+      assert.deepStrictEqual(manager.getBrief(capsule.id), {
+        ok: true,
+        capsuleId: capsule.id,
+        brief,
+      });
+
+      const reloaded = new WorkspaceCapsuleManager({ filePath: statePath });
+      assert.deepStrictEqual(reloaded.get(capsule.id).brief, brief);
+      assert.deepStrictEqual(reloaded.getBrief(capsule.id), {
+        ok: true,
+        capsuleId: capsule.id,
+        brief,
+      });
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('setBrief(null) removes the field, bumps updatedAt, and persists', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-capsule-brief-clear-'));
+    try {
+      const statePath = path.join(root, 'capsules.json');
+      let clock = 1000;
+      const manager = new WorkspaceCapsuleManager({ filePath: statePath, now: () => clock });
+      const capsule = manager.create('WS', path.join(root, 'ws'));
+
+      clock = 2000;
+      manager.setBrief(capsule.id, { siteName: 'Initial Store' });
+      assert.strictEqual(manager.get(capsule.id).updatedAt, 2000);
+      assert.strictEqual(manager.get(capsule.id).brief?.siteName, 'Initial Store');
+
+      clock = 3000;
+      const clearResult = manager.setBrief(capsule.id, null);
+      assert.strictEqual(clearResult.ok, true);
+      assert.strictEqual(clearResult.capsuleId, capsule.id);
+      assert.strictEqual(clearResult.brief, null);
+      assert.strictEqual(manager.get(capsule.id).updatedAt, 3000);
+      assert.strictEqual(manager.get(capsule.id).brief, undefined);
+      assert.deepStrictEqual(manager.getBrief(capsule.id), {
+        ok: true,
+        capsuleId: capsule.id,
+        brief: null,
+      });
+
+      const reloaded = new WorkspaceCapsuleManager({ filePath: statePath });
+      assert.strictEqual(reloaded.get(capsule.id).brief, undefined);
+      assert.deepStrictEqual(reloaded.getBrief(capsule.id), {
+        ok: true,
+        capsuleId: capsule.id,
+        brief: null,
+      });
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('setBrief and getBrief refuse unknown capsule with UNKNOWN_CAPSULE', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-capsule-brief-unknown-'));
+    try {
+      const statePath = path.join(root, 'capsules.json');
+      const manager = new WorkspaceCapsuleManager({ filePath: statePath });
+
+      const getRes = manager.getBrief('non-existent');
+      assert.strictEqual(getRes.ok, false);
+      if (!getRes.ok) {
+        assert.strictEqual(getRes.reason, 'UNKNOWN_CAPSULE');
+      }
+
+      const setRes = manager.setBrief('non-existent', { siteName: 'Ghost' });
+      assert.strictEqual(setRes.ok, false);
+      if (!setRes.ok) {
+        assert.strictEqual(setRes.reason, 'UNKNOWN_CAPSULE');
+      }
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('enforces bounds on each field and refuses whole write on any invalid field', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-capsule-brief-bounds-'));
+    try {
+      const statePath = path.join(root, 'capsules.json');
+      const manager = new WorkspaceCapsuleManager({ filePath: statePath });
+      const capsule = manager.create('WS', path.join(root, 'ws'));
+
+      const initialBrief: CapsuleBrief = { siteName: 'Original Site' };
+      manager.setBrief(capsule.id, initialBrief);
+
+      // (1) storefrontUrl bounds: over 300 chars
+      const overlongUrl = 'https://example.com/' + 'a'.repeat(290);
+      const resOverlong = manager.setBrief(capsule.id, { storefrontUrl: overlongUrl });
+      assert.strictEqual(resOverlong.ok, false);
+      if (!resOverlong.ok) assert.strictEqual(resOverlong.reason, 'INVALID_BRIEF');
+
+      // (2) storefrontUrl http->javascript: URL swap
+      const resJs = manager.setBrief(capsule.id, { storefrontUrl: 'javascript:alert(1)' });
+      assert.strictEqual(resJs.ok, false);
+      if (!resJs.ok) assert.strictEqual(resJs.reason, 'INVALID_BRIEF');
+
+      // (3) storefrontUrl ftp scheme
+      const resFtp = manager.setBrief(capsule.id, { storefrontUrl: 'ftp://ftp.example.com' });
+      assert.strictEqual(resFtp.ok, false);
+      if (!resFtp.ok) assert.strictEqual(resFtp.reason, 'INVALID_BRIEF');
+
+      // (4) storefrontUrl non-string
+      const resNumUrl = manager.setBrief(capsule.id, { storefrontUrl: 12345 } as unknown as CapsuleBrief);
+      assert.strictEqual(resNumUrl.ok, false);
+      if (!resNumUrl.ok) assert.strictEqual(resNumUrl.reason, 'INVALID_BRIEF');
+
+      // (5) siteName bounds: over 80 chars
+      const resLongSite = manager.setBrief(capsule.id, { siteName: 's'.repeat(81) });
+      assert.strictEqual(resLongSite.ok, false);
+      if (!resLongSite.ok) assert.strictEqual(resLongSite.reason, 'INVALID_BRIEF');
+
+      // (6) siteName non-string
+      const resBoolSite = manager.setBrief(capsule.id, { siteName: true } as unknown as CapsuleBrief);
+      assert.strictEqual(resBoolSite.ok, false);
+      if (!resBoolSite.ok) assert.strictEqual(resBoolSite.reason, 'INVALID_BRIEF');
+
+      // (7) themeId bounds: over 64 chars
+      const resLongTheme = manager.setBrief(capsule.id, { themeId: 't'.repeat(65) });
+      assert.strictEqual(resLongTheme.ok, false);
+      if (!resLongTheme.ok) assert.strictEqual(resLongTheme.reason, 'INVALID_BRIEF');
+
+      // (8) themeId pattern: spaces, symbols, empty string
+      const resSpaceTheme = manager.setBrief(capsule.id, { themeId: 'theme with spaces' });
+      assert.strictEqual(resSpaceTheme.ok, false);
+      if (!resSpaceTheme.ok) assert.strictEqual(resSpaceTheme.reason, 'INVALID_BRIEF');
+
+      const resSymbolTheme = manager.setBrief(capsule.id, { themeId: 'theme@special!' });
+      assert.strictEqual(resSymbolTheme.ok, false);
+      if (!resSymbolTheme.ok) assert.strictEqual(resSymbolTheme.reason, 'INVALID_BRIEF');
+
+      const resEmptyTheme = manager.setBrief(capsule.id, { themeId: '' });
+      assert.strictEqual(resEmptyTheme.ok, false);
+      if (!resEmptyTheme.ok) assert.strictEqual(resEmptyTheme.reason, 'INVALID_BRIEF');
+
+      // (9) themeId non-string
+      const resNumTheme = manager.setBrief(capsule.id, { themeId: 999 } as unknown as CapsuleBrief);
+      assert.strictEqual(resNumTheme.ok, false);
+      if (!resNumTheme.ok) assert.strictEqual(resNumTheme.reason, 'INVALID_BRIEF');
+
+      // (10) rules bounds: >8 entries
+      const resTooManyRules = manager.setBrief(capsule.id, { rules: Array(9).fill('rule') });
+      assert.strictEqual(resTooManyRules.ok, false);
+      if (!resTooManyRules.ok) assert.strictEqual(resTooManyRules.reason, 'INVALID_BRIEF');
+
+      // (11) rules bounds: over-long rules entry (>200 chars)
+      const resLongRule = manager.setBrief(capsule.id, { rules: ['r'.repeat(201)] });
+      assert.strictEqual(resLongRule.ok, false);
+      if (!resLongRule.ok) assert.strictEqual(resLongRule.reason, 'INVALID_BRIEF');
+
+      // (12) rules non-string entry
+      const resNonStrRule = manager.setBrief(capsule.id, { rules: ['valid rule', 123] } as unknown as CapsuleBrief);
+      assert.strictEqual(resNonStrRule.ok, false);
+      if (!resNonStrRule.ok) assert.strictEqual(resNonStrRule.reason, 'INVALID_BRIEF');
+
+      // (13) rules non-array
+      const resNotArrRules = manager.setBrief(capsule.id, { rules: 'rule-single' } as unknown as CapsuleBrief);
+      assert.strictEqual(resNotArrRules.ok, false);
+      if (!resNotArrRules.ok) assert.strictEqual(resNotArrRules.reason, 'INVALID_BRIEF');
+
+      // (14) unknown keys refused
+      const resUnknownKey = manager.setBrief(capsule.id, { unknownField: 'rogue' } as unknown as CapsuleBrief);
+      assert.strictEqual(resUnknownKey.ok, false);
+      if (!resUnknownKey.ok) assert.strictEqual(resUnknownKey.reason, 'INVALID_BRIEF');
+
+      // (15) CRITICAL WRITE REFUSAL: one good field + one bad field refuses the WHOLE write
+      const mixedPayload = { siteName: 'Attempted Update', storefrontUrl: 'ftp://unsupported-scheme.com' };
+      const resMixed = manager.setBrief(capsule.id, mixedPayload);
+      assert.strictEqual(resMixed.ok, false);
+      if (!resMixed.ok) assert.strictEqual(resMixed.reason, 'INVALID_BRIEF');
+
+      // Previous brief MUST remain completely untouched (write was refused, not partially applied)
+      assert.deepStrictEqual(manager.get(capsule.id).brief, initialBrief);
+      assert.strictEqual(manager.get(capsule.id).brief?.siteName, 'Original Site');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('load stays tolerant per field: drops bad fields or corrupt brief while capsule and good fields survive', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-capsule-brief-tolerant-'));
+    try {
+      const statePath = path.join(root, 'capsules.json');
+      const now = 5000;
+
+      const fileData = {
+        version: 2,
+        activeCapsuleId: 'capsule-1',
+        updatedAt: now,
+        capsules: [
+          {
+            id: 'capsule-1',
+            name: 'Capsule Tolerant Partial',
+            workspacePath: path.resolve(root, 'ws1'),
+            state: { browserTabs: [], terminalTabs: [], sidebarOpen: false, sidebarWidth: 380, appZoomFactor: 1, devicePresetId: 'responsive' },
+            createdAt: now,
+            updatedAt: now,
+            brief: {
+              storefrontUrl: 'https://example.com/' + 'x'.repeat(310),
+              siteName: 'Surviving Site Name',
+              rules: ['Surviving rule', 'r'.repeat(250)],
+            },
+          },
+          {
+            id: 'capsule-2',
+            name: 'Capsule Bad Protocol',
+            workspacePath: path.resolve(root, 'ws2'),
+            state: { browserTabs: [], terminalTabs: [], sidebarOpen: false, sidebarWidth: 380, appZoomFactor: 1, devicePresetId: 'responsive' },
+            createdAt: now,
+            updatedAt: now,
+            brief: {
+              storefrontUrl: 'javascript:alert("exploit")',
+            },
+          },
+          {
+            id: 'capsule-3',
+            name: 'Capsule Corrupt String',
+            workspacePath: path.resolve(root, 'ws3'),
+            state: { browserTabs: [], terminalTabs: [], sidebarOpen: false, sidebarWidth: 380, appZoomFactor: 1, devicePresetId: 'responsive' },
+            createdAt: now,
+            updatedAt: now,
+            brief: 'malformed string instead of object',
+          },
+          {
+            id: 'capsule-4',
+            name: 'Capsule Fully Valid',
+            workspacePath: path.resolve(root, 'ws4'),
+            state: { browserTabs: [], terminalTabs: [], sidebarOpen: false, sidebarWidth: 380, appZoomFactor: 1, devicePresetId: 'responsive' },
+            createdAt: now,
+            updatedAt: now,
+            brief: {
+              storefrontUrl: 'https://myshop.com',
+              siteName: 'My Shop',
+              themeId: 'theme-42',
+              rules: ['Do things right'],
+            },
+          },
+        ],
+      };
+
+      fs.writeFileSync(statePath, JSON.stringify(fileData, null, 2), 'utf8');
+
+      const manager = new WorkspaceCapsuleManager({ filePath: statePath });
+
+      assert.strictEqual(manager.list().length, 4);
+
+      const c1 = manager.get('capsule-1');
+      assert.strictEqual(c1.name, 'Capsule Tolerant Partial');
+      assert.strictEqual(c1.brief?.storefrontUrl, undefined);
+      assert.strictEqual(c1.brief?.siteName, 'Surviving Site Name');
+      assert.deepStrictEqual(c1.brief?.rules, ['Surviving rule']);
+
+      const c2 = manager.get('capsule-2');
+      assert.strictEqual(c2.name, 'Capsule Bad Protocol');
+      assert.strictEqual(c2.brief, undefined);
+
+      const c3 = manager.get('capsule-3');
+      assert.strictEqual(c3.name, 'Capsule Corrupt String');
+      assert.strictEqual(c3.brief, undefined);
+
+      const c4 = manager.get('capsule-4');
+      assert.strictEqual(c4.name, 'Capsule Fully Valid');
+      assert.strictEqual(c4.brief?.storefrontUrl, 'https://myshop.com');
+      assert.strictEqual(c4.brief?.siteName, 'My Shop');
+      assert.strictEqual(c4.brief?.themeId, 'theme-42');
+      assert.deepStrictEqual(c4.brief?.rules, ['Do things right']);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
 
 /** A capsule row as `findReusableCapsule` reads it: only the selection fields matter. */
@@ -534,5 +828,71 @@ describe('findCapsuleByRoot', () => {
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('sanitizeCapsuleBrief', () => {
+  it('accepts valid briefs and normalizes fields', () => {
+    const input = {
+      storefrontUrl: '  https://store.example.com/collection  ',
+      siteName: '  Clean Store  ',
+      themeId: '  theme-123_prod  ',
+      rules: ['  first rule  ', 'second rule'],
+    };
+    const res = sanitizeCapsuleBrief(input);
+    assert.strictEqual(res.ok, true);
+    if (res.ok) {
+      assert.strictEqual(res.brief.storefrontUrl, 'https://store.example.com/collection');
+      assert.strictEqual(res.brief.siteName, 'Clean Store');
+      assert.strictEqual(res.brief.themeId, 'theme-123_prod');
+      assert.deepStrictEqual(res.brief.rules, ['first rule', 'second rule']);
+    }
+  });
+
+  it('refuses non-object or array input with INVALID_BRIEF', () => {
+    assert.deepStrictEqual(sanitizeCapsuleBrief(null), { ok: false, reason: 'INVALID_BRIEF' });
+    assert.deepStrictEqual(sanitizeCapsuleBrief(undefined), { ok: false, reason: 'INVALID_BRIEF' });
+    assert.deepStrictEqual(sanitizeCapsuleBrief('string'), { ok: false, reason: 'INVALID_BRIEF' });
+    assert.deepStrictEqual(sanitizeCapsuleBrief(123), { ok: false, reason: 'INVALID_BRIEF' });
+    assert.deepStrictEqual(sanitizeCapsuleBrief([]), { ok: false, reason: 'INVALID_BRIEF' });
+  });
+
+  it('enforces storefrontUrl bounds and http/https protocol', () => {
+    assert.strictEqual(sanitizeCapsuleBrief({ storefrontUrl: 'http://localhost:3000' }).ok, true);
+    assert.strictEqual(sanitizeCapsuleBrief({ storefrontUrl: 'https://shop.com' }).ok, true);
+
+    assert.deepStrictEqual(sanitizeCapsuleBrief({ storefrontUrl: 'javascript:alert(1)' }), { ok: false, reason: 'INVALID_BRIEF' });
+    assert.deepStrictEqual(sanitizeCapsuleBrief({ storefrontUrl: 'ftp://ftp.example.com' }), { ok: false, reason: 'INVALID_BRIEF' });
+    assert.deepStrictEqual(sanitizeCapsuleBrief({ storefrontUrl: 'file:///etc/passwd' }), { ok: false, reason: 'INVALID_BRIEF' });
+    assert.deepStrictEqual(sanitizeCapsuleBrief({ storefrontUrl: 'https://example.com/' + 'a'.repeat(290) }), { ok: false, reason: 'INVALID_BRIEF' });
+    assert.deepStrictEqual(sanitizeCapsuleBrief({ storefrontUrl: 42 }), { ok: false, reason: 'INVALID_BRIEF' });
+  });
+
+  it('enforces siteName bounds (≤80 chars, rejects non-string)', () => {
+    assert.strictEqual(sanitizeCapsuleBrief({ siteName: 'a'.repeat(80) }).ok, true);
+    assert.deepStrictEqual(sanitizeCapsuleBrief({ siteName: 'a'.repeat(81) }), { ok: false, reason: 'INVALID_BRIEF' });
+    assert.deepStrictEqual(sanitizeCapsuleBrief({ siteName: {} }), { ok: false, reason: 'INVALID_BRIEF' });
+  });
+
+  it('enforces themeId bounds (≤64 chars, ^[0-9A-Za-z_-]+$, rejects spaces/specials/non-string)', () => {
+    assert.strictEqual(sanitizeCapsuleBrief({ themeId: 'a'.repeat(64) }).ok, true);
+    assert.deepStrictEqual(sanitizeCapsuleBrief({ themeId: 'a'.repeat(65) }), { ok: false, reason: 'INVALID_BRIEF' });
+    assert.deepStrictEqual(sanitizeCapsuleBrief({ themeId: 'theme with spaces' }), { ok: false, reason: 'INVALID_BRIEF' });
+    assert.deepStrictEqual(sanitizeCapsuleBrief({ themeId: 'theme$special' }), { ok: false, reason: 'INVALID_BRIEF' });
+    assert.deepStrictEqual(sanitizeCapsuleBrief({ themeId: '' }), { ok: false, reason: 'INVALID_BRIEF' });
+    assert.deepStrictEqual(sanitizeCapsuleBrief({ themeId: 10 }), { ok: false, reason: 'INVALID_BRIEF' });
+  });
+
+  it('enforces rules bounds (≤8 entries each ≤200 chars, rejects over-long, non-string, non-array)', () => {
+    assert.strictEqual(sanitizeCapsuleBrief({ rules: Array(8).fill('ok rule') }).ok, true);
+    assert.deepStrictEqual(sanitizeCapsuleBrief({ rules: Array(9).fill('too many') }), { ok: false, reason: 'INVALID_BRIEF' });
+    assert.strictEqual(sanitizeCapsuleBrief({ rules: ['r'.repeat(200)] }).ok, true);
+    assert.deepStrictEqual(sanitizeCapsuleBrief({ rules: ['r'.repeat(201)] }), { ok: false, reason: 'INVALID_BRIEF' });
+    assert.deepStrictEqual(sanitizeCapsuleBrief({ rules: ['ok', 123] }), { ok: false, reason: 'INVALID_BRIEF' });
+    assert.deepStrictEqual(sanitizeCapsuleBrief({ rules: 'not-array' }), { ok: false, reason: 'INVALID_BRIEF' });
+  });
+
+  it('refuses unknown keys with INVALID_BRIEF', () => {
+    assert.deepStrictEqual(sanitizeCapsuleBrief({ siteName: 'Ok', unexpectedProperty: 123 }), { ok: false, reason: 'INVALID_BRIEF' });
   });
 });

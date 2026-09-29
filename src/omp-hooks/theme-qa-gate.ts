@@ -106,7 +106,19 @@ interface HookAPI {
   on(event: "session_start", handler: () => void): void;
   /** Inject a custom message into the session (delivered + shown once per call). */
   sendMessage?(message: CustomMessage): void;
+  /** Append a durable custom entry to the session branch. */
+  appendEntry?(customType: string, data: unknown): void;
 }
+
+export const BRIDGE_HEALTH_HEARTBEAT_MS = 5000;
+export const BRIDGE_HEALTH_STALE_MULTIPLIER = 3;
+const BRIDGE_MARKER = "[theme-qa-gate:bridge]";
+const OBSERVED_FAILURE_MARKERS = [
+  "MCP_BRIDGE_OFFLINE",
+  "BRIDGE_UNREACHABLE",
+  "CONNECTION_FAILED",
+  "PAIRING_UNAVAILABLE",
+] as const;
 
 const WRITE_TOOLS = new Set(["write", "edit", "ast_edit", "ast.edit", "patch", "append", "file.write"]);
 const BYPASS_TOKENS = ["qaStatus: QA_UNAVAILABLE", "qaStatus:QA_UNAVAILABLE", "qaStatus: QA_INCONCLUSIVE", "qaStatus:QA_INCONCLUSIVE"];
@@ -165,6 +177,7 @@ const pendingEdits = new Map<string, number>();
 const bypassLog: Array<{
   at: string;
   token: string;
+  code?: string;
   micro?: { root?: string; accepted?: boolean; path?: string; changedLines?: number; reason?: string };
 }> = [];
 /** Micro-edit lane record: what the hook OBSERVED for the edit that armed the gate. */
@@ -184,6 +197,156 @@ const pendingChurnHints = new Map<string, string>();
 let toolResultCounter = 0;
 /** One-shot MCP-first injection per session, reset on session_start. */
 let mcpFirstInjected = false;
+let bridgeOutageKey: string | null = null;
+
+function isPidAlive(pid: number): boolean {
+  if (typeof pid !== "number" || !Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err: unknown) {
+    if (err && typeof err === "object" && "code" in err && typeof err.code === "string") {
+      if (err.code === "ESRCH") return false;
+      if (err.code === "EPERM") return true;
+    }
+    return false;
+  }
+}
+
+interface BridgeFileResult {
+  exists: boolean;
+  corrupt: boolean;
+  record: Record<string, unknown> | null;
+}
+
+function readBridgeFile(filePath: string): BridgeFileResult {
+  try {
+    if (!fs.existsSync(filePath)) {
+      return { exists: false, corrupt: false, record: null };
+    }
+    const content = fs.readFileSync(filePath, "utf8");
+    const parsed = JSON.parse(content);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return { exists: true, corrupt: false, record: parsed as Record<string, unknown> };
+    }
+    return { exists: true, corrupt: true, record: null };
+  } catch {
+    return { exists: true, corrupt: true, record: null };
+  }
+}
+
+export interface OutageEvidence {
+  down: boolean;
+  code: string;
+  key: string;
+}
+
+export function bridgeOutageEvidence(content?: unknown, now = Date.now()): OutageEvidence {
+  const text = contentText(content);
+  if (text) {
+    for (const marker of OBSERVED_FAILURE_MARKERS) {
+      if (text.includes(marker)) {
+        return { down: true, code: marker, key: marker };
+      }
+    }
+  }
+
+  const dataRoot = process.env.ANTIFAN_DATA_ROOT;
+  if (!dataRoot) {
+    return { down: false, code: "", key: "" };
+  }
+
+  const configDir = process.env.ANTIFAN_CONFIG_DIR || path.join(dataRoot, "config");
+  const devFile = path.join(configDir, "bridge-dev.json");
+  const prodFile = path.join(configDir, "bridge.json");
+
+  const devResult = readBridgeFile(devFile);
+  const prodResult = readBridgeFile(prodFile);
+
+  if (!devResult.exists && !prodResult.exists) {
+    return { down: false, code: "", key: "" };
+  }
+
+  type Candidate = {
+    fileResult: BridgeFileResult;
+    pid: number | null;
+    pidAlive: boolean;
+    updatedAt: number;
+  };
+
+  const candidates: Candidate[] = [];
+  for (const res of [devResult, prodResult]) {
+    if (!res.exists) continue;
+    if (res.corrupt || !res.record) {
+      candidates.push({ fileResult: res, pid: null, pidAlive: false, updatedAt: 0 });
+    } else {
+      const pid = typeof res.record.pid === "number" ? res.record.pid : null;
+      const pidAlive = pid !== null ? isPidAlive(pid) : false;
+      const updatedAt =
+        typeof res.record.updatedAt === "number"
+          ? res.record.updatedAt
+          : typeof res.record.startedAt === "number"
+            ? res.record.startedAt
+            : 0;
+      candidates.push({ fileResult: res, pid, pidAlive, updatedAt });
+    }
+  }
+
+  let chosen: Candidate | null = null;
+  const aliveCandidates = candidates.filter((c) => !c.fileResult.corrupt && c.pidAlive);
+  if (aliveCandidates.length > 0) {
+    aliveCandidates.sort((a, b) => b.updatedAt - a.updatedAt);
+    chosen = aliveCandidates[0] ?? null;
+  } else {
+    const validCandidates = candidates.filter((c) => !c.fileResult.corrupt);
+    if (validCandidates.length > 0) {
+      validCandidates.sort((a, b) => b.updatedAt - a.updatedAt);
+      chosen = validCandidates[0] ?? null;
+    } else if (candidates.length > 0) {
+      chosen = candidates[0] ?? null;
+    }
+  }
+
+  if (!chosen) {
+    return { down: false, code: "", key: "" };
+  }
+
+  if (chosen.fileResult.corrupt || !chosen.fileResult.record) {
+    return { down: true, code: "HEALTH_RECORD_CORRUPT", key: "corrupt:HEALTH_RECORD_CORRUPT" };
+  }
+
+  const record = chosen.fileResult.record;
+  const pid = typeof record.pid === "number" ? record.pid : 0;
+  if (!isPidAlive(pid)) {
+    return { down: true, code: "HEALTH_PID_DEAD", key: `${pid}:HEALTH_PID_DEAD` };
+  }
+
+  const heartbeatMs =
+    typeof record.heartbeatMs === "number" && record.heartbeatMs > 0
+      ? record.heartbeatMs
+      : BRIDGE_HEALTH_HEARTBEAT_MS;
+  const staleThreshold = BRIDGE_HEALTH_STALE_MULTIPLIER * heartbeatMs;
+  const updatedAt = typeof record.updatedAt === "number" ? record.updatedAt : null;
+  if (updatedAt !== null && now - updatedAt > staleThreshold) {
+    return { down: true, code: "HEALTH_STALE", key: `${pid}:HEALTH_STALE` };
+  }
+
+  if (record.health === "down") {
+    let failureCode = "HEALTH_DOWN";
+    const failure = record.lastFailure;
+    if (failure && typeof failure === "object" && "code" in failure && typeof failure.code === "string") {
+      failureCode = failure.code;
+    }
+    return { down: true, code: failureCode, key: `${pid}:${failureCode}` };
+  }
+
+  if (record.health === undefined && record.updatedAt === undefined) {
+    return { down: false, code: "HEALTH_RECORD_LEGACY", key: `${pid}:HEALTH_RECORD_LEGACY` };
+  }
+
+  const healthStr = typeof record.health === "string" ? record.health : "listening";
+  return { down: false, code: healthStr, key: `${pid}:${healthStr}` };
+}
 function extractTargetPaths(input: Record<string, unknown> | undefined): string[] {
   if (!input) return [];
   const targets: string[] = [];
@@ -322,14 +485,19 @@ function sessionMode(ctx: ExtensionContext | undefined): EditMode {
   }
 }
 
+interface AuditRunSummary {
+  changedFiles: number | null;
+  maxSeq: number | null;
+}
+
 /**
  * Distinct files the current run actually changed, read from the edit-guard audit
  * trail. A "run" is one `before_agent_start` and `runSeq` is the same counter the
  * Manager run card reads. Null when the trail is missing or unreadable — the
  * caller then states the skip without inventing a count.
  */
-function changedFilesThisRun(workspaceRoot: string, sessionId: string): number | null {
-  if (!sessionId) return null;
+function auditRunSummary(workspaceRoot: string, sessionId: string): AuditRunSummary {
+  if (!sessionId) return { changedFiles: null, maxSeq: null };
   try {
     // The guard sanitises the session id into the file name; a plain id (the
     // normal case) is unaffected, an exotic one still resolves to its log.
@@ -351,16 +519,20 @@ function changedFilesThisRun(workspaceRoot: string, sessionId: string): number |
       if (typeof seq !== "number" || !Number.isFinite(seq)) continue;
       if (maxSeq === null || seq > maxSeq) maxSeq = seq;
     }
-    if (maxSeq === null) return 0;
+    if (maxSeq === null) return { changedFiles: 0, maxSeq: null };
     const changed = new Set<string>();
     for (const row of rows) {
       if (row.runSeq !== maxSeq || row.decision !== "allow") continue;
       if (typeof row.path === "string" && row.path.length > 0) changed.add(row.path);
     }
-    return changed.size;
+    return { changedFiles: changed.size, maxSeq };
   } catch {
-    return null;
+    return { changedFiles: null, maxSeq: null };
   }
+}
+
+function changedFilesThisRun(workspaceRoot: string, sessionId: string): number | null {
+  return auditRunSummary(workspaceRoot, sessionId).changedFiles;
 }
 
 /**
@@ -377,6 +549,12 @@ function scopedSkipText(mode: EditMode, changedFiles: number | null): string {
   return `${head} — storefront QA skipped (send [🧠Core-Context] to run it)`;
 }
 
+
+interface ScopedSessionState {
+  lastEmittedSeq: number | null;
+  dirty: boolean;
+}
+const scopedSessionStates = new Map<string, ScopedSessionState>();
 function latestReceiptTime(workspaceRoot: string): number {
   try {
     const dir = path.join(workspaceRoot, RECEIPT_DIR);
@@ -711,6 +889,8 @@ export default function themeQaGate(pi: HookAPI): void {
       sessionModes.clear();
       toolResultCounter = 0;
       mcpFirstInjected = false;
+      bridgeOutageKey = null;
+      scopedSessionStates.clear();
     } catch {
       /* never throw out of a handler */
     }
@@ -718,6 +898,13 @@ export default function themeQaGate(pi: HookAPI): void {
 
   pi.on("tool_call", (event, ctx) => {
     try {
+      const sessionKey = sessionIdOf(ctx) || (ctx?.cwd ?? process.cwd());
+      const st = scopedSessionStates.get(sessionKey);
+      if (st) {
+        st.dirty = true;
+      } else {
+        scopedSessionStates.set(sessionKey, { lastEmittedSeq: null, dirty: true });
+      }
       const toolName = String(event.toolName ?? event.name ?? "").toLowerCase();
       if (!WRITE_TOOLS.has(toolName)) return;
       const targets = extractTargetPaths(event.input);
@@ -757,6 +944,28 @@ export default function themeQaGate(pi: HookAPI): void {
       }
       pruneExpired();
       const chunks: string[] = drainChurnHints();
+      const evidence = bridgeOutageEvidence(event.content);
+      if (evidence.down) {
+        if (bridgeOutageKey !== evidence.key) {
+          bridgeOutageKey = evidence.key;
+          bypassLog.push({ at: new Date().toISOString(), token: "QA_GATE_SUSPENDED", code: evidence.code });
+          pi.appendEntry?.("antifan-bridge-suspension", { key: evidence.key, code: evidence.code, at: Date.now() });
+          chunks.push(
+            `\n\n${BRIDGE_MARKER} QA gate suspended: bridge down (${evidence.code}) — declare the QA_UNAVAILABLE status explicitly when closing work; reminders resume when bridge health recovers.`
+          );
+        }
+        if (chunks.length === 0) return undefined;
+        return appendChunks(event.content, chunks);
+      }
+
+      if (bridgeOutageKey !== null) {
+        const prevKey = bridgeOutageKey;
+        bridgeOutageKey = null;
+        const resumeCode = evidence.code || "listening";
+        pi.appendEntry?.("antifan-bridge-resumed", { key: prevKey, code: resumeCode, at: Date.now() });
+        chunks.push(`\n\n${BRIDGE_MARKER} bridge recovered (${resumeCode}) — QA gate reminders resumed`);
+      }
+
       if (!mcpFirstInjected && isThemeCwd(ctx?.cwd) && !contentHasMarker(event.content, MCP_FIRST_MARKER)) {
         mcpFirstInjected = true;
         chunks.push(MCP_FIRST_TEXT);
@@ -787,13 +996,33 @@ export default function themeQaGate(pi: HookAPI): void {
       const mode = sessionMode(ctx);
       if (!SCOPED_MODES.includes(mode)) return;
       const shape = resolveWorkspaceShape(ctx?.cwd ?? process.cwd());
-      const changedFiles = changedFilesThisRun(shape.workspaceRoot, sessionIdOf(ctx));
+      const sid = sessionIdOf(ctx);
+      const sessionKey = sid || shape.workspaceRoot;
+      const summary = auditRunSummary(shape.workspaceRoot, sid);
+      const st = scopedSessionStates.get(sessionKey);
+
+      // Deduplication guard against ping-pong infinite loop:
+      // 1) If this runSeq has already been emitted for this session, skip:
+      if (summary.maxSeq !== null && st && st.lastEmittedSeq === summary.maxSeq) {
+        return;
+      }
+      // 2) If no audit sequence exists yet and the turn was not dirty (e.g. conversational
+      // response triggered by the previous custom message), skip:
+      if (summary.maxSeq === null && st && !st.dirty) {
+        return;
+      }
+
+      scopedSessionStates.set(sessionKey, {
+        lastEmittedSeq: summary.maxSeq,
+        dirty: false,
+      });
+
       pi.sendMessage?.({
         customType: "theme-qa-gate",
-        content: scopedSkipText(mode, changedFiles),
+        content: scopedSkipText(mode, summary.changedFiles),
         display: true,
         attribution: "agent",
-        details: { kind: "edit-guard-skip", mode, changedFiles },
+        details: { kind: "edit-guard-skip", mode, changedFiles: summary.changedFiles },
       });
     } catch {
       /* never throw out of a handler */
@@ -803,15 +1032,13 @@ export default function themeQaGate(pi: HookAPI): void {
   pi.on("context", (event, ctx) => {
     try {
       if (SCOPED_MODES.includes(sessionMode(ctx))) {
-        // Same rule as tool_result: a scoped session gets no MCP-first directive.
-        // The mode exists to remove exactly this ceremony, and Super-Fast forbids
-        // the MCP calls the directive would ask for, so injecting it here would
-        // contradict the mode the user armed. `turn_end` states the skip instead.
         return undefined;
       }
+
       pruneExpired();
+      const evidence = bridgeOutageEvidence();
       let outMessages: unknown[] | undefined;
-      if (!mcpFirstInjected && isThemeCwd(ctx?.cwd)) {
+      if (!evidence.down && bridgeOutageKey === null && !mcpFirstInjected && isThemeCwd(ctx?.cwd)) {
         mcpFirstInjected = true;
         const existing = Array.isArray(event.messages) ? event.messages : [];
         outMessages = [...existing, mcpFirstMessage()];
@@ -858,3 +1085,5 @@ export default function themeQaGate(pi: HookAPI): void {
     }
   });
 }
+
+export { bypassLog };

@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": ".tmp-p10-build",
+    "incremental": true,
+    "tsBuildInfoFile": ".tmp-p10-build/.tsbuildinfo"
+  },
+  "files": [
+    "test/main/terminal-output-router.test.ts",
+    "test/renderer/terminal-lazy-pane.test.ts"
+  ]
+}

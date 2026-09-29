@@ -6,6 +6,12 @@ import path from 'node:path';
 import os from 'node:os';
 import { assessCanaryReplay } from '../fixtures/canary-run/replay-precondition.mjs';
 
+const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..');
+const FIXTURE_ARTIFACTS = path.join(REPO_ROOT, 'test', 'fixtures', 'canary-run', 'artifacts');
+if (fs.existsSync(FIXTURE_ARTIFACTS) && !process.env.ANTIFAN_ARTIFACT_ROOT) {
+  process.env.ANTIFAN_ARTIFACT_ROOT = FIXTURE_ARTIFACTS;
+}
+
 // Generation against this fixture is fail-closed on the artifact bytes and clone entries the
 // persisted run produced, so the replay is only executable where those bytes still exist.
 function canReplay(t) {

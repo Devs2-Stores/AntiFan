@@ -27,6 +27,10 @@ const RUN_DIR = path.join(REPO_ROOT, '.canary', 'run3');
 const EVIDENCE_DIR = path.join(RUN_DIR, 'evidence');
 const DESKTOP_BUNDLE = path.join(RUN_DIR, 'clone', 'index.html');
 const DESKTOP_ASSET_COUNT = 118;
+const FIXTURE_ARTIFACTS = path.join(REPO_ROOT, 'test', 'fixtures', 'canary-run', 'artifacts');
+if (fs.existsSync(FIXTURE_ARTIFACTS) && !process.env.ANTIFAN_ARTIFACT_ROOT) {
+  process.env.ANTIFAN_ARTIFACT_ROOT = FIXTURE_ARTIFACTS;
+}
 
 /**
  * The replay copies `.canary/run3/evidence` and expects generation to resolve the artifact

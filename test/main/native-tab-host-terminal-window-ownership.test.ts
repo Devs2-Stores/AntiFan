@@ -107,6 +107,12 @@ function buildHost(refusesClose: boolean, contentsId: number, windowId = 31): { 
   host.popoutWindow = window;
   host.terminalWindows = new Map([[window.id, window]]);
   host.terminalWindowMeta = new Map([[window.id, { isPopout: true }]]);
+  host.terminalDisplayedSessions = new Map();
+  host.captureLift = null;
+  host.captureLiftQueue = [];
+  host.hibernatingTabIds = new Set();
+  host.agentInputInFlight = 0;
+  host.lastUserInputAtMs = 0;
   host.tabPreviewUnsubscribers = new Map();
   host.previewWatcherPool = { clear: () => {} };
   host.networkTracker = { dispose: () => {} };
@@ -124,6 +130,12 @@ function buildLiveHost(): NativeTabHost {
   host.shell = { chromeSurfaceFor: () => undefined, window: null, toolbarView: null, sidebarView: null, frameBackdropView: null };
   host.popoutWindow = null;
   host.terminalWindows = new Map();
+  host.terminalDisplayedSessions = new Map();
+  host.captureLift = null;
+  host.captureLiftQueue = [];
+  host.hibernatingTabIds = new Set();
+  host.agentInputInFlight = 0;
+  host.lastUserInputAtMs = 0;
   return host as unknown as NativeTabHost;
 }
 

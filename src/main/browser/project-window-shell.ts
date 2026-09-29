@@ -217,10 +217,14 @@ function resolvePreloadAsset(fileName: string): string {
 export class ProjectWindowShell {
   public readonly owner: WindowOwner;
   /**
-   * Validated registry identity. Read-only on purpose: a page title or a
-   * renderer message must never become the project's name in the title bar.
+   * Validated registry identity. Only `retitle` may change it, and only after Main has
+   * renamed the durable record: a page title or a renderer message must never become
+   * the project's name in the title bar.
    */
-  public readonly title: string;
+  private _title: string;
+  public get title(): string {
+    return this._title;
+  }
   public readonly pathLabel?: string;
   public readonly window: BrowserWindow;
   public toolbarView: WebContentsView | null = null;
@@ -259,7 +263,7 @@ export class ProjectWindowShell {
     native: ShellNativeSeam = defaultShellNativeSeam,
   ) {
     this.owner = options.owner;
-    this.title = options.title;
+    this._title = options.title;
     this.pathLabel = options.pathLabel;
     this.native = native;
     this.isSidebarOpen = sidebar?.isOpen ?? false;
@@ -275,7 +279,7 @@ export class ProjectWindowShell {
       minWidth: options.minWidth ?? 700,
       minHeight: options.minHeight ?? 500,
       backgroundColor: options.backgroundColor ?? '#080c14',
-      autoHideMenuBar: false,
+      autoHideMenuBar: true,
       show: options.show ?? false,
       webPreferences: {
         contextIsolation: true,
@@ -283,6 +287,20 @@ export class ProjectWindowShell {
         nodeIntegration: false,
       },
     });
+    const candidateWindow: unknown = this.window;
+    if (
+      candidateWindow !== null &&
+      typeof candidateWindow === 'object' &&
+      'setMenuBarVisibility' in candidateWindow &&
+      typeof candidateWindow.setMenuBarVisibility === 'function'
+    ) {
+      try {
+        candidateWindow.setMenuBarVisibility(false);
+      } catch {
+        // Platform or double may not implement setMenuBarVisibility
+      }
+    }
+
 
     // A page title is not project identity. Electron would otherwise follow the
     // window's own document title, and a renamed window would mislabel the
@@ -327,6 +345,22 @@ export class ProjectWindowShell {
     this.watchChromeLiveness('toolbar', this.toolbarView);
     this.watchChromeLiveness('sidebar', this.sidebarView);
     this.watchChromeLiveness('frameBackdrop', this.frameBackdropView);
+  }
+
+  /**
+   * Re-label the window after Main renamed the project's durable record (the capsule
+   * store). The record changed first — this only mirrors it into the title bar and the
+   * chrome identity projections — so the renderer-facing name still cannot be authored
+   * by a page or a renderer message.
+   */
+  public retitle(title: string): void {
+    if (typeof title !== 'string' || !title.trim()) return;
+    const next = title.trim();
+    if (next === this._title) return;
+    this._title = next;
+    if (!this.window.isDestroyed()) {
+      this.window.setTitle(next);
+    }
   }
 
   /**

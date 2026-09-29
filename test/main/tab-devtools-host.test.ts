@@ -1,4 +1,5 @@
 import { describe, it } from 'node:test';
+import type { CaptureLiftLease } from '../../src/main/browser/native-tab-host';
 import * as assert from 'node:assert';
 import vm from 'node:vm';
 import * as zlib from 'node:zlib';
@@ -42,6 +43,18 @@ function makePng(width: number, height: number): Buffer {
   ]);
 }
 
+/** The devtools seam's capture lift is a lease; the mock returns one shaped like the real contract. */
+function liftLease(onRelease: () => void, onUpgrade?: (opts?: { budgetMs?: number }) => boolean): CaptureLiftLease {
+  let released = false;
+  return {
+    view: null as unknown as CaptureLiftLease['view'],
+    origin: 'in-window',
+    liftedAtMs: Date.now(),
+    get released() { return released; },
+    upgradeToInWindow: (opts) => onUpgrade?.(opts) ?? false,
+    release: () => { if (!released) { released = true; onRelease(); } },
+  };
+}
 interface MockTabRecord {
   state: AntiFanTab;
   focusedPane: SplitPaneId;
@@ -1600,7 +1613,7 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
         attachDepth -= 1;
       }
     };
-    ctx.raiseViewForCapture = () => { events.push('raise'); };
+    ctx.acquireCaptureLift = async () => { events.push('raise'); return liftLease(() => { events.push('lift-release'); }); };
     ctx.reassertPresentedView = () => { events.push('restore'); };
     const devTools = new TabDevToolsHost(ctx);
 
@@ -1608,7 +1621,7 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
       () => devTools.captureVerificationScreenshot(undefined, 'tab-2', 'desktop', { timeoutMs: 20 }),
       (err: unknown) => err instanceof CaptureError && err.code === 'CAPTURE_TIMEOUT'
     );
-    assert.deepStrictEqual(events, ['raise', 'restore']);
+    assert.deepStrictEqual(events, ['raise', 'lift-release', 'restore'], 'the lease is released before the presented tab is restored');
 
     resolveScreenshot({ data: makePng(4, 4).toString('base64') });
     await Promise.resolve();
@@ -1719,9 +1732,10 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
         events.push('release');
       }
     };
-    ctx.raiseViewForCapture = () => {
+    ctx.acquireCaptureLift = async () => {
       raisedWhileAttached = attachDepth > 0;
       events.push('raise');
+      return liftLease(() => { events.push('lift-release'); });
     };
     ctx.reassertPresentedView = () => {
       restoredWhileAttached = attachDepth > 0;
@@ -1766,7 +1780,7 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
         events.push('release');
       }
     };
-    ctx.raiseViewForCapture = () => { events.push('raise'); };
+    ctx.acquireCaptureLift = async () => { events.push('raise'); return liftLease(() => { events.push('lift-release'); }); };
     ctx.reassertPresentedView = () => {
       assert.ok(attachDepth > 0, 'the user tab must be restored while the temporary capture surface is still owned');
       events.push('restore');
@@ -1891,7 +1905,7 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
       ctx.createTab('https://example.com/background');
       const raiseCalls: Array<{ inWindow?: boolean } | undefined> = [];
       let reasserts = 0;
-      ctx.raiseViewForCapture = (_view: unknown, opts?: { inWindow?: boolean }) => { raiseCalls.push(opts); };
+      ctx.acquireCaptureLift = async () => { raiseCalls.push(undefined); return liftLease(() => {}, () => { raiseCalls.push({ inWindow: true }); return true; }); };
       ctx.reassertPresentedView = () => { reasserts += 1; };
       const devTools = new TabDevToolsHost(ctx);
       const methods = withCdpDouble(devTools);
@@ -1916,9 +1930,11 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
       // tab-2 is created while activeTabId stays 'tab-1', so the capture runs the
       // background path: host raise -> starved probes -> in-window lift -> frames.
       ctx.createTab('https://example.com/background');
-      ctx.raiseViewForCapture = (_view: unknown, opts?: { inWindow?: boolean }) => {
-        if (opts?.inWindow) { alive = true; inWindowLifts += 1; }
-      };
+      ctx.acquireCaptureLift = async () => liftLease(() => {}, () => {
+        alive = true;
+        inWindowLifts += 1;
+        return true;
+      });
       const devTools = new TabDevToolsHost(ctx);
       const methods = withCdpDouble(devTools);
 

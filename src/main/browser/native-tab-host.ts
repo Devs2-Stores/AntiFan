@@ -15,7 +15,11 @@ import { randomUUID, createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { performance } from 'node:perf_hooks';
 import { StorageLocations } from '../config/storage-locations';
-import { AntiFanTab, SplitPaneId, AntiFanPickedElement, TOOLBAR_CHANNELS, SIDEBAR_CHANNELS, TERMINAL_CHANNELS, FRAME_BACKDROP_CHANNELS, TerminalAckPayload, TerminalDataPayload, TerminalTabLayout, TerminalTabPrefs, TERMINAL_TAB_LAYOUT_DEFAULT_WIDTH, clampTerminalTabSidebarWidth, TERMINAL_CATEGORY_COLORS_MAX, TERMINAL_CATEGORY_COLOR_PATTERN, ToolbarPhoneStatus, TerminalAgentAffinityInfo, TabsUpdatedPayload, ProjectWindowIdentity } from '../../shared/contracts';
+import { AntiFanTab, SplitPaneId, AntiFanPickedElement, TOOLBAR_CHANNELS, SIDEBAR_CHANNELS, TERMINAL_CHANNELS, FRAME_BACKDROP_CHANNELS, TerminalAckPayload, TerminalDataPayload, TerminalTabLayout, TerminalTabPrefs, TERMINAL_TAB_LAYOUT_DEFAULT_WIDTH, clampTerminalTabSidebarWidth, TERMINAL_CATEGORY_COLORS_MAX, TERMINAL_CATEGORY_COLOR_PATTERN, ToolbarPhoneStatus, TerminalAgentAffinityInfo, TabsUpdatedPayload, ProjectWindowIdentity, BRIDGE_CHANNELS, RunCardState, RunControlOp, RunControlReason, RunControlResult, CapsuleBrief, CapsuleBriefResult, CapsuleBriefReason } from '../../shared/contracts';
+import { buildBridgeHealthReport, subscribeBridgeHealth } from '../bridge/bridge-health';
+import { RunStateService } from '../run/run-state-service';
+import type { ExecutionBackend } from '../agent/execution-backend';
+import type { ExecutionAttachmentRecord } from '../../shared/control-plane-contracts';
 import { getSecureWebPreferences, sanitizeUrl, isAllowedNavigation, cleanRestoredUrl, isInternalWidgetOrSubframeUrl } from '../security/security-policy';
 import { ELEMENT_PICKER_SCRIPT } from './element-picker';
 import { resolveWorkspaceFromUrl, DEFAULT_WORKSPACE_ROOTS } from './workspace-resolver';
@@ -70,6 +74,7 @@ import { SemanticRefRegistry, makeTargetKey } from './semantic-ref-registry';
 import { settleWithinBound } from './target-operation-chain';
 import { TabAutomationHost } from './tab-automation-host';
 import { TabDevToolsHost, type TabDevToolsStats } from './tab-devtools-host';
+import { TerminalOutputRouter } from './terminal-output-router';
 import { isTrackerBlockedUrl, isTrackerIsolationConsoleNoise } from './tracker-isolation';
 import type { TrackerIsolationReceipt } from './tracker-isolation';
 import {
@@ -91,6 +96,7 @@ import {
   sanitizeTabForPersistence,
   migratePersistedTab,
 } from './split-review-coordinator';
+import { shouldHibernate, HIBERNATE_IDLE_MS, HIBERNATE_SWEEP_INTERVAL_MS, type HibernationContext } from './tab-hibernation';
 export interface NativeTabHostResourceStats {
   disposed: boolean;
   tabCount: number;
@@ -186,6 +192,24 @@ export type TerminalProjectLinkResult =
  * fire-and-forget channel logs it, and the assign route replies with the code itself.
  */
 type ManagerWriteRefusal = { ok: false; reason: Extract<TerminalProjectAssignReason | TerminalProjectLinkReason, 'MANAGER_AGENT_SESSION_READ_ONLY'>; message: string };
+
+/** Timeout in milliseconds waiting for a run control request acknowledgement. */
+export const RUN_CONTROL_ACK_TIMEOUT_MS = 5_000;
+
+/** Vocabulary of known RunControlReason values used for validating hook ack errors. */
+const KNOWN_RUN_CONTROL_REASONS = new Set<RunControlReason>([
+  'INVALID_PAYLOAD',
+  'UNKNOWN_SESSION',
+  'SESSION_NOT_VISIBLE',
+  'MANAGER_AGENT_SESSION_READ_ONLY',
+  'RUN_NOT_ACTIVE',
+  'STALE_RUN_SEQ',
+  'RUN_CONTROL_TIMEOUT',
+  'RUN_CONTROL_UNSUPPORTED',
+  'RUN_BACKEND_UNAVAILABLE',
+  'ACTUATOR_FAILED',
+  'RUN_CONTROL_FAILED',
+]);
 
 /** One terminal window as persisted inside the record of the window that owns it. */
 export interface SavedTerminalWindowRecord {
@@ -776,13 +800,25 @@ export function inferTabSemanticRole(url?: string, title?: string): { alias?: st
 }
 
 export interface NativeTabRecord {
-  view: WebContentsView;
+  /**
+   * The presented WebContentsView. Absent while the tab is hibernated — the
+   * record (id, state) survives, and `ensureTabAwake`/`switchTab`/`navigate`
+   * rebuild it on first touch. Always read via `liveViewContents` or
+   * `?.webContents` — never assumed non-null.
+   */
+  view?: WebContentsView;
   mobileView?: WebContentsView;
   state: AntiFanTab;
   focusedPane?: SplitPaneId;
   customViewport?: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number };
   redirectChain?: string[];
   lastNavigationFailure?: { cause: string; message: string; timedOut: boolean };
+  /**
+   * Wall time the tab was last active or saw user input; the hibernation sweep
+   * measures idleness from it. Never persisted — a restored tab starts at 0
+   * (the idlest possible value), which is correct: it was not touched.
+   */
+  lastActiveAt?: number;
 }
 
 /**
@@ -1003,6 +1039,73 @@ export function resolveNewTabCapsuleId(input: {
   }
   return undefined;
 }
+/** Which presentation plane a tab switch is made for. Every caller that does not
+ * declare user intent rides the agent plane: no DOM focus, and deferral to real
+ * user input. */
+export type SwitchPlane = 'user' | 'agent';
+
+export interface SwitchTabOptions {
+  /** Defaults to 'agent': the agent plane never takes focus and defers to fresh user input. */
+  plane?: SwitchPlane;
+}
+
+/** Why an activation was refused, in the shared capability vocabulary. */
+export type SwitchTabRefusalReason = 'TARGET_MISSING' | 'TARGET_NOT_ACTIVATABLE' | 'ACTIVATION_DEFERRED_USER_INPUT';
+
+export type SwitchTabResult =
+  | { ok: true; tabId: string }
+  | { ok: false; tabId: string; reason: SwitchTabRefusalReason; retryAfterMs?: number };
+/**
+ * How recent user input has to be for an agent-plane activation to defer. The
+ * window counts deliberate input only (keyDown, char, mouseDown, pointerDown,
+ * mouseWheel, touchStart, contextMenu) — cursor motion never stamps.
+ */
+export const USER_INPUT_RECENCY_MS = 2_000;
+
+/** Deliberate input types that prove the user is present. Movement-only events are
+ * absent on purpose: gliding the cursor to look at a lifted pane is not input. */
+const USER_ACTIVITY_INPUT_TYPES: Record<string, true> = {
+  keyDown: true,
+  char: true,
+  mouseDown: true,
+  pointerDown: true,
+  mouseWheel: true,
+  touchStart: true,
+  contextMenu: true,
+};
+
+/** A queued acquire may wait this long for the window's one lift before CAPTURE_LIFT_BUSY answers. */
+export const CAPTURE_LIFT_ACQUIRE_BOUND_MS = 30_000;
+
+/** The hard cap on a pane lifted above the user's tab: the user should never stare at someone else's pane. */
+export const IN_WINDOW_CAPTURE_LIFT_MAX_MS = 10_000;
+
+/** Where a capture lift parks its pane: on the off-screen capture host, or above the presented view inside the window. */
+export type CaptureLiftOrigin = 'capture-host' | 'in-window';
+
+/** The one held lift in a window: named, serialized per window, bounded by the raster deadline and the visible cap. */
+interface CaptureLiftRecord {
+  token: number;
+  view: WebContentsView;
+  origin: CaptureLiftOrigin;
+  liftedAtMs: number;
+  lease: CaptureLiftLease;
+}
+
+/**
+ * The handle a capture holds across its raster. `release` is idempotent and
+ * synchronous; `upgradeToInWindow` keeps the same lease and re-bounds it for the
+ * repair step that re-presents the pane in the real window.
+ */
+export interface CaptureLiftLease {
+  readonly view: WebContentsView;
+  readonly origin: CaptureLiftOrigin;
+  readonly liftedAtMs: number;
+  readonly released: boolean;
+  upgradeToInWindow(opts?: { budgetMs?: number }): boolean;
+  release(reason?: string): void;
+}
+
 
 export class NativeTabHost extends EventEmitter {
   /**
@@ -1021,7 +1124,16 @@ export class NativeTabHost extends EventEmitter {
   private windowWorkspaceAffiliation: WindowWorkspaceAffiliation | null = null;
   /** Off-screen window that hosts a background pane for one raster so MCP capture does not paint that pane over the user's tab. */
   private captureHostWindow: BrowserWindow | null = null;
-  private raisedCaptureView: WebContentsView | null = null;
+  /**
+   * The window's one capture lift: a bounded, serialized lease over the view
+   * stack. `null` whenever no capture is borrowing a pane; the queue holds
+   * acquires that arrived while it was held.
+   */
+  private captureLift: CaptureLiftRecord | null = null;
+  private captureLiftQueue: Array<{ view: WebContentsView; opts: { inWindow?: boolean; budgetMs?: number }; grant: (lease: CaptureLiftLease) => void; reject: (err: unknown) => void; timer: NodeJS.Timeout }> = [];
+  private captureLiftToken = 0;
+  /** Last deliberate user input this window saw, for the agent-plane activation deferral. 0 means "never observed". */
+  private lastUserInputAtMs = 0;
   private popoutWindow: BrowserWindow | null = null;
   private terminalWindows: Map<number, BrowserWindow> = new Map();
   // Per-session coalescing buffer for 'antifan:terminal:data' fan-out. PTY bursts
@@ -1054,6 +1166,13 @@ export class NativeTabHost extends EventEmitter {
   // safeSendWebContents; readable via getResourceStats/DUMP_DIAGNOSTICS without
   // benchmark mode.
   private terminalFanoutMessages = 0;
+  /**
+   * Per-surface displayed-session sets for terminal data suppression. Keyed by
+   * surface: `c<webContentsId>` for the sidebar, `w<windowId>` for terminal
+   * windows. Refreshed on every session projection push and on terminal-window
+   * binding changes; `dispatchTerminalData` reads it, never recomputes per chunk.
+   */
+  private terminalDisplayedSessions: Map<string, Set<string>> = new Map();
   private isToolbarOverlayActive: boolean = false;
   private toolbarOverlayCustomHeight?: number;
   private readonly splitCoordinator = new SplitNavigationCoordinator();
@@ -1075,6 +1194,23 @@ export class NativeTabHost extends EventEmitter {
   private browserEpoch: number = 1;
   private tabPreviewUnsubscribers: Map<string, () => void> = new Map();
   private recentlyClosedTabs: Array<{ url: string; title: string }> = [];
+  /**
+   * The 60s sweep that hibernates idle tabs. Created lazily by
+   * `ensureHibernationSweep`; cleared in `dispose`. `unref`'d so it can never
+   * keep the process alive for a timer that only frees memory.
+   */
+  private hibernationSweepTimer: NodeJS.Timeout | null = null;
+  /**
+   * Idle threshold the sweep uses. Fixed at `HIBERNATE_IDLE_MS` in production;
+   * the probe/test seam may narrow it via `setHibernationIdleMsForTesting`.
+   */
+  private hibernationIdleMs: number = HIBERNATE_IDLE_MS;
+  /** Tabs currently being destroyed by the hibernation sweep; their `destroyed`/`close` listeners must not run `closeTab`. */
+  private hibernatingTabIds = new Set<string>();
+  /** Tabs whose beforeunload vetoed a sleep probe in this cycle — never re-probed. */
+  private unloadVetoedTabIds = new Set<string>();
+  /** In-flight `ensureTabReady` waits, deduped per tab so a burst of MCP calls shares one wake. */
+  private tabReadyWaits = new Map<string, Promise<boolean>>();
   private automationTabId: string | null = null;
   private terminalAgentAffinity = new Map<string, TerminalAgentAffinityEntry>();
   private readonly sessionTabPools = new Map<string, Set<string>>();
@@ -1143,6 +1279,49 @@ export class NativeTabHost extends EventEmitter {
       this.agentInputInFlight = Math.max(0, this.agentInputInFlight - 1);
     }
   }
+  /**
+   * The async twin of `syncWithAgentInput`: the attribution counter stays
+   * incremented across the awaited work, so a CDP `Input.*` dispatch can never
+   * surface as a `mouseDown` on the recency clock and defer a later activation.
+   */
+  public async withAgentInput<T>(action: () => Promise<T>): Promise<T> {
+    this.agentInputInFlight++;
+    try {
+      return await action();
+    } finally {
+      this.agentInputInFlight = Math.max(0, this.agentInputInFlight - 1);
+    }
+  }
+
+  /**
+   * Stamp the window's user-presence clock from a real `input-event`. Deliberate
+   * input types only — cursor motion does not stamp — and never while agent
+   * input is in flight, so the agent cannot mark the user present for itself.
+   * A pane lifted in-window above the user's tab is buried at once: the user
+   * gets their pane back mid-raster while the lease stays held, so the in-flight
+   * capture fails closed instead of resurrecting the lift.
+   */
+  public noteUserActivity(inputType: string): void {
+    if (this.agentInputInFlight !== 0) return;
+    if (!USER_ACTIVITY_INPUT_TYPES[inputType]) return;
+    this.lastUserInputAtMs = Date.now();
+    if (this.captureLift?.origin === 'in-window') {
+      this.buryCaptureLift('user-input');
+    }
+  }
+
+  private trackUserActivityOnView(wc: Electron.WebContents | null | undefined): void {
+    if (!wc || typeof wc.on !== 'function') return;
+    wc.on('input-event', (_event: unknown, input: { type?: string }) => {
+      this.noteUserActivity(input?.type || '');
+    });
+  }
+
+  /** True while deliberate user input in this window is younger than the recency bound. */
+  public userInputRecentlySeen(): boolean {
+    return this.lastUserInputAtMs > 0 && Date.now() - this.lastUserInputAtMs < USER_INPUT_RECENCY_MS;
+  }
+
   public getActiveCapsule(): WorkspaceCapsule | null {
     return this.capsuleManager ? this.capsuleManager.getActive() : null;
   }
@@ -1251,7 +1430,9 @@ export class NativeTabHost extends EventEmitter {
         withTabAgentWorking: (tabId, action) => this.withTabAgentWorking(tabId, action),
         runWithAttachedTabView: (view, action, isMobile) => this.runWithAttachedTabView(view, action, isMobile),
         getTabContentBounds: (tabId, paneId) => this.getTabContentBounds(tabId, paneId),
-        switchTab: (tabId) => this.switchTab(tabId),
+        // Declared 'user' so the seam is unambiguous: a capture never switches
+        // tabs, and anything this host activates is for the person watching.
+        switchTab: (tabId, opts) => this.switchTab(tabId, { plane: 'user', ...opts }),
         getSemanticDocumentGeneration: (tabId, paneId) => this.getSemanticDocumentGeneration(tabId, paneId),
         getLegacyDocumentGeneration: (tabId) => (this.getDocumentGeneration ? this.getDocumentGeneration(tabId) : (this.documentGenerations?.get(tabId) || 0)),
         getMutationRevision: (tabId) => (this.mutationRevisions ? (this.mutationRevisions.get(tabId) || 0) : 0),
@@ -1262,7 +1443,8 @@ export class NativeTabHost extends EventEmitter {
         applyTabDeviceEmulation: (tabId: string) => this.applyTabDeviceEmulationForTab(tabId),
         isTabViewAttached: (view) => this.isTabViewAttached(view),
         reassertPresentedView: () => this.reassertPresentedView(),
-        raiseViewForCapture: (view, opts) => this.raiseViewForCapture(view, opts),
+        acquireCaptureLift: (view, opts) => this.acquireCaptureLift(view, opts),
+        captureLiftState: () => this.captureLiftState(),
         isWindowRenderable: () => !this.shell.window.isDestroyed() && this.shell.window.isVisible() && !this.shell.window.isMinimized(),
         getWindowPresentationState: () => ({
           visible: !this.shell.window.isDestroyed() && this.shell.window.isVisible(),
@@ -1298,6 +1480,7 @@ export class NativeTabHost extends EventEmitter {
         resolveTargetWorkspace: (targetSessionId, tabUrl) => this.resolveTabStrictWorkspace(targetSessionId, tabUrl),
         getTabTerminalSession: (tabId) => this.getTabTerminalSession(tabId),
         sendKeyboardPress: (params) => this.sendKeyboardPress(params),
+        withAgentInput: (action) => this.withAgentInput(action),
         navigateAndWait: (tabId, inputUrl, timeoutMs) => this.navigateAndWait(tabId, inputUrl, timeoutMs),
       });
     }
@@ -1327,7 +1510,7 @@ export class NativeTabHost extends EventEmitter {
     let count = 0;
     for (const [, tab] of this.tabs.entries()) {
       try {
-        if (this.shell.window.contentView.children.includes(tab.view)) count += 1;
+        if (tab.view && this.shell.window.contentView.children.includes(tab.view)) count += 1;
         if (tab.mobileView && this.shell.window.contentView.children.includes(tab.mobileView)) count += 1;
       } catch {}
     }
@@ -1550,15 +1733,15 @@ export class NativeTabHost extends EventEmitter {
       this.shell.sidebarView.webContents.on('did-finish-load', () => {
         // The first paint is scoped exactly like every later push: a window with no capsule
         // of its own shows the sessions no project claimed, never the process-wide list.
-        safeSendWebContents(
-          this.shell.sidebarView?.webContents,
-          'antifan:terminal:session',
-          this.terminalStateForWindow(
-            TerminalManager.getInstance().getSessionState(),
-            undefined,
-            this.shell.sidebarView?.webContents?.id,
-          ),
+        const contents = this.shell.sidebarView?.webContents;
+        if (!contents || contents.isDestroyed()) return;
+        const projection = this.terminalStateForWindow(
+          TerminalManager.getInstance().getSessionState(),
+          undefined,
+          contents.id,
         );
+        this.terminalDisplayedSessions.set(`c${contents.id}`, this.displayedSessionIdsOf(projection));
+        safeSendWebContents(contents, 'antifan:terminal:session', projection);
       });
     }
 
@@ -1573,11 +1756,21 @@ export class NativeTabHost extends EventEmitter {
     this.shell.onRestore(() => {
       this.updateLayout();
     });
+    // The 60s idle sweep is per-host: it frees renderers for background tabs of
+    // THIS window only, so it is created here with the subscriptions and cleared
+    // by dispose. The timer is unref'd — it never keeps the process alive.
+    this.ensureHibernationSweep();
 
     this.setupTerminalSubscriptions();
     this.setupVaultIpc();
     installChromeIpcOnce(NativeTabHost.CHROME_ROUTES);
     this.setupGlobalShortcutsOnView(this.shell.toolbarView?.webContents);
+    // Deliberate input on the chrome surfaces counts as user presence too: the
+    // sidebar is the terminal surface, so typing in it defers an agent-plane
+    // activation exactly like typing in a page. Terminal popout windows stay
+    // out of scope — they belong to a different BrowserWindow.
+    this.trackUserActivityOnView(this.shell.toolbarView?.webContents);
+    this.trackUserActivityOnView(this.shell.sidebarView?.webContents);
   }
 
   public getToolbarHeight(): number {
@@ -1697,63 +1890,19 @@ export class NativeTabHost extends EventEmitter {
         try { TerminalManager.getInstance().removeListener(event, handler); } catch {}
       });
     };
-    const onTerminalData = (payload: TerminalDataPayload): void => {
-      // Another project's terminal output never reaches this window's subscribers.
-      if (!this.isSessionVisibleToWindow(payload.sessionId)) return;
-      const pending = this.terminalDataBatches.get(payload.sessionId);
-      if (!pending && payload.data.length <= TERMINAL_DATA_COALESCE_BYPASS_LENGTH) {
-        // Keystroke echo and other small chunks take the immediate path so typing
-        // latency is identical to the unbuffered baseline.
-        this.dispatchTerminalData(payload);
-        return;
-      }
-      if (pending && pending.generation !== payload.generation) {
-        // A generation boundary (session restart) must never merge into the
-        // previous generation's batch — the renderer resets on generation change.
-        this.flushTerminalDataBatch(payload.sessionId);
-      }
-      const batch = this.terminalDataBatches.get(payload.sessionId);
-      if (batch) {
-        batch.parts.push(payload.data);
-        batch.throughSeq = payload.seq;
-      } else {
-        this.terminalDataBatches.set(payload.sessionId, {
-          parts: [payload.data],
-          fromSeq: payload.seq,
-          throughSeq: payload.seq,
-          generation: payload.generation,
-        });
-      }
-      if (!this.terminalDataFlushTimer) {
-        this.terminalDataFlushTimer = setTimeout(() => {
-          this.terminalDataFlushTimer = null;
-          this.flushAllTerminalDataBatches();
-        }, TERMINAL_DATA_FLUSH_MS);
-        this.terminalDataFlushTimer.unref?.();
-      }
-    };
-    subscribe('data', onTerminalData);
+    // Routed delivery: TerminalOutputRouter holds the single `data` listener on the
+    // seam and hands each chunk only to hosts whose session map includes it, so this
+    // path performs no visibility check per chunk. The unregister releases with the
+    // rest of this host's subscriptions at dispose.
+    const unregisterRoute = TerminalOutputRouter.getInstance().registerHost(this);
+    this.terminalSubscriptionReleases?.push(() => {
+      try { unregisterRoute(); } catch {}
+    });
 
     const onTerminalSession = (state: unknown): void => {
       // Session state must never overtake buffered output for the same session.
       this.flushAllTerminalDataBatches();
-      if (this.shell.sidebarView && !this.shell.sidebarView.webContents.isDestroyed()) {
-        safeSendWebContents(
-          this.shell.sidebarView.webContents,
-          'antifan:terminal:session',
-          this.terminalStateForWindow(state, undefined, this.shell.sidebarView.webContents.id),
-        );
-      }
-      for (const [id, win] of this.terminalWindows.entries()) {
-        if (win && !win.isDestroyed()) {
-          // A popout keeps the session it was opened with, even when that session is
-          // outside the window's capsule filter.
-          const boundSessionId = this.terminalWindowMeta.get(id)?.sessionId;
-          safeSendWebContents(win.webContents, 'antifan:terminal:session', this.terminalStateForWindow(state, boundSessionId, win.webContents.id));
-        } else {
-          this.terminalWindows.delete(id);
-        }
-      }
+      this.sendTerminalProjections(state);
     };
     subscribe('session', onTerminalSession);
 
@@ -1805,6 +1954,64 @@ export class NativeTabHost extends EventEmitter {
       }
     };
     subscribe('session-created', onTerminalSessionCreated);
+
+    const onBridgeHealthChanged = (): void => {
+      const report = buildBridgeHealthReport();
+      if (this.shell.sidebarView && !this.shell.sidebarView.webContents.isDestroyed()) {
+        safeSendWebContents(this.shell.sidebarView.webContents, BRIDGE_CHANNELS.STATUS_CHANGED, report);
+      }
+      for (const [id, win] of this.terminalWindows.entries()) {
+        if (win && !win.isDestroyed()) {
+          safeSendWebContents(win.webContents, BRIDGE_CHANNELS.STATUS_CHANGED, report);
+        } else {
+          this.terminalWindows.delete(id);
+        }
+      }
+    };
+    const unsubscribeBridgeHealth = subscribeBridgeHealth(onBridgeHealthChanged);
+    this.terminalSubscriptionReleases?.push(() => {
+      try { unsubscribeBridgeHealth(); } catch {}
+    });
+
+    const wireRunStateService = (service: RunStateService): void => {
+      const onRunStateChange = (payload?: unknown): void => {
+        void (async () => {
+          try {
+            const runs = Array.isArray(payload) ? (payload as RunCardState[]) : await service.getRuns();
+            if (this.shell.sidebarView && !this.shell.sidebarView.webContents.isDestroyed()) {
+              safeSendWebContents(
+                this.shell.sidebarView.webContents,
+                TERMINAL_CHANNELS.RUN_STATE,
+                { runs: this.runCardsForWindow(runs, this.shell.sidebarView.webContents.id) }
+              );
+            }
+            for (const [id, win] of this.terminalWindows.entries()) {
+              if (win && !win.isDestroyed()) {
+                const boundSessionId = this.terminalWindowMeta.get(id)?.sessionId;
+                safeSendWebContents(
+                  win.webContents,
+                  TERMINAL_CHANNELS.RUN_STATE,
+                  { runs: this.runCardsForWindow(runs, win.webContents.id, boundSessionId) }
+                );
+              } else {
+                this.terminalWindows.delete(id);
+              }
+            }
+          } catch (err) {
+            console.warn('[native-tab-host] failed to push run state:', err);
+          }
+        })();
+      };
+      service.on('change', onRunStateChange);
+      this.terminalSubscriptionReleases?.push(() => {
+        try { service.removeListener('change', onRunStateChange); } catch {}
+      });
+    };
+
+    this.wireRunStateService = wireRunStateService;
+    if (this.runStateService) {
+      wireRunStateService(this.runStateService);
+    }
   }
 
   private setupVaultIpc(): void {
@@ -1959,7 +2166,7 @@ export class NativeTabHost extends EventEmitter {
       if (host.activeTabId) {
         const tab = host.tabs.get(host.activeTabId);
         if (tab) {
-          const targetWc = paneId === 'mobile' ? tab.mobileView?.webContents : tab.view.webContents;
+          const targetWc = paneId === 'mobile' ? tab.mobileView?.webContents : tab.view?.webContents;
           if (targetWc && !targetWc.isDestroyed()) {
             targetWc.reload();
           }
@@ -2016,7 +2223,7 @@ export class NativeTabHost extends EventEmitter {
   {
     channel: TOOLBAR_CHANNELS.SWITCH_TAB,
     surface: ['toolbar', 'sidebar', 'terminalPopout'],
-    run: ({ host }, event, args) => { return host.switchTab(typeof args[0] === 'string' ? args[0] : ''); },
+    run: ({ host }, event, args) => { return host.switchTab(typeof args[0] === 'string' ? args[0] : '', { plane: 'user' }); },
   },
   {
     channel: TOOLBAR_CHANNELS.CLOSE_TAB,
@@ -2072,6 +2279,14 @@ export class NativeTabHost extends EventEmitter {
     channel: TOOLBAR_CHANNELS.RELOAD,
     surface: 'toolbar',
     run: ({ host }, event, args) => { return host.reload((typeof args[0] === 'string' ? args[0] : undefined) || host.activeTabId); },
+  },
+  {
+    channel: TOOLBAR_CHANNELS.RELOAD_WINDOW,
+    surface: 'toolbar',
+    // Reloads the chrome surfaces and terminal windows, not a tab page: the reply
+    // races the toolbar's own reload, so the command's authority is the call having
+    // reached Main, not a value the reloaded sender could still receive.
+    run: ({ host }) => { host.reloadWindow(); },
   },
   {
     channel: TOOLBAR_CHANNELS.STOP_LOADING,
@@ -2185,7 +2400,7 @@ export class NativeTabHost extends EventEmitter {
       const { isZoomIn } = (args[0] || {}) as { isZoomIn: boolean };
       const senderWc = event?.sender;
       for (const [id, t] of host.tabs.entries()) {
-        if (t.view.webContents === senderWc) {
+        if (t.view?.webContents === senderWc) {
           const current = t.state.zoomFactor || 1.0;
           const step = 0.1;
           const nextZoom = isZoomIn
@@ -2206,10 +2421,53 @@ export class NativeTabHost extends EventEmitter {
     run: ({ host }, event) => {
       const senderWc = event?.sender;
       for (const [id, t] of host.tabs.entries()) {
-        if (t.view.webContents === senderWc || (t.mobileView && t.mobileView.webContents === senderWc)) {
+        if (t.view?.webContents === senderWc || (t.mobileView && t.mobileView.webContents === senderWc)) {
           host.bumpMutationRevision(id);
           break;
         }
+      }
+    },
+  },
+  {
+    channel: 'antifan:tab-ai-state',
+    kind: 'on',
+    // The page's own detector (src/preload/tab-preload.ts) reports chat-streaming state;
+    // the tab it came from is the record the badge paints, resolved from the sender.
+    surface: 'tab',
+    run: ({ host }, event, args) => {
+      const { aiState } = (args[0] || {}) as { aiState?: string };
+      if (aiState !== 'idle' && aiState !== 'thinking' && aiState !== 'streaming' && aiState !== 'completed' && aiState !== 'agent_working') return;
+      const senderInfo = host.findTabByWebContents(event?.sender);
+      if (senderInfo) host.setTabAiState(senderInfo.tabId, aiState);
+    },
+  },
+  {
+    channel: 'antifan:tab-theme-error',
+    kind: 'on',
+    // The page's sentinel reports a Liquid/server error signature it found; the badge
+    // rides `state.themeError` on the same sender-resolved record.
+    surface: 'tab',
+    run: ({ host }, event, args) => {
+      const { themeError } = (args[0] || {}) as { themeError?: unknown };
+      const senderInfo = host.findTabByWebContents(event?.sender);
+      if (senderInfo) host.setTabThemeError(senderInfo.tabId, typeof themeError === 'string' && themeError ? themeError : undefined);
+    },
+  },
+  {
+    channel: 'antifan:tab:scroll-changed',
+    kind: 'on',
+    // The page's passive tracker keeps `state.scrollX/scrollY` current so a later
+    // hibernate or view recreate restores where the user actually stopped reading.
+    surface: 'tab',
+    run: ({ host }, event, args) => {
+      const { scrollX, scrollY } = (args[0] || {}) as { scrollX?: unknown; scrollY?: unknown };
+      const senderInfo = host.findTabByWebContents(event?.sender);
+      if (senderInfo) {
+        host.setTabScrollPosition(
+          senderInfo.tabId,
+          typeof scrollX === 'number' && Number.isFinite(scrollX) ? scrollX : 0,
+          typeof scrollY === 'number' && Number.isFinite(scrollY) ? scrollY : 0
+        );
       }
     },
   },
@@ -2703,6 +2961,13 @@ export class NativeTabHost extends EventEmitter {
         console.warn(`[native-tab-host] terminal input-session '${id}' failed during write:`, err);
       }
     },
+  },
+  {
+    channel: 'antifan:terminal:paste-image',
+    surface: ['sidebar', 'terminalPopout'],
+    // Ctrl+V with an image (not text) on the clipboard: Main owns the clipboard, so the
+    // preload asks here; the staged path goes back and the renderer types it like text.
+    run: ({ host }, event) => host.pasteClipboardImage(host.windowActiveSessionId(event?.sender)),
   },
   {
     channel: TERMINAL_CHANNELS.KILL,
@@ -3756,6 +4021,279 @@ export class NativeTabHost extends EventEmitter {
     },
   },
   {
+    channel: BRIDGE_CHANNELS.GET_STATUS,
+    surface: ['sidebar', 'terminalPopout'],
+    run: () => buildBridgeHealthReport(),
+  },
+  {
+    channel: 'antifan:capsule:get-brief',
+    surface: ['sidebar', 'terminalPopout'],
+    run: ({ host }, _event, args): CapsuleBriefResult => {
+      const p = args[0] as { capsuleId?: string } | undefined;
+      const capsuleId = typeof p?.capsuleId === 'string' ? p.capsuleId.trim() : '';
+      if (!capsuleId) {
+        return { ok: false, reason: 'INVALID_PAYLOAD', message: 'Missing or invalid capsuleId' };
+      }
+      if (typeof host.capsuleManager.getBrief === 'function') {
+        return host.capsuleManager.getBrief(capsuleId);
+      }
+      const capsule = host.capsuleManager.list().find((c) => c.id === capsuleId);
+      if (!capsule) {
+        return { ok: false, reason: 'UNKNOWN_CAPSULE', message: `Capsule not found: ${capsuleId}` };
+      }
+      return { ok: true, capsuleId, brief: capsule.brief ?? null };
+    },
+  },
+  {
+    channel: 'antifan:capsule:set-brief',
+    surface: ['sidebar', 'terminalPopout'],
+    run: ({ host }, event, args): CapsuleBriefResult => {
+      host.assertApplicationAdmitsHostWork('antifan:capsule:set-brief');
+      const p = args[0] as { capsuleId?: string; brief?: unknown } | undefined;
+      if (!p || typeof p !== 'object' || typeof p.capsuleId !== 'string' || !p.capsuleId.trim()) {
+        return { ok: false, reason: 'INVALID_PAYLOAD', message: 'Missing or invalid capsuleId' };
+      }
+      const capsuleId = p.capsuleId.trim();
+      const briefInput = p.brief;
+      if (briefInput !== null && briefInput !== undefined && (typeof briefInput !== 'object' || Array.isArray(briefInput))) {
+        return { ok: false, reason: 'INVALID_PAYLOAD', message: 'Brief must be an object or null' };
+      }
+
+      if (typeof host.capsuleManager.setBrief === 'function') {
+        const result = host.capsuleManager.setBrief(capsuleId, briefInput);
+        if (result.ok === true && host.runStateService) {
+          void host.runStateService.syncBriefs().catch((err) => {
+            console.warn('[native-tab-host] syncBriefs failed after set-brief:', err);
+          });
+        }
+        return result.ok === true
+          ? { ok: true, capsuleId: result.capsuleId, brief: result.brief }
+          : { ok: false, reason: result.reason, message: result.message };
+      }
+
+      return { ok: false, reason: 'UNKNOWN_CAPSULE', message: `Capsule not found: ${capsuleId}` };
+    },
+  },
+  {
+    channel: TERMINAL_CHANNELS.RUN_CONTROL,
+    kind: 'handle',
+    surface: ['sidebar', 'terminalPopout'],
+    sessionArgs: (args) => [(args[0] as { terminalSessionId?: string })?.terminalSessionId],
+    run: async ({ host }, event, args): Promise<RunControlResult> => {
+      const payload = (args[0] || {}) as {
+        terminalSessionId?: string;
+        runId?: string;
+        op?: unknown;
+        text?: unknown;
+      };
+
+      const op = payload.op;
+      if (op !== 'cancel' && op !== 'steer') {
+        return { ok: false, reason: 'INVALID_PAYLOAD', message: 'Invalid or missing op' };
+      }
+
+      let text: string | undefined = undefined;
+      if (op === 'steer') {
+        if (typeof payload.text !== 'string' || !payload.text.trim() || payload.text.length > 4000) {
+          return { ok: false, reason: 'INVALID_PAYLOAD', message: 'Steer requires non-empty text <= 4000 characters' };
+        }
+        text = payload.text;
+      }
+
+      let terminalSessionId = typeof payload.terminalSessionId === 'string' && payload.terminalSessionId.trim()
+        ? payload.terminalSessionId.trim()
+        : undefined;
+      const runId = typeof payload.runId === 'string' && payload.runId.trim()
+        ? payload.runId.trim()
+        : undefined;
+
+      if (!terminalSessionId && !runId) {
+        return { ok: false, reason: 'INVALID_PAYLOAD', message: 'Must specify terminalSessionId or runId' };
+      }
+
+      if (!terminalSessionId && runId) {
+        // Control-plane branch
+        if (!host.controlPlane?.runs) {
+          return { ok: false, reason: 'RUN_CONTROL_FAILED', message: 'Control plane runs service is not available' };
+        }
+
+        let runRecord: { id: string; state: string; backendId?: string } | undefined;
+        try {
+          runRecord = host.controlPlane.runs.getRun(runId);
+        } catch {
+          return { ok: false, reason: 'RUN_NOT_ACTIVE', message: `Run '${runId}' not found` };
+        }
+
+        if (runRecord.state === 'completed' || runRecord.state === 'failed' || runRecord.state === 'interrupted') {
+          return { ok: false, reason: 'RUN_NOT_ACTIVE', message: `Run '${runId}' is not active (${runRecord.state})` };
+        }
+
+        const registry = host.controlPlane.runs.attachments;
+        let matchedRecord: ExecutionAttachmentRecord | undefined;
+        if (registry) {
+          for (const attachmentId of registry.getActiveRecordIds()) {
+            const rec = registry.getRecord(attachmentId);
+            if (rec && rec.runId === runId) {
+              matchedRecord = rec;
+              break;
+            }
+          }
+          if (!matchedRecord) {
+            const internalRegistry = registry as unknown as { records?: Map<string, ExecutionAttachmentRecord> };
+            if (internalRegistry.records instanceof Map) {
+              for (const rec of internalRegistry.records.values()) {
+                if (rec && rec.runId === runId) {
+                  matchedRecord = rec;
+                  break;
+                }
+              }
+            }
+          }
+        }
+
+        const originTerminalSessionId = matchedRecord?.originTerminalSessionId;
+        if (!originTerminalSessionId || !host.isSessionVisibleToWindow(originTerminalSessionId, undefined, event?.sender?.id)) {
+          return { ok: false, reason: 'SESSION_NOT_VISIBLE', message: `Origin session for run '${runId}' is not visible to this window` };
+        }
+
+        const gate = host.assertManagerMayOperate(originTerminalSessionId, event?.sender?.id);
+        if (gate !== true) {
+          return { ok: false, reason: gate.reason as RunControlReason, message: gate.message };
+        }
+
+        const backendId = runRecord.backendId || matchedRecord?.backendId || '';
+        if (backendId === 'cli') {
+          const runsDir = path.join(StorageLocations.getRuntimeDir(), 'runs');
+          const runFilePath = path.join(runsDir, `${originTerminalSessionId}.json`);
+          let isLiveRun = false;
+          try {
+            if (fs.existsSync(runFilePath)) {
+              const data = JSON.parse(fs.readFileSync(runFilePath, 'utf8'));
+              if (data && (data.state === 'running' || data.state === 'waiting_user')) {
+                isLiveRun = true;
+              }
+            }
+          } catch {}
+
+          if (isLiveRun) {
+            terminalSessionId = originTerminalSessionId;
+            // Falls through to terminal branch below
+          } else {
+            return { ok: false, reason: 'RUN_NOT_ACTIVE', message: `No active run for session '${originTerminalSessionId}'` };
+          }
+        } else {
+          if (op === 'steer') {
+            return { ok: false, reason: 'RUN_CONTROL_UNSUPPORTED', message: 'Steer is not supported on control-plane runs' };
+          }
+          const backend = host.runBackendFor(backendId);
+          if (!backend) {
+            return { ok: false, reason: 'RUN_BACKEND_UNAVAILABLE', message: `Backend '${backendId}' is not registered` };
+          }
+          try {
+            await host.controlPlane.runs.cancel(runId, backend);
+            return { ok: true, op: 'cancel', at: Date.now() };
+          } catch (err) {
+            return { ok: false, reason: 'RUN_CONTROL_FAILED', message: (err as Error)?.message || 'Failed to cancel run' };
+          }
+        }
+      }
+
+      if (terminalSessionId) {
+        // Terminal branch
+        const gate = host.assertManagerMayOperate(terminalSessionId, event?.sender?.id);
+        if (gate !== true) {
+          return { ok: false, reason: gate.reason as RunControlReason, message: gate.message };
+        }
+
+        if (!host.isSessionVisibleToWindow(terminalSessionId, undefined, event?.sender?.id)) {
+          return { ok: false, reason: 'SESSION_NOT_VISIBLE', message: `Session '${terminalSessionId}' does not belong to this window` };
+        }
+
+        const runsDir = path.join(StorageLocations.getRuntimeDir(), 'runs');
+        const runFilePath = path.join(runsDir, `${terminalSessionId}.json`);
+        let runFile: { state?: string; ompSessionId?: string; runSeq?: number } | null = null;
+        try {
+          if (fs.existsSync(runFilePath)) {
+            runFile = JSON.parse(fs.readFileSync(runFilePath, 'utf8'));
+          }
+        } catch {
+          runFile = null;
+        }
+
+        if (!runFile || (runFile.state !== 'running' && runFile.state !== 'waiting_user') || !runFile.ompSessionId) {
+          return { ok: false, reason: 'RUN_NOT_ACTIVE', message: `Run is not active for session '${terminalSessionId}'` };
+        }
+
+        const controlDir = path.join(runsDir, 'control', runFile.ompSessionId);
+        try {
+          fs.mkdirSync(controlDir, { recursive: true });
+        } catch {}
+
+        const nonce = randomUUID();
+        const reqPath = path.join(controlDir, `${nonce}.json`);
+        const tmpPath = path.join(controlDir, `${nonce}.tmp-${process.pid}-${Date.now()}`);
+        const ackPath = path.join(controlDir, `${nonce}.ack.json`);
+
+        const now = Date.now();
+        const requestPayload = {
+          schema: 1,
+          op,
+          ...(text ? { text } : {}),
+          runSeq: typeof runFile.runSeq === 'number' ? runFile.runSeq : 0,
+          requestedAt: now,
+          expiresAt: now + 15_000,
+        };
+
+        try {
+          fs.writeFileSync(tmpPath, JSON.stringify(requestPayload), 'utf8');
+          fs.renameSync(tmpPath, reqPath);
+        } catch (err) {
+          try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch {}
+          return { ok: false, reason: 'RUN_CONTROL_FAILED', message: `Failed to write control request: ${(err as Error)?.message || String(err)}` };
+        }
+
+        const pollIntervalMs = 100;
+        const deadline = Date.now() + RUN_CONTROL_ACK_TIMEOUT_MS;
+        let ackContent: string | null = null;
+
+        while (Date.now() < deadline) {
+          try {
+            if (fs.existsSync(ackPath)) {
+              ackContent = fs.readFileSync(ackPath, 'utf8');
+              try { fs.unlinkSync(ackPath); } catch {}
+              break;
+            }
+          } catch {}
+          const { promise, resolve } = Promise.withResolvers<void>();
+          setTimeout(resolve, pollIntervalMs);
+          await promise;
+        }
+
+        try { if (fs.existsSync(reqPath)) fs.unlinkSync(reqPath); } catch {}
+
+        if (!ackContent) {
+          return { ok: false, reason: 'RUN_CONTROL_TIMEOUT', message: 'Timed out waiting for run control acknowledgement' };
+        }
+
+        try {
+          const ack = JSON.parse(ackContent);
+          if (ack && ack.ok === true) {
+            return { ok: true, op, at: typeof ack.at === 'number' ? ack.at : Date.now() };
+          }
+          const errorStr = typeof ack?.error === 'string' ? ack.error : '';
+          if (KNOWN_RUN_CONTROL_REASONS.has(errorStr as RunControlReason)) {
+            return { ok: false, reason: errorStr as RunControlReason, message: typeof ack?.message === 'string' ? ack.message : errorStr };
+          }
+          return { ok: false, reason: 'RUN_CONTROL_FAILED', message: typeof ack?.message === 'string' ? ack.message : (errorStr || 'Run control failed') };
+        } catch {
+          return { ok: false, reason: 'RUN_CONTROL_FAILED', message: 'Malformed run control acknowledgement' };
+        }
+      }
+
+      return { ok: false, reason: 'INVALID_PAYLOAD', message: 'Must specify terminalSessionId or runId' };
+    },
+  },
+  {
     channel: TERMINAL_CHANNELS.ASSIGN_PROJECT,
     surface: ['sidebar', 'terminalPopout'],
     run: ({ host }, event, args) => {
@@ -3901,14 +4439,16 @@ export class NativeTabHost extends EventEmitter {
   {
     channel: SIDEBAR_CHANNELS.GET_INITIAL_STATE,
     surface: ['sidebar', 'terminalPopout'],
-    run: ({ host }) => {
+    run: async ({ host }, event) => {
       const activeTab = host.tabs.get(host.activeTabId);
       const targetWorkspace = host.resolveTargetWorkspace(undefined, activeTab?.state.url);
+      const runs = host.runStateService ? await host.runStateService.getRuns() : [];
       return {
         isOpen: host.shell.isSidebarOpen,
         width: host.shell.sidebarWidth,
         workspacePath: targetWorkspace,
         activeWorkspace: targetWorkspace,
+        runCards: host.runCardsForWindow(runs, event?.sender?.id),
         // Boot-time prefs so the renderer can paint the persisted tab layout
         // without a second IPC round-trip.
         terminalTabPrefs: {
@@ -4040,11 +4580,10 @@ export class NativeTabHost extends EventEmitter {
     this.updateLayout();
     this.broadcastState();
     if (this.shell.isSidebarOpen && this.shell.sidebarView && !this.shell.sidebarView.webContents.isDestroyed()) {
-      safeSendWebContents(
-        this.shell.sidebarView.webContents,
-        'antifan:terminal:session',
-        this.terminalStateForWindow(TerminalManager.getInstance().getSessionState(), undefined, this.shell.sidebarView.webContents.id),
-      );
+      const contents = this.shell.sidebarView.webContents;
+      const projection = this.terminalStateForWindow(TerminalManager.getInstance().getSessionState(), undefined, contents.id);
+      this.terminalDisplayedSessions.set(`c${contents.id}`, this.displayedSessionIdsOf(projection));
+      safeSendWebContents(contents, 'antifan:terminal:session', projection);
     }
     return this.shell.isSidebarOpen;
   }
@@ -4078,6 +4617,14 @@ export class NativeTabHost extends EventEmitter {
   private setupGlobalShortcutsOnView(wc: Electron.WebContents | null | undefined, tabId?: string): void {
     if (!wc) return;
     wc.on('before-input-event', (_event, input) => {
+      // Real user input (keyboard) on this tab is keep-alive evidence for the
+      // hibernation sweep — a page the user is typing into is never idle. This
+      // runs before the agent-preemption check so a user's own keystroke always
+      // resets the clock even while an agent drives another tab.
+      if (tabId) {
+        const rec = this.tabs.get(tabId);
+        if (rec) rec.lastActiveAt = Date.now();
+      }
       if (this.agentInputInFlight === 0 && this.viewportGate) {
         const automationTargetTabId = this.automationTabId;
         // Scoped User Preemption (RT-01):
@@ -4106,7 +4653,7 @@ export class NativeTabHost extends EventEmitter {
         if (userTabs.length > 1) {
           const currIdx = userTabs.indexOf(this.activeTabId);
           const nextIdx = input.shift ? (currIdx - 1 + userTabs.length) % userTabs.length : (currIdx + 1) % userTabs.length;
-          this.switchTab(userTabs[nextIdx]!);
+          this.switchTab(userTabs[nextIdx]!, { plane: 'user' });
         }
         return;
       }
@@ -4705,7 +5252,7 @@ export class NativeTabHost extends EventEmitter {
     // that visual already, so it opts out and pays neither the remove nor the re-allocation.
     const recyclePresentedLayer = options.recyclePresentedLayer !== false;
     const recycleMobileLayer = options.recycleMobileLayer !== false;
-    this.lowerRaisedCaptureView();
+    this.buryCaptureLift('reassert');
     if (this.isDisposed) return;
     if (!this.shell.window || (typeof this.shell.window.isDestroyed === 'function' && this.shell.window.isDestroyed()) || !this.shell.window.contentView) return;
     // Guarded by their own fields: several tests build a host without running field
@@ -4865,27 +5412,258 @@ export class NativeTabHost extends EventEmitter {
    * `enforceZOrder` keeps the user's active tab above every other pane, so a
    * helper-attached background view is occluded. On Windows an occluded
    * WebContentsView produces no compositor frame, and Page.captureScreenshot
-   * `{ fromSurface: true }` then waits out the 8s no-surface probe (measured:
-   * inactive bagamuioto + mdn video). Host the pane on an off-screen window for
-   * the raster so it is not painted over the user's tab. Does not change `activeTabId`.
+   * `{ fromSurface: true }` then waits out the no-surface probe (measured:
+   * inactive bagamuioto + mdn video). A capture lift parks the pane somewhere a
+   * compositor still drives it — the off-screen host by default, the real
+   * window when the host cannot take the pane or left it starved. Does not
+   * change `activeTabId`.
    *
-   * The off-screen host is itself not a surface the Windows compositor drives
-   * (measured live: a raised pane starves while the main window is maximized
-   * and visible), so `inWindow: true` skips the host and presents the pane in
-   * the real window — the frame gate's repair ladder reaches for that after a
-   * host raise left the pane starved.
+   * A lift is a per-window lease: one held at a time, FIFO-queued while held,
+   * bounded by the caller's raster deadline and, for the in-window origin, by
+   * `IN_WINDOW_CAPTURE_LIFT_MAX_MS`. The caller's `finally` releases; the
+   * watchdog releases a raster that abandons its dispatch; a reassert or real
+   * user input buries the pane while the lease stays held, so the in-flight
+   * raster degrades to its typed timeout instead of resurrecting the lift.
    */
-  public raiseViewForCapture(view: WebContentsView, opts?: { inWindow?: boolean }): void {
-    if (!view || !this.shell.window || (typeof this.shell.window.isDestroyed === 'function' && this.shell.window.isDestroyed()) || !this.shell.window.contentView) return;
-    if (this.raisedCaptureView !== view && !this.isTabViewAttached(view)) return;
-    if (!opts?.inWindow && this.raiseViewOnCaptureHost(view)) return;
-    // Host unavailable (tests, or BrowserWindow refused), not preferred, or
-    // starved: fall back to the in-window lift. That paints the pane over the
-    // user's tab for the raster; reassert lowers it. A pane currently parked
-    // on the capture host comes back to the window first — a view parented to
-    // the host cannot be lifted inside this window.
-    if (this.raisedCaptureView === view) this.lowerRaisedCaptureView();
-    this.raiseViewInWindow(view);
+  public async acquireCaptureLift(view: WebContentsView, opts?: { inWindow?: boolean; budgetMs?: number }): Promise<CaptureLiftLease> {
+    if (!this.captureLiftQueue) this.captureLiftQueue = [];
+    // An invalid view rejects immediately — it is refused even when another
+    // pane holds the slot, because it could never be granted when its turn came.
+    this.assertCaptureLiftableView(view);
+    const held = this.captureLift;
+    if (held && held.lease) {
+      if (held.view === view && !held.lease.released) {
+        // Same-view re-entry is an upgrade, never a second queue slot: the
+        // frame gate's repair ladder escalates capture-host -> in-window on
+        // the lease it already holds, keeping the original lift stamp.
+        if (opts?.inWindow && held.origin !== 'in-window') {
+          held.lease.upgradeToInWindow(opts);
+        }
+        return held.lease;
+      }
+      const { promise, resolve, reject } = Promise.withResolvers<CaptureLiftLease>();
+      const waiter = {
+        view,
+        opts: opts ?? {},
+        grant: resolve,
+        reject,
+        timer: setTimeout(() => {
+          const idx = this.captureLiftQueue.indexOf(waiter);
+          if (idx >= 0) this.captureLiftQueue.splice(idx, 1);
+          reject(new CapabilityError(
+            'CAPTURE_LIFT_BUSY',
+            `The window's capture lift is held by another pane; this acquire outlived ${CAPTURE_LIFT_ACQUIRE_BOUND_MS}ms waiting for it.`,
+            { queueWaitMs: CAPTURE_LIFT_ACQUIRE_BOUND_MS }
+          ));
+        }, CAPTURE_LIFT_ACQUIRE_BOUND_MS),
+      };
+      waiter.timer.unref?.();
+      this.captureLiftQueue.push(waiter);
+      return await promise;
+    }
+    return this.grantCaptureLift(view, opts ?? {});
+  }
+
+  /** The live lift for diagnostics: the view borrowed, where it is parked, and when it started. */
+  public captureLiftState(): { view: unknown; origin: string; liftedAtMs: number } | null {
+    const record = this.captureLift;
+    if (!record) return null;
+    return { view: record.view, origin: record.origin, liftedAtMs: record.liftedAtMs };
+  }
+
+  /**
+   * A pane worth lifting has a live renderer and a window to be lifted in.
+   * Refuse loudly: the bare raise this replaced swallowed all three of these,
+   * which made a failed lift indistinguishable from a fast raster.
+   */
+  private assertCaptureLiftableView(view: WebContentsView | null | undefined): asserts view is WebContentsView {
+    const missingSurface =
+      !view ||
+      !view.webContents ||
+      (typeof view.webContents.isDestroyed === 'function' && view.webContents.isDestroyed()) ||
+      !this.isTabViewAttached(view);
+    if (missingSurface) {
+      throw new CapabilityError(
+        'NO_RENDER_SURFACE',
+        'A capture lift needs a live pane that is attached to a window: the view is destroyed, was never attached, or is absent.'
+      );
+    }
+    if (!this.shell.window || (typeof this.shell.window.isDestroyed === 'function' && this.shell.window.isDestroyed()) || !this.shell.window.contentView) {
+      throw new CapabilityError(
+        'NO_RENDER_SURFACE',
+        'A capture lift needs the owning window to be alive and able to present a pane.'
+      );
+    }
+  }
+
+  /**
+   * Grant the window's one lift now that the slot is free: record the slot,
+   * raise on the preferred origin (the capture host falls back to in-window
+   * when it cannot take the pane or left it starved), arm the watchdog, and
+   * hand the caller its lease. Queued acquires never reach this directly;
+   * `wakeCaptureLiftQueue` grants them one at a time after a release.
+   */
+  private grantCaptureLift(view: WebContentsView, opts: { inWindow?: boolean; budgetMs?: number }): CaptureLiftLease {
+    this.assertCaptureLiftableView(view);
+    let record!: CaptureLiftRecord;
+    let released = false;
+    let watchdog: NodeJS.Timeout | null = null;
+    const disarm = (): void => {
+      if (watchdog) {
+        clearTimeout(watchdog);
+        watchdog = null;
+      }
+    };
+    const recordLift = (phase: 'raised' | 'upgraded' | 'lowered' | 'watchdog-lowered', reason?: string): void => {
+      const tabId = this.tabByWebContents?.get(view.webContents)?.tabId;
+      recordLifecycleEvent('capture.lift', {
+        tabId,
+        origin: record.origin,
+        phase,
+        liftedMs: Date.now() - record.liftedAtMs,
+        lowered: phase === 'lowered' || phase === 'watchdog-lowered',
+        reason,
+      });
+    };
+    const arm = (): void => {
+      disarm();
+      const bound = Math.min(
+        opts.budgetMs ?? CAPTURE_LIFT_ACQUIRE_BOUND_MS,
+        record.origin === 'in-window' ? IN_WINDOW_CAPTURE_LIFT_MAX_MS : Number.POSITIVE_INFINITY
+      );
+      if (!Number.isFinite(bound)) return;
+      watchdog = setTimeout(() => {
+        watchdog = null;
+        lease.release('watchdog');
+      }, bound);
+      watchdog.unref?.();
+    };
+    const lease: CaptureLiftLease = {
+      view,
+      get origin() { return record.origin; },
+      get liftedAtMs() { return record.liftedAtMs; },
+      get released() { return released; },
+      upgradeToInWindow: (upgradeOpts?: { budgetMs?: number }) => {
+        if (released || this.captureLift !== record) return false;
+        if (record.origin === 'in-window') return true;
+        if (upgradeOpts?.budgetMs !== undefined) opts.budgetMs = upgradeOpts.budgetMs;
+        if (!this.raiseViewInWindow(view)) {
+          this.lowerCaptureLift(record, 'upgrade-failed');
+          return false;
+        }
+        arm();
+        recordLift('upgraded');
+        return true;
+      },
+      release: (reason?: string) => {
+        if (released) return;
+        released = true;
+        disarm();
+        this.lowerCaptureLift(record, reason);
+      },
+    };
+    record = { token: ++this.captureLiftToken, view, origin: 'capture-host', liftedAtMs: Date.now(), lease };
+    this.captureLift = record;
+    try {
+      if (!opts?.inWindow && this.raiseViewOnCaptureHost(view)) {
+        arm();
+        recordLift('raised');
+        return lease;
+      }
+      // Host unavailable (tests, or BrowserWindow refused), not preferred, or
+      // starved: the in-window lift paints the pane over the user's tab for the
+      // raster, bounded by the hard cap. A pane parked on the capture host
+      // cannot be lifted inside the window — the failed raise already restored
+      // it to where the attach helper left it.
+      if (!this.raiseViewInWindow(view)) {
+        this.captureLift = null;
+        throw new CapabilityError('NO_RENDER_SURFACE', 'The window could not present the pane for its capture lift.');
+      }
+      arm();
+      recordLift('raised');
+      return lease;
+    } catch (err) {
+      if (this.captureLift === record) this.captureLift = null;
+      disarm();
+      throw err;
+    }
+  }
+
+  /** Both raise origins record into the same slot — an in-window lift is finally visible to the burying path. */
+  private writeCaptureLift(view: WebContentsView, origin: CaptureLiftOrigin): void {
+    if (this.captureLift && this.captureLift.view === view) {
+      this.captureLift.origin = origin;
+    }
+  }
+
+  /** Hand the freed slot to the next queued acquire in FIFO order; a waiter whose pane died meanwhile is refused. */
+  private wakeCaptureLiftQueue(): void {
+    while (this.captureLift === null && this.captureLiftQueue && this.captureLiftQueue.length > 0) {
+      const waiter = this.captureLiftQueue.shift()!;
+      clearTimeout(waiter.timer);
+      try {
+        this.assertCaptureLiftableView(waiter.view);
+        waiter.grant(this.grantCaptureLift(waiter.view, waiter.opts));
+      } catch (err) {
+        waiter.reject(err);
+      }
+    }
+  }
+
+  /**
+   * Keep the lease, bury the pane: remove it from the capture host when raised
+   * there, ensure it is back in the window below the presented view (only while
+   * an attach-for-capture helper still owns its parent — the existing
+   * contract), and re-assert the z-stack. The capture's own `finally` still
+   * owns the release; a bury never fakes one.
+   */
+  private buryCaptureLift(reason?: string): void {
+    const record = this.captureLift;
+    if (!record) return;
+    const view = record.view;
+    const host = this.captureHostWindow;
+    try {
+      if (host && (typeof host.isDestroyed !== 'function' || !host.isDestroyed()) && Array.isArray(host.contentView?.children) && host.contentView.children.includes(view)) {
+        host.contentView.removeChildView(view);
+      }
+    } catch {}
+    if (this.isTemporarilyAttachedView(view)) {
+      try {
+        if (this.shell.window && (typeof this.shell.window.isDestroyed !== 'function' || !this.shell.window.isDestroyed())) {
+          this.attachTabView(view, false);
+        }
+      } catch {}
+    } else {
+      try {
+        if (this.shell.window && (typeof this.shell.window.isDestroyed !== 'function' || !this.shell.window.isDestroyed())) {
+          if (!this.isTabViewAttached(view)) {
+            this.attachTabView(view, false);
+          }
+        }
+      } catch {}
+    }
+    try { this.enforceZOrder(); } catch {}
+  }
+
+  /**
+   * Terminal release: bury the pane, clear the slot, journal the transition,
+   * and wake the FIFO queue. A stale lease is answered with the bury only — a
+   * release can never clear a lease a newer capture is holding.
+   */
+  private lowerCaptureLift(record: CaptureLiftRecord, reason?: string): void {
+    this.buryCaptureLift(reason);
+    const isCurrent = this.captureLift === record;
+    if (isCurrent) this.captureLift = null;
+    const tabId = this.tabByWebContents?.get(record.view.webContents)?.tabId;
+    recordLifecycleEvent('capture.lift', {
+      tabId,
+      origin: record.origin,
+      phase: reason === 'watchdog' ? 'watchdog-lowered' : 'lowered',
+      liftedMs: Date.now() - record.liftedAtMs,
+      lowered: true,
+      reason,
+    });
+    if (isCurrent) this.wakeCaptureLiftQueue();
   }
 
   /**
@@ -4897,9 +5675,6 @@ export class NativeTabHost extends EventEmitter {
   private raiseViewOnCaptureHost(view: WebContentsView): boolean {
     const host = this.ensureCaptureHostWindow();
     if (!host) return false;
-    // The host has one tracked occupant. Release it before transferring a
-    // different pane, otherwise its parent becomes invisible to cleanup.
-    if (this.raisedCaptureView && this.raisedCaptureView !== view) this.lowerRaisedCaptureView();
     const current = typeof view.getBounds === 'function' ? view.getBounds() : undefined;
     const width = Math.max(1, Math.round(current?.width || 1280));
     const height = Math.max(1, Math.round(current?.height || 800));
@@ -4909,7 +5684,7 @@ export class NativeTabHost extends EventEmitter {
       if (!host.isVisible()) host.showInactive();
       if (this.shell.window.contentView.children.includes(view)) this.shell.window.contentView.removeChildView(view);
       host.contentView.addChildView(view);
-      this.raisedCaptureView = view;
+      this.writeCaptureLift(view, 'capture-host');
       if (typeof view.setBounds === 'function') view.setBounds({ x: 0, y: 0, width, height });
       const wc = view.webContents;
       if (wc && typeof wc.isDestroyed === 'function' && !wc.isDestroyed() && typeof wc.invalidate === 'function') {
@@ -4918,7 +5693,7 @@ export class NativeTabHost extends EventEmitter {
       return true;
     } catch (err) {
       console.warn('[native-tab-host] capture-host raise failed:', err);
-      if (this.raisedCaptureView === view) this.lowerRaisedCaptureView();
+      if (this.captureLift?.view === view) this.buryCaptureLift('raise-failed');
       return false;
     }
   }
@@ -4962,28 +5737,19 @@ export class NativeTabHost extends EventEmitter {
     return { x: minX - width - 64, y: minY - height - 64 };
   }
 
-  /** Return a host-raised pane to the main window, below the presented tab. */
-  private lowerRaisedCaptureView(): void {
-    const view = this.raisedCaptureView;
-    if (!view) return;
-    this.raisedCaptureView = null;
-    const host = this.captureHostWindow;
-    try {
-      if (host && (typeof host.isDestroyed !== 'function' || !host.isDestroyed()) && Array.isArray(host.contentView?.children) && host.contentView.children.includes(view)) {
-        host.contentView.removeChildView(view);
-      }
-    } catch {}
-    if (!this.isTemporarilyAttachedView(view)) return;
-    if (!this.shell.window || (typeof this.shell.window.isDestroyed === 'function' && this.shell.window.isDestroyed())) return;
-    this.attachTabView(view, false);
-  }
-
-  private raiseViewInWindow(view: WebContentsView): void {
-    if (!this.shell.window || !this.shell.window.contentView) return;
+  private raiseViewInWindow(view: WebContentsView): boolean {
+    if (!this.shell.window || !this.shell.window.contentView) return false;
     const contentView = this.shell.window.contentView;
     try {
+      // A pane parked on the capture host cannot be lifted inside this window:
+      // hand it back first so the parent is the window the lift raises it in.
+      const captureHost = this.captureHostWindow;
+      if (captureHost && (typeof captureHost.isDestroyed !== 'function' || !captureHost.isDestroyed()) && Array.isArray(captureHost.contentView?.children) && captureHost.contentView.children.includes(view)) {
+        captureHost.contentView.removeChildView(view);
+      }
       if (typeof contentView.removeChildView === 'function') contentView.removeChildView(view);
       if (typeof contentView.addChildView === 'function') contentView.addChildView(view);
+      this.writeCaptureLift(view, 'in-window');
       if (this.shell.sidebarView && this.isTabViewAttached(this.shell.sidebarView as unknown as WebContentsView)) {
         contentView.removeChildView(this.shell.sidebarView);
         contentView.addChildView(this.shell.sidebarView);
@@ -4996,8 +5762,10 @@ export class NativeTabHost extends EventEmitter {
       if (wc && typeof wc.isDestroyed === 'function' && !wc.isDestroyed() && typeof wc.invalidate === 'function') {
         try { wc.invalidate(); } catch {}
       }
+      return true;
     } catch (err) {
-      console.warn('[native-tab-host] raiseViewForCapture error:', err);
+      console.warn('[native-tab-host] in-window capture lift error:', err);
+      return false;
     }
   }
 
@@ -5203,7 +5971,8 @@ export class NativeTabHost extends EventEmitter {
     // Fail-closed: only an http(s) origin can be scoped. Without `origin`,
     // Electron's clearStorageData wipes the ENTIRE partition (every site),
     // so about:blank / file: / chrome:// pages REFUSE instead.
-    const currentUrl = activeTab.view.webContents.getURL();
+    const activeWc = activeTab.view?.webContents;
+    const currentUrl = activeWc && !activeWc.isDestroyed() ? activeWc.getURL() : (activeTab.state.url || '');
     let origin: string | null = null;
     try {
       const parsed = new URL(currentUrl);
@@ -5215,10 +5984,12 @@ export class NativeTabHost extends EventEmitter {
       return { success: false, cleared: false, reason: 'UNSUPPORTED_ORIGIN', origin: currentUrl };
     }
     try {
-      const ses = activeTab.view.webContents.session;
+      const ses = activeTab.view?.webContents?.session || (activeTab.state.partition ? session.fromPartition(activeTab.state.partition) : undefined);
+      if (!ses) return { success: false, cleared: false, reason: 'UNSUPPORTED_ORIGIN', origin: currentUrl };
       await ses.clearStorageData({ origin, storages: ['cookies', 'localstorage', 'cachestorage'] });
-      if (!activeTab.view.webContents.isDestroyed()) {
-        activeTab.view.webContents.reload();
+      const liveWc = activeTab.view?.webContents;
+      if (liveWc && !liveWc.isDestroyed()) {
+        liveWc.reload();
       }
       if (activeTab.state.splitMode && activeTab.mobileView && !activeTab.mobileView.webContents.isDestroyed()) {
         activeTab.mobileView.webContents.reload();
@@ -5307,6 +6078,7 @@ export class NativeTabHost extends EventEmitter {
   public setWindowWorkspaceAffiliation(affiliation: WindowWorkspaceAffiliation | null): boolean {
     if (affiliation === null) {
       this.windowWorkspaceAffiliation = null;
+      try { TerminalOutputRouter.getInstance().invalidateRoutes(); } catch {}
       return true;
     }
     if (!affiliation || typeof affiliation !== 'object') return false;
@@ -5318,6 +6090,9 @@ export class NativeTabHost extends EventEmitter {
       workspacePath: path.normalize(workspacePath),
       ...(capsuleId ? { capsuleId: capsuleId.trim() } : {}),
     };
+    // The affiliation decides which sessions this window owns; the routed map
+    // follows it immediately instead of the next session event.
+    try { TerminalOutputRouter.getInstance().invalidateRoutes(); } catch {}
     return true;
   }
 
@@ -5330,9 +6105,9 @@ export class NativeTabHost extends EventEmitter {
    * no verified association. Never another window's workspace.
    */
   public resolveWindowWorkspaceRoot(): string {
-    const affiliation = this.windowWorkspaceAffiliation;
-    if (affiliation && isExistingDirectory(affiliation.workspacePath)) return affiliation.workspacePath;
-    return '';
+    // A pure field read: terminal routing calls this for every output chunk of every
+    // session, so the directory is verified once, in setWindowWorkspaceAffiliation.
+    return this.windowWorkspaceAffiliation?.workspacePath ?? '';
   }
 
   /**
@@ -5610,6 +6385,31 @@ export class NativeTabHost extends EventEmitter {
   }
 
   /**
+   * Run cards visible to one window or popout. Popout windows are restricted to
+   * their bound session; sidebar windows receive all sessions visible to this window.
+   */
+  public runCardsForWindow(runs: readonly RunCardState[], senderId?: number, boundSessionId?: string): RunCardState[] {
+    let bound = boundSessionId;
+    if (!bound && senderId !== undefined) {
+      for (const [winId, meta] of this.terminalWindowMeta.entries()) {
+        const win = this.terminalWindows.get(winId);
+        if (win && win.webContents?.id === senderId) {
+          bound = meta?.sessionId;
+          break;
+        }
+      }
+    }
+
+    return (Array.isArray(runs) ? runs : []).filter((card) => {
+      if (!card || typeof card.terminalSessionId !== 'string') return false;
+      if (bound) {
+        return card.terminalSessionId === bound;
+      }
+      return this.isSessionVisibleToWindow(card.terminalSessionId, undefined, senderId);
+    });
+  }
+
+  /**
    * The process diagnostics this window may read.
    *
    * The report names every session, its owner key, its capsule, its subscriber and the
@@ -5686,7 +6486,9 @@ export class NativeTabHost extends EventEmitter {
       }
     }
     const windowRoot = this.resolveWindowWorkspaceRoot();
-    if (windowRoot) {
+    // Spawning a shell is the one place a vanished workspace matters: check it here, cold,
+    // rather than on the per-chunk routing path.
+    if (windowRoot && isExistingDirectory(windowRoot)) {
       return {
         cwd: windowRoot,
         capsuleId: this.windowTerminalProvenance() ?? DEFAULT_TERMINAL_CAPSULE_ID,
@@ -5780,7 +6582,7 @@ export class NativeTabHost extends EventEmitter {
     if (this.windowOwnerKey() !== expectedOwnerKey) {
       return { ok: false, tabId, reason: 'OWNER_CHANGED' };
     }
-    this.switchTab(tabId);
+    this.switchTab(tabId, { plane: 'user' });
     if (this.activeTabId !== tabId) {
       return { ok: false, tabId, reason: 'TAB_UNAVAILABLE' };
     }
@@ -5801,6 +6603,14 @@ export class NativeTabHost extends EventEmitter {
     const tab = this.tabs.get(targetId);
     if (!tab) return null;
 
+    // A hibernated record materializes its views on first touch — this is the
+    // single funnel every capability, devtools-host and legacy RPC path asks,
+    // so waking here covers callers that never go through `switchTab`. Wake is
+    // synchronous view+loadURL; the load-settle wait lives in `ensureTabReady`.
+    if (tab.state.hibernated === true) {
+      this.ensureTabAwake(targetId);
+    }
+
     if (paneId === 'mobile') {
       if (tab.state.splitMode && tab.mobileView && !tab.mobileView.webContents.isDestroyed()) {
         return tab.mobileView.webContents;
@@ -5809,13 +6619,15 @@ export class NativeTabHost extends EventEmitter {
     }
 
     if (paneId === 'desktop') {
-      return tab.view.webContents.isDestroyed() ? null : tab.view.webContents;
+      const wc = tab.view?.webContents;
+      return !wc || wc.isDestroyed() ? null : wc;
     }
 
     if (tab.state.splitMode && tab.focusedPane === 'mobile' && tab.mobileView && !tab.mobileView.webContents.isDestroyed()) {
       return tab.mobileView.webContents;
     }
-    return tab.view.webContents.isDestroyed() ? null : tab.view.webContents;
+    const wc = tab.view?.webContents;
+    return !wc || wc.isDestroyed() ? null : wc;
   }
   public getAutomationTabId(): string | null {
     return this.automationTabId;
@@ -6089,9 +6901,11 @@ export class NativeTabHost extends EventEmitter {
     this.applySiteMute(wc, state, paneId, state.url);
     const updateAudible = () => {
       const tab = this.tabs.get(id);
+      const desktopWc = tab?.view?.webContents;
+      const mobileWc = tab?.mobileView?.webContents;
       state.isAudible = Boolean(tab && (
-        (!tab.view.webContents.isDestroyed() && tab.view.webContents.isCurrentlyAudible()) ||
-        (tab.mobileView && !tab.mobileView.webContents.isDestroyed() && tab.mobileView.webContents.isCurrentlyAudible())
+        (desktopWc && !desktopWc.isDestroyed() && desktopWc.isCurrentlyAudible()) ||
+        (mobileWc && !mobileWc.isDestroyed() && mobileWc.isCurrentlyAudible())
       ));
       this.broadcastState();
     };
@@ -6324,9 +7138,13 @@ export class NativeTabHost extends EventEmitter {
           tabId: id,
           sessions: selectAnnotationTargets(this.visibleTerminalSessions()),
           selectedSessionId: tm.getActiveSessionId(),
+          annotationMode: TabDevToolsHost.lastAnnotationMode,
+          annotationActionChip: TabDevToolsHost.lastAnnotationActionChip,
         };
         if (tabSessionId !== undefined) {
           termContextData.annotationSessionId = tabSessionId;
+        } else if (TabDevToolsHost.lastAnnotationSessionId) {
+          termContextData.annotationSessionId = TabDevToolsHost.lastAnnotationSessionId;
         }
         const termContextScript = `(() => {
           window.__antifanTerminalContext = Object.assign(window.__antifanTerminalContext || {}, ${JSON.stringify(termContextData)});
@@ -6544,14 +7362,16 @@ export class NativeTabHost extends EventEmitter {
     });
     (wc as unknown as EventEmitter).on('close', () => {
       clearLoadingTimer();
-      if (paneId === 'desktop' && !this.isDisposed && this.tabs.has(id)) {
+      // A hibernation-driven destroy keeps the record (the view is rebuilt on
+      // wake); only an unexpected destruction tears the whole tab down.
+      if (paneId === 'desktop' && !this.isDisposed && this.tabs.has(id) && !this.hibernatingTabIds.has(id)) {
         this.closeTab(id);
       }
     });
 
     wc.on('destroyed', () => {
       clearLoadingTimer();
-      if (paneId === 'desktop' && !this.isDisposed && this.tabs.has(id)) {
+      if (paneId === 'desktop' && !this.isDisposed && this.tabs.has(id) && !this.hibernatingTabIds.has(id)) {
         this.closeTab(id);
       }
     });
@@ -6623,6 +7443,7 @@ export class NativeTabHost extends EventEmitter {
 
     this.setupGlobalShortcutsOnView(wc, id);
     this.setupContextMenu(wc, paneId);
+    this.trackUserActivityOnView(wc);
   }
 
   public createTab(
@@ -6639,6 +7460,8 @@ export class NativeTabHost extends EventEmitter {
       terminalSessionId?: string;
       devicePresetId?: string;
       mobile?: boolean;
+      /** Which plane the activation rides when `activate` is set; agent callers declare 'agent'. */
+      plane?: SwitchPlane;
     }
   ): string {
     if (this.isDisposed) return '';
@@ -6739,7 +7562,7 @@ export class NativeTabHost extends EventEmitter {
 
     const effectivePreset = initialPreset || (options?.mobile ? findDevicePreset('iphone-15') : undefined);
 
-    const tabEntry: { view: WebContentsView; state: AntiFanTab; focusedPane: 'desktop' | 'mobile'; customViewport?: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number } } = { view, state, focusedPane: 'desktop' };
+    const tabEntry: { view: WebContentsView; state: AntiFanTab; focusedPane: 'desktop' | 'mobile'; customViewport?: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number }; lastActiveAt?: number } = { view, state, focusedPane: 'desktop', lastActiveAt: Date.now() };
     if (effectivePreset) {
       tabEntry.customViewport = {
         width: effectivePreset.width || 390,
@@ -6823,7 +7646,10 @@ export class NativeTabHost extends EventEmitter {
       state.isLoading = false;
     }
     if (activate && !isAgentTab) {
-      this.switchTab(id);
+      // A tab opened on explicit user intent (the + button, Ctrl+T, a window.open
+      // the user clicked) may take focus; an agent caller declares 'agent' and
+      // rides the deferral gate like every other agent-plane activation.
+      this.switchTab(id, { plane: options?.plane === 'agent' ? 'agent' : 'user' });
     } else {
       if (!isOffscreen && !isAgentTab) {
         wc.once('did-stop-loading', () => {
@@ -6842,17 +7668,44 @@ export class NativeTabHost extends EventEmitter {
     return id;
   }
 
-  public switchTab(tabId: string): boolean {
-    if (this.isDisposed) return false;
+  /**
+   * Boolean switch kept for callers that never asked why a switch did not happen.
+   * Everything runs through `trySwitchTab` on the agent plane: an agent switch
+   * never takes DOM focus and defers to user input the window saw moments ago.
+   */
+  public switchTab(tabId: string, opts?: SwitchTabOptions): boolean {
+    return this.trySwitchTab(tabId, opts).ok;
+  }
+
+  /**
+   * The typed activation entrypoint. A refusal is reported, never silent:
+   * `TARGET_MISSING` for a tab that does not exist, `TARGET_NOT_ACTIVATABLE` for
+   * offscreen and ephemeral tabs, and `ACTIVATION_DEFERRED_USER_INPUT` when an
+   * agent-plane switch would move the presented pane while the user typed
+   * inside the recency window — the caller retries after `retryAfterMs`
+   * instead of competing. `activeTabId` is untouched on every refusal; only
+   * `TARGET_NOT_ACTIVATABLE` re-asserts the presented view, because an earlier
+   * transaction may have taken it away and the window must not be left empty.
+   */
+  public trySwitchTab(tabId: string, opts?: SwitchTabOptions): SwitchTabResult {
+    const plane: SwitchPlane = opts?.plane === 'user' ? 'user' : 'agent';
+    if (this.isDisposed) return { ok: false, tabId, reason: 'TARGET_MISSING' };
     try {
       const targetId = this.resolveTargetTabId(tabId) || tabId;
       const target = this.tabs.get(targetId);
-      if (!target) return false;
+      // TARGET_MISSING attaches nothing, focuses nothing and touches no view —
+      // there is nothing to restore, so it answers without reasserting.
+      if (!target) return { ok: false, tabId: targetId, reason: 'TARGET_MISSING' };
       if (target.state.offscreen === true || target.state.ephemeral === true) {
-        // Refusing to present an agent-plane tab must not also leave the window with no
+        // Refusing to present a pane must not also leave the window with no
         // view at all when an earlier transaction took the presented one away.
         this.reassertPresentedView();
-        return false;
+        return { ok: false, tabId: targetId, reason: 'TARGET_NOT_ACTIVATABLE', retryAfterMs: undefined };
+      }
+      if (plane === 'agent' && this.userInputRecentlySeen() && targetId !== this.activeTabId) {
+        const retryAfterMs = Math.max(1, USER_INPUT_RECENCY_MS - (Date.now() - this.lastUserInputAtMs));
+        recordLifecycleEvent('tabhost.agentSwitchDeferred', { tabId: targetId, retryAfterMs });
+        return { ok: false, tabId: targetId, reason: 'ACTIVATION_DEFERRED_USER_INPUT', retryAfterMs };
       }
       const switchStartMs = performance.now();
       // Per-step timings for this switch (see markSwitchStep). The aggregate `switched`
@@ -6861,45 +7714,34 @@ export class NativeTabHost extends EventEmitter {
       const stepBucket = isBenchmarkEnabled() ? ({} as Record<string, number>) : null;
       let stepMark = switchStartMs;
 
-      // Guard against destroyed WebContents/WebContentsView or crashed renderer
-      const isTargetDestroyed = !target.view || target.view.webContents.isDestroyed();
-      const isTargetCrashed = !isTargetDestroyed && (target.state.crashed === true || (typeof target.view.webContents.isCrashed === 'function' && target.view.webContents.isCrashed()));
+      // Guard against a hibernated record (view destroyed by the sweep), a
+      // destroyed WebContents/WebContentsView, or a crashed renderer. The hibernated
+      // case funnels through the same recreate path — the only difference is the
+      // destroy was deliberate, so the strip already knows the tab is asleep.
+      const isHibernated = target.state.hibernated === true;
+      const isTargetDestroyed = isHibernated || !target.view || !target.view.webContents || target.view.webContents.isDestroyed();
+      const isTargetCrashed = !isTargetDestroyed && (target.state.crashed === true || (typeof target.view!.webContents.isCrashed === 'function' && target.view!.webContents.isCrashed()));
       if (isTargetDestroyed || isTargetCrashed) {
-        console.warn(`[native-tab-host] Target tab ${targetId} webContents is ${isTargetCrashed ? 'crashed' : 'destroyed'}; recreating view`);
-        // Release the previous view before replacing it. A crashed renderer leaves its
-        // WebContentsView attached to the window, holding a renderer, forever: the
-        // detach sweep below walks `this.tabs` and never destroys, so nothing else
-        // would ever free this one. The window can be narrower than the renderer's
-        // appetite, so leaking one view per crash compounds.
-        try {
-          if (this.shell.window && !this.shell.window.isDestroyed() && target.view && this.shell.window.contentView.children.includes(target.view)) {
-            this.shell.window.contentView.removeChildView(target.view);
-          }
-        } catch {}
-        try { this.destroyOwnedWebContents(target.view?.webContents); } catch {}
-        if (target.view?.webContents) this.tabByWebContents?.delete(target.view.webContents);
-        target.view = new WebContentsView({
-          webPreferences: getSecureWebPreferences(target.state.partition),
-        });
-        try { target.view.setBackgroundColor('#ffffff'); } catch {}
-        target.state.crashed = false;
-        this.setSafeUserAgent(target.view.webContents, this.defaultUserAgent);
-        const isBlank = !target.state.url || target.state.url === 'about:blank';
-        target.state.isLoading = !isBlank;
-        this.setupTabWebContentsEvents(targetId, target.view, target.state, 'desktop');
-        this.tabByWebContents?.set(target.view.webContents, { tabId: targetId, tab: target });
-        if (!isBlank && isAllowedNavigation(target.state.url)) {
-          target.view.webContents.loadURL(target.state.url).catch((err: unknown) => {
-            if (err && typeof err === 'object' && ('code' in err || 'errno' in err)) {
-              const code = 'code' in err ? String(err.code) : '';
-              const errno = 'errno' in err ? Number(err.errno) : 0;
-              if (code === 'ERR_ABORTED' || errno === -3) {
-                return;
+        if (isHibernated) {
+          this.ensureTabAwake(targetId);
+        } else {
+          console.warn(`[native-tab-host] Target tab ${targetId} webContents is ${isTargetCrashed ? 'crashed' : 'destroyed'}; recreating view`);
+          this.recreateDesktopView(targetId, target);
+          const isBlank = !target.state.url || target.state.url === 'about:blank';
+          target.state.isLoading = !isBlank;
+          if (!isBlank && isAllowedNavigation(target.state.url)) {
+            target.view!.webContents.loadURL(target.state.url).catch((err: unknown) => {
+              if (err && typeof err === 'object' && ('code' in err || 'errno' in err)) {
+                const code = 'code' in err ? String(err.code) : '';
+                const errno = 'errno' in err ? Number(err.errno) : 0;
+                if (code === 'ERR_ABORTED' || errno === -3) {
+                  return;
+                }
               }
-            }
-            target.state.isLoading = false;
-            this.broadcastState();
-          });
+              target.state.isLoading = false;
+              this.broadcastState();
+            });
+          }
         }
       } else if (!target.state.url || target.state.url === 'about:blank') {
         target.state.isLoading = false;
@@ -6950,6 +7792,10 @@ export class NativeTabHost extends EventEmitter {
       stepMark = markSwitchStep(stepBucket, 'ensureView', stepMark);
 
       this.activeTabId = targetId;
+      // Idle clock resets on activation AND on user input (the input listener
+      // in setupTabWebContentsEvents does the other half), so the sweep measures
+      // from the last time this tab was genuinely seen or touched.
+      target.lastActiveAt = Date.now();
 
       // Whether these views were presented before this switch touched them. An already attached
       // view may be occluded or held by a capture, so the re-assert below still drops and re-adds
@@ -7017,29 +7863,34 @@ export class NativeTabHost extends EventEmitter {
       this.broadcastState();
       stepMark = markSwitchStep(stepBucket, 'layoutBroadcast', stepMark);
 
-      if (this.isRulerActive && !target.view.webContents.isDestroyed()) {
-        target.view.webContents.executeJavaScript(RULER_SCRIPT).catch(() => {});
+      const targetWc = target.view?.webContents;
+      if (this.isRulerActive && targetWc && !targetWc.isDestroyed()) {
+        targetWc.executeJavaScript(RULER_SCRIPT).catch(() => {});
         if (target.mobileView && !target.mobileView.webContents.isDestroyed()) {
           target.mobileView.webContents.executeJavaScript(RULER_SCRIPT).catch(() => {});
         }
       }
-      if (this.isLensActive && !target.view.webContents.isDestroyed()) {
-        target.view.webContents.executeJavaScript(GPU_LENS_SCRIPT).catch(() => {});
+      if (this.isLensActive && targetWc && !targetWc.isDestroyed()) {
+        targetWc.executeJavaScript(GPU_LENS_SCRIPT).catch(() => {});
         if (target.mobileView && !target.mobileView.webContents.isDestroyed()) {
           target.mobileView.webContents.executeJavaScript(GPU_LENS_SCRIPT).catch(() => {});
         }
       }
-      if (this.isFontFinderActive && !target.view.webContents.isDestroyed()) {
-        target.view.webContents.executeJavaScript(FONT_FINDER_SCRIPT).catch(() => {});
+      if (this.isFontFinderActive && targetWc && !targetWc.isDestroyed()) {
+        targetWc.executeJavaScript(FONT_FINDER_SCRIPT).catch(() => {});
         if (target.mobileView && !target.mobileView.webContents.isDestroyed()) {
           target.mobileView.webContents.executeJavaScript(FONT_FINDER_SCRIPT).catch(() => {});
         }
       }
       this.applyTabThrottling();
       stepMark = markSwitchStep(stepBucket, 'throttle', stepMark);
-      if (target.view?.webContents && !target.view.webContents.isDestroyed()) {
-        try { target.view.webContents.invalidate(); } catch {}
-        try { target.view.webContents.focus(); } catch {}
+      if (targetWc && !targetWc.isDestroyed()) {
+        try { targetWc.invalidate(); } catch {}
+        if (plane === 'user') {
+          // The user plane is the only plane that may take DOM focus — the
+          // agent plane presents the pane but the user's focus stays put.
+          try { targetWc.focus(); } catch {}
+        }
       }
       if (target.mobileView?.webContents && !target.mobileView.webContents.isDestroyed()) {
         try { target.mobileView.webContents.invalidate(); } catch {}
@@ -7053,11 +7904,11 @@ export class NativeTabHost extends EventEmitter {
           recordBenchmark({ surface: 'tabs', name: 'switch-steps', value: Number((performance.now() - switchStartMs).toFixed(3)), extra: stepBucket });
         }
       }
-      return true;
+      return { ok: true, tabId: targetId };
     } catch (err) {
       console.error('[native-tab-host] switchTab unexpected error:', err);
       try {
-        if (this.activeTabId && this.tabs.has(this.activeTabId)) {
+        if (plane === 'user' && this.activeTabId && this.tabs.has(this.activeTabId)) {
           const fallbackTab = this.tabs.get(this.activeTabId);
           if (fallbackTab?.view && !fallbackTab.state.offscreen && !fallbackTab.state.ephemeral) {
             this.attachTabView(fallbackTab.view, false);
@@ -7069,7 +7920,7 @@ export class NativeTabHost extends EventEmitter {
       // A switch that failed still owes the window a presented view: whatever is active
       // now beats an empty pane.
       try { this.reassertPresentedView(); } catch {}
-      return false;
+      return { ok: false, tabId: this.resolveTargetTabId(tabId) || tabId, reason: 'TARGET_NOT_ACTIVATABLE' };
     }
   }
   public applyTabThrottling(): void {
@@ -7144,6 +7995,18 @@ export class NativeTabHost extends EventEmitter {
   }
   public setTabAiState(tabId: string, aiState: 'idle' | 'thinking' | 'streaming' | 'completed' | 'agent_working'): void {
     this.getAutomationHost().setTabAiState(tabId, aiState);
+  }
+  public setTabThemeError(tabId: string, themeError?: string): void {
+    const tab = this.tabs.get(tabId);
+    if (!tab) return;
+    tab.state.themeError = themeError;
+    this.broadcastState();
+  }
+  public setTabScrollPosition(tabId: string, scrollX: number, scrollY: number): void {
+    const tab = this.tabs.get(tabId);
+    if (!tab) return;
+    tab.state.scrollX = scrollX;
+    tab.state.scrollY = scrollY;
   }
   public clearAllAgentWorking(): void {
     this.getAutomationHost().clearAllAgentWorking();
@@ -7241,7 +8104,7 @@ export class NativeTabHost extends EventEmitter {
     }
     if (this.activeTabId === tabId) {
       try {
-        this.shell.window.contentView.removeChildView(target.view);
+        if (target.view) this.shell.window.contentView.removeChildView(target.view);
       } catch {}
       if (target.mobileView) {
         try {
@@ -7250,7 +8113,7 @@ export class NativeTabHost extends EventEmitter {
       }
     }
     try {
-      this.destroyOwnedWebContents(target.view.webContents);
+      this.destroyOwnedWebContents(target.view?.webContents);
     } catch {}
     if (target.mobileView) {
       try {
@@ -7268,7 +8131,7 @@ export class NativeTabHost extends EventEmitter {
         return t && t.state.ephemeral !== true && t.state.offscreen !== true;
       });
       if (userTabs.length > 0) {
-        this.switchTab(userTabs[userTabs.length - 1]!);
+        this.switchTab(userTabs[userTabs.length - 1]!, { plane: 'user' });
       } else if (reservedForClose || authorizedByAttempt) {
         // Repairing "the window is never empty" must not run inside an authorized close:
         // the replacement page would be a new arrival the attempt has to treat as one, so
@@ -7507,7 +8370,13 @@ export class NativeTabHost extends EventEmitter {
     };
     const onDestroyed = (): void => finish('closed');
     // Never preventDefault here: the whole point of this observer is to honor the veto.
-    const onWillPreventUnload = (): void => finish('vetoed');
+    // A page whose beforeunload vetoed a close is a dirty form the user chose to keep:
+    // the hibernation sweep must never probe it either, so the veto marks the tab for
+    // exclusion the same way a refused sleep probe does.
+    const onWillPreventUnload = (): void => {
+      this.unloadVetoedTabIds?.add(targetId);
+      finish('vetoed');
+    };
 
     this.attemptAuthorizedCloses?.add(targetId);
     if (typeof wc.isDestroyed === 'function' && wc.isDestroyed()) {
@@ -7615,7 +8484,369 @@ export class NativeTabHost extends EventEmitter {
       this.reassertPresentedView();
       return true;
     }
-    return this.switchTab(target);
+    return this.switchTab(target, { plane: 'user' });
+  }
+
+  // ── Tab hibernation ────────────────────────────────────────────────────────
+
+  /**
+   * Test/probe seam: narrow the idle threshold below `HIBERNATE_IDLE_MS`.
+   * Production never calls this; the constant stays the shipped default.
+   */
+  public setHibernationIdleMsForTesting(idleMs: number): void {
+    if (typeof idleMs === 'number' && idleMs > 0) this.hibernationIdleMs = idleMs;
+  }
+
+  /**
+   * Test/probe seam: force one tab through the hibernation machinery without
+   * waiting out the sweep timer. Every exclusion the shipping sweep honors is
+   * still consulted (agent plane, automation target, MCP/CDP bindings, unload
+   * veto) — only the idle question is answered for the probe by a `now` read at
+   * the tab's own idle boundary, so it never sleeps a tab the sweep itself
+   * would refuse.
+   */
+  public beginTabHibernation(tabId: string): Promise<boolean> {
+    const tab = this.tabs?.get(tabId);
+    if (!tab || tab.state.hibernated === true || this.hibernatingTabIds?.has(tabId)) {
+      return Promise.resolve(false);
+    }
+    const decision = shouldHibernate(
+      { id: tabId, state: tab.state, lastActiveAt: tab.lastActiveAt },
+      {
+        activeTabId: this.activeTabId,
+        automationTabId: this.automationTabId,
+        boundTabIds: this.hibernationBoundTabIds(),
+        cdpBoundTabIds: this.hibernationCdpBoundTabIds(),
+        unloadVetoedTabIds: this.unloadVetoedTabIds,
+        // The idle question is answered for the probe: `now` sits exactly at the
+        // tab's own idle boundary against the SAME threshold the policy uses.
+        now: (tab.lastActiveAt || 0) + (this.hibernationIdleMs || HIBERNATE_IDLE_MS),
+        idleMs: this.hibernationIdleMs || HIBERNATE_IDLE_MS,
+      },
+    );
+    if (!decision.hibernate) return Promise.resolve(false);
+    return this.hibernateTab(tabId);
+  }
+
+  /** Ensure the per-host sweep timer exists (created lazily, `unref`'d). */
+  public ensureHibernationSweep(): void {
+    if (this.isDisposed || this.hibernationSweepTimer) return;
+    this.hibernationSweepTimer = setInterval(() => {
+      this.runHibernationSweep().catch((err) => {
+        console.warn('[native-tab-host] hibernation sweep failed:', err);
+      });
+    }, HIBERNATE_SWEEP_INTERVAL_MS);
+    this.hibernationSweepTimer.unref?.();
+  }
+
+  /**
+   * The set of tab ids a live MCP attachment/evidence lease is bound to, read
+   * through the control plane's attachment registry. A host with no control
+   * plane has no bound tabs — the empty set, not a guess.
+   */
+  private hibernationBoundTabIds(): Set<string> {
+    const bound = new Set<string>();
+    const registry = this.controlPlane?.runs?.attachments;
+    if (!registry || typeof registry.getActiveRecordIds !== 'function') return bound;
+    try {
+      for (const attachmentId of registry.getActiveRecordIds()) {
+        const rec = registry.getRecord?.(attachmentId);
+        const tabId = rec?.tabId || rec?.browserTarget?.tabId;
+        if (typeof tabId === 'string' && tabId) bound.add(tabId);
+      }
+    } catch {}
+    return bound;
+  }
+
+  /**
+   * Tab ids with an open debugger/CDP session or open DevTools UI. The devtools
+   * host tracks its transport registrations per WebContents id, so a replaced
+   * view starts clean and a genuinely attached one reports bound.
+   */
+  private hibernationCdpBoundTabIds(): Set<string> {
+    const bound = new Set<string>();
+    const devToolsHost = this.devToolsHost as { hasActiveCdpSession?: (wcId: number) => boolean } | undefined;
+    for (const [id, tab] of this.tabs) {
+      try {
+        const wc = tab.view?.webContents;
+        if (!wc || wc.isDestroyed()) continue;
+        if (typeof wc.isDevToolsOpened === 'function' && wc.isDevToolsOpened()) {
+          bound.add(id);
+          continue;
+        }
+        if (typeof devToolsHost?.hasActiveCdpSession === 'function' && devToolsHost.hasActiveCdpSession(wc.id)) {
+          bound.add(id);
+        }
+      } catch {}
+    }
+    return bound;
+  }
+
+  /**
+   * One 60s sweep: for every tab that passes the pure policy, attempt the
+   * unload-aware destroy. A beforeunload veto marks the tab and moves on — the
+   * sweep never blocks waiting for a single tab's answer.
+   */
+  private async runHibernationSweep(): Promise<void> {
+    if (this.isDisposed) return;
+    const ctx: HibernationContext = {
+      activeTabId: this.activeTabId,
+      automationTabId: this.automationTabId,
+      boundTabIds: this.hibernationBoundTabIds(),
+      cdpBoundTabIds: this.hibernationCdpBoundTabIds(),
+      unloadVetoedTabIds: this.unloadVetoedTabIds,
+      idleMs: this.hibernationIdleMs,
+    };
+    for (const [id, tab] of [...this.tabs.entries()]) {
+      const decision = shouldHibernate({ id, state: tab.state, lastActiveAt: tab.lastActiveAt }, ctx);
+      if (!decision.hibernate) continue;
+      await this.hibernateTab(id);
+    }
+  }
+
+  /**
+   * Snapshot the tab's URL/title/favicon/scroll, then destroy the desktop
+   * WebContentsView (and `mobileView` in split mode) via an unload-aware close.
+   * The record and id stay in `this.tabs`; `state.hibernated` marks the strip.
+   *
+   * Destroy goes through `wc.close({ waitForBeforeUnload: true })` armed with a
+   * `will-prevent-unload` observer — exactly the close-page pattern — so a
+   * dirty form vetoes the sleep instead of losing its data.
+   */
+  private async hibernateTab(tabId: string): Promise<boolean> {
+    const tab = this.tabs.get(tabId);
+    if (!tab || tab.state.hibernated === true) return false;
+    if (this.hibernatingTabIds.has(tabId)) return false;
+    const view = tab.view;
+    const wc = view?.webContents;
+    if (!view || !wc || wc.isDestroyed()) return false;
+
+    // 1. Snapshot what the record must keep: scroll position (URL/title/favicon
+    //    already live on `state`). A wedged renderer gets a bounded probe, not a
+    //    hung sweep — scroll restore is best-effort.
+    try {
+      const pos = await Promise.race([
+        wc.executeJavaScript('({ x: window.scrollX || 0, y: window.scrollY || 0 })'),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 1500)),
+      ]) as { x?: number; y?: number } | null;
+      if (pos) {
+        tab.state.scrollX = pos.x || 0;
+        tab.state.scrollY = pos.y || 0;
+      }
+    } catch {}
+
+    // 2. Close-aware destroy of the pane(s). Mark the tab BEFORE arming the
+    //    close so its `destroyed`/`close` listeners skip `closeTab` and keep the
+    //    record. A veto on either pane aborts the sleep and records the refusal.
+    this.hibernatingTabIds.add(tabId);
+    try {
+      const panes: Array<{ pane: WebContentsView; kind: 'desktop' | 'mobile' }> = [];
+      panes.push({ pane: view, kind: 'desktop' });
+      if (tab.state.splitMode && tab.mobileView && tab.mobileView.webContents && !tab.mobileView.webContents.isDestroyed()) {
+        panes.push({ pane: tab.mobileView, kind: 'mobile' });
+      }
+      for (const { pane, kind } of panes) {
+        const pwc = pane.webContents;
+        if (!pwc || pwc.isDestroyed()) continue;
+        const outcome = await new Promise<'closed' | 'vetoed' | 'unknown'>((resolve) => {
+          let done = false;
+          const finish = (v: 'closed' | 'vetoed' | 'unknown') => { if (!done) { done = true; resolve(v); } };
+          const timer = setTimeout(() => finish('unknown'), 3000);
+          timer.unref?.();
+          pwc.once('will-prevent-unload', () => { clearTimeout(timer); finish('vetoed'); });
+          pwc.once('destroyed', () => { clearTimeout(timer); finish('closed'); });
+          try { pwc.close({ waitForBeforeUnload: true }); } catch { clearTimeout(timer); finish('unknown'); }
+        });
+        if (outcome !== 'closed') {
+          if (outcome === 'vetoed') this.unloadVetoedTabIds.add(tabId);
+          // A pane that refused is left live; a pane already closed is detached
+          // below so its record keeps a coherent (dead or rebuilt-on-wake) view.
+          return false;
+        }
+        try {
+          if (this.shell.window && !this.shell.window.isDestroyed() && this.shell.window.contentView.children.includes(pane)) {
+            this.shell.window.contentView.removeChildView(pane);
+          }
+        } catch {}
+        // Drop the tracker + devtools-session bookkeeping bound to the dead wc.
+        try { this.networkTracker?.detachTarget(tabId, kind); } catch {}
+        if (kind === 'desktop') tab.view = undefined;
+        else tab.mobileView = undefined;
+      }
+
+      // 3. Both panes destroyed: mark the record asleep and broadcast the strip.
+      tab.state.hibernated = true;
+      tab.state.isLoading = false;
+      tab.state.isAudible = false;
+      tab.state.crashed = false;
+      this.schedulePersist();
+      this.broadcastState();
+      return true;
+    } finally {
+      this.hibernatingTabIds.delete(tabId);
+    }
+  }
+
+  /**
+   * Rebuild the desktop view of a record that is hibernated (or whose view is
+   * otherwise gone/crashed) WITHOUT navigating. The shared recreate core —
+   * extracted from `switchTab` so the wake path and the crash-repair path build
+   * the same view, wire the same events, and index it identically.
+   */
+  private recreateDesktopView(targetId: string, target: NativeTabRecord): WebContentsView | null {
+    // Release the previous view before replacing it: a crashed/destroyed renderer
+    // leaves its WebContentsView attached to the window, holding a renderer,
+    // forever — the detach sweep below walks `this.tabs` and never destroys, so
+    // nothing else would ever free this one.
+    try {
+      if (target.view && this.shell.window && !this.shell.window.isDestroyed() && this.shell.window.contentView.children.includes(target.view)) {
+        this.shell.window.contentView.removeChildView(target.view);
+      }
+    } catch {}
+    try { this.destroyOwnedWebContents(target.view?.webContents); } catch {}
+    if (target.view?.webContents) this.tabByWebContents?.delete(target.view.webContents);
+    const view = new WebContentsView({
+      webPreferences: getSecureWebPreferences(target.state.partition),
+    });
+    try { view.setBackgroundColor('#ffffff'); } catch {}
+    target.state.crashed = false;
+    this.setSafeUserAgent(view.webContents, this.defaultUserAgent);
+    this.setupTabWebContentsEvents(targetId, view, target.state, 'desktop');
+    this.tabByWebContents?.set(view.webContents, { tabId: targetId, tab: target });
+    target.view = view;
+    return view;
+  }
+
+  /**
+   * Rebuild the split-mode `mobileView` of a record the same way
+   * `toggleSplitReview` builds it originally, without navigating. Returns null
+   * when the tab is not in split mode.
+   */
+  private recreateMobileView(targetId: string, target: NativeTabRecord): WebContentsView | null {
+    if (target.state.splitMode !== true) return null;
+    try {
+      if (target.mobileView && this.shell.window && !this.shell.window.isDestroyed() && this.shell.window.contentView.children.includes(target.mobileView)) {
+        this.shell.window.contentView.removeChildView(target.mobileView);
+      }
+    } catch {}
+    try { this.destroyOwnedWebContents(target.mobileView?.webContents); } catch {}
+    if (target.mobileView?.webContents) this.tabByWebContents?.delete(target.mobileView.webContents);
+    const mobileView = new WebContentsView({
+      webPreferences: getSecureWebPreferences(target.state.partition),
+    });
+    try { mobileView.setBackgroundColor('#ffffff'); } catch {}
+    const mobilePreset = DEVICE_PRESETS.find((p) => p.id === target.state.splitMobilePresetId) || DEVICE_PRESETS.find((p) => p.id === DEFAULT_SPLIT_MOBILE_PRESET);
+    const mobileUA = getPresetUserAgent(mobilePreset, IPHONE_USER_AGENT);
+    this.setSafeUserAgent(mobileView.webContents, mobileUA || IPHONE_USER_AGENT);
+    target.mobileView = mobileView;
+    this.tabByWebContents?.set(mobileView.webContents, { tabId: targetId, tab: target });
+    this.setupTabWebContentsEvents(targetId, mobileView, target.state, 'mobile');
+    return mobileView;
+  }
+
+  /**
+   * Wake a hibernated tab synchronously: rebuild its views and start loading
+   * its saved URL. Navigation history back/forward is intentionally NOT
+   * restored — the reload always lands on the saved current URL.
+   *
+   * The guard reads the view as well as the flag: a sleep probe that closed the
+   * desktop pane but was vetoed on the mobile pane leaves `view` undefined with
+   * `hibernated` still false, and that half-slept record needs the same rebuild.
+   */
+  public ensureTabAwake(tabId: string): boolean {
+    const tab = this.tabs.get(tabId);
+    if (!tab) return false;
+    const viewMissing = !tab.view || tab.view.webContents?.isDestroyed?.() === true;
+    if (tab.state.hibernated !== true && !viewMissing) return true; // already awake
+    const view = this.recreateDesktopView(tabId, tab);
+    if (!view) return false;
+    tab.state.hibernated = false;
+    tab.state.isLoading = Boolean(tab.state.url && tab.state.url !== 'about:blank');
+    if (tab.state.splitMode === true) {
+      const mobile = this.recreateMobileView(tabId, tab);
+      if (mobile && tab.state.url && tab.state.url !== 'about:blank' && isAllowedNavigation(tab.state.url)) {
+        mobile.webContents.loadURL(tab.state.url).catch(() => {});
+      }
+    }
+    const url = tab.state.url;
+    if (url && url !== 'about:blank' && isAllowedNavigation(url)) {
+      view.webContents.loadURL(url).catch((err: unknown) => {
+        if (err && typeof err === 'object' && ('code' in err || 'errno' in err)) {
+          const code = 'code' in err ? String(err.code) : '';
+          const errno = 'errno' in err ? Number(err.errno) : 0;
+          if (code === 'ERR_ABORTED' || errno === -3) return;
+        }
+        tab.state.isLoading = false;
+        this.broadcastState();
+      });
+      this.restoreTabScrollAfterLoad(tab, view.webContents);
+    }
+    this.broadcastState();
+    return true;
+  }
+
+  /**
+   * Re-apply the saved scroll position once the woken page finishes loading.
+   * Best-effort: a page that never finishes simply keeps its natural scroll.
+   */
+  private restoreTabScrollAfterLoad(tab: NativeTabRecord, wc: Electron.WebContents): void {
+    const x = tab.state.scrollX || 0;
+    const y = tab.state.scrollY || 0;
+    if (!x && !y) return;
+    const apply = () => {
+      if (wc.isDestroyed()) return;
+      wc.executeJavaScript(`window.scrollTo(${x}, ${y})`).catch(() => {});
+    };
+    wc.once('did-finish-load', apply);
+    // Backstop for pages that never emit did-finish-load: try once shortly after.
+    const t = setTimeout(apply, 4000);
+    t.unref?.();
+  }
+
+  /**
+   * Wake a hibernated tab AND wait for its page to settle, so an MCP/capability
+   * action targeting it runs against the real document — never a spurious
+   * TARGET_STALE, never a half-loaded DOM. Deduped per tab: a burst of calls
+   * shares one wake-and-wait.
+   */
+  public ensureTabReady(tabId: string, timeoutMs = 15000): Promise<boolean> {
+    const tab = this.tabs.get(tabId);
+    if (!tab) return Promise.resolve(false);
+    const existing = this.tabReadyWaits.get(tabId);
+    if (existing) return existing;
+    const wait = this.doEnsureTabReady(tabId, timeoutMs).finally(() => {
+      if (this.tabReadyWaits.get(tabId) === wait) this.tabReadyWaits.delete(tabId);
+    });
+    this.tabReadyWaits.set(tabId, wait);
+    return wait;
+  }
+
+  private async doEnsureTabReady(tabId: string, timeoutMs: number): Promise<boolean> {
+    const tab = this.tabs.get(tabId);
+    if (!tab) return false;
+    if (tab.state.hibernated === true || !tab.view || tab.view.webContents?.isDestroyed?.()) {
+      this.ensureTabAwake(tabId);
+    }
+    const wc = this.tabs.get(tabId)?.view?.webContents;
+    if (!wc || wc.isDestroyed()) return false;
+    if (!tab.state.isLoading) return true;
+    // The woken page is still loading: wait for it to commit so the action sees
+    // the restored document. Bounded — a wedged load must not stall the call.
+    return await new Promise<boolean>((resolve) => {
+      let done = false;
+      const finish = (ok: boolean) => { if (!done) { done = true; resolve(ok); } };
+      const timer = setTimeout(() => finish(!wc.isDestroyed()), Math.min(timeoutMs, 15000));
+      timer.unref?.();
+      wc.once('did-stop-loading', () => { clearTimeout(timer); finish(true); });
+      wc.once('destroyed', () => { clearTimeout(timer); finish(false); });
+    });
+  }
+
+  /** Whether a tab is currently hibernated (strip + capability surface read this). */
+  public isTabHibernated(tabId?: string | null): boolean {
+    const id = this.resolveTargetTabId(tabId) || tabId || '';
+    const tab = this.tabs.get(id);
+    return tab?.state.hibernated === true;
   }
 
   /**
@@ -7767,6 +8998,15 @@ export class NativeTabHost extends EventEmitter {
     if (!isAllowedNavigation(cleanUrl)) {
       return false;
     }
+    // A hibernated tab rebuilds its views WITHOUT loading: the normal navigate
+    // path below loads `cleanUrl` itself, and pre-loading `state.url` (the URL
+    // it slept on) would double the fetch. `ensureTabAwake` is for wake-on-read
+    // and switch, where restoring the saved URL is the point.
+    if (tab.state.hibernated === true) {
+      this.recreateDesktopView(tabId, tab);
+      if (tab.state.splitMode === true) this.recreateMobileView(tabId, tab);
+      tab.state.hibernated = false;
+    }
     tab.state.url = cleanUrl;
     this.networkTracker.resetInflight(tabId, 'desktop');
     if (tab.state.splitMode) {
@@ -7775,7 +9015,8 @@ export class NativeTabHost extends EventEmitter {
     if (cleanUrl.startsWith('view-source:')) {
       const sourceTargetUrl = cleanUrl.slice('view-source:'.length).trim();
       tab.state.title = `view-source:${sourceTargetUrl}`;
-      this.fetchAndLoadPageSource(tab.view.webContents, sourceTargetUrl, tab.state);
+      const dWc = tab.view?.webContents;
+      if (dWc && !dWc.isDestroyed()) this.fetchAndLoadPageSource(dWc, sourceTargetUrl, tab.state);
       if (tab.state.splitMode && tab.mobileView && !tab.mobileView.webContents.isDestroyed()) {
         this.fetchAndLoadPageSource(tab.mobileView.webContents, sourceTargetUrl, tab.state);
       }
@@ -7784,9 +9025,9 @@ export class NativeTabHost extends EventEmitter {
         const authorityPane = tab.focusedPane || tab.state.splitFocusedPane || 'desktop';
         this.splitCoordinator.startTransaction(tabId, authorityPane, cleanUrl);
         const authorityView = authorityPane === 'mobile' ? tab.mobileView : tab.view;
-        authorityView.webContents.loadURL(cleanUrl).catch(() => {});
+        authorityView?.webContents.loadURL(cleanUrl).catch(() => {});
       } else {
-        tab.view.webContents.loadURL(cleanUrl).catch(() => {});
+        tab.view?.webContents.loadURL(cleanUrl).catch(() => {});
       }
     }
     return true;
@@ -7802,6 +9043,14 @@ export class NativeTabHost extends EventEmitter {
     const targetUrl = sanitizeUrl(inputUrl).replace(/\/$/, '');
     if (currentUrl && targetUrl === currentUrl) {
       return this.reloadAndWait(tabId, timeoutMs);
+    }
+    // Materialize a hibernated view before resolving the authority view — the
+    // lifecycle waiter needs a real webContents to listen on. `navigate` skips
+    // its own rebuild once `hibernated` is cleared.
+    if (tab.state.hibernated === true) {
+      this.recreateDesktopView(tabId, tab);
+      if (tab.state.splitMode === true) this.recreateMobileView(tabId, tab);
+      tab.state.hibernated = false;
     }
     const authorityPane = tab.state.splitMode && tab.mobileView && !tab.mobileView.webContents.isDestroyed()
       ? (tab.focusedPane || tab.state.splitFocusedPane || 'desktop')
@@ -7831,15 +9080,22 @@ export class NativeTabHost extends EventEmitter {
     if (options?.ownedReloadToken) {
       this.registerOwnedReload(tabId, options.ownedReloadToken);
     }
+    // A hibernated tab's wake IS the reload: `ensureTabAwake` rebuilds the view
+    // and loads the saved URL. Touching `tab.view` here would throw — it is
+    // undefined until the wake materializes it.
+    if (tab.state.hibernated === true) {
+      this.ensureTabAwake(tabId);
+      return true;
+    }
     if (tab.state.splitMode && tab.mobileView && !tab.mobileView.webContents.isDestroyed()) {
-      if (!tab.view.webContents.isDestroyed()) {
+      if (tab.view && !tab.view.webContents.isDestroyed()) {
         tab.view.webContents.reload();
       }
       if (tab.mobileView && !tab.mobileView.webContents.isDestroyed()) {
         tab.mobileView.webContents.reload();
       }
     } else {
-      if (!tab.view.webContents.isDestroyed()) {
+      if (tab.view && !tab.view.webContents.isDestroyed()) {
         tab.view.webContents.reload();
       }
     }
@@ -7853,17 +9109,25 @@ export class NativeTabHost extends EventEmitter {
     }
     const isBackground = tabId !== this.activeTabId;
     const effectiveTimeoutMs = timeoutMs !== 8000 ? timeoutMs : (isBackground ? 10000 : 8000);
+    // A hibernated tab's wake IS the reload: rebuild + loadURL, then settle on
+    // the same did-stop-loading gate capability callers use.
+    if (tab.state.hibernated === true) {
+      this.ensureTabAwake(tabId);
+      return this.ensureTabReady(tabId, Math.max(effectiveTimeoutMs, 20000));
+    }
     const isSplit = Boolean(tab.state.splitMode && tab.mobileView && !tab.mobileView.webContents.isDestroyed());
 
     // Reset inflight records for reload and ensure active debugger attachment
+    const reloadWc = tab.view?.webContents;
+    if (!reloadWc || reloadWc.isDestroyed()) return false;
     this.networkTracker.resetInflight(tabId, 'desktop');
     await this.networkTracker.ensureAttached(
       tabId,
       'desktop',
-      tab.view.webContents,
+      reloadWc,
       () => this.tabs.get(tabId)?.state.url || ''
     );
-    const desktopWaiter = this.createLoadCompletionWaiter(tab.view.webContents, effectiveTimeoutMs);
+    const desktopWaiter = this.createLoadCompletionWaiter(reloadWc, effectiveTimeoutMs);
 
     let mobileWaiter: { promise: Promise<boolean>; cancel: () => void } | null = null;
     if (isSplit && tab.mobileView) {
@@ -8112,7 +9376,8 @@ export class NativeTabHost extends EventEmitter {
   public stopLoading(tabId: string): boolean {
     const tab = this.tabs.get(tabId);
     if (!tab) return false;
-    tab.view.webContents.stop();
+    if (tab.state.hibernated === true) return true; // nothing is loading while asleep
+    tab.view?.webContents.stop();
     if (tab.state.splitMode && tab.mobileView && !tab.mobileView.webContents.isDestroyed()) {
       tab.mobileView.webContents.stop();
     }
@@ -8122,10 +9387,15 @@ export class NativeTabHost extends EventEmitter {
   public goBack(tabId: string): boolean {
     const tab = this.tabs.get(tabId);
     if (!tab) return false;
+    // Hibernated history is intentionally not restored — back on a sleeping tab
+    // wakes it (current URL loads) and then finds no back-entry; returning
+    // false is the honest answer, matching a freshly re-created renderer.
+    if (tab.state.hibernated === true) return false;
 
     if (tab.state.splitMode && tab.mobileView && !tab.mobileView.webContents.isDestroyed()) {
       const authorityPane = tab.focusedPane || tab.state.splitFocusedPane || 'desktop';
       const authorityView = authorityPane === 'mobile' ? tab.mobileView : tab.view;
+      if (!authorityView) return false;
 
       const canAuthBack = this.getCanGoBack(authorityView.webContents);
       if (!canAuthBack) return false;
@@ -8134,16 +9404,20 @@ export class NativeTabHost extends EventEmitter {
       return this.safeGoBack(authorityView.webContents);
     }
 
-    return this.safeGoBack(tab.view.webContents);
+    const dWc = tab.view?.webContents;
+    if (!dWc || dWc.isDestroyed()) return false;
+    return this.safeGoBack(dWc);
   }
 
   public goForward(tabId: string): boolean {
     const tab = this.tabs.get(tabId);
     if (!tab) return false;
+    if (tab.state.hibernated === true) return false;
 
     if (tab.state.splitMode && tab.mobileView && !tab.mobileView.webContents.isDestroyed()) {
       const authorityPane = tab.focusedPane || tab.state.splitFocusedPane || 'desktop';
       const authorityView = authorityPane === 'mobile' ? tab.mobileView : tab.view;
+      if (!authorityView) return false;
 
       const canAuthFwd = this.getCanGoForward(authorityView.webContents);
       if (!canAuthFwd) return false;
@@ -8152,7 +9426,9 @@ export class NativeTabHost extends EventEmitter {
       return this.safeGoForward(authorityView.webContents);
     }
 
-    return this.safeGoForward(tab.view.webContents);
+    const dWc = tab.view?.webContents;
+    if (!dWc || dWc.isDestroyed()) return false;
+    return this.safeGoForward(dWc);
   }
 
   public toggleSplitReview(tabId: string, enabled?: boolean): boolean {
@@ -8480,14 +9756,16 @@ export class NativeTabHost extends EventEmitter {
 
   private toggleSiteMute(tabId: string): boolean {
     const tab = this.tabs.get(tabId);
-    if (!tab || tab.view.webContents.isDestroyed()) return false;
-    const site = getMuteSite(tab.view.webContents.getURL());
+    if (!tab || tab.view?.webContents.isDestroyed()) return false;
+    const muteWc = tab.view?.webContents;
+    if (!muteWc) return false;
+    const site = getMuteSite(muteWc.getURL());
     if (!site) return false;
     if (this.mutedSites.has(site)) this.mutedSites.delete(site);
     else this.mutedSites.add(site);
     for (const record of this.tabs.values()) {
-      const desktop = record.view.webContents;
-      if (!desktop.isDestroyed() && getMuteSite(desktop.getURL()) === site) {
+      const desktop = record.view?.webContents;
+      if (desktop && !desktop.isDestroyed() && getMuteSite(desktop.getURL()) === site) {
         this.applySiteMute(desktop, record.state, 'desktop', desktop.getURL());
       }
       const mobile = record.mobileView?.webContents;
@@ -8738,9 +10016,13 @@ export class NativeTabHost extends EventEmitter {
     // outside the toolbar (MCP set_device_preset), same pair as setZoom.
     this.broadcastState();
 
-    if (!tab.view.webContents.isDestroyed()) {
+    // A hibernated record still answers to preset changes: the new preset
+    // persists on the state and is applied when the view wakes; there is no
+    // live webContents to resize or reload.
+    const presetWc = tab.view?.webContents;
+    if (presetWc && !presetWc.isDestroyed()) {
       try {
-        tab.view.webContents.executeJavaScript(`
+        presetWc.executeJavaScript(`
           window.dispatchEvent(new Event('resize'));
           window.dispatchEvent(new Event('orientationchange'));
         `).catch(() => {});
@@ -8748,11 +10030,10 @@ export class NativeTabHost extends EventEmitter {
 
       if (shouldReload) {
         try {
-          const wc = tab.view.webContents;
           if (typeof this.reloadAndWait === 'function') {
             this.reloadAndWait(tabId).catch(() => {});
-          } else if (wc && typeof wc.reload === 'function') {
-            wc.reload();
+          } else if (typeof presetWc.reload === 'function') {
+            presetWc.reload();
           }
         } catch {}
       }
@@ -8788,7 +10069,8 @@ export class NativeTabHost extends EventEmitter {
   public toggleDevTools(): void {
     const active = this.tabs.get(this.activeTabId);
     if (!active) return;
-    const wc = active.view.webContents;
+    const wc = active.view?.webContents;
+    if (!wc || wc.isDestroyed()) return;
     if (wc.isDevToolsOpened()) {
       wc.closeDevTools();
     } else {
@@ -9564,25 +10846,185 @@ export class NativeTabHost extends EventEmitter {
     // while the in-process manager answers undefined, which maps to the old constant true.
     return written === undefined ? true : (written as boolean | Promise<boolean>);
   }
+  /**
+   * Routed delivery point for terminal output. The TerminalOutputRouter only calls
+   * this for sessions this host admits, so no per-chunk visibility check happens
+   * here. Everything below is the 4 ms coalescing and the ≤256B keystroke bypass
+   * the fan-out has always had.
+   */
+  public handleTerminalDataChunk(payload: TerminalDataPayload): void {
+    const pending = this.terminalDataBatches.get(payload.sessionId);
+    if (typeof payload.throughSeq === 'number') {
+      // Already coalesced upstream (the terminal daemon batches per session): a second
+      // window here would only add latency. Output this host still holds goes first.
+      if (pending) this.flushTerminalDataBatch(payload.sessionId);
+      this.dispatchTerminalData(payload);
+      return;
+    }
+    if (!pending && payload.data.length <= TERMINAL_DATA_COALESCE_BYPASS_LENGTH) {
+      // Keystroke echo and other small chunks take the immediate path so typing
+      // latency is identical to the unbuffered baseline.
+      this.dispatchTerminalData(payload);
+      return;
+    }
+    if (pending && pending.generation !== payload.generation) {
+      // A generation boundary (session restart) must never merge into the
+      // previous generation's batch — the renderer resets on generation change.
+      this.flushTerminalDataBatch(payload.sessionId);
+    }
+    const batch = this.terminalDataBatches.get(payload.sessionId);
+    if (batch) {
+      batch.parts.push(payload.data);
+      batch.throughSeq = payload.seq;
+    } else {
+      this.terminalDataBatches.set(payload.sessionId, {
+        parts: [payload.data],
+        fromSeq: payload.seq,
+        throughSeq: payload.seq,
+        generation: payload.generation,
+      });
+    }
+    if (!this.terminalDataFlushTimer) {
+      this.terminalDataFlushTimer = setTimeout(() => {
+        this.terminalDataFlushTimer = null;
+        this.flushAllTerminalDataBatches();
+      }, TERMINAL_DATA_FLUSH_MS);
+      this.terminalDataFlushTimer.unref?.();
+    }
+  }
 
   /**
-   * Fans one terminal data payload out to every subscriber. The sidebar only
-   * receives data while it is open — a closed sidebar re-hydrates from
+   * The router's per-host admission callback: whether a chunk addressed to
+   * `sessionId` belongs to a surface this window owns. Delegates to the same
+   * scope + terminal-window binding predicate the projections use, so routing
+   * can never disagree with what the window would have shown.
+   */
+  public admitSession(sessionId: string): boolean {
+    return this.isSessionVisibleToWindow(sessionId);
+  }
+
+  /**
+   * The sessions one terminal-surface projection shows right now: its active
+   * session and every pane mounted around it (the session's own split and the
+   * projection-level split entry). Suppression keys on this set — a renderer not
+   * showing a session gets the activity signal, never the data channel.
+   */
+  private displayedSessionIdsOf(projection: TerminalSessionStateProjection): Set<string> {
+    const ids = new Set<string>();
+    if (projection.activeSessionId) ids.add(projection.activeSessionId);
+    const active = (Array.isArray(projection.sessions) ? projection.sessions : [])
+      .find((s) => s && s.id === projection.activeSessionId);
+    if (active?.splitSessionId) ids.add(active.splitSessionId);
+    if (projection.splitSessionId) ids.add(projection.splitSessionId);
+    return ids;
+  }
+
+  /**
+   * Push this window's scoped session projection to every terminal surface, and
+   * record which sessions each surface displays so `dispatchTerminalData` can
+   * suppress full data for sessions a surface only watches in the tab strip.
+   */
+  private sendTerminalProjections(state: unknown): void {
+    const sidebarContents = this.shell.sidebarView?.webContents;
+    if (sidebarContents && !sidebarContents.isDestroyed()) {
+      const projection = this.terminalStateForWindow(state, undefined, sidebarContents.id);
+      this.terminalDisplayedSessions.set(`c${sidebarContents.id}`, this.displayedSessionIdsOf(projection));
+      safeSendWebContents(sidebarContents, 'antifan:terminal:session', projection);
+    }
+    for (const [id, win] of this.terminalWindows.entries()) {
+      if (win && !win.isDestroyed()) {
+        // A popout keeps the session it was opened with, even when that session is
+        // outside the window's capsule filter.
+        const boundSessionId = this.terminalWindowMeta.get(id)?.sessionId;
+        const wcId = win.webContents.id;
+        const projection = this.terminalStateForWindow(state, boundSessionId, wcId);
+        this.terminalDisplayedSessions.set(`w${id}`, this.displayedSessionIdsOf(projection));
+        safeSendWebContents(win.webContents, 'antifan:terminal:session', projection);
+      } else {
+        this.terminalWindows.delete(id);
+        this.terminalDisplayedSessions.delete(`w${id}`);
+      }
+    }
+  }
+
+  /**
+   * Re-derive every surface's displayed set from the last state the seam pushed.
+   * Called when the surface set itself changes (terminal window bound, unbound,
+   * or closed) so suppression never reads a stale answer.
+   */
+  private refreshDisplayedSessionSets(): void {
+    let state: unknown = null;
+    try { state = TerminalManager.getInstance().getSessionState(); } catch {}
+    const sidebarContents = this.shell.sidebarView?.webContents;
+    const sidebarKey = sidebarContents ? `c${sidebarContents.id}` : '';
+    if (!sidebarContents || sidebarContents.isDestroyed()) {
+      if (sidebarKey) this.terminalDisplayedSessions.delete(sidebarKey);
+    } else {
+      const projection = this.terminalStateForWindow(state, undefined, sidebarContents.id);
+      this.terminalDisplayedSessions.set(sidebarKey, this.displayedSessionIdsOf(projection));
+    }
+    for (const [id, win] of this.terminalWindows.entries()) {
+      const key = `w${id}`;
+      if (!win || win.isDestroyed()) {
+        this.terminalDisplayedSessions.delete(key);
+        continue;
+      }
+      const boundSessionId = this.terminalWindowMeta.get(id)?.sessionId;
+      const projection = this.terminalStateForWindow(state, boundSessionId, win.webContents.id);
+      this.terminalDisplayedSessions.set(key, this.displayedSessionIdsOf(projection));
+    }
+  }
+
+  /**
+   * A terminal window's session binding changed. Two consumers follow the same
+   * fact: the router's session→host map (a bound session is always visible to
+   * this window) and the suppression sets (the window now displays a session).
+   */
+  private terminalWindowBindingChanged(): void {
+    try { TerminalOutputRouter.getInstance().invalidateRoutes(); } catch {}
+    this.refreshDisplayedSessionSets();
+  }
+
+  /**
+   * Whether one surface displays the session: its renderer parses the chunk,
+   * every other admitted surface only tracks the tab-strip indicator.
+   */
+  private rendererDisplaysSession(key: string, sessionId: string): boolean {
+    const shown = this.terminalDisplayedSessions.get(key);
+    return shown ? shown.has(sessionId) : false;
+  }
+
+  /**
+   * Fans one terminal data payload out to this host's subscribers. The sidebar
+   * only receives sends while it is open — a closed sidebar re-hydrates from
    * getFullBuffer when toggleSidebar pushes 'antifan:terminal:session' on open,
    * so dropping sends here costs nothing and saves background render CPU.
+   *
+   * Per-surface suppression (renderer lazy-xterm): a surface showing the session
+   * gets 'antifan:terminal:data'; every other admitted surface gets the
+   * lightweight 'antifan:terminal:activity' envelope so its tab strip keeps the
+   * streaming indicator and the subscriber ack without materializing an xterm.
    */
   private dispatchTerminalData(payload: TerminalDataPayload): void {
     let sent = 0;
-    if (this.shell.isSidebarOpen && this.shell.sidebarView && !this.shell.sidebarView.webContents.isDestroyed()) {
-      safeSendWebContents(this.shell.sidebarView.webContents, 'antifan:terminal:data', payload);
+    const sidebarContents = this.shell.isSidebarOpen ? this.shell.sidebarView?.webContents : undefined;
+    if (sidebarContents && !sidebarContents.isDestroyed()) {
+      const channel = this.rendererDisplaysSession(`c${sidebarContents.id}`, payload.sessionId)
+        ? TERMINAL_CHANNELS.DATA
+        : TERMINAL_CHANNELS.ACTIVITY;
+      safeSendWebContents(sidebarContents, channel, payload);
       sent += 1;
     }
     for (const [id, win] of this.terminalWindows.entries()) {
       if (win && !win.isDestroyed()) {
-        safeSendWebContents(win.webContents, 'antifan:terminal:data', payload);
+        const channel = this.rendererDisplaysSession(`w${id}`, payload.sessionId)
+          ? TERMINAL_CHANNELS.DATA
+          : TERMINAL_CHANNELS.ACTIVITY;
+        safeSendWebContents(win.webContents, channel, payload);
         sent += 1;
       } else {
         this.terminalWindows.delete(id);
+        this.terminalDisplayedSessions.delete(`w${id}`);
       }
     }
     this.terminalFanoutMessages += sent;
@@ -10271,6 +11713,31 @@ export class NativeTabHost extends EventEmitter {
     }
     return '';
   }
+  /**
+   * Stage the clipboard image for a terminal paste. The renderer sends the returned
+   * path to the shell as text, so the file lands inside the session's own workspace
+   * under `.antifan/snapshots` — the same directory convention annotations use —
+   * falling back to the runtime dir when no session or capsule resolves a workspace.
+   */
+  public pasteClipboardImage(targetSessionId?: string): { ok: boolean; imagePath?: string; error?: string } {
+    const image = clipboard.readImage();
+    if (image.isEmpty()) return { ok: false };
+    const png = image.toPNG();
+    if (png.length === 0) return { ok: false };
+    const workspace = this.resolveTargetWorkspace(targetSessionId);
+    const dir = workspace
+      ? path.join(workspace, '.antifan', 'snapshots')
+      : path.join(StorageLocations.getRuntimeDir(), 'pasted-images');
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+      const imagePath = path.join(dir, `pasted_${Date.now()}_${randomUUID().slice(0, 8)}.png`);
+      fs.writeFileSync(imagePath, png);
+      return { ok: true, imagePath };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
   public findInPage(text: string, forward = true, findNext = false): void {
     this.getDevToolsHost().findInPage(text, forward, findNext);
   }
@@ -10555,6 +12022,45 @@ export class NativeTabHost extends EventEmitter {
    */
   public setProjectAssignmentResolver(resolver: ((projectId: string) => TerminalProjectAssignment | undefined) | null): void {
     this.projectAssignmentResolver = typeof resolver === 'function' ? resolver : null;
+  }
+
+  /**
+   * Main's resolver for execution backends. Enables control plane runs to resolve
+   * their execution backend instance for cancellation.
+   */
+  private runBackendResolver: ((backendId: string) => ExecutionBackend | undefined) | null = null;
+
+  public setRunBackendResolver(resolver: ((backendId: string) => ExecutionBackend | undefined) | null): void {
+    this.runBackendResolver = typeof resolver === 'function' ? resolver : null;
+  }
+
+  public runBackendFor(backendId: string): ExecutionBackend | undefined {
+    const resolver = this.runBackendResolver;
+    if (!resolver) return undefined;
+    try {
+      return resolver(backendId);
+    } catch (err) {
+      console.warn(`[native-tab-host] run backend for '${backendId}' could not be resolved:`, err);
+      return undefined;
+    }
+  }
+
+  /**
+   * RunStateService instance for observing and projecting terminal runs.
+   */
+  private runStateService: RunStateService | null = null;
+  private wireRunStateService: ((service: RunStateService) => void) | null = null;
+
+  public setRunStateService(service: RunStateService | null): void {
+    if (this.runStateService === service) return;
+    this.runStateService = service;
+    if (service && this.wireRunStateService) {
+      this.wireRunStateService(service);
+    }
+  }
+
+  public getRunStateService(): RunStateService | null {
+    return this.runStateService;
   }
 
   /**
@@ -11001,12 +12507,12 @@ export class NativeTabHost extends EventEmitter {
           } else if (restoredActiveId && this.tabs.has(restoredActiveId)) {
             const activeCandidate = this.tabs.get(restoredActiveId);
             if (activeCandidate && activeCandidate.state.ephemeral !== true && activeCandidate.state.offscreen !== true) {
-              this.switchTab(restoredActiveId);
+              this.switchTab(restoredActiveId, { plane: 'user' });
             } else if (this.tabOrder.length > 0) {
-              this.switchTab(this.tabOrder[0]!);
+              this.switchTab(this.tabOrder[0]!, { plane: 'user' });
             }
           } else if (this.tabOrder.length > 0) {
-            this.switchTab(this.tabOrder[0]!);
+            this.switchTab(this.tabOrder[0]!, { plane: 'user' });
           }
           this.updateLayout();
           return;
@@ -11286,9 +12792,17 @@ export class NativeTabHost extends EventEmitter {
     const opts = typeof params === 'string' ? { tabId: params } : (params || {});
     const targetId = opts.tabId || this.activeTabId;
     const tab = this.tabs.get(targetId);
-    if (!tab || tab.view.webContents.isDestroyed()) return { ok: false, error: 'Tab not found or destroyed' };
+    if (!tab) return { ok: false, error: 'Tab not found or destroyed' };
+    // A responsive sweep needs a live presented surface — wake a sleeping tab
+    // before reading its view rather than failing on the absent view.
+    if (tab.state.hibernated === true) {
+      this.ensureTabAwake(targetId);
+      await this.ensureTabReady(targetId, 20000);
+    }
+    const rcWc = tab.view?.webContents;
+    if (!rcWc || rcWc.isDestroyed()) return { ok: false, error: 'Tab not found or destroyed' };
 
-    const wc = tab.view.webContents;
+    const wc = rcWc;
     const previousPreset = tab.state.devicePresetId;
     const testBreakpoints = opts.customBreakpoints || [
       { id: 'mobile-small', name: 'Mobile Small (320px)', width: 320, height: 568, deviceScaleFactor: 2, mobile: true },
@@ -11456,7 +12970,17 @@ export class NativeTabHost extends EventEmitter {
     }
     const targetId = this.resolveTargetTabId(rawTargetId) || rawTargetId;
     const tab = this.tabs.get(targetId);
-    if (!tab || tab.view.webContents.isDestroyed()) {
+    if (!tab) {
+      throw new CapabilityError('TARGET_STALE', `Target tab '${targetId}' not found or destroyed`);
+    }
+    // A sleeping target wakes before the keystroke so the press reaches the real
+    // page, not a stale-check failure. `ensureTabReady` gates on did-stop-loading.
+    if (tab.state.hibernated === true) {
+      this.ensureTabAwake(targetId);
+      await this.ensureTabReady(targetId, 20000);
+    }
+    const pressWc = tab.view?.webContents;
+    if (!pressWc || pressWc.isDestroyed()) {
       throw new CapabilityError('TARGET_STALE', `Target tab '${targetId}' not found or destroyed`);
     }
     const release = this.admitAgentAction('sendKeyboardPress', targetId);
@@ -11465,7 +12989,7 @@ export class NativeTabHost extends EventEmitter {
         const events = buildKeyboardInputEvents(params.key, params.modifiers);
         for (const evt of events) {
           this.syncWithAgentInput(() => {
-            tab.view.webContents.sendInputEvent(evt);
+            pressWc.sendInputEvent(evt);
           });
         }
         return { success: true, key: params.key, modifiers: params.modifiers || [] };
@@ -11478,6 +13002,12 @@ export class NativeTabHost extends EventEmitter {
     const targetId = options.tabId || this.activeTabId;
     const tab = this.tabs.get(targetId);
     if (!tab) return false;
+    // Emulation must land on a live surface; wake a sleeping tab before any
+    // attach/emulate work rather than reading an absent `tab.view`.
+    if (tab.state.hibernated === true) {
+      this.ensureTabAwake(targetId);
+      await this.ensureTabReady(targetId, 20000);
+    }
     const w = Math.round(options.width);
     const h = Math.round(options.height);
     if (w <= 0 || h <= 0) return false;
@@ -11492,7 +13022,8 @@ export class NativeTabHost extends EventEmitter {
     };
     tab.state.devicePresetId = `custom-${w}x${h}`;
     const applyForTarget = async (): Promise<boolean> => {
-      const wc = tab.view.webContents;
+      const wc = tab.view?.webContents;
+      if (!wc || wc.isDestroyed()) return false;
 
       await this.applyCdpTouchEmulation(wc, mobile);
       // The CDP override (including the fit-preview scale) is applied by
@@ -11734,9 +13265,10 @@ export class NativeTabHost extends EventEmitter {
   private dispatchScopedReload(capsuleId: string, event: PreviewChangeEvent): void {
     const targetKey = capsuleId.toLowerCase();
     for (const tab of this.tabs.values()) {
-      if (tab.state.capsuleId?.toLowerCase() === targetKey && !tab.view.webContents.isDestroyed()) {
+      const scopedWc = tab.view?.webContents;
+      if (tab.state.capsuleId?.toLowerCase() === targetKey && scopedWc && !scopedWc.isDestroyed()) {
         if (event.type === 'css-swap') {
-          tab.view.webContents.executeJavaScript(`(() => {
+          scopedWc.executeJavaScript(`(() => {
             document.querySelectorAll('link[rel="stylesheet"]').forEach((link) => {
               const url = new URL(link.href);
               url.searchParams.set('antifan_ts', Date.now().toString());
@@ -11744,8 +13276,8 @@ export class NativeTabHost extends EventEmitter {
             });
           })()`).catch(() => {});
         } else {
-          if (!tab.view.webContents.isDestroyed()) {
-            tab.view.webContents.reload();
+          if (!scopedWc.isDestroyed()) {
+            scopedWc.reload();
           }
           if (tab.state.splitMode && tab.mobileView && !tab.mobileView.webContents.isDestroyed()) {
             tab.mobileView.webContents.reload();
@@ -11822,6 +13354,7 @@ export class NativeTabHost extends EventEmitter {
     this.terminalWindows.set(win.id, win);
     const activeSessionId = admittedSessionId || this.ownActiveSessionId();
     this.terminalWindowMeta.set(win.id, { sessionId: activeSessionId, isPopout: true });
+    this.terminalWindowBindingChanged();
 
     const onWindowChange = () => {
       this.schedulePersist();
@@ -11846,14 +13379,20 @@ export class NativeTabHost extends EventEmitter {
       // window's own active session rather than the process-wide one.
       const scoped = this.terminalStateForWindow(tm.getSessionState(), admittedSessionId);
       const activeId = admittedSessionId || scoped.activeSessionId || '';
-      const s = activeId ? await tm.getSession(activeId, { includeBuffer: true }) : undefined;
       const activeSession = scoped.sessions.find((summary) => summary.id === activeId);
-      safeSendWebContents(win.webContents, 'antifan:terminal:session', {
+      const projection = {
         activeSessionId: activeId,
         sessions: scoped.sessions,
         splitSessionId: activeSession?.splitSessionId,
-        snapshot: s?.buffer || '',
-      });
+        // Preview only, like every row above: the pane hydrates the authoritative
+        // transcript via getFullBuffer (resolveHydrationSnapshot), so shipping the
+        // unbounded buffer here was pure broadcast cost.
+        snapshot: activeSession?.buffer || '',
+        snapshotThroughSeq: activeSession?.snapshotThroughSeq || 0,
+      };
+      // The projection the window displays is the set its data suppression uses.
+      this.terminalDisplayedSessions.set(`w${win.id}`, this.displayedSessionIdsOf(projection as TerminalSessionStateProjection));
+      safeSendWebContents(win.webContents, 'antifan:terminal:session', projection);
     });
 
     win.loadFile(standaloneHtml, { query: { mode: 'popout', ...(admittedSessionId ? { sessionId: admittedSessionId } : {}) } });
@@ -11868,6 +13407,8 @@ export class NativeTabHost extends EventEmitter {
     win.on('closed', () => {
       this.terminalWindows.delete(win.id);
       this.terminalWindowMeta.delete(win.id);
+      this.terminalDisplayedSessions.delete(`w${win.id}`);
+      this.terminalWindowBindingChanged();
       if (this.popoutWindow === win) {
         this.popoutWindow = null;
         this.broadcastPopoutState(false);
@@ -11923,6 +13464,7 @@ export class NativeTabHost extends EventEmitter {
     this.terminalWindows.set(win.id, win);
     const activeSessionId = admittedSessionId || this.ownActiveSessionId();
     this.terminalWindowMeta.set(win.id, { sessionId: activeSessionId, isPopout: false });
+    this.terminalWindowBindingChanged();
 
     const onWindowChange = () => {
       this.schedulePersist();
@@ -11947,14 +13489,19 @@ export class NativeTabHost extends EventEmitter {
       // window's own active session rather than the process-wide one.
       const scoped = this.terminalStateForWindow(tm.getSessionState(), admittedSessionId);
       const activeId = admittedSessionId || scoped.activeSessionId || '';
-      const s = activeId ? await tm.getSession(activeId, { includeBuffer: true }) : undefined;
       const activeSession = scoped.sessions.find((summary) => summary.id === activeId);
-      safeSendWebContents(win.webContents, 'antifan:terminal:session', {
+      const projection = {
         activeSessionId: activeId,
         sessions: scoped.sessions,
         splitSessionId: activeSession?.splitSessionId,
-        snapshot: s?.buffer || '',
-      });
+        // Preview only, like every row above: the pane hydrates the authoritative
+        // transcript via getFullBuffer (resolveHydrationSnapshot), so shipping the
+        // unbounded buffer here was pure broadcast cost.
+        snapshot: activeSession?.buffer || '',
+        snapshotThroughSeq: activeSession?.snapshotThroughSeq || 0,
+      };
+      this.terminalDisplayedSessions.set(`w${win.id}`, this.displayedSessionIdsOf(projection as TerminalSessionStateProjection));
+      safeSendWebContents(win.webContents, 'antifan:terminal:session', projection);
     });
 
     win.loadFile(standaloneHtml, { query: { mode: 'popout', ...(admittedSessionId ? { sessionId: admittedSessionId } : {}) } });
@@ -11962,7 +13509,8 @@ export class NativeTabHost extends EventEmitter {
     win.on('closed', () => {
       this.terminalWindows.delete(win.id);
       this.terminalWindowMeta.delete(win.id);
-      this.schedulePersist();
+      this.terminalDisplayedSessions.delete(`w${win.id}`);
+      this.terminalWindowBindingChanged();
     });
     this.schedulePersist();
     return true;
@@ -11977,6 +13525,8 @@ export class NativeTabHost extends EventEmitter {
 
   public dispose(): void {
     if (this.isDisposed) return;
+    // A closed window owns no workspace; nothing may route by its stale affiliation.
+    this.windowWorkspaceAffiliation = null;
     if (this.persistTimer) {
       clearTimeout(this.persistTimer);
       this.persistTimer = null;
@@ -11992,6 +13542,12 @@ export class NativeTabHost extends EventEmitter {
       clearTimeout(this.terminalDataFlushTimer);
       this.terminalDataFlushTimer = null;
     }
+    if (this.hibernationSweepTimer) {
+      clearInterval(this.hibernationSweepTimer);
+      this.hibernationSweepTimer = null;
+    }
+    // A queued wake-and-wait must not hold a disposed host's promise open.
+    this.tabReadyWaits?.clear();
     this.isDisposed = true;
     // Child contents FIRST, ahead of every step that talks to the shell, a tracker or
     // another host: shell closure does not prove that a WebContentsView's contents were
@@ -12007,12 +13563,25 @@ export class NativeTabHost extends EventEmitter {
       }
     } catch {}
     this.captureHostWindow = null;
-    // A raised view is normally one of the tab views disposed above; a view this host
-    // raised that no tab record owns would otherwise keep its renderer alive.
+    // A held lift is released rather than silently dropped: the lease journals
+    // its own lowering, buries the pane, and the raster still in flight ends on
+    // the destroyed-contents guards it already has. A lifted view no tab record
+    // owns would otherwise keep its renderer alive.
     try {
-      if (this.raisedCaptureView) this.destroyOwnedWebContents(this.raisedCaptureView.webContents);
+      this.captureLift?.lease.release('dispose');
+      if (this.captureLift?.view) this.destroyOwnedWebContents(this.captureLift.view.webContents);
     } catch {}
-    this.raisedCaptureView = null;
+    // Queued acquires must not outlive the host: refuse each with the window's
+    // death so no raster parks its pane on a window that no longer exists.
+    try {
+      const gone = new CapabilityError('NO_RENDER_SURFACE', 'The owning window was disposed before the queued capture lift could be granted.');
+      for (const waiter of this.captureLiftQueue ?? []) {
+        clearTimeout(waiter.timer);
+        waiter.reject(gone);
+      }
+    } catch {}
+    this.captureLiftQueue = [];
+    this.captureLift = null;
     this.runDisposalStep('automationHost', () => this.automationHost?.dispose());
     this.asyncQaQueue?.abortAll();
     this.runDisposalStep('semanticRefRegistry', () => this.semanticRefRegistry?.destroy());
@@ -12050,6 +13619,7 @@ export class NativeTabHost extends EventEmitter {
     }
     this.terminalWindows.clear();
     this.terminalWindowMeta.clear();
+    this.terminalDisplayedSessions.clear();
     this.popoutWindow = null;
     this.claimTerminalWindowsLeftBehind(terminalWindowsAtDisposal);
     for (const unsub of this.tabPreviewUnsubscribers.values()) {
@@ -12119,10 +13689,10 @@ export class NativeTabHost extends EventEmitter {
     this.tabOrder = [];
     for (const [id, tab] of tabsToClean) {
       try {
-        this.shell.window.contentView.removeChildView(tab.view);
+        if (tab.view) this.shell.window.contentView.removeChildView(tab.view);
       } catch {}
       try {
-        this.destroyOwnedWebContents(tab.view.webContents);
+        this.destroyOwnedWebContents(tab.view?.webContents);
       } catch {}
       if (tab.mobileView) {
         try {

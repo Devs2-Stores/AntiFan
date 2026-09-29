@@ -206,3 +206,151 @@ describe('Renderer project-open picker', () => {
     );
   });
 });
+
+/**
+ * The row-level CRUD the same modal now hosts: rename edits inline, remove asks in
+ * the row — quoting the live-terminal count Main reported — and only the confirm
+ * strip sends the `REMOVE_ANSWER` consent. A row mid-edit never answers a pick.
+ */
+describe('Renderer project manager CRUD', () => {
+  it('rename edits the row inline and Enter commits through renameProject', async () => {
+    const harness = loadStandalone();
+    await flush();
+    harness.api.renameProject = async () => ({ status: 'RENAMED', projectId: 'project-phukien', name: 'Phukien Moi' });
+    await openPicker(harness);
+
+    const row = rows(harness).find((r) => r.getAttribute('data-project-id') === 'project-phukien');
+    assert.ok(row, 'the target row exists');
+    const renameBtn = row.querySelector('.project-open-row-action');
+    assert.ok(renameBtn, 'the row carries a rename action');
+    renameBtn.dispatch('click');
+    await flush();
+
+    const editing = rows(harness).find((r) => r.getAttribute('data-project-id') === 'project-phukien');
+    const input = editing?.querySelector('.project-open-row-rename-input');
+    assert.ok(input, 'the name line becomes an inline input');
+    input.value = 'Phukien Moi';
+    input.dispatch('keydown', { key: 'Enter' });
+    await flush();
+    await flush();
+
+    assert.deepStrictEqual(wire(harness, 'renameProject'), [
+      { projectId: 'project-phukien', name: 'Phukien Moi' },
+    ]);
+    assert.strictEqual(
+      rows(harness).find((r) => r.getAttribute('data-project-id') === 'project-phukien')
+        ?.querySelector('.project-open-row-name')?.textContent,
+      'Phukien Moi',
+      'the row repaints with the renamed label',
+    );
+  });
+
+  it('a refused rename keeps the input up with the reason instead of losing the name', async () => {
+    const harness = loadStandalone();
+    await flush();
+    harness.api.renameProject = async () => ({ status: 'FAILED', projectId: 'project-phukien', reason: 'NO_NAME_RECORD' });
+    await openPicker(harness);
+
+    rows(harness).find((r) => r.getAttribute('data-project-id') === 'project-phukien')
+      ?.querySelector('.project-open-row-action')?.dispatch('click');
+    await flush();
+    const editing = rows(harness).find((r) => r.getAttribute('data-project-id') === 'project-phukien');
+    const input = editing?.querySelector('.project-open-row-rename-input');
+    assert.ok(input, 'the name line becomes an inline input');
+    input!.value = 'Anything';
+    input!.dispatch('keydown', { key: 'Enter' });
+    await flush();
+    await flush();
+
+    const stillEditing = rows(harness).find((r) => r.getAttribute('data-project-id') === 'project-phukien')
+      ?.querySelector('.project-open-row-rename-input');
+    assert.ok(stillEditing, 'the edit stays open for correction');
+    assert.match(
+      rows(harness).find((r) => r.getAttribute('data-project-id') === 'project-phukien')
+        ?.querySelector('.project-open-row-error')?.textContent ?? '',
+      /NO_NAME_RECORD/,
+    );
+  });
+
+  it('remove with live terminals quotes the count and confirms through REMOVE_ANSWER', async () => {
+    const harness = loadStandalone();
+    await flush();
+    harness.api.removeProject = async () => ({ status: 'CONFIRM_REQUIRED', projectId: 'project-phukien', liveSessions: 2 });
+    harness.api.answerProjectRemove = async () => ({ status: 'REMOVED', projectId: 'project-phukien' });
+    await openPicker(harness);
+
+    const row = rows(harness).find((r) => r.getAttribute('data-project-id') === 'project-phukien');
+    const removeBtn = row?.querySelector('.project-open-row-action.is-danger');
+    assert.ok(removeBtn, 'the row carries a remove action');
+    removeBtn.dispatch('click');
+    await flush();
+    await flush();
+
+    const strip = rows(harness).find((r) => r.getAttribute('data-project-id') === 'project-phukien')
+      ?.querySelector('.project-open-row-confirm');
+    assert.ok(strip, 'the row switches to its inline confirm');
+    assert.match(
+      strip.querySelector('.project-open-row-confirm-text')?.textContent ?? '',
+      /2 Terminal/,
+      'the strip quotes the live count Main reported',
+    );
+    // While the confirm is up, the row no longer answers a pick.
+    assert.strictEqual(countCalls(harness, 'answerProjectOpenPicker'), 0);
+
+    strip.querySelector('.project-open-row-confirm-btn.is-danger')?.dispatch('click');
+    await flush();
+    await flush();
+
+    assert.deepStrictEqual(wire(harness, 'answerProjectRemove'), [
+      { projectId: 'project-phukien', confirmed: true },
+    ]);
+    assert.ok(
+      !rows(harness).some((r) => r.getAttribute('data-project-id') === 'project-phukien'),
+      'a reported removal drops the row from the list',
+    );
+  });
+
+  it('removing a project with no live terminals drops the row directly', async () => {
+    const harness = loadStandalone();
+    await flush();
+    harness.api.removeProject = async () => ({ status: 'REMOVED', projectId: 'project-comnieu' });
+    await openPicker(harness);
+
+    rows(harness).find((r) => r.getAttribute('data-project-id') === 'project-comnieu')
+      ?.querySelector('.project-open-row-action.is-danger')?.dispatch('click');
+    await flush();
+    await flush();
+
+    assert.deepStrictEqual(wire(harness, 'removeProject'), [{ projectId: 'project-comnieu' }]);
+    assert.ok(
+      !rows(harness).some((r) => r.getAttribute('data-project-id') === 'project-comnieu'),
+      'the row is gone',
+    );
+    assert.strictEqual(countCalls(harness, 'answerProjectOpenPicker'), 0, 'removal never answers the open pick');
+  });
+
+  it('Escape backs out of a row edit without dismissing the modal', async () => {
+    const harness = loadStandalone();
+    await flush();
+    harness.apiCalls.length = 0;
+    const keydownBefore = harness.documentKeydownListeners.length;
+    harness.api.removeProject = async () => ({ status: 'CONFIRM_REQUIRED', projectId: 'project-phukien', liveSessions: 1 });
+    await openPicker(harness);
+
+    rows(harness).find((r) => r.getAttribute('data-project-id') === 'project-phukien')
+      ?.querySelector('.project-open-row-action.is-danger')?.dispatch('click');
+    await flush();
+    await flush();
+
+    pressDocumentKey(harness, keydownBefore, 'Escape');
+    await flush();
+
+    assert.strictEqual(overlay(harness).style.display, 'flex', 'the modal stays open');
+    assert.strictEqual(countCalls(harness, 'answerProjectOpenPicker'), 0, 'Esc cancelled the edit, not the pick');
+    assert.ok(
+      !rows(harness).find((r) => r.getAttribute('data-project-id') === 'project-phukien')
+        ?.querySelector('.project-open-row-confirm'),
+      'the confirm strip is gone',
+    );
+  });
+});

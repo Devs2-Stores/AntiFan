@@ -35,6 +35,7 @@ import {
   workspaceTerminalProvenance,
 } from '../../src/main/browser/terminal-manager';
 import { ownerKey, type WindowOwner } from '../../src/main/browser/project-window-shell';
+import { TerminalOutputRouter } from '../../src/main/browser/terminal-output-router';
 import { SIDEBAR_CHANNELS, TERMINAL_CHANNELS, TOOLBAR_CHANNELS } from '../../src/shared/contracts';
 import type { ShellDouble } from '../support/project-window-shell-double';
 // Type-only: erased at compile time, so it loads nothing before the Electron fault is installed.
@@ -244,7 +245,14 @@ function createHost(options: HostOptions = {}): AnyRecord {
   host.terminalWindows = new Map<number, AnyRecord>();
   host.terminalWindowMeta = new Map<number, { sessionId?: string; isPopout?: boolean }>();
   host.terminalDataBatches = new Map<string, AnyRecord>();
+  host.terminalDisplayedSessions = new Map<string, Set<string>>();
+  host.hibernatingTabIds = new Set<string>();
+  host.agentInputInFlight = 0;
+  host.lastUserInputAtMs = 0;
   host.terminalDataFlushTimer = null;
+  // Field initializers do not run on a prototype-built double; withTerminalSubscriptions
+  // pushes each seam listener's release here, and afterEach resets the router + manager.
+  host.terminalSubscriptionReleases = [];
   host.terminalFanoutMessages = 0;
   host.bookmarks = [];
   host.mutedSites = new Set<string>();
@@ -329,7 +337,11 @@ beforeEach(() => {
 
 afterEach(() => {
   // Hosts registered listeners on the process-wide manager; drop them so one test's
-  // window can never observe another test's emissions.
+  // window can never observe another test's emissions. The removeAllListeners sweep
+  // also strips the shared output router's seam listeners without running its
+  // detach(), which would leave it half-attached for the next test — resetting the
+  // singleton rebuilds both its listener set and its host registry.
+  TerminalOutputRouter.resetInstance();
   tm.removeAllListeners('data');
   tm.removeAllListeners('session');
   tm.removeAllListeners('session-closed');
@@ -902,6 +914,18 @@ describe('terminal workspace provenance', () => {
     assert.equal(host.isSessionVisibleToWindow('session-untagged'), false);
     assert.equal(host.isSessionVisibleToWindow('session-b'), false);
 
+    // The daemon announces session state before the first output for a session arrives:
+    // the projection push is what records which sessions the sidebar displays, and only
+    // displayed sessions receive the data channel (everything else is the activity ping).
+    tm.emit('session', {
+      activeSessionId: 'session-a',
+      sessions: [
+        { id: 'session-a', name: 'session-a', cwd: workspaceA, active: true, buffer: '', bufferLength: 0, sessionGeneration: 1 },
+        { id: 'session-b', name: 'session-b', cwd: '/elsewhere', active: false, buffer: '', bufferLength: 0, sessionGeneration: 1 },
+      ],
+      snapshot: '',
+      snapshotThroughSeq: 0,
+    });
     sidebar.sent.length = 0;
     tm.emit('data', { sessionId: 'session-untagged', data: 'unattributed', generation: 1, seq: 1 });
     assert.equal(sidebar.sent.length, 0, 'unattributed output is never forwarded to a scoped window');

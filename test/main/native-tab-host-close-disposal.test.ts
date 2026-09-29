@@ -224,8 +224,13 @@ function createHarness(options: HarnessOptions = {}) {
   host.terminalWindows = new Map();
   host.terminalWindowMeta = new Map();
   host.popoutWindow = null;
-  host.raisedCaptureView = null;
+  host.captureLift = null;
+  host.captureLiftQueue = [];
   host.captureHostWindow = null;
+  host.terminalDisplayedSessions = new Map();
+  host.hibernatingTabIds = new Set();
+  host.agentInputInFlight = 0;
+  host.lastUserInputAtMs = 0;
   host.agentWorkingRefs = new Map();
   host.agentWorkingTimers = new Map();
   host.broadcastCount = 0;
@@ -500,11 +505,11 @@ describe('NativeTabHost disposal', () => {
     assert.deepStrictEqual(host.tabOrder, []);
   });
 
-  it('disposes a raised capture view and its capture host window, which no tab record owns', () => {
+  it('disposes a lifted capture view and its capture host window, which no tab record owns', () => {
     const { host, log } = createHarness();
     const raised = createFakeWebContents('raised', log);
     let hostWindowDestroyed = 0;
-    host.raisedCaptureView = { webContents: raised };
+    host.captureLift = { token: 1, view: { webContents: raised }, origin: 'capture-host', liftedAtMs: Date.now(), lease: { release: () => {}, released: false } };
     host.captureHostWindow = {
       isDestroyed: () => false,
       destroy: () => { hostWindowDestroyed += 1; },
@@ -515,7 +520,7 @@ describe('NativeTabHost disposal', () => {
     assert.strictEqual(raised.destroyCalls, 1);
     assert.strictEqual(hostWindowDestroyed, 1);
     assert.strictEqual(host.captureHostWindow, null);
-    assert.strictEqual(host.raisedCaptureView, null);
+    assert.strictEqual(host.captureLift, null);
   });
 
   it('runs its local cleanup and releases its subscriptions exactly once per host', () => {

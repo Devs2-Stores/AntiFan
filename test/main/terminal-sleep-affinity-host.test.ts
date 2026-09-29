@@ -28,6 +28,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { TerminalManager } from '../../src/main/browser/terminal-manager';
 import { TERMINAL_CHANNELS } from '../../src/shared/contracts';
+import { TerminalOutputRouter } from '../../src/main/browser/terminal-output-router';
 import type { ShellDouble } from '../support/project-window-shell-double';
 import type { ChromeRouteHarness } from '../support/chrome-route-harness';
 // Point every persistence path at a scratch directory so a test can never touch the
@@ -44,14 +45,18 @@ process.env.ANTIFAN_DATA_ROOT = SCRATCH_DIR;
 interface SentMessage { channel: string; args: unknown[] }
 
 interface FakeWebContents {
+  id: number;
   sent: SentMessage[];
   isDestroyed(): boolean;
   mainFrame: { url: string };
   send(channel: string, ...args: unknown[]): void;
 }
 
+let fakeWebContentsSeq = 1000;
+
 function makeWebContents(url = 'about:blank'): FakeWebContents {
   const wc: FakeWebContents = {
+    id: ++fakeWebContentsSeq,
     sent: [],
     isDestroyed: () => false,
     mainFrame: { url },
@@ -234,6 +239,7 @@ function addTab(id: string, extra: AnyRecord = {}): TabShell {
   return tab;
 }
 
+
 function resetHost(): void {
   host.tabs = new Map<string, TabShell>();
   host.tabOrder = [];
@@ -246,6 +252,7 @@ function resetHost(): void {
   host.terminalWindows = new Map();
   host.terminalWindowMeta = new Map();
   host.terminalDataBatches = new Map();
+  host.terminalDisplayedSessions = new Map();
   if (host.terminalDataFlushTimer) clearTimeout(host.terminalDataFlushTimer);
   host.terminalDataFlushTimer = null;
   host.terminalFanoutMessages = 0;
@@ -287,6 +294,11 @@ before(() => {
   host.updateLayout = () => {};
   host.schedulePersist = () => { host.scheduledPersists += 1; };
   resetHost();
+  // Field initializers do not run on a prototype-built double; the subscription release
+  // list is the one setupTerminalSubscriptions() pushes onto for the seam listeners and
+  // the TerminalOutputRouter route it wires next. Seeded once here, not in resetHost(),
+  // so the closures tracked at subscribe time stay reachable for the suite's lifetime.
+  host.terminalSubscriptionReleases = [];
   // Note: setupTerminalSubscriptions() (still called by the NativeTabHost constructor in production)
   // installs the 'session-woken' listener on TerminalManager.getInstance(), whereas the route table
   // (NativeTabHost.CHROME_ROUTES) registers the chrome IPC channels. Because host is created here via
@@ -303,6 +315,10 @@ beforeEach(() => {
 after(() => {
   tm.getSession = originalGetSession;
   tm.listSessions = originalListSessions;
+  // The router's own seam listeners ('data', 'session-closed', …) are part of what
+  // removeAllListeners() strips below; drop the singleton first so no router is left
+  // registered on a dead host with its listeners already gone.
+  TerminalOutputRouter.resetInstance();
   tm.removeAllListeners('session-woken');
   tm.removeAllListeners('session');
   tm.removeAllListeners('data');
@@ -616,6 +632,10 @@ describe('sleep transition vs coalesced terminal data (native-tab-host)', () => 
     });
     seedSession('terminal-sleep-order', 1);
     assert.equal(host.bindTerminalAgentAffinity('terminal-sleep-order', 1, 'tab-sleep'), true);
+    // The sidebar gate reads which sessions each surface displays; production seeds
+    // this in sendTerminalProjections, which the harness bypasses. Seed it directly
+    // so the flush picks DATA over ACTIVITY exactly as the live sidebar does.
+    host.terminalDisplayedSessions.set(`c${sidebarWc.id}`, new Set(['terminal-sleep-order']));
 
     // >256 B takes the coalescing path, so a batch is pending when sleep lands.
     const bigChunk = 'X'.repeat(300);

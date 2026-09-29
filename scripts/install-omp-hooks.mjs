@@ -69,7 +69,6 @@ const HOOKS = [
     installName: "antifan-run-state",
     phase: "pre",
     source: "src/omp-hooks/run-state.ts",
-    optional: true,
     legacyNames: [],
   },
   {

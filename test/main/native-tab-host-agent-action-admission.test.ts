@@ -135,7 +135,7 @@ function buildHost(admission: TabHostCloseAdmission | null): { host: NativeTabHo
   // is about admission, and the real body still runs from the guard inward. The input events
   // are captured because this host implements the press itself instead of delegating it, so
   // the event is the evidence that the nested action really executed.
-  host.tabs = new Map([[TAB_ID, { view: { webContents: { isDestroyed: () => false, sendInputEvent: (event: { type: string }) => { inputEvents.push(event); } } } }]]);
+  host.tabs = new Map([[TAB_ID, { view: { webContents: { isDestroyed: () => false, sendInputEvent: (event: { type: string }) => { inputEvents.push(event); } } }, state: { id: TAB_ID, url: 'https://fixture.test/', title: 'fixture' } }]]);
   host.resolveTargetTabId = (tabId?: string) => tabId;
   host.syncWithAgentInput = (run: () => void) => { run(); };
   return { host: host as unknown as NativeTabHost, automation, inputEvents };
@@ -310,6 +310,12 @@ describe('NativeTabHost host work admission', () => {
     };
     host.popoutWindow = options.popout === undefined ? null : { isDestroyed: () => false, webContents: { id: options.popout } };
     host.terminalWindows = new Map((options.terminalWindows ?? []).map((id) => [id, { isDestroyed: () => false, webContents: { id } }]));
+    host.terminalDisplayedSessions = new Map();
+    host.hibernatingTabIds = new Set();
+    host.agentInputInFlight = 0;
+    host.lastUserInputAtMs = 0;
+    host.captureLift = null;
+    host.captureLiftQueue = [];
     return host as unknown as NativeTabHost;
   }
 

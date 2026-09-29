@@ -37,13 +37,13 @@ const tempUserData = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-two-shell-')
 app.setPath('userData', tempUserData);
 
 const checks = [];
-function check(name, fn) {
+async function check(name, fn) {
   try {
-    fn();
-    checks.push({ name, ok: true });
+    await fn();
+    checks.push({ name, ok: true, status: 'PASS' });
     console.log(`  PASS  ${name}`);
   } catch (err) {
-    checks.push({ name, ok: false, error: String(err && err.message ? err.message : err) });
+    checks.push({ name, ok: false, status: 'FAIL', error: String(err && err.message ? err.message : err) });
     console.log(`  FAIL  ${name}: ${err && err.message ? err.message : err}`);
   }
 }
@@ -108,35 +108,35 @@ async function run() {
     // resolution checks below read the pre-load URL and report a routing failure that
     // is really a race.
     const surfacesReady = await waitForChromeSurfaces(shells);
-    check('every chrome surface has loaded its page before routing is judged', () => {
+    await check('every chrome surface has loaded its page before routing is judged', () => {
       expect(surfacesReady, 'the chrome views did not finish loading within the timeout');
     });
 
     console.log(`[probe] chrome channels after window A: ${channelsAfterFirst}, after window B: ${channelsAfterSecond}`);
-    check('second project window registers no additional chrome channel', () => {
+    await check('second project window registers no additional chrome channel', () => {
       expect(channelsAfterFirst > 0, 'the first window registered no chrome channels at all');
       expect(channelsAfterSecond === channelsAfterFirst, `channel count grew from ${channelsAfterFirst} to ${channelsAfterSecond} on the second window`);
     });
 
     const routes = NativeTabHost.CHROME_ROUTES;
-    check('route table is exposed for dispatch', () => {
+    await check('route table is exposed for dispatch', () => {
       expect(Array.isArray(routes) && routes.length > 0, 'NativeTabHost.CHROME_ROUTES is missing or empty');
     });
 
-    check('toolbar of each window resolves to its own host', () => {
+    await check('toolbar of each window resolves to its own host', () => {
       const targetA = directory.resolveSender(shellA.toolbarView.webContents.id);
       const targetB = directory.resolveSender(shellB.toolbarView.webContents.id);
       expect(targetA && targetA.host === hostA && targetA.surface === 'toolbar', `window A toolbar resolved to ${JSON.stringify(targetA && targetA.surface)}`);
       expect(targetB && targetB.host === hostB && targetB.surface === 'toolbar', `window B toolbar resolved to ${JSON.stringify(targetB && targetB.surface)}`);
     });
 
-    check('sidebar resolves as the sidebar surface, not the toolbar', () => {
+    await check('sidebar resolves as the sidebar surface, not the toolbar', () => {
       const target = directory.resolveSender(shellA.sidebarView.webContents.id);
       expect(target && target.host === hostA && target.surface === 'sidebar', `sidebar resolved to ${JSON.stringify(target && target.surface)}`);
     });
 
     if (Array.isArray(routes) && routes.length > 0) {
-      check('a toolbar action in window B changes only window B', () => {
+      await check('a toolbar action in window B changes only window B', () => {
         const beforeA = shellA.isSidebarOpen;
         const beforeB = shellB.isSidebarOpen;
         router.dispatchChromeRoute(routes, 'antifan:toolbar:toggle-sidebar', shellB.toolbarView.webContents, []);
@@ -144,7 +144,7 @@ async function run() {
         expect(shellA.isSidebarOpen === beforeA, `window A sidebar changed from ${String(beforeA)} to ${String(shellA.isSidebarOpen)}`);
       });
 
-      check('a toolbar-only channel is refused from the sidebar, while the sidebar keeps the channels its preload declares', () => {
+      await check('a toolbar-only channel is refused from the sidebar, while the sidebar keeps the channels its preload declares', () => {
         // The standalone preload's `togglePanel` really does invoke toggle-sidebar
         // (src/preload/standalone-preload.ts), so that route declares toolbar, sidebar and
         // terminalPopout. A toolbar-only channel from the same sidebar must still be
@@ -164,7 +164,7 @@ async function run() {
         expect(shellA.isSidebarOpen === beforeA, `window A sidebar changed from ${String(beforeA)} to ${String(shellA.isSidebarOpen)}`);
       });
 
-      check('a tab page is not a chrome surface and is refused', () => {
+      await check('a tab page is not a chrome surface and is refused', () => {
         const tabId = hostA.createTab('about:blank', false);
         const pageContents = hostA.getTabWebContents(tabId, 'desktop');
         expect(pageContents, 'could not obtain the tab page webContents');
@@ -177,10 +177,18 @@ async function run() {
         expect(code === 'UNKNOWN_CHROME_SENDER', `tab page dispatch refused with ${String(code)} instead of UNKNOWN_CHROME_SENDER`);
       });
     } else {
-      console.log('  SKIP  route-dependent checks (route table unavailable)');
+      const skippedRows = [
+        'a toolbar action in window B changes only window B',
+        'a toolbar-only channel is refused from the sidebar, while the sidebar keeps the channels its preload declares',
+        'a tab page is not a chrome surface and is refused',
+      ];
+      for (const name of skippedRows) {
+        checks.push({ name, ok: false, status: 'SKIPPED', skipped: true, error: 'route table unavailable (untested)' });
+        console.log(`  SKIP  ${name}: route table unavailable (untested)`);
+      }
     }
   } catch (err) {
-    check('probe completed without an unexpected throw', () => {
+    await check('probe completed without an unexpected throw', () => {
       throw err;
     });
   } finally {
@@ -198,10 +206,19 @@ async function run() {
     try { fs.rmSync(tempUserData, { recursive: true, force: true }); } catch {}
   }
 
-  const failed = checks.filter((entry) => !entry.ok);
-  const result = { probe: 'two-shell-ipc', passed: checks.length - failed.length, failed: failed.length, checks, at: new Date().toISOString() };
+  const passed = checks.filter((entry) => entry.ok);
+  const failed = checks.filter((entry) => !entry.ok && !entry.skipped);
+  const skipped = checks.filter((entry) => entry.skipped);
+  const result = {
+    probe: 'two-shell-ipc',
+    passed: passed.length,
+    failed: failed.length,
+    untested: skipped.length,
+    checks,
+    at: new Date().toISOString(),
+  };
   fs.writeFileSync(path.join(reportsDir, 'two-shell-ipc-probe.json'), JSON.stringify(result, null, 2), 'utf8');
-  console.log(`[probe] ${result.passed}/${checks.length} checks passed; evidence ${path.join(reportsDir, 'two-shell-ipc-probe.json')}`);
+  console.log(`[probe] ${result.passed}/${checks.length} checks passed (${skipped.length} untested/skipped, ${failed.length} failed); evidence ${path.join(reportsDir, 'two-shell-ipc-probe.json')}`);
   logStream.end();
   app.exit(failed.length === 0 ? 0 : 1);
 }

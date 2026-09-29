@@ -39,11 +39,14 @@ test("install bundles each hook, supersedes the legacy .ts, and records a manife
   const installed = run(agentDir, "--install");
   assert.equal(installed.status, 0, installed.stderr);
   assert.ok(installed.stdout.includes("edit-guard"));
+  assert.ok(installed.stdout.includes("run-state"));
   assert.ok(installed.stdout.includes("theme-qa-gate"));
 
   const guard = hookPath(agentDir, "pre", "antifan-edit-guard.js");
+  const runState = hookPath(agentDir, "pre", "antifan-run-state.js");
   const gate = hookPath(agentDir, "post", "antifan-theme-qa-gate.js");
   assert.ok(fs.existsSync(guard), "antifan-edit-guard.js installed");
+  assert.ok(fs.existsSync(runState), "antifan-run-state.js installed");
   assert.ok(fs.existsSync(gate), "antifan-theme-qa-gate.js installed");
 
   const guardSource = fs.readFileSync(guard, "utf8");
@@ -59,19 +62,25 @@ test("install bundles each hook, supersedes the legacy .ts, and records a manife
   assert.ok(!guardSource.includes("module.exports"), "no CJS export shape in the installed hook");
   assert.ok(!/^\s*(?:const|var)\s+\w+\s*=\s*require\(/m.test(guardSource), "no require() in the bundle");
 
+
+  const runStateSource = fs.readFileSync(runState, "utf8");
+  assert.ok(runStateSource.startsWith("/* AntiFan hook"), "generated banner present");
+  assert.ok(runStateSource.includes("runStateHook"), "bundled hook body present");
+  assert.ok(/export\s*\{[^}]*as default/.test(runStateSource), "factory is an ESM default export");
+  assert.ok(!runStateSource.includes("module.exports"), "no CJS export shape in the installed hook");
+  assert.ok(!/^\s*(?:const|var)\s+\w+\s*=\s*require\(/m.test(runStateSource), "no require() in the bundle");
   // The legacy user-scope .ts is parked, not deleted: discovery must not load both.
   assert.equal(fs.existsSync(hookPath(agentDir, "post", "theme-qa-gate.ts")), false);
   assert.ok(fs.existsSync(hookPath(agentDir, "post", "theme-qa-gate.ts.bak")));
   assert.equal(fs.readFileSync(hookPath(agentDir, "post", "theme-qa-gate.ts.bak"), "utf8"), "// legacy gate\n");
 
-  // run-state.ts does not exist yet: skipped, never a hard failure.
-  assert.ok(installed.stdout.includes("SKIPPED_ABSENT"));
-
+  // run-state is now part of the required installed set.
+  assert.equal(installed.stdout.includes("SKIPPED_ABSENT"), false);
   const manifest = JSON.parse(fs.readFileSync(path.join(agentDir, "hooks", ".antifan-hooks.json"), "utf8"));
   assert.equal(manifest.schema, 1);
   assert.deepEqual(
     manifest.hooks.map((entry) => entry.id).sort(),
-    ["edit-guard", "theme-qa-gate"],
+    ["edit-guard", "run-state", "theme-qa-gate"],
   );
   for (const entry of manifest.hooks) {
     assert.match(entry.sha256, /^[0-9a-f]{64}$/);
@@ -123,15 +132,18 @@ test("rollback restores the previous files and the legacy .ts", () => {
   const agentDir = makeAgentDir({ legacyGate: "// legacy gate\n" });
   assert.equal(run(agentDir, "--install").status, 0);
   const guard = hookPath(agentDir, "pre", "antifan-edit-guard.js");
+  const runState = hookPath(agentDir, "pre", "antifan-run-state.js");
   const gate = hookPath(agentDir, "post", "antifan-theme-qa-gate.js");
 
   // A previous version of each hook must come back byte-identical.
   fs.writeFileSync(`${guard}.bak`, "// previous guard\n", "utf8");
+  fs.writeFileSync(`${runState}.bak`, "// previous run-state\n", "utf8");
   fs.writeFileSync(`${gate}.bak`, "// previous gate\n", "utf8");
 
   const rolled = run(agentDir, "--rollback");
   assert.equal(rolled.status, 0, rolled.stderr);
   assert.equal(fs.readFileSync(guard, "utf8"), "// previous guard\n");
+  assert.equal(fs.readFileSync(runState, "utf8"), "// previous run-state\n");
   assert.equal(fs.readFileSync(gate, "utf8"), "// previous gate\n");
   assert.equal(fs.readFileSync(hookPath(agentDir, "post", "theme-qa-gate.ts"), "utf8"), "// legacy gate\n");
 
@@ -142,4 +154,5 @@ test("rollback restores the previous files and the legacy .ts", () => {
   assert.equal(parked.status, 0);
   assert.ok(parked.stdout.includes("DISCARDED"));
   assert.ok(fs.existsSync(hookPath(bare, "pre", "antifan-edit-guard.js.discarded")));
+  assert.ok(fs.existsSync(hookPath(bare, "pre", "antifan-run-state.js.discarded")));
 });

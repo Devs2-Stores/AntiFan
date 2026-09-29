@@ -1,0 +1,28 @@
+{
+  "label": "run",
+  "compiledRoot": "E:\\Work\\apps\\AntiFan\\.compiled",
+  "projects": 3,
+  "daemon": false,
+  "burstSeconds": 30.07,
+  "windowOpenMs": 342,
+  "eventLoopDelayMs": {
+    "p50": 15.31,
+    "p95": 16.11,
+    "p99": 21.3,
+    "max": 174.85
+  },
+  "statSyncPerSecond": 0.63,
+  "terminalDataIpcPerSecond": 0,
+  "echoLatencyMs": {
+    "samples": 0,
+    "lost": 147,
+    "p50": null,
+    "p95": null,
+    "max": null
+  },
+  "workingSetMb": {
+    "idle": 897.38,
+    "burstMax": 964.23
+  },
+  "measuredAt": "2026-09-28T23:01:14.651Z"
+}
