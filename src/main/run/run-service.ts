@@ -63,6 +63,7 @@ import { ExecutionBackend, StartRunInput } from '../agent/execution-backend';
 import { RunEvent } from '../agent/execution-backend';
 import { ReceiptStore } from '../session/receipt-store';
 import { AttachmentRegistry } from './attachment-registry';
+import { isPidAlive } from '../bridge/bridge-health';
 export class RunService {
   private readonly runs = new Map<string, RunRecord>();
   private readonly attempts = new Map<string, ExecutionAttempt>();
@@ -92,6 +93,7 @@ export class RunService {
         getHostEpoch: () => this.getHostEpoch(),
         getBackendId: (attemptId) => this.attempts.get(attemptId)?.backendId,
         getProcessPid: (_runId, attemptId) => this.attemptPids.get(attemptId),
+        isOwnerProcessAlive: (pid) => isPidAlive(pid),
         getDocumentGeneration: (tabId) => (this.getDocumentGeneration ? this.getDocumentGeneration(tabId) : 1),
         getAutomationTabId: this.getAutomationTabId,
         isTabAllowed: this.isTabAllowed,
@@ -106,6 +108,52 @@ export class RunService {
   }
   getAttemptProcessPid(attemptId: string): number | undefined {
     return this.attemptPids.get(validateControlPlaneId(attemptId, 'attempt'));
+  }
+
+  /**
+   * Reap runs whose owning process is provably dead. A CLI/workflow session that
+   * lost its owner never calls endCliSession, so its run would sit in a
+   * non-terminal state forever — and the close gate counts every non-terminal
+   * run as busy evidence. The owner pid is the same authority the attachment
+   * registry releases on: dispatch refuses a dead boundPid, so no live client
+   * can lose work here. Runs without a recorded owner pid keep their state —
+   * pid-less clients are the fail-closed direction, exactly like the registry.
+   */
+  public reapGoneOwnerRuns(): { interrupted: string[] } {
+    const interrupted: string[] = [];
+    const now = Date.now();
+    for (const run of this.runs.values()) {
+      if (run.state === 'completed' || run.state === 'failed' || run.state === 'interrupted' || run.state === 'unknown') {
+        continue;
+      }
+      let attempt: ExecutionAttempt | undefined;
+      let pid: number | undefined;
+      for (const candidate of this.attempts.values()) {
+        if (candidate.runId !== run.id) continue;
+        const candidatePid = this.attemptPids.get(candidate.id);
+        if (typeof candidatePid === 'number' && candidatePid > 0) {
+          attempt = candidate;
+          pid = candidatePid;
+        }
+      }
+      if (!attempt || !pid) continue;
+      let alive = true;
+      try {
+        // A liveness read that fails is not evidence of death: keep the run.
+        alive = isPidAlive(pid) !== false;
+      } catch {
+        alive = true;
+      }
+      if (alive) continue;
+      run.state = 'interrupted';
+      run.updatedAt = now;
+      attempt.state = 'interrupted';
+      attempt.updatedAt = now;
+      this.append('backend/status', { state: 'interrupted', reason: 'owner-process-gone' }, run, attempt);
+      void this.attachments.revokeForAttempt(attempt.id).catch(() => {});
+      interrupted.push(run.id);
+    }
+    return { interrupted };
   }
   createRun(projectId: string, workspaceId: string, chatId: string, backendId: string): RunRecord {
     const chat = this.chats.get(chatId, projectId, workspaceId);

@@ -1294,6 +1294,16 @@ async function releaseGoneOwnerBindings(): Promise<void> {
 /** One authoritative read (see `close-live-use`), classified into idle / busy / unknown. */
 async function readLiveUse(request: LiveUseRequest): Promise<LiveUseReport> {
   await releaseGoneOwnerBindings();
+  // A run whose owner process is gone can never call endSession again: without
+  // this reap it would report 'streaming' to every close/quit question forever.
+  try {
+    const reaped = controlPlane?.runs.reapGoneOwnerRuns?.();
+    if (reaped && reaped.interrupted.length > 0) {
+      recordLifecycleEvent('close-live-use.gone-owner-runs', { interrupted: reaped.interrupted.length });
+    }
+  } catch (err) {
+    recordLifecycleEvent('close-live-use.gone-owner-runs.failed', { detail: String(err) });
+  }
   return collectCloseLiveUse(request, closeLiveUsePort);
 }
 
