@@ -77,6 +77,7 @@ interface ToolCallEvent {
 
 interface ToolResultEvent {
   toolName?: string;
+  name?: string;
   input?: Record<string, unknown>;
   content?: unknown;
   isError?: boolean;
@@ -119,6 +120,13 @@ const OBSERVED_FAILURE_MARKERS = [
   "CONNECTION_FAILED",
   "PAIRING_UNAVAILABLE",
 ] as const;
+/**
+ * Observed-marker suspension only trusts results from AntiFan MCP tools.
+ * Any other tool result that merely *mentions* a marker string — grep hits on
+ * this source, changelog reads, pasted errors — must not suspend the gate:
+ * that was the suspend/resume ping-pong loop observed in production.
+ */
+const ANTIFAN_TOOL_RE = /antifan_browser|antifan-omp|mcp__antifan/i;
 
 const WRITE_TOOLS = new Set(["write", "edit", "ast_edit", "ast.edit", "patch", "append", "file.write"]);
 const BYPASS_TOKENS = ["qaStatus: QA_UNAVAILABLE", "qaStatus:QA_UNAVAILABLE", "qaStatus: QA_INCONCLUSIVE", "qaStatus:QA_INCONCLUSIVE"];
@@ -126,9 +134,9 @@ const RECEIPT_DIR = path.join(".antifan", "qa-receipts");
 
 /** A pending edit expires after 10 minutes: no receipt dir must never mean "forever". */
 const PENDING_TTL_MS = 10 * 60_000;
-/** A pending edit reminds on every unmarked tool_result. Short chat turns
- * never reached 8 results (Seahorse2 01a0c1aa), so 1-in-8 was equivalent to never. */
-const REMIND_EVERY = 1;
+/** A pending edit reminds on the first unmarked tool_result, then every Nth —
+ * the gate must stay visible without spamming every result in the turn. */
+const REMIND_EVERY = 4;
 /** Marker of the appended QA reminder, used to dedupe against re-appends. */
 const GATE_MARKER = "[theme-qa-gate]";
 /** Marker of the one-shot write-churn advisory, used to count hints in tests. */
@@ -241,8 +249,8 @@ export interface OutageEvidence {
   key: string;
 }
 
-export function bridgeOutageEvidence(content?: unknown, now = Date.now()): OutageEvidence {
-  const text = contentText(content);
+export function bridgeOutageEvidence(content?: unknown, now = Date.now(), trustedMarkers = false): OutageEvidence {
+  const text = trustedMarkers ? contentText(content) : "";
   if (text) {
     for (const marker of OBSERVED_FAILURE_MARKERS) {
       if (text.includes(marker)) {
@@ -923,7 +931,13 @@ export default function themeQaGate(pi: HookAPI): void {
         if (!root) continue;
         const rel = toRootRelative(root, absTarget);
         if (!rel || !THEME_PATH_RE.test(rel)) continue;
-        if (!pendingEdits.has(root)) pendingEdits.set(root, Date.now());
+        if (!pendingEdits.has(root)) {
+          const wasEmpty = pendingEdits.size === 0;
+          pendingEdits.set(root, Date.now());
+          // Re-arming after a cleared/expired gate must remind on the next
+          // result, not wait out the previous cadence window.
+          if (wasEmpty) toolResultCounter = 0;
+        }
         recordMicroEdit(root, rel, added);
       }
     } catch {
@@ -944,7 +958,11 @@ export default function themeQaGate(pi: HookAPI): void {
       }
       pruneExpired();
       const chunks: string[] = drainChurnHints();
-      const evidence = bridgeOutageEvidence(event.content);
+      const evidence = bridgeOutageEvidence(
+        event.content,
+        Date.now(),
+        ANTIFAN_TOOL_RE.test(String(event.toolName ?? event.name ?? ""))
+      );
       if (evidence.down) {
         if (bridgeOutageKey !== evidence.key) {
           bridgeOutageKey = evidence.key;
@@ -972,9 +990,9 @@ export default function themeQaGate(pi: HookAPI): void {
       }
       if (pendingEdits.size > 0) {
         reconcileReceipts();
-        if (pendingEdits.size > 0) {
+        if (pendingEdits.size > 0 && !contentHasMarker(event.content, GATE_MARKER)) {
           toolResultCounter += 1;
-          if (toolResultCounter % REMIND_EVERY === 0 && !contentHasMarker(event.content, GATE_MARKER)) {
+          if ((toolResultCounter - 1) % REMIND_EVERY === 0) {
             chunks.push(reminderText());
           }
         }

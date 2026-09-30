@@ -39,7 +39,7 @@ const BYPASS_TOKENS = [
 ];
 const MICRO_TOKEN = "qaStatus: QA_MICRO_STATIC";
 const TTL_MS = 10 * 60_000;
-const REMIND_EVERY = 1;
+const REMIND_EVERY = 4;
 const GATE_REMINDER_SENTINEL = "QA GATE PENDING";
 const CHURN_SENTINEL = "theme-qa-gate:churn";
 const MCP_FIRST_SENTINEL = "theme-qa-gate:mcp-first";
@@ -101,7 +101,7 @@ function loadHook() {
   for (const event of ["tool_call", "tool_result", "context", "turn_end", "session_start"]) {
     assert.equal(typeof handlers.get(event), "function", `hook must register a ${event} handler`);
   }
-  return { handlers, sent, entries };
+  return { handlers, sent, entries, mod };
 }
 function makeWorkspace() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "qa-gate-ws-"));
@@ -143,8 +143,8 @@ function editCall(handlers, ctx, absPath, addedLines = ["color: red;"]) {
   );
 }
 
-function result(handlers, ctx, content) {
-  return handlers.get("tool_result")({ toolName: "read", content }, ctx);
+function result(handlers, ctx, content, toolName = "read") {
+  return handlers.get("tool_result")({ toolName, content }, ctx);
 }
 
 /** Fire n tool results and tally reminder / churn chunks in the returned content. */
@@ -179,15 +179,17 @@ test("non-theme directories never arm the gate (reports/, plans/, docs/, scripts
   assert.equal(reminders, 0, "no reminder may be emitted for non-theme writes");
 });
 
-test("a real theme path arms the gate, and every unmarked result carries the reminder", () => {
+test("a real theme path arms the gate, the first unmarked result carries the reminder, then every Nth", () => {
   const { handlers } = loadHook();
   const root = makeWorkspace();
   const ctx = { cwd: root };
   writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
   const first = fire(handlers, ctx, 1);
   assert.equal(first.reminders, 1, "the first result after a theme write carries the reminder");
-  const nextTwo = fire(handlers, ctx, 2);
-  assert.equal(nextTwo.reminders, 2, "every subsequent unmarked result carries the reminder");
+  const nextThree = fire(handlers, ctx, REMIND_EVERY - 1);
+  assert.equal(nextThree.reminders, 0, "results 2..N-1 are silent");
+  const nth = fire(handlers, ctx, 1);
+  assert.equal(nth.reminders, 1, "the Nth pending result reminds again");
 });
 
 test("gate arming accepts cwd-relative paths and nested theme dirs", () => {
@@ -240,11 +242,13 @@ test("an already-marked tool result is skipped for both string and array content
   ]);
   assert.equal(markedArray, undefined, "array content already carrying the marker is untouched");
 
-  const next = result(handlers, ctx, "plain output");
+  const next = fire(handlers, ctx, REMIND_EVERY - 1);
+  assert.equal(next.reminders, 0, "results between reminders stay silent");
+  const nth = result(handlers, ctx, "nth output");
   assert.equal(
-    count(resText(next), GATE_REMINDER_SENTINEL),
+    count(resText(nth), GATE_REMINDER_SENTINEL),
     1,
-    "an unmarked result after a deduped result still reminds"
+    "an unmarked result on the reminder cadence still reminds"
   );
 });
 
@@ -302,35 +306,54 @@ test("bypass tokens clear the gate only from an assistant message", () => {
 });
 
 test("TTL: a pending entry older than PENDING_TTL_MS is pruned; just inside it is not", () => {
-  const expired = loadHook();
-  const rootA = makeWorkspace();
-  const ctxA = { cwd: rootA };
-  writeCall(expired.handlers, ctxA, path.join(rootA, "sections", "hero.liquid"));
-  const realNow = Date.now;
+  // Bridge-health env must not leak in: a mocked Date.now makes any real
+  // bridge record look stale and suspends the gate, hiding what TTL does.
+  const prevDataRoot = process.env.ANTIFAN_DATA_ROOT;
+  const prevConfigDir = process.env.ANTIFAN_CONFIG_DIR;
+  delete process.env.ANTIFAN_DATA_ROOT;
+  delete process.env.ANTIFAN_CONFIG_DIR;
   try {
-    Date.now = () => realNow() + TTL_MS + 1000;
-    assert.equal(
-      fire(expired.handlers, ctxA, 2 * REMIND_EVERY).reminders,
-      0,
-      "an expired pending entry must stop reminding (the production deadlock)"
-    );
-  } finally {
-    Date.now = realNow;
-  }
+    const expired = loadHook();
+    const rootA = makeWorkspace();
+    const ctxA = { cwd: rootA };
+    writeCall(expired.handlers, ctxA, path.join(rootA, "sections", "hero.liquid"));
+    const realNow = Date.now;
+    try {
+      Date.now = () => realNow() + TTL_MS + 1000;
+      assert.equal(
+        fire(expired.handlers, ctxA, 2 * REMIND_EVERY).reminders,
+        0,
+        "an expired pending entry must stop reminding (the production deadlock)"
+      );
+    } finally {
+      Date.now = realNow;
+    }
 
-  const fresh = loadHook();
-  const rootB = makeWorkspace();
-  const ctxB = { cwd: rootB };
-  writeCall(fresh.handlers, ctxB, path.join(rootB, "sections", "hero.liquid"));
-  try {
-    Date.now = () => realNow() + TTL_MS - 1000;
-    assert.equal(fire(fresh.handlers, ctxB, REMIND_EVERY).reminders, 1, "inside the TTL the gate stays armed");
+    const fresh = loadHook();
+    const rootB = makeWorkspace();
+    const ctxB = { cwd: rootB };
+    writeCall(fresh.handlers, ctxB, path.join(rootB, "sections", "hero.liquid"));
+    try {
+      Date.now = () => realNow() + TTL_MS - 1000;
+      assert.equal(fire(fresh.handlers, ctxB, REMIND_EVERY).reminders, 1, "inside the TTL the gate stays armed");
+    } finally {
+      Date.now = realNow;
+    }
   } finally {
-    Date.now = realNow;
+    if (prevDataRoot !== undefined) process.env.ANTIFAN_DATA_ROOT = prevDataRoot;
+    else delete process.env.ANTIFAN_DATA_ROOT;
+    if (prevConfigDir !== undefined) process.env.ANTIFAN_CONFIG_DIR = prevConfigDir;
+    else delete process.env.ANTIFAN_CONFIG_DIR;
   }
 });
 
 test("TTL pruning does not leave the re-armed gate silent", () => {
+  // Same env isolation as the sibling TTL test: a mocked Date.now turns a real
+  // bridge record stale and suspends the gate, masking what re-arming does.
+  const prevDataRoot = process.env.ANTIFAN_DATA_ROOT;
+  const prevConfigDir = process.env.ANTIFAN_CONFIG_DIR;
+  delete process.env.ANTIFAN_DATA_ROOT;
+  delete process.env.ANTIFAN_CONFIG_DIR;
   const { handlers } = loadHook();
   const root = makeWorkspace();
   const ctx = { cwd: root };
@@ -343,6 +366,10 @@ test("TTL pruning does not leave the re-armed gate silent", () => {
     assert.equal(fire(handlers, ctx, 1).reminders, 1, "re-armed gate reminds on the next unmarked result");
   } finally {
     Date.now = realNow;
+    if (prevDataRoot !== undefined) process.env.ANTIFAN_DATA_ROOT = prevDataRoot;
+    else delete process.env.ANTIFAN_DATA_ROOT;
+    if (prevConfigDir !== undefined) process.env.ANTIFAN_CONFIG_DIR = prevConfigDir;
+    else delete process.env.ANTIFAN_CONFIG_DIR;
   }
 });
 
@@ -975,7 +1002,7 @@ test("unset and core modes keep today's reminder behaviour and stay quiet at tur
       const first = resText(result(handlers, ctx, "output 1"));
       assert.equal(
         count(first, GATE_REMINDER_SENTINEL),
-        REMIND_EVERY,
+        1,
         `${label} reminds on an unmarked result`
       );
       assert.equal(count(first, MCP_FIRST_SENTINEL), 1, `${label} still injects MCP-first`);
@@ -994,13 +1021,12 @@ test("unset and core modes keep today's reminder behaviour and stay quiet at tur
 // Bridge health & QA-gate suspension (Component 6)
 // ---------------------------------------------------------------------------
 
-test("outage constants: hook inline copies match bridge-health.ts or literal pins", () => {
-  const hbMatch = hookSource.match(/export const BRIDGE_HEALTH_HEARTBEAT_MS\s*=\s*(\d+)/);
-  const multMatch = hookSource.match(/export const BRIDGE_HEALTH_STALE_MULTIPLIER\s*=\s*(\d+)/);
-  assert.ok(hbMatch, "hook must define BRIDGE_HEALTH_HEARTBEAT_MS");
-  assert.ok(multMatch, "hook must define BRIDGE_HEALTH_STALE_MULTIPLIER");
-  const hookHb = Number(hbMatch[1]);
-  const hookMult = Number(multMatch[1]);
+test("outage constants: hook exports match bridge-health.ts pins", () => {
+  // Assert the loaded module's exported values, not source syntax — the same
+  // invariant holds on the .ts source and the esbuild .js bundle (5e3).
+  const { mod } = loadHook();
+  const hookHb = Number(mod.BRIDGE_HEALTH_HEARTBEAT_MS);
+  const hookMult = Number(mod.BRIDGE_HEALTH_STALE_MULTIPLIER);
   assert.equal(hookHb, 5000, "hook heartbeat constant is 5000");
   assert.equal(hookMult, 3, "hook stale multiplier is 3");
 
@@ -1128,8 +1154,8 @@ test("suspension: observed-marker lane suspends while record reads listening and
     const ctx = { cwd: ws };
     writeCall(handlers, ctx, "sections/header.liquid");
 
-    // Tool result carries launcher failure marker MCP_BRIDGE_OFFLINE
-    const res1 = result(handlers, ctx, "Error: MCP_BRIDGE_OFFLINE: connection refused to 127.0.0.1:20129");
+    // Tool result from an AntiFan MCP tool carries launcher failure marker
+    const res1 = result(handlers, ctx, "Error: MCP_BRIDGE_OFFLINE: connection refused to 127.0.0.1:20129", "mcp__antifan_browser_theme_qa_validate");
     const text1 = resText(res1);
     assert.ok(text1.includes("[theme-qa-gate:bridge] QA gate suspended: bridge down (MCP_BRIDGE_OFFLINE)"), "observed lane suspends even though record says listening");
     assert.ok(!text1.includes(GATE_REMINDER_SENTINEL), "reminder is suppressed");
@@ -1139,7 +1165,7 @@ test("suspension: observed-marker lane suspends while record reads listening and
     assert.equal(entries[0].data.key, "MCP_BRIDGE_OFFLINE");
 
     // Second result with same marker does not duplicate notice
-    const res2 = result(handlers, ctx, "MCP_BRIDGE_OFFLINE repeated");
+    const res2 = result(handlers, ctx, "MCP_BRIDGE_OFFLINE repeated", "mcp__antifan_browser_theme_qa_validate");
     assert.equal(res2, undefined, "repeated failure marker is silent");
     assert.equal(entries.length, 1, "no duplicate entry appended");
 
@@ -1147,9 +1173,54 @@ test("suspension: observed-marker lane suspends while record reads listening and
     fs.unlinkSync(path.join(configDir, "bridge.json"));
     handlers.get("session_start")();
     writeCall(handlers, ctx, "sections/header.liquid");
-    const resNoRec = result(handlers, ctx, "Connection to bridge failed: BRIDGE_UNREACHABLE");
+    const resNoRec = result(handlers, ctx, "Connection to bridge failed: BRIDGE_UNREACHABLE", "mcp__antifan_browser_anti_browser_navigate");
     const textNoRec = resText(resNoRec);
     assert.ok(textNoRec.includes("[theme-qa-gate:bridge] QA gate suspended: bridge down (BRIDGE_UNREACHABLE)"), "observed lane suspends with no record on disk");
+  } finally {
+    if (prevDataRoot !== undefined) process.env.ANTIFAN_DATA_ROOT = prevDataRoot;
+    else delete process.env.ANTIFAN_DATA_ROOT;
+    if (prevConfigDir !== undefined) process.env.ANTIFAN_CONFIG_DIR = prevConfigDir;
+    else delete process.env.ANTIFAN_CONFIG_DIR;
+  }
+});
+
+test("suspension: marker text in a non-MCP tool result does not suspend (ping-pong regression)", () => {
+  const scratchDataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "antifan-data-"));
+  const configDir = path.join(scratchDataRoot, "config");
+  fs.mkdirSync(configDir, { recursive: true });
+  scratchDirs.push(scratchDataRoot);
+
+  const prevDataRoot = process.env.ANTIFAN_DATA_ROOT;
+  const prevConfigDir = process.env.ANTIFAN_CONFIG_DIR;
+  process.env.ANTIFAN_DATA_ROOT = scratchDataRoot;
+  process.env.ANTIFAN_CONFIG_DIR = configDir;
+
+  try {
+    // Bridge is healthy and listening.
+    fs.writeFileSync(
+      path.join(configDir, "bridge.json"),
+      JSON.stringify({ pid: process.pid, health: "listening", updatedAt: Date.now(), heartbeatMs: 5000 }),
+      "utf8"
+    );
+
+    const { handlers, entries } = loadHook();
+    const ws = makeWorkspace();
+    const ctx = { cwd: ws };
+    writeCall(handlers, ctx, "sections/header.liquid");
+
+    // grep/read output that merely MENTIONS the marker — the production loop.
+    const res1 = result(handlers, ctx, 'MCP_BRIDGE_OFFLINE\nCONNECTION_FAILED\nfound in scripts/antifan-omp-mcp.cjs:1929');
+    const text1 = resText(res1);
+    assert.ok(!text1.includes("[theme-qa-gate:bridge]"), "non-MCP result containing marker strings must not suspend");
+    assert.equal(entries.filter((e) => e.customType.startsWith("antifan-bridge-")).length, 0, "no bridge entries");
+
+    // And no suspend/resume alternation across subsequent results.
+    for (let i = 0; i < 6; i++) {
+      const resI = result(handlers, ctx, i % 2 === 0 ? "MCP_BRIDGE_OFFLINE in docs" : "clean output");
+      const textI = resText(resI);
+      assert.ok(!textI.includes("[theme-qa-gate:bridge]"), `result ${i} must not toggle bridge notices`);
+    }
+    assert.equal(entries.filter((e) => e.customType.startsWith("antifan-bridge-")).length, 0);
   } finally {
     if (prevDataRoot !== undefined) process.env.ANTIFAN_DATA_ROOT = prevDataRoot;
     else delete process.env.ANTIFAN_DATA_ROOT;
@@ -1213,11 +1284,13 @@ test("suspension: resume emits exactly one notice and restores pending-edits rem
     assert.equal(resumeEntries[0].data.code, "listening");
     assert.equal(resumeEntries[0].data.key, `${process.pid}:LISTEN_FAILED`);
 
-    // 4. Next result: recovery notice must NOT repeat, reminder must continue
+    // 4. Next results: recovery notice must NOT repeat; the reminder returns on cadence
     const res4 = result(handlers, ctx, "read 4");
     const text4 = resText(res4);
     assert.ok(!text4.includes("bridge recovered"), "recovery notice does not repeat");
-    assert.ok(text4.includes(GATE_REMINDER_SENTINEL), "pending reminder continues on subsequent results");
+    fire(handlers, ctx, REMIND_EVERY - 2);
+    const resN = result(handlers, ctx, "read nth");
+    assert.ok(resText(resN).includes(GATE_REMINDER_SENTINEL), "pending reminder continues on subsequent results");
   } finally {
     if (prevDataRoot !== undefined) process.env.ANTIFAN_DATA_ROOT = prevDataRoot;
     else delete process.env.ANTIFAN_DATA_ROOT;

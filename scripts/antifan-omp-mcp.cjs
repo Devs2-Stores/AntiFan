@@ -2075,17 +2075,24 @@ async function autohealSession() {
             }
           }
         } catch {}
-        session = {
-          attachmentId: pairedExchange.attachmentId,
-          secret: pairedExchange.secret,
-          authorityRevision: pairedExchange.authorityRevision,
-          tabId: resolvedTabId || 'default-tab',
-          runId: pairedExchange.runId,
-          attemptId: pairedExchange.attemptId,
-          projectId: pairedExchange.projectId,
-          workspaceId: pairedExchange.workspaceId,
-        };
-      } else {
+        if (resolvedTabId) {
+          session = {
+            attachmentId: pairedExchange.attachmentId,
+            secret: pairedExchange.secret,
+            authorityRevision: pairedExchange.authorityRevision,
+            tabId: resolvedTabId,
+            runId: pairedExchange.runId,
+            attemptId: pairedExchange.attemptId,
+            projectId: pairedExchange.projectId,
+            workspaceId: pairedExchange.workspaceId,
+          };
+        }
+        // No real tabId resolved (unbound pairing attachment, empty list-tabs):
+        // fall through to startSession, which is self-scoped to this attachment
+        // and provisions the dedicated agent tab. 'default-tab' was a phantom
+        // id that passed validation and left the session permanently unbound.
+      }
+      if (!session) {
         const startId = 'autoheal-' + crypto.randomUUID();
         session = await new Promise((resolve, reject) => {
           const timer = setTimeout(() => {
@@ -2471,6 +2478,11 @@ async function invoke(method, params = {}, callerRequestId) {
   }
   const sendDispatch = async (currentBoot) => {
     const ws = await ensureDispatchSocket(currentBoot);
+    // ensureDispatchSocket may have autohealed: it replaces dynamicBootstrap with
+    // the healed authority while `currentBoot` still names the stale one. Sign the
+    // envelope with the live bootstrap or the dispatch carries a dead secret.
+    const liveBoot = getBootstrap();
+    const boot = liveBoot && liveBoot.secret ? liveBoot : currentBoot;
     const id = crypto.randomUUID();
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -2511,7 +2523,7 @@ async function invoke(method, params = {}, callerRequestId) {
             // was in flight already recorded a newer decision, and replaying this close's
             // failover over it would resurrect a stale binding.
             const closedTabId = typeof data.tabId === 'string' ? data.tabId : '';
-            if (closedTabId && closedTabId === resolveBoundTabId(currentBoot.tabId)) {
+            if (closedTabId && closedTabId === resolveBoundTabId(boot.tabId)) {
               recordBoundTab(data.failoverTabId);
             }
           }
@@ -2530,18 +2542,18 @@ async function invoke(method, params = {}, callerRequestId) {
             params: effectiveParams,
             requestId: identity.requestId,
             idempotencyKey: identity.idempotencyKey,
-            attachmentId: currentBoot.attachmentId,
-            attachmentSecret: currentBoot.secret,
-            authorityRevision: currentAuthorityRevision || currentBoot.authorityRevision,
+            attachmentId: boot.attachmentId,
+            attachmentSecret: boot.secret,
+            authorityRevision: currentAuthorityRevision || boot.authorityRevision,
             attachmentClaims: {
-              attachmentSecret: currentBoot.secret,
-              attachmentId: currentBoot.attachmentId,
-              authorityRevision: currentAuthorityRevision || currentBoot.authorityRevision,
-              runId: currentBoot.runId,
-              attemptId: currentBoot.attemptId,
-              projectId: currentBoot.projectId,
-              workspaceId: currentBoot.workspaceId,
-              ownerPid: currentBoot.ownerPid,
+              attachmentSecret: boot.secret,
+              attachmentId: boot.attachmentId,
+              authorityRevision: currentAuthorityRevision || boot.authorityRevision,
+              runId: boot.runId,
+              attemptId: boot.attemptId,
+              projectId: boot.projectId,
+              workspaceId: boot.workspaceId,
+              ownerPid: boot.ownerPid,
             },
           },
         }));
