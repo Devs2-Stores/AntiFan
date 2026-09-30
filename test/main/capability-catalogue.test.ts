@@ -1694,4 +1694,44 @@ describe('Capability catalogue', () => {
     // Old definition still active
     assert.strictEqual(await catalogue.dispatch('hot.test', {}, { lease, leaseToken: lease.token, projectId, workspaceId }), 'v2-hot-swapped');
   });
+
+  it('isTabAllowedForRetarget adopts same-project tabs only against the attachment scope', () => {
+    const projectId = makeControlPlaneId('project');
+    const workspaceId = makeControlPlaneId('workspace');
+    const otherProjectId = makeControlPlaneId('project');
+    const otherWorkspaceId = makeControlPlaneId('workspace');
+    const lease = issueRuntimeLease(projectId, workspaceId, 30_000, 1);
+    const affiliation: Record<string, { projectId: string; workspaceId: string } | undefined> = {
+      // bound tab measures nothing (ephemeral agent surface has no capsule stamp)
+      'tab-agent': undefined,
+      'tab-same-project': { projectId, workspaceId },
+      'tab-other-project': { projectId: otherProjectId, workspaceId: otherWorkspaceId },
+      'tab-other-workspace': { projectId, workspaceId: otherWorkspaceId },
+    };
+    const catalogue = new CapabilityCatalogue({
+      runtime: { mode: 'standalone', lifecycle: 'active' },
+      projectId,
+      workspaceId,
+      runtimeId: lease.runtimeId,
+      hostEpoch: 1,
+      // session seam owns nothing besides the bound id itself
+      isTabAllowed: (bound: string, req: string) => bound === req,
+      resolveTabAffiliation: (id: string) => affiliation[id],
+    });
+
+    const scope = { projectId, workspaceId };
+    // session-owned stays allowed without needing the affiliation leg
+    assert.strictEqual(catalogue.isTabAllowedForRetarget('tab-agent', 'tab-agent', scope), true);
+    // same project+workspace tab owned by another session: adoptable on retarget
+    assert.strictEqual(catalogue.isTabAllowedForRetarget('tab-agent', 'tab-same-project', scope), true);
+    // foreign project refuses even though it is measured
+    assert.strictEqual(catalogue.isTabAllowedForRetarget('tab-agent', 'tab-other-project', scope), false);
+    // same project but different workspace refuses — the leg requires both
+    assert.strictEqual(catalogue.isTabAllowedForRetarget('tab-agent', 'tab-other-workspace', scope), false);
+    // a missing/empty scope never adopts
+    assert.strictEqual(catalogue.isTabAllowedForRetarget('tab-agent', 'tab-same-project', { projectId, workspaceId: '' }), false);
+    assert.strictEqual(catalogue.isTabAllowedForRetarget('tab-agent', 'tab-same-project', {}), false);
+    // the plain session gate is untouched: same-project tab is still foreign to ordinary dispatch
+    assert.strictEqual(catalogue.isTabAllowed('tab-agent', 'tab-same-project'), false);
+  });
 });

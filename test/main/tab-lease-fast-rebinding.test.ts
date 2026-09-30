@@ -490,4 +490,119 @@ describe('Fast-Path Tab Lease Rebinding & Explicit TabId Routing (Phase 02)', ()
     assert.strictEqual(updatedRecord?.documentGeneration, 14, 'updateAttachmentTab must resolve live generation 14');
     assert.strictEqual(updatedRecord?.browserTarget?.documentGeneration, 14);
   });
+
+  it('rebinds to a same-project tab owned by another session when bound tab has no affiliation', async () => {
+    const projectId = makeControlPlaneId('project');
+    const workspaceId = makeControlPlaneId('workspace');
+    const otherWorkspaceId = makeControlPlaneId('workspace');
+    const lease = issueRuntimeLease(projectId, workspaceId, 30_000, 1);
+
+    let currentAutoTab = 'tab-agent-ephemeral';
+    let docGen = 3;
+    const tabList = [
+      // Bound agent surface: ephemeral tabs mint without a capsule, so affiliation measures nothing.
+      { id: 'tab-agent-ephemeral', url: 'about:blank', title: 'Agent' },
+      // Persist-profile tab another session attached: same project+workspace.
+      { id: 'tab-admin-dashboard', url: 'https://dev.shopify.com/dashboard', title: 'Admin' },
+      // Same project, different workspace — not adoptable.
+      { id: 'tab-other-workspace', url: 'https://example.com/ow', title: 'OtherWS' },
+      // No capsule at all — foreign surface.
+      { id: 'tab-foreign', url: 'https://trello.com', title: 'Foreign' },
+    ];
+    const affiliationByTab: Record<string, { projectId: string; workspaceId: string; capsuleId: string } | undefined> = {
+      'tab-agent-ephemeral': undefined,
+      'tab-admin-dashboard': { projectId, workspaceId, capsuleId: 'capsule-admin' },
+      'tab-other-workspace': { projectId, workspaceId: otherWorkspaceId, capsuleId: 'capsule-ow' },
+      'tab-foreign': undefined,
+    };
+
+    class MockHost extends EventEmitter {
+      hasTab(id?: string | null) { return Boolean(id && tabList.some(t => t.id === id)); }
+      resolveTabAffiliation(tabId: string) { return affiliationByTab[tabId]; }
+      getTabList() { return [...tabList]; }
+      getActiveTabId() { return currentAutoTab; }
+      getActiveTab() { return tabList.find(t => t.id === currentAutoTab); }
+      getAutomationTabId() { return currentAutoTab; }
+      setAutomationTabId(id?: string) { if (id) currentAutoTab = id; }
+      getManagedTabIds() { return new Set([currentAutoTab]); }
+      resolveTargetTabId(id: string) { return tabList.some(t => t.id === id) ? id : undefined; }
+      getDocumentGeneration(tabId?: string) { return docGen; }
+      isCurrentTarget(target: any) {
+        // Mirrors NativeTabHost.isCurrentTarget: tab existence + generation +
+        // lease envelope (browserEpoch, runtimeId, projectId, workspaceId).
+        if (!target || typeof target.tabId !== 'string' || !tabList.some(t => t.id === target.tabId)) return false;
+        if (typeof target.documentGeneration !== 'number' || target.documentGeneration !== docGen) return false;
+        if (typeof target.browserEpoch !== 'number' || target.browserEpoch !== lease.hostEpoch) return false;
+        if (typeof target.runtimeId !== 'string' || target.runtimeId !== lease.runtimeId) return false;
+        if (target.projectId !== lease.projectId) return false;
+        if (lease.workspaceId && target.workspaceId !== lease.workspaceId) return false;
+        return true;
+      }
+      async getDom(selector?: string, tabId?: string) { return `<html><body>DOM for ${tabId || currentAutoTab} gen ${docGen}</body></html>`; }
+      async captureScreenshot() { return Buffer.from('screenshot').toString('base64'); }
+      evalJs() { return null; }
+    }
+
+    const mockHost = new MockHost() as unknown as NativeTabHost;
+    (mockHost as any).isTabAllowed = (bound: string, req: string) => bound === req;
+
+    const catalogue = new CapabilityCatalogue({
+      runtime: { mode: 'standalone', lifecycle: 'active' },
+      projectId,
+      workspaceId,
+      runtimeId: lease.runtimeId,
+      hostEpoch: 1,
+      getActiveLease: () => lease,
+      isTabAllowed: (bound: string, req: string) => (mockHost as any).isTabAllowed(bound, req),
+      resolveTabId: (id: string) => (mockHost as any).resolveTargetTabId(id),
+      resolveTabAffiliation: (id: string) => (mockHost as any).resolveTabAffiliation(id),
+      getDocumentGeneration: (id?: string) => (mockHost as any).getDocumentGeneration(id),
+    });
+
+    const browserPort = new BrowserControlPort(mockHost as any);
+    registerBrowserCapabilities(catalogue, browserPort, undefined, () => '');
+    const attachmentRegistry = new AttachmentRegistry({
+      getHostEpoch: () => 1,
+      getDocumentGeneration: () => docGen,
+      getAutomationTabId: () => currentAutoTab,
+    });
+    const transport = new CapabilityTransportAdapter(catalogue, attachmentRegistry);
+    const mcpServer = new AntiFanMcpServer(mockHost, false, transport);
+
+    const { launch } = await attachmentRegistry.issueAttachment(
+      makeControlPlaneId('run'), makeControlPlaneId('attempt'), projectId, workspaceId,
+      { backendId: 'mcp', lease, leaseToken: lease.token, hostEpoch: 1, tabId: 'tab-agent-ephemeral', grant: 'write', documentGeneration: docGen },
+    );
+    mcpServer.setBoundSession({
+      attachmentId: launch.attachmentId,
+      attachmentSecret: launch.secret,
+      authorityRevision: launch.authorityRevision,
+    });
+
+    // Cross-session same-project tab: rebind succeeds through transport pre-gate
+    // and the port's scoped adoption leg.
+    const rebindRes = await mcpServer.callTool('anti.browser.rebind_target', { tabId: 'tab-admin-dashboard' });
+    assert.strictEqual(rebindRes.isError, undefined, `same-project rebind must succeed: ${rebindRes.content[0]?.text}`);
+    assert.strictEqual(
+      attachmentRegistry.getRecord(launch.attachmentId)?.tabId,
+      'tab-admin-dashboard',
+      'attachment authority must rotate onto the adopted tab',
+    );
+
+    // Ordinary dispatch now executes on the adopted tab without a second rebind.
+    const domRes = await mcpServer.callTool('anti.inspect.dom', {});
+    assert.strictEqual(domRes.isError, undefined, 'DOM inspection must succeed on adopted tab');
+    assert.ok(domRes.content[0]?.text?.includes('tab-admin-dashboard'));
+
+    // Denials still hold: a same-project but different-workspace tab, and an
+    // unmeasured foreign tab, both keep refusing.
+    const denyWorkspace = await mcpServer.callTool('anti.browser.rebind_target', { tabId: 'tab-other-workspace' });
+    assert.strictEqual(denyWorkspace.isError, true);
+    assert.ok(denyWorkspace.content[0]?.text?.includes('TARGET_MISMATCH'));
+
+    const denyForeign = await mcpServer.callTool('anti.browser.rebind_target', { tabId: 'tab-foreign' });
+    assert.strictEqual(denyForeign.isError, true);
+    assert.ok(denyForeign.content[0]?.text?.includes('TARGET_MISMATCH'));
+    assert.strictEqual(attachmentRegistry.getRecord(launch.attachmentId)?.tabId, 'tab-admin-dashboard', 'denied rebinds must not rotate authority');
+  });
 });

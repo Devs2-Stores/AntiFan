@@ -672,11 +672,16 @@ export class CapabilityTransportAdapter {
           // stale session owns, so an exact failover match authorizes the retarget.
           const failoverId = this.catalogue.resolveFailoverTabId(authorityTabId);
           const allowed = resolvedRequested === failoverId ||
-            (this.catalogue.isTabAllowed ? this.catalogue.isTabAllowed(authorityTabId, resolvedRequested) === true : false);
+            (this.catalogue.isTabAllowedForRetarget
+              ? this.catalogue.isTabAllowedForRetarget(authorityTabId, resolvedRequested, {
+                  projectId: authContext.projectId,
+                  workspaceId: authContext.workspaceId,
+                }) === true
+              : false);
           if (!allowed) {
             throw new CapabilityError(
               'TARGET_MISMATCH',
-              `Tab ID '${resolvedRequested}' is outside this session's ownership (bound '${authorityTabId}'). Rebind only to session-managed tabs.`,
+              `Tab ID '${resolvedRequested}' is outside this session's authority (bound '${authorityTabId}'). Rebind only to session-managed or same-project tabs.`,
             );
           }
         }

@@ -3778,7 +3778,20 @@ export class BrowserControlPort {
         const livePrior = this.host.resolveTargetTabId ? this.host.resolveTargetTabId(priorBoundId) : null;
         const allowed = ownedBySession ||
           (livePrior && this.host.isTabAllowed ? this.host.isTabAllowed(livePrior.trim(), effectiveTabId) : false);
-        if (!allowed) {
+        // Explicit-rebind adoption: a tab that measures into the attachment's own
+        // project/workspace stays inside its authority even when another session
+        // manages it. Measured against target (authoritative scope), not the
+        // prior tab, so a bound tab without capsule affiliation cannot grant.
+        const measuredRequested = this.host.resolveTabAffiliation
+          ? this.host.resolveTabAffiliation(effectiveTabId)
+          : undefined;
+        const sameProjectScope = Boolean(
+          !allowed &&
+          target?.projectId && target?.workspaceId &&
+          measuredRequested?.projectId === target.projectId &&
+          measuredRequested?.workspaceId === target.workspaceId
+        );
+        if (!allowed && !sameProjectScope) {
           throw new CapabilityError(
             'TARGET_MISMATCH',
             `Cannot rebind to tab "${effectiveTabId}". This session is isolated to tab "${priorBoundId.trim()}" and its managed tabs.`,
