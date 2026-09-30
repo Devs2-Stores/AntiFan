@@ -1876,7 +1876,12 @@ export class BrowserControlPort {
   listTabs(context: { target?: BrowserTarget; scope?: 'all' | 'session' }): unknown[] {
     if (context.target) assertTarget(context.target);
     const boundTabId = context.target?.tabId;
-    if (!boundTabId) return this.host.getTabList() || [];
+    if (!boundTabId) {
+      // No bound tab means no project scope to measure against — returning the
+      // whole strip would hand a routed session foreign-project tabs. Fail
+      // closed: list nothing rather than leak the window.
+      return [];
+    }
     // A session asks for what it owns, not for the user's tab strip: the strip
     // omits the offscreen/ephemeral tabs the agent plane itself created.
     const sessionRecords = this.host.getSessionTabList ? this.host.getSessionTabList(boundTabId) : undefined;

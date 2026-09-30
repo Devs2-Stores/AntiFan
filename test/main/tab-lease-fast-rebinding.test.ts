@@ -733,5 +733,10 @@ describe('Fast-Path Tab Lease Rebinding & Explicit TabId Routing (Phase 02)', ()
     assert.ok(typeof unrouted.tabId === 'string' && unrouted.tabId.length > 0);
     assert.strictEqual((createdWith as { capsuleId?: string } | undefined)?.capsuleId, undefined, 'unrouted creation must not pin a capsule');
 
+    // 4. No bound target: the port must not fall back to the global strip —
+    //    a routed session without a bound tab sees nothing, never foreign tabs.
+    const unboundList = browserPort.listTabs({}) as Array<{ id: string }>;
+    assert.deepStrictEqual(unboundList, [], 'unbound listTabs must return no tabs');
+
   });
 });
