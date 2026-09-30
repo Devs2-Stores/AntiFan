@@ -324,7 +324,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     description: 'List Chromium tabs. The tab bound to this session is marked with isBoundTab: true. Always operate on your bound tab or omit tabId.',
     risk: 'read',
     policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: false, lane: 'unbounded' }),
-    inputSchema: { type: 'object', properties: { all: { type: 'boolean', description: 'List every tab in the browser window instead of only the tabs managed by this session' } } },
+    inputSchema: { type: 'object', properties: { all: { type: 'boolean', description: 'List every tab in this project scope instead of only the tabs managed by this session' } } },
     execute: (params: { all?: boolean }, context) => browser.listTabs({ target: context.browserTarget, scope: params?.all === false ? 'session' : 'all' }),
   });
 
@@ -1194,7 +1194,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     description: 'List Chromium tabs. The tab bound to this session is marked with isBoundTab: true. Always operate on your bound tab or omit tabId.',
     risk: 'read',
     policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: false, lane: 'unbounded' }),
-    inputSchema: { type: 'object', properties: { all: { type: 'boolean', description: 'List every tab in the browser window instead of only the tabs managed by this session' } } },
+    inputSchema: { type: 'object', properties: { all: { type: 'boolean', description: 'List every tab in this project scope instead of only the tabs managed by this session' } } },
     execute: (params: { all?: boolean }, context) => browser.listTabs({ target: context.browserTarget, scope: params?.all === false ? 'session' : 'all' }),
   });
 
@@ -2022,13 +2022,13 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
   // 3. anti.* aliases for unified client / bridge execution
   catalogue.register({
     name: 'anti.browser.tabs.list',
-    description: 'List Chromium tabs in this window. All tabs are listed by default; the tab bound to this session is marked with isBoundTab: true. Pass all: false to list only the tabs this session owns.',
+    description: 'List Chromium tabs in this project scope. Tabs belonging to the session project/workspace are listed by default (plus the tabs this session owns); the tab bound to this session is marked with isBoundTab: true. Pass all: false to list only the tabs this session owns.',
     risk: 'read',
     policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: false, lane: 'unbounded' }),
     inputSchema: {
       type: 'object',
       properties: {
-        all: { type: 'boolean', default: true, description: 'List every tab in the window (default). Pass false to restrict the list to the tabs this session owns.' }
+        all: { type: 'boolean', default: true, description: 'List every tab in this project scope (default). Pass false to restrict the list to the tabs this session owns.' }
       }
     },
     execute: (params: { all?: boolean }, context) => browser.listTabs({ target: context.browserTarget, scope: params?.all === false ? 'session' : 'all' }),

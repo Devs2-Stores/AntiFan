@@ -11,6 +11,7 @@ import { BrowserControlPort } from '../../src/main/tools/browser-control-port';
 import { registerBrowserCapabilities } from '../../src/main/tools/browser-capabilities';
 import { NativeTabHost } from '../../src/main/browser/native-tab-host';
 import {
+  CapabilityError,
   makeControlPlaneId,
   issueRuntimeLease,
 } from '../../src/shared/control-plane-contracts';
@@ -604,5 +605,133 @@ describe('Fast-Path Tab Lease Rebinding & Explicit TabId Routing (Phase 02)', ()
     assert.strictEqual(denyForeign.isError, true);
     assert.ok(denyForeign.content[0]?.text?.includes('TARGET_MISMATCH'));
     assert.strictEqual(attachmentRegistry.getRecord(launch.attachmentId)?.tabId, 'tab-admin-dashboard', 'denied rebinds must not rotate authority');
+  });
+
+  it('keeps MCP project scope: list shows only same-project tabs and create pins the project capsule', async () => {
+    const projectId = makeControlPlaneId('project');
+    const workspaceId = makeControlPlaneId('workspace');
+    const otherProjectId = makeControlPlaneId('project');
+    const otherWorkspaceId = makeControlPlaneId('workspace');
+    const lease = issueRuntimeLease(projectId, workspaceId, 30_000, 1);
+
+    let currentAutoTab = 'tab-anchor';
+    let docGen = 2;
+    const tabList = [
+      { id: 'tab-anchor', url: 'https://wpjyvu-ry.myshopify.com', title: 'Anchor' },
+      { id: 'tab-same', url: 'https://wpjyvu-ry.myshopify.com/products', title: 'SameProject' },
+      { id: 'tab-other-project', url: 'https://owlbrand.vn', title: 'OtherProject' },
+      { id: 'tab-no-capsule', url: 'about:blank', title: 'NoCapsule' },
+    ];
+    const affiliationByTab: Record<string, { projectId: string; workspaceId: string; capsuleId: string } | undefined> = {
+      'tab-anchor': { projectId, workspaceId, capsuleId: 'capsule-whenever' },
+      'tab-same': { projectId, workspaceId, capsuleId: 'capsule-whenever' },
+      'tab-other-project': { projectId: otherProjectId, workspaceId: otherWorkspaceId, capsuleId: 'capsule-owl' },
+      'tab-no-capsule': undefined,
+    };
+    const managedTabs = new Set<string>(['tab-anchor']);
+    let createdWith: { capsuleId?: string; anchorTabId?: string; plane?: string } | undefined;
+
+    class MockHost extends EventEmitter {
+      hasTab(id?: string | null) { return Boolean(id && tabList.some(t => t.id === id)); }
+      resolveTabAffiliation(tabId: string) { return affiliationByTab[tabId]; }
+      getTabList() { return [...tabList]; }
+      getActiveTabId() { return currentAutoTab; }
+      getActiveTab() { return tabList.find(t => t.id === currentAutoTab); }
+      getAutomationTabId() { return currentAutoTab; }
+      setAutomationTabId(id?: string) { if (id) currentAutoTab = id; }
+      getManagedTabIds() { return managedTabs; }
+      resolveTargetTabId(id: string) { return tabList.some(t => t.id === id) ? id : undefined; }
+      getDocumentGeneration(tabId?: string) { return docGen; }
+      adoptChildTab(parent: string, child: string) { managedTabs.add(child); return true; }
+      createTab(url?: string, activate?: boolean, opts?: any) {
+        createdWith = opts;
+        const id = 'tab-created-' + (tabList.length + 1);
+        tabList.push({ id, url: url || 'about:blank', title: 'New' });
+        affiliationByTab[id] = opts?.capsuleId
+          ? { projectId, workspaceId, capsuleId: opts.capsuleId }
+          : { projectId: otherProjectId, workspaceId: otherWorkspaceId, capsuleId: 'capsule-active-window' };
+        return id;
+      }
+      isCurrentTarget(target: any) {
+        if (!target || typeof target.tabId !== 'string' || !tabList.some(t => t.id === target.tabId)) return false;
+        if (typeof target.documentGeneration !== 'number' || target.documentGeneration !== docGen) return false;
+        if (typeof target.browserEpoch !== 'number' || target.browserEpoch !== lease.hostEpoch) return false;
+        if (typeof target.runtimeId !== 'string' || target.runtimeId !== lease.runtimeId) return false;
+        if (target.projectId !== lease.projectId) return false;
+        if (lease.workspaceId && target.workspaceId !== lease.workspaceId) return false;
+        return true;
+      }
+      async getDom(selector?: string, tabId?: string) { return `<html><body>DOM ${tabId || currentAutoTab}</body></html>`; }
+      async captureScreenshot() { return Buffer.from('s').toString('base64'); }
+      evalJs() { return null; }
+    }
+
+    const mockHost = new MockHost() as unknown as NativeTabHost;
+    (mockHost as any).isTabAllowed = (bound: string, req: string) => bound === req || managedTabs.has(req);
+
+    const catalogue = new CapabilityCatalogue({
+      runtime: { mode: 'standalone', lifecycle: 'active' },
+      projectId,
+      workspaceId,
+      runtimeId: lease.runtimeId,
+      hostEpoch: 1,
+      getActiveLease: () => lease,
+      isTabAllowed: (bound: string, req: string) => (mockHost as any).isTabAllowed(bound, req),
+      resolveTabId: (id: string) => (mockHost as any).resolveTargetTabId(id),
+      resolveTabAffiliation: (id: string) => (mockHost as any).resolveTabAffiliation(id),
+      getDocumentGeneration: (id?: string) => (mockHost as any).getDocumentGeneration(id),
+    });
+    const browserPort = new BrowserControlPort(mockHost as any);
+    registerBrowserCapabilities(catalogue, browserPort, undefined, () => '');
+    const attachmentRegistry = new AttachmentRegistry({
+      getHostEpoch: () => 1,
+      getDocumentGeneration: () => docGen,
+      getAutomationTabId: () => currentAutoTab,
+    });
+    const transport = new CapabilityTransportAdapter(catalogue, attachmentRegistry);
+    const mcpServer = new AntiFanMcpServer(mockHost, false, transport);
+    const { launch } = await attachmentRegistry.issueAttachment(
+      makeControlPlaneId('run'), makeControlPlaneId('attempt'), projectId, workspaceId,
+      { backendId: 'mcp', lease, leaseToken: lease.token, hostEpoch: 1, tabId: 'tab-anchor', grant: 'write', documentGeneration: docGen },
+    );
+    mcpServer.setBoundSession({ attachmentId: launch.attachmentId, attachmentSecret: launch.secret, authorityRevision: launch.authorityRevision });
+
+    // 1. tabs.list (default) must not leak foreign-project tabs; same-project
+    //    rows stay, and the session-managed unaffiliated bound tab stays listed.
+    const listRes = await mcpServer.callTool('anti.browser.tabs.list', {});
+    assert.strictEqual(listRes.isError, undefined, `list must succeed: ${listRes.content[0]?.text}`);
+    const listPayload = JSON.parse(listRes.content[0]?.text || '{}');
+    const listed = (listPayload.data ?? listPayload) as Array<{ id: string; isBoundTab?: boolean }>;
+    const listedIds = new Set(listed.map(t => t.id));
+    assert.ok(listedIds.has('tab-anchor'), 'own anchor must be listed');
+    assert.ok(listedIds.has('tab-same'), 'same-project tab must be listed');
+    assert.ok(!listedIds.has('tab-other-project'), 'foreign-project tab must not leak into the list');
+    assert.ok(!listedIds.has('tab-no-capsule'), 'unaffiliated window tab must not leak into the list');
+
+    // 2. tabs.create on a routed target pins the anchor's own capsule, never the
+    //    globally active one.
+    const createRes = await mcpServer.callTool('anti.browser.tabs.create', { url: 'https://example.com/x' });
+    assert.strictEqual(createRes.isError, undefined, `create must succeed: ${createRes.content[0]?.text}`);
+    assert.strictEqual(createdWith?.capsuleId, 'capsule-whenever', 'created tab must be pinned to the anchor capsule of this project');
+
+    // 3. Routed target without a bound anchor must fail closed: creating through
+    //    the window's active capsule would mint the tab in a foreign project.
+    //    Direct port call — the transport path already requires a bound target
+    //    before capabilities run, so this exercises the port's own contract.
+    createdWith = undefined;
+    assert.throws(
+      () => browserPort.openTab(
+        { url: 'https://example.com/orphan' },
+        { target: { tabId: '', projectId, workspaceId, runtimeId: lease.runtimeId, browserEpoch: 1, documentGeneration: docGen } as any },
+      ),
+      (err: any) => err instanceof CapabilityError && err.code === 'TARGET_REQUIRED',
+    );
+    assert.strictEqual(createdWith, undefined, 'createTab must not run without a verifying anchor');
+    // And an unrouted (no-project) call keeps its legacy behavior: it creates
+    // through the ambient window path without any capsule pin.
+    const unrouted = browserPort.openTab({ url: 'https://example.com/free' });
+    assert.ok(typeof unrouted.tabId === 'string' && unrouted.tabId.length > 0);
+    assert.strictEqual((createdWith as { capsuleId?: string } | undefined)?.capsuleId, undefined, 'unrouted creation must not pin a capsule');
+
   });
 });

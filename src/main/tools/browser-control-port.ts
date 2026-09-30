@@ -1880,17 +1880,26 @@ export class BrowserControlPort {
     // A session asks for what it owns, not for the user's tab strip: the strip
     // omits the offscreen/ephemeral tabs the agent plane itself created.
     const sessionRecords = this.host.getSessionTabList ? this.host.getSessionTabList(boundTabId) : undefined;
+    const ownedIds = this.host.getManagedTabIds ? this.host.getManagedTabIds(boundTabId) : new Set([boundTabId]);
     if (context.scope !== 'session') {
-      // The window strip annotated with the bound identity: the only honest way a
-      // client learns which tab it is bound to, since every other capability
-      // refuses a foreign tabId. The bound tab's own record is unioned in when the
-      // strip omits it (an offscreen agent-plane tab is never rendered in the
-      // window), so exactly one row carries isBoundTab: true and it is always the
-      // id the session scope lists.
+      // Project-scoped listing: a session sees the tabs that measure into its own
+      // attachment scope (projectId + workspaceId), plus every tab this session
+      // owns regardless of capsule (agent-plane tabs carry no affiliation). The
+      // window strip of other projects is never a resource this session can act
+      // on, so it is never returned here.
       const strip = (this.host.getTabList() || []).filter(isTabRecord);
-      const rows = strip.some((tab) => tab.id === boundTabId)
-        ? strip
-        : strip.concat((sessionRecords ?? []).filter(isTabRecord).filter((tab) => tab.id === boundTabId));
+      const inScope = (tab: { id: string }) => {
+        if (ownedIds.has(tab.id)) return true;
+        if (context.target?.projectId && context.target?.workspaceId && this.host.resolveTabAffiliation) {
+          const aff = this.host.resolveTabAffiliation(tab.id);
+          return aff?.projectId === context.target.projectId && aff?.workspaceId === context.target.workspaceId;
+        }
+        return false;
+      };
+      let rows = strip.filter(inScope);
+      if (!rows.some((tab) => tab.id === boundTabId)) {
+        rows = rows.concat((sessionRecords ?? []).filter(isTabRecord).filter((tab) => tab.id === boundTabId));
+      }
       return rows.map((tab) => ({
         ...tab,
         isBoundTab: tab.id === boundTabId,
@@ -3554,7 +3563,18 @@ export class BrowserControlPort {
    * anchor holds NOW rather than the one it held when the child was allocated.
    */
   private verifyRoutedAnchorCapsule(boundTabId: string | undefined, target: BrowserTarget | undefined): string | undefined {
-    if (!(target && target.projectId && target.workspaceId && boundTabId)) return undefined;
+    if (!(target && target.projectId && target.workspaceId)) return undefined;
+    if (!boundTabId) {
+      // A routed request without a bound anchor cannot verify where the child
+      // belongs. Returning undefined would let host.createTab fall back to the
+      // window's active capsule — minting the tab in whatever project the user
+      // last opened. Fail closed instead.
+      throw new CapabilityError(
+        'TARGET_REQUIRED',
+        `Cannot open a routed tab for project '${target.projectId}': this session is not bound to an anchor tab. Rebind the session to a live tab in the target capsule (anti.browser.rebind_target), then retry.`,
+        { targetProjectId: target.projectId, targetWorkspaceId: target.workspaceId, recovery: 'anti.browser.rebind_target' }
+      );
+    }
     if (!this.host.resolveTabAffiliation) {
       throw new CapabilityError(
         'CAPABILITY_NOT_FOUND',
