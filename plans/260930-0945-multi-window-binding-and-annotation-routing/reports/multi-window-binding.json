@@ -1,0 +1,245 @@
+{
+  "probe": "multi-window-binding",
+  "passed": 18,
+  "failed": 0,
+  "checks": [
+    {
+      "name": "startup opens exactly one web hub shell presenting project A",
+      "ok": true
+    },
+    {
+      "name": "openProject joins the hub and repoints it at project B",
+      "ok": true
+    },
+    {
+      "name": "the Terminal Manager opens as the second browser shell",
+      "ok": true
+    },
+    {
+      "name": "terminal sessions carry their project as owner (M2)",
+      "ok": true
+    },
+    {
+      "name": "the hub's terminal scope follows the presented project; the manager sees all (M2)",
+      "ok": true
+    },
+    {
+      "name": "agent bound to A's terminal anchors on the hub host pinned to capsule A (M1)",
+      "ok": true
+    },
+    {
+      "name": "two concurrent agent sessions coexist on separate attachments (M8)",
+      "ok": true
+    },
+    {
+      "name": "a dispatch with no tabId drives agent A's bound anchor only",
+      "ok": true
+    },
+    {
+      "name": "agent A cannot drive agent B's anchor tab (M8 cross-session)",
+      "ok": true
+    },
+    {
+      "name": "the offscreen anchor renders without a foreground switch (M5)",
+      "ok": true
+    },
+    {
+      "name": "killing the bound tab fails dispatch closed — no UNAUTHENTICATED deadlock (M4)",
+      "ok": true
+    },
+    {
+      "name": "rebind-target to a live same-project tab heals the dead session (M4)",
+      "ok": true
+    },
+    {
+      "name": "a pick naming a session outside the presented scope refuses and writes nothing (M6)",
+      "ok": true
+    },
+    {
+      "name": "a pick naming the presented session writes the prompt there only (M6)",
+      "ok": true
+    },
+    {
+      "name": "an 'auto' pick with an unresolvable workspace skips without any write (M6)",
+      "ok": true
+    },
+    {
+      "name": "closing the manager window leaves the hub, its tabs and the plane alive (M7)",
+      "ok": true
+    },
+    {
+      "name": "closes through host, bridge and view-destroyed paths journal attributed rows (M9)",
+      "ok": true
+    },
+    {
+      "name": "cold restart leg restores the presented project and hub tabs",
+      "ok": true
+    }
+  ],
+  "observations": {
+    "openB": {
+      "status": "FOCUSED",
+      "projectId": "project-00000000-0000-4000-8000-0000000000b2"
+    },
+    "sessions": {
+      "sessionA": "terminal-12",
+      "sessionB": "terminal-11",
+      "ownerKeys": {
+        "a": "project:project-00000000-0000-4000-8000-0000000000a1",
+        "b": "project:project-00000000-0000-4000-8000-0000000000b2"
+      }
+    },
+    "hubScope": {
+      "underA": [
+        "terminal-12"
+      ],
+      "underB": [
+        "terminal-11"
+      ],
+      "managerRows": [
+        "terminal-3",
+        "terminal-5",
+        "split-2",
+        "terminal-4",
+        "split-3",
+        "terminal-6",
+        "split-4",
+        "terminal-2",
+        "terminal-7",
+        "split-1",
+        "terminal-1",
+        "terminal-8",
+        "split-5",
+        "terminal-9",
+        "terminal-10",
+        "split-6",
+        "terminal-11",
+        "terminal-12"
+      ]
+    },
+    "startSessionA": {
+      "success": true,
+      "data": {
+        "runId": "run-47dc94f9-d152-4064-820d-0e458318130e",
+        "attemptId": "attempt-259d4c01-6c70-4ed9-93d7-6bc63e3d983e",
+        "attachmentId": "attachment-40392f96-e490-46d3-8700-6dd976649b98",
+        "secret": "a756736fb9d5be05f0c12ab417d1a9ec982d09dad7e71f5e03fda15d1cbd1842",
+        "projectId": "project-00000000-0000-4000-8000-0000000000a1",
+        "workspaceId": "workspace-00000000-0000-4000-8000-0000000000a1",
+        "tabId": "fbe572d7-a63a-434c-866d-fe5c3ccb272e",
+        "authorityRevision": "rev_e759c4812fd27cfa8428f9f6db0132db",
+        "host": "127.0.0.1",
+        "port": 21504,
+        "expiresAt": 1790841427190,
+        "proxyTelemetryDir": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-mwb-probe-cJRxxX\\telemetry\\core-attempts",
+        "runtimePid": 16604
+      }
+    },
+    "startSessionB": {
+      "success": true,
+      "data": {
+        "runId": "run-c164a5f2-a4fc-48d3-9253-49241f114e94",
+        "attemptId": "attempt-0419e2ee-3ba8-4f74-8cf0-b36327b9cb92",
+        "attachmentId": "attachment-66537021-8990-4577-a1e2-426d455896ac",
+        "secret": "00a70fbdf35c3ebfcd97297daf06071f0a9fcf2880bf1a474f22df3f4312d231",
+        "projectId": "project-00000000-0000-4000-8000-0000000000b2",
+        "workspaceId": "workspace-00000000-0000-4000-8000-0000000000b2",
+        "tabId": "444d9702-853e-49de-8f7f-6d831181c38e",
+        "authorityRevision": "rev_5145b560de7f25efc97a87d30e3e91f5",
+        "host": "127.0.0.1",
+        "port": 21504,
+        "expiresAt": 1790841427245,
+        "proxyTelemetryDir": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-mwb-probe-cJRxxX\\telemetry\\core-attempts",
+        "runtimePid": 16604
+      }
+    },
+    "crossSession": {
+      "success": false,
+      "error": "TARGET_MISMATCH: Tab ID mismatch: expected fbe572d7-a63a-434c-866d-fe5c3ccb272e, got 444d9702-853e-49de-8f7f-6d831181c38e. Note: In split review mode, use the bound tabId with paneId: \"mobile\" to target the mobile pane."
+    },
+    "screenshot": {
+      "success": true,
+      "byteLength": 7846,
+      "artifactRef": {
+        "id": "artifact-51a18792-b7c2-4b6e-b456-0179e43c1e42",
+        "runId": "run-47dc94f9-d152-4064-820d-0e458318130e",
+        "attemptId": "attempt-259d4c01-6c70-4ed9-93d7-6bc63e3d983e",
+        "projectId": "project-00000000-0000-4000-8000-0000000000a1",
+        "workspaceId": "workspace-00000000-0000-4000-8000-0000000000a1",
+        "kind": "screenshot",
+        "path": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-mwb-probe-cJRxxX\\control-plane-v2\\artifacts\\run-47dc94f9-d152-4064-820d-0e458318130e\\816ce5282bfe86c5233e02fb34d4f7d0fda10abdbc79ebdb84675223da9d3ba1.artifact",
+        "byteLength": 7846,
+        "sha256": "816ce5282bfe86c5233e02fb34d4f7d0fda10abdbc79ebdb84675223da9d3ba1",
+        "mime": "image/png",
+        "truncated": false,
+        "redacted": false,
+        "createdAt": 1790840527716
+      }
+    },
+    "deadTabDispatch": {
+      "success": false,
+      "error": "TARGET_STALE: Target tab no longer exists: fbe572d7-a63a-434c-866d-fe5c3ccb272e"
+    },
+    "openTabRecovery": {
+      "success": false,
+      "data": {
+        "code": "TARGET_REQUIRED",
+        "message": "2 project windows are live and this request names no window, tab or sender",
+        "details": {
+          "liveHosts": 2
+        }
+      },
+      "error": "TARGET_REQUIRED: 2 project windows are live and this request names no window, tab or sender"
+    },
+    "rebindRecovery": {
+      "success": true,
+      "data": {
+        "data": {
+          "success": true,
+          "tabId": "e78b215e-cba1-4eca-a8aa-6c33d6d26777",
+          "documentGeneration": 2,
+          "browserEpoch": 1,
+          "url": "http://127.0.0.1:54352/alpha",
+          "title": "mwb/alpha"
+        },
+        "requestId": "req-mwb-7",
+        "invocationId": "invocation-57173261-6b53-4cd4-baae-ec1d65bfa312",
+        "replacementAuthorityRevision": "rev_2b38ae4913e8de466eb76b7425101c83",
+        "authorityRevision": "rev_2b38ae4913e8de466eb76b7425101c83"
+      }
+    },
+    "closeManager": {
+      "closeRequested": true,
+      "shellCount": 1
+    },
+    "bridgeCloseTab": {
+      "success": true
+    },
+    "coldRestart": {
+      "status": 0,
+      "signal": null,
+      "stderrTail": [
+        "[antifan] Close of web: shell retained, stopped by unknown-live-use (closed 0, skipped 3, failed 0); earlier closes stand and are not transactional.",
+        "(node:19900) electron: Failed to load URL: http://127.0.0.1:1/restart-fixture with error: ERR_UNSAFE_PORT",
+        "(Use `electron --trace-warnings ...` to show where the warning was created)",
+        "(node:19900) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.",
+        "[AttachmentRegistry] Dropped 7 attachment record(s) bound to foreign runtime(s) binding-4c1c3415-cae8-4042-ae88-e554a4410435; current runtime is binding-9bdf0441-75cb-4e26-9c57-0d8084fd77d3. Their owners re-pair through the bridge's 4001 path.",
+        "[antifan] Keeping the existing entry in C:\\Users\\Admin\\.gemini\\antifan_bridge_dev.json: it is held by a live instance.",
+        "[antifan] Keeping the existing entry in C:\\Users\\Admin\\.gemini\\antifan_bridge_dev.json: it is held by a live instance.",
+        ""
+      ],
+      "stdoutTail": [
+        "\r",
+        "  PASS  a cold restart reopens one web hub shell",
+        "  PASS  the restored hub presents the persisted project, not the env seed",
+        "  PASS  the hub restores its persisted strip (M7 survive-restart)",
+        "[native-tab-host] Persisted tabs async to: C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-mwb-probe-cJRxxX\\Profile-restart\\saved-tabs.json",
+        "[antifan] Native Messaging Local IPC Server listening at \\\\.\\pipe\\antifan-bridge-ipc-37c06c6e-546f-426d-96a1-bb2dcb057dfa",
+        "[antifan] Persisted non-secret bridge info to E:\\Work\\.antifan-data\\config\\bridge-dev.json",
+        "[probe] 3 passed, 0 failed — evidence: E:\\Work\\apps\\AntiFan\\plans\\260930-0945-multi-window-binding-and-annotation-routing\\reports\\multi-window-binding-restart.json",
+        ""
+      ]
+    }
+  },
+  "at": "2026-10-01T07:42:27.817Z"
+}

@@ -1,6 +1,6 @@
 ---
 title: "Phase 3: Offscreen render surface"
-status: pending
+status: done
 ---
 
 # Phase 3: Offscreen render surface

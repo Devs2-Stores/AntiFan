@@ -1,7 +1,7 @@
 ---
 title: "Multi-window binding & annotation routing"
 description: "Fix cross-project session binding deadlock and annotation misrouting when ≥2 project windows are live; make offscreen agent tabs renderable; add tab-close telemetry."
-status: in-progress
+status: done
 priority: P1
 effort: "M"
 tags: [multi-window, mcp, annotation, offscreen, telemetry]
@@ -18,6 +18,13 @@ window, the tab later died, and every recovery path (`tabs.list`, `rebind_target
 `browser.evaluate`) returned `UNAUTHENTICATED`/`TARGET_MISMATCH`. Separately, element-picker
 annotations are typed into the wrong project's terminal when multiple project windows are
 open, because 'auto' routing resolves via the process-global active terminal session.
+
+> **Topology deviation (verified):** "multiple project windows" is unreachable as of
+> commit `8ccc3ec4` — per-project windows were retired; `openProject` repoints the
+> singleton 'web' hub (`src/main/index.ts:2697-2713`). Phase-06 proves the live
+> equivalent: one hub switching A↔B + shared Terminal Manager + two concurrent
+> bridge attachments. The incident failure modes (foreign-terminal write, dead-binding
+> deadlock) still exist at the session/capsule seam the probe exercises.
 
 Root causes confirmed by source scouting:
 
@@ -68,17 +75,17 @@ bootstrapHost = wrong window, not merely wrong capsule).
 | 3 | [Offscreen render surface](./phase-03-offscreen-render-surface.md) | Done |
 | 4 | [Annotation auto-routing](./phase-04-annotation-auto-routing.md) | Done |
 | 5 | [Tab-close telemetry](./phase-05-tab-close-telemetry.md) | Done |
-| 6 | [Multi-window live proof](./phase-06-multi-window-live-proof.md) | Blocked (needs rebuilt app + 2 live project windows) |
+| 6 | [Multi-window live proof](./phase-06-multi-window-live-proof.md) | Done (hub topology, 18+3 live checks, kongming PASS) |
 
 ## Success Criteria
 
-- [ ] Bound-but-dead tab id: every read seam degrades to `[]`/`false`/`undefined` (never ambient throw); `ambientHostOrThrow` raises `CapabilityError('TARGET_REQUIRED')`; journal line records the degrade.
-- [ ] `antifan.cli.startSession` + `antifan.openTab` mint tabs carrying the terminal/session capsule; project-claimed session with no resolvable capsule fails closed.
-- [ ] Fresh offscreen tab (no `set_viewport`): `innerWidth>0`, rAF live, `capturePage`/`anti.screenshot.viewport` returns within bound.
-- [ ] OSR views are never attached (`runWithAttachedTabView` guard keyed on `tab.state.offscreen`); `setViewportSize` OSR path applies emulation directly.
-- [ ] Annotation 'auto' resolves only within `visibleTerminalSessions()`; no match or ambiguous → no terminal write, picker payload reports the skip; artifact+clipboard unchanged.
-- [ ] `tabhost.tabClosed` journaled on every close path incl. `disposeChildViewContents`, with `source`, `capsuleId`, `projectId`, `urlOrigin`.
-- [ ] Two live project windows: pick in window A never writes to window B's terminal.
+- [x] Bound-but-dead tab id: every read seam degrades to `[]`/`false`/`undefined` (never ambient throw); `ambientHostOrThrow` raises `CapabilityError('TARGET_REQUIRED')`; journal line records the degrade.
+- [x] `antifan.cli.startSession` + `antifan.openTab` mint tabs carrying the terminal/session capsule; project-claimed session with no resolvable capsule fails closed.
+- [x] Fresh offscreen tab (no `set_viewport`): `innerWidth>0`, rAF live, `capturePage`/`anti.screenshot.viewport` returns within bound.
+- [x] OSR views are never attached (`runWithAttachedTabView` guard keyed on `tab.state.offscreen`); `setViewportSize` OSR path applies emulation directly.
+- [x] Annotation 'auto' resolves only within `visibleTerminalSessions()`; no match or ambiguous → no terminal write, picker payload reports the skip; artifact+clipboard unchanged.
+- [x] `tabhost.tabClosed` journaled on every close path incl. `disposeChildViewContents`, with `source`, `capsuleId`, `projectId`, `urlOrigin`.
+- [x] Hub topology equivalent of "two project windows": with the hub presenting B and the Terminal Manager live, a pick on A's tab naming sessionB writes only to B's PTY; naming sessionA is refused `foreign-target-refused` and journaled (phase-06 evidence).
 
 ## Risks
 

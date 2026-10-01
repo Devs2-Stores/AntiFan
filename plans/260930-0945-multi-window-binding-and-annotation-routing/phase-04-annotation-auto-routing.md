@@ -1,6 +1,6 @@
 ---
 title: "Phase 4: Annotation auto-routing"
-status: pending
+status: done
 ---
 
 # Phase 4: Annotation auto-routing

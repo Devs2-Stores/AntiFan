@@ -1,33 +1,43 @@
 ---
 title: "Phase 6: Multi-window live proof"
-status: pending
+status: done
+evidence: reports/multi-window-binding.json + reports/multi-window-binding-restart.json (18+3 checks pass, post-review rerun; kongming verdict PASS)
 ---
 
 # Phase 6: Multi-window live proof
 
 ## Overview
 
-End-to-end verification on the real desktop app with two live project windows —
-reproduces the incident topology (Whenever + a second project window, e.g. Comnieusiba/
-Hapas) and proves each fix against live MCP calls, not only unit tests.
+End-to-end verification on the real desktop app. **Topology correction (verified
+against index.ts:2697-2713, Oct 2026):** "two live project windows" is unreachable —
+commit 8ccc3ec retired per-project windows; `openProject` routes to the singleton
+'web' hub and repoints its `activeProject`. The live equivalent the probe proves:
+one web hub switching A↔B, the shared 'unassigned' Terminal Manager as the second
+browser shell, and two concurrent bridge attachments.
 
-## Requirements
+## Requirements (all verified live by scripts/probe-multi-window-binding.cjs)
 
-- [ ] Two project windows live; start an agent session bound to project A's terminal.
-- [ ] Anchor tab minted into project A's capsule (verify via `tabs.list` affiliation /
-      `workspace-capsules.json` stamp — Phase 2).
-- [ ] Switch project-B window's terminal to active; pick an element in window A with
-      target 'auto' → prompt lands ONLY in window A's session (or reported skip); never
-      in B (Phase 4).
-- [ ] Close/kill the agent's bound tab → `anti.browser.tabs.list` still returns scoped
-      rows (typed degrade, no UNAUTHENTICATED); `anti.browser.rebind_target` to an
-      explicit live tabId succeeds (Phase 1).
-- [ ] Fresh offscreen agent tab with NO `set_viewport`: `anti.browser.evaluate`
-      `innerWidth>0`, rAF probe true, `anti.screenshot.viewport` returns bytes inside
-      bound; journal shows no `capture.raster outcome:'timeout'` (Phase 3).
-- [ ] Close several tabs through different paths (toolbar, MCP, bridge, host dispose) →
-      `main.log` carries `tabhost.tabClosed` rows with source/capsuleId/projectId
-      (Phase 5).
+- [x] Two browser shells live (hub + Terminal Manager); two agent sessions bound to
+      project A's and B's terminals over separate bridge pairings.
+- [x] Anchor tab minted on the hub pinned to the TERMINAL's capsule
+      (`getTabCapsuleId` == session capsule, Phase 2).
+- [x] Hub presents A → pick on A's tab naming sessionA writes only to A's PTY;
+      naming sessionB refuses `foreign-target-refused`, journaled (Phase 4);
+      an 'auto'-target pick on an unresolvable workspace skips with no write.
+- [x] Kill bound tab → `browser.list-tabs` still answers, `browser.navigate` refuses
+      TARGET_STALE (no UNAUTHENTICATED), `browser.rebind-target` to a live
+      same-project tab heals (Phase 1).
+- [x] Offscreen anchor: `isTabOffscreen === true`, `browser.screenshot` returns a
+      real artifact envelope (artifactRef + byteLength > 1KB), no foreground switch,
+      no `capture.raster` timeout in journal (Phase 3).
+- [x] `main.log` carries `tabhost.tabClosed` rows with real source attribution
+      across three close paths (host 'probe-close', 'view-destroyed', bridge
+      `browser.close-tab`) plus capsuleId/projectId stamps (Phase 5).
+- [x] Closing the manager window leaves the hub alive, `window-close.closed`
+      journaled for the manager owner (Phase 5 window-close gate).
+- [x] Cold restart leg: second Electron process against the persisted profile
+      reopens one hub shell presenting the PERSISTED project (B), not the env-seeded
+      boot project (A), with the strip restored.
 
 ## Related Code Files
 
@@ -52,3 +62,16 @@ UNAUTHENTICATED deadlock, offscreen capture succeeds, every close is attributed.
 - Scope creep onto unmodified paths (kongming) — script only the listed actions.
 - Live verification requires both windows + a real terminal per project; if a second
   real project isn't available, use a scratch workspace root as project B.
+
+## Review notes (kongming post-verdict)
+
+- 'auto' positive-resolution arm (workspace resolves to exactly one project → write)
+  stays unexercised: fixture URLs never classify. Non-blocking — a false-negative
+  skip loses a prompt but can never write to a foreign session, which is the
+  incident invariant this phase exists to prove.
+- `bridge-dev.json` is still written to the real dev data path despite
+  `ANTIFAN_DATA_ROOT` — a benign env-isolation leak in the dev pairing broadcast,
+  tracked separately.
+- 'Two live project windows' is a re-scope, not a regression: commit 8ccc3ec4
+  retired per-project windows (index.ts:2697-2713); the live equivalent under test
+  is hub + Terminal Manager + concurrent bridge attachments, per probe header.

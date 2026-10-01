@@ -1,0 +1,28 @@
+{
+  "probe": "multi-window-binding",
+  "passed": 3,
+  "failed": 0,
+  "checks": [
+    {
+      "name": "a cold restart reopens one web hub shell",
+      "ok": true
+    },
+    {
+      "name": "the restored hub presents the persisted project, not the env seed",
+      "ok": true
+    },
+    {
+      "name": "the hub restores its persisted strip (M7 survive-restart)",
+      "ok": true
+    }
+  ],
+  "observations": {
+    "restart": {
+      "restoredTabs": 3,
+      "fixtureTabs": [
+        "0e5c414b-1a47-4a44-85c1-d7db5f214b3d"
+      ]
+    }
+  },
+  "at": "2026-10-01T07:42:19.270Z"
+}

@@ -1,6 +1,6 @@
 ---
 title: "Phase 5: Tab-close telemetry"
-status: pending
+status: done
 ---
 
 # Phase 5: Tab-close telemetry

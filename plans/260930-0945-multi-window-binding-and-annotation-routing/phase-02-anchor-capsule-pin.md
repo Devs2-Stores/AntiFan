@@ -1,6 +1,6 @@
 ---
 title: "Phase 2: Anchor capsule pinning at mint"
-status: pending
+status: done
 ---
 
 # Phase 2: Anchor capsule pinning at mint
