@@ -1,0 +1,72 @@
+ M CHANGELOG.md
+ M docs/ui-architecture.md
+ D plans/260905-0012-core-pre-freeze-hardening-and-live-proof/reports/live-theme-proof.json
+ M plans/260927-0315-project-windows/reports/project-windows-e2e.json
+ M plans/260929-0622-terminal-hub-project-spaces/phase-07-verification.md
+ M src/main/bridge/bridge-server.ts
+ M src/main/browser/app-menu.ts
+ M src/main/browser/native-tab-host.ts
+ M src/main/browser/project-close-coordinator.ts
+ M src/main/browser/project-window-manager.ts
+ M src/main/browser/project-window-shell.ts
+ M src/main/browser/tab-automation-host.ts
+ M src/main/browser/window-owner.ts
+ M src/main/browser/window-state.ts
+ M src/main/control-plane/control-plane-runtime.ts
+ M src/main/index.ts
+ M src/main/project/project-registry.ts
+ M src/main/tools/browser-control-port.ts
+ M src/main/tools/capability-catalogue.ts
+ M src/main/tools/capability-transport.ts
+ M src/preload/standalone-preload.ts
+ M src/preload/toolbar-preload.ts
+ M src/renderer/standalone.css
+ M src/renderer/standalone.html
+ M src/renderer/standalone.js
+ M src/renderer/toolbar.css
+ M src/renderer/toolbar.html
+ M src/renderer/toolbar.ts
+ M src/shared/contracts.ts
+ M src/shared/control-plane-contracts.ts
+ M test/e2e/project-windows.test.ts
+ M test/e2e/terminal-capsule-assign.test.ts
+ M test/e2e/terminal-renderer-smoke.cjs
+ M test/main/application-menu-project-open.test.ts
+ M test/main/chrome-ipc-routes.test.ts
+ M test/main/chromium-terminal-comprehensive-tab-interaction.test.ts
+ M test/main/native-popup-inheritance.test.ts
+ M test/main/native-tab-host-restore-terminal-target.test.ts
+ M test/main/project-rename-remove.test.ts
+ M test/main/target-transition.test.ts
+ M test/main/terminal-assign-capsule.test.ts
+ M test/main/terminal-daemon-provenance.test.ts
+ M test/main/terminal-switching-regression.test.ts
+ M test/main/terminal-write-pipeline.test.ts
+ M test/renderer/terminal-capsule-picker.test.ts
+ M test/renderer/terminal-hub-folder-groups.test.ts
+ M test/renderer/terminal-run-cards.test.ts
+ M test/renderer/terminal-tab-categories-sleep.test.ts
+ M test/renderer/toolbar-tab-strip.test.ts
+?? plans/260929-0622-terminal-hub-project-spaces/phase-08-project-context-resolver.md
+?? plans/260929-0622-terminal-hub-project-spaces/reports/brainstorm-project-ui-unification.md
+?? plans/reports/omp-soak-4h-260930-0102/
+?? scripts/repro-pty-echo-ps.cjs
+?? scripts/repro-pty-echo.cjs
+?? scripts/repro-role-restart.cjs
+?? scripts/repro-role-restart.ts
+?? src/main/browser/tab-reaping.ts
+?? src/main/project/project-context.ts
+?? src/main/project/project-preferences.ts
+?? src/main/project/project-reconcile.ts
+?? test/main/native-tab-host-agent-tab-reap.test.ts
+?? test/main/project-appearance.test.ts
+?? test/main/project-context.test.ts
+?? test/main/project-preferences.test.ts
+?? test/main/project-reconcile.test.ts
+?? test/main/project-registry-appearance.test.ts
+?? test/main/project-stored-statuses.test.ts
+?? test/main/web-hub-project-routing.test.ts
+?? test/renderer/terminal-hub-project-appearance.test.ts
+?? test/renderer/terminal-hub-project-status-and-legacy-categories.test.ts
+?? test/unit/tab-reaping.test.ts
+soak/overnight-260930

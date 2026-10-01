@@ -1,0 +1,20 @@
+================================================================
+  AntiFan OMP Soak Stability Certification Harness (P1-7 Gate)  
+================================================================
+Target Duration:      2 minute(s) (120 seconds)
+Iteration Interval:   1000 ms
+Telemetry Report:     plans/reports/omp-soak-4h-260930-0102/probe.jsonl
+Certification File:   plans/reports/omp-soak-4h-260930-0102/probe.json
+Stability Thresholds:
+  - Max Net Heap Growth:   <= 80 MB
+  - Max Net RSS Growth:    <= 250 MB
+  - Max Heap Slope:        <= 5 MB/min
+  - In-Flight Flight Leak: 0 allowed
+  - Failed Iterations:     0 allowed
+================================================================
+
+[Soak-Runner] Spawning Electron closed-loop soak child...
+[run-electron] eval flag: --allow-eval (source: dev-default (non-production start)); ANTIFAN_ALLOW_EVAL=<unset>; electron args: E:\Work\apps\AntiFan\scripts\smoke-omp-closed-loop.cjs --soak --minutes 2 --interval-ms 1000 --jsonl plans/reports/omp-soak-4h-260930-0102/probe.jsonl --report plans/reports/omp-soak-4h-260930-0102/probe.json --allow-eval
+
+[16672:0930/012054.701:ERROR:ui\base\resource\resource_bundle.cc:1104] Failed to load E:\Work\apps\AntiFan\node_modules\electron\dist\chrome_100_percent.pak
+Some features may not be available.

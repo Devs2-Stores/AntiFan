@@ -1,0 +1,4 @@
+[run-electron] eval flag: --allow-eval (source: dev-default (non-production start)); ANTIFAN_ALLOW_EVAL=<unset>; electron args: scripts/smoke-omp-closed-loop.cjs --iterations 1 --quiet --headless --allow-eval
+
+[13116:0930/012652.585:ERROR:ui\base\resource\resource_bundle.cc:1104] Failed to load E:\Work\apps\AntiFan\node_modules\electron\dist\chrome_100_percent.pak
+Some features may not be available.

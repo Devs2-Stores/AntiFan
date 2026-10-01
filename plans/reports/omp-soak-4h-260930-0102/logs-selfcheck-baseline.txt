@@ -1,0 +1,14 @@
+  [PASS] expectation: success expected, call succeeded
+  [PASS] expectation: success expected, call refused
+  [PASS] expectation: refused:TARGET_MISMATCH expected and arrived
+  [PASS] expectation: refused expected, call succeeded (missing refusal)
+  [PASS] expectation: refused:TARGET_MISMATCH expected, got NO_RENDER_SURFACE
+  [PASS] describeToolResult: CODE-prefixed refusal text
+  [PASS] describeToolResult: JSON envelope refusal
+  [PASS] describeToolResult: RPC-level error
+  [PASS] gates: clean window passes and exits 0
+  [PASS] gates: failed sample fails zeroFailedIterations and names it
+  [PASS] gates: non-zero child exit fails childExitCodeZero
+  [PASS] gates: leaked in-flight fails zeroLeakedFlights
+
+[Soak-Runner SelfCheck] 12/12 checks passed

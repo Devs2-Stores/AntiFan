@@ -1,0 +1,13 @@
+========================================================================
+  AntiFan Browser Desktop — Real Multi-Process Soak Benchmark (155m)
+  Warmup: 3m | Workload: 147m | Recovery: 5m
+  Requested duration: 155m (argv --minutes)
+========================================================================
+  Bundle: 543 compiled files, 12.0 MB, md5 ed86b4293e28c5acbb29a73de2cd507e
+[soak] Fixture server running at http://127.0.0.1:50655
+[soak] Launching Electron app...
+[soak] Windows keep-awake active (PID: 1488, SetThreadExecutionState ES_CONTINUOUS|ES_SYSTEM_REQUIRED|ES_AWAYMODE_REQUIRED)
+[soak] Bridge server connected on port 20129
+[soak] Opening 6 tabs...
+[soak] Spawning terminal session...
+[soak] Phase 1: Warmup started (until 3:51:00 AM)

@@ -1,0 +1,65 @@
+﻿[
+    {
+        "pid":  4076,
+        "ppid":  11112,
+        "name":  "electron.exe",
+        "scope":  "a",
+        "protected":  false,
+        "created":  "09/30/2026 01:04:18",
+        "cmd":  "\"E:\\Work\\apps\\AntiFan\\node_modules\\electron\\dist\\electron.exe\" \"E:\\Work\\apps\\AntiFan\" --allow-eval"
+    },
+    {
+        "pid":  6136,
+        "ppid":  4076,
+        "name":  "electron.exe",
+        "scope":  "a",
+        "protected":  false,
+        "created":  "09/30/2026 01:04:53",
+        "cmd":  "E:\\Work\\apps\\AntiFan\\node_modules\\electron\\dist\\electron.exe --type=crashpad-handler --user-data-dir=C:\\Users\\Admin\\AppData\\Roaming\\antifan-browser-desktop /prefetch:4 --no-rate-limit --no-upload-gzip --monitor-self-annotation=ptype=crashpad-handler --database=E:\\Work\\.antifan-data\\runtime\\crashDumps --annotation=_companyName=AntiFan \"--annotation=_productName=AntiFan Desktop\" --annotation=_version=1.3.6 --annotation=plat=Win64 --annotation=prod=Electron --annotation=ver=43.4.0 --initial-client-data=0x540,0x544,0x548,0x53c,0x514,0x7ff636fa4620,0x7ff636fa4630,0x7ff636fa4640"
+    },
+    {
+        "pid":  7088,
+        "ppid":  4076,
+        "name":  "electron.exe",
+        "scope":  "a",
+        "protected":  false,
+        "created":  "09/30/2026 01:04:54",
+        "cmd":  "\"E:\\Work\\apps\\AntiFan\\node_modules\\electron\\dist\\electron.exe\" --type=gpu-process --user-data-dir=\"E:\\Work\\.antifan-data\\Profile\" --gpu-preferences=UAAAAAAAAADgAAAEAAAAAAAAAAAAAGAAOAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAAAAAAAAAABgAAAAAAAAAGAAAAAAAAAAIAAAAAAAAAAgAAAAAAAAACAAAAAAAAAA= --field-trial-handle=1880,i,17060683109094076172,16961227563500513897,262144 --enable-features=AsyncImageDecoding,Autofill,BackForwardCache,ParallelDownloading,PasswordManager,PdfUseShowSaveFilePicker,SmoothScrolling --disable-features=DropInputEventsWhilePaintHolding,LocalNetworkAccessChecks,NetworkServiceSandbox,ScreenAIOCREnabled,SpareRendererForSitePerProcess,TraceSiteInstanceGetProcessCreation --variations-seed-version --pseudonymization-salt-handle=1916,i,18270253771790001112,12534825583811161272,4 --trace-process-track-uuid=3190708988185955192 --mojo-platform-channel-handle=1876 /prefetch:2"
+    },
+    {
+        "pid":  3676,
+        "ppid":  4076,
+        "name":  "electron.exe",
+        "scope":  "a",
+        "protected":  false,
+        "created":  "09/30/2026 01:04:54",
+        "cmd":  "\"E:\\Work\\apps\\AntiFan\\node_modules\\electron\\dist\\electron.exe\" --type=utility --utility-sub-type=network.mojom.NetworkService --lang=en-US --service-sandbox-type=none --enable-quic --user-data-dir=\"E:\\Work\\.antifan-data\\Profile\" --standard-schemes=antifan-preview --secure-schemes=antifan-preview --cors-schemes=antifan-preview --fetch-schemes=antifan-preview --streaming-schemes=antifan-preview --field-trial-handle=1880,i,17060683109094076172,16961227563500513897,262144 --enable-features=AsyncImageDecoding,Autofill,BackForwardCache,ParallelDownloading,PasswordManager,PdfUseShowSaveFilePicker,SmoothScrolling --disable-features=DropInputEventsWhilePaintHolding,LocalNetworkAccessChecks,NetworkServiceSandbox,ScreenAIOCREnabled,SpareRendererForSitePerProcess,TraceSiteInstanceGetProcessCreation --variations-seed-version --pseudonymization-salt-handle=1916,i,18270253771790001112,12534825583811161272,4 --trace-process-track-uuid=3190708989122997041 --mojo-platform-channel-handle=1948 /prefetch:11"
+    },
+    {
+        "pid":  5080,
+        "ppid":  4076,
+        "name":  "electron.exe",
+        "scope":  "a",
+        "protected":  false,
+        "created":  "09/30/2026 01:05:00",
+        "cmd":  "E:\\Work\\apps\\AntiFan\\node_modules\\electron\\dist\\electron.exe E:\\Work\\.antifan-data\\daemon-host\\7a9c06fe7be6c7cf\\src\\main\\terminal-daemon\\daemon-entry.js --handshake E:\\Work\\.antifan-data\\daemon-host\\daemon-handshake.json --log E:\\Work\\.antifan-data\\daemon-host\\daemon.log --cwd E:\\Work\\apps\\AntiFan --port 0"
+    },
+    {
+        "pid":  7056,
+        "ppid":  4076,
+        "name":  "electron.exe",
+        "scope":  "a",
+        "protected":  false,
+        "created":  "09/30/2026 01:05:02",
+        "cmd":  "\"E:\\Work\\apps\\AntiFan\\node_modules\\electron\\dist\\electron.exe\" --type=renderer --user-data-dir=\"E:\\Work\\.antifan-data\\Profile\" --standard-schemes=antifan-preview --secure-schemes=antifan-preview --cors-schemes=antifan-preview --fetch-schemes=antifan-preview --streaming-schemes=antifan-preview --app-path=\"E:\\Work\\apps\\AntiFan\" --no-sandbox --no-zygote --disable-gpu-memory-buffer-video-frames --disable-blink-features=AutomationControlled --video-capture-use-gpu-memory-buffer --lang=en-US --device-scale-factor=1 --num-raster-threads=4 --enable-main-frame-before-activation --renderer-client-id=6 --time-ticks-at-unix-epoch=-1790704840956063 --launch-time-ticks=262028730 --field-trial-handle=1880,i,17060683109094076172,16961227563500513897,262144 --enable-features=AsyncImageDecoding,Autofill,BackForwardCache,ParallelDownloading,PasswordManager,PdfUseShowSaveFilePicker,SmoothScrolling --disable-features=DropInputEventsWhilePaintHolding,LocalNetworkAccessChecks,NetworkServiceSandbox,ScreenAIOCREnabled,SpareRendererForSitePerProcess,TraceSiteInstanceGetProcessCreation --variations-seed-version --pseudonymization-salt-handle=1916,i,18270253771790001112,12534825583811161272,4 --trace-process-track-uuid=3190708991934122588 --mojo-platform-channel-handle=3088 /prefetch:1"
+    },
+    {
+        "pid":  4852,
+        "ppid":  4076,
+        "name":  "electron.exe",
+        "scope":  "a",
+        "protected":  false,
+        "created":  "09/30/2026 01:05:04",
+        "cmd":  "\"E:\\Work\\apps\\AntiFan\\node_modules\\electron\\dist\\electron.exe\" --type=renderer --user-data-dir=\"E:\\Work\\.antifan-data\\Profile\" --standard-schemes=antifan-preview --secure-schemes=antifan-preview --cors-schemes=antifan-preview --fetch-schemes=antifan-preview --streaming-schemes=antifan-preview --app-path=\"E:\\Work\\apps\\AntiFan\" --enable-sandbox --disable-gpu-memory-buffer-video-frames --disable-blink-features=AutomationControlled --video-capture-use-gpu-memory-buffer --lang=en-US --device-scale-factor=1 --num-raster-threads=4 --enable-main-frame-before-activation --renderer-client-id=9 --time-ticks-at-unix-epoch=-1790704840956063 --launch-time-ticks=263160997 --field-trial-handle=1880,i,17060683109094076172,16961227563500513897,262144 --enable-features=AsyncImageDecoding,Autofill,BackForwardCache,ParallelDownloading,PasswordManager,PdfUseShowSaveFilePicker,SmoothScrolling --disable-features=DropInputEventsWhilePaintHolding,LocalNetworkAccessChecks,NetworkServiceSandbox,ScreenAIOCREnabled,SpareRendererForSitePerProcess,TraceSiteInstanceGetProcessCreation --variations-seed-version --pseudonymization-salt-handle=1916,i,18270253771790001112,12534825583811161272,4 --trace-process-track-uuid=3190708994745248135 --mojo-platform-channel-handle=3872 /prefetch:1"
+    }
+]

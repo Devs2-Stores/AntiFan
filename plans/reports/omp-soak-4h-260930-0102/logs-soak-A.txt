@@ -1,0 +1,55 @@
+========================================================================
+  AntiFan Browser Desktop — Real Multi-Process Soak Benchmark (240m)
+  Warmup: 5m | Workload: 230m | Recovery: 5m
+  Requested duration: 240m (argv --minutes)
+========================================================================
+  Bundle: 543 compiled files, 12.0 MB, md5 ed86b4293e28c5acbb29a73de2cd507e
+[soak] Fixture server running at http://127.0.0.1:62965
+[soak] Launching Electron app...
+[soak] Windows keep-awake active (PID: 4212, SetThreadExecutionState ES_CONTINUOUS|ES_SYSTEM_REQUIRED|ES_AWAYMODE_REQUIRED)
+[soak] Bridge server connected on port 20129
+[soak] Opening 6 tabs...
+[soak] Spawning terminal session...
+[soak] Phase 1: Warmup started (until 2:22:29 AM)
+[soak-checkpoint] Saved 11 samples to real-soak-8h-a260930-checkpoint.json | RAM: 1190MB
+[soak-checkpoint] Saved 21 samples to real-soak-8h-a260930-checkpoint.json | RAM: 1247.07MB
+[soak-checkpoint] Saved 31 samples to real-soak-8h-a260930-checkpoint.json | RAM: 1232.24MB
+[soak-checkpoint] Saved 41 samples to real-soak-8h-a260930-checkpoint.json | RAM: 1226.08MB
+[soak-checkpoint] Saved 51 samples to real-soak-8h-a260930-checkpoint.json | RAM: 1258.72MB
+[soak-checkpoint] Saved 61 samples to real-soak-8h-a260930-checkpoint.json | RAM: 1263.4MB
+[soak-checkpoint] Saved 71 samples to real-soak-8h-a260930-checkpoint.json | RAM: 1251.18MB
+[soak-checkpoint] Saved 81 samples to real-soak-8h-a260930-checkpoint.json | RAM: 1258.32MB
+[soak] Electron child process exited unexpectedly with code 1, signal null
+[soak] Aborting soak loop early due to child process exit (code: 1)
+[soak-checkpoint] Saved 82 samples to real-soak-8h-a260930-checkpoint.json | RAM: 1273.23MB
+[soak] Soak workload phase concluded. Running guaranteed resource teardown...
+[soak] Final Guaranteed Teardown: Running recovery teardown (closing tabs & terminal session)...
+[soak] Failed to close tab 8c5c943d-d3d8-41f0-89bb-c9ed42d9f138: WebSocket is not open
+[soak] Failed to close tab 3f126d19-3be2-417a-9a95-c2fb17d3d887: WebSocket is not open
+[soak] Failed to close tab bb4c101f-8f9e-45e8-8ba1-f557f60a22d1: WebSocket is not open
+[soak] Failed to close tab 2b757fd9-c328-4e8d-8134-aa82933f70d3: WebSocket is not open
+[soak] Failed to close tab f0aed5a0-92f4-445e-90ea-3710edce6761: WebSocket is not open
+[soak] Failed to close tab 3773316d-07b5-409d-b3ef-90cbae3eacba: WebSocket is not open
+[soak] Failed to close terminal session terminal-2: WebSocket is not open
+[soak] Teardown degraded: tabsFailed=6, terminalFailed=true
+[soak] Final report saved to E:\Work\.soak-iso\plans\reports\runtime-verification\real-soak-8h-a260930.json
+========================================================================
+  AntiFan 8-Hour Soak Verdict: FAILED
+  Execution Error: Child process exited unexpectedly with code 1
+  Initial Loaded: 1142.42 MB
+  Post-Warmup: 1187.53 MB
+  Final Active p50: 1240.13 MB (Peak Max: 1359.33 MB, SLO <= 1600 MB)
+  Recovered: null MB
+  Overall Slope: 0.766769 MB/min (SLO <= 0.35 MB/min)
+  Renderer Slope: 0.322474 MB/min (SLO <= 0.15 MB/min)
+  Tab Switch Latency (workload, n=1426): p50=7.534ms (SLO <= 12ms), p95=10.514ms (SLO <= 18ms), max=182.845ms (reported, not graded)
+  Tab Switch Latency (warmup, n=96): p50=7.318ms, p95=10.596ms, max=15.546ms | all phases: p50=7.504ms, p95=10.514ms, max=182.845ms
+  App-Owned Private Max: 0.2382 MB/min at pid=11088 Browser (SLO <= 0.15 MB/min, per-process max)
+  Orphan Processes: 0 (Query OK: true, SLO = 0)
+  Slowest Switch Destination: http://127.0.0.1:62965/store-home (max 182.845ms, p95 10.928ms over 254 switches)
+  Fastest-Growing Process (working set): Browser pid=11088 (0.2772 MB/min)
+  App CPU (workload, 75.07m): 1488.954s total, 19.834s/min | 32652.5 ms / 1000 burst lines (45600 lines) | 1044.1473 ms / switch (1426 switches)
+  Top CPU Consumer: GPU pid=15500 469.5s (31.5%)
+  CPU Is a Lower Bound: 2 pid(s) not present at both ends, 0 unreadable, 0 counter reset
+========================================================================
+[soak] FAILED: SLO violations or execution failure detected (slopeOk: false, privateSlopeOk: false [measured: true], memoryOk: true, latencyOk: true, processOk: true, executionOk: false, teardownOk: false)

@@ -1,0 +1,59 @@
+========================================================================
+  AntiFan Browser Desktop — Real Multi-Process Soak Benchmark (240m)
+  Warmup: 5m | Workload: 230m | Recovery: 5m
+  Requested duration: 240m (argv --minutes)
+========================================================================
+  Bundle: 543 compiled files, 12.0 MB, md5 ed86b4293e28c5acbb29a73de2cd507e
+  DataRoot: E:\Work\.antifan-soak-a260930f
+[soak] Fixture server running at http://127.0.0.1:50834
+[soak] Launching Electron app...
+[soak] Windows keep-awake active (PID: 17756, SetThreadExecutionState ES_CONTINUOUS|ES_SYSTEM_REQUIRED|ES_AWAYMODE_REQUIRED)
+[soak] Bridge server connected on port 20129
+[soak] Opening 6 tabs...
+[soak] Spawning terminal session...
+[soak] Phase 1: Warmup started (until 3:58:36 AM)
+[soak-checkpoint] Saved 11 samples to real-soak-8h-a260930f-checkpoint.json | RAM: 1185.98MB
+[soak-checkpoint] Saved 21 samples to real-soak-8h-a260930f-checkpoint.json | RAM: 1202.44MB
+[soak-checkpoint] Saved 31 samples to real-soak-8h-a260930f-checkpoint.json | RAM: 1213.2MB
+[soak-checkpoint] Saved 41 samples to real-soak-8h-a260930f-checkpoint.json | RAM: 1223.26MB
+[soak-checkpoint] Saved 51 samples to real-soak-8h-a260930f-checkpoint.json | RAM: 1226.64MB
+[soak-checkpoint] Saved 61 samples to real-soak-8h-a260930f-checkpoint.json | RAM: 1243.5MB
+[soak-checkpoint] Saved 71 samples to real-soak-8h-a260930f-checkpoint.json | RAM: 1231.55MB
+[soak-checkpoint] Saved 81 samples to real-soak-8h-a260930f-checkpoint.json | RAM: 1257.8MB
+[soak-checkpoint] Saved 91 samples to real-soak-8h-a260930f-checkpoint.json | RAM: 1257.8MB
+[soak-checkpoint] Saved 101 samples to real-soak-8h-a260930f-checkpoint.json | RAM: 1239.22MB
+[soak-checkpoint] Saved 111 samples to real-soak-8h-a260930f-checkpoint.json | RAM: 1247.59MB
+[soak-checkpoint] Saved 121 samples to real-soak-8h-a260930f-checkpoint.json | RAM: 1260.12MB
+[soak-checkpoint] Saved 131 samples to real-soak-8h-a260930f-checkpoint.json | RAM: 1250.11MB
+[soak-checkpoint] Saved 141 samples to real-soak-8h-a260930f-checkpoint.json | RAM: 1262.71MB
+[soak-checkpoint] Saved 151 samples to real-soak-8h-a260930f-checkpoint.json | RAM: 1247.12MB
+[soak-checkpoint] Saved 161 samples to real-soak-8h-a260930f-checkpoint.json | RAM: 1260.46MB
+[soak-checkpoint] Saved 171 samples to real-soak-8h-a260930f-checkpoint.json | RAM: 1253.5MB
+[soak-checkpoint] Saved 181 samples to real-soak-8h-a260930f-checkpoint.json | RAM: 1254.98MB
+[soak-checkpoint] Saved 191 samples to real-soak-8h-a260930f-checkpoint.json | RAM: 1255.59MB
+[soak-checkpoint] Saved 201 samples to real-soak-8h-a260930f-checkpoint.json | RAM: 1246.59MB
+[soak-checkpoint] Saved 211 samples to real-soak-8h-a260930f-checkpoint.json | RAM: 1252.96MB
+[soak-checkpoint] Saved 221 samples to real-soak-8h-a260930f-checkpoint.json | RAM: 1259.91MB
+[soak-checkpoint] Saved 231 samples to real-soak-8h-a260930f-checkpoint.json | RAM: 1269.42MB
+[soak] Phase 3 Recovery: Running recovery teardown (closing tabs & terminal session)...
+[soak] Soak workload phase concluded. Running guaranteed resource teardown...
+[soak] Measuring final recovery state...
+[soak] Final report saved to E:\Work\.soak-iso\plans\reports\runtime-verification\real-soak-8h-a260930f.json
+========================================================================
+  AntiFan 8-Hour Soak Verdict: PASSED
+  Initial Loaded: 1101.49 MB
+  Post-Warmup: 1182.46 MB
+  Final Active p50: 1246.44 MB (Peak Max: 1274.13 MB, SLO <= 1600 MB)
+  Recovered: 754.5 MB
+  Overall Slope: 0.216395 MB/min (SLO <= 0.35 MB/min)
+  Renderer Slope: -0.021379 MB/min (SLO <= 0.15 MB/min)
+  Tab Switch Latency (workload, n=4354): p50=6.756ms (SLO <= 12ms), p95=9.12ms (SLO <= 18ms), max=291.212ms (reported, not graded)
+  Tab Switch Latency (warmup, n=94): p50=7.533ms, p95=11.507ms, max=3437.016ms | all phases: p50=6.775ms, p95=9.193ms, max=3437.016ms
+  App-Owned Private Max: 0.1055 MB/min at pid=19828 Browser (SLO <= 0.15 MB/min, per-process max)
+  Orphan Processes: 0 (Query OK: true, SLO = 0)
+  Slowest Switch Destination: http://127.0.0.1:50834/store-home (max 3437.016ms, p95 9.11ms over 742 switches)
+  Fastest-Growing Process (working set): Browser pid=19828 (0.1079 MB/min)
+  App CPU (workload, 229.21m): 4362.453s total, 19.033s/min | 31680.8497 ms / 1000 burst lines (137700 lines) | 1001.9414 ms / switch (4354 switches)
+  Top CPU Consumer: GPU pid=8516 1376.063s (31.5%)
+  CPU Is a Lower Bound: 2 pid(s) not present at both ends, 0 unreadable, 0 counter reset
+========================================================================

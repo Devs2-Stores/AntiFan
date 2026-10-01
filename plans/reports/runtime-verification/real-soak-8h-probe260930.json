@@ -1,0 +1,2353 @@
+{
+  "status": "failed",
+  "startedAt": "2026-09-29T18:51:52.844Z",
+  "finishedAt": "2026-09-29T18:54:36.258Z",
+  "config": {
+    "totalMinutes": 2,
+    "requestedTotalMinutes": 2,
+    "durationSource": "argv --minutes",
+    "bundle": {
+      "start": {
+        "dir": "E:\\Work\\apps\\AntiFan\\.compiled",
+        "files": 543,
+        "bytes": 12531133,
+        "md5": "68bb8f884e4caca864d8e962770c4269"
+      },
+      "end": {
+        "dir": "E:\\Work\\apps\\AntiFan\\.compiled",
+        "files": 543,
+        "bytes": 12531851,
+        "md5": "a6e7380cdd561adb1903a66177d232d4"
+      },
+      "changedDuringRun": true
+    },
+    "warmupMinutes": 0.5,
+    "workloadMinutes": 1,
+    "recoveryMinutes": 0.5,
+    "switchIntervalMs": 3000,
+    "burstIntervalMs": 30000,
+    "burstLines": 300,
+    "tabRounds": 1,
+    "fixtureTickMs": 200,
+    "fixtureTitleMode": "unique",
+    "sampleIntervalSeconds": 15,
+    "reportTag": "probe260930",
+    "appArgs": [],
+    "legs": []
+  },
+  "rootPid": 9300,
+  "fixturePort": 61672,
+  "stats": {
+    "requestCount": 5,
+    "openedTabs": 6,
+    "switches": 25,
+    "bursts": 3,
+    "burstsByPhase": {
+      "warmup": 1,
+      "workload": 2,
+      "recovery": 0
+    },
+    "reloads": 1,
+    "terminalEventsCount": 49,
+    "totalSamples": 10,
+    "totalSuspendedMinutes": 0,
+    "activeWorkloadMinutes": 0.74,
+    "activeMinutesSinceStart": 2,
+    "teardownTelemetry": {
+      "tabsToClose": 6,
+      "tabsClosedSuccess": 6,
+      "tabsClosedFailed": 0,
+      "terminalClosedSuccess": true,
+      "terminalClosedFailed": false,
+      "teardownDegraded": false
+    }
+  },
+  "metrics": {
+    "switchLatencyMs": {
+      "min": 5.552,
+      "p50": 7.313,
+      "p95": 10.531,
+      "max": 10.531
+    },
+    "switchLatencyWorkloadCount": 16,
+    "switchLatencyWarmupMs": {
+      "min": 6.994,
+      "p50": 11.359,
+      "p95": 12.41,
+      "max": 12.41
+    },
+    "switchLatencyWarmupCount": 9,
+    "switchLatencyAllPhasesMs": {
+      "min": 5.552,
+      "p50": 8.063,
+      "p95": 11.972,
+      "max": 12.41
+    },
+    "activeWorkingSetMB": {
+      "min": 1148.18,
+      "p50": 1175.49,
+      "p95": 1176.01,
+      "max": 1176.01
+    },
+    "activeRendererWorkingSetMB": {
+      "min": 612.63,
+      "p50": 632.79,
+      "p95": 636.48,
+      "max": 636.48
+    },
+    "overallActiveSlopeMBPerMin": -24.972622,
+    "overallActiveSlopeMBPerHour": -1498.3573,
+    "rendererActiveSlopeMBPerMin": -20.088946,
+    "rendererActiveSlopeMBPerHour": -1205.3368,
+    "rolling60MinSlopes": [],
+    "initialLoadedMB": 1143.07,
+    "postWarmupMB": 1179.91,
+    "finalActiveMB": 1148.18,
+    "recoveredMB": 690.9,
+    "processSeriesSampleCount": 2,
+    "perProcessSlopes": [],
+    "worstProcessSlopeMBPerMin": null,
+    "worstProcessRole": "",
+    "worstProcessUrl": "",
+    "worstProcessPid": null,
+    "appPrivateMaxSlopeMBPerMin": null,
+    "appPrivateMaxRole": "",
+    "appPrivateMaxUrl": "",
+    "appPrivateMaxPid": null,
+    "processSlopeWindowStart": 1790707969346,
+    "processSlopeWindowEnd": 1790708013851,
+    "refusedProcessCount": 0,
+    "refusedProcessWorkingSetMB": 0,
+    "refusedProcessNames": [],
+    "slowSwitchSamples": [
+      {
+        "at": 1790707954341,
+        "ms": 12.41,
+        "tabId": "1782dc80-71a7-4a0e-b21a-9f51ed437b4b",
+        "phase": "warmup",
+        "leg": null
+      },
+      {
+        "at": 1790707938856,
+        "ms": 11.972,
+        "tabId": "133584cf-7a38-44d7-a1fd-a34814d1dd37",
+        "phase": "warmup",
+        "leg": null
+      },
+      {
+        "at": 1790707941866,
+        "ms": 11.972,
+        "tabId": "a0d2ee9d-1ae1-44bd-b62d-58deb7294d7c",
+        "phase": "warmup",
+        "leg": null
+      },
+      {
+        "at": 1790707948011,
+        "ms": 11.578,
+        "tabId": "6024b625-9510-445a-a5d2-2de5ed093399",
+        "phase": "warmup",
+        "leg": null
+      },
+      {
+        "at": 1790707944939,
+        "ms": 11.359,
+        "tabId": "1f24b3e6-3155-4198-8ca9-acb08d1e5ff7",
+        "phase": "warmup",
+        "leg": null
+      },
+      {
+        "at": 1790707935493,
+        "ms": 11.056,
+        "tabId": "ffcf57e1-cee5-4062-b4b1-cb143389a9e5",
+        "phase": "warmup",
+        "leg": null
+      },
+      {
+        "at": 1790707975600,
+        "ms": 10.531,
+        "tabId": "1782dc80-71a7-4a0e-b21a-9f51ed437b4b",
+        "phase": "workload",
+        "leg": null
+      },
+      {
+        "at": 1790707990874,
+        "ms": 9.74,
+        "tabId": "1f24b3e6-3155-4198-8ca9-acb08d1e5ff7",
+        "phase": "workload",
+        "leg": null
+      },
+      {
+        "at": 1790707960409,
+        "ms": 9.097,
+        "tabId": "133584cf-7a38-44d7-a1fd-a34814d1dd37",
+        "phase": "warmup",
+        "leg": null
+      },
+      {
+        "at": 1790707963495,
+        "ms": 8.609,
+        "tabId": "a0d2ee9d-1ae1-44bd-b62d-58deb7294d7c",
+        "phase": "warmup",
+        "leg": null
+      }
+    ],
+    "switchLatencyByTab": [
+      {
+        "tabId": "1782dc80-71a7-4a0e-b21a-9f51ed437b4b",
+        "url": "https://www.wikipedia.org",
+        "count": 4,
+        "p50": 10.531,
+        "p95": 12.41,
+        "max": 12.41
+      },
+      {
+        "tabId": "133584cf-7a38-44d7-a1fd-a34814d1dd37",
+        "url": "http://127.0.0.1:61672/collection-featured",
+        "count": 4,
+        "p50": 9.097,
+        "p95": 11.972,
+        "max": 11.972
+      },
+      {
+        "tabId": "a0d2ee9d-1ae1-44bd-b62d-58deb7294d7c",
+        "url": "http://127.0.0.1:61672/product-test-1",
+        "count": 4,
+        "p50": 8.609,
+        "p95": 11.972,
+        "max": 11.972
+      },
+      {
+        "tabId": "6024b625-9510-445a-a5d2-2de5ed093399",
+        "url": "https://example.com",
+        "count": 4,
+        "p50": 8.361,
+        "p95": 11.578,
+        "max": 11.578
+      },
+      {
+        "tabId": "1f24b3e6-3155-4198-8ca9-acb08d1e5ff7",
+        "url": "http://127.0.0.1:61672/product-test-2",
+        "count": 4,
+        "p50": 9.74,
+        "p95": 11.359,
+        "max": 11.359
+      },
+      {
+        "tabId": "ffcf57e1-cee5-4062-b4b1-cb143389a9e5",
+        "url": "http://127.0.0.1:61672/store-home",
+        "count": 5,
+        "p50": 6.994,
+        "p95": 11.056,
+        "max": 11.056
+      }
+    ],
+    "cpu": {
+      "from": "2026-09-29T18:52:49.346Z",
+      "to": "2026-09-29T18:53:33.851Z",
+      "windowMinutes": 0.74,
+      "samples": 4,
+      "cpuSecondsTotal": 15.565,
+      "cpuSecondsPerMinute": 21.034,
+      "perProcess": [
+        {
+          "pid": 10044,
+          "seconds": 4.906,
+          "share": 0.3152,
+          "role": "GPU",
+          "type": "GPU"
+        },
+        {
+          "pid": 16896,
+          "seconds": 4.625,
+          "share": 0.2971,
+          "role": "tab:6024b625",
+          "type": "Tab"
+        },
+        {
+          "pid": 4060,
+          "seconds": 1.563,
+          "share": 0.1004,
+          "role": "window",
+          "type": "Tab"
+        },
+        {
+          "pid": 9300,
+          "seconds": 1.391,
+          "share": 0.0894,
+          "role": "Browser",
+          "type": "Browser"
+        },
+        {
+          "pid": 5624,
+          "seconds": 1.141,
+          "share": 0.0733,
+          "role": "tab:ffcf57e1+tab:133584cf+tab:a0d2ee9d+tab:1f24b3e6",
+          "type": "Tab"
+        },
+        {
+          "pid": 4360,
+          "seconds": 0.719,
+          "share": 0.0462,
+          "role": "console host (pty child)",
+          "type": "other"
+        },
+        {
+          "pid": 12832,
+          "seconds": 0.344,
+          "share": 0.0221,
+          "role": "console host (pty child)",
+          "type": "other"
+        },
+        {
+          "pid": 8224,
+          "seconds": 0.297,
+          "share": 0.0191,
+          "role": "Utility",
+          "type": "Utility"
+        },
+        {
+          "pid": 5048,
+          "seconds": 0.188,
+          "share": 0.0121,
+          "role": "pty agent",
+          "type": "other"
+        },
+        {
+          "pid": 8152,
+          "seconds": 0.172,
+          "share": 0.0111,
+          "role": "pty agent",
+          "type": "other"
+        },
+        {
+          "pid": 5504,
+          "seconds": 0.141,
+          "share": 0.0091,
+          "role": "pty shell",
+          "type": "other"
+        },
+        {
+          "pid": 16108,
+          "seconds": 0.047,
+          "share": 0.003,
+          "role": "tab:1782dc80",
+          "type": "Tab"
+        },
+        {
+          "pid": 10632,
+          "seconds": 0.031,
+          "share": 0.002,
+          "role": "pty shell",
+          "type": "other"
+        },
+        {
+          "pid": 936,
+          "seconds": 0,
+          "share": 0,
+          "role": "tab:f2394906",
+          "type": "Tab"
+        },
+        {
+          "pid": 14068,
+          "seconds": 0,
+          "share": 0,
+          "role": "",
+          "type": ""
+        }
+      ],
+      "notAttributablePids": [],
+      "unreadablePids": [],
+      "counterResetPids": [],
+      "source": "samples.cpuByPid (10 of 10 row(s) carry counters)",
+      "bursts": 2,
+      "burstLines": 600,
+      "msPer1000BurstLines": 25941.6667,
+      "switches": 16,
+      "msPerSwitch": 972.8125
+    },
+    "legBurstCounterSuspect": false,
+    "cpuByPhase": {
+      "warmup": {
+        "from": "2026-09-29T18:52:15.456Z",
+        "to": "2026-09-29T18:52:34.222Z",
+        "windowMinutes": 0.31,
+        "samples": 3,
+        "cpuSecondsTotal": 8.814,
+        "cpuSecondsPerMinute": 28.432,
+        "perProcess": [
+          {
+            "pid": 16896,
+            "seconds": 3.047,
+            "share": 0.3457,
+            "role": "tab:6024b625",
+            "type": "Tab"
+          },
+          {
+            "pid": 10044,
+            "seconds": 2.766,
+            "share": 0.3138,
+            "role": "GPU",
+            "type": "GPU"
+          },
+          {
+            "pid": 5504,
+            "seconds": 0.859,
+            "share": 0.0975,
+            "role": "pty shell",
+            "type": "other"
+          },
+          {
+            "pid": 4060,
+            "seconds": 0.672,
+            "share": 0.0762,
+            "role": "window",
+            "type": "Tab"
+          },
+          {
+            "pid": 9300,
+            "seconds": 0.484,
+            "share": 0.0549,
+            "role": "Browser",
+            "type": "Browser"
+          },
+          {
+            "pid": 5624,
+            "seconds": 0.297,
+            "share": 0.0337,
+            "role": "tab:ffcf57e1+tab:133584cf+tab:a0d2ee9d+tab:1f24b3e6",
+            "type": "Tab"
+          },
+          {
+            "pid": 4360,
+            "seconds": 0.219,
+            "share": 0.0248,
+            "role": "console host (pty child)",
+            "type": "other"
+          },
+          {
+            "pid": 12832,
+            "seconds": 0.141,
+            "share": 0.016,
+            "role": "console host (pty child)",
+            "type": "other"
+          },
+          {
+            "pid": 936,
+            "seconds": 0.109,
+            "share": 0.0124,
+            "role": "tab:f2394906",
+            "type": "Tab"
+          },
+          {
+            "pid": 8224,
+            "seconds": 0.094,
+            "share": 0.0107,
+            "role": "Utility",
+            "type": "Utility"
+          },
+          {
+            "pid": 8152,
+            "seconds": 0.078,
+            "share": 0.0088,
+            "role": "pty agent",
+            "type": "other"
+          },
+          {
+            "pid": 5048,
+            "seconds": 0.016,
+            "share": 0.0018,
+            "role": "pty agent",
+            "type": "other"
+          },
+          {
+            "pid": 10632,
+            "seconds": 0.016,
+            "share": 0.0018,
+            "role": "pty shell",
+            "type": "other"
+          },
+          {
+            "pid": 16108,
+            "seconds": 0.016,
+            "share": 0.0018,
+            "role": "tab:1782dc80",
+            "type": "Tab"
+          },
+          {
+            "pid": 14068,
+            "seconds": 0,
+            "share": 0,
+            "role": "",
+            "type": ""
+          }
+        ],
+        "notAttributablePids": [],
+        "unreadablePids": [],
+        "counterResetPids": [],
+        "source": "samples.cpuByPid (10 of 10 row(s) carry counters)"
+      },
+      "workload": {
+        "from": "2026-09-29T18:52:49.346Z",
+        "to": "2026-09-29T18:53:33.851Z",
+        "windowMinutes": 0.74,
+        "samples": 4,
+        "cpuSecondsTotal": 15.565,
+        "cpuSecondsPerMinute": 21.034,
+        "perProcess": [
+          {
+            "pid": 10044,
+            "seconds": 4.906,
+            "share": 0.3152,
+            "role": "GPU",
+            "type": "GPU"
+          },
+          {
+            "pid": 16896,
+            "seconds": 4.625,
+            "share": 0.2971,
+            "role": "tab:6024b625",
+            "type": "Tab"
+          },
+          {
+            "pid": 4060,
+            "seconds": 1.563,
+            "share": 0.1004,
+            "role": "window",
+            "type": "Tab"
+          },
+          {
+            "pid": 9300,
+            "seconds": 1.391,
+            "share": 0.0894,
+            "role": "Browser",
+            "type": "Browser"
+          },
+          {
+            "pid": 5624,
+            "seconds": 1.141,
+            "share": 0.0733,
+            "role": "tab:ffcf57e1+tab:133584cf+tab:a0d2ee9d+tab:1f24b3e6",
+            "type": "Tab"
+          },
+          {
+            "pid": 4360,
+            "seconds": 0.719,
+            "share": 0.0462,
+            "role": "console host (pty child)",
+            "type": "other"
+          },
+          {
+            "pid": 12832,
+            "seconds": 0.344,
+            "share": 0.0221,
+            "role": "console host (pty child)",
+            "type": "other"
+          },
+          {
+            "pid": 8224,
+            "seconds": 0.297,
+            "share": 0.0191,
+            "role": "Utility",
+            "type": "Utility"
+          },
+          {
+            "pid": 5048,
+            "seconds": 0.188,
+            "share": 0.0121,
+            "role": "pty agent",
+            "type": "other"
+          },
+          {
+            "pid": 8152,
+            "seconds": 0.172,
+            "share": 0.0111,
+            "role": "pty agent",
+            "type": "other"
+          },
+          {
+            "pid": 5504,
+            "seconds": 0.141,
+            "share": 0.0091,
+            "role": "pty shell",
+            "type": "other"
+          },
+          {
+            "pid": 16108,
+            "seconds": 0.047,
+            "share": 0.003,
+            "role": "tab:1782dc80",
+            "type": "Tab"
+          },
+          {
+            "pid": 10632,
+            "seconds": 0.031,
+            "share": 0.002,
+            "role": "pty shell",
+            "type": "other"
+          },
+          {
+            "pid": 936,
+            "seconds": 0,
+            "share": 0,
+            "role": "tab:f2394906",
+            "type": "Tab"
+          },
+          {
+            "pid": 14068,
+            "seconds": 0,
+            "share": 0,
+            "role": "",
+            "type": ""
+          }
+        ],
+        "notAttributablePids": [],
+        "unreadablePids": [],
+        "counterResetPids": [],
+        "source": "samples.cpuByPid (10 of 10 row(s) carry counters)"
+      },
+      "recovery": {
+        "from": "2026-09-29T18:53:49.311Z",
+        "to": "2026-09-29T18:54:28.387Z",
+        "windowMinutes": 0.65,
+        "samples": 3,
+        "cpuSecondsTotal": 0.485,
+        "cpuSecondsPerMinute": 0.746,
+        "perProcess": [
+          {
+            "pid": 12832,
+            "seconds": 0.188,
+            "share": 0.3876,
+            "role": "console host (pty child)",
+            "type": "other"
+          },
+          {
+            "pid": 9300,
+            "seconds": 0.141,
+            "share": 0.2907,
+            "role": "Browser",
+            "type": "Browser"
+          },
+          {
+            "pid": 8152,
+            "seconds": 0.109,
+            "share": 0.2247,
+            "role": "pty agent",
+            "type": "other"
+          },
+          {
+            "pid": 8224,
+            "seconds": 0.031,
+            "share": 0.0639,
+            "role": "Utility",
+            "type": "Utility"
+          },
+          {
+            "pid": 10044,
+            "seconds": 0.016,
+            "share": 0.033,
+            "role": "GPU",
+            "type": "GPU"
+          },
+          {
+            "pid": 936,
+            "seconds": 0,
+            "share": 0,
+            "role": "tab:f2394906",
+            "type": "Tab"
+          },
+          {
+            "pid": 4060,
+            "seconds": 0,
+            "share": 0,
+            "role": "window",
+            "type": "Tab"
+          },
+          {
+            "pid": 10632,
+            "seconds": 0,
+            "share": 0,
+            "role": "pty shell",
+            "type": "other"
+          },
+          {
+            "pid": 14068,
+            "seconds": 0,
+            "share": 0,
+            "role": "",
+            "type": ""
+          }
+        ],
+        "notAttributablePids": [],
+        "unreadablePids": [],
+        "counterResetPids": [],
+        "source": "samples.cpuByPid (10 of 10 row(s) carry counters)"
+      }
+    },
+    "historyPersist": {
+      "run": {
+        "flushes": 5,
+        "totalMs": 174.988,
+        "maxMs": 52.569,
+        "supersededFlushes": 2
+      },
+      "workload": {
+        "flushes": 1,
+        "totalMs": 52.569,
+        "maxMs": 52.569,
+        "supersededFlushes": 1,
+        "msPerMinute": 71.039
+      },
+      "last": {
+        "at": 1790708028652,
+        "items": 9335,
+        "bytes": 4535550
+      },
+      "byLeg": []
+    },
+    "slopeSloSatisfied": false,
+    "slopeGateApplicable": true,
+    "privateSlopeSloSatisfied": false,
+    "privateSlopeMeasured": false,
+    "switchLatencyWorkloadSamples": 16,
+    "switchLatencyMaxMs": 10.531,
+    "latencyMaxGated": false,
+    "memorySloSatisfied": true,
+    "latencySloSatisfied": true,
+    "orphanSloSatisfied": true,
+    "executionSloSatisfied": true,
+    "teardownSloSatisfied": true,
+    "verdict": "FAILED"
+  },
+  "samples": [
+    {
+      "at": 1790707935456,
+      "activeAt": 1790707935456,
+      "label": "warmup",
+      "totalWorkingSetMB": 1143.07,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 190.77
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 198.98
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 589.29
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 53.21
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 110.82
+        }
+      },
+      "pids": [
+        9300,
+        5048,
+        5504,
+        4360,
+        16108,
+        16896,
+        5624,
+        8152,
+        10632,
+        12832,
+        936,
+        4060,
+        8224,
+        10044,
+        14068
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 24.578,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "936": 1.484375,
+        "4060": 1.5,
+        "4360": 0.125,
+        "5048": 0.046875,
+        "5504": 6.1875,
+        "5624": 0.328125,
+        "8152": 0.046875,
+        "8224": 0.53125,
+        "9300": 3.9375,
+        "10044": 3.46875,
+        "10632": 5.84375,
+        "12832": 0.25,
+        "14068": 0.015625,
+        "16108": 0.671875,
+        "16896": 0.140625
+      },
+      "namesByPid": {
+        "936": "electron.exe",
+        "4060": "electron.exe",
+        "4360": "conhost.exe",
+        "5048": "winpty-agent.exe",
+        "5504": "powershell.exe",
+        "5624": "electron.exe",
+        "8152": "winpty-agent.exe",
+        "8224": "electron.exe",
+        "9300": "electron.exe",
+        "10044": "electron.exe",
+        "10632": "powershell.exe",
+        "12832": "conhost.exe",
+        "14068": "electron.exe",
+        "16108": "electron.exe",
+        "16896": "electron.exe"
+      }
+    },
+    {
+      "at": 1790707938740,
+      "activeAt": 1790707938740,
+      "label": "warmup",
+      "totalWorkingSetMB": 1153.12,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 190.72
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 205
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 592.1
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 53.41
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 111.88
+        }
+      },
+      "pids": [
+        9300,
+        5048,
+        5504,
+        4360,
+        16108,
+        16896,
+        5624,
+        8152,
+        10632,
+        12832,
+        936,
+        4060,
+        8224,
+        10044,
+        14068
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 26.141,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "936": 1.484375,
+        "4060": 1.609375,
+        "4360": 0.25,
+        "5048": 0.0625,
+        "5504": 7.046875,
+        "5624": 0.40625,
+        "8152": 0.09375,
+        "8224": 0.53125,
+        "9300": 4.046875,
+        "10044": 3.65625,
+        "10632": 5.859375,
+        "12832": 0.265625,
+        "14068": 0.015625,
+        "16108": 0.671875,
+        "16896": 0.140625
+      },
+      "namesByPid": {
+        "936": "electron.exe",
+        "4060": "electron.exe",
+        "4360": "conhost.exe",
+        "5048": "winpty-agent.exe",
+        "5504": "powershell.exe",
+        "5624": "electron.exe",
+        "8152": "winpty-agent.exe",
+        "8224": "electron.exe",
+        "9300": "electron.exe",
+        "10044": "electron.exe",
+        "10632": "powershell.exe",
+        "12832": "conhost.exe",
+        "14068": "electron.exe",
+        "16108": "electron.exe",
+        "16896": "electron.exe"
+      }
+    },
+    {
+      "at": 1790707954222,
+      "activeAt": 1790707954222,
+      "label": "warmup",
+      "totalWorkingSetMB": 1179.91,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 155.77
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 204.54
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 637.84
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 53.42
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 128.34
+        }
+      },
+      "pids": [
+        9300,
+        5048,
+        5504,
+        4360,
+        16108,
+        16896,
+        5624,
+        8152,
+        10632,
+        12832,
+        936,
+        4060,
+        8224,
+        10044,
+        14068
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 33.391,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "936": 1.59375,
+        "4060": 2.171875,
+        "4360": 0.34375,
+        "5048": 0.0625,
+        "5504": 7.046875,
+        "5624": 0.625,
+        "8152": 0.125,
+        "8224": 0.625,
+        "9300": 4.421875,
+        "10044": 6.234375,
+        "10632": 5.859375,
+        "12832": 0.390625,
+        "14068": 0.015625,
+        "16108": 0.6875,
+        "16896": 3.1875
+      },
+      "namesByPid": {
+        "936": "electron.exe",
+        "4060": "electron.exe",
+        "4360": "conhost.exe",
+        "5048": "winpty-agent.exe",
+        "5504": "powershell.exe",
+        "5624": "electron.exe",
+        "8152": "winpty-agent.exe",
+        "8224": "electron.exe",
+        "9300": "electron.exe",
+        "10044": "electron.exe",
+        "10632": "powershell.exe",
+        "12832": "conhost.exe",
+        "14068": "electron.exe",
+        "16108": "electron.exe",
+        "16896": "electron.exe"
+      }
+    },
+    {
+      "at": 1790707969346,
+      "activeAt": 1790707969346,
+      "label": "workload",
+      "totalWorkingSetMB": 1169.36,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 155.93
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 204.65
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 628.3
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 53.49
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 126.99
+        }
+      },
+      "pids": [
+        9300,
+        5048,
+        5504,
+        4360,
+        16108,
+        16896,
+        5624,
+        8152,
+        10632,
+        12832,
+        936,
+        4060,
+        8224,
+        10044,
+        14068
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 37.422,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "936": 1.59375,
+        "4060": 2.671875,
+        "4360": 0.625,
+        "5048": 0.109375,
+        "5504": 7.1875,
+        "5624": 0.9375,
+        "8152": 0.1875,
+        "8224": 0.6875,
+        "9300": 5.046875,
+        "10044": 7.90625,
+        "10632": 5.859375,
+        "12832": 0.484375,
+        "14068": 0.015625,
+        "16108": 0.890625,
+        "16896": 3.21875
+      },
+      "namesByPid": {
+        "936": "electron.exe",
+        "4060": "electron.exe",
+        "4360": "conhost.exe",
+        "5048": "winpty-agent.exe",
+        "5504": "powershell.exe",
+        "5624": "electron.exe",
+        "8152": "winpty-agent.exe",
+        "8224": "electron.exe",
+        "9300": "electron.exe",
+        "10044": "electron.exe",
+        "10632": "powershell.exe",
+        "12832": "conhost.exe",
+        "14068": "electron.exe",
+        "16108": "electron.exe",
+        "16896": "electron.exe"
+      }
+    },
+    {
+      "at": 1790707984634,
+      "activeAt": 1790707984634,
+      "label": "workload",
+      "totalWorkingSetMB": 1175.49,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 153.5
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 204.59
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 636.48
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 52.84
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 128.09
+        }
+      },
+      "pids": [
+        9300,
+        5048,
+        5504,
+        4360,
+        16108,
+        16896,
+        5624,
+        8152,
+        10632,
+        12832,
+        936,
+        4060,
+        8224,
+        10044,
+        14068
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 42.563,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "936": 1.59375,
+        "4060": 3.28125,
+        "4360": 0.8125,
+        "5048": 0.140625,
+        "5504": 7.1875,
+        "5624": 1.34375,
+        "8152": 0.265625,
+        "8224": 0.84375,
+        "9300": 5.46875,
+        "10044": 9.5,
+        "10632": 5.875,
+        "12832": 0.59375,
+        "14068": 0.015625,
+        "16108": 0.890625,
+        "16896": 4.75
+      },
+      "namesByPid": {
+        "936": "electron.exe",
+        "4060": "electron.exe",
+        "4360": "conhost.exe",
+        "5048": "winpty-agent.exe",
+        "5504": "powershell.exe",
+        "5624": "electron.exe",
+        "8152": "winpty-agent.exe",
+        "8224": "electron.exe",
+        "9300": "electron.exe",
+        "10044": "electron.exe",
+        "10632": "powershell.exe",
+        "12832": "conhost.exe",
+        "14068": "electron.exe",
+        "16108": "electron.exe",
+        "16896": "electron.exe"
+      }
+    },
+    {
+      "at": 1790707999580,
+      "activeAt": 1790707999580,
+      "label": "workload",
+      "totalWorkingSetMB": 1176.01,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 153.82
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 204.52
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 632.79
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 52.8
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 132.09
+        }
+      },
+      "pids": [
+        9300,
+        5048,
+        5504,
+        4360,
+        16108,
+        16896,
+        5624,
+        8152,
+        10632,
+        12832,
+        936,
+        4060,
+        8224,
+        10044,
+        14068
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 50.797,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "936": 1.59375,
+        "4060": 3.859375,
+        "4360": 1.15625,
+        "5048": 0.234375,
+        "5504": 7.328125,
+        "5624": 1.78125,
+        "8152": 0.3125,
+        "8224": 0.9375,
+        "9300": 6.03125,
+        "10044": 12.140625,
+        "10632": 5.890625,
+        "12832": 0.78125,
+        "14068": 0.015625,
+        "16108": 0.90625,
+        "16896": 7.828125
+      },
+      "namesByPid": {
+        "936": "electron.exe",
+        "4060": "electron.exe",
+        "4360": "conhost.exe",
+        "5048": "winpty-agent.exe",
+        "5504": "powershell.exe",
+        "5624": "electron.exe",
+        "8152": "winpty-agent.exe",
+        "8224": "electron.exe",
+        "9300": "electron.exe",
+        "10044": "electron.exe",
+        "10632": "powershell.exe",
+        "12832": "conhost.exe",
+        "14068": "electron.exe",
+        "16108": "electron.exe",
+        "16896": "electron.exe"
+      }
+    },
+    {
+      "at": 1790708013851,
+      "activeAt": 1790708013851,
+      "label": "workload",
+      "totalWorkingSetMB": 1148.18,
+      "processCount": 15,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 151.95
+        },
+        "other": {
+          "count": 7,
+          "workingSetMB": 203.31
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 612.63
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 52.68
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 127.61
+        }
+      },
+      "pids": [
+        9300,
+        5048,
+        5504,
+        4360,
+        16108,
+        16896,
+        5624,
+        8152,
+        10632,
+        12832,
+        936,
+        4060,
+        8224,
+        10044,
+        14068
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 52.984,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "936": 1.59375,
+        "4060": 4.234375,
+        "4360": 1.34375,
+        "5048": 0.296875,
+        "5504": 7.328125,
+        "5624": 2.078125,
+        "8152": 0.359375,
+        "8224": 0.984375,
+        "9300": 6.4375,
+        "10044": 12.8125,
+        "10632": 5.890625,
+        "12832": 0.828125,
+        "14068": 0.015625,
+        "16108": 0.9375,
+        "16896": 7.84375
+      },
+      "namesByPid": {
+        "936": "electron.exe",
+        "4060": "electron.exe",
+        "4360": "conhost.exe",
+        "5048": "winpty-agent.exe",
+        "5504": "powershell.exe",
+        "5624": "electron.exe",
+        "8152": "winpty-agent.exe",
+        "8224": "electron.exe",
+        "9300": "electron.exe",
+        "10044": "electron.exe",
+        "10632": "powershell.exe",
+        "12832": "conhost.exe",
+        "14068": "electron.exe",
+        "16108": "electron.exe",
+        "16896": "electron.exe"
+      }
+    },
+    {
+      "at": 1790708029311,
+      "activeAt": 1790708029311,
+      "label": "recovery",
+      "totalWorkingSetMB": 694.65,
+      "processCount": 9,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 159.41
+        },
+        "other": {
+          "count": 4,
+          "workingSetMB": 114.65
+        },
+        "renderer": {
+          "count": 2,
+          "workingSetMB": 238.3
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 52.62
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 129.67
+        }
+      },
+      "pids": [
+        9300,
+        8152,
+        10632,
+        12832,
+        936,
+        4060,
+        8224,
+        10044,
+        14068
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 36.297,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "936": 1.609375,
+        "4060": 4.515625,
+        "8152": 0.390625,
+        "8224": 1.0625,
+        "9300": 7.46875,
+        "10044": 14.46875,
+        "10632": 5.890625,
+        "12832": 0.875,
+        "14068": 0.015625
+      },
+      "namesByPid": {
+        "936": "electron.exe",
+        "4060": "electron.exe",
+        "8152": "winpty-agent.exe",
+        "8224": "electron.exe",
+        "9300": "electron.exe",
+        "10044": "electron.exe",
+        "10632": "powershell.exe",
+        "12832": "conhost.exe",
+        "14068": "electron.exe"
+      }
+    },
+    {
+      "at": 1790708044607,
+      "activeAt": 1790708044607,
+      "label": "recovery",
+      "totalWorkingSetMB": 691.73,
+      "processCount": 9,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 156.94
+        },
+        "other": {
+          "count": 4,
+          "workingSetMB": 114.66
+        },
+        "renderer": {
+          "count": 2,
+          "workingSetMB": 238.31
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 52.61
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 129.22
+        }
+      },
+      "pids": [
+        9300,
+        8152,
+        10632,
+        12832,
+        936,
+        4060,
+        8224,
+        10044,
+        14068
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 36.422,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "936": 1.609375,
+        "4060": 4.515625,
+        "8152": 0.421875,
+        "8224": 1.0625,
+        "9300": 7.515625,
+        "10044": 14.46875,
+        "10632": 5.890625,
+        "12832": 0.921875,
+        "14068": 0.015625
+      },
+      "namesByPid": {
+        "936": "electron.exe",
+        "4060": "electron.exe",
+        "8152": "winpty-agent.exe",
+        "8224": "electron.exe",
+        "9300": "electron.exe",
+        "10044": "electron.exe",
+        "10632": "powershell.exe",
+        "12832": "conhost.exe",
+        "14068": "electron.exe"
+      }
+    },
+    {
+      "at": 1790708068387,
+      "activeAt": 1790708068387,
+      "label": "recovery",
+      "totalWorkingSetMB": 690.9,
+      "processCount": 9,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 156.18
+        },
+        "other": {
+          "count": 4,
+          "workingSetMB": 114.62
+        },
+        "renderer": {
+          "count": 2,
+          "workingSetMB": 238.32
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 52.57
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 129.21
+        }
+      },
+      "pids": [
+        9300,
+        8152,
+        10632,
+        12832,
+        936,
+        4060,
+        8224,
+        10044,
+        14068
+      ],
+      "refusedProcessCount": 0,
+      "refusedProcessWorkingSetMB": 0,
+      "refusedProcessNames": [],
+      "treeCpuSeconds": 36.781,
+      "cpuUnreadableProcessCount": 0,
+      "cpuByPid": {
+        "936": 1.609375,
+        "4060": 4.515625,
+        "8152": 0.5,
+        "8224": 1.09375,
+        "9300": 7.609375,
+        "10044": 14.484375,
+        "10632": 5.890625,
+        "12832": 1.0625,
+        "14068": 0.015625
+      },
+      "namesByPid": {
+        "936": "electron.exe",
+        "4060": "electron.exe",
+        "8152": "winpty-agent.exe",
+        "8224": "electron.exe",
+        "9300": "electron.exe",
+        "10044": "electron.exe",
+        "10632": "powershell.exe",
+        "12832": "conhost.exe",
+        "14068": "electron.exe"
+      }
+    }
+  ],
+  "processSeries": [
+    {
+      "at": 1790707979839,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 9300,
+          "type": "Browser",
+          "role": "Browser",
+          "url": "",
+          "workingSetMB": 153.82,
+          "privateBytesMB": 136.67
+        },
+        {
+          "pid": 10044,
+          "type": "GPU",
+          "role": "GPU",
+          "url": "",
+          "workingSetMB": 128.49,
+          "privateBytesMB": 178.17
+        },
+        {
+          "pid": 8224,
+          "type": "Utility",
+          "role": "Utility",
+          "url": "",
+          "workingSetMB": 52.95,
+          "privateBytesMB": 14.8
+        },
+        {
+          "pid": 4060,
+          "type": "Tab",
+          "role": "window",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 119.1,
+          "privateBytesMB": 61.43
+        },
+        {
+          "pid": 936,
+          "type": "Tab",
+          "role": "tab:f2394906",
+          "url": "https://www.google.com/",
+          "workingSetMB": 123.36,
+          "privateBytesMB": 54.23
+        },
+        {
+          "pid": 5624,
+          "type": "Tab",
+          "role": "tab:ffcf57e1+tab:133584cf+tab:a0d2ee9d+tab:1f24b3e6",
+          "url": "http://127.0.0.1:61672/store-home",
+          "workingSetMB": 113.64,
+          "privateBytesMB": 35.71
+        },
+        {
+          "pid": 16896,
+          "type": "Tab",
+          "role": "tab:6024b625",
+          "url": "https://example.com/",
+          "workingSetMB": 143.18,
+          "privateBytesMB": 68.16
+        },
+        {
+          "pid": 16108,
+          "type": "Tab",
+          "role": "tab:1782dc80",
+          "url": "https://www.wikipedia.org/",
+          "workingSetMB": 135.77,
+          "privateBytesMB": 49.45
+        }
+      ]
+    },
+    {
+      "at": 1790708039841,
+      "name": "periodic",
+      "processes": [
+        {
+          "pid": 9300,
+          "type": "Browser",
+          "role": "Browser",
+          "url": "",
+          "workingSetMB": 156.91,
+          "privateBytesMB": 140.45
+        },
+        {
+          "pid": 10044,
+          "type": "GPU",
+          "role": "GPU",
+          "url": "",
+          "workingSetMB": 129.56,
+          "privateBytesMB": 199.23
+        },
+        {
+          "pid": 8224,
+          "type": "Utility",
+          "role": "Utility",
+          "url": "",
+          "workingSetMB": 52.62,
+          "privateBytesMB": 14.59
+        },
+        {
+          "pid": 4060,
+          "type": "Tab",
+          "role": "window",
+          "url": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html",
+          "workingSetMB": 119.88,
+          "privateBytesMB": 63.63
+        },
+        {
+          "pid": 936,
+          "type": "Tab",
+          "role": "tab:f2394906",
+          "url": "https://www.google.com/",
+          "workingSetMB": 118.42,
+          "privateBytesMB": 50.72
+        }
+      ]
+    }
+  ],
+  "historySamples": [
+    {
+      "at": 1790707924227,
+      "name": "persist",
+      "value": 3.779,
+      "extra": {
+        "items": 1,
+        "bytes": 160,
+        "superseded": false
+      }
+    },
+    {
+      "at": 1790707954306,
+      "name": "persist",
+      "value": 36.503,
+      "extra": {
+        "items": 9335,
+        "bytes": 4535494,
+        "superseded": false
+      }
+    },
+    {
+      "at": 1790707984443,
+      "name": "persist",
+      "value": 52.569,
+      "extra": {
+        "items": 9335,
+        "bytes": 4535549,
+        "superseded": true
+      }
+    },
+    {
+      "at": 1790708014435,
+      "name": "persist",
+      "value": 42.69,
+      "extra": {
+        "items": 9335,
+        "bytes": 4535550,
+        "superseded": true
+      }
+    },
+    {
+      "at": 1790708028652,
+      "name": "persist",
+      "value": 39.447,
+      "extra": {
+        "items": 9335,
+        "bytes": 4535550,
+        "superseded": false
+      }
+    }
+  ],
+  "switchStepSamples": [
+    {
+      "at": 1790707919531,
+      "name": "switch-steps",
+      "value": 10.663,
+      "extra": {
+        "ensureView": 4.109,
+        "attachSweep": 1.792,
+        "layoutBroadcast": 2.77,
+        "throttle": 0.476,
+        "invalidateFocus": 0.252,
+        "presentedView": 1.093
+      }
+    },
+    {
+      "at": 1790707935493,
+      "name": "switch-steps",
+      "value": 10.173,
+      "extra": {
+        "ensureView": 0.029,
+        "attachSweep": 5.166,
+        "layoutBroadcast": 3.743,
+        "throttle": 0.161,
+        "invalidateFocus": 0.026,
+        "presentedView": 0.89
+      }
+    },
+    {
+      "at": 1790707938855,
+      "name": "switch-steps",
+      "value": 10.863,
+      "extra": {
+        "ensureView": 0.053,
+        "attachSweep": 6.273,
+        "layoutBroadcast": 3.495,
+        "throttle": 0.158,
+        "invalidateFocus": 0.016,
+        "presentedView": 0.733
+      }
+    },
+    {
+      "at": 1790707941864,
+      "name": "switch-steps",
+      "value": 10.597,
+      "extra": {
+        "ensureView": 0.032,
+        "attachSweep": 5.393,
+        "layoutBroadcast": 3.894,
+        "throttle": 0.128,
+        "invalidateFocus": 0.02,
+        "presentedView": 0.962
+      }
+    },
+    {
+      "at": 1790707944938,
+      "name": "switch-steps",
+      "value": 10.428,
+      "extra": {
+        "ensureView": 0.06,
+        "attachSweep": 6.699,
+        "layoutBroadcast": 2.808,
+        "throttle": 0.115,
+        "invalidateFocus": 0.02,
+        "presentedView": 0.612
+      }
+    },
+    {
+      "at": 1790707948010,
+      "name": "switch-steps",
+      "value": 10.769,
+      "extra": {
+        "ensureView": 0.058,
+        "attachSweep": 6.022,
+        "layoutBroadcast": 3.875,
+        "throttle": 0.144,
+        "invalidateFocus": 0.014,
+        "presentedView": 0.542
+      }
+    },
+    {
+      "at": 1790707954340,
+      "name": "switch-steps",
+      "value": 10.785,
+      "extra": {
+        "ensureView": 0.033,
+        "attachSweep": 7.014,
+        "layoutBroadcast": 2.743,
+        "throttle": 0.139,
+        "invalidateFocus": 0.018,
+        "presentedView": 0.685
+      }
+    },
+    {
+      "at": 1790707957345,
+      "name": "switch-steps",
+      "value": 6.444,
+      "extra": {
+        "ensureView": 0.029,
+        "attachSweep": 5.168,
+        "layoutBroadcast": 0.537,
+        "throttle": 0.088,
+        "invalidateFocus": 0.009,
+        "presentedView": 0.552
+      }
+    },
+    {
+      "at": 1790707960408,
+      "name": "switch-steps",
+      "value": 7.883,
+      "extra": {
+        "ensureView": 0.04,
+        "attachSweep": 5.764,
+        "layoutBroadcast": 0.705,
+        "throttle": 0.177,
+        "invalidateFocus": 0.023,
+        "presentedView": 1.037
+      }
+    },
+    {
+      "at": 1790707963494,
+      "name": "switch-steps",
+      "value": 7.431,
+      "extra": {
+        "ensureView": 0.081,
+        "attachSweep": 5.974,
+        "layoutBroadcast": 0.657,
+        "throttle": 0.104,
+        "invalidateFocus": 0.01,
+        "presentedView": 0.527
+      }
+    },
+    {
+      "at": 1790707969458,
+      "name": "switch-steps",
+      "value": 5.992,
+      "extra": {
+        "ensureView": 0.036,
+        "attachSweep": 4.535,
+        "layoutBroadcast": 0.536,
+        "throttle": 0.222,
+        "invalidateFocus": 0.017,
+        "presentedView": 0.549
+      }
+    },
+    {
+      "at": 1790707972556,
+      "name": "switch-steps",
+      "value": 6.881,
+      "extra": {
+        "ensureView": 0.045,
+        "attachSweep": 5.457,
+        "layoutBroadcast": 0.575,
+        "throttle": 0.12,
+        "invalidateFocus": 0.013,
+        "presentedView": 0.585
+      }
+    },
+    {
+      "at": 1790707975600,
+      "name": "switch-steps",
+      "value": 9.36,
+      "extra": {
+        "ensureView": 0.045,
+        "attachSweep": 6.746,
+        "layoutBroadcast": 1.58,
+        "throttle": 0.15,
+        "invalidateFocus": 0.015,
+        "presentedView": 0.7
+      }
+    },
+    {
+      "at": 1790707978672,
+      "name": "switch-steps",
+      "value": 6.665,
+      "extra": {
+        "ensureView": 0.043,
+        "attachSweep": 4.884,
+        "layoutBroadcast": 1.019,
+        "throttle": 0.121,
+        "invalidateFocus": 0.011,
+        "presentedView": 0.505
+      }
+    },
+    {
+      "at": 1790707984754,
+      "name": "switch-steps",
+      "value": 5.612,
+      "extra": {
+        "ensureView": 0.035,
+        "attachSweep": 4.189,
+        "layoutBroadcast": 0.554,
+        "throttle": 0.161,
+        "invalidateFocus": 0.015,
+        "presentedView": 0.568
+      }
+    },
+    {
+      "at": 1790707987808,
+      "name": "switch-steps",
+      "value": 7.174,
+      "extra": {
+        "ensureView": 0.038,
+        "attachSweep": 5.689,
+        "layoutBroadcast": 0.595,
+        "throttle": 0.126,
+        "invalidateFocus": 0.012,
+        "presentedView": 0.611
+      }
+    },
+    {
+      "at": 1790707990874,
+      "name": "switch-steps",
+      "value": 8.393,
+      "extra": {
+        "ensureView": 0.082,
+        "attachSweep": 6.336,
+        "layoutBroadcast": 0.668,
+        "throttle": 0.151,
+        "invalidateFocus": 0.019,
+        "presentedView": 0.949
+      }
+    },
+    {
+      "at": 1790707993960,
+      "name": "switch-steps",
+      "value": 4.696,
+      "extra": {
+        "ensureView": 0.03,
+        "attachSweep": 3.674,
+        "layoutBroadcast": 0.371,
+        "throttle": 0.122,
+        "invalidateFocus": 0.017,
+        "presentedView": 0.396
+      }
+    },
+    {
+      "at": 1790707999697,
+      "name": "switch-steps",
+      "value": 7.411,
+      "extra": {
+        "ensureView": 0.043,
+        "attachSweep": 5.795,
+        "layoutBroadcast": 0.55,
+        "throttle": 0.113,
+        "invalidateFocus": 0.009,
+        "presentedView": 0.784
+      }
+    },
+    {
+      "at": 1790708002758,
+      "name": "switch-steps",
+      "value": 5.207,
+      "extra": {
+        "ensureView": 0.026,
+        "attachSweep": 4.193,
+        "layoutBroadcast": 0.422,
+        "throttle": 0.093,
+        "invalidateFocus": 0.011,
+        "presentedView": 0.398
+      }
+    },
+    {
+      "at": 1790708005762,
+      "name": "switch-steps",
+      "value": 6.315,
+      "extra": {
+        "ensureView": 0.032,
+        "attachSweep": 4.947,
+        "layoutBroadcast": 0.529,
+        "throttle": 0.14,
+        "invalidateFocus": 0.014,
+        "presentedView": 0.556
+      }
+    },
+    {
+      "at": 1790708008792,
+      "name": "switch-steps",
+      "value": 6.817,
+      "extra": {
+        "ensureView": 0.029,
+        "attachSweep": 5.645,
+        "layoutBroadcast": 0.533,
+        "throttle": 0.173,
+        "invalidateFocus": 0.012,
+        "presentedView": 0.36
+      }
+    },
+    {
+      "at": 1790708013968,
+      "name": "switch-steps",
+      "value": 6.317,
+      "extra": {
+        "ensureView": 0.034,
+        "attachSweep": 4.473,
+        "layoutBroadcast": 0.704,
+        "throttle": 0.132,
+        "invalidateFocus": 0.02,
+        "presentedView": 0.794
+      }
+    },
+    {
+      "at": 1790708017049,
+      "name": "switch-steps",
+      "value": 7.404,
+      "extra": {
+        "ensureView": 0.059,
+        "attachSweep": 5.606,
+        "layoutBroadcast": 0.56,
+        "throttle": 0.584,
+        "invalidateFocus": 0.03,
+        "presentedView": 0.488
+      }
+    },
+    {
+      "at": 1790708020135,
+      "name": "switch-steps",
+      "value": 5.482,
+      "extra": {
+        "ensureView": 0.033,
+        "attachSweep": 4.374,
+        "layoutBroadcast": 0.485,
+        "throttle": 0.104,
+        "invalidateFocus": 0.01,
+        "presentedView": 0.404
+      }
+    },
+    {
+      "at": 1790708023201,
+      "name": "switch-steps",
+      "value": 5.92,
+      "extra": {
+        "ensureView": 0.024,
+        "attachSweep": 4.338,
+        "layoutBroadcast": 0.638,
+        "throttle": 0.209,
+        "invalidateFocus": 0.022,
+        "presentedView": 0.605
+      }
+    },
+    {
+      "at": 1790708025562,
+      "name": "switch-steps",
+      "value": 4.696,
+      "extra": {
+        "ensureView": 0.019,
+        "attachSweep": 2.696,
+        "layoutBroadcast": 0.357,
+        "throttle": 0.077,
+        "invalidateFocus": 1.024,
+        "presentedView": 0.474
+      }
+    },
+    {
+      "at": 1790708025648,
+      "name": "switch-steps",
+      "value": 8.795,
+      "extra": {
+        "ensureView": 0.035,
+        "attachSweep": 6.173,
+        "layoutBroadcast": 0.469,
+        "throttle": 0.123,
+        "invalidateFocus": 1.092,
+        "presentedView": 0.806
+      }
+    }
+  ],
+  "legSlopes": [],
+  "slowSwitchSamples": [
+    {
+      "at": 1790707954341,
+      "ms": 12.41,
+      "tabId": "1782dc80-71a7-4a0e-b21a-9f51ed437b4b",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790707938856,
+      "ms": 11.972,
+      "tabId": "133584cf-7a38-44d7-a1fd-a34814d1dd37",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790707941866,
+      "ms": 11.972,
+      "tabId": "a0d2ee9d-1ae1-44bd-b62d-58deb7294d7c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790707948011,
+      "ms": 11.578,
+      "tabId": "6024b625-9510-445a-a5d2-2de5ed093399",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790707944939,
+      "ms": 11.359,
+      "tabId": "1f24b3e6-3155-4198-8ca9-acb08d1e5ff7",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790707935493,
+      "ms": 11.056,
+      "tabId": "ffcf57e1-cee5-4062-b4b1-cb143389a9e5",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790707975600,
+      "ms": 10.531,
+      "tabId": "1782dc80-71a7-4a0e-b21a-9f51ed437b4b",
+      "phase": "workload",
+      "leg": null
+    },
+    {
+      "at": 1790707990874,
+      "ms": 9.74,
+      "tabId": "1f24b3e6-3155-4198-8ca9-acb08d1e5ff7",
+      "phase": "workload",
+      "leg": null
+    },
+    {
+      "at": 1790707960409,
+      "ms": 9.097,
+      "tabId": "133584cf-7a38-44d7-a1fd-a34814d1dd37",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790707963495,
+      "ms": 8.609,
+      "tabId": "a0d2ee9d-1ae1-44bd-b62d-58deb7294d7c",
+      "phase": "warmup",
+      "leg": null
+    }
+  ],
+  "switchSamples": [
+    {
+      "at": 1790707935493,
+      "ms": 11.056,
+      "tabId": "ffcf57e1-cee5-4062-b4b1-cb143389a9e5",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790707938856,
+      "ms": 11.972,
+      "tabId": "133584cf-7a38-44d7-a1fd-a34814d1dd37",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790707941866,
+      "ms": 11.972,
+      "tabId": "a0d2ee9d-1ae1-44bd-b62d-58deb7294d7c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790707944939,
+      "ms": 11.359,
+      "tabId": "1f24b3e6-3155-4198-8ca9-acb08d1e5ff7",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790707948011,
+      "ms": 11.578,
+      "tabId": "6024b625-9510-445a-a5d2-2de5ed093399",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790707954341,
+      "ms": 12.41,
+      "tabId": "1782dc80-71a7-4a0e-b21a-9f51ed437b4b",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790707957346,
+      "ms": 6.994,
+      "tabId": "ffcf57e1-cee5-4062-b4b1-cb143389a9e5",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790707960409,
+      "ms": 9.097,
+      "tabId": "133584cf-7a38-44d7-a1fd-a34814d1dd37",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790707963495,
+      "ms": 8.609,
+      "tabId": "a0d2ee9d-1ae1-44bd-b62d-58deb7294d7c",
+      "phase": "warmup",
+      "leg": null
+    },
+    {
+      "at": 1790707969459,
+      "ms": 6.86,
+      "tabId": "1f24b3e6-3155-4198-8ca9-acb08d1e5ff7",
+      "phase": "workload",
+      "leg": null
+    },
+    {
+      "at": 1790707972557,
+      "ms": 8.063,
+      "tabId": "6024b625-9510-445a-a5d2-2de5ed093399",
+      "phase": "workload",
+      "leg": null
+    },
+    {
+      "at": 1790707975600,
+      "ms": 10.531,
+      "tabId": "1782dc80-71a7-4a0e-b21a-9f51ed437b4b",
+      "phase": "workload",
+      "leg": null
+    },
+    {
+      "at": 1790707978672,
+      "ms": 7.313,
+      "tabId": "ffcf57e1-cee5-4062-b4b1-cb143389a9e5",
+      "phase": "workload",
+      "leg": null
+    },
+    {
+      "at": 1790707984754,
+      "ms": 6.34,
+      "tabId": "133584cf-7a38-44d7-a1fd-a34814d1dd37",
+      "phase": "workload",
+      "leg": null
+    },
+    {
+      "at": 1790707987808,
+      "ms": 7.978,
+      "tabId": "a0d2ee9d-1ae1-44bd-b62d-58deb7294d7c",
+      "phase": "workload",
+      "leg": null
+    },
+    {
+      "at": 1790707990874,
+      "ms": 9.74,
+      "tabId": "1f24b3e6-3155-4198-8ca9-acb08d1e5ff7",
+      "phase": "workload",
+      "leg": null
+    },
+    {
+      "at": 1790707993960,
+      "ms": 5.552,
+      "tabId": "6024b625-9510-445a-a5d2-2de5ed093399",
+      "phase": "workload",
+      "leg": null
+    },
+    {
+      "at": 1790707999697,
+      "ms": 8.234,
+      "tabId": "1782dc80-71a7-4a0e-b21a-9f51ed437b4b",
+      "phase": "workload",
+      "leg": null
+    },
+    {
+      "at": 1790708002757,
+      "ms": 5.918,
+      "tabId": "ffcf57e1-cee5-4062-b4b1-cb143389a9e5",
+      "phase": "workload",
+      "leg": null
+    },
+    {
+      "at": 1790708005762,
+      "ms": 7.287,
+      "tabId": "133584cf-7a38-44d7-a1fd-a34814d1dd37",
+      "phase": "workload",
+      "leg": null
+    },
+    {
+      "at": 1790708008792,
+      "ms": 7.744,
+      "tabId": "a0d2ee9d-1ae1-44bd-b62d-58deb7294d7c",
+      "phase": "workload",
+      "leg": null
+    },
+    {
+      "at": 1790708013968,
+      "ms": 7.156,
+      "tabId": "1f24b3e6-3155-4198-8ca9-acb08d1e5ff7",
+      "phase": "workload",
+      "leg": null
+    },
+    {
+      "at": 1790708017049,
+      "ms": 8.361,
+      "tabId": "6024b625-9510-445a-a5d2-2de5ed093399",
+      "phase": "workload",
+      "leg": null
+    },
+    {
+      "at": 1790708020135,
+      "ms": 6.345,
+      "tabId": "1782dc80-71a7-4a0e-b21a-9f51ed437b4b",
+      "phase": "workload",
+      "leg": null
+    },
+    {
+      "at": 1790708023200,
+      "ms": 6.57,
+      "tabId": "ffcf57e1-cee5-4062-b4b1-cb143389a9e5",
+      "phase": "workload",
+      "leg": null
+    }
+  ],
+  "switchSamplesDropped": 0,
+  "stderrTail": [
+    "[9300:0930/015159.346:ERROR:ui\\base\\resource\\resource_bundle.cc:1104] Failed to load E:\\Work\\apps\\AntiFan\\node_modules\\electron\\dist\\chrome_100_percent.pak",
+    "Some features may not be available.",
+    "[index] Terminal Host Daemon unavailable (no staged daemon bundle (run scripts/stage-daemon-host.mjs)); falling back to in-process TerminalManager"
+  ],
+  "stdoutBenchmarkTail": [
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.3205000000016298,\"extra\":{\"width\":1344,\"height\":841,\"attachedViews\":1},\"ts\":\"2026-09-29T18:53:33.967Z\",\"nowMs\":100453.1294}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.4202999999979511,\"extra\":{\"width\":1344,\"height\":841,\"attachedViews\":1},\"ts\":\"2026-09-29T18:53:33.968Z\",\"nowMs\":100454.1348}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":6.176800000001094,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-29T18:53:33.968Z\",\"nowMs\":100454.448}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switch-steps\",\"value\":6.317,\"extra\":{\"ensureView\":0.034,\"attachSweep\":4.473,\"layoutBroadcast\":0.704,\"throttle\":0.132,\"invalidateFocus\":0.02,\"presentedView\":0.794},\"ts\":\"2026-09-29T18:53:33.968Z\",\"nowMs\":100454.527}",
+    "[antifan-benchmark] {\"surface\":\"history\",\"name\":\"persist\",\"value\":42.69,\"extra\":{\"items\":9335,\"bytes\":4535550,\"superseded\":true},\"ts\":\"2026-09-29T18:53:34.435Z\",\"nowMs\":100921.9405}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.2164000000047963,\"extra\":{\"width\":1344,\"height\":841,\"attachedViews\":1},\"ts\":\"2026-09-29T18:53:37.047Z\",\"nowMs\":103533.8197}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.1563999999925727,\"extra\":{\"width\":1344,\"height\":841,\"attachedViews\":1},\"ts\":\"2026-09-29T18:53:37.049Z\",\"nowMs\":103535.0749}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":7.337500000008731,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-29T18:53:37.049Z\",\"nowMs\":103535.2293}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switch-steps\",\"value\":7.404,\"extra\":{\"ensureView\":0.059,\"attachSweep\":5.606,\"layoutBroadcast\":0.56,\"throttle\":0.584,\"invalidateFocus\":0.03,\"presentedView\":0.488},\"ts\":\"2026-09-29T18:53:37.049Z\",\"nowMs\":103535.2781}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.23940000000584405,\"extra\":{\"width\":1344,\"height\":841,\"attachedViews\":1},\"ts\":\"2026-09-29T18:53:40.135Z\",\"nowMs\":106621.0848}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.15119999999296851,\"extra\":{\"width\":1344,\"height\":841,\"attachedViews\":1},\"ts\":\"2026-09-29T18:53:40.135Z\",\"nowMs\":106621.6472}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":5.41830000000482,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-29T18:53:40.135Z\",\"nowMs\":106621.8111}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switch-steps\",\"value\":5.482,\"extra\":{\"ensureView\":0.033,\"attachSweep\":4.374,\"layoutBroadcast\":0.485,\"throttle\":0.104,\"invalidateFocus\":0.01,\"presentedView\":0.404},\"ts\":\"2026-09-29T18:53:40.135Z\",\"nowMs\":106621.8594}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.36719999999331776,\"extra\":{\"width\":1344,\"height\":841,\"attachedViews\":1},\"ts\":\"2026-09-29T18:53:43.199Z\",\"nowMs\":109685.9922}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.2888999999995576,\"extra\":{\"width\":1344,\"height\":841,\"attachedViews\":1},\"ts\":\"2026-09-29T18:53:43.200Z\",\"nowMs\":109686.8344}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":5.85229999999865,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-29T18:53:43.200Z\",\"nowMs\":109687.0396}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switch-steps\",\"value\":5.92,\"extra\":{\"ensureView\":0.024,\"attachSweep\":4.338,\"layoutBroadcast\":0.638,\"throttle\":0.209,\"invalidateFocus\":0.022,\"presentedView\":0.605},\"ts\":\"2026-09-29T18:53:43.201Z\",\"nowMs\":109687.09}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.1705999999976484,\"extra\":{\"width\":1344,\"height\":841,\"attachedViews\":1},\"ts\":\"2026-09-29T18:53:45.560Z\",\"nowMs\":112046.9353}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.17689999999129213,\"extra\":{\"width\":1344,\"height\":841,\"attachedViews\":1},\"ts\":\"2026-09-29T18:53:45.562Z\",\"nowMs\":112048.5137}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":4.6555999999982305,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-29T18:53:45.562Z\",\"nowMs\":112048.6634}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switch-steps\",\"value\":4.696,\"extra\":{\"ensureView\":0.019,\"attachSweep\":2.696,\"layoutBroadcast\":0.357,\"throttle\":0.077,\"invalidateFocus\":1.024,\"presentedView\":0.474},\"ts\":\"2026-09-29T18:53:45.562Z\",\"nowMs\":112048.6945}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.17599999999220017,\"extra\":{\"width\":1344,\"height\":841,\"attachedViews\":1},\"ts\":\"2026-09-29T18:53:45.567Z\",\"nowMs\":112053.8899}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"closed\",\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-29T18:53:45.568Z\",\"nowMs\":112054.0945}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.26609999999345746,\"extra\":{\"width\":1344,\"height\":841,\"attachedViews\":1},\"ts\":\"2026-09-29T18:53:45.579Z\",\"nowMs\":112065.1293}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"closed\",\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-29T18:53:45.579Z\",\"nowMs\":112065.3932}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.473599999997532,\"extra\":{\"width\":1344,\"height\":841,\"attachedViews\":1},\"ts\":\"2026-09-29T18:53:45.599Z\",\"nowMs\":112085.8171}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"closed\",\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-29T18:53:45.600Z\",\"nowMs\":112086.0853}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.43260000000009313,\"extra\":{\"width\":1344,\"height\":841,\"attachedViews\":1},\"ts\":\"2026-09-29T18:53:45.614Z\",\"nowMs\":112101.0508}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"closed\",\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-29T18:53:45.615Z\",\"nowMs\":112101.6885}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.20010000000183936,\"extra\":{\"width\":1344,\"height\":841,\"attachedViews\":1},\"ts\":\"2026-09-29T18:53:45.634Z\",\"nowMs\":112120.8586}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"closed\",\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-29T18:53:45.634Z\",\"nowMs\":112121.0299}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.22389999999722932,\"extra\":{\"width\":1344,\"height\":841,\"attachedViews\":1},\"ts\":\"2026-09-29T18:53:45.646Z\",\"nowMs\":112132.5457}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.31889999999839347,\"extra\":{\"width\":1344,\"height\":841,\"attachedViews\":1},\"ts\":\"2026-09-29T18:53:45.648Z\",\"nowMs\":112134.5364}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":8.715599999995902,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-29T18:53:45.648Z\",\"nowMs\":112134.7959}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switch-steps\",\"value\":8.795,\"extra\":{\"ensureView\":0.035,\"attachSweep\":6.173,\"layoutBroadcast\":0.469,\"throttle\":0.123,\"invalidateFocus\":1.092,\"presentedView\":0.806},\"ts\":\"2026-09-29T18:53:45.648Z\",\"nowMs\":112134.8628}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.22879999999713618,\"extra\":{\"width\":1344,\"height\":841,\"attachedViews\":1},\"ts\":\"2026-09-29T18:53:45.658Z\",\"nowMs\":112144.1398}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"closed\",\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-29T18:53:45.658Z\",\"nowMs\":112144.3315}",
+    "[antifan-benchmark] {\"surface\":\"bridge\",\"name\":\"broadcast\",\"value\":0.22149999999965075,\"extra\":{\"event\":\"antifan:terminal:session\",\"clients\":1,\"congested\":0,\"bytes\":1143},\"ts\":\"2026-09-29T18:53:46.077Z\",\"nowMs\":112563.5819}",
+    "[antifan-benchmark] {\"surface\":\"history\",\"name\":\"persist\",\"value\":39.447,\"extra\":{\"items\":9335,\"bytes\":4535550,\"superseded\":false},\"ts\":\"2026-09-29T18:53:48.652Z\",\"nowMs\":115138.2264}",
+    "[antifan-benchmark] {\"surface\":\"process\",\"name\":\"periodic\",\"extra\":{\"breakdown\":{\"Browser\":{\"processes\":1,\"workingSetKB\":160680,\"privateBytesKB\":143820},\"GPU\":{\"processes\":1,\"workingSetKB\":132672,\"privateBytesKB\":204016},\"Utility\":{\"processes\":1,\"workingSetKB\":53884,\"privateBytesKB\":14936},\"Tab\":{\"processes\":2,\"workingSetKB\":244020,\"privateBytesKB\":117092}},\"processes\":[{\"pid\":9300,\"type\":\"Browser\",\"workingSetKB\":160680,\"privateBytesKB\":143820,\"role\":\"\",\"url\":\"\"},{\"pid\":10044,\"type\":\"GPU\",\"workingSetKB\":132672,\"privateBytesKB\":204016,\"role\":\"\",\"url\":\"\"},{\"pid\":8224,\"type\":\"Utility\",\"workingSetKB\":53884,\"privateBytesKB\":14936,\"role\":\"\",\"url\":\"\"},{\"pid\":4060,\"type\":\"Tab\",\"workingSetKB\":122760,\"privateBytesKB\":65156,\"role\":\"window\",\"url\":\"file:///E:/Work/apps/AntiFan/.compiled/src/renderer/standalone.html\"},{\"pid\":936,\"type\":\"Tab\",\"workingSetKB\":121260,\"privateBytesKB\":51936,\"role\":\"tab:f2394906\",\"url\":\"https://www.google.com/\"}],\"mainRssKB\":160688},\"ts\":\"2026-09-29T18:53:59.841Z\",\"nowMs\":126327.4201}"
+  ]
+}

@@ -1,0 +1,32 @@
+
+> antifan-browser-desktop@1.3.6 compile
+> node scripts/build-native-host-shim.mjs && node scripts/check-emit-integrity.mjs && tsc -p ./ && node scripts/check-mcp-budget-dominance.mjs && node scripts/prune-orphan-emit.mjs && node scripts/copy-static.mjs && npm run build:extension && node scripts/check-mcp-dispatch-payload.mjs && node scripts/stage-daemon-host.mjs
+
+[NativeHostShim] Output is up to date: E:\Work\apps\AntiFan\bin\antifan-bridge-host.exe (skipping build)
+[emit-integrity] all 530 expected emit file(s) present.
+[budget-dominance] dispatch: 26 of 52 core.* entries declared mutating (refused when the store is unavailable)
+[budget-dominance] parity: 127 advertised tools checked against catalogue schemas; 52 core.* dispatched
+[budget-dominance] routing rows that shadow a registration the catalogue owns (20): anti.browser.tabs.create -> browser.open-tab, anti.browser.tabs.activate -> browser.switch-tab, anti.browser.tabs.close -> browser.close-tab, anti.browser.navigate -> browser.navigate, anti.browser.reload -> browser.reload, anti.inspect.dom -> browser.dom, +14 more
+[budget-dominance] catalogue: 241 capabilities, largest policy 180000 ms (browser.visual_compare)
+[budget-dominance] proxy ceiling: 240000 ms
+[budget-dominance] OK: one ceiling dominates every server policy
+(node:11088) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+[prune-orphans] no orphaned emit (1056 live file(s) kept).
+[antifan] Copied static renderer assets.
+
+> antifan-browser-desktop@1.3.6 build:extension
+> node scripts/build-extension.mjs
+
+[build:extension] Bundling E:\Work\apps\AntiFan\src\extension\background.ts -> E:\Work\apps\AntiFan\extension\background.js...
+[build:extension] Successfully generated extension/background.js (189227 bytes).
+[build:extension] Synced extension bundle to permanent directory: C:\Users\Admin\AppData\Local\AntiFan\extension
+[mcp-dispatch-payload] fixture root: test\fixtures\mcp-dispatch-payload
+[mcp-dispatch-payload] budget-expired.json: time-budget expiry asserted (UNMEASURED/READ_BUDGET_EXCEEDED, census null, totals null, rows [])
+[mcp-dispatch-payload] ceiling-tripped.json: ceiling-tripped payload (totals.truncation disclosed, every row lowerBound)
+[mcp-dispatch-payload] empty-store.json: empty-store case asserted (UNMEASURED, totals null, rows []); rule 4 skips every comparison rule
+[mcp-dispatch-payload] measured.json: measured payload (2 row(s))
+[mcp-dispatch-payload] OK: 4 payload fixture(s) obey the frozen projection
+[stage-daemon-host] version=7a9c06fe7be6c7cf files=48 (2921 KB)
+[stage-daemon-host] entry=E:\Work\.antifan-data\daemon-host\7a9c06fe7be6c7cf\src\main\terminal-daemon\daemon-entry.js
+[stage-daemon-host] packages=node-pty, ws

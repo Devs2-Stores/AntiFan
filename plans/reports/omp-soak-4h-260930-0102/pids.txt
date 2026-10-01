@@ -1,0 +1,20 @@
+# PIDs do goal tạo ra (probe2, bg_11 — recorded 01:2x from list-antifan)
+11172 node run-electron.cjs smoke-omp-closed-loop --soak --minutes 2
+16672 electron smoke-omp-closed-loop (main)
+18564 electron --type=gpu-process
+11352 electron --type=utility network service
+13116 electron smoke-omp-closed-loop --iterations 1 (bg_15)
+8544 electron --type=gpu-process (child of 13116)
+3312 electron --type=utility network (child of 13116)
+
+# Real-soak A (bg_30, start ~02:00)
+# keepawake=8712 samplerJob=soak-sampler(3192)
+9704 electron main (soak app root)
+6192 electron crashpad
+8492 electron network
+17676 electron gpu
+13376 electron renderer
+14252 electron renderer
+16228 electron renderer
+7000 electron renderer
+9036 electron renderer
