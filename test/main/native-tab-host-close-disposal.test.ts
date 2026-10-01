@@ -344,6 +344,29 @@ describe('NativeTabHost unload-aware page close', () => {
     assert.deepStrictEqual(log.entries, []);
   });
 
+  it('closes a record-only page (hibernated or dead contents) as closed, not unknown', async () => {
+    const { host, log, records } = createHarness();
+    // Hibernation parks the record and drops the view: there is no page to ask,
+    // no unload to veto, and the durable state lives in the record itself — so
+    // the local cleanup IS the close. Reporting 'unknown' here retained whole
+    // shells: the coordinator saw a page with no terminal outcome and refused.
+    const record = records.get('tab-1') as { view?: unknown };
+    delete record.view;
+
+    assert.strictEqual(await host.closePage('tab-1'), 'closed');
+    assert.strictEqual(records.has('tab-1'), false, 'a record-only page is disposed by its own close');
+    assert.deepStrictEqual(log.entries.filter((entry) => entry.startsWith('close:')), [], 'no native close call exists to make');
+  });
+
+  it('does the same under the force flag: force has nothing to bypass when no contents exist', async () => {
+    const { host, records } = createHarness();
+    const record = records.get('tab-1') as { view?: unknown };
+    delete record.view;
+
+    assert.strictEqual(await host.closePage('tab-1', true), 'closed');
+    assert.strictEqual(records.has('tab-1'), false);
+  });
+
   it('shares one in-flight close between duplicate calls for the same page', async () => {
     const { host, log, webContentsById } = createHarness();
     const wc = webContentsById.get('tab-1')!;

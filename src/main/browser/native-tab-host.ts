@@ -9556,8 +9556,26 @@ export class NativeTabHost extends EventEmitter {
     const inFlight = this.pendingPageCloses?.get(targetId);
     if (inFlight) return force ? inFlight.then((outcome) => outcome === 'closed' ? outcome : this.closePage(targetId, true)) : inFlight;
     const record = this.tabs?.get(targetId);
+    // A tab whose contents are gone but whose record survives is hibernated or
+    // dead-renderered: there is no page to ask for unload consent, nothing that
+    // can veto, and every durable fact lives in `record.state`. Local cleanup IS
+    // the close — reporting 'unknown' left the record owned and retained the
+    // whole shell. The record cleanup still runs under this call's attempt
+    // authorization so closeTab admits it like every other attempt-owned close.
+    this.attemptAuthorizedCloses?.add(targetId);
+    if (record && !record.view?.webContents) {
+      try {
+        this.closeTab(targetId, 'close-attempt');
+      } finally {
+        this.attemptAuthorizedCloses?.delete(targetId);
+      }
+      return Promise.resolve(this.tabs?.has(targetId) === true ? 'unknown' : 'closed');
+    }
     const wc: Electron.WebContents | null | undefined = record?.view?.webContents;
-    if (!record || !wc) return Promise.resolve('unknown');
+    if (!record || !wc) {
+      this.attemptAuthorizedCloses?.delete(targetId);
+      return Promise.resolve('unknown');
+    }
 
     // From here this call owns the page: the attempt's reservation keeps every other
     // caller out of closeTab() for this tab id, and this set names the one caller that is
