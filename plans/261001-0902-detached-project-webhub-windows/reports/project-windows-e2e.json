@@ -1,0 +1,433 @@
+{
+  "scenario": "project-windows-lifecycle",
+  "passed": 21,
+  "failed": 0,
+  "checks": [
+    {
+      "name": "window.startup-single-web-shell",
+      "ok": true
+    },
+    {
+      "name": "window.second-project-joins-web-hub",
+      "ok": true
+    },
+    {
+      "name": "window.duplicate-open-refocuses-hub",
+      "ok": true
+    },
+    {
+      "name": "window.unknown-project-refused",
+      "ok": true
+    },
+    {
+      "name": "window.tabs-stamped-per-project-active-tab-independent",
+      "ok": true
+    },
+    {
+      "name": "window.split-layout-per-tab-across-projects",
+      "ok": true
+    },
+    {
+      "name": "window.native-popup-inherits-tab-affiliation",
+      "ok": true
+    },
+    {
+      "name": "window.minimize-restore-keeps-hub-target",
+      "ok": true
+    },
+    {
+      "name": "window.same-project-sessions-cannot-cross-invoke",
+      "ok": true
+    },
+    {
+      "name": "window.background-hub-surface-and-capture-ready",
+      "ok": true
+    },
+    {
+      "name": "window.search-lists-every-stamped-tab",
+      "ok": true
+    },
+    {
+      "name": "window.search-activates-tab-without-authority-rotation",
+      "ok": true
+    },
+    {
+      "name": "window.search-stale-refusal-no-fallback",
+      "ok": true
+    },
+    {
+      "name": "window.five-projects-twenty-stamped-tabs",
+      "ok": true
+    },
+    {
+      "name": "window.agent-project-ensure-resolves-to-hub-unpresented",
+      "ok": true
+    },
+    {
+      "name": "window.close-keeps-hub-and-tabs",
+      "ok": true
+    },
+    {
+      "name": "window.survivor-toolbar-and-accelerator-after-sibling-close",
+      "ok": true
+    },
+    {
+      "name": "window.detached-project-shell-lifecycle",
+      "ok": true
+    },
+    {
+      "name": "window.detached-project-exclusivity",
+      "ok": true
+    },
+    {
+      "name": "window.detached-project-reattach",
+      "ok": true
+    },
+    {
+      "name": "window.cleanup-closes-every-shell",
+      "ok": true
+    }
+  ],
+  "observations": {
+    "startup": {
+      "ownerKey": "web",
+      "windowId": 1,
+      "title": "Window Alpha",
+      "activeProject": "project-00000000-0000-4000-8000-0000000000a1",
+      "shellCount": 1
+    },
+    "webPresentation": {
+      "nativeTitle": "Window Alpha",
+      "recordTitle": "Window Alpha",
+      "chip": null
+    },
+    "secondOpen": {
+      "status": "FOCUSED",
+      "projectId": "project-00000000-0000-4000-8000-0000000000b2"
+    },
+    "duplicateOpen": {
+      "status": "FOCUSED",
+      "projectId": "project-00000000-0000-4000-8000-0000000000a1"
+    },
+    "unknownProject": {
+      "status": "FAILED",
+      "projectId": "project-00000000-0000-4000-8000-0000000000ff",
+      "reason": "UNKNOWN_PROJECT"
+    },
+    "projectStamps": {
+      "alpha": [
+        "14a2ac87-0475-4483-86a1-c57bf647c749",
+        "c039f0f2-6c39-49f2-bf1a-ecef1d979976",
+        "6e697f94-af82-49e3-848f-b2163a715af7"
+      ],
+      "beta": [
+        "5cdcd206-ef22-4a8f-95ec-88498c4471bf",
+        "da1a3f56-c744-48ab-9d0c-6306200ce9b4",
+        "0e2f25f5-d232-41c2-b34c-c06c429d4a88"
+      ]
+    },
+    "activeTab": {
+      "selected": "c039f0f2-6c39-49f2-bf1a-ecef1d979976",
+      "activeProject": "project-00000000-0000-4000-8000-0000000000a1"
+    },
+    "splitState": {
+      "alpha": {
+        "tabId": "6e697f94-af82-49e3-848f-b2163a715af7",
+        "mobile": "ipad-mini",
+        "desktop": "laptop-macbook13",
+        "focused": "desktop"
+      },
+      "beta": {
+        "tabId": "0e2f25f5-d232-41c2-b34c-c06c429d4a88",
+        "mobile": "mobile-small",
+        "desktop": "laptop-macbook13",
+        "focused": "mobile"
+      }
+    },
+    "splitGeometry": {
+      "alphaMobile": 383,
+      "betaMobileBefore": 311,
+      "betaMobileAfter": 383,
+      "alphaMobileAfter": 383
+    },
+    "splitOpenerPopup": {
+      "callerTabId": "6e697f94-af82-49e3-848f-b2163a715af7",
+      "backgroundScriptProbe": {
+        "expression": "1 + 1",
+        "settled": true,
+        "value": "2",
+        "error": null,
+        "settledAfterMs": 171,
+        "settledWithinBound": true,
+        "settledOncePresented": true
+      },
+      "presentedScriptProbe": {
+        "expression": "2 + 2",
+        "settled": true,
+        "value": "4",
+        "error": null,
+        "settledAfterMs": 3,
+        "settledWithinBound": true
+      },
+      "probePath": {
+        "createdTabIds": [],
+        "callSettledAtCheck": true,
+        "dispatchedToJs": {
+          "url": "https://example.com/native-popup-probe",
+          "disposition": "foreground-tab"
+        }
+      },
+      "productPath": {
+        "createdTabIds": [],
+        "callSettledAtCheck": true
+      }
+    },
+    "nativePopupOpen": {
+      "parentTabId": "c039f0f2-6c39-49f2-bf1a-ecef1d979976",
+      "windowOpenResult": "null"
+    },
+    "nativePopup": {
+      "childTabId": "e631b5bd-ed60-4dfc-a22b-41de68f10850",
+      "capsuleId": "capsule-pw-a1",
+      "projectId": "project-00000000-0000-4000-8000-0000000000a1",
+      "partition": "persist:profile-default",
+      "userAgentMode": "clean",
+      "parentCapsuleId": "capsule-pw-a1",
+      "parentPartition": "persist:profile-default",
+      "parentUserAgentMode": "clean",
+      "activeCapsuleDuringPopup": "capsule-pw-b2",
+      "activeCapsuleBeforePopup": "capsule-pw-a1"
+    },
+    "nativePopupCapsuleRestored": {
+      "restoredTo": "capsule-pw-a1"
+    },
+    "minimizeRestore": {
+      "minimized": {
+        "hubTarget": "6e697f94-af82-49e3-848f-b2163a715af7"
+      },
+      "restored": {
+        "hubTarget": "6e697f94-af82-49e3-848f-b2163a715af7",
+        "visible": true
+      },
+      "invalidTarget": {
+        "requested": "tab-that-belongs-to-no-host",
+        "adopted": null
+      }
+    },
+    "sameProjectSessions": {
+      "tabOne": "c039f0f2-6c39-49f2-bf1a-ecef1d979976",
+      "tabTwo": "6e697f94-af82-49e3-848f-b2163a715af7",
+      "ownReadFailed": null,
+      "crossRefused": true,
+      "crossText": "{\"code\":\"TARGET_MISMATCH\",\"message\":\"Tab ID mismatch: expected c039f0f2-6c39-49f2-bf1a-ecef1d979976, got 6e697f94-af82-49e3-848f-b2163a715af7. Note: In split review mode, use the bound tabId with paneId: \\\"mobile\\\" to target the mobile pane.\",\"requestId\":\"request-abd903f8-abfe-479a-a222-4767642bdca4\",\"invocationId\":\"invocation-989a1638-7358-4509-b1bf-27e2a9f1d7ba\"}",
+      "domReadsBeforeSibling": [
+        "c039f0f2-6c39-49f2-bf1a-ecef1d979976",
+        "c039f0f2-6c39-49f2-bf1a-ecef1d979976"
+      ],
+      "siblingReadFailed": null,
+      "domReads": [
+        "c039f0f2-6c39-49f2-bf1a-ecef1d979976",
+        "c039f0f2-6c39-49f2-bf1a-ecef1d979976",
+        "6e697f94-af82-49e3-848f-b2163a715af7"
+      ]
+    },
+    "backgroundSurface": {
+      "mode": "tiled",
+      "workArea": {
+        "width": 1920,
+        "height": 1032
+      },
+      "surface": {
+        "vw": 593,
+        "vh": 386,
+        "layoutWidth": 593,
+        "layoutHeight": 386,
+        "dpr": 1,
+        "scrollX": 0,
+        "scrollY": 0,
+        "docH": 386,
+        "readyState": "complete",
+        "hidden": false
+      },
+      "activeTabId": "6e697f94-af82-49e3-848f-b2163a715af7",
+      "visible": true,
+      "focused": false,
+      "presented": true,
+      "managerPresented": true,
+      "presentedSurface": {
+        "vw": 593,
+        "vh": 386,
+        "layoutWidth": 593,
+        "layoutHeight": 386,
+        "dpr": 1,
+        "scrollX": 0,
+        "scrollY": 0,
+        "docH": 386,
+        "readyState": "complete",
+        "hidden": false
+      }
+    },
+    "backgroundCapture": {
+      "backend": "cdp",
+      "rasterSize": {
+        "width": 1280,
+        "height": 832
+      },
+      "bytes": 21740,
+      "hubFocused": {
+        "before": false,
+        "after": false
+      },
+      "managerFocusedAfterCapture": true
+    },
+    "inventory": {
+      "status": "OK",
+      "rows": [
+        {
+          "tabId": "14a2ac87-0475-4483-86a1-c57bf647c749",
+          "title": "Google",
+          "url": "https://www.google.com/",
+          "ownerLabel": "AntiFan Browser",
+          "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-e2e-4Y6wn1\\window-alpha",
+          "live": true
+        },
+        {
+          "tabId": "5cdcd206-ef22-4a8f-95ec-88498c4471bf",
+          "title": "Google",
+          "url": "https://www.google.com/",
+          "ownerLabel": "AntiFan Browser",
+          "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-e2e-4Y6wn1\\window-alpha",
+          "live": true
+        },
+        {
+          "tabId": "c039f0f2-6c39-49f2-bf1a-ecef1d979976",
+          "title": "Example Domain",
+          "url": "https://example.com/",
+          "ownerLabel": "AntiFan Browser",
+          "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-e2e-4Y6wn1\\window-alpha",
+          "live": true
+        },
+        {
+          "tabId": "6e697f94-af82-49e3-848f-b2163a715af7",
+          "title": "Example Domain",
+          "url": "https://example.com/",
+          "ownerLabel": "AntiFan Browser",
+          "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-e2e-4Y6wn1\\window-alpha",
+          "live": true
+        },
+        {
+          "tabId": "da1a3f56-c744-48ab-9d0c-6306200ce9b4",
+          "title": "Example Domain",
+          "url": "https://example.com/",
+          "ownerLabel": "AntiFan Browser",
+          "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-e2e-4Y6wn1\\window-alpha",
+          "live": true
+        },
+        {
+          "tabId": "0e2f25f5-d232-41c2-b34c-c06c429d4a88",
+          "title": "Example Domain",
+          "url": "https://example.com/",
+          "ownerLabel": "AntiFan Browser",
+          "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-e2e-4Y6wn1\\window-alpha",
+          "live": true
+        }
+      ]
+    },
+    "activation": {
+      "result": {
+        "status": "ACTIVATED",
+        "tabId": "da1a3f56-c744-48ab-9d0c-6306200ce9b4"
+      },
+      "activeBefore": "6e697f94-af82-49e3-848f-b2163a715af7",
+      "activeAfter": "da1a3f56-c744-48ab-9d0c-6306200ce9b4",
+      "hubFocusedBefore": false,
+      "hubFocusedAfter": true,
+      "hubAutomation": "6e697f94-af82-49e3-848f-b2163a715af7"
+    },
+    "staleActivation": {
+      "never": {
+        "status": "UNAVAILABLE",
+        "tabId": "tab-that-never-existed",
+        "reasonCode": "TAB_CLOSED",
+        "reason": "TAB_UNAVAILABLE"
+      },
+      "closedTab": {
+        "status": "UNAVAILABLE",
+        "tabId": "0e2f25f5-d232-41c2-b34c-c06c429d4a88",
+        "reasonCode": "TAB_CLOSED",
+        "reason": "TAB_UNAVAILABLE"
+      }
+    },
+    "volume": {
+      "shellCount": 2,
+      "stampedCount": 20,
+      "inventoryRows": 20
+    },
+    "agentResolve": {
+      "entry": {
+        "ownerKey": "web",
+        "windowId": 1
+      },
+      "activeAfter": "project-00000000-0000-4000-8000-0000000000f6",
+      "restoredActive": "project-00000000-0000-4000-8000-0000000000a1",
+      "callsForHub": [],
+      "callsForOtherWindows": []
+    },
+    "close": {
+      "accepted": true,
+      "shellCount": 1,
+      "remaining": [
+        "web"
+      ]
+    },
+    "survivorPaths": {
+      "toolbarTab": "fbaa6547-96e3-4b6a-9e18-33de62fd1221",
+      "acceleratorTab": "ac1b9a22-2a55-4e40-adb4-24e136c4d5a8",
+      "acceleratorActive": "ac1b9a22-2a55-4e40-adb4-24e136c4d5a8",
+      "windowCount": 1
+    },
+    "detachTransfer": {
+      "serializedTabs": 5,
+      "stampedBefore": 5
+    },
+    "detach": {
+      "status": "DETACHED",
+      "ownerKey": "project:project-00000000-0000-4000-8000-0000000000c3",
+      "shellCount": 2,
+      "movedTabs": 6,
+      "hubTabs": 20,
+      "hubActiveProject": null
+    },
+    "detachExclusivity": {
+      "openStatus": "FOCUSED",
+      "shellCount": 2,
+      "ensureRefusal": "TRANSACTION_CONFLICT",
+      "hubActiveProject": null
+    },
+    "reattach": {
+      "status": "REATTACHED",
+      "shellCount": 1,
+      "liveTabs": 6,
+      "foldedTabIds": [
+        "80bde9a3-289a-4eac-83c2-92bdfcf0abe5",
+        "b3f4c4ed-0bdf-4a8f-949b-5bb49eb2fc22",
+        "3a7eded7-cd3e-4080-bc57-9c162b2969d1",
+        "fec929c9-cb4a-416e-8aa4-98420ab23981",
+        "ffeaf59f-a359-44e6-a40f-d7fe59a511d4",
+        "1567d1f6-d5ed-4cb6-b372-5de55368da1b"
+      ]
+    },
+    "teardown": {
+      "shellCount": 0
+    }
+  },
+  "deferred": [
+    "physical.two-monitor-surfaces",
+    "physical.typing-under-real-os-focus",
+    "physical.display-disconnect-and-dpi-change",
+    "physical.minimum-window-visual-and-keyboard",
+    "native.unload-veto-and-close-races",
+    "daemon.detached-session-survival"
+  ],
+  "at": "2026-10-01T15:56:10.193Z"
+}

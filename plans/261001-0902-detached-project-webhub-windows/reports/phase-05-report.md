@@ -135,7 +135,7 @@ against the stamped set, not the wire list.
 ### e2e result (final run, compiled, post-review-fixes)
 
 `[project-windows-e2e] 21 passed, 0 failed` — evidence:
-`plans/260927-0315-project-windows/reports/project-windows-e2e.json`.
+`reports/project-windows-e2e.json` (relocated; suite's `EVIDENCE_PATH` still writes to the 0315 dir — recorded defect).
 
 ## Flake hits
 

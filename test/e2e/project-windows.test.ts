@@ -109,12 +109,13 @@ const DEFERRED_ROWS: readonly string[] = [
 ];
 
 const RUN_TIMEOUT_MS = 300_000;
-const EVIDENCE_PATH = path.join(
-  'plans',
-  '260927-0315-project-windows',
-  'reports',
-  'project-windows-e2e.json',
-);
+// Evidence destination: every run rewrites one JSON receipt, so it MUST NOT silently
+// target another plan's curated record. Callers pick a plan-owned path via
+// ANTIFAN_E2E_EVIDENCE (absolute or repo-relative); the default writes to a
+// gitignored scratch dir and is for run-verification only.
+const EVIDENCE_PATH = process.env.ANTIFAN_E2E_EVIDENCE
+  ? process.env.ANTIFAN_E2E_EVIDENCE
+  : path.join('.probe-tmp', 'project-windows-e2e.json');
 
 interface DriverCheckRow {
   name: string;
@@ -572,7 +573,11 @@ async function run() {
       recordTitle: startup.title,
       chip: chip,
     };
-    expect(authority.windowFor(webKey).getTitle() === 'AntiFan Browser' || authority.windowFor(webKey).getTitle() === ALPHA.name, 'the hub native title was ' + JSON.stringify(authority.windowFor(webKey).getTitle()));
+    // Post-activation the OS title is deterministic: setActiveProject retitles the shell
+    // synchronously (native-tab-host setActiveProject → shell.retitle) and the activeProject
+    // waitFor above only completes after that call — the no-project fallback arm would be
+    // dead code masking a retitle regression, so this pin is single-valued.
+    expect(authority.windowFor(webKey).getTitle() === ALPHA.name, 'the hub native title was ' + JSON.stringify(authority.windowFor(webKey).getTitle()));
   });
 
   // ------------------------------- (2) a second project open joins the hub, no new shell
@@ -1961,7 +1966,7 @@ describe('Live E2E: the web hub lifecycle', () => {
 
     const driverDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-pw-e2e-driver-'));
     const driverPath = path.join(driverDir, 'project-windows-driver.cjs');
-    const evidencePath = path.join(rootDir, EVIDENCE_PATH);
+    const evidencePath = path.resolve(rootDir, EVIDENCE_PATH);
     fs.writeFileSync(driverPath, PROJECT_WINDOWS_DRIVER_SOURCE, 'utf8');
     try { fs.unlinkSync(evidencePath); } catch {}
 

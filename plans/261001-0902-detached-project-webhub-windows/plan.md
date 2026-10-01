@@ -70,7 +70,7 @@ The 3-monitor ask: screen 1 = WebHub (or detached A), screen 2 = detached B, scr
 
 Executed 2026-10-01: all 5 phases landed + post-land code-review fix pass (F1–F8 fixed; F9 dead param / F10 menu no-op left as-is, documented). Reports: [phase-01](reports/phase-01-report.md) · [phase-02](reports/phase-02-report.md) · [phase-03](reports/phase-03-report.md) · [phase-04](reports/phase-04-report.md) + [diagnosis](reports/phase-04-diagnosis.md) · [phase-05](reports/phase-05-report.md) · [code-review](reports/code-review.md).
 
-**Evidence:** probe `reports/detached-webhub.json` 24/0 + `detached-webhub-restart.json` 5/0 (+ `detached-webhub.log`); e2e 21/0 (`plans/260927-0315-project-windows/reports/project-windows-e2e.json`); `npm run test:main` 2229 pass / 1 unrelated flake (`history-manager` mtime debounce).
+**Evidence:** probe `reports/detached-webhub.json` 24/0 + `detached-webhub-restart.json` 5/0 (+ `detached-webhub.log`); e2e 21/0 (`reports/project-windows-e2e.json`); `npm run test:main` 2234 pass / 0 fail / 1 skip (post-review-fix re-run by re-reviewer).
 
 **Kongming final verdict (KmGate5): PASS_WITH_CONCERNS.** Residuals:
 

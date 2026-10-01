@@ -149,3 +149,20 @@ remaining races are theoretical or pre-existing. Concerns below are non-blocking
 
 - Correct the claimed test counts in phase-05-report/code-review fix table (36/36/10 and 2234-pass reality vs 42/41/2229-claimed).
 - Optional: add the `isDisposed` guard inside `persistTabsAsync`'s queued task to make residual #5 structurally enforced rather than conventional.
+
+## Ultra pending-review — evidence artifact (2026-10-01)
+
+Scope: `git diff` pending = `plans/260927-0315-project-windows/reports/project-windows-e2e.json` (+282/-58), a regenerated e2e receipt produced by this plan's runs but landing in the foreign plan's reports dir. Stage 2: five independent reviewer candidates; union verifier (kongming) validated every claim against repo state. Scores A13 B17 C12 D11 E18.
+
+**Verdict: land-under-our-path.** Artifact authentic — 21/21 check names match `check()` call sites in execution order; observations internally coherent; `at: 2026-10-01T12:52:51Z` precedes landing commit `9e055a5d` (run-then-commit ordering). The 0315 file was restored to its committed blob; this plan's copy committed at `reports/project-windows-e2e.json`.
+
+| # | Sev | Finding | Disposition |
+|---|-----|---------|-------------|
+| U1 | High | `EVIDENCE_PATH` hardcoded the 0315 reports dir; every e2e run rewrote that plan's receipt (c9773c40 precedent: restored once, re-polluted twice) | FIXED + VERIFIED: `ANTIFAN_E2E_EVIDENCE` override (absolute via `path.resolve`, relative under repo root); default writes gitignored `.probe-tmp/`. Proof: two live e2e runs — default → `.probe-tmp/project-windows-e2e.json` 21/0, absolute env → `.probe-tmp/e2e-abs-override.json` 21/0 — 0315 blob `c1daa555` identical to HEAD before/after |
+| U2 | Med | Relocated artifact untracked while docs cite it as the 21/0 receipt | FIXED: committed in this plan's reports dir; all three citations retargeted |
+| U3 | Med | `:575` `'AntiFan Browser'` OR-arm unreachable post-activation-wait (synchronous retitle inside `setActiveProject`) — dead arm could mask a retitle regression | FIXED: single-value `ALPHA.name` pin; live e2e rerun 1/1 green |
+| U4 | Low | `detach.movedTabs` counts the detached shell's self-minted user-plane tab (6 vs serialized 5); label imprecise, assert is `>0` only | Open, cosmetic — rename or assert `>= serializedTabs` |
+| U5 | Low | `pathLabel` on inventory rows stamps the window's current workspace, not the row's stamped project | Open — product gap, no test coverage |
+| U6 | Low | HEAD's 0315 receipt was already a polluted overwrite (missing observations its own docs cite) before this session | Informational — confirms U1's blast radius predates this work |
+
+Dropped: candidate D's stale-citations claim (relative paths already resolved correctly after retargeting) and candidate A's agent-plane mechanism for `movedTabs` (wrong — the +1 is a real self-minted user-plane tab, proven by `reattach.liveTabs=6`).

@@ -99,7 +99,7 @@ probe-detached-webhub.cjs (mirrors probe-multi-window-binding.cjs pattern)
 
 - [x] Probe: all legs green; `probe 24 passed, 0 failed`. — `reports/detached-webhub.json`
 - [x] Cold restart leg: detached shell + strip restored; hub intact. — `reports/detached-webhub-restart.json` 5/0
-- [x] e2e suite: new rows green AND existing hub guards unmodified-green. — 21/0, `plans/260927-0315-project-windows/reports/project-windows-e2e.json`
+- [x] e2e suite: new rows green AND existing hub guards unmodified-green. — 21/0, `reports/project-windows-e2e.json` (relocated from the harness's hardcoded 0315-path write target; `EVIDENCE_PATH` defect recorded in code-review.md)
 - [x] Kongming verdict PASS on evidence. — KmGate5: **PASS_WITH_CONCERNS**, residuals R1–R4 recorded in plan.md Execution Report
 
 ## Risk Assessment
