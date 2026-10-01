@@ -761,7 +761,7 @@ describe('Fast-Path Tab Lease Rebinding & Explicit TabId Routing (Phase 02)', ()
     // Direct port calls with no target and no authenticated scope have nothing
     // to measure against: they list nothing rather than leaking the user strip.
     const unboundList = browserPort.listTabs({}) as Array<{ id: string }>;
-    assert.deepStrictEqual(unboundList, []);
+    assert.deepStrictEqual(unboundList, [], 'unbound listTabs must return no tabs');
 
   });
 
