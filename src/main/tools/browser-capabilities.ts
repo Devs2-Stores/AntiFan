@@ -321,11 +321,27 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
   // 1. Standard canonical capabilities
   catalogue.register({
     name: 'browser.list-tabs',
-    description: 'List Chromium tabs. The tab bound to this session is marked with isBoundTab: true. Always operate on your bound tab or omit tabId.',
+    description: 'List Chromium tabs in this session\'s project scope (each row carries affiliated). Pass all: true for global GUI discovery of the whole window strip, affiliatedOnly: true to keep only in-scope rows. The tab bound to this session is marked with isBoundTab: true.',
     risk: 'read',
     policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: false, lane: 'unbounded' }),
-    inputSchema: { type: 'object', properties: { all: { type: 'boolean', description: 'List every tab in the browser window instead of only the tabs managed by this session' } } },
-    execute: (params: { all?: boolean }, context) => browser.listTabs({ target: context.browserTarget, scope: params?.all === false ? 'session' : 'all' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        all: { type: 'boolean', default: false, description: 'Pass true for global GUI discovery: every tab in the window is listed and each row carries affiliated (true when the tab measures into this session\'s project/workspace). Default lists only this session\'s project scope.' },
+        affiliatedOnly: { type: 'boolean', default: false, description: 'Restrict the returned rows to tabs measuring into this session\'s project/workspace.' },
+        projectId: { type: 'string', description: 'Scope selector: must equal this session\'s authenticated projectId. A foreign or unbound selector is refused; it can never widen authority.' },
+      },
+    },
+    execute: (params: { all?: boolean; affiliatedOnly?: boolean; projectId?: string }, context) => browser.listTabs({
+      target: context.browserTarget,
+      scope: params?.all === true ? 'global' : 'project',
+      affiliatedOnly: params?.affiliatedOnly === true,
+      projectId: typeof params?.projectId === 'string' ? params.projectId : undefined,
+      // The caller's authenticated scope travels on the dispatch context, never
+      // inside the browser target — a bindingless or stale target keeps it.
+      authenticatedProjectId: context.projectId,
+      authenticatedWorkspaceId: context.workspaceId,
+    }),
   });
 
   catalogue.register({
@@ -338,11 +354,13 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       properties: {
         url: { type: 'string' },
         activate: { type: 'boolean' },
+        anchorTabId: { type: 'string', description: 'Live same-project tab selecting the window for creation' },
         devicePresetId: { type: 'string', description: 'Device preset ID (e.g. iphone-15, xiaomi-14)' },
         mobile: { type: 'boolean', description: 'Open directly in mobile mode with mobile User-Agent and viewport' },
+        projectId: { type: 'string', description: 'Scope selector: must equal this session\'s authenticated projectId. A foreign or unbound selector is refused before allocation; it never widens authority.' },
       },
     },
-    execute: (params: { url?: string; activate?: boolean; devicePresetId?: string; mobile?: boolean }, context) => browser.openTab(params, { target: context?.browserTarget }),
+    execute: (params: { url?: string; activate?: boolean; anchorTabId?: string; devicePresetId?: string; mobile?: boolean; projectId?: string }, context) => browser.openTab(params, { target: context?.browserTarget, authenticatedProjectId: context?.projectId }),
   });
   catalogue.register({
     name: 'browser.close-tab',
@@ -1191,11 +1209,25 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
   // 2. Compatibility aliases for MCP & Bridge protocols
   catalogue.register({
     name: 'antifan_list_tabs',
-    description: 'List Chromium tabs. The tab bound to this session is marked with isBoundTab: true. Always operate on your bound tab or omit tabId.',
+    description: 'List Chromium tabs in this session\'s project scope (each row carries affiliated). Pass all: true for global GUI discovery of the whole window strip, affiliatedOnly: true to keep only in-scope rows. The tab bound to this session is marked with isBoundTab: true.',
     risk: 'read',
     policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: false, lane: 'unbounded' }),
-    inputSchema: { type: 'object', properties: { all: { type: 'boolean', description: 'List every tab in the browser window instead of only the tabs managed by this session' } } },
-    execute: (params: { all?: boolean }, context) => browser.listTabs({ target: context.browserTarget, scope: params?.all === false ? 'session' : 'all' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        all: { type: 'boolean', default: false, description: 'Pass true for global GUI discovery: every tab in the window is listed and each row carries affiliated (true when the tab measures into this session\'s project/workspace). Default lists only this session\'s project scope.' },
+        affiliatedOnly: { type: 'boolean', default: false, description: 'Restrict the returned rows to tabs measuring into this session\'s project/workspace.' },
+        projectId: { type: 'string', description: 'Scope selector: must equal this session\'s authenticated projectId. A foreign or unbound selector is refused; it can never widen authority.' },
+      },
+    },
+    execute: (params: { all?: boolean; affiliatedOnly?: boolean; projectId?: string }, context) => browser.listTabs({
+      target: context.browserTarget,
+      scope: params?.all === true ? 'global' : 'project',
+      affiliatedOnly: params?.affiliatedOnly === true,
+      projectId: typeof params?.projectId === 'string' ? params.projectId : undefined,
+      authenticatedProjectId: context.projectId,
+      authenticatedWorkspaceId: context.workspaceId,
+    }),
   });
 
   catalogue.register({
@@ -1203,8 +1235,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     description: 'Alias for browser.open-tab',
     risk: 'write',
     policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
-    inputSchema: { type: 'object', properties: { url: { type: 'string' }, activate: { type: 'boolean' }, ephemeral: { type: 'boolean' }, offscreen: { type: 'boolean' } } },
-    execute: (params: { url?: string; activate?: boolean; ephemeral?: boolean; offscreen?: boolean }, context) => browser.openTab(params, { target: context?.browserTarget }),
+    inputSchema: { type: 'object', properties: { url: { type: 'string' }, activate: { type: 'boolean' }, anchorTabId: { type: 'string', description: 'Live same-project tab selecting the window for creation' }, ephemeral: { type: 'boolean' }, offscreen: { type: 'boolean' }, projectId: { type: 'string', description: 'Scope selector: must equal this session\'s authenticated projectId. A foreign or unbound selector is refused before allocation; it never widens authority.' } } },
+    execute: (params: { url?: string; activate?: boolean; anchorTabId?: string; ephemeral?: boolean; offscreen?: boolean; projectId?: string }, context) => browser.openTab(params, { target: context?.browserTarget, authenticatedProjectId: context?.projectId }),
   });
 
   catalogue.register({
@@ -2022,16 +2054,25 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
   // 3. anti.* aliases for unified client / bridge execution
   catalogue.register({
     name: 'anti.browser.tabs.list',
-    description: 'List Chromium tabs in this window. All tabs are listed by default; the tab bound to this session is marked with isBoundTab: true. Pass all: false to list only the tabs this session owns.',
+    description: 'List Chromium tabs in this session\'s project scope (each row carries affiliated: true when the tab measures into this session\'s project/workspace, including hibernated tabs whose views are parked). Pass all: true for global GUI discovery of the whole window strip, affiliatedOnly: true to keep only in-scope rows. The tab bound to this session is marked with isBoundTab: true.',
     risk: 'read',
     policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: false, lane: 'unbounded' }),
     inputSchema: {
       type: 'object',
       properties: {
-        all: { type: 'boolean', default: true, description: 'List every tab in the window (default). Pass false to restrict the list to the tabs this session owns.' }
+        all: { type: 'boolean', default: false, description: 'Pass true for global GUI discovery: every tab in the window is listed and each row carries affiliated. Default lists only this session\'s project scope.' },
+        affiliatedOnly: { type: 'boolean', default: false, description: 'Restrict the returned rows to tabs measuring into this session\'s project/workspace.' },
+        projectId: { type: 'string', description: 'Scope selector: must equal this session\'s authenticated projectId. A foreign or unbound selector is refused; it can never widen authority.' },
       }
     },
-    execute: (params: { all?: boolean }, context) => browser.listTabs({ target: context.browserTarget, scope: params?.all === false ? 'session' : 'all' }),
+    execute: (params: { all?: boolean; affiliatedOnly?: boolean; projectId?: string }, context) => browser.listTabs({
+      target: context.browserTarget,
+      scope: params?.all === true ? 'global' : 'project',
+      affiliatedOnly: params?.affiliatedOnly === true,
+      projectId: typeof params?.projectId === 'string' ? params.projectId : undefined,
+      authenticatedProjectId: context.projectId,
+      authenticatedWorkspaceId: context.workspaceId,
+    }),
   });
   catalogue.register({
     name: 'anti.browser.tabs.create',
@@ -2043,13 +2084,15 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       properties: {
         url: { type: 'string' },
         activate: { type: 'boolean' },
+        anchorTabId: { type: 'string', description: 'Live same-project tab selecting the window for creation' },
         ephemeral: { type: 'boolean' },
         offscreen: { type: 'boolean' },
         devicePresetId: { type: 'string', description: 'Device preset ID (e.g. iphone-15, xiaomi-14)' },
         mobile: { type: 'boolean', description: 'Open directly in mobile mode with mobile User-Agent and viewport' },
+        projectId: { type: 'string', description: 'Scope selector: must equal this session\'s authenticated projectId. A foreign or unbound selector is refused before allocation; it never widens authority.' },
       },
     },
-    execute: (params: { url?: string; activate?: boolean; ephemeral?: boolean; offscreen?: boolean; devicePresetId?: string; mobile?: boolean }, context) => browser.openTab(params, { target: context?.browserTarget }),
+    execute: (params: { url?: string; activate?: boolean; anchorTabId?: string; ephemeral?: boolean; offscreen?: boolean; devicePresetId?: string; mobile?: boolean; projectId?: string }, context) => browser.openTab(params, { target: context?.browserTarget, authenticatedProjectId: context?.projectId }),
   });
   catalogue.register({
     name: 'anti.browser.tabs.activate',
@@ -3027,10 +3070,11 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     inputSchema: {
       type: 'object',
       properties: {
-        specTabId: { type: 'string', description: 'Tab ID or alias of HTML Spec (defaults to @spec)' },
-        targetTabId: { type: 'string', description: 'Tab ID or alias of Target Storefront (defaults to @storefront)' },
+        specTabId: { type: 'string', description: 'Actual tab ID of the HTML specification' },
+        targetTabId: { type: 'string', description: 'Actual target tab ID (defaults to the bound tab)' },
         tolerance: { type: 'number', description: 'Visual/height tolerance percentage (default 5.0)' },
       },
+      required: ['specTabId'],
     },
     execute: (params: { specTabId?: string; targetTabId?: string; tolerance?: number }, context) =>
       browser.validateSpecGate(context.browserTarget as BrowserTarget, params, context.signal),
@@ -3131,13 +3175,13 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     inputSchema: {
       type: 'object',
       properties: {
-        tabId: { type: 'string', description: 'Tab ID or semantic alias (e.g. "@feedback")' },
+        tabId: { type: 'string', description: 'Actual Google Sheets tab ID (defaults to the bound tab)' },
         row: { type: 'number', description: '1-indexed target row number (e.g. 34)' },
         gid: { type: 'string', description: 'Optional sheet GID override' },
       },
     },
     execute: async (params: { tabId?: string; row?: number; gid?: string }, context) => {
-      const targetTabId = params.tabId || '@feedback';
+      const targetTabId = params.tabId;
       const targetRow = typeof params.row === 'number' && params.row > 0 ? params.row : undefined;
       const script = `(async () => {
         try {

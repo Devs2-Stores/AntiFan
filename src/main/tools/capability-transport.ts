@@ -672,14 +672,44 @@ export class CapabilityTransportAdapter {
           // stale session owns, so an exact failover match authorizes the retarget.
           const failoverId = this.catalogue.resolveFailoverTabId(authorityTabId);
           const allowed = resolvedRequested === failoverId ||
-            (this.catalogue.isTabAllowed ? this.catalogue.isTabAllowed(authorityTabId, resolvedRequested) === true : false);
+            (this.catalogue.isTabAllowedForRetarget
+              ? this.catalogue.isTabAllowedForRetarget(authorityTabId, resolvedRequested, {
+                  projectId: authContext.projectId,
+                  workspaceId: authContext.workspaceId,
+                }) === true
+              : false);
           if (!allowed) {
             throw new CapabilityError(
               'TARGET_MISMATCH',
-              `Tab ID '${resolvedRequested}' is outside this session's ownership (bound '${authorityTabId}'). Rebind only to session-managed tabs.`,
+              `Tab ID '${resolvedRequested}' is outside this session's authority (bound '${authorityTabId}'). Rebind only to session-managed or same-project tabs.`,
             );
           }
         }
+      }
+      const requestedAnchor = isOpenTab ? (intent.params as Record<string, unknown> | undefined)?.anchorTabId : undefined;
+      if (requestedAnchor !== undefined) {
+        if (typeof requestedAnchor !== 'string' || !requestedAnchor.trim()) {
+          throw new CapabilityError('INVALID_ARGUMENT', 'anchorTabId must name a live tab');
+        }
+        const anchorTabId = this.catalogue.resolveTabId(requestedAnchor.trim());
+        const generation = anchorTabId ? this.catalogue.getDocumentGeneration(anchorTabId) : undefined;
+        if (!anchorTabId || typeof generation !== 'number' || generation <= 0) {
+          throw new CapabilityError('TARGET_STALE', `Anchor tab '${requestedAnchor}' no longer exists`);
+        }
+        if (anchorTabId !== authorityTabId && !this.catalogue.isTabAllowedForRetarget(authorityTabId || '', anchorTabId, {
+          projectId: authContext.projectId,
+          workspaceId: authContext.workspaceId,
+        })) {
+          throw new CapabilityError('TARGET_MISMATCH', `Anchor tab '${anchorTabId}' is outside this attachment's authority`);
+        }
+        authContext.browserTarget = {
+          projectId: authContext.projectId,
+          workspaceId: authContext.workspaceId,
+          runtimeId: authContext.lease.runtimeId,
+          tabId: anchorTabId,
+          browserEpoch: liveAuthority.browserTarget?.browserEpoch ?? authContext.hostEpoch,
+          documentGeneration: generation,
+        };
       }
       const staleBoundTabId = authContext.browserTarget?.tabId;
       if (staleBoundTabId && !this.catalogue.resolveTabId(staleBoundTabId)) {
@@ -739,7 +769,7 @@ export class CapabilityTransportAdapter {
       if (operationTargetTabId) {
         assertPageAdmitsWork(this.closeAdmission, operationTargetTabId, `Capability '${intent.name}'`);
       }
-      // The port resolves aliases, numbered tab references and failover targets, so both
+      // The port resolves numbered tab references and failover targets, so both
       // the authority's tab and an explicit tab the intent asks for are attributed:
       // over-attribution can only refuse a close that would otherwise be allowed, while
       // under-attribution would let a close destroy the page the work is running on.

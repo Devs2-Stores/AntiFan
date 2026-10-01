@@ -18,10 +18,29 @@
  */
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { NativeTabHost } from '../../src/main/browser/native-tab-host';
 import { SemanticRefRegistry } from '../../src/main/browser/semantic-ref-registry';
 import { TerminalManager } from '../../src/main/browser/terminal-manager';
 import { createShellDouble, type ShellDoubleWindow } from '../support/project-window-shell-double';
+
+// The close path journals a `tabhost.tabClosed` row per removal into the app's
+// lifecycle log. Redirect it to a temp runtime BEFORE the first event is recorded —
+// the journal binds its file lazily on first write.
+const RUNTIME_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-closedisposal-runtime-'));
+process.env.ANTIFAN_RUNTIME_DIR = RUNTIME_DIR;
+
+function tabClosedRows(): Array<Record<string, unknown>> {
+  const logPath = path.join(RUNTIME_DIR, 'logs', 'main.log');
+  if (!fs.existsSync(logPath)) return [];
+  return fs
+    .readFileSync(logPath, 'utf8')
+    .split('\n')
+    .filter((line) => line.includes('"event":"tabhost.tabClosed"'))
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
+}
 
 type TestHost = any;
 
@@ -421,6 +440,38 @@ describe('NativeTabHost close reservation', () => {
     assert.deepStrictEqual(host.visibleMemberTabIds(), ['tab-b', 'tab-c']);
     assert.strictEqual(host.closeTab('tab-c'), true, 'a non-reserved page still closes normally');
     assert.strictEqual(records.has('tab-b'), true, 'the other member was never touched');
+  });
+});
+
+describe('NativeTabHost close telemetry', () => {
+  it('labels a close driven by an authorized attempt as close-attempt', () => {
+    // Unique tab ids keep assertions honest: earlier tests in this file already wrote
+    // tabClosed rows for 'tab-1' into the shared journal.
+    const { host } = createHarness({ tabIds: ['tele-attempt'] });
+    // The authorization the close attempt installs for its own page: the fallback
+    // source is what `finalizeClosedPage` relies on for post-closePage reconciliation.
+    host.attemptAuthorizedCloses.add('tele-attempt');
+
+    assert.strictEqual(host.closeTab('tele-attempt'), true);
+
+    const rows = tabClosedRows().filter((row) => row['tabId'] === 'tele-attempt');
+    assert.strictEqual(rows.length, 1);
+    assert.strictEqual(rows[0]!['source'], 'close-attempt');
+    assert.strictEqual(rows[0]!['urlOrigin'], 'https://example.test');
+  });
+
+  it('journals host-dispose once per tab when disposal bypasses closeTab', () => {
+    const { host } = createHarness({ tabIds: ['tele-dispose-1', 'tele-dispose-2'], offscreenTabIds: ['tele-dispose-2'] });
+
+    host.dispose();
+
+    const rows = tabClosedRows().filter((row) => row['source'] === 'host-dispose');
+    const row1 = rows.find((row) => row['tabId'] === 'tele-dispose-1');
+    const row2 = rows.find((row) => row['tabId'] === 'tele-dispose-2');
+    assert.ok(row1, 'the visible tab removed by disposal is still attributable');
+    assert.ok(row2, 'the offscreen tab removed by disposal is still attributable');
+    assert.strictEqual(row2!['offscreen'], true);
+    assert.strictEqual(rows.length, 2, 'no closeTab double-emit: the dispose path emits directly');
   });
 });
 

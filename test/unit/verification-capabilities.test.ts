@@ -36,7 +36,7 @@ describe('Verification Capabilities & Anti-Hallucination Barrier Suite (Phase 2)
 
   const createMockHost = (overrides: Partial<BrowserHostPort> = {}): any => ({
     getTabList: () => [
-      { id: 'tab-1', url: 'https://store.example.com/', title: 'Storefront', alias: '@storefront', role: 'storefront' },
+      { id: 'tab-1', url: 'https://store.example.com/', title: 'Storefront' },
     ],
     hasTab: (id: string) => id === 'tab-1',
     switchTab: () => true,

@@ -46,8 +46,8 @@ function tab(
 }
 
 describe('shouldHibernate policy', () => {
-  it('hibernates a background tab idle past 15 minutes', () => {
-    const d = shouldHibernate(tab('tab-x', {}, T0 - HIBERNATE_IDLE_MS - 1), makeCtx());
+  it('hibernates a background tab idle past 5 minutes', () => {
+    const d = shouldHibernate(tab('tab-x', {}, T0 - 5 * 60 * 1000 - 1), makeCtx());
     assert.deepStrictEqual(d, { hibernate: true });
   });
 
@@ -99,12 +99,12 @@ describe('shouldHibernate policy', () => {
   });
 
   it('refuses a tab still inside the idle window', () => {
-    const d = shouldHibernate(tab('tab-x', {}, T0 - HIBERNATE_IDLE_MS + 1), makeCtx());
+    const d = shouldHibernate(tab('tab-x', {}, T0 - 5 * 60 * 1000 + 1), makeCtx());
     assert.deepStrictEqual(d, { hibernate: false, reason: 'not-idle' });
   });
 
-  it('hibernates exactly at the 15-minute boundary', () => {
-    const d = shouldHibernate(tab('tab-x', {}, T0 - HIBERNATE_IDLE_MS), makeCtx());
+  it('hibernates exactly at the 5-minute boundary', () => {
+    const d = shouldHibernate(tab('tab-x', {}, T0 - 5 * 60 * 1000), makeCtx());
     assert.deepStrictEqual(d, { hibernate: true });
   });
 
@@ -113,8 +113,7 @@ describe('shouldHibernate policy', () => {
     assert.deepStrictEqual(d, { hibernate: true });
   });
 
-  it('honours a shorter idleMs seam without touching the 15-minute default', () => {
-    assert.strictEqual(HIBERNATE_IDLE_MS, 15 * 60 * 1000);
+  it('honours a shorter idleMs seam without changing default policy behavior', () => {
     const d = shouldHibernate(tab('tab-x', {}, T0 - 5_000), makeCtx({ idleMs: 1_000 }));
     assert.deepStrictEqual(d, { hibernate: true });
     // Same tab under the default must be refused.
@@ -338,6 +337,26 @@ function createHibernationHost(
   }
   return { host, children, tabs };
 }
+
+describe('hibernation snapshot races', () => {
+  for (const change of ['activation', 'audio'] as const) {
+    it(`preserves a page gaining ${change} while its scroll snapshot is pending`, async () => {
+      const { host, tabs } = createHibernationHost([{ id: 'music', url: 'https://music.youtube.com/' }], 'other');
+      const music = tabs.get('music')!;
+      const snapshot = Promise.withResolvers<unknown>();
+      music.wc.executeJavaScript = () => snapshot.promise;
+      const sleep = host.beginTabHibernation('music');
+      const hostFields = host as unknown as Record<string, unknown>;
+      if (change === 'activation') hostFields.activeTabId = 'music';
+      else music.record.state.isAudible = true;
+      snapshot.resolve({ x: 0, y: 10 });
+      assert.strictEqual(await sleep, false);
+      assert.strictEqual(music.wc.destroyed, false);
+      assert.strictEqual(music.record.view!.webContents, music.wc);
+      assert.notStrictEqual(music.record.state.hibernated, true);
+    });
+  }
+});
 
 describe('host hibernate/wake round-trip', () => {
   it('hibernate destroys the view, the capability funnel wakes it with URL and scroll restored', async () => {

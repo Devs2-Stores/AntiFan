@@ -205,7 +205,7 @@ export class ProjectWindowManager {
             'read them from the hosting tab authority at the close wiring',
         );
       },
-      closeSelf: () => shell.closeSelf(),
+      closeSelf: (force) => shell.closeSelf(force),
       restoreSurvivingLayout: (survivingTabIds) => {
         if (survivingTabIds.length === 0) return;
         const restore = this.options.restoreShellLayout;

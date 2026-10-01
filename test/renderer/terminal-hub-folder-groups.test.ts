@@ -18,7 +18,7 @@
  */
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
-import { loadStandalone, type FakeElement, type StandaloneHarness } from './standalone-harness';
+import { loadStandalone, pickHeaderMenuItem, type FakeElement, type StandaloneHarness } from './standalone-harness';
 
 const flush = async (): Promise<void> => {
   const { promise, resolve } = Promise.withResolvers<void>();
@@ -152,7 +152,7 @@ describe('hub folder grouping', () => {
     );
   });
 
-  it('paints one mint affordance per folder section aimed at that folder', async () => {
+  it('offers a new terminal in the section folder from the header right-click menu', async () => {
     const harness = await loadManagerSidebar();
     harness.api.newTerminalInFolder = async () => ({ ok: true, sessionId: 'fresh', capsuleId: 'cap-x' });
     seed(harness, [
@@ -160,27 +160,27 @@ describe('hub folder grouping', () => {
     ], 't-1');
     harness.renderTabs();
 
-    const mint = folderHeaders(harness)[0]?.querySelector('.terminal-tab-category-mint');
-    assert.ok(mint, 'a folder section carries its own + terminal');
-    mint.dispatch('click');
+    const header = folderHeaders(harness)[0];
+    assert.ok(header, 'the folder section renders');
+    assert.strictEqual(header.querySelectorAll('.terminal-tab-category-mint').length, 0, 'the header carries no inline buttons');
+    pickHeaderMenuItem(harness, header, 'Terminal mới trong thư mục này');
     await flush();
     assert.deepStrictEqual(lastArgs(harness, 'newTerminalInFolder'), ['E:\\Work\\x']);
   });
 
-  it('offers Space on a docked folder header but not in a popout: popout-mode renderers cannot invoke a sidebar-only route', async () => {
+  it('offers Space on a docked folder header menu but not in a popout: popout-mode renderers cannot invoke a sidebar-only route', async () => {
     const row = { id: 't-1', name: 'Terminal 1', state: 'running', ownerKey: 'project:p1', folderKey: 'e:\\work\\x', folderLabel: 'x', folderPath: 'E:\\Work\\x', displayLabel: 'x · 1' };
-    const spaceButton = (harness: StandaloneHarness): FakeElement | undefined =>
-      folderHeaders(harness)[0]?.querySelectorAll('.terminal-tab-category-mint').find((el) => el.textContent === 'Space');
 
     // Docked: the sidebar surface is the one the main-process handler admits.
     const docked = await loadManagerSidebar();
     docked.api.openSpace = async () => ({ ok: true });
     seed(docked, [row], 't-1');
     docked.renderTabs();
-    assert.ok(spaceButton(docked), 'a docked folder header carries its Space button');
+    const dockedLabels = pickHeaderMenuItem(docked, folderHeaders(docked)[0]!, null);
+    assert.ok(dockedLabels.some((label) => label.startsWith('Mở Space')), 'a docked folder header menu carries Space');
 
     // Popout: `antifan:space:open` only admits the sidebar surface, so a renderer that
-    // identifies as a popout must not paint a button guaranteed to be refused.
+    // identifies as a popout must not offer an entry guaranteed to be refused.
     const popout = loadStandalone({ popout: true, contextMenuActions: ['assign-capsule'], initialState: MANAGER_STATE });
     await flush();
     popout.assign("terminalTabLayout = 'sidebar';");
@@ -188,8 +188,75 @@ describe('hub folder grouping', () => {
     seed(popout, [row], 't-1');
     popout.renderTabs();
     assert.ok(folderHeaders(popout)[0], 'the popout still paints the folder section');
-    assert.strictEqual(spaceButton(popout), undefined, 'a popout folder header omits Space');
-    assert.ok(folderHeaders(popout)[0]?.querySelector('.terminal-tab-category-mint'), 'and keeps its + terminal');
+    const popoutLabels = pickHeaderMenuItem(popout, folderHeaders(popout)[0]!, null);
+    assert.strictEqual(popoutLabels.some((label) => label.includes('Space')), false, 'a popout folder header menu omits Space');
+    assert.ok(popoutLabels.some((label) => label.startsWith('Terminal mới')), 'and keeps its new terminal');
+  });
+});
+
+describe('hub idle project sections', () => {
+  const row = (id: string, state: string, folder: string, owner: string) => ({
+    id, name: id, state, ownerKey: `project:${owner}`,
+    folderKey: `e:\\work\\${folder}`, folderLabel: folder, folderPath: `E:\\Work\\${folder}`,
+  });
+  const wrapOf = (harness: StandaloneHarness, id: string) =>
+    harness.tabsRoot.querySelector(`.terminal-tab-wrap[data-session-id="${id}"]`);
+  const headerFor = (harness: StandaloneHarness, id: string) =>
+    folderHeaders(harness).find((h) => (h.querySelector('.terminal-tab-category-label')?.textContent) === id);
+
+  it('keeps a parked row in its project and folds an all-sleeping project to one line', async () => {
+    const harness = await loadManagerSidebar();
+    seed(harness, [row('live', 'running', 'x', 'p1'), row('nap-1', 'sleeping', 'y', 'p2'), row('nap-2', 'sleeping', 'y', 'p2')], 'live');
+    harness.renderTabs();
+
+    assert.strictEqual(
+      harness.tabsRoot.querySelector('.terminal-tab-category-header[data-category="__sleeping__"]'),
+      null,
+      'the manager paints no separate sleep bucket: a project is shown in one place',
+    );
+    const idle = headerFor(harness, 'y');
+    assert.ok(idle, 'the idle project keeps its own section');
+    assert.strictEqual(idle.getAttribute('aria-expanded'), 'false', 'an all-sleeping project starts folded');
+    assert.match(idle.querySelector('.terminal-tab-category-run-counts')?.textContent ?? '', /☾ 2/);
+    assert.strictEqual(wrapOf(harness, 'nap-1')?.classList.contains('is-category-collapsed'), true);
+    assert.strictEqual(headerFor(harness, 'x')?.getAttribute('aria-expanded'), 'true', 'a live project stays open');
+
+    // Opening it is session state only: nothing derived leaks into the persisted folds.
+    idle.dispatch('click');
+    await flush();
+    assert.strictEqual(headerFor(harness, 'y')?.getAttribute('aria-expanded'), 'true');
+    assert.strictEqual(wrapOf(harness, 'nap-1')?.classList.contains('is-category-collapsed'), false);
+    const persisted = lastArgs(harness, 'setTerminalTabPrefs')?.[0] as { collapsedCategories?: string[] } | undefined;
+    assert.ok(!persisted?.collapsedCategories?.length, 'a derived fold is never written to prefs');
+
+    // Once a terminal wakes the section is live; when it sleeps again it folds again.
+    harness.setSessions([row('live', 'running', 'x', 'p1'), row('nap-1', 'running', 'y', 'p2'), row('nap-2', 'sleeping', 'y', 'p2')]);
+    harness.renderTabs();
+    assert.strictEqual(headerFor(harness, 'y')?.getAttribute('aria-expanded'), 'true');
+    harness.setSessions([row('live', 'running', 'x', 'p1'), row('nap-1', 'sleeping', 'y', 'p2'), row('nap-2', 'sleeping', 'y', 'p2')]);
+    harness.renderTabs();
+    assert.strictEqual(headerFor(harness, 'y')?.getAttribute('aria-expanded'), 'false');
+  });
+
+  it('never folds the section holding the active tab', async () => {
+    const harness = await loadManagerSidebar();
+    seed(harness, [row('live', 'running', 'x', 'p1'), row('nap-1', 'sleeping', 'y', 'p2')], 'nap-1');
+    harness.renderTabs();
+    assert.strictEqual(headerFor(harness, 'y')?.getAttribute('aria-expanded'), 'true');
+    assert.strictEqual(wrapOf(harness, 'nap-1')?.classList.contains('is-category-collapsed'), false);
+
+    // A section the user opened by hand, then worked in, folds again once they leave it.
+    harness.setActiveId('live');
+    harness.renderTabs();
+    assert.strictEqual(headerFor(harness, 'y')?.getAttribute('aria-expanded'), 'false', 'leaving the active tab folds it');
+    headerFor(harness, 'y')!.dispatch('click');
+    await flush();
+    assert.strictEqual(headerFor(harness, 'y')?.getAttribute('aria-expanded'), 'true', 'opened by hand');
+    harness.setActiveId('nap-1');
+    harness.renderTabs();
+    harness.setActiveId('live');
+    harness.renderTabs();
+    assert.strictEqual(headerFor(harness, 'y')?.getAttribute('aria-expanded'), 'false', 'no stale hand-open survives the active spell');
   });
 });
 
@@ -286,7 +353,7 @@ describe('hub triage section', () => {
 });
 
 describe('hub run-state surfaces', () => {
-  it('paints the row badge and the folder header tally from pushed run cards', async () => {
+  it('words only the waiting row and tallies both states on the folder header', async () => {
     const harness = await loadManagerSidebar();
     seed(harness, [
       { id: 't-1', name: 'Terminal 1', state: 'running', ownerKey: 'project:p1', folderKey: 'e:\\work\\x', folderLabel: 'x', folderPath: 'E:\\Work\\x', displayLabel: 'x · 1' },
@@ -301,7 +368,7 @@ describe('hub run-state surfaces', () => {
     await flush();
 
     const wrapOf = (id: string) => harness.tabsRoot.querySelector(`.terminal-tab-wrap[data-session-id="${id}"]`);
-    assert.strictEqual(wrapOf('t-1')?.querySelector('.terminal-tab-run-badge')?.textContent, 'đang chạy');
+    assert.strictEqual(wrapOf('t-1')?.querySelector('.terminal-tab-run-badge'), null, 'a running row is told by its icon, not a word');
     assert.strictEqual(wrapOf('t-2')?.querySelector('.terminal-tab-run-badge')?.textContent, 'chờ bạn');
     assert.match(
       wrapOf('t-2')?.querySelector('.terminal-tab-run-badge')?.className ?? '',

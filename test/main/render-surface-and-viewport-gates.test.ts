@@ -43,15 +43,20 @@ interface HostOptions {
   setViewportSize?: (opts: { width: number; height: number; tabId?: string }) => Promise<boolean> | boolean;
   sessionTabList?: () => unknown[];
   adoptReturns?: boolean;
+  /** When set, adoptChildTab throws this error instead of answering. */
+  adoptThrows?: Error;
    evalJs?: (script: string, tabId?: string, paneId?: string, userGesture?: boolean, timeoutMs?: number) => Promise<unknown> | unknown;
   affiliation?: (tabId: string) => { projectId?: string; workspaceId?: string; capsuleId?: string } | undefined;
- }
+  /** Marks tab-b as an OSR (offscreen) agent tab on the host's isTabOffscreen seam. */
+  offscreen?: boolean;
+}
 
 function buildHost(opts: HostOptions) {
   const calls = { capture: 0, close: [] as string[], geometryRestores: 0, eval: 0, drains: 0 };
   const host: Partial<BrowserHostPort> & Record<string, unknown> = {
     hasTab: () => true,
-    getTabList: () => [{ id: 'tab-b' }],
+    getTabList: () => [{ id: 'tab-b', ...(opts.offscreen ? { offscreen: true } : {}) }],
+    isTabOffscreen: (tabId?: string) => (opts.offscreen === true && tabId === 'tab-b'),
     resolveTabAffiliation: (tabId: string) => {
       if (opts.affiliation) return opts.affiliation(tabId);
       return {
@@ -91,7 +96,10 @@ function buildHost(opts: HostOptions) {
       return true;
     },
     createTab: () => 'tab-new',
-    adoptChildTab: () => opts.adoptReturns !== false,
+    adoptChildTab: () => {
+      if (opts.adoptThrows) throw opts.adoptThrows;
+      return opts.adoptReturns !== false;
+    },
     getSessionTabList: opts.sessionTabList,
     evalJs: async (script: string, tabId?: string, paneId?: string, userGesture?: boolean, timeoutMs?: number) => {
       calls.eval++;
@@ -286,10 +294,11 @@ describe('Session-scoped tab listing and adoption', () => {
     });
     const port = new BrowserControlPort(host);
     assert.deepStrictEqual(port.listTabs({ target: TARGET, scope: 'session' }), []);
-    // The whole-window listing is an explicit request, not a fallback.
-    assert.deepStrictEqual(port.listTabs({}), [{ id: 'tab-b' }]);
+    // There is no anonymous whole-window listing: a request with no bound target
+    // has no project scope to measure against, so it lists nothing rather than
+    // leaking the user's strip to a routed session.
+    assert.deepStrictEqual(port.listTabs({}), []);
   });
-
   it('closes and fails a tab the session cannot adopt instead of leaking it', () => {
     const { host, calls } = buildHost({ adoptReturns: false });
     const port = new BrowserControlPort(host);
@@ -307,6 +316,19 @@ describe('Session-scoped tab listing and adoption', () => {
     assert.strictEqual(refusal?.details?.used, 1, 'the refusal reports the tab the session actually owns');
     assert.strictEqual(refusal?.details?.limit, SESSION_TAB_LIMIT);
     assert.deepStrictEqual(calls.close, ['tab-new'], 'the unadoptable tab must be closed');
+  });
+
+  it('closes the fresh child and rethrows the original error when adopt races a dead anchor', () => {
+    // The anchor can die between assertAnchorTabLive and adoptChildTab; the
+    // thrown TARGET_STALE must still close the minted tab instead of leaking it.
+    const raceError = new CapabilityError('TARGET_STALE', 'anchor died mid-adopt');
+    const { host, calls } = buildHost({ adoptThrows: raceError });
+    const port = new BrowserControlPort(host);
+    assert.throws(
+      () => port.openTab({ url: 'about:blank' }, { target: TARGET }),
+      (err: unknown) => err === raceError
+    );
+    assert.deepStrictEqual(calls.close, ['tab-new'], 'a tab orphaned by the adopt race must be closed');
   });
 });
 
@@ -532,5 +554,42 @@ describe('Eval execution guard ceiling', () => {
     await devTools.evalJs('1 + 1', 'tab-b', 'desktop');
     const [script = ''] = scripts;
     assert.match(script, /execBudgetMs = 15000;/, 'an unbounded caller still gets the requestAnimationFrame-freeze guard');
+  });
+});
+describe('Offscreen (OSR) agent tab layout viewport', () => {
+  it('get_viewport reports the OSR surface geometry without a window-attached view', async () => {
+    // The minted Emulation override gives an OSR tab a real layout viewport, so
+    // the probe answers with real geometry even though nothing ever attaches.
+    const { host } = buildHost({ offscreen: true, surface: { vw: 1280, vh: 710 } });
+    const port = new BrowserControlPort(host);
+    const reading = await port.getViewport({ tabId: 'tab-b' });
+    assert.strictEqual(reading.width, 1280);
+    assert.strictEqual(reading.height, 710);
+    assert.strictEqual(reading.cause, undefined, 'a measured OSR surface is not a no-surface finding');
+    assert.strictEqual(reading.probeError, undefined);
+    assert.strictEqual(reading.attached, false, 'an OSR surface is window-independent; the view is never attached');
+  });
+
+  it('set_viewport verifies against the OSR surface and resolves the requested size', async () => {
+    const { host } = buildHost({ offscreen: true, surface: { vw: 390, vh: 844 } });
+    const port = new BrowserControlPort(host);
+    const res = await port.setViewport({ width: 390, height: 844, mobile: true, tabId: 'tab-b' });
+    assert.strictEqual(res.verified, true);
+    assert.strictEqual(res.observedWidth, 390);
+    assert.strictEqual(res.observedHeight, 844);
+  });
+
+  it('a 0x0 OSR surface is still refused as NO_RENDER_SURFACE, named as an offscreen raster source', async () => {
+    const { host } = buildHost({ offscreen: true, surface: { vw: 0, vh: 0 } });
+    const port = new BrowserControlPort(host);
+    await assert.rejects(
+      () => port.screenshot(TARGET, 'run-1', 'attempt-1', 'tab-b', 'desktop'),
+      (err: unknown) => {
+        assert.ok(err instanceof CapabilityError);
+        assert.strictEqual(err.code, 'NO_RENDER_SURFACE');
+        assert.match(err.message, /offscreen/, 'the refusal must name the offscreen raster source, not imply a window attach fixes it');
+        return true;
+      }
+    );
   });
 });

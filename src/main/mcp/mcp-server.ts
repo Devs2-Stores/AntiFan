@@ -94,15 +94,24 @@ export class AntiFanMcpServer {
           type: 'object',
           properties: {
             url: { type: 'string', description: 'URL to navigate to' },
+            activate: { type: 'boolean', description: 'Activate the new tab visibly instead of opening it in the background' },
+            anchorTabId: { type: 'string', description: 'Live same-project tab selecting the window for creation' },
+            ephemeral: { type: 'boolean', description: 'Agent-plane tab excluded from the user tab strip' },
+            offscreen: { type: 'boolean', description: 'Agent-plane tab that renders without foregrounding the visible surface' },
+            projectId: { type: 'string', description: 'Scope selector: must equal this session\'s authenticated projectId. A foreign or unbound selector is refused before allocation; it never widens authority.' },
           },
         },
       },
       {
         name: 'antifan_list_tabs',
-        description: 'List all open Chromium browser tabs with their IDs, titles, and URLs',
+        description: 'List Chromium tabs in this session\'s project scope; pass all: true for global GUI discovery with per-row affiliated flags',
         inputSchema: {
           type: 'object',
-          properties: {},
+          properties: {
+            all: { type: 'boolean', default: false, description: 'Pass true for global GUI discovery: every tab in the window is listed and each row carries affiliated. Default lists only this session\'s project scope.' },
+            affiliatedOnly: { type: 'boolean', default: false, description: 'Restrict the returned rows to tabs measuring into this session\'s project/workspace.' },
+            projectId: { type: 'string', description: 'Scope selector: must equal this session\'s authenticated projectId. A foreign or unbound selector is refused; it can never widen authority.' },
+          },
         },
       },
       {
@@ -473,7 +482,7 @@ export class AntiFanMcpServer {
             severity: { type: 'string', enum: ['P0', 'P1', 'P2', 'P3'], description: 'Issue severity' },
             errorCode: { type: 'string', description: 'Error code if available' },
             targetUrl: { type: 'string', description: 'URL where issue occurred' },
-            tabId: { type: 'string', description: 'Tab ID or alias' },
+            tabId: { type: 'string', description: 'Actual browser tab ID' },
             workaroundApplied: { type: 'string', description: 'Description of workaround applied to continue work' },
             notes: { type: 'string', description: 'Optional extra context' },
           },
@@ -486,7 +495,7 @@ export class AntiFanMcpServer {
         inputSchema: {
           type: 'object',
           properties: {
-            tabId: { type: 'string', description: 'Tab ID or alias (e.g. "@feedback")' },
+            tabId: { type: 'string', description: 'Actual Google Sheets tab ID (defaults to the bound tab)' },
             row: { type: 'number', description: '1-indexed target row number (e.g. 34)' },
             gid: { type: 'string', description: 'Optional sheet GID override' },
           },
@@ -718,7 +727,15 @@ export class AntiFanMcpServer {
 
     const transportArgs = { ...a };
     delete transportArgs.context;
-    delete transportArgs.projectId;
+    // projectId is stripped for every tool EXCEPT the ones that expose it as a
+    // fail-closed scope selector: tabs.list and tabs.create. Their execute
+    // contracts require the declared selector to equal the authenticated target
+    // scope and refuse it otherwise, so forwarding it can never widen authority.
+    // Everywhere else the strip stands — caller-supplied scope fields never
+    // reach a capability.
+    if (name !== 'antifan_list_tabs' && name !== 'browser.list-tabs' && name !== 'antifan_open_tab' && name !== 'browser.open-tab' && name !== 'anti.browser.tabs.create' && name !== 'anti.browser.tabs.list') {
+      delete transportArgs.projectId;
+    }
     delete transportArgs.workspaceId;
     delete transportArgs.idempotencyKey;
     delete transportArgs.callerRequestId;

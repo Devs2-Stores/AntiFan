@@ -36,8 +36,9 @@
  * - Browser shells are counted from the injected surface list, never from
  *   `BrowserWindow.getAllWindows`: capture hosts and terminal popouts are auxiliary
  *   surfaces — outside a shell snapshot, inside application-scope busy checks.
- * - No force override exists anywhere in this module, and a refused attempt never
- *   destroys a page, a shell or a service.
+ * - Only explicit window force-close bypasses live-use and unload protections. It is scoped
+ *   to the sender's own shell, so foreign owner ownership and late arrivals still refuse;
+ *   normal refused attempts never destroy a page, shell or service.
  * - Reservations are released on every terminal path (refusal, veto, failure, success);
  *   no lock is held across an await, so page-unload interaction never blocks another
  *   shell's close.
@@ -193,7 +194,7 @@ export interface CloseSurface {
    * coordinator calls no second dispose hook. See the module header for the observer
    * and veto rules this implementation owns.
    */
-  closeSelf(): Promise<SurfaceCloseOutcome>;
+  closeSelf(force?: boolean): Promise<SurfaceCloseOutcome>;
   /**
    * Re-present the surviving active page inside this shell after a partial close.
    * MUST NOT raise or focus a window. Never called with an empty survivor set.
@@ -211,7 +212,7 @@ export interface ProjectCloseCoordinatorDeps {
   /** Presentation owner of a page (`ownerKey` of the `WindowOwner`), undefined when unowned. */
   ownerOfPage(tabId: string): string | undefined;
   /** Exact-instance unload-aware close of one page. See the module header. */
-  closePage(tabId: string): Promise<PageCloseOutcome>;
+  closePage(tabId: string, force?: boolean): Promise<PageCloseOutcome>;
   /** Authoritative live-use evidence. A throw, absence or malformed answer is UNKNOWN. */
   queryLiveUse(request: LiveUseRequest): LiveUseReport | Promise<LiveUseReport>;
   /**
@@ -572,6 +573,7 @@ export class ProjectCloseCoordinator {
   private readonly deps: ProjectCloseCoordinatorDeps;
   private readonly pageAttempts = new Map<string, AttemptHandle<CloseReport>>();
   private applicationAttempt: AttemptHandle<QuitReport> | null = null;
+  private readonly forceRequests = new Map<string, Promise<CloseReport>>();
   private readonly phaseByOwner = new Map<string, ClosePhase>();
   private applicationState: ClosePhase = 'open';
   private committedShutdown = false;
@@ -671,6 +673,31 @@ export class ProjectCloseCoordinator {
     return this.startShellAttempt(key, intent);
   }
 
+  /** Serialize an explicit force request behind any active close; never race teardown. */
+  public forceClose(ownerKey: string): Promise<CloseReport> {
+    const key = typeof ownerKey === 'string' ? ownerKey.trim() : '';
+    if (!key) throw new Error('forceClose requires a non-empty owner key');
+    const existing = this.forceRequests.get(key);
+    if (existing) return existing;
+    const pending = this.applicationAttempt?.settled ?? this.pageAttempts.get(key)?.settled;
+    if (pending) pending.catch(() => {});
+    const request = Promise.resolve(pending).then(() => {
+      if (this.applicationAttempt || this.pageAttempts.has(key)) return this.forceCloseAfterActive(key);
+      return this.startShellAttempt(key, 'user', true);
+    }).finally(() => {
+      if (this.forceRequests.get(key) === request) this.forceRequests.delete(key);
+    });
+    this.forceRequests.set(key, request);
+    return request;
+  }
+
+  private async forceCloseAfterActive(key: string): Promise<CloseReport> {
+    while (this.applicationAttempt || this.pageAttempts.has(key)) {
+      await (this.applicationAttempt?.settled ?? this.pageAttempts.get(key)?.settled);
+    }
+    return this.startShellAttempt(key, 'user', true);
+  }
+
   /**
    * Ordered application quit: reserve application admission, check every shared-work
    * owner, close each browser shell and then each auxiliary surface, and only after all
@@ -690,7 +717,7 @@ export class ProjectCloseCoordinator {
     return this.startApplicationAttempt();
   }
 
-  private startShellAttempt(ownerKey: string, intent: CloseIntent): Promise<CloseReport> {
+  private startShellAttempt(ownerKey: string, intent: CloseIntent, force = false): Promise<CloseReport> {
     const deferred = Promise.withResolvers<CloseReport>();
     const handle: AttemptHandle<CloseReport> = {
       id: this.nextAttemptId++,
@@ -700,7 +727,7 @@ export class ProjectCloseCoordinator {
       fail: deferred.reject,
     };
     this.pageAttempts.set(ownerKey, handle);
-    void this.runClose(ownerKey, intent, handle.id).then(
+    void this.runClose(ownerKey, intent, handle.id, force).then(
       (report) => {
         report.coalescedRequests = handle.coalesced;
         report.coalesced = handle.coalesced > 0;
@@ -744,7 +771,7 @@ export class ProjectCloseCoordinator {
     return handle.settled;
   }
 
-  private async runClose(ownerKey: string, intent: CloseIntent, attemptId: number): Promise<CloseReport> {
+  private async runClose(ownerKey: string, intent: CloseIntent, attemptId: number, force = false): Promise<CloseReport> {
     const closed: PageOutcome[] = [];
     const skipped: PageOutcome[] = [];
     const failed: PageOutcome[] = [];
@@ -804,8 +831,8 @@ export class ProjectCloseCoordinator {
       // auxiliaries stay outside the shell snapshot but inside that scope.
       const surfaces = this.readSurfaces();
       const lastBrowserShell =
-        surface.kind === 'browser' && surfaces.filter((entry) => entry.kind === 'browser').length <= 1;
-      const shellEvidence = await this.readLiveUse({
+        !force && surface.kind === 'browser' && surfaces.filter((entry) => entry.kind === 'browser').length <= 1;
+      const shellEvidence = force ? { state: 'idle' as const, reasons: [] } : await this.readLiveUse({
         scope: lastBrowserShell ? 'application' : 'shell',
         ownerKey,
         pageIds: members,
@@ -860,7 +887,7 @@ export class ProjectCloseCoordinator {
           skipped.push({ tabId, outcome: 'skipped', reason: 'ownership-changed', attempted: false });
           break;
         }
-        const pageEvidence = await this.readLiveUse({
+        const pageEvidence = force ? { state: 'idle' as const, reasons: [] } : await this.readLiveUse({
           scope: 'page',
           ownerKey,
           pageIds: [tabId],
@@ -889,7 +916,7 @@ export class ProjectCloseCoordinator {
         let failureDetail = '';
         let pageCloseTimedOut = false;
         try {
-          const answer = await this.awaitInjectedAnswer(this.deps.closePage(tabId));
+          const answer = await this.awaitInjectedAnswer(this.deps.closePage(tabId, force));
           if (answer.answered) {
             outcome = answer.value;
           } else {
@@ -975,7 +1002,7 @@ export class ProjectCloseCoordinator {
         // the process-wide count too, so a later arrival from any window still halts it.
         const ownerInFlight = this.readOwnerInFlight(ownerKey);
         const applicationInFlight = lastBrowserShell ? this.readApplicationInFlight() : 0;
-        if (ownerInFlight > 0 || applicationInFlight > 0) {
+        if (!force && (ownerInFlight > 0 || applicationInFlight > 0)) {
           haltedBy = 'busy';
           refusals.push(
             makeRefusal(
@@ -1000,7 +1027,7 @@ export class ProjectCloseCoordinator {
       }
 
       // Every snapshot member is gone and nothing arrived: the shell itself may close.
-      const shellClose = await this.closeSurfaceSelf(surface);
+      const shellClose = await this.closeSurfaceSelf(surface, force);
       const shellOutcome = shellClose.outcome;
       surfaceOutcome = { key: surface.key, kind: surface.kind, outcome: shellOutcome };
       if (shellClose.timedOut) {
@@ -1335,11 +1362,11 @@ export class ProjectCloseCoordinator {
    * surface: the bound never destroys anything, it only stops waiting.
    */
   private async closeSurfaceSelf(
-    surface: CloseSurface
+    surface: CloseSurface, force = false
   ): Promise<{ outcome: SurfaceOutcomeKind; timedOut: boolean }> {
     let answer: BoundedAnswer<SurfaceCloseOutcome>;
     try {
-      answer = await this.awaitInjectedAnswer(surface.closeSelf());
+      answer = await this.awaitInjectedAnswer(surface.closeSelf(force));
     } catch {
       return { outcome: 'failed', timedOut: false };
     }

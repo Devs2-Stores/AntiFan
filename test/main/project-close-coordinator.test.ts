@@ -35,10 +35,14 @@ function settle(): Promise<void> {
  */
 const NEVER: Promise<never> = new Promise<never>(() => {});
 
+/** Small enough to prove the bound quickly, large enough to survive scheduler jitter. */
+const BOUND_MS = 60;
+
 class FakeSurface implements CloseSurface {
   public readonly memberIds: string[];
   public closeSelfCalls = 0;
   public readonly restoreCalls: string[][] = [];
+  public forcedCloseSelfCalls = 0;
   public closeSelfOutcome: SurfaceCloseOutcome | 'throw' = 'closed';
   /** Set only when a closeSelf actually resolved 'closed'; the outcome may be re-scripted between attempts. */
   public destroyed = false;
@@ -59,9 +63,9 @@ class FakeSurface implements CloseSurface {
     return [...this.memberIds];
   }
 
-  public async closeSelf(): Promise<SurfaceCloseOutcome> {
+  public async closeSelf(force = false): Promise<SurfaceCloseOutcome> {
     this.closeSelfCalls += 1;
-    this.onCloseSelf?.();
+    if (force) this.forcedCloseSelfCalls += 1;
     if (this.hangCloseSelf) return NEVER;
     if (this.closeSelfOutcome === 'throw') throw new Error(`${this.key} native close exploded`);
     if (this.closeSelfOutcome === 'closed') {
@@ -129,6 +133,7 @@ function buildHarness(options: HarnessOptions = {}) {
   const liveUseRequests: LiveUseRequest[] = [];
   const pageCloseCalls: string[] = [];
   const reservedAtPageClose: boolean[] = [];
+  const forcedPageCloseCalls: string[] = [];
   const events: string[] = [];
   let commitCalls = 0;
 
@@ -143,8 +148,9 @@ function buildHarness(options: HarnessOptions = {}) {
       const host = surfaces.find((surface) => !surface.gone && surface.memberIds.includes(tabId));
       return host?.key;
     },
-    closePage: async (tabId) => {
+    closePage: async (tabId, force) => {
       pageCloseCalls.push(tabId);
+      if (force) forcedPageCloseCalls.push(tabId);
       reservedAtPageClose.push(reservations.isPageReserved(tabId));
       events.push(`page:${tabId}`);
       if (options.hangPageClose?.includes(tabId)) return NEVER;
@@ -180,6 +186,7 @@ function buildHarness(options: HarnessOptions = {}) {
     admission: new FakeAdmissionConsumer(reservations),
     liveUseRequests,
     pageCloseCalls,
+    forcedPageCloseCalls,
     reservedAtPageClose,
     ownerOverrides,
     events,
@@ -954,8 +961,6 @@ describe('ProjectCloseCoordinator — application quit', () => {
  * unbounded wait holds application admission closed and makes the app unquittable.
  */
 describe('ProjectCloseCoordinator — an answer that never comes', () => {
-  /** Small enough to prove the bound quickly, large enough to survive scheduler jitter. */
-  const BOUND_MS = 60;
 
   it('reports unknown, retains the shell and frees the reservations when a page close never answers', async () => {
     const surface = new FakeSurface('project:A', 'browser', ['t1', 't2']);
@@ -1059,5 +1064,86 @@ describe('ProjectCloseCoordinator — an answer that never comes', () => {
     assert.equal(surface.closeSelfCalls, 0);
     assert.deepEqual(surface.memberIds, ['t1']);
     assert.deepEqual(harness.reservations.snapshot().reservedTabIds, [], 'reservations must be released');
+  });
+});
+
+describe('ProjectCloseCoordinator — explicit force close', () => {
+  it('keeps a refused normal close safe; force destroys only after explicit request', async () => {
+    const shell = new FakeSurface('project:A', 'browser', ['t1']);
+    const sibling = new FakeSurface('project:B', 'browser', ['s1']);
+    const harness = buildHarness({
+      surfaces: [shell, sibling],
+      liveUse: () => ({ state: 'busy', reasons: [{ category: 'run-active', detail: 'agent run active' }] }),
+      pageOutcomes: { t1: 'vetoed' },
+    });
+
+    const normal = await harness.coordinator.attemptClose('project:A', 'user');
+    assert.equal(normal.disposition, 'retained');
+    assert.equal(normal.haltedBy, 'busy');
+    assert.equal(harness.pageCloseCalls.length, 0, 'busy normal close must not touch pages');
+
+    const forced = await harness.coordinator.forceClose('project:A');
+    assert.equal(forced.disposition, 'closed');
+    assert.equal(forced.haltedBy, null);
+    assert.deepEqual(harness.forcedPageCloseCalls, ['t1'], 'force bypasses live-use and unload for its own members');
+    assert.equal(shell.closeSelfCalls, 1);
+    assert.equal(shell.forcedCloseSelfCalls, 1, 'shell gets explicit native force only');
+    assert.equal(shell.gone, true);
+    assert.equal(sibling.gone, false, 'a force closes the requested shell, never siblings');
+    assert.equal(harness.commitCount(), 0, 'a window force is not application quit');
+  });
+
+  it('serializes force behind an in-flight close instead of double-tearing a page', async () => {
+    const shell = new FakeSurface('project:A', 'browser', ['t1']);
+    const harness = buildHarness({
+      surfaces: [shell],
+      liveUse: () => ({ state: 'busy', reasons: [{ category: 'run-active', detail: 'run' }] }),
+      outcomeDeadlineMs: BOUND_MS,
+    });
+
+    const first = harness.coordinator.attemptClose('project:A', 'user');
+    await settle();
+    const forced = harness.coordinator.forceClose('project:A');
+    const firstReport = await first;
+    const forcedReport = await forced;
+    assert.equal(firstReport.disposition, 'retained');
+    assert.equal(forcedReport.disposition, 'closed');
+    assert.equal(harness.pageCloseCalls.length, 1);
+    assert.equal(harness.forcedPageCloseCalls.length, 1);
+  });
+
+  it('coalesces concurrent explicit force requests into one teardown', async () => {
+    const shell = new FakeSurface('project:A', 'browser', ['t1']);
+    const harness = buildHarness({ surfaces: [shell] });
+    const [a, b] = await Promise.all([
+      harness.coordinator.forceClose('project:A'),
+      harness.coordinator.forceClose('project:A'),
+    ]);
+    assert.equal(a.disposition, 'closed');
+    assert.equal(b.disposition, 'closed');
+    assert.equal(shell.closeSelfCalls, 1, 'the two explicit requests share one destructive attempt');
+    assert.equal(harness.forcedPageCloseCalls.length, 1);
+  });
+
+  it('never lets a renderer-supplied owner retarget the authorization contract', async () => {
+    const shell = new FakeSurface('project:A', 'browser', ['t1']);
+    const harness = buildHarness({ surfaces: [shell] });
+    await assert.rejects(harness.coordinator.forceClose('  '), /non-empty owner key/);
+    const report = await harness.coordinator.forceClose('project:B');
+    assert.equal(report.disposition, 'retained');
+    assert.equal(report.haltedBy, 'surface-missing');
+    assert.equal(shell.gone, false, 'a named foreign owner cannot reach this shell');
+    assert.equal(harness.pageCloseCalls.length, 0);
+  });
+
+  it('reports an unknown shell destroy outcome without claiming the window closed', async () => {
+    const shell = new FakeSurface('project:A', 'browser', ['t1']);
+    shell.hangCloseSelf = true;
+    const harness = buildHarness({ surfaces: [shell], outcomeDeadlineMs: BOUND_MS });
+    const report = await harness.coordinator.forceClose('project:A');
+    assert.equal(report.disposition, 'retained');
+    assert.equal(report.haltedBy, 'unknown-outcome');
+    assert.equal(report.surface?.outcome, 'unknown');
+    assert.equal(shell.gone, false);
   });
 });

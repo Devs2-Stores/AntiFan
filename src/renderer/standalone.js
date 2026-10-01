@@ -36,10 +36,8 @@ const shellScope = {
 };
 let shellScopeChip = null;
 let shellScopeTitleEl = null;
-let shellScopePathEl = null;
-let shellScopeStatusEl = null;
-let shellScopeOpenProjectBtn = null;
-let shellScopeStatusTimer = null;
+// The `+` menu is built after the header logic runs; its `const`s are unreadable until then.
+let newMenuBuilt = false;
 
 /**
  * Read the identity and workspace Main reported for this shell into `shellScope` and
@@ -107,13 +105,16 @@ function applyShellScope(source) {
  */
 function shellScopeActionPlan(scope) {
   const described = Boolean(scope && scope.ownerKind);
-  return { chipVisible: described, openProjectVisible: described };
+  // The shared manager belongs to no single project, so a label there would only say
+  // "everything"; the chip exists to name one project.
+  return { chipVisible: described && scope.ownerKind !== 'unassigned', openProjectVisible: described };
 }
 
 /**
- * The header chip names the shell's project and offers the explicit Open Project action in
- * every described shell: the project is this window's own, and the action opens another one
- * in its own window with its own tabs and terminals.
+ * The header chip is a read-only label: it names what this window shows (its project, or
+ * "Tất cả dự án" for the shared manager). It carries no action - "Mở dự án…" lives in the
+ * strip's `+` menu next to the other create actions, so a user finds every "add something"
+ * control in one place.
  */
 function renderShellScopeChip() {
   const heading = document.querySelector('header .heading') || document.querySelector('.standalone header');
@@ -124,50 +125,35 @@ function renderShellScopeChip() {
     shellScopeChip.className = 'shell-scope-chip';
     shellScopeChip.setAttribute('role', 'group');
     shellScopeChip.setAttribute('aria-label', 'Dự án của cửa sổ này');
-    shellScopeChip.setAttribute('style', 'display:flex;align-items:center;gap:5px;margin-left:10px;height:20px;max-width:230px;padding:0 7px;border-radius:6px;background:rgba(56,189,248,0.10);border:1px solid rgba(56,189,248,0.35);font-size:10px;color:#e2e8f0;overflow:hidden;white-space:nowrap;');
+    shellScopeChip.setAttribute('style', 'display:flex;align-items:center;margin-left:10px;height:20px;max-width:230px;padding:0 9px;border-radius:10px;background:rgba(148,163,184,0.10);font-size:11px;color:#cbd5e1;overflow:hidden;white-space:nowrap;');
     shellScopeTitleEl = document.createElement('span');
     shellScopeTitleEl.id = 'shellScopeTitle';
     shellScopeTitleEl.setAttribute('style', 'font-weight:600;overflow:hidden;text-overflow:ellipsis;');
-    shellScopePathEl = document.createElement('span');
-    shellScopePathEl.id = 'shellScopePath';
-    shellScopePathEl.setAttribute('style', 'color:#64748b;overflow:hidden;text-overflow:ellipsis;max-width:110px;');
-    shellScopeStatusEl = document.createElement('span');
-    shellScopeStatusEl.id = 'shellScopeStatus';
-    shellScopeStatusEl.setAttribute('role', 'status');
-    shellScopeStatusEl.setAttribute('aria-live', 'polite');
-    shellScopeStatusEl.setAttribute('style', 'overflow:hidden;text-overflow:ellipsis;max-width:150px;');
-    shellScopeOpenProjectBtn = document.createElement('button');
-    shellScopeOpenProjectBtn.id = 'btnOpenProject';
-    shellScopeOpenProjectBtn.type = 'button';
-    shellScopeOpenProjectBtn.textContent = 'Mở dự án…';
-    shellScopeOpenProjectBtn.setAttribute('title', 'Mở một dự án trong cửa sổ riêng');
-    shellScopeOpenProjectBtn.setAttribute('style', 'height:16px;padding:0 6px;border-radius:5px;border:1px solid rgba(148,163,184,0.5);background:transparent;color:#cbd5e1;font-size:10px;cursor:pointer;');
-    shellScopeOpenProjectBtn.addEventListener('click', () => { void openProjectFromScope(); });
     shellScopeChip.appendChild(shellScopeTitleEl);
-    shellScopeChip.appendChild(shellScopePathEl);
-    shellScopeChip.appendChild(shellScopeStatusEl);
-    shellScopeChip.appendChild(shellScopeOpenProjectBtn);
     heading.appendChild(shellScopeChip);
   }
 
   const plan = shellScopeActionPlan(shellScope);
   if (!plan.chipVisible) {
-    // Main has not described this shell: showing "Unassigned" here would be this
-    // renderer naming a project state it cannot see.
+    // Either Main has not described this shell (showing "Unassigned" would be this renderer
+    // naming a state it cannot see) or it is the shared manager, which needs no label.
     shellScopeChip.style.display = 'none';
     shellScopeChip.removeAttribute('title');
-    if (shellScopeOpenProjectBtn) shellScopeOpenProjectBtn.style.display = 'none';
+    if (newMenuBuilt) {
+      btnOpenProject.style.display = plan.openProjectVisible ? 'flex' : 'none';
+      syncNewMenuToggle();
+    }
     return;
   }
 
   const title = shellScope.title || (shellScope.ownerKind === 'project' ? shellScope.projectId : 'Unassigned');
   shellScopeChip.style.display = 'flex';
-  shellScopeChip.classList.toggle('unassigned', shellScope.ownerKind === 'unassigned');
+  shellScopeChip.classList.remove('unassigned');
   shellScopeChip.title = shellScope.pathLabel ? `${title} — ${shellScope.pathLabel}` : title;
   shellScopeTitleEl.textContent = title;
-  shellScopePathEl.textContent = shellScope.pathLabel || '';
-  if (shellScopeOpenProjectBtn) {
-    shellScopeOpenProjectBtn.style.display = plan.openProjectVisible ? 'inline-flex' : 'none';
+  if (newMenuBuilt) {
+    btnOpenProject.style.display = plan.openProjectVisible ? 'flex' : 'none';
+    syncNewMenuToggle();
   }
 }
 
@@ -209,18 +195,12 @@ function projectOpenFailureText(reason) {
 }
 
 /**
- * Show the last Open Project outcome inside the chip itself. The header is the only
- * surface this renderer owns, and a failed open that reported nowhere would look
- * exactly like a click that did nothing.
+ * Report the last Open Project outcome through the panel's own notice. The chip is hidden
+ * for a shell Main has not described, so an outcome painted there could be invisible; the
+ * notice exists whatever the header knows.
  */
 function reportShellScope(message, isError) {
-  if (!shellScopeStatusEl) return;
-  shellScopeStatusEl.textContent = message;
-  shellScopeStatusEl.style.color = isError ? '#f87171' : '#86efac';
-  clearTimeout(shellScopeStatusTimer);
-  shellScopeStatusTimer = setTimeout(() => {
-    shellScopeStatusEl.textContent = '';
-  }, 6000);
+  showTerminalNotice(message, isError ? 'error' : 'success');
 }
 
 let terminalNoticeEl = null;
@@ -503,9 +483,10 @@ async function createTerminal() {
     return;
   }
   try {
-    // Explicit cwd: Main must not fall back to one global current workspace, or a terminal
-    // started in this window can land in another project's directory.
-    await api.newTerminal(shellScope.workspacePath || undefined);
+    // No cwd: Main resolves the folder from this window's current project, the same moment it
+    // picks the capsule and owner. The shell scope here is a boot-time snapshot, so sending its
+    // path would open a new project's terminal in the folder the window booted with.
+    await api.newTerminal();
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     showTerminalNotice(`Không tạo được Terminal: ${message}`);
@@ -594,6 +575,7 @@ function persistTerminalTabPrefs() {
       categories: terminalCategories.slice(),
       categoryColors: Object.assign({}, categoryColors),
       starredCategories: Array.from(starredCategories),
+      projectOrder: projectOrder.slice(),
     });
     if (result && typeof result.then === 'function') {
       result
@@ -615,6 +597,10 @@ function persistTerminalTabPrefs() {
             }
             if (Array.isArray(applied.starredCategories)) {
               applyStarredCategories(applied.starredCategories);
+              if (typeof renderTabs === 'function') renderTabs();
+            }
+            if (Array.isArray(applied.projectOrder)) {
+              applyProjectOrder(applied.projectOrder);
               if (typeof renderTabs === 'function') renderTabs();
             }
             applyTerminalTabLayout(applied.layout, applied.sidebarWidth);
@@ -779,6 +765,20 @@ const categoryHeaders = new Map();
 const categoryOrder = [];
 const collapsedCategories = new Set();
 /**
+ * Manager-only derived collapse. A project section whose every row is asleep folds to its
+ * header on its own; it is not a user choice, so it is never persisted. `idleGroupKeys` is
+ * recomputed on every render from the unfiltered groups; `expandedIdleGroups` holds the
+ * idle sections the user opened in this session and is pruned the moment a section wakes,
+ * so a project that falls asleep again folds again.
+ */
+const idleGroupKeys = new Set();
+const expandedIdleGroups = new Set();
+
+function isGroupCollapsed(key) {
+  if (tabSearchActive) return false;
+  return collapsedCategories.has(key) || (idleGroupKeys.has(key) && !expandedIdleGroups.has(key));
+}
+/**
  * Session id of the tab currently being dragged, or null. A group header only
  * claims a drop while a real tab drag is in flight, so an unrelated drag (a file,
  * a link, a text selection) can never be read as a category assignment.
@@ -867,6 +867,61 @@ window.addEventListener('pointercancel', () => {
   if (tabsEl) tabsEl.querySelectorAll('.drag-over').forEach((el) => el.classList.remove('drag-over'));
 });
 
+let pointerProjectDrag = null;
+/** True for the one click event that follows a finished project drag. */
+let swallowHeaderClick = false;
+
+function clearProjectDropMarks() {
+  if (!tabsEl) return;
+  tabsEl.querySelectorAll('.project-drop-before, .project-drop-after').forEach((el) => {
+    el.classList.remove('project-drop-before', 'project-drop-after');
+  });
+}
+
+function projectDropTarget(drag, e) {
+  const hit = document.elementFromPoint(e.clientX, e.clientY);
+  const header = hit && hit.closest ? hit.closest('.terminal-tab-category-header.is-project-draggable') : null;
+  if (!header || header === drag.header) return null;
+  const rect = header.getBoundingClientRect();
+  return { header, after: e.clientY > rect.top + rect.height / 2 };
+}
+
+function endProjectDrag(drag) {
+  pointerProjectDrag = null;
+  drag.header.classList.remove('is-project-dragging');
+  document.body.classList.remove('is-project-dragging');
+  clearProjectDropMarks();
+}
+
+window.addEventListener('pointermove', (e) => {
+  const drag = pointerProjectDrag;
+  if (!drag || drag.pointerId !== e.pointerId) return;
+  if (!drag.active) {
+    const dx = e.clientX - drag.startX;
+    const dy = e.clientY - drag.startY;
+    if (dx * dx + dy * dy < 16) return;
+    drag.active = true;
+    drag.header.classList.add('is-project-dragging');
+    document.body.classList.add('is-project-dragging');
+  }
+  clearProjectDropMarks();
+  const target = projectDropTarget(drag, e);
+  if (target) target.header.classList.add(target.after ? 'project-drop-after' : 'project-drop-before');
+});
+window.addEventListener('pointerup', (e) => {
+  const drag = pointerProjectDrag;
+  if (!drag || drag.pointerId !== e.pointerId) return;
+  const target = drag.active ? projectDropTarget(drag, e) : null;
+  endProjectDrag(drag);
+  if (!drag.active) return;
+  swallowHeaderClick = true;
+  setTimeout(() => { swallowHeaderClick = false; }, 0);
+  if (target) moveProjectGroup(drag.key, target.header.getAttribute('data-category') || '', target.after);
+});
+window.addEventListener('pointercancel', () => {
+  if (pointerProjectDrag) endProjectDrag(pointerProjectDrag);
+});
+
 
 
 function findSession(sessionId) {
@@ -945,6 +1000,69 @@ function groupKeyOf(session, keyBySessionId) {
 let categoryColors = Object.create(null);
 /** Categories the user marked with `*`. A marker only — `terminalCategories` orders. */
 let starredCategories = new Set();
+/**
+ * Project ids in the order the user dragged the manager's project sections into.
+ * Persisted by Main with the other tab prefs; a project missing from it keeps its
+ * first-appearance slot after the ordered ones.
+ */
+let projectOrder = [];
+
+/** Replace the project order with the value main persisted or echoed back. */
+function applyProjectOrder(list) {
+  projectOrder = Array.isArray(list) ? list.filter((entry) => typeof entry === 'string' && entry) : [];
+}
+
+/** Re-sort the project slots of `categoryOrder` by `projectOrder`; other keys keep their slots. */
+function applyStoredProjectOrder() {
+  if (!projectOrder.length) return;
+  const slots = [];
+  const keys = [];
+  categoryOrder.forEach((key, index) => {
+    if (isProjectGroupKey(key)) { slots.push(index); keys.push(key); }
+  });
+  const rank = (key) => {
+    const i = projectOrder.indexOf(key.slice(PROJECT_GROUP_PREFIX.length));
+    return i === -1 ? Number.MAX_SAFE_INTEGER : i;
+  };
+  const sorted = keys
+    .map((key, i) => ({ key, i }))
+    .sort((a, b) => (rank(a.key) - rank(b.key)) || (a.i - b.i))
+    .map((entry) => entry.key);
+  slots.forEach((slot, i) => { categoryOrder[slot] = sorted[i]; });
+}
+
+function currentProjectKeys() {
+  return categoryOrder.filter((key) => isProjectGroupKey(key));
+}
+
+/** Store a new project order: the shown keys first, then remembered ids not shown now. */
+function commitProjectOrder(keys) {
+  const ids = keys.map((key) => key.slice(PROJECT_GROUP_PREFIX.length));
+  for (const id of projectOrder) if (!ids.includes(id)) ids.push(id);
+  projectOrder = ids;
+  renderTabs();
+  persistTerminalTabPrefs();
+}
+
+/** Drop `sourceKey` before (or after) `targetKey`. */
+function moveProjectGroup(sourceKey, targetKey, after) {
+  if (!sourceKey || !targetKey || sourceKey === targetKey) return;
+  const keys = currentProjectKeys();
+  if (!keys.includes(sourceKey) || !keys.includes(targetKey)) return;
+  keys.splice(keys.indexOf(sourceKey), 1);
+  keys.splice(keys.indexOf(targetKey) + (after ? 1 : 0), 0, sourceKey);
+  commitProjectOrder(keys);
+}
+
+/** Move one project section by `delta` slots. */
+function stepProjectGroup(key, delta) {
+  const keys = currentProjectKeys();
+  const from = keys.indexOf(key);
+  const to = from + delta;
+  if (from < 0 || to < 0 || to >= keys.length) return;
+  keys.splice(to, 0, keys.splice(from, 1)[0]);
+  commitProjectOrder(keys);
+}
 
 /** Replace the colour overrides with the values main persisted or echoed back. */
 function applyCategoryColors(map) {
@@ -1168,6 +1286,19 @@ function ensureProjectAppearance() {
   return read;
 }
 
+/**
+ * Main says the stored project list moved (a folder pick created one, or one was renamed,
+ * recoloured or removed). A read already in flight may predate the change, so the refresh
+ * waits it out and reads again before repainting the sections.
+ */
+async function refreshProjectInventory() {
+  if (!isSharedManagerShell()) return;
+  if (projectAppearancePending) await projectAppearancePending.catch(() => false);
+  const changed = await ensureProjectAppearance();
+  if (changed && typeof renderTabs === 'function') renderTabs();
+}
+api?.onProjectInventoryChanged?.(() => { void refreshProjectInventory(); });
+
 /** The project a row belongs to, taken from its owner key; '' for unassigned and agent rows. */
 function projectIdOfRow(row) {
   const owner = row && typeof row.ownerKey === 'string' ? row.ownerKey : '';
@@ -1378,6 +1509,7 @@ function groupSessionsByCategory(list) {
   for (let i = categoryOrder.length - 1; i >= 0; i -= 1) {
     if (!liveKeys.has(categoryOrder[i])) categoryOrder.splice(i, 1);
   }
+  applyStoredProjectOrder();
   groups.sort((a, b) => categoryOrder.indexOf(a.key) - categoryOrder.indexOf(b.key));
   return groups;
 }
@@ -2290,23 +2422,56 @@ function hideDegradedBanner(viewState) {
 }
 
 async function forceResyncPane(viewState, sessionId) {
+  const paneIsSplit = viewState === splitSessionState;
+  // Invalidate gap-retry timers and in-flight delta fetches at entry, not after
+  // the awaited write: a retry that fires mid-fetch would otherwise commit stale
+  // deltas onto the new snapshot before the epoch moved. Mark the resync active
+  // so live chunks queue (same gate atomicHydratePane uses) instead of being
+  // dropped by the DEGRADED early-return in processIncomingChunk.
+  viewState.hydrationEpoch = (viewState.hydrationEpoch || 0) + 1;
+  const resyncEpoch = viewState.hydrationEpoch;
+  viewState.activeHydratingEpoch = resyncEpoch;
   try {
     const fullBuffer = await api?.getFullBuffer?.(sessionId);
-    if (viewState.term) {
-      viewState.term.reset();
-      if (fullBuffer) {
-        const bufText = sliceHydrationTail(typeof fullBuffer === 'string' ? fullBuffer : (fullBuffer?.buffer || ''));
-        if (bufText) await writeTermAsync(viewState.term, bufText);
-      }
+    if (viewState.hydrationEpoch !== resyncEpoch) return;
+    const bufText = sliceHydrationTail(typeof fullBuffer === 'string' ? fullBuffer : (fullBuffer?.buffer || ''));
+    if (!bufText) {
+      // Fetch failed or served nothing: keep the pane's current buffer and the
+      // banner up so the user can retry. Resetting on an empty answer is how
+      // scrollback disappears.
+      return;
     }
-    if (fullBuffer && typeof fullBuffer.snapshotThroughSeq === 'number') {
+    // Same pre-reset ordering as atomicHydratePane: cancel the dispatcher's
+    // queued writes before the snapshot owns the buffer.
+    try {
+      const target = paneIsSplit ? splitWriteTarget : viewState.writeTarget;
+      if (target && window.globalTerminalWriteDispatcher) {
+        window.globalTerminalWriteDispatcher.cancel(target);
+      }
+    } catch {}
+    const term = paneIsSplit ? splitTerm : viewState.term;
+    if (term) {
+      term.reset();
+      await writeTermAsync(term, bufText);
+    }
+    if (viewState.hydrationEpoch !== resyncEpoch) return;
+    if (fullBuffer && typeof fullBuffer === 'object' && typeof fullBuffer.snapshotThroughSeq === 'number') {
       viewState.lastRenderedSeq = fullBuffer.snapshotThroughSeq;
       viewState.pendingWriteAckSeq = fullBuffer.snapshotThroughSeq;
+      // Keep only what the snapshot does not already cover; a blind clear drops
+      // live output that arrived while the fetch was in flight.
+      viewState.liveQueue = viewState.liveQueue.filter((entry) => chunkEndSeq(entry) > fullBuffer.snapshotThroughSeq);
     }
-    viewState.syncState = 'READY';
-    viewState.liveQueue = [];
+    viewState.syncState = viewState.liveQueue.length > 0 ? 'GAPPED' : 'READY';
+    viewState.gapRetries = 0;
     hideDegradedBanner(viewState);
+    if (viewState.syncState === 'GAPPED') void handleSequenceGap(viewState, null, paneIsSplit);
   } catch {}
+  finally {
+    if (viewState.hydrationEpoch === resyncEpoch) {
+      viewState.activeHydratingEpoch = null;
+    }
+  }
 }
 
 const splitSessionState = {
@@ -2417,7 +2582,15 @@ function chunkEndSeq(entry) {
   return (entry && typeof entry.throughSeq === 'number' && entry.throughSeq > 0) ? entry.throughSeq : (entry ? entry.seq : 0);
 }
 
+// A refused or failing getTerminalDelta must not retry forever at a fixed
+// 20ms cadence — that reads as a frozen pane. The pane degrades (banner +
+// manual resync) after this many unanswered retries within one gap episode.
+const MAX_GAP_RECOVERY_TRIES = 25;
+
 async function handleSequenceGap(viewState, chunk, isSplit) {
+  // gapRetries is reset only by a completed recovery (READY) or a generation
+  // change below — resetting on each new gapped chunk would let a busy stream
+  // outrun the bound forever.
   viewState.gapCount = (viewState.gapCount || 0) + 1;
   const chunkBytes = (chunk && chunk.data ? chunk.data.length : 0);
   const currentQueueBytes = viewState.liveQueue.reduce((acc, c) => acc + (c.data ? c.data.length : 0), 0);
@@ -2445,11 +2618,18 @@ async function handleSequenceGap(viewState, chunk, isSplit) {
 
   const targetSessionId = viewState.id || (isSplit ? splitId : activeId);
   const fromSeq = viewState.lastRenderedSeq + 1;
+  const fetchEpoch = viewState.hydrationEpoch;
 
   try {
     const deltaResult = await api?.getTerminalDelta?.(targetSessionId, viewState.sessionGeneration || 0, fromSeq);
+    // A hydrate/resync that landed while this fetch was in flight bumped the
+    // epoch: the fetched deltas were computed against the pre-resync cursor and
+    // must not commit onto the new snapshot. The queue is reconciled by the
+    // resync's own filter, not by this stale fetch.
+    if ((viewState.hydrationEpoch || 0) !== fetchEpoch) return;
     if (!deltaResult) {
       viewState.syncState = 'READY';
+      viewState.gapRetries = 0;
       while (viewState.liveQueue.length > 0) {
         const item = viewState.liveQueue.shift();
         if (item) {
@@ -2468,6 +2648,7 @@ async function handleSequenceGap(viewState, chunk, isSplit) {
       }
       viewState.lastRenderedSeq = 0;
       viewState.syncState = 'READY';
+      viewState.gapRetries = 0;
       viewState.liveQueue = [];
       return;
     }
@@ -2512,6 +2693,7 @@ async function handleSequenceGap(viewState, chunk, isSplit) {
 
       if (viewState.liveQueue.length === 0) {
         viewState.syncState = 'READY';
+        viewState.gapRetries = 0;
         viewState.resyncCount = (viewState.resyncCount || 0) + 1;
       }
     }
@@ -2521,9 +2703,22 @@ async function handleSequenceGap(viewState, chunk, isSplit) {
     if (viewState.liveQueue.length > 0 && viewState.syncState !== 'DEGRADED') {
       const nextHead = viewState.liveQueue[0];
       if (nextHead && chunkStartSeq(nextHead) > viewState.lastRenderedSeq + 1) {
+        viewState.gapRetries = (viewState.gapRetries || 0) + 1;
+        if (viewState.gapRetries > MAX_GAP_RECOVERY_TRIES) {
+          // Bounded failure, not a silent stall: mark the pane degraded with
+          // its queue intact so an authoritative resync still owns recovery.
+          viewState.syncState = 'DEGRADED';
+          viewState.degradedCount = (viewState.degradedCount || 0) + 1;
+          showDegradedBanner(viewState, viewState.id || (isSplit ? splitId : activeId));
+          return;
+        }
+        const scheduledEpoch = viewState.hydrationEpoch;
         setTimeout(() => {
+          // A hydrate/resync bumps hydrationEpoch; a timer scheduled before it
+          // is stale and must not drag a recovered pane back to GAPPED.
+          if ((viewState.hydrationEpoch || 0) !== scheduledEpoch) return;
           handleSequenceGap(viewState, null, isSplit);
-        }, 20);
+        }, 20 * viewState.gapRetries);
       }
     }
   }
@@ -2585,11 +2780,12 @@ function writeTermAsync(term, data) {
 // the last few hundred lines. The main process still owns the full retained
 // transcript, so hydrate from getFullBuffer and keep the wired slice only as a
 // fallback for callers whose backend cannot serve it.
-// xterm retains 10k lines of scrollback on both panes. Writing a
-// multi-megabyte transcript into a fresh pane only burns renderer parse frames on history
-// the scrollback discards anyway, so hydration writes a trailing window aligned to a line
-// boundary. The main process still owns the full transcript for delta recovery.
-const MAX_HYDRATION_WRITE_CHARS = 256 * 1024;
+// xterm retains 10k lines of scrollback on both panes, but TUI frames are dense with
+// ANSI redraws: a 256 KiB hydration window was only a few hundred effective lines of
+// an OMP transcript, which is why switch-away/back felt like "no scrollback". Keep a
+// trailing window for parse cost, but size it to what the scrollback can actually hold.
+// The main process still owns the full transcript for delta recovery.
+const MAX_HYDRATION_WRITE_CHARS = 2 * 1024 * 1024;
 function sliceHydrationTail(snapshot) {
   if (!snapshot || snapshot.length <= MAX_HYDRATION_WRITE_CHARS) return snapshot || '';
   let raw = snapshot.slice(-MAX_HYDRATION_WRITE_CHARS);
@@ -2604,11 +2800,14 @@ async function resolveHydrationSnapshot(sessionId, providedSnapshot, providedSeq
     try {
       const res = await api.getFullBuffer(sessionId);
       if (res && typeof res.buffer === 'string') {
-        return { snapshot: sliceHydrationTail(res.buffer), snapshotSeq: res.snapshotThroughSeq || 0 };
+        return { snapshot: sliceHydrationTail(res.buffer), snapshotSeq: res.snapshotThroughSeq || 0, authoritative: true };
       }
     } catch {}
   }
-  return { snapshot: providedSnapshot || '', snapshotSeq: providedSeq || 0 };
+  // Preview fallback: `providedSnapshot` is the broadcast tail (a few KiB), not
+  // the transcript. Report it non-authoritative so callers never reset() a pane
+  // with history on data that cannot replace it.
+  return { snapshot: providedSnapshot || '', snapshotSeq: providedSeq || 0, authoritative: false };
 }
 
 async function atomicHydratePane(item, sessionId, providedSnapshot, providedSeq) {
@@ -2618,10 +2817,18 @@ async function atomicHydratePane(item, sessionId, providedSnapshot, providedSeq)
   item.activeHydratingEpoch = currentEpoch;
 
   try {
-    const { snapshot, snapshotSeq } = await resolveHydrationSnapshot(sessionId, providedSnapshot, providedSeq);
-
+    const { snapshot, snapshotSeq, authoritative } = await resolveHydrationSnapshot(sessionId, providedSnapshot, providedSeq);
     if (item.released || item.hydrationEpoch !== currentEpoch) return;
-
+    if (!authoritative && paneHasRenderedContent(item.term)) {
+      // getFullBuffer failed or was scope-refused: only the broadcast preview
+      // tail is available, and it cannot replace real scrollback. Keep the
+      // pane's buffer, lastRenderedSeq and liveQueue intact — every queued chunk
+      // is still owed to the reader and the next authoritative sync reconciles
+      // it. A reset here would burn history on a few hundred preview characters.
+      item.syncState = 'DEGRADED';
+      showDegradedBanner(item, sessionId);
+      return;
+    }
     try {
       if (item.writeTarget && window.globalTerminalWriteDispatcher) {
         window.globalTerminalWriteDispatcher.cancel(item.writeTarget);
@@ -2696,9 +2903,18 @@ async function atomicHydrateSplitPane(splitSessionId, providedSnapshot, provided
   splitSessionState.activeHydratingEpoch = currentEpoch;
 
   try {
-    const { snapshot, snapshotSeq } = await resolveHydrationSnapshot(splitSessionId, providedSnapshot, providedSeq);
+    const { snapshot, snapshotSeq, authoritative } = await resolveHydrationSnapshot(splitSessionId, providedSnapshot, providedSeq);
 
     if (splitSessionState.hydrationEpoch !== currentEpoch) return;
+
+    if (!authoritative && paneHasRenderedContent(splitTerm)) {
+      // Same rule as the main pane: a preview tail cannot replace existing
+      // scrollback. Keep buffer, lastRenderedSeq and liveQueue for the next
+      // authoritative sync; the pane stays readable instead of collapsing to
+      // a few preview lines.
+      splitSessionState.syncState = 'DEGRADED';
+      return;
+    }
 
     try {
       if (splitWriteTarget && window.globalTerminalWriteDispatcher) {
@@ -2955,6 +3171,23 @@ function viewportAtBottom(term) {
   const activeBuf = term?.buffer?.active;
   if (!activeBuf) return true;
   return activeBuf.viewportY >= activeBuf.baseY;
+}
+
+/**
+ * Whether the pane already holds rendered transcript content worth protecting:
+ * scrollback beyond the viewport, or any non-blank row. A fresh pane (empty
+ * buffer) answers false so a preview tail may still hydrate it.
+ */
+function paneHasRenderedContent(term) {
+  const activeBuf = term?.buffer?.active;
+  if (!activeBuf || typeof activeBuf.length !== 'number') return false;
+  if (activeBuf.length > (term.rows || 0)) return true;
+  if (typeof activeBuf.getLine !== 'function') return true;
+  for (let i = 0; i < activeBuf.length; i++) {
+    const line = activeBuf.getLine(i);
+    if (line && line.translateToString && line.translateToString(true).trim()) return true;
+  }
+  return false;
 }
 
 /**
@@ -3361,25 +3594,123 @@ tabSearchIcon.className = 'terminal-tab-search-icon';
 tabSearchIcon.innerHTML = iconSvg(ICON_SEARCH, 13);
 tabSearchField.append(tabSearchIcon, tabSearchInput, btnClearTabSearch);
 
-// The manager's folder-scoped mint lives beside the generic one: `+` asks the workspace of
-// the window it sits in, this asks the user for the folder. Hidden until Main describes the
-// shell — `refreshManagerHubButtons` owns its visibility.
-const btnNewInFolder = document.createElement('button');
-btnNewInFolder.type = 'button';
-btnNewInFolder.id = 'btnNewInFolder';
-btnNewInFolder.className = 'terminal-tab-new-folder';
-btnNewInFolder.textContent = '+';
-btnNewInFolder.title = 'Terminal mới trong thư mục…';
-btnNewInFolder.setAttribute('aria-label', 'Terminal mới trong thư mục…');
-btnNewInFolder.style.display = 'none';
+// The create actions form one split button. `+` (btnNewTerminal) makes a terminal in this
+// window's own workspace; the chevron opens a menu of the actions that need a choice first,
+// each spelled out in words - the old second icon-only `+` read as a duplicate of the first.
+const newSplit = document.createElement('div');
+newSplit.className = 'terminal-tab-new-split';
+
+const btnNewMenu = document.createElement('button');
+btnNewMenu.type = 'button';
+btnNewMenu.id = 'btnNewMenu';
+btnNewMenu.className = 'terminal-tab-new-menu-toggle';
+btnNewMenu.innerHTML = iconSvg('<path d="m6 9 6 6 6-6"/>', 12);
+btnNewMenu.title = 'Thêm: terminal trong thư mục, mở dự án';
+btnNewMenu.setAttribute('aria-label', 'Thêm: terminal trong thư mục, mở dự án');
+btnNewMenu.setAttribute('aria-haspopup', 'menu');
+btnNewMenu.setAttribute('aria-expanded', 'false');
+btnNewMenu.style.display = 'none';
+
+const newMenu = document.createElement('div');
+newMenu.id = 'newMenu';
+newMenu.className = 'terminal-new-menu';
+newMenu.setAttribute('role', 'menu');
+newMenu.style.display = 'none';
+
+function makeNewMenuItem(id, iconPaths, label) {
+  const item = document.createElement('button');
+  item.type = 'button';
+  item.id = id;
+  item.className = 'terminal-new-menu-item';
+  item.setAttribute('role', 'menuitem');
+  // Hidden until Main describes the shell: `refreshManagerHubButtons` / `renderShellScopeChip`
+  // own each item's visibility.
+  item.style.display = 'none';
+  const icon = document.createElement('span');
+  icon.className = 'terminal-new-menu-icon';
+  icon.innerHTML = iconSvg(iconPaths, 15);
+  const text = document.createElement('span');
+  text.textContent = label;
+  item.append(icon, text);
+  return item;
+}
+
+const btnNewInFolder = makeNewMenuItem(
+  'btnNewInFolder',
+  '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 10.5v5M9.5 13h5"/>',
+  'Terminal trong thư mục…',
+);
 btnNewInFolder.onclick = (e) => {
   e.stopPropagation();
+  setNewMenuOpen(false);
   void createTerminalInFolder('');
 };
 
+const btnOpenProject = makeNewMenuItem('btnOpenProject', ICON_LAYERS, 'Mở dự án…');
+btnOpenProject.onclick = (e) => {
+  e.stopPropagation();
+  setNewMenuOpen(false);
+  void openProjectFromScope();
+};
+
+function visibleNewMenuItems() {
+  return [btnNewInFolder, btnOpenProject].filter((item) => item.style.display !== 'none');
+}
+
+function setNewMenuOpen(open) {
+  const show = open && visibleNewMenuItems().length > 0;
+  newMenu.style.display = show ? 'flex' : 'none';
+  btnNewMenu.setAttribute('aria-expanded', show ? 'true' : 'false');
+}
+
+/** The chevron only exists while the menu has something to offer. */
+function syncNewMenuToggle() {
+  const any = visibleNewMenuItems().length > 0;
+  btnNewMenu.style.display = any ? '' : 'none';
+  if (!any) setNewMenuOpen(false);
+}
+
+function focusNewMenuItem(step) {
+  const items = visibleNewMenuItems();
+  if (items.length === 0) return;
+  let index = items.findIndex((item) => document.activeElement === item);
+  index = index < 0 ? (step > 0 ? 0 : items.length - 1) : (index + step + items.length) % items.length;
+  try { items[index].focus(); } catch {}
+}
+
+btnNewMenu.onclick = (e) => {
+  e.stopPropagation();
+  setNewMenuOpen(newMenu.style.display === 'none');
+};
+btnNewMenu.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    setNewMenuOpen(true);
+    focusNewMenuItem(1);
+  }
+});
+newMenu.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowDown') { e.preventDefault(); focusNewMenuItem(1); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); focusNewMenuItem(-1); }
+});
+document.addEventListener('click', () => setNewMenuOpen(false));
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && newMenu.style.display !== 'none') {
+    setNewMenuOpen(false);
+    try { btnNewMenu.focus(); } catch {}
+  }
+});
+
 // `#btnNewTerminal` is declared in standalone.html as the strip's first child; it moves
 // into this row so the search field can take the remaining width.
-tabToolbar.append(tabSearchField, btnNewTerminal, btnNewInFolder);
+newSplit.append(btnNewTerminal, btnNewMenu);
+newMenu.append(btnNewInFolder, btnOpenProject);
+tabToolbar.append(tabSearchField, newSplit, newMenu);
+newMenuBuilt = true;
+// The shell may already have been described before the menu existed; repaint so the items
+// take their visibility from it instead of staying hidden until the next state push.
+renderShellScopeChip();
+refreshManagerHubButtons();
 if (tabsEl) tabsEl.insertBefore(tabToolbar, tabsEl.firstChild);
 
 tabSearchInput.addEventListener('input', () => {
@@ -5486,7 +5817,6 @@ function updateTabActivityUi(sessionId) {
 /** Live run cards for this window, keyed by terminalSessionId. */
 const runCards = new Map();
 let runCardsUnsubscribe = null;
-let runCardElapsedTimer = null;
 
 /** Refusal every agent-owned row answers, verbatim from the context-menu gate. */
 const AGENT_ROW_VIEW_TITLE = 'Terminal do agent sở hữu chỉ được xem, không chuyển được';
@@ -5506,18 +5836,6 @@ const RUN_CARD_MODE_LABELS = {
   fast: 'Fast',
 };
 
-/** `mm:ss` while under an hour, `h:mm:ss` past it — the timer never climbs a unit. */
-function runCardElapsedText(startedAt) {
-  if (typeof startedAt !== 'number' || !Number.isFinite(startedAt)) return '';
-  const seconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
-  const mm = Math.floor(seconds / 60);
-  const ss = seconds % 60;
-  if (mm >= 60) {
-    const hh = Math.floor(mm / 60);
-    return `${hh}:${String(mm % 60).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
-  }
-  return `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
-}
 
 /** `lastEventAt` rendered as a wall-clock time, like "14:03:22". */
 function runCardLastEventText(lastEventAt) {
@@ -5567,11 +5885,11 @@ function applyRunCardToWrap(wrap, sessionId) {
   let cardEl = wrap.querySelector('.terminal-run-card');
   let stripDot = wrap.querySelector('.terminal-run-strip-dot');
 
-  // The run's state is text, not just colour: the strip dot and the sidebar card carry it
-  // spatially, while this badge is what a row actually *says* is happening on it. A row with
-  // no run and a finished one both wear nothing — noise is the state that says "idle".
+  // Only a run waiting on the user earns words on the row: running and idle are already
+  // told by the row's leading icon and beacon, and the folder header tallies them. A word
+  // on every busy row is noise; "chờ bạn" is the one state that asks for an action.
   let badge = wrap.querySelector('.terminal-tab-run-badge');
-  if (card && (card.state === 'running' || card.state === 'waiting_user' || card.state === 'idle')) {
+  if (card && card.state === 'waiting_user') {
     if (!badge) {
       const btn = wrap.querySelector('.terminal-tab');
       if (btn) {
@@ -5608,7 +5926,11 @@ function applyRunCardToWrap(wrap, sessionId) {
     syncBadge.remove();
   }
 
-  if (!card) {
+  // The card is a second line under the row. An idle run already speaks through the
+  // row's `nghỉ` badge, so its card would only repeat it and grow the row; every other
+  // state (live controls, the compact ended card) earns the line.
+  const cardEarnsALine = Boolean(card) && card.state !== 'idle';
+  if (!card || (terminalTabLayout === 'sidebar' && !cardEarnsALine)) {
     if (cardEl) cardEl.remove();
     if (stripDot) stripDot.remove();
     wrap.classList.remove('has-run-card');
@@ -5633,8 +5955,8 @@ function applyRunCardToWrap(wrap, sessionId) {
   }
   if (stripDot) stripDot.remove();
 
-  // Structural fields rebuild the card subtree; the elapsed counter repaints alone
-  // so a 1s tick never re-creates the buttons under the user's pointer.
+  // Structural fields rebuild the card subtree; there is no repaint-only path left
+  // because the 1s elapsed ticker was removed with the elapsed read-out.
   const sig = [
     card.state, card.stale ? 'stale' : 'fresh', card.mode || 'unset',
     card.lastTool || '', card.promptHead || '', card.capsuleId || '',
@@ -5644,26 +5966,21 @@ function applyRunCardToWrap(wrap, sessionId) {
   ].join('~');
   if (!cardEl || cardEl.getAttribute('data-run-sig') !== sig) {
     if (cardEl) cardEl.remove();
-    cardEl = buildRunCard(card, sessionId, wrap);
+    cardEl = buildRunCard(card, sessionId);
     wrap.appendChild(cardEl);
   }
 
-  const elapsedEl = cardEl.querySelector('.terminal-run-elapsed');
-  if (elapsedEl) {
-    const text = runCardElapsedText(card.runStartedAt);
-    if (elapsedEl.textContent !== text) elapsedEl.textContent = text;
-  }
   wrap.classList.add('has-run-card');
 }
 
 /** The whole card subtree for one run. Every agent-supplied string is textContent. */
-function buildRunCard(card, sessionId, wrap) {
+function buildRunCard(card, sessionId) {
   const el = document.createElement('div');
   const stateClass = `run-${typeof card.state === 'string' ? card.state : 'idle'}`;
   const isEnded = card.state === 'ended';
   // Every run card is a single head line — the row never grows for a card.
-  // Steer input and the changes file list are the only elements allowed to drop
-  // to a second row, and only after the user asks for them.
+  // The changes file list is the only element allowed to drop to a second row,
+  // and only after the user opens it.
   el.className = `terminal-run-card is-compact ${stateClass}${card.stale ? ' is-stale' : ''}`;
   el.setAttribute('data-session-id', sessionId);
   // The structural signature `applyRunCardToWrap` compares before rebuilding.
@@ -5691,10 +6008,6 @@ function buildRunCard(card, sessionId, wrap) {
   stateEl.textContent = RUN_CARD_STATE_LABELS[card.state] || card.state || '';
   head.appendChild(stateEl);
 
-  const elapsed = document.createElement('span');
-  elapsed.className = 'terminal-run-elapsed';
-  elapsed.textContent = runCardElapsedText(card.runStartedAt);
-  head.appendChild(elapsed);
 
   const lastEvent = runCardLastEventText(card.lastEventAt);
   if (lastEvent) {
@@ -5740,49 +6053,13 @@ function buildRunCard(card, sessionId, wrap) {
     if (card.stale) chip.title = 'Tiến trình agent đã mất — run bị đánh dấu cũ, không còn điều khiển được';
     head.appendChild(chip);
   } else if (card.viewOnly) {
-    // A run somebody else's agent owns stays visible with its controls rendered
-    // and disabled — the refusal title is the same string the context-menu gate
-    // shows, and sendRunControl re-guards by session owner before any IPC.
+    // A run somebody else's agent owns is view-only evidence; OMP (not this
+    // banner) owns cancel/steer now, so the row renders a tag and nothing else.
     const tag = document.createElement('span');
     tag.className = 'terminal-run-viewonly';
     tag.textContent = 'Chỉ xem';
+    tag.title = AGENT_ROW_VIEW_TITLE;
     head.appendChild(tag);
-    const actions = document.createElement('div');
-    actions.className = 'terminal-run-actions';
-    for (const [label, cls] of [['Hủy', 'is-cancel'], ['Chỉ đạo', 'is-steer']]) {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = `terminal-run-btn ${cls}`;
-      btn.textContent = label;
-      btn.disabled = true;
-      btn.title = AGENT_ROW_VIEW_TITLE;
-      btn.setAttribute('title', AGENT_ROW_VIEW_TITLE);
-      actions.appendChild(btn);
-    }
-    head.appendChild(actions);
-  } else {
-    const actions = document.createElement('div');
-    actions.className = 'terminal-run-actions';
-    const cancelBtn = document.createElement('button');
-    cancelBtn.type = 'button';
-    cancelBtn.className = 'terminal-run-btn is-cancel';
-    cancelBtn.textContent = 'Hủy';
-    cancelBtn.title = 'Huỷ run đang chạy trên terminal này';
-    cancelBtn.onclick = (e) => {
-      e.stopPropagation();
-      sendRunControl(sessionId, 'cancel');
-    };
-    const steerBtn = document.createElement('button');
-    steerBtn.type = 'button';
-    steerBtn.className = 'terminal-run-btn is-steer';
-    steerBtn.textContent = 'Chỉ đạo';
-    steerBtn.title = 'Gửi chỉ đạo tới run đang chạy trên terminal này';
-    steerBtn.onclick = (e) => {
-      e.stopPropagation();
-      openRunSteerRow(wrap, sessionId, el);
-    };
-    actions.append(cancelBtn, steerBtn);
-    head.appendChild(actions);
   }
 
   const changes = card.changes && typeof card.changes === 'object' ? card.changes : null;
@@ -5822,73 +6099,10 @@ function buildRunCard(card, sessionId, wrap) {
   }
   return el;
 }
-
-/** The inline steer field inside the wrap: Enter posts, Esc closes. */
-function openRunSteerRow(wrap, sessionId, cardEl) {
-  const card = cardEl || wrap.querySelector('.terminal-run-card');
-  if (!card) return;
-  let row = card.querySelector('.terminal-run-steer-row');
-  if (row) {
-    row.remove();
-    return;
-  }
-  row = document.createElement('div');
-  row.className = 'terminal-run-steer-row';
-  const input = document.createElement('input');
-  input.type = 'text';
-  input.className = 'terminal-run-steer-input';
-  input.placeholder = 'Chỉ đạo run này… (Enter gửi, Esc đóng)';
-  input.setAttribute('aria-label', 'Chỉ đạo run');
-  const send = document.createElement('button');
-  send.type = 'button';
-  send.className = 'terminal-run-btn is-steer-send';
-  send.textContent = 'Gửi';
-  const submit = () => {
-    const text = input.value.trim();
-    if (!text) {
-      row.remove();
-      return;
-    }
-    row.remove();
-    sendRunControl(sessionId, 'steer', text);
-  };
-  send.onclick = (e) => { e.stopPropagation(); submit(); };
-  input.addEventListener('keydown', (e) => {
-    e.stopPropagation();
-    if (e.key === 'Enter') { e.preventDefault(); submit(); }
-    else if (e.key === 'Escape') { e.preventDefault(); row.remove(); }
-  });
-  input.addEventListener('click', (e) => e.stopPropagation());
-  row.append(input, send);
-  card.appendChild(row);
-  try { input.focus(); } catch {}
-}
-
-/**
- * One control request against Main. The refusal is rendered verbatim — the reason
- * token is the class of failure the user is looking at, and the message is Main's.
- */
-function sendRunControl(sessionId, op, text) {
-  if (isAgentOwnedSession(findSession(sessionId))) {
-    showTerminalNotice(AGENT_ROW_VIEW_TITLE);
-    return;
-  }
-  if (typeof api?.runControl !== 'function') {
-    showTerminalNotice(`Không ${op === 'cancel' ? 'hủy' : 'chỉ đạo'} được run: preload thiếu runControl`);
-    return;
-  }
-  Promise.resolve(api.runControl(sessionId, op, text))
-    .then((result) => {
-      if (!result || result.ok !== true) {
-        const reason = result && typeof result.reason === 'string' ? result.reason : 'RUN_CONTROL_FAILED';
-        const message = result && typeof result.message === 'string' && result.message ? ` — ${result.message}` : '';
-        showTerminalNotice(`Không ${op === 'cancel' ? 'hủy' : 'chỉ đạo'} được run: ${reason}${message}`);
-      }
-    })
-    .catch((err) => {
-      showTerminalNotice(`Không ${op === 'cancel' ? 'hủy' : 'chỉ đạo'} được run: ${bridgeErrorText(err)}`);
-    });
-}
+// Cancel/steer controls and the elapsed clock were removed: run cards are
+// display-only surfaces now — OMP owns run lifecycle, so this card carries
+// evidence (state, last event, changes) and the view-only tag for foreign-owned
+// runs, never buttons to press.
 
 if (typeof api?.onRunCardState === 'function') {
   try {
@@ -5898,22 +6112,6 @@ if (typeof api?.onRunCardState === 'function') {
   } catch (err) {
     console.error('[run-cards] onRunCardState subscription error:', err);
   }
-}
-// The elapsed counter ticks locally from runStartedAt — a paint of what the run
-// file already said, never an IPC round-trip.
-runCardElapsedTimer = setInterval(() => {
-  let hasLive = false;
-  for (const card of runCards.values()) {
-    if (card.state === 'running' || card.state === 'waiting_user') { hasLive = true; break; }
-  }
-  if (!hasLive || !tabsEl) return;
-  for (const wrap of tabsEl.querySelectorAll('.terminal-tab-wrap')) {
-    const sid = wrap.getAttribute('data-session-id');
-    if (sid && runCards.has(sid)) applyRunCardToWrap(wrap, sid);
-  }
-}, 1000);
-if (runCardElapsedTimer && typeof runCardElapsedTimer.unref === 'function') {
-  runCardElapsedTimer.unref();
 }
 
 // ---------------------------------------------------------------------------
@@ -6094,7 +6292,7 @@ function ensureTerminalTabWrap(s, currentWraps) {
     // broadcast mid-drag) swallows every later click in this page.
     wrap.addEventListener('pointerdown', (e) => {
       if (e.button !== 0 || s.splitOf) return;
-      if (e.target && e.target.closest && e.target.closest('.terminal-tab-close, .terminal-run-card, .terminal-run-steer-row')) return;
+      if (e.target && e.target.closest && e.target.closest('.terminal-tab-close, .terminal-run-card')) return;
       pointerTabDrag = { sessionId: s.id, pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, active: false, wrap };
     });
 
@@ -6282,57 +6480,7 @@ function ensureCategoryHeader(group) {
     };
 
     header.append(toggle, star, label);
-    if (isDerivedGroup && typeof api?.capsuleGetBrief === 'function') {
-      // The pinned brief is capsule metadata; its editor opens from whichever section can
-      // speak for that capsule — a capsule group names it in the key, a folder group keeps
-      // the id its rows carried as `data-capsule-id`, refreshed below.
-      const briefBtn = document.createElement('button');
-      briefBtn.type = 'button';
-      briefBtn.className = 'terminal-tab-category-brief';
-      briefBtn.textContent = '📌';
-      briefBtn.title = 'Ghi chú dự án (storefront, site, theme, quy tắc cho agent)';
-      briefBtn.setAttribute('aria-label', 'Ghi chú dự án');
-      briefBtn.onclick = (e) => {
-        e.stopPropagation();
-        const key = header.getAttribute('data-category');
-        if (isCapsuleGroupKey(key)) {
-          openCapsuleBriefDialog(key.slice(CAPSULE_GROUP_PREFIX.length));
-          return;
-        }
-        const capsuleId = header.getAttribute('data-capsule-id') || '';
-        if (capsuleId) openCapsuleBriefDialog(capsuleId);
-      };
-      header.appendChild(briefBtn);
-    }
-    if (isFolderLikeGroup(group) && typeof api?.newTerminalInFolder === 'function') {
-      // The mint's folder is the group's own: `data-folder-path` is read back live because
-      // the header element is reused while its group object is rebuilt every render.
-      const mintBtn = document.createElement('button');
-      mintBtn.type = 'button';
-      mintBtn.className = 'terminal-tab-category-mint';
-      mintBtn.setAttribute('data-role', 'mint');
-      mintBtn.textContent = '+';
-      mintBtn.title = 'Terminal mới trong thư mục này';
-      mintBtn.setAttribute('aria-label', 'Terminal mới trong thư mục này');
-      mintBtn.onclick = (e) => {
-        e.stopPropagation();
-        void createTerminalInFolder(header.getAttribute('data-folder-path') || '');
-      };
-      header.appendChild(mintBtn);
-    }
-    if (isFolderLikeGroup(group) && !isPopoutMode && typeof api?.openSpace === 'function') {
-      const spaceBtn = document.createElement('button');
-      spaceBtn.type = 'button';
-      spaceBtn.className = 'terminal-tab-category-mint';
-      spaceBtn.textContent = 'Space';
-      spaceBtn.title = 'Mở Space của thư mục này (.antifan/space.json). Shift+click: tạo space.json từ trạng thái hiện tại';
-      spaceBtn.setAttribute('aria-label', 'Mở Space của thư mục này');
-      spaceBtn.onclick = (e) => {
-        e.stopPropagation();
-        void openFolderSpace(header.getAttribute('data-folder-path') || '', e.shiftKey);
-      };
-      header.appendChild(spaceBtn);
-    }
+    if (isDerivedGroup) header.addEventListener('contextmenu', (e) => showProjectHeaderMenu(e, header));
     if (isFolderLikeGroup(group)) {
       // Live run-state counts for the section: a span `renderTabs` fills and the run-card
       // push refreshes, so "đang chạy / chờ bạn" is read without opening the group.
@@ -6341,21 +6489,17 @@ function ensureCategoryHeader(group) {
       header.appendChild(counts);
     }
     if (isDerivedGroup) {
-      const projectStar = document.createElement('button');
-      projectStar.type = 'button';
+      // Indicators only: star and colour are read-outs of the project's appearance. Writing
+      // them, like every other project action, lives in the header's right-click menu - except
+      // switching to the project's Web Hub, the one action used often enough to sit inline.
+      const projectStar = document.createElement('span');
       projectStar.className = 'terminal-tab-project-star';
       projectStar.setAttribute('data-role', 'project-star');
-      projectStar.setAttribute('aria-label', 'Đánh dấu sao dự án');
-      projectStar.onclick = (e) => {
-        e.stopPropagation();
-        const projectId = header.getAttribute('data-project-id') || '';
-        if (!projectId) return;
-        void writeProjectAppearance(projectId, { starred: !(projectAppearance.get(projectId) || {}).starred });
-      };
       const projectColor = document.createElement('input');
       projectColor.type = 'color';
       projectColor.className = 'terminal-tab-project-color';
       projectColor.setAttribute('data-role', 'project-color');
+      projectColor.tabIndex = -1;
       projectColor.title = 'Màu dự án';
       projectColor.setAttribute('aria-label', 'Màu dự án');
       projectColor.addEventListener('click', (e) => e.stopPropagation());
@@ -6363,17 +6507,56 @@ function ensureCategoryHeader(group) {
         const projectId = header.getAttribute('data-project-id') || '';
         if (projectId) void writeProjectAppearance(projectId, { color: projectColor.value });
       });
-      header.append(projectColor, projectStar);
+      // Shown only on a manager project section (see the refresh below).
+      const projectOpen = document.createElement('button');
+      projectOpen.type = 'button';
+      projectOpen.className = 'terminal-tab-project-open';
+      projectOpen.setAttribute('data-role', 'project-open');
+      projectOpen.textContent = '↗';
+      projectOpen.title = 'Chuyển sang Web Hub của dự án này';
+      projectOpen.setAttribute('aria-label', 'Chuyển sang Web Hub của dự án này');
+      // `stopPropagation` so the switch never also collapses the section underneath it.
+      projectOpen.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const projectId = header.getAttribute('data-project-id') || '';
+        if (projectId) openProjectWebHub(projectId);
+      });
+      header.append(projectColor, projectStar, projectOpen);
     }
     if (canManage) header.append(rename, menu);
     header.addEventListener('click', (e) => {
       e.stopPropagation();
+      // The click that ends a project drag is not a request to collapse the section.
+      if (swallowHeaderClick) return;
       toggleCategoryCollapsed(group.key);
+    });
+    // A project section in the manager is dragged by its header body; its buttons,
+    // inputs and the arrow keep their own clicks.
+    header.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0 || tabSearchActive) return;
+      if (!header.classList.contains('is-project-draggable')) return;
+      const t = e.target;
+      if (t && t !== header && t.closest && t.closest('button, input, .terminal-tab-category-toggle')) return;
+      pointerProjectDrag = {
+        pointerId: e.pointerId,
+        startX: e.clientX,
+        startY: e.clientY,
+        header,
+        key: header.getAttribute('data-category') || '',
+        active: false,
+      };
     });
     // Only when the header itself holds focus: the rename control lives inside it, and a
     // bubbled Enter there must open the rename, not also collapse the group underneath.
     header.addEventListener('keydown', (e) => {
       if (e.target !== header) return;
+      // Keyboard twin of dragging a project section: Alt+Up / Alt+Down moves it one slot.
+      if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && header.classList.contains('is-project-draggable')) {
+        e.preventDefault();
+        stepProjectGroup(header.getAttribute('data-category') || '', e.key === 'ArrowUp' ? -1 : 1);
+        header.focus?.();
+        return;
+      }
       if (e.key !== 'Enter' && e.key !== ' ') return;
       e.preventDefault();
       toggleCategoryCollapsed(group.key);
@@ -6468,17 +6651,26 @@ function ensureCategoryHeader(group) {
     const shown = groupAppearance.color || '#64748b';
     if (projectColorInput.value !== shown) projectColorInput.value = shown;
   }
+  // The shared manager lists every project; the open button is how a user goes to one.
+  // The same manager is the only surface that lets a project section be dragged into place.
+  const inManagerProject = group.kind === 'project' && Boolean(groupProjectId) && isSharedManagerShell();
+  const projectOpenBtn = header.querySelector('[data-role="project-open"]');
+  if (projectOpenBtn) projectOpenBtn.style.display = inManagerProject && typeof api?.openProject === 'function' ? '' : 'none';
+  header.classList.toggle('is-project-draggable', inManagerProject);
 
   // While a filter is applied every surviving group is shown open: a collapsed group
   // hiding the very match the user just searched for would look like a failed search.
-  const isCollapsed = collapsedCategories.has(group.key) && !tabSearchActive;
+  const isCollapsed = isGroupCollapsed(group.key);
+  header.classList.toggle('is-group-idle', idleGroupKeys.has(group.key));
   header.setAttribute('aria-expanded', isCollapsed ? 'false' : 'true');
   const collapseTitle = isCollapsed ? `Mở nhóm ${group.label}` : `Thu gọn nhóm ${group.label}`;
   // A capsule section names a project, and the name alone is not enough to tell two
   // storefronts with the same title apart — the workspace behind it does that.
   const staleNote = group.kind === 'project' && projectStatus.get(group.projectId) === 'STALE' ? 'thư mục dự án không còn tồn tại' : '';
   const titleHint = [group.hint, staleNote].filter(Boolean).join(' · ');
-  header.title = titleHint ? `${collapseTitle} — ${titleHint}` : collapseTitle;
+  const reorderHint = header.classList.contains('is-project-draggable') ? 'kéo để sắp xếp (Alt+↑/↓)' : '';
+  const titleHintFull = [titleHint, reorderHint].filter(Boolean).join(' · ');
+  header.title = titleHintFull ? `${collapseTitle} — ${titleHintFull}` : collapseTitle;
   return header;
 }
 
@@ -6499,7 +6691,14 @@ function refreshFolderHeaderCounts(header) {
     if (card.state === 'running') running += 1;
     else if (card.state === 'waiting_user') waiting += 1;
   }
-  const text = `${running ? `▶ ${running}` : ''}${running && waiting ? '  ' : ''}${waiting ? `◔ ${waiting}` : ''}`;
+  let sleeping = 0;
+  for (const id of ids) {
+    const row = findSession(id);
+    if (row && row.state === 'sleeping') sleeping += 1;
+  }
+  const text = [running ? `▶ ${running}` : '', waiting ? `◔ ${waiting}` : '', sleeping ? `☾ ${sleeping}` : '']
+    .filter(Boolean)
+    .join('  ');
   if (counts.textContent !== text) counts.textContent = text;
 }
 
@@ -6585,13 +6784,141 @@ async function openFolderSpace(folder, create) {
 }
 
 /**
+ * Remove a project from the list through the same two-step consent the picker uses: the
+ * first ask reports what removal would interrupt, only the explicit answer removes it.
+ * The folder on disk is never touched.
+ */
+async function removeProjectFromMenu(projectId, name) {
+  if (!projectId || typeof api?.removeProject !== 'function') return;
+  try {
+    let result = await api.removeProject({ projectId });
+    if (result && result.status === 'CONFIRM_REQUIRED') {
+      const live = typeof result.liveSessions === 'number' ? result.liveSessions : 0;
+      const ask = live > 0
+        ? `Đóng ${live} Terminal đang chạy và bỏ “${name}” khỏi danh sách?`
+        : `Bỏ “${name}” khỏi danh sách? (Không xoá thư mục)`;
+      if (!window.confirm(ask)) return;
+      result = await api.answerProjectRemove?.({ projectId, confirmed: true });
+    }
+    const status = result && typeof result === 'object' ? result.status : '';
+    if (status === 'REMOVED') {
+      showTerminalNotice(`Đã bỏ “${name}” khỏi danh sách`);
+      await ensureProjectAppearance();
+      if (typeof renderTabs === 'function') renderTabs();
+      return;
+    }
+    const reason = result && typeof result.reason === 'string' && result.reason ? `: ${result.reason}` : '';
+    showTerminalNotice(status === 'UNKNOWN_PROJECT' ? 'Dự án này không còn tồn tại' : `Không bỏ được dự án${reason}`);
+  } catch (err) {
+    showTerminalNotice(`Không bỏ được dự án: ${bridgeErrorText(err)}`);
+  }
+}
+
+/** Present one project in the Web Hub; a refusal is reported, never swallowed. */
+function openProjectWebHub(projectId) {
+  return Promise.resolve(api.openProject(projectId)).then((result) => {
+    if (result && result.status === 'FAILED') {
+      showTerminalNotice(`Không mở được dự án: ${projectOpenFailureText(result.reason)}`);
+    }
+  }, (err) => showTerminalNotice(`Không mở được dự án: ${bridgeErrorText(err)}`));
+}
+
+let projectHeaderMenuEl = null;
+
+function hideProjectHeaderMenu() {
+  if (projectHeaderMenuEl) projectHeaderMenuEl.style.display = 'none';
+}
+
+/**
+ * The project section's action menu (right-click). Everything the header used to carry as
+ * inline buttons — new terminal, Space, brief, star, colour, open, remove — lives here so
+ * the header stays a name and a count. Targets are read from the header's live attributes:
+ * the element is reused across renders while its group object is rebuilt.
+ */
+function showProjectHeaderMenu(e, header) {
+  e.preventDefault();
+  e.stopPropagation();
+  hideContextMenu();
+  const projectId = header.getAttribute('data-project-id') || '';
+  const folderPath = header.getAttribute('data-folder-path') || '';
+  const capsuleKey = header.getAttribute('data-category') || '';
+  const capsuleId = isCapsuleGroupKey(capsuleKey)
+    ? capsuleKey.slice(CAPSULE_GROUP_PREFIX.length)
+    : (header.getAttribute('data-capsule-id') || '');
+  const name = (header.querySelector('.terminal-tab-category-label') || {}).textContent || projectId;
+  const starred = Boolean((projectAppearance.get(projectId) || {}).starred);
+  const items = [];
+  if (folderPath && typeof api?.newTerminalInFolder === 'function') {
+    items.push({ label: 'Terminal mới trong thư mục này', run: () => createTerminalInFolder(folderPath) });
+  }
+  if (folderPath && !isPopoutMode && typeof api?.openSpace === 'function') {
+    items.push({ label: 'Mở Space (.antifan/space.json)', run: () => openFolderSpace(folderPath, false) });
+    items.push({ label: 'Tạo space.json từ trạng thái hiện tại', run: () => openFolderSpace(folderPath, true) });
+  }
+  if (capsuleId && typeof api?.capsuleGetBrief === 'function') {
+    items.push({ label: 'Ghi chú dự án…', run: () => openCapsuleBriefDialog(capsuleId) });
+  }
+  if (projectId) {
+    items.push({ label: starred ? 'Bỏ đánh dấu sao' : 'Đánh dấu sao', run: () => writeProjectAppearance(projectId, { starred: !starred }) });
+    const colorInput = header.querySelector('[data-role="project-color"]');
+    if (colorInput) items.push({ label: 'Đổi màu dự án…', run: () => colorInput.click() });
+  }
+  if (projectId && isSharedManagerShell() && typeof api?.openProject === 'function') {
+    items.push({ label: 'Mở dự án này (Web Hub)', run: () => openProjectWebHub(projectId) });
+  }
+  if (projectId && typeof api?.removeProject === 'function') {
+    items.push({ divider: true });
+    items.push({ label: 'Bỏ dự án khỏi danh sách', danger: true, run: () => removeProjectFromMenu(projectId, name) });
+  }
+  if (!items.some((item) => item.run)) return;
+
+  if (!projectHeaderMenuEl) {
+    projectHeaderMenuEl = document.createElement('div');
+    projectHeaderMenuEl.className = 'tab-context-menu';
+    projectHeaderMenuEl.setAttribute('role', 'menu');
+    document.body.appendChild(projectHeaderMenuEl);
+    document.addEventListener('click', (ev) => {
+      if (projectHeaderMenuEl && !projectHeaderMenuEl.contains(ev.target)) hideProjectHeaderMenu();
+    });
+    document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') hideProjectHeaderMenu(); });
+    window.addEventListener('blur', hideProjectHeaderMenu);
+  }
+  const menu = projectHeaderMenuEl;
+  while (menu.firstChild) menu.removeChild(menu.firstChild);
+  for (const item of items) {
+    if (item.divider) {
+      const divider = document.createElement('div');
+      divider.className = 'context-divider';
+      menu.appendChild(divider);
+      continue;
+    }
+    const row = document.createElement('div');
+    row.className = `context-item${item.danger ? ' danger' : ''}`;
+    row.setAttribute('role', 'menuitem');
+    row.textContent = item.label;
+    row.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      hideProjectHeaderMenu();
+      void item.run();
+    });
+    menu.appendChild(row);
+  }
+  menu.style.display = 'flex';
+  const x = Math.min(e.clientX, window.innerWidth - menu.offsetWidth - 10);
+  const y = Math.min(e.clientY, window.innerHeight - menu.offsetHeight - 10);
+  menu.style.left = `${Math.max(10, x)}px`;
+  menu.style.top = `${Math.max(10, y)}px`;
+}
+
+/**
  * Manager-only chrome: the "+ Terminal trong thư mục…" toolbar button and the folder
  * section affordances are the hub's own reach, so a shell Main has not described — or any
  * project shell — shows none of them.
  */
 function refreshManagerHubButtons() {
   const visible = isSharedManagerShell() && typeof api?.newTerminalInFolder === 'function';
-  if (btnNewInFolder) btnNewInFolder.style.display = visible ? '' : 'none';
+  if (btnNewInFolder) btnNewInFolder.style.display = visible ? 'flex' : 'none';
+  if (newMenuBuilt) syncNewMenuToggle();
   // Every "own window" entry now opens the Terminal Manager; inside it they would only
   // re-focus the window already in front of the user.
   for (const id of ['btnPopoutWindow', 'btnNewTerminalWindow']) {
@@ -6702,6 +7029,18 @@ function buildTriageRow(s) {
 }
 
 function toggleCategoryCollapsed(key) {
+  if (idleGroupKeys.has(key)) {
+    // An idle section's fold is derived, so opening or closing it is session state only.
+    // Opening one the user had also folded by hand clears that stored fold with it.
+    if (isGroupCollapsed(key)) {
+      expandedIdleGroups.add(key);
+      if (collapsedCategories.delete(key)) persistTerminalTabPrefs();
+    } else {
+      expandedIdleGroups.delete(key);
+    }
+    renderTabs();
+    return;
+  }
   if (collapsedCategories.has(key)) collapsedCategories.delete(key);
   else collapsedCategories.add(key);
   persistTerminalTabPrefs();
@@ -7022,16 +7361,21 @@ function beginRenameCategory(key) {
  *
  * In the manager shell the chip names the capsule, because that is the grouping the row is
  * filed under and the only layout where the capsule is not already written above the row: a
- * project section header names it in the sidebar, so a row inside one carries no chip, while
- * a sleeping row — parked in the state bucket, outside every section — keeps its capsule.
+ * project section header names it in the sidebar, so a row inside one carries no chip — a
+ * sleeping row included, since the manager keeps parked rows inside their own section.
  */
 function applyCategoryChip(wrap, group, isSidebarLayout, session) {
   const btn = wrap.querySelector('.terminal-tab');
   if (!btn) return;
   const existing = wrap.querySelector('.terminal-tab-category-chip');
   const capsuleId = isSharedManagerShell() ? capsuleIdOf(session) : '';
-  const headerNamesTheCapsule = isSidebarLayout && group.kind === 'capsule';
-  if (capsuleId && !headerNamesTheCapsule) {
+  // A project, folder or capsule section header already names the row's grouping, so a row
+  // inside one carries no echo chip. A capsule the index cannot name (the 'default'
+  // sentinel, a stale id) is plumbing, not a project, and never earns a "Dự án" chip.
+  const headerNamesTheCapsule = isSidebarLayout
+    && (group.kind === 'capsule' || group.kind === 'project' || group.kind === 'folder');
+  const nameable = Boolean(capsuleId) && capsuleIndex.has(capsuleId);
+  if (nameable && !headerNamesTheCapsule) {
     const chip = existing || createCategoryChip(wrap, btn);
     const label = capsuleLabelOf(capsuleId);
     const path = capsulePathOf(capsuleId);
@@ -7253,12 +7597,12 @@ function renderTabs() {
     ? items.filter((s) => sessionMatchesQuery(s, searchTokens))
     : items);
 
-  // Sleeping sessions are a state, not a category, so they are partitioned out before
-  // grouping: an asleep tab must never sit inside a group of live ones. This is purely a
+  // In a project window sleeping sessions are a state, not a category, so they are
+  // partitioned out before grouping into a "parked" bucket appended last. This is purely a
   // display split — `session.category` is never touched — which is exactly why waking a
   // tab puts it back in its own group without anything having to remember where it was.
-  // The bucket is appended last so it reads as "parked", after everything still running.
-  const awakeSessions = [];
+  // The shared manager groups by project instead and keeps parked rows in their section.
+  const groupedSessions = [];
   const sleepingSessions = [];
   // A pane's row belongs to the tab it splits, so a parked tab parks its rows. Main
   // parks a parent's panes in the same transition; this set covers the broadcast that
@@ -7274,13 +7618,30 @@ function renderTabs() {
     if (s.state === 'sleeping') {
       // Sleeping split panes are implementation rows, not independent tabs.
       // The split toggle wakes the existing session when the row is hidden.
-      if (!s.splitOf) sleepingSessions.push(s);
+      if (s.splitOf) continue;
+      // The shared manager's axis is the project: a parked row stays inside its own
+      // project section, so one project is never shown in two places.
+      if (isSharedManagerShell()) groupedSessions.push(s);
+      else sleepingSessions.push(s);
       continue;
     }
     if (s.splitOf && sleepingParentIds.has(s.splitOf)) continue;
-    awakeSessions.push(s);
+    groupedSessions.push(s);
   }
-  const groups = groupSessionsByCategory(awakeSessions);
+  const groups = groupSessionsByCategory(groupedSessions);
+  // Recomputed from the unfiltered groups, so a search can never flip a section's idleness.
+  idleGroupKeys.clear();
+  if (isSharedManagerShell() && isSidebarLayout) {
+    for (const g of groups) {
+      if (!isDerivedGroupKey(g.key) || !g.items.length) continue;
+      // The section holding the tab the user is looking at never folds over it.
+      if (g.items.some((s) => s.id === activeId)) continue;
+      if (g.items.every((s) => s.state === 'sleeping')) idleGroupKeys.add(g.key);
+    }
+  }
+  for (const key of Array.from(expandedIdleGroups)) {
+    if (!idleGroupKeys.has(key)) expandedIdleGroups.delete(key);
+  }
   if (sleepingSessions.length > 0) {
     groups.push({
       key: SLEEPING_CATEGORY,
@@ -7338,7 +7699,7 @@ function renderTabs() {
       const header = ensureCategoryHeader(group);
       if (header) ordered.push(header);
     }
-    const isCollapsed = group.key !== UNCATEGORIZED_CATEGORY && isSidebarLayout && collapsedCategories.has(group.key) && !tabSearchActive;
+    const isCollapsed = group.key !== UNCATEGORIZED_CATEGORY && isSidebarLayout && isGroupCollapsed(group.key);
     for (const s of orderGroupItems(group.items)) {
       const wrap = ensureTerminalTabWrap(s, currentWraps);
       wrap.classList.toggle('is-sleeping', s.state === 'sleeping');
@@ -7535,6 +7896,7 @@ async function bootstrapTerminalState() {
     applyCategories(s?.terminalTabPrefs?.categories);
     applyCategoryColors(s?.terminalTabPrefs?.categoryColors);
     applyStarredCategories(s?.terminalTabPrefs?.starredCategories);
+    applyProjectOrder(s?.terminalTabPrefs?.projectOrder);
     applyTerminalTabLayout(s?.terminalTabPrefs?.layout, s?.terminalTabPrefs?.sidebarWidth);
     // The boot projection paints the same cards the push channel maintains, so a
     // freshly mounted surface shows live runs before the first sweep lands.
@@ -7664,10 +8026,6 @@ window.addEventListener('beforeunload', () => {
     try { bridgeStatusUnsubscribe(); } catch {}
     bridgeStatusUnsubscribe = null;
   }
-  if (runCardElapsedTimer) {
-    clearInterval(runCardElapsedTimer);
-    runCardElapsedTimer = null;
-  }
   if (typeof runCardsUnsubscribe === 'function') {
     try { runCardsUnsubscribe(); } catch {}
     runCardsUnsubscribe = null;
@@ -7685,10 +8043,6 @@ window.addEventListener('unload', () => {
   if (typeof bridgeStatusUnsubscribe === 'function') {
     try { bridgeStatusUnsubscribe(); } catch {}
     bridgeStatusUnsubscribe = null;
-  }
-  if (runCardElapsedTimer) {
-    clearInterval(runCardElapsedTimer);
-    runCardElapsedTimer = null;
   }
   if (typeof runCardsUnsubscribe === 'function') {
     try { runCardsUnsubscribe(); } catch {}

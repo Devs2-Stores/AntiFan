@@ -222,6 +222,7 @@ export class ControlPlaneRuntime {
       getActiveLease: () => this.getLease(),
       workspaceRegistry: this.workspaces,
       isTabAllowed: options.isTabAllowed,
+      resolveTabAffiliation: options.resolveTabAffiliation,
       resolveTabId: options.resolveTabId,
       resolveFailoverTabId: options.resolveFailoverTabId,
       getDocumentGeneration: options.getDocumentGeneration,
@@ -608,6 +609,36 @@ export class ControlPlaneRuntime {
     });
   }
 
+  public resolveBrowserSessionWorkspace(options: { tabId?: string; originTerminalSessionId?: string; projectId?: string; workspaceId?: string; cwd?: string }): WorkspaceRecord {
+    if (options.originTerminalSessionId) {
+      const scope = this.resolveTerminalScope(options.originTerminalSessionId);
+      if (scope.kind === 'unmeasurable') {
+        throw new CapabilityError('TERMINAL_SCOPE_UNRESOLVED', 'Pairing terminal scope cannot be measured');
+      }
+      if (scope.kind === 'measured') {
+        if (options.projectId && options.projectId !== scope.projectId) {
+          throw new CapabilityError('PROJECT_MISMATCH', 'Requested project conflicts with the measured terminal project');
+        }
+        if (options.workspaceId && options.workspaceId !== scope.workspaceId) {
+          throw new CapabilityError('WORKSPACE_MISMATCH', 'Requested workspace conflicts with the measured terminal workspace');
+        }
+        const workspace = this.resolveBrowserSessionWorkspace({ ...options, originTerminalSessionId: undefined, projectId: scope.projectId, workspaceId: scope.workspaceId });
+        return workspace;
+      }
+    }
+    const affiliation = options.tabId ? this.resolveTabAffiliationOption?.(options.tabId) : undefined;
+    if (affiliation?.projectId && affiliation.workspaceId) {
+      if (options.projectId && options.projectId !== affiliation.projectId) {
+        throw new CapabilityError('PROJECT_MISMATCH', 'Requested project conflicts with the measured anchor project');
+      }
+      if (options.workspaceId && options.workspaceId !== affiliation.workspaceId) {
+        throw new CapabilityError('WORKSPACE_MISMATCH', 'Requested workspace conflicts with the measured anchor workspace');
+      }
+      return this.resolveWorkspaceForSession({ projectId: affiliation.projectId, workspaceId: affiliation.workspaceId });
+    }
+    return this.resolveWorkspaceForSession(options);
+  }
+
   async createCliSession(
     options: {
       projectId?: string;
@@ -688,7 +719,7 @@ export class ControlPlaneRuntime {
     // terminal-origin binding is stamped: there is no claim for a later dispatch to re-measure.
     const targetWs = measuredTerminalScope
       ? this.resolveWorkspaceForSession({ projectId: measuredTerminalScope.projectId, workspaceId: measuredTerminalScope.workspaceId })
-      : this.resolveWorkspaceForSession(options);
+      : this.resolveBrowserSessionWorkspace(options);
     const ttlMs = typeof options.ttlMs === 'number' && options.ttlMs > 0 ? options.ttlMs : 7_200_000;
     const isDefault = targetWs.projectId === this.leaseState.projectId && targetWs.id === this.leaseState.workspaceId;
     const baseLease = isDefault ? this.getLease() : issueRuntimeLease(targetWs.projectId, targetWs.id, ttlMs, this.leaseState.hostEpoch);

@@ -18,8 +18,8 @@ const { CallToolRequestSchema, ListToolsRequestSchema } = require('@modelcontext
 // compile-time gate (check-mcp-budget-dominance.mjs) verifies every declared
 // row against the app capability catalogue.
 const definitions = [
-  ['anti.browser.tabs.list', 'List tabs in the live AntiFan Desktop Browser GUI (every tab in the window by default; pass all: false to list only the tabs this session owns). Primary browser tool for theme development and live tab management.', { all: { type: 'boolean', default: true, description: 'List every tab in the browser window (default). Pass false to restrict the list to the tabs this session owns.' } }],
-  ['anti.browser.tabs.create', 'Open a new tab in live AntiFan Desktop Browser GUI without stealing focus by default.', { url: { type: 'string' }, activate: { type: 'boolean' } }],
+  ['anti.browser.tabs.list', 'List tabs affiliated with the authenticated session project by default. Pass all: true for global GUI discovery; affiliated marks same-project entries, not a grant of action authority.', { all: { type: 'boolean', default: false, description: 'Opt in to global GUI discovery.' }, affiliatedOnly: { type: 'boolean', description: 'Restrict discovery to the authenticated project/workspace.' }, projectId: { type: 'string', description: 'Project selector; must match the authenticated session project.' } }],
+  ['anti.browser.tabs.create', 'Open a tab in the authenticated anchor project/window without stealing focus by default.', { url: { type: 'string' }, activate: { type: 'boolean' }, anchorTabId: { type: 'string', description: 'Live same-project tab selecting the window for creation; obtain it with tabs.list.' }, projectId: { type: 'string', description: 'Project selector; must match authenticated anchor scope and cannot grant foreign authority.' } }],
   ['anti.browser.tabs.activate', 'Switch the active tab visible to the user in live AntiFan Desktop Browser GUI by tabId.', { tabId: { type: 'string' } }, ['tabId']],
   ['anti.browser.tabs.close', 'Close a tab in live AntiFan Desktop Browser GUI by tabId.', { tabId: { type: 'string' } }, ['tabId']],
   ['anti.browser.rebind_target', 'Rebind this session attachment to a live tabId after the bound tab detached or died. Use tabs.list to find a live tab, then rebind; subsequent calls target that tab.', { tabId: { type: 'string' } }, ['tabId']],
@@ -72,7 +72,7 @@ const definitions = [
   ['anti.media.freeze', 'Freeze or unfreeze dynamic media (videos, audios, CSS animations) in tab to enable deterministic visual comparisons. Native requestAnimationFrame scheduling is left untouched, so RAF-driven motion requires the settle barrier instead.', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, freeze: { type: 'boolean', description: 'True to freeze media and pause animations; false to resume' } }, [], [], 'tabId'],
   ['anti.inspect.page_inventory', 'Scan entire physical page structure from y=0 to scrollHeight, returning list of all sections, coordinates, heights, and layout groups (chống sót header/footer/newsletter).', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], [], 'tabId'],
   ['anti.inspect.style_diff', 'Compare computed CSS styles and box-model metrics between elements on two tabs (or two selectors).', { selector: { type: 'string', description: 'CSS selector of target element on tab 1' }, comparisonSelector: { type: 'string', description: 'CSS selector on tab 2 (defaults to selector)' }, tabId: { type: 'string' }, comparisonTabId: { type: 'string' }, properties: { type: 'array', items: { type: 'string' }, description: 'CSS properties to compare' } }, ['selector'], [], 'tabId'],
-  ['anti.spec.validate_gate', 'Validate HTML Specification against target page to certify HTML_SPEC_READY status before theme compilation.', { specTabId: { type: 'string' }, targetTabId: { type: 'string' }, tolerance: { type: 'number' } }],
+  ['anti.spec.validate_gate', 'Validate HTML Specification against target page to certify HTML_SPEC_READY status before theme compilation.', { specTabId: { type: 'string' }, targetTabId: { type: 'string' }, tolerance: { type: 'number' } }, ['specTabId']],
   ['anti.agent.sequence', 'Execute an atomic multi-step action sequence (navigate, click, type, scroll, hover, pressKey, wait, screenshot, snapshot) in 1 roundtrip with auto-wait and navigation guards.', { actions: { type: 'array', items: { type: 'object' } }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, stopOnError: { type: 'boolean' } }, ['actions'], [], 'tabId'],
   ['anti.artifact.read', 'Read an authorized artifact by ID with bounded chunk size (clamped to max 32KB per frame).', { artifactId: { type: 'string' }, offset: { type: 'number' }, limit: { type: 'number' } }, ['artifactId']],
   ['anti.artifact.stat', 'Retrieve metadata and size information for an authorized artifact.', { artifactId: { type: 'string' } }, ['artifactId']],
@@ -1691,6 +1691,9 @@ async function performPairingExchange(host, port, options = {}) {
         // 'write' grant, which then refuses every eval-risk capability (anti.browser.evaluate,
         // anti.inspect.eval) with a POLICY_DENIED that never mentions the grant.
         requestedGrant: resolveSessionGrant(),
+        tabId: process.env.ANTIFAN_BOUND_TAB_ID || undefined,
+        terminalSessionId: process.env.ANTIFAN_TERMINAL_AFFINITY_SESSION_ID || process.env.ANTIFAN_TERMINAL_PARENT_SESSION_ID || process.env.ANTIFAN_TERMINAL_SESSION_ID || undefined,
+        cwd: process.cwd(),
       });
       if (!exchange?.success || !exchange?.secret) {
         const err = new Error(`PAIRING_EXCHANGE_FAILED: ${exchange?.message || exchange?.error || 'No secret returned'}`);
@@ -2723,10 +2726,22 @@ function ensureHeartbeatSocket(bootstrap, onOpen) {
       process.stderr.write(`[antifan-omp] heartbeat error: ${err.message}\n`);
     }
   });
-  ws.once('close', () => {
+  ws.once('close', (code) => {
     clearHeartbeatPending();
-    if (heartbeatWs === ws) heartbeatWs = null;
+    const wasCurrent = heartbeatWs === ws;
+    if (wasCurrent) heartbeatWs = null;
     heartbeatBusy = false;
+    // 4001/4003 is the bridge refusing this held secret, not a dropped link:
+    // redialing with the same secret can only be refused again, so stop instead
+    // of refusing forever every 5 s. The next tool call hits the same refusal
+    // on its dispatch socket and autoheals, which restarts the heartbeat.
+    if (code === 4001 || code === 4003) {
+      if (wasCurrent && heartbeatTimer !== null) {
+        process.stderr.write(`[antifan-omp] heartbeat stopped: bridge refused the held attachment secret (close ${code}); the next tool call re-establishes authority\n`);
+        stopHeartbeat();
+      }
+      return;
+    }
     if (heartbeatTimer !== null) scheduleHeartbeatReconnect(bootstrap);
   });
   if (onOpen) ws.once('open', () => { if (heartbeatWs === ws) onOpen(ws); });

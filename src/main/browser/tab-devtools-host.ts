@@ -4,6 +4,7 @@
  * Element Inspector / Picker Polling, Auto JSON Viewer, Page Source Viewer, and DOM Utilities.
  */
 
+import * as fs from 'node:fs';
 import path from 'node:path';
 import { net, clipboard, Rectangle } from 'electron';
 import { AntiFanTab, SplitPaneId, AntiFanPickedElement } from '../../shared/contracts';
@@ -16,6 +17,9 @@ import { dispatchAnnotationToTerminal, stripDeliveryMode } from './annotation-di
 import { recordLifecycleEvent } from '../diagnostics/main-lifecycle-log';
 import { AnnotationManager } from '../bridge/annotation-manager';
 import { TerminalManager, selectAnnotationTargets } from './terminal-manager';
+import { canonicalFolderKey } from '../project/workspace-capsule';
+import { DEFAULT_WORKSPACE_ROOTS, resolveWorkspaceFromUrl } from './workspace-resolver';
+import { StorageLocations } from '../config/storage-locations';
 import type { CaptureLiftLease, NativeTabRecord, SwitchTabOptions } from './native-tab-host';
 import type { SemanticElementDescriptor } from './semantic-ref-types';
 import {
@@ -125,6 +129,13 @@ export interface TabDevToolsContext {
   getTabTerminalSession: (tabId: string) => string | undefined;
   /** The stamped, owner-scoped session list (folder facts included) the annotation picker groups by. */
   visibleTerminalSessions: () => Parameters<typeof selectAnnotationTargets>[0];
+  /**
+   * The session this window presents as active, or '' when it presents none.
+   * The manager's own active id is process-wide — whichever window switched
+   * last — so annotation routing consults this instead. Optional: several
+   * harnesses construct the context literal without a window.
+   */
+  windowActiveSessionId?: () => string;
   resolveTargetWorkspace: (targetSessionId?: string, tabUrl?: string) => string;
   resolveAnnotationWorkspace: (targetSessionId?: string, tabUrl?: string) => string;
   getDiagnostics?: (tabId: string, level?: string) => { console?: Array<{ message: string; source?: string; line?: number; level?: number }>; failures?: Array<{ validatedURL?: string; errorDescription?: string; errorCode?: number }> } | null;
@@ -501,8 +512,10 @@ export class TabDevToolsHost {
     this.inspectedTabId = activeTabId;
     this.inspectGeneration++;
     const currentGeneration = this.inspectGeneration;
-    const tm = TerminalManager.getInstance();
-    const activeSessionId = tm.getActiveSessionId();
+    // The id the picker's context reports is this window's own presented
+    // session, not the process-global one: a second window's switch must not
+    // re-point the route a pick here resolves against.
+    const activeSessionId = this.ctx.windowActiveSessionId?.() ?? '';
     const tabSessionId = this.ctx.getTabTerminalSession(activeTabId);
     const termContextData: Record<string, unknown> = {
       tabId: activeTabId,
@@ -605,7 +618,11 @@ export class TabDevToolsHost {
     try {
       const targetTab = this.ctx.getTabRecord(targetTabId);
       if (!targetTab) return;
-      const liveSessions = TerminalManager.getInstance().listSessions();
+      // The dispatch scope is the same list this window's picker offered —
+      // its owner-scoped, running, non-split rows — never the process-global
+      // session list, which would let a pick here name another window's
+      // terminal.
+      const scope = selectAnnotationTargets(this.ctx.visibleTerminalSessions());
 
       if (targetTab.state.splitMode) {
         targetTab.focusedPane = paneId;
@@ -613,7 +630,13 @@ export class TabDevToolsHost {
         this.ctx.broadcastState();
       }
 
-      if (typeof rawResult.targetSessionId === 'string' && (rawResult.targetSessionId === 'auto' || liveSessions.some((s) => s.id === rawResult.targetSessionId))) {
+      // Per-tab routing memory (Flow 26): 'auto' is a persisted arm of its
+      // own; a concrete id persists only when the picker's own scope offered
+      // it. An explicit foreign-window id is refused here and again at
+      // dispatch below.
+      const pickedTargetId = typeof rawResult.targetSessionId === 'string' ? rawResult.targetSessionId : '';
+      const pickedRefused = pickedTargetId !== '' && pickedTargetId !== 'auto' && !scope.some((s) => s.id === pickedTargetId);
+      if (pickedTargetId === 'auto' || (pickedTargetId !== '' && !pickedRefused)) {
         targetTab.state.terminalSessionId = rawResult.targetSessionId;
       }
 
@@ -647,11 +670,102 @@ export class TabDevToolsHost {
         console.error('[tab-devtools-host] capture and crop error:', err);
       }
 
+      // The annotated page's own workspace, by URL classification alone. This
+      // is also the artifact workspace on a dispatch skip: a pick that delivers
+      // nothing must never leak its markdown/screenshots into the active
+      // capsule's or a foreign window's session folder.
+      // The annotated page's own workspace, by URL classification alone. The URL
+      // is read from the webContents that produced the pick — in split mode the
+      // mobile pane can show a different project than state.url (desktop-only
+      // writes), and classifying by the desktop URL would misroute the dispatch.
+      // This is also the artifact workspace on a dispatch skip: a pick that
+      // delivers nothing must never leak its markdown/screenshots into the
+      // active capsule's or a foreign window's session folder.
+      let paneUrl = '';
+      try {
+        if (!wc.isDestroyed()) paneUrl = wc.getURL();
+      } catch {}
+      const tabUrl = paneUrl || targetTab.state.url;
+      const urlWorkspace = resolveWorkspaceFromUrl(tabUrl, DEFAULT_WORKSPACE_ROOTS);
+
+      // Resolve the receiving session inside this window's scope before any
+      // workspace is computed, so formatPath and the session arm of the
+      // workspace resolvers below agree on the same target. A refused pick
+      // (a concrete id outside this window's scope) never resolves at all —
+      // dispatch is skipped rather than re-routed onto an id the picker did
+      // not offer.
+      let targetSessionId: string | undefined;
+      let dispatchSkip: { reason: 'foreign-target-refused' | 'workspace-unresolved' | 'workspace-ambiguous'; requestedSessionId?: string } | null = null;
+      if (pickedRefused) {
+        dispatchSkip = { reason: 'foreign-target-refused', requestedSessionId: pickedTargetId };
+      } else if (pickedTargetId !== '' && pickedTargetId !== 'auto') {
+        targetSessionId = pickedTargetId;
+      } else {
+        // The match key is URL-classification only: resolveAnnotationWorkspace
+        // would consult the process-global active capsule/session arms, letting a
+        // foreign workspace steer this window's 'auto' pick for unclassifiable URLs.
+        const matchKey = urlWorkspace ? canonicalFolderKey(urlWorkspace) : '';
+        const matched = matchKey ? scope.filter((s) => typeof s.folderPath === 'string' && s.folderPath !== '' && canonicalFolderKey(s.folderPath) === matchKey) : [];
+        if (matched.length === 1) {
+          targetSessionId = matched[0]!.id;
+        } else {
+          // The window's own presented session is the only tie-breaker, and it
+          // breaks the tie only inside the workspace-matched set — a
+          // window-active session in a different folder is exactly the
+          // cross-project write this removes, so it is never a fallback.
+          const windowActive = this.ctx.windowActiveSessionId?.() ?? '';
+          const activeMatch = windowActive ? matched.find((s) => s.id === windowActive) : undefined;
+          if (activeMatch) {
+            targetSessionId = activeMatch.id;
+          } else {
+            dispatchSkip = { reason: matched.length === 0 ? 'workspace-unresolved' : 'workspace-ambiguous' };
+          }
+        }
+      }
+
+      if (dispatchSkip) {
+        // A skipped write is still reported — silently dropping the dispatch
+        // is indistinguishable from a delivered one. The picker channel carries
+        // the same scope it was offered and a cleared selectedSessionId; the
+        // lifecycle journal records why.
+        const warning = `[tab-devtools-host] annotation dispatch skipped (${dispatchSkip.reason}) for tab ${targetTabId}${dispatchSkip.requestedSessionId ? ` — refused target ${dispatchSkip.requestedSessionId}` : ''}`;
+        console.warn(warning);
+        recordLifecycleEvent('annotation.dispatchSkipped', {
+          tabId: targetTabId,
+          reason: dispatchSkip.reason,
+          requestedSessionId: dispatchSkip.requestedSessionId,
+          scopeSessionIds: scope.map((s) => s.id),
+        });
+        if (!wc.isDestroyed()) {
+          wc.executeJavaScript(`(() => {
+            window.__antifanTerminalContext = Object.assign(window.__antifanTerminalContext || {}, ${JSON.stringify({ sessions: scope, selectedSessionId: '' })});
+          })();`).catch(() => {});
+        }
+      }
+
+      // Workspace arms run only after the session is resolved: a delivered
+      // pick anchors formatPath and the artifact directory to the receiving
+      // session's folder; a skipped pick resolves its workspace from the URL
+      // alone (neutral runtime dir when the URL classifies to nothing) so the
+      // artifacts never land beside a session that is not receiving them.
       const tm = TerminalManager.getInstance();
-      const tmActiveId = tm.getActiveSessionId();
-      const targetSessionId = rawResult.targetSessionId || (tmActiveId !== 'auto' ? tmActiveId : undefined);
-      const targetWorkspace = this.ctx.resolveTargetWorkspace(targetSessionId, targetTab?.state.url);
-      const annotationWorkspace = this.ctx.resolveAnnotationWorkspace(targetSessionId, targetTab?.state.url);
+      let targetWorkspace: string;
+      let annotationWorkspace: string;
+      if (dispatchSkip) {
+        if (urlWorkspace) {
+          annotationWorkspace = urlWorkspace;
+        } else {
+          const neutralDir = path.join(StorageLocations.getRuntimeDir(), 'annotations');
+          try {
+            fs.mkdirSync(neutralDir, { recursive: true });
+          } catch {}
+          annotationWorkspace = neutralDir;
+        }
+        targetWorkspace = annotationWorkspace;
+      } else {
+        targetWorkspace = this.ctx.resolveTargetWorkspace(targetSessionId, tabUrl);
+        annotationWorkspace = this.ctx.resolveAnnotationWorkspace(targetSessionId, tabUrl);
+      }
       const tabDiag = (this.ctx.getDiagnostics && typeof this.ctx.getDiagnostics === 'function')
         ? this.ctx.getDiagnostics(targetTabId, 'error')
         : { console: [], failures: [] };
@@ -1779,6 +1893,17 @@ export class TabDevToolsHost {
             const raster = await this.captureNativeViewportRaster(wc, format, quality, 600);
             if (raster.bytes && raster.bytes.length > 0) {
               return raster.bytes.toString('base64');
+            }
+            if (isOffscreenTarget) {
+              // The OSR surface is the only raster source this target has: a CDP
+              // fromSurface retry asks the same BeginFrame source that just
+              // failed, waits out its own bound, and quarantines the target's CDP
+              // transport — the measured stall/crash class. Fail fast with the
+              // typed reason instead.
+              throw new CaptureError(
+                raster.timedOut ? 'CAPTURE_TIMEOUT' : 'NO_RENDER_SURFACE',
+                `capturePage on offscreen tab '${targetId}' ${raster.timedOut ? 'timed out' : 'returned an empty raster'}: the offscreen compositor produced no frame to copy (no CDP fallback — the same surface would burn the CDP bound)`
+              );
             }
           }
 

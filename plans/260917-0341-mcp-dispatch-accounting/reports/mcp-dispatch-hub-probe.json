@@ -1,22 +1,22 @@
 {
   "probe": "test/e2e/mcp-dispatch-hub-probe.cjs",
-  "startedAt": "2026-09-29T22:30:47.578Z",
-  "finishedAt": "2026-09-29T22:30:49.627Z",
+  "startedAt": "2026-10-01T04:33:14.997Z",
+  "finishedAt": "2026-10-01T04:33:16.948Z",
   "electron": "43.4.0",
   "node": "24.18.1",
   "cwd": "E:\\Work\\apps\\AntiFan",
   "artifacts": {
     "toolbarHtml": {
       "path": ".compiled\\src\\renderer\\toolbar.html",
-      "sha256": "d5a53789404c4d4a072d8cd77039c816ed21c6508b6d1455ec4e8bd34aeefeac",
-      "bytes": 60559,
-      "mtimeMs": 1790704967918.4133
+      "sha256": "282b6ba7c182d04719a24a6c3a6c2d0d420eec084f430b31c6c5d7bc4c0fdb29",
+      "bytes": 59781,
+      "mtimeMs": 1790751882239.9905
     },
     "toolbarJs": {
       "path": ".compiled\\src\\renderer\\toolbar.js",
-      "sha256": "08dfe99ec4f29a2b128edd23afdc9e40046460049ca681a46af295b62be0379e",
-      "bytes": 267041,
-      "mtimeMs": 1790714377581.127
+      "sha256": "2fc66633def1d7b30aacf8fe74ce13c20c88d10a4de9e2c968dda976edab929b",
+      "bytes": 265419,
+      "mtimeMs": 1790828884431.0667
     },
     "exportsShim": {
       "path": ".compiled\\src\\renderer\\exports-shim.js",
@@ -26,31 +26,31 @@
     },
     "toolbarPreload": {
       "path": ".compiled\\src\\preload\\toolbar-preload.js",
-      "sha256": "b95d35815dc725638dbe05aa6c3e4f93f39e5dfd30f66c5d4517d63215a3e08f",
-      "bytes": 14804,
-      "mtimeMs": 1790714368946.515
+      "sha256": "308562525b14de304cd61cd5e8ba7e72179ac0f81fe8bce9471b431230b6b764",
+      "bytes": 14774,
+      "mtimeMs": 1790826207597.2954
     },
     "mcpDispatchService": {
       "path": ".compiled\\src\\main\\diagnostics\\mcp-dispatch-service.js",
       "sha256": "9e0dbbce342e17a6f4426e72be4560ce869a188eee8166065a63063304238d71",
       "bytes": 37148,
-      "mtimeMs": 1790714367145.4807
+      "mtimeMs": 1790826206147.7026
     },
     "sourceToolbarTs": {
       "path": "src\\renderer\\toolbar.ts",
-      "sha256": "42aaad7469f8c1e64a2be7e1d1e9e7479968fddc115aaff54b30ca5c6747a6f9",
-      "bytes": 274240,
-      "mtimeMs": 1790707589587.0132
+      "sha256": "09d61a86d9b88941e2bd75d83a63e9381d6f3c4f37203f5b2e5aa9dfacf126e8",
+      "bytes": 272582,
+      "mtimeMs": 1790752420754.934
     },
     "sourceToolbarHtml": {
       "path": "src\\renderer\\toolbar.html",
-      "sha256": "d5a53789404c4d4a072d8cd77039c816ed21c6508b6d1455ec4e8bd34aeefeac",
-      "bytes": 60559,
-      "mtimeMs": 1790704967918.4133
+      "sha256": "282b6ba7c182d04719a24a6c3a6c2d0d420eec084f430b31c6c5d7bc4c0fdb29",
+      "bytes": 59781,
+      "mtimeMs": 1790751882239.9905
     },
     "sourceVsCompiled": {
-      "compiledToolbarJsMtimeMs": 1790714377581.127,
-      "sourceToolbarTsMtimeMs": 1790707589587.0132,
+      "compiledToolbarJsMtimeMs": 1790828884431.0667,
+      "sourceToolbarTsMtimeMs": 1790752420754.934,
       "sourceIsNewerThanCompiled": false,
       "note": "This probe observes the COMPILED renderer. If the source is newer, the observed revision is not the current source revision and the hashes above (not the working tree) define what passed. Re-run after a compile to certify the newer source."
     }
@@ -128,7 +128,7 @@
     },
     "overlayBefore": "none",
     "baselineCensus": {
-      "elements": 745,
+      "elements": 740,
       "img": 1,
       "imgWithOnerror": 0,
       "script": 2,
@@ -159,7 +159,7 @@
       "residueElements": 0
     },
     "afterSelfTestCensus": {
-      "elements": 745,
+      "elements": 740,
       "img": 1,
       "imgWithOnerror": 0,
       "script": 2,
@@ -187,7 +187,7 @@
         "sentinelWait": {
           "ok": true,
           "label": "list text contains sentinel calls 7",
-          "waitedMs": 52
+          "waitedMs": 62
         },
         "navClass": "hub-nav-tab active",
         "navAriaSelected": null,
@@ -389,7 +389,7 @@
         "detailNameChildElementCount": 0,
         "detailDescChildElementCount": 0,
         "census": {
-          "elements": 777,
+          "elements": 772,
           "img": 1,
           "imgWithOnerror": 0,
           "script": 2,
@@ -477,7 +477,7 @@
         "sentinelWait": {
           "ok": true,
           "label": "list text contains sentinel NO_DATA_ROOT_RESOLVED",
-          "waitedMs": 64
+          "waitedMs": 65
         },
         "navClass": "hub-nav-tab active",
         "navAriaSelected": null,
@@ -533,7 +533,7 @@
         "detailNameChildElementCount": 0,
         "detailDescChildElementCount": 0,
         "census": {
-          "elements": 746,
+          "elements": 741,
           "img": 1,
           "imgWithOnerror": 0,
           "script": 2,
@@ -615,7 +615,7 @@
         "sentinelWait": {
           "ok": true,
           "label": "list text contains sentinel CENSUS_DRIFT",
-          "waitedMs": 54
+          "waitedMs": 65
         },
         "navClass": "hub-nav-tab active",
         "navAriaSelected": null,
@@ -671,7 +671,7 @@
         "detailNameChildElementCount": 0,
         "detailDescChildElementCount": 0,
         "census": {
-          "elements": 746,
+          "elements": 741,
           "img": 1,
           "imgWithOnerror": 0,
           "script": 2,
@@ -753,7 +753,7 @@
         "sentinelWait": {
           "ok": true,
           "label": "list text contains sentinel UNRECOGNIZED",
-          "waitedMs": 52
+          "waitedMs": 51
         },
         "navClass": "hub-nav-tab active",
         "navAriaSelected": null,
@@ -927,7 +927,7 @@
         "detailNameChildElementCount": 0,
         "detailDescChildElementCount": 0,
         "census": {
-          "elements": 775,
+          "elements": 770,
           "img": 1,
           "imgWithOnerror": 0,
           "script": 2,
@@ -1048,7 +1048,7 @@
         "sentinelWait": {
           "ok": true,
           "label": "list text contains sentinel secrets",
-          "waitedMs": 53
+          "waitedMs": 51
         },
         "navClass": "hub-nav-tab active",
         "navAriaSelected": null,
@@ -1222,7 +1222,7 @@
         "detailNameChildElementCount": 0,
         "detailDescChildElementCount": 0,
         "census": {
-          "elements": 775,
+          "elements": 770,
           "img": 1,
           "imgWithOnerror": 0,
           "script": 2,
@@ -1761,73 +1761,73 @@
     {
       "channel": "antifan:toolbar:get-initial-state",
       "scenario": null,
-      "at": "2026-09-29T22:30:48.025Z",
+      "at": "2026-10-01T04:33:15.325Z",
       "argSummary": null
     },
     {
       "channel": "antifan:toolbar:workspace-identify",
       "scenario": null,
-      "at": "2026-09-29T22:30:48.026Z",
+      "at": "2026-10-01T04:33:15.326Z",
       "argSummary": null
     },
     {
       "channel": "antifan:toolbar:get-phone-status",
       "scenario": null,
-      "at": "2026-09-29T22:30:48.031Z",
+      "at": "2026-10-01T04:33:15.330Z",
       "argSummary": "undefined"
     },
     {
       "channel": "antifan:workflow:get-state",
       "scenario": "A-measured-truncated",
-      "at": "2026-09-29T22:30:48.107Z",
+      "at": "2026-10-01T04:33:15.379Z",
       "argSummary": null
     },
     {
       "channel": "antifan:core-health:get-state",
       "scenario": "A-measured-truncated",
-      "at": "2026-09-29T22:30:48.108Z",
+      "at": "2026-10-01T04:33:15.379Z",
       "argSummary": "undefined"
     },
     {
       "channel": "antifan:mcp-dispatch:get-state",
       "scenario": "A-measured-truncated",
-      "at": "2026-09-29T22:30:48.108Z",
+      "at": "2026-10-01T04:33:15.379Z",
       "argSummary": null
     },
     {
       "channel": "antifan:toolbar:set-overlay",
       "scenario": "A-measured-truncated",
-      "at": "2026-09-29T22:30:48.108Z",
+      "at": "2026-10-01T04:33:15.379Z",
       "argSummary": "true"
     },
     {
       "channel": "antifan:mcp-dispatch:get-state",
       "scenario": "A-measured-truncated",
-      "at": "2026-09-29T22:30:48.109Z",
+      "at": "2026-10-01T04:33:15.380Z",
       "argSummary": null
     },
     {
       "channel": "antifan:mcp-dispatch:get-state",
       "scenario": "B-unmeasured-no-census",
-      "at": "2026-09-29T22:30:48.563Z",
+      "at": "2026-10-01T04:33:15.864Z",
       "argSummary": null
     },
     {
       "channel": "antifan:mcp-dispatch:get-state",
       "scenario": "C-unmeasured-with-census",
-      "at": "2026-09-29T22:30:48.760Z",
+      "at": "2026-10-01T04:33:16.062Z",
       "argSummary": null
     },
     {
       "channel": "antifan:mcp-dispatch:get-state",
       "scenario": "D1-hostile-projected",
-      "at": "2026-09-29T22:30:48.947Z",
+      "at": "2026-10-01T04:33:16.261Z",
       "argSummary": null
     },
     {
       "channel": "antifan:mcp-dispatch:get-state",
       "scenario": "D2-hostile-raw",
-      "at": "2026-09-29T22:30:49.289Z",
+      "at": "2026-10-01T04:33:16.597Z",
       "argSummary": null
     }
   ],
@@ -1918,7 +1918,7 @@
       "expected": "baseline document has 0 elements with inline on* attributes, 0 img[onerror], canary 0",
       "observed": {
         "census": {
-          "elements": 745,
+          "elements": 740,
           "img": 1,
           "imgWithOnerror": 0,
           "script": 2,
@@ -1943,7 +1943,7 @@
       "expected": "window.alert override armed and never invoked (canary === 0)",
       "observed": {
         "canary": 0,
-        "elements": 745
+        "elements": 740
       }
     },
     {
@@ -1977,7 +1977,7 @@
         "sentinelWait": {
           "ok": true,
           "label": "list text contains sentinel calls 7",
-          "waitedMs": 52
+          "waitedMs": 62
         },
         "listItemCount": 6,
         "listIds": [
@@ -2216,7 +2216,7 @@
         "sentinelWait": {
           "ok": true,
           "label": "list text contains sentinel NO_DATA_ROOT_RESOLVED",
-          "waitedMs": 64
+          "waitedMs": 65
         },
         "listItemCount": 0,
         "notice": {
@@ -2375,7 +2375,7 @@
           ]
         },
         "census": {
-          "elements": 775,
+          "elements": 770,
           "img": 1,
           "imgWithOnerror": 0,
           "script": 2,
@@ -2384,7 +2384,7 @@
           "canary": 0
         },
         "baseline": {
-          "elements": 745,
+          "elements": 740,
           "img": 1,
           "imgWithOnerror": 0,
           "script": 2,
@@ -2494,7 +2494,7 @@
           ]
         },
         "census": {
-          "elements": 775,
+          "elements": 770,
           "img": 1,
           "imgWithOnerror": 0,
           "script": 2,
@@ -2503,7 +2503,7 @@
           "canary": 0
         },
         "baseline": {
-          "elements": 745,
+          "elements": 740,
           "img": 1,
           "imgWithOnerror": 0,
           "script": 2,

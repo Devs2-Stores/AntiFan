@@ -29,9 +29,6 @@ interface AntiFanTab {
   splitMobilePresetId?: string;
   splitFocusedPane?: 'desktop' | 'mobile';
   splitError?: string;
-  alias?: string;
-  role?: string;
-  aliasColor?: string;
   /** Web-hub scope stamp: absent means shared — the tab renders under every project. */
   projectId?: string;
 }
@@ -85,7 +82,6 @@ interface AntiFanToolbarApi {
   getInitialState: () => Promise<any>;
   createTab: (url?: string) => Promise<string>;
   switchTab: (tabId: string) => Promise<boolean>;
-  setTabAlias: (tabId: string, alias?: string, role?: string, aliasColor?: string) => Promise<boolean>;
   closeTab: (tabId: string) => Promise<boolean>;
   moveTab: (tabId: string, toIndex: number) => Promise<boolean>;
   duplicateTab: (tabId: string) => Promise<string>;
@@ -183,6 +179,8 @@ interface AntiFanToolbarApi {
    * renderer hot-swapped ahead of its preload cannot fail at init through a missing member.
    */
   onCloseRefused?: (callback: (notice: unknown) => void) => () => void;
+  /** User-confirmed, sender-scoped force close of this chrome's own window. */
+  forceCloseWindow?: () => Promise<unknown>;
 }
 
 declare global {
@@ -4508,22 +4506,6 @@ if (menuItemCopyTabId) {
   });
 }
 
-const menuItemSetAlias = document.getElementById('menuItemSetAlias');
-if (menuItemSetAlias) {
-  menuItemSetAlias.addEventListener('click', async () => {
-    if (contextMenuTargetTabId) {
-      const currentTab = currentTabs.find(t => t.id === contextMenuTargetTabId);
-      const alias = await showPromptDialog('Đặt Alias cho tab (ví dụ: @admin, @feedback, @storefront):', currentTab?.alias || '@');
-      if (alias !== null) {
-        const trimmed = alias.trim();
-        const role = trimmed.startsWith('@') ? trimmed.slice(1).toLowerCase() : undefined;
-        await getApi()?.setTabAlias(contextMenuTargetTabId, trimmed || undefined, role);
-        showToolbarToast(trimmed ? `🏷️ Đã gán alias: ${trimmed}` : 'Đã xóa alias của tab');
-      }
-    }
-    hideTabContextMenu();
-  });
-}
 if (menuItemCloseTab) {
   menuItemCloseTab.addEventListener('click', () => {
     if (contextMenuTargetTabId) {
@@ -5338,6 +5320,7 @@ function renderCloseRefusalNotice(raw: unknown): void {
   closeRefusalNoticeEl.setAttribute('data-kind', notice.kind);
   clearCloseRefusalReasons();
   for (const reason of notice.reasons) closeRefusalReasonsEl.appendChild(buildCloseRefusalReasonRow(reason));
+  if (closeRefusalForceEl) closeRefusalForceEl.style.display = notice.kind === 'close' && getApi()?.forceCloseWindow ? 'inline-flex' : 'none';
   closeRefusalNoticeEl.style.display = 'flex';
   // The panel is fixed below the strip, and the overlay expansion is added to the strip height
   // (see `applyChromeBounds`), so the extra needed is the panel's bottom edge minus the strip.
@@ -5346,6 +5329,32 @@ function renderCloseRefusalNotice(raw: unknown): void {
 }
 
 if (closeRefusalDismissEl) closeRefusalDismissEl.addEventListener('click', hideCloseRefusalNotice);
+const closeRefusalForceEl = document.getElementById('closeRefusalForce') as HTMLButtonElement | null;
+
+/** Explicit user action only; the payload carries no owner and Main derives it from sender. */
+async function requestForceCloseWindow(): Promise<void> {
+  const api = getApi();
+  if (!api?.forceCloseWindow || !closeRefusalForceEl || closeRefusalForceEl.disabled) return;
+  closeRefusalForceEl.disabled = true;
+  try {
+    const raw = await api.forceCloseWindow();
+    const result = isPlainRecord(raw) ? raw : {};
+    if (result.status === 'FAILED') {
+      const reason = typeof result.reason === 'string' ? result.reason : 'Không thể bắt buộc đóng cửa sổ này';
+      window.alert(reason);
+      return;
+    }
+    if (result.status === 'CLOSED') hideCloseRefusalNotice();
+  } finally {
+    closeRefusalForceEl.disabled = false;
+  }
+}
+
+if (closeRefusalForceEl) {
+  closeRefusalForceEl.addEventListener('click', () => {
+    void requestForceCloseWindow();
+  });
+}
 // Escape dismisses from anywhere in this chrome; the notice never takes focus, so a
 // keyboard user has no other way to reach the button.
 document.addEventListener('keydown', (ev) => {
@@ -5365,9 +5374,6 @@ document.addEventListener('keydown', (ev) => {
 //      user picked, and only through the activation channel.
 // ===========================================================================
 
-const projectChip = document.getElementById('projectChip') as HTMLElement | null;
-const projectChipTitle = document.getElementById('projectChipTitle') as HTMLElement | null;
-const projectChipPath = document.getElementById('projectChipPath') as HTMLElement | null;
 const btnTabSearch = document.getElementById('btnTabSearch') as HTMLButtonElement | null;
 const tabSearchOverlay = document.getElementById('tabSearchOverlay') as HTMLElement | null;
 const tabSearchInput = document.getElementById('tabSearchInput') as HTMLInputElement | null;
@@ -5441,22 +5447,20 @@ function renderProjectWindowIdentity(source: unknown) {
   stripProjectScope = identity && identity.owner.kind === 'web' && identity.activeProjectId
     ? identity.activeProjectId
     : null;
-  if (!projectChip || !projectChipTitle || !projectChipPath) return;
-  if (!identity) {
-    projectChip.style.display = 'none';
-    projectChipTitle.textContent = '';
-    projectChipPath.textContent = '';
-    projectChip.removeAttribute('title');
-    return;
+  // The chip is the only project label: the tab strip scopes its tabs, the chip names the scope.
+  const chip = document.getElementById('projectIdentityChip');
+  const nameEl = document.getElementById('projectIdentityName');
+  if (!chip || !nameEl) return;
+  const showsProject = Boolean(identity && identity.owner.kind !== 'unassigned' && identity.title
+    && (identity.owner.kind === 'project' || identity.activeProjectId));
+  chip.style.display = showsProject ? 'inline-flex' : 'none';
+  if (identity && showsProject) {
+    nameEl.textContent = identity.title;
+    chip.title = identity.pathLabel ? `${identity.title} — ${identity.pathLabel}` : identity.title;
+  } else {
+    nameEl.textContent = '';
+    chip.removeAttribute('title');
   }
-  // A project with no resolved title still shows its stable id, and an Unassigned shell
-  // shows the bucket it is in. Both come from Main's vocabulary, not from this renderer.
-  const title = identity.title || (identity.owner.kind === 'project' ? identity.owner.projectId : identity.owner.kind === 'web' ? 'AntiFan Browser' : 'Unassigned');
-  projectChip.style.display = '';
-  projectChip.classList.toggle('unassigned', identity.owner.kind === 'unassigned');
-  projectChipTitle.textContent = title;
-  projectChipPath.textContent = identity.pathLabel || '';
-  projectChip.title = identity.pathLabel ? `${title} — ${identity.pathLabel}` : title;
 }
 
 /** Validate one inventory row. A row without an addressable id is dropped, not guessed. */
@@ -5764,33 +5768,6 @@ function closeTabSearch(restoreFocus: boolean) {
 if (btnTabSearch) {
   btnTabSearch.addEventListener('click', () => { void openTabSearch(btnTabSearch); });
 }
-// The chip is the one visible door to Main's project surface: the click asks Main to
-// present its picker (no id, so the renderer never names a project itself) and the
-// answer arrives through the same `onProjectOpenPicker` modal every other entry uses.
-projectChip?.addEventListener('click', () => {
-  // The Terminal Manager shows every project at once: nothing to switch, so its chip is view-only.
-  if (projectChip.classList.contains('unassigned')) return;
-  const api = getApi();
-  const report = (detail: string) => renderCloseRefusalNotice({
-    kind: 'close',
-    title: 'Không mở được dự án',
-    summary: 'Cửa sổ mở dự án không phản hồi. Thử lại hoặc dùng menu Terminal > Mở dự án (Ctrl+Shift+O).',
-    reasons: [{ code: 'open-failed', detail, controls: [] }],
-  });
-  if (!api?.openProject) {
-    report('Preload thiếu openProject; bản build không có cửa gọi dự án.');
-    return;
-  }
-  void api.openProject().then((result) => {
-    // FAILED is a classed answer, not a thrown IPC error; both must be shown, or the
-    // chip reads as a dead button.
-    if (result && isPlainRecord(result) && result.status === 'FAILED') {
-      const reason = typeof result.reason === 'string' && result.reason.length > 0 ? result.reason : 'không rõ lý do';
-      report(`Main từ chối mở dự án: ${reason}`);
-    }
-  }).catch((err) => report(`IPC mở dự án lỗi: ${err instanceof Error ? err.message : String(err)}`));
-});
-
 // ---------------------------------------------------------------------------
 // Project picker, hosted in the toolbar. Main pushes `onProjectOpenPicker` with a requestId
 // when the chip (or the menu) asks to open a project; the answer echoes that id back.

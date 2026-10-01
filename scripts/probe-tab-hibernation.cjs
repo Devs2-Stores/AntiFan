@@ -6,7 +6,7 @@
  *
  *   a. three tabs on distinct sites (localhost vs 127.0.0.1 → separate renderers);
  *   b. a never-activated tab carries a fresh `lastActiveAt` (advisor check: the
- *      epoch-idle read cannot sleep it inside the 15-minute window);
+ *      epoch-idle read cannot sleep it inside the 5-minute window);
  *   c. `beginTabHibernation` force-sleeps an idle background tab — the record
  *      survives, the WebContents is destroyed and its process leaves
  *      `app.getAppMetrics()`;
@@ -17,7 +17,7 @@
  *      hibernated and the sweep skips it afterwards.
  *
  * Run: node scripts/run-electron.cjs scripts/probe-tab-hibernation.cjs
- * Evidence: plans/260928-1654-smooth-multi-project-terminal/reports/tab-hibernation-probe.{json,log}
+ * Evidence: temporary output directory printed by the probe (override ANTIFAN_PROBE_REPORT_DIR to retain it).
  */
 const { app, webContents } = require('electron');
 const http = require('node:http');
@@ -33,7 +33,7 @@ const compiledRoot = process.env.ANTIFAN_COMPILED_ROOT
   : path.join(ROOT, '.compiled');
 const compiledModule = (relative) => path.join(compiledRoot, 'src', 'main', relative.split('/').join(path.sep));
 
-const reportsDir = path.join(ROOT, 'plans', '260928-1654-smooth-multi-project-terminal', 'reports');
+const reportsDir = process.env.ANTIFAN_PROBE_REPORT_DIR || fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-hibernation-evidence-'));
 fs.mkdirSync(reportsDir, { recursive: true });
 const logFile = path.join(reportsDir, 'tab-hibernation-probe.log');
 fs.writeFileSync(logFile, '', 'utf8');
@@ -163,6 +163,46 @@ async function run() {
     const rec = recordOf(tabB);
     expect(rec && typeof rec.lastActiveAt === 'number' && rec.lastActiveAt > 0, `lastActiveAt was ${rec && rec.lastActiveAt}`);
     expect(Date.now() - rec.lastActiveAt < 60 * 1000, `a just-created tab measured ${Date.now() - rec.lastActiveAt}ms idle`);
+  });
+
+  await check('presented Chromium remains in its owning window during a capture lift', async () => {
+    const rec = recordOf(tabA);
+    const view = rec.view;
+    const wc = view.webContents;
+    const lease = await host.acquireCaptureLift(view, { budgetMs: 2000 });
+    try {
+      expect(host.shell.window.contentView.children.includes(view), 'capture detached the presented pane');
+      expect(lease && host.captureLiftState().origin === 'in-window', 'presented capture was parked off-screen');
+      expect(host.getTabWebContents(tabA) === wc && wc.getURL() === urlA, 'capture changed tab or navigation identity');
+      const image = await wc.capturePage();
+      expect(!image.isEmpty(), 'presented pane produced no real Chromium frame');
+    } finally { lease.release(); }
+  });
+
+  await check('activation during the pending scroll snapshot cancels hibernation without replacing the renderer', async () => {
+    const rec = recordOf(tabD);
+    rec.lastActiveAt = 0;
+    const wc = rec.view.webContents;
+    const execute = wc.executeJavaScript.bind(wc);
+    const snapshot = Promise.withResolvers();
+    let entered = false;
+    wc.executeJavaScript = (code, ...args) => {
+      if (code.includes('scrollX')) { entered = true; return snapshot.promise; }
+      return execute(code, ...args);
+    };
+    try {
+      const pending = host.beginTabHibernation(tabD);
+      expect(entered, 'hibernation did not reach the snapshot boundary');
+      host.switchTab(tabD);
+      snapshot.resolve({ x: 0, y: 0 });
+      expect(await pending === false, 'stale sleep closed the newly active pane');
+      expect(!wc.isDestroyed() && rec.view.webContents === wc, 'activation lost the renderer or page session');
+      expect(host.shell.window.contentView.children.includes(rec.view), 'active pane is detached');
+    } finally {
+      snapshot.resolve({ x: 0, y: 0 });
+      wc.executeJavaScript = execute;
+      host.switchTab(tabA);
+    }
   });
 
   // ---- (c) force-hibernate an idle background tab ----------------------------

@@ -44,6 +44,12 @@ const api = {
     ipcRenderer.on(PROJECT_WINDOW_CHANNELS.PROJECT_OPEN_PICKER, handler);
     return () => ipcRenderer.removeListener(PROJECT_WINDOW_CHANNELS.PROJECT_OPEN_PICKER, handler);
   },
+  // Main's no-payload notice that the stored project list moved: re-read `listProjects`.
+  onProjectInventoryChanged: (cb: () => void) => {
+    const handler = (): void => cb();
+    ipcRenderer.on(PROJECT_WINDOW_CHANNELS.PROJECT_INVENTORY_CHANGED, handler);
+    return () => ipcRenderer.removeListener(PROJECT_WINDOW_CHANNELS.PROJECT_INVENTORY_CHANGED, handler);
+  },
   answerProjectOpenPicker: (payload: ProjectOpenPickerAnswerPayload) =>
     ipcRenderer.invoke(PROJECT_WINDOW_CHANNELS.PROJECT_OPEN_PICKER_ANSWER, payload),
   // Rename/remove asks the picker modal drives on a row. `confirmed` rides the remove

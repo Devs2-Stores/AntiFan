@@ -28,8 +28,8 @@ describe('parseSpaceManifest', () => {
         { id: 'plain' },
       ],
       tabs: [
-        { url: 'https://trello.com/b/x', role: 'task', alias: 'Trello' },
-        { path: './ref\\index.html', role: 'reference', alias: 'Ref' },
+        { url: 'https://trello.com/b/x' },
+        { path: './ref\\index.html' },
       ],
     });
     assert.equal(result.ok, true);
@@ -39,7 +39,7 @@ describe('parseSpaceManifest', () => {
       ['sync', 'sync', 'never', 'hrv watch'],
       ['plain', 'shell', 'manual', 'plain'],
     ]);
-    assert.deepEqual(result.manifest.tabs[1], { kind: 'path', path: 'ref/index.html', role: 'reference', alias: 'Ref' });
+    assert.deepEqual(result.manifest.tabs[1], { kind: 'path', path: 'ref/index.html' });
     assert.match(result.hash, /^[0-9a-f]{64}$/);
   });
 

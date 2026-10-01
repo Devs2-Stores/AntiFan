@@ -1035,6 +1035,13 @@ export class AttachmentRegistry {
       console.warn(`[AttachmentRegistry] updateAttachmentTab: CAS tabId mismatch for ${attachmentId} (expected ${casOptions.expectedTabId}, bound ${record.tabId})`);
       return null;
     }
+    const affiliation = this.resolveTabAffiliation?.(tabId);
+    if (affiliation?.projectId && affiliation.projectId !== record.projectId) {
+      throw new CapabilityError('PROJECT_MISMATCH', 'Rebinding cannot grant authority over a foreign project');
+    }
+    if (affiliation?.workspaceId && affiliation.workspaceId !== record.workspaceId) {
+      throw new CapabilityError('WORKSPACE_MISMATCH', 'Rebinding cannot grant authority over a foreign workspace');
+    }
     // Only a move onto a different page is a new binding: a same-page generation
     // refresh settles work admitted before the reservation, so a reserved page's
     // already-bound authority survives its own close long enough to be honest about

@@ -174,7 +174,11 @@ async function run() {
         } catch (err) {
           code = err && err.code;
         }
-        expect(code === 'UNKNOWN_CHROME_SENDER', `tab page dispatch refused with ${String(code)} instead of UNKNOWN_CHROME_SENDER`);
+        // The tab page is a known surface ('tab') of this window, so the toolbar-only
+        // route must refuse it by surface mismatch — the same gate that refuses the
+        // sidebar — not as an unknown sender. UNKNOWN_CHROME_SENDER is reserved for
+        // webContents no live surface owns.
+        expect(code === 'CHROME_SURFACE_MISMATCH', `tab page dispatch refused with ${String(code)} instead of CHROME_SURFACE_MISMATCH`);
       });
     } else {
       const skippedRows = [

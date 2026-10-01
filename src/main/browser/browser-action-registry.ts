@@ -227,7 +227,7 @@ export class BrowserActionRegistry {
         required: ['tabId'],
       },
       handler: (params: { tabId: string }, { tabHost }) => {
-        const ok = tabHost.closeTab(params.tabId);
+        const ok = tabHost.closeTab(params.tabId, 'mcp-tool');
         return { closed: ok, success: ok };
       },
     });

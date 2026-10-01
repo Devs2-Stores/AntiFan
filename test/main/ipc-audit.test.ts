@@ -319,14 +319,14 @@ describe('Webview & Extension IPC Audit Invariants', () => {
     // 1. WebContents close event must invoke closeTab
     assert.match(
       nativeTabHost,
-      /\.on\('close',\s*\(\)\s*=>\s*\{[^}]*this\.closeTab\(id\)/,
+      /\.on\('close',\s*\(\)\s*=>\s*\{[^}]*this\.closeTab\(id,\s*'view-close'\)/,
       'Must handle wc close event to close tab on window.close()'
     );
 
     // 2. WebContents destroyed event must clean up tab
     assert.match(
       nativeTabHost,
-      /wc\.on\('destroyed',\s*\(\)\s*=>\s*\{[^}]*this\.closeTab\(id\)/,
+      /wc\.on\('destroyed',\s*\(\)\s*=>\s*\{[^}]*this\.closeTab\(id,\s*'view-destroyed'\)/,
       'Must handle wc destroyed event to clean up tab'
     );
 

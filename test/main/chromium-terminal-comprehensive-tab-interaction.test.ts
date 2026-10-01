@@ -95,7 +95,7 @@ interface ComprehensiveTestHost {
   clearTabAgentWorking(tabId: string): void;
   executedClicks: Array<{ selector?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }>;
   executedTypes: Array<{ selector?: string; text: string; tabId?: string; paneId?: 'desktop' | 'mobile' }>;
-  getTabList(): Array<{ id: string; url?: string; title?: string; alias?: string; role?: string }>;
+  getTabList(): Array<{ id: string; url?: string; title?: string }>;
   agentClick(params: { selector?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<boolean>;
   agentType(params: { selector?: string; text: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<boolean>;
   resolveTabAffiliation?(tabId: string): { projectId?: string; workspaceId?: string; capsuleId?: string } | undefined;
@@ -208,8 +208,6 @@ function createComprehensiveHost(initialTabIds: string[] = ['tab-1']): Comprehen
     id: t.id,
     url: t.state.url,
     title: t.state.title,
-    alias: t.state.alias,
-    role: t.state.role,
   }));
   hostSeam.resolveTabAffiliation = (tabId: string) => {
     if (!host.hasTab(tabId)) return undefined;
@@ -320,10 +318,9 @@ describe('Chromium <-> Terminal 30-Flow Interaction & Tab Management Matrix', ()
     assert.strictEqual(host.getTabTerminalSession(host.activeTabId), 'terminal-1');
   });
 
-  it('Flow 04: Numeric #N Index and Semantic Role Lookups adapt dynamically across tab reorders', () => {
+  it('Flow 04: Numeric indexes follow reorders while actual tab IDs remain stable', () => {
     const host = createComprehensiveHost(['tab-1', 'tab-2', 'tab-3']);
     host.tabs.get('tab-2')!.state.url = 'https://myshopify.com/admin/orders';
-    host.tabs.get('tab-2')!.state.role = 'admin';
 
     // In initial order [tab-1, tab-2, tab-3]:
     assert.strictEqual(host.resolveTargetTabId('#1'), 'tab-1');
@@ -337,8 +334,8 @@ describe('Chromium <-> Terminal 30-Flow Interaction & Tab Management Matrix', ()
     assert.strictEqual(host.resolveTargetTabId('#2'), 'tab-1');
     assert.strictEqual(host.resolveTargetTabId('#3'), 'tab-2');
 
-    // Semantic alias resolution
-    assert.strictEqual(host.resolveTargetTabId('@admin'), 'tab-2');
+    assert.strictEqual(host.resolveTargetTabId('tab-2'), 'tab-2');
+    assert.strictEqual(host.resolveTargetTabId('@admin'), undefined);
   });
 
   it('Flow 05: Duplicate URLs in separate tabs maintain independent IDs, document generations and affinity', () => {

@@ -6,14 +6,18 @@
  * terminal surface is expressed as a structural port so
  * the dispatch invariant is unit-testable without pulling node-pty/Electron
  * runtime into the test process.
+ *
+ * Dispatch is write-only and never resolves: the caller hands a session id it
+ * already resolved inside the picking window's scope. There is deliberately no
+ * `getActiveSessionId`/`write` arm — the process-global active session belongs
+ * to whichever window switched last, and consulting it here is how an
+ * annotation picked in one project window used to land in another's terminal.
  */
 import type { AntiFanPickedElement } from '../../shared/contracts';
 
 export interface TerminalDispatchPort {
-  getActiveSessionId(): string;
   switchSession(id: string): boolean;
   writeTo(id: string, input: string): void;
-  write(input: string): void;
 }
 
 export function sanitizeTerminalPrompt(prompt: string): string {
@@ -22,16 +26,14 @@ export function sanitizeTerminalPrompt(prompt: string): string {
     .replace(/\s+/g, ' ')
     .trim();
 }
-export function dispatchAnnotationToTerminal(tm: TerminalDispatchPort, targetSessionId: string | undefined, fullPrompt: string): void {
+export function dispatchAnnotationToTerminal(tm: TerminalDispatchPort, resolvedSessionId: string | undefined, fullPrompt: string): void {
   const sanitized = sanitizeTerminalPrompt(fullPrompt);
   if (!sanitized) return;
-  const resolvedTerminalId = targetSessionId && targetSessionId !== 'auto' ? targetSessionId : tm.getActiveSessionId();
-  if (resolvedTerminalId) {
-    tm.switchSession(resolvedTerminalId);
-    tm.writeTo(resolvedTerminalId, sanitized + '\r');
-  } else {
-    tm.write(sanitized + '\r');
-  }
+  // A missing or 'auto' id means resolution upstream found no in-scope target:
+  // the pick is skipped rather than written to a session nobody resolved.
+  if (!resolvedSessionId || resolvedSessionId === 'auto') return;
+  tm.switchSession(resolvedSessionId);
+  tm.writeTo(resolvedSessionId, sanitized + '\r');
 }
 
 /**

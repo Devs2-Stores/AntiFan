@@ -2,39 +2,48 @@
   "probe": "two-shell-ipc",
   "passed": 8,
   "failed": 0,
+  "untested": 0,
   "checks": [
     {
       "name": "every chrome surface has loaded its page before routing is judged",
-      "ok": true
+      "ok": true,
+      "status": "PASS"
     },
     {
       "name": "second project window registers no additional chrome channel",
-      "ok": true
+      "ok": true,
+      "status": "PASS"
     },
     {
       "name": "route table is exposed for dispatch",
-      "ok": true
+      "ok": true,
+      "status": "PASS"
     },
     {
       "name": "toolbar of each window resolves to its own host",
-      "ok": true
+      "ok": true,
+      "status": "PASS"
     },
     {
       "name": "sidebar resolves as the sidebar surface, not the toolbar",
-      "ok": true
+      "ok": true,
+      "status": "PASS"
     },
     {
       "name": "a toolbar action in window B changes only window B",
-      "ok": true
+      "ok": true,
+      "status": "PASS"
     },
     {
       "name": "a toolbar-only channel is refused from the sidebar, while the sidebar keeps the channels its preload declares",
-      "ok": true
+      "ok": true,
+      "status": "PASS"
     },
     {
       "name": "a tab page is not a chrome surface and is refused",
-      "ok": true
+      "ok": true,
+      "status": "PASS"
     }
   ],
-  "at": "2026-09-27T08:52:53.016Z"
+  "at": "2026-09-30T07:42:00.770Z"
 }

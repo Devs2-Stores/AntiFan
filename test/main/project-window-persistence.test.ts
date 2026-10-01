@@ -269,6 +269,8 @@ function createHost(options: HostOptions = {}): AnyRecord {
   host.terminalCategories = [];
   host.terminalCategoryColors = {};
   host.terminalStarredCategories = [];
+  host.terminalProjectOrder = [];
+  host.touchedSharedTerminalPrefs = new Set<string>();
   host.previewWatcherPool = { retain: () => () => {} };
   host.tabPreviewUnsubscribers = new Map<string, () => void>();
   host.capsuleManager = {
@@ -532,6 +534,69 @@ describe('saved tabs: one record per owner', () => {
     assert.deepEqual(Object.keys(document.owners).sort(), [ownerKey(PROJECT_A), UNASSIGNED].sort());
     assert.deepEqual(document.owners[UNASSIGNED].tabs.map((tab: AnyRecord) => tab.id), ['tab-u']);
     assert.deepEqual(document.owners[ownerKey(PROJECT_A)].tabs.map((tab: AnyRecord) => tab.id), ['tab-a']);
+  });
+
+  it('keeps each window\'s terminal layout and width in its own record; the manager opens as the sidebar', () => {
+    freshUserData('owner-terminal-layout');
+    // A pre-per-window document: one top-level layout/width written by whichever window saved last.
+    fs.writeFileSync(savedTabsPath(), JSON.stringify({
+      version: 2,
+      owners: {},
+      terminalTabLayout: 'horizontal',
+      terminalSidebarWidth: 317,
+    }), 'utf8');
+    const legacy = readSavedTabsFile();
+
+    const manager = createHost({ owner: { kind: 'unassigned' } });
+    manager.terminalTabLayout = 'sidebar';
+    manager.restoreWindowTerminalLayout(legacy);
+    assert.equal(manager.terminalTabLayout, 'sidebar', 'a legacy layout from another window must not close the manager\'s sidebar');
+    assert.equal(manager.terminalSidebarWidth, 317, 'the legacy width is the one the user dragged');
+
+    const hub = createHost({ owner: PROJECT_A });
+    hub.restoreWindowTerminalLayout(legacy);
+    assert.equal(hub.terminalTabLayout, 'horizontal');
+    assert.equal(hub.terminalSidebarWidth, 317);
+
+    // The user resizes the manager's column; the hub, untouched, saves after it.
+    manager.applyTerminalTabPrefsFromUser({ layout: 'sidebar', sidebarWidth: 290 });
+    manager.persistSync();
+    hub.persistSync();
+
+    const saved = readSavedTabsFile();
+    assert.equal(saved.terminalTabLayout, undefined, 'no window may impose its layout on the others');
+    assert.equal(saved.terminalSidebarWidth, undefined);
+    assert.equal(saved.owners[UNASSIGNED].terminalTabLayout, 'sidebar');
+    assert.equal(saved.owners[UNASSIGNED].terminalSidebarWidth, 290);
+    assert.equal(saved.owners[ownerKey(PROJECT_A)].terminalTabLayout, 'horizontal');
+
+    const reopened = createHost({ owner: { kind: 'unassigned' } });
+    reopened.restoreWindowTerminalLayout(saved);
+    assert.equal(reopened.terminalTabLayout, 'sidebar');
+    assert.equal(reopened.terminalSidebarWidth, 290, 'the manager reopens at the width the user left it');
+  });
+
+  it('a window that never changed a shared terminal pref does not overwrite a sibling\'s change', () => {
+    freshUserData('owner-terminal-shared');
+    const manager = createHost({ owner: { kind: 'unassigned' } });
+    const hub = createHost({ owner: PROJECT_A });
+
+    // The hub's renderer echoes its whole (unchanged) set: nothing it holds is a change.
+    hub.applyTerminalTabPrefsFromUser({ projectOrder: [], collapsedCategories: [] });
+    manager.applyTerminalTabPrefsFromUser({ projectOrder: ['proj-b', 'proj-a'], collapsedCategories: ['project:proj-b'] });
+    manager.persistSync();
+    hub.persistSync();
+
+    let saved = readSavedTabsFile();
+    assert.deepEqual(saved.terminalProjectOrder, ['proj-b', 'proj-a'], 'the hub\'s boot-time copy clobbered the manager\'s order');
+    assert.deepEqual(saved.terminalCollapsedCategories, ['project:proj-b']);
+
+    // A real change in the hub is the hub's to write.
+    hub.applyTerminalTabPrefsFromUser({ projectOrder: ['proj-a'] });
+    hub.persistSync();
+    saved = readSavedTabsFile();
+    assert.deepEqual(saved.terminalProjectOrder, ['proj-a']);
+    assert.deepEqual(saved.terminalCollapsedCategories, ['project:proj-b'], 'an untouched key keeps the sibling\'s value');
   });
 
   it('does not write an automation surface into the saved strip', () => {
@@ -1611,6 +1676,7 @@ describe('project window identity', () => {
       categories: [],
       categoryColors: {},
       starredCategories: [],
+      projectOrder: [],
     });
 
     const unassigned = createHost({ tabs: [['u1']], activeTabId: 'u1' });

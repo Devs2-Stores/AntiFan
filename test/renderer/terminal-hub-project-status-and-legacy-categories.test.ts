@@ -61,6 +61,26 @@ describe('hub project status', () => {
     assert.strictEqual(header(harness, 'project')?.getAttribute('data-project-status'), null);
   });
 
+  it('shows a newly created project as soon as Main says the list moved', async () => {
+    const harness = await loadManager([{ projectId: 'p1', name: 'x', workspacePath: 'E:\\Work\\x', status: 'LIVE', statusReason: 'live-session' }]);
+    harness.renderTabs();
+    const ids = () => Array.from(harness.tabsRoot.querySelectorAll('.terminal-tab-category-header[data-group-kind="project"]'))
+      .map((h: { getAttribute(n: string): string | null }) => h.getAttribute('data-project-id'));
+    assert.deepStrictEqual(ids(), ['p1']);
+
+    harness.api.listProjects = async () => ({
+      candidates: [CANDIDATE],
+      stored: [
+        { projectId: 'p1', name: 'x', workspacePath: 'E:\\Work\\x', status: 'LIVE', statusReason: 'live-session' },
+        { projectId: 'hapas', name: 'Hapas', workspacePath: 'E:\\Work\\hapas', status: 'LIVE', statusReason: 'live-window' },
+      ],
+    });
+    harness.emitProjectInventoryChanged();
+    await flush();
+    await flush();
+    assert.deepStrictEqual(ids().sort(), ['hapas', 'p1'], 'the new project gets its section without a restart');
+  });
+
   it('lists every stored project, with the name and why for a stale one, terminal or not', async () => {
     const harness = await loadManager([
       { projectId: 'p1', name: 'x', workspacePath: 'E:\\Work\\x', status: 'LIVE', statusReason: 'live-session' },

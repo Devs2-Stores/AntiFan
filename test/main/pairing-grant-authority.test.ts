@@ -33,7 +33,7 @@
  * Nothing in this file edits product code: it only exercises the behaviour the fix
  * defines, through the same fixtures the neighbouring suites use.
  */
-import { describe, it } from 'node:test';
+import { describe, it, before, after } from 'node:test';
 import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as http from 'node:http';
@@ -46,6 +46,8 @@ import { BridgeServer } from '../../src/main/bridge/bridge-server';
 import { AttachmentRegistry } from '../../src/main/run/attachment-registry';
 import { StorageLocations } from '../../src/main/config/storage-locations';
 import { NativeTabHost } from '../../src/main/browser/native-tab-host';
+import { ControlPlaneRuntime } from '../../src/main/control-plane/control-plane-runtime';
+import type { TerminalManager } from '../../src/main/browser/terminal-manager';
 import { CapabilityCatalogue } from '../../src/main/tools/capability-catalogue';
 import { CapabilityTransportAdapter } from '../../src/main/tools/capability-transport';
 import { BrowserControlPort, type BrowserHostPort } from '../../src/main/tools/browser-control-port';
@@ -85,7 +87,7 @@ class MockTabHost extends EventEmitter {
   ];
   getTabList() { return this.tabs; }
   getActiveTabId() { return 'tab-1'; }
-  hasTab(tabId?: string | null) { return tabId === 'tab-1'; }
+  hasTab(tabId?: string | null): boolean { return tabId === 'tab-1'; }
   resolveTargetTabId(tabId?: string | null) { return tabId === 'tab-1' ? 'tab-1' : undefined; }
   isTabAllowed(bound: string, requested: string) { return bound === requested; }
   getDocumentGeneration() { return 1; }
@@ -705,5 +707,433 @@ describe('Capability policy consequence of the pairing grant', () => {
         stack.dispose();
       }
     });
+  });
+});
+
+// ── D. Fresh pairing evidence: anchor/terminal scope over the real HTTP mint ────
+/**
+ * A fresh `/api/pairing/challenge` → `/api/pairing/exchange` round must mint the MCP
+ * attachment under the scope the caller's evidence MEASURES to — the owning project of
+ * the anchor tab (`tabId`) or of the origin terminal (`terminalSessionId`) — never under
+ * the binding provider's default scope or a workspace that merely contains the caller's
+ * cwd. Evidence that cannot be verified (a closed anchor tab, an anchor and terminal
+ * claiming different projects, a terminal whose claimed project resolves no workspace)
+ * is refused fail-closed instead of minting authority on an unverifiable claim.
+ *
+ * Everything below goes through the real HTTP handler (bridge-server.ts 1009+ →
+ * control-plane-runtime.ts `resolveBrowserSessionWorkspace` 612+), not unit seams.
+ */
+const EVID_TAB_ANCHOR = 'tab-ev-anchor';
+const EVID_TAB_FOREIGN = 'tab-ev-foreign';
+const EVID_TAB_STALE = 'tab-ev-stale';
+const EVID_TERM_ANCHOR = 'term-ev-anchor';
+const EVID_TERM_MALFORMED = 'term-ev-badstamp';
+
+/** A MockTabHost whose live set extends beyond 'tab-1' to the evidence anchor tabs. */
+class ScopedPairingTabHost extends MockTabHost {
+  private readonly liveTabIds: readonly string[];
+  constructor(liveTabs: string[]) {
+    super();
+    this.liveTabIds = liveTabs;
+  }
+  hasTab(tabId?: string | null) { return !!tabId && this.liveTabIds.includes(tabId); }
+}
+
+/** Terminal-manager facade whose owner-key map is the capsule seam's evidence source. */
+function makePairingTerminalStub(ownerBySession: Record<string, string>) {
+  return {
+    sessionCapsuleId: (_id: string) => undefined as string | undefined,
+    sessionOwnerKey: (id: string) => ownerBySession[id],
+    getStats: () => ({ sessions: 0 }),
+    getSession: (id: string) => ({ id, sessionGeneration: 1, state: 'live' }),
+    listSessions: () => [] as Array<{ id: string }>,
+    getActiveSessionId: () => undefined as string | undefined,
+    getCurrentCwd: () => undefined as string | undefined,
+    writeTo: async () => {},
+    createSession: async () => 'terminal-new',
+    createSplitSession: async () => 'terminal-new-split',
+    closeSession: async () => true,
+    closeSplitSession: async () => true,
+  } as unknown as TerminalManager;
+}
+
+function registerScopedProject(runtime: ControlPlaneRuntime, projectId: string, workspaceId: string, rootPath: string, dataRoot: string) {
+  runtime.projects.registerProject({
+    id: projectId,
+    name: projectId,
+    dataRoot,
+    state: 'open',
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  });
+  runtime.workspaces.register({
+    id: workspaceId,
+    projectId,
+    rootPath,
+    state: 'attached',
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  });
+}
+
+interface ScopedPairingFixture {
+  server: BridgeServer;
+  runtime: ControlPlaneRuntime;
+  registry: AttachmentRegistry;
+  port: number;
+  defaultProjectId: string;
+  defaultWorkspaceId: string;
+  anchorProjectId: string;
+  anchorWorkspaceId: string;
+  anchorRoot: string;
+  decoyProjectId: string;
+  decoyWorkspaceId: string;
+  decoyRoot: string;
+  dispose(): void;
+}
+
+/**
+ * The production layout this proves: the bridge's ambient binding is the default
+ * project while the agent's anchor tab and origin terminal live under ANOTHER
+ * project. A third project owns only a workspace root — the cwd containment decoy
+ * that must lose to evidence.
+ */
+async function startScopedPairingBridge(): Promise<ScopedPairingFixture> {
+  const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-evid-data-'));
+  const anchorRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-evid-anchor-'));
+  const decoyRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-evid-decoy-'));
+  const defaultProjectId = makeControlPlaneId('project');
+  const defaultWorkspaceId = makeControlPlaneId('workspace');
+  const anchorProjectId = makeControlPlaneId('project');
+  const anchorWorkspaceId = makeControlPlaneId('workspace');
+  const decoyProjectId = makeControlPlaneId('project');
+  const decoyWorkspaceId = makeControlPlaneId('workspace');
+
+  const ownerBySession: Record<string, string> = {
+    [EVID_TERM_ANCHOR]: `project:${anchorProjectId}`,
+    // A `project:`-prefixed key is a project CLAIM even when its id is malformed:
+    // resolveTerminalScope reports it 'unmeasurable', which must refuse closed.
+    [EVID_TERM_MALFORMED]: 'project:',
+  };
+  const runtime = new ControlPlaneRuntime({
+    projectId: defaultProjectId,
+    workspaceId: defaultWorkspaceId,
+    dataRoot,
+    workspaceRoot: decoyRoot,
+    terminal: makePairingTerminalStub(ownerBySession),
+    resolveTabAffiliation: (tabId) =>
+      tabId === EVID_TAB_ANCHOR
+        ? { projectId: anchorProjectId, workspaceId: anchorWorkspaceId }
+        : tabId === EVID_TAB_FOREIGN
+        ? { projectId: defaultProjectId, workspaceId: defaultWorkspaceId }
+        : undefined,
+  });
+  await runtime.initialize();
+  registerScopedProject(runtime, anchorProjectId, anchorWorkspaceId, anchorRoot, dataRoot);
+  registerScopedProject(runtime, decoyProjectId, decoyWorkspaceId, decoyRoot, dataRoot);
+
+  const bindingLease = issueRuntimeLease(defaultProjectId, defaultWorkspaceId, 3_600_000, 1);
+  const server = new BridgeServer(
+    new ScopedPairingTabHost([EVID_TAB_ANCHOR, EVID_TAB_FOREIGN, 'tab-1']) as unknown as NativeTabHost,
+    0,
+    false,
+    undefined,
+    () => ({ lease: bindingLease, projectId: defaultProjectId, workspaceId: defaultWorkspaceId }),
+    runtime.runs.attachments,
+    '127.0.0.1',
+    runtime
+  );
+  const port = await server.start();
+  return {
+    server,
+    runtime,
+    registry: runtime.runs.attachments,
+    port,
+    defaultProjectId,
+    defaultWorkspaceId,
+    anchorProjectId,
+    anchorWorkspaceId,
+    anchorRoot,
+    decoyProjectId,
+    decoyWorkspaceId,
+    decoyRoot,
+    dispose: () => {
+      server.dispose();
+      try { fs.rmSync(dataRoot, { recursive: true, force: true }); } catch {}
+      try { fs.rmSync(anchorRoot, { recursive: true, force: true }); } catch {}
+      try { fs.rmSync(decoyRoot, { recursive: true, force: true }); } catch {}
+    },
+  };
+}
+
+/** Claims a fresh code through the real HTTP challenge endpoint — the mint path, not issuePairingCode. */
+async function claimChallengeCodeOverHttp(port: number): Promise<string> {
+  const res = await fetch(`http://127.0.0.1:${port}/api/pairing/challenge`, { method: 'POST' });
+  const body = (await res.json()) as { success?: boolean; code?: string; error?: string };
+  assert.strictEqual(res.status, 200, `the pairing challenge must be claimable: ${JSON.stringify(body)}`);
+  assert.strictEqual(body.success, true);
+  const code = body.code;
+  if (typeof code !== 'string' || code.length === 0) assert.fail('the challenge must carry a code');
+  return code;
+}
+
+/**
+ * The MCP proxy's module scope exports no pairing helper, so its real source is executed
+ * in a child process (where the stdio/MCP bootstrap is skipped by `require.main`) and the
+ * function is reached through the compiled module's own exports slot. This is a behavioral
+ * harness: assertions land on the HTTP traffic and minted record, never on source text.
+ * The 60s timer is a watchdog for a wedged child, not a timing assertion.
+ */
+async function runOmpPairingChild(
+  port: number,
+  envOverrides: NodeJS.ProcessEnv,
+  cwd?: string
+): Promise<{ exchange?: Record<string, unknown>; error?: string; stdout: string; stderr: string }> {
+  const childScript = [
+    "const fs = require('node:fs');",
+    "const path = require('node:path');",
+    "const Module = require('node:module');",
+    'const target = process.argv[1];',
+    'const port = Number(process.argv[2]);',
+    "const source = fs.readFileSync(target, 'utf8') + '\\nmodule.exports.performPairingExchange = performPairingExchange;\\n';",
+    'const mod = new Module(target, null);',
+    'mod.filename = target;',
+    'mod.paths = Module._nodeModulePaths(path.dirname(target));',
+    'mod._compile(source, target);',
+    "mod.exports.performPairingExchange('127.0.0.1', port)",
+    "  .then((exchange) => { process.stdout.write('ANTIFAN_RESULT:' + JSON.stringify({ ok: true, exchange }), () => process.exit(0)); })",
+    "  .catch((err) => { process.stdout.write('ANTIFAN_RESULT:' + JSON.stringify({ ok: false, error: String((err && err.message) || err) }), () => process.exit(0)); });",
+  ].join('\n');
+
+  // Strip ambient ANTIFAN_* so a developer/CI environment can never leak evidence
+  // the test did not declare, then apply exactly the env the case under test sets.
+  const env: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (key.startsWith('ANTIFAN_')) continue;
+    env[key] = value;
+  }
+  Object.assign(env, envOverrides);
+
+  const child = spawn(process.execPath, ['-e', childScript, OMP_MCP, String(port)], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env,
+    ...(cwd ? { cwd } : {}),
+  });
+  let stdout = '';
+  let stderr = '';
+  child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
+  child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
+  const exitCode = await new Promise<number | null>((resolve) => {
+    const timer = setTimeout(() => { try { child.kill(); } catch {} }, 60_000);
+    child.on('close', (code: number | null) => { clearTimeout(timer); resolve(code); });
+  });
+  assert.strictEqual(exitCode, 0, `omp pairing child exited ${exitCode}: ${stderr}`);
+
+  const marker = 'ANTIFAN_RESULT:';
+  const markerAt = stdout.lastIndexOf(marker);
+  assert.ok(markerAt >= 0, `omp pairing child produced no result line: ${stdout}${stderr}`);
+  const parsed = JSON.parse(stdout.slice(markerAt + marker.length)) as
+    { ok?: boolean; error?: string; exchange?: Record<string, unknown> };
+  if (!parsed.ok) return { error: parsed.error, stdout, stderr };
+  return { exchange: parsed.exchange, stdout, stderr };
+}
+
+describe('Fresh pairing evidence exchange (HTTP, ControlPlaneRuntime-scoped)', () => {
+  let fixture: ScopedPairingFixture;
+  before(async () => {
+    fixture = await startScopedPairingBridge();
+  });
+  after(() => {
+    fixture?.dispose();
+  });
+
+  it('mints the attachment under the measured anchor-tab scope, not the ambient binding or the cwd', async () => {
+    const code = await claimChallengeCodeOverHttp(fixture.port);
+    // cwd sits inside the decoy project's root: if evidence were ignored, workspace
+    // containment alone would pull the mint under the decoy — and without evidence at
+    // all, the ambient binding would land it under the default scope.
+    const { status, body } = await postExchange(fixture.port, {
+      code,
+      clientClass: 'mcp',
+      requestedGrant: 'write',
+      tabId: EVID_TAB_ANCHOR,
+      cwd: fixture.decoyRoot,
+    });
+
+    assert.strictEqual(status, 200, `anchor-scoped pairing must succeed: ${JSON.stringify(body)}`);
+    assert.strictEqual(body.projectId, fixture.anchorProjectId, 'the anchor tab affiliation must win over the ambient default binding');
+    assert.strictEqual(body.workspaceId, fixture.anchorWorkspaceId);
+    assert.notStrictEqual(body.projectId, fixture.defaultProjectId, 'the minted scope must not fall back to the ambient binding project');
+    assert.notStrictEqual(body.projectId, fixture.decoyProjectId, 'the minted scope must not be pulled by caller cwd containment');
+
+    const record = fixture.registry.getRecord(String(body.attachmentId));
+    assert.ok(record, 'the exchange must register the attachment it mints');
+    assert.strictEqual(record?.projectId, fixture.anchorProjectId);
+    assert.strictEqual(record?.workspaceId, fixture.anchorWorkspaceId);
+    assert.strictEqual(record?.tabId, EVID_TAB_ANCHOR, 'the supplied anchor must be written to the attachment record');
+  });
+
+  it('mints under the origin terminal measured project even when the cwd lives elsewhere', async () => {
+    const code = await claimChallengeCodeOverHttp(fixture.port);
+    const { status, body } = await postExchange(fixture.port, {
+      code,
+      clientClass: 'mcp',
+      requestedGrant: 'write',
+      terminalSessionId: EVID_TERM_ANCHOR,
+      cwd: fixture.decoyRoot,
+    });
+
+    assert.strictEqual(status, 200, `terminal-scoped pairing must succeed: ${JSON.stringify(body)}`);
+    assert.strictEqual(body.projectId, fixture.anchorProjectId, "the terminal's owner-key measurement must win over cwd containment and the ambient binding");
+    assert.strictEqual(body.workspaceId, fixture.anchorWorkspaceId);
+
+    const record = fixture.registry.getRecord(String(body.attachmentId));
+    assert.ok(record);
+    assert.strictEqual(record?.projectId, fixture.anchorProjectId);
+    assert.strictEqual(record?.workspaceId, fixture.anchorWorkspaceId);
+  });
+
+  it('refuses stale or conflicting evidence fail-closed and keeps each code single-use', async () => {
+    const beforeIds = fixture.registry.getActiveRecordIds();
+
+    const staleCode = fixture.server.issuePairingCode({ clientClass: 'mcp' }).code;
+    const stale = await postExchange(fixture.port, { code: staleCode, clientClass: 'mcp', tabId: EVID_TAB_STALE });
+    assert.strictEqual(stale.status, 400, `a closed anchor tab must be refused: ${JSON.stringify(stale.body)}`);
+    assert.match(String(stale.body.message ?? ''), /Pairing anchor tab is not live/, 'the refusal must carry the TARGET_STALE reason text');
+    // Single-use is proven BEFORE anything else mints: the consumed record is still
+    // in the store, so a replay must hit the explicit ALREADY_USED denial — never a
+    // second mint or a silent retry.
+    const replay = await postExchange(fixture.port, { code: staleCode, clientClass: 'mcp' });
+    assert.strictEqual(replay.status, 409, `a consumed code must never replay: ${JSON.stringify(replay.body)}`);
+    assert.strictEqual(replay.body.error, 'PAIRING_CODE_ALREADY_USED');
+    assert.ok(!replay.body.attachmentId, 'a replayed exchange must never mint an attachment');
+
+    const conflicts: Array<{ payload: Record<string, unknown>; reason: RegExp }> = [
+      // Anchor tab measures under the default project while the origin terminal's
+      // owner key measures under the anchor project: two pieces of evidence that
+      // disagree about where authority must land.
+      { payload: { tabId: EVID_TAB_FOREIGN, terminalSessionId: EVID_TERM_ANCHOR }, reason: /conflicts with the measured anchor project/ },
+      // The terminal carries a malformed `project:` claim — a real claim that cannot
+      // be measured to a workspace, which must fail closed, not fall back to cwd.
+      { payload: { terminalSessionId: EVID_TERM_MALFORMED }, reason: /terminal scope cannot be measured/ },
+    ];
+    for (const { payload, reason } of conflicts) {
+      const code = fixture.server.issuePairingCode({ clientClass: 'mcp' }).code;
+      const result = await postExchange(fixture.port, { code, clientClass: 'mcp', requestedGrant: 'write', ...payload });
+      assert.strictEqual(result.status, 400, `conflicting evidence ${JSON.stringify(payload)} must be refused: ${JSON.stringify(result.body)}`);
+      assert.match(String(result.body.message ?? ''), reason, 'the refusal must name the measured reason');
+    }
+
+    assert.strictEqual(
+      fixture.registry.getActiveRecordIds().size,
+      beforeIds.size,
+      'refused evidence must never mint an attachment'
+    );
+
+    // The same code replayed again — now after `issuePairingCode` has pruned the
+    // consumed record — is still refused fail-closed (NOT_FOUND in place of
+    // ALREADY_USED). The invariant is "denied, never minted"; which refusal the
+    // store answers with depends on prune timing and is not pinned.
+    const replayAfterPrune = await postExchange(fixture.port, { code: staleCode, clientClass: 'mcp' });
+    assert.notStrictEqual(replayAfterPrune.status, 200, 'a spent code must stay refused even after store pruning');
+    assert.ok(replayAfterPrune.body.success !== true, 'a spent code must never answer success');
+    assert.ok(!replayAfterPrune.body.attachmentId, 'a replayed exchange must never mint an attachment');
+    assert.strictEqual(fixture.registry.getActiveRecordIds().size, beforeIds.size, 'replays must leave the registry untouched');
+  });
+
+  it("has the omp-mcp proxy pair with env-supplied evidence and land the attachment under the terminal's project", async () => {
+    // The real proxy carries ANTIFAN_BOUND_TAB_ID / ANTIFAN_TERMINAL_*_SESSION_ID env
+    // evidence into the exchange body; running its own module scope (not a source
+    // assertion) proves the wire and the measured mint end-to-end.
+    const result = await runOmpPairingChild(
+      fixture.port,
+      {
+        ANTIFAN_SESSION_GRANT: 'write',
+        ANTIFAN_BOUND_TAB_ID: EVID_TAB_ANCHOR,
+        ANTIFAN_TERMINAL_AFFINITY_SESSION_ID: EVID_TERM_ANCHOR,
+      },
+      fixture.decoyRoot
+    );
+
+    assert.ok(result.exchange, `proxy pairing failed: ${result.error || result.stderr}`);
+    const exchange = result.exchange;
+    assert.strictEqual(exchange.success, true);
+    assert.strictEqual(exchange.projectId, fixture.anchorProjectId, 'the proxy evidence must steer the mint to the measured project');
+    assert.strictEqual(exchange.workspaceId, fixture.anchorWorkspaceId);
+    assert.notStrictEqual(exchange.projectId, fixture.decoyProjectId);
+
+    const record = fixture.registry.getRecord(String(exchange.attachmentId));
+    assert.ok(record, 'the proxy pairing must have minted an attachment');
+    assert.strictEqual(record?.projectId, fixture.anchorProjectId);
+    assert.strictEqual(record?.tabId, EVID_TAB_ANCHOR, 'the proxy-sent tabId must land on the attachment record');
+  });
+
+  it('has the omp-mcp proxy send tabId, terminalSessionId and cwd on the exchange wire', async () => {
+    const received: Array<{ path: string; payload: Record<string, unknown> }> = [];
+    const stub = http.createServer((req, res) => {
+      let raw = '';
+      req.on('data', (chunk: Buffer) => { raw += chunk.toString(); });
+      req.on('end', () => {
+        let payload: Record<string, unknown> = {};
+        try { payload = JSON.parse(raw || '{}') as Record<string, unknown>; } catch {}
+        received.push({ path: req.url || '', payload });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        if ((req.url || '').endsWith('/challenge')) {
+          res.end(JSON.stringify({ success: true, code: 'stub-evidence-code' }));
+        } else {
+          res.end(JSON.stringify({ success: true, secret: 'stub-secret', grant: 'write', grantSource: 'ceiling' }));
+        }
+      });
+    });
+    await new Promise<void>((resolve, reject) => {
+      stub.once('error', reject);
+      stub.listen(0, '127.0.0.1', () => resolve());
+    });
+    const address = stub.address();
+    const stubPort = address && typeof address === 'object' ? address.port : 0;
+    assert.ok(stubPort > 0, 'stub bridge must be listening');
+
+    const proxyCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-evid-cwd-'));
+    try {
+      const result = await runOmpPairingChild(
+        stubPort,
+        {
+          ANTIFAN_SESSION_GRANT: 'write',
+          ANTIFAN_BOUND_TAB_ID: 'tab-env-bound',
+          // Affinity takes precedence over parent/session in the proxy's own env chain.
+          ANTIFAN_TERMINAL_AFFINITY_SESSION_ID: 'term-env-affinity',
+          ANTIFAN_TERMINAL_PARENT_SESSION_ID: 'term-env-parent',
+          ANTIFAN_TERMINAL_SESSION_ID: 'term-env-self',
+        },
+        proxyCwd
+      );
+      assert.ok(result.exchange, `proxy pairing against the stub failed: ${result.error || result.stderr}`);
+      assert.strictEqual(result.exchange?.success, true);
+
+      const challengeCall = received.find((r) => r.path.endsWith('/challenge'));
+      assert.ok(challengeCall, 'the proxy must claim a fresh challenge');
+      const exchangeCall = received.find((r) => r.path.endsWith('/exchange'));
+      assert.ok(exchangeCall, 'the proxy must POST /api/pairing/exchange');
+      const wire = exchangeCall.payload;
+      assert.strictEqual(wire.code, 'stub-evidence-code', 'the exchange must redeem the challenge the proxy just claimed');
+      assert.strictEqual(wire.clientClass, 'mcp');
+      assert.strictEqual(wire.requestedGrant, 'write');
+      assert.strictEqual(wire.tabId, 'tab-env-bound', 'the env anchor evidence must reach the wire');
+      assert.strictEqual(
+        wire.terminalSessionId,
+        'term-env-affinity',
+        'the affinity terminal env must reach the wire and outrank the parent/session fallbacks'
+      );
+      // Canonicalize both sides: mkdtemp may hand back a short-name path while the
+      // child's process.cwd() is canonical.
+      assert.strictEqual(
+        fs.realpathSync.native(path.resolve(String(wire.cwd))),
+        fs.realpathSync.native(proxyCwd),
+        'the proxy must report its own cwd as workspace evidence'
+      );
+    } finally {
+      try { stub.close(); } catch {}
+      try { fs.rmSync(proxyCwd, { recursive: true, force: true }); } catch {}
+    }
   });
 });

@@ -6,6 +6,53 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 
 ## [v1.3.6] - Unreleased
 
+### Sửa — Tắt app mở lại mất hết Terminal; Terminal/Chip/Web Hub nhảy sai dự án; Terminal Manager nhớ bố cục
+
+- **Daemon terminal chết theo app**: trên Windows host daemon được spawn `detached` nhưng vẫn là con của GUI, nên mọi `taskkill /PID <gui> /T` (dev restart, launcher teardown) giết luôn host và mọi PTY; lần mở sau spawn host mới. Giờ Windows luôn spawn qua WMI trước (cha là `wmiprvse.exe`, ngoài cây tiến trình GUI); `detached` chỉ còn là fallback. WMI cũ hỏng vì wrapper `cmd /c` xé đường dẫn có dấu cách (`""C:\Program Files\…""`): nay chạy thẳng exe, env đi qua `Win32_ProcessStartup.EnvironmentVariables` qua stdin (token không nằm trên command line), argv quote theo `CommandLineToArgvW` (`quoteWindowsArg`). Daemon ghi log `uncaughtException`/`unhandledRejection`/`exit` và các lỗi socket thay vì chết không dấu vết.
+- **Fallback WMI → `detached` không còn im lặng**: mỗi cách spawn thất bại (throw, không có pid, không handshake, health probe hỏng, kèm mã `Win32_Process.Create`) được ghi ngay vào `daemon.log` và trả về trong `failures`; Main cảnh báo khi host lên bằng đường fallback (host đó vẫn chết theo cây GUI).
+- **`scripts/kill-all.mjs` không còn giết daemon**: daemon chạy cùng `electron.exe` của repo nên trước đây bị giết cùng GUI. Giờ mặc định bỏ qua daemon (và không kill theo cây khi đang giữ daemon), `--daemon` để dừng cả daemon, `--dry-run` để xem trước mà không giết gì; `--all` vẫn giết mọi `electron.exe`, kể cả daemon.
+- **Terminal mới trong thư mục của dự án rơi vào "Chưa gán dự án"**: mint từ Terminal Manager giờ gán owner theo dự án sở hữu thư mục (`managerFolderMintOwnerKey`).
+- **Terminal mới của dự án vừa tạo mở ở thư mục dự án cũ**: renderer không còn gửi `workspacePath` snapshot lúc boot; Main tự lấy thư mục theo dự án hiện tại của cửa sổ.
+- **Dự án vừa tạo không hiện ngay trên sidebar**: Main phát `PROJECT_INVENTORY_CHANGED` khi mở/tạo/đổi tên/đổi màu/bỏ dự án; Terminal Manager đọc lại danh sách ngay.
+- **Section dự án đã bỏ vẫn hiện ("Dự án này không còn tồn tại")**: danh sách dự án đã lưu chỉ gồm record còn mở.
+- **Hàng terminal cao gấp đôi, chip `default`**: run card `nghỉ` (idle) không còn thêm dòng thứ hai; chip nhóm chỉ hiện khi capsule có tên thật và header chưa nêu nhóm đó.
+- **Đóng tab Chromium trên Web Hub nhảy dự án**: tab kế tiếp được chọn trong phạm vi dự án đang trình bày (kèm tab dùng chung), không còn lấy từ thứ tự toàn cục.
+- **Terminal Manager mở ở chế độ Sidebar và nhớ độ rộng**: bố cục/độ rộng tab strip lưu riêng từng cửa sổ (`owners[...].terminalTabLayout/terminalSidebarWidth`); pref dùng chung chỉ ghi khóa cửa sổ đó thực sự đổi, không đè giá trị cửa sổ khác.
+- **Nút chuyển Web Hub** hiện trực tiếp trên header dự án (vẫn có trong menu chuột phải).
+- **Hàng terminal đang chạy cao 52px mà không hiện gì thêm**: run card nằm cùng dòng 26px với tên tab; thời gian chạy, số file sửa và nút Huỷ / Chỉ đạo chỉ hiện khi hover hoặc focus hàng. Hàng chỉ cao lên khi mở ô Chỉ đạo, danh sách file, hoặc khi sidebar quá hẹp để các nút nằm cùng dòng. Hàng không còn chữ `đang chạy` / `nghỉ` (icon đầu hàng và chấm trạng thái đã nói, header nhóm vẫn đếm ▶/◔); chỉ còn badge `chờ bạn` vì đó là trạng thái cần bạn làm gì đó.
+- **Bridge MCP "suy giảm — WS_AUTH_REFUSED" không bao giờ tự hết**: khi bridge từ chối secret attachment (đóng 4001/4003), heartbeat của `scripts/antifan-omp-mcp.cjs` trước đây kết nối lại bằng đúng secret đó mỗi 5 giây, mãi mãi và không ghi log. Giờ heartbeat dừng và ghi một dòng stderr; lần gọi tool kế tiếp tự autoheal và bật lại heartbeat.
+- **Tab trắng sau khi để lâu (trang vẫn chạy, nhạc vẫn phát)**: cửa sổ quay lại sau khi bị ẩn/thu nhỏ, bị che ≥30 giây, hoặc máy thức dậy/mở khoá màn hình trước đây chỉ `invalidate()` view đang gắn, không khởi động lại khung hình nên tab vẫn trắng tới khi F5. Giờ `show`/`restore`/`focus` (sau ≥30 giây mất focus) và `powerMonitor` `resume`/`unlock-screen` gỡ-gắn lại view của tab đang hiện (`resurfacePresentedView`), trả focus cho trang, và ghi `tabhost.presentedViewResurfaced` vào `main.log` kèm trạng thái view trước khi làm (attached, crashed, bounds) để lần sau còn trắng thì biết nguyên nhân.
+- **MCP kẹt `UNAUTHENTICATED` khi tab đã bind chết còn ≥2 cửa sổ mở**: một id tab không còn cửa sổ nào sở hữu trước đây rơi vào `ambientHostOrThrow`, ném lỗi không gắn mã → transport map sang `UNAUTHENTICATED`, khiến cả `tabs.list` lẫn `rebind_target` chết theo. Giờ routing tab→host nằm ở `TabAmbientAuthority`: seam đọc trả đúng giá trị host trả cho id lạ (`[]`, `Set()` rỗng, `false`, `1`, `undefined`), seam ghi từ chối `TARGET_STALE`, và chỉ request không mang tab id mới hỏi host ambient (từ chối bằng `TARGET_REQUIRED` có mã thay vì lỗi trần). Mỗi degrade ghi `tabhost.boundTabDegraded` vào `main.log`.
+- **MCP mở tab đúng project window khi chạy nhiều cửa sổ**: `anti.browser.tabs.create` nhận `anchorTabId` từ một tab live cùng project/workspace, xác thực quyền trước khi tạo; anchor foreign hoặc stale bị từ chối thay vì rơi vào window ambient.
+- **Tab List MCP nhất quán với project session**: mặc định chỉ trả tab cùng project/workspace; `all: true` bật discovery toàn GUI với cờ `affiliated`. Tab đang ngủ vẫn được liệt kê mà không đánh thức renderer. Selector `projectId` không cấp quyền cross-project; fresh pairing đo scope từ tab/terminal trước cwd đã xác minh.
+
+### Đổi — Menu chuột phải cho header dự án; Web Hub nói rõ đang ở dự án nào
+
+- **Header dự án (Terminal Manager)** không còn nút inline (`+`, `Space`, 📌, ★, màu, ↗). Chuột phải vào header mở menu: Terminal mới trong thư mục, Mở Space / Tạo space.json, Ghi chú dự án, Đánh dấu sao, Đổi màu, Mở dự án (Web Hub), Bỏ dự án khỏi danh sách. Sao và màu chỉ còn là chỉ báo.
+- **Dự án không còn terminal nào chạy (Terminal Manager)** thu gọn thành một dòng tiêu đề mờ, đếm `☾ n` terminal đang ngủ; bấm để mở, lúc thức dậy thì tự mở lại. Terminal đang ngủ nằm trong dự án của nó, không còn bị tách xuống mục chung "Đang ngủ" (một dự án không hiện ở hai nơi nữa). Thu gọn tự động không lưu vào prefs; dự án chứa tab đang xem không bị thu gọn. Cửa sổ dự án vẫn giữ mục "Đang ngủ" như cũ.
+- **Bỏ dự án khỏi danh sách** dùng cùng hai bước đồng ý như picker: `removeProject` báo số terminal sẽ bị đóng (`CONFIRM_REQUIRED`), chỉ `answerProjectRemove({ confirmed: true })` mới xoá. Thư mục trên đĩa không bị đụng tới.
+- **Web Hub** hiện lại chip tên dự án đang trình bày (`#projectIdentityChip`, tooltip kèm đường dẫn) và tiêu đề cửa sổ đổi theo dự án (`setActiveProject`), để mở từ ↗ không còn mất nhận dạng dự án. Điều này thay thế việc bỏ chip `#projectChip` ở mục dưới.
+
+### Đổi — Header dự án trong Terminal Manager: bấm để thu gọn, nút riêng để vào dự án, kéo để sắp xếp
+
+- **Bấm header** giờ chỉ thu gọn hoặc mở rộng nhóm, như mọi nhóm khác, không còn chuyển sang dự án.
+- **Nút ↗ (`.terminal-tab-project-open`)** luôn hiện ở cuối header và gọi `openProject(projectId)`: dự án đang mở thì cửa sổ đó được đưa lên trước, chưa mở thì mở cửa sổ mới. Nếu thất bại thì báo lỗi trong panel.
+- **Sắp xếp dự án**: kéo header lên hoặc xuống (có vạch báo vị trí thả), hoặc dùng Alt+↑/↓ khi header đang focus. Thứ tự được lưu qua Main (`TerminalTabPrefs.projectOrder` → `saved-tabs.json` `terminalProjectOrder`) và giữ nguyên sau khi reload. Dự án chưa có trong danh sách đứng sau các dự án đã sắp.
+- **Bố cục**: header dự án luôn nằm trên một hàng; tên dự án là phần duy nhất bị co lại (hiện dấu …). Nút `+` và `Space` chỉ chiếm chỗ khi hover hoặc focus, nên sao và nút ↗ không còn bị đẩy xuống dòng thứ hai.
+
+### Đổi — Bỏ nhãn dự án thừa, header dự án gọn hơn
+
+- **Toolbar trình duyệt**: bỏ chip dự án (`#projectChip`) ở đầu tab strip; identity của cửa sổ vẫn dùng để lọc tab theo dự án. Mở dự án vẫn có ở menu Terminal > Mở dự án (Ctrl+Shift+O) và menu `+` của Terminal Manager.
+- **Terminal Manager**: bỏ nhãn “Tất cả dự án” cạnh logo; chip header chỉ còn hiện ở cửa sổ của một dự án cụ thể.
+- **Header dự án trên sidebar**: màu dự án thành chấm tròn 10px nằm trước tên; nút `+`, `Space` và sao chỉ hiện khi hover hoặc focus bằng bàn phím (dự án đã gắn sao vẫn luôn hiện sao).
+- **Test harness**: `FakeElement.click()` không còn gọi `onclick` hai lần (một lần không có event).
+
+### Sửa — Terminal Manager đen (mọi view 0×0) và header khó hiểu
+
+- **Triệu chứng**: cửa sổ Terminal Manager (`Unassigned`) chỉ thấy nền đen. Đo native: content 1344×841 nhưng `standalone.html` ở `{x:1344,w:0,h:0}`.
+- **Nguyên nhân**: constructor `NativeTabHost` khôi phục `isSidebarOpen=false` từ `saved-tabs.json`/capsule của cửa sổ project, ghi đè shell terminal-only vốn sinh ra ở trạng thái mở → sidebar (toàn bộ nội dung Manager) co về 0×0.
+- **Sửa**: bỏ qua giá trị đã lưu khi `shell.isTerminalOnly()`; sau sửa đo lại `standalone.html` = `{0,0,1344,841}`. Chip header đọc “Tất cả dự án” + nút “＋ Mở dự án”; nút `+` (tạo terminal) tô accent, nút tạo terminal trong thư mục dùng icon folder+ để hai nút không còn giống hệt nhau.
+
 ### Đổi — Terminal không còn cửa sổ riêng: mọi đường “tách ra cửa sổ” mở Terminal Manager
 
 - **Triệu chứng**: Ctrl+Shift+N, nút tách cửa sổ trên sidebar và record khôi phục đều spawn cửa sổ terminal phụ của riêng một project — bản chất vẫn là “nhiều cửa sổ”, trái với kiến trúc 2 cửa sổ ở trên.

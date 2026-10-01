@@ -96,6 +96,7 @@ const RENDERER_SCRIPT_DIR = (() => {
 interface BridgeStub {
   pushRefusal: (notice: unknown) => void;
   overlayCalls: Array<{ active: boolean; height: number | undefined }>;
+  forceCloseWindow?: () => Promise<unknown>;
 }
 
 function makeApi(state: Record<string, unknown>, stub: BridgeStub) {
@@ -133,6 +134,10 @@ function makeApi(state: Record<string, unknown>, stub: BridgeStub) {
         if (index >= 0) refusalSubscribers.splice(index, 1);
       };
     },
+    // Tests assign stub.forceCloseWindow after loadToolbar() returns — the api
+    // must delegate to whatever the stub holds at call time, not capture the
+    // (always absent) init-time value.
+    forceCloseWindow: () => stub.forceCloseWindow?.(),
   };
 }
 
@@ -251,6 +256,11 @@ function rowControls(row: HTMLElement | undefined): Array<{ id: string; label: s
     id: line.getAttribute('data-control-id') ?? '',
     label: line.textContent ?? '',
   }));
+}
+function forceButton(doc: Document): HTMLButtonElement {
+  const el = doc.getElementById('closeRefusalForce') as HTMLButtonElement | null;
+  assert.ok(el, 'the refusal region carries the explicit force button');
+  return el;
 }
 
 describe('Refused close/quit notice', () => {
@@ -480,5 +490,63 @@ describe('Refused close/quit notice', () => {
 
     assert.strictEqual(summaryText(doc), 'Close refused');
     assert.strictEqual(reasonRows(doc).length, 0, 'an unreadable reason contributes no row');
+  });
+
+  test('a close refusal shows the clearly labelled force action only for its own window path', async () => {
+    const ctx = await loadToolbar({ owner: { kind: 'unassigned' } });
+    dom = ctx.dom;
+    const { doc, stub } = ctx;
+    assert.strictEqual(forceButton(doc).style.display, 'none', 'no force action without a refusal');
+
+    stub.pushRefusal(REFUSED_CLOSE);
+    await flush();
+    assert.strictEqual(forceButton(doc).style.display, 'inline-flex');
+    assert.strictEqual(forceButton(doc).textContent, 'Bắt buộc đóng');
+
+    stub.pushRefusal({ ...REFUSED_CLOSE, kind: 'quit' });
+    await flush();
+    assert.strictEqual(forceButton(doc).style.display, 'none', 'a quit refusal must not force the whole application');
+  });
+
+  test('the force button invokes the sender-scoped bridge and reports FAILED honestly', async () => {
+    const ctx = await loadToolbar({ owner: { kind: 'unassigned' } });
+    dom = ctx.dom;
+    const { doc, stub } = ctx;
+    let calls = 0;
+    stub.forceCloseWindow = async () => {
+      calls += 1;
+      return { status: 'FAILED', reason: 'shell retained' };
+    };
+    const alerts: string[] = [];
+    const alertHost = ctx.dom.window as Window & { alert: (message: string) => void };
+    alertHost.alert = (message) => alerts.push(message);
+
+    stub.pushRefusal(REFUSED_CLOSE);
+    await flush();
+    forceButton(doc).click();
+    await flush();
+    assert.strictEqual(calls, 1, 'one explicit click sends one request');
+    assert.deepStrictEqual(alerts, ['shell retained']);
+    assert.strictEqual(noticeEl(doc).style.display, 'flex', 'a failed force keeps the refusal visible');
+  });
+
+  test('a successful or cancelled force hides the active refusal without a silent no-op', async () => {
+    const ctx = await loadToolbar({ owner: { kind: 'unassigned' } });
+    dom = ctx.dom;
+    const { doc, stub } = ctx;
+    const results = [{ status: 'CANCELLED' }, { status: 'CLOSED' }];
+    stub.forceCloseWindow = async () => results.shift();
+
+    stub.pushRefusal(REFUSED_CLOSE);
+    await flush();
+    forceButton(doc).click();
+    await flush();
+    assert.strictEqual(noticeEl(doc).style.display, 'flex', 'a cancelled force keeps the refusal visible');
+
+    stub.pushRefusal(REFUSED_CLOSE);
+    await flush();
+    forceButton(doc).click();
+    await flush();
+    assert.strictEqual(noticeEl(doc).style.display, 'none', 'a closed result acknowledges that Main destroyed the window');
   });
 });

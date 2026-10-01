@@ -5,7 +5,7 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import { fileURLToPath } from 'node:url';
-import { app, BrowserWindow, Menu, ipcMain, protocol, session, nativeTheme, webContents, crashReporter, dialog, type IpcMainInvokeEvent, type OpenDialogOptions } from 'electron';
+import { app, BrowserWindow, Menu, ipcMain, protocol, session, nativeTheme, webContents, crashReporter, dialog, powerMonitor, type IpcMainInvokeEvent, type OpenDialogOptions } from 'electron';
 
 // Register custom privileged scheme for local workspace preview before app.whenReady()
 protocol.registerSchemesAsPrivileged([
@@ -49,6 +49,7 @@ import { closeAuxiliaryWindow } from './browser/auxiliary-close';
 import { ProjectWindowManager, type OpenIntent } from './browser/project-window-manager';
 import { ProjectWindowShell, ownerKey, ownerLabel, type ChromeSurface, type WindowOwner } from './browser/project-window-shell';
 import { TabAuthorityDirectory } from './browser/tab-authority-directory';
+import { TabAmbientAuthority } from './browser/tab-ambient-authority';
 import {
   PageCloseReservations,
   ProjectCloseCoordinator,
@@ -84,7 +85,7 @@ import {
   type RoutedSurface,
 } from './browser/ipc-router';
 import { BridgeServer, DEFAULT_EXTENSION_ALLOWED_DOMAINS, redactCredentials } from './bridge/bridge-server';
-import { TerminalManager } from './browser/terminal-manager';
+import { TerminalManager, DEFAULT_TERMINAL_CAPSULE_ID } from './browser/terminal-manager';
 import { ensureDaemon } from './terminal-daemon/daemon-spawner';
 import { DaemonTerminalProxy } from './terminal-daemon/daemon-client';
 import { TerminalOutputRouter } from './browser/terminal-output-router';
@@ -105,7 +106,7 @@ import { BrowserControlPort, assertApplicationAdmitsWork } from './tools/browser
 import { CapabilityTransportAdapter } from './tools/capability-transport';
 import { DeviceManager } from './device/device-manager';
 import { IosDeviceAdapter } from './device/ios-device-adapter';
-import { validateControlPlaneId, makeControlPlaneId, type ProjectRecord } from '../shared/control-plane-contracts';
+import { validateControlPlaneId, makeControlPlaneId, CapabilityError, type ProjectRecord } from '../shared/control-plane-contracts';
 import {
   PROJECT_WINDOW_CHANNELS,
   type ProjectOpenListCandidate,
@@ -125,6 +126,7 @@ import {
 import { assertDeadlineChain } from '../shared/deadline-chain';
 import { preparePersistentProfile, ProfileMigrationError, ProfileOwnership, ProfileOwnershipError, type PersistentProfileResult, type ProfileLease } from './browser/profile-ownership';
 import { recordBenchmark, startEventLoopDelayMonitor, isBenchmarkEnabled, refusesWindowClose, BENCHMARK_ALLOW_WINDOW_CLOSE_ENV } from './benchmark/telemetry';
+import type { ForceCloseWindowResult } from '../shared/contracts';
 import type { ActionSequenceParams } from './browser/tab-automation-host';
 import {
   recordLifecycleEvent,
@@ -453,6 +455,17 @@ let bootstrapShell: ProjectWindowShell | null = null;
  * window happened to be created first.
  */
 const tabAuthorities = new TabAuthorityDirectory();
+/**
+ * Tab→host routing with the dead-binding degrade contract: an explicit id no live
+ * host owns degrades per seam (never the ambient host's answer), an absent id is the
+ * only input the ambient host answers, and every refusal carries a typed code.
+ * `capsules` is read lazily — capsuleManager is only assigned during boot.
+ */
+const tabAmbient = new TabAmbientAuthority({
+  directory: tabAuthorities,
+  capsules: () => capsuleManager?.list() ?? [],
+  journal: recordLifecycleEvent,
+});
 
 const DEFAULT_BOOT_PROJECT_ID = 'project-00000000-0000-4000-8000-000000000001';
 const DEFAULT_BOOT_WORKSPACE_ID = 'workspace-00000000-0000-4000-8000-000000000001';
@@ -724,20 +737,11 @@ async function openTerminalLinkInOwner(ownerKeyValue: string, url: string): Prom
 }
 
 /**
- * The host a shared service acts on when the call names neither a tab nor a sender.
- *
- * There is no ambient "current window": the automation-target owner is the one
- * window an unbound agent authority is already pinned to (see the bridge's runtime
- * binding), and a single-window process is unambiguous by construction. Anything
- * else refuses, so a request can never land in whichever window was created first.
+ * The host a shared service acts on when the call names neither a tab nor a sender —
+ * see TabAmbientAuthority.ambientHostOrThrow; refusals are typed TARGET_REQUIRED.
  */
 function ambientHostOrThrow(): NativeTabHost {
-  const hosts = tabAuthorities.hosts();
-  const automationHost = hosts.find((host) => host.getAutomationTabId() != null);
-  if (automationHost) return automationHost;
-  if (hosts.length === 1) return hosts[0]!;
-  if (hosts.length === 0) throw new Error('No project window is live, so no tab host can serve this request');
-  throw new Error(`${hosts.length} project windows are live and this request names no window, tab or sender`);
+  return tabAmbient.ambientHostOrThrow();
 }
 
 /**
@@ -768,19 +772,20 @@ function sharedServiceHostOrThrow(): NativeTabHost {
 }
 
 /**
- * The project window that owns a tab. A tab no live window owns — one that was
- * closed, or a call that carries no tab id — falls back to the ambient host above,
- * which is the single-window path this replaced: every host answers an unknown id
- * the same way its caller expects (`false`, `''`, `1`, or a `TARGET_STALE`
- * capability error), so a stale id keeps its old outcome instead of turning into an
- * exception. Only a process with no window at all refuses.
+ * The project window that owns a tab — see TabAmbientAuthority.hostForTabOrBootstrap.
+ * A tab no live window owns refuses TARGET_STALE rather than falling back to the
+ * ambient host; only a call carrying no tab id consults it.
  */
 function hostForTabOrBootstrap(tabId: string | undefined): NativeTabHost {
-  if (tabId) {
-    const owner = tabAuthorities.hostForTab(tabId);
-    if (owner) return owner;
-  }
-  return ambientHostOrThrow();
+  return tabAmbient.hostForTabOrBootstrap(tabId);
+}
+/**
+ * The host for a read/recovery seam, or undefined when the named tab is dead — see
+ * TabAmbientAuthority.hostForTabOrDegrade. Callers degrade to the value a live host
+ * returns for an unknown id.
+ */
+function hostForTabOrDegrade(tabId: string | undefined, seam: string): NativeTabHost | undefined {
+  return tabAmbient.hostForTabOrDegrade(tabId, seam);
 }
 let bridgeServer: BridgeServer | null = null;
 let windowStateManager: WindowStateManager | null = null;
@@ -1037,10 +1042,10 @@ function ownerKeyOfPage(tabId: string): string | undefined {
  * answer for a page no live host claims: there is no terminator to ask, and a close
  * attempt must not read that silence as success.
  */
-function closePageInOwningHost(tabId: string): Promise<PageCloseOutcome> {
+function closePageInOwningHost(tabId: string, force = false): Promise<PageCloseOutcome> {
   const host = tabAuthorities.hostForTab(tabId);
   if (!host) return Promise.resolve('unknown');
-  return host.closePage(tabId);
+  return host.closePage(tabId, force);
 }
 
 /**
@@ -1370,7 +1375,7 @@ const closeCoordinator = new ProjectCloseCoordinator({
   listSurfaces: () => listApplicationCloseSurfaces(),
   surfaceForOwner: (target) => browserCloseSurfaceFor(target),
   ownerOfPage: (tabId) => ownerKeyOfPage(tabId),
-  closePage: (tabId) => closePageInOwningHost(tabId),
+  closePage: (tabId, force) => closePageInOwningHost(tabId, force),
   queryLiveUse: (request) => readLiveUse(request),
   commitShutdown: () => shutdown(),
 });
@@ -1907,11 +1912,11 @@ function shellForPickerContents(sender: Electron.WebContents | undefined): Proje
 }
 
 /**
- * Reconcile the whole stored inventory - every registry record, open or closed, plus the
- * projects a window owns that the registry does not hold - into LIVE / DEAD / STALE.
- * This is deliberately independent of `projectOpenCandidates()`, which drops closed records
- * because the picker cannot open them: a closed record with a vanished folder is exactly
- * the STALE row the Manager must be able to show. LIVE wins over a missing path.
+ * Reconcile the stored inventory - every open registry record plus the projects a window
+ * owns that the registry does not hold - into LIVE / DEAD / STALE. A closed record is a
+ * project the user removed; nothing can act on it (rename, remove and open all answer
+ * UNKNOWN_PROJECT), so it is not listed. An open record whose folder vanished is the STALE
+ * row the Manager must be able to show. LIVE wins over a missing path.
  */
 export function projectStoredStatuses(): ProjectStoredStatus[] {
   const liveWindowProjectIds = new Set(
@@ -1921,7 +1926,9 @@ export function projectStoredStatuses(): ProjectStoredStatus[] {
   );
   const registryProjects = projectRegistry.listProjects();
   const allWorkspaces = projectRegistry.listAllWorkspaces();
-  const ids = new Set<string>(registryProjects.map((project) => project.id));
+  // A closed record is a project the user removed: every action on it answers
+  // UNKNOWN_PROJECT, so listing it would paint a section nothing can act on.
+  const ids = new Set<string>(registryProjects.filter((project) => project.state === 'open').map((project) => project.id));
   for (const id of liveWindowProjectIds) ids.add(id);
   if (bootProjectIdValue) ids.add(bootProjectIdValue);
   const liveSessionProjectIds = new Set<string>();
@@ -1973,6 +1980,17 @@ export function projectStoredStatuses(): ProjectStoredStatus[] {
     statusReason: entry.reason,
     ...projectAppearanceOf(entry.id),
   }));
+}
+
+/** Every live window re-reads the project list: one moved (opened, renamed, recoloured, removed). */
+function broadcastProjectInventoryChanged(): void {
+  for (const host of tabAuthorities.hosts()) {
+    try {
+      host.notifyProjectInventoryChanged();
+    } catch (err) {
+      console.warn('[project] inventory push failed:', err);
+    }
+  }
 }
 
 /**
@@ -2097,6 +2115,7 @@ export function renameProjectEntry(payload: unknown): ProjectRenameResult {
     tabAuthorities.hostForShell(shell)?.broadcastState();
   }
   recordLifecycleEvent('project-renamed', { projectId: validatedId });
+  broadcastProjectInventoryChanged();
   return { status: 'RENAMED', projectId: validatedId, name };
 }
 
@@ -2151,6 +2170,7 @@ export function setProjectAppearanceEntry(payload: unknown): ProjectAppearanceRe
     return { status: 'FAILED', projectId: validatedId, reason: 'APPEARANCE_REFUSED' };
   }
   recordLifecycleEvent('project-appearance-set', { projectId: validatedId });
+  broadcastProjectInventoryChanged();
   return {
     status: 'UPDATED',
     projectId: validatedId,
@@ -2282,6 +2302,7 @@ export async function removeProjectEntry(payload: unknown): Promise<ProjectRemov
     }
   }
   recordLifecycleEvent('project-removed', { projectId: validatedId });
+  broadcastProjectInventoryChanged();
   return { status: 'REMOVED', projectId: validatedId };
 }
 
@@ -2569,6 +2590,47 @@ function senderWindowFor(event: unknown): BrowserWindow | null {
   }
 }
 
+/** Sender scope only: a chrome may force its own shell, never a renderer-named owner. */
+function shellForWindow(window: BrowserWindow | null): ProjectWindowShell | null {
+  if (!window || window.isDestroyed()) return null;
+  for (const shell of liveProjectShells()) {
+    if (shell.window === window) return shell;
+  }
+  return null;
+}
+/** Probe seam: route tests can answer the destructive confirmation without driving a dialog. */
+let forceCloseConfirmationForProbe:
+  | ((shell: { ownerKey: string; title: string }) => Promise<boolean>)
+  | null = null;
+
+/** Explicit user confirmation is the only authorization a destructive force close accepts. */
+async function forceCloseWindowForSender(event: unknown): Promise<ForceCloseWindowResult> {
+  const shell = shellForWindow(senderWindowFor(event));
+  if (!shell || shell.window.isDestroyed()) return { status: 'FAILED', reason: 'WINDOW_NOT_FOUND' };
+  const key = ownerKey(shell.owner);
+  const confirmed = forceCloseConfirmationForProbe
+    ? await forceCloseConfirmationForProbe({ ownerKey: key, title: shell.title })
+    : (await dialog.showMessageBox(shell.window, {
+        type: 'warning',
+        title: 'Bắt buộc đóng cửa sổ?',
+        message: `Bắt buộc đóng cửa sổ ${shell.title}?`,
+        detail: 'Các trang chưa lưu và công việc Agent đang chạy trong cửa sổ này sẽ bị hủy.',
+        buttons: ['Hủy', 'Bắt buộc đóng'],
+        defaultId: 0,
+        cancelId: 0,
+        noLink: true,
+      })).response === 1;
+  if (!confirmed) return { status: 'CANCELLED' };
+  const report = await closeCoordinator.forceClose(key);
+  if (report.disposition === 'closed' || report.surface?.outcome === 'closed') {
+    recordCloseReport(report);
+    recordLifecycleEvent('window-close.force-closed', { owner: key });
+    return { status: 'CLOSED' };
+  }
+  recordLifecycleEvent('window-close.force-failed', { owner: key, detail: report.summary });
+  return { status: 'FAILED', reason: report.summary };
+}
+
 /**
  * Open or present one project window on a user's explicit request. The payload may name the
  * project, but the decision to open rests on Main's own records: a project no capsule, open
@@ -2646,6 +2708,8 @@ async function openProjectWindow(payload: unknown, parent?: BrowserWindow | null
     // the hub shell was just created, FOCUSED means the user joined a live hub.
     const { created } = await ensureProjectWindow({ kind: 'web' }, 'user', { activateProjectId: projectId });
     recordLifecycleEvent('project-open', { projectId, created });
+    // A folder pick may just have created or adopted the project: every manager lists it now.
+    broadcastProjectInventoryChanged();
     return created ? { status: 'OPENED', projectId } : { status: 'FOCUSED', projectId };
   } catch (err) {
     recordLifecycleEvent('project-open.failed', { projectId, detail: String(err) });
@@ -2772,6 +2836,12 @@ export const PROJECT_WINDOW_ROUTES: readonly IpcRoute[] = [
     run: (_target, event, args) => acceptProjectPickerAnswer(event?.sender, args[0]),
   },
   {
+    channel: PROJECT_WINDOW_CHANNELS.FORCE_CLOSE_WINDOW,
+    surface: PROJECT_OPEN_ROUTE_SURFACES,
+    kind: 'handle',
+    run: (_target, event) => forceCloseWindowForSender(event),
+  },
+  {
     channel: PROJECT_WINDOW_CHANNELS.PROJECT_RENAME,
     surface: PROJECT_OPEN_ROUTE_SURFACES,
     kind: 'handle',
@@ -2824,6 +2894,8 @@ function installProjectWindowChromeRoutes(): void {
     throw new Error(`Project-window chrome channels were not registered: ${missing.join(', ')}`);
   }
 }
+
+let powerResurfaceRegistered = false;
 
 async function createWindow(): Promise<void> {
   windowStateManager = new WindowStateManager(StorageLocations.getConfigDir(), 1360, 880);
@@ -2922,6 +2994,11 @@ async function createWindow(): Promise<void> {
   if (process.env.ANTIFAN_USE_TERMINAL_DAEMON !== '0') {
     try {
       const spawnResult = await ensureDaemon();
+      if (spawnResult.failures?.length) {
+        // A host that came up via `detached` on Windows is the GUI's descendant: a tree kill of the
+        // GUI takes every live terminal with it. Say so, with the reason the escape failed.
+        console.warn(`[index] Terminal Host Daemon spawn fell back (mode=${spawnResult.mode}): ${spawnResult.failures.join(' | ')}`);
+      }
       if (spawnResult.handle) {
         const proxy = new DaemonTerminalProxy({
           port: spawnResult.handle.port,
@@ -2958,15 +3035,10 @@ async function createWindow(): Promise<void> {
    * plane's terminal-origin gate and the browser port, so both refuse a foreign bound tab on the
    * same evidence instead of two copies that can drift apart.
    */
-  const measuredTabAffiliation = (tabId: string): { projectId?: string; workspaceId?: string; capsuleId?: string } | undefined => {
-    const host = hostForTabOrBootstrap(tabId);
-    if (!host.hasTab(tabId)) return undefined;
-    const resolvedTabId = host.resolveTargetTabId ? host.resolveTargetTabId(tabId) : tabId;
-    const capsuleId = host.getTabCapsuleId(resolvedTabId ?? tabId);
-    const capsule = capsuleId ? capsuleManager?.list().find((c) => c.id === capsuleId) : undefined;
-    if (!capsule) return undefined;
-    return { projectId: capsule.projectId, workspaceId: capsule.workspaceId, capsuleId: capsule.id };
-  };
+  // A bound id no live host owns measures undefined — never the ambient host's guess,
+  // so a dead binding cannot inherit the first window's project.
+  const measuredTabAffiliation = (tabId: string): { projectId?: string; workspaceId?: string; capsuleId?: string } | undefined =>
+    tabAmbient.measuredTabAffiliation(tabId);
 
   controlPlane = new ControlPlaneRuntime({
     projectId,
@@ -2980,7 +3052,7 @@ async function createWindow(): Promise<void> {
     // same way. Without this the control plane had no owner notion at all and every attachment
     // shared one terminal namespace.
     terminalAuthority: {
-      allowsTab: (tabId, terminalId) => hostForTabOrBootstrap(tabId).isTerminalAllowedForTab(tabId, terminalId),
+      allowsTab: (tabId, terminalId) => (hostForTabOrDegrade(tabId, 'terminalAuthority.allowsTab')?.isTerminalAllowedForTab(tabId, terminalId) ?? false),
       isAgentTerminal: (terminalId) => tabAuthorities.hosts().some((h) => h.getTerminalAgentAffinity(terminalId)?.status === 'alive'),
       bind: (terminalId, generation, tabId) => hostForTabOrBootstrap(tabId).bindTerminalAgentAffinity(terminalId, generation, tabId),
     },
@@ -2992,8 +3064,8 @@ async function createWindow(): Promise<void> {
       }
       return null;
     },
-    getDocumentGeneration: (tabId) => hostForTabOrBootstrap(tabId).getDocumentGeneration(tabId),
-    isTabAllowed: (primaryTabId, requestedTabId) => hostForTabOrBootstrap(primaryTabId).isTabAllowedForPrimary(primaryTabId, requestedTabId),
+    getDocumentGeneration: (tabId) => hostForTabOrDegrade(tabId, 'controlPlane.getDocumentGeneration')?.getDocumentGeneration(tabId) ?? 1,
+    isTabAllowed: (primaryTabId, requestedTabId) => (hostForTabOrDegrade(primaryTabId, 'controlPlane.isTabAllowed')?.isTabAllowedForPrimary(primaryTabId, requestedTabId) ?? false),
     resolveTabId: (id) => {
       if (!id) return undefined;
       for (const host of tabAuthorities.hosts()) {
@@ -3010,7 +3082,7 @@ async function createWindow(): Promise<void> {
       }
       return undefined;
     },
-    releaseSessionTab: (sessionId, tabId) => hostForTabOrBootstrap(tabId).releaseSessionTab(sessionId, tabId),
+    releaseSessionTab: (sessionId, tabId) => (hostForTabOrDegrade(tabId, 'controlPlane.releaseSessionTab')?.releaseSessionTab(sessionId, tabId) ?? false),
     releaseSessionTabPool: (sessionId) => {
       let anyReleased = false;
       for (const host of tabAuthorities.hosts()) {
@@ -3090,6 +3162,21 @@ async function createWindow(): Promise<void> {
     host.setRunStateService(runStateService);
   }
 
+  // Waking from sleep or unlocking the screen can leave a window's presented tab white
+  // (renderer alive, surface gone). One process-wide listener asks every window to
+  // re-present; each host skips itself when hidden, minimized or showing nothing. Registered
+  // once per process: `createWindow` can run again on `activate`.
+  if (!powerResurfaceRegistered) {
+    powerResurfaceRegistered = true;
+    const resurfaceAllWindows = (trigger: 'resume' | 'unlock-screen'): void => {
+      for (const host of tabAuthorities.hosts()) {
+        try { host.resurfacePresentedView(trigger); } catch {}
+      }
+    };
+    powerMonitor.on('resume', () => resurfaceAllWindows('resume'));
+    powerMonitor.on('unlock-screen', () => resurfaceAllWindows('unlock-screen'));
+  }
+
   // Every window — this one and every later one — goes through the same factory. The startup
   // window is also presented by it (see `presentShellOnFirstPaint`), so the user sees chrome as
   // soon as the renderer paints instead of waiting for the ~4s ledger/attachments replay — and
@@ -3162,7 +3249,7 @@ async function createWindow(): Promise<void> {
     const managedBefore = new Set(host.getManagedTabIds?.(tabId) ?? []);
     managedBefore.delete(tabId);
     try {
-      host.closeTab(tabId);
+      host.closeTab(tabId, 'attachment-dispose');
       console.log(`[antifan] Attachment ${attachmentId} disposed; closed owned agent tab ${tabId}`);
     } catch (err) {
       console.warn(`[antifan] Attachment ${attachmentId} disposal: failed to close agent tab ${tabId}`, err);
@@ -3176,7 +3263,7 @@ async function createWindow(): Promise<void> {
       try {
         if (host.isTabOffscreen(childId) !== true) continue;
         if (claimGuard(childId)) continue;
-        host.closeTab(childId);
+        host.closeTab(childId, 'attachment-dispose-child');
         console.log(`[antifan] Attachment ${attachmentId} disposed; closed unclaimed agent child tab ${childId}`);
       } catch (err) {
         console.warn(`[antifan] Attachment ${attachmentId} disposal: failed to close agent child tab ${childId}`, err);
@@ -3194,14 +3281,14 @@ async function createWindow(): Promise<void> {
       return undefined;
     },
     adoptChildTab: (primaryOrBoundTabId, childTabId) => hostForTabOrBootstrap(primaryOrBoundTabId).adoptChildTabForBoundTab(primaryOrBoundTabId, childTabId),
-    getManagedTabIds: (primaryOrBoundTabId) => hostForTabOrBootstrap(primaryOrBoundTabId).getManagedTabIdsForBoundTab(primaryOrBoundTabId),
+    getManagedTabIds: (primaryOrBoundTabId) => hostForTabOrDegrade(primaryOrBoundTabId, 'port.getManagedTabIds')?.getManagedTabIdsForBoundTab(primaryOrBoundTabId) ?? new Set(),
     noteAgentTabActivity: (tabId) => {
       if (!tabId) return;
       tabAuthorities.hostForTab(tabId)?.noteAgentTabActivity(tabId);
     },
-    isTabAllowed: (primaryOrBoundTabId, requestedTabId) => hostForTabOrBootstrap(primaryOrBoundTabId).isTabAllowedForPrimary(primaryOrBoundTabId, requestedTabId),
+    isTabAllowed: (primaryOrBoundTabId, requestedTabId) => (hostForTabOrDegrade(primaryOrBoundTabId, 'port.isTabAllowed')?.isTabAllowedForPrimary(primaryOrBoundTabId, requestedTabId) ?? false),
     getTabList: () => tabAuthorities.hosts().flatMap((h) => h.getTabList()),
-    getSessionTabList: (boundTabId) => hostForTabOrBootstrap(boundTabId).getSessionTabRecords(boundTabId),
+    getSessionTabList: (boundTabId) => hostForTabOrDegrade(boundTabId, 'port.getSessionTabList')?.getSessionTabRecords(boundTabId) ?? [],
     getFailoverTargetTab: (tabId) => {
       if (!tabId) return undefined;
       for (const host of tabAuthorities.hosts()) {
@@ -3238,7 +3325,7 @@ async function createWindow(): Promise<void> {
         }
       }
     },
-    isTabOffscreen: (tabId) => (tabId ? hostForTabOrBootstrap(tabId).isTabOffscreen(tabId) : false),
+    isTabOffscreen: (tabId) => (tabId ? hostForTabOrDegrade(tabId, 'port.isTabOffscreen')?.isTabOffscreen(tabId) ?? false : false),
     resolveTabAffiliation: measuredTabAffiliation,
     createTab: (url, activate = false, options) => {
       // `anchorTabId` selects the window; the host would not know what to do with it,
@@ -3246,7 +3333,7 @@ async function createWindow(): Promise<void> {
       const { anchorTabId, ...hostOptions } = options ?? {};
       return hostForTabOrBootstrap(anchorTabId).createTab(url, activate, hostOptions);
     },
-    closeTab: (tabId) => hostForTabOrBootstrap(tabId).closeTab(tabId),
+    closeTab: (tabId, source) => hostForTabOrBootstrap(tabId).closeTab(tabId, source),
     switchTab: (tabId, opts) => hostForTabOrBootstrap(tabId).switchTab(tabId, opts),
     trySwitchTab: (tabId, opts) => hostForTabOrBootstrap(tabId).trySwitchTab(tabId, opts),
     navigate: (tabId, url) => hostForTabOrBootstrap(tabId).navigateAndWait(tabId, url),
@@ -3353,7 +3440,7 @@ async function createWindow(): Promise<void> {
         host.clearAllAgentWorking();
       }
     },
-    getDocumentGeneration: (tabId) => hostForTabOrBootstrap(tabId).getDocumentGeneration(tabId),
+    getDocumentGeneration: (tabId) => hostForTabOrDegrade(tabId, 'port.getDocumentGeneration')?.getDocumentGeneration(tabId) ?? 1,
     bumpDocumentGeneration: (tabId) => hostForTabOrBootstrap(tabId).bumpDocumentGeneration(tabId),
     getMutationRevision: (tabId) => hostForTabOrBootstrap(tabId).getMutationRevision(tabId),
     bumpMutationRevision: (tabId) => hostForTabOrBootstrap(tabId).bumpMutationRevision(tabId),
@@ -3543,6 +3630,67 @@ async function createWindow(): Promise<void> {
     );
     bridgeServer.setControlPlane(plane);
     bridgeServer.setCloseAdmission(closeReservations);
+    // Mint routing: a terminal's agent anchor must be created on the window that owns
+    // the terminal and stamped with the terminal's own capsule — never the bootstrap
+    // host or the process-wide ambient capsule. The bridge asks this resolver where a
+    // mint lands; a project-claimed terminal that resolves to no owning window or no
+    // verified capsule refuses to mint instead of landing in the wrong window.
+    bridgeServer.setMintHostResolver((opts) => {
+      if (opts.boundTabId) {
+        const tabHost = tabAuthorities.hostForTab(opts.boundTabId);
+        if (tabHost) return { host: tabHost, capsuleId: tabHost.getTabCapsuleId(opts.boundTabId) };
+      }
+      let capsuleId: string | undefined;
+      if (opts.terminalSessionId) {
+        const stamped = terminalManager.sessionCapsuleId(opts.terminalSessionId);
+        // 'default' is the daemon's unattributed sentinel and a stale id no live capsule
+        // carries: neither may pin a tab under a workspace it does not belong to.
+        if (stamped && stamped !== DEFAULT_TERMINAL_CAPSULE_ID && capsuleManager?.list().some((c) => c.id === stamped)) {
+          capsuleId = stamped;
+        }
+        const ownerKeyValue = terminalManager.sessionOwnerKey(opts.terminalSessionId);
+        const parsed = parseOwnerKey(ownerKeyValue);
+        const claimedProjectId = parsed.kind === 'project' ? parsed.projectId : undefined;
+        const projectClaim = claimedProjectId !== undefined || parsed.kind === 'malformed';
+        // A stamp that no live capsule carries falls back to the project's own
+        // validated capsule — the same claim evidence the synchronizer registers from.
+        if (!capsuleId && claimedProjectId) {
+          capsuleId = resolveProjectAssignment(claimedProjectId)?.capsuleId;
+        }
+        let host: NativeTabHost | undefined;
+        if (ownerKeyValue) {
+          // Project windows are retired: a `project:`-owned terminal lives in the web hub,
+          // the claim's only window; 'unassigned'/'agent' keys have no shell to route to.
+          host = (hostForOwnerKey(ownerKeyValue)
+            ?? (projectClaim || parsed.kind === 'web' ? hostForOwnerKey('web') : null)) ?? undefined;
+        }
+        if (projectClaim && !host) {
+          // Fail closed: minting into a host the claim does not own is exactly how the
+          // incident anchor landed in another project's window and died with it.
+          throw new CapabilityError(
+            'TERMINAL_SCOPE_UNRESOLVED',
+            `TERMINAL_SCOPE_UNRESOLVED: Terminal '${opts.terminalSessionId}' is claimed by a project, but no window owns that claim; ` +
+              'refusing to mint its agent tab into the ambient window.',
+            { terminalSessionId: opts.terminalSessionId, ownerKey: ownerKeyValue }
+          );
+        }
+        return { host: host ?? bootstrapHost, capsuleId };
+      }
+      if (opts.projectId) {
+        // Only a validated claim may pin a capsule; unknown/ambiguous projects mint
+        // unpinned on the hub rather than borrowing whichever capsule is active.
+        const assignment = resolveProjectAssignment(opts.projectId);
+        return { host: hostForOwnerKey('web') ?? bootstrapHost, capsuleId: assignment?.capsuleId };
+      }
+      return undefined;
+    });
+    // Direct-RPC tab ops (switch/close/getDOM/capture/evalJS/navigate/reload/goBack/
+    // goForward) act on the window's host that owns the resolved tab — not the
+    // bootstrap host. Without this seam a minted tab living on a second window is
+    // unreachable via RPC (TARGET_CLOSED on the wrong host, foreign-window
+    // getActiveTabId defaults). This is the same authority index the mint resolver
+    // consults.
+    bridgeServer.setTabHostResolver((tabId) => tabAuthorities.hostForTab(tabId));
     recordBenchmark({ surface: 'startup', name: 'bridgeCtor' });
     const bridgePort = await bridgeServer.start();
     recordBenchmark({ surface: 'startup', name: 'bridgeStarted' });
@@ -3959,6 +4107,14 @@ export const projectWindowAuthority = {
       },
     );
   },
+  /** Probe seam for explicit destructive close; same coordinator state machine IPC uses. */
+  forceClose(ownerKeyValue: string): Promise<CloseReport> {
+    return closeCoordinator.forceClose(ownerKeyValue);
+  },
+  /** The real sender-scoped route, with the confirmation answer supplied by the probe. */
+  async forceCloseFromChrome(sender: unknown): Promise<ForceCloseWindowResult> {
+    return forceCloseWindowForSender({ sender });
+  },
   /** Drive the application quit gate exactly as `before-quit` and the last shell close do. */
   requestQuit(origin: string): void {
     requestApplicationQuit(origin);
@@ -3971,6 +4127,10 @@ export const projectWindowAuthority = {
   reservations(): { reservedTabIds: readonly string[]; reservedCount: number; inFlightOperations: number; applicationReserved: boolean } {
     const snapshot = closeReservations.snapshot();
     return { ...snapshot, reservedCount: snapshot.reservedTabIds.length };
+  },
+  /** Modal confirmation seam, injectable only for deterministic live-force probes. */
+  setForceCloseConfirmationForProbe(callback: ((shell: { ownerKey: string; title: string }) => Promise<boolean>) | null): void {
+    forceCloseConfirmationForProbe = callback;
   },
   /** The live-use port, so tests and the probe can query the exact snapshot wiring. */
   closeLiveUsePort(): CloseLiveUsePort {

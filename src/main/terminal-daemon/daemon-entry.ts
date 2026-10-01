@@ -107,6 +107,14 @@ function main(): void {
     process.exit(2);
   }
 
+  // The host owns every live PTY and has no console: a death that leaves no line in the log is a
+  // loss nobody can diagnose. Known socket faults are contained where they occur; an unknown
+  // exception still terminates (a host in an unknown state must not keep serving), but says why
+  // first. A rejected RPC handler is one request failing, so it is logged, not fatal.
+  process.on('uncaughtExceptionMonitor', (err) => log(`uncaughtException: ${err && err.stack ? err.stack : String(err)}`));
+  process.on('unhandledRejection', (reason) => log(`unhandledRejection: ${String(reason)}`));
+  process.on('exit', (code) => log(`exit code=${code}`));
+
   const tm = TerminalManager.getInstance();
   if (!tm.startTerminal(startupCwd)) {
     log(`startTerminal failed for cwd=${startupCwd}`);
@@ -119,11 +127,13 @@ function main(): void {
     res.writeHead(404, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ error: 'NOT_FOUND' }));
   });
+  server.on('error', (err) => log(`server error: ${String(err)}`));
 
   function broadcast(event: string, data: unknown): void {
     const frame = JSON.stringify({ event, data } as BridgeEventPayload<unknown>);
     for (const client of wss.clients) {
-      if (client.readyState === WebSocket.OPEN) client.send(frame);
+      if (client.readyState !== WebSocket.OPEN) continue;
+      try { client.send(frame); } catch (err) { log(`broadcast send failed: ${String(err)}`); }
     }
   }
 
@@ -188,6 +198,7 @@ function main(): void {
 
   wss.on('connection', (ws) => {
     log('client connected');
+    ws.on('error', (err) => log(`client socket error: ${String(err)}`));
 
     ws.on('message', async (raw) => {
       let payload: BridgeRequestPayload;

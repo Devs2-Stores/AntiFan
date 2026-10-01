@@ -136,6 +136,13 @@ export interface CapabilityCatalogueOptions {
   workspaceRegistry?: WorkspaceRegistry;
   allowEval?: boolean;
   isTabAllowed?: (primaryTabId: string, requestedTabId: string) => boolean;
+  /**
+   * Measured capsule affiliation of a tab — same probe the browser port and
+   * attachment registry use. Same-project retarget/adoption checks measure both
+   * tabs through this seam; a tab without a capsule measures undefined and never
+   * satisfies a same-project leg.
+   */
+  resolveTabAffiliation?: (tabId: string) => { projectId?: string; workspaceId?: string; capsuleId?: string } | undefined;
   resolveTabId?: (tabIdOrIdentifier: string) => string | undefined;
   resolveFailoverTabId?: (staleTabId: string) => string | undefined;
   getDocumentGeneration?: (tabId?: string) => number;
@@ -185,6 +192,33 @@ export class CapabilityCatalogue {
       } catch {}
     }
     return false;
+  }
+
+  /**
+   * Explicit-retarget authority check: the requested tab is acceptable when the
+   * session owns it OR it measures into the attachment's own project/workspace.
+   * The comparison is against the caller-supplied authority scope (the
+   * attachment's per-call projectId/workspaceId), never against the bound
+   * tab's measured affiliation — a bound tab without a capsule cannot grant
+   * scope it lacks. Ordinary capability dispatch stays on the session-scoped
+   * isTabAllowed.
+   */
+  isTabAllowedForRetarget(
+    boundTabId: string,
+    requestedTabId: string,
+    authorityScope: { projectId?: string; workspaceId?: string }
+  ): boolean {
+    if (this.isTabAllowed(boundTabId, requestedTabId)) return true;
+    if (!this.options.resolveTabAffiliation || !authorityScope.projectId || !authorityScope.workspaceId) return false;
+    try {
+      const requested = this.options.resolveTabAffiliation(requestedTabId);
+      return Boolean(
+        requested?.projectId === authorityScope.projectId &&
+        requested?.workspaceId === authorityScope.workspaceId
+      );
+    } catch {
+      return false;
+    }
   }
 
   /**

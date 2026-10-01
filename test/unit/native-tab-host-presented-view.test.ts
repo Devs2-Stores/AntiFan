@@ -170,6 +170,15 @@ function createPresentedHost(params: { tabs: RecordedTab[]; activeTabId: string;
 }
 
 describe('Presented view invariant', () => {
+  it('never parks the presented audible pane on an off-screen capture host', () => {
+    const presented = createTestTab('music', { isAudible: true });
+    const { host, children } = createPresentedHost({ tabs: [presented], activeTabId: 'music', attached: [presented.tab.view] });
+    host.ensureCaptureHostWindow = () => { throw new Error('presented panes must not borrow another window'); };
+    assert.strictEqual(host.raiseViewOnCaptureHost(presented.tab.view), false);
+    assert.deepStrictEqual(children, [presented.tab.view]);
+    assert.strictEqual(host.tabs.get('music').view, presented.tab.view);
+  });
+
   it('refusing to present an agent-plane tab re-attaches the presented view instead of leaving the window empty', () => {
     const presented = createTestTab('tab-visible');
     const agentTab = createTestTab('tab-agent', { offscreen: true });
@@ -593,5 +602,58 @@ describe('Presented view invariant', () => {
       'production path must not emit switch-steps',
     );
   });
+});
 
+describe('Presented view resurface after the window was out of sight', () => {
+  /** Counts drop-and-re-add recycles: the only thing that gives a white pane a new visual. */
+  function countRecycles(host: any): { recycled: () => number } {
+    const original = host.recyclePresentedLayer.bind(host);
+    let recycled = 0;
+    host.recyclePresentedLayer = (view: unknown, isMobile: boolean) => {
+      recycled += 1;
+      original(view, isMobile);
+    };
+    return { recycled: () => recycled };
+  }
+
+  it('regaining focus after a long absence re-presents the tab once and keeps page focus; a quick Alt+Tab does not', () => {
+    const presented = createTestTab('tab-visible');
+    const { host, children } = createPresentedHost({ tabs: [presented], activeTabId: 'tab-visible', attached: [presented.tab.view] });
+    Object.assign(presented.tab.view!.webContents, { isFocused: () => true });
+    const removals = { removed: countRecycles(host).recycled };
+
+    host.noteWindowBlurred();
+    host.noteWindowFocused();
+    assert.strictEqual(removals.removed(), 0, 'a quick Alt+Tab must keep the surface it has');
+
+    host.windowBlurredAtMs = Date.now() - 31_000;
+    host.noteWindowFocused();
+    assert.strictEqual(removals.removed(), 1, 'a long absence must drop and re-add the presented view');
+    assert.deepStrictEqual(children, [presented.tab.view], 'the presented tab is back on screen after the recycle');
+    assert.strictEqual(presented.focusCalls, 1, 'the page the user was typing in gets its focus back');
+    const journal = fs.readFileSync(path.join(RUNTIME_DIR, 'logs', 'main.log'), 'utf8');
+    assert.match(journal, /"event":"tabhost\.presentedViewResurfaced"[^\n]*"trigger":"focus"/);
+
+    host.noteWindowFocused();
+    assert.strictEqual(removals.removed(), 1, 'a focus without a preceding blur re-presents nothing');
+  });
+
+  it('restore followed by focus recycles once, and a minimized window is left alone', () => {
+    const presented = createTestTab('tab-visible');
+    const { host, shell } = createPresentedHost({ tabs: [presented], activeTabId: 'tab-visible', attached: [presented.tab.view] });
+    const removals = { removed: countRecycles(host).recycled };
+    let minimized = true;
+    Object.assign(shell.window!, { isMinimized: () => minimized });
+    assert.strictEqual(host.resurfacePresentedView('resume'), false, 'a minimized window has nothing to re-present');
+    assert.strictEqual(removals.removed(), 0);
+
+    minimized = false;
+    assert.strictEqual(host.resurfacePresentedView('restore'), true);
+    host.windowBlurredAtMs = Date.now() - 60_000;
+    host.noteWindowFocused();
+    assert.strictEqual(removals.removed(), 1, 'the focus that trails a restore must not recycle the view a second time');
+    const journal = fs.readFileSync(path.join(RUNTIME_DIR, 'logs', 'main.log'), 'utf8');
+    assert.match(journal, /"event":"tabhost\.presentedViewResurfaced"[^\n]*"trigger":"focus"[^\n]*"skipped":"deduped"/, 'the deduped trigger stays on the incident timeline');
+    assert.strictEqual(presented.focusCalls, 0, 'a page that did not have focus (sidebar or toolbar did) is not handed it');
+  });
 });

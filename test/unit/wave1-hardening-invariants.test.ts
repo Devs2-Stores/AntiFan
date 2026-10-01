@@ -35,7 +35,7 @@ describe('Wave 1 Hardening Invariants Suite', () => {
     const resolveFn = options?.resolveTabId || ((id) => {
       if (id === TAB_PRIMARY || id === TAB_SECONDARY || id === TAB_UNAUTHORIZED) return id;
       if (id === '#1') return TAB_PRIMARY;
-      if (id === '#2' || id === '@storefront') return TAB_SECONDARY;
+      if (id === '#2') return TAB_SECONDARY;
       if (id === '#3') return TAB_UNAUTHORIZED;
       return undefined;
     });
@@ -228,11 +228,11 @@ describe('Wave 1 Hardening Invariants Suite', () => {
   });
 
   // --- TEST E: Invariant B (Canonical resolution, authorization, host side effect, and attachment rebind) ---
-  test('Test E: switchTab resolves aliases (#2, @storefront), authorizes canonical ID, invokes host, and transport rebinds attachment', async () => {
+  test('Test E: switchTab resolves numeric indexes and actual IDs, authorizes canonical ID, invokes host, and transport rebinds attachment', async () => {
     let hostSwitchedId = '';
     const mockHost: any = {
       resolveTargetTabId: (id: string) => {
-        if (id === '#2' || id === '@storefront') return TAB_SECONDARY;
+        if (id === '#2' || id === TAB_SECONDARY) return TAB_SECONDARY;
         if (id === '#1') return TAB_PRIMARY;
         return undefined;
       },
@@ -259,11 +259,11 @@ describe('Wave 1 Hardening Invariants Suite', () => {
     assert.strictEqual(res1.tabId, TAB_SECONDARY, 'Result must return canonical UUID, not #2');
     assert.strictEqual(hostSwitchedId, TAB_SECONDARY, 'Host must be called with canonical UUID');
 
-    // 2. Direct port call: switchTab with @storefront
+    // 2. Direct port call: switchTab with actual ID
     hostSwitchedId = '';
-    const res2 = port.switchTab('@storefront', { target });
+    const res2 = port.switchTab(TAB_SECONDARY, { target });
     assert.strictEqual(res2.switched, true);
-    assert.strictEqual(res2.tabId, TAB_SECONDARY, 'Result must return canonical UUID, not @storefront');
+    assert.strictEqual(res2.tabId, TAB_SECONDARY, 'Result must return canonical UUID');
     assert.strictEqual(hostSwitchedId, TAB_SECONDARY, 'Host must be called with canonical UUID');
 
     // 3. Negative test: switchTab with unknown #999 throws and host is NOT called
@@ -277,7 +277,7 @@ describe('Wave 1 Hardening Invariants Suite', () => {
     // 4. End-to-end transport dispatch with attachment rebind
     const { catalogue } = createTestCatalogue({
       isTabAllowed: (p, r) => p === TAB_PRIMARY && r === TAB_SECONDARY,
-      resolveTabId: (id) => (id === '#2' || id === '@storefront' ? TAB_SECONDARY : (id === '#1' ? TAB_PRIMARY : undefined)),
+      resolveTabId: (id) => (id === '#2' || id === TAB_SECONDARY ? TAB_SECONDARY : (id === '#1' ? TAB_PRIMARY : undefined)),
     });
     registerBrowserCapabilities(catalogue, port);
 

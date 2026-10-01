@@ -71,7 +71,7 @@ const MANIFEST = {
     { id: 'agent', label: 'omp', command: 'omp', role: 'agent' },
     { id: 'sh', label: 'shell', role: 'shell' },
   ],
-  tabs: [{ url: 'https://example.com/a' }, { path: 'ref/index.html', alias: 'Ref' }],
+  tabs: [{ url: 'https://example.com/a' }, { path: 'ref/index.html' }],
 };
 
 describe('openSpace', () => {

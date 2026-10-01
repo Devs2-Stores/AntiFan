@@ -18,8 +18,8 @@ describe('AntiFan Sensory Engine & Quality Gate Suite', () => {
 
   const createMockHost = (overrides: Partial<BrowserHostPort> = {}): any => ({
     getTabList: () => [
-      { id: 'tab-1', url: 'https://roahtrip.com/', title: 'ROAHTRIP', alias: '@storefront', role: 'storefront' },
-      { id: 'tab-2', url: 'http://127.0.0.1:8989/', title: 'HTML Spec', alias: '@spec', role: 'spec' },
+      { id: 'tab-1', url: 'https://roahtrip.com/', title: 'ROAHTRIP' },
+      { id: 'tab-2', url: 'http://127.0.0.1:8989/', title: 'HTML Spec' },
     ],
     hasTab: (id: string) => ['tab-1', 'tab-2'].includes(id),
     switchTab: () => true,
@@ -411,7 +411,7 @@ describe('AntiFan Sensory Engine & Quality Gate Suite', () => {
       });
       const port = new BrowserControlPort(host);
 
-      const res = await port.pageInventory(dummyTarget, { tabId: '@storefront' });
+      const res = await port.pageInventory(dummyTarget, { tabId: 'tab-1' });
       assert.strictEqual(res.scrollHeight, 6941);
       assert.strictEqual(res.sections.length, 4);
       assert.strictEqual(res.sections[0]?.group, 'header-group');
@@ -427,7 +427,7 @@ describe('AntiFan Sensory Engine & Quality Gate Suite', () => {
       });
       const port = new BrowserControlPort(host);
 
-      const res = await port.pageInventory(dummyTarget, { tabId: '@storefront' });
+      const res = await port.pageInventory(dummyTarget, { tabId: 'tab-1' });
       assert.strictEqual(res.viewportHeight, 0);
       assert.ok(!JSON.stringify(res).includes('1006'), 'no payload may carry a fabricated viewport height');
     });
@@ -656,12 +656,11 @@ describe('AntiFan Sensory Engine & Quality Gate Suite', () => {
     });
   });
 
-  describe('Semantic Tab Aliasing with @target', () => {
-    test('resolves @target alias to storefront tab seamlessly', async () => {
+  describe('Actual browser tab IDs', () => {
+    test('rejects obsolete semantic names instead of selecting another page', async () => {
       const host = createMockHost();
       const port = new BrowserControlPort(host);
-      const res = await port.freezeMedia(dummyTarget, { tabId: '@target' });
-      assert.strictEqual(res.tabId, 'tab-1');
+      await assert.rejects(port.freezeMedia(dummyTarget, { tabId: '@target' }), /Unknown tab ID/);
     });
   });
 });

@@ -163,10 +163,14 @@ describe('Capability catalogue', () => {
     };
     const browser = new BrowserControlPort(mockHost);
     registerBrowserCapabilities(catalogue, browser);
-
-    // 1. List tabs (read)
-    const tabs = await catalogue.dispatch('browser.list-tabs', {}, { lease, leaseToken: lease.token, projectId, workspaceId });
-    assert.deepStrictEqual(tabs, [{ id: 'tab-1', url: 'https://example.com' }, { id: 'tab-2', url: 'https://other.com' }]);
+    // Explicit global discovery labels unmeasured rows unaffiliated; default
+    // project discovery cannot include rows whose affiliation is unknown.
+    const tabs = await catalogue.dispatch('browser.list-tabs', { all: true }, { lease, leaseToken: lease.token, projectId, workspaceId });
+    const globalTabs = tabs as Array<{ id: string; affiliated?: boolean; isBoundTab?: boolean }>;
+    assert.deepStrictEqual(globalTabs.map((t) => t.id), mockTabRecords.map((t) => t.id));
+    assert.ok(globalTabs.every((t) => t.affiliated === false && t.isBoundTab === false));
+    const sessionTabs = await catalogue.dispatch('browser.list-tabs', { all: false }, { lease, leaseToken: lease.token, projectId, workspaceId });
+    assert.deepStrictEqual(sessionTabs, []);
 
     // 2. Open tab (write)
     const openRes = await catalogue.dispatch('browser.open-tab', { url: 'https://antifan.test' }, { lease, leaseToken: lease.token, projectId, workspaceId, grant: 'write' });
@@ -1693,5 +1697,45 @@ describe('Capability catalogue', () => {
 
     // Old definition still active
     assert.strictEqual(await catalogue.dispatch('hot.test', {}, { lease, leaseToken: lease.token, projectId, workspaceId }), 'v2-hot-swapped');
+  });
+
+  it('isTabAllowedForRetarget adopts same-project tabs only against the attachment scope', () => {
+    const projectId = makeControlPlaneId('project');
+    const workspaceId = makeControlPlaneId('workspace');
+    const otherProjectId = makeControlPlaneId('project');
+    const otherWorkspaceId = makeControlPlaneId('workspace');
+    const lease = issueRuntimeLease(projectId, workspaceId, 30_000, 1);
+    const affiliation: Record<string, { projectId: string; workspaceId: string } | undefined> = {
+      // bound tab measures no project affiliation (an unstamped or affiliation-less agent surface)
+      'tab-agent': undefined,
+      'tab-same-project': { projectId, workspaceId },
+      'tab-other-project': { projectId: otherProjectId, workspaceId: otherWorkspaceId },
+      'tab-other-workspace': { projectId, workspaceId: otherWorkspaceId },
+    };
+    const catalogue = new CapabilityCatalogue({
+      runtime: { mode: 'standalone', lifecycle: 'active' },
+      projectId,
+      workspaceId,
+      runtimeId: lease.runtimeId,
+      hostEpoch: 1,
+      // session seam owns nothing besides the bound id itself
+      isTabAllowed: (bound: string, req: string) => bound === req,
+      resolveTabAffiliation: (id: string) => affiliation[id],
+    });
+
+    const scope = { projectId, workspaceId };
+    // session-owned stays allowed without needing the affiliation leg
+    assert.strictEqual(catalogue.isTabAllowedForRetarget('tab-agent', 'tab-agent', scope), true);
+    // same project+workspace tab owned by another session: adoptable on retarget
+    assert.strictEqual(catalogue.isTabAllowedForRetarget('tab-agent', 'tab-same-project', scope), true);
+    // foreign project refuses even though it is measured
+    assert.strictEqual(catalogue.isTabAllowedForRetarget('tab-agent', 'tab-other-project', scope), false);
+    // same project but different workspace refuses — the leg requires both
+    assert.strictEqual(catalogue.isTabAllowedForRetarget('tab-agent', 'tab-other-workspace', scope), false);
+    // a missing/empty scope never adopts
+    assert.strictEqual(catalogue.isTabAllowedForRetarget('tab-agent', 'tab-same-project', { projectId, workspaceId: '' }), false);
+    assert.strictEqual(catalogue.isTabAllowedForRetarget('tab-agent', 'tab-same-project', {}), false);
+    // the plain session gate is untouched: same-project tab is still foreign to ordinary dispatch
+    assert.strictEqual(catalogue.isTabAllowed('tab-agent', 'tab-same-project'), false);
   });
 });

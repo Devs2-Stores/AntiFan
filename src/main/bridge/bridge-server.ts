@@ -16,6 +16,7 @@ import { performance } from 'node:perf_hooks';
 import { isBenchmarkEnabled, recordBenchmark } from '../benchmark/telemetry';
 import { NativeTabHost } from '../browser/native-tab-host';
 import { TerminalManager, DEFAULT_TERMINAL_CAPSULE_ID, agentTerminalOwnerKey, type SessionSummary } from '../browser/terminal-manager';
+import { parseOwnerKey } from '../project/project-context';
 import { renderMobileRemoteHtml } from './mobile-remote-html';
 import { generateQrSvg } from './qr-generator';
 import {
@@ -280,6 +281,32 @@ export interface BridgeStatusAnswer extends AntiFanBridgeStatus {
   activeTabRefusal?: string;
 }
 
+/**
+ * What a mint routing decision is made from. `boundTabId` is the tab an operation is
+ * attributed to (an attachment's browser target, or the attributed surface for tab
+ * creation); `terminalSessionId` names the terminal that owns an agent session;
+ * `projectId` is a validated project claim for a fresh, unbound provision.
+ */
+export interface BridgeMintTargetRequest {
+  terminalSessionId?: string;
+  projectId?: string;
+  boundTabId?: string;
+}
+
+/**
+ * Where an agent tab must be minted: the window that owns the terminal/tab/project
+ * (never the bootstrap host by default), plus the capsule the tab is stamped with.
+ * `capsuleId` absent means the mint rides the resolved window's own capsule fallback.
+ * `undefined` resolution means "no owner to route by" — the bridge falls back to its
+ * construction host (the unattributed, single-window behavior).
+ */
+export interface BridgeMintTargetResolution {
+  host: NativeTabHost;
+  capsuleId?: string;
+}
+
+export type BridgeMintHostResolver = (opts: BridgeMintTargetRequest) => BridgeMintTargetResolution | undefined;
+
 export class BridgeServer {
   private static instance: BridgeServer | null = null;
   private wss: WebSocketServer | null = null;
@@ -329,6 +356,10 @@ export class BridgeServer {
   // spawns no icacls/powershell (each spawn cost seconds of CPU, every beat).
   private readonly publishedDiscoveryFiles = new Map<string, { dev: bigint; ino: bigint; size: number }>();
   private persistRunning: Promise<void> | null = null;
+  // The host an agent tab must be minted on and the capsule it is stamped with, resolved
+  // through the app's shell/capsule directory (wired in index.ts). Never set means every
+  // mint lands on the construction host — the single-window bootstrap semantics.
+  private mintHostResolver?: BridgeMintHostResolver;
   private persistQueued: Promise<void> | null = null;
 
   public issueExtensionGrant(targetPartitionId: string, allowedDomains: string[] = DEFAULT_EXTENSION_ALLOWED_DOMAINS, ttlMs = 3600_000): ExtensionSessionGrant {
@@ -422,6 +453,36 @@ export class BridgeServer {
   }
   public setCloseAdmission(admission?: PageCloseAdmission): void {
     this.closeAdmission = admission;
+  }
+  /**
+   * Installs the mint-routing seam: which window's host an agent tab is created on and
+   * which capsule it is stamped with. Optional only for standalone/test instances; the
+   * app wires it so a `project:<id>` terminal's anchor never lands in another window's
+   * host or under the process-wide ambient capsule.
+   */
+  public setMintHostResolver(resolver?: BridgeMintHostResolver): void {
+    this.mintHostResolver = resolver;
+  }
+
+  /**
+   * Direct-RPC operations (switchTab/closeTab/getDOM/captureScreenshot/evalJS) act
+   * on the window's host that OWNS the target tab — a mint can land a tab on a
+   * different window than the bootstrap one, so `this.tabHost` alone answers
+   * TARGET_CLOSED (or worse, a foreign window's active-tab data) for foreign-owned
+   * tabs. Unset → single-window behavior (construction host).
+   */
+  private tabHostResolver?: (tabId: string) => NativeTabHost | undefined;
+  public setTabHostResolver(resolver?: (tabId: string) => NativeTabHost | undefined): void {
+    this.tabHostResolver = resolver;
+  }
+
+  /** The owning host for a known tab id, or the construction host when unresolvable/absent. */
+  private hostForRpcTab(tabId?: string): NativeTabHost {
+    if (tabId && this.tabHostResolver) {
+      const owner = this.tabHostResolver(tabId);
+      if (owner) return owner;
+    }
+    return this.tabHost;
   }
   public async rotateToken(): Promise<string> {
     this.token = this.resolveMasterToken();
@@ -1085,9 +1146,20 @@ export class BridgeServer {
               const runId = makeControlPlaneId('run');
               const attemptId = makeControlPlaneId('attempt');
               const binding = this.runtimeBindingProvider ? this.runtimeBindingProvider() : undefined;
-              const projectId = binding?.projectId || 'default-project';
-              const workspaceId = binding?.workspaceId || 'default-workspace';
-              const lease = binding?.lease || {
+              const suppliedTabId = typeof data.tabId === 'string' && data.tabId.trim() ? data.tabId.trim() : undefined;
+              const terminalSessionId = typeof data.terminalSessionId === 'string' && data.terminalSessionId.trim() ? data.terminalSessionId.trim() : undefined;
+              const evidenceTabId = suppliedTabId || binding?.browserTarget?.tabId;
+              if (suppliedTabId && !this.hostTabExists(suppliedTabId, this.hostForRpcTab(suppliedTabId))) {
+                throw new CapabilityError('TARGET_STALE', 'Pairing anchor tab is not live in this bridge');
+              }
+              const measuredWorkspace = this.controlPlaneRuntime?.resolveBrowserSessionWorkspace({
+                tabId: evidenceTabId,
+                originTerminalSessionId: terminalSessionId,
+                cwd: typeof data.cwd === 'string' ? data.cwd : undefined,
+              });
+              const projectId = measuredWorkspace?.projectId || binding?.projectId || 'default-project';
+              const workspaceId = measuredWorkspace?.id || binding?.workspaceId || 'default-workspace';
+              const lease = binding?.lease ? { ...binding.lease, projectId, workspaceId } : {
                 runtimeId: makeControlPlaneId('runtime'),
                 projectId,
                 workspaceId,
@@ -1115,7 +1187,6 @@ export class BridgeServer {
                     'refused with POLICY_DENIED. Send requestedGrant in /api/pairing/exchange to avoid this.'
                 );
               }
-              const suppliedTabId = typeof data.tabId === 'string' && data.tabId.trim() ? data.tabId.trim() : undefined;
               const autoTabId = typeof this.tabHost.getAutomationTabId === 'function' ? this.tabHost.getAutomationTabId() : undefined;
 
               // The tab an agent session is bound to comes from either an explicit request or
@@ -1127,7 +1198,7 @@ export class BridgeServer {
               const effectiveTabId =
                 suppliedTabId ||
                 binding?.browserTarget?.tabId ||
-                (autoTabId && this.hostTabExists(autoTabId) ? autoTabId : undefined);
+                (autoTabId && this.hostTabExists(autoTabId, this.hostForRpcTab(autoTabId)) ? autoTabId : undefined);
 
               const browserTarget: BrowserTarget | undefined = effectiveTabId
                 ? {
@@ -1604,12 +1675,13 @@ export class BridgeServer {
                 return;
               }
               resolvedTargetTabId = targetTabId;
-              if (!this.hostTabExists(targetTabId)) {
+              const targetHost = this.hostForRpcTab(targetTabId);
+              if (!this.hostTabExists(targetTabId, targetHost)) {
                 res.writeHead(400, responseHeaders);
                 res.end(JSON.stringify({ success: false, error: 'TARGET_CLOSED', message: `TARGET_CLOSED: Target tab "${targetTabId}" not found or destroyed` }));
                 return;
               }
-              const tabSession = this.tabHost.getTabSession(targetTabId);
+              const tabSession = targetHost.getTabSession(targetTabId);
               if (!tabSession) {
                 res.writeHead(400, responseHeaders);
                 res.end(JSON.stringify({ success: false, error: 'TARGET_CLOSED', message: `TARGET_CLOSED: Target tab "${targetTabId}" session not found or destroyed` }));
@@ -2426,21 +2498,30 @@ export class BridgeServer {
             const terminalSessionId = typeof p.terminalSessionId === 'string' && p.terminalSessionId.trim() ? p.terminalSessionId.trim() : undefined;
             const terminalGen = typeof p.terminalGeneration === 'string' || typeof p.terminalGeneration === 'number' ? p.terminalGeneration : undefined;
             let tabId = typeof p.tabId === 'string' && p.tabId.trim() ? p.tabId.trim() : undefined;
+            const requestProjectId = typeof p.projectId === 'string' && p.projectId.trim() ? p.projectId.trim() : undefined;
+            // Every mint/lookup below runs on the host that owns the terminal or the
+            // attachment's bound tab — never the construction host. The resolved host and
+            // pinned capsule travel together so tab ownership, affinity, and capsule agree.
+            let mintTarget: BridgeMintTargetResolution | undefined;
             if (tabId) {
-              const canonical = typeof this.tabHost.resolveTargetTabId === 'function'
-                ? this.tabHost.resolveTargetTabId(tabId)
+              mintTarget = this.resolveMintTarget({ boundTabId: tabId });
+              const targetHost = mintTarget?.host ?? this.tabHost;
+              const canonical = typeof targetHost.resolveTargetTabId === 'function'
+                ? targetHost.resolveTargetTabId(tabId)
                 : undefined;
               const effective = canonical ?? tabId;
-              if (!this.hostTabExists(effective)) {
+              if (!this.hostTabExists(effective, targetHost)) {
                 throw new Error(`TAB_NOT_FOUND: The specified tabId '${tabId}' does not exist or was closed.`);
               }
               tabId = effective;
             } else {
               if (terminalSessionId) {
-                if (typeof this.tabHost.getTerminalAgentAffinity === 'function') {
-                  const affinity = this.tabHost.getTerminalAgentAffinity(terminalSessionId, terminalGen);
+                mintTarget = this.resolveMintTarget({ terminalSessionId });
+                const sessionHost = mintTarget?.host ?? this.tabHost;
+                if (typeof sessionHost.getTerminalAgentAffinity === 'function') {
+                  const affinity = sessionHost.getTerminalAgentAffinity(terminalSessionId, terminalGen);
                   if (affinity) {
-                    if (affinity.status === 'alive' && this.hostTabExists(affinity.tabId)) {
+                    if (affinity.status === 'alive' && this.hostTabExists(affinity.tabId, sessionHost)) {
                       tabId = affinity.tabId;
                     } else {
                       const closedNotice = affinity.lastUrl ? `(${affinity.lastUrl})` : `(${affinity.tabId})`;
@@ -2451,10 +2532,10 @@ export class BridgeServer {
                   }
                 }
                 if (!tabId) {
-                  const currentAutoTab = typeof this.tabHost.getAutomationTabId === 'function' ? this.tabHost.getAutomationTabId() : undefined;
-                  if (currentAutoTab && this.hostTabExists(currentAutoTab)) {
-                    const isOffscreen = typeof this.tabHost.isTabOffscreen === 'function' && this.tabHost.isTabOffscreen(currentAutoTab);
-                    const tabList = typeof this.tabHost.getTabList === 'function' ? this.tabHost.getTabList() : [];
+                  const currentAutoTab = typeof sessionHost.getAutomationTabId === 'function' ? sessionHost.getAutomationTabId() : undefined;
+                  if (currentAutoTab && this.hostTabExists(currentAutoTab, sessionHost)) {
+                    const isOffscreen = typeof sessionHost.isTabOffscreen === 'function' && sessionHost.isTabOffscreen(currentAutoTab);
+                    const tabList = typeof sessionHost.getTabList === 'function' ? sessionHost.getTabList() : [];
                     const tabRecord = tabList.find((t) => t && t.id === currentAutoTab);
                     const isAgentOffscreenOrEphemeral = Boolean(isOffscreen || tabRecord?.offscreen || tabRecord?.ephemeral);
 
@@ -2467,17 +2548,23 @@ export class BridgeServer {
 
                     if (isAgentOffscreenOrEphemeral && belongsToThisAttachment) {
                       tabId = currentAutoTab;
-                      if (typeof this.tabHost.bindTerminalAgentAffinity === 'function') {
-                        this.tabHost.bindTerminalAgentAffinity(terminalSessionId, terminalGen, currentAutoTab);
+                      if (typeof sessionHost.bindTerminalAgentAffinity === 'function') {
+                        sessionHost.bindTerminalAgentAffinity(terminalSessionId, terminalGen, currentAutoTab);
                       }
                     }
                   }
                 }
                 if (!tabId) {
                   console.warn(`[antifan] startSession: terminal ${terminalSessionId}#${terminalGen} has no affinity in this instance (pid ${process.pid}); provisioning a local agent tab. A foreign attach was likely corrected.`);
-                  tabId = this.tabHost.createTab('about:blank', false, { offscreen: true, ephemeral: true });
-                  if (typeof this.tabHost.bindTerminalAgentAffinity === 'function') {
-                    this.tabHost.bindTerminalAgentAffinity(terminalSessionId, terminalGen, tabId);
+                  // The anchor is minted on the terminal's owning window and stamped with
+                  // the terminal's capsule — the ambient capsule is never a substitute.
+                  tabId = sessionHost.createTab('about:blank', false, {
+                    offscreen: true,
+                    ephemeral: true,
+                    ...(mintTarget?.capsuleId ? { capsuleId: mintTarget.capsuleId } : {}),
+                  });
+                  if (typeof sessionHost.bindTerminalAgentAffinity === 'function') {
+                    sessionHost.bindTerminalAgentAffinity(terminalSessionId, terminalGen, tabId);
                   }
                 }
               } else {
@@ -2491,16 +2578,25 @@ export class BridgeServer {
                 const targetAttachmentId = typeof p.attachmentId === 'string' && p.attachmentId.trim() ? p.attachmentId.trim() : boundAttachmentId;
                 const ownTabId = this.boundTabIdFor(targetAttachmentId);
                 if (ownTabId) {
+                  mintTarget = this.resolveMintTarget({ boundTabId: ownTabId });
                   tabId = ownTabId;
                 } else {
-                  tabId = this.tabHost.createTab('about:blank', false, { offscreen: true, ephemeral: true });
+                  // A fresh provision pins the capsule the caller's project claim resolves
+                  // to — validated by the resolver, so an unknown/ambiguous claim pins nothing.
+                  mintTarget = this.resolveMintTarget({ projectId: requestProjectId });
+                  const mintHost = mintTarget?.host ?? this.tabHost;
+                  tabId = mintHost.createTab('about:blank', false, {
+                    offscreen: true,
+                    ephemeral: true,
+                    ...(mintTarget?.capsuleId ? { capsuleId: mintTarget.capsuleId } : {}),
+                  });
                 }
               }
             }
             // Fail loud before a session exists: a session bound to a tab that was
             // never provisioned (or already died) turns every later call into a
             // confusing target error, and hides the real cause.
-            if (!tabId || !this.hostTabExists(tabId)) {
+            if (!tabId || !this.hostTabExists(tabId, mintTarget?.host)) {
               throw new Error(`TAB_NOT_FOUND: no live agent tab is available for this session (tabId '${tabId || 'none provisioned'}')`);
             }
             // Phase 2: intentionally no `setAutomationTabId(tabId)` here. Each
@@ -2528,7 +2624,7 @@ export class BridgeServer {
 
             const ownerPid = typeof p.ownerPid === 'number' && p.ownerPid > 0 ? p.ownerPid : undefined;
             const res = await this.controlPlaneRuntime.createCliSession({
-              projectId: typeof p.projectId === 'string' ? p.projectId : undefined,
+              projectId: requestProjectId,
               workspaceId: typeof p.workspaceId === 'string' ? p.workspaceId : undefined,
               cwd: typeof p.cwd === 'string' ? p.cwd : undefined,
               backendId: p.backendId || 'cli',
@@ -2723,10 +2819,36 @@ export class BridgeServer {
           // The tab does not exist yet, so the operation is attributed to the page the caller
           // is working from: that is the page whose window owns the new tab, and the window's
           // own close is the attempt that would otherwise destroy it mid-mint.
-          const targetTabId = this.boundTabIdFor(boundAttachmentId) || this.tabHost.getActiveTabId?.() || undefined;
+          const boundTabId = this.boundTabIdFor(boundAttachmentId);
+          // A bound attachment whose recorded tab is gone must refuse: minting under
+          // the construction host's arbitrary active tab is the same wrong-window
+          // land-and-die shape this routing exists to kill.
+          if (boundAttachmentId && !boundTabId) {
+            const registry = this.attachmentRegistry || this.controlPlaneRuntime?.runs?.attachments;
+            const rec = registry?.getRecord?.(boundAttachmentId);
+            const recordedTabId = rec?.tabId || rec?.browserTarget?.tabId;
+            if (recordedTabId) {
+              throw new CapabilityError(
+                'TARGET_STALE',
+                `antifan.openTab refused: the bound tab '${recordedTabId}' for attachment '${boundAttachmentId}' is dead; minting under another window's active tab would orphan the new tab outside the attachment's project`,
+                { boundAttachmentId, boundTabId: recordedTabId, recovery: 'rebind_target to a live tab in the attachment project' }
+              );
+            }
+          }
+          const targetTabId = boundTabId || this.tabHost.getActiveTabId?.() || undefined;
           const release = this.admitDirectRpcOperation('antifan.openTab', targetTabId);
           try {
-            const tabId = this.tabHost.createTab(p.url, activate, { ephemeral: isEphemeral, offscreen: isOffscreen, ...(isAgentCaller ? { plane: 'agent' as const } : {}) });
+            // The new tab belongs to the window its attributed tab belongs to and carries
+            // that tab's capsule — minting on the construction host would land it (and its
+            // lifecycle) in whichever window happened to boot first.
+            const mintTarget = this.resolveMintTarget({ boundTabId: targetTabId });
+            const mintHost = mintTarget?.host ?? this.tabHost;
+            const tabId = mintHost.createTab(p.url, activate, {
+              ephemeral: isEphemeral,
+              offscreen: isOffscreen,
+              ...(isAgentCaller ? { plane: 'agent' as const } : {}),
+              ...(mintTarget?.capsuleId ? { capsuleId: mintTarget.capsuleId } : {}),
+            });
             respond(true, { tabId });
           } finally {
             release();
@@ -2736,14 +2858,16 @@ export class BridgeServer {
 
         case 'switchTab':
         case 'antifan.switchTab': {
-          const ok = this.tabHost.switchTab(p.tabId, { plane: 'agent' });
+          const ok = this.hostForRpcTab(typeof p.tabId === 'string' ? p.tabId : undefined)
+            .switchTab(p.tabId, { plane: 'agent' });
           respond(ok, { switched: ok });
           break;
         }
 
         case 'closeTab':
         case 'antifan.closeTab': {
-          const ok = this.tabHost.closeTab(p.tabId);
+          const ok = this.hostForRpcTab(typeof p.tabId === 'string' ? p.tabId : undefined)
+            .closeTab(p.tabId, 'bridge-rpc');
           respond(ok, { closed: ok });
           break;
         }
@@ -2758,7 +2882,7 @@ export class BridgeServer {
           }
           const release = this.admitDirectRpcOperation('antifan.navigate', target.tabId);
           try {
-            const ok = this.tabHost.navigate(target.tabId, p.url);
+            const ok = this.hostForRpcTab(target.tabId).navigate(target.tabId, p.url);
             respond(ok, { navigated: ok });
           } finally {
             release();
@@ -2776,7 +2900,7 @@ export class BridgeServer {
           }
           const release = this.admitDirectRpcOperation('antifan.reload', target.tabId);
           try {
-            const ok = this.tabHost.reload(target.tabId);
+            const ok = this.hostForRpcTab(target.tabId).reload(target.tabId);
             respond(ok, { reloaded: ok });
           } finally {
             release();
@@ -2794,7 +2918,7 @@ export class BridgeServer {
           }
           const release = this.admitDirectRpcOperation('antifan.goBack', target.tabId);
           try {
-            const ok = this.tabHost.goBack(target.tabId);
+            const ok = this.hostForRpcTab(target.tabId).goBack(target.tabId);
             respond(ok, { wentBack: ok });
           } finally {
             release();
@@ -2812,7 +2936,7 @@ export class BridgeServer {
           }
           const release = this.admitDirectRpcOperation('antifan.goForward', target.tabId);
           try {
-            const ok = this.tabHost.goForward(target.tabId);
+            const ok = this.hostForRpcTab(target.tabId).goForward(target.tabId);
             respond(ok, { wentForward: ok });
           } finally {
             release();
@@ -3140,7 +3264,7 @@ export class BridgeServer {
             : (this.boundTabIdFor(boundAttachmentId) || this.tabHost.getActiveTabId?.() || undefined);
           const release = this.admitDirectRpcOperation('antifan.getDOM', targetTabId);
           try {
-            const dom = await this.tabHost.getDom(p.selector, p.tabId, p.paneId);
+            const dom = await this.hostForRpcTab(targetTabId).getDom(p.selector, targetTabId, p.paneId);
             respond(true, { html: dom });
           } finally {
             release();
@@ -3155,7 +3279,7 @@ export class BridgeServer {
             : (this.boundTabIdFor(boundAttachmentId) || this.tabHost.getActiveTabId?.() || undefined);
           const release = this.admitDirectRpcOperation('antifan.captureScreenshot', targetTabId);
           try {
-            const imageBase64 = await this.tabHost.captureScreenshot(p.tabId, p.paneId);
+            const imageBase64 = await this.hostForRpcTab(targetTabId).captureScreenshot(undefined, targetTabId, p.paneId);
             if (!imageBase64 || imageBase64.length === 0) {
               // A target with no live compositor surface yields an empty capture; reporting it as
               // a successful capture would hand clients a 0-byte image.
@@ -3177,7 +3301,7 @@ export class BridgeServer {
             : (this.boundTabIdFor(boundAttachmentId) || this.tabHost.getActiveTabId?.() || undefined);
           const release = this.admitDirectRpcOperation('antifan.evalJS', targetTabId);
           try {
-            const result = await this.tabHost.evalJs(p.expression, p.tabId, p.paneId);
+            const result = await this.hostForRpcTab(targetTabId).evalJs(p.expression, targetTabId, p.paneId);
             respond(true, { result });
           } finally {
             release();
@@ -3530,27 +3654,82 @@ export class BridgeServer {
     if (!candidateTabId) {
       return { code: 'TARGET_REQUIRED', error: 'TARGET_REQUIRED: Target tabId is required' };
     }
-    const canonical = typeof this.tabHost.resolveTargetTabId === 'function'
-      ? this.tabHost.resolveTargetTabId(candidateTabId)
+    // Canonicalize, existence-check, and activity-stamp on the host that OWNS the
+    // tab: a minted tab living on a second project window is invisible to the
+    // bootstrap host, so resolving or probing on this.tabHost rejects live
+    // foreign-window tabs as TARGET_CLOSED before the op can route to them.
+    const candidateHost = this.hostForRpcTab(candidateTabId);
+    const canonical = typeof candidateHost.resolveTargetTabId === 'function'
+      ? candidateHost.resolveTargetTabId(candidateTabId)
       : undefined;
     const effective = canonical ?? candidateTabId;
-    if (!this.hostTabExists(effective)) {
+    const owningHost = this.hostForRpcTab(effective);
+    if (!this.hostTabExists(effective, owningHost)) {
       return { code: 'TARGET_CLOSED', error: `TARGET_CLOSED: Target tab '${candidateTabId}' not found or destroyed` };
     }
-    this.tabHost.noteAgentTabActivity?.(effective);
+    owningHost.noteAgentTabActivity?.(effective);
     return { tabId: effective };
+  }
+
+  /**
+   * The host a mint must run on plus the capsule the new tab is stamped with.
+   *
+   * Terminal-scoped mints are pinned to the terminal's OWN window and capsule: the
+   * construction host (the bootstrap window's) used to answer every mint, so an
+   * anchor for a terminal owned by another project's window landed — and later
+   * died — in the wrong window under that window's workspace capsule.
+   *
+   * Claim rule: a terminal stamped `project:<id>` (or a malformed `project:` key)
+   * must mint ONLY under a capsule the resolver verified for its own project. No
+   * owning host, or no resolvable capsule, is a real claim with no provable scope —
+   * minting anyway would put the anchor under the ambient capsule of another window.
+   */
+  private resolveMintTarget(opts: BridgeMintTargetRequest): BridgeMintTargetResolution | undefined {
+    const tm = TerminalManager.getInstance();
+    const terminalSessionId = typeof opts.terminalSessionId === 'string' && opts.terminalSessionId.trim() ? opts.terminalSessionId.trim() : undefined;
+    // 'default' is the daemon's unattributed sentinel, not a workspace stamp — a session
+    // carrying it must never pin a tab under that literal id.
+    const stampedCapsuleId = terminalSessionId ? tm.sessionCapsuleId(terminalSessionId) : undefined;
+    const capsuleId = stampedCapsuleId === DEFAULT_TERMINAL_CAPSULE_ID ? undefined : stampedCapsuleId;
+    const ownerKey = terminalSessionId
+      ? (typeof tm.sessionOwnerKey === 'function' ? tm.sessionOwnerKey(terminalSessionId) : undefined)
+      : undefined;
+    const parsedOwner = parseOwnerKey(ownerKey);
+    const projectClaimed = parsedOwner.kind === 'project' || parsedOwner.kind === 'malformed';
+    const resolution = this.mintHostResolver?.({ ...opts, terminalSessionId });
+    if (projectClaimed && (!resolution?.host || !resolution.capsuleId)) {
+      throw new CapabilityError(
+        'TERMINAL_SCOPE_UNRESOLVED',
+        `TERMINAL_SCOPE_UNRESOLVED: Cannot mint an agent tab from terminal '${terminalSessionId}': a project owns it, but no owning window ` +
+          `or verified capsule could be resolved for it. The anchor would land in the ambient capsule of another window.`,
+        { terminalSessionId, ownerKey }
+      );
+    }
+    if (!resolution) {
+      return capsuleId ? { host: this.tabHost, capsuleId } : undefined;
+    }
+    // The resolver is authoritative on the capsule: it verified the stamp against the live
+    // capsule store, so a dropped/undefined capsuleId there means "mint unpinned", never
+    // "resurrect whatever the session happened to be stamped with".
+    return { host: resolution.host, capsuleId: resolution.capsuleId };
   }
 
   /** Defensive tab-existence check: hasTab is an optional host capability.
    *  When the host cannot verify (no hasTab), treat as existing so an
    *  unverifiable target never crashes the bridge — the op still fails closed
-   *  at the authority/resolution layer if the tab is truly unknown. */
-  private hostTabExists(tabId?: string | null): boolean {
+   *  at the authority/resolution layer if the tab is truly unknown. `host` is the
+   *  owning window's host; it defaults to the construction host. */
+  private hostTabExists(tabId?: string | null, host?: NativeTabHost): boolean {
+    const target = host ?? this.tabHost;
     if (!tabId) return false;
-    if (typeof this.tabHost.hasTab === 'function') return this.tabHost.hasTab(tabId);
-    const list = typeof this.tabHost.getTabList === 'function' ? this.tabHost.getTabList() : [];
+    if (typeof target.hasTab === 'function') return target.hasTab(tabId);
+    const list = typeof target.getTabList === 'function' ? target.getTabList() : [];
     if (Array.isArray(list)) {
-      return list.some((tab: unknown) => tab && typeof tab === 'object' && (tab as { id?: unknown }).id === tabId);
+      return list.some((tab: unknown) => {
+        if (!tab || typeof tab !== 'object' || !('id' in tab)) return false;
+        const tabIdValue = (tab as { id?: unknown }).id;
+        return tabIdValue === tabId;
+      });
     }
     return true;
   }
@@ -3566,7 +3745,7 @@ export class BridgeServer {
     const registry = this.attachmentRegistry || this.controlPlaneRuntime?.runs?.attachments;
     const record = registry ? registry.getRecord(attachmentId) : undefined;
     const boundTabId = record?.tabId || record?.browserTarget?.tabId;
-    return boundTabId && this.hostTabExists(boundTabId) ? boundTabId : undefined;
+    return boundTabId && this.hostTabExists(boundTabId, this.hostForRpcTab(boundTabId)) ? boundTabId : undefined;
   }
 
   /**

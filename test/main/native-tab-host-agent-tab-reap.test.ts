@@ -1,7 +1,25 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { BrowserControlPort } from '../../src/main/tools/browser-control-port';
 import { NativeTabHost } from '../../src/main/browser/native-tab-host';
+
+// The sweep's closeTab now journals `tabhost.tabClosed`. Redirect the lifecycle log
+// to a temp runtime BEFORE the first write — the journal binds its path lazily.
+const RUNTIME_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-reap-runtime-'));
+process.env.ANTIFAN_RUNTIME_DIR = RUNTIME_DIR;
+
+function tabClosedRows(): Array<Record<string, unknown>> {
+  const logPath = path.join(RUNTIME_DIR, 'logs', 'main.log');
+  if (!fs.existsSync(logPath)) return [];
+  return fs
+    .readFileSync(logPath, 'utf8')
+    .split('\n')
+    .filter((line) => line.includes('"event":"tabhost.tabClosed"'))
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
+}
 
 type TestHost = any;
 
@@ -131,5 +149,43 @@ describe('agent tab reap sweep', () => {
     assert.strictEqual(host.automationTabId, null);
 
     assert.strictEqual(port.resolveTargetTab(undefined, undefined, 'read'), 'minted-2');
+  });
+
+  it('journals the reaped tab with source agent-reap through the real closeTab', async () => {
+    const { host, closed } = makeHost({
+      getActiveRecordIds: () => new Set(['a1']),
+      getRecord: (id: string) => (id === 'a1' ? { state: 'active', tabId: 'claimed' } : undefined),
+    });
+    // The suite stubs closeTab wholesale above; this case exercises the REAL close so
+    // the telemetry row it emits can be asserted. Only the fields closeTab actually
+    // dereferences are provided.
+    const realClose = NativeTabHost.prototype.closeTab as (this: unknown, id: string, source?: string) => boolean;
+    host.tabOrder = [...host.tabs.keys()];
+    host.activeTabId = '';
+    host.attemptAuthorizedCloses = new Set();
+    host.tabPreviewUnsubscribers = new Map();
+    host.recentlyClosedTabs = [];
+    host.closedTabAnchors = new Map();
+    host.automationTabId = null;
+    host.networkTracker = { detachTarget: () => {} };
+    host.shell = { window: { isDestroyed: () => false, contentView: { children: [] } } };
+    host.automationHost = { agentWorkingRefs: new Map(), clearTabAgentWorking: () => {} };
+    host.broadcastState = () => {};
+    host.reassertPresentedView = () => {};
+    host.isTerminalOnlyWindow = () => false;
+    host.closeTab = (id: string, source?: string) => {
+      if (host.automationTabId === id) host.automationTabId = null;
+      closed.push(id);
+      return realClose.call(host, id, source);
+    };
+
+    await host.runAgentTabReapSweep();
+    assert.deepStrictEqual(closed, ['orphan']);
+
+    const rows = tabClosedRows().filter((row) => row['tabId'] === 'orphan');
+    assert.strictEqual(rows.length, 1, 'one journal row for the reaped tab');
+    assert.strictEqual(rows[0]!['event'], 'tabhost.tabClosed');
+    assert.strictEqual(rows[0]!['source'], 'agent-reap');
+    assert.strictEqual(rows[0]!['offscreen'], true);
   });
 });

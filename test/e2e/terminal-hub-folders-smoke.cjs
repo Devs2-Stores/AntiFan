@@ -92,18 +92,22 @@ app.whenReady().then(async () => {
       return heads.map((h) => ({
         path: h.getAttribute('data-folder-path'),
         label: (h.querySelector('.terminal-tab-category-label') || {}).textContent,
-        mints: h.querySelectorAll('.terminal-tab-category-mint').length,
+        inlineButtons: h.querySelectorAll('.terminal-tab-category-mint').length,
       }));
     `);
     assert.deepStrictEqual(info.map((i) => i.path).sort(), ['E:\\Work\\x', 'E:\\Work\\y'], 'one section per folder');
     assert.deepStrictEqual(info.map((i) => i.label).sort(), ['x', 'y'], 'sections titled by folderLabel');
-    assert.ok(info.every((i) => i.mints >= 2), 'each section has mint + Space buttons');
+    assert.ok(info.every((i) => i.inlineButtons === 0), 'section headers carry no inline mint/Space buttons');
     console.log('[HUB PASS] 1-2: folder sections, labels, affordances');
 
-    await js(`
-      const h = [...document.querySelectorAll('.terminal-tab-category-header[data-folder-path]')].find((e) => e.getAttribute('data-folder-path').endsWith('y'));
-      h.querySelectorAll('.terminal-tab-category-mint')[0].click();
-    `);
+    const clickMenuItem = (suffix, prefix) => `
+      const h = [...document.querySelectorAll('.terminal-tab-category-header[data-folder-path]')].find((e) => e.getAttribute('data-folder-path').endsWith('${suffix}'));
+      h.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 30, clientY: 30 }));
+      const row = [...document.querySelectorAll('.context-item[role="menuitem"]')].find((r) => r.textContent.startsWith('${prefix}'));
+      if (!row) throw new Error('menu row missing: ${prefix}');
+      row.click();
+    `;
+    await js(clickMenuItem('y', 'Terminal mới trong thư mục này'));
     await new Promise((r) => setTimeout(r, 300));
     assert.deepStrictEqual(calls.newInFolder, ['E:\\Work\\y'], 'mint sends the clicked section folder');
     console.log('[HUB PASS] 2: mint routed with its own folder');
@@ -112,8 +116,7 @@ app.whenReady().then(async () => {
     await js(`
       window.__confirmText = '';
       window.confirm = (t) => { window.__confirmText = t; return true; };
-      const h = [...document.querySelectorAll('.terminal-tab-category-header[data-folder-path]')].find((e) => e.getAttribute('data-folder-path').endsWith('x'));
-      h.querySelectorAll('.terminal-tab-category-mint')[1].click();
+      ${clickMenuItem('x', 'Mở Space')}
       await sleep(400);
     `);
     const confirmText = await win.webContents.executeJavaScript('window.__confirmText');

@@ -15,7 +15,7 @@
  */
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
-import { loadStandalone, type StandaloneHarness } from './standalone-harness';
+import { loadStandalone, pickHeaderMenuItem, type StandaloneHarness } from './standalone-harness';
 
 const flush = async (): Promise<void> => {
   const { promise, resolve } = Promise.withResolvers<void>();
@@ -108,7 +108,7 @@ describe('hub project appearance', () => {
     );
   });
 
-  it('writes the star flip through Main when the header star is clicked', async () => {
+  it('writes the star flip through Main when the header menu toggles it', async () => {
     const harness = await loadManagerWithProjects();
     seed(harness, [
       { id: 't-1', name: 'Terminal 1', state: 'running', ownerKey: 'project:p1', folderKey: 'e:\\work\\x', folderLabel: 'x', folderPath: 'E:\\Work\\x' },
@@ -117,9 +117,7 @@ describe('hub project appearance', () => {
 
     const header = harness.tabsRoot.querySelector('.terminal-tab-category-header[data-group-kind="project"]');
     assert.ok(header);
-    const star = header.querySelector('[data-role="project-star"]');
-    assert.ok(star);
-    star.dispatch('click');
+    pickHeaderMenuItem(harness, header, 'Bỏ đánh dấu sao');
     await flush();
 
     // The payload was built inside the vm realm, so its prototype differs from a host
@@ -127,7 +125,61 @@ describe('hub project appearance', () => {
     assert.deepStrictEqual(JSON.parse(JSON.stringify(lastArgs(harness, 'setProjectAppearance'))), [{ projectId: 'p1', starred: false }]);
     // Main confirmed the flip: the repainted header reports the new state.
     assert.strictEqual(header.classList.contains('is-project-starred'), false);
-    assert.strictEqual(star.getAttribute('aria-pressed'), 'false');
+  });
+
+  it('collapses on a header click; the inline Web Hub button and the menu both switch without collapsing', async () => {
+    const harness = await loadManagerWithProjects();
+    seed(harness, [
+      { id: 't-1', name: 'Terminal 1', state: 'running', ownerKey: 'project:p1', folderKey: 'e:\\work\\x', folderLabel: 'x', folderPath: 'E:\\Work\\x' },
+    ], 't-1');
+    harness.renderTabs();
+
+    const header = harness.tabsRoot.querySelector('.terminal-tab-category-header[data-group-kind="project"]');
+    assert.ok(header);
+    header.dispatch('click');
+    await flush();
+    assert.strictEqual(lastArgs(harness, 'openProject'), undefined, 'a header click is not a project switch');
+    assert.strictEqual(header.getAttribute('aria-expanded'), 'false', 'a header click collapses the section');
+
+    assert.strictEqual(header.querySelectorAll('[data-role="project-open"]').length, 1, 'the header carries exactly one Web Hub switch');
+    const openBtn = header.querySelector('[data-role="project-open"]');
+    assert.ok(openBtn);
+    assert.notStrictEqual(openBtn.style.display, 'none', 'the switch is visible on a manager project section');
+    openBtn.dispatch('click');
+    await flush();
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(lastArgs(harness, 'openProject'))), ['p1'], 'the inline button switches to the project');
+    assert.strictEqual(header.getAttribute('aria-expanded'), 'false', 'the inline button does not also toggle the section');
+
+    pickHeaderMenuItem(harness, header, 'Mở dự án này');
+    await flush();
+    assert.strictEqual(harness.apiCallArgs.filter((entry) => entry.name === 'openProject').length, 2, 'the menu entry switches too');
+    assert.strictEqual(header.getAttribute('aria-expanded'), 'false', 'the menu entry does not also toggle the section');
+  });
+
+  it('reorders project sections with Alt+Arrow and persists the order through Main', async () => {
+    const harness = await loadManagerWithProjects();
+    seed(harness, [
+      { id: 't-1', name: 'Terminal 1', state: 'running', ownerKey: 'project:p1', folderKey: 'e:\\work\\x', folderLabel: 'x', folderPath: 'E:\\Work\\x' },
+      { id: 't-2', name: 'Terminal 2', state: 'running', ownerKey: 'project:p2', folderKey: 'e:\\work\\y', folderLabel: 'y', folderPath: 'E:\\Work\\y' },
+    ], 't-1');
+    harness.renderTabs();
+    const keys = () => JSON.parse(JSON.stringify(harness.read<() => string[]>('currentProjectKeys')()));
+    assert.deepStrictEqual(keys(), ['project:p1', 'project:p2']);
+
+    const first = harness.tabsRoot.querySelector('.terminal-tab-category-header[data-category="project:p1"]');
+    assert.ok(first);
+    assert.strictEqual(first.classList.contains('is-project-draggable'), true, 'a manager project section is draggable');
+    first.dispatch('keydown', { key: 'ArrowDown', altKey: true, target: first } as never);
+    await flush();
+
+    assert.deepStrictEqual(keys(), ['project:p2', 'project:p1'], 'Alt+Down moves the section one slot');
+    const prefs = JSON.parse(JSON.stringify(lastArgs(harness, 'setTerminalTabPrefs'))) as Array<{ projectOrder?: string[] }>;
+    assert.deepStrictEqual(prefs[0]?.projectOrder, ['p2', 'p1'], 'the new order is written to Main');
+
+    // Main's stored order is applied on the next render even after the sticky order resets.
+    harness.assign('categoryOrder.length = 0;');
+    harness.renderTabs();
+    assert.deepStrictEqual(keys(), ['project:p2', 'project:p1'], 'the stored order wins over first appearance');
   });
 
   it('writes a picked colour through the same route', async () => {

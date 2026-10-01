@@ -344,7 +344,7 @@ export function buildApplicationMenu(mainWindow: BrowserWindow, tabHost?: Native
           click: (_item, focusedWindow: BaseWindow | undefined) => {
             const host = hostForClick(focusedWindow);
             if (host) {
-              host.closeTab(host.getActiveTabId());
+              host.closeTab(host.getActiveTabId(), 'user-menu');
             }
           },
         },

@@ -27,7 +27,8 @@ import type * as PortModule from '../../src/main/tools/browser-control-port';
 import { ownerKey, type ProjectWindowShell, type WindowOwner } from '../../src/main/browser/project-window-shell';
 import { ProjectWindowManager } from '../../src/main/browser/project-window-manager';
 import { TabAuthorityDirectory } from '../../src/main/browser/tab-authority-directory';
-import type { BrowserTarget } from '../../src/shared/control-plane-contracts';
+import { TabAmbientAuthority } from '../../src/main/browser/tab-ambient-authority';
+import { CapabilityError, type BrowserTarget } from '../../src/shared/control-plane-contracts';
 
 type PartitionApi = typeof PartitionModule;
 
@@ -111,14 +112,27 @@ type FixtureHost = {
   tabOrder: string[];
   sessionTabPools: Map<string, Set<string>>;
   terminalAgentAffinity: Map<string, unknown>;
+  documentGenerations: Map<string, number>;
+  shell: { window: { isDestroyed(): boolean; contentView?: { children?: unknown[] } } };
+  captureHostWindow?: unknown;
+  automationTabId: string | null;
   broadcastState(): void;
   hasTab(tabId?: string | null): boolean;
   getTabList(): unknown[];
+  getSessionTabRecords(boundTabId: string): unknown[];
   getTabSession(tabId: string): unknown;
   getLivePartitionNames(): string[];
   getSharedProfilePartition(mode?: 'clean' | 'native', ephemeral?: boolean, profileId?: string): string;
   getManagedTabIdsForBoundTab(boundTabId: string): Set<string>;
   adoptChildTabForBoundTab(boundTabId: string, childTabId: string, source?: 'agent_spawned'): boolean;
+  resolveTargetTabId(tabId?: string | null): string | undefined;
+  getTabCapsuleId(tabId?: string | null): string | undefined;
+  getAutomationTabId(): string | null;
+  setAutomationTabId(tabId?: string): void;
+  getDocumentGeneration(tabId?: string): number;
+  isTabOffscreen(tabId?: string): boolean;
+  isTabAllowedForPrimary(primaryTabId: string, requestedTabId: string): boolean;
+  isTabViewAttached(view: unknown): boolean;
 };
 
 type Affiliation = { projectId: string; workspaceId: string; capsuleId: string };
@@ -136,11 +150,17 @@ function makeWindow(owner: WindowOwner): WindowFixture {
   host.tabOrder = [];
   host.sessionTabPools = new Map<string, Set<string>>();
   host.terminalAgentAffinity = new Map<string, unknown>();
+  host.documentGenerations = new Map<string, number>();
+  host.automationTabId = null;
+  // The shell the directory registers this host under; the host's own view
+  // bookkeeping reads it back (isTabViewAttached → shell.window).
+  const shell = { owner, window: { isDestroyed: () => false, contentView: { children: [] } }, dispose: () => {} } as unknown as ProjectWindowShell;
+  host.shell = shell as unknown as FixtureHost['shell'];
   // The adopt path broadcasts a state update; no renderer exists in this process.
   host.broadcastState = () => {};
   return {
     owner,
-    shell: { owner, window: { isDestroyed: () => false }, dispose: () => {} } as unknown as ProjectWindowShell,
+    shell,
     host,
     affiliations: new Map<string, Affiliation>(),
   };
@@ -171,37 +191,65 @@ function jarOf(window: WindowFixture, tabId: string): string {
 }
 
 /**
- * The process the port sees: an id resolves to the window directory, and each window
- * answers through its own host - the composition index.ts builds for the port
- * (`hasTab`/`getManagedTabIds`/`adoptChildTab`/`resolveTabAffiliation`/`createTab`).
+ * The process the port sees: an id resolves through the SAME authority module
+ * production wires in index.ts (`TabAmbientAuthority` over the
+ * `TabAuthorityDirectory`), so a dead or unknown bound id degrades exactly as the
+ * composition root's seams do — never a silent fallback to the first window.
  * Allocation is the one step that cannot run here, because `createTab` constructs a
  * WebContentsView; the child is registered on the partition the real partition
  * functions select for the options the port sends.
  */
 function makeAuthorityPort(args: {
   directory: TabAuthorityDirectory;
-  /** The host the adapter falls back to when an id belongs to no live window. */
-  bootstrap: WindowFixture;
   windows: WindowFixture[];
   activeCapsuleId: () => string;
-}): { port: PortModule.BrowserControlPort; allocations: string[] } {
+}): { port: PortModule.BrowserControlPort; allocations: string[]; authority: TabAmbientAuthority } {
   const allocations: string[] = [];
-  const windowOfTab = (tabId?: string | null): WindowFixture | undefined => {
-    if (!tabId) return undefined;
-    const host = args.directory.hostForTab(tabId) as FixtureHost | undefined;
-    return args.windows.find((candidate) => candidate.host === host);
+  // Capsule rows the affiliation measurement consults — the capsule ledger's role
+  // in production (index.ts's `capsules` accessor into the WorkspaceCapsuleManager).
+  const capsules = () => {
+    const rows = new Map<string, Affiliation>();
+    for (const window of args.windows) {
+      for (const aff of window.affiliations.values()) rows.set(aff.capsuleId, aff);
+    }
+    return [...rows.values()].map((aff) => ({ id: aff.capsuleId, projectId: aff.projectId, workspaceId: aff.workspaceId }));
   };
-  const ownerOf = (tabId?: string | null): WindowFixture => windowOfTab(tabId) ?? args.bootstrap;
+  const authority = new TabAmbientAuthority({ directory: args.directory, capsules });
   const host = {
     hasTab: (tabId?: string | null) => Boolean(tabId && args.directory.hostForTab(tabId) !== undefined),
     getTabList: () => args.windows.flatMap((window) => window.host.getTabList()),
-    getManagedTabIds: (boundTabId: string) => ownerOf(boundTabId).host.getManagedTabIdsForBoundTab(boundTabId),
-    resolveTabAffiliation: (tabId: string) => windowOfTab(tabId)?.affiliations.get(tabId),
-    adoptChildTab: (boundTabId: string, childTabId: string) => ownerOf(boundTabId).host.adoptChildTabForBoundTab(boundTabId, childTabId),
+    getManagedTabIds: (boundTabId: string) => authority.hostForTabOrDegrade(boundTabId, 'port.getManagedTabIds')?.getManagedTabIdsForBoundTab(boundTabId) ?? new Set<string>(),
+    getSessionTabList: (boundTabId: string) => authority.hostForTabOrDegrade(boundTabId, 'port.getSessionTabList')?.getSessionTabRecords(boundTabId) ?? [],
+    resolveTargetTabId: (tabId?: string | null) => {
+      if (!tabId) return undefined;
+      for (const window of args.windows) {
+        const resolved = window.host.resolveTargetTabId(tabId);
+        if (resolved) return resolved;
+      }
+      return undefined;
+    },
+    isTabAllowed: (primaryOrBoundTabId: string, requestedTabId: string) =>
+      authority.hostForTabOrDegrade(primaryOrBoundTabId, 'port.isTabAllowed')?.isTabAllowedForPrimary(primaryOrBoundTabId, requestedTabId) ?? false,
+    resolveTabAffiliation: (tabId: string) => authority.measuredTabAffiliation(tabId),
+    getAutomationTabId: () => {
+      for (const window of args.windows) {
+        const id = window.host.getAutomationTabId();
+        if (id) return id;
+      }
+      return null;
+    },
+    setAutomationTabId: (tabId?: string) => {
+      for (const window of args.windows) window.host.setAutomationTabId(tabId);
+    },
+    getDocumentGeneration: (tabId: string) => authority.hostForTabOrDegrade(tabId, 'port.getDocumentGeneration')?.getDocumentGeneration(tabId) ?? 1,
+    isTabOffscreen: (tabId?: string) => (tabId ? authority.hostForTabOrDegrade(tabId, 'port.isTabOffscreen')?.isTabOffscreen(tabId) ?? false : false),
+    adoptChildTab: (boundTabId: string, childTabId: string) => authority.hostForTabOrBootstrap(boundTabId).adoptChildTabForBoundTab(boundTabId, childTabId),
     createTab: (url?: string, activate?: boolean, options?: { capsuleId?: string; userAgentMode?: 'clean' | 'native'; ephemeral?: boolean; offscreen?: boolean; anchorTabId?: string }) => {
-      // `anchorTabId` is consumed by the adapter to select the window (index.ts:725-729);
-      // the host below never sees it. No window means the bootstrap host, as production.
-      const owner = ownerOf(options?.anchorTabId);
+      // `anchorTabId` selects the window through the same authority seam production
+      // routes createTab through: an id no live host owns refuses TARGET_STALE, an
+      // absent id is the only input the ambient host answers.
+      const ownerHost = authority.hostForTabOrBootstrap(options?.anchorTabId) as unknown as FixtureHost;
+      const owner = args.windows.find((candidate) => candidate.host === ownerHost)!;
       const mode = options?.userAgentMode ?? PROFILE_MODE;
       const capsuleId = options?.capsuleId ?? args.activeCapsuleId();
       const partition = owner.host.getSharedProfilePartition(mode, Boolean(options?.ephemeral));
@@ -226,7 +274,7 @@ function makeAuthorityPort(args: {
       return id;
     },
   } as unknown as PortModule.BrowserHostPort;
-  return { port: new PortCtor(host), allocations };
+  return { port: new PortCtor(host), allocations, authority };
 }
 
 function makeDirectory(managerShells: Map<string, WindowFixture>): {
@@ -327,12 +375,12 @@ describe('Partition and session selection across project windows', () => {
     // The shared profile jar this window's creations select, captured before the route runs.
     const profileJar = windowB.host.getSharedProfilePartition(PROFILE_MODE, false);
 
-    // The bootstrap host is the first window's, exactly as the adapter falls back, and the
-    // globally active capsule is window A's workspace - a creation that lost either the
-    // anchor's window or its verified capsule would land on A's session.
+    // Ambient fallback for an unanchored create would land on the first window —
+    // exactly as the adapter resolves it — and the globally active capsule is window
+    // A's workspace: a creation that lost either the anchor's window or its verified
+    // capsule would land on A's session.
     const { port, allocations } = makeAuthorityPort({
       directory,
-      bootstrap: windowA,
       windows: [windowA, windowB],
       activeCapsuleId: () => CAPSULE_A,
     });
@@ -377,5 +425,64 @@ describe('Partition and session selection across project windows', () => {
     // cookie store per profile - and differ only in the capsule jars a tab may be isolated in.
     assert.equal(windowB.host.getSharedProfilePartition(PROFILE_MODE, false), profileJar);
     assert.equal(windowA.host.getSharedProfilePartition(PROFILE_MODE, false), profileJar);
+  });
+
+  it('keeps tabs.list and rebind_target alive for a session whose bound tab died, under two live windows', async () => {
+    const windowsByOwner = new Map<string, WindowFixture>();
+    const { directory, manager } = makeDirectory(windowsByOwner);
+    await manager.ensureWindow(PROJECT_A, 'user');
+    await manager.ensureWindow(PROJECT_B, 'user');
+    const windowA = windowsByOwner.get(ownerKey(PROJECT_A));
+    const windowB = windowsByOwner.get(ownerKey(PROJECT_B));
+    assert.ok(windowA);
+    assert.ok(windowB);
+
+    const capsuleAJar = partitions.deriveCapsulePartition(CAPSULE_A, PROFILE_MODE);
+    const capsuleBJar = partitions.deriveCapsulePartition(CAPSULE_B, PROFILE_MODE);
+    seatTab(windowA, 'tab-a', capsuleAJar, CAPSULE_A, { projectId: PROJECT_A.projectId, workspaceId: WORKSPACE_A, capsuleId: CAPSULE_A });
+    seatTab(windowB, 'tab-b', capsuleBJar, CAPSULE_B, { projectId: PROJECT_B.projectId, workspaceId: WORKSPACE_B, capsuleId: CAPSULE_B });
+
+    const { port, authority } = makeAuthorityPort({
+      directory,
+      windows: [windowA, windowB],
+      activeCapsuleId: () => CAPSULE_A,
+    });
+
+    // The session's bound tab is gone: no live host owns 'tab-dead'. The automation
+    // stamp is planted directly — the real binding path never writes a dead id.
+    windowA.host.automationTabId = 'tab-dead';
+
+    // The degrade contract itself: the write seam refuses TARGET_STALE, the read
+    // seams degrade, and only an absent id consults the ambient host.
+    assert.throws(
+      () => authority.hostForTabOrBootstrap('tab-dead'),
+      (err: unknown) => err instanceof CapabilityError && err.code === 'TARGET_STALE',
+    );
+    assert.equal(authority.hostForTabOrDegrade('tab-dead', 'probe'), undefined);
+    assert.equal(authority.hostForTabOrBootstrap(undefined), windowA.host);
+    assert.equal(authority.measuredTabAffiliation('tab-dead'), undefined);
+
+    // tabs.list: the dead bound id must not deadlock the listing — in-scope rows
+    // answer and the foreign window's strip stays out.
+    const deadTarget = {
+      tabId: 'tab-dead',
+      documentGeneration: 1,
+      browserEpoch: 1,
+      runtimeId: 'runtime-dead-binding',
+      projectId: PROJECT_A.projectId,
+      workspaceId: WORKSPACE_A,
+    } as unknown as BrowserTarget;
+    const rows = port.listTabs({ target: deadTarget });
+    assert.deepStrictEqual(
+      (rows as Array<{ id: string }>).map((row) => row.id),
+      ['tab-a'],
+    );
+
+    // rebind_target to an explicit live tab in scope: the dead prior binding is
+    // refused on neither managed-ids nor affiliation.
+    const rebound = port.rebindTarget({ tabId: 'tab-a' }, deadTarget);
+    assert.equal(rebound.success, true);
+    assert.equal(rebound.tabId, 'tab-a');
+    assert.equal(rebound.documentGeneration, 1);
   });
 });

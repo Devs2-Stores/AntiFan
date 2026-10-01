@@ -4,7 +4,7 @@
  */
 import { contextBridge, ipcRenderer } from 'electron';
 import { PROJECT_WINDOW_CHANNELS } from '../shared/contracts';
-import type { CloseRefusalNotice, ProjectAppearanceRequest, ProjectAppearanceResult, ProjectOpenListResult, ProjectOpenPickerAnswerPayload, ProjectOpenPickerPush, ProjectOpenResult, ProjectTabActivationResult, ProjectTabSearchResult } from '../shared/contracts';
+import type { CloseRefusalNotice, ForceCloseWindowResult, ProjectAppearanceRequest, ProjectAppearanceResult, ProjectOpenListResult, ProjectOpenPickerAnswerPayload, ProjectOpenPickerPush, ProjectOpenResult, ProjectTabActivationResult, ProjectTabSearchResult } from '../shared/contracts';
 
 const CHANNELS = {
   GET_INITIAL_STATE: 'antifan:toolbar:get-initial-state',
@@ -66,7 +66,6 @@ const toolbarApi = {
   getMobileRemoteInfo: () => ipcRenderer.invoke(CHANNELS.GET_MOBILE_REMOTE_INFO),
   createTab: (url?: string) => ipcRenderer.invoke(CHANNELS.CREATE_TAB, url),
   switchTab: (tabId: string) => ipcRenderer.invoke(CHANNELS.SWITCH_TAB, tabId),
-  setTabAlias: (tabId: string, alias?: string, role?: string, aliasColor?: string) => ipcRenderer.invoke('antifan:tab:set-alias', { tabId, alias, role, aliasColor }),
   closeTab: (tabId: string) => ipcRenderer.invoke(CHANNELS.CLOSE_TAB, tabId),
   moveTab: (tabId: string, toIndex: number) => ipcRenderer.invoke(CHANNELS.MOVE_TAB, { tabId, toIndex }),
   duplicateTab: (tabId: string) => ipcRenderer.invoke(CHANNELS.DUPLICATE_TAB, tabId),
@@ -153,6 +152,7 @@ const toolbarApi = {
       ipcRenderer.removeListener(PROJECT_WINDOW_CHANNELS.CLOSE_REFUSED, handler);
     };
   },
+  forceCloseWindow: (): Promise<ForceCloseWindowResult> => ipcRenderer.invoke(PROJECT_WINDOW_CHANNELS.FORCE_CLOSE_WINDOW),
 
   // Workflow & MCP Hub APIs
   getWorkflowState: () => ipcRenderer.invoke('antifan:workflow:get-state'),

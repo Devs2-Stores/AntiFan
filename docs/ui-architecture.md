@@ -62,6 +62,15 @@ disposal already forgot instead of reporting only the views still attached. Geom
 shell-local: resizing, maximizing or moving one window changes
 only that window's layout and its tabs' presented bounds.
 
+The presented desktop and split-mobile panes remain in their owning window during
+screenshot capture; only background panes may move to the off-screen capture host.
+Hibernation rechecks activation, live playback, bindings, and idle eligibility after
+the asynchronous scroll snapshot, before closing a renderer. A newly active or
+audible page keeps its existing view, navigation, and session rather than being
+destroyed by a stale sweep decision. The isolated real-Electron checks live in
+`scripts/probe-tab-hibernation.cjs`; its evidence defaults to a temporary directory.
+
+
 ## Surface Hierarchy
 
 There is no single main window. Presentation is **one browser window per owner**
@@ -95,8 +104,9 @@ Each window's shell presents:
   split-view controls, Haravan quick-links, and the refusal notice a blocked close or quit is
   displayed in (`antifan:close:refused`, `CLOSE_REFUSED` in `src/shared/contracts.ts`): Main's
   summary and per-reason details as text, the refused work's existing stop/release controls named
-  as guidance rather than offered as buttons, and dismissal. It never carries a force override,
-  and it is hidden entirely until a refusal arrives.
+  as guidance rather than offered as buttons, and dismissal. A window-close refusal may show a
+  clearly labelled `Bắt buộc đóng` action for its own shell; the request is sender-scoped and
+  confirmed in Main before destruction.
 - Center/Canvas: Chromium `WebContentsView` instances for that window's active tabs
   (single view or Desktop + Mobile split panes managed by `SplitNavigationCoordinator`).
 - Backdrop: `frameBackdropView` (`src/renderer/frame-backdrop.html` with
@@ -468,12 +478,23 @@ actually reaches, so the close that measures it counts real work rather than a p
 guess.
 
 **Recovery.** Every refusal names the existing stop/release controls for the work that blocks it.
-There is no force override and no force-close button; the user finishes or stops the named work
-and retries, and a refused attempt releases its reservations so the retry is real. One refusal is
-deliberately not an error: clearing the agent cursor refuses by returning a negative result
-instead of throwing, because it doubles as a cancellation reached from teardown paths that must
-not abort their ordered steps (`NativeTabHost.agentClear`). Closing one project window never
-disposes another window, the shared services or the detached terminal daemon.
+There is no implicit force override. The refusal may offer an explicit sender-scoped
+`Bắt buộc đóng` path for its own shell only; the user finishes or stops the named work and
+retries, or accepts destructive confirmation, and a refused attempt releases its reservations so
+the retry is real. One refusal is deliberately not an error: clearing the agent cursor refuses by
+returning a negative result instead of throwing, because it doubles as a cancellation reached from
+teardown paths that must not abort their ordered steps (`NativeTabHost.agentClear`). Closing one
+project window never disposes another window, the shared services or the detached terminal daemon.
+
+**Explicit window force-close.** The toolbar bridge calls `PROJECT_WINDOW_CHANNELS.FORCE_CLOSE_WINDOW`
+with no owner key; Main resolves the sender's own `BrowserWindow` to its `ProjectWindowShell`,
+asks a native warning dialog to confirm discarded unsaved page state and interrupted owner work,
+then calls `ProjectCloseCoordinator.forceClose(ownerKey)`. `forceClose` serializes behind any
+active close and reruns the same state machine with an internal force flag: live-use checks and
+admitted-work rechecks are bypassed, `NativeTabHost.closePage` uses `webContents.destroy()`
+instead of a unload-aware close only for that attempt, and `ProjectWindowShell.closeSelf` destroys
+the native window only inside the single authorized attempt. Other windows, auxiliaries and
+terminal daemon sessions are untouched.
 
 **One gate for the process.** An explicit Quit, the last browser shell going away and
 `window-all-closed` all run the same attempt, and duplicates coalesce into the one in flight.

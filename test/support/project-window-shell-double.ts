@@ -58,9 +58,14 @@ export interface ShellDouble {
   frameBackdropView: ShellDoubleView | null;
   sidebarView: ShellDoubleView | null;
   isSidebarOpen: boolean;
+  /** The title the window last carried; `retitle` mirrors the real shell's non-blank rule. */
+  title: string;
+  retitle(title: string): void;
   sidebarWidth: number;
   getToolbarHeight(hasBookmarks: boolean, bookmarkBarVisible: boolean): number;
   getContentGeometry(toolbarHeight: number): ShellContentGeometry | undefined;
+  /** Same rule as the real shell: only an unassigned owner is the terminal-only manager window. */
+  isTerminalOnly(): boolean;
   applyChromeBounds(geometry: ShellContentGeometry, toolbarOverlay: { active: boolean; extraHeight: number }): void;
   /**
    * Which chrome surface a webContents is, in production's own precedence. A host that has to
@@ -72,6 +77,8 @@ export interface ShellDouble {
   onResize(listener: () => void): void;
   onShow(listener: () => void): void;
   onRestore(listener: () => void): void;
+  onFocus(listener: () => void): void;
+  onBlur(listener: () => void): void;
   disposeChrome(): void;
 }
 
@@ -125,9 +132,16 @@ export function createShellDouble(options: ShellDoubleOptions = {}): ProjectWind
     frameBackdropView,
     sidebarView,
     isSidebarOpen: options.isSidebarOpen ?? false,
+    title: '',
+    retitle(title: string): void {
+      if (typeof title === 'string' && title.trim()) shell.title = title.trim();
+    },
     sidebarWidth: options.sidebarWidth ?? 380,
     getToolbarHeight(hasBookmarks: boolean, bookmarkBarVisible: boolean): number {
       return bookmarkBarVisible && hasBookmarks ? TOOLBAR_HEIGHT_WITH_BOOKMARKS : TOOLBAR_HEIGHT_COMPACT;
+    },
+    isTerminalOnly(): boolean {
+      return (shell as unknown as { owner?: { kind?: string } }).owner?.kind === 'unassigned';
     },
     getContentGeometry(toolbarHeight: number): ShellContentGeometry {
       const bounds = window.getContentBounds();
@@ -172,6 +186,8 @@ export function createShellDouble(options: ShellDoubleOptions = {}): ProjectWind
     onResize: () => {},
     onShow: () => {},
     onRestore: () => {},
+    onFocus: () => {},
+    onBlur: () => {},
     disposeChrome: () => {},
   };
   // Reason: the host only reads these presentation members, and the real shell's

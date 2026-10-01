@@ -1991,4 +1991,62 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
       assert.strictEqual(methods.includes('Page.captureScreenshot'), true);
     });
   });
+
+  describe('offscreen (OSR) viewport raster failure', () => {
+    it('refuses an empty OSR viewport raster with NO_RENDER_SURFACE and never reaches the CDP tier', async () => {
+      const { ctx, tabs, mockWc } = createMockContext();
+      const tab = tabs.get('tab-1');
+      assert.ok(tab);
+      tab.state.offscreen = true;
+      // The OSR compositor answered, but produced no raster: the only surface
+      // this target has failed. A CDP fromSurface retry would ask the same
+      // BeginFrame source and burn its own bound.
+      mockWc.capturePage = async () => ({
+        isEmpty: () => true,
+        toPNG: () => Buffer.alloc(0),
+        toJPEG: () => Buffer.alloc(0),
+        toDataURL: () => '',
+        getSize: () => ({ width: 0, height: 0 }),
+        crop: () => ({ isEmpty: () => true, toPNG: () => Buffer.alloc(0) }),
+      });
+      const devTools = new TabDevToolsHost(ctx);
+      const cdpCommands: string[] = [];
+      (devTools as unknown as { sendCdpCommand: (wc: unknown, method: string) => Promise<unknown> }).sendCdpCommand = async (_wc, method) => {
+        cdpCommands.push(method);
+        return {};
+      };
+
+      await assert.rejects(
+        () => devTools.captureScreenshot(undefined, 'tab-1', 'desktop'),
+        (err: unknown) => err instanceof CaptureError && err.code === 'NO_RENDER_SURFACE' && /offscreen/.test(err.message)
+      );
+      assert.strictEqual(
+        cdpCommands.includes('Page.captureScreenshot'),
+        false,
+        'an empty OSR raster must fail fast — the CDP surface tier asks the same compositor and would burn its bound'
+      );
+    });
+
+    it('maps a hung OSR viewport raster to CAPTURE_TIMEOUT and never reaches the CDP tier', async () => {
+      const { ctx, tabs } = createMockContext();
+      const tab = tabs.get('tab-1');
+      assert.ok(tab);
+      tab.state.offscreen = true;
+      const devTools = new TabDevToolsHost(ctx);
+      // The in-flight raster is shared per WebContents: force the timed-out
+      // shape directly instead of parking a real 600ms bound.
+      (devTools as unknown as { captureNativeViewportRaster: () => Promise<{ bytes: Buffer | null; timedOut: boolean }> }).captureNativeViewportRaster = async () => ({ bytes: null, timedOut: true });
+      const cdpCommands: string[] = [];
+      (devTools as unknown as { sendCdpCommand: (wc: unknown, method: string) => Promise<unknown> }).sendCdpCommand = async (_wc, method) => {
+        cdpCommands.push(method);
+        return {};
+      };
+
+      await assert.rejects(
+        () => devTools.captureScreenshot(undefined, 'tab-1', 'desktop'),
+        (err: unknown) => err instanceof CaptureError && err.code === 'CAPTURE_TIMEOUT'
+      );
+      assert.strictEqual(cdpCommands.includes('Page.captureScreenshot'), false, 'a hung OSR surface must not be relabeled and retried through CDP');
+    });
+  });
 });

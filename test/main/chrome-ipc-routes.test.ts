@@ -74,7 +74,7 @@ describe('Chrome IPC Routes Table Audit', () => {
       seenChannels.add(route.channel);
     }
 
-    assert.strictEqual(routes.length, 122, 'Route table must contain exactly 122 routes');
+    assert.strictEqual(routes.length, 120, 'Route table must contain exactly 120 routes');
   });
 
   it('2. every route has at least one surface and every surface is in the taxonomy', () => {
@@ -244,6 +244,7 @@ describe('Chrome IPC Routes Table Audit', () => {
       BRIDGE_CHANNELS.STATUS_CHANGED,
       PROJECT_WINDOW_CHANNELS.PROJECT_OPEN_PICKER,
       PROJECT_WINDOW_CHANNELS.CLOSE_REFUSED,
+      PROJECT_WINDOW_CHANNELS.PROJECT_INVENTORY_CHANGED,
       FRAME_BACKDROP_CHANNELS.UPDATE_LAYOUT,
       TERMINAL_CHANNELS.DATA,
       TERMINAL_CHANNELS.RUN_STATE,

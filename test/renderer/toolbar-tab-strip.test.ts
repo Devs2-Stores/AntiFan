@@ -222,50 +222,7 @@ describe('Toolbar tab strip class and element rendering', () => {
   });
 });
 
-describe('Project chip', () => {
-  test('chip click asks Main to open a project through the bridge', async () => {
-    const calls: Array<string | undefined> = [];
-    const { win, doc } = await loadToolbarWithTabs([{ id: 't1', title: 'A', url: 'https://a/' }], 't1');
-    const api = win.antifanToolbar as Record<string, unknown>;
-    api.openProject = (projectId?: string) => {
-      calls.push(projectId);
-      return Promise.resolve({ status: 'FOCUSED', projectId: 'p1' });
-    };
-    const chip = doc.getElementById('projectChip') as HTMLElement | null;
-    assert.ok(chip, 'chip exists');
-    assert.strictEqual(chip.tagName, 'BUTTON', 'chip is a real button, not a label');
-    chip.click();
-    await flush();
-    assert.deepStrictEqual(calls, [undefined], 'openProject called once with no id — Main picks the surface');
-  });
-
-  test('a FAILED open result is surfaced, not swallowed', async () => {
-    const { win, doc } = await loadToolbarWithTabs([{ id: 't1', title: 'A', url: 'https://a/' }], 't1');
-    const api = win.antifanToolbar as Record<string, unknown>;
-    api.openProject = () => Promise.resolve({ status: 'FAILED', reason: 'PROJECT_FOLDER_INVALID' });
-    const chip = doc.getElementById('projectChip') as HTMLElement | null;
-    chip!.click();
-    await flush();
-    const notice = doc.getElementById('closeRefusalNotice') as HTMLElement | null;
-    assert.ok(notice, 'refusal notice element exists');
-    assert.strictEqual(notice.style.display, 'flex', 'notice is shown after FAILED result');
-    const title = doc.getElementById('closeRefusalTitle');
-    assert.ok(title?.textContent?.includes('dự án'), 'notice names the project open failure');
-    const reasons = doc.getElementById('closeRefusalReasons');
-    assert.ok(reasons?.textContent?.includes('PROJECT_FOLDER_INVALID'), 'failure reason is visible');
-  });
-
-  test('a rejected IPC promise is surfaced, not swallowed', async () => {
-    const { win, doc } = await loadToolbarWithTabs([{ id: 't1', title: 'A', url: 'https://a/' }], 't1');
-    const api = win.antifanToolbar as Record<string, unknown>;
-    api.openProject = () => Promise.reject(new Error('ipc dead'));
-    const chip = doc.getElementById('projectChip') as HTMLElement | null;
-    chip!.click();
-    await flush();
-    const notice = doc.getElementById('closeRefusalNotice') as HTMLElement | null;
-    assert.strictEqual(notice?.style.display, 'flex', 'notice is shown after rejected promise');
-  });
-
+describe('Project picker', () => {
   test('the picker is hosted in the toolbar and answers with the row picked', async () => {
     pickerListeners.length = 0;
     pickerAnswers.length = 0;
@@ -322,24 +279,5 @@ describe('Web hub project scope', () => {
     stub.pushState({ tabs, activeTabId: 'a1', projectWindow: webIdentity(null, 'AntiFan Browser') });
     await flush();
     assert.strictEqual(tabList.children.length, 3, 'no scope renders the whole inventory');
-  });
-
-  test('the chip title follows the presented project\'s identity', async () => {
-    const tabs = [{ id: 'a1', title: 'A1', url: 'https://a1/', projectId: 'p1' }];
-    const { doc, stub } = await loadToolbarWithTabs(tabs, 'a1');
-
-    stub.pushState({ tabs, activeTabId: 'a1', projectWindow: webIdentity('p1') });
-    await flush();
-    const chipTitle = doc.getElementById('projectChipTitle');
-    assert.ok(chipTitle, 'chip title element exists');
-    assert.strictEqual(chipTitle.textContent, 'Tổng hợp', 'chip names the presented project');
-
-    stub.pushState({ tabs, activeTabId: 'a1', projectWindow: webIdentity('p2', 'Shop') });
-    await flush();
-    assert.strictEqual(chipTitle.textContent, 'Shop', 'switching the project repaints the chip');
-
-    stub.pushState({ tabs, activeTabId: 'a1', projectWindow: webIdentity(null, 'AntiFan Browser') });
-    await flush();
-    assert.strictEqual(chipTitle.textContent, 'AntiFan Browser', 'no presented project keeps the product title');
   });
 });

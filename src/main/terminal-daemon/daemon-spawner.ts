@@ -6,8 +6,10 @@
  * host comes up and whether it can outlive the GUI at all:
  *
  *   L0  re-attach — a host is already running and healthy; reuse it (the common restart path).
- *   L1  spawn(execPath, [entry], {detached:true, stdio:'ignore'}) + unref() — fast path, used only
- *       when the GUI is not inside a job object.
+ *   L1  spawn(execPath, [entry], {detached:true, stdio:'ignore'}) + unref() — the POSIX path, and
+ *       the Windows fallback when WMI fails. On Windows a detached child is still the GUI's child:
+ *       every `taskkill /PID <gui> /T` (dev restart, launcher teardown, probes) reaps it and every
+ *       live PTY with it, so it is never the first choice there.
  *   L2  WMI Win32_Process.Create — the created process is parented to wmiprvse.exe, outside the
  *       GUI's job, so it survives even when JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE is set. This is the
  *       only mechanism here that actually escapes a job; `powershell Start-Process` does NOT (the
@@ -46,6 +48,8 @@ export interface DaemonSpawnResult {
   handle?: DaemonHandle;
   /** Set when mode === 'in-process': why no daemon could be started/attached. */
   reason?: string;
+  /** One line per spawn mechanism that failed before the result was reached, in attempt order. */
+  failures?: string[];
 }
 
 interface StagedPointer {
@@ -187,31 +191,46 @@ function spawnDetached(entry: string, handshake: string, logFile: string, cwd: s
 }
 
 /**
+ * One argv element quoted the way CommandLineToArgvW reads it back: backslashes are literal except
+ * before a quote, so runs preceding a quote (or the closing quote) are doubled.
+ */
+export function quoteWindowsArg(arg: string): string {
+  if (arg !== '' && !/[\s"]/.test(arg)) return arg;
+  return `"${arg.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/, '$1$1')}"`;
+}
+
+/**
  * L2: WMI Win32_Process.Create. The new process is parented to the WMI provider host, outside the
- * GUI's job object, so it survives KILL_ON_JOB_CLOSE. WMI passes only a command line (no env block),
- * so the daemon's env vars are set through a `cmd /c` wrapper; the token on that command line is
- * visible to same-user processes, which is the same exposure as the user-private state file.
+ * GUI's job object and outside its process tree, so neither KILL_ON_JOB_CLOSE nor a tree kill of the
+ * GUI reaches it. The executable is launched directly - no `cmd /c` wrapper, whose quote stripping
+ * and `%VAR%` expansion would mangle paths - and its whole environment block rides in
+ * Win32_ProcessStartup.EnvironmentVariables. That block and the argv reach PowerShell over stdin,
+ * so the host token never appears on any process command line.
  */
 function spawnViaWmi(entry: string, handshake: string, logFile: string, cwd: string, env: Record<string, string>): number {
-  const sets = [
-    `ELECTRON_RUN_AS_NODE=${env.ELECTRON_RUN_AS_NODE}`,
-    `ANTIFAN_TERMINAL_HOST_TOKEN=${env.ANTIFAN_TERMINAL_HOST_TOKEN}`,
-    `ANTIFAN_TERMINAL_HOST_VERSION=${env.ANTIFAN_TERMINAL_HOST_VERSION}`,
-    `ANTIFAN_DATA_ROOT=${env.ANTIFAN_DATA_ROOT || dataRoot()}`,
-  ].map((kv) => `set "${kv}"`).join('&& ');
-  const cmdLine = `cmd.exe /c "${sets}&& ""${process.execPath}"" ""${entry}"" --handshake ""${handshake}"" --log ""${logFile}"" --cwd ""${cwd}"" --port 0"`;
+  const commandLine = [process.execPath, entry, '--handshake', handshake, '--log', logFile, '--cwd', cwd, '--port', '0']
+    .map(quoteWindowsArg)
+    .join(' ');
+  const environment = Object.entries(env)
+    .filter(([key, value]) => key !== '' && !key.startsWith('=') && typeof value === 'string')
+    .map(([key, value]) => `${key}=${value}`);
   const ps = [
-    `$p = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = '${cmdLine.replace(/'/g, "''")}' ; CurrentDirectory = '${cwd.replace(/'/g, "''")}' }`,
+    '$in = [Console]::In.ReadToEnd() | ConvertFrom-Json',
+    '$si = New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly -Property @{ EnvironmentVariables = [string[]]$in.env; ShowWindow = [uint16]0 }',
+    '$p = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = [string]$in.commandLine; CurrentDirectory = [string]$in.cwd; ProcessStartupInformation = $si }',
     'if ($p.ReturnValue -eq 0) { $p.ProcessId } else { "ERR:$($p.ReturnValue)" }',
   ].join('; ');
   const out = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', ps], {
     windowsHide: true,
     encoding: 'utf8',
     timeout: 15000,
-    stdio: ['ignore', 'pipe', 'ignore'],
+    input: JSON.stringify({ commandLine, cwd, env: environment }),
+    stdio: ['pipe', 'pipe', 'ignore'],
   }).trim();
   const pid = Number(out);
-  return Number.isFinite(pid) && pid > 0 ? pid : 0;
+  // `ERR:<n>` is Win32_Process.Create's own return code (2 access denied, 9 path not found, ...).
+  if (!Number.isFinite(pid) || pid <= 0) throw new Error(`Win32_Process.Create answered ${JSON.stringify(out.slice(0, 120))}`);
+  return pid;
 }
 
 /** Wait for the host to publish its handshake file (pid + port + token). */
@@ -295,34 +314,57 @@ export async function ensureDaemon(opts: { cwd?: string } = {}): Promise<DaemonS
 
   const env = daemonEnv(token, staged.version, { ANTIFAN_DATA_ROOT: dataRoot() });
 
-  // In a job, L1's child inherits it and dies with the GUI — go straight to the WMI escape.
+  // On Windows the daemon must not be the GUI's descendant: a tree kill of the GUI (dev restart,
+  // launcher teardown) would take every live PTY with it. WMI parents it to wmiprvse.exe. The
+  // detached child is kept only as a fallback, and dropped when the GUI's job would kill it anyway.
+  const wmi = { mode: 'wmi' as const, run: () => spawnViaWmi(staged.entry, handshakePath, logFile, cwd, env) };
+  const detached = { mode: 'detached' as const, run: () => spawnDetached(staged.entry, handshakePath, logFile, cwd, env) };
   const mechanisms: Array<{ mode: 'detached' | 'wmi'; run: () => number }> =
-    job === 'in-job'
-      ? [{ mode: 'wmi', run: () => spawnViaWmi(staged.entry, handshakePath, logFile, cwd, env) }]
-      : [
-          { mode: 'detached', run: () => spawnDetached(staged.entry, handshakePath, logFile, cwd, env) },
-          { mode: 'wmi', run: () => spawnViaWmi(staged.entry, handshakePath, logFile, cwd, env) },
-        ];
+    process.platform !== 'win32' ? [detached] : job === 'in-job' ? [wmi] : [wmi, detached];
+
+  // Every failed mechanism is written to the host log the moment it fails, so a fallback to the
+  // detached child (which a tree kill of the GUI reaps) is never silent.
+  const failures: string[] = [];
+  const fail = (mode: string, why: string): void => {
+    const line = `${mode}: ${why}`;
+    failures.push(line);
+    try { fs.appendFileSync(logFile, `[${new Date().toISOString()}] spawner: ${line}\n`); } catch { /* log is best-effort */ }
+  };
 
   for (const mech of mechanisms) {
     let spawnedPid = 0;
     try {
       spawnedPid = mech.run();
-    } catch {
-      spawnedPid = 0;
+    } catch (err) {
+      fail(mech.mode, `spawn threw: ${err instanceof Error ? err.message.split('\n')[0] : String(err)}`);
+      continue;
     }
-    if (!spawnedPid) continue;
+    if (!spawnedPid) {
+      fail(mech.mode, 'spawn returned no pid');
+      continue;
+    }
 
     const rec = await waitForHandshake(handshakePath, spawnedPid);
-    if (!rec) continue; // host died or never published; try next mechanism
-    if (!(await probeHealth(rec.port, rec.token))) continue;
+    if (!rec) {
+      fail(mech.mode, `pid ${spawnedPid} died or published no handshake within ${HANDSHAKE_TIMEOUT_MS}ms`);
+      continue;
+    }
+    if (!(await probeHealth(rec.port, rec.token))) {
+      fail(mech.mode, `host pid ${rec.pid} failed the health probe on port ${rec.port}`);
+      continue;
+    }
 
     writeLiveRecord({ pid: rec.pid, port: rec.port, token: rec.token, version: rec.version, handshakePath });
-    return { mode: mech.mode, handle: { mode: mech.mode, pid: rec.pid, port: rec.port, token: rec.token, version: rec.version } };
+    return {
+      mode: mech.mode,
+      handle: { mode: mech.mode, pid: rec.pid, port: rec.port, token: rec.token, version: rec.version },
+      ...(failures.length ? { failures } : {}),
+    };
   }
 
   return {
     mode: 'in-process',
+    failures,
     reason:
       job === 'in-job'
         ? 'STRICT_JOB_OBJECT_ENFORCED: GUI is in a kill-on-close job and the WMI escape failed; degrading to in-process PTYs'

@@ -34,7 +34,8 @@ function openButton(harness: StandaloneHarness): FakeElement | null {
 }
 
 function chipStatus(harness: StandaloneHarness): string {
-  return harness.standaloneRoot.querySelector('#shellScopeStatus')?.textContent ?? '';
+  const notice = harness.read<{ textContent?: string; style?: { display?: string } } | null>('terminalNoticeEl');
+  return notice && notice.style?.display !== 'none' ? (notice.textContent ?? '') : '';
 }
 
 function openProjectCalls(harness: StandaloneHarness): unknown[][] {
@@ -56,7 +57,7 @@ describe('sidebar project chip', () => {
     assert.strictEqual(chip(harness)?.style.display, 'flex', 'a described shell shows the chip');
     assert.strictEqual(
       openButton(harness)?.style.display,
-      'inline-flex',
+      'flex',
       'the project window is the only window a launch creates, so the action has to be reachable there',
     );
 
@@ -71,13 +72,13 @@ describe('sidebar project chip', () => {
     assert.strictEqual(chipStatus(harness), 'Đã mở project-beta', 'the outcome is reported from what Main answered');
   });
 
-  it('offers the same action in an unassigned shell', async () => {
+  it('offers the same action in the shared manager, which carries no label', async () => {
     const harness = loadStandalone({ initialState: { projectWindow: UNASSIGNED_IDENTITY } });
     await flush();
     answerOpenProject(harness, { status: 'FOCUSED', projectId: 'project-alpha' });
 
-    assert.strictEqual(chip(harness)?.style.display, 'flex');
-    assert.strictEqual(openButton(harness)?.style.display, 'inline-flex');
+    assert.strictEqual(chip(harness)?.style.display, 'none', 'the manager names no single project');
+    assert.strictEqual(openButton(harness)?.style.display, 'flex');
 
     openButton(harness)?.click();
     await flush();

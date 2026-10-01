@@ -52,7 +52,7 @@ describe('terminal creation refusal', () => {
     assert.match(reported?.textContent ?? '', /TARGET_REQUIRED/, 'the machine reason reaches the user verbatim');
   });
 
-  it('carries the cwd the shell reports, and stays quiet when Main accepts', async () => {
+  it('names no cwd, even when the boot scope had one, and stays quiet when Main accepts', async () => {
     const harness = loadStandalone({
       initialState: {
         projectWindow: {
@@ -73,7 +73,9 @@ describe('terminal creation refusal', () => {
     newTerminalButton(harness)?.dispatch('click');
     await flush();
 
-    assert.deepStrictEqual(calls, [['E:\\Work\\alpha']], 'creation carries this shell workspace, not a global one');
+    // The boot scope is a snapshot: after the hub switches project it still names the old
+    // folder, so Main must resolve the folder from the window's current project itself.
+    assert.deepStrictEqual(calls, [[]], 'creation sends no stale boot-time folder');
     assert.notStrictEqual(notice(harness)?.style.display, 'block', 'a creation that worked says nothing');
   });
 

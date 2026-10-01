@@ -248,11 +248,15 @@ evidence that proves it.
 
 ### Tab listing
 
-- `anti.browser.tabs.list` on a bound session returns the **window strip annotated with the bound
-  identity**: exactly one row carries `isBoundTab: true` (and `isPrimaryTab: true`), and that id
-  equals the id the same session sees under the session scope. An offscreen/ephemeral tab the agent
-  plane created is unioned into the strip when the window does not render it, so the bound row is
-  never missing.
+- `anti.browser.tabs.list` defaults to the authenticated session project/workspace. Hibernated
+  records remain discoverable without waking their renderer; bound offscreen/ephemeral records
+  are included from the session pool.
+- `all: true` opts into global GUI discovery. Each row carries `affiliated`; a foreign row is
+  discovery only, not permission to bind or act. `affiliatedOnly: true` restricts the result again.
+- `projectId` on listing or creation may only restate the authenticated project; it cannot grant
+  foreign authority. Creation uses the validated same-project anchor and its capsule/window.
+- Fresh pairing derives scope from measured terminal/tab evidence before verified cwd containment.
+  Rebinding an existing default-scope attachment does not upgrade its project authority.
 - `scope: 'session'` returns only the tabs that session owns; a session that owns nothing lists
   nothing rather than leaking the user's strip.
 

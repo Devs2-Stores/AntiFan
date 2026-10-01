@@ -476,53 +476,10 @@ describe('Cross-project tab search', () => {
     assert.match(searchStatus(ctx.doc), /no handler registered/);
   });
 
-  test('a later state broadcast carries identity only when Main means it', async () => {
-    const stub = makeStub();
-    const ctx = await loadToolbar(ACME_IDENTITY, stub);
+  test('the tab strip carries no project label, whatever identity Main supplies', async () => {
+    const ctx = await loadToolbar(ACME_IDENTITY, makeStub());
     dom = ctx.dom;
-    const doc = ctx.doc;
-    assert.equal(doc.getElementById('projectChipTitle')?.textContent, 'Acme');
-
-    // A tabs-only broadcast leaves the key out: no identity news, so the chip stands.
-    stub.pushState({ tabs: [], activeTabId: '' });
-    await flush();
-    assert.equal(doc.getElementById('projectChip')?.style.display, '');
-    assert.equal(doc.getElementById('projectChipTitle')?.textContent, 'Acme');
-
-    // Main resolving the shell's title after the first paint repaints from what it sent.
-    stub.pushState({
-      projectWindow: { owner: { kind: 'project', projectId: 'proj-beta' }, title: 'Beta', pathLabel: 'E:\\Work\\beta' },
-    });
-    await flush();
-    assert.equal(doc.getElementById('projectChipTitle')?.textContent, 'Beta');
-    assert.equal(doc.getElementById('projectChipPath')?.textContent, 'E:\\Work\\beta');
-
-    // An explicit retraction hides the labels instead of leaving a stale name behind.
-    stub.pushState({ projectWindow: null });
-    await flush();
-    assert.equal(doc.getElementById('projectChip')?.style.display, 'none');
-    assert.equal(doc.getElementById('projectChipTitle')?.textContent, '');
-    assert.equal(doc.getElementById('projectChipPath')?.textContent, '');
-  });
-
-  test('the project chip shows the identity Main supplied, and nothing when Main said nothing', async () => {
-    const withIdentity = await loadToolbar(ACME_IDENTITY, makeStub());
-    const chip = withIdentity.doc.getElementById('projectChip');
-    assert.equal(chip?.style.display, '');
-    assert.equal(withIdentity.doc.getElementById('projectChipTitle')?.textContent, 'Acme');
-    assert.equal(withIdentity.doc.getElementById('projectChipPath')?.textContent, 'E:\\Work\\acme');
-    assert.equal(chip?.getAttribute('title'), 'Acme — E:\\Work\\acme', 'the path disambiguates duplicate names');
-    withIdentity.dom.window.close();
-
-    const unassigned = await loadToolbar({ owner: { kind: 'unassigned' }, title: '' }, makeStub());
-    assert.equal(unassigned.doc.getElementById('projectChipTitle')?.textContent, 'Unassigned');
-    assert.ok(unassigned.doc.getElementById('projectChip')?.classList.contains('unassigned'));
-    unassigned.dom.window.close();
-
-    // No identity is not an invitation to name the shell from the renderer.
-    const unnamed = await loadToolbar(undefined, makeStub());
-    dom = unnamed.dom;
-    assert.equal(unnamed.doc.getElementById('projectChip')?.style.display, 'none');
-    assert.equal(unnamed.doc.getElementById('projectChipTitle')?.textContent, '');
+    assert.equal(ctx.doc.getElementById('projectChip'), null);
+    assert.equal(ctx.doc.getElementById('projectChipTitle'), null);
   });
 });

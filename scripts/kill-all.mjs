@@ -14,6 +14,11 @@
  *
  * `--all` restores the old machine-wide behaviour for the rare case where an
  * orphan cannot be attributed (pass it deliberately).
+ *
+ * The Terminal Host daemon runs the same repo Electron binary but is spared by
+ * default: it owns every live terminal and is meant to outlive the GUI. Pass
+ * `--daemon` to stop it too (e.g. to free a staged daemon directory).
+ * `--dry-run` prints what would be killed and kills nothing.
  */
 import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
@@ -23,6 +28,8 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const LOCK_PATH = path.join(ROOT, 'node_modules', '.cache', 'antifan-dev.pid');
 const killEverything = process.argv.includes('--all');
+const killDaemon = process.argv.includes('--daemon');
+const dryRun = process.argv.includes('--dry-run');
 
 function run(command, args) {
   try {
@@ -100,29 +107,51 @@ function belongsToRepo(proc) {
   return normalize(proc.commandLine).includes(normalize(ROOT));
 }
 
+/** The detached Terminal Host: `electron.exe <...>/daemon-entry.js --handshake <file> ...`. */
+function isTerminalHostDaemon(proc) {
+  const cmd = normalize(proc.commandLine);
+  return /daemon-entry\.js/.test(cmd) && cmd.includes('--handshake');
+}
+
 let killed = 0;
 let skipped = 0;
 
 if (killEverything) {
-  try {
-    execFileSync('taskkill', ['/F', '/IM', 'electron.exe'], { stdio: 'ignore' });
-    console.log('[kill-all] --all: terminated every electron.exe on this machine.');
-  } catch {
-    console.log('[kill-all] --all: no electron.exe processes to terminate.');
+  // Machine-wide by design: this also stops the Terminal Host daemon and every live terminal.
+  if (dryRun) {
+    console.log('[kill-all] --dry-run --all: would run taskkill /F /IM electron.exe (includes the Terminal Host daemon).');
+  } else {
+    try {
+      execFileSync('taskkill', ['/F', '/IM', 'electron.exe'], { stdio: 'ignore' });
+      console.log('[kill-all] --all: terminated every electron.exe on this machine, Terminal Host daemon included.');
+    } catch {
+      console.log('[kill-all] --all: no electron.exe processes to terminate.');
+    }
   }
 } else {
   const processes = listElectronProcesses();
   if (processes.length === 0) {
     console.log('[kill-all] no electron processes found.');
   }
-  for (const proc of processes) {
-    if (belongsToRepo(proc)) {
-      if (taskkill(proc.pid, true)) killed += 1;
-    } else {
-      skipped += 1;
-    }
+  const repoProcs = processes.filter(belongsToRepo);
+  skipped = processes.length - repoProcs.length;
+  const spared = killDaemon ? [] : repoProcs.filter(isTerminalHostDaemon);
+  const targets = repoProcs.filter((proc) => !spared.includes(proc));
+  // A daemon that fell back to a detached spawn is still the GUI's descendant, so a tree
+  // kill of the GUI would reap it. While one is spared, kill each repo process by its own
+  // pid: every renderer/utility is an electron.exe of this repo and is listed on its own.
+  const tree = spared.length === 0;
+  for (const proc of spared) {
+    console.log(`[kill-all] spared Terminal Host daemon pid ${proc.pid} (live terminals); pass --daemon to stop it.`);
   }
-  console.log(`[kill-all] terminated ${killed} AntiFan electron process(es); left ${skipped} unrelated electron process(es) alone.`);
+  for (const proc of targets) {
+    if (dryRun) {
+      console.log(`[kill-all] --dry-run: would kill pid ${proc.pid}${tree ? ' (tree)' : ''}: ${proc.commandLine.slice(0, 160)}`);
+      continue;
+    }
+    if (taskkill(proc.pid, tree)) killed += 1;
+  }
+  console.log(`[kill-all] ${dryRun ? 'would terminate' : 'terminated'} ${dryRun ? targets.length : killed} AntiFan electron process(es); spared ${spared.length} daemon; left ${skipped} unrelated electron process(es) alone.`);
   if (skipped > 0) {
     console.log('[kill-all] if an unrelated process is misattributed to this repo, run: node scripts/kill-all.mjs --all');
   }
@@ -134,8 +163,12 @@ try {
   const record = JSON.parse(raw);
   const pid = Number(record.pid ?? record);
   if (Number.isSafeInteger(pid) && pid > 0 && !pidAlive(pid)) {
-    fs.rmSync(LOCK_PATH, { force: true });
-    console.log(`[kill-all] removed stale dev lock (dead pid ${pid}).`);
+    if (dryRun) {
+      console.log(`[kill-all] --dry-run: would remove stale dev lock (dead pid ${pid}).`);
+    } else {
+      fs.rmSync(LOCK_PATH, { force: true });
+      console.log(`[kill-all] removed stale dev lock (dead pid ${pid}).`);
+    }
   }
 } catch {
   /* no lock, or unreadable — nothing to reconcile */

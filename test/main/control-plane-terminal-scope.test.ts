@@ -18,6 +18,8 @@ import * as path from 'node:path';
 import { ControlPlaneRuntime } from '../../src/main/control-plane/control-plane-runtime';
 import { makeControlPlaneId, CapabilityError } from '../../src/shared/control-plane-contracts';
 import type { TerminalManager } from '../../src/main/browser/terminal-manager';
+import { TabAuthorityDirectory } from '../../src/main/browser/tab-authority-directory';
+import { TabAmbientAuthority } from '../../src/main/browser/tab-ambient-authority';
 
 /**
  * A terminal manager facade that knows exactly the rows the caller declares: a row present in
@@ -77,6 +79,43 @@ function claimsFor(launch: { attachmentId: string; secret: string; runId: string
 }
 
 describe('ControlPlaneRuntime terminal-origin project scope', () => {
+  it('mints anchor scope rather than bootstrap scope and refuses foreign rebinding', async () => {
+    const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-anchor-scope-'));
+    const projectA = makeControlPlaneId('project');
+    const workspaceA = makeControlPlaneId('workspace');
+    const projectB = makeControlPlaneId('project');
+    const workspaceB = makeControlPlaneId('workspace');
+    try {
+      const runtime = new ControlPlaneRuntime({
+        projectId: projectA, workspaceId: workspaceA, dataRoot,
+        terminal: makeTerminalStub(new Map()),
+        resolveTabAffiliation: (tabId) => tabId === 'anchor-b'
+          ? { projectId: projectB, workspaceId: workspaceB }
+          : { projectId: projectA, workspaceId: workspaceA },
+      });
+      await runtime.initialize();
+      register(runtime, projectB, workspaceB, '', dataRoot);
+      const pairingWorkspace = runtime.resolveBrowserSessionWorkspace({ tabId: 'anchor-b' });
+      assert.strictEqual(pairingWorkspace.projectId, projectB);
+      assert.strictEqual(pairingWorkspace.id, workspaceB);
+      const session = await runtime.createCliSession({ tabId: 'anchor-b' });
+      assert.strictEqual(session.launch.projectId, projectB);
+      assert.strictEqual(session.launch.workspaceId, workspaceB);
+      await runtime.runs.attachments.updateAttachmentTab(session.launch.attachmentId, 'anchor-b', 1);
+      await assert.rejects(
+        () => runtime.runs.attachments.updateAttachmentTab(session.launch.attachmentId, 'foreign-a', 1),
+        (error: unknown) => error instanceof CapabilityError && error.code === 'PROJECT_MISMATCH'
+      );
+      assert.strictEqual(runtime.runs.attachments.getAttachment(session.launch.attachmentId)?.tabId, 'anchor-b');
+      await assert.rejects(
+        () => runtime.createCliSession({ tabId: 'anchor-b', projectId: projectA, workspaceId: workspaceA }),
+        (error: unknown) => error instanceof CapabilityError && error.code === 'PROJECT_MISMATCH'
+      );
+    } finally {
+      fs.rmSync(dataRoot, { recursive: true, force: true });
+    }
+  });
+
   it('mints a terminal-origin session under the terminal measured project, not the caller cwd', async () => {
     const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-cp-termscope-'));
     const rootA = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-projA-'));
@@ -380,6 +419,59 @@ describe('ControlPlaneRuntime terminal-origin project scope', () => {
       const other = await runtime.createCliSession({});
       const otherCtx = runtime.runs.attachments.validateAttachment(claimsFor(other.launch, 'inv-3'));
       assert.strictEqual(otherCtx.projectId, projA);
+    } finally {
+      fs.rmSync(dataRoot, { recursive: true, force: true });
+      fs.rmSync(rootA, { recursive: true, force: true });
+      fs.rmSync(rootB, { recursive: true, force: true });
+    }
+  });
+
+  it('does not throw when the bound tab is dead: affiliation and document-generation degrade', async () => {
+    const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-cp-termscope-'));
+    const rootA = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-projA-'));
+    const rootB = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-projB-'));
+    const projA = makeControlPlaneId('project');
+    const wsA = makeControlPlaneId('workspace');
+    const projB = makeControlPlaneId('project');
+    const wsB = makeControlPlaneId('workspace');
+    try {
+      const owners = new Map<string, string>([['term-b', `project:${projB}`]]);
+      // The real routing module: 'tab-dead' is owned by no live host (the directory
+      // is empty), so affiliation measures undefined and document generation
+      // degrades to 1 — the two seams validateAttachment consults for a bound tab.
+      const deadAuthority = new TabAmbientAuthority({ directory: new TabAuthorityDirectory() });
+      const runtime = new ControlPlaneRuntime({
+        projectId: projA,
+        workspaceId: wsA,
+        dataRoot,
+        workspaceRoot: rootA,
+        terminal: makeTerminalStub(owners),
+        resolveTabAffiliation: (tabId) => deadAuthority.measuredTabAffiliation(tabId),
+        getDocumentGeneration: (tabId) => deadAuthority.hostForTabOrDegrade(tabId, 'test.getDocumentGeneration')?.getDocumentGeneration(tabId) ?? 1,
+      });
+      await runtime.initialize();
+      register(runtime, projA, wsA, rootA, dataRoot);
+      register(runtime, projB, wsB, rootB, dataRoot);
+
+      // Mint bound to a tab that no live host owns — the tab died between mint and
+      // dispatch. The affiliation measures nothing, which is allowed: a dead bound
+      // tab degrades, it does not refuse (TARGET_STALE is the write-seam answer).
+      const res = await runtime.createCliSession({ originTerminalSessionId: 'term-b', tabId: 'tab-dead' });
+      assert.strictEqual(res.launch.projectId, projB);
+
+      // Both dispatch validations must answer the dead binding instead of throwing.
+      const ctx = runtime.runs.attachments.validateAttachment(claimsFor(res.launch, 'inv-dead-1'));
+      assert.strictEqual(ctx.projectId, projB);
+      assert.strictEqual(ctx.browserTarget?.documentGeneration, 1);
+      const authority = runtime.runs.attachments.resolveAuthority({
+        requestId: 'req-dead-1',
+        idempotencyKey: 'idem-dead-1',
+        attachmentId: res.launch.attachmentId,
+        attachmentSecret: res.launch.secret,
+        authorityRevision: res.launch.authorityRevision,
+        name: 'noop',
+      });
+      assert.strictEqual(authority.projectId, projB);
     } finally {
       fs.rmSync(dataRoot, { recursive: true, force: true });
       fs.rmSync(rootA, { recursive: true, force: true });

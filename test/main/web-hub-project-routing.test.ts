@@ -285,6 +285,8 @@ function createHost(options: HostOptions = {}): AnyRecord {
   host.terminalCategories = [];
   host.terminalCategoryColors = {};
   host.terminalStarredCategories = [];
+  host.terminalProjectOrder = [];
+  host.touchedSharedTerminalPrefs = new Set<string>();
   host.previewWatcherPool = { retain: () => () => {} };
   host.tabPreviewUnsubscribers = new Map<string, () => void>();
   host.networkTracker = {
@@ -407,6 +409,19 @@ describe('web hub: project stamping', () => {
     assert.deepEqual(asHost(host).tabsForProject('proj-nobody'), []);
     assert.deepEqual(asHost(host).tabsForProject(''), []);
     assert.equal(host.tabs.size, 3, 'switching projects closes nothing');
+  });
+
+  it('titles the window with the presented project and returns to the product title when cleared', () => {
+    const host = createHost({ owner: WEB_OWNER });
+    host.setWebHubProjectDescriptorResolver((id: string) => ({ title: id === PROJECT_A ? 'Alpha Store' : 'Beta Store' }));
+
+    host.setActiveProject(PROJECT_A);
+    assert.equal(host.shell.title, 'Alpha Store');
+    assert.equal(host.projectWindowIdentity().title, 'Alpha Store', 'the chrome chip reads the same name');
+    host.setActiveProject(PROJECT_B);
+    assert.equal(host.shell.title, 'Beta Store', 'a project flip retitles the window');
+    host.setActiveProject(null);
+    assert.equal(host.shell.title, 'AntiFan Browser');
   });
 
   it('mints no stamp while no project is presented, and no stamp at all off the web shell', () => {
@@ -588,6 +603,24 @@ describe('web hub: terminal mint owner key', () => {
     assert.equal(asHost(host).resolveTerminalCreationTarget().ownerKey, WEB, 'with nothing presented the hub mints under itself, not the Terminal Manager');
     host.setActiveProject('   ');
     assert.equal(asHost(host).resolveTerminalCreationTarget().ownerKey, WEB, 'a blank active project normalizes to none');
+  });
+
+  it('mints in the presented project\'s folder after a switch, never the previous project\'s', () => {
+    const host = createHost({ owner: WEB_OWNER });
+    const folderA = path.join(SCRATCH_DIR, 'ws-mint-a');
+    const folderB = path.join(SCRATCH_DIR, 'ws-mint-b');
+    fs.mkdirSync(folderA, { recursive: true });
+    fs.mkdirSync(folderB, { recursive: true });
+
+    assert.equal(asHost(host).setWindowWorkspaceAffiliation({ workspacePath: folderA, capsuleId: 'capsule-a' }), true);
+    host.setActiveProject(PROJECT_A);
+    assert.equal(asHost(host).setWindowWorkspaceAffiliation({ workspacePath: folderB, capsuleId: 'capsule-b' }), true);
+    host.setActiveProject(PROJECT_B);
+
+    const target = asHost(host).resolveTerminalCreationTarget();
+    assert.equal(target.cwd, path.normalize(folderB), 'the folder follows the project the owner names');
+    assert.equal(target.capsuleId, 'capsule-b');
+    assert.equal(target.ownerKey, PROJECT_B_KEY);
   });
 
   it('leaves non-web shells minting under their own key regardless of active project', () => {
@@ -832,6 +865,31 @@ describe('web hub: presented tab scope', () => {
     host.hasRestoredTabs = true;
     asHost(host).trySwitchTab(b1, { plane: 'user' });
     assert.deepEqual(flips, [PROJECT_B]);
+  });
+
+  it('closing the presented tab fails over inside the presented project and never flips the hub', () => {
+    const host = createHost({ owner: WEB_OWNER });
+    host.setActiveProject(PROJECT_A);
+    const a1 = host.createTab('about:blank', false);
+    const a2 = host.createTab('about:blank', false);
+    host.setActiveProject(PROJECT_B);
+    // B's tab is last in the global strip order: the pre-scope failover picked it.
+    host.createTab('about:blank', false);
+    host.setActiveProject(PROJECT_A);
+    host.activeTabId = a2;
+    host.hasRestoredTabs = true;
+    const flips: string[] = [];
+    host.setForeignProjectActivatedHandler((id: string) => { flips.push(id); host.setActiveProject(id); });
+
+    host.closeTab(a2);
+    assert.equal(host.activeTabId, a1, 'the survivor of the presented project is presented');
+
+    host.closeTab(a1);
+    const minted = host.tabs.get(host.activeTabId);
+    assert.ok(minted, 'an emptied project gets a fresh tab instead of a foreign one');
+    assert.equal(minted.projectId, PROJECT_A);
+    assert.deepEqual(flips, [], 'closing a tab is never the user picking another project');
+    assert.equal(host.activeProject(), PROJECT_A);
   });
 
   it('a persisted hub project different from Main\'s boot project is restored through Main\'s delegate', () => {

@@ -3953,78 +3953,8 @@ body, html {
 }
 
 /* ==========================================================================
-   PROJECT IDENTITY CHIP + CROSS-PROJECT TAB SEARCH
+   CROSS-PROJECT TAB SEARCH
    ========================================================================== */
-
-/* Names the project this window belongs to. Every string here is painted from the
-   identity Main resolved; an unassigned shell is styled apart so a bucket can never
-   be mistaken for a named project. */
-.project-chip {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-  max-width: 240px;
-  height: 26px;
-  margin: 0 6px 4px 0;
-  padding: 0 8px;
-  border-radius: var(--tb-r-field);
-  background: rgba(56, 189, 248, 0.10);
-  border: 1px solid rgba(56, 189, 248, 0.35);
-  color: var(--tb-fg-strong);
-  font-size: 11px;
-  font-family: inherit;
-  cursor: pointer;
-  user-select: none;
-}
-
-.project-chip:hover {
-  background: rgba(56, 189, 248, 0.20);
-}
-
-.project-chip:focus-visible {
-  outline: 2px solid #38bdf8;
-  outline-offset: 1px;
-}
-
-.project-chip.unassigned {
-  background: rgba(148, 163, 184, 0.10);
-  border-color: rgba(148, 163, 184, 0.35);
-  color: var(--tb-fg);
-}
-
-.project-chip-icon {
-  display: flex;
-  align-items: center;
-  flex-shrink: 0;
-  color: var(--tb-accent);
-}
-
-.project-chip.unassigned .project-chip-icon {
-  color: var(--tb-fg);
-}
-
-.project-chip-title {
-  font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* Duplicate project names are told apart by the path, so it truncates first: the chip
-   may never squeeze the tab strip, which stays reachable at 960x640 DIP. */
-.project-chip-path {
-  max-width: 110px;
-  color: var(--tb-fg-disabled);
-  font-size: 10px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.project-chip-path:empty {
-  display: none;
-}
 
 .btn-tab-search {
   display: inline-flex;
@@ -4361,4 +4291,37 @@ body, html {
   color: #7dd3fc;
   line-height: 1.45;
   word-break: break-word;
+}
+
+/* PROJECT IDENTITY CHIP: names the project the Web Hub is presenting. */
+.project-identity-chip {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: center;
+  max-width: 200px;
+  height: 22px;
+  margin: 0 6px 0 8px;
+  padding: 0 10px;
+  border-radius: 11px;
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  color: #e2e8f0;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.project-identity-dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #38bdf8;
+}
+
+.project-identity-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }

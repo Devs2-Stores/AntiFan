@@ -6,6 +6,7 @@
  * itself contains (chunk state machine, split geometry, context menu, key handlers) then runs
  * as shipped code; only the platform boundaries are fake.
  */
+import * as assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as vm from 'node:vm';
@@ -443,7 +444,6 @@ export class FakeElement {
   public focus(): void {}
   public blur(): void {}
   public click(): void {
-    this.onclick?.();
     this.dispatch('click');
   }
 
@@ -580,6 +580,8 @@ export interface StandaloneHarness {
   emitSession(state: unknown): void;
   /** Push a project-open request through the renderer's `onProjectOpenPicker` listener. */
   emitProjectPicker(payload: unknown): void;
+  /** Deliver Main's "project list moved" notice through `onProjectInventoryChanged`. */
+  emitProjectInventoryChanged(): void;
   /** Push a terminal data payload through the renderer's `onTerminalData` listener. */
   emitData(payload: unknown): void;
   /** Push a lightweight activity envelope through the renderer's `onTerminalActivity` listener. */
@@ -807,6 +809,7 @@ export function loadStandalone(options: {
   const terminalSessionListeners: Array<(state: unknown) => void> = [];
   const terminalActivityListeners: Array<(payload: unknown) => void> = [];
   const projectPickerListeners: Array<(payload: unknown) => void> = [];
+  const projectInventoryListeners: Array<() => void> = [];
   const bridgeStatusListeners: Array<(report: unknown) => void> = [];
   const runCardListeners: Array<(payload: unknown) => void> = [];
   const bridgeTarget: Record<string, unknown> = {
@@ -829,6 +832,7 @@ export function loadStandalone(options: {
     // The project-open push channel: listeners are captured so a test can deliver the
     // requestId exactly as Main's send would.
     onProjectOpenPicker: (listener: (payload: unknown) => void) => { projectPickerListeners.push(listener); },
+    onProjectInventoryChanged: (listener: () => void) => { projectInventoryListeners.push(listener); },
     listProjects: async () => ({ candidates: [] as unknown[] }),
     answerProjectOpenPicker: async () => ({ status: 'ACCEPTED' }),
     getBridgeStatus: async () => options.initialBridgeReport ?? {
@@ -974,7 +978,7 @@ export function loadStandalone(options: {
     showContextMenu: read<StandaloneHarness['showContextMenu']>('showContextMenu'),
     maxQueueBytes: read<number>('MAX_RECOVERY_QUEUE_BYTES'),
     maxQueueChunks: read<number>('MAX_RECOVERY_QUEUE_CHUNKS'),
-    queryAll: (selector: string) => standaloneElement.querySelectorAll(selector),
+    queryAll: (selector: string) => [...standaloneElement.querySelectorAll(selector), ...documentStub.body.querySelectorAll(selector)],
     emitSession: (state: unknown) => {
       for (const listener of [...terminalSessionListeners]) listener(state);
     },
@@ -986,6 +990,9 @@ export function loadStandalone(options: {
     },
     emitProjectPicker: (payload: unknown) => {
       for (const listener of [...projectPickerListeners]) listener(payload);
+    },
+    emitProjectInventoryChanged: () => {
+      for (const listener of [...projectInventoryListeners]) listener();
     },
     setSessions: (list: unknown[]) => {
       vm.runInContext(`sessions = ${JSON.stringify(list)};`, context);
@@ -1041,4 +1048,20 @@ export function createViewState(overrides: Record<string, unknown> = {}): Record
 
 export function deltaChunks(from: number, to: number): Array<{ seq: number; data: string }> {
   return Array.from({ length: to - from + 1 }, (_unused, offset) => ({ seq: from + offset, data: `delta-${from + offset}` }));
+}
+
+/**
+ * Right-click a project section header and click the menu row whose text starts with
+ * `labelPrefix`. Returns the labels the menu offered, so a test can also assert what is absent.
+ */
+export function pickHeaderMenuItem(harness: StandaloneHarness, header: FakeElement, labelPrefix: string | null): string[] {
+  header.dispatch('contextmenu', { clientX: 20, clientY: 20 } as never);
+  const rows = harness.queryAll('.context-item[role="menuitem"]');
+  const labels = rows.map((row) => row.textContent);
+  if (labelPrefix !== null) {
+    const row = rows.find((candidate) => candidate.textContent.startsWith(labelPrefix));
+    assert.ok(row, `the header menu offers "${labelPrefix}" (offered: ${labels.join(' | ')})`);
+    row.dispatch('click');
+  }
+  return labels;
 }

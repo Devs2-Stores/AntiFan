@@ -643,6 +643,14 @@ export class ProjectWindowShell {
     this.window.on('show', listener);
   }
 
+  public onFocus(listener: () => void): void {
+    this.window.on('focus', listener);
+  }
+
+  public onBlur(listener: () => void): void {
+    this.window.on('blur', listener);
+  }
+
   /**
    * Close requests the shell refused to perform on its own. The listener runs after the
    * native close was already prevented, so policy starts from a shell that is fully intact.
@@ -739,12 +747,13 @@ export class ProjectWindowShell {
    * calls. Resolving `'closed'` means the window is gone and this shell's chrome was disposed,
    * which the coordinator reads as "local teardown already ran".
    */
-  public async closeSelf(): Promise<SurfaceCloseOutcome> {
+  public async closeSelf(force = false): Promise<SurfaceCloseOutcome> {
     if (this.window.isDestroyed()) return 'closed';
     const attempt = this.beginCloseAttempt();
     try {
       attempt.authorize();
-      this.requestNativeClose();
+      if (force) this.window.destroy();
+      else this.requestNativeClose();
     } catch (error) {
       // An error is not a close: withdraw the authorization so the next native close is
       // checked again, and let the coordinator classify the rejection as `failed`.

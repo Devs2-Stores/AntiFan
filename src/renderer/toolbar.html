@@ -22,16 +22,7 @@
   <div id="toolbar-root">
     <!-- TAB STRIP -->
     <div class="tab-strip" id="tabStrip">
-      <!-- PROJECT IDENTITY. Every label here is a projection of the identity Main resolved
-           for this shell; the renderer never names its own project, so an absent identity
-           hides the chip instead of inventing one. -->
-      <button type="button" class="project-chip" id="projectChip" style="display:none;" aria-label="Dự án của cửa sổ này - bấm để mở dự án" aria-haspopup="dialog">
-        <span class="project-chip-icon" aria-hidden="true">
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M1.75 2.5A1.75 1.75 0 0 0 0 4.25v7.5C0 12.716.784 13.5 1.75 13.5h12.5A1.75 1.75 0 0 0 16 11.75v-6A1.75 1.75 0 0 0 14.25 4H7.81a.25.25 0 0 1-.195-.094L6.177 2.094A1.75 1.75 0 0 0 4.81 1.5H1.75z"/></svg>
-        </span>
-        <span class="project-chip-title" id="projectChipTitle"></span>
-        <span class="project-chip-path" id="projectChipPath"></span>
-      </button>
+      <div class="project-identity-chip" id="projectIdentityChip" role="status" aria-live="polite" style="display:none;"><span class="project-identity-dot"></span><span class="project-identity-name" id="projectIdentityName"></span></div>
       <div class="tab-list" id="tabList"></div>
       <button class="btn-tab-search" id="btnTabSearch" title="Tìm tab trong mọi cửa sổ dự án" aria-label="Tìm tab trong mọi cửa sổ dự án" aria-haspopup="dialog" aria-expanded="false">
         <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
@@ -827,6 +818,7 @@
       </div>
       <div class="close-refusal-summary" id="closeRefusalSummary"></div>
       <div class="close-refusal-reasons" id="closeRefusalReasons"></div>
+      <button type="button" class="close-refusal-dismiss" id="closeRefusalForce" style="display:none;">Bắt buộc đóng</button>
     </div>
 
     <div class="tab-context-menu" id="tabContextMenu" style="display:none;">
@@ -846,10 +838,6 @@
       <div class="codex-menu-item" id="menuItemCopyTabId">
         <span>📋 Sao chép Tab ID cho Agent</span>
         <span class="menu-shortcut">ID</span>
-      </div>
-      <div class="codex-menu-separator"></div>
-      <div class="codex-menu-item" id="menuItemSetAlias">
-        <span>🏷️ Đặt vai trò Alias (@admin, @feedback...)</span>
       </div>
       <div class="codex-menu-separator"></div>
       <div class="codex-menu-item" id="menuItemCloseTab">

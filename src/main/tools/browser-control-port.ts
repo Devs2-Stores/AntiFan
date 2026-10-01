@@ -129,7 +129,7 @@ export interface BrowserHostPort {
   createTab?(url?: string, activate?: boolean, options?: { capsuleId?: string; userAgentMode?: BrowserSessionUserAgentMode; ephemeral?: boolean; offscreen?: boolean; devicePresetId?: string; mobile?: boolean; anchorTabId?: string; plane?: 'user' | 'agent' }): string;
   /** The capsule and project/workspace a tab was created in, or undefined when no capsule owns it. */
   resolveTabAffiliation?(tabId: string): { projectId?: string; workspaceId?: string; capsuleId?: string } | undefined;
-  closeTab?(tabId: string): boolean;
+  closeTab?(tabId: string, source?: string): boolean;
   switchTab?(tabId: string, opts?: SwitchTabOptions): boolean;
   /** Typed activation: reports why a switch did not happen. Preferred over the boolean form. */
   trySwitchTab?(tabId: string, opts?: SwitchTabOptions): SwitchTabResult;
@@ -1873,37 +1873,110 @@ export class BrowserControlPort {
     if (!this.artifacts) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'artifact sink unavailable');
     return this.artifacts.stageAsync ? this.artifacts.stageAsync(input) : this.artifacts.stage(input);
   }
-  listTabs(context: { target?: BrowserTarget; scope?: 'all' | 'session' }): unknown[] {
+  /**
+   * Fail-closed check for the caller-declared `projectId` scope selector.
+   *
+   * The selector only ever *narrows or confirms* the caller's authenticated
+   * scope — it can never mint authority over a foreign project. A call with no
+   * authenticated scope (unbound target) has nothing to compare the selector
+   * against, so it is refused rather than silently ignored; a selector that
+   * names another project is refused before any enumeration or allocation runs.
+   */
+  private assertProjectSelectorWithinScope(projectId: string | undefined, target: BrowserTarget | undefined, authenticatedProjectId?: string): void {
+    const selector = typeof projectId === 'string' && projectId.trim() ? projectId.trim() : undefined;
+    if (selector === undefined) return;
+    // The authenticated scope is the attachment's own project/workspace — carried
+    // by the dispatch context even when no tab is bound, so a stale or absent
+    // browserTarget can never strip the caller's scope into an 'unbound' verdict.
+    const authenticated = authenticatedProjectId || target?.projectId;
+    if (!authenticated) {
+      throw new CapabilityError(
+        'POLICY_DENIED',
+        `projectId selector '${selector}' cannot be honored: this call carries no authenticated project scope, so there is no scope to confirm it against. A selector can only restate the session's own project, never acquire one.`,
+        { selectorProjectId: selector }
+      );
+    }
+    if (selector !== authenticated) {
+      throw new CapabilityError(
+        'PROJECT_MISMATCH',
+        `projectId selector '${selector}' does not match this session's authenticated project '${authenticated}'. A scope selector can only equal the authenticated project; it can never widen authority into a foreign project.`,
+        { selectorProjectId: selector, authenticatedProjectId: authenticated }
+      );
+    }
+  }
+  listTabs(context: { target?: BrowserTarget; scope?: 'project' | 'session' | 'global'; affiliatedOnly?: boolean; projectId?: string; authenticatedProjectId?: string; authenticatedWorkspaceId?: string }): unknown[] {
     if (context.target) assertTarget(context.target);
     const boundTabId = context.target?.tabId;
-    if (!boundTabId) return this.host.getTabList() || [];
-    // A session asks for what it owns, not for the user's tab strip: the strip
-    // omits the offscreen/ephemeral tabs the agent plane itself created.
-    const sessionRecords = this.host.getSessionTabList ? this.host.getSessionTabList(boundTabId) : undefined;
+    // The authenticated scope is forwarded on the dispatch context, so a session
+    // whose attachment carries a project but no bound tab still gets its project
+    // scope — never an artificial target, never the raw foreign strip.
+    const scopeProjectId = context.authenticatedProjectId || context.target?.projectId;
+    const scopeWorkspaceId = context.authenticatedWorkspaceId || context.target?.workspaceId;
+    // Selector check precedes enumeration: a foreign or unauthenticated selector
+    // is refused before the strip is read, and it never widens authority.
+    this.assertProjectSelectorWithinScope(context.projectId, context.target, scopeProjectId);
+    // A caller with neither a bound tab nor an authenticated scope has nothing
+    // to measure against: sessionRecords and ownedIds stay empty, so the flow
+    // below answers [] instead of leaking the user's strip anonymously.
+    const sessionRecords = boundTabId && this.host.getSessionTabList ? this.host.getSessionTabList(boundTabId) : undefined;
+    // Copy before adding the bound id: the host returns its live pool set and a
+    // mutation here would leak into the adoption cap's own accounting.
+    const ownedIds = new Set<string>(boundTabId && this.host.getManagedTabIds ? this.host.getManagedTabIds(boundTabId) : []);
+    if (boundTabId) ownedIds.add(boundTabId);
+    // `affiliated` answers whether a row measures into this session's authority:
+    // session-owned tabs qualify by ownership (agent-plane tabs carry no capsule
+    // affiliation), everything else by measured project+workspace. A host without
+    // resolveTabAffiliation cannot measure, so unowned rows report false rather
+    // than an affiliation nobody verified.
+    const affiliatedOf = (tab: { id: string }): boolean => {
+      if (ownedIds.has(tab.id)) return true;
+      if (!this.host.resolveTabAffiliation || !scopeProjectId || !scopeWorkspaceId) return false;
+      const aff = this.host.resolveTabAffiliation(tab.id);
+      return aff?.projectId === scopeProjectId && aff?.workspaceId === scopeWorkspaceId;
+    };
     if (context.scope !== 'session') {
-      // The window strip annotated with the bound identity: the only honest way a
-      // client learns which tab it is bound to, since every other capability
-      // refuses a foreign tabId. The bound tab's own record is unioned in when the
-      // strip omits it (an offscreen agent-plane tab is never rendered in the
-      // window), so exactly one row carries isBoundTab: true and it is always the
-      // id the session scope lists.
+      // Default 'project' scope: a bound session sees the tabs that measure into
+      // its own attachment scope (projectId + workspaceId), plus every tab this
+      // session owns regardless of capsule (agent-plane tabs carry no
+      // affiliation). A bound-but-dead id still scopes correctly here — the
+      // affiliation filter answers from the target's own project/workspace, so
+      // the dead id degrades to the in-window rows instead of the foreign
+      // window's strip.
+      // 'global' scope is the explicit all:true discovery listing: the whole tab
+      // strip is returned unfiltered and every row carries `affiliated` so the
+      // caller can tell session tabs apart without being granted authority over
+      // foreign rows (rebind and every other gate still enforce scope).
       const strip = (this.host.getTabList() || []).filter(isTabRecord);
-      const rows = strip.some((tab) => tab.id === boundTabId)
-        ? strip
-        : strip.concat((sessionRecords ?? []).filter(isTabRecord).filter((tab) => tab.id === boundTabId));
+      const inScope = (tab: { id: string }) => {
+        if (ownedIds.has(tab.id)) return true;
+        if (!this.host.resolveTabAffiliation) return false;
+        if (scopeProjectId && scopeWorkspaceId) {
+          const aff = this.host.resolveTabAffiliation(tab.id);
+          return aff?.projectId === scopeProjectId && aff?.workspaceId === scopeWorkspaceId;
+        }
+        // No measured scope to compare against: an unbound, unauthenticated
+        // caller has no authority — list nothing rather than the user's strip.
+        return false;
+      };
+      let rows = context.scope === 'global' ? strip : strip.filter(inScope);
+      if (context.affiliatedOnly === true) rows = rows.filter(affiliatedOf);
+      if (!rows.some((tab) => tab.id === boundTabId)) {
+        rows = rows.concat((sessionRecords ?? []).filter(isTabRecord).filter((tab) => tab.id === boundTabId));
+      }
       return rows.map((tab) => ({
         ...tab,
+        affiliated: affiliatedOf(tab),
         isBoundTab: tab.id === boundTabId,
         isPrimaryTab: tab.id === boundTabId,
       }));
     }
-    const allowedIds = this.host.getManagedTabIds ? this.host.getManagedTabIds(boundTabId) : new Set([boundTabId]);
-    const records: unknown[] = sessionRecords ?? (this.host.getTabList() || []).filter((tab) => isTabRecord(tab) && allowedIds.has(tab.id));
+    const records: unknown[] = sessionRecords ?? (this.host.getTabList() || []).filter((tab) => isTabRecord(tab) && ownedIds.has(tab.id));
     // A session that owns nothing lists nothing: leaking the user's strip here would
     // invite operations this session is not allowed to perform. Callers that want
-    // the whole window ask for it explicitly (browser.list-tabs with all: true).
+    // the whole window ask for it explicitly (all: true).
     return records.filter(isTabRecord).map((tab) => ({
       ...tab,
+      affiliated: affiliatedOf(tab),
       isBoundTab: tab.id === boundTabId,
       isPrimaryTab: tab.id === boundTabId,
     }));
@@ -3554,7 +3627,18 @@ export class BrowserControlPort {
    * anchor holds NOW rather than the one it held when the child was allocated.
    */
   private verifyRoutedAnchorCapsule(boundTabId: string | undefined, target: BrowserTarget | undefined): string | undefined {
-    if (!(target && target.projectId && target.workspaceId && boundTabId)) return undefined;
+    if (!(target && target.projectId && target.workspaceId)) return undefined;
+    if (!boundTabId) {
+      // A routed request without a bound anchor cannot verify where the child
+      // belongs. Returning undefined would let host.createTab fall back to the
+      // window's active capsule — minting the tab in whatever project the user
+      // last opened. Fail closed instead.
+      throw new CapabilityError(
+        'TARGET_REQUIRED',
+        `Cannot open a routed tab for project '${target.projectId}': this session is not bound to an anchor tab. Rebind the session to a live tab in the target capsule (anti.browser.rebind_target), then retry.`,
+        { targetProjectId: target.projectId, targetWorkspaceId: target.workspaceId, recovery: 'anti.browser.rebind_target' }
+      );
+    }
     if (!this.host.resolveTabAffiliation) {
       throw new CapabilityError(
         'CAPABILITY_NOT_FOUND',
@@ -3632,9 +3716,14 @@ export class BrowserControlPort {
     return affiliation.capsuleId;
   }
 
-  openTab(options: { url?: string; activate?: boolean; ephemeral?: boolean; offscreen?: boolean; devicePresetId?: string; mobile?: boolean } = {}, context?: { target?: BrowserTarget }): { tabId: string } {
+  openTab(options: { url?: string; activate?: boolean; ephemeral?: boolean; offscreen?: boolean; devicePresetId?: string; mobile?: boolean; projectId?: string } = {}, context?: { target?: BrowserTarget; authenticatedProjectId?: string }): { tabId: string } {
     if (!this.host.createTab) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'createTab is not supported by host');
     const boundTabId = context?.target?.tabId;
+    // The projectId selector is validated before any allocation: it may only
+    // restate the session's authenticated project — a foreign or unbound
+    // selector is refused here, before an anchor is probed or a tab exists.
+    // It selects nothing beyond the authority the target already carries.
+    this.assertProjectSelectorWithinScope(options.projectId, context?.target, context?.authenticatedProjectId);
     this.assertAnchorTabLive(boundTabId);
     if (boundTabId && this.host.getManagedTabIds) {
       // The same pruning source the adopt path counts: a closed tab can never be
@@ -3653,10 +3742,6 @@ export class BrowserControlPort {
     const routed = Boolean(target && target.projectId && target.workspaceId);
     // Phase 2: routed tab creation must be authorized by the anchor tab's own
     // verified affiliation and must never inherit the globally active capsule.
-    // Verifying affiliation after checking anchor liveness and tab quota but
-    // before calling createTab guarantees no WebContents or tab handle is allocated
-    // when the anchor belongs to a different or unassigned project/workspace,
-    // or when the host cannot verify affiliation.
     const verifiedCapsuleId = this.verifyRoutedAnchorCapsule(boundTabId, target);
     // Phase 2 (step 11): forward the offscreen option so dedicated agent tabs keep
     // rendering without foregrounding the user's visible surface.
@@ -3675,15 +3760,27 @@ export class BrowserControlPort {
           offscreen: options.offscreen,
           devicePresetId: options.devicePresetId,
           mobile: options.mobile,
+          // `anchorTabId` params are validated transport-side and arrive via the
+          // bound target on the routed branch; the unrouted branch must not
+          // forward a raw caller-supplied anchor past authority checks.
           plane: 'agent' as const,
         };
     const tabId = this.host.createTab(options.url || 'about:blank', options.activate ?? false, createOptions);
     if (boundTabId && this.host.adoptChildTab) {
       // A tab this session cannot own is a tab it can never list, address or
       // close: close it and fail instead of handing back a leak.
-      const adopted = this.host.adoptChildTab(boundTabId, tabId);
+      // If the anchor died between assertAnchorTabLive and here, the adopt call
+      // throws TARGET_STALE before it can answer false — close the fresh child
+      // first so the race cannot leak an ownerless agent tab.
+      let adopted: boolean;
+      try {
+        adopted = this.host.adoptChildTab(boundTabId, tabId);
+      } catch (adoptErr) {
+        try { this.host.closeTab?.(tabId, 'agent-adopt-failed'); } catch {}
+        throw adoptErr;
+      }
       if (adopted === false) {
-        this.host.closeTab?.(tabId);
+        this.host.closeTab?.(tabId, 'agent-adopt-failed');
         // `adopted === false` does not say why: a closed anchor, an anchor that lost the
         // requested affiliation and a pool that refused the tab all produce the same value,
         // and the gate that read the anchor as live ran before the child was allocated.
@@ -3778,7 +3875,20 @@ export class BrowserControlPort {
         const livePrior = this.host.resolveTargetTabId ? this.host.resolveTargetTabId(priorBoundId) : null;
         const allowed = ownedBySession ||
           (livePrior && this.host.isTabAllowed ? this.host.isTabAllowed(livePrior.trim(), effectiveTabId) : false);
-        if (!allowed) {
+        // Explicit-rebind adoption: a tab that measures into the attachment's own
+        // project/workspace stays inside its authority even when another session
+        // manages it. Measured against target (authoritative scope), not the
+        // prior tab, so a bound tab without capsule affiliation cannot grant.
+        const measuredRequested = this.host.resolveTabAffiliation
+          ? this.host.resolveTabAffiliation(effectiveTabId)
+          : undefined;
+        const sameProjectScope = Boolean(
+          !allowed &&
+          target?.projectId && target?.workspaceId &&
+          measuredRequested?.projectId === target.projectId &&
+          measuredRequested?.workspaceId === target.workspaceId
+        );
+        if (!allowed && !sameProjectScope) {
           throw new CapabilityError(
             'TARGET_MISMATCH',
             `Cannot rebind to tab "${effectiveTabId}". This session is isolated to tab "${priorBoundId.trim()}" and its managed tabs.`,
@@ -3821,19 +3931,13 @@ export class BrowserControlPort {
   closeTab(tabId: string, context?: { target?: BrowserTarget }): { closed: boolean; tabId: string; failoverTabId?: string } {
     if (!this.host.closeTab) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'closeTab is not supported by host');
     let targetId = tabId;
-    if (typeof tabId === 'string' && (tabId.startsWith('#') || tabId.startsWith('@'))) {
+    if (typeof tabId === 'string' && tabId.startsWith('#')) {
       const list = (this.host.getTabList ? this.host.getTabList() : []).filter(isTabRecord);
       if (tabId.startsWith('#')) {
         const num = parseInt(tabId.slice(1), 10);
         const matchedTab = Number.isFinite(num) && num >= 1 && num <= list.length ? list[num - 1] : undefined;
         if (matchedTab?.id) {
           targetId = matchedTab.id;
-        }
-      } else {
-        const lower = tabId.toLowerCase();
-        const matched = list.find((t) => t.alias?.toLowerCase() === lower || `@${t.role?.toLowerCase()}` === lower);
-        if (matched && matched.id) {
-          targetId = matched.id;
         }
       }
     }
@@ -3852,7 +3956,7 @@ export class BrowserControlPort {
         throw new CapabilityError('TARGET_MISMATCH', `Cannot close tab "${targetId}". This session is isolated to tab "${boundId}" and its managed tabs.`);
       }
     }
-    const closed = Boolean(this.host.closeTab(targetId));
+    const closed = Boolean(this.host.closeTab(targetId, 'mcp-tool'));
     if (closed) this.verifiedTabGeometry.delete(targetId);
     let failoverTabId: string | undefined;
     if (closed && rawBoundId && targetId.trim() === rawBoundId.trim() && this.host.getFailoverTargetTab) {
@@ -3910,19 +4014,13 @@ export class BrowserControlPort {
     if (this.host.resolveTargetTabId) {
       targetId = this.host.resolveTargetTabId(rawId);
     } else {
-      if (typeof rawId === 'string' && (rawId.startsWith('#') || rawId.startsWith('@'))) {
+      if (rawId.startsWith('#')) {
         const list = (this.host.getTabList ? this.host.getTabList() : []).filter(isTabRecord);
         if (/^#\d+$/.test(rawId)) {
           const num = parseInt(rawId.slice(1), 10);
           const matchedTab = Number.isFinite(num) && num >= 1 && num <= list.length ? list[num - 1] : undefined;
           if (matchedTab?.id) {
             targetId = matchedTab.id;
-          }
-        } else if (rawId.startsWith('@')) {
-          const lower = rawId.toLowerCase();
-          const matched = list.find((t) => t.alias?.toLowerCase() === lower || `@${t.role?.toLowerCase()}` === lower);
-          if (matched && matched.id) {
-            targetId = matched.id;
           }
         }
       } else {
@@ -7573,8 +7671,11 @@ export class BrowserControlPort {
     if (signal?.aborted) {
       throw new CapabilityError('WAIT_ABORTED', 'Validation gate was aborted by execution control signal');
     }
-    const specTabId = this.resolveTargetTab(target, params.specTabId || '@spec');
-    const targetTabId = this.resolveTargetTab(target, params.targetTabId || target?.tabId || '@storefront');
+    if (!params.specTabId?.trim()) {
+      throw new CapabilityError('TARGET_REQUIRED', 'HTML specification tab ID is required');
+    }
+    const specTabId = this.resolveTargetTab(target, params.specTabId);
+    const targetTabId = this.resolveTargetTab(target, params.targetTabId);
     const tolerance = typeof params.tolerance === 'number' ? params.tolerance : 5.0;
     const checklist: Record<string, { status: 'PASS' | 'FAIL' | 'WARN'; message: string; details?: unknown }> = {};
     let criticalCount = 0;
@@ -7701,31 +7802,13 @@ export class BrowserControlPort {
         : undefined;
       if (hostResolved) {
         candidate = hostResolved;
-      } else if (candidate.startsWith('#') || candidate.startsWith('@')) {
+      } else if (candidate.startsWith('#')) {
         const list = (this.host.getTabList ? this.host.getTabList() : []).filter(isTabRecord);
         if (candidate.startsWith('#')) {
           const num = parseInt(candidate.slice(1), 10);
           const matchedTab = Number.isFinite(num) && num >= 1 && num <= list.length ? list[num - 1] : undefined;
           if (matchedTab?.id) {
             candidate = matchedTab.id;
-          }
-        } else if (candidate.startsWith('@')) {
-          const lower = candidate.toLowerCase();
-          let matched = list.find((t) => t.alias?.toLowerCase() === lower || `@${t.role?.toLowerCase()}` === lower);
-          if (!matched) {
-            const dataSynonyms = new Set(['@feedback', '@sheet', '@data', '@pricing', '@spec', '@doc', '@baogia']);
-            if (dataSynonyms.has(lower)) {
-              matched = list.find((t) => t.alias && dataSynonyms.has(t.alias.toLowerCase()));
-            }
-            const webSynonyms = new Set(['@storefront', '@web', '@store', '@live', '@target']);
-            if (!matched && webSynonyms.has(lower)) {
-              matched = list.find((t) => t.alias && webSynonyms.has(t.alias.toLowerCase()));
-            }
-          }
-          if (matched && matched.id) {
-            candidate = matched.id;
-          } else {
-            throw new CapabilityError('CAPABILITY_NOT_FOUND', `Unknown tab alias: "${candidate}". No active tab matches this alias.`);
           }
         }
       }

@@ -353,15 +353,12 @@ describe('Phase 5: Playwright Parity Kernel & Gap Telemetry Verification', () =>
     assert.strictEqual((telRes as any).recorded, true);
   });
 
-  it('6. CDP screenshot fallback rasterizes from the compositor surface and never requests the native-window snapshot', async () => {
+  it('6. Offscreen (OSR) empty raster raises a typed error and never reaches the CDP screenshot tier', async () => {
     const { cdpCalls } = createParityHarness();
 
-    // CDP command params arrive as unvalidated `unknown`; narrow the shape before reading flags.
-    const paramsOf = (call: { params: unknown }): Record<string, unknown> =>
-      call.params !== null && typeof call.params === 'object' ? (call.params as Record<string, unknown>) : {};
-
-    // Offscreen agent tab (Dual-Plane OSR): no native view, no compositor surface.
-    // Structural CDP mock: there is no runtime Electron host to check a shape against.
+    // Offscreen agent tab (Dual-Plane OSR): capturePage answering empty means the
+    // OSR surface has no live surface; the CDP fromSurface tier on OSR stalls or
+    // kills the process, so the contract is a typed error, not a fallback.
     const mockWc = {
       id: 202,
       isDestroyed: () => false,
@@ -383,21 +380,16 @@ describe('Phase 5: Playwright Parity Kernel & Gap Telemetry Verification', () =>
       withTabAgentWorking: async (_tabId: string, fn: () => Promise<string>) => fn(),
     });
 
-    const shotBase64 = await devToolsHost.captureScreenshot(undefined, 'tab-p1');
-    assert.strictEqual(shotBase64, 'b2NjbHVkZWQtc2NyZWVuc2hvdA==');
-    const shotCmds = cdpCalls.filter((c) => c.method === 'Page.captureScreenshot');
-    assert.ok(shotCmds.length >= 1, 'An empty capturePage must fall back to a CDP screenshot');
-    // fromSurface:false is Chromium's native-window snapshot path. An offscreen (OSR)
-    // agent tab has no native view, so that path dereferences null and kills the browser
-    // process (measured: access violation 0xC0000005 at address 0x0), which is why every
-    // CDP screenshot must rasterize from the compositor surface.
-    assert.ok(
-      shotCmds.every((c) => paramsOf(c).fromSurface === true),
-      'Every CDP screenshot must rasterize from the compositor surface'
+    await assert.rejects(
+      devToolsHost.captureScreenshot(undefined, 'tab-p1'),
+      (err: unknown) => err instanceof Error && /NO_RENDER_SURFACE|CAPTURE_TIMEOUT/.test(('code' in err && typeof err.code === 'string' ? err.code : '') + err.message),
+      'An empty OSR raster must fail with a typed capture error'
     );
-    const firstShot = shotCmds[0];
-    assert.ok(firstShot, 'A CDP screenshot command must have been issued');
-    assert.strictEqual(paramsOf(firstShot).captureBeyondViewport, true, 'A background/offscreen capture must keep document-tall geometry');
+    assert.strictEqual(
+      cdpCalls.filter((c) => c.method === 'Page.captureScreenshot').length,
+      0,
+      'No CDP screenshot may be dispatched for an offscreen target'
+    );
   });
 
   it('7. CDP low-level command queue serializes execution and cleans up isolatedContext on detach', async () => {

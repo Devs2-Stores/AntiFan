@@ -182,6 +182,8 @@ const EXPECTED_ROWS = [
   'unload settle (d): a user-driven close with user activation reaches the app as the page veto',
   'the last browser shell closing runs the same application gate and exits orderly',
   'the ordered teardown ran once and nothing forced the exit',
+  'a confirmed explicit force closes its own busy+vetoing window while the sibling remains untouched',
+  'a cancelled explicit force confirmation performs no destruction',
 ];
 
 const checks = [];
@@ -799,6 +801,66 @@ async function run() {
       arrivalReport.closed.every((page) => gammaTabsBeforeArrival.includes(page.tabId)),
       `the close destroyed a page that was not this shell's before the attempt: ${JSON.stringify(arrivalReport.closed)} (before: ${JSON.stringify(gammaTabsBeforeArrival)})`
     );
+  });
+
+  // ---- explicit force: cancel must do nothing, confirmation destroys only this shell ----
+  currentRow = 'explicit force-close';
+  const forceEntry = await bounded(authority.ensureProjectWindow({ kind: 'project', projectId: GAMMA.projectId }, 'user'), 30000, 'reopen the hub for the force row');
+  const forceKey = forceEntry.ownerKey;
+  const forceToolbar = surfaceOf(authority.shellFor(forceKey), 'toolbar');
+  await waitForApi(forceToolbar, "typeof window.antifanToolbar === 'object' && typeof window.antifanToolbar.forceCloseWindow === 'function'");
+  const forceVetoTab = await createTabViaToolbar(forceToolbar, 'about:blank', 'toolbar createTab for the force veto');
+  const forceVetoPage = await pageFor(authority, forceVetoTab, 'the force veto page');
+  await evalIn(forceVetoPage, ARM_UNLOAD_VETO, 'arm the force veto').catch(() => {});
+  const normalForceRefusal = await bounded(authority.attemptClose(forceKey, 'user'), 20000, 'normal close before force');
+  await sleep(250);
+  const siblingBeforeForce = authority.snapshot().find((entry) => entry.ownerKey === betaKey);
+  const forceWindowId = authority.windowFor(forceKey)?.id ?? -1;
+
+  let confirmation = false;
+  const confirmationSeen = [];
+  authority.setForceCloseConfirmationForProbe(async (shell) => {
+    confirmationSeen.push(shell);
+    return confirmation;
+  });
+  const cancelled = await authority.forceCloseFromChrome(forceToolbar);
+
+  await check('a cancelled explicit force confirmation performs no destruction', () => {
+    expect(normalForceRefusal.disposition === 'retained' && normalForceRefusal.haltedBy === 'unload-veto', `the normal veto close unexpectedly passed: ${JSON.stringify(normalForceRefusal)}`);
+    expect(cancelled && cancelled.status === 'CANCELLED', `a cancelled confirmation returned ${JSON.stringify(cancelled)}`);
+    expect(confirmationSeen.length === 1 && confirmationSeen[0].ownerKey === forceKey, `the confirmation targeted ${JSON.stringify(confirmationSeen)}`);
+    expect(authority.windowFor(forceKey)?.isDestroyed() === false, 'cancel closed the window anyway');
+    expect(authority.hostForOwner(forceKey) !== null, 'cancel disposed the shell host');
+  });
+
+  confirmation = true;
+  const forced = await authority.forceCloseFromChrome(forceToolbar);
+  authority.setForceCloseConfirmationForProbe(null);
+  await bounded(waitFor(() => authority.browserShellCount() === 1, 'the forced shell to leave the directory'), 20000, 'the forced shell to leave the directory');
+  const siblingAfterForce = authority.snapshot().find((entry) => entry.ownerKey === betaKey);
+  const forcedWindowGone = !windowCensus().some((window) => window.id === forceWindowId && !window.destroyed);
+  observations.explicitForce = {
+    ownerKey: forceKey,
+    cancelled,
+    forced,
+    confirmations: confirmationSeen,
+    siblingBefore: siblingBeforeForce && { ownerKey: siblingBeforeForce.ownerKey, tabIds: siblingBeforeForce.tabIds },
+    siblingAfter: siblingAfterForce && { ownerKey: siblingAfterForce.ownerKey, tabIds: siblingAfterForce.tabIds },
+    forcedWindowGone,
+    count: authority.browserShellCount(),
+    reservations: authority.reservations(),
+  };
+
+  await check('a confirmed explicit force closes its own busy+vetoing window while the sibling remains untouched', () => {
+    expect(forced && forced.status === 'CLOSED', `the confirmed force returned ${JSON.stringify(forced)}`);
+    expect(confirmationSeen.length === 2 && confirmationSeen[1].ownerKey === forceKey, 'the second confirmation did not bind the sender shell');
+    expect(forcedWindowGone, `the force-closed window is still in the census: ${JSON.stringify(windowCensus())}`);
+    expect(authority.hostForOwner(forceKey) === null, 'the forced shell kept a host');
+    expect(siblingAfterForce, `the sibling shell ${betaKey} was destroyed by another window's force`);
+    expect(JSON.stringify(siblingAfterForce.tabIds) === JSON.stringify(siblingBeforeForce.tabIds), `the sibling's tabs changed: ${JSON.stringify(siblingAfterForce.tabIds)}`);
+    expect(app.isReady() === true, 'the process is no longer ready after a window force');
+    const after = authority.reservations();
+    expect(after.reservedCount === 0 && after.applicationReserved === false, `the force left a reservation behind: ${JSON.stringify(after)}`);
   });
 
   // ---- (f) a Quit while a run is queued ----------------------------------------------

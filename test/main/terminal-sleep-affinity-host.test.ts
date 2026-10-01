@@ -270,6 +270,7 @@ function resetHost(): void {
   host.terminalTabLayout = 'horizontal';
   host.terminalSidebarWidth = 220;
   host.terminalCollapsedCategories = [];
+  host.touchedSharedTerminalPrefs = new Set<string>();
   host.scheduledPersists = 0;
   liveSessions = [];
   listSessionsCalls = 0;

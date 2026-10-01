@@ -6,10 +6,10 @@
  * - a pushed payload paints one card per session inside its tab wrap (sidebar):
  *   state dot, elapsed, mode badge, last tool, capsule label, promptHead tooltip
  * - the card ticks elapsed locally from runStartedAt (1s interval, no IPC)
- * - a `viewOnly` card renders without operator controls
+ * - a `viewOnly` card renders its tag and no operator controls
  * - an ended+stale card renders the dimmed `kết thúc` chip and no buttons
- * - Cancel/Steer call `runControl(terminalSessionId, op, text?)`, and a refused
- *   answer surfaces its typed reason through `showTerminalNotice`
+ * - run cards carry no cancel/steer controls: run lifecycle is owned by OMP,
+ *   so every card state is display-only evidence
  * - the change footer lists deduped files and a path click calls `openInVSCode`
  * - the horizontal strip folds the run state into a dot and mounts no card
  * - clicking a card never activates or retargets the session
@@ -18,7 +18,7 @@
  */
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
-import { loadStandalone, type FakeElement, type StandaloneHarness } from './standalone-harness';
+import { loadStandalone, pickHeaderMenuItem, type FakeElement, type StandaloneHarness } from './standalone-harness';
 
 const flush = async (): Promise<void> => {
   const { promise, resolve } = Promise.withResolvers<void>();
@@ -114,8 +114,6 @@ describe('Renderer run cards', () => {
     assert.ok(card.classList.contains('is-compact'), 'every card renders the compact single-line form');
     const state = card.querySelector('.terminal-run-state');
     assert.strictEqual(state?.textContent, 'đang chạy');
-    const elapsed = card.querySelector('.terminal-run-elapsed');
-    assert.match(elapsed?.textContent ?? '', /^0[01]:\d{2}$/, 'elapsed renders mm:ss');
     const mode = card.querySelector('.terminal-run-mode');
     assert.strictEqual(mode?.textContent, 'Direct');
     const tool = card.querySelector('.terminal-run-tool');
@@ -141,44 +139,44 @@ describe('Renderer run cards', () => {
     assert.strictEqual(card.querySelector('.terminal-run-mode'), null, 'unset mode shows no badge');
   });
 
-  it('ticks the elapsed counter locally without touching IPC', async () => {
+  it('renders no elapsed read-out — the banner keeps no clock', async () => {
     const harness = await loadManager();
     seed(harness, [{ id: 's1', name: 'S1', state: 'running', ownerKey: 'project:proj-comnieu' }], 's1');
     harness.renderTabs();
     harness.emitRunCardState({ runs: [runningCard({ runStartedAt: Date.now() - 60_500 })] });
-    const elapsed = () => cardFor(harness, 's1').querySelector('.terminal-run-elapsed')?.textContent;
-    assert.strictEqual(elapsed(), '01:00');
-    // The thing under test IS a wall-clock interval: the harness runs the renderer's
-    // real setInterval and the elapsed text is computed from Date.now(), so there is
-    // no fake-timer seam to advance — a genuine short wait is the only honest drive.
-    await new Promise<void>((resolve) => setTimeout(resolve, 1_300));
-    assert.strictEqual(elapsed(), '01:01', 'the 1s local ticker advanced the counter');
-    assert.strictEqual(countCalls(harness, 'runControl'), 0, 'ticking costs no IPC');
+    const card = cardFor(harness, 's1');
+    assert.strictEqual(card.querySelector('.terminal-run-elapsed'), null, 'the elapsed element is gone');
+    const head = card.querySelector('.terminal-run-head')?.textContent;
+    await flush();
+    assert.strictEqual(card.querySelector('.terminal-run-head')?.textContent, head, 'nothing repaints without a new payload');
   });
 
-  it('renders a viewOnly row with controls present but disabled', async () => {
+  it('renders a viewOnly row with the tag and no controls', async () => {
     const harness = await loadManager();
     seed(harness, [{ id: 's1', name: 'S1', state: 'running', capsuleId: 'capsule-comnieu', ownerKey: 'agent:tab-7' }], 's1');
     harness.renderTabs();
     harness.emitRunCardState({ runs: [runningCard({ viewOnly: true })] });
 
     const card = cardFor(harness, 's1');
-    assert.ok(card.querySelector('.terminal-run-viewonly'), 'a view-only tag names the read-only reason');
-    const head = card.querySelector('.terminal-run-head');
-    const buttons = card.querySelectorAll('.terminal-run-btn');
-    assert.strictEqual(buttons.length, 2, 'both controls render, disabled');
-    for (const btn of buttons) {
-      assert.strictEqual(btn.closest('.terminal-run-head'), head, 'disabled controls ride the head line');
-    }
-    for (const btn of buttons) {
-      assert.strictEqual(btn.disabled, true, 'the control is disabled');
-      assert.strictEqual(
-        btn.getAttribute('title'),
-        'Terminal do agent sở hữu chỉ được xem, không chuyển được',
-        'the refusal title is the verbatim context-menu string',
-      );
-    }
+    const tag = card.querySelector('.terminal-run-viewonly');
+    assert.ok(tag, 'a view-only tag renders');
+    assert.strictEqual(tag?.textContent, 'Chỉ xem', 'a view-only tag names the read-only reason');
+    assert.strictEqual(card.querySelector('.terminal-run-actions'), null, 'no actions container renders');
+    assert.strictEqual(card.querySelectorAll('.terminal-run-btn').length, 0, 'no run control buttons');
     assert.strictEqual(countCalls(harness, 'runControl'), 0, 'no IPC is sent for a viewed row');
+  });
+
+  it('renders no cancel/steer controls on a live owned run — OMP owns run lifecycle', async () => {
+    const harness = await loadManager();
+    seed(harness, [{ id: 's1', name: 'S1', state: 'running', ownerKey: 'project:proj-comnieu' }], 's1');
+    harness.renderTabs();
+    harness.emitRunCardState({ runs: [runningCard()] });
+
+    const card = cardFor(harness, 's1');
+    assert.strictEqual(card.querySelector('.terminal-run-actions'), null, 'a live run mounts no actions container');
+    assert.strictEqual(card.querySelectorAll('.terminal-run-btn').length, 0, 'no run control buttons render');
+    assert.strictEqual(card.querySelector('.terminal-run-steer-row'), null, 'no steer input exists');
+    assert.strictEqual(countCalls(harness, 'runControl'), 0, 'the renderer never drives runControl itself');
   });
 
   it('renders ended+stale as a compact one-line card with the kết thúc chip and no buttons', async () => {
@@ -203,63 +201,18 @@ describe('Renderer run cards', () => {
     );
   });
 
-  it('sends cancel through runControl and surfaces a refused reason verbatim', async () => {
-    const harness = await loadManager();
-    harness.api.runControl = async () => ({ ok: false, reason: 'STALE_RUN_SEQ', message: 'run moved on' });
-    seed(harness, [{ id: 's1', name: 'S1', state: 'running', ownerKey: 'project:proj-comnieu' }], 's1');
-    harness.renderTabs();
-    harness.emitRunCardState({ runs: [runningCard()] });
-
-    const cancel = cardFor(harness, 's1').querySelector('.terminal-run-btn.is-cancel');
-    assert.ok(cancel, 'cancel button exists');
-    cancel.dispatch('click');
-    await flush();
-
-    assert.deepStrictEqual(lastArgs(harness, 'runControl'), ['s1', 'cancel', undefined]);
-    const notice = harness.standaloneRoot.querySelector('#terminalNotice') ?? harness.elements.get('terminalNotice');
-    assert.ok(notice, 'the refusal is reported through the terminal notice');
-    assert.match(notice.textContent, /STALE_RUN_SEQ/);
-    assert.match(notice.textContent, /run moved on/);
-  });
-
-  it('steers through the inline row and posts runControl with the typed text', async () => {
-    const harness = await loadManager();
-    harness.api.runControl = async () => ({ ok: true, op: 'steer', at: Date.now() });
-    seed(harness, [{ id: 's1', name: 'S1', state: 'running', ownerKey: 'project:proj-comnieu' }], 's1');
-    harness.renderTabs();
-    harness.emitRunCardState({ runs: [runningCard()] });
-
-    const card = cardFor(harness, 's1');
-    const steer = card.querySelector('.terminal-run-btn.is-steer');
-    assert.ok(steer);
-    steer.dispatch('click');
-    const row = card.querySelector('.terminal-run-steer-row');
-    assert.ok(row, 'the inline steer row opens inside the card');
-    const input = row.querySelector('.terminal-run-steer-input');
-    assert.ok(input);
-    input.value = 'kiểm tra lại phần breadcrumb';
-    input.dispatch('keydown', { key: 'Enter' });
-    await flush();
-
-    assert.deepStrictEqual(lastArgs(harness, 'runControl'), ['s1', 'steer', 'kiểm tra lại phần breadcrumb']);
-    assert.strictEqual(card.querySelector('.terminal-run-steer-row'), null, 'the row closes after posting');
-  });
-
-  it('Escape closes the steer row without posting', async () => {
+  it('an idle run adds nothing to the row', async () => {
     const harness = await loadManager();
     seed(harness, [{ id: 's1', name: 'S1', state: 'running', ownerKey: 'project:proj-comnieu' }], 's1');
     harness.renderTabs();
     harness.emitRunCardState({ runs: [runningCard()] });
+    assert.ok(wrapFor(harness, 's1').classList.contains('has-run-card'));
 
-    const card = cardFor(harness, 's1');
-    card.querySelector('.terminal-run-btn.is-steer')?.dispatch('click');
-    const input = card.querySelector('.terminal-run-steer-input');
-    assert.ok(input);
-    input.value = 'never sent';
-    input.dispatch('keydown', { key: 'Escape' });
-    await flush();
-    assert.strictEqual(card.querySelector('.terminal-run-steer-row'), null);
-    assert.strictEqual(countCalls(harness, 'runControl'), 0);
+    harness.emitRunCardState({ runs: [runningCard({ state: 'idle' })] });
+    const wrap = wrapFor(harness, 's1');
+    assert.strictEqual(wrap.querySelector('.terminal-run-card'), null, 'an idle card must not grow the row');
+    assert.strictEqual(wrap.classList.contains('has-run-card'), false);
+    assert.strictEqual(wrap.querySelector('.terminal-tab-run-badge'), null, 'an idle run wears no badge');
   });
 
   it('shows the change-review footer, expands files, and opens a path in VS Code', async () => {
@@ -352,9 +305,7 @@ describe('Renderer capsule pinned brief', () => {
     harness.api.capsuleSetBrief = async () => options.setReply ?? { ok: true, capsuleId: 'capsule-comnieu', brief: null };
     seed(harness, [{ id: 's1', name: 'S1', state: 'running', capsuleId: 'capsule-comnieu', ownerKey: 'project:proj-comnieu' }], 's1');
     harness.renderTabs();
-    const btn = capsuleHeader(harness, 'capsule-comnieu').querySelector('.terminal-tab-category-brief');
-    assert.ok(btn, 'the capsule header carries the brief pin');
-    btn.dispatch('click');
+    pickHeaderMenuItem(harness, capsuleHeader(harness, 'capsule-comnieu'), 'Ghi chú dự án');
     await flush();
     const dialog = harness.capsuleBriefDialog;
     assert.strictEqual(dialog.style.display, 'flex', 'the dialog opens');

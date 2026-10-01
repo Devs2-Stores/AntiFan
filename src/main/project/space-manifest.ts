@@ -24,8 +24,8 @@ export interface SpaceTerminalSpec {
 }
 
 export type SpaceTabSpec =
-  | { kind: 'url'; url: string; role?: string; alias?: string }
-  | { kind: 'path'; path: string; role?: string; alias?: string };
+  | { kind: 'url'; url: string }
+  | { kind: 'path'; path: string };
 
 export interface SpaceManifest {
   version: 1;
@@ -197,19 +197,16 @@ export function parseSpaceManifest(buffer: Buffer): SpaceManifestParse {
       }
       const t = entry as Record<string, unknown>;
       const before = errors.length;
-      const role = optionalText(t.role, `${at}.role`, errors);
-      const alias = optionalText(t.alias, `${at}.alias`, errors);
-      const meta = { ...(role ? { role } : {}), ...(alias ? { alias } : {}) };
       if ((t.url === undefined) === (t.path === undefined)) {
         errors.push({ path: at, message: 'must have exactly one of url or path' });
         return;
       }
       if (t.url !== undefined) {
         const url = webUrl(t.url, `${at}.url`, errors);
-        if (url && errors.length === before) tabs.push({ kind: 'url', url, ...meta });
+        if (url && errors.length === before) tabs.push({ kind: 'url', url });
       } else {
         const rel = relativeTabPath(t.path, `${at}.path`, errors);
-        if (rel && errors.length === before) tabs.push({ kind: 'path', path: rel, ...meta });
+        if (rel && errors.length === before) tabs.push({ kind: 'path', path: rel });
       }
     });
   }
@@ -284,7 +281,7 @@ function cleanText(value: string | undefined): string | undefined {
 export function buildSpaceTemplate(
   name: string,
   terminals: ReadonlyArray<{ label: string; role?: string; idlePolicy?: string }>,
-  tabUrls: ReadonlyArray<{ url: string; alias?: string; role?: string }>,
+  tabUrls: ReadonlyArray<{ url: string }>,
 ): SpaceManifest {
   const usedIds = new Set<string>();
   const specs: SpaceTerminalSpec[] = [];
@@ -314,9 +311,7 @@ export function buildSpaceTemplate(
     }
     if (tabs.length >= MAX_TABS || seen.has(url)) continue;
     seen.add(url);
-    const role = cleanText(t.role);
-    const alias = cleanText(t.alias);
-    tabs.push({ kind: 'url', url, ...(role ? { role } : {}), ...(alias ? { alias } : {}) });
+    tabs.push({ kind: 'url', url });
   }
   const cleanName = cleanText(name);
   return { version: 1, ...(cleanName ? { name: cleanName } : {}), terminals: specs, tabs };
@@ -331,8 +326,8 @@ export function serializeSpaceManifest(manifest: SpaceManifest): string {
       terminals: manifest.terminals,
       tabs: manifest.tabs.map((t) =>
         t.kind === 'url'
-          ? { url: t.url, ...(t.role ? { role: t.role } : {}), ...(t.alias ? { alias: t.alias } : {}) }
-          : { path: t.path, ...(t.role ? { role: t.role } : {}), ...(t.alias ? { alias: t.alias } : {}) },
+          ? { url: t.url }
+          : { path: t.path },
       ),
     },
     null,

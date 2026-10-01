@@ -82,6 +82,11 @@ class RecordingCapsuleManager {
     return capsule;
   }
 
+  public uniqueAffiliationByRoot(_root: string): undefined {
+    this.calls.push('uniqueAffiliationByRoot');
+    return undefined;
+  }
+
   /** The global re-point this route exists to avoid: it must never be asked for. */
   public switchTo(_id: string): void {
     this.calls.push('switchTo');

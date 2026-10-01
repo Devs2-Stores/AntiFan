@@ -276,18 +276,18 @@ describe('Terminal-to-Tab Agent Affinity Contract Tests (NativeTabHost Seam)', (
       (err: any) => err.code === 'TARGET_MISMATCH' && err.message.includes('isolated to tab')
     );
   });
-  it('10b. BrowserControlPort.closeTab resolves alias to canonical tabId and computes failover', () => {
+  it('10b. BrowserControlPort.closeTab uses actual tab IDs and computes failover', () => {
     let closedId = '';
     const mockHost = {
       getTabList: () => [
-        { id: 'tab-primary', role: 'primary', alias: '@primary' },
-        { id: 'tab-child', role: 'child', alias: '@child' },
-        { id: 'tab-fallback', role: 'fallback' },
+        { id: 'tab-primary' },
+        { id: 'tab-child' },
+        { id: 'tab-fallback' },
       ],
       hasTab: (id: string) => ['tab-primary', 'tab-child', 'tab-fallback'].includes(id),
       resolveTargetTabId: (id: string) => {
-        if (id === '@primary' || id === '#1') return 'tab-primary';
-        if (id === '@child' || id === '#2') return 'tab-child';
+        if (id === '#1') return 'tab-primary';
+        if (id === '#2') return 'tab-child';
         return id;
       },
       isTabAllowed: (bound: string, req: string) => ['tab-primary', 'tab-child'].includes(bound) && ['tab-primary', 'tab-child'].includes(req),
@@ -300,8 +300,8 @@ describe('Terminal-to-Tab Agent Affinity Contract Tests (NativeTabHost Seam)', (
     const port = new BrowserControlPort(mockHost as any);
     const boundTarget = { projectId: 'p', workspaceId: 'w', runtimeId: 'r', tabId: 'tab-primary', browserEpoch: 1, documentGeneration: 1 } as any;
 
-    // 1. Alias input resolves to canonical returned tabId and bound-primary closure returns failover
-    const primaryResult = port.closeTab('@primary', { target: boundTarget });
+    // Actual ID returns primary closure failover.
+    const primaryResult = port.closeTab('tab-primary', { target: boundTarget });
     assert.deepStrictEqual(primaryResult, { closed: true, tabId: 'tab-primary', failoverTabId: 'tab-fallback' });
     assert.strictEqual(closedId, 'tab-primary');
 

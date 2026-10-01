@@ -9,8 +9,8 @@
  */
 import type { AntiFanTab } from '../../shared/contracts';
 
-/** Idle threshold the user picked: 15 minutes. The production sweep always uses this constant. */
-export const HIBERNATE_IDLE_MS = 15 * 60 * 1000;
+/** Idle threshold the user picked: 5 minutes. The production sweep always uses this constant. */
+export const HIBERNATE_IDLE_MS = 5 * 60 * 1000;
 /** How often one host asks the policy about every tab. */
 export const HIBERNATE_SWEEP_INTERVAL_MS = 60 * 1000;
 

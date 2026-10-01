@@ -1924,38 +1924,99 @@ button {
   background: rgba(148, 163, 184, 0.18);
 }
 
-/* The create actions. Icon-only (or a `+` glyph), so each carries an `aria-label`;
-   all are square and fixed-size so adding the search field can never squash them. */
+/* The create actions form a split button: `+` makes a terminal, the chevron opens a menu of
+   the actions that need a choice first (folder, project), each spelled out in words. */
+.terminal-tab-toolbar {
+  position: relative;
+}
+
+.terminal-tab-new-split {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: stretch;
+}
+
 .terminal-tab-toolbar #btnNewTerminal,
-.terminal-tab-new-folder {
+.terminal-tab-new-menu-toggle {
   display: flex;
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
-  width: 26px;
   height: 26px;
   padding: 0;
   font-size: 14px;
   font-weight: 600;
-  color: #94a3b8;
-  background: #0b1220;
-  border: 1px solid rgba(100, 116, 139, 0.35);
-  border-radius: 6px;
+  color: #7dd3fc;
+  background: rgba(56, 189, 248, 0.08);
+  border: 1px solid rgba(56, 189, 248, 0.45);
   cursor: pointer;
   transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
 }
 
+.terminal-tab-toolbar #btnNewTerminal {
+  width: 26px;
+  border-radius: 6px;
+}
+
+.terminal-tab-new-menu-toggle {
+  width: 18px;
+  border-left: 0;
+  border-radius: 0 6px 6px 0;
+}
+
+.terminal-tab-new-split:has(.terminal-tab-new-menu-toggle:not([style*="display: none"])) #btnNewTerminal {
+  border-radius: 6px 0 0 6px;
+}
+
 .terminal-tab-toolbar #btnNewTerminal:hover,
-.terminal-tab-new-folder:hover {
+.terminal-tab-new-menu-toggle:hover {
   color: #e2e8f0;
-  border-color: rgba(56, 189, 248, 0.55);
-  background: rgba(56, 189, 248, 0.1);
+  background: rgba(56, 189, 248, 0.18);
 }
 
 .terminal-tab-toolbar #btnNewTerminal:focus-visible,
-.terminal-tab-new-folder:focus-visible {
+.terminal-tab-new-menu-toggle:focus-visible,
+.terminal-new-menu-item:focus-visible {
   outline: 2px solid #38bdf8;
   outline-offset: 1px;
+}
+
+.terminal-new-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 30;
+  flex-direction: column;
+  min-width: 210px;
+  margin-top: 4px;
+  padding: 4px;
+  background: #0f172a;
+  border: 1px solid rgba(100, 116, 139, 0.45);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.terminal-new-menu-item {
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  font-size: 12px;
+  color: #cbd5e1;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.terminal-new-menu-item:hover {
+  color: #f1f5f9;
+  background: rgba(56, 189, 248, 0.14);
+}
+
+.terminal-new-menu-icon {
+  display: inline-flex;
+  color: #7dd3fc;
 }
 
 .terminal-tab-search-empty {
@@ -2200,22 +2261,42 @@ button {
 /* ---------------------------------------------------------------------------
    RUN CARDS — one card per terminal session with a run, a child of the tab wrap.
    Sidebar only; the horizontal strip shows the folded strip dot instead.
+
+   The card never adds a line to a resting row: it rides the row's own 26px line,
+   between the tab button and the close button. At rest it shows nothing the row
+   does not already say (the `đang chạy` badge names the state; an ended run keeps
+   its `kết thúc` chip). Hovering the row or moving keyboard focus into it reveals
+   elapsed time and the change count; the title yields the width. The dot/state/
+   tool/capsule/mode read-outs stay in the DOM for tooltips and tests but take no
+   width. The row grows only while the changed-file list is open.
 --------------------------------------------------------------------------- */
 
-.terminal-tab-wrap.has-run-card {
-  flex-wrap: wrap;
-  height: auto;
-  padding-bottom: 4px;
+.terminal-tab-wrap.has-run-card > .terminal-tab-close {
+  order: 2;
 }
 
+/* The 88px basis is what line breaking measures: revealed controls stay on the row
+   while the title keeps roughly 60px, and drop to a second line only in a sidebar
+   too narrow for both (the resizer allows 140px). */
+.terminal-tab-wrap.has-run-card > .terminal-tab {
+  flex: 1 1 88px;
+  height: 24px;
+}
+
+.terminal-tab-wrap.has-run-card:is(:hover, :focus-within) {
+  flex-wrap: wrap;
+  height: auto;
+  min-height: 26px;
+}
+
+/* Shrinkable, but only ever shrinks alone on its own line: line breaking already
+   guarantees it fits beside the title whenever it shares line one. */
 .terminal-run-card {
-  flex: 1 0 100%;
-  margin: 3px 6px 2px;
-  padding: 4px 7px 5px;
-  border-radius: 6px;
-  border: 1px solid rgba(56, 189, 248, 0.22);
-  background: rgba(11, 20, 33, 0.85);
-  font-size: 10.5px;
+  flex: 0 1 auto;
+  min-width: 0;
+  margin: 0 2px 0 0;
+  padding: 0;
+  font-size: 10px;
   color: #94a3b8;
   display: flex;
   flex-direction: column;
@@ -2226,32 +2307,46 @@ button {
 .terminal-run-card.is-stale,
 .terminal-run-card.run-ended {
   opacity: 0.62;
-  border-color: rgba(100, 116, 139, 0.25);
-}
-.terminal-run-card.is-compact {
-  margin: 2px 6px;
-  padding: 1px 7px;
 }
 
-.terminal-run-card.is-compact .terminal-run-head {
-  flex-wrap: nowrap;
-  overflow: hidden;
+.terminal-run-card .terminal-run-head {
+  flex-wrap: wrap;
+  gap: 2px 4px;
 }
 
-.terminal-run-card.is-compact .terminal-run-head > * {
+.terminal-run-card .terminal-run-head > * {
   flex: 0 0 auto;
 }
 
-.terminal-run-card.is-compact .terminal-run-head .terminal-run-tool,
-.terminal-run-card.is-compact .terminal-run-head .terminal-run-capsule {
-  flex: 0 1 auto;
-  min-width: 0;
+.terminal-run-card .terminal-run-head > .terminal-run-dot,
+.terminal-run-card .terminal-run-head > .terminal-run-state,
+.terminal-run-card .terminal-run-head > .terminal-run-lastevent,
+.terminal-run-card .terminal-run-head > .terminal-run-mode,
+.terminal-run-card .terminal-run-head > .terminal-run-tool,
+.terminal-run-card .terminal-run-head > .terminal-run-capsule {
+  display: none;
 }
 
-.terminal-run-card.is-compact .terminal-run-actions {
-  margin-top: 0;
-  margin-left: auto;
-  flex: 0 0 auto;
+.terminal-tab-wrap.has-run-card:not(:hover):not(:focus-within):not(:has(.terminal-run-changes-list[style*="block"])) .terminal-run-head > :is(.terminal-run-viewonly, .terminal-run-changes-summary) {
+  display: none;
+}
+
+/* Revealed controls take the badge's slot: they already say the run is live. */
+.terminal-tab-wrap.has-run-card:is(:hover, :focus-within) > .terminal-tab > .terminal-tab-run-badge {
+  display: none;
+}
+
+/* Opened file list: the card drops to its own full-width line. */
+.terminal-tab-wrap.has-run-card:has(.terminal-run-changes-list[style*="block"]) {
+  flex-wrap: wrap;
+  height: auto;
+  padding-bottom: 4px;
+}
+
+.terminal-tab-wrap.has-run-card:has(.terminal-run-changes-list[style*="block"]) > .terminal-run-card {
+  flex: 1 1 100%;
+  order: 3;
+  margin: 2px 6px 0;
 }
 
 
@@ -2300,11 +2395,6 @@ button {
 .terminal-run-state {
   color: #cbd5e1;
   font-weight: 600;
-}
-
-.terminal-run-elapsed {
-  font-variant-numeric: tabular-nums;
-  color: #7dd3fc;
 }
 
 .terminal-run-lastevent {
@@ -2360,39 +2450,6 @@ button {
   white-space: nowrap;
 }
 
-.terminal-run-actions {
-  display: flex;
-  gap: 6px;
-  margin-top: 1px;
-}
-
-.terminal-run-btn {
-  padding: 2px 9px;
-  border-radius: 4px;
-  border: 1px solid rgba(148, 163, 184, 0.35);
-  background: rgba(30, 41, 59, 0.8);
-  color: #cbd5e1;
-  font-size: 10px;
-  font-family: inherit;
-  cursor: pointer;
-  line-height: 1.4;
-}
-
-.terminal-run-btn:hover {
-  border-color: #38bdf8;
-  color: #e2e8f0;
-}
-
-.terminal-run-btn.is-cancel:hover {
-  border-color: rgba(248, 113, 113, 0.7);
-  color: #fca5a5;
-}
-
-.terminal-run-btn.is-steer:hover,
-.terminal-run-btn.is-steer-send {
-  border-color: rgba(45, 212, 191, 0.55);
-  color: #99f6e4;
-}
 
 .terminal-run-viewonly,
 .terminal-run-ended-chip {
@@ -2454,29 +2511,6 @@ button {
   color: #7dd3fc;
 }
 
-.terminal-run-steer-row {
-  display: flex;
-  gap: 4px;
-  margin-top: 2px;
-}
-
-.terminal-run-steer-input {
-  flex: 1;
-  min-width: 0;
-  padding: 3px 7px;
-  border-radius: 4px;
-  border: 1px solid rgba(45, 212, 191, 0.4);
-  background: rgba(2, 6, 23, 0.9);
-  color: #e2e8f0;
-  font-size: 10.5px;
-  font-family: inherit;
-  outline: none;
-}
-
-.terminal-run-steer-input:focus {
-  border-color: #2dd4bf;
-  box-shadow: 0 0 6px rgba(45, 212, 191, 0.3);
-}
 
 /* The capsule section header's brief pin. */
 .terminal-tab-category-brief {
@@ -2666,6 +2700,11 @@ button {
   text-decoration: line-through;
 }
 
+/* A manager section whose every terminal sleeps: folded to one quiet line, still named. */
+.standalone.tabs-sidebar .terminal-tab-category-header.is-group-idle .terminal-tab-category-label {
+  opacity: 0.6;
+}
+
 .standalone.tabs-sidebar .terminal-tab-project-star:focus-visible {
   outline: 2px solid #38bdf8;
   outline-offset: 1px;
@@ -2698,6 +2737,101 @@ button {
   outline-offset: 1px;
 }
 
+/* Calm project header: one row reading "dot  name ... actions". The label is the only
+   part that yields width (ellipsis), so the star and the open button never drop to a
+   second line. The create / Space affordances appear on hover or keyboard focus and take
+   no width while hidden; a starred project keeps its star. */
+.standalone.tabs-sidebar .terminal-tab-category-header.is-project-group {
+  flex-wrap: nowrap;
+  gap: 6px;
+}
+
+.standalone.tabs-sidebar .terminal-tab-category-header.is-project-group .terminal-tab-category-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.standalone.tabs-sidebar .terminal-tab-category-header.is-project-group .terminal-tab-project-color {
+  order: -1;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.standalone.tabs-sidebar .terminal-tab-category-header.is-project-group .terminal-tab-project-color::-webkit-color-swatch {
+  border: 0;
+  border-radius: 50%;
+}
+
+.standalone.tabs-sidebar .terminal-tab-category-header.is-project-group:not(:hover):not(:focus-within) .terminal-tab-category-mint {
+  display: none;
+}
+
+.standalone.tabs-sidebar .terminal-tab-category-header.is-project-group:not(.is-project-starred) .terminal-tab-project-star {
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.standalone.tabs-sidebar .terminal-tab-category-header.is-project-group:hover .terminal-tab-project-star,
+.standalone.tabs-sidebar .terminal-tab-category-header.is-project-group:focus-within .terminal-tab-project-star {
+  opacity: 1;
+}
+
+/* "Go to this project": always visible in the manager so reaching a project never needs
+   a hover hunt; brighter on hover/focus. */
+.standalone.tabs-sidebar .terminal-tab-project-open {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 20px;
+  padding: 0;
+  color: #7dd3fc;
+  background: rgba(56, 189, 248, 0.08);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  border-radius: 5px;
+  cursor: pointer;
+  transition: color 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+}
+
+.standalone.tabs-sidebar .terminal-tab-project-open:hover {
+  color: #f1f5f9;
+  background: rgba(56, 189, 248, 0.22);
+  border-color: rgba(56, 189, 248, 0.6);
+}
+
+.standalone.tabs-sidebar .terminal-tab-project-open:focus-visible {
+  outline: 2px solid #38bdf8;
+  outline-offset: 1px;
+}
+
+/* Draggable project sections: grab cursor on the header body, a lifted source, and a
+   bar on the edge the section will land against. */
+.standalone.tabs-sidebar .terminal-tab-category-header.is-project-draggable {
+  cursor: grab;
+}
+
+body.is-project-dragging,
+body.is-project-dragging .terminal-tab-category-header {
+  cursor: grabbing !important;
+  user-select: none;
+}
+
+.standalone.tabs-sidebar .terminal-tab-category-header.is-project-dragging {
+  opacity: 0.5;
+}
+
+.standalone.tabs-sidebar .terminal-tab-category-header.project-drop-before {
+  box-shadow: inset 0 2px 0 #38bdf8;
+}
+
+.standalone.tabs-sidebar .terminal-tab-category-header.project-drop-after {
+  box-shadow: inset 0 -2px 0 #38bdf8;
+}
+
 
 .terminal-tab-run-badge {
   flex: 0 0 auto;
@@ -2723,19 +2857,9 @@ button {
   background: rgba(139, 92, 246, 0.18);
 }
 
-.terminal-tab-run-badge.run-running {
-  color: #5eead4;
-  background: rgba(45, 212, 191, 0.15);
-}
-
 .terminal-tab-run-badge.run-waiting_user {
   color: #fbbf24;
   background: rgba(245, 158, 11, 0.15);
-}
-
-.terminal-tab-run-badge.run-idle {
-  color: #94a3b8;
-  background: rgba(100, 116, 139, 0.18);
 }
 
 .terminal-capsule-picker-new-folder {
@@ -2747,7 +2871,9 @@ button {
 .terminal-triage-section {
   display: block;
   width: 100%;
-  flex: 0 0 100%;
+  /* `auto`, not `100%`: in the sidebar the strip is a column, so a 100% basis is the strip's
+     whole height - the block ballooned into an empty bar however few rows it held. */
+  flex: 0 0 auto;
   margin: 4px 4px 8px;
   border: 1px solid rgba(245, 158, 11, 0.28);
   border-radius: 7px;
@@ -2866,4 +2992,14 @@ button {
 .terminal-triage-assign:hover {
   color: #e0f2fe;
   background: rgba(56, 189, 248, 0.18);
+}
+
+/* Project star and colour are read-outs; the header's right-click menu writes them. */
+.standalone.tabs-sidebar .terminal-tab-project-star,
+.standalone.tabs-sidebar .terminal-tab-project-color {
+  pointer-events: none;
+}
+
+.standalone.tabs-sidebar .terminal-tab-category-header:not(.is-project-starred) .terminal-tab-project-star {
+  display: none !important;
 }

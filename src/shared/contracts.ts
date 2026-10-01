@@ -46,9 +46,6 @@ export interface AntiFanTab {
   splitMobilePresetId?: string;
   splitFocusedPane?: 'desktop' | 'mobile';
   splitError?: string | null;
-  alias?: string;
-  role?: 'storefront' | 'admin' | 'feedback' | 'spec' | string;
-  aliasColor?: string;
 }
 
 export type SplitPaneId = 'desktop' | 'mobile';
@@ -396,7 +393,9 @@ export interface ToolbarPhoneStatus {
  *
  * `CLOSE_REFUSED` is the one channel Main pushes to a shell's chrome and nothing travels
  * back on it: it carries a decision already made (see `CloseRefusalNotice`), so it cannot
- * be a request and has no reply.
+ * be a request and has no reply. `PROJECT_INVENTORY_CHANGED` is the same shape of push: it
+ * carries no payload and says only that the stored project list moved (created, adopted,
+ * renamed, recoloured, removed), so a surface listing projects re-reads `PROJECT_LIST`.
  */
 export const PROJECT_WINDOW_CHANNELS = {
   TABS_SEARCH: 'antifan:tabs:search',
@@ -410,6 +409,8 @@ export const PROJECT_WINDOW_CHANNELS = {
   PROJECT_SET_APPEARANCE: 'antifan:project:set-appearance',
   PROJECT_REMOVE_ANSWER: 'antifan:project:remove-answer',
   CLOSE_REFUSED: 'antifan:close:refused',
+  FORCE_CLOSE_WINDOW: 'antifan:close:force-window',
+  PROJECT_INVENTORY_CHANGED: 'antifan:project:inventory-changed',
 } as const;
 
 /**
@@ -643,8 +644,8 @@ export interface ProjectRemoveAnswerPayload {
  * show verbatim. `controls` are the existing stop/release actions that would clear the
  * blocking work, and they are named for reading only — a surface that showed them as
  * buttons would be promising actions it cannot perform (`antifan.cli.endSession` is an
- * agent-session action no chrome can invoke). There is deliberately no force override:
- * the work named here has to end before the surface may close.
+ * agent-session action no chrome can invoke). Explicit window force-close is a separate,
+ * sender-scoped request with a native destructive confirmation.
  */
 export interface CloseRefusalReasonWire {
   code: string;
@@ -657,8 +658,8 @@ export interface CloseRefusalReasonWire {
 /**
  * A refused close or quit, pushed to the chrome that has to explain it.
  *
- * These are reasons Main already decided: the renderer displays them and decides nothing —
- * it cannot approve, defer or override the close, and no reply of any kind travels back.
+ * These are reasons Main already decided. The push itself carries no reply; an explicit
+ * force-window request uses a separate channel and never trusts this display's owner key.
  * `kind` is which request was refused (`close` is one shell's window close, `quit` is the
  * whole application), `ownerKey` names the refused shell and is present for `close` only,
  * `haltedBy` is the stop reason that ended the attempt, and `summary` is Main's own
@@ -671,6 +672,11 @@ export interface CloseRefusalNotice {
   summary: string;
   reasons: CloseRefusalReasonWire[];
 }
+
+export type ForceCloseWindowResult =
+  | { status: 'CLOSED' }
+  | { status: 'CANCELLED' }
+  | { status: 'FAILED'; reason: string };
 
 export const FRAME_BACKDROP_CHANNELS = {
   UPDATE_LAYOUT: 'antifan:frame-backdrop:update-layout',
@@ -970,6 +976,11 @@ export interface TerminalTabPrefs {
    * can never reshuffle a list the user just arranged.
    */
   starredCategories: string[];
+  /**
+   * Project ids in the order the user arranged the Terminal Manager's project sections.
+   * A project not listed keeps its first-appearance slot after the listed ones.
+   */
+  projectOrder: string[];
 }
 
 /** Public DTO describing a terminal session's browser-tab affinity binding. */

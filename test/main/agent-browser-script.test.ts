@@ -1,5 +1,8 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import * as vm from 'node:vm';
 import { AGENT_BROWSER_SCRIPT, sanitizeHighlightColor } from '../../src/main/browser/agent-browser';
 import { ELEMENT_PICKER_SCRIPT, normalizeAnnotationPrompt } from '../../src/main/browser/element-picker';
@@ -385,38 +388,298 @@ describe('Agent Browser & Element Picker Injected Scripts', () => {
 
   it('dispatches every annotation prompt to the terminal immediately (queue/draft removed)', () => {
     const calls: string[] = [];
+    // Dispatch writes only a session id the caller already resolved in window
+    // scope — the port carries no getActiveSessionId/write arms, so the
+    // process-global fallback that used to type into another window's terminal
+    // cannot be reintroduced through this seam.
     const fakeTm = {
-      getActiveSessionId: () => 'active-session',
       switchSession: (id: string) => { calls.push('switch:' + id); return true; },
       writeTo: (id: string, data: string) => { calls.push('writeTo:' + id + ':' + data); },
-      write: (data: string) => { calls.push('write:' + data); },
     };
 
-    // 1. Explicit target session: switch + writeTo with \r, no gate
+    // 1. Resolved concrete session: switch + writeTo with \r, no gate
     dispatchAnnotationToTerminal(fakeTm, 'session-9', 'Inspect this');
     assert.deepStrictEqual(calls, ['switch:session-9', 'writeTo:session-9:Inspect this\r']);
 
-    // 2. Undefined target: falls back to the active session
+    // 2. Unresolved target (skip): the manager is never touched — there is no
+    //    process-global fallback to lean on anymore.
     calls.length = 0;
     dispatchAnnotationToTerminal(fakeTm, undefined, 'Inspect this');
-    assert.deepStrictEqual(calls, ['switch:active-session', 'writeTo:active-session:Inspect this\r']);
+    assert.deepStrictEqual(calls, [], 'unresolved pick must produce zero terminal calls');
 
-    // 3. 'auto' target: same active-session fallback
+    // 3. 'auto' unresolved at this seam is likewise terminal: resolution happens
+    //    upstream inside the picking window's scope, never here.
     calls.length = 0;
     dispatchAnnotationToTerminal(fakeTm, 'auto', 'Inspect this');
-    assert.deepStrictEqual(calls, ['switch:active-session', 'writeTo:active-session:Inspect this\r']);
+    assert.deepStrictEqual(calls, [], "'auto' must produce zero terminal calls at the dispatch seam");
 
-    // 4. Empty active session: falls back to a bare write (no session to attach to)
+    // 4. Empty/foreign-resolved-off ids also write nothing.
     calls.length = 0;
-    dispatchAnnotationToTerminal({ ...fakeTm, getActiveSessionId: () => '' }, 'auto', 'Inspect this');
-    assert.deepStrictEqual(calls, ['write:Inspect this\r']);
+    dispatchAnnotationToTerminal(fakeTm, '', 'Inspect this');
+    assert.deepStrictEqual(calls, [], 'empty id must produce zero terminal calls');
 
     // 5. Legacy draft payloads hit the same unconditional path: deliveryMode is never consulted
     calls.length = 0;
     dispatchAnnotationToTerminal(fakeTm, 'session-9', 'Inspect this');
     assert.deepStrictEqual(calls, ['switch:session-9', 'writeTo:session-9:Inspect this\r']);
   });
+  /**
+   * Window-scoped annotation routing (Phase 4): a pick resolves its terminal
+   * inside the picking window's own session list, matched by workspace folder.
+   * The process-global active session and any foreign-window id are never
+   * reachable from this seam anymore.
+   */
+  describe('annotation pick → window-scoped terminal routing', () => {
+    const { TabDevToolsHost } = require('../../src/main/browser/tab-devtools-host');
+    const { TerminalManager } = require('../../src/main/browser/terminal-manager');
 
+    interface ScopeRow {
+      id: string;
+      name: string;
+      state: 'running';
+      folderPath: string;
+    }
+    interface PickHarness {
+      terminalCalls: string[];
+      pickResult: (rawResult: Record<string, unknown>) => Promise<void>;
+      tabState: { terminalSessionId?: string; url: string; splitMode: boolean; title: string };
+      emitted: { picked: { markdownPath?: string } | null; toolbar: { markdownPath?: string } | null };
+      annotationWsCalls: Array<{ sessionId?: string; url?: string }>;
+      annotationWsReturn: string;
+    }
+
+    /**
+     * Drive `handleInspectPickResult` directly with a recording TerminalManager
+     * installed as the singleton, so the assertions observe the real dispatch
+     * seam (switchSession/writeTo) instead of a doubled copy of it.
+     */
+    function makePickHarness(opts: { scope: ScopeRow[]; windowActive?: string; annotationWs: string; tabUrl: string }): PickHarness {
+      const terminalCalls: string[] = [];
+      const fakeTm = {
+        switchSession: (id: string) => { terminalCalls.push('switch:' + id); return true; },
+        writeTo: (id: string, data: string) => { terminalCalls.push('writeTo:' + id + ':' + data); },
+      };
+      const previousTm = TerminalManager.getInstance();
+      TerminalManager.setInstance(fakeTm);
+
+      const tabState = { terminalSessionId: undefined as string | undefined, url: opts.tabUrl, splitMode: false, title: 'T' };
+      const emitted: PickHarness['emitted'] = { picked: null, toolbar: null };
+      const annotationWsCalls: Array<{ sessionId?: string; url?: string }> = [];
+      const harness: PickHarness = {
+        terminalCalls,
+        pickResult: async () => undefined,
+        tabState,
+        emitted,
+        annotationWsCalls,
+        annotationWsReturn: opts.annotationWs,
+      };
+
+      const mockTab = {
+        id: 'tab-1',
+        state: tabState,
+        view: { webContents: { isDestroyed: () => true } },
+      };
+      const mockWc = {
+        isDestroyed: () => false,
+        executeJavaScript: async () => undefined,
+        capturePage: async () => ({ isEmpty: () => true, toPNG: () => Buffer.from(''), getSize: () => ({ width: 0, height: 0 }) }),
+      };
+      const ctx = {
+        getTabWebContents: () => mockWc,
+        getTabRecord: (id: string) => (id === 'tab-1' ? mockTab : undefined),
+        getActiveTabId: () => 'tab-1',
+        getAllTabs: () => [][Symbol.iterator](),
+        broadcastState: () => {},
+        getTabTerminalSession: () => undefined,
+        visibleTerminalSessions: () => opts.scope,
+        windowActiveSessionId: () => opts.windowActive ?? '',
+        resolveTargetWorkspace: () => '',
+        resolveAnnotationWorkspace: (sessionId?: string, url?: string) => {
+          annotationWsCalls.push({ sessionId, url });
+          return harness.annotationWsReturn;
+        },
+        createTab: () => 'tab-2',
+        withTabAgentWorking: async (_t: string, action: () => Promise<unknown>) => action(),
+        emitElementPicked: (picked: { markdownPath?: string }) => { emitted.picked = picked; },
+        sendToolbarElementPicked: (picked: { markdownPath?: string }) => { emitted.toolbar = picked; },
+      };
+      const host = new TabDevToolsHost(ctx);
+      // Private-method seam: the public driver (attachInspectPickListener) is
+      // exercised by phase-01's listener tests; these cases assert the routing
+      // outcome, so they call the resolver directly.
+      const driver = host as unknown as {
+        handleInspectPickResult: (tabId: string, wc: unknown, paneId: string, generation: number, rawResult: Record<string, unknown>) => Promise<void>;
+      };
+      harness.pickResult = async (rawResult) => {
+        try {
+          await driver.handleInspectPickResult('tab-1', mockWc, 'desktop', 1, rawResult);
+        } finally {
+          TerminalManager.setInstance(previousTm);
+        }
+      };
+      return harness;
+    }
+
+    const RAW_PICK = { selector: 'button.buy', userComment: 'Inspect this', tagName: 'button' };
+
+    /**
+     * `resolveWorkspaceFromUrl` scans the real DEFAULT_WORKSPACE_ROOTS, so an
+     * 'auto' match needs a real (transient) project dir under a configured
+     * root whose cleaned dirname is the page's hostname label.
+     */
+    const WORKSPACE_ROOT = path.join('e:\\Work', 'customizes');
+    function mkUrlBackedWorkspace(prefix: string): { dir: string; url: string } {
+      const dir = fs.mkdtempSync(path.join(WORKSPACE_ROOT, prefix));
+      const host = path.basename(dir).toLowerCase().replace(/[^a-z0-9]/g, '');
+      return { dir, url: `https://${host}.local/` };
+    }
+
+    it("'auto' resolves to the window's workspace-matched session even while the global active terminal is foreign", async () => {
+      const wsA = mkUrlBackedWorkspace('zz-p4-wsa-');
+      const artifactDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-art-'));
+      try {
+        // Window A's scope has one session, minted in workspace A; a foreign
+        // window's session-B is the process-wide active one — which this seam
+        // no longer consults at all. The match key now comes from URL
+        // classification alone, so annotationWs plays no role in 'auto'.
+        const h = makePickHarness({
+          scope: [{ id: 'sess-a', name: 'Terminal 1', state: 'running', folderPath: wsA.dir }],
+          windowActive: '',
+          annotationWs: artifactDir,
+          tabUrl: wsA.url,
+        });
+        await h.pickResult({ ...RAW_PICK, targetSessionId: 'auto' });
+        // fullPrompt = comment + ' @<markdownPath> @<targetImagePath>' with \r
+        // — assert the delivery shape, not a hardcoded artifact path.
+        assert.strictEqual(h.terminalCalls[0], 'switch:sess-a');
+        assert.strictEqual(h.terminalCalls.length, 2);
+        assert.ok(h.terminalCalls[1]!.startsWith('writeTo:sess-a:Inspect this @'), 'prompt carries the artifact reference');
+        assert.ok(h.terminalCalls[1]!.endsWith('\r'), 'prompt is terminated with Enter');
+        // Workspaces are resolved only after the session resolved, and the
+        // 'auto' match probe is URL-only — no global resolver arm runs at all.
+        assert.strictEqual(h.annotationWsCalls.length, 1);
+        assert.strictEqual(h.annotationWsCalls[0]!.sessionId, 'sess-a', 'the artifact workspace must agree with the resolved session');
+        assert.strictEqual(h.tabState.terminalSessionId, 'auto', "an 'auto' pick persists 'auto' (Flow 26 memory)");
+      } finally {
+        fs.rmSync(wsA.dir, { recursive: true, force: true });
+        fs.rmSync(artifactDir, { recursive: true, force: true });
+      }
+    });
+
+    it("'auto' tie inside the matched workspace is broken by the window-active session", async () => {
+      const wsShared = mkUrlBackedWorkspace('zz-p4-wss-');
+      const artifactDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-art-'));
+      try {
+        const h = makePickHarness({
+          scope: [
+            { id: 'sess-1', name: 'Terminal 1', state: 'running', folderPath: wsShared.dir },
+            { id: 'sess-2', name: 'Terminal 2', state: 'running', folderPath: wsShared.dir },
+          ],
+          windowActive: 'sess-2',
+          annotationWs: artifactDir,
+          tabUrl: wsShared.url,
+        });
+        await h.pickResult({ ...RAW_PICK, targetSessionId: 'auto' });
+        assert.strictEqual(h.terminalCalls[0], 'switch:sess-2');
+        assert.strictEqual(h.terminalCalls.length, 2);
+        assert.ok(h.terminalCalls[1]!.startsWith('writeTo:sess-2:Inspect this '), 'the window-active session inside the matched set receives the prompt');
+        assert.ok(h.terminalCalls[1]!.endsWith('\r'));
+      } finally {
+        fs.rmSync(wsShared.dir, { recursive: true, force: true });
+        fs.rmSync(artifactDir, { recursive: true, force: true });
+      }
+    });
+
+    it("an explicit foreign-window session id is refused at validation and at dispatch", async () => {
+      const wsA = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-wsA-'));
+      try {
+        const h = makePickHarness({
+          scope: [{ id: 'sess-a', name: 'Terminal 1', state: 'running', folderPath: wsA }],
+          windowActive: 'sess-a',
+          annotationWs: wsA,
+          tabUrl: 'https://alpha-store.example.test/',
+        });
+        await h.pickResult({ ...RAW_PICK, targetSessionId: 'sess-foreign' });
+        assert.deepStrictEqual(h.terminalCalls, [], 'a session the picker never offered must receive nothing');
+        assert.strictEqual(h.tabState.terminalSessionId, undefined, 'a refused id never lands in per-tab memory');
+        assert.strictEqual(h.annotationWsCalls.length, 0, 'refused ids resolve no workspace through the resolver arms');
+        assert.ok(h.emitted.picked, 'element-picked still emits on a refused dispatch');
+      } finally {
+        fs.rmSync(wsA, { recursive: true, force: true });
+      }
+    });
+
+    it("'auto' never falls back to a window-active session whose folder differs from the annotated page workspace", async () => {
+      const wsA = mkUrlBackedWorkspace('zz-p4-wsa-');
+      const wsB = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-wsB-'));
+      try {
+        const h = makePickHarness({
+          // The window's presented session lives in workspace B while the
+          // annotated page resolves to workspace A: the matched set inside A
+          // is empty and window-active must NOT rescue the dispatch.
+          scope: [{ id: 'sess-b', name: 'Terminal 1', state: 'running', folderPath: wsB }],
+          windowActive: 'sess-b',
+          annotationWs: wsB,
+          tabUrl: wsA.url,
+        });
+        await h.pickResult({ ...RAW_PICK, targetSessionId: 'auto' });
+        assert.deepStrictEqual(h.terminalCalls, [], 'cross-folder window-active is not a fallback');
+        assert.ok(h.emitted.picked, 'element-picked still emits on a skipped dispatch');
+        assert.ok(h.emitted.picked?.markdownPath, 'annotation artifacts still write on a skipped dispatch');
+      } finally {
+        fs.rmSync(wsA.dir, { recursive: true, force: true });
+        fs.rmSync(wsB, { recursive: true, force: true });
+      }
+    });
+
+    it("'auto' skips rather than steering to a foreign active workspace on an unclassifiable URL", async () => {
+      // Regression: the match key must come from URL classification alone —
+      // resolveAnnotationWorkspace's session/active-capsule arms would answer
+      // a process-global foreign workspace for this URL and wrongly deliver
+      // the annotation into the matching in-window session.
+      const wsB = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-wsB-'));
+      try {
+        const h = makePickHarness({
+          scope: [{ id: 'sess-b', name: 'Terminal 1', state: 'running', folderPath: wsB }],
+          windowActive: '',
+          // The resolver arms would return the foreign workspace the session
+          // also lives in — a match exists only if the global arm leaked in.
+          annotationWs: wsB,
+          tabUrl: 'https://totally-unclassifiable.invalid/',
+        });
+        await h.pickResult({ ...RAW_PICK, targetSessionId: 'auto' });
+        assert.deepStrictEqual(h.terminalCalls, [], 'an unclassifiable URL must skip dispatch even when a global-arm workspace would match');
+        assert.strictEqual(h.annotationWsCalls.length, 0, 'the auto match key must not consult the annotation resolver');
+      } finally {
+        fs.rmSync(wsB, { recursive: true, force: true });
+      }
+    });
+
+    it("a concrete in-scope session id dispatches straight to that session", async () => {
+      const wsA = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-wsA-'));
+      const wsB = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-wsB-'));
+      try {
+        const h = makePickHarness({
+          scope: [
+            { id: 'sess-a', name: 'Terminal 1', state: 'running', folderPath: wsA },
+            { id: 'sess-b', name: 'Terminal 2', state: 'running', folderPath: wsB },
+          ],
+          windowActive: 'sess-a',
+          annotationWs: wsB,
+          tabUrl: 'https://beta.example.test/',
+        });
+        await h.pickResult({ ...RAW_PICK, targetSessionId: 'sess-b' });
+        assert.strictEqual(h.terminalCalls[0], 'switch:sess-b');
+        assert.strictEqual(h.terminalCalls.length, 2);
+        assert.ok(h.terminalCalls[1]!.startsWith('writeTo:sess-b:Inspect this '));
+        assert.ok(h.terminalCalls[1]!.endsWith('\r'));
+        assert.strictEqual(h.tabState.terminalSessionId, 'sess-b', 'a scoped concrete id persists as the tab memory');
+      } finally {
+        fs.rmSync(wsA, { recursive: true, force: true });
+        fs.rmSync(wsB, { recursive: true, force: true });
+      }
+    });
+  });
   it('strips a legacy deliveryMode field from picked payloads before re-emit', () => {
     const basePick: PickedElementInput = {
       tag: 'div',

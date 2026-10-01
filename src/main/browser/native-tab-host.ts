@@ -19,7 +19,7 @@ import { parseOwnerKey } from '../project/project-context';
 import { openSpace, createConfirmationStore, type SpaceOpenDeps } from '../project/space-open';
 import { buildSpaceTemplate, writeSpaceManifestExclusive, antifanDirUnignoredInGit } from '../project/space-manifest';
 import type { SpaceInitResult } from '../../shared/contracts';
-import { AntiFanTab, SplitPaneId, AntiFanPickedElement, TOOLBAR_CHANNELS, SIDEBAR_CHANNELS, TERMINAL_CHANNELS, FRAME_BACKDROP_CHANNELS, TerminalAckPayload, TerminalDataPayload, TerminalNewInFolderResult, SpaceOpenResult, TerminalTabLayout, TerminalTabPrefs, TERMINAL_TAB_LAYOUT_DEFAULT_WIDTH, clampTerminalTabSidebarWidth, TERMINAL_CATEGORY_COLORS_MAX, TERMINAL_CATEGORY_COLOR_PATTERN, ToolbarPhoneStatus, TerminalAgentAffinityInfo, ProjectWindowIdentity, BRIDGE_CHANNELS, RunCardState, RunControlOp, RunControlReason, RunControlResult, CapsuleBrief, CapsuleBriefResult, CapsuleBriefReason } from '../../shared/contracts';
+import { AntiFanTab, SplitPaneId, AntiFanPickedElement, TOOLBAR_CHANNELS, SIDEBAR_CHANNELS, TERMINAL_CHANNELS, FRAME_BACKDROP_CHANNELS, PROJECT_WINDOW_CHANNELS, TerminalAckPayload, TerminalDataPayload, TerminalNewInFolderResult, SpaceOpenResult, TerminalTabLayout, TerminalTabPrefs, TERMINAL_TAB_LAYOUT_DEFAULT_WIDTH, clampTerminalTabSidebarWidth, TERMINAL_CATEGORY_COLORS_MAX, TERMINAL_CATEGORY_COLOR_PATTERN, ToolbarPhoneStatus, TerminalAgentAffinityInfo, ProjectWindowIdentity, BRIDGE_CHANNELS, RunCardState, RunControlOp, RunControlReason, RunControlResult, CapsuleBrief, CapsuleBriefResult, CapsuleBriefReason } from '../../shared/contracts';
 import { buildBridgeHealthReport, subscribeBridgeHealth } from '../bridge/bridge-health';
 import { RunStateService } from '../run/run-state-service';
 import type { ExecutionBackend } from '../agent/execution-backend';
@@ -246,7 +246,21 @@ export interface SavedTabsOwnerRecord {
   updatedAt: number;
   /** The web hub's presented project at persist time; only the 'web' owner carries it. */
   activeProjectId?: string;
+  /** This window's terminal tab-strip layout: each window remembers the one the user set there. */
+  terminalTabLayout?: TerminalTabLayout;
+  /** This window's terminal sidebar column width (px). */
+  terminalSidebarWidth?: number;
 }
+
+/** Terminal prefs every window shares: the saved-tabs top-level keys they persist under. */
+const SHARED_TERMINAL_PREF_KEYS = [
+  'terminalCollapsedCategories',
+  'terminalCategories',
+  'terminalCategoryColors',
+  'terminalStarredCategories',
+  'terminalProjectOrder',
+] as const;
+type SharedTerminalPrefKey = typeof SHARED_TERMINAL_PREF_KEYS[number];
 
 /**
  * The on-disk saved-tabs document. `owners` is the only place window-scoped
@@ -268,6 +282,7 @@ export interface SavedTabsDocument extends Record<string, unknown> {
   terminalCategories?: string[];
   terminalCategoryColors?: Record<string, string>;
   terminalStarredCategories?: string[];
+  terminalProjectOrder?: string[];
   updatedAt?: number;
 }
 
@@ -448,6 +463,8 @@ export function normalizeSavedTabsDocument(data: Record<string, unknown>): { doc
       if ('wasSidebarOpenBeforePopout' in value && typeof value.wasSidebarOpenBeforePopout === 'boolean') record.wasSidebarOpenBeforePopout = value.wasSidebarOpenBeforePopout;
       if ('popoutSessionId' in value && typeof value.popoutSessionId === 'string') record.popoutSessionId = value.popoutSessionId;
       if ('activeProjectId' in value && typeof value.activeProjectId === 'string') record.activeProjectId = value.activeProjectId;
+      if ('terminalTabLayout' in value && (value.terminalTabLayout === 'horizontal' || value.terminalTabLayout === 'sidebar')) record.terminalTabLayout = value.terminalTabLayout;
+      if ('terminalSidebarWidth' in value && typeof value.terminalSidebarWidth === 'number' && Number.isFinite(value.terminalSidebarWidth)) record.terminalSidebarWidth = value.terminalSidebarWidth;
       existingOwners[key] = record;
     }
   }
@@ -789,118 +806,6 @@ export interface BookmarkItem {
   createdAt: number;
 }
 
-export function inferTabSemanticRole(url?: string, title?: string): { alias?: string; role?: 'admin' | 'feedback' | 'pricing' | 'spec' | 'data' | 'storefront' | 'custom'; aliasColor?: string } {
-  if (!url || url === 'about:blank') return {};
-  const lowerUrl = url.toLowerCase();
-  const lowerTitle = (title || '').toLowerCase();
-
-  // 1. Admin / Management portals
-  if (
-    lowerUrl.includes('/admin') ||
-    lowerUrl.includes('admin.shopify.com') ||
-    lowerUrl.includes('.myshopify.com/admin') ||
-    lowerUrl.includes('.myharavan.com/admin') ||
-    lowerUrl.includes('.mysapo.vn/admin') ||
-    lowerUrl.includes('/wp-admin') ||
-    lowerTitle.includes('quản trị') ||
-    lowerTitle.includes('admin') ||
-    lowerTitle.includes('dashboard')
-  ) {
-    return { alias: '@admin', role: 'admin', aliasColor: '#2563eb' };
-  }
-
-  // 2. Documents / Spreadsheets / Data sources
-  const isDocOrSheet =
-    lowerUrl.includes('docs.google.com/spreadsheets') ||
-    lowerUrl.includes('docs.google.com/document') ||
-    lowerUrl.includes('airtable.com') ||
-    lowerUrl.includes('notion.so') ||
-    lowerUrl.endsWith('.xlsx') ||
-    lowerUrl.endsWith('.xls') ||
-    lowerUrl.endsWith('.docx') ||
-    lowerUrl.endsWith('.pdf') ||
-    lowerUrl.endsWith('.csv') ||
-    lowerTitle.includes('trang tính') ||
-    lowerTitle.includes('bảng tính') ||
-    lowerTitle.includes('spreadsheet') ||
-    lowerTitle.includes('document');
-
-  if (isDocOrSheet) {
-    // 2a. Báo giá / Pricing / Quotation / Cost
-    if (
-      lowerTitle.includes('báo giá') ||
-      lowerTitle.includes('bảng giá') ||
-      lowerTitle.includes('pricing') ||
-      lowerTitle.includes('price') ||
-      lowerTitle.includes('quote') ||
-      lowerTitle.includes('quotation') ||
-      lowerTitle.includes('cost') ||
-      lowerUrl.includes('bao-gia') ||
-      lowerUrl.includes('pricing')
-    ) {
-      return { alias: '@pricing', role: 'pricing', aliasColor: '#f59e0b' };
-    }
-
-    // 2b. Tài liệu / Spec / Brief / Requirements
-    if (
-      lowerTitle.includes('spec') ||
-      lowerTitle.includes('brief') ||
-      lowerTitle.includes('tài liệu') ||
-      lowerTitle.includes('guideline') ||
-      lowerTitle.includes('hướng dẫn') ||
-      lowerTitle.includes('requirement') ||
-      lowerUrl.includes('/document/') ||
-      lowerUrl.endsWith('.docx') ||
-      lowerUrl.endsWith('.pdf')
-    ) {
-      return { alias: '@spec', role: 'spec', aliasColor: '#06b6d4' };
-    }
-
-    // 2c. Feedback / Review / QA / Issue checklist
-    if (
-      lowerTitle.includes('feedback') ||
-      lowerTitle.includes('lỗi') ||
-      lowerTitle.includes('bug') ||
-      lowerTitle.includes('qa') ||
-      lowerTitle.includes('review') ||
-      lowerTitle.includes('checklist') ||
-      lowerTitle.includes('góp ý')
-    ) {
-      return { alias: '@feedback', role: 'feedback', aliasColor: '#16a34a' };
-    }
-
-    // 2d. Sản phẩm / Master data / Inventory
-    if (
-      lowerTitle.includes('sản phẩm') ||
-      lowerTitle.includes('product') ||
-      lowerTitle.includes('catalog') ||
-      lowerTitle.includes('danh mục') ||
-      lowerTitle.includes('sku')
-    ) {
-      return { alias: '@data', role: 'data', aliasColor: '#10b981' };
-    }
-
-    // 2e. Bảng tính Google Sheets / Excel chung
-    if (
-      lowerUrl.includes('docs.google.com/spreadsheets') ||
-      lowerUrl.endsWith('.xlsx') ||
-      lowerUrl.endsWith('.csv') ||
-      lowerTitle.includes('trang tính') ||
-      lowerTitle.includes('bảng tính')
-    ) {
-      return { alias: '@sheet', role: 'feedback', aliasColor: '#16a34a' };
-    }
-
-    return { alias: '@doc', role: 'spec', aliasColor: '#06b6d4' };
-  }
-
-  // 3. Storefront / Live Web
-  if (lowerUrl.startsWith('http://') || lowerUrl.startsWith('https://')) {
-    return { alias: '@storefront', role: 'storefront', aliasColor: '#9333ea' };
-  }
-
-  return {};
-}
 
 export interface NativeTabRecord {
   /**
@@ -1188,6 +1093,16 @@ export type WebHubProjectDescriptorResolver = (projectId: string) => WebHubProje
  */
 export const USER_INPUT_RECENCY_MS = 2_000;
 
+/**
+ * How long the window must have been out of focus before regaining it re-presents the
+ * active tab. A quick Alt+Tab keeps its surface; a window left behind others for this
+ * long is the case that came back white.
+ */
+export const PRESENTED_VIEW_RESURFACE_AFTER_BLUR_MS = 30_000;
+/** `restore` and the `focus` that follows it arrive together: one recycle serves both. */
+export const PRESENTED_VIEW_RESURFACE_DEDUPE_MS = 1_000;
+export type PresentedViewResurfaceTrigger = 'show' | 'restore' | 'focus' | 'resume' | 'unlock-screen';
+
 /** Deliberate input types that prove the user is present. Movement-only events are
  * absent on purpose: gliding the cursor to look at a lifted pane is not input. */
 const USER_ACTIVITY_INPUT_TYPES: Record<string, true> = {
@@ -1331,8 +1246,9 @@ export class NativeTabHost extends EventEmitter {
   private isBookmarkBarVisible: boolean = false;
   private sidebarWidth: number = 380;
   // Terminal tab-strip prefs are an INNER layout of the standalone renderer —
-  // they never affect this host's outer window geometry. Horizontal is the
-  // default so a fresh install looks exactly like before.
+  // they never affect this host's outer window geometry. Layout and width are this
+  // window's own (owner record); a browser window defaults to the horizontal strip,
+  // the Terminal Manager to the sidebar column (set in the constructor).
   private terminalTabLayout: TerminalTabLayout = 'horizontal';
   private terminalSidebarWidth: number = TERMINAL_TAB_LAYOUT_DEFAULT_WIDTH;
   private terminalCollapsedCategories: string[] = [];
@@ -1342,6 +1258,14 @@ export class NativeTabHost extends EventEmitter {
   private terminalCategoryColors: Record<string, string> = {};
   /** Categories the user marked with `*`. A marker only; `terminalCategories` orders. */
   private terminalStarredCategories: string[] = [];
+  /** Project ids in the order the user dragged the Terminal Manager's project sections. */
+  private terminalProjectOrder: string[] = [];
+  /**
+   * Shared terminal pref keys this host changed through SET_TAB_PREFS since boot. Every
+   * window keeps a boot-time copy of the shared prefs; a window that never touched a key
+   * must not write its stale copy over what a sibling window committed.
+   */
+  private touchedSharedTerminalPrefs = new Set<SharedTerminalPrefKey>();
   // Running count of 'antifan:terminal:data' payloads actually handed to
   // safeSendWebContents; readable via getResourceStats/DUMP_DIAGNOSTICS without
   // benchmark mode.
@@ -1531,6 +1455,16 @@ export class NativeTabHost extends EventEmitter {
     return this.capsuleManager.uniqueAffiliationByRoot(capsule.workspacePath);
   }
 
+  /**
+   * Owner key for a Terminal Manager mint into `folder`. The manager owns no folder, so the
+   * folder's one open project owns the new row; a folder no project claims unambiguously stays
+   * the manager's own key, which is what files it under "Chưa gắn dự án" for triage.
+   */
+  public managerFolderMintOwnerKey(folder: string, capsule: WorkspaceCapsule | null | undefined, senderId: number | undefined): string | undefined {
+    const affiliation = capsule ? this.capsuleAffiliation(capsule) : this.capsuleManager.uniqueAffiliationByRoot(folder);
+    return affiliation ? `project:${affiliation.projectId}` : this.shellOwnerKeyForSender(senderId);
+  }
+
 
   /**
    * Whether a window currently owns an owner key, as Main's window directory answers it.
@@ -1613,6 +1547,7 @@ export class NativeTabHost extends EventEmitter {
         visibleTerminalSessions: () => this.visibleTerminalSessions(),
         resolveTargetWorkspace: (targetSessionId, tabUrl) => this.resolveTargetWorkspace(targetSessionId, tabUrl),
         resolveAnnotationWorkspace: (targetSessionId, tabUrl) => this.resolveAnnotationWorkspace(targetSessionId, tabUrl),
+        windowActiveSessionId: () => this.windowActiveSessionId(),
         getDiagnostics: (tabId, level) => (this.diagnosticsManager && typeof this.diagnosticsManager.getDiagnostics === 'function') ? this.diagnosticsManager.getDiagnostics(tabId, level as any) : null,
         createTab: (url, activate) => this.createTab(url, activate),
         withTabAgentWorking: (tabId, action) => this.withTabAgentWorking(tabId, action),
@@ -1877,6 +1812,9 @@ export class NativeTabHost extends EventEmitter {
     this.getAutomationHost();
     this.getDevToolsHost();
 
+    // The Terminal Manager is itself a sidebar surface: its tab strip opens as the sidebar
+    // column unless the user chose otherwise in that window.
+    if (this.isTerminalOnlyWindow()) this.terminalTabLayout = 'sidebar';
     // Pre-load saved sidebar state so initial layout matches persisted user intent (no auto-open flash)
     const savedTabsPath = path.join(stateDir, 'saved-tabs.json');
     if (fs.existsSync(savedTabsPath)) {
@@ -1884,21 +1822,20 @@ export class NativeTabHost extends EventEmitter {
         const raw = fs.readFileSync(savedTabsPath, 'utf8');
         const data = JSON.parse(raw);
         this.restoreMutedSites(data.mutedSites);
-        if (typeof data.isSidebarOpen === 'boolean') {
+        // The Terminal Manager's sidebar is the whole window and never closes (the shell is born
+        // open); a persisted "closed" from a project window must not shrink it to 0x0.
+        if (typeof data.isSidebarOpen === 'boolean' && !this.shell.isTerminalOnly()) {
           this.shell.isSidebarOpen = data.isSidebarOpen;
         }
         if (typeof data.sidebarWidth === 'number' && data.sidebarWidth >= 260 && data.sidebarWidth <= 850) {
           this.shell.sidebarWidth = data.sidebarWidth;
         }
-        this.applyTerminalTabPrefs({
-          layout: data.terminalTabLayout,
-          sidebarWidth: data.terminalSidebarWidth,
-          collapsedCategories: data.terminalCollapsedCategories,
-        });
+        this.restoreWindowTerminalLayout(data);
+        this.applyTerminalTabPrefs({ collapsedCategories: data.terminalCollapsedCategories });
       } catch {}
     } else {
       const activeCapsule = this.capsuleManager.getActive();
-      if (typeof activeCapsule?.state?.sidebarOpen === 'boolean') {
+      if (typeof activeCapsule?.state?.sidebarOpen === 'boolean' && !this.shell.isTerminalOnly()) {
         this.shell.isSidebarOpen = activeCapsule.state.sidebarOpen;
       }
       if (typeof activeCapsule?.state?.sidebarWidth === 'number' && activeCapsule.state.sidebarWidth >= 260 && activeCapsule.state.sidebarWidth <= 850) {
@@ -1938,12 +1875,20 @@ export class NativeTabHost extends EventEmitter {
     this.shell.onResize(() => {
       this.updateLayout();
     });
+    // A window coming back from hidden/minimized, from a long stretch behind other windows,
+    // or from sleep / a locked screen can hold an attached view Windows stopped compositing:
+    // the page keeps running but paints white. `updateLayout` only invalidates an attached
+    // view, which does not restart its frames, so these re-present it instead.
     this.shell.onShow(() => {
       this.updateLayout();
+      this.resurfacePresentedView('show');
     });
     this.shell.onRestore(() => {
       this.updateLayout();
+      this.resurfacePresentedView('restore');
     });
+    this.shell.onBlur(() => this.noteWindowBlurred());
+    this.shell.onFocus(() => this.noteWindowFocused());
     // The 60s idle sweep is per-host: it frees renderers for background tabs of
     // THIS window only, so it is created here with the subscriptions and cleared
     // by dispose. The timer is unref'd — it never keeps the process alive.
@@ -2417,20 +2362,7 @@ export class NativeTabHost extends EventEmitter {
   {
     channel: TOOLBAR_CHANNELS.CLOSE_TAB,
     surface: 'toolbar',
-    run: ({ host }, event, args) => { return host.closeTab(typeof args[0] === 'string' ? args[0] : ''); },
-  },
-  {
-    channel: 'antifan:tab:set-alias',
-    surface: 'toolbar',
-    run: ({ host }, event, args) => {
-      const { tabId, alias, role, aliasColor } = (args[0] || {}) as { tabId?: string; alias?: string; role?: string; aliasColor?: string };
-      return host.setTabAlias(tabId || host.activeTabId, alias, role, aliasColor);
-    },
-  },
-  {
-    channel: 'antifan:tab:get-alias',
-    surface: 'toolbar',
-    run: ({ host }, event, args) => { return host.resolveAliasToTabId(typeof args[0] === 'string' ? args[0] : ''); },
+    run: ({ host }, event, args) => { return host.closeTab(typeof args[0] === 'string' ? args[0] : '', 'user-toolbar'); },
   },
   {
     channel: TOOLBAR_CHANNELS.MOVE_TAB,
@@ -3293,7 +3225,28 @@ export class NativeTabHost extends EventEmitter {
       // session belongs to the capsule this window verified, never to the manager's ambient
       // one, which another window's workspace switch may have set.
       const resolvedTarget = host.resolveTerminalCreationTarget(event?.sender);
-      const target = cwd ? { ...resolvedTarget, cwd } : resolvedTarget;
+      let target = cwd ? { ...resolvedTarget, cwd } : resolvedTarget;
+      // The shared manager owns no folder: an explicit cwd there names the folder whose
+      // project owns the row, reusing (never creating) the capsule recorded for it.
+      if (cwd && host.isSharedTerminalManagerSender(event?.sender?.id)) {
+        let real = '';
+        try {
+          real = fs.realpathSync.native(cwd);
+          if (!fs.statSync(real).isDirectory()) real = '';
+        } catch {
+          real = '';
+        }
+        if (real) {
+          const activeId = host.capsuleManager.getActive()?.id ?? '';
+          const capsule = findCapsuleByRoot(host.capsuleManager.list(), real, activeId);
+          const ownerKey = host.managerFolderMintOwnerKey(real, capsule, event?.sender?.id);
+          target = {
+            ...target,
+            capsuleId: capsule?.id || target.capsuleId,
+            ownerKey: ownerKey ?? target.ownerKey,
+          };
+        }
+      }
       // The daemon mints the PTY after this call resolves: hold the admission across it, and
       // attribute it to the page that asked plus the owner of the shell that asked - a sidebar
       // sender is chrome, so without the owner a shell close could not see this mint.
@@ -3646,7 +3599,7 @@ export class NativeTabHost extends EventEmitter {
     surface: ['sidebar', 'terminalPopout'],
     run: ({ host }, event, args) => {
       const prefs = (args[0] || {}) as Partial<TerminalTabPrefs>;
-      const layoutChanged = host.applyTerminalTabPrefs(prefs);
+      const layoutChanged = host.applyTerminalTabPrefsFromUser(prefs);
       if (layoutChanged) {
         // The outer window geometry does not depend on the inner tab-strip
         // layout, but updateLayout is the established re-broadcast point.
@@ -3660,6 +3613,7 @@ export class NativeTabHost extends EventEmitter {
         categories: host.terminalCategories,
         categoryColors: host.terminalCategoryColors,
         starredCategories: host.terminalStarredCategories,
+        projectOrder: host.terminalProjectOrder,
       } satisfies TerminalTabPrefs;
     },
   },
@@ -4220,10 +4174,16 @@ export class NativeTabHost extends EventEmitter {
             try {
               // The daemon mints the PTY after this call resolves: held until it settles, so a
               // Promise-shaped id is awaited exactly like the in-process string id.
+              // A project window may only mint into its own folder and keeps its own key; the
+              // shared manager hands the row to the folder's project so it lands in that
+              // project's section instead of the triage card.
+              const mintOwnerKey = host.isSharedTerminalManagerSender(senderId)
+                ? host.managerFolderMintOwnerKey(realPath, capsule, senderId)
+                : host.shellOwnerKeyForSender(senderId);
               const sessionId = await TerminalManager.getInstance().createSession(
                 realPath,
                 capsule.id,
-                host.shellOwnerKeyForSender(senderId),
+                mintOwnerKey,
               );
               if (typeof sessionId !== 'string' || !sessionId) {
                 return { ok: false, reason: 'CREATE_FAILED', message: 'Terminal minted no session id' };
@@ -4309,7 +4269,6 @@ export class NativeTabHost extends EventEmitter {
                       ? windowHost.createPreviewTab(absolutePath, capsuleId)
                       : null;
                 if (!tabId) return false;
-                if (spec.alias || spec.role) windowHost.setTabAlias(tabId, spec.alias, spec.role);
                 return true;
               },
             },
@@ -4383,7 +4342,7 @@ export class NativeTabHost extends EventEmitter {
       // Tabs belong to a project window; the shared manager owns none, so it scaffolds terminals only.
       const tabs = isManager
         ? []
-        : host.getTabList().map((tab) => ({ url: typeof tab.url === 'string' ? tab.url : '', alias: tab.alias, role: tab.role }));
+        : host.getTabList().map((tab) => ({ url: typeof tab.url === 'string' ? tab.url : '' }));
       const manifest = buildSpaceTemplate(path.basename(realPath), terminals, tabs);
       try {
         if (writeSpaceManifestExclusive(realPath, manifest) === 'exists') {
@@ -4847,6 +4806,7 @@ export class NativeTabHost extends EventEmitter {
           categories: host.terminalCategories,
           categoryColors: host.terminalCategoryColors,
           starredCategories: host.terminalStarredCategories,
+          projectOrder: host.terminalProjectOrder,
         } satisfies TerminalTabPrefs,
         // The renderer scopes its shell owner off this identity, same contract
         // the toolbar publishes: a project shell its project, the shared
@@ -5694,6 +5654,66 @@ export class NativeTabHost extends EventEmitter {
   }
 
   /**
+   * Re-present the active tab after the window was out of sight. A view Windows stopped
+   * compositing while the window was hidden, covered or asleep comes back as a white
+   * canvas although its renderer keeps running (audio plays, the DOM is live);
+   * `invalidate()` does not restart its frames, the fresh visual `reassertPresentedView`
+   * allocates does. The journal row carries the pane's state from before the recycle, so a
+   * white pane that survives it can be told apart from one it healed.
+   *
+   * Returns whether the pane was re-presented; a hidden or minimized window, a window with
+   * nothing presented, or a trigger arriving right after another recycle is left alone.
+   */
+  public resurfacePresentedView(trigger: PresentedViewResurfaceTrigger, blurredMs?: number): boolean {
+    if (this.isDisposed) return false;
+    const win = this.shell.window;
+    if (!win || (typeof win.isDestroyed === 'function' && win.isDestroyed())) return false;
+    if (typeof win.isVisible === 'function' && !win.isVisible()) return false;
+    if (typeof win.isMinimized === 'function' && win.isMinimized()) return false;
+    // A restore raises `restore` and then `focus`: one recycle covers both. The trailing
+    // trigger is still journaled so an incident timeline shows every event that arrived.
+    const now = Date.now();
+    if (now - this.lastResurfaceAtMs < PRESENTED_VIEW_RESURFACE_DEDUPE_MS) {
+      recordLifecycleEvent('tabhost.presentedViewResurfaced', { trigger, tabId: this.activeTabId, skipped: 'deduped' });
+      return false;
+    }
+    const activeTab = this.activeTabId && this.tabs ? this.tabs.get(this.activeTabId) : null;
+    const view = activeTab?.view;
+    const wc = view?.webContents;
+    if (!activeTab || !view || !wc || activeTab.state.offscreen === true) return false;
+    if (typeof wc.isDestroyed === 'function' && wc.isDestroyed()) return false;
+    this.lastResurfaceAtMs = now;
+    const wasFocused = typeof wc.isFocused === 'function' && wc.isFocused();
+    recordLifecycleEvent('tabhost.presentedViewResurfaced', {
+      trigger,
+      tabId: this.activeTabId,
+      ...(blurredMs !== undefined ? { blurredMs } : {}),
+      attached: this.isTabViewAttached(view),
+      crashed: typeof wc.isCrashed === 'function' ? wc.isCrashed() : null,
+      bounds: typeof view.getBounds === 'function' ? view.getBounds() : null,
+    });
+    this.reassertPresentedView();
+    // Dropping and re-adding the view can take keyboard focus from the page the user was in.
+    if (wasFocused && !(typeof wc.isDestroyed === 'function' && wc.isDestroyed())) {
+      try { wc.focus(); } catch {}
+    }
+    return true;
+  }
+
+  public noteWindowBlurred(): void {
+    this.windowBlurredAtMs = Date.now();
+  }
+
+  /** Regaining focus after a long absence re-presents the tab; a quick Alt+Tab does not. */
+  public noteWindowFocused(): void {
+    const blurredAt = this.windowBlurredAtMs;
+    this.windowBlurredAtMs = null;
+    if (typeof blurredAt !== 'number') return;
+    const blurredMs = Date.now() - blurredAt;
+    if (blurredMs >= PRESENTED_VIEW_RESURFACE_AFTER_BLUR_MS) this.resurfacePresentedView('focus', blurredMs);
+  }
+
+  /**
    * Drop and re-insert a presented view so Windows DirectComposition allocates a
    * new visual. `invalidate()` on an already-attached occluded view does not
    * restart BeginFrame; a getBounds 1px kick destroyed the visual instead
@@ -5744,6 +5764,23 @@ export class NativeTabHost extends EventEmitter {
 
   public async runWithAttachedTabView<T>(view: WebContentsView | null | undefined, action: () => Promise<T>, isMobile = false): Promise<T> {
     if (!view || !this.shell.window || (typeof this.shell.window.isDestroyed === 'function' && this.shell.window.isDestroyed()) || !this.shell.window.contentView) {
+      return action();
+    }
+    // An offscreen (OSR) view must never enter the window: AddChildView sets an
+    // owner the later detach does not clear, after which every window resize
+    // rewrites the OSR raster size (Electron #45864) and the tab stops rendering
+    // at the viewport it was emulated to. Keyed on the resolved tab's state, so
+    // every caller (sweepBreakpoints, background capture, setViewportSize) is
+    // covered without touching call sites. A view already inside the window is
+    // legacy breakage, not OSR operation: it takes the normal path so the release
+    // still detaches it.
+    let ownerTab: NativeTabRecord | undefined;
+    try { ownerTab = view.webContents ? this.tabByWebContents?.get(view.webContents)?.tab : undefined; } catch {}
+    if (ownerTab?.state.offscreen === true && !this.isTabViewAttached(view)) {
+      const osrWc = view.webContents;
+      if (osrWc && typeof osrWc.invalidate === 'function') {
+        try { osrWc.invalidate(); } catch {}
+      }
       return action();
     }
     if (!this.temporaryViewAttachCounts) {
@@ -6073,6 +6110,10 @@ export class NativeTabHost extends EventEmitter {
    * created; the caller then lifts in-window.
    */
   private raiseViewOnCaptureHost(view: WebContentsView): boolean {
+    // A screenshot of the presented pane must keep its compositor in the user's
+    // window. Parking it off-screen leaves a white hole while its audio continues.
+    const activeTab = this.activeTabId ? this.tabs.get(this.activeTabId) : undefined;
+    if (view === activeTab?.view || view === activeTab?.mobileView) return false;
     const host = this.ensureCaptureHostWindow();
     if (!host) return false;
     const current = typeof view.getBounds === 'function' ? view.getBounds() : undefined;
@@ -6191,6 +6232,61 @@ export class NativeTabHost extends EventEmitter {
     if (availableWidth < 1 || availableHeight < 1) return;
     this.applyTabDeviceEmulation(indexed.tab, availableWidth, availableHeight, toolbarHeight);
   }
+  /**
+   * Size an offscreen (OSR) tab's render surface. The OSR RenderWidgetHostView owns
+   * its compositor, so `Emulation.setDeviceMetricsOverride` is the whole sizing
+   * mechanism: the view is never attached, and nothing else (updateLayout skips
+   * offscreen tabs, setBounds on a detached view lays nothing out) gives the
+   * document a non-zero box. Before a document commits the override defers to
+   * did-finish-load via `pendingEmulationDeferrals`, and the same deferral re-arms
+   * it after a renderer swap — the caller only has to call this once the record
+   * exists.
+   *
+   * Size resolution order: the tab's custom viewport (a setViewportSize request
+   * survives recreation), then the window's content box, then the default agent
+   * viewport 1440x900 ('laptop-1440'). The resolved size is stamped onto the
+   * record as a `custom-<w>x<h>` preset because `responsive` resolves to the
+   * clear-override branch of applyTabDeviceEmulation — which is correct on an
+   * attached pane and fatal here: an override cleared on OSR leaves the widget
+   * unsized, the BeginFrame source never ticks, and every capture burns its bound.
+   */
+  private applyOffscreenSurfaceEmulation(tab: NativeTabRecord): void {
+    if (!tab || tab.state.offscreen !== true || !tab.view) return;
+    try {
+      let width = 0;
+      let height = 0;
+      let mobile = false;
+      let deviceScaleFactor = 1;
+      const cv = tab.customViewport;
+      if (cv && Number.isFinite(cv.width) && Number.isFinite(cv.height) && cv.width > 0 && cv.height > 0) {
+        width = Math.round(cv.width);
+        height = Math.round(cv.height);
+        mobile = cv.mobile === true;
+        deviceScaleFactor = typeof cv.deviceScaleFactor === 'number' && cv.deviceScaleFactor > 0 ? cv.deviceScaleFactor : 1;
+      } else {
+        const contentBounds = this.shell.window && (typeof this.shell.window.isDestroyed !== 'function' || !this.shell.window.isDestroyed()) && typeof this.shell.window.getContentBounds === 'function'
+          ? this.shell.window.getContentBounds()
+          : undefined;
+        if (contentBounds && Number.isFinite(contentBounds.width) && Number.isFinite(contentBounds.height) && contentBounds.width >= 1 && contentBounds.height >= 1) {
+          const toolbarHeight = typeof this.getToolbarHeight === 'function' ? this.getToolbarHeight() : 0;
+          width = Math.round(this.shell.isSidebarOpen ? Math.max(400, contentBounds.width - this.shell.sidebarWidth) : contentBounds.width);
+          height = Math.max(1, Math.round(contentBounds.height - toolbarHeight));
+        } else {
+          // A mint racing window teardown still gets a real surface: the named
+          // default agent viewport ('laptop-1440'), not a 0x0 box.
+          const fallback = findDevicePreset('laptop-1440');
+          width = Math.round(fallback?.width ?? 1440);
+          height = Math.round(fallback?.height ?? 900);
+        }
+      }
+      tab.customViewport = { width, height, mobile, deviceScaleFactor };
+      tab.state.devicePresetId = `custom-${width}x${height}`;
+      this.applyTabDeviceEmulation(tab, width, height, 0);
+    } catch (err) {
+      console.error('[native-tab-host] applyOffscreenSurfaceEmulation error:', err);
+    }
+  }
+
 
   /**
    * The box the window gives a pane's view: the fluid area, or the pane's own frame in
@@ -6524,6 +6620,12 @@ export class NativeTabHost extends EventEmitter {
   public setActiveProject(projectId: string | null): void {
     const id = typeof projectId === 'string' ? projectId.trim() : '';
     this.activeProjectId = id ? id : null;
+    // The OS title bar names the presented project too; the hub's own record only
+    // knows the product title, so a project flip is what has to retitle it.
+    if (this.windowOwnerKey() === WEB_OWNER_KEY && this.shell) {
+      const descriptor = id ? this.describeWebHubProject(id) : undefined;
+      this.shell.retitle(id ? (descriptor?.title ?? id) : 'AntiFan Browser');
+    }
     // The repoint is a live-switch concern: during boot (restore not run yet) the
     // window owns no tabs to repoint and creating one would shadow the restore.
     if (this.windowOwnerKey() === WEB_OWNER_KEY && !this.isDisposed && this.hasRestoredTabs) {
@@ -6731,6 +6833,20 @@ export class NativeTabHost extends EventEmitter {
       this.foreignFlipSuppressed = (this.foreignFlipSuppressed || 1) - 1;
     }
     return { closed, vetoed };
+  }
+
+  /**
+   * Tell every terminal surface this window renders that the stored project list moved, so
+   * a Terminal Manager shows a project the moment it is created instead of at its next boot.
+   */
+  public notifyProjectInventoryChanged(): void {
+    const sidebar = this.shell.sidebarView?.webContents;
+    if (sidebar && !sidebar.isDestroyed()) {
+      safeSendWebContents(sidebar, PROJECT_WINDOW_CHANNELS.PROJECT_INVENTORY_CHANGED);
+    }
+    for (const win of this.terminalWindows.values()) {
+      if (win && !win.isDestroyed()) safeSendWebContents(win.webContents, PROJECT_WINDOW_CHANNELS.PROJECT_INVENTORY_CHANGED);
+    }
   }
 
   /**
@@ -7247,9 +7363,9 @@ export class NativeTabHost extends EventEmitter {
   }
 
   /**
-   * Exact tab identity: never alias- or index-resolved, so a stale id can never
-   * name a different tab. `hasTab` deliberately resolves aliases and numeric
-   * references and must not be used where exactness is the contract.
+   * Exact tab identity: never index-resolved, so a stale id can never name a
+   * different tab. `hasTab` deliberately resolves numeric references and must
+   * not be used where exactness is the contract.
    */
   public hasExactTab(tabId: string): boolean {
     if (!tabId || !this.tabs) return false;
@@ -7944,25 +8060,6 @@ export class NativeTabHost extends EventEmitter {
         if (state.url && state.url !== 'about:blank' && !state.url.startsWith('view-source:')) {
           HistoryManager.getInstance().updateTitle(state.url, state.title);
         }
-        if (!state.alias) {
-          const inferred = inferTabSemanticRole(state.url, state.title);
-          if (inferred.alias) {
-            let canAssignAlias = true;
-            if (inferred.alias === '@storefront') {
-              for (const [otherId, otherTab] of this.tabs.entries()) {
-                if (otherId !== id && otherTab.state.alias?.toLowerCase() === '@storefront') {
-                  canAssignAlias = false;
-                  break;
-                }
-              }
-            }
-            if (canAssignAlias) {
-              state.alias = inferred.alias;
-              state.aliasColor = inferred.aliasColor;
-            }
-            state.role = inferred.role;
-          }
-        }
         this.scheduleTitleBroadcast();
 
       }
@@ -8002,25 +8099,6 @@ export class NativeTabHost extends EventEmitter {
         state.url = cleanUrl;
         if (state.url && state.url !== 'about:blank' && !state.url.startsWith('view-source:')) {
           HistoryManager.getInstance().recordVisit(state.url, state.title, state.favicon);
-        }
-        if (!state.alias) {
-          const inferred = inferTabSemanticRole(state.url, state.title);
-          if (inferred.alias) {
-            let canAssignAlias = true;
-            if (inferred.alias === '@storefront') {
-              for (const [otherId, otherTab] of this.tabs.entries()) {
-                if (otherId !== id && otherTab.state.alias?.toLowerCase() === '@storefront') {
-                  canAssignAlias = false;
-                  break;
-                }
-              }
-            }
-            if (canAssignAlias) {
-              state.alias = inferred.alias;
-              state.aliasColor = inferred.aliasColor;
-            }
-            state.role = inferred.role;
-          }
         }
       }
       const decision = this.splitCoordinator.handleNavigationEvent(id, paneId, cleanUrl, false);
@@ -8119,14 +8197,14 @@ export class NativeTabHost extends EventEmitter {
       // A hibernation-driven destroy keeps the record (the view is rebuilt on
       // wake); only an unexpected destruction tears the whole tab down.
       if (paneId === 'desktop' && !this.isDisposed && this.tabs.has(id) && !this.hibernatingTabIds.has(id)) {
-        this.closeTab(id);
+        this.closeTab(id, 'view-close');
       }
     });
 
     wc.on('destroyed', () => {
       clearLoadingTimer();
       if (paneId === 'desktop' && !this.isDisposed && this.tabs.has(id) && !this.hibernatingTabIds.has(id)) {
-        this.closeTab(id);
+        this.closeTab(id, 'view-destroyed');
       }
     });
 
@@ -8184,7 +8262,7 @@ export class NativeTabHost extends EventEmitter {
                 // Adoption failure cleans up only the child this call created and never
                 // retargets its parent, so an unowned child is closed instead of orphaned.
                 if (newTabId && !this.adoptChildTab(parentTabId, newTabId, undefined, 'native_window_open', parentTabId)) {
-                  this.closeTab(newTabId);
+                  this.closeTab(newTabId, 'agent-open-adopt-failed');
                 }
               });
             }
@@ -8354,6 +8432,17 @@ export class NativeTabHost extends EventEmitter {
     }
     this.tabs.set(id, tabEntry);
     this.indexTabWebContents(id, tabEntry);
+    if (isOffscreen) {
+      // An OSR tab's render surface is the metrics override, not a view
+      // attachment: the OSR RenderWidgetHostView owns its compositor and its
+      // BeginFrame source, so Emulation.setDeviceMetricsOverride on the tab's own
+      // debugger channel lays it out and produces rasters without the view ever
+      // entering the window (spike: scripts/probe-osr-detached-emulation.cjs —
+      // detached view, non-zero layout + non-empty capturePage, window hidden or
+      // not). Before first commit the override defers to did-finish-load via
+      // pendingEmulationDeferrals, so this runs before loadURL.
+      this.applyOffscreenSurfaceEmulation(tabEntry);
+    }
     const isAgentTab = isEphemeral || isOffscreen;
     if (!isAgentTab) {
       this.tabOrder.push(id);
@@ -8833,7 +8922,7 @@ export class NativeTabHost extends EventEmitter {
     this.getAutomationHost().clearAllAgentWorking();
   }
 
-  public closeTab(tabId: string): boolean {
+  public closeTab(tabId: string, source?: string): boolean {
     if (this.isDisposed) return false;
     const targetId = this.resolveTargetTabId(tabId) || tabId;
     const target = this.tabs.get(targetId);
@@ -8944,6 +9033,7 @@ export class NativeTabHost extends EventEmitter {
     this.splitCoordinator?.cleanupTab(tabId);
     this.unindexTabWebContents(target);
     this.tabs.delete(tabId);
+    this.recordTabClosedTelemetry(tabId, target, source ?? (authorizedByAttempt ? 'close-attempt' : 'unspecified'));
     this.tabOrder = this.tabOrder.filter((id) => id !== tabId);
     // The last-active map is memory, not authority, but a dead entry would send a
     // project switch looking for a tab that no longer exists; the candidate read
@@ -8955,9 +9045,16 @@ export class NativeTabHost extends EventEmitter {
     }
 
     if (this.activeTabId === tabId) {
+      // The web hub holds every project's tabs; the strip shows only the presented
+      // project's (plus unstamped shared ones). A failover to a foreign-stamped tab
+      // would fire the user-plane project flip, so a close never leaves the project.
+      const scopedProject = this.windowOwnerKey() === WEB_OWNER_KEY ? this.activeProjectId : null;
       const userTabs = this.tabOrder.filter((id) => {
         const t = this.tabs.get(id);
-        return t && t.state.ephemeral !== true && t.state.offscreen !== true;
+        if (!t || t.state.ephemeral === true || t.state.offscreen === true) return false;
+        if (!scopedProject) return true;
+        const stamp = typeof t.projectId === 'string' && t.projectId ? t.projectId : null;
+        return stamp === null || stamp === scopedProject;
       });
       if (userTabs.length > 0) {
         this.switchTab(userTabs[userTabs.length - 1]!, { plane: 'user' });
@@ -8984,6 +9081,37 @@ export class NativeTabHost extends EventEmitter {
     this.reassertPresentedView();
     recordBenchmark({ surface: 'tabs', name: 'closed', extra: { attachedViews: this.countAttachedViews() } });
     return true;
+  }
+
+  /**
+   * One `tabhost.tabClosed` journal row per removed tab, snapshot from the record while
+   * it is still in scope. Called immediately after `this.tabs.delete(tabId)` in
+   * `closeTab` — before the failover/refill tail can mint a replacement — and once per
+   * tab inside `disposeChildViewContents`, which is the removal path that bypasses
+   * `closeTab` entirely. `source` names the caller that drove the removal (toolbar,
+   * MCP, bridge, reap sweep, authorized close attempt, host dispose, ...); callers that
+   * pass nothing degrade to 'unspecified' rather than to silence. `urlOrigin` carries
+   * the page's origin only for http(s) URLs — same privacy convention as the
+   * diagnostics query-stripping; capsuleId/projectId carry the attribution.
+   */
+  private recordTabClosedTelemetry(tabId: string, target: NativeTabRecord, source: string): void {
+    const url = typeof target.state.url === 'string' ? target.state.url : '';
+    let urlOrigin: string | undefined;
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol === 'http:' || parsed.protocol === 'https:') urlOrigin = parsed.origin;
+    } catch {}
+    recordLifecycleEvent('tabhost.tabClosed', {
+      tabId,
+      source,
+      ephemeral: target.state.ephemeral === true,
+      offscreen: target.state.offscreen === true,
+      capsuleId: target.state.capsuleId,
+      projectId: target.projectId,
+      urlOrigin,
+      lastActiveAt: target.lastActiveAt,
+      agentActivityAt: target.agentActivityAt,
+    });
   }
 
   /**
@@ -9161,12 +9289,12 @@ export class NativeTabHost extends EventEmitter {
    * when the per-tab `destroyed` listener did not already do it, so no caller has to
    * assume that listener exists.
    */
-  public closePage(tabId: string): Promise<TabPageCloseOutcome> {
+  public closePage(tabId: string, force = false): Promise<TabPageCloseOutcome> {
     if (this.isDisposed) return Promise.resolve('unknown');
     const targetId = (this.resolveTargetTabId(tabId) || tabId || '').trim();
     if (targetId.length === 0) return Promise.resolve('unknown');
     const inFlight = this.pendingPageCloses?.get(targetId);
-    if (inFlight) return inFlight;
+    if (inFlight) return force ? inFlight.then((outcome) => outcome === 'closed' ? outcome : this.closePage(targetId, true)) : inFlight;
     const record = this.tabs?.get(targetId);
     const wc: Electron.WebContents | null | undefined = record?.view?.webContents;
     if (!record || !wc) return Promise.resolve('unknown');
@@ -9240,7 +9368,12 @@ export class NativeTabHost extends EventEmitter {
     }, PAGE_CLOSE_OUTCOME_DEADLINE_MS);
     outcomeTimer.unref?.();
     try {
-      wc.close({ waitForBeforeUnload: true });
+      // Only the explicitly confirmed force path skips beforeunload. Destruction still
+      // settles through the exact-instance observer and normal local record cleanup.
+      // Electron 43 removed `WebContents.destroy()`: `close` without waiting is the
+      // unconditional destroy — the page cannot veto what it is never asked about.
+      if (force) wc.close({ waitForBeforeUnload: false });
+      else wc.close({ waitForBeforeUnload: true });
     } catch (error) {
       if (!settled) {
         settled = true;
@@ -9260,7 +9393,7 @@ export class NativeTabHost extends EventEmitter {
     const record = this.tabs?.get(tabId);
     if (!record) return;
     if (record.view?.webContents !== destroyedInstance) return;
-    this.closeTab(tabId);
+    this.closeTab(tabId, 'close-attempt');
   }
 
   /**
@@ -9508,7 +9641,7 @@ export class NativeTabHost extends EventEmitter {
         lastActiveAt: tab.lastActiveAt,
         agentActivityAt: tab.agentActivityAt,
       });
-      this.closeTab(id);
+      this.closeTab(id, 'agent-reap');
     }
   }
 
@@ -9574,6 +9707,23 @@ export class NativeTabHost extends EventEmitter {
     const view = tab.view;
     const wc = view?.webContents;
     if (!view || !wc || wc.isDestroyed()) return false;
+    const canStillHibernate = (): boolean => {
+      if (this.isDisposed || this.tabs.get(tabId) !== tab || tab.view !== view || wc.isDestroyed()) return false;
+      const audible = [tab.view, tab.mobileView].some((pane) => {
+        const contents = pane?.webContents;
+        return contents && !contents.isDestroyed() && typeof contents.isCurrentlyAudible === 'function' && contents.isCurrentlyAudible();
+      });
+      if (audible) return false;
+      return shouldHibernate({ id: tabId, state: tab.state, lastActiveAt: tab.lastActiveAt }, {
+        activeTabId: this.activeTabId,
+        automationTabId: this.automationTabId,
+        boundTabIds: this.hibernationBoundTabIds(),
+        cdpBoundTabIds: this.hibernationCdpBoundTabIds(),
+        unloadVetoedTabIds: this.unloadVetoedTabIds,
+        idleMs: this.hibernationIdleMs,
+      }).hibernate;
+    };
+    if (!canStillHibernate()) return false;
 
     // 1. Snapshot what the record must keep: scroll position (URL/title/favicon
     //    already live on `state`). A wedged renderer gets a bounded probe, not a
@@ -9588,6 +9738,9 @@ export class NativeTabHost extends EventEmitter {
         tab.state.scrollY = pos.y || 0;
       }
     } catch {}
+    // Activation, playback, or a new capability lease can arrive during the
+    // asynchronous snapshot. Eligibility at sweep entry is not close authority.
+    if (!canStillHibernate()) return false;
 
     // 2. Close-aware destroy of the pane(s). Mark the tab BEFORE arming the
     //    close so its `destroyed`/`close` listeners skip `closeTab` and keep the
@@ -9600,6 +9753,10 @@ export class NativeTabHost extends EventEmitter {
         panes.push({ pane: tab.mobileView, kind: 'mobile' });
       }
       for (const { pane, kind } of panes) {
+        // Each page-close can await beforeunload; the desktop pane may already be
+        // gone, or the tab may have become active/audible. Re-check before the
+        // next pane loses its renderer.
+        if (!canStillHibernate()) return false;
         const pwc = pane.webContents;
         if (!pwc || pwc.isDestroyed()) continue;
         const outcome = await new Promise<'closed' | 'vetoed' | 'unknown'>((resolve) => {
@@ -9660,7 +9817,14 @@ export class NativeTabHost extends EventEmitter {
     try { this.destroyOwnedWebContents(target.view?.webContents); } catch {}
     if (target.view?.webContents) this.tabByWebContents?.delete(target.view.webContents);
     const view = new WebContentsView({
-      webPreferences: getSecureWebPreferences(target.state.partition),
+      // A recreated OSR tab must stay OSR: minting a windowed view for a record
+      // whose state still says offscreen would produce a view the never-attach
+      // guard refuses to lay out AND whose compositor only ticks when attached —
+      // dead either way. The mint flags are part of the record's identity.
+      webPreferences: getSecureWebPreferences(target.state.partition, {
+        offscreen: target.state.offscreen === true,
+        backgroundThrottling: target.state.offscreen === true ? false : undefined,
+      }),
     });
     try { view.setBackgroundColor('#ffffff'); } catch {}
     target.state.crashed = false;
@@ -9668,6 +9832,16 @@ export class NativeTabHost extends EventEmitter {
     this.setupTabWebContentsEvents(targetId, view, target.state, 'desktop');
     this.tabByWebContents?.set(view.webContents, { tabId: targetId, tab: target });
     target.view = view;
+    if (target.state.offscreen === true) {
+      // Re-arm the surface emulation on the fresh renderer. It defers to
+      // did-finish-load when no document is committed, so about:blank records
+      // need a materialized document for the deferral to ever fire — the same
+      // reason createTab loads 'about:blank' at mint.
+      this.applyOffscreenSurfaceEmulation(target);
+      if ((!target.state.url || target.state.url === 'about:blank') && !target.state.isLoading) {
+        try { view.webContents.loadURL('about:blank').catch(() => {}); } catch {}
+      }
+    }
     return view;
   }
 
@@ -9780,6 +9954,14 @@ export class NativeTabHost extends EventEmitter {
     if (!tab) return false;
     if (tab.state.hibernated === true || !tab.view || tab.view.webContents?.isDestroyed?.()) {
       this.ensureTabAwake(tabId);
+    }
+    // A wake rebuilt the renderer on an offscreen tab: the metrics override lives
+    // on the old WebContents, so the emulation is re-armed here (and inside
+    // recreateDesktopView) rather than left to whoever next reads the surface.
+    // Direct application is safe now — wake materialized a document — and a no-op
+    // on an awake tab whose emulation already stands.
+    if (tab.state.offscreen === true) {
+      try { this.applyOffscreenSurfaceEmulation(tab); } catch {}
     }
     const wc = this.tabs.get(tabId)?.view?.webContents;
     if (!wc || wc.isDestroyed()) return false;
@@ -9930,7 +10112,7 @@ export class NativeTabHost extends EventEmitter {
     for (const id of toClose) {
       const tab = this.tabs.get(id);
       if (tab && (tab.state.ephemeral === true || tab.state.offscreen === true)) continue;
-      this.closeTab(id);
+      this.closeTab(id, 'user-close-other');
     }
   }
 
@@ -9941,7 +10123,7 @@ export class NativeTabHost extends EventEmitter {
     for (const id of toClose) {
       const tab = this.tabs.get(id);
       if (tab && (tab.state.ephemeral === true || tab.state.offscreen === true)) continue;
-      this.closeTab(id);
+      this.closeTab(id, 'user-close-right');
     }
   }
 
@@ -10487,6 +10669,9 @@ export class NativeTabHost extends EventEmitter {
   ): void {
     if (!tab || !tab.view) return;
     if (tab.view.webContents.isDestroyed()) return;
+    // An OSR tab's surface is the metrics override, never the view's bounds:
+    // the view is never attached, and a detached setBounds lays nothing out.
+    const isOffscreenSurface = tab.state.offscreen === true;
 
     try {
       // Case A: Split Review Mode (Desktop + Mobile Paired WebContentsViews)
@@ -10648,12 +10833,14 @@ export class NativeTabHost extends EventEmitter {
         const boundsW = renderedW;
         const boundsH = renderedH;
         try {
-          tab.view.setBounds({
-            x: targetX,
-            y: targetY,
-            width: boundsW,
-            height: boundsH,
-          });
+          if (!isOffscreenSurface) {
+            tab.view.setBounds({
+              x: targetX,
+              y: targetY,
+              width: boundsW,
+              height: boundsH,
+            });
+          }
         } catch {}
       } else {
         this.applyDeviceCornerClipping(tab.view.webContents, 0);
@@ -10669,12 +10856,14 @@ export class NativeTabHost extends EventEmitter {
           }
         } catch {}
         try {
-          tab.view.setBounds({
-            x: 0,
-            y: toolbarHeight,
-            width: availableWidth,
-            height: availableHeight,
-          });
+          if (!isOffscreenSurface) {
+            tab.view.setBounds({
+              x: 0,
+              y: toolbarHeight,
+              width: availableWidth,
+              height: availableHeight,
+            });
+          }
         } catch {}
       }
     } catch (err) {
@@ -11201,49 +11390,6 @@ export class NativeTabHost extends EventEmitter {
     return this.getDevToolsHost().isInspectActive();
   }
 
-  public resolveAliasToTabId(alias: string): string | undefined {
-    if (!alias || typeof alias !== 'string' || !this.tabs) return undefined;
-    const lower = alias.trim().toLowerCase();
-    for (const [id, tab] of this.tabs.entries()) {
-      if (tab.state.alias?.toLowerCase() === lower || `@${tab.state.role?.toLowerCase()}` === lower) {
-        return id;
-      }
-    }
-
-    // Fallback for data/document/sheet synonyms
-    const dataSynonyms = new Set(['@feedback', '@sheet', '@data', '@pricing', '@spec', '@doc', '@baogia']);
-    if (dataSynonyms.has(lower)) {
-      for (const [id, tab] of this.tabs.entries()) {
-        if (tab.state.alias && dataSynonyms.has(tab.state.alias.toLowerCase())) {
-          return id;
-        }
-      }
-    }
-
-    // Fallback for web/storefront synonyms
-    const webSynonyms = new Set(['@storefront', '@web', '@store', '@live']);
-    if (webSynonyms.has(lower)) {
-      for (const [id, tab] of this.tabs.entries()) {
-        if (tab.state.alias && webSynonyms.has(tab.state.alias.toLowerCase())) {
-          return id;
-        }
-      }
-    }
-
-    return undefined;
-  }
-
-  public setTabAlias(tabId: string, alias?: string, role?: string, aliasColor?: string): boolean {
-    const targetId = typeof tabId === 'string' && tabId.startsWith('@') ? this.resolveAliasToTabId(tabId) || tabId : tabId;
-    const tab = this.tabs.get(targetId);
-    if (!tab) return false;
-    tab.state.alias = alias;
-    if (role) tab.state.role = role;
-    if (aliasColor) tab.state.aliasColor = aliasColor;
-    this.broadcastState();
-    this.schedulePersist();
-    return true;
-  }
 
   /**
    * The capsule a tab was created in, read from the live tab. This is the measured affiliation a
@@ -11273,9 +11419,6 @@ export class NativeTabHost extends EventEmitter {
       if (idx >= 0 && idx < this.tabOrder.length) {
         return this.tabOrder[idx];
       }
-    }
-    if (trimmed.startsWith('@')) {
-      return this.resolveAliasToTabId(trimmed);
     }
     return undefined;
   }
@@ -11743,7 +11886,7 @@ export class NativeTabHost extends EventEmitter {
         if (matchesSession && (entry.managedTabIds?.has(rId) || entry.primaryTabId === rId)) {
           return !entry.closedAt;
         }
-      }
+    }
     }
     return false;
   }
@@ -12959,6 +13102,8 @@ export class NativeTabHost extends EventEmitter {
     if (typeof data.wasSidebarOpenBeforePopout === 'boolean') record.wasSidebarOpenBeforePopout = data.wasSidebarOpenBeforePopout;
     if (typeof data.popoutSessionId === 'string') record.popoutSessionId = data.popoutSessionId;
     if (typeof data.activeProjectId === 'string') record.activeProjectId = data.activeProjectId;
+    if (data.terminalTabLayout === 'horizontal' || data.terminalTabLayout === 'sidebar') record.terminalTabLayout = data.terminalTabLayout;
+    if (typeof data.terminalSidebarWidth === 'number') record.terminalSidebarWidth = data.terminalSidebarWidth;
     return record;
   }
 
@@ -12973,6 +13118,10 @@ export class NativeTabHost extends EventEmitter {
     delete shared.wasSidebarOpenBeforePopout;
     delete shared.popoutSessionId;
     delete shared.activeProjectId;
+    // Layout and width are this window's own: they live in its owner record. The legacy
+    // top-level copies are dropped so the last window to save can no longer impose them.
+    delete shared.terminalTabLayout;
+    delete shared.terminalSidebarWidth;
     return shared;
   }
 
@@ -12985,11 +13134,19 @@ export class NativeTabHost extends EventEmitter {
     const owners: Record<string, SavedTabsOwnerRecord> = { ...(existing?.owners ?? {}) };
     owners[this.windowOwnerKey()] = this.ownerRecordFromPersistData(data);
     const shared = this.sharedPrefsFromPersistData(data);
-    // The Terminal Manager's sidebar is pinned open by construction; its write must not
-    // flip the browser windows' shared sidebar preference open.
+    // The Terminal Manager's sidebar is pinned open by construction and its width is the
+    // whole window; its write must not flip or resize the browser windows' shared sidebar.
     if (this.isTerminalOnlyWindow()) {
       if (typeof existing?.isSidebarOpen === 'boolean') shared.isSidebarOpen = existing.isSidebarOpen;
       else delete shared.isSidebarOpen;
+      if (typeof existing?.sidebarWidth === 'number') shared.sidebarWidth = existing.sidebarWidth;
+      else delete shared.sidebarWidth;
+    }
+    // A shared terminal pref this window never changed is a boot-time copy; the file may
+    // already hold a sibling window's newer value, which wins.
+    for (const key of SHARED_TERMINAL_PREF_KEYS) {
+      if (this.touchedSharedTerminalPrefs.has(key)) continue;
+      if (existing && key in existing) shared[key] = existing[key];
     }
     return {
       ...shared,
@@ -12999,6 +13156,9 @@ export class NativeTabHost extends EventEmitter {
     };
   }
   private isDisposed = false;
+  /** When the window last lost focus; null while it has focus. */
+  private windowBlurredAtMs: number | null = null;
+  private lastResurfaceAtMs = 0;
   /**
    * Close-admission facts injected by Main (see `TabHostCloseAdmission`). Absent means
    * "no close attempt is running"; every consumer below then behaves exactly as it did
@@ -13168,6 +13328,48 @@ export class NativeTabHost extends EventEmitter {
   private broadcastDeadline = 0;
   private readonly BROADCAST_MIN_INTERVAL_MS = 200; // 5 Hz ceiling
 
+  /** The shared terminal prefs as comparable text, keyed by their saved-tabs name. */
+  private sharedTerminalPrefsSnapshot(): Record<SharedTerminalPrefKey, string> {
+    return {
+      terminalCollapsedCategories: JSON.stringify(this.terminalCollapsedCategories),
+      terminalCategories: JSON.stringify(this.terminalCategories),
+      terminalCategoryColors: JSON.stringify(this.terminalCategoryColors),
+      terminalStarredCategories: JSON.stringify(this.terminalStarredCategories),
+      terminalProjectOrder: JSON.stringify(this.terminalProjectOrder),
+    };
+  }
+
+  /**
+   * SET_TAB_PREFS: apply a renderer's prefs and remember which shared keys actually changed.
+   * A renderer always sends its whole set, so only a real change marks a key as this
+   * window's to write; an unchanged stale copy never overwrites a sibling's value.
+   */
+  public applyTerminalTabPrefsFromUser(prefs: Partial<TerminalTabPrefs>): boolean {
+    const before = this.sharedTerminalPrefsSnapshot();
+    const layoutChanged = this.applyTerminalTabPrefs(prefs);
+    const after = this.sharedTerminalPrefsSnapshot();
+    for (const key of SHARED_TERMINAL_PREF_KEYS) {
+      if (before[key] !== after[key]) this.touchedSharedTerminalPrefs.add(key);
+    }
+    return layoutChanged;
+  }
+
+  /**
+   * This window's terminal layout and width, read from its own owner record. A record that
+   * never stored them falls back to the legacy top-level values — except the Terminal
+   * Manager's layout, which opens as the sidebar column: the legacy layout was written by
+   * whichever window saved last, not chosen in the manager.
+   */
+  private restoreWindowTerminalLayout(data: unknown): void {
+    const doc = data && typeof data === 'object' ? data as Record<string, unknown> : {};
+    const owners = doc.owners && typeof doc.owners === 'object' ? doc.owners as Record<string, unknown> : {};
+    const raw = owners[this.windowOwnerKey()];
+    const record = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+    const layout = record.terminalTabLayout ?? (this.isTerminalOnlyWindow() ? undefined : doc.terminalTabLayout);
+    const width = record.terminalSidebarWidth ?? doc.terminalSidebarWidth;
+    this.applyTerminalTabPrefs({ layout, sidebarWidth: width } as Partial<TerminalTabPrefs>);
+  }
+
   /**
    * Validates and applies terminal tab-strip prefs from any source
    * (saved-tabs.json, SET_TAB_PREFS). Unknown fields are ignored; invalid
@@ -13198,6 +13400,10 @@ export class NativeTabHost extends EventEmitter {
       // A star names a category, so it takes the same normalization as the name list:
       // trimmed, de-duplicated case-insensitively, length-capped.
       this.terminalStarredCategories = normalizeTerminalCategories(p.starredCategories);
+    }
+    if (Array.isArray(p.projectOrder)) {
+      // Project ids are opaque names here: the same trim / de-dupe / cap as category names.
+      this.terminalProjectOrder = normalizeTerminalCategories(p.projectOrder);
     }
     return this.terminalTabLayout !== prevLayout;
   }
@@ -13318,6 +13524,7 @@ export class NativeTabHost extends EventEmitter {
       terminalCategories: this.terminalCategories,
       terminalCategoryColors: this.terminalCategoryColors,
       terminalStarredCategories: this.terminalStarredCategories,
+      terminalProjectOrder: this.terminalProjectOrder,
       // Popout/terminal-window fields are intentionally absent: the producers were
       // removed with the one-Terminal-Manager cutover and the legacy keys only existed
       // for restore-time reopen, which no longer happens. `normalizeSavedTabsDocument`
@@ -13442,13 +13649,13 @@ export class NativeTabHost extends EventEmitter {
         if (typeof document.isSidebarOpen === 'boolean' && !this.isTerminalOnlyWindow()) {
           this.shell.isSidebarOpen = document.isSidebarOpen;
         }
+        this.restoreWindowTerminalLayout(document);
         this.applyTerminalTabPrefs({
-          layout: document.terminalTabLayout,
-          sidebarWidth: document.terminalSidebarWidth,
           collapsedCategories: document.terminalCollapsedCategories,
           categories: document.terminalCategories,
           categoryColors: document.terminalCategoryColors,
           starredCategories: document.terminalStarredCategories,
+          projectOrder: document.terminalProjectOrder,
         });
         const record = document.owners[this.windowOwnerKey()];
         // The hub's presented project survives in the owner record (H5): restored here,
@@ -13538,9 +13745,6 @@ export class NativeTabHost extends EventEmitter {
               if (migrated.title) tab.state.title = migrated.title;
               if (migrated.devicePresetId) this.setDevicePreset(id, migrated.devicePresetId);
               if (typeof migrated.zoomFactor === 'number') tab.state.zoomFactor = migrated.zoomFactor;
-              if (migrated.alias) tab.state.alias = migrated.alias;
-              if (migrated.role) tab.state.role = migrated.role;
-              if (migrated.aliasColor) tab.state.aliasColor = migrated.aliasColor;
               if (migrated.splitMode) {
                 this.toggleSplitReview(id, true);
                 if (migrated.splitDesktopPresetId) tab.state.splitDesktopPresetId = migrated.splitDesktopPresetId;
@@ -13978,7 +14182,12 @@ export class NativeTabHost extends EventEmitter {
         // restoration the visible-tab path always used.
         try {
           await this.applyCdpDeviceEmulationState(wc, null);
-          if (previousPreset && previousPreset !== 'responsive') {
+          if (tab.state.offscreen === true) {
+            // Neither restore path below reaches an OSR tab: updateLayout skips
+            // it and setDevicePreset only re-lays-out the presented pane. Its
+            // surface is the override itself — clear it and nothing re-arms it.
+            this.applyOffscreenSurfaceEmulation(tab);
+          } else if (previousPreset && previousPreset !== 'responsive') {
             this.setDevicePreset(targetId, previousPreset);
           } else {
             this.updateLayout();
@@ -14110,6 +14319,20 @@ export class NativeTabHost extends EventEmitter {
       }
       return true;
     };
+    if (tab.state.offscreen === true) {
+      // An OSR surface is sized by the metrics override alone: it is never
+      // attached, so the window content box is not its layout basis (the
+      // VIEWPORT_NOT_APPLIED window-unmeasurable refusal does not apply) and the
+      // temporary attach this method otherwise runs is forbidden by the
+      // never-attach invariant. The requested size is already on customViewport,
+      // which applyTabDeviceEmulation renders exactly at scale 1 for the
+      // agent plane. applyForTarget still runs: it dispatches the resize events
+      // the page's listeners need and honours a requested reload.
+      this.applyTabDeviceEmulation(tab, w, h, 0);
+      const applied = await applyForTarget();
+      this.broadcastState();
+      return applied;
+    }
     if (targetId === this.activeTabId) {
       this.updateLayout();
     } else {
@@ -14522,6 +14745,10 @@ export class NativeTabHost extends EventEmitter {
     this.tabs.clear();
     this.tabOrder = [];
     for (const [id, tab] of tabsToClean) {
+      // The tabs map is already cleared, so `closeTab` would no-op; attribution is
+      // emitted directly here instead of routing through the full teardown (which
+      // would touch shell/views mid-dispose).
+      this.recordTabClosedTelemetry(id, tab, 'host-dispose');
       try {
         if (tab.view) this.shell.window.contentView.removeChildView(tab.view);
       } catch {}

@@ -258,6 +258,73 @@ describe('OMP MCP stdio proxy security & bootstrap fail-closed contract', () => 
     }
   });
 
+  it('stops the heartbeat instead of redialing a held secret the bridge refused with 4001', async () => {
+    const scriptPath = fs.existsSync(path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs'))
+      ? path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs')
+      : path.resolve(__dirname, '../../scripts/antifan-omp-mcp.cjs');
+
+    // Bridge stand-in that no longer accepts this attachment: every upgrade is
+    // refused the way the real bridge refuses an unknown token.
+    const wss = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+    const listening = Promise.withResolvers<void>();
+    wss.once('listening', () => listening.resolve());
+    await listening.promise;
+    const address = wss.address();
+    assert.ok(address && typeof address === 'object', 'the stand-in bridge listens on a TCP port');
+    const port = address.port;
+    let connections = 0;
+    wss.on('connection', (socket) => {
+      connections += 1;
+      socket.close(4001, 'Unauthorized: missing or invalid token');
+    });
+
+    const env = {
+      ...process.env,
+      ANTIFAN_MCP_BOOTSTRAP: JSON.stringify({
+        port,
+        secret: 'revoked-secret',
+        attachmentId: 'binding-revoked',
+        runId: 'r-revoked',
+        attemptId: 'a-revoked',
+        projectId: 'p-revoked',
+        workspaceId: 'w-revoked',
+        ownerPid: 424_243,
+      }),
+      // A 200 ms interval would redial many times over the window below if a
+      // refusal were treated as a dropped link.
+      ANTIFAN_HEARTBEAT_MS: '200',
+    };
+    const child = spawn(process.execPath, [scriptPath], { env, stdio: ['pipe', 'pipe', 'pipe'] });
+    const exited = Promise.withResolvers<number>();
+    child.once('exit', (code) => exited.resolve(code ?? -1));
+    const stopped = Promise.withResolvers<void>();
+    let stderr = '';
+    child.stderr.on('data', (chunk: Buffer) => {
+      stderr += chunk.toString();
+      if (/heartbeat stopped/.test(stderr)) stopped.resolve();
+    });
+    // A proxy that crashes before stopping must fail here, not pass on a count of one.
+    child.once('exit', (code) => stopped.reject(new Error(`proxy exited (${code}) before stopping its heartbeat: ${stderr}`)));
+
+    try {
+      await withDeadline(stopped.promise, 'heartbeat stop on refusal');
+      // Real wall-clock wait by necessity: the proxy is a child process running its
+      // own real 200 ms interval, so its clock cannot be faked from here. Several
+      // intervals must pass without a redial.
+      const quiet = Promise.withResolvers<void>();
+      setTimeout(quiet.resolve, 1_500);
+      await quiet.promise;
+      assert.strictEqual(connections, 1, 'a refused secret must be dialed once, not on every heartbeat tick');
+      assert.strictEqual(child.exitCode, null, 'the proxy stays up so the next tool call can autoheal');
+    } finally {
+      child.kill();
+      await withDeadline(exited.promise, 'proxy exit');
+      const closed = Promise.withResolvers<void>();
+      wss.close(() => closed.resolve());
+      await closed.promise;
+    }
+  });
+
   it('injects authorityRevision from ANTIFAN_MCP_BOOTSTRAP into capability dispatch intents', async () => {
     const { spawn } = await import('node:child_process');
     const { WebSocketServer } = await import('ws');
@@ -452,7 +519,7 @@ describe('OMP MCP stdio proxy security & bootstrap fail-closed contract', () => 
     }
   });
 
-  it('dispatches anti.browser.tabs.list under its own name so the advertised window-wide default is the one that runs', async () => {
+  it('dispatches anti.browser.tabs.list under its own capability name', async () => {
     const { spawn } = await import('node:child_process');
     const { WebSocketServer } = await import('ws');
     const scriptPath = fs.existsSync(path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs'))
@@ -513,10 +580,8 @@ describe('OMP MCP stdio proxy security & bootstrap fail-closed contract', () => 
         params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test', version: '1.0' } },
       });
 
-      // The tool advertises a window-wide default (`all: default true`). Routing
-      // the name to `browser.list-tabs` would dispatch a session-scoped
-      // capability instead, which answers with the bound tab only, so the whole
-      // window silently disappears from the agent's view.
+      // Preserve the advertised capability name so the server applies the
+      // project-default discovery contract rather than a client-side alias.
       sendJsonRpc({
         jsonrpc: '2.0',
         id: 11,
