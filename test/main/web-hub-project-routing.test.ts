@@ -424,7 +424,7 @@ describe('web hub: project stamping', () => {
     assert.equal(host.shell.title, 'AntiFan Browser');
   });
 
-  it('mints no stamp while no project is presented, and no stamp at all off the web shell', () => {
+  it('mints no stamp while no project is presented, and the Terminal Manager never stamps', () => {
     const webHost = createHost({ owner: WEB_OWNER });
     const unassignedHost = createHost({ owner: UNASSIGNED_OWNER });
     const projectOwnedHost = createHost({ owner: PROJECT_OWNER });
@@ -432,13 +432,15 @@ describe('web hub: project stamping', () => {
     const plain = webHost.createTab('about:blank', false);
     unassignedHost.setActiveProject(PROJECT_A);
     const fromUnassigned = unassignedHost.createTab('about:blank', false);
-    projectOwnedHost.setActiveProject(PROJECT_A);
     const fromProjectOwner = projectOwnedHost.createTab('about:blank', false);
 
     assert.equal(webHost.tabs.get(plain).projectId, undefined, 'the hub stamps only while it presents a project');
     assert.deepEqual(asHost(webHost).tabsForProject(PROJECT_A), []);
     assert.equal(unassignedHost.tabs.get(fromUnassigned).projectId, undefined, 'the Terminal Manager never stamps a project');
-    assert.equal(projectOwnedHost.tabs.get(fromProjectOwner).projectId, undefined, 'a legacy project-owned shell mints no projectId');
+    // Since the detach work landed, a `project:`-owned shell is a detached window:
+    // its mints stamp the project that owns it (the owner key IS the identity),
+    // which is exactly the "detached-minted tabs stamped X" criterion.
+    assert.equal(projectOwnedHost.tabs.get(fromProjectOwner).projectId, 'proj-legacy', 'a detached project shell stamps its own project');
     assert.deepEqual(asHost(unassignedHost).tabsForProject(PROJECT_A), []);
   });
 });
@@ -514,13 +516,15 @@ describe('web hub: purgePersistedTabsForProject', () => {
 
     const removed = await asHost(host).purgePersistedTabsForProject(PROJECT_A);
 
-    assert.equal(removed, 2);
+    // The whole `project:<id>` record drops with removal (the detach lifecycle's
+    // purge arm) — the count covers it plus the two stamped web rows.
+    assert.equal(removed, 3);
     const document = readSavedTabsFile();
     const webRecord = document.owners[WEB];
     assert.deepEqual(webRecord.tabs.map((row: AnyRecord) => row.id), ['b1', 'free'], 'B\'s rows and unclaimed rows survive');
     assert.equal(webRecord.activeTabId, undefined, 'the persisted active id pointed at a removed row and must not resurrect it');
     assert.deepEqual(document.owners[UNASSIGNED].tabs.map((row: AnyRecord) => row.id), ['u1'], 'the Terminal Manager\'s record is untouched');
-    assert.deepEqual(document.owners[PROJECT_A_KEY].tabs.map((row: AnyRecord) => row.id), ['legacy-a'], 'a retired foreign owner key is not this route\'s business');
+    assert.equal(document.owners[PROJECT_A_KEY], undefined, 'the project:<id> record — marker and rows — is dropped, not folded');
     assert.equal(document.version, 2);
   });
 

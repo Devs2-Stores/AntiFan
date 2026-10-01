@@ -10,6 +10,8 @@ import type {
   ProjectOpenPickerAnswerPayload,
   ProjectOpenPickerPush,
   ProjectOpenResult,
+  ProjectDetachResult,
+  ProjectReattachResult,
   ProjectRemoveRequest,
   ProjectRenameResult,
   ProjectRemoveResult,
@@ -63,6 +65,16 @@ const api = {
     ipcRenderer.invoke(PROJECT_WINDOW_CHANNELS.PROJECT_REMOVE, request),
   answerProjectRemove: (payload: { projectId: string; confirmed: boolean }): Promise<ProjectRemoveResult> =>
     ipcRenderer.invoke(PROJECT_WINDOW_CHANNELS.PROJECT_REMOVE_ANSWER, payload),
+  // The one explicit user intention to move the project this window presents into its
+  // own shell. Main enforces the exclusivity and performs the live tab move; a refusal
+  // (unknown project, vetoed tab close) is a typed result, not a rejected invoke.
+  detachProject: (request: { projectId: string }): Promise<ProjectDetachResult> =>
+    ipcRenderer.invoke(PROJECT_WINDOW_CHANNELS.PROJECT_DETACH, request),
+  // The inverse: bring a detached `project:<id>` shell home. Main closes it through
+  // the close coordinator (a veto refuses typed, nothing folds), folds the owner
+  // record into the hub's, and ingests the rows into the live hub when there is one.
+  reattachProject: (request: { projectId: string }): Promise<ProjectReattachResult> =>
+    ipcRenderer.invoke(PROJECT_WINDOW_CHANNELS.PROJECT_REATTACH, request),
   getInitialState: () => ipcRenderer.invoke('antifan:sidebar:get-initial-state'),
   startTerminal: (cwd?: string) => ipcRenderer.invoke('antifan:terminal:start', cwd),
   sendTerminalInput: (input: string) => ipcRenderer.invoke('antifan:terminal:input', input),

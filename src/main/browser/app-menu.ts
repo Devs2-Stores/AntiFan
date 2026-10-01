@@ -13,7 +13,7 @@ import { ChromeProfileSyncManager } from './chrome-profile-sync';
 import { TerminalManager } from './terminal-manager';
 import { LocalSessionVault } from './local-session-vault';
 import { LocalCredentialVault } from './local-credential-vault';
-import { StorageLocations } from '../config/storage-locations';
+import { parseOwnerKey } from '../project/project-context';
 function getPendingSourceModifications(srcDir: string, compiledDir: string): string[] {
   const modifiedFiles: string[] = [];
   if (!fs.existsSync(srcDir)) return modifiedFiles;
@@ -145,6 +145,22 @@ export interface ApplicationMenuOptions {
    * than offering an action that would do nothing.
    */
   openSharedTerminalManager?: (window: BrowserWindow | null) => void;
+  /**
+   * Main's project-detach surface: move the project a window currently presents into
+   * its own `project:<id>` shell. Receives the project id the clicked window's host
+   * is presenting — `null` or a non-detachable scope disables the entry rather than
+   * offering an action that would do nothing. Omitting the callback leaves the entry
+   * visibly disabled.
+   */
+  detachProject?: (projectId: string, window: BrowserWindow | null) => void;
+  /**
+   * Main's project-reattach surface: close a detached `project:<id>` shell through the
+   * close coordinator, fold its owner record into the hub's, and land the rows live.
+   * The click is scoped by the clicked window's OWN key — a detached window's host
+   * presents no active project, so `activeProject()` could never reach this action.
+   * Omitting the callback leaves the entry visibly disabled.
+   */
+  reattachProject?: (projectId: string, window: BrowserWindow | null) => void;
 }
 
 /**
@@ -326,6 +342,33 @@ export function buildApplicationMenu(mainWindow: BrowserWindow, tabHost?: Native
           enabled: typeof options?.openProjectPicker === 'function',
           click: (_item, focusedWindow: BaseWindow | undefined) =>
             options?.openProjectPicker?.((focusedWindow as BrowserWindow | undefined) ?? null),
+        },
+        {
+          // A native click carries no project identity: the focused window's host is
+          // asked which project it is presenting, and a window that presents none —
+          // an unscoped hub or a detached `project:` window — has nothing to detach.
+          label: 'Detach Project into Own Window',
+          enabled: typeof options?.detachProject === 'function',
+          click: (_item, focusedWindow: BaseWindow | undefined) => {
+            const projectId = hostForClick(focusedWindow)?.activeProject() ?? null;
+            if (!projectId) return;
+            options?.detachProject?.(projectId, (focusedWindow as BrowserWindow | undefined) ?? null);
+          },
+        },
+        {
+          // The inverse of the detach above, scoped differently on purpose: the click
+          // reads the clicked window's OWNER key, because a detached window's host
+          // presents no active project and `activeProject()` could never reach it.
+          // The affordance stays reachable while the marked-live shell exists — the
+          // reattach itself is what retires that shell.
+          label: 'Reattach Project into Hub Window',
+          enabled: typeof options?.reattachProject === 'function',
+          click: (_item, focusedWindow: BaseWindow | undefined) => {
+            const ownerKeyValue = hostForClick(focusedWindow)?.windowOwnerKey() ?? '';
+            const owner = parseOwnerKey(ownerKeyValue);
+            if (owner.kind !== 'project' || !owner.projectId) return;
+            options?.reattachProject?.(owner.projectId, (focusedWindow as BrowserWindow | undefined) ?? null);
+          },
         },
         { type: 'separator' },
         {

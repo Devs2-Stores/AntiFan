@@ -6,6 +6,7 @@ import { buildTreeWalkerSanitizerScript } from './adapters/tree-walker-sanitizer
 import {
   BrowserTarget,
   CapabilityError,
+  type CapabilityErrorCode,
   ArtifactRef,
   assertExactBrowserTarget,
   digestText,
@@ -1994,7 +1995,15 @@ export class BrowserControlPort {
         : undefined;
       const failureCause = failure?.cause || (failure?.timedOut ? 'NAVIGATION_TIMEOUT' : 'TARGET_STALE');
       const message = failure?.message || 'Navigation failed or timed out before a load-complete document was available';
-      throw new CapabilityError('TARGET_STALE', `[${failureCause}] ${message}`);
+      // The recorded cause IS the error code: NAVIGATION_* / LOAD_FAILED are
+      // wire codes produced by the host's navigation waiter, not stale-target
+      // detections. Capability codes serialize as arbitrary strings (cf. the
+      // 'X as unknown as CapabilityErrorCode' convention in native-tab-host),
+      // so they travel unmodified through the union type. Reporting a
+      // navigation timeout as TARGET_STALE sent clients down the rebind path
+      // for a tab that was still alive. TARGET_STALE remains only for the
+      // no-record path, where the host could not classify the miss at all.
+      throw new CapabilityError(failureCause as CapabilityErrorCode, `[${failureCause}] ${message}`);
     }
     const docGen = typeof this.host.getSemanticDocumentGeneration === 'function'
       ? this.host.getSemanticDocumentGeneration(tabId)
@@ -3407,7 +3416,9 @@ export class BrowserControlPort {
             if (failure) {
               const failureCause = failure.cause || (failure.timedOut ? 'NAVIGATION_TIMEOUT' : 'TARGET_STALE');
               const message = failure.message || 'Navigation failed or timed out before a load-complete document was available';
-              throw new CapabilityError('TARGET_STALE', `[${failureCause}] ${message}`);
+              // Same contract as navigate(): the recorded cause IS the wire code —
+              // a navigation timeout is not a stale target.
+              throw new CapabilityError(failureCause as CapabilityErrorCode, `[${failureCause}] ${message}`);
             }
           }
 
@@ -6941,14 +6952,16 @@ export class BrowserControlPort {
         txn.stagedBaseline = baseRef.id;
         compCapture = baselineCaptureReceipt(baseRef.captureStateMini, baseRef.promotedAt, baseBytes);
       } else if (params.baselineScreenshotRef) {
-        // Stored baselines lack authoritative verification receipts until Phase 6
-        // baseline authority certification.
+        // baselineScreenshotRef points at a raw staged artifact: it carries no
+        // verification receipt, so the compare stays INCONCLUSIVE forever. The
+        // certified path is promote_baseline (capture + promote in one call),
+        // which mints a vbase_* ref the baselineRef param resolves.
         captureStateCompatible = false;
         const metricSamples = generateVisualMetricSamples({ captureStateCompatible: false, maskResolutionStatus: 'ok', settleComplete: true });
         return settled({
           ok: false,
           status: 'INCONCLUSIVE',
-          reason: `Stored baseline comparison against '${params.baselineScreenshotRef}' is inconclusive: baseline capture state is unverified pending Phase 6 baseline authority certification`,
+          reason: `Stored baseline comparison against '${params.baselineScreenshotRef}' is inconclusive: a staged screenshot artifact carries no baseline verification receipt. Remedy: call anti.visual.promote_baseline on the baseline tab (it captures, stages, and certifies in one call), then pass the returned 'vbase_…' ref as baselineRef to anti.visual.compare`,
           match: false,
           mismatchPercentage: null,
           totalPixels: 0,
@@ -6971,7 +6984,7 @@ export class BrowserControlPort {
             maskedAreaRatio: 0,
             settleComplete: true,
             metricSamples,
-            notes: `Stored baseline comparison against '${params.baselineScreenshotRef}' is inconclusive: baseline capture state is unverified pending Phase 6 baseline authority certification`,
+            notes: `Stored baseline comparison against '${params.baselineScreenshotRef}' is inconclusive: a staged screenshot artifact carries no baseline verification receipt. Remedy: call anti.visual.promote_baseline on the baseline tab, then pass the returned 'vbase_…' ref as baselineRef`,
           }),
           metricSamples,
         });

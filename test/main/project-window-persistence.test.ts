@@ -579,7 +579,7 @@ describe('saved tabs: one record per owner', () => {
   it('a window that never changed a shared terminal pref does not overwrite a sibling\'s change', () => {
     freshUserData('owner-terminal-shared');
     const manager = createHost({ owner: { kind: 'unassigned' } });
-    const hub = createHost({ owner: PROJECT_A });
+    const hub = createHost({ owner: { kind: 'web' } });
 
     // The hub's renderer echoes its whole (unchanged) set: nothing it holds is a change.
     hub.applyTerminalTabPrefsFromUser({ projectOrder: [], collapsedCategories: [] });
@@ -613,8 +613,9 @@ describe('saved tabs: one record per owner', () => {
   });
 
   it('skips all disk work when the projection is unchanged, still writes on change or missing file', () => {
-    freshUserData('persist-noop-skip');
-    const host = createHost({ owner: PROJECT_A, tabs: [['tab-a', {}]], activeTabId: 'tab-a' });
+    // The hub host, not a project owner: document-pref writers are web/unassigned
+    // windows now — a `project:` host is the detached case this suite's gate covers.
+    const host = createHost({ owner: { kind: 'web' }, tabs: [['tab-a', {}]], activeTabId: 'tab-a' });
 
     let reads = 0;
     let writes = 0;
@@ -632,7 +633,7 @@ describe('saved tabs: one record per owner', () => {
     // First persist lands the projection.
     host.persistSync();
     assert.equal(writes, 1);
-    const firstRecord = readSavedTabsFile().owners[ownerKey(PROJECT_A)];
+    const firstRecord = readSavedTabsFile().owners.web;
 
     // Triggering persist again with identical projected state does no disk work:
     // no merge read, no document write, no rename — this is the broadcast-driven
@@ -641,7 +642,7 @@ describe('saved tabs: one record per owner', () => {
     host.persistSync();
     assert.equal(reads, 1, 'only the first persist reads; an unchanged projection must not re-read the file');
     assert.equal(writes, 1, 'an unchanged projection must not rewrite the file');
-    assert.deepEqual(readSavedTabsFile().owners[ownerKey(PROJECT_A)], firstRecord);
+    assert.deepEqual(readSavedTabsFile().owners.web, firstRecord);
 
     // A real state change still persists.
     host.mutedSites.add('example.test');

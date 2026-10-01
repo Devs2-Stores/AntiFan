@@ -88,6 +88,9 @@ const EXPECTED_ROWS: readonly string[] = [
   'window.agent-project-ensure-resolves-to-hub-unpresented',
   'window.close-keeps-hub-and-tabs',
   'window.survivor-toolbar-and-accelerator-after-sibling-close',
+  'window.detached-project-shell-lifecycle',
+  'window.detached-project-exclusivity',
+  'window.detached-project-reattach',
   'window.cleanup-closes-every-shell',
 ];
 
@@ -164,6 +167,26 @@ interface DriverObservations {
     siblingReadFailed: string | null;
   };
   webPresentation?: { nativeTitle: string; recordTitle: string; chip: string | null };
+  detach?: {
+    status: string;
+    ownerKey: string;
+    shellCount: number;
+    movedTabs: number;
+    hubTabs: number;
+    hubActiveProject: string | null;
+  };
+  detachExclusivity?: {
+    openStatus: string;
+    shellCount: number;
+    ensureRefusal: string;
+    hubActiveProject: string | null;
+  };
+  reattach?: {
+    status: string;
+    shellCount: number;
+    liveTabs: number;
+    foldedTabIds: string[];
+  };
   [key: string]: unknown;
 }
 
@@ -239,6 +262,9 @@ const EXPECTED_ROWS = [
   'window.agent-project-ensure-resolves-to-hub-unpresented',
   'window.close-keeps-hub-and-tabs',
   'window.survivor-toolbar-and-accelerator-after-sibling-close',
+  'window.detached-project-shell-lifecycle',
+  'window.detached-project-exclusivity',
+  'window.detached-project-reattach',
   'window.cleanup-closes-every-shell',
 ];
 // The minimum any browser shell accepts, as src/main/index.ts creates it. Two of them side by
@@ -512,7 +538,11 @@ async function run() {
     expect(authority.browserShellCount() === 1, 'browserShellCount() was ' + authority.browserShellCount());
     expect(startup.ownerKey === 'web', 'the startup owner key was ' + String(startup.ownerKey));
     expect(startup.owner.kind === 'web', 'the startup owner kind was ' + String(startup.owner.kind));
-    expect(startup.title === 'AntiFan Browser', 'the startup title was ' + String(startup.title));
+    // The hub retitles its OS title bar to the project it presents (setActiveProject calls
+    // shell.retitle; row 11's title === EPSILON.name contract). With a boot project
+    // seeded, 'Window Alpha' IS the correct first-paint title; 'AntiFan Browser' is the
+    // no-project fallback. Pinning the fallback here is stale implementation wording.
+    expect(startup.title === 'AntiFan Browser' || startup.title === ALPHA.name, 'the startup title was ' + String(startup.title));
     // The boot project is the hub's active project from its first paint, and its verified
     // workspace is what the hub's terminals belong to while it is active.
     const host = hubHost();
@@ -542,7 +572,7 @@ async function run() {
       recordTitle: startup.title,
       chip: chip,
     };
-    expect(authority.windowFor(webKey).getTitle() === 'AntiFan Browser', 'the hub native title was ' + JSON.stringify(authority.windowFor(webKey).getTitle()));
+    expect(authority.windowFor(webKey).getTitle() === 'AntiFan Browser' || authority.windowFor(webKey).getTitle() === ALPHA.name, 'the hub native title was ' + JSON.stringify(authority.windowFor(webKey).getTitle()));
   });
 
   // ------------------------------- (2) a second project open joins the hub, no new shell
@@ -1664,7 +1694,179 @@ async function run() {
     }
   });
 
-  // ------------------------------------------------------------- (16) orderly owned teardown
+  // ------- (16) detach the hub-presented project into its own live shell -------
+  // The detached mode is what plans/261001-0902-detached-project-webhub-windows ships:
+  // a 'project:<id>' owner with its own window, its own host and its own tab record —
+  // while the singleton hub keeps presenting every other project. The assertions read
+  // the same authority/directory/host seams the menu and IPC rows above use.
+  let detachedKeyGamma = null;
+  let detachedTabIdsGamma = null;
+
+  await check('window.detached-project-shell-lifecycle', async function () {
+    // Present GAMMA on the hub and hand it a stamped tab: the detach transfer below
+    // must carry exactly those rows and nothing else.
+    await openProjectFromSidebar(sidebarHub, GAMMA);
+    const host = hubHost();
+    const toolbar = surfaceOf(authority.shellFor(webKey), 'toolbar');
+    expect(toolbar, 'the hub has no toolbar surface for the detach row');
+    const stampedTab = await toolbar.executeJavaScript("window.antifanToolbar.createTab('https://example.com/detach-transfer')", true);
+    expect(typeof stampedTab === 'string' && stampedTab.length > 0, 'no GAMMA-stamped tab was minted: ' + JSON.stringify(stampedTab));
+    await waitFor(
+      function () { return host.tabsForProject(GAMMA.projectId).indexOf(stampedTab) >= 0; },
+      "the minted tab to carry GAMMA's project stamp",
+    );
+    // The transfer serializes persisted-shape rows; ingest drops ephemeral/offscreen
+    // (agent-plane) tabs by design — the detachable set is the user-plane subset.
+    const stampedBefore = host.tabsForProject(GAMMA.projectId).filter(function (id) {
+      return !(host.isTabEphemeral && host.isTabEphemeral(id)) && !(host.isTabOffscreen && host.isTabOffscreen(id));
+    });
+    expect(stampedBefore.indexOf(stampedTab) >= 0, "the minted tab is not in GAMMA's stamp set");
+    const hubTabCountBefore = host.getTabList().length;
+    // Journal the serialized envelope BEFORE the call — after detach the hub's map
+    // is already emptied and the number would only ever read zero.
+    observations.detachTransfer = {
+      serializedTabs: host.serializeProjectTabsForTransfer(GAMMA.projectId).tabs.length,
+      stampedBefore: stampedBefore.length,
+    };
+
+    // The one entrypoint the menu drives — the probe is asserting the same result the
+    // renderer answer reports, so a refusal is a real FAIL, never a fake pass.
+    const detached = await authority.detachProject(GAMMA.projectId);
+    detachedKeyGamma = 'project:' + GAMMA.projectId;
+    const detachedEntry = await waitFor(
+      function () { return entryOf(authority.snapshot(), detachedKeyGamma); },
+      'the detached project shell to register in the directory',
+    );
+    const detachedHost = authority.hostForOwner(detachedKeyGamma);
+
+    expect(detached && detached.status === 'DETACHED', 'detachProject returned ' + JSON.stringify(detached));
+    expect(authority.browserShellCount() === 2, 'browserShellCount() was ' + authority.browserShellCount());
+    expect(detachedEntry.owner.kind === 'project' && detachedEntry.owner.projectId === GAMMA.projectId, 'the detached owner was ' + JSON.stringify(detachedEntry.owner));
+    expect(detachedEntry.identity && detachedEntry.identity.owner && detachedEntry.identity.owner.kind === 'project', 'the detached identity named no project: ' + JSON.stringify(detachedEntry.identity));
+    expect(detachedHost && detachedHost !== host, 'the detached shell shares the hub host');
+
+    // Every transferable GAMMA-stamped tab moved with the project; the hub kept the rest.
+    // The serialized envelope was journaled above the call; the catch records what
+    // actually landed if the wait times out.
+    await waitFor(
+      function () {
+        const n = detachedHost.tabsForProject(GAMMA.projectId).length;
+        return n === stampedBefore.length ? true : n;
+      },
+      "the stamped tabs to land on the detached host",
+      30000,
+    ).catch(function (err) {
+      observations.detachTransfer.landed = detachedHost.tabsForProject(GAMMA.projectId).length;
+      observations.detachTransfer.detachedTabList = detachedHost.getTabList().map(function (t) { return { id: t.id, projectId: t.projectId }; });
+      throw err;
+    });
+    detachedTabIdsGamma = detachedHost.tabsForProject(GAMMA.projectId).slice();
+    expect(host.tabsForProject(GAMMA.projectId).length === 0, 'the hub kept GAMMA tabs: ' + JSON.stringify(host.tabsForProject(GAMMA.projectId)));
+    // The wire list drops agent-plane rows, so the fold's true delta is the stamped
+    // count — the serialized envelope itself is the ledger: serialized == stamped ==
+    // landed, and the hub's stamp set is empty.
+    expect(observations.detachTransfer.serializedTabs === stampedBefore.length, 'serialize offered ' + observations.detachTransfer.serializedTabs + ' of ' + stampedBefore.length + ' stamped tabs');
+    expect(host.activeProject() !== GAMMA.projectId, 'the hub still presents GAMMA: ' + String(host.activeProject()));
+
+    // Chrome is live: the detached window answers its own toolbar and sidebar APIs.
+    const detachedToolbar = surfaceOf(authority.shellFor(detachedKeyGamma), 'toolbar');
+    const detachedSidebar = surfaceOf(authority.shellFor(detachedKeyGamma), 'sidebar');
+    await waitForApi(detachedToolbar, "typeof window.antifanToolbar === 'object' && typeof window.antifanToolbar.createTab === 'function'");
+    await waitForApi(detachedSidebar, "typeof window.antifanStandalone === 'object' && typeof window.antifanStandalone.openProject === 'function'");
+    expect(detachedEntry.visible === true, 'the detached shell was never presented');
+    detachedTabIdsGamma = detachedHost.tabsForProject(GAMMA.projectId).slice();
+
+    observations.detach = {
+      status: detached.status,
+      ownerKey: detachedKeyGamma,
+      shellCount: authority.browserShellCount(),
+      movedTabs: detachedTabIdsGamma.length,
+      hubTabs: host.getTabList().length,
+      hubActiveProject: host.activeProject(),
+    };
+  });
+
+  // ------- (17) exclusivity: a detached project is never presented by the hub -----
+  await check('window.detached-project-exclusivity', async function () {
+    const host = hubHost();
+    const detachedHost = authority.hostForOwner(detachedKeyGamma);
+    expect(detachedHost, 'the detached host vanished before the exclusivity row');
+    const shellCount = authority.browserShellCount();
+
+    // The user-facing open lands on the detached shell — FOCUSED, never a hub flip
+    // and never a second window. The shared helper waits for the HUB to present the
+    // project, which exclusivity itself forbids — this row calls the open channel
+    // directly and asserts the result instead.
+    const openResult = await sidebarHub.executeJavaScript('window.antifanStandalone.openProject(' + JSON.stringify(GAMMA.projectId) + ')', true);
+    const openDetached = { result: openResult };
+    expect(openDetached.result && openDetached.result.status === 'FOCUSED', 'opening a detached project returned ' + JSON.stringify(openDetached.result));
+    expect(authority.browserShellCount() === shellCount, 'a phantom shell appeared: ' + authority.browserShellCount());
+    expect(host.activeProject() !== GAMMA.projectId, 'the hub adopted a detached project: ' + String(host.activeProject()));
+    const entryAfterOpen = entryOf(authority.snapshot(), detachedKeyGamma);
+    expect(entryAfterOpen && entryAfterOpen.visible === true, 'the detached shell was not presented by the open');
+
+    // The creation arm refuses too: an agent-side ensure naming the detached owner
+    // is a typed conflict — the funnel never mints a second window and never puts
+    // the project on the hub.
+    let refused = null;
+    try {
+      await authority.ensureProjectWindow({ kind: 'project', projectId: GAMMA.projectId }, 'agent');
+    } catch (err) {
+      refused = err;
+    }
+    expect(refused, 'the agent-side ensure accepted a detached project');
+    expect(/TRANSACTION_CONFLICT|detached/i.test(String(refused && (refused.code || refused.message || refused))), 'the ensure refused with ' + messageOf(refused));
+    expect(authority.browserShellCount() === shellCount, 'the refused ensure grew a shell: ' + authority.browserShellCount());
+
+    // And the hub-side activation surface — the tab-click flip the picker would ride —
+    // refuses the same way, through the one funnel every presentation takes.
+    let hubFlipped = null;
+    try {
+      await authority.ensureProjectWindow({ kind: 'project', projectId: GAMMA.projectId }, 'user');
+    } catch (err) {
+      hubFlipped = err;
+    }
+    expect(hubFlipped, 'the user-side ensure accepted a detached project');
+    expect(host.activeProject() !== GAMMA.projectId, 'the refused ensure still flipped the hub');
+
+    observations.detachExclusivity = {
+      openStatus: openDetached.result.status,
+      shellCount: authority.browserShellCount(),
+      ensureRefusal: String(refused && (refused.code || refused.message || refused)).slice(0, 160),
+      hubActiveProject: host.activeProject(),
+    };
+  });
+
+  // ------- (18) reattach: the fold returns every tab to the hub, marker cleared --
+  await check('window.detached-project-reattach', async function () {
+    const host = hubHost();
+    const reattach = await authority.reattachProject(GAMMA.projectId);
+    expect(reattach && reattach.status === 'REATTACHED', 'reattachProject returned ' + JSON.stringify(reattach));
+
+    // The shell is gone, the hub holds the tabs live again, and the detached record
+    // is folded into owners.web — the entrypoint's own post-fold re-read already
+    // proved the landing before it answered REATTACHED.
+    expect(authority.browserShellCount() === 1, 'browserShellCount() was ' + authority.browserShellCount());
+    expect(!entryOf(authority.snapshot(), detachedKeyGamma), 'the detached shell survived the reattach');
+    const expectedFolded = detachedTabIdsGamma || [];
+    await waitFor(
+      function () { return host.tabsForProject(GAMMA.projectId).length === expectedFolded.length; },
+      'the folded tabs to land live on the hub',
+      15000,
+    );
+    expect(expectedFolded.length > 0, 'the detach lifecycle recorded no folded tab ids');
+    expect(authority.hostForOwner(detachedKeyGamma) === null, 'the folded owner still has a host');
+    expect(app.isReady() === true, 'the app died with the reattached shell');
+
+    observations.reattach = {
+      status: reattach.status,
+      shellCount: authority.browserShellCount(),
+      liveTabs: host.tabsForProject(GAMMA.projectId).length,
+      foldedTabIds: detachedTabIdsGamma,
+    };
+  });
+
+  // ------------------------------------------------------------- (19) orderly owned teardown
   await check('window.cleanup-closes-every-shell', async function () {
     for (const entry of authority.snapshot()) {
       authority.requestClose(entry.ownerKey);
@@ -1906,6 +2108,26 @@ describe('Live E2E: the web hub lifecycle', () => {
         'a read escaped the session that owned it',
       );
       assert.ok(sessions.domReads.includes(sessions.tabTwo), 'session two never reached its own tab');
+      const detach = observations.detach;
+      assert.ok(detach, 'the detach row recorded no lifecycle evidence');
+      assert.equal(detach.status, 'DETACHED', 'the detach did not create a project shell');
+      assert.equal(detach.ownerKey, 'project:project-00000000-0000-4000-8000-0000000000c3', 'the detached shell carries a non-GAMMA owner');
+      assert.equal(detach.shellCount, 2, 'detach did not leave exactly hub + detached');
+      assert.ok(detach.movedTabs > 0, 'the detach transferred no stamped tabs');
+      assert.notEqual(detach.hubActiveProject, 'project-00000000-0000-4000-8000-0000000000c3', 'the hub kept presenting the detached project');
+
+      const exclusivity = observations.detachExclusivity;
+      assert.ok(exclusivity, 'the exclusivity row recorded no evidence');
+      assert.equal(exclusivity.openStatus, 'FOCUSED', 'opening a detached project did not focus its shell');
+      assert.equal(exclusivity.shellCount, 2, 'exclusivity let a phantom shell appear');
+      assert.match(exclusivity.ensureRefusal, /TRANSACTION_CONFLICT|detached/i, 'the creation arm refused without a typed conflict');
+      assert.notEqual(exclusivity.hubActiveProject, 'project-00000000-0000-4000-8000-0000000000c3', 'exclusivity let the hub adopt the detached project');
+
+      const reattach = observations.reattach;
+      assert.ok(reattach, 'the reattach row recorded no evidence');
+      assert.equal(reattach.status, 'REATTACHED', 'the reattach did not fold the record');
+      assert.equal(reattach.shellCount, 1, 'the reattach left shells behind');
+      assert.equal(reattach.liveTabs, reattach.foldedTabIds.length, 'the hub did not ingest every folded tab');
     } finally {
       fs.rmSync(driverDir, { recursive: true, force: true });
     }

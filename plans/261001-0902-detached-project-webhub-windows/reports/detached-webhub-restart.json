@@ -1,0 +1,142 @@
+{
+  "probe": "detached-webhub",
+  "passed": 5,
+  "failed": 0,
+  "checks": [
+    {
+      "name": "cold restart restores the hub and both detached shells",
+      "ok": true
+    },
+    {
+      "name": "the detached B shell restores its persisted tabs",
+      "ok": true
+    },
+    {
+      "name": "the closed-at-quit detached A shell restores identically (detach is a mode)",
+      "ok": true
+    },
+    {
+      "name": "the hub presents no B scope and carries no project:B residue rows",
+      "ok": true
+    },
+    {
+      "name": "Terminal Manager stays a singleton across the restart boundary",
+      "ok": true
+    }
+  ],
+  "observations": {
+    "restart": {
+      "bTabs": [
+        {
+          "id": "270b43d9-2f6d-4046-8f09-05c9c3fba538",
+          "url": "https://www.google.com/"
+        },
+        {
+          "id": "85f5753d-6e58-4c48-9b6e-9202d3dffc29",
+          "url": "https://www.google.com/"
+        },
+        {
+          "id": "85c638b9-9d7a-46a0-bdc0-fb7795a9721b",
+          "url": "https://www.google.com/"
+        },
+        {
+          "id": "8581636b-592e-460c-bdde-9f6d1c51faa1",
+          "url": "http://127.0.0.1:54598/beta"
+        },
+        {
+          "id": "89e8958a-1a40-418b-bf8c-9e37afabc2d7",
+          "url": "http://127.0.0.1:1/dwh-miss"
+        },
+        {
+          "id": "65346009-50d2-4727-b454-236416782993",
+          "url": "http://127.0.0.1:54598/detach-keep"
+        }
+      ],
+      "bStamped": [
+        "270b43d9-2f6d-4046-8f09-05c9c3fba538",
+        "85f5753d-6e58-4c48-9b6e-9202d3dffc29",
+        "85c638b9-9d7a-46a0-bdc0-fb7795a9721b",
+        "8581636b-592e-460c-bdde-9f6d1c51faa1",
+        "89e8958a-1a40-418b-bf8c-9e37afabc2d7",
+        "65346009-50d2-4727-b454-236416782993"
+      ]
+    },
+    "restartA": {
+      "aTabs": [
+        "289bef63-dddb-421f-ade7-de0d28f53e2e",
+        "621b8611-f18c-41c9-9c99-69dacd1f8664",
+        "1d46e662-94db-47c6-a3e1-e9d5c78cc491"
+      ],
+      "aStamped": [
+        "289bef63-dddb-421f-ade7-de0d28f53e2e",
+        "621b8611-f18c-41c9-9c99-69dacd1f8664",
+        "1d46e662-94db-47c6-a3e1-e9d5c78cc491"
+      ]
+    },
+    "detachedRestoreJournal": [
+      {
+        "iso": "2026-10-01T12:58:19.082Z",
+        "ts": 1790859499082,
+        "pid": 14076,
+        "uptimeMs": 2592,
+        "event": "detached-restore.refused",
+        "projectId": "project-00000000-0000-4000-8000-0000000000d9"
+      },
+      {
+        "iso": "2026-10-01T12:58:19.082Z",
+        "ts": 1790859499082,
+        "pid": 14076,
+        "uptimeMs": 2593,
+        "event": "detached-restore.done",
+        "marked": 1,
+        "restored": 0,
+        "refused": 1,
+        "failed": 0,
+        "skipped": 0
+      },
+      {
+        "iso": "2026-10-01T12:59:03.379Z",
+        "ts": 1790859543379,
+        "pid": 23984,
+        "uptimeMs": 3422,
+        "event": "detached-restore.refused",
+        "projectId": "project-00000000-0000-4000-8000-0000000000d9"
+      },
+      {
+        "iso": "2026-10-01T12:59:03.730Z",
+        "ts": 1790859543730,
+        "pid": 23984,
+        "uptimeMs": 3773,
+        "event": "detached-restore.shell",
+        "projectId": "project-00000000-0000-4000-8000-0000000000a1",
+        "created": true,
+        "durationMs": 349,
+        "overBudget": false
+      },
+      {
+        "iso": "2026-10-01T12:59:04.105Z",
+        "ts": 1790859544105,
+        "pid": 23984,
+        "uptimeMs": 4148,
+        "event": "detached-restore.shell",
+        "projectId": "project-00000000-0000-4000-8000-0000000000b2",
+        "created": true,
+        "durationMs": 373,
+        "overBudget": false
+      },
+      {
+        "iso": "2026-10-01T12:59:04.107Z",
+        "ts": 1790859544107,
+        "pid": 23984,
+        "uptimeMs": 4149,
+        "event": "detached-restore.done",
+        "marked": 3,
+        "restored": 2,
+        "refused": 1,
+        "failed": 0,
+        "skipped": 0
+      }
+    ]
+  },
+  "at": "2026-10-01T12:59:12.288Z"
+}

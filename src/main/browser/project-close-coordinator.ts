@@ -200,6 +200,23 @@ export interface CloseSurface {
    * MUST NOT raise or focus a window. Never called with an empty survivor set.
    */
   restoreSurvivingLayout?(survivingTabIds: readonly string[]): void;
+
+  /**
+   * Detached-lifecycle persistence seam (optional): called once, after the
+   * shell-scope evidence gate passes and immediately before the per-page close
+   * loop. A surface that implements it snapshots its persisted owner record NOW —
+   * before `closePage` empties the live map — so the window's own teardown can
+   * write the parked rows. It changes persistence only: readLiveUse, closePage,
+   * vetoes, reservations and outcome records all still run.
+   */
+  parkTabsForClose?(): void;
+  /**
+   * Releases a snapshot parked by `parkTabsForClose` when the attempt did not
+   * close the surface (refused, halted or failed). After a real close the hook
+   * is left armed — teardown's final persist is exactly where the parked rows
+   * are spent.
+   */
+  releaseParkedTabs?(): void;
 }
 
 export interface ProjectCloseCoordinatorDeps {
@@ -786,6 +803,7 @@ export class ProjectCloseCoordinator {
     let members: string[] = [];
     let lastObservedMembers: string[] = [];
     let disposition: CloseDisposition = 'retained';
+    let surface: CloseSurface | undefined;
 
     const finalize = (surviving: readonly string[]): CloseReport => ({
       attemptId,
@@ -809,7 +827,7 @@ export class ProjectCloseCoordinator {
     });
 
     try {
-      const surface = this.deps.surfaceForOwner(ownerKey);
+      surface = this.deps.surfaceForOwner(ownerKey);
       if (!surface) {
         refusals.push(makeRefusal('surface-missing', `No live surface is registered for ${ownerKey}`, []));
         haltedBy = 'surface-missing';
@@ -863,9 +881,35 @@ export class ProjectCloseCoordinator {
         return finalize(this.readMembers(surface, lastObservedMembers));
       }
 
+      // A detached `project:` shell is parked, not dismantled: its tab rows are the
+      // persisted state `reattachProject` folds back to the hub. The surface snapshots
+      // them HERE — before `closePage` empties the live map — and the window's own
+      // teardown writes that parked record. The close pipeline itself is unchanged:
+      // per-page readLiveUse, closePage, vetoes, reservations and outcome records all
+      // run exactly as they do for any other owner. A park failure refuses the close —
+      // rows that cannot be parked would be lost, which is the one outcome the
+      // detached lifecycle must never produce.
+      if (surface.parkTabsForClose) {
+        try {
+          surface.parkTabsForClose();
+        } catch (err) {
+          haltedBy = 'native-close-failed';
+          refusals.push(
+            makeRefusal(
+              'native-close-failed',
+              `Parking ${ownerKey}'s persisted rows failed before the close: ${errorText(err)}`,
+              []
+            )
+          );
+          for (const tabId of members) {
+            skipped.push({ tabId, outcome: 'skipped', reason: haltedBy, attempted: false });
+          }
+          warnings.push(`No page was closed: the shell was refused before its first close (${haltedBy}).`);
+          return finalize(this.readMembers(surface, lastObservedMembers));
+        }
+      }
       this.phaseByOwner.set(ownerKey, 'closing-pages');
       const processed = new Set<string>();
-
       for (const tabId of members) {
         processed.add(tabId);
 
@@ -1065,6 +1109,11 @@ export class ProjectCloseCoordinator {
       this.restoreLayout(surface, surviving, warnings);
       return finalize(surviving);
     } finally {
+      // A refused or halted attempt leaves the surface alive: the parked snapshot
+      // is released so a later persist writes live state, never the stale parking.
+      if (disposition !== 'closed' && surface?.releaseParkedTabs) {
+        try { surface.releaseParkedTabs(); } catch {}
+      }
       releaseMemberReservations?.();
       releaseOwnerAdmission?.();
       if (disposition !== 'closed') this.phaseByOwner.set(ownerKey, 'open');

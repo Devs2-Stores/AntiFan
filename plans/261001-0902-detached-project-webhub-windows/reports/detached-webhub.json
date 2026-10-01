@@ -1,0 +1,347 @@
+{
+  "probe": "detached-webhub",
+  "passed": 24,
+  "failed": 0,
+  "checks": [
+    {
+      "name": "boot: one web hub presenting A; the seeded DEAD marker was refused at boot",
+      "ok": true
+    },
+    {
+      "name": "leg1: default openProject(B) routes to the singleton hub, never a detached shell",
+      "ok": true
+    },
+    {
+      "name": "leg2: detachProject(B) mints exactly one project:B shell with live chrome and a persisted marker",
+      "ok": true
+    },
+    {
+      "name": "leg3a: openProject(B) under a live detached shell focuses it — never a phantom hub scope",
+      "ok": true
+    },
+    {
+      "name": "leg3a: the hub-side activation funnel refuses a detached project (hub flip refused)",
+      "ok": true
+    },
+    {
+      "name": "leg3b: detaching the hub-presented project transfers live tabs, clears affiliation, drops hub scope",
+      "ok": true
+    },
+    {
+      "name": "leg4: a terminal minted in the detached window is stamped project:B and scoped to it",
+      "ok": true
+    },
+    {
+      "name": "leg5: a bridge session bound to detached B mints its anchor on the detached host",
+      "ok": true
+    },
+    {
+      "name": "leg5: bound dispatch lands on the detached host only",
+      "ok": true
+    },
+    {
+      "name": "leg5: cross-drive of a FOREIGN-project detached tab is refused typed (D4)",
+      "ok": true
+    },
+    {
+      "name": "leg5: a marked-dead project mint refuses TERMINAL_SCOPE_UNRESOLVED, never the hub",
+      "ok": true
+    },
+    {
+      "name": "leg5b: unfocused-VISIBLE detached capture succeeds through the real MCP path",
+      "ok": true
+    },
+    {
+      "name": "leg5b: starved detached capture refuses with a typed surface code",
+      "ok": true
+    },
+    {
+      "name": "leg5b: a genuine navigation miss reports its typed cause, never TARGET_STALE",
+      "ok": true
+    },
+    {
+      "name": "leg6: a pick naming a foreign-project session refuses and writes nothing",
+      "ok": true
+    },
+    {
+      "name": "leg6: a pick naming the detached scope's session writes there only",
+      "ok": true
+    },
+    {
+      "name": "leg6: an 'auto' pick with an unresolvable workspace skips without any write",
+      "ok": true
+    },
+    {
+      "name": "leg7: an ordinary close keeps detached:true on disk and never folds",
+      "ok": true
+    },
+    {
+      "name": "leg7: reattach folds the record and the hub shows B tabs live — no restart",
+      "ok": true
+    },
+    {
+      "name": "leg8: re-detach after reattach recreates the shell with B tabs",
+      "ok": true
+    },
+    {
+      "name": "leg8: the Terminal Manager opens as the fourth shell and sees every scope",
+      "ok": true
+    },
+    {
+      "name": "leg8: quit ordering — TM, detached A and hub close in turn; detached B survives as last shell",
+      "ok": true
+    },
+    {
+      "name": "cold restart leg restores both detached shells with tabs and no hub residue",
+      "ok": true
+    },
+    {
+      "name": "invariant: exactly one unassigned shell ever existed across the run",
+      "ok": true
+    }
+  ],
+  "observations": {
+    "detachB": {
+      "status": "DETACHED",
+      "projectId": "project-00000000-0000-4000-8000-0000000000b2"
+    },
+    "openBDetached": {
+      "status": "FOCUSED",
+      "projectId": "project-00000000-0000-4000-8000-0000000000b2"
+    },
+    "detachA": {
+      "status": "DETACHED",
+      "projectId": "project-00000000-0000-4000-8000-0000000000a1"
+    },
+    "transfer": {
+      "aTabsOnDetached": [
+        "be2e42c5-7987-4c83-b489-8d66eef89a95",
+        "7538ab77-09ba-4928-b6ad-1d75f838ff23",
+        "40ae52b3-c557-4b46-a7b7-dac7cf89d819"
+      ],
+      "hubActive": null
+    },
+    "detachedMint": "terminal-9",
+    "sessions": {
+      "sessionB": "terminal-9",
+      "ownerB": "project:project-00000000-0000-4000-8000-0000000000b2",
+      "sessionA": "terminal-14",
+      "ownerA": "project:project-00000000-0000-4000-8000-0000000000a1",
+      "sessionHub": "terminal-15",
+      "ownerHub": "web"
+    },
+    "hubScope": {
+      "visibleB": [
+        "terminal-9"
+      ],
+      "hubVisible": [
+        "terminal-15"
+      ]
+    },
+    "startSessionB": {
+      "success": true,
+      "data": {
+        "runId": "run-32561f4b-ac8c-418a-aa82-7b1876e1c912",
+        "attemptId": "attempt-227b146c-c0bb-4698-86c9-efbf853ce62e",
+        "attachmentId": "attachment-49f7fee9-5fd2-4b8d-a280-734551f1cbf2",
+        "secret": "45b2fd2f5aa5c4e02f39b254aed361fc7c02a22b269f23a3653dfac2714edaaf",
+        "projectId": "project-00000000-0000-4000-8000-0000000000b2",
+        "workspaceId": "workspace-00000000-0000-4000-8000-0000000000b2",
+        "tabId": "b169fc40-3bb6-4df3-92ef-0202ae1ad1c3",
+        "authorityRevision": "rev_c6d0cd5ea797d4b7d2fa01c187ca4479",
+        "host": "127.0.0.1",
+        "port": 23676,
+        "expiresAt": 1790860420866,
+        "proxyTelemetryDir": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-dwh-probe-0cMKQb\\telemetry\\core-attempts",
+        "runtimePid": 14076
+      }
+    },
+    "crossSession": {
+      "success": false,
+      "error": "TARGET_MISMATCH: Tab ID mismatch: expected b169fc40-3bb6-4df3-92ef-0202ae1ad1c3, got be2e42c5-7987-4c83-b489-8d66eef89a95. Note: In split review mode, use the bound tabId with paneId: \"mobile\" to target the mobile pane."
+    },
+    "sessionDead": {
+      "sessionDead": "terminal-16",
+      "owner": "project:project-00000000-0000-4000-8000-0000000000d9"
+    },
+    "startSessionDead": {
+      "success": false,
+      "error": "TERMINAL_SCOPE_UNRESOLVED: Terminal 'terminal-16' is claimed by project 'project-00000000-0000-4000-8000-0000000000d9', whose window is detached (marked or mid-reattach) but not live — refusing to mint its agent tab into the hub window."
+    },
+    "rebindToVisible": {
+      "success": true,
+      "tabId": "d0ab4c20-f3b1-4381-b44f-52514e775331"
+    },
+    "captureUnfocused": {
+      "success": true,
+      "ms": 448,
+      "byteLength": 7303,
+      "artifactRef": {
+        "id": "artifact-bef2c553-02e7-4c3e-8715-97daba4eef9f",
+        "runId": "run-32561f4b-ac8c-418a-aa82-7b1876e1c912",
+        "attemptId": "attempt-227b146c-c0bb-4698-86c9-efbf853ce62e",
+        "projectId": "project-00000000-0000-4000-8000-0000000000b2",
+        "workspaceId": "workspace-00000000-0000-4000-8000-0000000000b2",
+        "kind": "screenshot",
+        "path": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-dwh-probe-0cMKQb\\control-plane-v2\\artifacts\\run-32561f4b-ac8c-418a-aa82-7b1876e1c912\\cf5e3f0e460df7ccddf905dcef6f3500d22d9e6824348bcaa58f917273a2e923.artifact",
+        "byteLength": 7303,
+        "sha256": "cf5e3f0e460df7ccddf905dcef6f3500d22d9e6824348bcaa58f917273a2e923",
+        "mime": "image/png",
+        "truncated": false,
+        "redacted": false,
+        "createdAt": 1790859523107
+      }
+    },
+    "captureHidden": {
+      "success": false,
+      "error": "NO_RENDER_SURFACE: anti.screenshot.viewport cannot run on tab 'd0ab4c20-f3b1-4381-b44f-52514e775331': the render surface could not be measured (CDP command Runtime.evaluate timed out after 3000ms)",
+      "rafProbe": "stalled",
+      "frameGate": []
+    },
+    "navigationTimeout": {
+      "success": false,
+      "error": "LOAD_FAILED: [LOAD_FAILED] Navigation failed: ERR_UNSAFE_PORT",
+      "dataCode": "LOAD_FAILED",
+      "viewState": {
+        "wcAlive": true,
+        "url": "http://127.0.0.1:1/dwh-miss"
+      },
+      "recorded": {
+        "cause": "LOAD_FAILED",
+        "message": "Navigation failed: ERR_UNSAFE_PORT",
+        "timedOut": false
+      }
+    },
+    "endSessionB": {
+      "success": true
+    },
+    "leg7Rows": {
+      "rowsBeforeClose": 5,
+      "keptTab": "7a776253-320e-4915-8e2c-6c8c08efa9e6"
+    },
+    "leg7Close": {
+      "events": [
+        "tabhost.tabClosed",
+        "tabhost.tabClosed",
+        "tabhost.tabClosed",
+        "tabhost.tabClosed",
+        "tabhost.tabClosed",
+        "tabhost.tabClosed",
+        "tabhost.tabClosed",
+        "window-closed.siblings-live",
+        "window-close.closed"
+      ],
+      "record": {
+        "tabs": [
+          {
+            "id": "5d5a794d-9a14-4050-b8e2-f57d91456c6f",
+            "url": "https://www.google.com/",
+            "title": "Google",
+            "devicePresetId": "responsive",
+            "zoomFactor": 1,
+            "capsuleId": "capsule-probe-beta",
+            "userAgentMode": "clean",
+            "projectId": "project-00000000-0000-4000-8000-0000000000b2"
+          },
+          {
+            "id": "77ef212a-620d-42f4-b7ac-f6df28e5ccb8",
+            "url": "https://www.google.com/",
+            "title": "Google",
+            "devicePresetId": "responsive",
+            "zoomFactor": 1,
+            "capsuleId": "capsule-probe-beta",
+            "userAgentMode": "clean",
+            "projectId": "project-00000000-0000-4000-8000-0000000000b2"
+          },
+          {
+            "id": "d0ab4c20-f3b1-4381-b44f-52514e775331",
+            "url": "http://127.0.0.1:54598/beta",
+            "title": "dwh/beta",
+            "devicePresetId": "responsive",
+            "zoomFactor": 1,
+            "capsuleId": "capsule-probe-beta",
+            "userAgentMode": "clean",
+            "projectId": "project-00000000-0000-4000-8000-0000000000b2"
+          },
+          {
+            "id": "23e78cbe-a98f-411e-9f76-2f3afe968216",
+            "url": "http://127.0.0.1:1/dwh-miss",
+            "title": "dwh/nav-real",
+            "devicePresetId": "responsive",
+            "zoomFactor": 1,
+            "capsuleId": "capsule-probe-beta",
+            "userAgentMode": "clean",
+            "projectId": "project-00000000-0000-4000-8000-0000000000b2"
+          },
+          {
+            "id": "7a776253-320e-4915-8e2c-6c8c08efa9e6",
+            "url": "http://127.0.0.1:54598/detach-keep",
+            "title": "dwh/detach-keep",
+            "devicePresetId": "responsive",
+            "zoomFactor": 1,
+            "capsuleId": "capsule-probe-beta",
+            "userAgentMode": "clean",
+            "projectId": "project-00000000-0000-4000-8000-0000000000b2"
+          }
+        ],
+        "updatedAt": 1790859532492,
+        "activeTabId": "7a776253-320e-4915-8e2c-6c8c08efa9e6",
+        "terminalAffinities": [],
+        "terminalTabLayout": "horizontal",
+        "terminalSidebarWidth": 220,
+        "detached": true
+      },
+      "ownerKeys": [
+        "project:project-00000000-0000-4000-8000-0000000000d9",
+        "web",
+        "project:project-00000000-0000-4000-8000-0000000000b2",
+        "project:project-00000000-0000-4000-8000-0000000000a1"
+      ]
+    },
+    "reattachB": {
+      "status": "REATTACHED",
+      "projectId": "project-00000000-0000-4000-8000-0000000000b2"
+    },
+    "fold": {
+      "persistedRows": 5,
+      "liveBTabIds": [
+        "15cc4cfb-d856-48dc-8b98-8c6ac650385d",
+        "0683fee7-dc40-4983-9b10-2be15703cc3e",
+        "57ff52ac-8a96-4902-b0f9-1d5103d2bc11",
+        "c9f58011-1fd0-4368-a2bb-29956c2ed7b7",
+        "3937764e-cc4d-42d2-8f5f-ce1e83062417"
+      ]
+    },
+    "coldRestart": {
+      "status": 0,
+      "signal": null,
+      "stderrTail": [
+        "(node:23984) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.",
+        "(Use `electron --trace-warnings ...` to show where the warning was created)",
+        "[23984:1001/195902.332:ERROR:mojo\\public\\cpp\\bindings\\lib\\interface_endpoint_client.cc:748] Message 0 rejected by interface blink.mojom.WidgetHost\r",
+        "[AttachmentRegistry] Dropped 11 attachment record(s) bound to foreign runtime(s) binding-767b9fc1-1467-4f28-90a0-c550d2073e34; current runtime is binding-01e737f0-054a-4a9f-b48f-5d3e55f56bac. Their owners re-pair through the bridge's 4001 path.",
+        "[antifan] Close of web: shell retained, stopped by unknown-outcome (closed 0, skipped 1, failed 0); earlier closes stand and are not transactional.",
+        "[project-window-shell] project-00000000-0000-4000-8000-0000000000a1 closed with 3 content(s) still alive 50ms after disposal: sidebar#9, frameBackdrop#8, toolbar#7 (contents that reported destroyed during the attempt: 1)",
+        "[antifan] Keeping the existing entry in C:\\Users\\Admin\\.gemini\\antifan_bridge_dev.json: it is held by a live instance.",
+        ""
+      ],
+      "stdoutTail": [
+        "  PASS  cold restart restores the hub and both detached shells",
+        "  PASS  the detached B shell restores its persisted tabs",
+        "  PASS  the closed-at-quit detached A shell restores identically (detach is a mode)",
+        "  PASS  the hub presents no B scope and carries no project:B residue rows",
+        "  PASS  Terminal Manager stays a singleton across the restart boundary",
+        "[native-tab-host] Persisted tabs async to: C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-dwh-probe-0cMKQb\\Profile-restart\\saved-tabs.json",
+        "[native-tab-host] Persisted tabs async to: C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-dwh-probe-0cMKQb\\Profile-restart\\saved-tabs.json",
+        "[antifan] Native Messaging Local IPC Server listening at \\\\.\\pipe\\antifan-bridge-ipc-f722ebdf-b6ef-4041-87ee-d027025c05d0",
+        "[native-tab-host] Persisted tabs sync to: C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-dwh-probe-0cMKQb\\Profile-restart\\saved-tabs.json",
+        "[native-tab-host] Persisted tabs sync to: C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-dwh-probe-0cMKQb\\Profile-restart\\saved-tabs.json",
+        "[native-tab-host] Persisted tabs async to: C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-dwh-probe-0cMKQb\\Profile-restart\\saved-tabs.json",
+        "[probe] 5 passed, 0 failed — evidence: E:\\Work\\apps\\AntiFan\\plans\\261001-0902-detached-project-webhub-windows\\reports\\detached-webhub-restart.json",
+        "[antifan] Persisted non-secret bridge info to E:\\Work\\.antifan-data\\config\\bridge-dev.json",
+        ""
+      ]
+    }
+  },
+  "at": "2026-10-01T12:59:15.455Z"
+}

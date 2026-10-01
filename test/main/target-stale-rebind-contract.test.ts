@@ -130,4 +130,56 @@ describe('Target Stale & Structured Rebind Contract Reproduction', () => {
       }
     );
   });
+  // D4 probe invariant: rebind refuses a foreign-project tab but allows a
+  // same-project affiliated tab. The gate measures resolveTabAffiliation (the
+  // tab's capsule project/workspace), not which window presents it — so a
+  // same-project tab presented by a detached shell stays rebindable while a
+  // foreign-project tab stays refused even when it lives in the same window.
+  it('rebindTarget refuses a foreign-project tab with TARGET_MISMATCH', () => {
+    const host = createMockHost({
+      getTabList: () => [
+        { id: 'tab-1', url: 'https://example.com/a', title: 'Bound' },
+        { id: 'tab-foreign', url: 'https://other.example.com', title: 'Foreign' },
+      ],
+      getManagedTabIds: () => new Set<string>(['tab-1']),
+      isTabAllowed: () => false,
+      resolveTargetTabId: (tabId?: string | null) => tabId ?? undefined,
+      resolveTabAffiliation: (tabId: string) =>
+        tabId === 'tab-foreign' ? { projectId: 'proj-foreign', workspaceId: 'ws-foreign' } : undefined,
+    });
+    const port = new BrowserControlPort(host);
+
+    assert.throws(
+      () => {
+        port.rebindTarget({ tabId: 'tab-foreign' }, baseTarget);
+      },
+      (err: unknown) => {
+        assert.ok(err instanceof CapabilityError);
+        assert.strictEqual(err.code, 'TARGET_MISMATCH');
+        assert.ok(err.message.includes('tab-foreign'));
+        return true;
+      }
+    );
+  });
+
+  it('rebindTarget allows a same-project affiliated tab (capsule affiliation, not window)', () => {
+    const host = createMockHost({
+      getTabList: () => [
+        { id: 'tab-1', url: 'https://example.com/a', title: 'Bound' },
+        { id: 'tab-same-proj', url: 'https://example.com/b', title: 'Same project' },
+      ],
+      getManagedTabIds: () => new Set<string>(['tab-1']),
+      // isTabAllowed answers false on purpose: the affiliation arm — not window
+      // adjacency — is what admits this tab.
+      isTabAllowed: () => false,
+      resolveTargetTabId: (tabId?: string | null) => tabId ?? undefined,
+      resolveTabAffiliation: (tabId: string) =>
+        tabId === 'tab-same-proj' ? { projectId: 'proj-test', workspaceId: 'ws-test' } : undefined,
+    });
+    const port = new BrowserControlPort(host);
+
+    const receipt = port.rebindTarget({ tabId: 'tab-same-proj' }, baseTarget);
+    assert.strictEqual(receipt.success, true);
+    assert.strictEqual(receipt.tabId, 'tab-same-proj');
+  });
 });

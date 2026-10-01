@@ -796,7 +796,7 @@ describe('visualCompare canonical capture receipts (Phase 3 V-19, V-20, V-21)', 
     assert.ok(res.reason.includes('CSS viewport dimension mismatch'));
   });
 
-  it('settles INCONCLUSIVE for stored baseline artifact pending Phase 6 baseline authority (R3/R4)', async () => {
+  it('settles INCONCLUSIVE for a stored baseline artifact lacking a verification receipt (R3/R4)', async () => {
     const evalLog: EvalLogEntry[] = [];
     const host = buildMockHost({ evalLog });
     const port = createRoutePort(host as any);
@@ -806,7 +806,6 @@ describe('visualCompare canonical capture receipts (Phase 3 V-19, V-20, V-21)', 
     assert.strictEqual(res.status, 'INCONCLUSIVE');
     assert.strictEqual(res.captureStateCompatible, false);
     assert.strictEqual(res.maskResolution.status, 'ok');
-    assert.ok(res.reason.includes('pending Phase 6 baseline authority certification'));
   });
 });
 

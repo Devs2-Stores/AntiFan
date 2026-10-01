@@ -20,13 +20,27 @@
 import type { CloseSurface } from './project-close-coordinator';
 import { ownerKey, ProjectWindowShell, type WindowOwner } from './project-window-shell';
 
-export type OpenIntent = 'user' | 'agent';
+/**
+ * `user`: an explicit user action — the shell is presented and focused.
+ * `agent`: background work — the shell is created but never presented.
+ * `restore`: boot-time resurrection — the shell is presented unfocused
+ * (`showInactive` semantics: visible, placement restored, no focus steal). A
+ * shell restored unfocused can still be focused by a later `user` intent.
+ */
+export type OpenIntent = 'user' | 'agent' | 'restore';
 
 export interface ProjectWindowManagerOptions {
   /** Builds the native shell. The manager never constructs BrowserWindow itself. */
   createShell: (owner: WindowOwner, intent: OpenIntent) => ProjectWindowShell;
   /** Presents an existing shell for an explicit user action; never called for agent intent. */
   presentShell?: (shell: ProjectWindowShell) => void;
+  /**
+   * Presents an existing shell for a `restore` intent join: the window surfaces
+   * without stealing focus (`showInactive`), so a boot-time restore can never
+   * interrupt what the user is already looking at. Never called for agent or
+   * user intents — those keep `presentShell`.
+   */
+  presentShellInactive?: (shell: ProjectWindowShell) => void;
   /**
    * Main unregisters this shell's routing and host here, with the owner identity it needs
    * (`shell.owner`). Runs once per shell: before its own teardown on `disposeShell()`, and
@@ -60,7 +74,8 @@ export class ProjectWindowManager {
   /**
    * Return the live shell for an owner, creating one when absent. Concurrent
    * requests for the same owner share a single creation attempt, so a
-   * double-click cannot produce two windows. Only user intent presents.
+   * double-click cannot produce two windows. `user` presents focused, `restore`
+   * presents unfocused, `agent` never presents.
    */
   public ensureWindow(owner: WindowOwner, intent: OpenIntent): Promise<ProjectWindowShell> {
     const key = ownerKey(owner);
@@ -69,6 +84,7 @@ export class ProjectWindowManager {
     if (existing) {
       if (!existing.window.isDestroyed()) {
         if (intent === 'user') this.present(existing);
+        else if (intent === 'restore') this.presentInactive(existing);
         return Promise.resolve(existing);
       }
       this.forgetShell(key);
@@ -78,13 +94,17 @@ export class ProjectWindowManager {
     if (inFlight) {
       // A user click that lands while a background creation is still running
       // must still present the window it joins; the creation intent itself is
-      // whichever request won, so an agent-driven creation stays hidden.
+      // whichever request won, so an agent-driven creation stays hidden. The
+      // same rule drives `restore`: joining an in-flight open surfaces the
+      // shell unfocused rather than leaving a boot-restored window invisible.
       if (intent === 'agent') return inFlight;
       return inFlight.then((shell) => {
-        this.present(shell);
+        if (intent === 'restore') this.presentInactive(shell);
+        else this.present(shell);
         return shell;
       });
     }
+
 
     const attempt = Promise.resolve()
       .then(() => this.options.createShell(owner, intent))
@@ -295,6 +315,15 @@ export class ProjectWindowManager {
       this.options.presentShell?.(shell);
     } catch (err) {
       console.error('[project-window-manager] presentShell failed:', err);
+    }
+  }
+
+  private presentInactive(shell: ProjectWindowShell): void {
+    if (shell.window.isDestroyed()) return;
+    try {
+      this.options.presentShellInactive?.(shell);
+    } catch (err) {
+      console.error('[project-window-manager] presentShellInactive failed:', err);
     }
   }
 

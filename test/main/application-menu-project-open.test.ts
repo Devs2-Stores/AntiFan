@@ -137,7 +137,14 @@ describe('application menu: Mở dự án…', () => {
     });
 
     const labels = fileItems().map((item) => item.label ?? item.type);
-    assert.deepStrictEqual(labels.slice(0, 4), ['Mở dự án…', 'separator', 'New Tab', 'Reopen Closed Tab']);
+    assert.deepStrictEqual(labels.slice(0, 6), [
+      'Mở dự án…',
+      'Detach Project into Own Window',
+      'Reattach Project into Hub Window',
+      'separator',
+      'New Tab',
+      'Reopen Closed Tab',
+    ], 'the project entries (open, detach, reattach) sit before the separator, tab commands undisturbed');
   });
 });
 

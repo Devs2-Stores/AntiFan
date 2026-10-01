@@ -205,7 +205,7 @@ describe('Phase 03: Browser Deterministic Wait & Registry Capacity Invariants', 
     assert.strictEqual(details?.url, 'https://example.com/checkout');
   });
 
-  it('browser.wait condition navigation fails with TARGET_STALE if getLastNavigationFailure reports failure', async () => {
+  it('browser.wait condition navigation throws the recorded cause as the error code', async () => {
     const host = createMockHost(undefined, {
       getLastNavigationFailure: () => ({ cause: 'NAVIGATION_TIMEOUT', message: 'Navigation timed out', timedOut: true }),
     });
@@ -217,7 +217,7 @@ describe('Phase 03: Browser Deterministic Wait & Registry Capacity Invariants', 
       },
       (err: unknown) => {
         assert.ok(err instanceof CapabilityError);
-        assert.strictEqual(err.code, 'TARGET_STALE');
+        assert.strictEqual(err.code, 'NAVIGATION_TIMEOUT');
         assert.ok(err.message.includes('NAVIGATION_TIMEOUT'));
         return true;
       }

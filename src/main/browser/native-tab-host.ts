@@ -250,6 +250,13 @@ export interface SavedTabsOwnerRecord {
   terminalTabLayout?: TerminalTabLayout;
   /** This window's terminal sidebar column width (px). */
   terminalSidebarWidth?: number;
+  /**
+   * A `project:<id>` record this owner detached deliberately: the marker survives an
+   * ordinary window close — the project stays detached until an explicit reattach —
+   * and it exempts the record from `foldLegacyProjectOwnerRecords`, which would
+   * otherwise absorb the rows into `owners.web` on the next web-host read.
+   */
+  detached?: boolean;
 }
 
 /** Terminal prefs every window shares: the saved-tabs top-level keys they persist under. */
@@ -465,6 +472,7 @@ export function normalizeSavedTabsDocument(data: Record<string, unknown>): { doc
       if ('activeProjectId' in value && typeof value.activeProjectId === 'string') record.activeProjectId = value.activeProjectId;
       if ('terminalTabLayout' in value && (value.terminalTabLayout === 'horizontal' || value.terminalTabLayout === 'sidebar')) record.terminalTabLayout = value.terminalTabLayout;
       if ('terminalSidebarWidth' in value && typeof value.terminalSidebarWidth === 'number' && Number.isFinite(value.terminalSidebarWidth)) record.terminalSidebarWidth = value.terminalSidebarWidth;
+      if ('detached' in value && value.detached === true) record.detached = true;
       existingOwners[key] = record;
     }
   }
@@ -574,10 +582,13 @@ function writeSavedTabsDocumentSync(filePath: string, document: SavedTabsDocumen
 }
 
 /**
- * Purge one project's persisted rows from the 'web' owner record — the removal path's
- * work when no live window exists to host it. Identical semantics to the instance
- * method: absent file removes nothing, a present-but-unreadable file throws because
- * the removal cannot prove the project's persisted tabs are gone.
+ * Purge one project's persisted rows — the removal path's work when no live window
+ * exists to host it. Two arms, one write: every `projectId`-stamped row leaves the
+ * 'web' owner record, and the whole `project:<id>` owner record — the detach
+ * marker's home — leaves the document, so a removed project can never resurrect
+ * its detached window or its rows on the next boot. Identical fail-closed rule as
+ * before: absent file removes nothing, a present-but-unreadable file throws
+ * because the removal cannot prove the project's persisted tabs are gone.
  */
 export function purgeSavedTabsFileForProject(filePath: string, projectId: string): Promise<number> {
   const id = typeof projectId === 'string' ? projectId.trim() : '';
@@ -595,10 +606,15 @@ export function purgeSavedTabsFileForProject(filePath: string, projectId: string
       return 0;
     }
     const { document } = normalizeSavedTabsDocument(data);
+    const projectOwnerKey = `project:${id}`;
+    // The detached record drops whole — rows, active pointer, affinities, marker.
+    // A fold-shaped merge is deliberately wrong here: removal keeps nothing.
+    const droppedRecord = projectOwnerKey in document.owners ? (document.owners[projectOwnerKey]?.tabs?.length ?? 0) : 0;
+    if (projectOwnerKey in document.owners) delete document.owners[projectOwnerKey];
     const record = document.owners[ownerKey({ kind: 'web' })];
     const tabs = record && Array.isArray(record.tabs) ? record.tabs : [];
     const kept = tabs.filter((t) => t && t.projectId !== id);
-    const removed = tabs.length - kept.length;
+    const removed = droppedRecord + tabs.length - kept.length;
     // A persisted presented-project pointer at the removed project would resurrect it
     // on the next boot whenever the restore's knownness check still passes (the boot
     // project always does), so it goes with the rows even when no row matched.
@@ -613,6 +629,153 @@ export function purgeSavedTabsFileForProject(filePath: string, projectId: string
     }
     writeSavedTabsDocumentSync(filePath, document);
     return removed;
+  });
+}
+
+/**
+ * Whether the saved-tabs document marks `project:<id>`'s owner record detached —
+ * the persisted half of the exclusivity check: a detached window may be closed while
+ * the marker survives, and that marker alone must keep the project out of the hub.
+ * Absent or unreadable files answer `false`: detach-as-mode must not be inferred from
+ * a file that cannot be read, and a corrupt file failing every open closed is the
+ * worse failure. Console warn keeps the corruption observable.
+ */
+export function savedTabsOwnerIsDetached(filePath: string, projectId: string): boolean {
+  const id = typeof projectId === 'string' ? projectId.trim() : '';
+  if (!id) return false;
+  const data = readSavedTabsFile(filePath);
+  if (!data) {
+    if (fs.existsSync(filePath)) {
+      console.warn(`[native-tab-host] saved-tabs.json at '${filePath}' is unreadable; treating 'project:${id}' as not detached`);
+    }
+    return false;
+  }
+  const { document } = normalizeSavedTabsDocument(data);
+  return document.owners[`project:${id}`]?.detached === true;
+}
+
+/**
+ * The owner keys whose saved-tabs records are marked `detached === true` —
+ * `project:<id>` entries only; every other owner kind can never carry the
+ * marker. This is the boot restore's enumeration seam: the same read +
+ * `normalizeSavedTabsDocument` pipeline `loadSavedTabsDocument` runs, minus the
+ * web-owner fold, so enumeration never mutates the document and never absorbs
+ * records it is only listing.
+ *
+ * Fail-closed like `savedTabsOwnerIsDetached`: an absent or unreadable file
+ * answers an empty list (nothing to restore), and a `project:`-shaped key with
+ * an empty id is malformed, not restorable.
+ */
+export function listDetachedProjectOwnerRecords(filePath: string): string[] {
+  const data = readSavedTabsFile(filePath);
+  if (!data) return [];
+  const { document } = normalizeSavedTabsDocument(data);
+  const keys: string[] = [];
+  for (const [key, record] of Object.entries(document.owners)) {
+    if (record?.detached !== true) continue;
+    if (parseOwnerKey(key).kind !== 'project') continue;
+    keys.push(key);
+  }
+  return keys;
+}
+
+/**
+ * Fold one `project:<id>` owner record into `owners.web`: the rows merge deduped
+ * by tab id, the project id the owner key carried is stamped onto every merged
+ * row, terminal affinities merge deduped by terminal+primary, the web record's
+ * persisted active pointers only fill in when the web record has none of its own,
+ * and the project record — marker included — leaves the document. Both the legacy
+ * migration fold and the reattach fold run exactly this body; the callers differ
+ * only in which records they hand it.
+ */
+function foldProjectOwnerRecordIntoWeb(
+  document: SavedTabsDocument,
+  ownerKeyValue: string,
+  projectId: string,
+): void {
+  const record = document.owners[ownerKeyValue];
+  if (!record || typeof record !== 'object') return;
+  const webRecord = (document.owners[WEB_OWNER_KEY] ??= { tabs: [], updatedAt: Date.now() });
+  const knownTabIds = new Set(
+    webRecord.tabs.map((t) => (t && typeof t === 'object' ? (t as Record<string, unknown>).id : undefined)),
+  );
+  for (const tab of Array.isArray(record.tabs) ? record.tabs : []) {
+    const tabId = tab && typeof tab === 'object' ? (tab as Record<string, unknown>).id : undefined;
+    if (tabId !== undefined && knownTabIds.has(tabId)) continue;
+    if (tab && typeof tab === 'object') {
+      (tab as Record<string, unknown>).projectId = projectId;
+      if (tabId !== undefined) knownTabIds.add(tabId);
+    }
+    webRecord.tabs.push(tab);
+  }
+  const knownAffinityKeys = new Set(
+    (webRecord.terminalAffinities ?? []).map((a) => `${a.terminalId}:${a.primaryTabId}`),
+  );
+  for (const aff of record.terminalAffinities ?? []) {
+    const key = `${aff.terminalId}:${aff.primaryTabId}`;
+    if (knownAffinityKeys.has(key)) continue;
+    knownAffinityKeys.add(key);
+    (webRecord.terminalAffinities ??= []).push(aff);
+  }
+  if (typeof webRecord.activeTabId !== 'string' && typeof record.activeTabId === 'string') {
+    webRecord.activeTabId = record.activeTabId;
+  }
+  if (typeof webRecord.activeProjectId !== 'string' && typeof record.activeProjectId === 'string') {
+    webRecord.activeProjectId = record.activeProjectId;
+  }
+  webRecord.updatedAt = Math.max(webRecord.updatedAt, record.updatedAt);
+  delete document.owners[ownerKeyValue];
+}
+
+/** The one-key reattach fold's report: what the record carried before it left the document. */
+export interface FoldDetachedOwnerResult {
+  /** Whether a `project:<id>` record existed to fold. */
+  folded: boolean;
+  /** The record's tab rows — the same row objects that landed in `owners.web` (stamped). */
+  tabs: Array<Record<string, unknown>>;
+  /** The record's terminal affinities, for the live-hub ingest to rebuild. */
+  terminalAffinities: SavedTerminalAffinityRecord[];
+}
+
+/**
+ * The scoped, single-key fold the explicit reattach drives: `owners['project:<id>']`
+ * merges into `owners.web` and the record (marker included) leaves the document,
+ * written atomically through the shared read-modify-write. Unlike the legacy fold
+ * this never consults `detached` — the reattach IS the marker-clearing act, and a
+ * record whose marker was already lost folds identically.
+ *
+ * It runs ONLY from explicit lifecycle paths (`reattachProject`), never from a
+ * close/quit hook: the caller owes the proof the dying host's final `persistSync`
+ * already completed, because that write would re-add the record after this fold.
+ * Present-but-unreadable file throws — same fail-closed contract the purge keeps.
+ */
+export function foldDetachedOwnerRecord(filePath: string, ownerKeyValue: string): Promise<FoldDetachedOwnerResult> {
+  const key = typeof ownerKeyValue === 'string' ? ownerKeyValue.trim() : '';
+  if (!key.startsWith('project:') || key.length === 'project:'.length) {
+    return Promise.resolve({ folded: false, tabs: [], terminalAffinities: [] });
+  }
+  const projectId = key.slice('project:'.length);
+  return enqueueSavedTabsWrite(filePath, async () => {
+    const data = readSavedTabsFile(filePath);
+    if (!data) {
+      if (fs.existsSync(filePath)) {
+        throw new Error(`saved-tabs.json at '${filePath}' exists but is unreadable or corrupt; refusing to fold '${key}'`);
+      }
+      return { folded: false, tabs: [], terminalAffinities: [] };
+    }
+    const { document } = normalizeSavedTabsDocument(data);
+    const record = document.owners[key];
+    if (!record || typeof record !== 'object') {
+      return { folded: false, tabs: [], terminalAffinities: [] };
+    }
+    // Snapshot BEFORE the fold: these are the same row objects the merge stamps and
+    // pushes onto the web record, so the live ingest re-homes exactly what landed.
+    const tabs = Array.isArray(record.tabs) ? [...record.tabs] : [];
+    const terminalAffinities = Array.isArray(record.terminalAffinities) ? [...record.terminalAffinities] : [];
+    foldProjectOwnerRecordIntoWeb(document, key, projectId);
+    document.updatedAt = Date.now();
+    writeSavedTabsDocumentSync(filePath, document);
+    return { folded: true, tabs, terminalAffinities };
   });
 }
 
@@ -1208,6 +1371,19 @@ export class NativeTabHost extends EventEmitter {
    * ahead of the restore.
    */
   private hasRestoredTabs = false;
+  /**
+   * Main's live-shell answer for the detach gate: which `project:<id>` shells exist
+   * right now. The host reads it only where a routing decision needs detached-shell
+   * liveness (the hub's assign-project row exception today); absent means "no detached
+   * shells", which is exactly the pre-detach world.
+   */
+  private detachedShellProbe: ((projectId: string) => boolean) | null = null;
+  /**
+   * Source-side ids of rows a detach transfer already re-homed here. Live rows mint new
+   * ids in this window, so this set — not `tabs` keys alone — is what makes a repeated
+   * transfer delivery idempotent instead of a duplicate strip.
+   */
+  private transferredSourceIds: Set<string> = new Set();
   /**
    * Canonical folder facts per input path spelling — `folderKey`/`folderLabel` are stamped on
    * every session row of every window's projection, so each realpath the stamping needs is
@@ -4669,9 +4845,13 @@ export class NativeTabHost extends EventEmitter {
       // presenting it first; agent-owned rows keep the strict visibility check because the hub
       // is never their owner.
       const senderOwnerKey = host.shellOwnerKeyForSender(event?.sender?.id);
-      const rowKind = parseOwnerKey(TerminalManager.getInstance().sessionOwnerKey(sessionId) || '').kind;
+      const rowOwner = parseOwnerKey(TerminalManager.getInstance().sessionOwnerKey(sessionId) || '');
+      // A `project:` row owned by a live detached shell is NOT the hub's to move: the
+      // exclusivity the detach guards enforce would be defeated by a hub-side assign
+      // silently re-homing it. Unassigned/web rows keep the shipped exception.
       const hubRowVisible = senderOwnerKey === WEB_OWNER_KEY
-        && (rowKind === 'project' || rowKind === 'unassigned' || rowKind === 'web');
+        && (rowOwner.kind === 'unassigned' || rowOwner.kind === 'web'
+          || (rowOwner.kind === 'project' && !host.detachedShellOwns(rowOwner.projectId)));
       if (!hubRowVisible && !host.isSessionVisibleToWindow(sessionId, undefined, event?.sender?.id)) {
         return refused('SESSION_NOT_VISIBLE', `Session '${sessionId}' does not belong to this window`);
       }
@@ -6737,6 +6917,26 @@ export class NativeTabHost extends EventEmitter {
   }
 
   /**
+   * Install (or clear) Main's detached-shell probe — the liveness answer the
+   * assign-project row exception consults before it lets the hub move a
+   * `project:`-owned terminal row. See `detachedShellProbe`.
+   */
+  public setDetachedShellProbe(probe: ((projectId: string) => boolean) | null): void {
+    this.detachedShellProbe = typeof probe === 'function' ? probe : null;
+  }
+
+  /** Whether a live detached shell currently owns `projectId`. */
+  private detachedShellOwns(projectId: string): boolean {
+    const probe = this.detachedShellProbe;
+    if (!probe || !projectId) return false;
+    try {
+      return probe(projectId) === true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Main's opener for the shared Terminal Manager window. Every "give terminals their own
    * window" entry (toolbar pop-out, sidebar new-window, Ctrl+Shift+N) lands there: terminals
    * have exactly one window, never a per-host popout.
@@ -6794,6 +6994,70 @@ export class NativeTabHost extends EventEmitter {
       if (tab?.projectId === id) tabIds.push(tabId);
     }
     return tabIds;
+  }
+
+  /**
+   * The project id a freshly minted strip tab should carry, or undefined for none.
+   * An explicit request wins (`null` deliberately mints a shared tab). Absent one, the
+   * hub stamps its active project; a detached `project:<id>` window stamps the project
+   * that owns it — the window's owner key IS that project's identity, since a detached
+   * host carries no `activeProjectId`. Agent surfaces (`ephemeral`/`offscreen`) and
+   * every other owner stamp nothing.
+   */
+  public stampProjectIdForMint(requested: string | null | undefined, isAgentSurface: boolean): string | undefined {
+    if (isAgentSurface) return undefined;
+    if (requested === null) return undefined;
+    const owner = parseOwnerKey(this.windowOwnerKey());
+    if (typeof requested === 'string' && requested.trim()) {
+      // An explicit stamp is honored on the two owners whose tabs a project legitimately
+      // holds — the hub (stamps its presented scope) and a detached `project:` shell —
+      // never widened to arbitrary owners.
+      if (owner.kind === 'web' || owner.kind === 'project') return requested.trim();
+      return undefined;
+    }
+    if (owner.kind === 'project') return owner.projectId;
+    if (owner.kind === 'web' && this.activeProjectId) return this.activeProjectId;
+    return undefined;
+  }
+
+  /**
+   * Serialize this window's live tabs stamped `projectId` into persisted-row form for
+   * a detach transfer — the same `sanitizeTabForPersistence` projection a persisted
+   * record carries, so the receiving host re-homes them through the one normalization
+   * path (`ingestTabRow`) a file restore uses. Strip order is preserved; agent
+   * surfaces cannot carry a stamp (see `stampProjectIdForMint`) so nothing leaks.
+   * `terminalAffinities` ride along — restricted to entries whose tabs are all moving,
+   * so a terminal's bound tabs arrive with their affinity intact and partial sets are
+   * never claimed.
+   */
+  public serializeProjectTabsForTransfer(projectId: string): {
+    tabs: Array<Record<string, unknown>>;
+    terminalAffinities: SavedTerminalAffinityRecord[];
+    activeSourceTabId?: string;
+  } {
+    const id = typeof projectId === 'string' ? projectId.trim() : '';
+    const rows: Array<Record<string, unknown>> = [];
+    for (const tabId of this.tabOrder) {
+      const tab = this.tabs.get(tabId);
+      if (!tab || tab.projectId !== id) continue;
+      const row = sanitizeTabForPersistence(tab.state) as Record<string, unknown>;
+      row.projectId = id;
+      rows.push(row);
+    }
+    const movedTabIds = new Set(
+      rows.map((row) => (typeof row.id === 'string' ? row.id : undefined)).filter((value): value is string => Boolean(value)),
+    );
+    const terminalAffinities: SavedTerminalAffinityRecord[] = [];
+    for (const [key, entry] of (this.terminalAgentAffinity ?? new Map<string, TerminalAgentAffinityEntry>())) {
+      const terminalId = key.split('@')[0];
+      const primaryTabId = entry?.primaryTabId || entry?.tabId;
+      if (!terminalId || !primaryTabId || !movedTabIds.has(primaryTabId)) continue;
+      const managed = Array.from(entry?.managedTabIds ?? [primaryTabId])
+        .filter((tabId): tabId is string => typeof tabId === 'string' && movedTabIds.has(tabId));
+      terminalAffinities.push({ terminalId, primaryTabId, managedTabIds: managed });
+    }
+    const active = this.activeTabId && movedTabIds.has(this.activeTabId) ? this.activeTabId : undefined;
+    return { tabs: rows, terminalAffinities, ...(active ? { activeSourceTabId: active } : {}) };
   }
 
   /**
@@ -8409,19 +8673,15 @@ export class NativeTabHost extends EventEmitter {
     const effectivePreset = initialPreset || (options?.mobile ? findDevicePreset('iphone-15') : undefined);
 
     const tabEntry: NativeTabRecord = { view, state, focusedPane: 'desktop', lastActiveAt: Date.now() };
-    // Mint-time stamp, strip tabs only: only the 'web' hub carries an active project,
-    // so other shells and the offscreen/ephemeral agent surfaces stamp nothing — the
-    // field stays absent rather than pinning a foreign project. An explicit request
-    // (window.open's opener) wins; `null` mints a shared tab on purpose.
-    const requestedStamp = options?.projectId;
-    const mintProjectId = requestedStamp === null
-      ? undefined
-      : requestedStamp !== undefined && typeof requestedStamp === 'string' && requestedStamp.trim()
-        ? requestedStamp.trim()
-        : this.activeProjectId ?? undefined;
-    if (this.windowOwnerKey() === WEB_OWNER_KEY && !isEphemeral && !isOffscreen && mintProjectId) {
-      tabEntry.projectId = mintProjectId;
-    }
+    // Mint-time stamp, strip tabs only: the 'web' hub stamps its active project, a
+    // detached `project:<id>` window stamps the project that owns it (the host's owner
+    // key is the project's identity there — the window has no "active project" field
+    // to read). Other shells and the offscreen/ephemeral agent surfaces stamp nothing.
+    // An explicit request (window.open's opener) wins; `null` mints a shared tab on
+    // purpose. See `stampProjectIdForMint` — keep the rule in the one method the host
+    // and the tests share.
+    const mintStamp = this.stampProjectIdForMint(options?.projectId, isEphemeral || isOffscreen);
+    if (mintStamp) tabEntry.projectId = mintStamp;
     if (effectivePreset) {
       tabEntry.customViewport = {
         width: effectivePreset.width || 390,
@@ -10195,7 +10455,7 @@ export class NativeTabHost extends EventEmitter {
     if (!authorityView || authorityView.webContents.isDestroyed()) return false;
 
     this.lastNavigationFailures.delete(tabId);
-    const waiter = this.createNavigationLifecycleWaiter(authorityView.webContents, timeoutMs, Math.min(3000, timeoutMs), tabId);
+    const waiter = this.createNavigationLifecycleWaiter(authorityView.webContents, timeoutMs, Math.min(3000, timeoutMs), tabId, cleanUrl);
     const initiated = this.navigate(tabId, inputUrl);
     if (!initiated) {
       this.lastNavigationFailures.set(tabId, {
@@ -10263,7 +10523,17 @@ export class NativeTabHost extends EventEmitter {
       reloadWc,
       () => this.tabs.get(tabId)?.state.url || ''
     );
-    const desktopWaiter = this.createLoadCompletionWaiter(reloadWc, effectiveTimeoutMs);
+    // A timed-out load waiter used to settle unclassified, so callers read the
+    // same no-record path as a genuinely stale tab and wrapped a reload timeout
+    // in TARGET_STALE. Record the timeout cause so the wire code classifies it.
+    const recordReloadTimeout = () => {
+      this.lastNavigationFailures.set(tabId, {
+        cause: 'NAVIGATION_TIMEOUT',
+        message: `Navigation load completion timed out after ${effectiveTimeoutMs}ms`,
+        timedOut: true,
+      });
+    };
+    const desktopWaiter = this.createLoadCompletionWaiter(reloadWc, effectiveTimeoutMs, recordReloadTimeout);
 
     let mobileWaiter: { promise: Promise<boolean>; cancel: () => void } | null = null;
     if (isSplit && tab.mobileView) {
@@ -10274,7 +10544,7 @@ export class NativeTabHost extends EventEmitter {
         tab.mobileView.webContents,
         () => this.tabs.get(tabId)?.state.url || ''
       );
-      mobileWaiter = this.createLoadCompletionWaiter(tab.mobileView.webContents, effectiveTimeoutMs);
+      mobileWaiter = this.createLoadCompletionWaiter(tab.mobileView.webContents, effectiveTimeoutMs, recordReloadTimeout);
     }
 
     const initiated = this.reload(tabId, options);
@@ -10302,7 +10572,7 @@ export class NativeTabHost extends EventEmitter {
     return this.networkTracker;
   }
 
-  private createLoadCompletionWaiter(wc: Electron.WebContents, timeoutMs: number = 8000): { promise: Promise<boolean>; cancel: () => void } {
+  private createLoadCompletionWaiter(wc: Electron.WebContents, timeoutMs: number = 8000, onTimeout?: () => void): { promise: Promise<boolean>; cancel: () => void } {
     let cancelFn: () => void = () => {};
     const promise = new Promise<boolean>((resolve) => {
       if (!wc || wc.isDestroyed()) {
@@ -10337,6 +10607,10 @@ export class NativeTabHost extends EventEmitter {
       const timer = setTimeout(() => {
         if (!settled) {
           settled = true;
+          // onTimeout runs inside the resolve(false) arm only — a cancelled or
+          // load-failed waiter is not a navigation timeout and stays
+          // unclassified so the caller's no-record path keeps its meaning.
+          try { onTimeout?.(); } catch {}
           cleanup();
           resolve(false);
         }
@@ -10365,7 +10639,8 @@ export class NativeTabHost extends EventEmitter {
     wc: Electron.WebContents,
     timeoutMs: number = 8000,
     startTimeoutMs: number = 3000,
-    tabId?: string
+    tabId?: string,
+    committedTargetUrl?: string
   ): { promise: Promise<boolean>; cancel: () => void } {
     let cancelFn: () => void = () => {};
     const promise = new Promise<boolean>((resolve) => {
@@ -10375,8 +10650,11 @@ export class NativeTabHost extends EventEmitter {
       }
       let settled = false;
       let navStarted = false;
+      let navFailed = false;
+      let rechecking = false;
       let startTimer: NodeJS.Timeout | null = null;
       let totalTimer: NodeJS.Timeout | null = null;
+      let recheckTimer: NodeJS.Timeout | null = null;
 
       const cleanup = () => {
         if (startTimer) {
@@ -10387,10 +10665,15 @@ export class NativeTabHost extends EventEmitter {
           clearTimeout(totalTimer);
           totalTimer = null;
         }
+        if (recheckTimer) {
+          clearTimeout(recheckTimer);
+          recheckTimer = null;
+        }
         try { wc.removeListener('did-start-navigation', onStart); } catch {}
         try { wc.removeListener('did-finish-load', onFinish); } catch {}
         try { wc.removeListener('did-fail-load', onFail); } catch {}
         try { wc.removeListener('did-navigate-in-page', onInPage); } catch {}
+        try { wc.removeListener('destroyed', onWcDestroyed); } catch {}
       };
 
       const finish = (result: boolean) => {
@@ -10399,6 +10682,74 @@ export class NativeTabHost extends EventEmitter {
           cleanup();
           resolve(result);
         }
+      };
+
+      // A torn-down WebContents settles unclassified — that is a stale target,
+      // not a navigation timeout, so the port's no-record TARGET_STALE stays
+      // correct and no NAVIGATION_* record is written for it.
+      const onWcDestroyed = () => finish(false);
+
+      // The committed URL is the post-redirect getURL(): once this navigation
+      // starts, did-start-navigation resets redirectChain and did-navigate
+      // appends each resolved URL, so the chain tail names where the document
+      // actually committed. Before any start event the chain may be stale, so
+      // only the requested target is trusted then — a readyState='complete'
+      // read alone would describe the OLD document and false-positive.
+      const committedMatches = (liveUrl: string): boolean => {
+        // Every match requires this navigation to have started: on the start-timeout
+        // path (`!navStarted`) `readyState==='complete' && getURL()===target` describes
+        // the OLD document of a same-URL reload that never fired did-start-navigation —
+        // a false success for a navigation that never happened (previously a timeout).
+        if (!navStarted || !tabId) return false;
+        const live = String(liveUrl || '').replace(/\/$/, '');
+        const wanted = String(committedTargetUrl || '').replace(/\/$/, '');
+        if (live && wanted && live === wanted) return true;
+        const chain = this.tabs.get(tabId)?.redirectChain;
+        const tail = chain && chain.length ? String(chain[chain.length - 1]).replace(/\/$/, '') : '';
+        return Boolean(live && tail && live === tail);
+      };
+
+      // Timeout alone is not proof the navigation missed: a heavy page can
+      // commit just past the bound. Give it one bounded recheck window that
+      // still accepts did-finish-load / did-navigate-in-page, plus a
+      // readyState='complete' probe gated on the committed URL. Failing the
+      // window writes the timeout record only then.
+      // readyState 'complete' + a matching getURL() also describe the
+      // chrome-error:// interstitial Chromium commits for a failed load
+      // (getURL on it reports the FAILED target URL — ERR_UNSAFE_PORT was
+      // observed answering navigated:true off exactly this). The probe must
+      // reject error documents and the latched navFailed must veto, so a
+      // late did-fail-load can never lose to an error-page readyState.
+      const endGraceRecheck = (record: () => void) => {
+        if (!settled) {
+          try {
+            if (!wc.isDestroyed() && !navFailed) record();
+          } catch {}
+          finish(false);
+        }
+      };
+      const beginGraceRecheck = (record: () => void) => {
+        if (settled || rechecking || navFailed) return;
+        rechecking = true;
+        try { wc.once('destroyed', onWcDestroyed); } catch {}
+        try {
+          wc.executeJavaScript('document.readyState === "complete" && document.location.protocol !== "chrome-error:"')
+            .then((ready: unknown) => {
+              if (settled || navFailed) return;
+              let live = '';
+              try { live = wc.isDestroyed() ? '' : wc.getURL(); } catch { live = ''; }
+              if (ready === true && live && committedMatches(live)) {
+                if (tabId) this.lastNavigationFailures.delete(tabId);
+                finish(true);
+              }
+            })
+            .catch(() => {});
+        } catch {}
+        recheckTimer = setTimeout(() => {
+          recheckTimer = null;
+          endGraceRecheck(record);
+        }, 500);
+        recheckTimer.unref?.();
       };
 
       const onStart = (_event: unknown, _url: unknown, isInPlace: boolean, isMainFrame: boolean) => {
@@ -10412,8 +10763,10 @@ export class NativeTabHost extends EventEmitter {
       };
 
       const onFinish = () => {
-        // ONLY accept finish after this navigation has started in main-frame (non-in-place)
-        if (!settled && navStarted) {
+        // ONLY accept finish after this navigation has started in main-frame
+        // (non-in-place) and no main-frame failure was recorded for it: an
+        // error page fires did-finish-load too, so a latched failure vetoes.
+        if (!settled && !navFailed && navStarted) {
           if (tabId) {
             this.lastNavigationFailures.delete(tabId);
           }
@@ -10422,14 +10775,14 @@ export class NativeTabHost extends EventEmitter {
       };
 
       const onInPage = (_event: unknown, _url: unknown, isMainFrame: boolean) => {
-        if (isMainFrame && !settled) {
+        if (isMainFrame && !settled && !navFailed) {
           if (tabId) {
             this.lastNavigationFailures.delete(tabId);
           }
           finish(true);
         }
       };
-      const onFail = (_event: unknown, errorCode: unknown, errorDescription: unknown, _validatedURL: unknown, isMainFrame?: boolean) => {
+      const onFail = (_event: unknown, errorCode: unknown, errorDescription: unknown, validatedURL: unknown, isMainFrame?: boolean) => {
         if (isMainFrame === false) {
           return;
         }
@@ -10437,8 +10790,18 @@ export class NativeTabHost extends EventEmitter {
         if (errorCode === -3 || errorDescription === 'ERR_ABORTED') {
           return;
         }
-        // ONLY accept real failure after this navigation has started in main-frame
-        if (!settled && navStarted) {
+        // Attribute the failure to this navigation when it already started,
+        // or — delivery can race did-start-navigation under load — when the
+        // failed URL names the requested target. An unattributed leftover
+        // failure from the previous document must not veto a real commit.
+        const failedUrl = String(validatedURL || '').replace(/\/$/, '');
+        const wanted = String(committedTargetUrl || '').replace(/\/$/, '');
+        const attributed = navStarted || Boolean(failedUrl && wanted && failedUrl === wanted);
+        if (!settled && attributed) {
+          // Once a failed load for this navigation is recorded, no success arm
+          // may resolve true — an error-page did-finish-load or a readyState
+          // probe on the interstitial is not a commit.
+          navFailed = true;
           if (tabId) {
             this.lastNavigationFailures.set(tabId, {
               cause: 'LOAD_FAILED',
@@ -10452,27 +10815,29 @@ export class NativeTabHost extends EventEmitter {
 
       startTimer = setTimeout(() => {
         if (!settled && !navStarted) {
-          if (tabId) {
-            this.lastNavigationFailures.set(tabId, {
-              cause: 'NAVIGATION_START_TIMEOUT',
-              message: `Navigation start timed out after ${Math.min(startTimeoutMs, timeoutMs)}ms`,
-              timedOut: true,
-            });
-          }
-          finish(false);
+          beginGraceRecheck(() => {
+            if (tabId) {
+              this.lastNavigationFailures.set(tabId, {
+                cause: 'NAVIGATION_START_TIMEOUT',
+                message: `Navigation start timed out after ${Math.min(startTimeoutMs, timeoutMs)}ms`,
+                timedOut: true,
+              });
+            }
+          });
         }
       }, Math.min(startTimeoutMs, timeoutMs));
 
       totalTimer = setTimeout(() => {
-        if (!settled) {
-          if (tabId) {
-            this.lastNavigationFailures.set(tabId, {
-              cause: 'NAVIGATION_TIMEOUT',
-              message: `Navigation load completion timed out after ${timeoutMs}ms`,
-              timedOut: true,
-            });
-          }
-          finish(false);
+        if (!settled && navStarted && !rechecking) {
+          beginGraceRecheck(() => {
+            if (tabId) {
+              this.lastNavigationFailures.set(tabId, {
+                cause: 'NAVIGATION_TIMEOUT',
+                message: `Navigation load completion timed out after ${timeoutMs}ms`,
+                timedOut: true,
+              });
+            }
+          });
         }
       }, timeoutMs);
       cancelFn = () => {
@@ -12990,36 +13355,11 @@ export class NativeTabHost extends EventEmitter {
       if (!legacy || typeof legacy !== 'object') continue;
       const legacyProjectId = legacyKey.slice('project:'.length).trim();
       if (!legacyProjectId) continue; // 'project:' alone is malformed, not an owner
-      const webRecord = (document.owners[WEB_OWNER_KEY] ??= { tabs: [], updatedAt: Date.now() });
-      const knownTabIds = new Set(
-        webRecord.tabs.map((t) => (t && typeof t === 'object' ? (t as Record<string, unknown>).id : undefined)),
-      );
-      for (const tab of Array.isArray(legacy.tabs) ? legacy.tabs : []) {
-        const tabId = tab && typeof tab === 'object' ? (tab as Record<string, unknown>).id : undefined;
-        if (tabId !== undefined && knownTabIds.has(tabId)) continue;
-        if (tab && typeof tab === 'object') {
-          (tab as Record<string, unknown>).projectId = legacyProjectId;
-          if (tabId !== undefined) knownTabIds.add(tabId);
-        }
-        webRecord.tabs.push(tab);
-      }
-      const knownAffinityKeys = new Set(
-        (webRecord.terminalAffinities ?? []).map((a) => `${a.terminalId}:${a.primaryTabId}`),
-      );
-      for (const aff of legacy.terminalAffinities ?? []) {
-        const key = `${aff.terminalId}:${aff.primaryTabId}`;
-        if (knownAffinityKeys.has(key)) continue;
-        knownAffinityKeys.add(key);
-        (webRecord.terminalAffinities ??= []).push(aff);
-      }
-      if (typeof webRecord.activeTabId !== 'string' && typeof legacy.activeTabId === 'string') {
-        webRecord.activeTabId = legacy.activeTabId;
-      }
-      if (typeof webRecord.activeProjectId !== 'string' && typeof legacy.activeProjectId === 'string') {
-        webRecord.activeProjectId = legacy.activeProjectId;
-      }
-      webRecord.updatedAt = Math.max(webRecord.updatedAt, legacy.updatedAt);
-      delete document.owners[legacyKey];
+      // A record the project detached itself marks as such: it must survive every
+      // web-host read until an explicit reattach folds it. Unmarked `project:` records
+      // are pre-detach legacy and still fold — the migration keeps absorbing them.
+      if (legacy.detached === true) continue;
+      foldProjectOwnerRecordIntoWeb(document, legacyKey, legacyProjectId);
       folded = true;
     }
     return folded;
@@ -13104,6 +13444,10 @@ export class NativeTabHost extends EventEmitter {
     if (typeof data.activeProjectId === 'string') record.activeProjectId = data.activeProjectId;
     if (data.terminalTabLayout === 'horizontal' || data.terminalTabLayout === 'sidebar') record.terminalTabLayout = data.terminalTabLayout;
     if (typeof data.terminalSidebarWidth === 'number') record.terminalSidebarWidth = data.terminalSidebarWidth;
+    // A `project:<id>` record carries the detach marker while the project lives in its
+    // own shell; only the marked owner itself writes the flag — foreign records and
+    // every other owner never carry it.
+    if (this.shell?.owner?.kind === 'project') record.detached = true;
     return record;
   }
 
@@ -13133,6 +13477,16 @@ export class NativeTabHost extends EventEmitter {
   private buildSavedTabsDocument(existing: SavedTabsDocument | null, data: Record<string, unknown>): SavedTabsDocument {
     const owners: Record<string, SavedTabsOwnerRecord> = { ...(existing?.owners ?? {}) };
     owners[this.windowOwnerKey()] = this.ownerRecordFromPersistData(data);
+    // A `project:<id>` window owns its tab record and nothing else: the document-level
+    // keys (bookmarks, sidebar, profile, terminal prefs) are the hub's authority, and
+    // this write must leave every byte of them exactly as they were. Merging the
+    // previous document forward means a detached persist that runs while the hub is
+    // alive cannot clobber prefs the detached chrome cannot even see.
+    if (this.shell?.owner?.kind === 'project') {
+      return existing
+        ? { ...existing, owners, version: SAVED_TABS_SCHEMA_VERSION, updatedAt: Date.now() }
+        : { version: SAVED_TABS_SCHEMA_VERSION, owners, updatedAt: Date.now() };
+    }
     const shared = this.sharedPrefsFromPersistData(data);
     // The Terminal Manager's sidebar is pinned open by construction and its width is the
     // whole window; its write must not flip or resize the browser windows' shared sidebar.
@@ -13315,6 +13669,14 @@ export class NativeTabHost extends EventEmitter {
   private terminalSubscriptionReleases: Array<() => void> = [];
   private isPersistingTabs = false;
   private hasPendingPersist = false;
+  /**
+   * Persisted-row snapshot parked by `parkPersistDataForClose` while this window's
+   * close attempt runs. `persistSync` spends it instead of rebuilding from the
+   * (by then emptied) live map — that is what keeps a detached `project:` owner
+   * record's rows on disk through the close, where `reattachProject` can fold
+   * them back to the hub. `null` whenever no close is in flight.
+   */
+  private parkedPersistData: Record<string, unknown> | null = null;
   // Serialized projection of the last successful saved-tabs write, and the file
   // mtime it carried. When the next projection serializes identical AND the
   // file is untouched since our write, the read-modify-write would land the
@@ -13597,6 +13959,10 @@ export class NativeTabHost extends EventEmitter {
           // before anyone else reads — an await between the two lets a synchronous writer (a
           // closing window's disposal persist, which cannot enter this chain) land its newer
           // record in the gap, and this task would then rename an older snapshot over it.
+          // `data` was captured when this task was QUEUED; if the host was disposed while it
+          // waited (another write interleaved), the teardown's parked persistSync already wrote
+          // the final record — writing stale captured data now would truncate it.
+          if (this.isDisposed) return;
           const existing = this.normalizeSavedTabsFileForMerge(filePath);
           this.writeSavedTabsDocumentSync(filePath, this.buildSavedTabsDocument(existing, data));
         });
@@ -13614,6 +13980,43 @@ export class NativeTabHost extends EventEmitter {
     this.persistSync();
   }
 
+  /**
+   * The detached-lifecycle parking seam the close coordinator calls before it
+   * closes this window's pages. The snapshot is taken HERE — while every member
+   * tab is still live — and `persistSync` spends it when the window's own
+   * teardown runs, so a `project:` owner record's rows survive the close that
+   * empties the map. Idempotent inside one attempt; a later `releaseParkedTabs`
+   * (refused close) or a successful teardown's `isDisposed` guard bounds it.
+   */
+  public parkPersistDataForClose(): void {
+    if (this.isDisposed) return;
+    this.parkedPersistData = this.buildPersistData();
+  }
+
+  /** Discards a snapshot parked by `parkPersistDataForClose` (refused close). */
+  public releaseParkedPersistData(): void {
+    this.parkedPersistData = null;
+  }
+
+  /**
+   * Drops the project stamp on each named live tab — the honest end state of a
+   * tab that refused to leave during detach: it stays on the hub, unscoped and
+   * VISIBLE, instead of keeping a stamp the suppressed-row read filter would
+   * hide while the project record stays detached. Returns the ids cleared.
+   */
+  public clearTabProjectStamp(tabIds: readonly string[]): string[] {
+    const cleared: string[] = [];
+    for (const tabId of tabIds) {
+      const tab = this.tabs.get(tabId);
+      if (tab && tab.projectId) {
+        tab.projectId = undefined;
+        cleared.push(tabId);
+      }
+    }
+    if (cleared.length > 0) this.schedulePersist();
+    return cleared;
+  }
+
   public persistSync(): void {
     if (this.isDisposed) return;
     if (this.persistTimer) {
@@ -13622,7 +14025,9 @@ export class NativeTabHost extends EventEmitter {
     }
     try {
       const filePath = this.getTabsStoragePath();
-      const data = this.buildPersistData();
+      // Parked rows win over the live map: during a detached shell's teardown the
+      // map is already empty, and the owner record must keep the pre-close set.
+      const data = this.parkedPersistData ?? this.buildPersistData();
       const serialized = this.serializedPersistProjection(data);
       if (!this.persistProjectionIsUnchanged(filePath, serialized)) {
         const document = this.buildSavedTabsDocument(this.normalizeSavedTabsFileForMerge(filePath), data);
@@ -13670,7 +14075,14 @@ export class NativeTabHost extends EventEmitter {
           const persistedProject = typeof record.activeProjectId === 'string' && record.activeProjectId.trim()
             ? record.activeProjectId.trim()
             : null;
-          const restoredProject = persistedProject && this.describeWebHubProject(persistedProject) ? persistedProject : null;
+          // A detached project's scope can never be restored onto the hub: the
+          // boot leg resurrects its shell unfocused, while routing through the
+          // activation delegate here would fire the exclusivity funnel —
+          // recreating that shell FOCUSED mid-restore, spending the single
+          // focus steal on the wrong window, then throwing.
+          const persistedDetached = persistedProject !== null
+            && document.owners[`project:${persistedProject}`]?.detached === true;
+          const restoredProject = persistedProject && !persistedDetached && this.describeWebHubProject(persistedProject) ? persistedProject : null;
           // Main is the single writer of the hub's project scope: its boot activation has
           // already set the affiliation for the project it chose, so a different persisted
           // project goes back through the same delegate a flip uses (setActiveProject does
@@ -13698,72 +14110,48 @@ export class NativeTabHost extends EventEmitter {
         // The Terminal Manager has no page area: tabs persisted under it from before it
         // became terminals-only are not resurrected into a window that cannot show them.
         if (record && Array.isArray(record.tabs) && record.tabs.length > 0 && !this.isTerminalOnlyWindow()) {
+          // Per-project exclusivity at boot: a `project:<id>`-stamped row under
+          // `owners.web` (a refuse-detach leftover, or a live-session row) must
+          // never be presented by the hub while that project's detached record
+          // still exists — the boot leg restores that shell and presents the
+          // same tabs, so reading the row here would present it twice. The row
+          // stays on disk: this is a read filter, so a reattach's fold (which
+          // deletes the record) makes the next hub restore read it again.
+          const isWebOwner = this.windowOwnerKey() === WEB_OWNER_KEY;
+          const detachedIds: Record<string, true> = {};
+          if (isWebOwner) {
+            for (const [key, otherRecord] of Object.entries(document.owners)) {
+              if (otherRecord?.detached !== true) continue;
+              const parsed = parseOwnerKey(key);
+              if (parsed.kind === 'project') detachedIds[parsed.projectId] = true;
+            }
+          }
+          const restorableTabs = isWebOwner
+            ? record.tabs.filter((row) => {
+                const stamp = row?.projectId;
+                return typeof stamp !== 'string' || detachedIds[stamp] !== true;
+              })
+            : record.tabs;
           let restoredActiveId = record.activeTabId;
           const oldIdToNewId = new Map<string, string>();
 
           // Identify target active tab ID from persisted session
           let targetActiveOldId = typeof record.activeTabId === 'string' ? record.activeTabId : undefined;
-          if (!targetActiveOldId || !record.tabs.some((t: Record<string, unknown> | null) => t && (t.id === targetActiveOldId || (t.state as Record<string, unknown> | undefined)?.id === targetActiveOldId))) {
-            const firstValid = record.tabs.find((t: Record<string, unknown> | null) => t && !t.ephemeral && !t.offscreen);
+          if (!targetActiveOldId || !restorableTabs.some((t) => t && (t.id === targetActiveOldId || (t.state as Record<string, unknown> | undefined)?.id === targetActiveOldId))) {
+            const firstValid = restorableTabs.find((t) => t && !t.ephemeral && !t.offscreen);
             if (firstValid && typeof firstValid.id === 'string') {
               targetActiveOldId = firstValid.id;
             }
           }
 
-          for (const rawTab of record.tabs) {
-            // Persisted entries were written from AntiFanTab states, and
-            // migratePersistedTab re-validates every field it reads, so the shape
-            // assertion ends at this call.
-            const migrated = migratePersistedTab(rawTab as Partial<AntiFanTab>);
-            const rawId = typeof rawTab.id === 'string' ? rawTab.id : undefined;
-            if (rawTab.ephemeral === true || rawTab.offscreen === true) continue;
-            if (migrated.ephemeral === true || migrated.offscreen === true) continue;
-            const safeUrl = cleanRestoredUrl(migrated.url || 'about:blank');
-            const isTargetActive = rawId === targetActiveOldId || migrated.id === targetActiveOldId;
-            const isUnloadedStub = options?.safeStart === true && !isTargetActive;
-            const initialTabUrl = isUnloadedStub ? 'about:blank' : safeUrl;
-            const id = this.createTab(initialTabUrl, false, {
-              capsuleId: migrated.capsuleId,
-              userAgentMode: migrated.userAgentMode,
+          for (const rawTab of restorableTabs) {
+            const ingested = this.ingestTabRow(rawTab, {
+              oldIdToNewId,
+              stubUnlessActiveId: options?.safeStart === true ? targetActiveOldId : undefined,
             });
-            if (rawId) {
-              oldIdToNewId.set(rawId, id);
-            }
-            if (migrated.id) {
-              oldIdToNewId.set(migrated.id, id);
-            }
-            const persistedProjectId = typeof rawTab.projectId === 'string' && rawTab.projectId ? rawTab.projectId : undefined;
-            const tab = this.tabs.get(id);
-            if (tab) {
-              // The persisted project decides the stamp, not whichever project happens to be
-              // active while the hub restores — a foreign record's stamp is authoritative.
-              tab.projectId = persistedProjectId;
-              tab.state.url = safeUrl;
-              if (isUnloadedStub) {
-                tab.state.isLoading = false;
-              }
-              if (migrated.title) tab.state.title = migrated.title;
-              if (migrated.devicePresetId) this.setDevicePreset(id, migrated.devicePresetId);
-              if (typeof migrated.zoomFactor === 'number') tab.state.zoomFactor = migrated.zoomFactor;
-              if (migrated.splitMode) {
-                this.toggleSplitReview(id, true);
-                if (migrated.splitDesktopPresetId) tab.state.splitDesktopPresetId = migrated.splitDesktopPresetId;
-                if (migrated.splitMobilePresetId) tab.state.splitMobilePresetId = migrated.splitMobilePresetId;
-              }
-              if (migrated.capsuleId && typeof migrated.capsuleId === 'string' && !tab.state.capsuleId) {
-                tab.state.capsuleId = migrated.capsuleId;
-                const targetCapsuleId = migrated.capsuleId;
-                const capsule = this.capsuleManager.list().find((c) => c.id.toLowerCase() === targetCapsuleId.toLowerCase());
-                if (capsule && fs.existsSync(capsule.workspacePath) && !this.tabPreviewUnsubscribers.has(id)) {
-                  const unsub = this.previewWatcherPool.retain(capsule.id, capsule.workspacePath, (event) => {
-                    this.dispatchScopedReload(capsule.id, event);
-                  });
-                  this.tabPreviewUnsubscribers.set(id, unsub);
-                }
-              }
-            }
-            if ((rawId !== undefined && rawId === record.activeTabId) || migrated.id === record.activeTabId) {
-              restoredActiveId = id;
+            if (!ingested) continue;
+            if (record.activeTabId !== undefined && ingested.sourceIds.includes(record.activeTabId)) {
+              restoredActiveId = ingested.id;
             }
           }
 
@@ -13814,6 +14202,174 @@ export class NativeTabHost extends EventEmitter {
       this.createTab(fallbackUrl || 'https://www.google.com');
     }
     this.hasRestoredTabs = true;
+  }
+
+  /**
+   * Re-home one persisted-shape tab row as a live tab: the normalization `restoreTabs`
+   * applies (`migratePersistedTab` re-validates every field), the same mint and the same
+   * field re-application. Returns the minted id and the source ids the row carried (the
+   * row's own `id` plus `migratePersistedTab`'s resolved id), so a caller can resolve
+   * "which arrived tab was the active one" in the source's vocabulary. Returns `null`
+   * for rows that may not land (agent surfaces).
+   */
+  private ingestTabRow(
+    rawTab: Record<string, unknown>,
+    opts: { oldIdToNewId: Map<string, string>; stubUnlessActiveId?: string },
+  ): { id: string; sourceIds: string[] } | null {
+    // Persisted entries were written from AntiFanTab states, and migratePersistedTab
+    // re-validates every field it reads, so the shape assertion ends at this call.
+    const migrated = migratePersistedTab(rawTab as Partial<AntiFanTab>);
+    if (rawTab.ephemeral === true || rawTab.offscreen === true) return null;
+    if (migrated.ephemeral === true || migrated.offscreen === true) return null;
+    const sourceIds: string[] = [];
+    const rawId = typeof rawTab.id === 'string' ? rawTab.id : undefined;
+    if (rawId) sourceIds.push(rawId);
+    if (migrated.id && migrated.id !== rawId) sourceIds.push(migrated.id);
+    const safeUrl = cleanRestoredUrl(migrated.url || 'about:blank');
+    const isUnloadedStub = opts.stubUnlessActiveId !== undefined && !sourceIds.includes(opts.stubUnlessActiveId);
+    const id = this.createTab(isUnloadedStub ? 'about:blank' : safeUrl, false, {
+      capsuleId: migrated.capsuleId,
+      userAgentMode: migrated.userAgentMode,
+    });
+    for (const sourceId of sourceIds) opts.oldIdToNewId.set(sourceId, id);
+    const persistedProjectId = typeof rawTab.projectId === 'string' && rawTab.projectId ? rawTab.projectId : undefined;
+    const tab = this.tabs.get(id);
+    if (tab) {
+      // The persisted project decides the stamp, not whichever project happens to be
+      // active while the hub restores — a foreign record's stamp is authoritative.
+      tab.projectId = persistedProjectId;
+      tab.state.url = safeUrl;
+      if (isUnloadedStub) {
+        tab.state.isLoading = false;
+      }
+      if (migrated.title) tab.state.title = migrated.title;
+      if (migrated.devicePresetId) this.setDevicePreset(id, migrated.devicePresetId);
+      if (typeof migrated.zoomFactor === 'number') tab.state.zoomFactor = migrated.zoomFactor;
+      if (migrated.splitMode) {
+        this.toggleSplitReview(id, true);
+        if (migrated.splitDesktopPresetId) tab.state.splitDesktopPresetId = migrated.splitDesktopPresetId;
+        if (migrated.splitMobilePresetId) tab.state.splitMobilePresetId = migrated.splitMobilePresetId;
+      }
+      if (migrated.capsuleId && typeof migrated.capsuleId === 'string' && !tab.state.capsuleId) {
+        tab.state.capsuleId = migrated.capsuleId;
+        const targetCapsuleId = migrated.capsuleId;
+        const capsule = this.capsuleManager.list().find((c) => c.id.toLowerCase() === targetCapsuleId.toLowerCase());
+        if (capsule && fs.existsSync(capsule.workspacePath) && !this.tabPreviewUnsubscribers.has(id)) {
+          const unsub = this.previewWatcherPool.retain(capsule.id, capsule.workspacePath, (event) => {
+            this.dispatchScopedReload(capsule.id, event);
+          });
+          this.tabPreviewUnsubscribers.set(id, unsub);
+        }
+      }
+    }
+    return { id, sourceIds };
+  }
+
+  /**
+   * Re-home serialized tab rows from another live host (the detach transfer) — the
+   * same normalization and affinity rebuild a file restore runs, without a disk
+   * round-trip. Rows mint new ids in THIS window (`createTab` owns identity); the
+   * source's ids are remembered so a second delivery of the same row never lands
+   * twice. The source's presented tab becomes the presented tab here.
+   */
+  public ingestTransferredTabRows(
+    rows: readonly Record<string, unknown>[],
+    options?: { terminalAffinities?: readonly SavedTerminalAffinityRecord[]; activeSourceTabId?: string },
+  ): string[] {
+    const minted: string[] = [];
+    const oldIdToNewId = new Map<string, string>();
+    const knownSourceIds = new Set([...this.tabs.keys(), ...this.transferredSourceIds]);
+    for (const rawTab of rows) {
+      const sourceId = typeof rawTab?.id === 'string' ? rawTab.id : undefined;
+      if (sourceId && knownSourceIds.has(sourceId)) continue;
+      const ingested = this.ingestTabRow(rawTab, { oldIdToNewId });
+      if (!ingested) continue;
+      for (const sid of ingested.sourceIds) {
+        knownSourceIds.add(sid);
+        this.transferredSourceIds.add(sid);
+      }
+      minted.push(ingested.id);
+    }
+    // Rebind the terminal affinities that moved with the rows: the entry's terminal id
+    // is window-neutral, but its tab references name the SOURCE window's ids, so each
+    // is translated through the minted-id map and rebuilt under the same primitives
+    // (`bindTerminalAgentAffinity` + `adoptChildTab`) a restore uses.
+    for (const aff of options?.terminalAffinities ?? []) {
+      const newPrimaryId = oldIdToNewId.get(aff.primaryTabId);
+      if (newPrimaryId && this.hasTab(newPrimaryId)) {
+        this.bindTerminalAgentAffinity(aff.terminalId, undefined, newPrimaryId);
+        if (Array.isArray(aff.managedTabIds)) {
+          for (const oldChildId of aff.managedTabIds) {
+            const newChildId = oldIdToNewId.get(oldChildId);
+            if (newChildId && newChildId !== newPrimaryId && this.hasTab(newChildId)) {
+              this.adoptChildTab(aff.terminalId, newChildId, undefined, 'user_attached', newPrimaryId);
+            }
+          }
+        }
+      }
+    }
+    const restoredActiveId = options?.activeSourceTabId ? oldIdToNewId.get(options.activeSourceTabId) : undefined;
+    const target = restoredActiveId && this.tabs.has(restoredActiveId) ? restoredActiveId : minted[minted.length - 1];
+    if (target && this.tabs.has(target)) {
+      this.switchTab(target, { plane: 'user' });
+    }
+    this.updateLayout();
+    return minted;
+  }
+
+  /**
+   * The reattach half of `ingestTransferredTabRows`: re-home rows the scoped fold
+   * just merged into `owners.web` — the same persisted-shape rows a restore reads,
+   * normalized through the one path (`ingestTabRow`) `restoreTabs` uses. Dedupe is
+   * by persisted tab id against live tabs and earlier deliveries, and a live row
+   * always wins a collision: the row already on the strip is the one the user is
+   * inside, so the folded copy is skipped rather than double-mounted. No
+   * `activeTabId` is touched — the hub keeps its own presented tab; a scope
+   * decision is the caller's, not the row seam's.
+   */
+  public ingestPersistedOwnerRows(
+    rows: readonly Record<string, unknown>[],
+    options?: { terminalAffinities?: readonly SavedTerminalAffinityRecord[] },
+  ): { minted: string[]; skipped: string[] } {
+    const minted: string[] = [];
+    const skipped: string[] = [];
+    const oldIdToNewId = new Map<string, string>();
+    const knownSourceIds = new Set([...this.tabs.keys(), ...this.transferredSourceIds]);
+    for (const rawTab of rows) {
+      const sourceId = typeof rawTab?.id === 'string' ? rawTab.id : undefined;
+      if (sourceId && knownSourceIds.has(sourceId)) {
+        skipped.push(sourceId);
+        continue;
+      }
+      const ingested = this.ingestTabRow(rawTab, { oldIdToNewId });
+      if (!ingested) {
+        if (sourceId) skipped.push(sourceId);
+        continue;
+      }
+      for (const sid of ingested.sourceIds) {
+        knownSourceIds.add(sid);
+        this.transferredSourceIds.add(sid);
+      }
+      minted.push(ingested.id);
+    }
+    // The affinities the folded record carried name its persisted ids; translate
+    // them through the mint map exactly as a live transfer does.
+    for (const aff of options?.terminalAffinities ?? []) {
+      const newPrimaryId = oldIdToNewId.get(aff.primaryTabId);
+      if (newPrimaryId && this.hasTab(newPrimaryId)) {
+        this.bindTerminalAgentAffinity(aff.terminalId, undefined, newPrimaryId);
+        if (Array.isArray(aff.managedTabIds)) {
+          for (const oldChildId of aff.managedTabIds) {
+            const newChildId = oldIdToNewId.get(oldChildId);
+            if (newChildId && newChildId !== newPrimaryId && this.hasTab(newChildId)) {
+              this.adoptChildTab(aff.terminalId, newChildId, undefined, 'user_attached', newPrimaryId);
+            }
+          }
+        }
+      }
+    }
+    if (minted.length > 0) this.updateLayout();
+    return { minted, skipped };
   }
 
   private injectAutoJsonViewer(wc: Electron.WebContents): void {
