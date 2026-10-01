@@ -8,7 +8,7 @@
  * These rows pin the bounded contract: silence inside the bound is reported
  * as a failure (typed field + warning), never as a migrated partition.
  */
-import { describe, it } from 'node:test';
+import { describe, it, mock } from 'node:test';
 import * as assert from 'node:assert';
 import {
   runCapsuleToProfileMigration,
@@ -40,62 +40,94 @@ function captureWarnings(): { warnings: string[]; restore: () => void } {
 }
 
 describe('runCapsuleToProfileMigration flush bound', () => {
+  const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
+
   it('reports a timed-out flush inside the bound instead of waiting forever', { timeout: 10_000 }, async () => {
     // A promise that never settles: the shape a locked cookie database takes.
-    const deps = makeDeps({ flushStore: () => new Promise<void>(() => {}) });
-    const { warnings, restore } = captureWarnings();
+    // The bound's guard timer is deliberately unref'd in production, so the test
+    // pumps virtual time instead of letting the event loop drain to a dead answer.
+    mock.timers.enable({ apis: ['setTimeout', 'Date'] });
     try {
-      const res = await runCapsuleToProfileMigration(deps, FLUSH_BOUND_MS);
-      // The migration itself must settle — the boot path is chained on this
-      // promise, so reaching this line is the "startup continues" proof.
-      assert.deepStrictEqual(res.flushTimedOutPartitions, ['persist:profile-a']);
-      assert.strictEqual(res.markerReady, false);
-      assert.strictEqual(res.migrated, 0);
-      assert.deepStrictEqual(res.legacyPartitions, []);
-      // The silent flush is reported, not swallowed: the log names the
-      // partition that never answered.
-      assert.ok(warnings.some((w) => w.includes('persist:profile-a')));
+      const deps = makeDeps({ flushStore: () => new Promise<void>(() => {}) });
+      const { warnings, restore } = captureWarnings();
+      try {
+        const pending = runCapsuleToProfileMigration(deps, FLUSH_BOUND_MS);
+        await settle();
+        mock.timers.tick(FLUSH_BOUND_MS);
+        const res = await pending;
+        // The migration itself must settle — the boot path is chained on this
+        // promise, so reaching this line is the "startup continues" proof.
+        assert.deepStrictEqual(res.flushTimedOutPartitions, ['persist:profile-a']);
+        assert.strictEqual(res.markerReady, false);
+        assert.strictEqual(res.migrated, 0);
+        assert.deepStrictEqual(res.legacyPartitions, []);
+        // The silent flush is reported, not swallowed: the log names the
+        // partition that never answered.
+        assert.ok(warnings.some((w) => w.includes('persist:profile-a')));
+      } finally {
+        restore();
+      }
     } finally {
-      restore();
+      mock.timers.reset();
     }
   });
 
   it('treats a flush that resolves only after the bound as timed out', { timeout: 10_000 }, async () => {
-    let flushSettled = false;
-    const deps = makeDeps({
-      flushStore: () =>
-        new Promise<void>((resolve) => {
-          setTimeout(() => {
-            flushSettled = true;
-            resolve();
-          }, FLUSH_BOUND_MS * 4);
-        }),
-    });
-    const res = await runCapsuleToProfileMigration(deps, FLUSH_BOUND_MS);
-    // Late answers do not retroactively become durable: the outcome must be
-    // the typed timeout, not a success fabricated after the fact.
-    assert.deepStrictEqual(res.flushTimedOutPartitions, ['persist:profile-a']);
-    assert.strictEqual(res.markerReady, false);
-    assert.strictEqual(res.migrated, 0);
-    assert.strictEqual(flushSettled, false);
-    // Give the late flush room to land; its settlement must stay observed.
-    await new Promise((r) => setTimeout(r, FLUSH_BOUND_MS * 5));
-    assert.strictEqual(flushSettled, true);
+    mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+    try {
+      let flushSettled = false;
+      const deps = makeDeps({
+        flushStore: () =>
+          new Promise<void>((resolve) => {
+            setTimeout(() => {
+              flushSettled = true;
+              resolve();
+            }, FLUSH_BOUND_MS * 4);
+          }),
+      });
+      const pending = runCapsuleToProfileMigration(deps, FLUSH_BOUND_MS);
+      await settle();
+      mock.timers.tick(FLUSH_BOUND_MS);
+      const res = await pending;
+      // Late answers do not retroactively become durable: the outcome must be
+      // the typed timeout, not a success fabricated after the fact.
+      assert.deepStrictEqual(res.flushTimedOutPartitions, ['persist:profile-a']);
+      assert.strictEqual(res.markerReady, false);
+      assert.strictEqual(res.migrated, 0);
+      assert.strictEqual(flushSettled, false);
+      // Give the late flush room to land; its settlement must stay observed.
+      await settle();
+      mock.timers.tick(FLUSH_BOUND_MS * 5);
+      await settle();
+      assert.strictEqual(flushSettled, true);
+    } finally {
+      mock.timers.reset();
+    }
   });
 
   it('keeps a late flush rejection observed instead of unhandled', { timeout: 10_000 }, async () => {
-    const deps = makeDeps({
-      flushStore: () =>
-        new Promise<void>((_resolve, reject) => {
-          setTimeout(() => reject(new Error('flush arrived late')), FLUSH_BOUND_MS * 2);
-        }),
-    });
-    const res = await runCapsuleToProfileMigration(deps, FLUSH_BOUND_MS);
-    assert.deepStrictEqual(res.flushTimedOutPartitions, ['persist:profile-a']);
-    assert.strictEqual(res.markerReady, false);
-    // node --test fails the run on any unhandled rejection; reaching the end
-    // after the late rejection fires is the proof it stayed observed.
-    await new Promise((r) => setTimeout(r, FLUSH_BOUND_MS * 4));
+    mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+    try {
+      const deps = makeDeps({
+        flushStore: () =>
+          new Promise<void>((_resolve, reject) => {
+            setTimeout(() => reject(new Error('flush arrived late')), FLUSH_BOUND_MS * 2);
+          }),
+      });
+      const pending = runCapsuleToProfileMigration(deps, FLUSH_BOUND_MS);
+      await settle();
+      mock.timers.tick(FLUSH_BOUND_MS);
+      const res = await pending;
+      assert.deepStrictEqual(res.flushTimedOutPartitions, ['persist:profile-a']);
+      assert.strictEqual(res.markerReady, false);
+      // node --test fails the run on any unhandled rejection; reaching the end
+      // after the late rejection fires is the proof it stayed observed.
+      await settle();
+      mock.timers.tick(FLUSH_BOUND_MS * 4);
+      await settle();
+    } finally {
+      mock.timers.reset();
+    }
   });
 
   it('counts the partition as migrated when the flush resolves', { timeout: 10_000 }, async () => {

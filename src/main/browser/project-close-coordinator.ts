@@ -674,14 +674,16 @@ export class ProjectCloseCoordinator {
   }
 
   /** Serialize an explicit force request behind any active close; never race teardown. */
-  public forceClose(ownerKey: string): Promise<CloseReport> {
+  public async forceClose(ownerKey: string): Promise<CloseReport> {
     const key = typeof ownerKey === 'string' ? ownerKey.trim() : '';
     if (!key) throw new Error('forceClose requires a non-empty owner key');
     const existing = this.forceRequests.get(key);
     if (existing) return existing;
     const pending = this.applicationAttempt?.settled ?? this.pageAttempts.get(key)?.settled;
     if (pending) pending.catch(() => {});
-    const request = Promise.resolve(pending).then(() => {
+    // A prior attempt's rejection is its own report — a force request must never
+    // inherit it; the escape hatch waits for settlement, whatever the outcome was.
+    const request = Promise.resolve(pending).catch(() => {}).then(() => {
       if (this.applicationAttempt || this.pageAttempts.has(key)) return this.forceCloseAfterActive(key);
       return this.startShellAttempt(key, 'user', true);
     }).finally(() => {
@@ -693,7 +695,7 @@ export class ProjectCloseCoordinator {
 
   private async forceCloseAfterActive(key: string): Promise<CloseReport> {
     while (this.applicationAttempt || this.pageAttempts.has(key)) {
-      await (this.applicationAttempt?.settled ?? this.pageAttempts.get(key)?.settled);
+      await Promise.resolve(this.applicationAttempt?.settled ?? this.pageAttempts.get(key)?.settled).catch(() => {});
     }
     return this.startShellAttempt(key, 'user', true);
   }

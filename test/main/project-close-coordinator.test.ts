@@ -11,7 +11,7 @@
  * - an UNKNOWN busy answer read as idle would close a page and this suite fails.
  */
 
-import { describe, it } from 'node:test';
+import { describe, it, mock } from 'node:test';
 import * as assert from 'node:assert/strict';
 import {
   PageCloseReservations,
@@ -66,6 +66,7 @@ class FakeSurface implements CloseSurface {
   public async closeSelf(force = false): Promise<SurfaceCloseOutcome> {
     this.closeSelfCalls += 1;
     if (force) this.forcedCloseSelfCalls += 1;
+    this.onCloseSelf?.();
     if (this.hangCloseSelf) return NEVER;
     if (this.closeSelfOutcome === 'throw') throw new Error(`${this.key} native close exploded`);
     if (this.closeSelfOutcome === 'closed') {
@@ -157,7 +158,7 @@ function buildHarness(options: HarnessOptions = {}) {
       await options.onPageClose?.(tabId);
       const scripted = options.pageOutcomes?.[tabId];
       if (scripted === 'throw') throw new Error(`native close of ${tabId} exploded`);
-      const outcome = scripted ?? 'closed';
+      const outcome = scripted && !(force && scripted === 'vetoed') ? scripted : 'closed';
       if (outcome === 'closed') {
         for (const surface of surfaces) {
           const index = surface.memberIds.indexOf(tabId);
@@ -963,62 +964,83 @@ describe('ProjectCloseCoordinator — application quit', () => {
 describe('ProjectCloseCoordinator — an answer that never comes', () => {
 
   it('reports unknown, retains the shell and frees the reservations when a page close never answers', async () => {
-    const surface = new FakeSurface('project:A', 'browser', ['t1', 't2']);
-    const harness = buildHarness({
-      surfaces: [surface],
-      hangPageClose: ['t1'],
-      outcomeDeadlineMs: BOUND_MS,
-    });
+    mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+    try {
+      const surface = new FakeSurface('project:A', 'browser', ['t1', 't2']);
+      const harness = buildHarness({
+        surfaces: [surface],
+        hangPageClose: ['t1'],
+        outcomeDeadlineMs: BOUND_MS,
+      });
 
-    const startedAt = Date.now();
-    const report = await harness.coordinator.attemptClose('project:A', 'user');
-    const elapsed = Date.now() - startedAt;
+      const startedAt = Date.now();
+      const pending = harness.coordinator.attemptClose('project:A', 'user');
+      await settle();
+      mock.timers.tick(BOUND_MS);
+      const report = await pending;
+      const elapsed = Date.now() - startedAt;
 
-    assert.equal(report.disposition, 'retained');
-    assert.equal(report.phase, 'open');
-    assert.equal(report.haltedBy, 'unknown-outcome');
-    assert.equal(report.refusals[0]?.code, 'unknown-outcome');
-    assert.match(report.refusals[0]?.detail ?? '', /within 60ms/);
-    assert.equal(outcomeFor(report, 't1'), 'skipped:unknown-outcome:attempted');
-    assert.equal(outcomeFor(report, 't2'), 'skipped:unknown-outcome:untouched');
-    assert.equal(report.closed.length, 0, 'silence is never reported as closed');
-    assert.deepEqual(surface.memberIds, ['t1', 't2'], 'the bound destroys nothing');
-    assert.equal(surface.closeSelfCalls, 0, 'no shell close is attempted after a silent page');
-    assert.ok(
-      report.warnings.some((warning) => warning.includes('never answered its native close')),
-      'the silence is visible to the operator'
-    );
-    assert.deepEqual(harness.reservations.snapshot().reservedTabIds, [], 'reservations must be released');
-    assert.ok(elapsed >= BOUND_MS - 20, `refused before the bound expired: ${elapsed}ms`);
-    assert.ok(elapsed < 2_000, `a silent page held the attempt for ${elapsed}ms`);
+      assert.equal(report.disposition, 'retained');
+      assert.equal(report.phase, 'open');
+      assert.equal(report.haltedBy, 'unknown-outcome');
+      assert.equal(report.refusals[0]?.code, 'unknown-outcome');
+      assert.match(report.refusals[0]?.detail ?? '', /within 60ms/);
+      assert.equal(outcomeFor(report, 't1'), 'skipped:unknown-outcome:attempted');
+      assert.equal(outcomeFor(report, 't2'), 'skipped:unknown-outcome:untouched');
+      assert.equal(report.closed.length, 0, 'silence is never reported as closed');
+      assert.deepEqual(surface.memberIds, ['t1', 't2'], 'the bound destroys nothing');
+      assert.equal(surface.closeSelfCalls, 0, 'no shell close is attempted after a silent page');
+      assert.ok(
+        report.warnings.some((warning) => warning.includes('never answered its native close')),
+        'the silence is visible to the operator'
+      );
+      assert.deepEqual(harness.reservations.snapshot().reservedTabIds, [], 'reservations must be released');
+      assert.ok(elapsed >= BOUND_MS, `refused before the bound expired: ${elapsed}ms`);
+    } finally {
+      mock.timers.reset();
+    }
   });
 
   it('refuses a quit and reopens application admission while a running close never answers', async () => {
-    const shell = new FakeSurface('project:A', 'browser', ['t1']);
-    const harness = buildHarness({
-      surfaces: [shell],
-      hangPageClose: ['t1'],
-      outcomeDeadlineMs: BOUND_MS,
-    });
+    mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+    try {
+      const shell = new FakeSurface('project:A', 'browser', ['t1']);
+      const harness = buildHarness({
+        surfaces: [shell],
+        hangPageClose: ['t1'],
+        outcomeDeadlineMs: BOUND_MS,
+      });
 
-    // A close the user already started whose page never answers.
-    const stalledClose = harness.coordinator.attemptClose('project:A', 'user');
-    await settle();
+      // A close the user already started whose page never answers.
+      const stalledClose = harness.coordinator.attemptClose('project:A', 'user');
+      await settle();
 
-    const report = await harness.coordinator.attemptQuit();
+      const quitPending = harness.coordinator.attemptQuit();
+      // settle lets each stage reach its next await before the clock advances;
+      // timers not yet armed ignore a tick, and re-ticking is harmless.
+      await settle();
+      mock.timers.tick(BOUND_MS);
+      await settle();
+      mock.timers.tick(BOUND_MS);
+      await settle();
+      mock.timers.tick(BOUND_MS);
+      const report = await quitPending;
 
-    assert.equal(report.shutdown, 'not-committed');
-    assert.equal(report.phase, 'open');
-    assert.equal(report.haltedBy, 'unknown-outcome');
-    assert.equal(report.admissionReserved, false, 'a refused quit must report admission as open');
-    assert.equal(harness.coordinator.isApplicationAdmissionReserved(), false);
-    assert.deepEqual(report.closedShells, [], 'a shell that never answered is never reported closed');
-    assert.deepEqual(harness.reservations.snapshot().reservedTabIds, [], 'reservations must be released');
-    assert.equal(harness.commitCount(), 0, 'no teardown follows an unknown outcome');
+      assert.equal(report.shutdown, 'not-committed');
+      assert.equal(report.phase, 'open');
+      assert.equal(report.haltedBy, 'unknown-outcome');
+      assert.equal(report.admissionReserved, false, 'a refused quit must report admission as open');
+      assert.equal(harness.coordinator.isApplicationAdmissionReserved(), false);
+      assert.deepEqual(report.closedShells, [], 'a shell that never answered is never reported closed');
+      assert.deepEqual(harness.reservations.snapshot().reservedTabIds, [], 'reservations must be released');
+      assert.equal(harness.commitCount(), 0, 'no teardown follows an unknown outcome');
 
-    const stalledReport = await stalledClose;
-    assert.equal(stalledReport.disposition, 'retained');
-    assert.equal(stalledReport.haltedBy, 'unknown-outcome');
+      const stalledReport = await stalledClose;
+      assert.equal(stalledReport.disposition, 'retained');
+      assert.equal(stalledReport.haltedBy, 'unknown-outcome');
+    } finally {
+      mock.timers.reset();
+    }
   });
 
   // The shell double's `closeSelf` never settles - that is the surface the coordinator consumes here.
@@ -1026,44 +1048,62 @@ describe('ProjectCloseCoordinator — an answer that never comes', () => {
   // its own bound, window retained) is driven over a stubbed Electron seam in
   // test/main/close-outcome-deadline.test.ts, under "shell self close outcome deadline".
   it('reports an unknown shell outcome and the partial close when a shell close never answers', async () => {
-    const shell = new FakeSurface('project:A', 'browser', ['t1']);
-    const harness = buildHarness({ surfaces: [shell], outcomeDeadlineMs: BOUND_MS });
-    shell.hangCloseSelf = true;
+    mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+    try {
+      const shell = new FakeSurface('project:A', 'browser', ['t1']);
+      shell.hangCloseSelf = true;
+      const harness = buildHarness({ surfaces: [shell], outcomeDeadlineMs: BOUND_MS });
 
-    const report = await harness.coordinator.attemptClose('project:A', 'user');
+      const pending = harness.coordinator.attemptClose('project:A', 'user');
+      await settle();
+      mock.timers.tick(BOUND_MS);
+      await settle();
+      mock.timers.tick(BOUND_MS);
+      const report = await pending;
 
-    assert.equal(report.disposition, 'retained');
-    assert.equal(report.phase, 'open');
-    assert.equal(report.haltedBy, 'unknown-outcome');
-    assert.equal(report.surface?.outcome, 'unknown');
-    assert.equal(report.closed.length, 1, 'the member page really did close before the shell went silent');
-    assert.equal(report.partial, true);
-    assert.equal(shell.gone, false, 'a silent shell is never reported gone');
-    assert.ok(shell.closeSelfCalls >= 1, 'the shell close was actually attempted');
-    assert.ok(
-      report.warnings.some((warning) => warning.includes('never answered its native close')),
-      'the silence is visible to the operator'
-    );
+      assert.equal(report.disposition, 'retained');
+      assert.equal(report.phase, 'open');
+      assert.equal(report.haltedBy, 'unknown-outcome');
+      assert.equal(report.surface?.outcome, 'unknown');
+      assert.equal(report.closed.length, 1, 'the member page really did close before the shell went silent');
+      assert.equal(report.partial, true);
+      assert.equal(shell.gone, false, 'a silent shell is never reported gone');
+      assert.ok(shell.closeSelfCalls >= 1, 'the shell close was actually attempted');
+      assert.ok(
+        report.warnings.some((warning) => warning.includes('never answered its native close')),
+        'the silence is visible to the operator'
+      );
+    } finally {
+      mock.timers.reset();
+    }
   });
 
   it('never reads a silent live-use query as idle', async () => {
-    const surface = new FakeSurface('project:A', 'browser', ['t1']);
-    const harness = buildHarness({
-      surfaces: [surface],
-      hangLiveUse: true,
-      outcomeDeadlineMs: BOUND_MS,
-    });
+    mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+    try {
+      const surface = new FakeSurface('project:A', 'browser', ['t1']);
+      const harness = buildHarness({
+        surfaces: [surface],
+        hangLiveUse: true,
+        outcomeDeadlineMs: BOUND_MS,
+      });
 
-    const report = await harness.coordinator.attemptClose('project:A', 'user');
+      const pending = harness.coordinator.attemptClose('project:A', 'user');
+      await settle();
+      mock.timers.tick(BOUND_MS);
+      const report = await pending;
 
-    assert.equal(report.disposition, 'retained');
-    assert.equal(report.haltedBy, 'unknown-live-use');
-    assert.equal(report.refusals[0]?.code, 'unknown-live-use');
-    assert.match(report.refusals[0]?.detail ?? '', /did not answer within 60ms/);
-    assert.deepEqual(harness.pageCloseCalls, [], 'no page may be destroyed on an unknown answer');
-    assert.equal(surface.closeSelfCalls, 0);
-    assert.deepEqual(surface.memberIds, ['t1']);
-    assert.deepEqual(harness.reservations.snapshot().reservedTabIds, [], 'reservations must be released');
+      assert.equal(report.disposition, 'retained');
+      assert.equal(report.haltedBy, 'unknown-live-use');
+      assert.equal(report.refusals[0]?.code, 'unknown-live-use');
+      assert.match(report.refusals[0]?.detail ?? '', /did not answer within 60ms/);
+      assert.deepEqual(harness.pageCloseCalls, [], 'no page may be destroyed on an unknown answer');
+      assert.equal(surface.closeSelfCalls, 0);
+      assert.deepEqual(surface.memberIds, ['t1']);
+      assert.deepEqual(harness.reservations.snapshot().reservedTabIds, [], 'reservations must be released');
+    } finally {
+      mock.timers.reset();
+    }
   });
 });
 
@@ -1137,13 +1177,23 @@ describe('ProjectCloseCoordinator — explicit force close', () => {
   });
 
   it('reports an unknown shell destroy outcome without claiming the window closed', async () => {
-    const shell = new FakeSurface('project:A', 'browser', ['t1']);
-    shell.hangCloseSelf = true;
-    const harness = buildHarness({ surfaces: [shell], outcomeDeadlineMs: BOUND_MS });
-    const report = await harness.coordinator.forceClose('project:A');
-    assert.equal(report.disposition, 'retained');
-    assert.equal(report.haltedBy, 'unknown-outcome');
-    assert.equal(report.surface?.outcome, 'unknown');
-    assert.equal(shell.gone, false);
+    mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+    try {
+      const shell = new FakeSurface('project:A', 'browser', ['t1']);
+      shell.hangCloseSelf = true;
+      const harness = buildHarness({ surfaces: [shell], outcomeDeadlineMs: BOUND_MS });
+      const pending = harness.coordinator.forceClose('project:A');
+      await settle();
+      mock.timers.tick(BOUND_MS);
+      await settle();
+      mock.timers.tick(BOUND_MS);
+      const report = await pending;
+      assert.equal(report.disposition, 'retained');
+      assert.equal(report.haltedBy, 'unknown-outcome');
+      assert.equal(report.surface?.outcome, 'unknown');
+      assert.equal(shell.gone, false);
+    } finally {
+      mock.timers.reset();
+    }
   });
 });

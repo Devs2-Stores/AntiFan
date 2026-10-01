@@ -1,4 +1,4 @@
-import { describe, it } from 'node:test';
+import { describe, it, mock } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { TabAutomationHost, type TabAutomationContext } from '../../src/main/browser/tab-automation-host';
 import { withEvalCeiling } from '../../src/main/browser/eval-ceiling';
@@ -21,6 +21,8 @@ import { CapabilityError } from '../../src/shared/control-plane-contracts';
 const TEST_SOFT_BUDGET_MS = 100;
 /** Generous headroom above the derived ceiling (~3.1s) without accepting a hang. */
 const REFUSAL_CEILING_WITH_HEADROOM_MS = 10_000;
+/** Real-time drain between stages: pumps the microtask/macrotask queue before ticking. */
+const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
 
 interface Harness {
   host: TabAutomationHost;
@@ -70,33 +72,60 @@ function never(): Promise<unknown> {
 
 describe('TabAutomationHost — an agent script the renderer never answers', () => {
   it('refuses isolated-world execution with EVAL_HARD_TIMEOUT instead of waiting forever', async () => {
-    const { host, wc } = makeHarness(() => never());
-    const startedAt = Date.now();
-    await assert.rejects(
-      host.executeInIsolatedWorld(wc, 'return 1'),
-      (err: unknown) => err instanceof CapabilityError && err.code === 'EVAL_HARD_TIMEOUT',
-      'a silent renderer must surface as the typed hard-timeout refusal'
-    );
-    assert.ok(
-      Date.now() - startedAt < REFUSAL_CEILING_WITH_HEADROOM_MS,
-      'the refusal must arrive at the ceiling rather than hanging'
-    );
+    // The ceiling timers are deliberately unref'd in production, so the test pumps
+    // virtual time instead of letting the event loop drain to a dead answer. Date
+    // stays real so the headroom assertion measures real elapsed wall time.
+    mock.timers.enable({ apis: ['setTimeout'] });
+    try {
+      const { host, wc } = makeHarness(() => never());
+      const startedAt = Date.now();
+      const pending = assert.rejects(
+        host.executeInIsolatedWorld(wc, 'return 1'),
+        (err: unknown) => err instanceof CapabilityError && err.code === 'EVAL_HARD_TIMEOUT',
+        'a silent renderer must surface as the typed hard-timeout refusal'
+      );
+      await settle();
+      mock.timers.tick(REFUSAL_CEILING_WITH_HEADROOM_MS);
+      await pending;
+      assert.ok(
+        Date.now() - startedAt < REFUSAL_CEILING_WITH_HEADROOM_MS,
+        'the refusal must arrive at the ceiling rather than hanging'
+      );
+    } finally {
+      mock.timers.reset();
+    }
   });
 
   it('reports agent browser injection as failed when the page never answers', async () => {
-    const { host, scripts } = makeHarness(() => never());
-    const startedAt = Date.now();
-    assert.equal(await host.ensureAgentBrowserInjected('tab-1'), false);
-    assert.ok(scripts.length > 0, 'the injection attempt must actually have been made');
-    assert.ok(Date.now() - startedAt < REFUSAL_CEILING_WITH_HEADROOM_MS);
+    mock.timers.enable({ apis: ['setTimeout'] });
+    try {
+      const { host, scripts } = makeHarness(() => never());
+      const startedAt = Date.now();
+      const pending = host.ensureAgentBrowserInjected('tab-1');
+      await settle();
+      mock.timers.tick(REFUSAL_CEILING_WITH_HEADROOM_MS);
+      assert.equal(await pending, false);
+      assert.ok(scripts.length > 0, 'the injection attempt must actually have been made');
+      assert.ok(Date.now() - startedAt < REFUSAL_CEILING_WITH_HEADROOM_MS);
+    } finally {
+      mock.timers.reset();
+    }
   });
 
   it('refuses page-global inspection with a typed error instead of returning an empty result', async () => {
-    const { host } = makeHarness(() => never());
-    await assert.rejects(
-      host.inspectPageGlobal({ propertyChain: 'navigator.userAgent', tabId: 'tab-1' }),
-      (err: unknown) => err instanceof CapabilityError && err.code === 'EVAL_HARD_TIMEOUT'
-    );
+    mock.timers.enable({ apis: ['setTimeout'] });
+    try {
+      const { host } = makeHarness(() => never());
+      const pending = assert.rejects(
+        host.inspectPageGlobal({ propertyChain: 'navigator.userAgent', tabId: 'tab-1' }),
+        (err: unknown) => err instanceof CapabilityError && err.code === 'EVAL_HARD_TIMEOUT'
+      );
+      await settle();
+      mock.timers.tick(REFUSAL_CEILING_WITH_HEADROOM_MS);
+      await pending;
+    } finally {
+      mock.timers.reset();
+    }
   });
 
   it('returns a real answer untouched and does not wait for the ceiling', async () => {
@@ -134,26 +163,34 @@ describe('TabAutomationHost — an agent script the renderer never answers', () 
   });
 
   it('refuses at its ceiling when the terminate call itself is never answered', async () => {
-    let terminateCalls = 0;
-    const startedAt = Date.now();
-    await assert.rejects(
-      withEvalCeiling({
-        wc: { isDestroyed: () => false } as unknown as Electron.WebContents,
-        label: 'probe',
-        softBudgetMs: TEST_SOFT_BUDGET_MS,
-        terminate: () => {
-          terminateCalls += 1;
-          return never() as Promise<unknown>;
-        },
-        work: () => never(),
-      }),
-      (err: unknown) => err instanceof CapabilityError && err.code === 'EVAL_HARD_TIMEOUT',
-      'a terminate that never answers must not hold the refusal back'
-    );
-    assert.ok(
-      Date.now() - startedAt < REFUSAL_CEILING_WITH_HEADROOM_MS,
-      'the bound exists to end an unanswered call, so it cannot depend on a second call answering'
-    );
-    assert.equal(terminateCalls, 1, 'the overrunning script must still be asked to terminate');
+    mock.timers.enable({ apis: ['setTimeout'] });
+    try {
+      let terminateCalls = 0;
+      const startedAt = Date.now();
+      const pending = assert.rejects(
+        withEvalCeiling({
+          wc: { isDestroyed: () => false } as unknown as Electron.WebContents,
+          label: 'probe',
+          softBudgetMs: TEST_SOFT_BUDGET_MS,
+          terminate: () => {
+            terminateCalls += 1;
+            return never() as Promise<unknown>;
+          },
+          work: () => never(),
+        }),
+        (err: unknown) => err instanceof CapabilityError && err.code === 'EVAL_HARD_TIMEOUT',
+        'a terminate that never answers must not hold the refusal back'
+      );
+      await settle();
+      mock.timers.tick(REFUSAL_CEILING_WITH_HEADROOM_MS);
+      await pending;
+      assert.ok(
+        Date.now() - startedAt < REFUSAL_CEILING_WITH_HEADROOM_MS,
+        'the bound exists to end an unanswered call, so it cannot depend on a second call answering'
+      );
+      assert.equal(terminateCalls, 1, 'the overrunning script must still be asked to terminate');
+    } finally {
+      mock.timers.reset();
+    }
   });
 });
