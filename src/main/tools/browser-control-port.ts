@@ -1981,8 +1981,13 @@ export class BrowserControlPort {
       };
       let rows = context.scope === 'global' ? strip : strip.filter(inScope);
       if (context.affiliatedOnly === true) rows = rows.filter(affiliatedOf);
-      if (!rows.some((tab) => tab.id === boundTabId)) {
-        rows = rows.concat((sessionRecords ?? []).filter(isTabRecord).filter((tab) => tab.id === boundTabId));
+      // Session-owned rows the projected strip drops (ephemeral/offscreen agent
+      // tabs) are topped up wholesale, not only the bound row: a tab this
+      // session just created is already inside its authority, and the listing
+      // that proves it must not wait for a rebind.
+      if (sessionRecords && sessionRecords.length > 0) {
+        const listed = new Set(rows.map((tab) => tab.id));
+        rows = rows.concat(sessionRecords.filter(isTabRecord).filter((tab) => !listed.has(tab.id)));
       }
       return rows.map((tab) => ({
         ...tab,

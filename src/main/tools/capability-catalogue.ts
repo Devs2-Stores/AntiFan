@@ -456,7 +456,7 @@ export class CapabilityCatalogue {
     assertRequiredArgs(definition.name, definition.inputSchema, params);
 
     if (definition.requiresBrowserTarget) {
-      this.authorizeAndResolveEffectiveTarget(params, context, authoritativeWs, definition.name);
+      this.authorizeAndResolveEffectiveTarget(params, context, authoritativeWs, definition.name, definition.policy);
     }
     if (definition.requiresDeviceTarget || context.deviceTarget) {
       // Strict on purpose, and it is the contract the tests pin rather than a loose guard:
@@ -532,7 +532,7 @@ export class CapabilityCatalogue {
     }
 
     if (definition.requiresBrowserTarget) {
-      this.authorizeAndResolveEffectiveTarget(params, context, authoritativeWs, definition.name);
+      this.authorizeAndResolveEffectiveTarget(params, context, authoritativeWs, definition.name, definition.policy);
     }
     if (definition.requiresDeviceTarget || context.deviceTarget) {
       // Same strict contract as the authenticated path, for the same reasons (see the note there).
@@ -619,7 +619,8 @@ export class CapabilityCatalogue {
     params: Record<string, unknown>,
     context: CapabilityRequestContext,
     authoritativeWs: WorkspaceRecord,
-    capabilityName: string
+    capabilityName: string,
+    policy?: CapabilityEffectPolicy
   ): void {
     assertExactBrowserTarget(context.browserTarget, {
       projectId: authoritativeWs.projectId,
@@ -676,10 +677,26 @@ export class CapabilityCatalogue {
               ? this.options.isTabAllowed(canonicalId, context.browserTarget.tabId) === true
               : false;
             if (!isResolvedAllowed) {
-              throw new CapabilityError(
-                'TARGET_MISMATCH',
-                `Tab ID mismatch: expected ${context.browserTarget.tabId}, got ${reqTabId}. Note: In split review mode, use the bound tabId with paneId: "mobile" to target the mobile pane.`
-              );
+              // Read-only capabilities degrade to the wider project-scope gate the
+              // rebind path uses: a tab that measures into this attachment's own
+              // project/workspace is inside its authority even when another session
+              // owns it. Effectful capabilities keep the session-pool gate — a
+              // foreign-but-affiliated tab can be observed but never driven without
+              // an explicit rebind. `eval` risk is excluded: script execution on a
+              // tab this session does not own is a mutation vector, not a read.
+              const readOnlyEscalation =
+                policy?.effect === 'read' &&
+                policy.risk !== 'eval' &&
+                this.isTabAllowedForRetarget(context.browserTarget.tabId, canonicalId, {
+                  projectId: authoritativeWs.projectId,
+                  workspaceId: authoritativeWs.id,
+                });
+              if (!readOnlyEscalation) {
+                throw new CapabilityError(
+                  'TARGET_MISMATCH',
+                  `Tab ID mismatch: expected ${context.browserTarget.tabId}, got ${reqTabId}. Note: In split review mode, use the bound tabId with paneId: "mobile" to target the mobile pane.`
+                );
+              }
             }
           }
         }

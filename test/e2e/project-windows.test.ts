@@ -161,8 +161,11 @@ interface DriverObservations {
   sameProjectSessions?: {
     tabOne: string;
     tabTwo: string;
+    ownReadFailed: string | null;
     crossRefused: boolean;
     crossText: string;
+    crossWriteRefused: boolean;
+    crossWriteText: string;
     domReadsBeforeSibling: string[];
     domReads: string[];
     siblingReadFailed: string | null;
@@ -1128,7 +1131,7 @@ async function run() {
     expect(host.getAutomationTabId() === tabA2, 'the hub could not take its own tab back as target');
   });
 
-  // ------- (7c) two sessions in one project cannot cross-invoke each other's tabs
+  // ------- (7c) two sessions in one project share read scope but cannot cross-mutate
   await check('window.same-project-sessions-cannot-cross-invoke', async function () {
     const host = hubHost();
     const controlPlane = authority.controlPlane();
@@ -1191,7 +1194,11 @@ async function run() {
         'the hub to present the tab session one is bound to',
       );
       const ownRead = await serverOne.callTool('anti.inspect.dom', { tabId: tabOne });
+      // Reads share the project scope: a tab that measures into this attachment's own
+      // project/workspace is observable across sessions without a rebind. The session
+      // boundary now lives on mutations, not on observation.
       const crossRead = await serverOne.callTool('anti.inspect.dom', { tabId: tabTwo });
+      const crossWrite = await serverOne.callTool('anti.browser.navigate', { tabId: tabTwo, url: 'https://nav-refused.test/' });
       const readAfterCross = domReads.slice();
       host.switchTab(tabTwo, { plane: 'user' });
       await waitFor(
@@ -1205,18 +1212,17 @@ async function run() {
         ownReadFailed: ownRead.isError === true ? textOf(ownRead) : null,
         crossRefused: crossRead.isError === true,
         crossText: textOf(crossRead),
+        crossWriteRefused: crossWrite.isError === true,
+        crossWriteText: textOf(crossWrite),
         domReadsBeforeSibling: readAfterCross,
         siblingReadFailed: siblingRead.isError === true ? textOf(siblingRead) : null,
         domReads: domReads.slice(),
       };
       expect(ownRead.isError !== true, 'session one could not read its own tab: ' + textOf(ownRead));
-      expect(crossRead.isError === true, 'session one read the sibling session tab: ' + textOf(crossRead));
-      expect(textOf(crossRead).indexOf('TARGET_MISMATCH') !== -1, 'the refusal did not name the mismatch: ' + textOf(crossRead));
-      expect(
-        textOf(crossRead).indexOf(tabOne) !== -1 && textOf(crossRead).indexOf(tabTwo) !== -1,
-        'the refusal did not name both the bound and the requested tab: ' + textOf(crossRead),
-      );
-      expect(readAfterCross.indexOf(tabTwo) === -1, 'the sibling session tab was read through anyway: ' + JSON.stringify(readAfterCross));
+      expect(crossRead.isError !== true, 'session one could not read the same-project sibling tab: ' + textOf(crossRead));
+      expect(readAfterCross.indexOf(tabTwo) !== -1, 'the same-project sibling read never reached its tab: ' + JSON.stringify(readAfterCross));
+      expect(crossWrite.isError === true, 'session one navigated the sibling session tab: ' + textOf(crossWrite));
+      expect(textOf(crossWrite).indexOf('TARGET_MISMATCH') !== -1, 'the write refusal did not name the mismatch: ' + textOf(crossWrite));
       expect(siblingRead.isError !== true, 'session two could not read its own tab: ' + textOf(siblingRead));
       expect(domReads.indexOf(tabTwo) !== -1, 'session two never reached its own tab: ' + JSON.stringify(domReads));
     } finally {
@@ -2100,17 +2106,16 @@ describe('Live E2E: the web hub lifecycle', () => {
 
       const sessions = observations.sameProjectSessions;
       assert.ok(sessions, 'the session row recorded no boundary evidence');
-      assert.equal(sessions.crossRefused, true, 'the same-project session boundary was not recorded as refused');
-      assert.ok(sessions.crossText.includes('TARGET_MISMATCH'), 'the recorded refusal did not name the mismatch');
+      assert.equal(sessions.crossRefused, false, 'the same-project sibling read was refused: ' + sessions.crossText);
+      assert.equal(sessions.crossWriteRefused, true, 'the same-project write boundary was not recorded as refused');
+      assert.ok(sessions.crossWriteText.includes('TARGET_MISMATCH'), 'the recorded write refusal did not name the mismatch');
       assert.notEqual(sessions.tabOne, sessions.tabTwo, 'the session row compared a tab with itself');
-      // Ownership, not a count: the row reads its own tab while it is in the background and
-      // again once the hub presents it, and the contract is that neither read before the
-      // sibling read touched the sibling's tab.
-      assert.ok(sessions.domReadsBeforeSibling.length > 0, 'the session row recorded no read of its own tab');
-      assert.deepEqual(
-        sessions.domReadsBeforeSibling.filter((tabId: string) => tabId !== sessions.tabOne),
-        [],
-        'a read escaped the session that owned it',
+      // Read scope is the project: session one's sibling read reaches tabTwo, while a
+      // mutation against a tab the session does not own is still refused outright.
+      assert.ok(sessions.domReadsBeforeSibling.length > 0, 'the session row recorded no reads');
+      assert.ok(
+        sessions.domReadsBeforeSibling.indexOf(sessions.tabTwo) !== -1,
+        'the recorded reads did not reach the same-project sibling tab',
       );
       assert.ok(sessions.domReads.includes(sessions.tabTwo), 'session two never reached its own tab');
       const detach = observations.detach;

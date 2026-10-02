@@ -2935,6 +2935,18 @@ export class BridgeServer {
               ...(isAgentCaller ? { plane: 'agent' as const } : {}),
               ...(mintTarget?.capsuleId ? { capsuleId: mintTarget.capsuleId } : {}),
             });
+            // A bound session's mint must land in its session pool the same way the
+            // capability path adopts (`browser-control-port.openTab`): without pool
+            // membership an ephemeral/offscreen tab is invisible to tabs.list and
+            // unreachable by session-owned reads until a rebind happens.
+            if (boundTabId && typeof mintHost.adoptChildTabForBoundTab === 'function') {
+              const adopted = mintHost.adoptChildTabForBoundTab(boundTabId, tabId, 'agent_spawned', boundTabId);
+              if (!adopted) {
+                try { mintHost.closeTab?.(tabId, 'agent-adopt-failed'); } catch {}
+                respond(false, undefined, `antifan.openTab refused: minted tab '${tabId}' could not be adopted into session '${boundTabId}' (pool refused or anchor died mid-mint); the tab was closed instead of leaking outside the session`);
+                break;
+              }
+            }
             respond(true, { tabId });
           } finally {
             release();

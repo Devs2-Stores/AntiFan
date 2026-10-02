@@ -17,13 +17,21 @@ const USER_STRIP = [
 // tabs the user's tab strip never renders. These cases pin both halves of the
 // contract: a session sees the tabs it owns during a scoped call, and the window
 // listing stays an explicit request.
-function makeHost(options: { strip: unknown[]; owned: string[]; sessionRecords?: unknown[] }): BrowserHostPort {
+function makeHost(options: {
+  strip: unknown[];
+  owned: string[];
+  sessionRecords?: unknown[];
+  affiliation?: (id: string) => { projectId: string; workspaceId: string } | undefined;
+}): BrowserHostPort {
   const host: Record<string, unknown> = {
     getTabList: () => options.strip,
     getManagedTabIds: () => new Set(options.owned),
   };
   if (options.sessionRecords) {
     host.getSessionTabList = () => options.sessionRecords;
+  }
+  if (options.affiliation) {
+    host.resolveTabAffiliation = options.affiliation;
   }
   return host as unknown as BrowserHostPort;
 }
@@ -45,7 +53,7 @@ describe('Tab listing for an attached agent session', () => {
     };
 
     assert.deepStrictEqual(port.listTabs({ target, scope: 'session' }), [
-      { ...AGENT_TAB, isBoundTab: true, isPrimaryTab: true },
+      { ...AGENT_TAB, affiliated: true, isBoundTab: true, isPrimaryTab: true },
     ]);
   });
 
@@ -67,6 +75,7 @@ describe('Tab listing for an attached agent session', () => {
       strip: USER_STRIP,
       owned: [AGENT_TAB.id],
       sessionRecords: [AGENT_TAB],
+      affiliation: () => ({ projectId, workspaceId }),
     }));
     registerBrowserCapabilities(catalogue, port);
 
@@ -83,31 +92,68 @@ describe('Tab listing for an attached agent session', () => {
     // The tool the agent calls: no flags means "show me this window" — the whole
     // strip annotated with the bound identity, never a silently empty list.
     assert.deepStrictEqual(await catalogue.dispatch('anti.browser.tabs.list', { tabId: AGENT_TAB.id }, context), [
-      { ...USER_STRIP[0], isBoundTab: false, isPrimaryTab: false },
-      { ...USER_STRIP[1], isBoundTab: false, isPrimaryTab: false },
-      { ...AGENT_TAB, isBoundTab: true, isPrimaryTab: true },
+      { ...USER_STRIP[0], affiliated: true, isBoundTab: false, isPrimaryTab: false },
+      { ...USER_STRIP[1], affiliated: true, isBoundTab: false, isPrimaryTab: false },
+      { ...AGENT_TAB, affiliated: true, isBoundTab: true, isPrimaryTab: true },
     ]);
+    // `all: false` still names project scope — the capability only widens on
+    // `all: true`; the session-only view is the port-level 'session' scope.
     assert.deepStrictEqual(
       await catalogue.dispatch('anti.browser.tabs.list', { tabId: AGENT_TAB.id, all: false }, context),
-      [{ ...AGENT_TAB, isBoundTab: true, isPrimaryTab: true }]
+      [
+        { ...USER_STRIP[0], affiliated: true, isBoundTab: false, isPrimaryTab: false },
+        { ...USER_STRIP[1], affiliated: true, isBoundTab: false, isPrimaryTab: false },
+        { ...AGENT_TAB, affiliated: true, isBoundTab: true, isPrimaryTab: true },
+      ]
     );
 
     // The canonical capability follows the same scope contract.
     assert.deepStrictEqual(
       await catalogue.dispatch('browser.list-tabs', { tabId: AGENT_TAB.id }, context),
       [
-        { ...USER_STRIP[0], isBoundTab: false, isPrimaryTab: false },
-        { ...USER_STRIP[1], isBoundTab: false, isPrimaryTab: false },
-        { ...AGENT_TAB, isBoundTab: true, isPrimaryTab: true },
+        { ...USER_STRIP[0], affiliated: true, isBoundTab: false, isPrimaryTab: false },
+        { ...USER_STRIP[1], affiliated: true, isBoundTab: false, isPrimaryTab: false },
+        { ...AGENT_TAB, affiliated: true, isBoundTab: true, isPrimaryTab: true },
       ]
     );
     assert.deepStrictEqual(
       await catalogue.dispatch('browser.list-tabs', { tabId: AGENT_TAB.id, all: true }, context),
       [
-        { ...USER_STRIP[0], isBoundTab: false, isPrimaryTab: false },
-        { ...USER_STRIP[1], isBoundTab: false, isPrimaryTab: false },
-        { ...AGENT_TAB, isBoundTab: true, isPrimaryTab: true },
+        { ...USER_STRIP[0], affiliated: true, isBoundTab: false, isPrimaryTab: false },
+        { ...USER_STRIP[1], affiliated: true, isBoundTab: false, isPrimaryTab: false },
+        { ...AGENT_TAB, affiliated: true, isBoundTab: true, isPrimaryTab: true },
       ]
     );
+  });
+
+  it('lists every session-owned offscreen tab, not only the bound one', () => {
+    const NEW_TAB = { id: 'tab-new-offscreen', url: 'https://new.test/', title: 'New' };
+    const port = new BrowserControlPort(makeHost({
+      // The strip omits every offscreen/ephemeral agent tab — getTabList drops
+      // them by design, so they can only surface from the session record store.
+      strip: USER_STRIP,
+      owned: [AGENT_TAB.id, NEW_TAB.id],
+      sessionRecords: [AGENT_TAB, NEW_TAB],
+      affiliation: () => ({ projectId: 'proj-1', workspaceId: 'ws-1' }),
+    }));
+    const target: BrowserTarget = {
+      tabId: AGENT_TAB.id,
+      documentGeneration: 1,
+      projectId: 'proj-1',
+      workspaceId: 'ws-1',
+      runtimeId: 'rt-1',
+      browserEpoch: 1,
+    };
+
+    // Project scope and the explicit global listing alike must surface the just
+    // created session tab immediately — rebind is not the sync point.
+    for (const scope of [undefined, 'global'] as const) {
+      assert.deepStrictEqual(port.listTabs({ target, scope }), [
+        { ...USER_STRIP[0], affiliated: true, isBoundTab: false, isPrimaryTab: false },
+        { ...USER_STRIP[1], affiliated: true, isBoundTab: false, isPrimaryTab: false },
+        { ...AGENT_TAB, affiliated: true, isBoundTab: true, isPrimaryTab: true },
+        { ...NEW_TAB, affiliated: true, isBoundTab: false, isPrimaryTab: false },
+      ]);
+    }
   });
 });

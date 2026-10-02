@@ -1738,4 +1738,91 @@ describe('Capability catalogue', () => {
     // the plain session gate is untouched: same-project tab is still foreign to ordinary dispatch
     assert.strictEqual(catalogue.isTabAllowed('tab-agent', 'tab-same-project'), false);
   });
+
+  it('read-only capabilities reach same-project tabs through the retarget gate while writes stay session-scoped', async () => {
+    const projectId = makeControlPlaneId('project');
+    const workspaceId = makeControlPlaneId('workspace');
+    const otherWorkspaceId = makeControlPlaneId('workspace');
+    const lease = issueRuntimeLease(projectId, workspaceId, 30_000, 1);
+    // The bound tab anchors an ad-hoc pool (no affiliation measured); the sibling
+    // measures into this session's own project+workspace but is owned by another
+    // session, and the foreign-ws tab measures outside the workspace entirely.
+    const affiliation: Record<string, { projectId: string; workspaceId: string } | undefined> = {
+      'tab-agent': undefined,
+      'tab-sibling': { projectId, workspaceId },
+      'tab-foreign-ws': { projectId, workspaceId: otherWorkspaceId },
+    };
+    const catalogue = new CapabilityCatalogue({
+      runtime: { mode: 'standalone', lifecycle: 'active' },
+      projectId,
+      workspaceId,
+      runtimeId: lease.runtimeId,
+      hostEpoch: 1,
+      allowEval: true,
+      isTabAllowed: (bound: string, req: string) => bound === req,
+      resolveTabAffiliation: (id: string) => affiliation[id],
+      resolveTabId: (id: string) => (id in affiliation ? id : undefined),
+      getDocumentGeneration: () => 1,
+    });
+    const policyBase = { schedulerLane: 'short-passive' as const, duplicateMode: 'in-process-join' as const, recordedVisibility: 'tenant-scoped' as const, timeoutMs: 15000, retentionPolicy: 'run-durable' as const, ownerCancellationBehavior: 'abort-immediate' as const, subscriberDisconnectBehavior: 'abort-when-unobserved' as const, cancellationAckTimeoutMs: 5000, policyVersion: 1 };
+    catalogue.register({
+      name: 'probe.read',
+      description: 'read probe',
+      risk: 'read',
+      requiresBrowserTarget: true,
+      policy: { ...policyBase, effect: 'read', risk: 'read', requiresBrowserTarget: true, receiptReadPermission: 'read' },
+      inputSchema: { type: 'object', properties: { tabId: { type: 'string' } } },
+      execute: (_params, ctx) => ctx.browserTarget?.tabId,
+    });
+    catalogue.register({
+      name: 'probe.write',
+      description: 'write probe',
+      risk: 'write',
+      requiresBrowserTarget: true,
+      policy: { ...policyBase, effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: true, schedulerLane: 'viewport-gate', receiptReadPermission: 'write' },
+      inputSchema: { type: 'object', properties: { tabId: { type: 'string' } } },
+      execute: (_params, ctx) => ctx.browserTarget?.tabId,
+    });
+    catalogue.register({
+      name: 'probe.eval',
+      description: 'eval-risk probe: an eval-risk capability is refused the read-only leg even though the sibling is same-project',
+      risk: 'eval',
+      requiresBrowserTarget: true,
+      policy: { ...policyBase, effect: 'interactive-effect', risk: 'eval', requiresBrowserTarget: true, schedulerLane: 'viewport-gate', receiptReadPermission: 'eval' },
+      inputSchema: { type: 'object', properties: { tabId: { type: 'string' } } },
+      execute: (_params, ctx) => ctx.browserTarget?.tabId,
+    });
+
+    const boundTarget: BrowserTarget = { tabId: 'tab-agent', projectId, workspaceId, runtimeId: lease.runtimeId, browserEpoch: 1, documentGeneration: 1 };
+    const context = (grant: 'read' | 'write' | 'eval') => ({ lease, leaseToken: lease.token, projectId, workspaceId, grant, browserTarget: { ...boundTarget } });
+
+    // The session-pool check fails (the sibling is owned elsewhere), but the tab
+    // measures into the attachment's project+workspace, so a read resolves it —
+    // the same affiliation leg explicit rebind already honors.
+    assert.strictEqual(await catalogue.dispatch('probe.read', { tabId: 'tab-sibling' }, context('read')), 'tab-sibling');
+    // Outside the workspace boundary the same read keeps failing closed.
+    await assert.rejects(
+      () => catalogue.dispatch('probe.read', { tabId: 'tab-foreign-ws' }, context('read')),
+      (error: unknown) => error instanceof CapabilityError && error.code === 'TARGET_MISMATCH'
+    );
+    // A tab no resolver knows is still an unknown-target mismatch.
+    await assert.rejects(
+      () => catalogue.dispatch('probe.read', { tabId: 'tab-missing' }, context('read')),
+      (error: unknown) => error instanceof CapabilityError && error.code === 'TARGET_MISMATCH'
+    );
+    // Effectful capabilities never take the affiliation leg: the affiliated but
+    // foreign-owned sibling is still refused for writes, while the session's own
+    // tab executes normally.
+    await assert.rejects(
+      () => catalogue.dispatch('probe.write', { tabId: 'tab-sibling' }, context('write')),
+      (error: unknown) => error instanceof CapabilityError && error.code === 'TARGET_MISMATCH'
+    );
+    assert.strictEqual(await catalogue.dispatch('probe.write', { tabId: 'tab-agent' }, context('write')), 'tab-agent');
+    // Eval risk is excluded from the read-only leg: script execution on a tab the
+    // session does not own stays refused even though the effect is read-shaped.
+    await assert.rejects(
+      () => catalogue.dispatch('probe.eval', { tabId: 'tab-sibling' }, context('eval')),
+      (error: unknown) => error instanceof CapabilityError && error.code === 'TARGET_MISMATCH'
+    );
+  });
 });
