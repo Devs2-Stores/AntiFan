@@ -177,7 +177,6 @@ describe('Phase 01: Core Safety & Tenancy Isolation', () => {
     it('dispatches exactly one single-line command followed by \\r', () => {
       const sentLines: string[] = [];
       const mockTm: TerminalDispatchPort = {
-        switchSession: () => true,
         writeTo: (_id: string, input: string) => { sentLines.push(input); },
       };
 

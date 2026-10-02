@@ -849,7 +849,7 @@ describe('Chromium <-> Terminal 30-Flow Interaction & Tab Management Matrix', ()
     const rawPrompt = 'Inspect button\r\nconsole.log("bad multiline");\r\nrm -rf /\n';
     dispatchAnnotationToTerminal(mockDispatchPort, 'terminal-2', rawPrompt);
 
-    assert.strictEqual(switchedId, 'terminal-2', 'Must switch to tab-specific terminal session');
+    assert.strictEqual(switchedId, '', 'Annotation delivery must preserve the selected terminal session');
     assert.strictEqual(writtenCommands.length, 1);
     assert.strictEqual(writtenCommands[0]!.id, 'terminal-2');
     // Multiline newlines replaced with single spaces and trimmed:

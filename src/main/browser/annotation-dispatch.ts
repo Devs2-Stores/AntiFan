@@ -16,7 +16,6 @@
 import type { AntiFanPickedElement } from '../../shared/contracts';
 
 export interface TerminalDispatchPort {
-  switchSession(id: string): boolean;
   writeTo(id: string, input: string): void;
 }
 
@@ -32,7 +31,6 @@ export function dispatchAnnotationToTerminal(tm: TerminalDispatchPort, resolvedS
   // A missing or 'auto' id means resolution upstream found no in-scope target:
   // the pick is skipped rather than written to a session nobody resolved.
   if (!resolvedSessionId || resolvedSessionId === 'auto') return;
-  tm.switchSession(resolvedSessionId);
   tm.writeTo(resolvedSessionId, sanitized + '\r');
 }
 

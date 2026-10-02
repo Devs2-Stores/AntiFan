@@ -386,42 +386,37 @@ describe('Agent Browser & Element Picker Injected Scripts', () => {
     assert.ok(ELEMENT_PICKER_SCRIPT.includes("window.removeEventListener('focusin', onAnnotationFocusIn, true)"), 'Focus guard must be removed when annotation closes');
   });
 
-  it('dispatches every annotation prompt to the terminal immediately (queue/draft removed)', () => {
+  it('dispatches every annotation prompt to the resolved terminal without changing active session', () => {
     const calls: string[] = [];
-    // Dispatch writes only a session id the caller already resolved in window
-    // scope — the port carries no getActiveSessionId/write arms, so the
-    // process-global fallback that used to type into another window's terminal
-    // cannot be reintroduced through this seam.
+    // Dispatch writes to the session resolved in the picking window. It must not
+    // mutate the process-global active session just to deliver a prompt.
     const fakeTm = {
-      switchSession: (id: string) => { calls.push('switch:' + id); return true; },
       writeTo: (id: string, data: string) => { calls.push('writeTo:' + id + ':' + data); },
     };
 
-    // 1. Resolved concrete session: switch + writeTo with \r, no gate
+    // 1. Resolved concrete session: write only to that session.
     dispatchAnnotationToTerminal(fakeTm, 'session-9', 'Inspect this');
-    assert.deepStrictEqual(calls, ['switch:session-9', 'writeTo:session-9:Inspect this\r']);
+    assert.deepStrictEqual(calls, ['writeTo:session-9:Inspect this\r']);
 
-    // 2. Unresolved target (skip): the manager is never touched — there is no
-    //    process-global fallback to lean on anymore.
+    // 2. Unresolved target (skip): the manager is never touched.
     calls.length = 0;
     dispatchAnnotationToTerminal(fakeTm, undefined, 'Inspect this');
     assert.deepStrictEqual(calls, [], 'unresolved pick must produce zero terminal calls');
 
-    // 3. 'auto' unresolved at this seam is likewise terminal: resolution happens
-    //    upstream inside the picking window's scope, never here.
+    // 3. 'auto' unresolved at this seam is likewise terminal.
     calls.length = 0;
     dispatchAnnotationToTerminal(fakeTm, 'auto', 'Inspect this');
     assert.deepStrictEqual(calls, [], "'auto' must produce zero terminal calls at the dispatch seam");
 
-    // 4. Empty/foreign-resolved-off ids also write nothing.
+    // 4. Empty ids also write nothing.
     calls.length = 0;
     dispatchAnnotationToTerminal(fakeTm, '', 'Inspect this');
     assert.deepStrictEqual(calls, [], 'empty id must produce zero terminal calls');
 
-    // 5. Legacy draft payloads hit the same unconditional path: deliveryMode is never consulted
+    // 5. Repeated delivery keeps the same write-only contract.
     calls.length = 0;
     dispatchAnnotationToTerminal(fakeTm, 'session-9', 'Inspect this');
-    assert.deepStrictEqual(calls, ['switch:session-9', 'writeTo:session-9:Inspect this\r']);
+    assert.deepStrictEqual(calls, ['writeTo:session-9:Inspect this\r']);
   });
   /**
    * Window-scoped annotation routing (Phase 4): a pick resolves its terminal
@@ -451,7 +446,7 @@ describe('Agent Browser & Element Picker Injected Scripts', () => {
     /**
      * Drive `handleInspectPickResult` directly with a recording TerminalManager
      * installed as the singleton, so the assertions observe the real dispatch
-     * seam (switchSession/writeTo) instead of a doubled copy of it.
+     * seam (writeTo) instead of a doubled copy of it.
      */
     function makePickHarness(opts: { scope: ScopeRow[]; windowActive?: string; annotationWs: string; tabUrl: string }): PickHarness {
       const terminalCalls: string[] = [];
@@ -551,10 +546,9 @@ describe('Agent Browser & Element Picker Injected Scripts', () => {
         await h.pickResult({ ...RAW_PICK, targetSessionId: 'auto' });
         // fullPrompt = comment + ' @<markdownPath> @<targetImagePath>' with \r
         // — assert the delivery shape, not a hardcoded artifact path.
-        assert.strictEqual(h.terminalCalls[0], 'switch:sess-a');
-        assert.strictEqual(h.terminalCalls.length, 2);
-        assert.ok(h.terminalCalls[1]!.startsWith('writeTo:sess-a:Inspect this @'), 'prompt carries the artifact reference');
-        assert.ok(h.terminalCalls[1]!.endsWith('\r'), 'prompt is terminated with Enter');
+        assert.strictEqual(h.terminalCalls.length, 1);
+        assert.ok(h.terminalCalls[0]!.startsWith('writeTo:sess-a:Inspect this @'), 'prompt carries the artifact reference');
+        assert.ok(h.terminalCalls[0]!.endsWith('\r'), 'prompt is terminated with Enter');
         // Workspaces are resolved only after the session resolved, and the
         // 'auto' match probe is URL-only — no global resolver arm runs at all.
         assert.strictEqual(h.annotationWsCalls.length, 1);
@@ -580,10 +574,9 @@ describe('Agent Browser & Element Picker Injected Scripts', () => {
           tabUrl: wsShared.url,
         });
         await h.pickResult({ ...RAW_PICK, targetSessionId: 'auto' });
-        assert.strictEqual(h.terminalCalls[0], 'switch:sess-2');
-        assert.strictEqual(h.terminalCalls.length, 2);
-        assert.ok(h.terminalCalls[1]!.startsWith('writeTo:sess-2:Inspect this '), 'the window-active session inside the matched set receives the prompt');
-        assert.ok(h.terminalCalls[1]!.endsWith('\r'));
+        assert.strictEqual(h.terminalCalls.length, 1);
+        assert.ok(h.terminalCalls[0]!.startsWith('writeTo:sess-2:Inspect this '), 'the window-active session inside the matched set receives the prompt');
+        assert.ok(h.terminalCalls[0]!.endsWith('\r'));
       } finally {
         fs.rmSync(wsShared.dir, { recursive: true, force: true });
         fs.rmSync(artifactDir, { recursive: true, force: true });
@@ -669,10 +662,9 @@ describe('Agent Browser & Element Picker Injected Scripts', () => {
           tabUrl: 'https://beta.example.test/',
         });
         await h.pickResult({ ...RAW_PICK, targetSessionId: 'sess-b' });
-        assert.strictEqual(h.terminalCalls[0], 'switch:sess-b');
-        assert.strictEqual(h.terminalCalls.length, 2);
-        assert.ok(h.terminalCalls[1]!.startsWith('writeTo:sess-b:Inspect this '));
-        assert.ok(h.terminalCalls[1]!.endsWith('\r'));
+        assert.strictEqual(h.terminalCalls.length, 1);
+        assert.ok(h.terminalCalls[0]!.startsWith('writeTo:sess-b:Inspect this '));
+        assert.ok(h.terminalCalls[0]!.endsWith('\r'));
         assert.strictEqual(h.tabState.terminalSessionId, 'sess-b', 'a scoped concrete id persists as the tab memory');
       } finally {
         fs.rmSync(wsA, { recursive: true, force: true });

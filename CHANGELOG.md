@@ -6,11 +6,18 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 
 ## [v1.3.6] - Unreleased
 
-### Sửa — Proxy MCP không còn chết sau restart khi terminal không thuộc project
+### Sửa — Proxy MCP không còn chết sau restart khi terminal không thuộc project; Session Pet bỏ trạng thái "Đang nghĩ"
 
 - **Nguyên nhân wedge (đo trên bridge sống, không suy luận)**: sau restart app, mọi attachment bị thu hồi, proxy MCP phải re-pair — nhưng exchange mang `tabId` anchor cũ đã chết (`staleAnchor`) kèm `terminalSessionId` **không thuộc project nào** (owner `web`, capsule `default`). `requireMeasuredTerminalScope` trong `resolveBrowserSessionWorkspace` từ chối `TERMINAL_SCOPE_UNRESOLVED`, và vì env của proxy (`ANTIFAN_BOUND_TAB_ID`, `ANTIFAN_TERMINAL_*`) không đổi được, mọi lần autoheal lặp lại cùng refusal — proxy chết vĩnh viễn cho tới khi process được spawn lại. `startSession timeout` còn thấy là collateral: WS anonymous sau exchange fail không trả lời lifecycle call.
 - **Sửa** (`src/main/bridge/bridge-server.ts`, pairing exchange): khi stale-anchor + terminal scope từ chối `TERMINAL_SCOPE_UNRESOLVED`, exchange retry một lần với claim `projectId`/`workspaceId` của caller bị gỡ và không yêu cầu measured — terminal unattributed mint về default binding thay vì refuse; terminal thuộc project nhưng scope không đo được (0 hoặc 2+ workspace) vẫn fail-closed; terminal measured vẫn kiểm PROJECT/WORKSPACE_MISMATCH như cũ. Invariant `requireMeasuredTerminalScope` của ControlPlaneRuntime giữ nguyên — recovery nằm ở lớp bridge, không phải lớp scope.
+- **Session Pet — bỏ "Đang nghĩ" và ngưỡng quiet 1s→5s**: pet không còn hiện mặt nghĩ tím — một AI turn im lặng giữa chừng được surface thành `streaming` ("chạy") trong `pet-window.ts`; `pet.html` xoá CSS/palette/label/count của thinking (sleeping giữ nguyên). `IDLE_MS` trong `session-activity.ts` 1000→5000: output quiet phải 5 giây mới chuyển `streaming`→`completed`/`thinking` (tracker giữ `thinking` cho các surface khác).
 - **Bằng chứng**: tái hiện refusal live trên bridge pid 20752 (`403 TERMINAL_SCOPE_UNRESOLVED` trước sửa); sau sửa `pairing-grant-authority` 40/40 pass (case `term-unmeasured` re-pin sang "mint default, strip claims"), `control-plane-terminal-scope` giữ nguyên các assert refuse; `session-activity` 7/7 với ngưỡng mới; tsc sạch. Proxy sống của session này vẫn giữ attachment cũ — cần restart app để nạp build và proxy tự re-pair.
+
+### Sửa — Annotation không đổi terminal session đang chọn
+
+- Annotation ghi trực tiếp vào session đã được resolve trong scope cửa sổ bằng `writeTo`; không gọi `switchSession` nên không đổi active terminal session của người dùng. Routing theo workspace, từ chối target foreign/unresolved và sanitization prompt giữ nguyên.
+- Kiểm chứng: TypeScript emit thành công; ba suite annotation/routing/core-safety có 72 tests pass, 0 fail. Probe compiled dispatch ghi vào session đích và giữ nguyên active session. Chưa xác minh trực tiếp UI Electron đang chạy.
+
 ### Sửa — Chế độ annotation (Direct/Super-Fast) không còn dính cả session; Direct chỉ chặn Core
 
 - **Mode theo prompt, không theo session**: trước đây một annotation mang tag `[🚀Super-Fast]`/`[⚡Direct-Edit]` latch mode cho cả phiên — mọi tin nhắn thường sau đó vẫn bị chặn tool ("ko làm gì khác được"). `deriveEditMode` (`src/omp-hooks/edit-mode.ts`) giờ coi prompt không mang tín hiệu là chat thường: mode reset về `unset`, env latch `ANTIFAN_EDIT_MODE` được dọn, một entry `antifan.edit-mode` thứ hai ghi lại thay đổi. Event `before_agent_start` không mang `prompt` (steering/nội bộ) không được re-derive — tránh unscope giữa chừng một run đang armed.
