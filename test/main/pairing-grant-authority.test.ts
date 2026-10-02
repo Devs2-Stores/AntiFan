@@ -1163,7 +1163,6 @@ describe('Fresh pairing evidence exchange (HTTP, ControlPlaneRuntime-scoped)', (
   it('refuses stale-anchor recovery with missing or conflicting terminal scope and burns each code once', async () => {
     const beforeIds = fixture.registry.getActiveRecordIds();
     const cases = [
-      { terminalSessionId: 'term-unmeasured', projectId: fixture.anchorProjectId, workspaceId: fixture.anchorWorkspaceId, status: 403, error: 'TERMINAL_SCOPE_UNRESOLVED' },
       { terminalSessionId: EVID_TERM_ANCHOR, projectId: fixture.defaultProjectId, workspaceId: fixture.anchorWorkspaceId, status: 409, error: 'PROJECT_MISMATCH' },
       { terminalSessionId: EVID_TERM_ANCHOR, projectId: fixture.anchorProjectId, workspaceId: fixture.defaultWorkspaceId, status: 409, error: 'WORKSPACE_MISMATCH' },
     ];
@@ -1174,13 +1173,31 @@ describe('Fresh pairing evidence exchange (HTTP, ControlPlaneRuntime-scoped)', (
       });
       assert.strictEqual(result.status, status, JSON.stringify(result.body));
       assert.strictEqual(result.body.error, error);
-      assert.ok(!result.body.attachmentId, 'unmeasured or conflicting scope must not mint authority');
+      assert.ok(!result.body.attachmentId, 'conflicting scope must not mint authority');
       const replay = await postExchange(fixture.port, { code, clientClass: 'mcp', requestedGrant: 'write' });
       assert.strictEqual(replay.status, 409);
       assert.strictEqual(replay.body.error, 'PAIRING_CODE_ALREADY_USED');
       assert.ok(!replay.body.attachmentId, 'scope refusal must not leave a reusable challenge');
     }
-    assert.deepStrictEqual(fixture.registry.getActiveRecordIds(), beforeIds, 'scope refusals and replays must leave attachment authority unchanged');
+    // An unattributed terminal claims no project, so the caller's stale
+    // projectId/workspaceId cannot be verified against it — the recovery mints
+    // under the default binding instead of trusting the claim or refusing the
+    // re-pair outright (that refusal wedged every post-restart MCP proxy).
+    const unattributedCode = await claimChallengeCodeOverHttp(fixture.port);
+    const unattributed = await postExchange(fixture.port, {
+      code: unattributedCode, clientClass: 'mcp', requestedGrant: 'write', tabId: EVID_TAB_STALE,
+      terminalSessionId: 'term-unmeasured', projectId: fixture.anchorProjectId, workspaceId: fixture.anchorWorkspaceId,
+    });
+    assert.strictEqual(unattributed.status, 200, `unattributed recovery must mint: ${JSON.stringify(unattributed.body)}`);
+    assert.strictEqual(unattributed.body.recoveredStaleAnchor, true);
+    assert.strictEqual(unattributed.body.projectId, fixture.defaultProjectId, 'unverifiable caller scope must be stripped, not honored');
+    assert.strictEqual(unattributed.body.workspaceId, fixture.defaultWorkspaceId);
+    assert.ok(!unattributed.body.tabId, 'the stale anchor tab must not be bound');
+    assert.deepStrictEqual(
+      new Set([...fixture.registry.getActiveRecordIds()].filter((id) => !beforeIds.has(id))),
+      new Set([String(unattributed.body.attachmentId)]),
+      'only the unattributed recovery may mint an attachment',
+    );
   });
 
   it('keeps malformed JSON a 400 refusal without consuming an unused challenge', async () => {

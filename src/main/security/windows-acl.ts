@@ -59,9 +59,13 @@ export async function resolveCurrentUserSid(
     return cachedUserSid;
   }
 
-  // Armed with a bounded timeout: whoami can hang indefinitely if querying an offline
-  // domain controller or if AV/filter drivers stall child process initialization.
-  const { stdout } = await execFileAsync('whoami', ['/user', '/fo', 'csv', '/nh'], {
+  // Armed with a bounded timeout: whoami can hang indefinitely if querying an
+  // offline domain controller or if AV/filter drivers stall child process
+  // initialization. Pin the System32 binary: a bare 'whoami' resolves through
+  // PATH first, and POSIX-shadowed whoami.exe (Git usr/bin, MSYS2, Cygwin)
+  // rejects '/user' with 'extra operand' — silently breaking every DACL path.
+  const whoamiBin = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'whoami.exe');
+  const { stdout } = await execFileAsync(whoamiBin, ['/user', '/fo', 'csv', '/nh'], {
     encoding: 'utf8',
     windowsHide: true,
     timeout: timeoutMs,

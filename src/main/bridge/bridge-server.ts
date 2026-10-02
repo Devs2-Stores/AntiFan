@@ -1189,14 +1189,35 @@ export class BridgeServer {
                 throw new CapabilityError('TARGET_STALE', 'Pairing anchor tab is not live in this bridge');
               }
               const evidenceTabId = staleAnchor ? undefined : suppliedTabId || binding?.browserTarget?.tabId;
-              const measuredWorkspace = this.controlPlaneRuntime?.resolveBrowserSessionWorkspace({
-                tabId: evidenceTabId,
-                originTerminalSessionId: terminalSessionId,
-                projectId: staleAnchor ? suppliedProjectId : undefined,
-                workspaceId: staleAnchor ? suppliedWorkspaceId : undefined,
-                requireMeasuredTerminalScope: staleAnchor,
-                cwd: typeof data.cwd === 'string' ? data.cwd : undefined,
-              });
+              let measuredWorkspace;
+              try {
+                measuredWorkspace = this.controlPlaneRuntime?.resolveBrowserSessionWorkspace({
+                  tabId: evidenceTabId,
+                  originTerminalSessionId: terminalSessionId,
+                  projectId: staleAnchor ? suppliedProjectId : undefined,
+                  workspaceId: staleAnchor ? suppliedWorkspaceId : undefined,
+                  requireMeasuredTerminalScope: staleAnchor,
+                  cwd: typeof data.cwd === 'string' ? data.cwd : undefined,
+                });
+              } catch (scopeError: unknown) {
+                // The anchor is dead, so the caller's projectId/workspaceId are
+                // claims, not evidence. requireMeasuredTerminalScope mints only
+                // for a terminal provably under a project; an unattributed
+                // terminal claims nothing, so refusing recovery would wedge the
+                // proxy forever while honoring the claims would let a stale
+                // anchor plant authority into a named project. Retry once with
+                // the claims stripped and the measured requirement lifted: an
+                // unattributed terminal mints the default binding, and a real
+                // but unmeasurable claim still fails closed on
+                // 'Pairing terminal scope cannot be measured'.
+                const retriable = staleAnchor && terminalSessionId !== undefined && this.controlPlaneRuntime !== null &&
+                  scopeError instanceof CapabilityError && scopeError.code === 'TERMINAL_SCOPE_UNRESOLVED';
+                if (!retriable) throw scopeError;
+                measuredWorkspace = this.controlPlaneRuntime?.resolveBrowserSessionWorkspace({
+                  originTerminalSessionId: terminalSessionId,
+                  cwd: typeof data.cwd === 'string' ? data.cwd : undefined,
+                });
+              }
               const projectId = measuredWorkspace?.projectId || binding?.projectId || 'default-project';
               const workspaceId = measuredWorkspace?.id || binding?.workspaceId || 'default-workspace';
               const lease = binding?.lease ? { ...binding.lease, projectId, workspaceId } : {
@@ -2230,13 +2251,27 @@ export class BridgeServer {
    * change lands and every awaiting caller observes a write that includes it.
    */
   private persistBridgeInfo(): Promise<void> {
-    if (this.persistQueued) return this.persistQueued;
+    if (this.persistQueued) {
+      // A rejected queued run must not wedge discovery publishing forever: clear
+      // the slot so the next heartbeat starts a fresh persist. Swallow the
+      // rejection here — persistBridgeInfoNow already logged it.
+      return this.persistQueued.catch(() => {});
+    }
     if (!this.persistRunning) return this.startPersist();
-    this.persistQueued = this.persistRunning.then(() => {
-      this.persistQueued = null;
-      return this.startPersist();
-    });
-    return this.persistQueued;
+    const run = this.persistRunning;
+    this.persistQueued = run
+      .catch(() => {}) // absorb run's rejection so the queued leg always runs
+      .then(() => {
+        if (this.persistQueued === queued) this.persistQueued = null;
+        return this.startPersist();
+      })
+      .catch(() => {
+        // The queued re-persist itself failed; release the slot or every later
+        // heartbeat returns this same dead promise and the record goes stale.
+        if (this.persistQueued === queued) this.persistQueued = null;
+      });
+    const queued = this.persistQueued;
+    return queued;
   }
 
   private startPersist(): Promise<void> {
@@ -2250,8 +2285,10 @@ export class BridgeServer {
   private async persistBridgeInfoNow(): Promise<void> {
     if (this.isDisposed) return;
     if (!this.publishesDiscovery) return;
-    const info = this.bridgeInfoPayload();
     try {
+      // Payload build inside try: a persistent throw here would otherwise be
+      // silent once the persist queue wedges on a rejected leg.
+      const info = this.bridgeInfoPayload();
       const content = discoveryRecordContent(info);
       const targets: string[] = [this.bridgeInfoPath];
 
