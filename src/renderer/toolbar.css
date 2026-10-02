@@ -3365,6 +3365,20 @@ body, html {
   word-break: break-word;
   overflow-wrap: break-word;
 }
+.theme-item-note {
+  font-size: 10px;
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.08);
+  border: 1px solid rgba(251, 191, 36, 0.2);
+  border-radius: 3px;
+  padding: 2px 6px;
+  margin-top: 4px;
+  display: inline-block;
+  width: fit-content;
+  max-width: 100%;
+  word-break: break-word;
+  overflow-wrap: break-word;
+}
 .theme-item-right {
   display: flex;
   align-items: center;

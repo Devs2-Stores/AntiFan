@@ -3,6 +3,43 @@
  * Classic Antigravity Browser UI Logic (Original VS Code Dark Theme).
  */
 
+// The checklist domain constants live in `src/shared/theme-checklist.ts` so the
+// toolbar, the main-owned store and the cockpit capabilities render identical
+// defaults and reports. This file is a classic script (exports-shim provides
+// `exports`/`module`, never `require`), so a value `import` would emit a CJS
+// `require` that cannot run here — the shared module is injected into the
+// compiled toolbar.js as the `ThemeChecklistShared` global by copy-static.mjs
+// instead. Types are imported (erased at emit); values arrive via the ambient
+// declaration below.
+import type { ThemeChecklistItem, ThemePageDef } from '../shared/theme-checklist';
+
+/** Value surface of `src/shared/theme-checklist.ts` consumed by this renderer. */
+interface ThemeChecklistSharedApi {
+  PAGE_DEFS: Record<string, ThemePageDef>;
+  DEFAULT_THEME_CHECKLIST: ThemeChecklistItem[];
+  QA_GATE_DISCLAIMER: string;
+  UNKNOWN_WORKSPACE_TAG: string;
+  WORKSPACE_IDENTIFY_TIMEOUT_MS: number;
+  PRODUCT_PAGE_PATH: RegExp;
+  workspaceTag(workspacePath?: string): string;
+  checklistScope(origin: string, tag?: string): string;
+  buildChecklistReport(scope: string, items: ThemeChecklistItem[]): string;
+}
+
+declare const ThemeChecklistShared: ThemeChecklistSharedApi | undefined;
+
+/**
+ * Resolve the shared checklist module. Lazy so a raw (non-copy-static) emit
+ * keeps every non-checklist surface alive; the checklist itself has no local
+ * copy of the constants to degrade to.
+ */
+function themeShared(): ThemeChecklistSharedApi {
+  if (typeof ThemeChecklistShared === 'undefined' || !ThemeChecklistShared) {
+    throw new Error('[ThemeStudio] theme-checklist shared module is not loaded');
+  }
+  return ThemeChecklistShared;
+}
+
 interface AntiFanTab {
   id: string;
   url: string;
@@ -78,6 +115,40 @@ type ProjectOpenResult =
   | { status: 'OPENED' | 'FOCUSED' | 'CANCELLED'; projectId?: string }
   | { status: 'FAILED'; projectId?: string; reason: string };
 
+/** Payload shape of a successful THEME_CHECKLIST_LOAD invoke. */
+interface ThemeChecklistLoadResult {
+  scope: string;
+  workspaceRoot: string;
+  items: ThemeChecklistItem[];
+  updatedAt: number;
+  /** Whether this scope already has a persisted record (vs. seeded defaults). */
+  existed: boolean;
+  /** Whether the record already absorbed legacy localStorage state. */
+  migrated: boolean;
+  legacyMigrated?: boolean;
+  /** In-memory scope (unknown workspace): nothing it returns ever touched disk. */
+  isProvisional: boolean;
+}
+
+/** Whole-array CAS save answer; `conflict` carries the store's rows for adoption. */
+interface ThemeChecklistSaveResult {
+  ok: boolean;
+  scope: string;
+  workspaceRoot: string;
+  items: ThemeChecklistItem[];
+  updatedAt: number;
+  conflict?: boolean;
+  isProvisional?: boolean;
+}
+
+/** Broadcast frame every checklist mutation (toolbar or agent) emits. */
+interface ThemeChecklistUpdatedPayload {
+  scope: string;
+  workspaceRoot: string;
+  items: ThemeChecklistItem[];
+  updatedAt: number;
+}
+
 interface AntiFanToolbarApi {
   getInitialState: () => Promise<any>;
   createTab: (url?: string) => Promise<string>;
@@ -126,6 +197,7 @@ interface AntiFanToolbarApi {
   getChromeProfiles: () => Promise<any>;
   syncChromeProfile: (profileId: string) => Promise<any>;
   toggleBookmarkBar: () => Promise<boolean>;
+  showMenuBar?: () => Promise<void>;
   addBookmark: (title: string, url: string) => Promise<any>;
   removeBookmark: (url: string) => Promise<any>;
   exportSessionVault?: (customPath?: string) => Promise<{ success: boolean; count: number; filePath: string; error?: string }>;
@@ -149,7 +221,14 @@ interface AntiFanToolbarApi {
   runThemeQa: (options?: { workspaceRoot?: string }) => Promise<{ ok: boolean; report?: any; error?: string }>;
   /** Workspace the active storefront belongs to; read-only, no side effects. */
   identifyWorkspace?: () => Promise<{ workspacePath?: string }>;
-  onThemeQaState: (callback: (state: ThemeQaState) => void) => () => void;
+  /** Push frame carries the tab the scan ran on: foreign-tab scans must not repaint the badge. */
+  onThemeQaState: (callback: (frame: { tabId?: string; state: ThemeQaState }) => void) => () => void;
+  /** Read one checklist scope out of the main-owned store (`{workspaceRoot}/.antifan/qa-checklist.json`). */
+  getThemeChecklist?: (scope: string, workspaceRoot: string) => Promise<ThemeChecklistLoadResult>;
+  /** Whole-array CAS write; a conflict returns the store's items for adoption. */
+  saveThemeChecklist?: (scope: string, workspaceRoot: string, items: ThemeChecklistItem[], baseUpdatedAt?: number) => Promise<ThemeChecklistSaveResult>;
+  /** Push every mutation (toolbar or agent) triggers so each surface repaints the same scope. */
+  onThemeChecklistUpdated?: (callback: (payload: ThemeChecklistUpdatedPayload) => void) => () => void;
   getPhoneStatus?: (forceRefresh?: boolean) => Promise<ToolbarPhoneStatus>;
   onPhoneStatusChanged?: (callback: (status: ToolbarPhoneStatus) => void) => () => void;
   /**
@@ -373,178 +452,61 @@ function renderThemeQa(state: ThemeQaState, report?: Record<string, unknown>) {
     btnThemeQa.disabled = false;
   }
 }
-interface ThemeChecklistItem {
-  id: string;
-  code: string;
-  name: string;
-  desc: string;
-  qaPoint: string;
-  page: 'home' | 'collection' | 'product' | 'cart' | 'blog' | 'account' | 'pages' | 'qa-gate' | string;
-  pathHint?: string;
-  done: boolean;
-}
 
-interface ThemePageDef {
-  title: string;
-  badge: string;
-  icon: string;
-  path: string;
-  /**
-   * `handle-required` marks a page that has no index route on any supported
-   * platform — Haravan/Sapo/Shopify all serve PDPs only at `/products/<handle>`.
-   * Those cards refuse to navigate/scan until a real product page is open, so a
-   * scan can never report findings for an unrelated 404 page.
-   */
-  routeKind?: 'index' | 'handle-required';
-  routeNote?: string;
-  /** Limitation of what this card's items and scan actually prove. */
-  note?: string;
-}
+// ---------------------------------------------------------------------------
+// Theme Studio checklist state.
+//
+// Persistence moved out of localStorage into the main-owned store at
+// `{workspaceRoot}/.antifan/qa-checklist.json`, reached through the
+// THEME_CHECKLIST_LOAD / THEME_CHECKLIST_SAVE invoke channels. `workspaceRoot`
+// rides every frame next to `scope` because the tag inside the scope is a
+// one-way hash — nothing downstream may re-derive the root from it. Scopes
+// whose workspace could not be resolved are provisional (in-memory on the
+// main side); the two `antifan_theme_checklist_*` localStorage keys below are
+// read ONLY by the migration path and deleted once the store accepted them.
+// ---------------------------------------------------------------------------
 
-/**
- * A route scan loads one page at one viewport, so it cannot certify mobile
- * behaviour or the dynamic storefront mechanics (drawer, AJAX cart, sticky bars).
- * Every completion claim carries this, so a 44/44 checklist never reads as more
- * than it is.
- */
-const QA_GATE_DISCLAIMER =
-  'Checklist là trạng thái dev tự khai; quét QA chỉ đo các trang tĩnh tại route đang mở — chưa chứng minh viewport mobile 375px, drawer trượt hay luồng AJAX/thêm giỏ động.';
-
-const PAGE_DEFS: Record<string, ThemePageDef> = {
-  home: {
-    title: 'Trang Chủ (Home - Banner, Danh Mục, Flash Sale, Tabs SP, Tin Tức, Footer)',
-    badge: 'HOME',
-    icon: '🏠',
-    path: '/',
-  },
-  collection: {
-    title: 'Trang Danh Mục Sản Phẩm (Collection - Bộ Lọc Filter, Sắp Xếp Sort, Grid SP, Phân Trang)',
-    badge: 'COLLECTION',
-    icon: '🛍️',
-    path: '/collections/all',
-  },
-  product: {
-    title: 'Trang Chi Tiết Sản Phẩm (Product / PDP - Gallery Ảnh, Variant Swatch, Mua Hàng, Sticky ATC, Tabs)',
-    badge: 'PRODUCT',
-    icon: '📦',
-    path: '/products/<handle>',
-    routeKind: 'handle-required',
-    routeNote: 'Chưa có trang sản phẩm nào đang mở: mở một PDP thật (/products/<handle>) trên storefront rồi bấm lại — không có route /products để mở hộ.',
-  },
-  cart: {
-    title: 'Trang Giỏ Hàng & Mini Cart (Cart - AJAX Drawer, Bảng Giỏ Hàng, Note, Checkout, Empty State)',
-    badge: 'CART',
-    icon: '🛒',
-    path: '/cart',
-  },
-  blog: {
-    title: 'Trang Tin Tức & Bài Viết (Blog / Article - Danh Sách Bài, Nội Dung Chi Tiết, Bình Luận)',
-    badge: 'BLOG',
-    icon: '📰',
-    path: '/blogs/news',
-  },
-  account: {
-    title: 'Trang Khách Hàng / Tài Khoản (Customer - Đăng Nhập, Đăng Ký, Đơn Hàng, Sổ Địa Chỉ)',
-    badge: 'ACCOUNT',
-    icon: '👤',
-    path: '/account/login',
-  },
-  pages: {
-    title: 'Trang Phụ & Hệ Thống (Pages, Liên Hệ, Giới Thiệu, Tìm Kiếm, Quickview, 404)',
-    badge: 'PAGES',
-    icon: '📄',
-    path: '/pages/lien-he',
-  },
-  'qa-gate': {
-    title: 'Nghiệm Thu Cổng Chất Lượng & QA Storefront (Responsive 375px, 0 Lỗi Console, Empty State, Settings)',
-    badge: 'QA GATE',
-    icon: '🎯',
-    path: '/',
-    note: QA_GATE_DISCLAIMER,
-  },
-};
-
-const DEFAULT_THEME_CHECKLIST: ThemeChecklistItem[] = [
-  // 1. TRANG CHỦ (HOME)
-  { id: 'hom-01', code: 'HOM-01', name: 'Header & Sticky Mega Menu', desc: 'Logo, menu đa cấp 1-2-3, sticky khi cuộn, bubble count giỏ hàng', qaPoint: 'Menu mobile không tràn màn hình, không giật lag khi cuộn sticky', page: 'home', pathHint: '/', done: false },
-  { id: 'hom-02', code: 'HOM-02', name: 'Hero Banner Slider', desc: 'Slider ảnh/video banner chính, chuyển slide 2 chiều mượt mà', qaPoint: 'Ảnh responsive không méo, không vỡ layout trước khi init Swiper/Slick', page: 'home', pathHint: '/', done: false },
-  { id: 'hom-03', code: 'HOM-03', name: 'Danh Mục Nổi Bật (Categories)', desc: 'Lưới icon/ảnh danh mục dẫn đến từng collection', qaPoint: 'Tỷ lệ ảnh đồng đều, không co giật layout khi tải trang', page: 'home', pathHint: '/', done: false },
-  { id: 'hom-04', code: 'HOM-04', name: 'Flash Sale Deal Đếm Ngược', desc: 'Đồng hồ đếm ngược ngày:giờ:phút:giây, thanh tiến độ đã bán', qaPoint: 'Hết hạn tự động ẩn hoặc đổi trạng thái, không hiện NaN', page: 'home', pathHint: '/', done: false },
-  { id: 'hom-05', code: 'HOM-05', name: 'Tabs Sản Phẩm Trang Chủ', desc: 'Chuyển tab danh mục mượt mà, tải đúng sản phẩm theo tab', qaPoint: 'Bỏ chọn danh mục trong settings không làm sập layout trang', page: 'home', pathHint: '/', done: false },
-  { id: 'hom-06', code: 'HOM-06', name: 'Banner Quảng Cáo Đôi / Video', desc: 'Banner phụ 2 bên hoặc video tự động phát (muted)', qaPoint: 'Video có playsinline trên mobile, banner không lệch chiều cao', page: 'home', pathHint: '/', done: false },
-  { id: 'hom-07', code: 'HOM-07', name: 'Tin Tức Mới Nhất (Blog Carousel)', desc: 'Lưới 3-4 bài viết mới nhất, tiêu đề, ngày đăng, tóm tắt', qaPoint: 'Tiêu đề dài tự cắt dòng line-clamp, thẻ tin đều nhau', page: 'home', pathHint: '/', done: false },
-  { id: 'hom-08', code: 'HOM-08', name: 'Chân Trang (Footer) & Newsletter', desc: 'Cột thông tin shop, chính sách, form đăng ký email, BCT', qaPoint: 'Form email validate chuẩn AJAX, 375px không vỡ footer', page: 'home', pathHint: '/', done: false },
-
-  // 2. TRANG DANH MỤC (COLLECTION)
-  { id: 'col-01', code: 'COL-01', name: 'Banner Đầu Trang & Breadcrumb', desc: 'Thanh điều hướng Trang chủ > Danh mục, ảnh cover danh mục', qaPoint: 'Breadcrumb có cấu trúc schema, không lặp tiêu đề', page: 'collection', pathHint: '/collections/all', done: false },
-  { id: 'col-02', code: 'COL-02', name: 'Bộ Lọc Sản Phẩm Đa Năng (Filter)', desc: 'Lọc theo giá, màu sắc, kích thước, thương hiệu, tag', qaPoint: 'Lọc AJAX không reload trang, URL cập nhật query param', page: 'collection', pathHint: '/collections/all', done: false },
-  { id: 'col-03', code: 'COL-03', name: 'Bộ Sắp Xếp Sản Phẩm (Sort)', desc: 'Xếp theo: Giá tăng/giảm, Mới nhất, Bán chạy, Tên A-Z', qaPoint: 'Đổi sắp xếp giữ nguyên điều kiện bộ lọc đang chọn', page: 'collection', pathHint: '/collections/all', done: false },
-  { id: 'col-04', code: 'COL-04', name: 'Lưới Sản Phẩm Đều Khung (Grid)', desc: 'Hiển thị 2 cột (mobile), 3-4 cột (desktop), nút mua thẳng hàng', qaPoint: 'Thẻ sản phẩm cao bằng nhau, nút mua không bị thụt thò', page: 'collection', pathHint: '/collections/all', done: false },
-  { id: 'col-05', code: 'COL-05', name: 'Phân Trang & Nút Xem Thêm', desc: 'Phân trang 1, 2, 3... hoặc nút Xem thêm / Cuộn vô tận', qaPoint: 'Trang cuối cùng không lặp sản phẩm, cuộn mượt không giật', page: 'collection', pathHint: '/collections/all', done: false },
-  { id: 'col-06', code: 'COL-06', name: 'Trạng Thái Bộ Lọc Trống (Empty Filter)', desc: 'Thông báo "Không tìm thấy sản phẩm" + nút Xóa bộ lọc', qaPoint: 'Bấm Xóa bộ lọc khôi phục lại danh mục bình thường', page: 'collection', pathHint: '/collections/all', done: false },
-
-  // 3. TRANG CHI TIẾT SẢN PHẨM (PRODUCT / PDP)
-  { id: 'pdp-01', code: 'PDP-01', name: 'Thư Viện Ảnh & Phóng To (Gallery & Zoom)', desc: 'Slider ảnh to + thumbnail nhỏ, zoom hover, lightbox', qaPoint: 'Đổi màu swatch thì ảnh to tự nhảy sang đúng màu tương ứng', page: 'product', done: false },
-  { id: 'pdp-02', code: 'PDP-02', name: 'Tiêu Đề, Mã SKU & Đánh Giá Sao', desc: 'Tên sản phẩm H1, SKU, tình trạng kho, đánh giá sao', qaPoint: 'Đổi biến thể cập nhật đúng SKU và trạng thái còn hàng', page: 'product', done: false },
-  { id: 'pdp-03', code: 'PDP-03', name: 'Khối Giá Bán, Giá Gạch & % Giảm', desc: 'Giá bán, giá so sánh gạch ngang, % tiết kiệm, sale badge', qaPoint: 'Định dạng tiền VNĐ chuẩn (100.000₫), không lỗi NaN', page: 'product', done: false },
-  { id: 'pdp-04', code: 'PDP-04', name: 'Bộ Chọn Biến Thể (Variant Swatch)', desc: 'Swatch màu sắc (có ảnh/màu hex), kích thước (S/M/L)', qaPoint: 'Biến thể hết hàng bị gạch mờ, chặn bấm mua biến thể lỗi', page: 'product', done: false },
-  { id: 'pdp-05', code: 'PDP-05', name: 'Số Lượng & Nút Thêm Giỏ / Mua Ngay', desc: 'Nút +/- số lượng, Thêm vào giỏ, Mua ngay chuyển checkout', qaPoint: 'Thêm giỏ AJAX không reload, cập nhật số lượng tức thì', page: 'product', done: false },
-  { id: 'pdp-06', code: 'PDP-06', name: 'Thanh Mua Hàng Dính Đáy (Sticky ATC)', desc: 'Thanh dính đáy màn hình khi cuộn qua nút mua chính', qaPoint: 'Hiển thị mượt mà trên mobile & desktop, không che nội dung', page: 'product', done: false },
-  { id: 'pdp-07', code: 'PDP-07', name: 'Tabs Chi Tiết Mô Tả & Thông Số', desc: 'Tab Mô tả chi tiết, Thông số kỹ thuật, Chính sách đổi trả', qaPoint: 'Bảng biểu không gây tràn ngang (overflow) trên mobile 375px', page: 'product', done: false },
-  { id: 'pdp-08', code: 'PDP-08', name: 'Sản Phẩm Gợi Ý / Cùng Chuyên Mục', desc: 'Lưới sản phẩm liên quan hoặc sản phẩm vừa xem', qaPoint: 'Không gợi ý trùng chính sản phẩm đang xem', page: 'product', done: false },
-
-  // 4. TRANG GIỎ HÀNG (CART)
-  { id: 'crt-01', code: 'CRT-01', name: 'Mini Cart Drawer Trượt Phải (AJAX)', desc: 'Ngăn kéo giỏ hàng trượt từ phải sang khi thêm sản phẩm', qaPoint: 'Mở/đóng mượt mà, bấm backdrop mờ tự đóng', page: 'cart', pathHint: '/cart', done: false },
-  { id: 'crt-02', code: 'CRT-02', name: 'Trang Giỏ Hàng Đầy Đủ (/cart)', desc: 'Bảng sản phẩm, ảnh, tên, đơn giá, số lượng, thành tiền, nút xóa', qaPoint: 'Tăng giảm số lượng tính lại tổng tiền AJAX, không reload', page: 'cart', pathHint: '/cart', done: false },
-  { id: 'crt-03', code: 'CRT-03', name: 'Ghi Chú Đơn Hàng & Mã Khuyến Mãi', desc: 'Khung nhập ghi chú gửi shop, nhập voucher giảm giá', qaPoint: 'Ghi chú lưu đúng vào thuộc tính note của đơn hàng', page: 'cart', pathHint: '/cart', done: false },
-  { id: 'crt-04', code: 'CRT-04', name: 'Nút Tiến Hành Thanh Toán (Checkout)', desc: 'Nút nổi bật chuyển khách sang trang thanh toán bảo mật', qaPoint: 'Không bị disabled khi giỏ hàng có sản phẩm hợp lệ', page: 'cart', pathHint: '/cart', done: false },
-  { id: 'crt-05', code: 'CRT-05', name: 'Trạng Thái Giỏ Hàng Trống (Empty Cart)', desc: 'Icon giỏ rỗng + câu thông báo + nút Tiếp tục mua sắm', qaPoint: 'Xóa hết món chuyển ngay sang Empty Cart không sót bảng cũ', page: 'cart', pathHint: '/cart', done: false },
-
-  // 5. TRANG BÀI VIẾT & BLOG (BLOG)
-  { id: 'blg-01', code: 'BLG-01', name: 'Danh Sách Bài Viết (Blog Listing)', desc: 'Lưới bài viết, ảnh cover, tiêu đề, ngày đăng, phân trang', qaPoint: 'Ảnh bài viết đồng bộ tỷ lệ, không bị méo lệch khung', page: 'blog', pathHint: '/blogs/news', done: false },
-  { id: 'blg-02', code: 'BLG-02', name: 'Chi Tiết Bài Viết (Article Detail)', desc: 'Tiêu đề H1, tác giả, ngày đăng, tags, nội dung bài viết', qaPoint: 'Typography chuẩn, ảnh trong bài tự co giãn 100%', page: 'blog', pathHint: '/blogs/news', done: false },
-  { id: 'blg-03', code: 'BLG-03', name: 'Khung Bình Luận Bài Viết (Comments)', desc: 'Danh sách bình luận + form gửi bình luận (Tên, Email, Lời nhắn)', qaPoint: 'Form gửi bình luận có thông báo thành công / chờ duyệt', page: 'blog', pathHint: '/blogs/news', done: false },
-  { id: 'blg-04', code: 'BLG-04', name: 'Sidebar Chuyên Mục & Top Bài Viết', desc: 'Danh mục tin, bài viết xem nhiều, bài liên quan', qaPoint: 'Link chính xác, mobile ẩn sidebar gọn gàng cuối bài', page: 'blog', pathHint: '/blogs/news', done: false },
-
-  // 6. TRANG TÀI KHOẢN (ACCOUNT)
-  { id: 'acc-01', code: 'ACC-01', name: 'Form Đăng Nhập & Quên Mật Khẩu', desc: 'Form email/mật khẩu, link chuyển sang khung Quên MK tức thì', qaPoint: 'Báo lỗi rõ ràng khi sai thông tin, gửi mail khôi phục OK', page: 'account', pathHint: '/account/login', done: false },
-  { id: 'acc-02', code: 'ACC-02', name: 'Form Đăng Ký Tài Khoản Mới', desc: 'Form đăng ký: Họ tên, Email, SĐT, Mật khẩu', qaPoint: 'Validate định dạng email và độ dài mật khẩu trước submit', page: 'account', pathHint: '/account/register', done: false },
-  { id: 'acc-03', code: 'ACC-03', name: 'Bảng Điều Khiển & Lịch Sử Đơn Hàng', desc: 'Thông tin cá nhân, danh sách đơn hàng, trạng thái giao', qaPoint: 'Khách chưa đăng nhập vào /account tự chuyển về /account/login', page: 'account', pathHint: '/account', done: false },
-  { id: 'acc-04', code: 'ACC-04', name: 'Sổ Địa Chỉ Giao Hàng (Addresses)', desc: 'Danh sách địa chỉ, form Thêm/Sửa/Xóa địa chỉ', qaPoint: 'Xóa địa chỉ có popup xác nhận, cascade Tỉnh->Huyện', page: 'account', pathHint: '/account/addresses', done: false },
-
-  // 7. TRANG PHỤ & HỆ THỐNG (PAGES)
-  { id: 'sys-01', code: 'SYS-01', name: 'Trang Liên Hệ & Bản Đồ Showroom', desc: 'Form gửi liên hệ (Tên, Email, SĐT, Lời nhắn) + bản đồ Map', qaPoint: 'Form submit thành công có toast, SĐT bấm gọi được ngay', page: 'pages', pathHint: '/pages/lien-he', done: false },
-  { id: 'sys-02', code: 'SYS-02', name: 'Trang Giới Thiệu & Chính Sách Shop', desc: 'Trang nội dung tĩnh, quy định đổi trả, bảo hành', qaPoint: 'Trình bày sạch sẽ, bảng biểu responsive không vỡ khung', page: 'pages', pathHint: '/pages/gioi-thieu', done: false },
-  { id: 'sys-03', code: 'SYS-03', name: 'Trang Tìm Kiếm Sản Phẩm (/search)', desc: 'Thanh tìm kiếm, đếm số kết quả tìm thấy, lưới sản phẩm', qaPoint: 'Tìm không ra kết quả có gợi ý từ khóa hoặc SP nổi bật', page: 'pages', pathHint: '/search', done: false },
-  { id: 'sys-04', code: 'SYS-04', name: 'Popup Xem Nhanh Sản Phẩm (Quickview)', desc: 'Modal xem nhanh ảnh, swatch, giá, nút mua từ danh mục', qaPoint: 'Nút ESC / dấu x đóng mượt, chọn biến thể chuẩn xác', page: 'pages', pathHint: '/collections/all', done: false },
-  { id: 'sys-05', code: 'SYS-05', name: 'Trang Lỗi 404 Không Tìm Thấy', desc: 'Giao diện 404 thân thiện, nút Quay lại trang chủ, thanh tìm kiếm', qaPoint: 'Không để trang trắng trơn, không lỗi vỡ header/footer', page: 'pages', pathHint: '/antifan-404-probe', done: false },
-
-  // 8. NGHIỆM THU & QA (QA GATE)
-  { id: 'qag-01', code: 'QAG-01', name: 'Responsive 375px Không Tràn Ngang', desc: 'Dùng thanh Thử Viewport 375px duyệt toàn bộ các trang', qaPoint: 'Tuyệt đối không có phần tử nào gây scrollbar ngang', page: 'qa-gate', pathHint: '/', done: false },
-  { id: 'qag-02', code: 'QAG-02', name: 'Kiểm Tra Trạng Thái Trống (Empty State)', desc: 'Test danh mục không có SP, giỏ rỗng, tìm kiếm không ra', qaPoint: 'Layout không bị sập hay méo khung khi dữ liệu trống', page: 'qa-gate', pathHint: '/collections/all', done: false },
-  { id: 'qag-03', code: 'QAG-03', name: '0 Lỗi Đỏ Console JS & 0 Ảnh Hỏng 404', desc: 'Mở DevTools Console kiểm tra toàn bộ các trang', qaPoint: 'Không có Uncaught TypeError, không có tài nguyên 404', page: 'qa-gate', pathHint: '/', done: false },
-  { id: 'qag-04', code: 'QAG-04', name: 'Kiểm Tra Cấu Hình Theme Settings', desc: 'Bật/tắt các setting trong theme admin (settings_schema.json)', qaPoint: 'Mọi setting đều có tác dụng ngoài storefront, không setting rác', page: 'qa-gate', pathHint: '/', done: false },
-];
-
+/** Legacy done-flag map key — migration probe/removal only. */
 const THEME_CHECKLIST_STORAGE_PREFIX = 'antifan_theme_checklist_state_v3';
+/** Legacy custom-item array key — migration probe/removal only. */
+const THEME_CHECKLIST_DATA_PREFIX = 'antifan_theme_checklist_custom_items';
+/** Both legacy keys share this prefix; the boot sweep enumerates on it. */
+const THEME_CHECKLIST_LEGACY_PREFIX = 'antifan_theme_checklist_';
+
 let themeChecklist: ThemeChecklistItem[] = [];
 let activePhaseFilter: string = 'all';
 let checklistSearchQuery: string = '';
 let activeThemeStudioTab: 'checklist' | 'findings' = 'checklist';
 let activeChecklistScope: string = 'unbound';
+/** Store `updatedAt` of the items currently on screen; CAS base for the next save. */
+let checklistUpdatedAt = 0;
+/** Scope the in-memory `themeChecklist` was last fully populated for (even when empty). */
+let checklistLoadedForScope = '';
+/** In-flight LOAD keyed by scope; only one read may be outstanding per scope. */
+const checklistLoadPending = new Set<string>();
 /**
- * Scope marker for a storefront whose workspace could not be resolved. Kept
- * distinct from a resolved scope so a bare-origin key never silently mixes two
- * projects, and so the report states which storefront was actually measured.
+ * Generation guard (F9): every `applyChecklistScope` that changes the scope —
+ * or restarts a load — increments this; each async continuation captures it
+ * plus the requested scope and bails when either drifted, so a stale LOAD can
+ * never poison a scope the user already left.
  */
-const UNKNOWN_WORKSPACE_TAG = 'unknown-workspace';
-/** How long the checklist waits for the workspace identity before giving up on it. */
-const WORKSPACE_IDENTIFY_TIMEOUT_MS = 1500;
+let checklistScopeGen = 0;
 /** Workspace tag for the storefront in front of the user; empty until it is known. */
 let checklistWorkspaceTag = '';
-/** Origin the current tag was resolved for, so a tab switch re-resolves it. */
+/** Workspace path `checklistWorkspaceTag` was derived from — sent verbatim on every LOAD/SAVE. */
+let checklistWorkspaceRoot = '';
+/** Origin the current tag+root pair was resolved for, so a tab switch re-resolves it. */
 let checklistWorkspaceResolvedFor = '';
-let checklistWorkspacePending: Promise<void> | null = null;
+/**
+ * In-flight workspace identity reads keyed by origin (F11): two storefronts on
+ * different origins must never share one pending promise — the second would
+ * inherit whichever answer landed first.
+ */
+const checklistWorkspacePending = new Map<string, Promise<void>>();
+/** `workspaceTag` the legacy localStorage sweep already ran for. */
+let checklistLegacySweepDoneFor = '';
+/** True once the IPC bridge was found missing or failed; legacy ops stay the degraded fallback. */
+let checklistIpcUnavailable = false;
 
 /**
  * The storefront whose checklist is on screen. Progress is keyed by origin and by
@@ -565,42 +527,40 @@ function checklistOrigin(): string {
   return 'unbound';
 }
 
-function checklistScope(): string {
-  const origin = checklistOrigin();
-  return `${origin}@${checklistWorkspaceTag || UNKNOWN_WORKSPACE_TAG}`;
+/** Scope for the storefront on screen inside its resolved workspace. */
+function currentChecklistScope(): string {
+  return themeShared().checklistScope(checklistOrigin(), checklistWorkspaceTag);
 }
 
-/**
- * Storage-safe identity for a theme workspace: readable leaf plus a stable path
- * hash. The path is normalized first — Windows reports the same project as
- * `E:\Work\Themes\Shop` or `e:/work/themes/shop`, and a case-split hash would file
- * two scopes for one project.
- */
-function workspaceTag(workspacePath?: string): string {
-  const normalized = (workspacePath ?? '').trim().replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
-  if (!normalized) return '';
-  let hash = 0;
-  for (let i = 0; i < normalized.length; i++) hash = (hash * 31 + normalized.charCodeAt(i)) >>> 0;
-  const leaf = normalized.split('/').pop() ?? '';
-  const slug = leaf.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 24);
-  return `${slug || 'workspace'}-${hash.toString(36)}`;
+/** True while a mutation must be refused: identity or items are still in flight. */
+function checklistBusy(): boolean {
+  return checklistWorkspacePending.has(checklistOrigin()) || checklistLoadPending.size > 0;
 }
 
 /**
  * Learn which workspace the open storefront belongs to, once per origin. Every
  * theme project locally is served from a fixed port (`127.0.0.1:9292`), so two
  * projects on that port resolve to one origin and would otherwise share progress.
+ * The pending map is keyed by origin (F11) and the post-await adoption re-checks
+ * that the resolved origin is still the one on screen before committing the tag —
+ * a late answer for a storefront the user already left must not be adopted.
  */
 function resolveChecklistWorkspace(origin: string, force = false): Promise<void> {
   if (!force && origin === checklistWorkspaceResolvedFor) return Promise.resolve();
-  if (checklistWorkspacePending) return checklistWorkspacePending;
+  const inFlight = checklistWorkspacePending.get(origin);
+  if (inFlight) return inFlight;
   const identify = getApi()?.identifyWorkspace;
   if (!identify) {
-    checklistWorkspaceTag = '';
-    checklistWorkspaceResolvedFor = origin;
+    if (origin === checklistOrigin()) {
+      checklistWorkspaceTag = '';
+      checklistWorkspaceRoot = '';
+      checklistWorkspaceResolvedFor = origin;
+      sweepLegacyChecklistScopes();
+    }
     return Promise.resolve();
   }
-  checklistWorkspacePending = (async () => {
+  const pending = (async () => {
+    let workspacePath = '';
     try {
       // Bounded: a main process that never answers must not leave the panel
       // pending forever. Falling back to the unknown-workspace scope keeps the
@@ -608,21 +568,35 @@ function resolveChecklistWorkspace(origin: string, force = false): Promise<void>
       const res = await Promise.race([
         identify(),
         new Promise<null>((resolve) => {
-          setTimeout(() => resolve(null), WORKSPACE_IDENTIFY_TIMEOUT_MS);
+          setTimeout(() => resolve(null), themeShared().WORKSPACE_IDENTIFY_TIMEOUT_MS);
         }),
       ]);
-      checklistWorkspaceTag = workspaceTag(res?.workspacePath);
+      workspacePath = typeof res?.workspacePath === 'string' ? res.workspacePath : '';
     } catch (err) {
       console.warn('[ThemeStudio] Workspace identity unavailable; scoping the checklist to the unknown-workspace scope:', err);
-      checklistWorkspaceTag = '';
+      workspacePath = '';
     }
+    // The user may have moved to another storefront while the identify call was
+    // in flight: a tag+root resolved for origin A must not be filed under origin
+    // B. When this answer no longer matches the origin on screen, drop it — the
+    if (origin !== checklistOrigin()) return;
+    checklistWorkspaceTag = themeShared().workspaceTag(workspacePath);
+    checklistWorkspaceRoot = workspacePath;
     checklistWorkspaceResolvedFor = origin;
-    checklistWorkspacePending = null;
+    sweepLegacyChecklistScopes();
   })();
-  return checklistWorkspacePending;
+  checklistWorkspacePending.set(origin, pending);
+  void pending.finally(() => {
+    if (checklistWorkspacePending.get(origin) === pending) {
+      checklistWorkspacePending.delete(origin);
+    }
+  });
+  return pending;
 }
 
-const THEME_CHECKLIST_DATA_PREFIX = 'antifan_theme_checklist_custom_items';
+// ---------------------------------------------------------------------------
+// Legacy localStorage state (probe + one-shot migration only — F10)
+// ---------------------------------------------------------------------------
 
 function checklistStorageKey(scope: string): string {
   return `${THEME_CHECKLIST_STORAGE_PREFIX}:${scope}`;
@@ -632,62 +606,216 @@ function checklistDataStorageKey(scope: string): string {
   return `${THEME_CHECKLIST_DATA_PREFIX}:${scope}`;
 }
 
-/** Move `themeChecklist` onto the active scope, persisting the previous one first. */
-function applyChecklistScope(): boolean {
-  const next = checklistScope();
-  if (next === activeChecklistScope) return false;
-  if (themeChecklist.length > 0) saveThemeChecklist(themeChecklist, activeChecklistScope);
-  activeChecklistScope = next;
-  themeChecklist = loadThemeChecklist(next);
-  return true;
+/**
+ * Read one scope's legacy rows. Mirrors the pre-cutover loader exactly: the
+ * custom-items array is the row source and the state map overrides `done`.
+ * `null` means nothing stored; a corrupt blob counts as "nothing".
+ */
+function readLegacyChecklistItems(scope: string): ThemeChecklistItem[] | null {
+  const rawData = localStorage.getItem(checklistDataStorageKey(scope));
+  const rawDone = localStorage.getItem(checklistStorageKey(scope));
+  if (rawData === null && rawDone === null) return null;
+  try {
+    const savedDone = rawDone ? (JSON.parse(rawDone) as Record<string, boolean>) : {};
+    const baseItems = rawData
+      ? sanitizeChecklistItems(JSON.parse(rawData) as unknown)
+      : themeShared().DEFAULT_THEME_CHECKLIST.map((item) => ({ ...item }));
+    return baseItems.map((item) => ({ ...item, done: Boolean(savedDone[item.id]) }));
+  } catch {
+    return null;
+  }
+}
+
+function removeLegacyChecklistKeys(scope: string): void {
+  try {
+    localStorage.removeItem(checklistStorageKey(scope));
+    localStorage.removeItem(checklistDataStorageKey(scope));
+  } catch {
+    // storage can be disabled entirely — the store is authoritative anyway
+  }
+}
+
+/** Items arriving over the bridge are untrusted rows: coerce fields, drop junk. */
+function sanitizeChecklistItems(raw: unknown): ThemeChecklistItem[] {
+  if (!Array.isArray(raw)) return [];
+  const items: ThemeChecklistItem[] = [];
+  const seen = new Set<string>();
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
+    const src = entry as Record<string, unknown>;
+    if (typeof src.id !== 'string' || !src.id || seen.has(src.id)) continue;
+    seen.add(src.id);
+    const item: ThemeChecklistItem = {
+      id: src.id,
+      code: typeof src.code === 'string' ? src.code : '',
+      name: typeof src.name === 'string' ? src.name : '',
+      desc: typeof src.desc === 'string' ? src.desc : '',
+      qaPoint: typeof src.qaPoint === 'string' ? src.qaPoint : '',
+      page: typeof src.page === 'string' && src.page ? src.page : 'pages',
+      done: src.done === true,
+    };
+    if (typeof src.pathHint === 'string' && src.pathHint) item.pathHint = src.pathHint;
+    if (typeof src.note === 'string' && src.note) item.note = src.note;
+    items.push(item);
+  }
+  return items;
 }
 
 /**
- * Bind the checklist to the active storefront. Returns false while the storefront's
- * workspace is still unknown: committing a scope in that window would file one
- * project's ticks under a key another project may resolve to. `force` re-reads the
- * workspace, since switching projects does not change the storefront origin when
- * both are served from the same local port.
+ * Union merge for the one-shot migration (F10): file rows win id collisions
+ * (agent rows are never clobbered), legacy-only rows are appended.
  */
-function ensureChecklistScope(force = false): boolean {
-  const origin = checklistOrigin();
-  if (force || origin !== checklistWorkspaceResolvedFor) {
-    const tagAlreadyKnown = origin === checklistWorkspaceResolvedFor;
-    void resolveChecklistWorkspace(origin, force).then(() => {
-      const scopeChanged = applyChecklistScope();
-      // A forced re-read renders a frozen panel until it lands, so it must repaint
-      // even when the workspace (and therefore the scope) turns out unchanged.
-      if (scopeChanged || force) renderThemeStudioChecklist();
-    });
-    if (!tagAlreadyKnown) return false;
+function mergeChecklistItems(fileItems: ThemeChecklistItem[], legacyItems: ThemeChecklistItem[]): ThemeChecklistItem[] {
+  if (fileItems.length === 0) return legacyItems;
+  const seen = new Set(fileItems.map((item) => item.id));
+  const merged = fileItems.slice();
+  for (const item of legacyItems) {
+    if (!seen.has(item.id)) merged.push(item);
   }
-  applyChecklistScope();
-  return true;
+  return merged;
 }
 
-function loadThemeChecklist(scope: string): ThemeChecklistItem[] {
+/**
+ * Fold one scope's legacy localStorage rows into the store, once. The LOAD
+ * answer's `migrated`/`legacyMigrated` flag decides — never "looks default":
+ * when the flag is clear and legacy rows exist, union them in, SAVE the merged
+ * array once, and only then drop the local keys. Provisional (unknown
+ * workspace) scopes save into the host's in-memory map and lose their rows on
+ * restart by design.
+ */
+async function migrateChecklistScopeFromLegacy(
+  scope: string,
+  workspaceRoot: string,
+  loaded: { items: ThemeChecklistItem[]; updatedAt: number; migrated: boolean; existed: boolean },
+): Promise<{ items: ThemeChecklistItem[]; updatedAt: number }> {
+  if (loaded.migrated) {
+    // Keys are dropped only after a persisted union below — but a provisional
+    // scope's merged rows live in the host's volatile in-memory map, so the
+    // durable localStorage copy is the only durable record and stays (F14/H).
+    if (workspaceRoot) removeLegacyChecklistKeys(scope);
+    return { items: loaded.items, updatedAt: loaded.updatedAt };
+  }
+  // The legacy done-map applies by id to whatever rows exist — file rows and
+  // legacy-only rows alike (pre-cutover loader semantics). Reading it directly
+  // also covers the rawDone-only case: flags with no custom-items array.
+  let savedDone: Record<string, boolean> = {};
   try {
     const rawDone = localStorage.getItem(checklistStorageKey(scope));
-    const savedDone = rawDone ? (JSON.parse(rawDone) as Record<string, boolean>) : {};
-
-    let baseItems: ThemeChecklistItem[];
-    const rawData = localStorage.getItem(checklistDataStorageKey(scope));
-    if (rawData) {
-      baseItems = JSON.parse(rawData) as ThemeChecklistItem[];
-    } else {
-      baseItems = DEFAULT_THEME_CHECKLIST.map((item) => ({ ...item }));
-    }
-
-    return baseItems.map((item) => ({
-      ...item,
-      done: Boolean(savedDone[item.id]),
-    }));
+    if (rawDone) savedDone = JSON.parse(rawDone) as Record<string, boolean>;
   } catch {
-    return DEFAULT_THEME_CHECKLIST.map((item) => ({ ...item }));
+    savedDone = {};
+  }
+  const legacyItems = readLegacyChecklistItems(scope) ?? [];
+  if (!legacyItems.length && Object.keys(savedDone).length === 0) {
+    return { items: loaded.items, updatedAt: loaded.updatedAt };
+  }
+  // File wins id collisions (F10): when the store record already exists — an
+  // agent wrote it — its `done` flags are authoritative and legacy savedDone
+  // only applies to rows the file never carried. When no record exists the
+  // file rows are seeded defaults and legacy done is the real user state.
+  const withDone = loaded.existed
+    ? loaded.items
+    : loaded.items.map((item) => ({
+        ...item,
+        done: Object.prototype.hasOwnProperty.call(savedDone, item.id) ? Boolean(savedDone[item.id]) : item.done,
+      }));
+  const merged = mergeChecklistItems(withDone, legacyItems);
+  try {
+    const res = await getApi()?.saveThemeChecklist?.(scope, workspaceRoot, merged, loaded.updatedAt);
+    if (res && typeof res === 'object' && res.conflict === true) {
+      // An agent wrote between LOAD and SAVE: fold the conflict winner's rows
+      // into the same union (winner ids win, legacy-only appended) and retry
+      // once against the conflict's updatedAt — the union must land before
+      // the legacy keys die (F10). A second conflict keeps the keys and
+      // adopts the winner's rows; the next load re-runs this merge.
+      const winner = sanitizeChecklistItems(res.items);
+      const union = mergeChecklistItems(winner, legacyItems);
+      let res2: ThemeChecklistSaveResult | undefined;
+      try {
+        res2 = await getApi()?.saveThemeChecklist?.(scope, workspaceRoot, union, res.updatedAt);
+      } catch {
+        res2 = undefined;
+      }
+      if (res2 && typeof res2 === 'object' && res2.conflict !== true && Array.isArray(res2.items)) {
+        if (workspaceRoot) removeLegacyChecklistKeys(scope);
+        return { items: sanitizeChecklistItems(res2.items), updatedAt: typeof res2.updatedAt === 'number' ? res2.updatedAt : Date.now() };
+      }
+      return { items: winner, updatedAt: res.updatedAt };
+    }
+    if (res && typeof res === 'object' && Array.isArray(res.items)) {
+      if (workspaceRoot) removeLegacyChecklistKeys(scope);
+      return { items: sanitizeChecklistItems(res.items), updatedAt: typeof res.updatedAt === 'number' ? res.updatedAt : Date.now() };
+    }
+    // Malformed/undefined response: keep the legacy keys — merged renders now
+    // and the next load retries the fold instead of losing the durable copy.
+    return { items: merged, updatedAt: loaded.updatedAt };
+  } catch (err) {
+    console.warn('[ThemeStudio] Legacy checklist migration failed; keeping the local keys:', err);
+    return { items: loaded.items, updatedAt: loaded.updatedAt };
   }
 }
 
-function saveThemeChecklist(items: ThemeChecklistItem[], scope: string) {
+/**
+ * Boot sweep (F10): at hydration, every `antifan_theme_checklist_*` scope that
+ * belongs to THIS workspace — same tag, or an `unknown-workspace` scope whose
+ * provisional rows belong wherever the toolbar opened it — migrates even if
+ * its storefront tab was never opened this session. Scopes stamped with a
+ * foreign workspace tag stay untouched: they will migrate the first time the
+ * toolbar runs inside that workspace.
+ */
+function sweepLegacyChecklistScopes(): void {
+  const api = getApi();
+  if (!api?.getThemeChecklist || checklistIpcUnavailable) return;
+  const sweepKey = `${checklistWorkspaceTag || themeShared().UNKNOWN_WORKSPACE_TAG}|${checklistWorkspaceRoot}`;
+  if (checklistLegacySweepDoneFor === sweepKey) return;
+  checklistLegacySweepDoneFor = sweepKey;
+  const scopes = new Set<string>();
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key || !key.startsWith(THEME_CHECKLIST_LEGACY_PREFIX)) continue;
+      const scope = key.slice(key.indexOf(':') + 1);
+      if (scope) scopes.add(scope);
+    }
+  } catch {
+    return;
+  }
+  const ownTag = checklistWorkspaceTag;
+  const unknownTag = themeShared().UNKNOWN_WORKSPACE_TAG;
+  for (const scope of scopes) {
+    if (scope === activeChecklistScope || scope === currentChecklistScope()) continue; // the live LOAD path migrates it
+    const tag = scope.slice(scope.lastIndexOf('@') + 1);
+    const rootFor = tag === ownTag ? checklistWorkspaceRoot : tag === unknownTag ? '' : null;
+    if (rootFor === null) continue;
+    void (async () => {
+      try {
+        const res = await api.getThemeChecklist!(scope, rootFor);
+        if (!res || typeof res !== 'object') return;
+        await migrateChecklistScopeFromLegacy(scope, rootFor, {
+          items: sanitizeChecklistItems(res.items),
+          updatedAt: typeof res.updatedAt === 'number' ? res.updatedAt : 0,
+          migrated: res.migrated === true || res.legacyMigrated === true,
+          existed: res.existed === true,
+        });
+      } catch (err) {
+        console.warn('[ThemeStudio] Legacy sweep could not migrate scope:', scope, err);
+      }
+    })();
+  }
+}
+
+/** Degraded-boot loader: identical semantics to the pre-cutover localStorage read. */
+function loadThemeChecklistLegacy(scope: string): ThemeChecklistItem[] {
+  const legacy = readLegacyChecklistItems(scope);
+  if (legacy) return legacy;
+  return themeShared().DEFAULT_THEME_CHECKLIST.map((item) => ({ ...item }));
+}
+
+/**
+ * Degraded-boot writer: when the bridge is gone, keep the old two-key local
+ * shape so the panel stays usable and the next session still migrates it.
+ */
+function saveThemeChecklistLegacy(items: ThemeChecklistItem[], scope: string): void {
   try {
     const record: Record<string, boolean> = {};
     for (const item of items) {
@@ -701,10 +829,178 @@ function saveThemeChecklist(items: ThemeChecklistItem[], scope: string) {
 }
 
 /**
- * A live product page. Haravan/Sapo/Shopify serve PDPs only at `/products/<handle>`,
- * so this is the sole route that can be trusted as "the product page".
+ * Load `scope` into `themeChecklist` through the store, fenced by the scope
+ * generation. Callers capture `gen`/`requestedScope` themselves: this helper
+ * bails silently when the user already moved on, and the caller's `.finally`
+ * decides whether a repaint is still owed.
  */
-const PRODUCT_PAGE_PATH = /\/products\/[^/?#]+/;
+async function loadChecklistScope(scope: string, workspaceRoot: string, gen: number): Promise<void> {
+  checklistLoadPending.add(scope);
+  try {
+    const api = getApi();
+    if (!api?.getThemeChecklist || checklistIpcUnavailable) {
+      if (!checklistIpcUnavailable && !api?.getThemeChecklist) {
+        checklistIpcUnavailable = true;
+        console.warn('[ThemeStudio] Checklist IPC bridge unavailable; falling back to localStorage state.');
+      }
+      if (gen !== checklistScopeGen || scope !== activeChecklistScope) return;
+      themeChecklist = loadThemeChecklistLegacy(scope);
+      checklistLoadedForScope = scope;
+      return;
+    }
+    let res: ThemeChecklistLoadResult;
+    try {
+      res = await api.getThemeChecklist(scope, workspaceRoot);
+    } catch (err) {
+      // Transient failure: degrade THIS load to localStorage without latching
+      // `checklistIpcUnavailable` — a sticky latch here made one dropped IPC
+      // split-brain the whole session (localStorage writes vs agent file
+      // writes) and let the next boot's migration erase the degraded ticks.
+      console.warn('[ThemeStudio] Checklist load failed; falling back to localStorage state:', err);
+      if (gen !== checklistScopeGen || scope !== activeChecklistScope) return;
+      themeChecklist = loadThemeChecklistLegacy(scope);
+      checklistLoadedForScope = scope;
+      return;
+    }
+    if (gen !== checklistScopeGen || scope !== activeChecklistScope) return;
+    const items = sanitizeChecklistItems(res?.items);
+    const updatedAt = res && typeof res.updatedAt === 'number' ? res.updatedAt : 0;
+    const migrated = res?.migrated === true || res?.legacyMigrated === true;
+    const resolved = await migrateChecklistScopeFromLegacy(scope, workspaceRoot, {
+      items,
+      updatedAt,
+      migrated,
+      existed: res?.existed === true,
+    });
+    if (gen !== checklistScopeGen || scope !== activeChecklistScope) return;
+    // A THEME_CHECKLIST_UPDATED push that landed mid-LOAD already carries a
+    // newer snapshot — adopting the stale load response would re-display rows
+    // an agent has since changed AND roll the CAS base backward so the next
+    // save self-conflicts (RTT lost-update). Only adopt same-or-newer data.
+    if (resolved.updatedAt < checklistUpdatedAt) return;
+    themeChecklist = resolved.items;
+    checklistUpdatedAt = resolved.updatedAt;
+    checklistLoadedForScope = scope;
+  } finally {
+    checklistLoadPending.delete(scope);
+    if (gen === checklistScopeGen && scope === activeChecklistScope) {
+      renderThemeStudioChecklist();
+    }
+  }
+}
+
+/**
+ * Serialize whole-array saves per scope. Each chained save reads the CAS base
+ * (`checklistUpdatedAt`) at execution time — not at enqueue — so the second of
+ * two rapid mutations CASes against the first save's `updatedAt` instead of
+ * self-conflicting and silently discarding the second mutation (F6).
+ */
+let checklistSaveChain: Promise<void> = Promise.resolve();
+
+function persistThemeChecklist(): void {
+  const scope = activeChecklistScope;
+  const workspaceRoot = checklistWorkspaceRoot;
+  const gen = checklistScopeGen;
+  const items = themeChecklist.map((item) => ({ ...item }));
+  const save = getApi()?.saveThemeChecklist;
+  if (!save || checklistIpcUnavailable) {
+    if (!checklistIpcUnavailable) {
+      checklistIpcUnavailable = true;
+      console.warn('[ThemeStudio] Checklist IPC bridge unavailable; saving to localStorage.');
+    }
+    saveThemeChecklistLegacy(items, scope);
+    return;
+  }
+  checklistSaveChain = checklistSaveChain.then(async () => {
+    let res: ThemeChecklistSaveResult;
+    try {
+      res = await save(scope, workspaceRoot, items, checklistUpdatedAt);
+    } catch (err) {
+      // Same rule as the load path: a thrown save degrades this call to the
+      // legacy mirror but never wedges the bridge — the next mutation retries
+      // IPC and the file stays authoritative for agent writes.
+      console.warn('[ThemeStudio] Checklist save failed; falling back to localStorage:', err);
+      saveThemeChecklistLegacy(items, scope);
+      return;
+    }
+    // The write targeted `scope` and landed (or conflicted). Whatever the
+    // answer, only adopt it while that scope is still on screen — after a
+    // switch this save's rows belong to the old scope's record.
+    if (gen !== checklistScopeGen || scope !== activeChecklistScope) return;
+    if (res && typeof res === 'object' && res.conflict === true) {
+      // CAS lost to an interleaved writer (an agent mutation): adopt the
+      // store's rows instead of blindly overwriting them (F6).
+      themeChecklist = sanitizeChecklistItems(res.items);
+      checklistUpdatedAt = typeof res.updatedAt === 'number' ? res.updatedAt : checklistUpdatedAt;
+      checklistLoadedForScope = scope;
+      renderThemeStudioChecklist();
+      showToolbarToast('Checklist vừa được agent cập nhật');
+      return;
+    }
+    if (res && typeof res === 'object' && typeof res.updatedAt === 'number' && res.updatedAt >= checklistUpdatedAt) {
+      checklistUpdatedAt = res.updatedAt;
+    }
+  });
+  // Keep the chain alive across rejections so a failed save never wedges the queue.
+  checklistSaveChain = checklistSaveChain.catch(() => undefined);
+}
+
+/**
+ * Move `themeChecklist` onto the active scope. No implicit pre-switch save
+ * (F12): every mutation already persisted through the serialized save chain,
+ * so re-persisting the stale in-memory array under a new scope would only risk
+ * a cross-scope write. Returns false when nothing changed and no load is owed.
+ */
+function applyChecklistScope(): Promise<boolean> | boolean {
+  const next = currentChecklistScope();
+  const loadInFlight = checklistLoadPending.has(next);
+  if (next === activeChecklistScope && (checklistLoadedForScope === next || loadInFlight)) {
+    return false;
+  }
+  const gen = ++checklistScopeGen;
+  const requestedScope = next;
+  activeChecklistScope = next;
+  themeChecklist = [];
+  checklistUpdatedAt = 0;
+  checklistLoadedForScope = '';
+  const root = checklistWorkspaceRoot;
+  return (async () => {
+    try {
+      await loadChecklistScope(requestedScope, root, gen);
+    } catch (err) {
+      console.warn('[ThemeStudio] Checklist load threw unexpectedly:', err);
+    }
+    return gen === checklistScopeGen && requestedScope === activeChecklistScope;
+  })();
+}
+
+/**
+ * Bind the checklist to the active storefront. Returns false while the storefront's
+ * workspace or the scope's items are still in flight: committing a scope in that
+ * window would file one project's ticks under a key another project may resolve
+ * to. `force` re-reads the workspace, since switching projects does not change
+ * the storefront origin when both are served from the same local port.
+ */
+function ensureChecklistScope(force = false): boolean {
+  const origin = checklistOrigin();
+  if (force || origin !== checklistWorkspaceResolvedFor) {
+    const tagAlreadyKnown = origin === checklistWorkspaceResolvedFor;
+    void resolveChecklistWorkspace(origin, force).then(() => {
+      const scopeChanged = applyChecklistScope();
+      // A forced re-read renders a frozen panel until it lands, so it must repaint
+      // even when the workspace (and therefore the scope) turns out unchanged.
+      if (force || scopeChanged instanceof Promise) {
+        void Promise.resolve(scopeChanged).then(() => renderThemeStudioChecklist());
+      } else if (scopeChanged) {
+        renderThemeStudioChecklist();
+      }
+    });
+    if (!tagAlreadyKnown) return false;
+  }
+  void applyChecklistScope();
+  return checklistLoadPending.size === 0;
+}
+
 
 /**
  * Origin every storefront route is resolved against: the tab in front of the user
@@ -735,7 +1031,7 @@ function resolveChecklistRoute(pageDef: ThemePageDef, itemPath?: string): string
     const openUrl = currentTabs.find((tab) => tab.id === activeTabId)?.url;
     if (!openUrl) return null;
     try {
-      return PRODUCT_PAGE_PATH.test(new URL(openUrl).pathname) ? openUrl : null;
+      return themeShared().PRODUCT_PAGE_PATH.test(new URL(openUrl).pathname) ? openUrl : null;
     } catch {
       return null;
     }
@@ -798,12 +1094,10 @@ function renderThemeStudioChecklist(refreshWorkspace = false) {
 
   // A forced re-read (opening the panel after switching projects) renders the
   // committed scope until the new one lands. Editing is held off for that one
-  // round-trip so a tick cannot be filed under the project being left behind.
-  const verifyingWorkspace = checklistWorkspacePending !== null;
-
-  if (themeChecklist.length === 0) {
-    themeChecklist = loadThemeChecklist(activeChecklistScope);
-  }
+  // round-trip so a tick cannot be filed under the project being left behind —
+  // and the same while a LOAD is outstanding, so an optimistic write cannot
+  // reach the store ahead of the truth it is about to receive.
+  const verifyingWorkspace = checklistWorkspacePending.has(checklistOrigin()) || checklistLoadPending.size > 0;
 
   const total = themeChecklist.length;
   const doneCount = themeChecklist.filter((it) => it.done).length;
@@ -844,7 +1138,7 @@ function renderThemeStudioChecklist(refreshWorkspace = false) {
 
     const pageDone = pageItems.filter((it) => it.done).length;
     const pageTotal = pageItems.length;
-    const pageDef = PAGE_DEFS[pageKey] || {
+    const pageDef = themeShared().PAGE_DEFS[pageKey] || {
       title: `Trang ${pageKey.charAt(0).toUpperCase() + pageKey.slice(1)}`,
       badge: pageKey.toUpperCase(),
       icon: '📌',
@@ -863,8 +1157,8 @@ function renderThemeStudioChecklist(refreshWorkspace = false) {
     headerLeft.className = 'theme-phase-header-title';
     headerLeft.innerHTML = `
       <span class="theme-phase-chevron">${isCollapsed ? '▶' : '▼'}</span>
-      <span class="theme-phase-badge">${pageDef.icon} ${pageDef.badge}</span>
-      <span>${pageDef.title}</span>
+      <span class="theme-phase-badge">${escapeHtml(pageDef.icon)} ${escapeHtml(pageDef.badge)}</span>
+      <span>${escapeHtml(pageDef.title)}</span>
     `;
 
     header.addEventListener('click', () => {
@@ -947,14 +1241,14 @@ function renderThemeStudioChecklist(refreshWorkspace = false) {
     btnToggleAll.disabled = verifyingWorkspace;
     btnToggleAll.addEventListener('click', (e) => {
       e.stopPropagation();
-      if (checklistWorkspacePending) return;
+      if (checklistBusy()) return;
       const newStatus = !allDone;
       pageItems.forEach((it) => {
         it.done = newStatus;
         const found = themeChecklist.find((m) => m.id === it.id);
         if (found) found.done = newStatus;
       });
-      saveThemeChecklist(themeChecklist, activeChecklistScope);
+      persistThemeChecklist();
       renderThemeStudioChecklist();
       showToolbarToast(`${newStatus ? 'Đã hoàn thành' : 'Đã bỏ hoàn thành'} toàn bộ ${pageDef.title}`);
     });
@@ -1009,9 +1303,9 @@ function renderThemeStudioChecklist(refreshWorkspace = false) {
       cb.checked = item.done;
       cb.disabled = verifyingWorkspace;
       cb.addEventListener('change', () => {
-        if (checklistWorkspacePending) return;
+        if (checklistBusy()) return;
         item.done = cb.checked;
-        saveThemeChecklist(themeChecklist, activeChecklistScope);
+        persistThemeChecklist();
         renderThemeStudioChecklist();
       });
 
@@ -1021,10 +1315,13 @@ function renderThemeStudioChecklist(refreshWorkspace = false) {
 
       const info = document.createElement('div');
       info.className = 'theme-item-info';
+      // Every interpolated field below can be written by an agent through the
+      // cockpit capabilities — F3 requires escaping before it reaches innerHTML.
       info.innerHTML = `
-        <div class="theme-item-name">${item.name}</div>
-        <div class="theme-item-desc">${item.desc}</div>
-        <div class="theme-item-qa-point">🔍 QA: ${item.qaPoint}</div>
+        <div class="theme-item-name">${escapeHtml(item.name)}</div>
+        <div class="theme-item-desc">${escapeHtml(item.desc)}</div>
+        <div class="theme-item-qa-point">🔍 QA: ${escapeHtml(item.qaPoint)}</div>
+        ${item.note ? `<div class="theme-item-note">📝 ${escapeHtml(item.note)}</div>` : ''}
       `;
 
       left.append(cb, codeTag, info);
@@ -1069,8 +1366,9 @@ function renderThemeStudioChecklist(refreshWorkspace = false) {
       btnDelete.addEventListener('click', (e) => {
         e.stopPropagation();
         if (confirm(`Bạn có chắc muốn xóa mục "${item.code} - ${item.name}"?`)) {
+          if (checklistBusy()) return;
           themeChecklist = themeChecklist.filter((it) => it.id !== item.id);
-          saveThemeChecklist(themeChecklist, activeChecklistScope);
+          persistThemeChecklist();
           renderThemeStudioChecklist();
           showToolbarToast(`Đã xóa mục: ${item.name}`);
         }
@@ -3541,10 +3839,12 @@ themeChecklistSearch?.addEventListener('input', () => {
 const btnThemeChecklistReset = document.getElementById('btnThemeChecklistReset');
 btnThemeChecklistReset?.addEventListener('click', () => {
   if (confirm('Bạn có chắc muốn đặt lại toàn bộ checklist về mặc định ban đầu?')) {
-    localStorage.removeItem(checklistStorageKey(activeChecklistScope));
-    localStorage.removeItem(checklistDataStorageKey(activeChecklistScope));
-    themeChecklist = DEFAULT_THEME_CHECKLIST.map((item) => ({ ...item }));
-    saveThemeChecklist(themeChecklist, activeChecklistScope);
+    if (checklistBusy()) return;
+    // Reset is a whole-array SAVE of the shared defaults — the store's CAS marks
+    // the scope `legacyMigrated`, so dropping the local keys here would only
+    // pretend the file cleared them.
+    themeChecklist = themeShared().DEFAULT_THEME_CHECKLIST.map((item) => ({ ...item }));
+    persistThemeChecklist();
     renderThemeStudioChecklist();
     showToolbarToast('Đã đặt lại checklist về mặc định');
   }
@@ -3556,40 +3856,9 @@ btnThemeExportReport?.addEventListener('click', () => {
     showToolbarToast('Đang xác định storefront và workspace, thử xuất lại sau một nhịp…');
     return;
   }
-  if (themeChecklist.length === 0) {
-    themeChecklist = loadThemeChecklist(activeChecklistScope);
-  }
-  const total = themeChecklist.length;
-  const doneCount = themeChecklist.filter((it) => it.done).length;
-  const percent = total > 0 ? Math.round((doneCount / total) * 100) : 0;
-
-  const standardPages = ['home', 'collection', 'product', 'cart', 'blog', 'account', 'pages', 'qa-gate'];
-  const customPages = Array.from(new Set(themeChecklist.map((it) => it.page).filter((p) => !standardPages.includes(p))));
-  const pageKeys = [...standardPages, ...customPages];
-  const lines: string[] = [];
-  lines.push(`# BÁO CÁO TIẾN ĐỘ THEME & QA STOREFRONT (AntiFan Theme Studio)`);
-  lines.push(`- **Thời gian xuất:** ${new Date().toLocaleString('vi-VN')}`);
-  lines.push(`- **Storefront đang đo:** ${activeChecklistScope}`);
-  lines.push(`- **Tổng tiến độ:** ${doneCount}/${total} mục (${percent}%)`);
-  lines.push(`- **Đánh giá tổng thể:** ${percent === 100 ? '✅ SẴN SÀNG NGHIỆM THU / HANDOFF' : percent >= 80 ? '🟡 ĐANG HOÀN THIỆN (GẦN XONG)' : '🔴 ĐANG PHÁT TRIỂN'}`);
-  lines.push(`- **Phạm vi bằng chứng:** ${QA_GATE_DISCLAIMER}`);
-  lines.push('');
-
-  pageKeys.forEach((key) => {
-    const pItems = themeChecklist.filter((it) => it.page === key);
-    const pDef = PAGE_DEFS[key] || { title: key, badge: key.toUpperCase(), icon: '📄', path: '/' };
-    const pDone = pItems.filter((it) => it.done).length;
-    const pTotal = pItems.length;
-    const pPct = pTotal > 0 ? Math.round((pDone / pTotal) * 100) : 0;
-
-    lines.push(`### ${pDef.icon} ${pDef.title} (${pDone}/${pTotal} - ${pPct}%)`);
-    pItems.forEach((it) => {
-      lines.push(`- [${it.done ? 'x' : ' '}] **[${it.code}]** ${it.name} - *${it.desc}* (🎯 QA: ${it.qaPoint})`);
-    });
-    lines.push('');
-  });
-
-  const reportText = lines.join('\n');
+  // The shared builder renders the identical markdown `theme.cockpit_report`
+  // produces — a diff between the two surfaces is impossible by construction.
+  const reportText = themeShared().buildChecklistReport(activeChecklistScope, themeChecklist);
   const clipboard = navigator.clipboard;
   if (clipboard?.writeText) {
     clipboard.writeText(reportText).then(() => {
@@ -3627,7 +3896,7 @@ function openItemEditorDialog(item: ThemeChecklistItem | null = null, defaultPag
   allPages.forEach((p) => {
     const opt = document.createElement('option');
     opt.value = p;
-    const def = PAGE_DEFS[p];
+    const def = themeShared().PAGE_DEFS[p];
     opt.textContent = def ? `${def.icon} ${def.title.split(' (')[0]} (${def.badge})` : `📌 Trang ${p}`;
     selPage.appendChild(opt);
   });
@@ -3642,7 +3911,7 @@ function openItemEditorDialog(item: ThemeChecklistItem | null = null, defaultPag
     inputPath.value = item.pathHint || '';
   } else {
     if (titleEl) titleEl.textContent = '➕ Thêm mục kiểm tra mới';
-    const targetPage = (activePhaseFilter !== 'all' && activePhaseFilter !== 'uncompleted' && (PAGE_DEFS[activePhaseFilter] || allPages.includes(activePhaseFilter)))
+    const targetPage = (activePhaseFilter !== 'all' && activePhaseFilter !== 'uncompleted' && (themeShared().PAGE_DEFS[activePhaseFilter] || allPages.includes(activePhaseFilter)))
       ? activePhaseFilter
       : defaultPage;
     selPage.value = targetPage;
@@ -3663,7 +3932,7 @@ function openItemEditorDialog(item: ThemeChecklistItem | null = null, defaultPag
     inputName.value = '';
     inputDesc.value = '';
     inputQa.value = '';
-    inputPath.value = PAGE_DEFS[targetPage]?.path || '';
+    inputPath.value = themeShared().PAGE_DEFS[targetPage]?.path || '';
   }
 
   overlay.style.display = 'flex';
@@ -3710,6 +3979,11 @@ function saveItemEditorForm() {
   };
   const code = inputCode.value.trim() || `${prefixMap[page] || page.slice(0, 3).toUpperCase()}-01`;
 
+  if (checklistBusy()) {
+    showToolbarToast('Đang đồng bộ checklist, thử lại sau một nhịp…');
+    return;
+  }
+
   if (editingItemId) {
     const item = themeChecklist.find((it) => it.id === editingItemId);
     if (item) {
@@ -3736,7 +4010,7 @@ function saveItemEditorForm() {
     showToolbarToast(`Đã thêm mục kiểm tra mới: ${name}`);
   }
 
-  saveThemeChecklist(themeChecklist, activeChecklistScope);
+  persistThemeChecklist();
   renderThemeStudioChecklist();
   closeItemEditorDialog();
 }
@@ -3777,7 +4051,7 @@ itemEditPageSelect?.addEventListener('change', () => {
   const inputCode = document.getElementById('itemEditCode') as HTMLInputElement | null;
   const inputPath = document.getElementById('itemEditPath') as HTMLInputElement | null;
   if (inputCode) inputCode.value = `${prefix}-${String(nextNum).padStart(2, '0')}`;
-  if (inputPath && !inputPath.value) inputPath.value = PAGE_DEFS[p]?.path || '';
+  if (inputPath && !inputPath.value) inputPath.value = themeShared().PAGE_DEFS[p]?.path || '';
 });
 
 
@@ -4225,6 +4499,12 @@ document.getElementById('menuItemToggleBookmarksBar')?.addEventListener('click',
   e.stopPropagation();
   closeAppMenu();
   getApi()?.toggleBookmarkBar();
+});
+
+document.getElementById('menuItemShowMenuBar')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  closeAppMenu();
+  getApi()?.showMenuBar?.();
 });
 
 document.getElementById('menuItemFindInPage')?.addEventListener('click', (e) => {
@@ -4907,7 +5187,27 @@ async function initToolbar() {
       updateControls();
     }
   });
-  api.onThemeQaState((state) => renderThemeQa(state));
+  // THEME_QA_STATE now carries {tabId, state} for every tab, not just the one in
+  // front: a cockpit scan bound to another tab must not repaint this badge (F2).
+  api.onThemeQaState((frame) => {
+    const rec: Record<string, unknown> | null = frame && typeof frame === 'object' ? (frame as Record<string, unknown>) : null;
+    if (rec && typeof rec.tabId === 'string' && rec.tabId && rec.tabId !== activeTabId) return;
+    const state: unknown = rec && 'state' in rec ? rec.state : frame;
+    if (state && typeof state === 'object') renderThemeQa(state as ThemeQaState);
+  });
+
+  // Checklist mutations from either surface push {scope, workspaceRoot, items,
+  // updatedAt}; adopt matching-scope frames and repaint — never SAVE back, or
+  // the broadcast echo would loop.
+  api.onThemeChecklistUpdated?.((payload) => {
+    if (!payload || typeof payload !== 'object') return;
+    if (payload.scope !== activeChecklistScope) return;
+    if (payload.workspaceRoot !== checklistWorkspaceRoot) return;
+    themeChecklist = sanitizeChecklistItems(payload.items);
+    checklistUpdatedAt = typeof payload.updatedAt === 'number' ? payload.updatedAt : checklistUpdatedAt;
+    checklistLoadedForScope = activeChecklistScope;
+    renderThemeStudioChecklist();
+  });
 
   api.onFocusFind(() => {
     showFindBar();

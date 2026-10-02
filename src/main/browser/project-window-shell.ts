@@ -290,21 +290,6 @@ export class ProjectWindowShell {
         nodeIntegration: false,
       },
     });
-    const candidateWindow: unknown = this.window;
-    if (
-      candidateWindow !== null &&
-      typeof candidateWindow === 'object' &&
-      'setMenuBarVisibility' in candidateWindow &&
-      typeof candidateWindow.setMenuBarVisibility === 'function'
-    ) {
-      try {
-        candidateWindow.setMenuBarVisibility(false);
-      } catch {
-        // Platform or double may not implement setMenuBarVisibility
-      }
-    }
-
-
     // A page title is not project identity. Electron would otherwise follow the
     // window's own document title, and a renamed window would mislabel the
     // project the manager routed this shell for.

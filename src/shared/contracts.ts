@@ -366,6 +366,10 @@ export const TOOLBAR_CHANNELS = {
   PHONE_STATUS: 'antifan:toolbar:phone-status',
   GET_PHONE_STATUS: 'antifan:toolbar:get-phone-status',
   WORKSPACE_IDENTIFY: 'antifan:toolbar:workspace-identify',
+  THEME_CHECKLIST_LOAD: 'antifan:toolbar:theme-checklist-load',
+  THEME_CHECKLIST_SAVE: 'antifan:toolbar:theme-checklist-save',
+  THEME_CHECKLIST_UPDATED: 'antifan:toolbar:theme-checklist-updated',
+  SHOW_MENU_BAR: 'antifan:toolbar:show-menu-bar',
 };
 
 export interface ToolbarPhoneStatus {

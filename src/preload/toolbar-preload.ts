@@ -59,6 +59,10 @@ const CHANNELS = {
   PHONE_STATUS: 'antifan:toolbar:phone-status',
   GET_PHONE_STATUS: 'antifan:toolbar:get-phone-status',
   WORKSPACE_IDENTIFY: 'antifan:toolbar:workspace-identify',
+  THEME_CHECKLIST_LOAD: 'antifan:toolbar:theme-checklist-load',
+  THEME_CHECKLIST_SAVE: 'antifan:toolbar:theme-checklist-save',
+  THEME_CHECKLIST_UPDATED: 'antifan:toolbar:theme-checklist-updated',
+  SHOW_MENU_BAR: 'antifan:toolbar:show-menu-bar',
 };
 
 const toolbarApi = {
@@ -101,6 +105,7 @@ const toolbarApi = {
   getChromeProfiles: () => ipcRenderer.invoke(CHANNELS.GET_CHROME_PROFILES),
   syncChromeProfile: (profileId: string) => ipcRenderer.invoke(CHANNELS.SYNC_CHROME_PROFILE, profileId),
   toggleBookmarkBar: () => ipcRenderer.invoke(CHANNELS.TOGGLE_BOOKMARK_BAR),
+  showMenuBar: () => ipcRenderer.invoke(CHANNELS.SHOW_MENU_BAR),
   addBookmark: (title: string, url: string) => ipcRenderer.invoke(CHANNELS.ADD_BOOKMARK, { title, url }),
   removeBookmark: (url: string) => ipcRenderer.invoke(CHANNELS.REMOVE_BOOKMARK, url),
   isChromeRunning: () => ipcRenderer.invoke('antifan:chrome:is-running'),
@@ -166,6 +171,19 @@ const toolbarApi = {
     const handler = (_event: unknown, state: unknown) => callback(state);
     ipcRenderer.on(CHANNELS.THEME_QA_STATE, handler);
     return () => ipcRenderer.removeListener(CHANNELS.THEME_QA_STATE, handler);
+  },
+  // Theme Studio checklist bridge: state now lives in the main-process store
+  // (`<workspaceRoot>/.antifan/qa-checklist.json`); LOAD is a read, SAVE is a
+  // whole-array CAS write, UPDATED is the push any writer (toolbar or agent)
+  // triggers so every surface repaints the same scope.
+  getThemeChecklist: (scope: string, workspaceRoot: string) =>
+    ipcRenderer.invoke(CHANNELS.THEME_CHECKLIST_LOAD, { scope, workspaceRoot }),
+  saveThemeChecklist: (scope: string, workspaceRoot: string, items: unknown[], baseUpdatedAt?: number) =>
+    ipcRenderer.invoke(CHANNELS.THEME_CHECKLIST_SAVE, { scope, workspaceRoot, items, baseUpdatedAt }),
+  onThemeChecklistUpdated: (callback: (payload: unknown) => void) => {
+    const handler = (_event: unknown, payload: unknown) => callback(payload);
+    ipcRenderer.on(CHANNELS.THEME_CHECKLIST_UPDATED, handler);
+    return () => ipcRenderer.removeListener(CHANNELS.THEME_CHECKLIST_UPDATED, handler);
   },
   getWorkflowArtifact: (artifactId: string) => ipcRenderer.invoke('antifan:workflow:get-artifact', artifactId),
   getCoreHealthState: (opts?: { refresh?: boolean }) => ipcRenderer.invoke('antifan:core-health:get-state', opts),

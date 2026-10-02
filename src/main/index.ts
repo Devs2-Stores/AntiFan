@@ -103,6 +103,7 @@ import { ControlPlaneRuntime, resolveArtifactStoreOptionsFromEnv } from './contr
 import { RunStateService } from './run/run-state-service';
 import type { ExecutionBackend } from './agent/execution-backend';
 import { BrowserControlPort, assertApplicationAdmitsWork } from './tools/browser-control-port';
+import { CockpitPort } from './tools/cockpit-port';
 import { CapabilityTransportAdapter } from './tools/capability-transport';
 import { DeviceManager } from './device/device-manager';
 import { IosDeviceAdapter } from './device/ios-device-adapter';
@@ -793,6 +794,7 @@ let bridgeServer: BridgeServer | null = null;
 let windowStateManager: WindowStateManager | null = null;
 let controlPlane: ControlPlaneRuntime | null = null;
 let browserPort: BrowserControlPort | null = null;
+let cockpitPort: CockpitPort | null = null;
 let deviceAdapter: IosDeviceAdapter | null = null;
 let terminalDaemonInitialized = false;
 /** Hosts already given the control plane; attaching twice would re-run its device query. */
@@ -4304,7 +4306,22 @@ async function createWindow(): Promise<void> {
   for (const host of tabAuthorities.hosts()) {
     host.setViewportGate(browserPortLocal.viewportGate);
   }
-  controlPlane.registerBrowser(browserPortLocal);
+  // The QA cockpit seam: same tab-authority routing as the browser port, so a
+  // bound tab id always lands on its owning host and a dead id degrades to a
+  // refusal instead of drifting to the ambient window.
+  const cockpitPortLocal = new CockpitPort({
+    hasTab: (tabId) => Boolean(tabId && tabAuthorities.hostForTab(tabId) !== undefined),
+    getTabUrl: (tabId) => hostForTabOrDegrade(tabId, 'cockpit.getTabUrl')?.getTabUrl(tabId) ?? '',
+    resolveTabWorkspaceRoot: (tabId, tabUrl) => hostForTabOrDegrade(tabId, 'cockpit.resolveTabWorkspaceRoot')?.resolveTargetWorkspace(undefined, tabUrl) ?? '',
+    navigateAndWait: (tabId, url, timeoutMs) => hostForTabOrBootstrap(tabId).navigateAndWait(tabId, url, timeoutMs),
+    runThemeQa: (tabId, options) => hostForTabOrBootstrap(tabId).runThemeQa(tabId, options),
+    getThemeQaState: (tabId) => hostForTabOrBootstrap(tabId).getThemeQaState(tabId),
+    checklistLoad: (tabId, input) => hostForTabOrBootstrap(tabId).themeChecklistLoad(input),
+    checklistMutate: (tabId, input) => hostForTabOrBootstrap(tabId).themeChecklistMutate(input),
+    checklistSave: (tabId, input) => hostForTabOrBootstrap(tabId).themeChecklistSave(input),
+  });
+  cockpitPort = cockpitPortLocal;
+  controlPlane.registerBrowser(browserPortLocal, cockpitPortLocal);
   recordBenchmark({ surface: 'startup', name: 'browserRegistered' });
 
   // Tier-2 reality gate: the physical phone is registered as a peer adapter beside the browser port,

@@ -93,6 +93,48 @@ import { generateCollectionNonce, validateCollectionEnvelope } from './semantic-
 import { CapabilityError, type CapabilityErrorCode } from '../../shared/control-plane-contracts';
 import { isBenchmarkEnabled, recordBenchmark } from '../benchmark/telemetry';
 import { AsyncThemeQaQueue } from '../qa/async-qa-job-queue';
+import { confineWorkspaceRoot } from '../qa/diagnostics-filter';
+import {
+  applyChecklistMutation,
+  defaultChecklistItems,
+  getScope as getChecklistScopeRecord,
+  isProvisionalChecklistScope,
+  mutateScope as mutateChecklistScopeRecord,
+  setScopeCas as setChecklistScopeCas,
+  validateChecklistItems as validateThemeChecklistItems,
+  type ChecklistMutationOp,
+} from '../qa/theme-checklist-store';
+import type { ThemeChecklistItem } from '../../shared/theme-checklist';
+export interface NativeTabHostResourceStats {
+  disposed: boolean;
+  tabCount: number;
+  attachedTabViewCount: number;
+  terminalWindowCount: number;
+  terminalWindowMetadataCount: number;
+  previewWatcherCount: number;
+  previewSubscriptionCount: number;
+  targetOperationQueueCount: number;
+  agentWorkingTimerCount: number;
+  agentWorkingRefCount: number;
+  network: NetworkTrackerStats;
+  devTools: TabDevToolsStats;
+  terminal: TerminalManagerStats;
+  controlPlane: ControlPlaneResourceStats | null;
+  terminalFanoutMessages: number;
+}
+
+/**
+ * The per-tab Theme QA row `tabThemeQaStates` holds and `THEME_QA_STATE`
+ * pushes carry inside `{tabId, state}`.
+ */
+export interface TabThemeQaState {
+  status: 'idle' | 'running' | 'pass' | 'fail' | 'error';
+  issueCount: number;
+  reportArtifactId?: string;
+  report?: unknown;
+  error?: string;
+  updatedAt: number;
+}
 import {
   DEFAULT_SPLIT_DESKTOP_PRESET,
   DEFAULT_SPLIT_MOBILE_PRESET,
@@ -1507,7 +1549,13 @@ export class NativeTabHost extends EventEmitter {
    * to and leave that session unable to name a replacement target.
    */
   private readonly closedTabAnchors = new Map<string, string>();
-  private tabThemeQaStates = new Map<string, { status: 'idle' | 'running' | 'pass' | 'fail' | 'error'; issueCount: number; reportArtifactId?: string; report?: unknown; error?: string; updatedAt: number }>();
+  private tabThemeQaStates = new Map<string, TabThemeQaState>();
+  /**
+   * In-memory checklist scopes for storefronts whose workspace could not be
+   * resolved (`origin@unknown-workspace`). No durable identity means no file:
+   * these rows never reach disk and die with the host (accepted, F14).
+   */
+  private provisionalChecklistScopes = new Map<string, { items: ThemeChecklistItem[]; updatedAt: number }>();
   private asyncQaQueue = new AsyncThemeQaQueue();
   public readonly semanticRefRegistry = new SemanticRefRegistry();
   private semanticDocumentGenerations = new Map<string, number>();
@@ -2508,6 +2556,16 @@ export class NativeTabHost extends EventEmitter {
     },
   },
   {
+    channel: TOOLBAR_CHANNELS.SHOW_MENU_BAR,
+    surface: 'toolbar',
+    // The shell creates windows with autoHideMenuBar: Alt should already toggle
+    // the strip; this item is the discoverable path when it does not.
+    run: ({ host }) => {
+      const win = host.shell.window;
+      if (win && !win.isDestroyed()) win.setMenuBarVisibility(true);
+    },
+  },
+  {
     channel: TOOLBAR_CHANNELS.GET_PHONE_STATUS,
     surface: 'toolbar',
     run: async ({ host }, event, args) => { return host.getPhoneStatus(typeof args[0] === 'boolean' ? args[0] : undefined); },
@@ -2515,7 +2573,51 @@ export class NativeTabHost extends EventEmitter {
   {
     channel: TOOLBAR_CHANNELS.THEME_QA_RUN,
     surface: 'toolbar',
-    run: async ({ host }, event, args) => { return host.runThemeQa(args[0] as { workspaceRoot?: string } | undefined); },
+    // The toolbar asks to scan "its" tab: the tab id is always this host's own
+    // active tab, and only a string `workspaceRoot` survives the boundary —
+    // renderer args are never forwarded verbatim (F13).
+    run: async ({ host }, event, args) => {
+      const input = args[0];
+      const workspaceRoot = input && typeof input === 'object' && 'workspaceRoot' in input && typeof input.workspaceRoot === 'string'
+        ? input.workspaceRoot
+        : undefined;
+      return host.runThemeQa(host.activeTabId, { workspaceRoot });
+    },
+  },
+  {
+    channel: TOOLBAR_CHANNELS.THEME_CHECKLIST_LOAD,
+    surface: 'toolbar',
+    run: ({ host }, event, args) => {
+      const input = args[0] && typeof args[0] === 'object' ? args[0] as Record<string, unknown> : {}; // IPC boundary: fields re-checked below
+      const scope = typeof input.scope === 'string' ? input.scope : '';
+      const candidate = typeof input.workspaceRoot === 'string' ? input.workspaceRoot : '';
+      // Same confinement rule as runThemeQa: the toolbar-supplied root is
+      // clamped to the active tab's resolved workspace before it can name a
+      // qa-checklist.json file — a traversal candidate can never read or
+      // steer state outside the real root. An unresolvable host root fails
+      // closed to '' (provisional scope) instead of passing the candidate.
+      const activeTab = host.tabs.get(host.activeTabId);
+      const resolvedRoot = host.resolveTargetWorkspace(undefined, activeTab?.state.url)
+        || (host.controlPlane ? host.controlPlane.getWorkspaceRoot() : '');
+      const workspaceRoot = resolvedRoot ? confineWorkspaceRoot(candidate, resolvedRoot) : '';
+      return host.themeChecklistLoad({ scope, workspaceRoot });
+    },
+  },
+  {
+    channel: TOOLBAR_CHANNELS.THEME_CHECKLIST_SAVE,
+    surface: 'toolbar',
+    run: ({ host }, event, args) => {
+      const input = args[0] && typeof args[0] === 'object' ? args[0] as Record<string, unknown> : {}; // IPC boundary: fields re-checked below
+      const scope = typeof input.scope === 'string' ? input.scope : '';
+      const candidate = typeof input.workspaceRoot === 'string' ? input.workspaceRoot : '';
+      const items = 'items' in input ? input.items : undefined;
+      const baseUpdatedAt = typeof input.baseUpdatedAt === 'number' ? input.baseUpdatedAt : undefined;
+      const activeTab = host.tabs.get(host.activeTabId);
+      const resolvedRoot = host.resolveTargetWorkspace(undefined, activeTab?.state.url)
+        || (host.controlPlane ? host.controlPlane.getWorkspaceRoot() : '');
+      const workspaceRoot = resolvedRoot ? confineWorkspaceRoot(candidate, resolvedRoot) : '';
+      return host.themeChecklistSave({ scope, workspaceRoot, items, baseUpdatedAt });
+    },
   },
   {
     channel: TOOLBAR_CHANNELS.WORKSPACE_IDENTIFY,
@@ -8153,7 +8255,7 @@ export class NativeTabHost extends EventEmitter {
         } else {
           this.asyncQaQueue?.abort(id);
           this.diagnosticsManager.clear(id);
-          this.tabThemeQaStates?.set(id, { status: 'idle', issueCount: 0, updatedAt: Date.now() });
+          this.setThemeQaState(id, { status: 'idle', issueCount: 0, updatedAt: Date.now() });
         }
         if (id === this.activeTabId) {
           this.broadcastState();
@@ -14545,39 +14647,190 @@ export class NativeTabHost extends EventEmitter {
     this.controlPlane = cp;
     this.refreshPhoneStatus();
   }
-  public getThemeQaState(tabId?: string): { status: 'idle' | 'running' | 'pass' | 'fail' | 'error'; issueCount: number; reportArtifactId?: string; report?: unknown; error?: string; updatedAt: number } {
+  public getThemeQaState(tabId?: string): TabThemeQaState {
     const id = tabId || this.activeTabId;
     return this.tabThemeQaStates?.get(id) || { status: 'idle', issueCount: 0, updatedAt: Date.now() };
   }
 
-  private async runThemeQa(options?: { workspaceRoot?: string }): Promise<{ ok: boolean; report?: unknown; error?: string }> {
-    if (!this.controlPlane) {
-      const error = 'Control plane runtime is not initialized';
-      this.tabThemeQaStates?.set(this.activeTabId, { status: 'error', issueCount: 0, error, updatedAt: Date.now() });
-      this.broadcastState();
-      return { ok: false, error };
-    }
-    const tab = this.tabs.get(this.activeTabId);
-    const target = this.getAutomationTarget() || (() => {
-      if (!tab) return undefined;
-      const lease = this.controlPlane!.getLease();
-      return { projectId: lease.projectId, workspaceId: lease.workspaceId || '', runtimeId: lease.runtimeId, tabId: this.activeTabId, browserEpoch: lease.hostEpoch, documentGeneration: this.getDocumentGeneration(this.activeTabId), url: tab.state.url };
-    })();
-    if (!target) {
-      const error = 'No active browser tab for Theme QA validation';
-      this.tabThemeQaStates?.set(this.activeTabId, { status: 'error', issueCount: 0, error, updatedAt: Date.now() });
-      this.broadcastState();
-      return { ok: false, error };
-    }
-    const workspaceRoot = options?.workspaceRoot || this.capsuleManager.getActive()?.workspacePath || this.controlPlane.getWorkspaceRoot();
-    const tabId = target.tabId;
-    this.tabThemeQaStates?.set(tabId, { status: 'running', issueCount: 0, updatedAt: Date.now() });
+  /**
+   * The single write path for per-tab QA state. Every transition pushes the
+   * `{tabId, state}` frame on THEME_QA_STATE unconditionally — the toolbar
+   * gates foreign tabs by tabId itself — while the throttled STATE_UPDATED
+   * broadcast still only runs for the tab in front of the user.
+   */
+  private setThemeQaState(tabId: string, state: TabThemeQaState): void {
+    this.tabThemeQaStates?.set(tabId, state);
+    safeSendWebContents(this.shell?.toolbarView?.webContents, TOOLBAR_CHANNELS.THEME_QA_STATE, { tabId, state });
     if (tabId === this.activeTabId) {
       this.broadcastState();
     }
-    return new Promise((resolve) => {
-      const gen = this.getDocumentGeneration(tabId);
-      this.asyncQaQueue.enqueue(tabId, gen, async (signal: AbortSignal) => {
+  }
+
+  /**
+   * Immediate (not throttled) push of one checklist scope's fresh rows. Fired
+   * by every writer — toolbar CAS save, agent per-item op — so each surface
+   * repaints from the same authoritative snapshot.
+   */
+  public broadcastChecklistUpdated(payload: { scope: string; workspaceRoot: string; items: ThemeChecklistItem[]; updatedAt: number }): void {
+    safeSendWebContents(this.shell?.toolbarView?.webContents, TOOLBAR_CHANNELS.THEME_CHECKLIST_UPDATED, payload);
+  }
+
+  /**
+   * LOAD handler: fresh-from-disk read for persisted scopes, the provisional
+   * map for unknown-workspace ones. Unknown scopes seed the default checklist
+   * without persisting anything.
+   */
+  public themeChecklistLoad(input: { scope: string; workspaceRoot: string }): {
+    scope: string;
+    workspaceRoot: string;
+    items: ThemeChecklistItem[];
+    updatedAt: number;
+    existed: boolean;
+    migrated: boolean;
+    isProvisional: boolean;
+  } {
+    const scope = typeof input?.scope === 'string' ? input.scope.trim() : '';
+    if (!scope) {
+      throw new CapabilityError('INVALID_ARGUMENT', 'theme-checklist load requires a non-empty scope');
+    }
+    const workspaceRoot = typeof input?.workspaceRoot === 'string' ? input.workspaceRoot : '';
+    if (isProvisionalChecklistScope(scope, workspaceRoot)) {
+      const rec = this.provisionalChecklistScopes.get(scope);
+      return {
+        scope,
+        workspaceRoot,
+        items: rec ? rec.items.map((item) => ({ ...item })) : defaultChecklistItems(),
+        updatedAt: rec?.updatedAt ?? 0,
+        existed: Boolean(rec),
+        migrated: false,
+        isProvisional: true,
+      };
+    }
+    const snapshot = getChecklistScopeRecord(workspaceRoot, scope);
+    return { scope, workspaceRoot, items: snapshot.items, updatedAt: snapshot.updatedAt, existed: snapshot.existed, migrated: snapshot.migrated, isProvisional: false };
+  }
+
+  /**
+   * SAVE handler: whole-array CAS write. A stale `baseUpdatedAt` returns the
+   * fresh items with `conflict:true` and writes/broadcasts nothing — the
+   * caller re-bases instead of clobbering an interleaved mutation (F6).
+   */
+  public themeChecklistSave(input: { scope: string; workspaceRoot: string; items: unknown; baseUpdatedAt?: number }): {
+    ok: boolean;
+    scope: string;
+    workspaceRoot: string;
+    items: ThemeChecklistItem[];
+    updatedAt: number;
+    conflict?: boolean;
+    isProvisional?: boolean;
+  } {
+    const scope = typeof input?.scope === 'string' ? input.scope.trim() : '';
+    if (!scope) {
+      throw new CapabilityError('INVALID_ARGUMENT', 'theme-checklist save requires a non-empty scope');
+    }
+    const workspaceRoot = typeof input?.workspaceRoot === 'string' ? input.workspaceRoot : '';
+    const baseUpdatedAt = typeof input?.baseUpdatedAt === 'number' ? input.baseUpdatedAt : undefined;
+    if (isProvisionalChecklistScope(scope, workspaceRoot)) {
+      const rec = this.provisionalChecklistScopes.get(scope);
+      if (rec && (typeof baseUpdatedAt !== 'number' || !Number.isFinite(baseUpdatedAt) || rec.updatedAt !== baseUpdatedAt)) {
+        return { ok: true, scope, workspaceRoot, items: rec.items.map((item) => ({ ...item })), updatedAt: rec.updatedAt, conflict: true, isProvisional: true };
+      }
+      // Same caps as the persisted path — provisional is still an untrusted boundary.
+      const items = validateThemeChecklistItems(input?.items);
+      const updatedAt = Date.now();
+      this.provisionalChecklistScopes.set(scope, { items, updatedAt });
+      this.broadcastChecklistUpdated({ scope, workspaceRoot, items, updatedAt });
+      return { ok: true, scope, workspaceRoot, items, updatedAt, isProvisional: true };
+    }
+    const result = setChecklistScopeCas(workspaceRoot, scope, input?.items, baseUpdatedAt);
+    if (result.conflict) {
+      return { ok: true, scope, workspaceRoot, items: result.items, updatedAt: result.updatedAt, conflict: true, isProvisional: false };
+    }
+    this.broadcastChecklistUpdated({ scope, workspaceRoot, items: result.items, updatedAt: result.updatedAt });
+    return { ok: true, scope, workspaceRoot, items: result.items, updatedAt: result.updatedAt, isProvisional: false };
+  }
+
+  /**
+   * Per-item ops the agent surface drives (`mark`/`add`/`remove`/`markPage`).
+   * Persisted scopes go through the store's single-step read→apply→write;
+   * provisional scopes take the identical mutation against the in-memory map.
+   * Both paths broadcast the post-op snapshot.
+   */
+  public themeChecklistMutate(input: { scope: string; workspaceRoot: string; op: ChecklistMutationOp }): {
+    scope: string;
+    workspaceRoot: string;
+    items: ThemeChecklistItem[];
+    updatedAt: number;
+    item?: ThemeChecklistItem;
+    toggled?: number;
+    removed?: boolean;
+    isProvisional: boolean;
+  } {
+    const scope = typeof input?.scope === 'string' ? input.scope.trim() : '';
+    if (!scope) {
+      throw new CapabilityError('INVALID_ARGUMENT', 'theme-checklist mutate requires a non-empty scope');
+    }
+    const workspaceRoot = typeof input?.workspaceRoot === 'string' ? input.workspaceRoot : '';
+    const op = input?.op;
+    if (!op || typeof op !== 'object' || !('op' in op)) {
+      throw new CapabilityError('INVALID_ARGUMENT', 'theme-checklist mutate requires an op');
+    }
+    if (isProvisionalChecklistScope(scope, workspaceRoot)) {
+      const rec = this.provisionalChecklistScopes.get(scope);
+      const base = rec?.items ?? defaultChecklistItems();
+      const applied = applyChecklistMutation(base, op);
+      const updatedAt = applied.changed ? Date.now() : (rec?.updatedAt ?? 0);
+      if (applied.changed) this.provisionalChecklistScopes.set(scope, { items: applied.items, updatedAt });
+      if (applied.changed) this.broadcastChecklistUpdated({ scope, workspaceRoot, items: applied.items, updatedAt });
+      return { scope, workspaceRoot, items: applied.items, updatedAt, item: applied.item, toggled: applied.toggled, removed: applied.removed, isProvisional: true };
+    }
+    const result = mutateChecklistScopeRecord(workspaceRoot, scope, op);
+    this.broadcastChecklistUpdated({ scope, workspaceRoot, items: result.items, updatedAt: result.updatedAt });
+    return { scope, workspaceRoot, items: result.items, updatedAt: result.updatedAt, item: result.item, toggled: result.toggled, removed: result.removed, isProvisional: false };
+  }
+
+  /**
+   * Public rework: the caller names the tab, the tab is resolved strictly via
+   * `this.tabs.get(tabId)` — no automation-target fallback, so a cockpit scan
+   * can never QA a different page than the one it pointed at (F1). A dead or
+   * unknown id returns TARGET_REQUIRED with its own error row keyed to the
+   * requested id. `workspaceRoot` is confined to the resolved workspace (F4):
+   * a traversal candidate can never steer receipts outside the real root.
+   */
+  public async runThemeQa(tabId: string, options?: { workspaceRoot?: string }): Promise<{ ok: boolean; report?: unknown; error?: string }> {
+    const requestedTabId = typeof tabId === 'string' ? tabId : '';
+    const tab = requestedTabId ? this.tabs.get(requestedTabId) : undefined;
+    if (!tab || (tab.view?.webContents && tab.view.webContents.isDestroyed())) {
+      this.setThemeQaState(requestedTabId, { status: 'error', issueCount: 0, error: 'TARGET_REQUIRED', updatedAt: Date.now() });
+      return { ok: false, error: 'TARGET_REQUIRED' };
+    }
+    if (!this.controlPlane) {
+      const error = 'Control plane runtime is not initialized';
+      this.setThemeQaState(requestedTabId, { status: 'error', issueCount: 0, error, updatedAt: Date.now() });
+      return { ok: false, error };
+    }
+    const lease = this.controlPlane.getLease();
+    const target = {
+      projectId: lease.projectId,
+      workspaceId: lease.workspaceId || '',
+      runtimeId: lease.runtimeId,
+      tabId: requestedTabId,
+      browserEpoch: lease.hostEpoch,
+      documentGeneration: this.getDocumentGeneration(requestedTabId),
+      url: tab.state.url,
+    };
+    // Fail closed when no host root resolved: passing the candidate through
+    // `confineWorkspaceRoot`'s empty-default branch would let a traversal
+    // root steer receipts for an unbound tab (C). '' degrades to provisional.
+    const resolvedRoot = this.resolveTargetWorkspace(undefined, tab.state.url)
+      || (this.controlPlane ? this.controlPlane.getWorkspaceRoot() : '');
+    const workspaceRoot = resolvedRoot
+      ? confineWorkspaceRoot(options?.workspaceRoot, resolvedRoot)
+      : '';
+    this.setThemeQaState(requestedTabId, { status: 'running', issueCount: 0, updatedAt: Date.now() });
+    const { promise, resolve } = Promise.withResolvers<{ ok: boolean; report?: unknown; error?: string }>();
+    const gen = this.getDocumentGeneration(requestedTabId);
+    this.asyncQaQueue.enqueue(requestedTabId, gen, async (signal: AbortSignal) => {
         try {
           const report = await this.controlPlane!.validateThemeQa(target, { workspaceRoot, signal });
           const summary = report.summary;
@@ -14594,10 +14847,7 @@ export class NativeTabHost extends EventEmitter {
           const isPassed = typeof summary?.passed === 'boolean' ? summary.passed : issueCount === 0;
           const status: 'pass' | 'fail' = isPassed ? 'pass' : 'fail';
           const reportArtifactId = report.artifacts?.find((item: { kind?: string; id?: string }) => item.kind === 'report')?.id;
-          this.tabThemeQaStates?.set(tabId, { status, issueCount, reportArtifactId, report, updatedAt: Date.now() });
-          if (tabId === this.activeTabId) {
-            this.broadcastState();
-          }
+          this.setThemeQaState(requestedTabId, { status, issueCount, reportArtifactId, report, updatedAt: Date.now() });
           resolve({ ok: true, report });
         } catch (error) {
           if (signal.aborted) {
@@ -14605,14 +14855,11 @@ export class NativeTabHost extends EventEmitter {
             return;
           }
           const message = error instanceof Error ? error.message : String(error);
-          this.tabThemeQaStates?.set(tabId, { status: 'error', issueCount: 0, error: message, updatedAt: Date.now() });
-          if (tabId === this.activeTabId) {
-            this.broadcastState();
-          }
+          this.setThemeQaState(requestedTabId, { status: 'error', issueCount: 0, error: message, updatedAt: Date.now() });
           resolve({ ok: false, error: message });
         }
-      });
     });
+    return promise;
   }
   public getBrowserEpoch(): number {
     return this.browserEpoch;
