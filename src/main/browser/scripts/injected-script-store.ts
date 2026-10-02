@@ -409,6 +409,23 @@ export class InjectedScriptStore {
               return false;
             }
           });
+          // In-scope images whose source still lives in data-* attributes are not
+          // decoded or broken — they are unmaterialized: a capture taken now records
+          // blank boxes. Counted with the same fail-closed definition as the
+          // pre-capture quiescence sample so viewport settle refuses them too.
+          const srclessImages = relevantImages.filter(img => {
+            try {
+              const rawSrc = img.getAttribute ? img.getAttribute('src') : null;
+              const effectiveSrcless = (!img.src && !img.currentSrc && !img.srcset) || (rawSrc === '' && !img.currentSrc && !img.srcset);
+              if (!effectiveSrcless) return false;
+              if (img.getAttribute && (img.getAttribute('data-src') || img.getAttribute('data-srcset'))) return true;
+              const pic = img.closest ? img.closest('picture') : null;
+              if (pic && pic.querySelector && pic.querySelector('source[data-srcset]')) return true;
+              return false;
+            } catch {
+              return false;
+            }
+          }).length;
           let finished = false;
           const finish = (settled) => {
             if (finished) return;
@@ -423,7 +440,7 @@ export class InjectedScriptStore {
                 }
               } catch {}
             }
-            resolve({ settled: Boolean(settled), brokenImages: broken });
+            resolve({ settled: Boolean(settled) && srclessImages === 0, brokenImages: broken, srclessImages });
           };
 
           const timer = setTimeout(() => {

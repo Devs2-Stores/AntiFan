@@ -66,6 +66,7 @@ import {
 import {
   CaptureSettleGate,
   createBrowserSettlePredicates,
+  buildPreCaptureSampleExpr,
   type VisualSettleReceipt,
   type CaptureSettleOptions,
 } from '../verification/capture-settle.js';
@@ -267,7 +268,8 @@ export type BrowserWaitCondition =
   | 'document_loaded'
   | 'url_match'
   | 'network_idle'
-  | 'dom_stable';
+  | 'dom_stable'
+  | 'images-settled';
 
 export interface BrowserWaitParams {
   condition: BrowserWaitCondition;
@@ -1090,6 +1092,22 @@ export const VISUAL_COMPARE_EXECUTION_BUDGET_MS = 150_000;
 export const VISUAL_COMPARE_CANCELLATION_ACK_MS = 30_000;
 /** Cleanup budget inside the reserved grace (leaves margin for receipt writes). */
 export const VISUAL_COMPARE_CLEANUP_BUDGET_MS = 25_000;
+/**
+ * Invocation budget the wait capabilities declare in their effect policy
+ * (`browser.wait` / `anti.browser.wait`). The registry cannot run longer than
+ * the platform keeps the invocation alive, so this is also the effective
+ * ceiling any condition — including `images-settled` — may observe.
+ */
+export const BROWSER_WAIT_INVOCATION_BUDGET_MS = 30_000;
+/**
+ * Invocation budget the eval capabilities declare by default through
+ * `makeBrowserPolicy`. A caller-supplied `timeoutMs` is capped below this
+ * budget so the in-page guard answers with its own typed error instead of the
+ * invocation being killed mid-eval.
+ */
+export const BROWSER_EVAL_INVOCATION_BUDGET_MS = 30_000;
+/** Hard ceiling for a caller-declared eval budget, independent of policy. */
+export const BROWSER_EVAL_TIMEOUT_CEILING_MS = 120_000;
 export const FULL_PAGE_CAPTURE_EXECUTION_BUDGET_MS = 70_000;
 export const FULL_PAGE_CAPTURE_CANCELLATION_ACK_MS = 20_000;
 export const FULL_PAGE_CAPTURE_CLEANUP_BUDGET_MS = 15_000;
@@ -1494,8 +1512,8 @@ function describeMediaTags(tags: Record<string, number>): string {
 
 /**
  * Project a promoted baseline's capture-state mini into a full capture receipt.
- * The mini predates capture-mode metadata, so the mode is derived from the
- * raster/CSS geometry rather than assumed.
+ * New manifests preserve capture mode and CSS capture dimensions; historical
+ * manifests retain their geometry-derived receipt projection.
  */
 function baselineCaptureReceipt(
   mini: {
@@ -1505,6 +1523,8 @@ function baselineCaptureReceipt(
     cssViewport: { width: number; height: number };
     rasterSize?: { width: number; height: number };
     capturePolicy?: string;
+    captureMode?: VerificationCaptureReceipt['captureMode'];
+    cssCaptureSize?: { width: number; height: number };
   },
   promotedAt: number,
   bytes: Buffer
@@ -1516,12 +1536,12 @@ function baselineCaptureReceipt(
     width: Math.round(mini.cssViewport.width * dpr),
     height: Math.round(mini.cssViewport.height * dpr),
   };
-  const cssCaptureSize = scale > 0
+  const cssCaptureSize = mini.cssCaptureSize || (scale > 0
     ? { width: Math.round(rasterSize.width / scale), height: Math.round(rasterSize.height / scale) }
-    : { ...mini.cssViewport };
-  const captureMode = cssCaptureSize.width !== mini.cssViewport.width || cssCaptureSize.height !== mini.cssViewport.height
+    : { ...mini.cssViewport });
+  const captureMode = mini.captureMode || (cssCaptureSize.width !== mini.cssViewport.width || cssCaptureSize.height !== mini.cssViewport.height
     ? ('clip' as const)
-    : ('viewport' as const);
+    : ('viewport' as const));
   return {
     backend: mini.backend,
     dpr,
@@ -1983,6 +2003,64 @@ export class BrowserControlPort {
     }));
   }
 
+  /**
+   * Single-tab read with the same authority contract as `listTabs`: the id is
+   * resolved through the standard seam (failover included), the row is emitted
+   * in the listTabs shape, and a tab that exists but measures outside this
+   * session's project/workspace scope is refused rather than described.
+   */
+  getTab(
+    target: BrowserTarget | undefined,
+    requestedTabId: string | undefined,
+    context?: { projectId?: string; authenticatedProjectId?: string; authenticatedWorkspaceId?: string }
+  ): Record<string, unknown> {
+    if (target) assertTarget(target);
+    this.assertProjectSelectorWithinScope(context?.projectId, target, context?.authenticatedProjectId);
+    const cleanId = typeof requestedTabId === 'string' ? requestedTabId.trim() : '';
+    // An omitted id resolves the session's own bound tab through the same seam
+    // every read uses, so an empty selector never escapes scope checks.
+    const tabId = this.resolveTargetTab(target, cleanId.length > 0 ? cleanId : undefined, 'read');
+
+    const boundTabId = target?.tabId;
+    const scopeProjectId = context?.authenticatedProjectId || target?.projectId;
+    const scopeWorkspaceId = context?.authenticatedWorkspaceId || target?.workspaceId;
+    const ownedIds = new Set<string>(boundTabId && this.host.getManagedTabIds ? this.host.getManagedTabIds(boundTabId) : []);
+    if (boundTabId) ownedIds.add(boundTabId);
+    // Same measure listTabs applies to strip rows: session ownership always
+    // qualifies, capsule rows need the authenticated project+workspace.
+    const inScope = ownedIds.has(tabId) || (
+      Boolean(this.host.resolveTabAffiliation) &&
+      Boolean(scopeProjectId) &&
+      Boolean(scopeWorkspaceId) &&
+      (() => {
+        const aff = this.host.resolveTabAffiliation!(tabId);
+        return aff?.projectId === scopeProjectId && aff?.workspaceId === scopeWorkspaceId;
+      })()
+    );
+    if (!inScope) {
+      throw new CapabilityError(
+        'POLICY_DENIED',
+        `Tab '${tabId}' is outside this session's project/workspace scope; use anti.browser.tabs.list for the tabs this session may address`,
+        { tabId }
+      );
+    }
+    // Session records first so an owned offscreen tab resolves even when the
+    // strip cannot see it; the strip covers affiliated tabs this session does
+    // not own.
+    const sessionRecords = boundTabId && this.host.getSessionTabList ? this.host.getSessionTabList(boundTabId) : [];
+    const records: unknown[] = [...(sessionRecords ?? []), ...(this.host.getTabList() || [])];
+    const tab = records.find((row) => isTabRecord(row) && row.id === tabId);
+    if (!tab || !isTabRecord(tab)) {
+      throw new CapabilityError('TARGET_STALE', `Tab '${tabId}' exists but no tab record is available for it`);
+    }
+    return {
+      ...tab,
+      affiliated: true,
+      isBoundTab: tab.id === boundTabId,
+      isPrimaryTab: tab.id === boundTabId,
+    };
+  }
+
   async navigate(target: BrowserTarget, url: string, explicitTabId?: string): Promise<{ navigated: boolean; target: BrowserTarget }> {
     const tabId = this.resolveTargetTab(target, explicitTabId, 'read');
     if (!url || !/^https?:\/\//i.test(url)) throw new CapabilityError('INVALID_ARGUMENT', 'Navigation requires an http(s) URL');
@@ -2292,7 +2370,7 @@ export class BrowserControlPort {
     target: BrowserTarget,
     runId: string,
     attemptId: string,
-    params: { tabId?: string; paneId?: 'desktop' | 'mobile'; selector?: string; screenshot?: boolean; format?: 'png' | 'jpeg'; quality?: number } = {},
+    params: { tabId?: string; paneId?: 'desktop' | 'mobile'; selector?: string; screenshot?: boolean; format?: 'png' | 'jpeg'; quality?: number; materializeDataSrc?: boolean } = {},
     signal?: AbortSignal
   ): Promise<Record<string, unknown>> {
     const tabId = this.resolveTargetTab(target, params.tabId);
@@ -2306,7 +2384,7 @@ export class BrowserControlPort {
       // be told about it: a caller-side race alone would report a bound the
       // script was never allowed to reach.
       const probe = await raceWithTimeout(
-        this.host.evalJs(buildReferenceMaterializationScript(), tabId, params.paneId, false, REFERENCE_MATERIALIZATION_BOUND_MS)
+        this.host.evalJs(buildReferenceMaterializationScript({ materializeDataSrc: params.materializeDataSrc === true }), tabId, params.paneId, false, REFERENCE_MATERIALIZATION_BOUND_MS)
           .then((raw) => ({ walked: raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : null, evalError: undefined as string | undefined }))
           .catch((err: unknown) => ({ walked: null, evalError: err instanceof Error ? err.message : String(err) })),
         REFERENCE_MATERIALIZATION_BOUND_MS,
@@ -3194,14 +3272,25 @@ export class BrowserControlPort {
       ...(leaseToken ? { leaseToken } : {}),
     };
   }
-  async eval(target: BrowserTarget, expression: string, explicitTabId?: string, paneId?: 'desktop' | 'mobile', options?: { requireRenderSurface?: boolean; allowDegradedSurface?: boolean }): Promise<unknown> {
-    const tabId = this.resolveTargetTab(target, explicitTabId);
+  async eval(target: BrowserTarget, expression: string, explicitTabId?: string, paneId?: 'desktop' | 'mobile', options?: { requireRenderSurface?: boolean; allowDegradedSurface?: boolean; timeoutMs?: number }): Promise<unknown> {
     if (!expression.trim()) throw new CapabilityError('INVALID_ARGUMENT', 'JavaScript expression is required');
+    // A caller-declared budget is clamped under the capability's invocation
+    // budget so the in-page guard — not the platform's execution timeout —
+    // produces the typed answer.
+    const evalBudgetMs = options?.timeoutMs === undefined
+      ? undefined
+      : (() => {
+          if (typeof options.timeoutMs !== 'number' || !Number.isFinite(options.timeoutMs) || options.timeoutMs <= 0) {
+            throw new CapabilityError('INVALID_ARGUMENT', `timeoutMs must be a positive finite number of milliseconds, got ${JSON.stringify(options.timeoutMs)}`);
+          }
+          return Math.min(Math.round(options.timeoutMs), BROWSER_EVAL_TIMEOUT_CEILING_MS, Math.max(1_000, BROWSER_EVAL_INVOCATION_BUDGET_MS - 1_000));
+        })();
+    const tabId = this.resolveTargetTab(target, explicitTabId);
     return this.passivePool.execute(tabId, async () => {
       if (options?.requireRenderSurface === true) {
         await this.assertRenderSurface(tabId, paneId, 'anti.browser.evaluate', options.allowDegradedSurface === true);
       }
-      return this.host.evalJs(expression, tabId, paneId);
+      return this.host.evalJs(expression, tabId, paneId, false, evalBudgetMs);
     });
   }
 
@@ -3331,6 +3420,22 @@ export class BrowserControlPort {
     if (!params || !params.condition) {
       throw new CapabilityError('INVALID_ARGUMENT', 'Wait condition is required');
     }
+    if (params.condition === 'images-settled') {
+      if (typeof params.timeoutMs === 'number' && !Number.isFinite(params.timeoutMs)) {
+        throw new CapabilityError('INVALID_ARGUMENT', 'timeoutMs must be a finite number of milliseconds');
+      }
+      // A timeout that exceeds the capability's invocation budget never reaches
+      // the caller: the platform deadline ends the invocation first. Rather
+      // than let the registry clamp silently, refuse explicitly and name the
+      // effective ceiling so the caller re-issues inside the real budget.
+      if (typeof params.timeoutMs === 'number' && params.timeoutMs > BROWSER_WAIT_INVOCATION_BUDGET_MS) {
+        throw new CapabilityError(
+          'INVALID_ARGUMENT',
+          `timeoutMs ${params.timeoutMs} exceeds the allowed budget for this capability: the wait invocation is bounded at ${BROWSER_WAIT_INVOCATION_BUDGET_MS}ms, so an images-settled wait cannot observe longer than that`,
+          { requestedTimeoutMs: params.timeoutMs, effectiveMaxTimeoutMs: BROWSER_WAIT_INVOCATION_BUDGET_MS }
+        );
+      }
+    }
     const tabId = this.resolveTargetTab(target, explicitTabId || params.tabId);
     const effectivePane = paneId || params.paneId || 'desktop';
 
@@ -3361,6 +3466,48 @@ export class BrowserControlPort {
             };
           }
         }
+      }
+
+      // The images probe is port-owned: the pre-capture sample counts pending,
+      // unmaterialized (lazy-source) and broken rasters, and every count must
+      // reach zero before the wait is satisfied — a srcless or broken image is
+      // never tolerated as settled.
+      if (params.condition === 'images-settled') {
+        const sampleExpr = buildPreCaptureSampleExpr({ fullPage: false });
+        let lastSample: Record<string, unknown> | null = null;
+        let lastProbeError: string | undefined;
+        while (!waitSignal.aborted) {
+          if (typeof this.host.evalJs === 'function') {
+            try {
+              const raw = await this.host.evalJs(sampleExpr, tabId, effectivePane);
+              const sample = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : null;
+              if (sample) {
+                lastSample = sample;
+                lastProbeError = undefined;
+                const pending = typeof sample.pendingImages === 'number' ? sample.pendingImages : 0;
+                // A sample without a srcless count predates the materialization
+                // probe; treating it as zero would silently tolerate images the
+                // page never materialized, so the count must be measured.
+                const srcless = typeof sample.srclessImages === 'number' ? sample.srclessImages : null;
+                const broken = Array.isArray(sample.brokenImages) ? sample.brokenImages.length : 0;
+                if (pending === 0 && srcless === 0 && broken === 0) {
+                  return {
+                    satisfied: true,
+                    condition: params.condition,
+                    durationMs: Date.now() - startTime,
+                    details: { imageCount: typeof sample.imageCount === 'number' ? sample.imageCount : undefined },
+                  };
+                }
+              }
+            } catch (err) {
+              // Same contract as the actionability probe: an eval failure is
+              // not-yet-satisfied, and the wait polls again.
+              lastProbeError = err instanceof Error ? err.message : String(err);
+            }
+          }
+          await delayWithSignal(50, waitSignal);
+        }
+        throw (waitSignal.reason || new CapabilityError('WAIT_ABORTED', 'Wait was aborted'));
       }
       if (this.host.wait) {
         return await this.host.wait({ ...params, tabId, paneId: effectivePane }, waitSignal);
@@ -5856,6 +6003,7 @@ export class BrowserControlPort {
     params: {
       tabId?: string;
       paneId?: 'desktop' | 'mobile';
+      fullPage?: boolean;
       clipRect?: { x: number; y: number; width: number; height: number };
     } = {}
   ): Promise<VisualBaselineRef> {
@@ -5879,10 +6027,18 @@ export class BrowserControlPort {
     }
     const tabId = this.resolveTargetTab(target, params.tabId);
     const effectivePane = params.paneId || 'desktop';
+    const observedUrl = this.host.getTabUrl?.(tabId);
+    const documentGeneration = this.host.getDocumentGeneration?.(tabId);
 
-    const envelope = await this.host.captureVerificationScreenshot(params.clipRect, tabId, effectivePane);
+    const envelope = await this.host.captureVerificationScreenshot(params.clipRect, tabId, effectivePane, {
+      format: 'png',
+      fullPage: Boolean(params.fullPage),
+    });
     if (!envelope || !envelope.data || envelope.data.length === 0) {
       throw new CapabilityError('TARGET_STALE', `Failed to capture non-empty verification screenshot on tab '${tabId}' for baseline promotion`);
+    }
+    if (observedUrl !== this.host.getTabUrl?.(tabId) || documentGeneration !== this.host.getDocumentGeneration?.(tabId)) {
+      throw new CapabilityError('TARGET_STALE', 'Baseline route changed during capture; retry promotion on the intended route');
     }
 
     const receipt = verificationCaptureReceipt(envelope);
@@ -5903,6 +6059,7 @@ export class BrowserControlPort {
 
     return this.baselineAuthority.promote(staged.id, context, {
       captureReceipt: receipt,
+      observedUrl,
     });
   }
 
@@ -7311,6 +7468,43 @@ export class BrowserControlPort {
         });
       }
 
+      // A FAIL verdict publishes where the pixels differed: the measured
+      // overlay PNG is staged through the same sink and budget rules as the
+      // pair captures, and the receipt names the artifact it lands under. A
+      // staging failure never revokes the verdict — the diff counts above are
+      // already the measured evidence.
+      let diffArtifactId: string | undefined;
+      if (!verdictMatch && diffResult.diffPixels > 0 && diffResult.diffOverlayPng && this.artifacts) {
+        try {
+          const diffRef = await this.stageArtifact({
+            kind: 'screenshot',
+            mime: 'image/png',
+            data: diffResult.diffOverlayPng,
+            runId,
+            attemptId,
+            projectId: target.projectId,
+            workspaceId: target.workspaceId,
+            maxBytes: 32 * 1024 * 1024,
+            leaseToken: typeof params.leaseToken === 'string' ? params.leaseToken : undefined,
+          });
+          diffArtifactId = diffRef.id;
+        } catch {
+          diffArtifactId = undefined;
+        }
+      }
+      const verdictReceipt = createVisualEvidenceReceipt({
+        match: verdictMatch,
+        mismatchPercentage: diffResult.mismatchPercentage,
+        dimensionsMatch: diffResult.dimensionsMatch,
+        captureStateCompatible: Boolean(captureStateCompatible),
+        maskResolutionStatus: 'ok',
+        maskedAreaRatio,
+        settleComplete: Boolean(targetSettle?.settleComplete && (!compSettle || compSettle.settleComplete)),
+        metricSamples,
+        routeAssertion: targetCapture?.routeAssertion,
+        notes: verdictNotes,
+      });
+
       return settled({
         ok: verdictMatch,
         status: verdictMatch ? 'PASS' : 'FAIL',
@@ -7355,18 +7549,10 @@ export class BrowserControlPort {
         settle: targetSettle ? { target: targetSettle, comparison: compSettle } : undefined,
         structural: structuralMetrics,
         notes: verdictNotes,
-        receipt: createVisualEvidenceReceipt({
-          match: verdictMatch,
-          mismatchPercentage: diffResult.mismatchPercentage,
-          dimensionsMatch: diffResult.dimensionsMatch,
-          captureStateCompatible: Boolean(captureStateCompatible),
-          maskResolutionStatus: 'ok',
-          maskedAreaRatio,
-          settleComplete: Boolean(targetSettle?.settleComplete && (!compSettle || compSettle.settleComplete)),
-          metricSamples,
-          routeAssertion: targetCapture?.routeAssertion,
-          notes: verdictNotes,
-        }),
+        ...(diffArtifactId !== undefined ? { diffArtifactId } : {}),
+        receipt: diffArtifactId !== undefined
+          ? { ...verdictReceipt, diffArtifactId }
+          : verdictReceipt,
         metricSamples,
       });
     } catch (err: unknown) {
@@ -7977,6 +8163,13 @@ export function computePixelDiff(
   totalPixels: number;
   dimensionsMatch: boolean;
   diffBoundingBoxes: Array<{ x: number; y: number; width: number; height: number; pixelCount: number }>;
+  /**
+   * Best-effort visual evidence: the target raster dimmed with every differing
+   * 32px cluster (plus raster edges lost to a dimension mismatch) highlighted
+   * in magenta, PNG-encoded. Present only when pixels differed and a bitmap
+   * encoder is available; the diff counts and boxes above are always reported.
+   */
+  diffOverlayPng?: Buffer;
 } {
   if (typeof tolerancePercent !== 'number' || !Number.isFinite(tolerancePercent) || tolerancePercent < 0 || tolerancePercent > 100) {
     throw new CapabilityError('INVALID_ARGUMENT', 'Tolerance must be a finite number between 0 and 100');
@@ -7987,11 +8180,19 @@ export function computePixelDiff(
   let bitmap1: Buffer | null = null;
   let bitmap2: Buffer | null = null;
 
+  type NativeImageApi = {
+    createFromBuffer: (buf: Buffer) => { getSize(): { width: number; height: number }; isEmpty(): boolean; getBitmap(): Buffer };
+    createFromBitmap?: (bitmap: Buffer, options: { width: number; height: number }) => { toPNG(): Buffer; isEmpty(): boolean };
+  };
+  let nativeImageApi: NativeImageApi | undefined;
+
   try {
-    const { nativeImage } = require('electron');
+    const electronModule = require('electron') as { nativeImage?: NativeImageApi };
+    const nativeImage = electronModule && electronModule.nativeImage;
     if (!nativeImage || typeof nativeImage.createFromBuffer !== 'function') {
       throw new Error('Electron nativeImage is unavailable');
     }
+    nativeImageApi = nativeImage;
     const nImg1 = nativeImage.createFromBuffer(img1Buffer);
     const nImg2 = nativeImage.createFromBuffer(img2Buffer);
     size1 = nImg1.getSize();
@@ -8185,6 +8386,56 @@ export function computePixelDiff(
     }
   }
 
+  // Evidence overlay: the target raster at 40% brightness with each differing
+  // 32px cluster marked in magenta. Channel order never reaches the caller —
+  // magenta writes the same value whether the bitmap is BGRA or RGBA — so the
+  // blend is order-agnostic. Rows outside the overlap carry the raster-edge
+  // diff a dimension mismatch reports, so they are marked too.
+  let diffOverlayPng: Buffer | undefined;
+  if (diffPixels > 0 && typeof nativeImageApi?.createFromBitmap === 'function') {
+    try {
+      const overlayW = size1.width;
+      const overlayH = size1.height;
+      const overlay = Buffer.alloc(overlayW * overlayH * 4);
+      for (let i = 0; i < overlay.length; i += 4) {
+        overlay[i] = Math.round(compBitmap1[i]! * 0.4);
+        overlay[i + 1] = Math.round(compBitmap1[i + 1]! * 0.4);
+        overlay[i + 2] = Math.round(compBitmap1[i + 2]! * 0.4);
+        overlay[i + 3] = 255;
+      }
+      const blendMagenta = (px: number, alpha: number): void => {
+        overlay[px] = Math.round(overlay[px]! * (1 - alpha) + 255 * alpha);
+        overlay[px + 1] = Math.round(overlay[px + 1]! * (1 - alpha));
+        overlay[px + 2] = Math.round(overlay[px + 2]! * (1 - alpha) + 255 * alpha);
+        overlay[px + 3] = 255;
+      };
+      const paintBox = (box: { x: number; y: number; width: number; height: number }): void => {
+        const x0 = Math.max(0, box.x);
+        const y0 = Math.max(0, box.y);
+        const x1 = Math.min(overlayW, box.x + box.width);
+        const y1 = Math.min(overlayH, box.y + box.height);
+        for (let y = y0; y < y1; y++) {
+          for (let x = x0; x < x1; x++) {
+            const nearEdge = x - x0 < 2 || x1 - 1 - x < 2 || y - y0 < 2 || y1 - 1 - y < 2;
+            blendMagenta((y * overlayW + x) * 4, nearEdge ? 0.85 : 0.4);
+          }
+        }
+      };
+      for (const box of diffBoundingBoxes) paintBox(box);
+      for (let y = 0; y < overlayH; y++) {
+        for (let x = 0; x < overlayW; x++) {
+          if (x >= minW || y >= minH) blendMagenta((y * overlayW + x) * 4, 0.4);
+        }
+      }
+      const overlayImg = nativeImageApi.createFromBitmap(overlay, { width: overlayW, height: overlayH });
+      const encoded = overlayImg && typeof overlayImg.toPNG === 'function' && !overlayImg.isEmpty() ? overlayImg.toPNG() : undefined;
+      if (encoded && encoded.length > 0) diffOverlayPng = encoded;
+    } catch {
+      // Best-effort: the overlay is evidence about a verdict already measured.
+      // A bitmap encoder that cannot build it never revokes the verdict.
+    }
+  }
+
   const mismatchPct = totalPixels > 0 ? (diffPixels / totalPixels) * 100 : 0;
   const roundedMismatch = Math.round(mismatchPct * 100) / 100;
   return {
@@ -8194,5 +8445,6 @@ export function computePixelDiff(
     totalPixels,
     dimensionsMatch,
     diffBoundingBoxes: diffBoundingBoxes.slice(0, 50),
+    ...(diffOverlayPng ? { diffOverlayPng } : {}),
   };
 }

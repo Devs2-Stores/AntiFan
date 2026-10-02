@@ -5,6 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AntiFanMcpClient } from '../../scripts/lib/antifan-mcp-client.mjs';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
 const FIXTURE_SERVER = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'fixtures', 'mcp', 'fake-omp-mcp.cjs');
 
@@ -17,6 +19,26 @@ function createClient() {
     bootstrap: { port: 1, secret: 'fixture-secret', attachmentId: 'att-fixture', authorityRevision: 'rev-fixture' },
   });
 }
+
+test('standalone MCP exposes both certified baseline producers', async () => {
+  const client = new Client({ name: 'baseline-discovery-test', version: '1.0.0' });
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [path.resolve('scripts/antifan-omp-mcp.cjs')],
+    stderr: 'pipe',
+  });
+  try {
+    await client.connect(transport);
+    const { tools } = await client.listTools();
+    for (const name of ['browser.promote-baseline', 'anti.visual.promote_baseline']) {
+      const tool = tools.find(item => item.name === name);
+      assert.ok(tool, `Missing callable baseline producer: ${name}`);
+      assert.equal(tool.inputSchema.properties.fullPage.type, 'boolean');
+    }
+  } finally {
+    await client.close();
+  }
+});
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-mcp-unit-'));
 let scriptCounter = 0;

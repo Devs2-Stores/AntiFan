@@ -26,7 +26,7 @@ describe('Terminal Split Hardened 10-Round Verification Suite', () => {
   type TerminalManagerInternals = {
     spawn: (id: string, cwd: string, restoredBuffer?: string, initialCols?: number, initialRows?: number, minimumRows?: number) => unknown;
     statePath: () => string;
-    sessions: Map<string, { id: string; cwd: string; name?: string; splitOf?: string; capsuleId?: string; disposed?: boolean; pty: { cols: number; rows: number; kill: () => void; write: (data: string) => void; resize: (c: number, r: number) => void } }>;
+    sessions: Map<string, { id: string; cwd: string; name?: string; splitOf?: string; capsuleId?: string; disposed?: boolean; pty: { pid?: number; cols: number; rows: number; kill: () => void; write: (data: string) => void; resize: (c: number, r: number) => void } }>;
     activeSessionId?: string;
     currentCapsuleId?: string;
     lastCols?: number;
@@ -45,7 +45,9 @@ describe('Terminal Split Hardened 10-Round Verification Suite', () => {
       const cols = Math.max(40, initialCols || tmInternal.lastCols || 120);
       const rows = Math.max(minimumRows, initialRows || tmInternal.lastRows || 30);
       const mockPty = {
-        pid: 1000 + Math.floor(Math.random() * 8000),
+        // No fake pid: teardownSessionPty would feed it to a real `taskkill /T /F`
+        // and a random number can name a live, unrelated Windows process.
+        pid: undefined,
         cols,
         rows,
         onData: () => ({ dispose: () => {} }),
@@ -141,6 +143,25 @@ describe('Terminal Split Hardened 10-Round Verification Suite', () => {
     assert.strictEqual(tm.createSplitSession(parent), split);
     assert.strictEqual(tm.getSession(split)?.state, 'running');
 
+    await tm.closeSession(parent);
+  });
+
+  it('waking a parked parent wakes its parked panes in the same transition', async () => {
+    const parent = tm.createSession();
+    const split = tm.createSplitSession(parent);
+    assert.ok(split);
+    tm.getSession(parent)!.state = 'running';
+    tm.getSession(split)!.state = 'running';
+    assert.deepStrictEqual(tm.sleepSession(parent), { ok: true });
+    assert.strictEqual(tm.getSession(split)?.state, 'sleeping');
+    // The reported regression: clicking the parked tab wakes only it, leaving the
+    // split mounted but shell-less. The wake must mirror the sleep cascade.
+    assert.strictEqual(tm.wakeSession(parent), true);
+    assert.strictEqual(tm.getSession(parent)?.state, 'running');
+    assert.strictEqual(tm.getSession(split)?.state, 'running');
+    assert.ok(tm.getSession(split)?.pty, 'the woken pane owns a live shell');
+
+    await tm.closeSplitSession(split);
     await tm.closeSession(parent);
   });
 

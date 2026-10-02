@@ -3028,7 +3028,7 @@ export class TabDevToolsHost {
           const execPromise = (async () => (0, eval)(${JSON.stringify(expression)}))();
           let timer;
           const timeoutPromise = new Promise((_, reject) => {
-            timer = setTimeout(() => reject(new Error('Evaluation timed out after ' + execBudgetMs + 'ms (note: requestAnimationFrame pauses in background tabs)')), execBudgetMs);
+            timer = setTimeout(() => reject(new Error('Evaluation timed out after ' + execBudgetMs + 'ms (tab visibility: ' + (typeof document !== 'undefined' && document.hidden ? 'hidden' : 'visible') + ')')), execBudgetMs);
           });
           const result = await Promise.race([execPromise, timeoutPromise]).finally(() => clearTimeout(timer));
           return serializeCircularSafe(result);
@@ -3141,7 +3141,7 @@ ${expression}
 ))();
   let timer;
   const timeoutPromise = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error('Evaluation timed out after ' + execBudgetMs + 'ms (note: requestAnimationFrame pauses in background tabs)')), execBudgetMs);
+    timer = setTimeout(() => reject(new Error('Evaluation timed out after ' + execBudgetMs + 'ms (tab visibility: ' + (typeof document !== 'undefined' && document.hidden ? 'hidden' : 'visible') + ')')), execBudgetMs);
   });
   const result = await Promise.race([execPromise, timeoutPromise]).finally(() => clearTimeout(timer));
   return serializeCircularSafe(result);

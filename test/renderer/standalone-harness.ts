@@ -509,7 +509,15 @@ export class FakeTerminal {
   }
 
   public open(): void {}
-  public onData(): { dispose: () => void } { return { dispose: () => {} }; }
+  public onDataHandler: ((data: string) => void) | null = null;
+  public onData(handler?: (data: string) => void): { dispose: () => void } {
+    if (handler) this.onDataHandler = handler;
+    return { dispose: () => { if (this.onDataHandler === handler) this.onDataHandler = null; } };
+  }
+  /** Drive the xterm data event exactly as a user keystroke would. */
+  public emitData(data: string): void {
+    this.onDataHandler?.(data);
+  }
   public onScroll(): { dispose: () => void } { return { dispose: () => {} }; }
   public attachCustomKeyEventHandler(handler: (event: KeyEventLike) => boolean): void {
     this.customKeyHandler = handler;

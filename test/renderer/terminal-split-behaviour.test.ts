@@ -85,6 +85,49 @@ describe('Renderer split-pane behaviour', () => {
     assert.strictEqual(splitPane().style.flex, `0 0 ${splitHeight}px`);
   });
 
+  it('delivers the wake keystroke buffered for a mounted sleeping split after it wakes', async () => {
+    // The split pane lives in splitTerm outside the terminal pool, so a
+    // flush gated on pool membership would strand the user's keystroke forever.
+    harness.emitSession({
+      activeSessionId: 's1',
+      sessions: [
+        { id: 's1', name: 'Base', state: 'sleeping', splitSessionId: 'sp', buffer: 'base-tail' },
+        { id: 'sp', name: 'Split', state: 'sleeping', splitOf: 's1', buffer: 'split-tail' },
+      ],
+      snapshot: '',
+      snapshotThroughSeq: 0,
+    });
+    await settle();
+    await settle();
+    const splitTerm = harness.terminals[harness.terminals.length - 1];
+    assert.ok(splitTerm, 'the sleeping split still mounts its pane');
+
+    splitTerm.emitData('x');
+    await settle();
+    assert.ok(harness.apiCalls.includes('wakeTerminal'), 'the keystroke must request the wake');
+
+    // Main's wake broadcast: both sessions report running, still no pooled pane
+    // for the split — the transcript-bearing background pane stays deferred.
+    harness.emitSession({
+      activeSessionId: 's1',
+      sessions: [
+        { id: 's1', name: 'Base', state: 'running', splitSessionId: 'sp', buffer: 'base-tail' },
+        { id: 'sp', name: 'Split', state: 'running', splitOf: 's1', buffer: 'split-tail' },
+      ],
+      snapshot: '',
+      snapshotThroughSeq: 0,
+    });
+    await settle();
+    await settle();
+
+    const delivered = harness.apiCallArgs.filter((c) => c.name === 'sendTerminalInputTo');
+    assert.deepStrictEqual(
+      delivered.map((c) => c.args),
+      [['sp', 'x']],
+      `the buffered wake keystroke must reach the woken split, got ${JSON.stringify(delivered)}`,
+    );
+  });
+
   it('clamps the pane minimum on tiny and oversized viewports', () => {
     for (const containerHeight of [20, 100, 400, 1600]) {
       harness.assign('unmountSplit();');

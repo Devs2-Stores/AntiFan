@@ -789,6 +789,8 @@ interface ScopedPairingFixture {
   decoyProjectId: string;
   decoyWorkspaceId: string;
   decoyRoot: string;
+  unresolvedProjectId: string;
+  ambiguousWorkspaceId: string;
   dispose(): void;
 }
 
@@ -808,9 +810,13 @@ async function startScopedPairingBridge(): Promise<ScopedPairingFixture> {
   const anchorWorkspaceId = makeControlPlaneId('workspace');
   const decoyProjectId = makeControlPlaneId('project');
   const decoyWorkspaceId = makeControlPlaneId('workspace');
+  const ambiguousWorkspaceId = makeControlPlaneId('workspace');
+  const unresolvedProjectId = makeControlPlaneId('project');
+  const unregisteredWorkspaceId = makeControlPlaneId('workspace');
 
   const ownerBySession: Record<string, string> = {
     [EVID_TERM_ANCHOR]: `project:${anchorProjectId}`,
+    'term-ev-missing-workspace': `project:${unresolvedProjectId}`,
     // A `project:`-prefixed key is a project CLAIM even when its id is malformed:
     // resolveTerminalScope reports it 'unmeasurable', which must refuse closed.
     [EVID_TERM_MALFORMED]: 'project:',
@@ -830,6 +836,10 @@ async function startScopedPairingBridge(): Promise<ScopedPairingFixture> {
   });
   await runtime.initialize();
   registerScopedProject(runtime, anchorProjectId, anchorWorkspaceId, anchorRoot, dataRoot);
+  // Second attached workspaces make this dedicated project-only claim ambiguous:
+  // there is no sole workspace to select, so recovery must refuse, not guess.
+  registerScopedProject(runtime, unresolvedProjectId, ambiguousWorkspaceId, fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-evid-extra-')), dataRoot);
+  registerScopedProject(runtime, unresolvedProjectId, unregisteredWorkspaceId, fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-evid-extra2-')), dataRoot);
   registerScopedProject(runtime, decoyProjectId, decoyWorkspaceId, decoyRoot, dataRoot);
 
   const bindingLease = issueRuntimeLease(defaultProjectId, defaultWorkspaceId, 3_600_000, 1);
@@ -857,6 +867,8 @@ async function startScopedPairingBridge(): Promise<ScopedPairingFixture> {
     decoyProjectId,
     decoyWorkspaceId,
     decoyRoot,
+    unresolvedProjectId,
+    ambiguousWorkspaceId,
     dispose: () => {
       server.dispose();
       try { fs.rmSync(dataRoot, { recursive: true, force: true }); } catch {}
@@ -888,7 +900,7 @@ async function runOmpPairingChild(
   port: number,
   envOverrides: NodeJS.ProcessEnv,
   cwd?: string
-): Promise<{ exchange?: Record<string, unknown>; error?: string; stdout: string; stderr: string }> {
+): Promise<{ exchange?: Record<string, unknown>; error?: string; errorCode?: string; stdout: string; stderr: string }> {
   const childScript = [
     "const fs = require('node:fs');",
     "const path = require('node:path');",
@@ -902,7 +914,7 @@ async function runOmpPairingChild(
     'mod._compile(source, target);',
     "mod.exports.performPairingExchange('127.0.0.1', port)",
     "  .then((exchange) => { process.stdout.write('ANTIFAN_RESULT:' + JSON.stringify({ ok: true, exchange }), () => process.exit(0)); })",
-    "  .catch((err) => { process.stdout.write('ANTIFAN_RESULT:' + JSON.stringify({ ok: false, error: String((err && err.message) || err) }), () => process.exit(0)); });",
+    "  .catch((err) => { process.stdout.write('ANTIFAN_RESULT:' + JSON.stringify({ ok: false, error: String((err && err.message) || err), errorCode: err && err.errorCode }), () => process.exit(0)); });",
   ].join('\n');
 
   // Strip ambient ANTIFAN_* so a developer/CI environment can never leak evidence
@@ -933,8 +945,8 @@ async function runOmpPairingChild(
   const markerAt = stdout.lastIndexOf(marker);
   assert.ok(markerAt >= 0, `omp pairing child produced no result line: ${stdout}${stderr}`);
   const parsed = JSON.parse(stdout.slice(markerAt + marker.length)) as
-    { ok?: boolean; error?: string; exchange?: Record<string, unknown> };
-  if (!parsed.ok) return { error: parsed.error, stdout, stderr };
+    { ok?: boolean; error?: string; errorCode?: string; exchange?: Record<string, unknown> };
+  if (!parsed.ok) return { error: parsed.error, errorCode: parsed.errorCode, stdout, stderr };
   return { exchange: parsed.exchange, stdout, stderr };
 }
 
@@ -998,7 +1010,8 @@ describe('Fresh pairing evidence exchange (HTTP, ControlPlaneRuntime-scoped)', (
 
     const staleCode = fixture.server.issuePairingCode({ clientClass: 'mcp' }).code;
     const stale = await postExchange(fixture.port, { code: staleCode, clientClass: 'mcp', tabId: EVID_TAB_STALE });
-    assert.strictEqual(stale.status, 400, `a closed anchor tab must be refused: ${JSON.stringify(stale.body)}`);
+    assert.strictEqual(stale.status, 409, `a closed anchor tab must be refused: ${JSON.stringify(stale.body)}`);
+    assert.strictEqual(stale.body.error, 'TARGET_STALE');
     assert.match(String(stale.body.message ?? ''), /Pairing anchor tab is not live/, 'the refusal must carry the TARGET_STALE reason text');
     // Single-use is proven BEFORE anything else mints: the consumed record is still
     // in the store, so a replay must hit the explicit ALREADY_USED denial — never a
@@ -1008,20 +1021,58 @@ describe('Fresh pairing evidence exchange (HTTP, ControlPlaneRuntime-scoped)', (
     assert.strictEqual(replay.body.error, 'PAIRING_CODE_ALREADY_USED');
     assert.ok(!replay.body.attachmentId, 'a replayed exchange must never mint an attachment');
 
-    const conflicts: Array<{ payload: Record<string, unknown>; reason: RegExp }> = [
+    const conflicts: Array<{ payload: Record<string, unknown>; status: number; error: string; reason: RegExp }> = [
       // Anchor tab measures under the default project while the origin terminal's
       // owner key measures under the anchor project: two pieces of evidence that
       // disagree about where authority must land.
-      { payload: { tabId: EVID_TAB_FOREIGN, terminalSessionId: EVID_TERM_ANCHOR }, reason: /conflicts with the measured anchor project/ },
+      { payload: { tabId: EVID_TAB_FOREIGN, terminalSessionId: EVID_TERM_ANCHOR }, status: 409, error: 'PROJECT_MISMATCH', reason: /conflicts with the measured anchor project/ },
       // The terminal carries a malformed `project:` claim — a real claim that cannot
       // be measured to a workspace, which must fail closed, not fall back to cwd.
-      { payload: { terminalSessionId: EVID_TERM_MALFORMED }, reason: /terminal scope cannot be measured/ },
+      { payload: { terminalSessionId: EVID_TERM_MALFORMED }, status: 403, error: 'TERMINAL_SCOPE_UNRESOLVED', reason: /terminal scope cannot be measured/ },
     ];
-    for (const { payload, reason } of conflicts) {
+    for (const { payload, status, error, reason } of conflicts) {
       const code = fixture.server.issuePairingCode({ clientClass: 'mcp' }).code;
       const result = await postExchange(fixture.port, { code, clientClass: 'mcp', requestedGrant: 'write', ...payload });
-      assert.strictEqual(result.status, 400, `conflicting evidence ${JSON.stringify(payload)} must be refused: ${JSON.stringify(result.body)}`);
+      assert.strictEqual(result.status, status, `conflicting evidence ${JSON.stringify(payload)} must be refused: ${JSON.stringify(result.body)}`);
+      assert.strictEqual(result.body.error, error);
       assert.match(String(result.body.message ?? ''), reason, 'the refusal must name the measured reason');
+      const refusedReplay = await postExchange(fixture.port, { code, clientClass: 'mcp' });
+      assert.strictEqual(refusedReplay.status, 409);
+      assert.strictEqual(refusedReplay.body.error, 'PAIRING_CODE_ALREADY_USED');
+      assert.ok(!refusedReplay.body.attachmentId, 'scope refusal must consume the code without minting authority');
+    }
+    const unresolvedScopeCode = await claimChallengeCodeOverHttp(fixture.port);
+    const unresolvedScope = await postExchange(fixture.port, {
+      code: unresolvedScopeCode,
+      clientClass: 'mcp',
+      requestedGrant: 'write',
+      tabId: EVID_TAB_STALE,
+      terminalSessionId: 'term-ev-missing-workspace',
+      projectId: fixture.unresolvedProjectId,
+      workspaceId: fixture.ambiguousWorkspaceId,
+    });
+    assert.strictEqual(unresolvedScope.status, 403, `an unresolvable measured workspace must be refused: ${JSON.stringify(unresolvedScope.body)}`);
+    assert.strictEqual(unresolvedScope.body.error, 'TERMINAL_SCOPE_UNRESOLVED');
+    assert.ok(!unresolvedScope.body.attachmentId, 'unresolvable measured scope must never mint authority');
+    const unresolvedReplay = await postExchange(fixture.port, { code: unresolvedScopeCode, clientClass: 'mcp' });
+    assert.strictEqual(unresolvedReplay.status, 409);
+    assert.strictEqual(unresolvedReplay.body.error, 'PAIRING_CODE_ALREADY_USED');
+    assert.ok(!unresolvedReplay.body.attachmentId, 'the refused code must stay single-use');
+
+    for (const scope of [{ projectId: ' ' }, { workspaceId: ' ' }]) {
+      const code = await claimChallengeCodeOverHttp(fixture.port);
+      const result = await postExchange(fixture.port, {
+        code, clientClass: 'mcp', requestedGrant: 'write', tabId: EVID_TAB_STALE,
+        terminalSessionId: EVID_TERM_ANCHOR, projectId: fixture.anchorProjectId, workspaceId: fixture.anchorWorkspaceId,
+        ...scope,
+      });
+      assert.strictEqual(result.status, 409, `blank scope evidence must be refused: ${JSON.stringify(result.body)}`);
+      assert.strictEqual(result.body.error, 'TARGET_STALE');
+      assert.ok(!result.body.attachmentId, 'blank scope evidence must never mint authority');
+      const replay = await postExchange(fixture.port, { code, clientClass: 'mcp' });
+      assert.strictEqual(replay.status, 409);
+      assert.strictEqual(replay.body.error, 'PAIRING_CODE_ALREADY_USED');
+      assert.ok(!replay.body.attachmentId, 'the refused code must stay single-use');
     }
 
     assert.strictEqual(
@@ -1040,6 +1091,87 @@ describe('Fresh pairing evidence exchange (HTTP, ControlPlaneRuntime-scoped)', (
     assert.ok(!replayAfterPrune.body.attachmentId, 'a replayed exchange must never mint an attachment');
     assert.strictEqual(fixture.registry.getActiveRecordIds().size, beforeIds.size, 'replays must leave the registry untouched');
   });
+
+  it('refuses stale-anchor recovery with missing or conflicting terminal scope and burns each code once', async () => {
+    const beforeIds = fixture.registry.getActiveRecordIds();
+    const cases = [
+      { terminalSessionId: 'term-unmeasured', projectId: fixture.anchorProjectId, workspaceId: fixture.anchorWorkspaceId, status: 403, error: 'TERMINAL_SCOPE_UNRESOLVED' },
+      { terminalSessionId: EVID_TERM_ANCHOR, projectId: fixture.defaultProjectId, workspaceId: fixture.anchorWorkspaceId, status: 409, error: 'PROJECT_MISMATCH' },
+      { terminalSessionId: EVID_TERM_ANCHOR, projectId: fixture.anchorProjectId, workspaceId: fixture.defaultWorkspaceId, status: 409, error: 'WORKSPACE_MISMATCH' },
+    ];
+    for (const { status, error, ...scope } of cases) {
+      const code = await claimChallengeCodeOverHttp(fixture.port);
+      const result = await postExchange(fixture.port, {
+        code, clientClass: 'mcp', requestedGrant: 'write', tabId: EVID_TAB_STALE, ...scope,
+      });
+      assert.strictEqual(result.status, status, JSON.stringify(result.body));
+      assert.strictEqual(result.body.error, error);
+      assert.ok(!result.body.attachmentId, 'unmeasured or conflicting scope must not mint authority');
+      const replay = await postExchange(fixture.port, { code, clientClass: 'mcp', requestedGrant: 'write' });
+      assert.strictEqual(replay.status, 409);
+      assert.strictEqual(replay.body.error, 'PAIRING_CODE_ALREADY_USED');
+      assert.ok(!replay.body.attachmentId, 'scope refusal must not leave a reusable challenge');
+    }
+    assert.deepStrictEqual(fixture.registry.getActiveRecordIds(), beforeIds, 'scope refusals and replays must leave attachment authority unchanged');
+  });
+
+  it('keeps malformed JSON a 400 refusal without consuming an unused challenge', async () => {
+    const code = await claimChallengeCodeOverHttp(fixture.port);
+    const response = await fetch(`http://127.0.0.1:${fixture.port}/api/pairing/exchange`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, clientClass: 'mcp' }).slice(0, -1),
+    });
+    const body = await response.json() as Record<string, unknown>;
+    assert.strictEqual(response.status, 400);
+    assert.strictEqual(body.error, 'INVALID_JSON_BODY');
+    const valid = await postExchange(fixture.port, { code, clientClass: 'mcp', requestedGrant: 'write', tabId: EVID_TAB_ANCHOR });
+    assert.strictEqual(valid.status, 200, JSON.stringify(valid.body));
+    assert.strictEqual(valid.body.projectId, fixture.anchorProjectId);
+  });
+
+  for (const { error, status } of [
+    { error: 'TARGET_STALE', status: 409 },
+    { error: 'PROJECT_MISMATCH', status: 409 },
+    { error: 'WORKSPACE_MISMATCH', status: 409 },
+    { error: 'TERMINAL_SCOPE_UNRESOLVED', status: 403 },
+    { error: 'POLICY_DENIED', status: 403 },
+  ]) {
+    it(`has the omp-mcp proxy stop after one challenge on ${error}`, async () => {
+      let challenges = 0;
+      const exchangedCodes: unknown[] = [];
+      const stub = http.createServer((req, res) => {
+        let raw = '';
+        req.on('data', (chunk: Buffer) => { raw += chunk.toString(); });
+        req.on('end', () => {
+          if (req.url === '/api/pairing/challenge') {
+            challenges++;
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true, code: `scope-refusal-${challenges}` }));
+            return;
+          }
+          const payload = JSON.parse(raw) as Record<string, unknown>;
+          exchangedCodes.push(payload.code);
+          res.writeHead(status, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error, message: 'Measured pairing authority refuses this scope' }));
+        });
+      });
+      await new Promise<void>((resolve, reject) => {
+        stub.once('error', reject);
+        stub.listen(0, '127.0.0.1', resolve);
+      });
+      try {
+        const address = stub.address();
+        assert.ok(address && typeof address === 'object');
+        const result = await runOmpPairingChild(address.port, { ANTIFAN_SESSION_GRANT: 'write' });
+        assert.ok(!result.exchange, 'terminal scope refusal must not return a paired session');
+        assert.strictEqual(result.errorCode, error, 'the caller must receive the typed refusal');
+        assert.strictEqual(challenges, 1, 'terminal refusal must not drain fresh challenge codes');
+        assert.deepStrictEqual(exchangedCodes, ['scope-refusal-1'], 'the refused code must be exchanged exactly once');
+      } finally {
+        await new Promise<void>((resolve, reject) => stub.close((err) => err ? reject(err) : resolve()));
+      }
+    });
+  }
 
   it("has the omp-mcp proxy pair with env-supplied evidence and land the attachment under the terminal's project", async () => {
     // The real proxy carries ANTIFAN_BOUND_TAB_ID / ANTIFAN_TERMINAL_*_SESSION_ID env
@@ -1104,6 +1236,7 @@ describe('Fresh pairing evidence exchange (HTTP, ControlPlaneRuntime-scoped)', (
           ANTIFAN_TERMINAL_AFFINITY_SESSION_ID: 'term-env-affinity',
           ANTIFAN_TERMINAL_PARENT_SESSION_ID: 'term-env-parent',
           ANTIFAN_TERMINAL_SESSION_ID: 'term-env-self',
+          ANTIFAN_MCP_BOOTSTRAP: JSON.stringify({ projectId: 'stub-project', workspaceId: 'stub-workspace' }),
         },
         proxyCwd
       );
@@ -1124,6 +1257,8 @@ describe('Fresh pairing evidence exchange (HTTP, ControlPlaneRuntime-scoped)', (
         'term-env-affinity',
         'the affinity terminal env must reach the wire and outrank the parent/session fallbacks'
       );
+      assert.strictEqual(wire.projectId, 'stub-project', 'the proxy bootstrap project must reach the wire as stale-anchor evidence');
+      assert.strictEqual(wire.workspaceId, 'stub-workspace', 'the proxy bootstrap workspace must reach the wire as stale-anchor evidence');
       // Canonicalize both sides: mkdtemp may hand back a short-name path while the
       // child's process.cwd() is canonical.
       assert.strictEqual(

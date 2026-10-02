@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { BrowserTarget, CapabilityRequestContext, AuthenticatedCapabilityContext, CapabilityError, CapabilityEffectPolicyInput, CapabilityRisk, ReceiptBinding, digestText } from '../../shared/control-plane-contracts';
-import { BrowserControlPort, BrowserWaitParams, VISUAL_COMPARE_EXECUTION_BUDGET_MS, VISUAL_COMPARE_CANCELLATION_ACK_MS, FULL_PAGE_CAPTURE_EXECUTION_BUDGET_MS, FULL_PAGE_CAPTURE_CANCELLATION_ACK_MS, VIEWPORT_CAPTURE_EXECUTION_BUDGET_MS, VIEWPORT_CAPTURE_CANCELLATION_ACK_MS, REFERENCE_CAPTURE_EXECUTION_BUDGET_MS, REFERENCE_CAPTURE_CANCELLATION_ACK_MS } from './browser-control-port';
+import { BrowserControlPort, BrowserWaitParams, VISUAL_COMPARE_EXECUTION_BUDGET_MS, VISUAL_COMPARE_CANCELLATION_ACK_MS, FULL_PAGE_CAPTURE_EXECUTION_BUDGET_MS, FULL_PAGE_CAPTURE_CANCELLATION_ACK_MS, VIEWPORT_CAPTURE_EXECUTION_BUDGET_MS, VIEWPORT_CAPTURE_CANCELLATION_ACK_MS, REFERENCE_CAPTURE_EXECUTION_BUDGET_MS, REFERENCE_CAPTURE_CANCELLATION_ACK_MS, BROWSER_WAIT_INVOCATION_BUDGET_MS, BROWSER_EVAL_INVOCATION_BUDGET_MS } from './browser-control-port';
 import { CapabilityCatalogue } from './capability-catalogue';
 import { PlatformDetector } from '../qa/scanners/platform-detector';
 import { LiquidErrorScanner } from '../qa/scanners/liquid-error-scanner';
@@ -355,12 +355,14 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         url: { type: 'string' },
         activate: { type: 'boolean' },
         anchorTabId: { type: 'string', description: 'Live same-project tab selecting the window for creation' },
+        ephemeral: { type: 'boolean' },
+        offscreen: { type: 'boolean' },
         devicePresetId: { type: 'string', description: 'Device preset ID (e.g. iphone-15, xiaomi-14)' },
         mobile: { type: 'boolean', description: 'Open directly in mobile mode with mobile User-Agent and viewport' },
         projectId: { type: 'string', description: 'Scope selector: must equal this session\'s authenticated projectId. A foreign or unbound selector is refused before allocation; it never widens authority.' },
       },
     },
-    execute: (params: { url?: string; activate?: boolean; anchorTabId?: string; devicePresetId?: string; mobile?: boolean; projectId?: string }, context) => browser.openTab(params, { target: context?.browserTarget, authenticatedProjectId: context?.projectId }),
+    execute: (params: { url?: string; activate?: boolean; anchorTabId?: string; ephemeral?: boolean; offscreen?: boolean; devicePresetId?: string; mobile?: boolean; projectId?: string }, context) => browser.openTab(params, { target: context?.browserTarget, authenticatedProjectId: context?.projectId }),
   });
   catalogue.register({
     name: 'browser.close-tab',
@@ -515,7 +517,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     description: 'Deterministic wait for selector, url, navigation, dom-stable, network, actionability, generation, or legacy condition states',
     risk: 'read',
     requiresBrowserTarget: true,
-    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'event-wait', timeoutMs: 30_000 }),
+    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'event-wait', timeoutMs: BROWSER_WAIT_INVOCATION_BUDGET_MS }),
     inputSchema: {
       type: 'object',
       properties: {
@@ -534,8 +536,9 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
             'url_match',
             'network_idle',
             'dom_stable',
+            'images-settled',
           ],
-          description: 'Wait condition to evaluate: selector | url | navigation | dom-stable | network | actionability | generation (or legacy aliases)',
+          description: 'Wait condition to evaluate: selector | url | navigation | dom-stable | network | actionability | generation | images-settled (or legacy aliases)',
         },
         selector: { type: 'string', description: 'CSS selector to wait for' },
         ref: { type: 'string', description: 'Semantic reference token (@e1) to wait for' },
@@ -559,9 +562,9 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     description: 'Evaluate JavaScript only with an explicit eval grant',
     risk: 'eval',
     requiresBrowserTarget: true,
-    policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'eval', requiresBrowserTarget: true, lane: 'viewport-gate' }),
-    inputSchema: { type: 'object', properties: { expression: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, required: ['expression'] },
-    execute: (params: { expression: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.eval(context.browserTarget as BrowserTarget, params.expression, params.tabId, params.paneId),
+    policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'eval', requiresBrowserTarget: true, lane: 'viewport-gate', timeoutMs: BROWSER_EVAL_INVOCATION_BUDGET_MS }),
+    inputSchema: { type: 'object', properties: { expression: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, timeoutMs: { type: 'number', description: 'In-page execution budget in milliseconds (default 15000, capped by the capability invocation budget)' } }, required: ['expression'] },
+    execute: (params: { expression: string; tabId?: string; paneId?: 'desktop' | 'mobile'; timeoutMs?: number }, context) => browser.eval(context.browserTarget as BrowserTarget, params.expression, params.tabId, params.paneId, { timeoutMs: params.timeoutMs }),
   });
 
   catalogue.register({
@@ -919,7 +922,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     description: 'Alias for browser.wait',
     risk: 'read',
     requiresBrowserTarget: true,
-    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'event-wait', timeoutMs: 30_000 }),
+    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'event-wait', timeoutMs: BROWSER_WAIT_INVOCATION_BUDGET_MS }),
     inputSchema: {
       type: 'object',
       properties: {
@@ -938,6 +941,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
             'url_match',
             'network_idle',
             'dom_stable',
+            'images-settled',
           ],
         },
         selector: { type: 'string' },
@@ -963,7 +967,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     description: 'Execute JavaScript expression in page context (refuses a tab with no laid-out surface unless allowDegradedSurface is set)',
     risk: 'eval',
     requiresBrowserTarget: true,
-    policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'eval', requiresBrowserTarget: true, lane: 'viewport-gate' }),
+    policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'eval', requiresBrowserTarget: true, lane: 'viewport-gate', timeoutMs: BROWSER_EVAL_INVOCATION_BUDGET_MS }),
     inputSchema: {
       type: 'object',
       properties: {
@@ -972,13 +976,15 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         tabId: { type: 'string' },
         paneId: { type: 'string', enum: ['desktop', 'mobile'] },
         allowDegradedSurface: { type: 'boolean', description: 'Run even when the tab reports a 0x0 surface (diagnostic escape hatch)' },
+        timeoutMs: { type: 'number', description: 'In-page execution budget in milliseconds (default 15000; capped by the capability invocation budget, so the in-page guard — not the platform deadline — produces the timeout answer)' },
       },
       oneOf: [{ required: ['expression'] }, { required: ['expressionFile'] }],
     },
-    execute: (params: { expression?: string; expressionFile?: string; tabId?: string; paneId?: 'desktop' | 'mobile'; allowDegradedSurface?: boolean }, context) =>
+    execute: (params: { expression?: string; expressionFile?: string; tabId?: string; paneId?: 'desktop' | 'mobile'; allowDegradedSurface?: boolean; timeoutMs?: number }, context) =>
       browser.eval(context.browserTarget as BrowserTarget, resolveExpressionInput('anti.browser.evaluate', params, context), params.tabId, params.paneId, {
         requireRenderSurface: true,
         allowDegradedSurface: params.allowDegradedSurface === true,
+        timeoutMs: params.timeoutMs,
       }),
   });
 
@@ -2075,6 +2081,24 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     }),
   });
   catalogue.register({
+    name: 'anti.browser.tabs.get',
+    description: 'Read a single tab row in this session\'s project scope by tabId (same row shape and scope checks as tabs.list rows; refused for tabs outside the authenticated project/workspace).',
+    risk: 'read',
+    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: false, lane: 'unbounded' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tabId: { type: 'string', description: 'Tab ID to read; omit to read this session\'s bound tab.' },
+        projectId: { type: 'string', description: 'Scope selector: must equal this session\'s authenticated projectId. A foreign or unbound selector is refused; it can never widen authority.' },
+      },
+    },
+    execute: (params: { tabId?: string; projectId?: string }, context) => browser.getTab(context.browserTarget, typeof params?.tabId === 'string' ? params.tabId : '', {
+      projectId: typeof params?.projectId === 'string' ? params.projectId : undefined,
+      authenticatedProjectId: context.projectId,
+      authenticatedWorkspaceId: context.workspaceId,
+    }),
+  });
+  catalogue.register({
     name: 'anti.browser.tabs.create',
     description: 'Alias for browser.open-tab',
     risk: 'write',
@@ -2173,9 +2197,10 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         screenshot: { type: 'boolean', description: 'Also stage a viewport screenshot (default true)' },
         format: { type: 'string', enum: ['png', 'jpeg'] },
         quality: { type: 'number' },
+        materializeDataSrc: { type: 'boolean', description: 'Also materialize images that carry only lazy data-src/data-srcset attributes (default false: they are counted as unmaterialized instead)' },
       },
     },
-    execute: (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; selector?: string; screenshot?: boolean; format?: 'png' | 'jpeg'; quality?: number }, context) =>
+    execute: (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; selector?: string; screenshot?: boolean; format?: 'png' | 'jpeg'; quality?: number; materializeDataSrc?: boolean }, context) =>
       browser.referenceCapture(context.browserTarget as BrowserTarget, context.runId || 'run-unbound', context.attemptId || 'attempt-unbound', params, context.signal),
   });
 
@@ -2925,6 +2950,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       properties: {
         tabId: { type: 'string', description: 'Tab ID to capture and promote (defaults to bound tab)' },
         paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+        fullPage: { type: 'boolean', description: 'Capture the entire document as the promoted baseline; clipRect takes precedence when provided' },
         clipRect: {
           type: 'object',
           properties: {
@@ -2936,7 +2962,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         },
       },
     },
-    execute: (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; clipRect?: { x: number; y: number; width: number; height: number } }, context) => {
+    execute: (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; fullPage?: boolean; clipRect?: { x: number; y: number; width: number; height: number } }, context) => {
       return browser.promoteBaseline(context, params);
     },
   });
@@ -2952,6 +2978,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       properties: {
         tabId: { type: 'string', description: 'Tab ID to capture and promote (defaults to bound tab)' },
         paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+        fullPage: { type: 'boolean', description: 'Capture the entire document as the promoted baseline; clipRect takes precedence when provided' },
         clipRect: {
           type: 'object',
           properties: {
@@ -2963,7 +2990,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         },
       },
     },
-    execute: (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; clipRect?: { x: number; y: number; width: number; height: number } }, context) => {
+    execute: (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; fullPage?: boolean; clipRect?: { x: number; y: number; width: number; height: number } }, context) => {
       return browser.promoteBaseline(context, params);
     },
   });

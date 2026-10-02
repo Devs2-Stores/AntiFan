@@ -474,7 +474,9 @@ export function createBrowserSettlePredicates(
  * - documentGenerationSettled (readyState === 'complete')
  * - viewportStable (dimensions finite, positive, and unchanged)
  * - fontsSettled (document.fonts.status === 'loaded')
- * - imagesSettled (no image still loading; a broken image is a warning, not a refusal)
+ * - imagesSettled (no image still loading and no unmaterialized lazy image; a broken
+ *   image is a warning, not a refusal — an image whose source never left its data-*
+ *   attribute is not, because rasterizing it records a blank box as truth)
  * - imageIdentityStable (the tracked image SET and the layout each image occupies must hold
  *   while geometry holds constant; a source swap inside one unchanged element — a rotating
  *   banner or an ad creative — is recorded as churn and never refuses the raster)
@@ -514,6 +516,8 @@ export interface PreCaptureQuiescenceResult {
     scrollWidth: number;
     imageCount: number;
     pendingImages: number;
+    /** Rendered images whose source never materialized out of lazy data-* attributes. */
+    srclessImages: number;
     brokenImages: string[];
     imageSetHash?: string;
     movingWitness?: string;
@@ -533,6 +537,12 @@ export interface CaptureSettleWarnings {
   brokenImages: string[];
   /** Tracked images whose source changed during the window (rotators, ad creatives, beacons). */
   rotatedImages: number;
+  /**
+   * Rendered images still carrying a lazy data-* source instead of a real one at capture
+   * time. Always observed on the refusal path — srcless images fail imagesSettled — so a
+   * non-zero value means the capture was refused, not that it tolerated them.
+   */
+  srclessImages: number;
   /** Document-geometry movement tolerated across the window, in CSS px. */
   layoutDriftPx: number;
   /** Predicates admitted by tolerance instead of by an exact reading. */
@@ -625,8 +635,29 @@ export function buildPreCaptureSampleExpr(options: { fullPage?: boolean } = {}):
     if (bottom < 0 || top > vh || right < 0 || left > vw) return true;`}
     return false;
   };
+  // An img whose lazy source still lives in data-* attributes reads complete === true
+  // (measured: Pancake's data-src observer left 292/330 imgs srcless yet 'complete' on
+  // levents.asia), so it never reaches the pending or broken counts and a capture of it
+  // rasterizes a blank box. A rendered, non-beacon img with no effective source AND a
+  // lazy-source signal (data-src, data-srcset, or a picture ancestor carrying
+  // source[data-srcset]) is an unmaterialized image, not a stable one — count it so the
+  // gate can refuse instead of certifying missing content.
+  const isSrclessLazy = (img) => {
+    if (!img || isCannotLoad(img) || isTrackingBeacon(img)) return false;
+    const rawSrc = img.getAttribute ? img.getAttribute('src') : null;
+    const effectiveSrcless = (!img.src && !img.currentSrc && !img.srcset) || (rawSrc === '' && !img.currentSrc && !img.srcset);
+    if (!effectiveSrcless) return false;
+    if (img.getAttribute && (img.getAttribute('data-src') || img.getAttribute('data-srcset'))) return true;
+    const pic = img.closest ? img.closest('picture') : null;
+    if (pic && pic.querySelector && pic.querySelector('source[data-srcset]')) return true;
+    return false;
+  };
+  const srclessImages = imgs.filter(isSrclessLazy).length;
   const pendingImages = imgs.filter(i => !i.complete && !isCannotLoad(i) && !isTrackingBeacon(i)).length;
-  const brokenImages = imgs.filter(i => i.complete && i.naturalWidth === 0 && !isCannotLoad(i) && !isTrackingBeacon(i)).map(i => (i.currentSrc || i.src || '').slice(0, 150));
+  // A srcless lazy img also reads complete && naturalWidth === 0; it is unmaterialized,
+  // not failed — keep it out of the broken list so the counts stay separable and the
+  // reason text can name each class.
+  const brokenImages = imgs.filter(i => i.complete && i.naturalWidth === 0 && !isCannotLoad(i) && !isTrackingBeacon(i) && !isSrclessLazy(i)).map(i => (i.currentSrc || i.src || '').slice(0, 150));
 
   const hash32 = (s) => {
     let h = 0x811c9dc5;
@@ -683,6 +714,7 @@ export function buildPreCaptureSampleExpr(options: { fullPage?: boolean } = {}):
     fontsStatus,
     imageCount: imgs.length,
     pendingImages,
+    srclessImages,
     brokenImages,
     imageSetHash,
     imageStructureHash,
@@ -714,6 +746,7 @@ export async function evaluatePreCaptureQuiescence(
     fontsStatus: string;
     imageCount: number;
     pendingImages: number;
+    srclessImages?: number;
     brokenImages: string[];
     imageSetHash: string;
     imageStructureHash?: string;
@@ -728,6 +761,7 @@ export async function evaluatePreCaptureQuiescence(
   const emptyWarnings = (): CaptureSettleWarnings => ({
     brokenImages: [],
     rotatedImages: 0,
+    srclessImages: 0,
     layoutDriftPx: 0,
     toleratedPredicates: [],
   });
@@ -756,6 +790,7 @@ export async function evaluatePreCaptureQuiescence(
         scrollWidth: 0,
         imageCount: 0,
         pendingImages: 0,
+        srclessImages: 0,
         brokenImages: [],
         durationMs: Date.now() - t0,
         layoutDriftPx: 0,
@@ -845,7 +880,16 @@ export async function evaluatePreCaptureQuiescence(
   // while pending images still outnumber loaded ones — the page is still loading.
   const loadedImages = Math.max(0, sample2.imageCount - sample2.pendingImages);
   const leftoverPendingTolerated = sample2.pendingImages > 0 && loadedImages >= sample2.pendingImages;
-  const imagesSettled = sample2.pendingImages === 0 || leftoverPendingTolerated;
+  // An image whose source still lives in a data-* attribute reads complete === true in
+  // page script, so it never reaches pending or broken counts — yet the raster records
+  // a blank box (measured: levents.asia returned 292/330 imgs srcless after a settle
+  // that reported 0 pending). Waiting cannot materialize a source nobody assigns, so
+  // srcless images always refuse, and their presence disables the leftover-pending
+  // tolerance: a page still assembling its lazy content is not mostly-loaded.
+  const srclessImages = typeof sample2.srclessImages === 'number' && Number.isFinite(sample2.srclessImages)
+    ? sample2.srclessImages
+    : 0;
+  const imagesSettled = srclessImages === 0 && (sample2.pendingImages === 0 || leftoverPendingTolerated);
 
   // Structural identity: the tracked image set and each image's layout must hold.
   // A source swap inside an unmoved element is churn to report, not a reason to refuse.
@@ -930,6 +974,7 @@ export async function evaluatePreCaptureQuiescence(
   const warnings: CaptureSettleWarnings = {
     brokenImages: sample2.brokenImages,
     rotatedImages,
+    srclessImages,
     layoutDriftPx,
     toleratedPredicates,
   };
@@ -949,6 +994,7 @@ export async function evaluatePreCaptureQuiescence(
     scrollWidth: sample2.scrollWidth,
     imageCount: sample2.imageCount,
     pendingImages: sample2.pendingImages,
+    srclessImages,
     brokenImages: sample2.brokenImages,
     imageSetHash: sample2.imageSetHash,
     movingWitness,
@@ -977,7 +1023,9 @@ export async function evaluatePreCaptureQuiescence(
   } else if (!imagesSettled) {
     ready = false;
     failingPredicate = 'imagesSettled';
-    reason = `Detected ${sample2.pendingImages} pending image(s) still loading`;
+    reason = srclessImages > 0
+      ? `Detected ${srclessImages} unmaterialized image(s) (empty src with lazy-source attrs)${sample2.pendingImages > 0 ? ` alongside ${sample2.pendingImages} pending image(s) still loading` : ''}`
+      : `Detected ${sample2.pendingImages} pending image(s) still loading`;
   } else if (!imageIdentityStable) {
     ready = false;
     failingPredicate = 'imageIdentityStable';

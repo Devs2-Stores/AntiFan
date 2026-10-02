@@ -1690,6 +1690,7 @@ export class TerminalManager extends EventEmitter {
     };
 
     const canUseConpty = this.supportsConpty() && !this.conptyFailed;
+    const spawnStart = isBenchmarkEnabled() ? performance.now() : 0;
     if (canUseConpty) {
       try {
         child = spawnWithCwd({ ...basePtyOptions, useConpty: true }, validCwd);
@@ -1707,6 +1708,9 @@ export class TerminalManager extends EventEmitter {
         ...(process.platform === 'win32' ? { useConpty: false } : {}),
       };
       child = spawnWithCwd(legacyOptions, validCwd);
+    }
+    if (isBenchmarkEnabled()) {
+      recordBenchmark({ surface: 'terminal', name: 'ptySpawn', value: performance.now() - spawnStart, extra: { sessionId: id, conpty: canUseConpty && !this.conptyFailed } });
     }
     const s = this.createSessionRecord(id, validCwd, restoredBuffer, cols, rows, minimumRows, parentSessionId, generation, parentGeneration);
     // The record must carry its own shell handle: `writeTo`/`resizeTo` route through it, teardown
@@ -2040,8 +2044,12 @@ export class TerminalManager extends EventEmitter {
    */
   private async teardownSessionPty(s: Session | undefined): Promise<void> {
     if (!s) return;
+    const teardownStart = isBenchmarkEnabled() ? performance.now() : 0;
     // Drop per-session bookkeeping that belongs to the dead shell: unacked emit
     // stamps can never be acked once the pty stops emitting chunks.
+    // Collected here so the agent tree and the pty tree die in one Promise.all —
+    // two serial killProcessTree timeouts would stack into 4s on a stubborn tree.
+    const pidsToKill: number[] = [];
     this.emitTimeMs.delete(s.id);
     if (s.dataSubscription) {
       try { s.dataSubscription.dispose(); } catch {}
@@ -2126,14 +2134,20 @@ export class TerminalManager extends EventEmitter {
           try { (ptyInstance as any).unref(); } catch {}
         }
 
-        // 3. Kill agent process tree if separate
+        // 3. Kill agent process tree if separate — collected, not awaited: two
+        // serial killProcessTree calls stack their 2s timeouts into 4s on a
+        // stubborn tree, while the shells are independent and can die together.
         if (agentPid && typeof agentPid === 'number' && agentPid > 0 && agentPid !== pid) {
-          await killProcessTree(agentPid);
+          pidsToKill.push(agentPid);
         }
       } catch {}
     }
     if (pid && typeof pid === 'number' && pid > 0) {
-      await killProcessTree(pid);
+      pidsToKill.push(pid);
+    }
+    await Promise.all(pidsToKill.map((p) => killProcessTree(p)));
+    if (isBenchmarkEnabled()) {
+      recordBenchmark({ surface: 'terminal', name: 'ptyTeardown', value: performance.now() - teardownStart, extra: { sessionId: s.id, pids: pidsToKill.length } });
     }
   }
   private async safelyKillSession(s: Session | undefined): Promise<void> {
@@ -2440,6 +2454,11 @@ export class TerminalManager extends EventEmitter {
     if (s.splitOf) {
       const parent = this.sessions.get(s.splitOf);
       if (parent && !parent.disposed && parent.state === 'sleeping') this.wakeSession(s.splitOf);
+      // The parent's wake cascades to every parked pane below, so this record may
+      // already be live: a re-read keeps the outer call from walking the same
+      // transition twice and emitting a duplicate 'session-woken'.
+      const afterParent = this.sessions.get(id);
+      if (afterParent && afterParent.state === 'running' && afterParent.pty) return true;
     }
     // ensureSessionPty replaces the reserved record with the spawned one, so the
     // state flip and the event must be driven from the returned live record.
@@ -2457,9 +2476,22 @@ export class TerminalManager extends EventEmitter {
     }
     live.state = 'running';
     live.sleptAt = undefined;
+    // The wake mirrors the sleep cascade (sleepSession → parkRecord parks every
+    // pane in one transition): a woken tab must bring back the panes it parked,
+    // or the split comes up mounted but shell-less and its first keystroke is
+    // buffered into a pane the pool never materializes. The cascade runs BEFORE
+    // the final broadcast so no frame ever shows the parent awake while its
+    // panes are still asleep; a pane whose spawn fails stays asleep and remains
+    // wakeable through the split toggle, exactly as before.
+    for (const pane of [...this.sessions.values()]) {
+      if (pane.splitOf === id && !pane.disposed && pane.state === 'sleeping') {
+        this.wakeSession(pane.id);
+      }
+    }
+    const current = this.sessions.get(id) || live;
     this.schedulePersist(id);
     this.emitSession();
-    this.emit('session-woken', { id, generation: live.sessionGeneration });
+    this.emit('session-woken', { id, generation: current.sessionGeneration });
     return true;
   }
 

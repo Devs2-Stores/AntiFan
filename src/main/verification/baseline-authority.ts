@@ -16,6 +16,9 @@ export interface BaselineCaptureStateMini {
   backend: string;
   cssViewport: { width: number; height: number };
   rasterSize: { width: number; height: number };
+  captureMode?: VerificationCaptureReceipt['captureMode'];
+  cssCaptureSize?: { width: number; height: number };
+  observedUrl?: string;
   /**
    * The capture policy identity this baseline was promoted under. Absent on
    * baselines promoted before the identity existed: those hold pixels from a
@@ -141,6 +144,7 @@ export class BaselineAuthority {
     meta: {
       captureReceipt: VerificationCaptureReceipt;
       projectId?: string;
+      observedUrl?: string;
       artifactStore?: ArtifactStore;
     }
   ): VisualBaselineRef {
@@ -231,7 +235,10 @@ export class BaselineAuthority {
         zoom: receipt.zoom,
         cssViewport: { ...receipt.cssViewport },
         rasterSize: { width: rasterSize.width, height: rasterSize.height },
+        ...(receipt.captureMode ? { captureMode: receipt.captureMode } : {}),
+        ...(receipt.cssCaptureSize ? { cssCaptureSize: { ...receipt.cssCaptureSize } } : {}),
         ...(receipt.capturePolicy ? { capturePolicy: receipt.capturePolicy } : {}),
+        ...(meta.observedUrl ? { observedUrl: meta.observedUrl } : {}),
       },
       promotedAt: Date.now(),
       workspaceId,
@@ -356,6 +363,9 @@ export class BaselineAuthority {
     if (!policy.comparable) {
       return { compatible: false, reason: policy.reason };
     }
+    if (mini.captureMode && mini.captureMode !== targetReceipt.captureMode) {
+      return { compatible: false, reason: `Capture mode mismatch: baseline is '${mini.captureMode}', target is '${targetReceipt.captureMode}'` };
+    }
 
     if (targetReceipt.backend !== mini.backend) {
       return {
@@ -391,7 +401,7 @@ export class BaselineAuthority {
       targetReceipt.rasterSize &&
       mini.rasterSize &&
       (targetReceipt.rasterSize.width !== mini.rasterSize.width ||
-        targetReceipt.rasterSize.height !== mini.rasterSize.height)
+        (mini.captureMode !== 'full-page' && targetReceipt.rasterSize.height !== mini.rasterSize.height))
     ) {
       return {
         compatible: false,

@@ -4,6 +4,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { BrowserControlPort, computePixelDiff } from '../../src/main/tools/browser-control-port';
+import type { BrowserHostPort } from '../../src/main/tools/browser-control-port';
 import {
   BrowserTarget,
   CapabilityError,
@@ -138,6 +139,7 @@ describe('BaselineAuthority (Integration & Capability Dispatch)', () => {
     backend?: string;
     viewport?: { width: number; height: number };
     evalLog?: Array<{ script: string; tabId?: string }>;
+    fullPageHeight?: () => number;
   } = {}) {
     const evalLog = opts.evalLog || [];
     const testPng = createTestPng(800, 600);
@@ -174,20 +176,22 @@ describe('BaselineAuthority (Integration & Capability Dispatch)', () => {
       },
       getDocumentGeneration: () => 1,
       getMutationRevision: () => 1,
-      captureVerificationScreenshot: async () => ({
-        data: testPng.toString('base64'),
+      captureVerificationScreenshot: async (_rect?: unknown, _tabId?: string, _paneId?: string, options?: { fullPage?: boolean }) => ({
+        data: (options?.fullPage ? createTestPng(800, opts.fullPageHeight?.() ?? 1800) : testPng).toString('base64'),
         backend: opts.backend || 'cdp',
         dpr: opts.dpr ?? 1,
         zoom: 1,
         cssViewport: opts.viewport || { width: 800, height: 600 },
-        cssCaptureSize: opts.viewport || { width: 800, height: 600 },
-        rasterSize: { width: 800, height: 600 },
-        captureMode: 'viewport',
+        cssCaptureSize: options?.fullPage ? { width: 800, height: opts.fullPageHeight?.() ?? 1800 } : (opts.viewport || { width: 800, height: 600 }),
+        rasterSize: { width: 800, height: options?.fullPage ? (opts.fullPageHeight?.() ?? 1800) : 600 },
+        captureMode: options?.fullPage ? 'full-page' : 'viewport',
         timestamp: Date.now(),
       }),
     };
 
-    const port = new BrowserControlPort(host as any, artifactStore as any);
+    // This focused fixture implements only the host operations exercised by baseline tests.
+    const baselineHost = host as unknown as BrowserHostPort;
+    const port = new BrowserControlPort(baselineHost, artifactStore);
     const catalogue = new CapabilityCatalogue({
       runtime: { mode: 'standalone', lifecycle: 'active' },
       projectId: defaultProjectId,
@@ -337,6 +341,46 @@ describe('BaselineAuthority (Integration & Capability Dispatch)', () => {
       const baseRef = (await catalogue.dispatch('anti.visual.promote_baseline', {}, ctx)) as VisualBaselineRef;
       assert.ok(baseRef.id.startsWith('vbase_'));
       assert.equal(baseRef.workspaceId, defaultWorkspaceId);
+    });
+
+    it('preserves full-page baseline geometry and rejects a viewport comparison', async () => {
+      const { catalogue } = buildMockHarness();
+      for (const name of ['browser.promote-baseline', 'anti.visual.promote_baseline']) {
+        const baseRef = await catalogue.dispatch(name, { fullPage: true }, createTestContext()) as VisualBaselineRef;
+        assert.deepEqual(baseRef.captureStateMini.rasterSize, { width: 800, height: 1800 });
+        assert.deepEqual(baseRef.captureStateMini.cssViewport, { width: 800, height: 600 });
+        assert.deepEqual(baseRef.captureStateMini.cssCaptureSize, { width: 800, height: 1800 });
+        assert.equal(baseRef.captureStateMini.observedUrl, ROUTE_URL);
+        assert.equal(baseRef.captureStateMini.captureMode, 'full-page');
+        const resultValue = await catalogue.dispatch('browser.visual_compare', {
+          baselineRef: baseRef.id,
+          expectedTargetUrl: ROUTE_URL,
+        }, createTestContext());
+        assert.ok(resultValue && typeof resultValue === 'object');
+        assert.equal('status' in resultValue ? resultValue.status : undefined, 'INCONCLUSIVE');
+        assert.match(String('reason' in resultValue ? resultValue.reason : ''), /Capture mode mismatch/);
+        assert.equal('mismatchPercentage' in resultValue ? resultValue.mismatchPercentage : undefined, null);
+      }
+    });
+
+    it('routes full-page height loss to the structural gate with a full-page baseline receipt', async () => {
+      let height = 1800;
+      const { catalogue } = buildMockHarness({ fullPageHeight: () => height });
+      const baseline = await catalogue.dispatch('anti.visual.promote_baseline', { fullPage: true }, createTestContext()) as VisualBaselineRef;
+      height = 1200;
+      const result = await catalogue.dispatch('browser.visual_compare', {
+        baselineRef: baseline.id,
+        fullPage: true,
+        expectedTargetUrl: ROUTE_URL,
+      }, createTestContext());
+      assert.ok(result && typeof result === 'object');
+      assert.equal('verdict' in result ? result.verdict : undefined, 'STRUCTURAL_TRUNCATION_DETECTED');
+      assert.equal('captureStateCompatible' in result ? result.captureStateCompatible : undefined, true);
+      const captures = 'captureReceipts' in result ? result.captureReceipts : undefined;
+      assert.ok(captures && typeof captures === 'object' && 'baseline' in captures);
+      const baselineReceipt = captures.baseline;
+      assert.ok(baselineReceipt && typeof baselineReceipt === 'object' && 'captureMode' in baselineReceipt);
+      assert.equal(baselineReceipt.captureMode, 'full-page');
     });
 
     it('fails closed with BASELINE_TAMPERED if promoted baseline image is modified on disk', async () => {

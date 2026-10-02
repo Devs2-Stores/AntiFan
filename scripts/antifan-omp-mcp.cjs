@@ -19,7 +19,8 @@ const { CallToolRequestSchema, ListToolsRequestSchema } = require('@modelcontext
 // row against the app capability catalogue.
 const definitions = [
   ['anti.browser.tabs.list', 'List tabs affiliated with the authenticated session project by default. Pass all: true for global GUI discovery; affiliated marks same-project entries, not a grant of action authority.', { all: { type: 'boolean', default: false, description: 'Opt in to global GUI discovery.' }, affiliatedOnly: { type: 'boolean', description: 'Restrict discovery to the authenticated project/workspace.' }, projectId: { type: 'string', description: 'Project selector; must match the authenticated session project.' } }],
-  ['anti.browser.tabs.create', 'Open a tab in the authenticated anchor project/window without stealing focus by default.', { url: { type: 'string' }, activate: { type: 'boolean' }, anchorTabId: { type: 'string', description: 'Live same-project tab selecting the window for creation; obtain it with tabs.list.' }, projectId: { type: 'string', description: 'Project selector; must match authenticated anchor scope and cannot grant foreign authority.' } }],
+  ['anti.browser.tabs.get', 'Read a single tab row in the authenticated session project scope by tabId (same row shape as tabs.list; refused for out-of-scope tabs). Omit tabId to read the bound tab.', { tabId: { type: 'string' }, projectId: { type: 'string', description: 'Project selector; must match the authenticated session project.' } }, [], [], 'tabId'],
+  ['anti.browser.tabs.create', 'Open a tab in the authenticated anchor project/window without stealing focus by default.', { url: { type: 'string' }, activate: { type: 'boolean' }, anchorTabId: { type: 'string', description: 'Live same-project tab selecting the window for creation; obtain it with tabs.list.' }, ephemeral: { type: 'boolean' }, offscreen: { type: 'boolean' }, devicePresetId: { type: 'string', description: 'Device preset ID (e.g. iphone-15, xiaomi-14)' }, mobile: { type: 'boolean', description: 'Open directly in mobile mode with mobile User-Agent and viewport' }, projectId: { type: 'string', description: 'Project selector; must match authenticated anchor scope and cannot grant foreign authority.' } }],
   ['anti.browser.tabs.activate', 'Switch the active tab visible to the user in live AntiFan Desktop Browser GUI by tabId.', { tabId: { type: 'string' } }, ['tabId']],
   ['anti.browser.tabs.close', 'Close a tab in live AntiFan Desktop Browser GUI by tabId.', { tabId: { type: 'string' } }, ['tabId']],
   ['anti.browser.rebind_target', 'Rebind this session attachment to a live tabId after the bound tab detached or died. Use tabs.list to find a live tab, then rebind; subsequent calls target that tab.', { tabId: { type: 'string' } }, ['tabId']],
@@ -29,7 +30,7 @@ const definitions = [
   ['anti.inspect.dom', 'Read DOM elements and computed attributes from AntiFan Desktop tab (supports desktop and mobile split panes). Operates directly against background tab.', { selector: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], [], 'tabId'],
   ['anti.screenshot.viewport', 'Capture high-fidelity viewport screenshot from live AntiFan Desktop GUI (supports desktop and mobile split panes, format: jpeg/png). Viewport-only: full_page:true is rejected; use anti.screenshot.full_page for entire document height.', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, format: { type: 'string', enum: ['jpeg', 'png'] }, quality: { type: 'number' } }, [], [], 'tabId'],
   ['anti.screenshot.full_page', 'Capture canonical PNG full-page evidence (entire document scroll height) and stage it under the evidence lease.', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, format: { type: 'string', enum: ['png'] }, quality: { type: 'number' }, leaseToken: { type: 'string' }, expectedUrl: { type: 'string' } }, [], [], 'tabId'],
-  ['anti.reference.capture', 'Capture a reference from a live page: materialize lazily-mounted content, settle, then stage the settled DOM (and optionally a screenshot) so later measurements describe the page a comparator actually rasterizes.', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, selector: { type: 'string' }, screenshot: { type: 'boolean' }, format: { type: 'string', enum: ['png', 'jpeg'] }, quality: { type: 'number' } }, [], [], 'tabId'],
+  ['anti.reference.capture', 'Capture a reference from a live page: materialize lazily-mounted content, settle, then stage the settled DOM (and optionally a screenshot) so later measurements describe the page a comparator actually rasterizes.', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, selector: { type: 'string' }, screenshot: { type: 'boolean' }, format: { type: 'string', enum: ['png', 'jpeg'] }, quality: { type: 'number' }, materializeDataSrc: { type: 'boolean', description: 'Also materialize images that carry only lazy data-src/data-srcset attributes (default false: counted as unmaterialized)' } }, [], [], 'tabId'],
   ['anti.browser.set_viewport', 'Set the bound tab viewport dimensions and device emulation, verified against the size the tab actually measures.', { width: { type: 'number' }, height: { type: 'number' }, mobile: { type: 'boolean' }, deviceScaleFactor: { type: 'number' }, tabId: { type: 'string' }, reload: { type: 'boolean' } }, ['width', 'height'], [], 'tabId'],
   ['anti.browser.get_viewport', 'Get the bound tab viewport dimensions, DPR, device preset, and layout surface state without applying overrides.', { tabId: { type: 'string' } }, [], [], 'tabId'],
   ['anti.agent.cursor.click', 'Move visual Agent Cursor and click an element in live AntiFan Desktop tab without stealing visual focus.', { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, force: { type: 'boolean', description: 'Skip the occlusion and animation-stability gates for a knowingly covered or endlessly animating target' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], [], 'tabId'],
@@ -62,13 +63,15 @@ const definitions = [
   ['anti.agent.drop', 'Dispatch native drag and drop file transfer onto a target drop zone element in live AntiFan Desktop tab.', { refOrSelector: { type: 'string' }, filePaths: { type: 'array', items: { type: 'string' } }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, ['refOrSelector', 'filePaths'], [], 'tabId'],
   ['anti.agent.drag', 'Drag a control (price slider, range handle, drag-to-reorder row) from one element/coordinate to another with a bounded interpolated pointer gesture. A press-and-release at the destination alone does not move a slider library.', { fromRef: { type: 'string', description: 'Origin semantic ref (@e1) from a snapshot' }, fromSelector: { type: 'string', description: 'Origin CSS selector' }, fromX: { type: 'number' }, fromY: { type: 'number' }, toRef: { type: 'string', description: 'Destination semantic ref (@e1)' }, toSelector: { type: 'string', description: 'Destination CSS selector' }, toX: { type: 'number' }, toY: { type: 'number' }, steps: { type: 'number', description: 'Interpolated pointer-move steps, clamped to 4..20 (default 10)' }, force: { type: 'boolean', description: 'Skip the occlusion and animation-stability gates for a knowingly covered target' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], [], 'tabId'],
   ['anti.inspect.snapshot', 'Capture an accessible semantic snapshot of elements indexed with monotonic @e1..@eN references (supports selector and viewportOnly filtering).', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, selector: { type: 'string' }, viewportOnly: { type: 'boolean' } }, [], [], 'tabId'],
-  ['anti.browser.evaluate', 'Execute JavaScript expression in page context with depth-capped circular protection. Refuses a tab with no laid-out surface (0x0 CSS px) unless allowDegradedSurface is set.', { expression: { type: 'string' }, expressionFile: { type: 'string', description: 'Workspace-relative path to a file containing the JavaScript expression; mutually exclusive with expression' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, allowDegradedSurface: { type: 'boolean', description: 'Run even when the tab reports a 0x0 surface (diagnostic escape hatch; the page is not laid out and most measurements will be meaningless)' } }, [], [{ required: ['expression'] }, { required: ['expressionFile'] }], 'tabId'],
+  ['anti.browser.evaluate', 'Execute JavaScript expression in page context with depth-capped circular protection. Refuses a tab with no laid-out surface (0x0 CSS px) unless allowDegradedSurface is set.', { expression: { type: 'string' }, expressionFile: { type: 'string', description: 'Workspace-relative path to a file containing the JavaScript expression; mutually exclusive with expression' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, allowDegradedSurface: { type: 'boolean', description: 'Run even when the tab reports a 0x0 surface (diagnostic escape hatch; the page is not laid out and most measurements will be meaningless)' }, timeoutMs: { type: 'number', description: 'In-page execution budget in milliseconds (default 15000; capped by the capability invocation budget)' } }, [], [{ required: ['expression'] }, { required: ['expressionFile'] }], 'tabId'],
   ['anti.browser.evaluate_frame', 'Execute JavaScript inside a child frame selected by frameUrl substring.', { expression: { type: 'string' }, expressionFile: { type: 'string', description: 'Workspace-relative path to a file containing the JavaScript expression; mutually exclusive with expression' }, frameUrl: { type: 'string', minLength: 1 }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, ['frameUrl'], [{ required: ['expression'] }, { required: ['expressionFile'] }], 'tabId'],
   ['anti.telemetry.record_fallback', 'Record sanitized fallback telemetry when invoking Playwright after an AntiFan capability failure.', { primaryTool: { type: 'string' }, fallbackTool: { type: 'string' }, fallbackResult: { type: 'string', enum: ['SUCCESS', 'FAILED', 'SKIPPED'] }, sessionId: { type: 'string' }, targetUrl: { type: 'string' }, errorCode: { type: 'string' }, errorMessage: { type: 'string' }, durationMs: { type: 'number' }, notes: { type: 'string' } }, ['primaryTool', 'fallbackTool', 'fallbackResult']],
   ['anti.inspect.styles', 'Inspect computed CSS styles, box model, typography, layout, and CSS variables for an element (supports @ref or CSS selector).', { selector: { type: 'string' }, ref: { type: 'string' }, properties: { type: 'array', items: { type: 'string' } }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], [], 'tabId'],
   ['anti.inspect.region', 'Inspect spatial region bounds, collecting intersecting visible DOM elements with coordinates and z-index.', { x: { type: 'number' }, y: { type: 'number' }, width: { type: 'number' }, height: { type: 'number' }, selector: { type: 'string' }, ref: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], [], 'tabId'],
   ['anti.trace.interaction', 'Trace an interactive action (click, hover, focus, type, scroll) capturing pre/post DOM changes, style deltas, and layout shifts.', { action: { type: 'string', enum: ['click', 'hover', 'focus', 'type', 'scroll'] }, selector: { type: 'string' }, ref: { type: 'string' }, text: { type: 'string' }, deltaY: { type: 'number' }, settleMs: { type: 'number' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, ['action'], [], 'tabId'],
   ['anti.visual.compare', 'Compare current viewport or tab against baseline screenshot with pixel-level diffing, element selection, dynamic masking, and configurable tolerance.', { baselineScreenshotRef: { type: 'string' }, baselineRef: { type: 'string' }, comparisonTabId: { type: 'string' }, tolerance: { type: 'number' }, selector: { type: 'string' }, clipRect: { type: 'object', properties: { x: { type: 'number' }, y: { type: 'number' }, width: { type: 'number' }, height: { type: 'number' } } }, maskSelectors: { type: 'array', items: { type: 'string' } }, maskOptionalSelectors: { type: 'array', items: { type: 'string' } }, normalizeScroll: { type: 'boolean' }, fullPage: { type: 'boolean', description: 'Capture and compare entire document scroll height' }, useDefaultWidgetMasks: { type: 'boolean' }, leaseToken: { type: 'string' }, trackedSelectors: { type: 'array', items: { type: 'string' } }, heightTolerance: { type: 'number' }, allowHeightDrift: { type: 'boolean' }, maxGeometryDeltaPx: { type: 'number' }, expectedUrl: { type: 'string' }, expectedTargetUrl: { type: 'string' }, expectedBaselineUrl: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], [], 'tabId'],
+  ['browser.promote-baseline', 'Canonically capture the current tab (or specified tabId) via CDP, stage screenshot artifact, and promote it to an authoritative visual baseline reference.', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, fullPage: { type: 'boolean', description: 'Capture the entire document as the promoted baseline.' }, clipRect: { type: 'object', properties: { x: { type: 'number' }, y: { type: 'number' }, width: { type: 'number' }, height: { type: 'number' } } } }, [], [], 'tabId'],
+  ['anti.visual.promote_baseline', 'Alias for browser.promote-baseline: canonically capture and promote the current tab to an authoritative visual baseline reference.', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, fullPage: { type: 'boolean', description: 'Capture the entire document as the promoted baseline.' }, clipRect: { type: 'object', properties: { x: { type: 'number' }, y: { type: 'number' }, width: { type: 'number' }, height: { type: 'number' } } } }, [], [], 'tabId'],
   ['anti.media.freeze', 'Freeze or unfreeze dynamic media (videos, audios, CSS animations) in tab to enable deterministic visual comparisons. Native requestAnimationFrame scheduling is left untouched, so RAF-driven motion requires the settle barrier instead.', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, freeze: { type: 'boolean', description: 'True to freeze media and pause animations; false to resume' } }, [], [], 'tabId'],
   ['anti.inspect.page_inventory', 'Scan entire physical page structure from y=0 to scrollHeight, returning list of all sections, coordinates, heights, and layout groups (chống sót header/footer/newsletter).', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], [], 'tabId'],
   ['anti.inspect.style_diff', 'Compare computed CSS styles and box-model metrics between elements on two tabs (or two selectors).', { selector: { type: 'string', description: 'CSS selector of target element on tab 1' }, comparisonSelector: { type: 'string', description: 'CSS selector on tab 2 (defaults to selector)' }, tabId: { type: 'string' }, comparisonTabId: { type: 'string' }, properties: { type: 'array', items: { type: 'string' }, description: 'CSS properties to compare' } }, ['selector'], [], 'tabId'],
@@ -78,7 +81,7 @@ const definitions = [
   ['anti.artifact.stat', 'Retrieve metadata and size information for an authorized artifact.', { artifactId: { type: 'string' } }, ['artifactId']],
   ['browser.set-viewport', 'Set the bound Chromium tab viewport dimensions and device emulation.', { width: { type: 'number' }, height: { type: 'number' }, mobile: { type: 'boolean' }, deviceScaleFactor: { type: 'number' }, tabId: { type: 'string' }, reload: { type: 'boolean' } }, ['width', 'height'], [], 'tabId'],
   ['browser.get-viewport', 'Get the bound Chromium tab viewport dimensions, DPR, device preset, and layout surface state without applying overrides.', { tabId: { type: 'string' } }, [], [], 'tabId'],
-  ['browser.wait', 'Deterministic wait for selector, url, navigation, dom-stable, network, actionability, generation, or legacy condition states', { condition: { type: 'string', enum: ['selector', 'url', 'navigation', 'dom-stable', 'network', 'actionability', 'generation', 'ref', 'document_loaded', 'url_match', 'network_idle', 'dom_stable'], description: 'Wait condition to evaluate: selector | url | navigation | dom-stable | network | actionability | generation (or legacy aliases)' }, selector: { type: 'string', description: 'CSS selector to wait for' }, ref: { type: 'string', description: 'Semantic reference token (@e1) to wait for' }, urlPattern: { type: 'string', description: 'URL pattern or substring to match' }, url: { type: 'string', description: 'Alias for urlPattern' }, minGeneration: { type: 'number', description: 'Minimum document generation to wait for (generation or navigation condition)' }, state: { type: 'string', enum: ['attached', 'visible', 'actionable', 'detached', 'hidden'] }, timeoutMs: { type: 'number', description: 'Timeout in milliseconds (5000 default, 30000 max)' }, idleWindowMs: { type: 'number', description: 'Debounce idle window in milliseconds (500 default)' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, ['condition'], [], 'tabId'],
+  ['browser.wait', 'Deterministic wait for selector, url, navigation, dom-stable, network, actionability, generation, images-settled, or legacy condition states', { condition: { type: 'string', enum: ['selector', 'url', 'navigation', 'dom-stable', 'network', 'actionability', 'generation', 'ref', 'document_loaded', 'url_match', 'network_idle', 'dom_stable', 'images-settled'], description: 'Wait condition to evaluate: selector | url | navigation | dom-stable | network | actionability | generation | images-settled (or legacy aliases)' }, selector: { type: 'string', description: 'CSS selector to wait for' }, ref: { type: 'string', description: 'Semantic reference token (@e1) to wait for' }, urlPattern: { type: 'string', description: 'URL pattern or substring to match' }, url: { type: 'string', description: 'Alias for urlPattern' }, minGeneration: { type: 'number', description: 'Minimum document generation to wait for (generation or navigation condition)' }, state: { type: 'string', enum: ['attached', 'visible', 'actionable', 'detached', 'hidden'] }, timeoutMs: { type: 'number', description: 'Timeout in milliseconds (5000 default, 30000 max — the capability invocation budget; larger values are refused)' }, idleWindowMs: { type: 'number', description: 'Debounce idle window in milliseconds (500 default)' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, ['condition'], [], 'tabId'],
   ['file.read', 'Read a file relative to the authoritative workspace root.', { path: { type: 'string' }, maxBytes: { type: 'number' } }, ['path']],
   ['file.write', 'Write a file relative to the authoritative workspace root with boundary enforcement.', { path: { type: 'string' }, content: { type: 'string' } }, ['path', 'content']],
   ['anti.theme.resolve_element', 'Map a live DOM element to bounded, correlated local theme source candidates.', { selector: { type: 'string' }, ref: { type: 'string' }, workspaceRoot: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], [], 'tabId'],
@@ -1440,6 +1443,71 @@ function buildPendingCleanupResult(payload, entry) {
   };
 }
 
+// Catalogue effect parity is enforced by check-mcp-budget-dominance.mjs.
+const READ_SAFE_CAPABILITIES = Object.freeze({
+  'anti.browser.tabs.list': true,
+  'anti.browser.tabs.get': true,
+  'anti.inspect.dom': true,
+  'anti.screenshot.viewport': true,
+  'anti.screenshot.full_page': true,
+  'anti.reference.capture': true,
+  'anti.browser.get_viewport': true,
+  'device.list': true,
+  'device.status': true,
+  'device.screenshot': true,
+  'device.wait': true,
+  'theme.qa_validate': true,
+  'theme.debug_bundle': true,
+  'theme.assert_cart': true,
+  'theme.resolve_product': true,
+  'storefront.resolve_product': true,
+  'anti.inspect.snapshot': true,
+  'anti.inspect.styles': true,
+  'anti.inspect.region': true,
+  'anti.visual.compare': true,
+  'anti.inspect.page_inventory': true,
+  'anti.inspect.style_diff': true,
+  'anti.spec.validate_gate': true,
+  'anti.artifact.read': true,
+  'anti.artifact.stat': true,
+  'browser.get-viewport': true,
+  'browser.wait': true,
+  'file.read': true,
+  'anti.theme.resolve_element': true,
+  'anti.inspect.matched_styles': true,
+  'anti.inspect.responsive_matrix': true,
+  'anti.verification.list': true,
+  'core.query': true,
+  'core.context_pack': true,
+  'core.recommend': true,
+  'core.stats': true,
+  'core.health': true,
+  'core.reuse_metric': true,
+  'core.domain': true,
+  'core.experience_chain': true,
+  'core.anti_patterns': true,
+  'core.workarounds': true,
+  'core.fix_patterns': true,
+  'core.find_similar': true,
+  'core.classify_uncertainty': true,
+  'core.decay_check': true,
+  'core.corpus_audit': true,
+  'core.candidates': true,
+  'core.knowledge_gaps': true,
+  'core.check_phase_gate': true,
+  'core.principles': true,
+  'core.hidden_requirements': true,
+  'core.commercial_intel': true,
+  'core.tool_intel': true,
+  'core.archetypes': true,
+  'core.platform_semantics': true,
+  'core.practice_parity': true,
+  'core.skill_genealogy': true,
+  'core.context_pack_v2': true,
+  'terminal.wait': true,
+  'terminal.list': true,
+});
+
 // ─── Multiplexed Persistent Dispatch Socket ──────────────────────────────────
 let dispatchWs = null;
 let dispatchConnecting = null;
@@ -1453,7 +1521,7 @@ function wireDispatchSocket(ws) {
         return;
       }
       const payload = response.data && typeof response.data === 'object' ? response.data : null;
-      if (payload) {
+      if (payload && ws === dispatchWs) {
         const rev = payload.replacementAuthorityRevision || payload.authorityRevision;
         if (rev) {
           persistAuthorityRevision(rev);
@@ -1493,31 +1561,33 @@ function wireDispatchSocket(ws) {
         const errorText = typeof response.error === 'string' && response.error
           ? response.error
           : JSON.stringify(payload.code ? payload : { code: 'CAPABILITY_ERROR', message: 'AntiFan RPC failed' });
-        entry.reject(transportError(code, errorText, payload.details));
+        entry.reject(transportError(code, errorText, { ...payload.details, transmitted: entry.transmitted, signedAttachmentId: entry.signedAttachmentId }));
       }
     } catch {}
   });
 
   ws.once('error', (err) => {
-    dispatchConnecting = null;
     if (dispatchWs === ws) dispatchWs = null;
-    for (const [, entry] of pendingDispatchCalls.entries()) {
+    for (const [id, entry] of pendingDispatchCalls) {
+      if (entry.ws !== ws) continue;
       clearTimeout(entry.timer);
-      entry.reject(transportError('CONNECTION_ERROR', JSON.stringify({ code: 'CONNECTION_ERROR', message: `Dispatch WebSocket error: ${err.message}` })));
+      pendingDispatchCalls.delete(id);
+      entry.reject(transportError('CONNECTION_ERROR', JSON.stringify({ code: 'CONNECTION_ERROR', message: `Dispatch WebSocket error: ${err.message}` }),
+        { transmitted: entry.transmitted, signedAttachmentId: entry.signedAttachmentId, socket: ws }));
     }
-    pendingDispatchCalls.clear();
   });
 
   ws.once('close', (code, reason) => {
-    dispatchConnecting = null;
     if (dispatchWs === ws) dispatchWs = null;
     const reasonText = reason && reason.length ? reason.toString() : '';
     const detail = `Dispatch WebSocket closed while request in flight (code=${code}${reasonText ? `, reason=${reasonText}` : ''})`;
-    for (const [, entry] of pendingDispatchCalls.entries()) {
+    for (const [id, entry] of pendingDispatchCalls) {
+      if (entry.ws !== ws) continue;
       clearTimeout(entry.timer);
-      entry.reject(transportError('CONNECTION_CLOSED', JSON.stringify({ code: 'CONNECTION_CLOSED', message: detail, closeCode: code, closeReason: reasonText || undefined })));
+      pendingDispatchCalls.delete(id);
+      entry.reject(transportError('CONNECTION_CLOSED', JSON.stringify({ code: 'CONNECTION_CLOSED', message: detail, closeCode: code, closeReason: reasonText || undefined }),
+        { transmitted: entry.transmitted, signedAttachmentId: entry.signedAttachmentId, closeCode: code, socket: ws }));
     }
-    pendingDispatchCalls.clear();
   });
 }
 
@@ -1552,8 +1622,10 @@ function pairingBackoffMs(attempt) {
 // Refusals a retry cannot fix, because they describe the REQUEST rather than the moment: the grant
 // name is wrong, the client class does not match, the code was revoked. Retrying one of these would
 // hammer the bridge, still fail, and hide a real policy error behind a timeout. Everything else — a
-// stalled socket, a refused connection, a depleted queue, a 5xx, or a code consumed or expired
-// before we could spend it — is a transient availability fact and is retried with a FRESH challenge.
+// stalled socket, a depleted queue, a 5xx, or a code consumed or expired before we could spend it —
+// is a transient availability fact and is retried with a FRESH challenge. A refused connection ends
+// THIS pairing exchange; no socket exists to hold while the restarted bridge comes back, so the
+// caller proceeds to failover/retry rather than burning four challenges against nothing.
 // A retry never re-presents the previous code, so the single-use guarantee is untouched: the bridge
 // still refuses the old code with 409, and this process never sends it twice.
 const TERMINAL_PAIRING_ERRORS = new Set([
@@ -1569,6 +1641,11 @@ const TERMINAL_PAIRING_ERRORS = new Set([
   'PAYLOAD_TOO_LARGE',
   'TERMINAL_TAB_CLOSED',
   'BRIDGE_UNREACHABLE',
+  'TARGET_STALE',
+  'TERMINAL_SCOPE_UNRESOLVED',
+  'PROJECT_MISMATCH',
+  'WORKSPACE_MISMATCH',
+  'POLICY_DENIED',
 ]);
 
 function pairingFailureParts(err) {
@@ -1693,6 +1770,8 @@ async function performPairingExchange(host, port, options = {}) {
         requestedGrant: resolveSessionGrant(),
         tabId: process.env.ANTIFAN_BOUND_TAB_ID || undefined,
         terminalSessionId: process.env.ANTIFAN_TERMINAL_AFFINITY_SESSION_ID || process.env.ANTIFAN_TERMINAL_PARENT_SESSION_ID || process.env.ANTIFAN_TERMINAL_SESSION_ID || undefined,
+        projectId: getBootstrap()?.projectId,
+        workspaceId: getBootstrap()?.workspaceId,
         cwd: process.cwd(),
       });
       if (!exchange?.success || !exchange?.secret) {
@@ -1902,7 +1981,9 @@ async function tryReuseLiveAttachment(candidate) {
     if (existing.authorityRevision) currentAuthorityRevision = existing.authorityRevision;
     // Wire the dispatch socket before the heartbeat, exactly as the pairing path does, so no
     // recovery path can observe an unbound dispatcher while the binding is being restored.
+    const previousDispatch = dispatchWs;
     dispatchWs = ws;
+    if (previousDispatch && previousDispatch !== ws) { try { previousDispatch.close(); } catch {} }
     wireDispatchSocket(ws);
     startHeartbeat(dynamicBootstrap);
     process.stderr.write(
@@ -1922,7 +2003,19 @@ async function tryReuseLiveAttachment(candidate) {
   }
 }
 
-async function autohealSession() {
+let healInFlight = null;
+function autohealSession() {
+  if (!healInFlight) {
+    healInFlight = autohealSessionOnce().finally(() => { healInFlight = null; });
+  }
+  return healInFlight;
+}
+// ensureDispatchSocket can invoke this same single flight before invoke's outer
+// healedOnce budget sees it. Sustained flapping is therefore bounded, not one
+// recovery per dispatch frame; a caller can still hit the three-attempt invoke
+// ceiling and a few pairing attempts per recovery.
+
+async function autohealSessionOnce() {
   const candidates = resolveFailoverCandidates();
   lastAutohealFailures = [];
   if (candidates.length === 0) {
@@ -2004,7 +2097,7 @@ async function autohealSession() {
       });
 
       let session = null;
-      if (pairedExchange && pairedExchange.secret && pairedExchange.attachmentId) {
+      if (pairedExchange && pairedExchange.secret && pairedExchange.attachmentId && !pairedExchange.recoveredStaleAnchor) {
         let resolvedTabId = process.env.ANTIFAN_BOUND_TAB_ID;
         try {
           const tabListId = 'tabs-' + crypto.randomUUID();
@@ -2195,7 +2288,9 @@ async function autohealSession() {
 
       // Wire the dispatch socket before the heartbeat so no recovery path can
       // observe an unbound dispatcher while the binding is being rebound.
+      const previousDispatch = dispatchWs;
       dispatchWs = ws;
+      if (previousDispatch && previousDispatch !== ws) { try { previousDispatch.close(); } catch {} }
       wireDispatchSocket(ws);
       startHeartbeat(dynamicBootstrap);
       return dynamicBootstrap;
@@ -2282,7 +2377,9 @@ async function ensureDispatchSocket(bootstrap) {
           });
         });
 
+        const previousDispatch = dispatchWs;
         dispatchWs = ws;
+        if (previousDispatch && previousDispatch !== ws) { try { previousDispatch.close(); } catch {} }
         wireDispatchSocket(ws);
         return ws;
       } catch (err) {
@@ -2472,20 +2569,42 @@ async function invoke(method, params = {}, callerRequestId) {
   if (ambientTargetField && !effectiveParams[ambientTargetField] && boundTabId) {
     effectiveParams[ambientTargetField] = boundTabId;
   }
-  const injectedAmbientTabId = ambientTargetField && !ambientTargetSuppliedByCaller && typeof effectiveParams[ambientTargetField] === 'string'
+  let injectedAmbientTabId = ambientTargetField && !ambientTargetSuppliedByCaller && typeof effectiveParams[ambientTargetField] === 'string'
     ? effectiveParams[ambientTargetField]
     : null;
   if (mapped === 'artifact.read') {
     const rawLimit = typeof params.limit === 'number' && params.limit > 0 ? params.limit : 32768;
     effectiveParams.limit = Math.min(rawLimit, 32768); // Bounded chunk size: <= 32 KiB per frame
   }
+  let everTransmitted = false;
+  let lastTransmittedAttachmentId = null;
   const sendDispatch = async (currentBoot) => {
-    const ws = await ensureDispatchSocket(currentBoot);
+    let ws;
+    try {
+      ws = await ensureDispatchSocket(currentBoot);
+    } catch (err) {
+      err.details = { ...err.details, transmitted: false, signedAttachmentId: currentBoot.attachmentId };
+      throw err;
+    }
     // ensureDispatchSocket may have autohealed: it replaces dynamicBootstrap with
     // the healed authority while `currentBoot` still names the stale one. Sign the
     // envelope with the live bootstrap or the dispatch carries a dead secret.
     const liveBoot = getBootstrap();
     const boot = liveBoot && liveBoot.secret ? liveBoot : currentBoot;
+    if (everTransmitted && boot.attachmentId !== lastTransmittedAttachmentId && !READ_SAFE_CAPABILITIES[method]) {
+      throw transportError('EXECUTION_UNCERTAIN', JSON.stringify({
+        code: 'EXECUTION_UNCERTAIN',
+        message: 'The call may have executed before authority changed. Refused to replay under another attachment; inspect the result before deliberately reissuing it.',
+        details: { method: mapped, idempotencyKey: identity.idempotencyKey },
+      }));
+    }
+    if (!everTransmitted && boot.attachmentId !== currentBoot.attachmentId && ambientTargetField && !ambientTargetSuppliedByCaller) {
+      const target = resolveBoundTabId(boot.tabId);
+      if (target) effectiveParams[ambientTargetField] = target;
+      else delete effectiveParams[ambientTargetField];
+      injectedAmbientTabId = target || null;
+      identity = resolveInvocationIdentity(undefined, {});
+    }
     const id = crypto.randomUUID();
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -2498,6 +2617,9 @@ async function invoke(method, params = {}, callerRequestId) {
       }, timeoutMs);
 
       pendingDispatchCalls.set(id, {
+        ws,
+        transmitted: false,
+        signedAttachmentId: boot.attachmentId,
         requestId: identity.requestId,
         idempotencyKey: identity.idempotencyKey,
         resolve: (data) => {
@@ -2560,50 +2682,74 @@ async function invoke(method, params = {}, callerRequestId) {
             },
           },
         }));
+        everTransmitted = true;
+        lastTransmittedAttachmentId = boot.attachmentId;
+        const entry = pendingDispatchCalls.get(id);
+        if (entry) entry.transmitted = true;
       } catch (err) {
         clearTimeout(timer);
         pendingDispatchCalls.delete(id);
-        reject(err);
+        reject(transportError('CONNECTION_ERROR', String(err.message || err), { transmitted: false, signedAttachmentId: boot.attachmentId }));
       }
     });
   };
 
-  try {
-    return await sendDispatch(bootstrap);
-  } catch (err) {
-    const liveTarget = retargetableAmbientTabId(err, injectedAmbientTabId, ambientTargetField);
-    if (liveTarget) {
-      // The desktop raises this refusal at target resolution, before the capability
-      // body runs, so re-aiming it at the live target it named cannot double-execute
-      // anything. Only the id THIS proxy injected is retargeted; an id the caller
-      // passed explicitly stays the caller's own business. The invocation identity is
-      // re-minted because the refused attempt is terminal: resending its key would
-      // join the refusal instead of dispatching.
-      process.stderr.write(`[AntiFan MCP] Bound tab '${injectedAmbientTabId}' is no longer live; retargeting '${mapped}' to '${liveTarget}'\n`);
-      recordBoundTab(liveTarget);
-      effectiveParams[ambientTargetField] = liveTarget;
-      identity = resolveInvocationIdentity(undefined, {});
-      return await sendDispatch(bootstrap);
-    }
-    // Only connection/auth faults may retry; operation timeouts never do.
-    if (!isRetryableTransportError(err)) throw err;
-    const errStr = String(err?.message || err);
-    process.stderr.write(`[AntiFan MCP] Connection or auth issue detected (${errStr}). Autohealing...\n`);
-    if (dispatchWs) {
-      try { dispatchWs.close(); } catch {}
-      dispatchWs = null;
-    }
-    const healed = await autohealSession();
-    if (healed && healed.secret) {
-      return await sendDispatch(healed);
-    }
-    // No failover candidate answered, but the original bridge may still be
-    // alive (single-instance app): one same-endpoint reconnect with the
-    // existing secret before giving up.
+  let healedOnce = false;
+  let retargetedOnce = false;
+  let currentBoot = bootstrap;
+  let previousFailure = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      return await sendDispatch(bootstrap);
-    } catch {
-      throw err;
+      return await sendDispatch(currentBoot);
+    } catch (err) {
+      const liveTarget = retargetableAmbientTabId(err, injectedAmbientTabId, ambientTargetField);
+      if (liveTarget && !retargetedOnce && attempt < 2) {
+        retargetedOnce = true;
+        recordBoundTab(liveTarget);
+        effectiveParams[ambientTargetField] = liveTarget;
+        injectedAmbientTabId = liveTarget;
+        identity = resolveInvocationIdentity(undefined, {});
+        continue;
+      }
+      if (!isRetryableTransportError(err) || healedOnce || attempt === 2) {
+        if (previousFailure) {
+          try {
+            const diagnostic = JSON.parse(err.message);
+            diagnostic.details = { ...diagnostic.details, previousFailure };
+            err.message = JSON.stringify(diagnostic);
+          } catch {}
+        }
+        throw err;
+      }
+      healedOnce = true;
+      previousFailure = { code: err.code, closeCode: err.details?.closeCode, transmitted: err.details?.transmitted, signedAttachmentId: err.details?.signedAttachmentId };
+      process.stderr.write(`[AntiFan MCP] Connection or auth issue detected (${String(err.message || err)}). Autohealing...\n`);
+      const failedSocket = err.details?.socket;
+      if (failedSocket) {
+        if (dispatchWs === failedSocket) dispatchWs = null;
+        try { failedSocket.close(); } catch {}
+      }
+      const healed = await autohealSession();
+      if (!healed || !healed.secret) continue;
+      currentBoot = healed;
+      const transmitted = err.details?.transmitted;
+      if (transmitted === false) {
+        let changed = false;
+        if (ambientTargetField && !ambientTargetSuppliedByCaller) {
+          const target = resolveBoundTabId(healed.tabId);
+          if (target) effectiveParams[ambientTargetField] = target;
+          else delete effectiveParams[ambientTargetField];
+          injectedAmbientTabId = target || null;
+          changed = true;
+        }
+        if (changed || !identity.idempotencyKey) identity = resolveInvocationIdentity(undefined, {});
+      } else if (healed.attachmentId !== err.details?.signedAttachmentId && !READ_SAFE_CAPABILITIES[method]) {
+        throw transportError('EXECUTION_UNCERTAIN', JSON.stringify({
+          code: 'EXECUTION_UNCERTAIN',
+          message: 'The call may have executed before the connection died. Refused to replay under a recovered attachment; inspect the result before deliberately reissuing it.',
+          details: { method: mapped, idempotencyKey: identity.idempotencyKey },
+        }));
+      }
     }
   }
 }
@@ -2961,6 +3107,7 @@ module.exports = {
   invoke,
   invokeCore,
   DEFAULT_CLIENT_TIMEOUT_MS,
+  READ_SAFE_CAPABILITIES,
   ambientTargetFieldFor,
   recordClientFailure,
   bridgeClientFailuresPath,

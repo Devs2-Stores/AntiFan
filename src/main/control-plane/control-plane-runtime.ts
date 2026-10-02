@@ -609,9 +609,12 @@ export class ControlPlaneRuntime {
     });
   }
 
-  public resolveBrowserSessionWorkspace(options: { tabId?: string; originTerminalSessionId?: string; projectId?: string; workspaceId?: string; cwd?: string }): WorkspaceRecord {
+  public resolveBrowserSessionWorkspace(options: { tabId?: string; originTerminalSessionId?: string; projectId?: string; workspaceId?: string; cwd?: string; requireMeasuredTerminalScope?: boolean }): WorkspaceRecord {
     if (options.originTerminalSessionId) {
       const scope = this.resolveTerminalScope(options.originTerminalSessionId);
+      if (options.requireMeasuredTerminalScope && scope.kind !== 'measured') {
+        throw new CapabilityError('TERMINAL_SCOPE_UNRESOLVED', 'Restart recovery requires a measured terminal project');
+      }
       if (scope.kind === 'unmeasurable') {
         throw new CapabilityError('TERMINAL_SCOPE_UNRESOLVED', 'Pairing terminal scope cannot be measured');
       }
@@ -622,8 +625,12 @@ export class ControlPlaneRuntime {
         if (options.workspaceId && options.workspaceId !== scope.workspaceId) {
           throw new CapabilityError('WORKSPACE_MISMATCH', 'Requested workspace conflicts with the measured terminal workspace');
         }
-        const workspace = this.resolveBrowserSessionWorkspace({ ...options, originTerminalSessionId: undefined, projectId: scope.projectId, workspaceId: scope.workspaceId });
-        return workspace;
+        try {
+          return this.resolveBrowserSessionWorkspace({ ...options, originTerminalSessionId: undefined, projectId: scope.projectId, workspaceId: scope.workspaceId });
+        } catch (error: unknown) {
+          if (error instanceof CapabilityError) throw error;
+          throw new CapabilityError('TERMINAL_SCOPE_UNRESOLVED', 'Measured terminal workspace cannot be resolved');
+        }
       }
     }
     const affiliation = options.tabId ? this.resolveTabAffiliationOption?.(options.tabId) : undefined;

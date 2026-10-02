@@ -79,6 +79,35 @@ function claimsFor(launch: { attachmentId: string; secret: string; runId: string
 }
 
 describe('ControlPlaneRuntime terminal-origin project scope', () => {
+  it('requires measured unchanged terminal authority for stale-anchor recovery', async () => {
+    const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-restart-scope-'));
+    const projectId = makeControlPlaneId('project');
+    const workspaceId = makeControlPlaneId('workspace');
+    const unregisteredWorkspaceId = makeControlPlaneId('workspace');
+    try {
+      const runtime = new ControlPlaneRuntime({
+        projectId, workspaceId, dataRoot, terminal: makeTerminalStub(new Map()),
+        resolveTerminalProjectScope: id => {
+          if (id === 'terminal-live') return { projectId, workspaceId };
+          if (id === 'terminal-missing-workspace') return { projectId, workspaceId: unregisteredWorkspaceId };
+          return undefined;
+        },
+      });
+      await runtime.initialize();
+      const options = { originTerminalSessionId: 'terminal-live', projectId, workspaceId, requireMeasuredTerminalScope: true };
+      assert.strictEqual(runtime.resolveBrowserSessionWorkspace(options).id, workspaceId);
+      assert.throws(() => runtime.resolveBrowserSessionWorkspace({ ...options, originTerminalSessionId: 'missing' }),
+        (error: unknown) => error instanceof CapabilityError && error.code === 'TERMINAL_SCOPE_UNRESOLVED');
+      assert.throws(() => runtime.resolveBrowserSessionWorkspace({ ...options, projectId: 'foreign-project' }),
+        (error: unknown) => error instanceof CapabilityError && error.code === 'PROJECT_MISMATCH');
+      assert.throws(() => runtime.resolveBrowserSessionWorkspace({ ...options, workspaceId: 'foreign-workspace' }),
+        (error: unknown) => error instanceof CapabilityError && error.code === 'WORKSPACE_MISMATCH');
+      assert.throws(() => runtime.resolveBrowserSessionWorkspace({ ...options, originTerminalSessionId: 'terminal-missing-workspace', workspaceId: unregisteredWorkspaceId }),
+        (error: unknown) => error instanceof CapabilityError && error.code === 'TERMINAL_SCOPE_UNRESOLVED');
+    } finally {
+      fs.rmSync(dataRoot, { recursive: true, force: true });
+    }
+  });
   it('mints anchor scope rather than bootstrap scope and refuses foreign rebinding', async () => {
     const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-anchor-scope-'));
     const projectA = makeControlPlaneId('project');

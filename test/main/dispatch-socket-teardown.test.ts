@@ -20,18 +20,15 @@
  * That one fact is what these tests pin, and it is what excludes the whole
  * "a timeout/heartbeat killed the busy socket" family of explanations:
  *
- *   1. `close()` with no code (bridge dispose)  => closeCode 1005, and the
- *      diagnostic must never implicate a timeout.
- *   2. `terminate()` (bridge heartbeat reaper, slow-client reaper, or a
- *      `taskkill /T /F` app restart)           => closeCode 1006 — so the two
- *      teardowns are distinguishable from the recorded symptom.
- *   3. One teardown rejects EVERY in-flight call on the channel, not only the
- *      call whose socket died: the proxy rejects the whole process-global
- *      pending map from the socket's `close` handler. This is the part that
- *      turns a transport hiccup into silent, unattributable work loss.
+ *   1. `close()` with no code (bridge dispose) => originating closeCode 1005.
+ *   2. `terminate()` (bridge heartbeat reaper, slow-client reaper, or force-kill)
+ *      => originating closeCode 1006. Recovery's later failure is the top-level
+ *      diagnostic; its details retain the original dispatch attribution.
+ *   3. One teardown rejects EVERY in-flight call on that socket, but a late
+ *      close from an old socket must not reject calls on its replacement.
  *
- * The mock bridge here never answers a dispatch, so the request stays in flight
- * exactly like a long DOM dump. The proxy under test is the real one shipped in
+ * The mock bridge leaves dispatches unanswered unless a test explicitly answers
+ * them, so requests stay in flight like a long DOM dump. The proxy is real in
  * this repo; no AntiFan Desktop instance is contacted (the bootstrap is pinned to
  * the mock port and every ambient discovery input is scrubbed, mirroring
  * `test/main/mcp-persistent-transport.test.ts`).
@@ -68,6 +65,7 @@ const DISCOVERY_ENV_KEYS = [
 
 interface DispatchRecord {
   socket: WebSocket;
+  id: string;
   capability: string | undefined;
 }
 
@@ -75,6 +73,14 @@ interface TransportDiagnostic {
   code?: string;
   message?: string;
   closeCode?: number;
+  details?: {
+    previousFailure?: {
+      code?: string;
+      closeCode?: number;
+      transmitted?: boolean;
+      signedAttachmentId?: string;
+    };
+  };
 }
 
 interface Harness {
@@ -93,6 +99,8 @@ interface Harness {
    */
   refuseFurtherConnections: () => void;
   callTool: (mcpId: number, name: string, args: Record<string, unknown>) => Promise<Record<string, unknown>>;
+  waitForLateClose: () => Promise<void>;
+  answerDispatch: (record: DispatchRecord) => void;
   dispose: () => void;
 }
 
@@ -129,7 +137,7 @@ function requireRecord(record: DispatchRecord | undefined, message: string): Dis
   return record;
 }
 
-async function startHarness(): Promise<Harness> {
+async function startHarness(options: { delayOldClose?: boolean } = {}): Promise<Harness> {
   assert.ok(fs.existsSync(PROXY_SCRIPT), `proxy script must exist: ${PROXY_SCRIPT}`);
 
   const wss = new WebSocketServer({ port: 0 });
@@ -142,6 +150,8 @@ async function startHarness(): Promise<Harness> {
   const dispatches: DispatchRecord[] = [];
   let dispatchWatchers: Array<() => void> = [];
   let refusing = false;
+  let releaseLateClose: () => void = () => {};
+  const lateClose = new Promise<void>((resolve) => { releaseLateClose = resolve; });
 
   wss.on('connection', (ws) => {
     if (refusing) {
@@ -157,6 +167,10 @@ async function startHarness(): Promise<Harness> {
       } catch {
         return;
       }
+      if (message.method === 'harness.lateCloseReleased') {
+        releaseLateClose();
+        return;
+      }
       // The dedicated heartbeat channel must stay answerable, otherwise the proxy
       // spends the test re-connecting it instead of exercising the dispatch path.
       if (message.id === 'hb') {
@@ -164,7 +178,7 @@ async function startHarness(): Promise<Harness> {
         return;
       }
       if (message.method === 'antifan.capability.dispatch') {
-        dispatches.push({ socket: ws, capability: message.params?.name });
+        dispatches.push({ socket: ws, capability: message.params?.name, id: String(message.id) });
         // Deliberately unanswered: a slow capability (a large DOM dump) is the
         // situation whose socket teardown this suite characterises.
         for (const watcher of dispatchWatchers) watcher();
@@ -194,7 +208,40 @@ async function startHarness(): Promise<Harness> {
   };
   for (const key of DISCOVERY_ENV_KEYS) delete env[key];
 
-  const child = spawn(process.execPath, [PROXY_SCRIPT], { env, stdio: ['pipe', 'pipe', 'pipe'] });
+  // Control the client event ordering, not the product handlers: a real old
+  // socket close is held until a dispatch is pending on its replacement.
+  const delayedCloseBootstrap = `
+    const { WebSocket } = require('ws');
+    const originalEmit = WebSocket.prototype.emit;
+    const originalSend = WebSocket.prototype.send;
+    let oldSocket;
+    let heldClose;
+    let released = false;
+    WebSocket.prototype.emit = function(event, ...args) {
+      if (event === 'close' && this === oldSocket && !released) {
+        heldClose = () => originalEmit.call(this, event, ...args);
+        originalEmit.call(this, 'error', new Error('Old dispatch transport failed before its late close'));
+        return true;
+      }
+      return originalEmit.call(this, event, ...args);
+    };
+    WebSocket.prototype.send = function(data, ...args) {
+      const message = JSON.parse(String(data));
+      if (message.method === 'antifan.capability.dispatch' && !oldSocket) oldSocket = this;
+      const result = originalSend.call(this, data, ...args);
+      if (message.method === 'antifan.capability.dispatch' && this !== oldSocket && heldClose && !released) {
+        released = true;
+        queueMicrotask(() => {
+          heldClose();
+          originalSend.call(this, JSON.stringify({ method: 'harness.lateCloseReleased' }));
+        });
+      }
+      return result;
+    };
+    process.argv[1] = ${JSON.stringify(PROXY_SCRIPT)};
+    require('node:module').runMain();
+  `;
+  const child = spawn(process.execPath, options.delayOldClose ? ['--eval', delayedCloseBootstrap] : [PROXY_SCRIPT], { env, stdio: ['pipe', 'pipe', 'pipe'] });
   // Drain stderr: a full pipe would stall the child, and the text is the first
   // thing a human wants when an assertion here fails.
   let stderrBuffer = '';
@@ -286,6 +333,8 @@ async function startHarness(): Promise<Harness> {
       wss.close();
     },
     callTool,
+    waitForLateClose: () => withTimeout(lateClose, 15_000, 'old socket close must occur after replacement dispatch'),
+    answerDispatch: (record) => record.socket.send(JSON.stringify({ id: record.id, success: true, data: { ok: true } })),
     dispose: () => {
       refusing = true;
       try { child.kill(); } catch {}
@@ -321,9 +370,11 @@ describe('Dispatch socket teardown: the caller must learn the real cause', () =>
       const diagnostic = unwrapDiagnostic(response);
       const text = JSON.stringify(response);
 
-      assert.strictEqual(diagnostic.code, 'CONNECTION_CLOSED', `expected a typed CONNECTION_CLOSED, got: ${text}`);
+      assert.strictEqual(diagnostic.code, 'CONNECTION_FAILED', `latest reconnect failure must surface: ${text}`);
+      assert.strictEqual(diagnostic.details?.previousFailure?.code, 'CONNECTION_CLOSED', 'original dispatch close stays attributable');
+      assert.strictEqual(diagnostic.details?.previousFailure?.transmitted, true, 'originating frame was dispatched, not a heartbeat or initial connect failure');
       assert.strictEqual(
-        diagnostic.closeCode,
+        diagnostic.details?.previousFailure?.closeCode,
         1005,
         'an empty close frame is the only thing ws reports as 1005; a 1006 here would mean the teardown sent no frame at all'
       );
@@ -351,9 +402,11 @@ describe('Dispatch socket teardown: the caller must learn the real cause', () =>
       const response = await call;
       const diagnostic = unwrapDiagnostic(response);
 
-      assert.strictEqual(diagnostic.code, 'CONNECTION_CLOSED', `expected a typed CONNECTION_CLOSED: ${JSON.stringify(response)}`);
+      assert.strictEqual(diagnostic.code, 'CONNECTION_FAILED', `latest reconnect failure must surface: ${JSON.stringify(response)}`);
+      assert.strictEqual(diagnostic.details?.previousFailure?.code, 'CONNECTION_CLOSED', 'original dispatch close stays attributable');
+      assert.strictEqual(diagnostic.details?.previousFailure?.transmitted, true, 'termination occurred while dispatch was in flight');
       assert.strictEqual(
-        diagnostic.closeCode,
+        diagnostic.details?.previousFailure?.closeCode,
         1006,
         'terminate() destroys the socket with no close frame, so the peer must report 1006 — the code that distinguishes it from the recorded 1005'
       );
@@ -374,6 +427,7 @@ describe('Dispatch socket teardown: the caller must learn the real cause', () =>
         ['browser.dom', 'browser.dump_dom'],
         'both capabilities must have reached the bridge before the teardown'
       );
+      assert.strictEqual(inFlight[1]?.socket, dying.socket, 'both calls must occupy the same dying channel');
 
       harness.refuseFurtherConnections();
       harness.closeLikeDispose(dying.socket);
@@ -383,11 +437,13 @@ describe('Dispatch socket teardown: the caller must learn the real cause', () =>
         const diagnostic = unwrapDiagnostic(response);
         assert.strictEqual(
           diagnostic.code,
-          'CONNECTION_CLOSED',
+          'CONNECTION_FAILED',
           `${label} must be terminally rejected, not left hanging: ${JSON.stringify(response)}`
         );
+        assert.strictEqual(diagnostic.details?.previousFailure?.code, 'CONNECTION_CLOSED', `${label} retains the originating teardown`);
+        assert.strictEqual(diagnostic.details?.previousFailure?.transmitted, true, `${label} was in flight on the dying socket`);
         assert.strictEqual(
-          diagnostic.closeCode,
+          diagnostic.details?.previousFailure?.closeCode,
           1005,
           `${label} died from a teardown it did not cause; today the close status is the only attribution it gets`
         );
@@ -397,47 +453,32 @@ describe('Dispatch socket teardown: the caller must learn the real cause', () =>
     }
   });
 
-  /**
-   * ACTIVATION NOTE. The behaviour this asserts is the *desired* contract, and it
-   * requires the socket-scoped rejection fix in `scripts/antifan-omp-mcp.cjs`
-   * (reject only the calls whose own socket died, and surface the retry's real
-   * error instead of rethrowing the stale original). The product fix is tracked in
-   * `docs/superpowers/specs/2026-09-28-test-harness-honesty-design.md` §3 row I10,
-   * and this assertion would fail on today's code (which multiplexes all calls
-   * over a single dispatchWs and clears all pending calls on any socket close).
-   * Un-skip it in the same change that lands that fix; test 3 above then inverts from
-   * "every in-flight call dies" to "only the dead socket's calls die".
-   *
-   * Skipped so the suite stays green while the product-side fix is staged.
-   */
-  it('4. [activate with the proxy fix] a teardown must not destroy calls it did not carry', { skip: 'pending scripts/antifan-omp-mcp.cjs socket-scoped rejection (see docs/superpowers/specs/2026-09-28-test-harness-honesty-design.md §3 row I10)' }, async () => {
-    const harness = await startHarness();
+  it('4. A late old-socket close leaves the replacement socket call pending until its own response', async () => {
+    const harness = await startHarness({ delayOldClose: true });
     try {
-      const dump = harness.callTool(701, 'anti.browser.dump_dom', { outputPath: 'scratch/survivor.html' });
-      const inspect = harness.callTool(702, 'anti.inspect.dom', { selector: 'body' });
-      const inFlight = await harness.waitForDispatches(2, 15_000);
-      const dying = requireRecord(inFlight[0], 'the first dispatch must be in flight before the teardown');
-
-      harness.refuseFurtherConnections();
-      harness.closeLikeDispose(dying.socket);
-
-      // The call carried by the dying socket is terminally rejected...
-      const dumpDiagnostic = unwrapDiagnostic(await dump);
-      assert.strictEqual(dumpDiagnostic.code, 'CONNECTION_CLOSED', 'the dying socket must terminally reject its own call');
-
-      // ...and the caller's diagnostic must name the real cause, not a stale one.
-      assert.match(
-        String(dumpDiagnostic.message),
-        /dispose|restart|1012|1005/,
-        'the diagnostic must attribute the teardown, not just say "connection closed"'
-      );
-      // ...while a sibling on the same channel must NOT be collateral damage.
-      const inspectResponse = await inspect;
-      assert.notStrictEqual(
-        unwrapDiagnostic(inspectResponse).code,
-        'CONNECTION_CLOSED',
-        'a call that was in flight on a channel that did not die must keep its own outcome'
-      );
+      let settled = false;
+      const inspect = harness.callTool(701, 'anti.inspect.dom', { selector: 'body' }).then((response) => {
+        settled = true;
+        return response;
+      });
+      const old = requireRecord((await harness.waitForDispatches(1, 15_000))[0], 'old socket dispatch must be pending');
+      harness.closeLikeDispose(old.socket);
+      const replacement = requireRecord((await harness.waitForDispatches(2, 15_000))[1], 'replacement dispatch must reach the bridge');
+      assert.notStrictEqual(replacement.socket, old.socket, 'survivor must be on a different socket, not a same-channel sibling');
+      await harness.waitForLateClose();
+      // A second round-trip is a process ordering barrier: the child has already
+      // processed the injected real close event before sending the marker.
+      const sibling = harness.callTool(702, 'anti.inspect.dom', { selector: 'html' });
+      const siblingDispatch = requireRecord((await harness.waitForDispatches(3, 15_000))[2], 'replacement sibling must dispatch after late close');
+      assert.strictEqual(siblingDispatch.socket, replacement.socket, 'late close must not clear the live replacement');
+      assert.strictEqual(settled, false, 'replacement call must stay pending across the old socket close');
+      harness.answerDispatch(replacement);
+      harness.answerDispatch(siblingDispatch);
+      const [inspectResponse, siblingResponse] = await Promise.all([inspect, sibling]);
+      for (const response of [inspectResponse, siblingResponse]) {
+        assert.notStrictEqual((response.result as { isError?: boolean } | undefined)?.isError, true, JSON.stringify(response));
+        assert.strictEqual(unwrapDiagnostic(response).code, undefined, 'only its own successful response settles a replacement call');
+      }
     } finally {
       harness.dispose();
     }

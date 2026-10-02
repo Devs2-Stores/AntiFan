@@ -379,4 +379,177 @@ describe('Phase 03: Browser Deterministic Wait & Registry Capacity Invariants', 
     assert.strictEqual(antiRes.satisfied, true);
     assert.strictEqual(antiRes.condition, 'generation');
   });
+
+  it('browser.wait images-settled resolves once pending, srcless and broken counts all reach zero', async () => {
+    const host = createMockHost(undefined, {
+      evalJs: async () => ({ pendingImages: 0, srclessImages: 0, brokenImages: [], imageCount: 4 }),
+    });
+    const port = new BrowserControlPort(host);
+
+    const res = await port.wait(baseTarget, { condition: 'images-settled' });
+    assert.strictEqual(res.satisfied, true);
+    assert.strictEqual(res.condition, 'images-settled');
+    assert.strictEqual(res.details?.imageCount, 4);
+  });
+
+  it('browser.wait images-settled polls until a srcless image materializes', async () => {
+    let srcless = 2;
+    const host = createMockHost(undefined, {
+      evalJs: async () => ({ pendingImages: 0, srclessImages: srcless, brokenImages: [], imageCount: 6 }),
+    });
+    const port = new BrowserControlPort(host);
+
+    const waitPromise = port.wait(baseTarget, { condition: 'images-settled' });
+    setImmediate(() => {
+      srcless = 0;
+    });
+
+    const res = await waitPromise;
+    assert.strictEqual(res.satisfied, true);
+    assert.strictEqual(res.condition, 'images-settled');
+  });
+
+  it('browser.wait images-settled times out while a srcless or broken image persists', async () => {
+    const host = createMockHost(undefined, {
+      evalJs: async () => ({ pendingImages: 0, srclessImages: 1, brokenImages: [], imageCount: 3 }),
+    });
+    const port = new BrowserControlPort(host);
+
+    await assert.rejects(
+      async () => port.wait(baseTarget, { condition: 'images-settled', timeoutMs: 150 }),
+      (err: unknown) => {
+        assert.ok(err instanceof CapabilityError);
+        assert.strictEqual(err.code, 'LEASE_EXPIRED');
+        return true;
+      }
+    );
+
+    const brokenHost = createMockHost(undefined, {
+      evalJs: async () => ({ pendingImages: 0, srclessImages: 0, brokenImages: ['https://x.test/gone.png'], imageCount: 3 }),
+    });
+    const brokenPort = new BrowserControlPort(brokenHost);
+    await assert.rejects(
+      async () => brokenPort.wait(baseTarget, { condition: 'images-settled', timeoutMs: 150 }),
+      (err: unknown) => {
+        assert.ok(err instanceof CapabilityError);
+        assert.strictEqual(err.code, 'LEASE_EXPIRED');
+        return true;
+      }
+    );
+  });
+
+  it('browser.wait images-settled refuses a timeoutMs above the capability invocation budget', async () => {
+    const host = createMockHost();
+    const port = new BrowserControlPort(host);
+
+    await assert.rejects(
+      async () => port.wait(baseTarget, { condition: 'images-settled', timeoutMs: 120_000 }),
+      (err: unknown) => {
+        assert.ok(err instanceof CapabilityError);
+        assert.strictEqual(err.code, 'INVALID_ARGUMENT');
+        assert.ok(err.message.includes('exceeds the allowed budget for this capability'));
+        return true;
+      }
+    );
+  });
+
+  it('browser.wait and anti.browser.wait advertise images-settled in their condition enum', async () => {
+    const host = createMockHost();
+    const port = new BrowserControlPort(host);
+    const catalogue = new CapabilityCatalogue({
+      runtime: { mode: 'standalone', lifecycle: 'active' },
+      projectId: baseTarget.projectId,
+      workspaceId: baseTarget.workspaceId,
+      runtimeId: baseTarget.runtimeId,
+    });
+    registerBrowserCapabilities(catalogue, port);
+
+    for (const name of ['browser.wait', 'anti.browser.wait']) {
+      const cap = catalogue.get(name);
+      assert.ok(cap, `${name} must be registered`);
+      const schema = cap.inputSchema;
+      const conditionProp =
+        schema !== null && typeof schema === 'object' && 'properties' in schema && schema.properties !== null && typeof schema.properties === 'object'
+          ? schema.properties
+          : null;
+      const enumList =
+        conditionProp !== null && 'condition' in conditionProp && conditionProp.condition !== null && typeof conditionProp.condition === 'object' && 'enum' in conditionProp.condition && Array.isArray(conditionProp.condition.enum)
+          ? conditionProp.condition.enum
+          : [];
+      assert.ok(enumList.includes('images-settled'), `${name} must advertise images-settled`);
+    }
+  });
+
+  it('anti.browser.tabs.get returns the scoped single-tab row and refuses foreign or unknown tabs', async () => {
+    const affiliatedTab = { id: 'tab-foreign-affiliated', url: 'https://a.test/', title: 'Affiliated' };
+    const foreignTab = { id: 'tab-foreign', url: 'https://b.test/', title: 'Foreign' };
+    const host = createMockHost(undefined, {
+      getTabList: () => [{ id: 'tab-wait-1' }, { id: 'tab-wait-2' }, affiliatedTab, foreignTab],
+      resolveTabAffiliation: (id: string) =>
+        id === 'tab-foreign-affiliated'
+          ? { projectId: baseTarget.projectId, workspaceId: baseTarget.workspaceId }
+          : { projectId: 'other-proj', workspaceId: 'other-ws' },
+    });
+    const port = new BrowserControlPort(host);
+    const catalogue = new CapabilityCatalogue({
+      runtime: { mode: 'standalone', lifecycle: 'active' },
+      projectId: baseTarget.projectId,
+      workspaceId: baseTarget.workspaceId,
+      runtimeId: baseTarget.runtimeId,
+    });
+    registerBrowserCapabilities(catalogue, port);
+
+    const cap = catalogue.get('anti.browser.tabs.get');
+    assert.ok(cap, 'anti.browser.tabs.get must be registered');
+    const context = {
+      browserTarget: baseTarget,
+      projectId: baseTarget.projectId,
+      workspaceId: baseTarget.workspaceId,
+    } as unknown as AuthenticatedCapabilityContext;
+
+    // Bound tab row: owned by the session, marked bound.
+    const boundResult = await cap.execute({}, context);
+    assert.ok(boundResult !== null && typeof boundResult === 'object' && 'id' in boundResult && 'isBoundTab' in boundResult && 'affiliated' in boundResult);
+    assert.strictEqual(boundResult.id, 'tab-wait-1');
+    assert.strictEqual(boundResult.isBoundTab, true);
+    assert.strictEqual(boundResult.affiliated, true);
+
+    // Affiliated foreign-owned row resolves in scope with the listTabs shape.
+    const affiliatedResult = await cap.execute({ tabId: 'tab-foreign-affiliated' }, context);
+    assert.ok(affiliatedResult !== null && typeof affiliatedResult === 'object' && 'id' in affiliatedResult && 'affiliated' in affiliatedResult && 'isBoundTab' in affiliatedResult && 'isPrimaryTab' in affiliatedResult);
+    assert.strictEqual(affiliatedResult.id, 'tab-foreign-affiliated');
+    assert.strictEqual(affiliatedResult.affiliated, true);
+    assert.strictEqual(affiliatedResult.isBoundTab, false);
+    assert.strictEqual(affiliatedResult.isPrimaryTab, false);
+
+    // A tab outside the authenticated scope is refused, never described.
+    await assert.rejects(
+      async () => cap.execute({ tabId: 'tab-foreign' }, context),
+      (err: unknown) => {
+        assert.ok(err instanceof CapabilityError);
+        assert.strictEqual(err.code, 'POLICY_DENIED');
+        return true;
+      }
+    );
+
+    // A tab that does not exist is a typed miss, not an empty result.
+    await assert.rejects(
+      async () => cap.execute({ tabId: 'tab-missing' }, context),
+      (err: unknown) => {
+        assert.ok(err instanceof CapabilityError);
+        assert.ok(err.code === 'CAPABILITY_NOT_FOUND' || err.code === 'TARGET_STALE');
+        return true;
+      }
+    );
+
+    // A foreign projectId selector is refused before the tab is even probed.
+    await assert.rejects(
+      async () => cap.execute({ tabId: 'tab-foreign-affiliated', projectId: 'other-proj' }, context),
+      (err: unknown) => {
+        assert.ok(err instanceof CapabilityError);
+        assert.strictEqual(err.code, 'PROJECT_MISMATCH');
+        return true;
+      }
+    );
+  });
 });

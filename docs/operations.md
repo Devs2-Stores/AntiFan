@@ -42,6 +42,8 @@ node scripts/run-electron.cjs scripts/smoke-media-freeze.cjs
 - Pre-upgrade copies of schemas, profiles, pending handoffs, and delivery
   records are preserved (immutable) so a newer reader never mutates an
   unreadable record, and a rolling downgrade can recover the original bytes.
+- A running OMP/MCP proxy does not reload `scripts/antifan-omp-mcp.cjs` mid-process. Sessions launched before a proxy fix need their owning OMP/agent runtime to relaunch the MCP server; restarting Desktop alone does not reload that child. Desktop does not respawn external MCP processes.
+- Recovery re-measures terminal project/workspace before replacing a stale anchor. Caller-explicit browser targets are never silently retargeted. If a non-read call was transmitted and recovery changes attachment authority, `EXECUTION_UNCERTAIN` means the operation may have executed: inspect its result before deliberately reissuing it. Reconnecting does not establish that replay is safe.
 
 ## Logs export
 
@@ -253,6 +255,9 @@ evidence that proves it.
   are included from the session pool.
 - `all: true` opts into global GUI discovery. Each row carries `affiliated`; a foreign row is
   discovery only, not permission to bind or act. `affiliatedOnly: true` restricts the result again.
+- `anti.browser.tabs.get` reads one row in the same scope by `tabId`; omitting `tabId` reads the
+  session's bound tab. The row shape and scope checks are identical to `tabs.list` rows, and a
+  foreign or unknown id is refused rather than silently missing.
 - `projectId` on listing or creation may only restate the authenticated project; it cannot grant
   foreign authority. Creation uses the validated same-project anchor and its capsule/window.
 - Fresh pairing derives scope from measured terminal/tab evidence before verified cwd containment.

@@ -185,6 +185,18 @@ if (CapabilityCatalogue && BrowserControlPort && makeControlPlaneId && problems.
       problems.push(`${fnName} failed to register against stub ports: ${err.message}`);
     }
   }
+  for (const [name] of proxy.definitions || []) {
+    const resolved = map[name] || name;
+    const expected = catalogue.getPolicy(resolved)?.effect === 'read';
+    if ((proxy.READ_SAFE_CAPABILITIES?.[name] === true) !== expected) {
+      problems.push(`replay safety for '${name}' disagrees with '${resolved}' catalogue effect`);
+    }
+  }
+  for (const name of Object.keys(proxy.READ_SAFE_CAPABILITIES || {})) {
+    if (!(proxy.definitions || []).some(row => row[0] === name)) {
+      problems.push(`replay safety names unadvertised capability '${name}'`);
+    }
+  }
   for (const entry of catalogue.listAll()) {
     const policy = catalogue.getPolicy(entry.name);
     const timeoutMs = Math.trunc(policy?.timeoutMs ?? 0);

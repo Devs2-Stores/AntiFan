@@ -1148,13 +1148,19 @@ export class BridgeServer {
               const binding = this.runtimeBindingProvider ? this.runtimeBindingProvider() : undefined;
               const suppliedTabId = typeof data.tabId === 'string' && data.tabId.trim() ? data.tabId.trim() : undefined;
               const terminalSessionId = typeof data.terminalSessionId === 'string' && data.terminalSessionId.trim() ? data.terminalSessionId.trim() : undefined;
-              const evidenceTabId = suppliedTabId || binding?.browserTarget?.tabId;
-              if (suppliedTabId && !this.hostTabExists(suppliedTabId, this.hostForRpcTab(suppliedTabId))) {
+              const suppliedProjectId = typeof data.projectId === 'string' ? data.projectId.trim() : undefined;
+              const suppliedWorkspaceId = typeof data.workspaceId === 'string' ? data.workspaceId.trim() : undefined;
+              const staleAnchor = Boolean(suppliedTabId && !this.hostTabExists(suppliedTabId, this.hostForRpcTab(suppliedTabId)));
+              if (staleAnchor && (!terminalSessionId || !this.controlPlaneRuntime || !suppliedProjectId || !suppliedWorkspaceId)) {
                 throw new CapabilityError('TARGET_STALE', 'Pairing anchor tab is not live in this bridge');
               }
+              const evidenceTabId = staleAnchor ? undefined : suppliedTabId || binding?.browserTarget?.tabId;
               const measuredWorkspace = this.controlPlaneRuntime?.resolveBrowserSessionWorkspace({
                 tabId: evidenceTabId,
                 originTerminalSessionId: terminalSessionId,
+                projectId: staleAnchor ? suppliedProjectId : undefined,
+                workspaceId: staleAnchor ? suppliedWorkspaceId : undefined,
+                requireMeasuredTerminalScope: staleAnchor,
                 cwd: typeof data.cwd === 'string' ? data.cwd : undefined,
               });
               const projectId = measuredWorkspace?.projectId || binding?.projectId || 'default-project';
@@ -1195,7 +1201,7 @@ export class BridgeServer {
               // not a candidate — with more than one project window it silently bound the session
               // to another window's tab. A session that arrives with none of these stays unbound
               // and `antifan.cli.startSession` provisions the dedicated agent tab it needs.
-              const effectiveTabId =
+              const effectiveTabId = staleAnchor ? undefined :
                 suppliedTabId ||
                 binding?.browserTarget?.tabId ||
                 (autoTabId && this.hostTabExists(autoTabId, this.hostForRpcTab(autoTabId)) ? autoTabId : undefined);
@@ -1247,6 +1253,7 @@ export class BridgeServer {
                 port: this.port,
                 expiresAt: launch.expiresAt,
                 grant,
+                recoveredStaleAnchor: staleAnchor,
                 grantSource,
               }));
               return;
@@ -1285,6 +1292,12 @@ export class BridgeServer {
               return;
             }
           } catch (err: unknown) {
+            if (err instanceof CapabilityError) {
+              const status = err.code === 'TARGET_STALE' || err.code === 'PROJECT_MISMATCH' || err.code === 'WORKSPACE_MISMATCH' ? 409 : 403;
+              res.writeHead(status, responseHeaders);
+              res.end(JSON.stringify({ error: err.code, message: redactCredentials(err.message), details: err.details }));
+              return;
+            }
             const errorMsg = err instanceof Error ? err.message : String(err);
             res.writeHead(400, responseHeaders);
             res.end(JSON.stringify({ error: 'INVALID_JSON_BODY', message: redactCredentials(errorMsg) }));

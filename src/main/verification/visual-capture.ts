@@ -777,7 +777,22 @@ export const REFERENCE_MATERIALIZATION_BOUND_MS = 30_000;
  * never mounted its below-fold content is not the page the comparator rasterizes,
  * so this runs before any reference measurement, not after.
  */
-export function buildReferenceMaterializationScript(): string {
+/**
+ * Options for {@link buildReferenceMaterializationScript}.
+ */
+export interface ReferenceMaterializationScriptOptions {
+  /**
+   * When true, the walk first materializes lazy sources itself: `data-src`/`data-srcset`
+   * are assigned onto `src`/`srcset` (data-* attributes left in place) and
+   * `source[data-srcset]` children of `picture` get their `srcset`. Off by default:
+   * callers that want DOM evidence untouched must opt in, because the swap mutates the
+   * document it then walks.
+   */
+  materializeDataSrc?: boolean;
+}
+
+export function buildReferenceMaterializationScript(options?: ReferenceMaterializationScriptOptions): string {
+  const materializeDataSrc = options?.materializeDataSrc === true;
   return `(async () => {
     const step = ${REFERENCE_MATERIALIZATION_STEP_PX};
     const dwell = ${REFERENCE_MATERIALIZATION_DWELL_MS};
@@ -790,6 +805,31 @@ export function buildReferenceMaterializationScript(): string {
     for (const img of Array.from(document.querySelectorAll('img[loading="lazy"]'))) {
       try { img.loading = 'eager'; } catch {}
     }
+    ${materializeDataSrc ? `let dataSrcSwapped = 0;
+    // Opt-in materialization for custom lazy loaders the scroll walk cannot trigger:
+    // an img whose only source lives in data-* attributes never mounts content no
+    // matter how far the viewport travels (measured: Pancake observer left 292/330
+    // imgs srcless on levents.asia while reporting a completed walk).
+    for (const img of Array.from(document.images)) {
+      try {
+        if (!img.src && !img.currentSrc) {
+          const dataSrc = img.getAttribute('data-src');
+          const dataSrcset = img.getAttribute('data-srcset');
+          let swapped = false;
+          if (dataSrc) { img.src = dataSrc; swapped = true; }
+          if (dataSrcset && !img.srcset) { img.srcset = dataSrcset; swapped = true; }
+          if (swapped) dataSrcSwapped++;
+        }
+      } catch {}
+    }
+    for (const source of Array.from(document.querySelectorAll('picture > source[data-srcset]'))) {
+      try {
+        if (!source.srcset) {
+          source.srcset = source.getAttribute('data-srcset');
+          dataSrcSwapped++;
+        }
+      } catch {}
+    }` : 'const dataSrcSwapped = 0;'}
     const startY = window.scrollY || window.pageYOffset || 0;
     const docHeightBefore = height();
     const countPlaceholders = () => {
@@ -797,6 +837,28 @@ export function buildReferenceMaterializationScript(): string {
       for (const img of Array.from(document.images)) {
         const src = img.getAttribute('src') || '';
         if (!src || src.indexOf('data:') === 0 || !img.complete) n++;
+      }
+      return n;
+    };
+    // Counts rendered images whose source still lives in lazy data-* attributes after
+    // the walk: the honest tail of the materialization claim. Mirrors the pre-capture
+    // quiescence definition — no effective source (or an explicitly empty src
+    // attribute), a rendered footprint, not a tracking beacon, and a lazy-source signal.
+    const countUnmaterialized = () => {
+      let n = 0;
+      for (const img of Array.from(document.images)) {
+        try {
+          const r = img.getBoundingClientRect();
+          if (r.width === 0 && r.height === 0) continue;
+          if (img.offsetParent === null && img.offsetWidth === 0 && img.offsetHeight === 0) continue;
+          if (r.width <= 2 && r.height <= 2) continue;
+          const rawSrc = img.getAttribute('src');
+          const effectiveSrcless = (!img.src && !img.currentSrc && !img.srcset) || (rawSrc === '' && !img.currentSrc && !img.srcset);
+          if (!effectiveSrcless) continue;
+          if (img.getAttribute('data-src') || img.getAttribute('data-srcset')) { n++; continue; }
+          const pic = img.closest ? img.closest('picture') : null;
+          if (pic && pic.querySelector && pic.querySelector('source[data-srcset]')) n++;
+        } catch {}
       }
       return n;
     };
@@ -823,8 +885,13 @@ export function buildReferenceMaterializationScript(): string {
       decoded = work.length;
     } catch {}
     window.scrollTo(0, startY);
+    const placeholdersAfter = countPlaceholders();
+    const unmaterialized = countUnmaterialized();
     return {
-      materialized: true,
+      // Honest verdict: the walk completed is not the page materialized. A receipt that
+      // reports materialized while placeholders remain certified a 89%-blank baseline
+      // (vbase_1790899945342_d52fe25af2b0 on levents.asia).
+      materialized: placeholdersAfter === 0,
       href: String(location.href || ''),
       passes,
       docHeightBefore,
@@ -835,7 +902,9 @@ export function buildReferenceMaterializationScript(): string {
       imagesTotal: document.images.length,
       imagesStillPending: Array.from(document.images).filter((i) => i.src && !i.complete).length,
       placeholdersBefore,
-      placeholdersAfter: countPlaceholders(),
+      placeholdersAfter,
+      unmaterialized,
+      dataSrcSwapped,
     };
   })()`;
 }

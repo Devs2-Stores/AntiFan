@@ -728,12 +728,12 @@ export class AntiFanMcpServer {
     const transportArgs = { ...a };
     delete transportArgs.context;
     // projectId is stripped for every tool EXCEPT the ones that expose it as a
-    // fail-closed scope selector: tabs.list and tabs.create. Their execute
-    // contracts require the declared selector to equal the authenticated target
-    // scope and refuse it otherwise, so forwarding it can never widen authority.
-    // Everywhere else the strip stands — caller-supplied scope fields never
-    // reach a capability.
-    if (name !== 'antifan_list_tabs' && name !== 'browser.list-tabs' && name !== 'antifan_open_tab' && name !== 'browser.open-tab' && name !== 'anti.browser.tabs.create' && name !== 'anti.browser.tabs.list') {
+    // fail-closed scope selector: tabs.list, tabs.get and tabs.create. Their
+    // execute contracts require the declared selector to equal the authenticated
+    // target scope and refuse it otherwise, so forwarding it can never widen
+    // authority. Everywhere else the strip stands — caller-supplied scope
+    // fields never reach a capability.
+    if (name !== 'antifan_list_tabs' && name !== 'browser.list-tabs' && name !== 'antifan_open_tab' && name !== 'browser.open-tab' && name !== 'anti.browser.tabs.create' && name !== 'anti.browser.tabs.list' && name !== 'anti.browser.tabs.get') {
       delete transportArgs.projectId;
     }
     delete transportArgs.workspaceId;
