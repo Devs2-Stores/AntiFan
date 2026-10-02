@@ -18,6 +18,7 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 
 import { installElectronStub } from '../support/electron-stub';
@@ -42,6 +43,31 @@ import {
   type ChromeIpcRegistrar,
   type IpcRoute,
 } from '../../src/main/browser/ipc-router';
+import { createChromeRouteHarness } from '../support/chrome-route-harness';
+import { checklistFilePath } from '../../src/main/qa/theme-checklist-store';
+import { CapabilityError } from '../../src/shared/control-plane-contracts';
+import type { ThemeChecklistItem } from '../../src/shared/theme-checklist';
+import { checklistScope, UNKNOWN_WORKSPACE_TAG } from '../../src/shared/theme-checklist';
+
+// ---------------------------------------------------------------------------
+// Checklist SAVE/LOAD route confinement fixture. Declared at module level so
+// `createChromeRouteHarness` runs its installChromeIpcOnce BEFORE the audit's
+// idempotency test occupies the one-shot install — route handlers must be in
+// the process handler map before any `it` executes.
+// ---------------------------------------------------------------------------
+
+const checklistRouteState = {
+  /** The root a real window resolves for the invoking toolbar's active tab. */
+  resolvedRoot: '',
+};
+
+// Bare NativeTabHost.prototype instance: the real themeChecklistSave runs
+// (real CAS, real fs) while the workspace resolution is stubbed — the same
+// approach ipc-audit.test.ts uses for the same harness.
+const checklistRouteHost = Object.create(NativeTabHost.prototype) as NativeTabHost;
+(checklistRouteHost as unknown as { provisionalChecklistScopes: Map<string, unknown> }).provisionalChecklistScopes = new Map();
+
+const checklistRouteHarness = createChromeRouteHarness({ host: checklistRouteHost });
 
 const TAXONOMY: Record<string, true> = {
   toolbar: true,
@@ -74,7 +100,7 @@ describe('Chrome IPC Routes Table Audit', () => {
       seenChannels.add(route.channel);
     }
 
-    assert.strictEqual(routes.length, 120, 'Route table must contain exactly 120 routes');
+    assert.strictEqual(routes.length, 123, 'Route table must contain exactly 123 routes');
   });
 
   it('2. every route has at least one surface and every surface is in the taxonomy', () => {
@@ -211,6 +237,19 @@ describe('Chrome IPC Routes Table Audit', () => {
       routeKindByChannel.set(route.channel, route.kind ?? 'handle');
     }
 
+    // Resolve CONSTANT.member call-site arguments to channel literals from the
+    // declared contract objects — built before the receiver scan so constant-form
+    const contractsText = fs.readFileSync(path.join(root, 'src', 'shared', 'contracts.ts'), 'utf8');
+    const identToChannel = new Map<string, string>();
+    for (const match of contractsText.matchAll(/export\s+const\s+([A-Z_]+_CHANNELS)\s*=\s*\{([\s\S]*?)\}\s*(?:as\s+const)?;/g)) {
+      const objName = match[1] ?? '';
+      for (const line of (match[2] ?? '').split('\n')) {
+        const propMatch = line.match(/^\s*([A-Z0-9_]+)\s*:\s*['"]([^'"]+)['"]/);
+        if (propMatch && propMatch[1] && propMatch[2]) {
+          identToChannel.set(`${objName}.${propMatch[1]}`, propMatch[2]);
+        }
+      }
+    }
     // Receivers that bypass the route table (the vaults register their own ipcMain
     // handlers). A preload member invoking one of these is wired, not a route-table gap.
     const directReceivers = new Map<string, 'handle' | 'on'>();
@@ -227,6 +266,10 @@ describe('Chrome IPC Routes Table Audit', () => {
       const text = fs.readFileSync(file, 'utf8');
       for (const match of text.matchAll(/\bipcMain\s*\.\s*(handle|handleOnce|on|once)\s*\(\s*['"]([^'"]+)['"]/g)) {
         directReceivers.set(match[2] ?? '', (match[1] ?? '').startsWith('handle') ? 'handle' : 'on');
+      }
+      for (const match of text.matchAll(/\bipcMain\s*\.\s*(handle|handleOnce|on|once)\s*\(\s*([A-Z_]+_CHANNELS)\s*\.\s*([A-Z0-9_]+)/g)) {
+        const resolved = identToChannel.get(`${match[2]}.${match[3]}`);
+        if (resolved) directReceivers.set(resolved, (match[1] ?? '').startsWith('handle') ? 'handle' : 'on');
       }
       // The credential vault registers through an injectable `ipc` facade that is
       // ipcMain in production; its channels use the same one-argument literal form.
@@ -260,21 +303,9 @@ describe('Chrome IPC Routes Table Audit', () => {
       TOOLBAR_CHANNELS.FIND_RESULT,
       TOOLBAR_CHANNELS.PHONE_STATUS,
       TOOLBAR_CHANNELS.THEME_QA_STATE,
+      TOOLBAR_CHANNELS.THEME_CHECKLIST_UPDATED,
     ]);
 
-    // Resolve CONSTANT.member call-site arguments to channel literals from the
-    // declared contract objects.
-    const contractsText = fs.readFileSync(path.join(root, 'src', 'shared', 'contracts.ts'), 'utf8');
-    const identToChannel = new Map<string, string>();
-    for (const match of contractsText.matchAll(/export\s+const\s+([A-Z_]+_CHANNELS)\s*=\s*\{([\s\S]*?)\}\s*(?:as\s+const)?;/g)) {
-      const objName = match[1] ?? '';
-      for (const line of (match[2] ?? '').split('\n')) {
-        const propMatch = line.match(/^\s*([A-Z0-9_]+)\s*:\s*['"]([^'"]+)['"]/);
-        if (propMatch && propMatch[1] && propMatch[2]) {
-          identToChannel.set(`${objName}.${propMatch[1]}`, propMatch[2]);
-        }
-      }
-    }
 
     const preloadDir = path.join(root, 'src', 'preload');
     const preloadFiles = fs.readdirSync(preloadDir).filter((name) => name.endsWith('.ts')).sort();
@@ -370,5 +401,95 @@ describe('Chrome IPC Routes Table Audit', () => {
       [],
       `Preload IPC call sites disagree with the route table / push contract:\n  ${failures.join('\n  ')}`
     );
+  });
+});
+
+describe('theme checklist IPC route confinement', () => {
+  const saveItems = (): ThemeChecklistItem[] => [
+    { id: 'hom-01', code: 'HOM-01', name: 'harness item', desc: 'd', qaPoint: 'q', page: 'home', done: true },
+  ];
+
+  const seatChecklistHost = (resolvedRoot: string): void => {
+    checklistRouteState.resolvedRoot = resolvedRoot;
+    const host = checklistRouteHost as unknown as {
+      tabs: Map<string, { state: { url: string } }>;
+      activeTabId: string;
+      resolveTargetWorkspace: (targetSessionId?: string, tabUrl?: string) => string;
+      controlPlane?: { getWorkspaceRoot(): string };
+    };
+    host.tabs = new Map([['tab-1', { state: { url: 'http://shop-a.local/' } }]]);
+    host.activeTabId = 'tab-1';
+    host.resolveTargetWorkspace = () => checklistRouteState.resolvedRoot;
+    host.controlPlane = { getWorkspaceRoot: () => '' };
+  };
+
+  it('confines the renderer-supplied workspaceRoot to the window-resolved root on SAVE', () => {
+    const resolved = fs.mkdtempSync(path.join(os.tmpdir(), 'af-checklist-resolved-'));
+    const foreign = fs.mkdtempSync(path.join(os.tmpdir(), 'af-checklist-foreign-'));
+    try {
+      seatChecklistHost(resolved);
+      const scope = 'http://shop-a.local@shop-a-a1b2c3';
+
+      const result = checklistRouteHarness.invoke(TOOLBAR_CHANNELS.THEME_CHECKLIST_SAVE, {
+        scope,
+        workspaceRoot: foreign, // a hostile/forged candidate must not steer the write
+        items: saveItems(),
+      }) as { ok: boolean; workspaceRoot: string; conflict?: boolean };
+
+      assert.strictEqual(result.ok, true);
+      assert.strictEqual(result.conflict !== true, true, 'a first write lands');
+      assert.strictEqual(fs.existsSync(checklistFilePath(resolved)), true, 'the file landed under the resolved root');
+      assert.strictEqual(fs.existsSync(checklistFilePath(foreign)), false, 'nothing was written under the renderer-supplied foreign root');
+    } finally {
+      fs.rmSync(resolved, { recursive: true, force: true });
+      fs.rmSync(foreign, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects an empty scope with INVALID_ARGUMENT instead of writing a blank key', () => {
+    const resolved = fs.mkdtempSync(path.join(os.tmpdir(), 'af-checklist-resolved-'));
+    try {
+      seatChecklistHost(resolved);
+      assert.throws(
+        () => checklistRouteHarness.invoke(TOOLBAR_CHANNELS.THEME_CHECKLIST_SAVE, { scope: '', workspaceRoot: resolved, items: saveItems() }),
+        (err: unknown) => err instanceof CapabilityError && err.code === 'INVALID_ARGUMENT',
+      );
+      assert.strictEqual(fs.existsSync(checklistFilePath(resolved)), false, 'a rejected save writes nothing');
+    } finally {
+      fs.rmSync(resolved, { recursive: true, force: true });
+    }
+  });
+
+  it('applies the same fail-closed CAS contract to provisional scopes', () => {
+    // The provisional lane is a Map in the host, not the file store, but the
+    // contract is identical: an absent/NaN base on an existing record conflicts
+    // (a caller that skipped LOAD must not overwrite interleaved mutations),
+    // while the first write needs no base.
+    seatChecklistHost(''); // unresolvable workspace → provisional lane
+    const scope = checklistScope('http://shop-a.local', UNKNOWN_WORKSPACE_TAG);
+
+    const first = checklistRouteHarness.invoke(TOOLBAR_CHANNELS.THEME_CHECKLIST_SAVE, {
+      scope, workspaceRoot: '', items: saveItems(),
+    }) as { ok: boolean; conflict?: boolean; updatedAt: number; isProvisional?: boolean };
+    assert.strictEqual(first.ok, true);
+    assert.strictEqual(first.conflict !== true, true, 'the first write on an empty provisional scope lands');
+    assert.strictEqual(first.isProvisional, true);
+
+    const unbased = checklistRouteHarness.invoke(TOOLBAR_CHANNELS.THEME_CHECKLIST_SAVE, {
+      scope, workspaceRoot: '', items: saveItems(),
+    }) as { ok: boolean; conflict?: boolean; updatedAt: number };
+    assert.strictEqual(unbased.ok, true);
+    assert.strictEqual(unbased.conflict, true, 'no base on an existing provisional record must conflict (fail-closed)');
+    assert.strictEqual(unbased.updatedAt, first.updatedAt);
+
+    const nan = checklistRouteHarness.invoke(TOOLBAR_CHANNELS.THEME_CHECKLIST_SAVE, {
+      scope, workspaceRoot: '', items: saveItems(), baseUpdatedAt: Number.NaN,
+    }) as { ok: boolean; conflict?: boolean };
+    assert.strictEqual(nan.conflict, true, 'a NaN base is never a valid CAS ticket');
+
+    const correctBase = checklistRouteHarness.invoke(TOOLBAR_CHANNELS.THEME_CHECKLIST_SAVE, {
+      scope, workspaceRoot: '', items: saveItems(), baseUpdatedAt: first.updatedAt,
+    }) as { ok: boolean; conflict?: boolean };
+    assert.strictEqual(correctBase.conflict !== true, true, 'the real base still lands');
   });
 });

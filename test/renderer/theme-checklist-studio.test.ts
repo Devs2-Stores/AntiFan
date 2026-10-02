@@ -4,8 +4,11 @@
  * Loads the compiled toolbar.html + toolbar.js into jsdom with a stubbed
  * antifanToolbar bridge and asserts the checklist contract the cockpit exposes:
  * one card per storefront page group, every item carrying a QA point, the
- * per-page open/scan/toggle actions, the "Chưa làm" and per-page filters, the
- * persisted progress record, the Markdown report export, and the per-page scan
+ * per-page open/scan/toggle actions, the "Chưa làm" and per-page filters, and
+ * the Markdown report export. Persistence is exercised on BOTH lanes: the
+ * in-memory CAS double behind getThemeChecklist/saveThemeChecklist/
+ * onThemeChecklistUpdated (the IPC lane) and, for the tests that pin legacy
+ * localStorage keys, `omitChecklistBridge` keeps the degraded lane selectable.
  * hand-off into the Live QA findings tab.
  *
  * The two tabs must stay siblings inside .theme-studio-body: a missing closing
@@ -21,6 +24,7 @@ import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { createRequire } from 'node:module';
+import { checklistScope, workspaceTag, DEFAULT_THEME_CHECKLIST, UNKNOWN_WORKSPACE_TAG, type ThemeChecklistItem } from '../../src/shared/theme-checklist';
 
 interface JsdomLike { window: Window & { eval: (src: string) => unknown } }
 type JsdomCtor = new (html: string, options?: { runScripts?: string; url?: string }) => JsdomLike;
@@ -87,8 +91,242 @@ interface StubTab {
 function tab(id: string, url: string): StubTab {
   return { id, url, title: url, favicon: '', isLoading: false, canGoBack: false, canGoForward: false };
 }
+// ---------------------------------------------------------------------------
+// In-memory double of the main-owned checklist store
+// (`{workspaceRoot}/.antifan/qa-checklist.json` behind THEME_CHECKLIST_LOAD/SAVE).
+// Same observable contract as the real one: whole-array CAS keyed on the
+// record's `updatedAt`, a conflict returns the store's rows for adoption, and
+// every successful write echoes through THEME_CHECKLIST_UPDATED — which the
+// toolbar's own subscription then adopts (the real host does the same).
+// ---------------------------------------------------------------------------
 
-function makeApi(clipboard: ClipboardSpy, calls: string[], tabs: StubTab[], activeTabId: string, workspacePath = DEFAULT_WORKSPACE, hangWorkspace = false) {
+interface ChecklistStoreRecord {
+  items: ThemeChecklistItem[];
+  updatedAt: number;
+  /** Mirrors the store's `legacyMigrated`: set once toolbar-side state has landed. */
+  migrated: boolean;
+}
+
+interface ChecklistLoadResultLike {
+  scope: string;
+  workspaceRoot: string;
+  items: ThemeChecklistItem[];
+  updatedAt: number;
+  existed: boolean;
+  migrated: boolean;
+  isProvisional: boolean;
+}
+
+interface ChecklistSaveResultLike {
+  ok: boolean;
+  scope: string;
+  workspaceRoot: string;
+  items: ThemeChecklistItem[];
+  updatedAt: number;
+  conflict: boolean;
+  isProvisional: boolean;
+}
+
+interface ChecklistSaveCall {
+  scope: string;
+  workspaceRoot: string;
+  items: ThemeChecklistItem[];
+  baseUpdatedAt: number | undefined;
+}
+
+/** A LOAD invoke parked for deferred resolution (the "in-flight LOAD" seam). */
+interface PendingChecklistLoad {
+  scope: string;
+  workspaceRoot: string;
+  /** Settle the invoke; `override` replaces the record-derived snapshot. */
+  resolve: (override?: Partial<ChecklistLoadResultLike>) => ChecklistLoadResultLike;
+}
+
+/** A SAVE invoke parked for deferred resolution (the "one save RTT" seam). */
+interface PendingChecklistSave {
+  call: ChecklistSaveCall;
+  /** Settle the invoke; `override` replaces the CAS-computed result. */
+  resolve: (override?: Partial<ChecklistSaveResultLike>) => ChecklistSaveResultLike;
+  reject: (err: unknown) => void;
+}
+
+interface ChecklistBridgeDouble {
+  /** Live records keyed by scope; the disk-equivalent state tests assert against. */
+  records: Map<string, ChecklistStoreRecord>;
+  saveCalls: ChecklistSaveCall[];
+  loadCalls: Array<{ scope: string; workspaceRoot: string }>;
+  /** When true, LOAD/SAVE invokes park instead of resolving; `pending*` holds them. */
+  holdLoads: boolean;
+  holdSaves: boolean;
+  /** Number of next SAVE invokes that reject (transient main-process fault). */
+  failNextSaves: number;
+  pendingLoads: PendingChecklistLoad[];
+  pendingSaves: PendingChecklistSave[];
+  /** Write a record as the store would report it (no broadcast). */
+  seed(scope: string, items: ThemeChecklistItem[], updatedAt?: number, migrated?: boolean): ChecklistStoreRecord;
+  /** Interleaved-writer seam: write `items` unconditionally and broadcast the new head. */
+  agentWrite(scope: string, workspaceRoot: string, items: ThemeChecklistItem[]): ChecklistStoreRecord;
+  /** Fire THEME_CHECKLIST_UPDATED into the toolbar's subscription. */
+  push(payload: { scope: string; workspaceRoot: string; items: ThemeChecklistItem[]; updatedAt: number }): void;
+  getThemeChecklist(scope: string, workspaceRoot: string): Promise<ChecklistLoadResultLike>;
+  saveThemeChecklist(scope: string, workspaceRoot: string, items: ThemeChecklistItem[], baseUpdatedAt?: number): Promise<ChecklistSaveResultLike>;
+  onThemeChecklistUpdated(cb: (payload: { scope: string; workspaceRoot: string; items: ThemeChecklistItem[]; updatedAt: number }) => void): () => void;
+}
+
+interface ChecklistBridgeOptions {
+  holdLoads?: boolean;
+  holdSaves?: boolean;
+  /** Records present before the toolbar boots; used to seed migration targets. */
+  seed?: Record<string, { items: ThemeChecklistItem[]; updatedAt: number; migrated?: boolean }>;
+}
+
+function cloneChecklistItems(items: ThemeChecklistItem[]): ThemeChecklistItem[] {
+  return items.map((item) => ({ ...item }));
+}
+
+function makeChecklistBridge(options: ChecklistBridgeOptions = {}): ChecklistBridgeDouble {
+  const records = new Map<string, ChecklistStoreRecord>();
+  const listeners: Array<(payload: { scope: string; workspaceRoot: string; items: ThemeChecklistItem[]; updatedAt: number }) => void> = [];
+  // Monotonic clock: every store write stamps strictly newer than the head it replaced.
+  let clock = 1;
+  const stamp = (floor = 0): number => {
+    clock = Math.max(clock + 1, floor + 1);
+    return clock;
+  };
+  const provisional = (scope: string, workspaceRoot: string): boolean =>
+    !workspaceRoot || !workspaceRoot.trim() || scope.slice(scope.lastIndexOf('@') + 1) === UNKNOWN_WORKSPACE_TAG;
+  const broadcast = (payload: { scope: string; workspaceRoot: string; items: ThemeChecklistItem[]; updatedAt: number }): void => {
+    for (const listener of listeners) listener(payload);
+  };
+
+  const buildLoad = (scope: string, workspaceRoot: string): ChecklistLoadResultLike => {
+    const rec = records.get(scope);
+    return {
+      scope,
+      workspaceRoot,
+      items: cloneChecklistItems(rec ? rec.items : DEFAULT_THEME_CHECKLIST),
+      updatedAt: rec?.updatedAt ?? 0,
+      existed: Boolean(rec),
+      migrated: rec?.migrated ?? false,
+      isProvisional: provisional(scope, workspaceRoot),
+    };
+  };
+
+  const settleSave = (call: ChecklistSaveCall): ChecklistSaveResultLike => {
+    const rec = records.get(call.scope);
+    // Fail-closed CAS: on an existing record, an absent/stale base conflicts and
+    // returns the store rows so the caller re-bases (the store's contract).
+    if (rec && rec.updatedAt !== call.baseUpdatedAt) {
+      return {
+        ok: true,
+        scope: call.scope,
+        workspaceRoot: call.workspaceRoot,
+        items: cloneChecklistItems(rec.items),
+        updatedAt: rec.updatedAt,
+        conflict: true,
+        isProvisional: provisional(call.scope, call.workspaceRoot),
+      };
+    }
+    const committed: ChecklistStoreRecord = {
+      items: cloneChecklistItems(call.items),
+      updatedAt: stamp(rec?.updatedAt ?? 0),
+      // A whole-array toolbar save IS the legacy localStorage state landing.
+      migrated: true,
+    };
+    records.set(call.scope, committed);
+    broadcast({ scope: call.scope, workspaceRoot: call.workspaceRoot, items: cloneChecklistItems(committed.items), updatedAt: committed.updatedAt });
+    return {
+      ok: true,
+      scope: call.scope,
+      workspaceRoot: call.workspaceRoot,
+      items: cloneChecklistItems(committed.items),
+      updatedAt: committed.updatedAt,
+      conflict: false,
+      isProvisional: provisional(call.scope, call.workspaceRoot),
+    };
+  };
+
+  const bridge: ChecklistBridgeDouble = {
+    records,
+    saveCalls: [],
+    loadCalls: [],
+    holdLoads: options.holdLoads === true,
+    holdSaves: options.holdSaves === true,
+    failNextSaves: 0,
+    pendingLoads: [],
+    pendingSaves: [],
+    seed(scope, items, updatedAt = 0, migrated = false) {
+      const rec: ChecklistStoreRecord = { items: cloneChecklistItems(items), updatedAt, migrated };
+      records.set(scope, rec);
+      clock = Math.max(clock, updatedAt);
+      return rec;
+    },
+    agentWrite(scope, workspaceRoot, items) {
+      const prev = records.get(scope);
+      const rec: ChecklistStoreRecord = { items: cloneChecklistItems(items), updatedAt: stamp(prev?.updatedAt ?? 0), migrated: prev?.migrated ?? false };
+      records.set(scope, rec);
+      broadcast({ scope, workspaceRoot, items: cloneChecklistItems(rec.items), updatedAt: rec.updatedAt });
+      return rec;
+    },
+    push(payload) {
+      broadcast(payload);
+    },
+    getThemeChecklist(scope, workspaceRoot) {
+      bridge.loadCalls.push({ scope, workspaceRoot });
+      if (bridge.holdLoads) {
+        return new Promise<ChecklistLoadResultLike>((resolveLoad) => {
+          bridge.pendingLoads.push({
+            scope,
+            workspaceRoot,
+            resolve: (override) => {
+              const result = { ...buildLoad(scope, workspaceRoot), ...override };
+              resolveLoad(result);
+              return result;
+            },
+          });
+        });
+      }
+      return Promise.resolve(buildLoad(scope, workspaceRoot));
+    },
+    saveThemeChecklist(scope, workspaceRoot, items, baseUpdatedAt) {
+      const call: ChecklistSaveCall = { scope, workspaceRoot, items: cloneChecklistItems(items), baseUpdatedAt };
+      bridge.saveCalls.push(call);
+      if (bridge.failNextSaves > 0) {
+        bridge.failNextSaves -= 1;
+        return Promise.reject(new Error('checklist save failed (injected transient fault)'));
+      }
+      if (bridge.holdSaves) {
+        return new Promise<ChecklistSaveResultLike>((resolveSave, rejectSave) => {
+          bridge.pendingSaves.push({
+            call,
+            resolve: (override) => {
+              const result = { ...settleSave(call), ...override };
+              resolveSave(result);
+              return result;
+            },
+            reject: rejectSave,
+          });
+        });
+      }
+      return Promise.resolve(settleSave(call));
+    },
+    onThemeChecklistUpdated(cb) {
+      listeners.push(cb);
+      return () => {
+        const index = listeners.indexOf(cb);
+        if (index >= 0) listeners.splice(index, 1);
+      };
+    },
+  };
+  if (options.seed) {
+    for (const [scope, entry] of Object.entries(options.seed)) {
+      bridge.seed(scope, entry.items, entry.updatedAt, entry.migrated ?? false);
+    }
+  }
+  return bridge;
+}
+
+function makeApi(clipboard: ClipboardSpy, calls: string[], tabs: StubTab[], activeTabId: string, workspacePath = DEFAULT_WORKSPACE, hangWorkspace = false, checklist: ChecklistBridgeOptions | false = {}) {
   const stateListeners: Array<(state: unknown) => void> = [];
   let liveTabs = tabs;
   let liveActiveTabId = activeTabId;
@@ -97,6 +335,10 @@ function makeApi(clipboard: ClipboardSpy, calls: string[], tabs: StubTab[], acti
     const state = { tabs: liveTabs, activeTabId: liveActiveTabId, bookmarks: [] };
     for (const listener of stateListeners) listener(state);
   };
+  // `false` selects the degraded lane: the bridge members stay undefined and the
+  // toolbar falls back to the two-key localStorage protocol exactly as when the
+  // preload exposes no checklist APIs.
+  const checklistBridge = checklist === false ? null : makeChecklistBridge(checklist);
   return {
     getInitialState: () => Promise.resolve({ tabs: liveTabs, activeTabId: liveActiveTabId, bookmarks: [] }),
     getWorkflowState: () => Promise.resolve({ workflows: [], tools: [] }),
@@ -124,7 +366,15 @@ function makeApi(clipboard: ClipboardSpy, calls: string[], tabs: StubTab[], acti
     onPhoneStatusChanged: () => () => undefined,
     onWorkflowEvent: () => () => undefined,
     getPhoneStatus: () => Promise.resolve({ state: 'unknown' }),
+    ...(checklistBridge
+      ? {
+          getThemeChecklist: checklistBridge.getThemeChecklist,
+          saveThemeChecklist: checklistBridge.saveThemeChecklist,
+          onThemeChecklistUpdated: checklistBridge.onThemeChecklistUpdated,
+        }
+      : {}),
     __clipboard: clipboard,
+    __checklist: checklistBridge,
     /** Move the renderer onto another storefront, exactly as a real tab switch would. */
     __pushState: (nextTabs: StubTab[], nextActiveTabId: string) => {
       liveTabs = nextTabs;
@@ -159,6 +409,8 @@ interface ToolbarStubApi {
   __pushState: (tabs: StubTab[], activeTabId: string) => void;
   /** Point the storefront at another theme workspace, as switching projects does. */
   __setWorkspace: (workspacePath: string) => void;
+  /** The checklist-store double behind the IPC lane — `null` in degraded mode. */
+  __checklist: ChecklistBridgeDouble | null;
 }
 
 interface ToolbarHandle {
@@ -178,6 +430,16 @@ interface LoadToolbarOptions {
   workspacePath?: string;
   /** Simulate a main process that never answers the workspace query. */
   hangWorkspace?: boolean;
+  /**
+   * Keep the checklist IPC bridge members off the stub: the toolbar then
+   * degrades to the two-key localStorage lane, which is what the legacy
+   * persistence pins still exercise.
+   */
+  omitChecklistBridge?: boolean;
+  /** Bridge-double options (deferred LOAD/SAVE seams, seeded store records). */
+  checklistBridge?: ChecklistBridgeOptions;
+  /** Populate legacy localStorage state before the toolbar script evaluates. */
+  seedLocalStorage?: (win: Window) => void;
 }
 
 async function loadToolbar(options: LoadToolbarOptions = {}): Promise<ToolbarHandle> {
@@ -216,7 +478,16 @@ async function loadToolbar(options: LoadToolbarOptions = {}): Promise<ToolbarHan
     queueMicrotask(() => handler(0));
     return frameSeq;
   }) as unknown as typeof win.requestAnimationFrame;
-  const api = makeApi(clipboard, calls, [tab('tab-1', openUrl)], 'tab-1', workspacePath, hangWorkspace);
+  const api = makeApi(
+    clipboard,
+    calls,
+    [tab('tab-1', openUrl)],
+    'tab-1',
+    workspacePath,
+    hangWorkspace,
+    options.omitChecklistBridge ? false : (options.checklistBridge ?? {}),
+  );
+  options.seedLocalStorage?.(win);
   (win as { antifanToolbar?: unknown }).antifanToolbar = api;
   win.eval(fs.readFileSync(path.join(RENDERER_DIR, 'exports-shim.js'), 'utf8'));
   win.eval(fs.readFileSync(path.join(RENDERER_DIR, 'toolbar.js'), 'utf8'));
@@ -291,7 +562,8 @@ describe('Theme Studio page-by-page checklist', () => {
   });
 
   test('toggle-all completes a page, persists it, and the uncompleted filter hides it', async (t) => {
-    const { doc, win, dom } = await loadToolbar();
+    // Legacy lane: this test pins the two-key localStorage protocol itself.
+    const { doc, win, dom } = await loadToolbar({ omitChecklistBridge: true });
     try {
       const list = doc.getElementById('themeChecklistList');
       assert.ok(list, 'checklist list exists');
@@ -444,7 +716,8 @@ describe('Theme Studio page-by-page checklist', () => {
   });
 
   test('an unresolvable workspace still gets its own scope, never a bare origin key', async (t) => {
-    const { doc, win, dom } = await loadToolbar({ openUrl: `${DEFAULT_ORIGIN}/`, workspacePath: '' });
+    // Legacy lane: the pin is the unknown-workspace key materializing in localStorage.
+    const { doc, win, dom } = await loadToolbar({ openUrl: `${DEFAULT_ORIGIN}/`, workspacePath: '', omitChecklistBridge: true });
     try {
       const list = doc.getElementById('themeChecklistList');
       assert.ok(list, 'checklist list exists');
@@ -463,7 +736,8 @@ describe('Theme Studio page-by-page checklist', () => {
   });
 
   test('the same project reported with different path casing keeps one scope', async (t) => {
-    const { doc, win, dom, api } = await loadToolbar({ openUrl: `${DEFAULT_ORIGIN}/`, workspacePath: 'E:\\Work\\Themes\\Shop-A' });
+    // Legacy lane: asserts the stored key count, so it must run on localStorage.
+    const { doc, win, dom, api } = await loadToolbar({ openUrl: `${DEFAULT_ORIGIN}/`, workspacePath: 'E:\\Work\\Themes\\Shop-A', omitChecklistBridge: true });
     try {
       const list = doc.getElementById('themeChecklistList');
       assert.ok(list, 'checklist list exists');
@@ -485,7 +759,8 @@ describe('Theme Studio page-by-page checklist', () => {
   });
 
   test('the toolbar stays usable when the workspace query never answers', async (t) => {
-    const { doc, win, dom, runTimers } = await loadToolbar({ openUrl: `${DEFAULT_ORIGIN}/`, hangWorkspace: true });
+    // Legacy lane: asserts the unknown-workspace key is written to localStorage.
+    const { doc, win, dom, runTimers } = await loadToolbar({ openUrl: `${DEFAULT_ORIGIN}/`, hangWorkspace: true, omitChecklistBridge: true });
     try {
       // Boot must not wait on the workspace: the toolbar is already interactive.
       assert.ok(doc.getElementById('badgeThemeChecklist'), 'the toolbar rendered while the query hung');
@@ -515,16 +790,24 @@ describe('Theme Studio page-by-page checklist', () => {
 
   test('a local dev port shared by two theme projects keeps two separate checklists', async (t) => {
     // 127.0.0.1:9292 is the fixed local storefront port, so both projects present the
-    // same origin; only the workspace tells them apart.
+    // same origin; only the workspace tells them apart. On the IPC lane the durable
+    // artifact is the store's per-scope record, not a localStorage key — an
+    // unmutated scope leaves no row at all, which is itself the separation proof.
     const localPort = 'http://127.0.0.1:9292';
-    const { doc, win, dom, api } = await loadToolbar({ openUrl: `${localPort}/`, workspacePath: 'E:\\Work\\themes\\shop-a' });
+    const { doc, dom, api } = await loadToolbar({ openUrl: `${localPort}/`, workspacePath: 'E:\\Work\\themes\\shop-a' });
     try {
+      const bridge = api.__checklist;
+      assert.ok(bridge, 'the checklist IPC lane is on in this fixture');
       const list = doc.getElementById('themeChecklistList');
       assert.ok(list, 'checklist list exists');
       (list.querySelector('.theme-btn-toggle-all') as HTMLElement).click();
       await flush(4);
       const projectADone = list.querySelectorAll('.theme-item-row.is-done').length;
       assert.ok(projectADone > 0, 'project A is in progress');
+      const scopeA = checklistScope(localPort, workspaceTag('E:\\Work\\themes\\shop-a'));
+      const scopeB = checklistScope(localPort, workspaceTag('E:\\Work\\themes\\shop-b'));
+      assert.notEqual(scopeA, scopeB, 'the two projects derive distinct scopes on the shared port');
+      assert.ok(bridge.records.get(scopeA)?.items.filter((item) => item.done).length === projectADone, 'project A persisted under its own scope');
 
       api.__setWorkspace('E:\\Work\\themes\\shop-b');
       (doc.getElementById('tabNavThemeChecklist') as HTMLElement).click();
@@ -532,17 +815,24 @@ describe('Theme Studio page-by-page checklist', () => {
 
       assert.equal(list.querySelectorAll('.theme-item-row.is-done').length, 0, 'project B does not inherit project A\'s ticks');
       assert.equal(doc.getElementById('themeChecklistProgressVal')?.textContent, `0/${CHECKLIST_ITEMS} (0%)`, 'project B starts at zero');
-      assert.equal(storedScopeKeys(win).length, 1, 'project B has no stored progress of its own yet');
+      assert.equal(bridge.records.has(scopeB), false, 'an unmutated scope has no durable row — nothing of A leaks into B');
 
       api.__setWorkspace('E:\\Work\\themes\\shop-a');
       (doc.getElementById('tabNavThemeChecklist') as HTMLElement).click();
       await flush(6);
 
       assert.equal(list.querySelectorAll('.theme-item-row.is-done').length, projectADone, 'project A\'s ticks come back');
-      assert.equal(storedScopeKeys(win).length, 2, 'the two projects hold separate scopes on the same origin');
-      for (const key of storedScopeKeys(win)) {
-        assert.ok(key.startsWith(`${CHECKLIST_STORAGE_PREFIX}:${localPort}@`), `scope ${key} is origin- and workspace-tagged`);
-      }
+      // Mutating B must not touch A's record even though the origin is shared.
+      api.__setWorkspace('E:\\Work\\themes\\shop-b');
+      (doc.getElementById('tabNavThemeChecklist') as HTMLElement).click();
+      await flush(6);
+      (doc.getElementById('themeChecklistList')?.querySelector('.theme-btn-toggle-all') as HTMLElement).click();
+      await flush(4);
+      const recA = bridge.records.get(scopeA);
+      const recB = bridge.records.get(scopeB);
+      assert.ok(recA && recB, 'both projects hold their own store records under one origin');
+      assert.equal(recB.items.filter((item) => item.done).length > 0, true, 'project B persisted its own progress');
+      assert.equal(recA.items.filter((item) => item.done).length, projectADone, 'project A\'s record is untouched by B\'s save');
     } finally {
       dom.window.close();
     }
@@ -640,5 +930,209 @@ describe('Theme Studio page-by-page checklist', () => {
     } finally {
       dom.window.close();
     }
+  });
+
+  describe('checklist store bridge lane (IPC)', () => {
+    const LEGACY_DATA_PREFIX = 'antifan_theme_checklist_custom_items';
+    const legacyDoneKey = (scope: string) => `${CHECKLIST_STORAGE_PREFIX}:${scope}`;
+    const legacyDataKey = (scope: string) => `${LEGACY_DATA_PREFIX}:${scope}`;
+    const currentScope = () => checklistScope(DEFAULT_ORIGIN, workspaceTag(DEFAULT_WORKSPACE));
+
+    /** Rendered row for a default-checklist item id, found by its code column. */
+    const rowFor = (doc: Document, itemId: string): HTMLElement | null => {
+      const item = DEFAULT_THEME_CHECKLIST.find((entry) => entry.id === itemId);
+      assert.ok(item, `fixture item ${itemId} exists in the default checklist`);
+      return (Array.from(doc.querySelectorAll('.theme-item-row')) as HTMLElement[])
+        .find((row) => row.querySelector('.theme-item-code')?.textContent === item.code) ?? null;
+    };
+
+    test('two mutations inside one save RTT both persist on the serialized CAS chain', async () => {
+      // Red→green pin for the lost second mutation: while save #1 is in flight a
+      // second mutation enqueues. The chained save must price its CAS base at
+      // execution time — off save #1's updatedAt — not at enqueue time, or the
+      // second tick self-conflicts and is silently dropped.
+      const { doc, dom, api } = await loadToolbar({ checklistBridge: { holdSaves: true } });
+      try {
+        const bridge = api.__checklist;
+        assert.ok(bridge, 'the checklist IPC lane is on in this fixture');
+        const scope = currentScope();
+
+        (rowFor(doc, 'hom-01')?.querySelector('.theme-item-checkbox') as HTMLInputElement).click();
+        await flush(2);
+        assert.equal(bridge.pendingSaves.length, 1, 'the first save is parked on the wire');
+        (rowFor(doc, 'hom-02')?.querySelector('.theme-item-checkbox') as HTMLInputElement).click();
+        await flush(2);
+        assert.equal(bridge.pendingSaves.length, 1, 'the second mutation queues behind the in-flight save');
+
+        const firstResult = bridge.pendingSaves[0]!.resolve();
+        await flush(4);
+        assert.equal(bridge.pendingSaves.length, 2, 'the chained second save is invoked once the first lands');
+        assert.equal(
+          bridge.saveCalls[1]?.baseUpdatedAt,
+          firstResult.updatedAt,
+          'the second save bases on the first save\'s updatedAt — re-read inside the chain, not captured at enqueue',
+        );
+        const secondResult = bridge.pendingSaves[1]!.resolve();
+        assert.equal(secondResult.conflict, false, 'the re-based second save lands without a conflict');
+        await flush(6);
+
+        const rec = bridge.records.get(scope);
+        assert.ok(rec, 'the scope has a persisted record');
+        assert.equal(rec.items.find((item) => item.id === 'hom-01')?.done, true, 'the first mutation persisted');
+        assert.equal(rec.items.find((item) => item.id === 'hom-02')?.done, true, 'the second mutation survived the same RTT');
+        const doneRows = doc.getElementById('themeChecklistList')?.querySelectorAll('.theme-item-row.is-done') ?? [];
+        assert.equal(doneRows.length, 2, 'the checklist renders both ticks');
+      } finally {
+        dom.window.close();
+      }
+    });
+
+    test('a rejected save degrades to legacy keys without wedging the IPC lane', async () => {
+      // A transient rejection must not latch the bridge off: the fallback writes
+      // the durable legacy pair, and the NEXT mutation reaches the store again.
+      const { doc, win, dom, api } = await loadToolbar();
+      try {
+        const bridge = api.__checklist;
+        assert.ok(bridge, 'the checklist IPC lane is on in this fixture');
+        const scope = currentScope();
+        bridge.failNextSaves = 1;
+
+        (rowFor(doc, 'hom-01')?.querySelector('.theme-item-checkbox') as HTMLInputElement).click();
+        await flush(6);
+
+        assert.equal(bridge.saveCalls.length, 1, 'the rejected save reached the bridge');
+        assert.ok(win.localStorage.getItem(legacyDoneKey(scope)), 'the done-map legacy key was written on fallback');
+        assert.ok(win.localStorage.getItem(legacyDataKey(scope)), 'the items legacy key was written on fallback');
+        assert.equal(JSON.parse(win.localStorage.getItem(legacyDoneKey(scope)) ?? '{}')['hom-01'], true, 'the fallback persisted the tick');
+
+        // The very next mutation must use IPC again — the latch only belongs to
+        // a MISSING bridge, not to a transient rejection.
+        (rowFor(doc, 'hom-02')?.querySelector('.theme-item-checkbox') as HTMLInputElement).click();
+        await flush(6);
+
+        assert.equal(bridge.saveCalls.length, 2, 'the next save uses the IPC lane again');
+        const rec = bridge.records.get(scope);
+        assert.equal(rec?.items.find((item) => item.id === 'hom-02')?.done, true, 'the second tick persisted to the store');
+        // The fallback row is a mirror, not a gate: the store stays authoritative.
+        assert.equal(rec?.items.find((item) => item.id === 'hom-01')?.done, true, 'the store carries both ticks after recovery');
+      } finally {
+        dom.window.close();
+      }
+    });
+
+    test('a CAS conflict on the migration save re-saves the winner∪legacy union before the legacy keys die', async () => {
+      // An agent write lands between the migration LOAD and its SAVE. The merged
+      // union must be recomputed against the conflict winner and re-saved, and
+      // the localStorage keys only die once that union actually persisted.
+      const scope = currentScope();
+      const legacyRow: ThemeChecklistItem = { id: 'leg-01', code: 'LEG-01', name: 'legacy-only row', desc: 'd', qaPoint: 'q', page: 'pages', done: false };
+      const { doc, win, dom, api } = await loadToolbar({
+        checklistBridge: {
+          holdSaves: true,
+          // The store already carries a record (an agent seeded it): `existed`
+          // is true, `migrated` is false, so the LOAD runs the migration merge.
+          seed: { [scope]: { items: DEFAULT_THEME_CHECKLIST.map((item) => ({ ...item })), updatedAt: 40, migrated: false } },
+        },
+        seedLocalStorage: (win) => {
+          win.localStorage.setItem(legacyDoneKey(scope), JSON.stringify({ 'hom-01': true, 'leg-01': true }));
+          win.localStorage.setItem(legacyDataKey(scope), JSON.stringify([legacyRow]));
+        },
+      });
+      try {
+        const bridge = api.__checklist;
+        assert.ok(bridge, 'the checklist IPC lane is on in this fixture');
+        assert.equal(bridge.pendingSaves.length, 1, 'the migration save is parked on the wire');
+        const migrationCall = bridge.pendingSaves[0]!.call;
+        assert.equal(migrationCall.baseUpdatedAt, 40, 'the migration save CASes on the loaded updatedAt');
+        assert.ok(migrationCall.items.some((item) => item.id === 'leg-01'), 'the merge carries the legacy-only row');
+        // File rows win id collisions on an existing record: the legacy
+        // done-map only prices legacy-only rows, so hom-01 keeps the file's
+        // authoritative flag while leg-01 arrives done from `savedDone`.
+        assert.equal(migrationCall.items.find((item) => item.id === 'leg-01')?.done, true, 'the done-map prices the legacy-only row');
+        assert.equal(migrationCall.items.find((item) => item.id === 'hom-01')?.done, false, 'the file row keeps its authoritative done flag');
+
+        // The agent's interleaved write lands before the parked save resolves.
+        const agentItems = DEFAULT_THEME_CHECKLIST.map((item) => ({ ...item, done: item.id === 'hom-02' }));
+        bridge.agentWrite(scope, DEFAULT_WORKSPACE, agentItems);
+
+        const conflict = bridge.pendingSaves[0]!.resolve();
+        assert.equal(conflict.conflict, true, 'the stale migration save conflicts');
+        await flush(4);
+        assert.equal(bridge.pendingSaves.length, 2, 'the union is re-saved on the conflict winner');
+        const unionCall = bridge.pendingSaves[1]!.call;
+        assert.ok(unionCall.items.some((item) => item.id === 'hom-02' && item.done), 'the union keeps the agent\'s mutation');
+        assert.ok(unionCall.items.some((item) => item.id === 'leg-01'), 'the union keeps the legacy-only row');
+        assert.equal(unionCall.baseUpdatedAt, conflict.updatedAt, 'the re-save bases on the conflict winner\'s updatedAt');
+
+        // Ordering: the durable legacy keys survive until the union has persisted.
+        assert.ok(win.localStorage.getItem(legacyDoneKey(scope)) !== null, 'legacy keys outlive the conflicting save');
+        const unionResult = bridge.pendingSaves[1]!.resolve();
+        assert.equal(unionResult.conflict, false, 'the union save lands');
+        await flush(6);
+
+        const rec = bridge.records.get(scope);
+        assert.ok(rec?.items.some((item) => item.id === 'leg-01'), 'the persisted record carries the legacy row');
+        assert.ok(rec?.items.some((item) => item.id === 'hom-02' && item.done), 'the persisted record carries the agent mutation');
+        assert.equal(win.localStorage.getItem(legacyDoneKey(scope)), null, 'the done-map key is removed only after the union persisted');
+        assert.equal(win.localStorage.getItem(legacyDataKey(scope)), null, 'the items key is removed only after the union persisted');
+      } finally {
+        dom.window.close();
+      }
+    });
+
+    test('the boot sweep never removes keys for a scope with no durable root', async () => {
+      // `unknown-workspace` scopes resolve to rootFor === '' — provisional, no
+      // persisted file to migrate into. Their localStorage keys are the only
+      // copy and must survive the sweep.
+      const foreignScope = checklistScope('http://other-shop.local', 'foreign-tag-abc');
+      const unknownScope = checklistScope('http://other-shop.local', UNKNOWN_WORKSPACE_TAG);
+      const ownScope = checklistScope('http://other-shop.local', workspaceTag(DEFAULT_WORKSPACE));
+      const { win, dom } = await loadToolbar({
+        seedLocalStorage: (w) => {
+          for (const scope of [foreignScope, unknownScope, ownScope]) {
+            w.localStorage.setItem(legacyDoneKey(scope), JSON.stringify({ 'hom-01': true }));
+            w.localStorage.setItem(legacyDataKey(scope), JSON.stringify([{ id: 'leg-x', code: 'LEG-X', name: 'n', desc: 'd', qaPoint: 'q', page: 'pages', done: false }]));
+          }
+        },
+      });
+      try {
+        await flush(6); // let the post-identity sweep settle
+        assert.equal(win.localStorage.getItem(legacyDoneKey(ownScope)), null, 'control: an own-workspace scope migrates and its keys are removed — the sweep ran');
+        assert.equal(win.localStorage.getItem(legacyDoneKey(foreignScope)), '{"hom-01":true}', 'a foreign-tag scope is skipped');
+        assert.ok(win.localStorage.getItem(legacyDoneKey(unknownScope)) !== null, 'the unknown-workspace scope keeps its durable keys');
+        assert.ok(win.localStorage.getItem(legacyDataKey(unknownScope)) !== null, 'the unknown-workspace items key also survives');
+      } finally {
+        dom.window.close();
+      }
+    });
+
+    test('an in-flight LOAD must not clobber a newer pushed snapshot', async () => {
+      // A THEME_CHECKLIST_UPDATED push lands while the LOAD invoke is parked.
+      // Resolving the load with the older snapshot must be a no-op — adopting it
+      // would re-render stale rows AND roll the CAS base backward.
+      const { doc, dom, api } = await loadToolbar({ checklistBridge: { holdLoads: true } });
+      try {
+        const bridge = api.__checklist;
+        assert.ok(bridge, 'the checklist IPC lane is on in this fixture');
+        const scope = currentScope();
+        const pending = bridge.pendingLoads.find((entry) => entry.scope === scope);
+        assert.ok(pending, 'the scope LOAD is parked on the wire');
+
+        const pushedRow: ThemeChecklistItem = { id: 'push-01', code: 'PUSH-01', name: 'agent-pushed row', desc: 'd', qaPoint: 'q', page: 'home', done: true };
+        bridge.push({ scope, workspaceRoot: DEFAULT_WORKSPACE, items: [pushedRow], updatedAt: 9999 });
+        await flush(4);
+        // The stale LOAD answer resolves AFTER the push — pre-fix it overwrote
+        // the pushed rows wholesale.
+        pending.resolve({ items: DEFAULT_THEME_CHECKLIST.map((item) => ({ ...item })), updatedAt: 7, existed: true, migrated: true });
+        await flush(6);
+
+        const list = doc.getElementById('themeChecklistList');
+        const codes = Array.from(list?.querySelectorAll('.theme-item-code') ?? [], (e) => e.textContent);
+        assert.ok(codes.includes('PUSH-01'), 'the pushed snapshot stays on screen');
+        assert.equal(codes.length, 1, 'the stale LOAD result does not clobber the pushed rows');
+      } finally {
+        dom.window.close();
+      }
+    });
   });
 });

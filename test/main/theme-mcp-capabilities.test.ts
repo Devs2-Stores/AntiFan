@@ -6,9 +6,17 @@ import * as path from 'node:path';
 import { CapabilityCatalogue } from '../../src/main/tools/capability-catalogue';
 import { BrowserControlPort, BrowserHostPort } from '../../src/main/tools/browser-control-port';
 import { registerBrowserCapabilities } from '../../src/main/tools/browser-capabilities';
-import { BrowserTarget, CapabilityRequestContext } from '../../src/shared/control-plane-contracts';
+import { BrowserTarget, CapabilityRequestContext, CapabilityError } from '../../src/shared/control-plane-contracts';
 import { ArtifactStore } from '../../src/main/tools/artifact-store';
 import { AnnotationManager } from '../../src/main/bridge/annotation-manager';
+import { CockpitPort, CockpitHostPort, CockpitQaState } from '../../src/main/tools/cockpit-port';
+import {
+  getScope,
+  mutateScope,
+  setScopeCas,
+  isProvisionalChecklistScope,
+} from '../../src/main/qa/theme-checklist-store';
+import { checklistScope, workspaceTag, type ThemeChecklistItem } from '../../src/shared/theme-checklist';
 
 describe('Theme QA MCP Capabilities', () => {
   const defaultOptions = {
@@ -330,6 +338,236 @@ describe('Theme QA MCP Capabilities', () => {
       assert.strictEqual(bundle.overflow.culprits.length, 0);
       assert.strictEqual(bundle.evidenceGaps.length, 1);
       assert.ok(bundle.evidenceGaps[0]?.includes('no usable viewport measurement'));
+    });
+  });
+  describe('theme.cockpit_* capabilities', () => {
+    type Fixture = {
+      catalogue: CapabilityCatalogue;
+      navigations: Array<{ tabId: string; url: string }>;
+      qaCalls: Array<{ tabId: string; workspaceRoot?: string }>;
+      scope: string;
+      root: string;
+    };
+    type CockpitListResult = {
+      scope: string;
+      isProvisional: boolean;
+      total: number;
+      done: number;
+      items: ThemeChecklistItem[];
+    };
+    type CockpitMarkResult = { item: ThemeChecklistItem; updatedAt: number; scope: string; isProvisional: boolean };
+    type CockpitScanResult = { ok: boolean; workspaceRoot: string; scope: string; isProvisional: boolean };
+
+    // A CockpitHostPort backed by the real checklist store on a tmp root: a
+    // capability-level round-trip therefore proves the persisted file, not a
+    // mocked echo.
+    const makeCockpitFixture = (liveUrl: string, options?: { tabAlive?: boolean; navResult?: boolean }): Fixture => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-cockpit-'));
+      const navigations: Fixture['navigations'] = [];
+      const qaCalls: Fixture['qaCalls'] = [];
+      const qaState: CockpitQaState = { status: 'pass', issueCount: 0, updatedAt: 1 };
+      const host: CockpitHostPort = {
+        hasTab: (tabId) => tabId === 'tab-1' && options?.tabAlive !== false,
+        getTabUrl: (tabId) => (tabId === 'tab-1' ? liveUrl : ''),
+        resolveTabWorkspaceRoot: () => root,
+        navigateAndWait: async (tabId, url) => {
+          navigations.push({ tabId, url });
+          // Configurable outcome: a false result is a real navigation failure
+          // (timeout/abort), which cockpit_scan must refuse — not scan anyway.
+          return options?.navResult !== false;
+        },
+        runThemeQa: async (tabId, qaOptions) => {
+          qaCalls.push({ tabId, workspaceRoot: qaOptions?.workspaceRoot });
+          return { ok: true, report: { summary: { passed: true } } };
+        },
+        getThemeQaState: () => qaState,
+        checklistLoad: (_tabId, input) => {
+          const snap = getScope(input.workspaceRoot, input.scope);
+          return {
+            scope: input.scope,
+            workspaceRoot: input.workspaceRoot,
+            items: snap.items,
+            updatedAt: snap.updatedAt,
+            existed: snap.existed,
+            migrated: snap.migrated,
+            isProvisional: isProvisionalChecklistScope(input.scope, input.workspaceRoot),
+          };
+        },
+        checklistMutate: (_tabId, input) => ({
+          ...mutateScope(input.workspaceRoot, input.scope, input.op),
+          scope: input.scope,
+          workspaceRoot: input.workspaceRoot,
+          isProvisional: isProvisionalChecklistScope(input.scope, input.workspaceRoot),
+        }),
+        checklistSave: (_tabId, input) => {
+          const result = setScopeCas(input.workspaceRoot, input.scope, input.items, input.baseUpdatedAt);
+          return {
+            ok: !result.conflict,
+            scope: input.scope,
+            workspaceRoot: input.workspaceRoot,
+            items: result.items,
+            updatedAt: result.updatedAt,
+            conflict: result.conflict,
+            isProvisional: isProvisionalChecklistScope(input.scope, input.workspaceRoot),
+          };
+        },
+      };
+      const catalogue = new CapabilityCatalogue(defaultOptions);
+      registerBrowserCapabilities(catalogue, makeBoundBrowser(liveUrl), undefined, undefined, undefined, undefined, new CockpitPort(host));
+      const scope = checklistScope(new URL(liveUrl).origin, workspaceTag(root));
+      return { catalogue, navigations, qaCalls, scope, root };
+    };
+
+    const writeContext = (): CapabilityRequestContext => ({ ...makeBoundContext(), grant: 'write' });
+
+    it('registers all eight canonical theme.cockpit_* tools and their antifan_* aliases', () => {
+      const { catalogue, root } = makeCockpitFixture('https://shop.example.com/');
+      try {
+        for (const name of ['list', 'mark', 'mark_page', 'add_item', 'remove_item', 'scan', 'findings', 'report']) {
+          assert.ok(catalogue.has(`theme.cockpit_${name}`), `missing theme.cockpit_${name}`);
+          assert.ok(catalogue.has(`antifan_cockpit_${name}`), `missing antifan_cockpit_${name}`);
+        }
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it('cockpit_mark round-trips through the on-disk checklist scope', async () => {
+      const { catalogue, scope, root } = makeCockpitFixture('https://shop.example.com/');
+      try {
+        const before = await catalogue.dispatch('theme.cockpit_list', {}, makeBoundContext()) as CockpitListResult;
+        assert.strictEqual(before.scope, scope);
+        assert.strictEqual(before.isProvisional, false);
+        assert.strictEqual(before.total, 44);
+        assert.strictEqual(before.items.find((it) => it.id === 'hom-01')?.done, false);
+
+        const marked = await catalogue.dispatch('theme.cockpit_mark', { itemId: 'hom-01', done: true, note: 'verified' }, writeContext()) as CockpitMarkResult;
+        assert.strictEqual(marked.item.id, 'hom-01');
+        assert.strictEqual(marked.item.done, true);
+        assert.strictEqual(marked.item.note, 'verified');
+
+        const stored = getScope(root, scope);
+        assert.strictEqual(stored.existed, true);
+        assert.strictEqual(stored.items.find((it) => it.id === 'hom-01')?.done, true);
+        assert.strictEqual(stored.items.find((it) => it.id === 'hom-01')?.note, 'verified');
+
+        // The antifan_ alias must reach the same canonical op.
+        const unmarked = await catalogue.dispatch('antifan_cockpit_mark', { itemId: 'hom-01', done: false }, writeContext()) as CockpitMarkResult;
+        assert.strictEqual(unmarked.item.done, false);
+        assert.strictEqual(getScope(root, scope).items.find((it) => it.id === 'hom-01')?.done, false);
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it('refuses an explicit scope that re-derives unequal with SCOPE_MISMATCH', async () => {
+      const { catalogue, root } = makeCockpitFixture('https://shop.example.com/');
+      try {
+        await assert.rejects(
+          () => catalogue.dispatch('theme.cockpit_mark', { itemId: 'hom-01', done: true, scope: 'https://other.example.com@elsewhere' }, writeContext()),
+          (err: unknown) => err instanceof CapabilityError && err.code === 'SCOPE_MISMATCH'
+        );
+        await assert.rejects(
+          () => catalogue.dispatch('theme.cockpit_list', { scope: 'https://other.example.com@elsewhere' }, makeBoundContext()),
+          (err: unknown) => err instanceof CapabilityError && err.code === 'SCOPE_MISMATCH'
+        );
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it('refuses cockpit_mark_page for a page outside PAGE_DEFS and the loaded scope', async () => {
+      const { catalogue, scope, root } = makeCockpitFixture('https://shop.example.com/');
+      try {
+        await assert.rejects(
+          () => catalogue.dispatch('theme.cockpit_mark_page', { page: 'nope', done: true }, writeContext()),
+          (err: unknown) => err instanceof CapabilityError && err.code === 'INVALID_ARGUMENT'
+        );
+        // A page the scope actually carries does toggle: mark_page on 'home'
+        // must flip every home item in the persisted file.
+        const result = await catalogue.dispatch('theme.cockpit_mark_page', { page: 'home', done: true }, writeContext()) as { toggled: number };
+        assert.ok(result.toggled > 0);
+        assert.ok(getScope(root, scope).items.filter((it) => it.page === 'home').every((it) => it.done));
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it('cockpit_scan runs QA on the bound tab with the confined workspace root', async () => {
+      const { catalogue, qaCalls, navigations, root } = makeCockpitFixture('https://shop.example.com/');
+      try {
+        const result = await catalogue.dispatch(
+          'theme.cockpit_scan',
+          { page: 'home', workspaceRoot: path.join(root, '..', 'elsewhere-escape') },
+          makeBoundContext()
+        ) as CockpitScanResult;
+        assert.strictEqual(result.ok, true);
+        assert.strictEqual(result.workspaceRoot, root, 'workspaceRoot outside the bound root must fall back, not escape');
+        assert.strictEqual(qaCalls.length, 1);
+        assert.strictEqual(qaCalls[0]!.tabId, 'tab-1', 'QA must run on the bound tab, never the ambient active tab');
+        assert.strictEqual(qaCalls[0]!.workspaceRoot, root);
+        // Bound tab is already on the resolved '/' route → no pre-navigation.
+        assert.strictEqual(navigations.length, 0);
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it('cockpit_scan navigates the bound tab to the page route it is not already on', async () => {
+      const { catalogue, qaCalls, navigations, root } = makeCockpitFixture('https://shop.example.com/');
+      try {
+        await catalogue.dispatch('theme.cockpit_scan', { page: 'cart' }, makeBoundContext());
+        assert.deepStrictEqual(navigations, [{ tabId: 'tab-1', url: 'https://shop.example.com/cart' }]);
+        assert.strictEqual(qaCalls.length, 1);
+        assert.strictEqual(qaCalls[0]!.tabId, 'tab-1');
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it('rejects cockpit_scan with NAVIGATION_FAILED when the bound tab never reaches the route', async () => {
+      // navigateAndWait returning false means the tab never settled on the
+      // page's route; scanning anyway would report findings for the stale URL
+      // under the requested page's name. The QA run must not be attempted.
+      const { catalogue, qaCalls, navigations, root } = makeCockpitFixture('https://shop.example.com/', { navResult: false });
+      try {
+        await assert.rejects(
+          () => catalogue.dispatch('theme.cockpit_scan', { page: 'cart' }, makeBoundContext()),
+          (err: unknown) => err instanceof CapabilityError && err.code === 'NAVIGATION_FAILED'
+        );
+        assert.deepStrictEqual(navigations, [{ tabId: 'tab-1', url: 'https://shop.example.com/cart' }], 'the navigation was attempted');
+        assert.strictEqual(qaCalls.length, 0, 'no QA run happens against the stale page');
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it('refuses cockpit_scan for product when the bound tab is not on a PDP', async () => {
+      const { catalogue, root } = makeCockpitFixture('https://shop.example.com/');
+      try {
+        await assert.rejects(
+          () => catalogue.dispatch('theme.cockpit_scan', { page: 'product' }, makeBoundContext()),
+          (err: unknown) => err instanceof CapabilityError && err.code === 'ROUTE_UNRESOLVED'
+        );
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it('propagates TARGET_REQUIRED when the bound tab owns no live window', async () => {
+      const { catalogue, root } = makeCockpitFixture('https://shop.example.com/', { tabAlive: false });
+      try {
+        await assert.rejects(
+          () => catalogue.dispatch('theme.cockpit_list', {}, makeBoundContext()),
+          (err: unknown) => err instanceof CapabilityError && err.code === 'TARGET_REQUIRED'
+        );
+        await assert.rejects(
+          () => catalogue.dispatch('theme.cockpit_scan', {}, makeBoundContext()),
+          (err: unknown) => err instanceof CapabilityError && err.code === 'TARGET_REQUIRED'
+        );
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
     });
   });
 });
