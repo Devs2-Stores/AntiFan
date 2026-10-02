@@ -117,6 +117,30 @@ function hasMeasuredSurface(snapshot: RenderSurfaceSnapshot | undefined): snapsh
   return Number.isFinite(snapshot.vw) && Number.isFinite(snapshot.vh) && snapshot.vw >= 1 && snapshot.vh >= 1;
 }
 
+/**
+ * A native raster whose every pixel is identical is the blank canvas a wedged
+ * presenter hands back: the last composited content is gone and capturePage
+ * snapshots the empty backing instead. Returns undefined when the image cannot
+ * be sampled (no toBitmap, degenerate buffer) — an unverifiable raster is not
+ * evidence of a blank one.
+ */
+function isUniformNativeRaster(image: Electron.NativeImage): boolean | undefined {
+  if (typeof image.toBitmap !== 'function') return undefined;
+  let bitmap: Buffer;
+  try {
+    bitmap = image.toBitmap();
+  } catch {
+    return undefined;
+  }
+  if (!Buffer.isBuffer(bitmap) || bitmap.length < 4 || bitmap.length % 4 !== 0) return undefined;
+  for (let px = 4; px < bitmap.length; px += 4) {
+    if (bitmap[px] !== bitmap[0] || bitmap[px + 1] !== bitmap[1] || bitmap[px + 2] !== bitmap[2] || bitmap[px + 3] !== bitmap[3]) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export interface TabDevToolsContext {
   getTabWebContents: (tabId?: string, paneId?: SplitPaneId) => Electron.WebContents | null;
   getTabRecord: (tabId: string) => NativeTabRecord | undefined;
@@ -2094,10 +2118,20 @@ export class TabDevToolsHost {
    * after the invalidate is instead re-raised into the real window: the
    * off-screen capture host is not a surface the Windows compositor drives
    * either (measured live — the main window maximized and visible, the raised
-   * pane still starved), while the presented window is. A target that stays
-   * starved after the ladder is refused with CAPTURE_FRAME_STARVATION before
-   * the CDP command is dispatched, so the CDP queue stays clean and the next
-   * tool call is answered immediately instead of hitting TARGET_BUSY_DRAINING.
+   * pane still starved), while the presented window is.
+   *
+   * One more rung follows: the compositor kick toggles the view's presentation
+   * — a lifted pane's lease is released and reacquired in-window (a full
+   * lower-and-raise cycle, distinct from the host-to-window upgrade above),
+   * while a presented pane gets a second reassertPresentedView, whose
+   * DirectComposition layer recycle is separate enough from the first reassert
+   * to matter against an occlusion that outlived it. A target that still
+   * reads starved after the kick is refused with CAPTURE_FRAME_STARVATION
+   * before the CDP command is dispatched, so the CDP queue stays clean and
+   * the next tool call is answered immediately instead of hitting
+   * TARGET_BUSY_DRAINING. The caller's native raster tier runs after this
+   * refusal: it answers from the view's last committed surface, which needs no
+   * new BeginFrame.
    */
   private async ensureFramesForRaster(
     wc: Electron.WebContents,
@@ -2107,7 +2141,7 @@ export class TabDevToolsHost {
     isOffscreenTarget: boolean,
     liftLease: CaptureLiftLease | null,
     rasterBoundMs?: number,
-  ): Promise<void> {
+  ): Promise<CaptureLiftLease | null> {
     const liftTelemetry = { liftedMs: liftLease ? Date.now() - liftLease.liftedAtMs : undefined, lowered: liftLease?.released ?? false };
     if (isOffscreenTarget) {
       recordLifecycleEvent('capture.frameGate', {
@@ -2118,10 +2152,10 @@ export class TabDevToolsHost {
         probe: await this.probeFrameLiveness(targetId, effectivePane),
         ...liftTelemetry,
       });
-      return;
+      return liftLease;
     }
     const initial = await this.probeFrameLiveness(targetId, effectivePane);
-    if (initial !== false) return;
+    if (initial !== false) return liftLease;
 
     const windowState = this.ctx.getWindowPresentationState?.();
     const steps: string[] = [];
@@ -2133,13 +2167,13 @@ export class TabDevToolsHost {
     } catch {}
     if ((await this.probeFrameLiveness(targetId, effectivePane)) === true) {
       recordLifecycleEvent('capture.frameGate', { tabId: targetId, paneId: effectivePane, mode, probe: initial, recovered: 'invalidate', window: windowState, ...liftTelemetry });
-      return;
+      return liftLease;
     }
     if (!liftLease) {
       try { this.ctx.reassertPresentedView?.(); steps.push('reassert'); } catch {}
       if ((await this.probeFrameLiveness(targetId, effectivePane)) === true) {
         recordLifecycleEvent('capture.frameGate', { tabId: targetId, paneId: effectivePane, mode, probe: initial, recovered: 'reassert', window: windowState, ...liftTelemetry });
-        return;
+        return liftLease;
       }
     } else {
       // The capture host parks the pane on a fully off-screen window, and that
@@ -2152,8 +2186,44 @@ export class TabDevToolsHost {
       try { if (liftLease.upgradeToInWindow({ budgetMs: rasterBoundMs })) steps.push('in-window-lift'); } catch {}
       if ((await this.probeFrameLiveness(targetId, effectivePane)) === true) {
         recordLifecycleEvent('capture.frameGate', { tabId: targetId, paneId: effectivePane, mode, probe: initial, recovered: 'in-window-lift', window: windowState, ...liftTelemetry });
-        return;
+        return liftLease;
       }
+    }
+
+    // The compositor kick: a starved pane's repair so far only nudged state
+    // (invalidate) or moved the pane's parking spot (in-window lift). A wedged
+    // BeginFrame source outlives both — the renderer keeps answering while the
+    // presenter produces nothing — so toggle the view's presentation itself.
+    // For a lifted pane that toggle is a full lease cycle: release lowers the
+    // pane back under the user's tab, and reacquiring raises it in-window
+    // again through the same raiseViewInWindow seam (the upgrade can no longer
+    // move it once it reported 'in-window', and the capture host already
+    // starved it). For the presented pane it is a second reassert — its
+    // DirectComposition layer recycle plus layout nudge — followed by another
+    // invalidate. The returned lease may differ from the one passed in: the
+    // kick reacquires, and the caller owns whichever lease comes back.
+    if (liftLease) {
+      const liftedView = liftLease.view;
+      try { liftLease.release('compositor-kick'); } catch {}
+      try {
+        if (liftedView && this.ctx.acquireCaptureLift) {
+          liftLease = await this.ctx.acquireCaptureLift(liftedView, { inWindow: true, budgetMs: rasterBoundMs });
+          steps.push('lift-recycle');
+        }
+      } catch {}
+    } else {
+      try { if (this.ctx.updateLayout) { this.ctx.updateLayout(); steps.push('updateLayout'); } } catch {}
+      try { if (this.ctx.reassertPresentedView) { this.ctx.reassertPresentedView(); steps.push('reassert-recycle'); } } catch {}
+      try {
+        if (typeof wc.invalidate === 'function' && !(typeof wc.isDestroyed === 'function' && wc.isDestroyed())) {
+          wc.invalidate();
+          steps.push('invalidate-2');
+        }
+      } catch {}
+    }
+    if ((await this.probeFrameLiveness(targetId, effectivePane)) === true) {
+      recordLifecycleEvent('capture.frameGate', { tabId: targetId, paneId: effectivePane, mode, probe: initial, recovered: 'compositor-kick', steps, window: windowState, ...liftTelemetry });
+      return liftLease;
     }
 
     recordLifecycleEvent('capture.frameGate', { tabId: targetId, paneId: effectivePane, mode, probe: initial, steps, window: windowState, ...liftTelemetry });
@@ -2188,7 +2258,7 @@ export class TabDevToolsHost {
     format: 'png' | 'jpeg',
     quality?: number,
     boundMs: number = NATIVE_VIEWPORT_RASTER_BOUND_MS
-  ): Promise<{ bytes: Buffer | null; timedOut: boolean }> {
+  ): Promise<{ bytes: Buffer | null; timedOut: boolean; uniform?: boolean }> {
     if (!wc || (typeof wc.isDestroyed === 'function' && wc.isDestroyed())) return { bytes: null, timedOut: false };
     if (typeof wc.capturePage !== 'function') return { bytes: null, timedOut: false };
     const wcId = typeof wc.id === 'number' ? wc.id : undefined;
@@ -2224,12 +2294,16 @@ export class TabDevToolsHost {
         return { bytes: null, timedOut };
       }
       if (typeof image.isEmpty === 'function' && image.isEmpty()) return { bytes: null, timedOut: false };
+      // Sample before encoding: a wedged BeginFrame source can hand back the
+      // blank canvas as a well-formed image, and pixels that are one solid
+      // color are that failure, not content.
+      const uniform = isUniformNativeRaster(image);
       if (format === 'jpeg' && typeof image.toJPEG === 'function') {
         const jpeg = image.toJPEG(Math.max(1, Math.min(100, Math.round(quality ?? 85))));
-        if (jpeg.length > 0) return { bytes: jpeg, timedOut: false };
+        if (jpeg.length > 0) return { bytes: jpeg, timedOut: false, uniform };
       }
       const png = typeof image.toPNG === 'function' ? image.toPNG() : Buffer.alloc(0);
-      return { bytes: png.length > 0 ? png : null, timedOut: false };
+      return { bytes: png.length > 0 ? png : null, timedOut: false, uniform };
     } catch {
       return { bytes: null, timedOut };
     } finally {
@@ -2578,7 +2652,7 @@ export class TabDevToolsHost {
           // every later command waits out the drain window (both measured).
           const rasterStartedAt = Date.now();
           try {
-            await this.ensureFramesForRaster(wc, targetId, effectivePane, mode, isOffscreenTarget, liftLease, cdpBoundMs);
+            liftLease = await this.ensureFramesForRaster(wc, targetId, effectivePane, mode, isOffscreenTarget, liftLease, cdpBoundMs);
             captureRes = await this.sendCdpCommand<{ data?: string }>(
               wc,
               'Page.captureScreenshot',
@@ -2593,8 +2667,53 @@ export class TabDevToolsHost {
             );
           } catch (err) {
             // Frame refusal occurs before dispatch: do not classify it as a
-            // raster timeout or probe again. The finally still restores the tab.
-            if (err instanceof CaptureError && err.code === 'CAPTURE_FRAME_STARVATION') throw err;
+            // raster timeout or probe again. One bounded tier still runs first:
+            // Page.captureScreenshot waits on a BeginFrame this presenter never
+            // issues, but capturePage snapshots the view's already-committed
+            // surface — it can answer even while the compositor produces no new
+            // frame. It shares the in-flight native raster and pays
+            // NATIVE_VIEWPORT_RASTER_BOUND_MS at most. Viewport only: the
+            // surface holds nothing beyond the visible region, so clip and
+            // full-page keep the starvation refusal rather than returning a
+            // viewport raster under their geometry. A zero-byte answer or one
+            // solid color is the blank canvas of a wedged presenter, not
+            // evidence — the starvation refusal stands when the tier produces
+            // nothing usable.
+            if (err instanceof CaptureError && err.code === 'CAPTURE_FRAME_STARVATION') {
+              if (mode === 'viewport' && !isOffscreenTarget) {
+                const native = await this.captureNativeViewportRaster(wc, imageFormat, options?.quality);
+                recordLifecycleEvent('capture.raster', {
+                  tabId: targetId,
+                  paneId: effectivePane,
+                  mode,
+                  engine: 'native-fallback',
+                  outcome: native.timedOut ? 'timeout' : !native.bytes ? 'empty' : native.uniform === true ? 'blank-canvas' : 'fallback-pixels',
+                  uniform: native.uniform,
+                  window: this.ctx.getWindowPresentationState?.(),
+                });
+                if (native.bytes && native.uniform !== true) {
+                  const fallbackImage = imageFormat === 'jpeg' ? validateJpegBuffer(native.bytes) : validatePngBuffer(native.bytes);
+                  const fallbackRaster = { width: fallbackImage.width, height: fallbackImage.height };
+                  if (fallbackImage.ok && rasterMatchesCss(fallbackRaster, cssCaptureSize, dpr, zoom)) {
+                    return {
+                      data: native.bytes.toString('base64'),
+                      backend: 'native-fallback',
+                      dpr,
+                      zoom,
+                      cssViewport,
+                      cssCaptureSize,
+                      rasterSize: fallbackRaster,
+                      captureMode: mode,
+                      timestamp: Date.now(),
+                      prewarm: lastPrewarmReceipt,
+                      prewarmError: prewarmFailure,
+                      settle: lastQuiescence?.warnings,
+                    };
+                  }
+                }
+              }
+              throw err;
+            }
             // A timed-out raster can leave the presented pane blank even though the
             // view is still attached: the compositor stopped committing frames.
             // Re-assert restores z-order and invalidates so the user sees the page

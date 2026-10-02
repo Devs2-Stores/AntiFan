@@ -44,10 +44,10 @@ function makePng(width: number, height: number): Buffer {
 }
 
 /** The devtools seam's capture lift is a lease; the mock returns one shaped like the real contract. */
-function liftLease(onRelease: () => void, onUpgrade?: (opts?: { budgetMs?: number }) => boolean): CaptureLiftLease {
+function liftLease(onRelease: () => void, onUpgrade?: (opts?: { budgetMs?: number }) => boolean, view?: unknown): CaptureLiftLease {
   let released = false;
   return {
-    view: null as unknown as CaptureLiftLease['view'],
+    view: (view ?? null) as unknown as CaptureLiftLease['view'],
     origin: 'in-window',
     liftedAtMs: Date.now(),
     get released() { return released; },
@@ -1881,7 +1881,7 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
         invalidates++;
         opts.onInvalidate?.();
       };
-      return { ctx, tabs, probes, invalidates: () => invalidates };
+      return { ctx, tabs, probes, invalidates: () => invalidates, mockWc };
     }
 
     function withCdpDouble(devTools: TabDevToolsHost): string[] {
@@ -1896,7 +1896,14 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
     }
 
     it('refuses with CAPTURE_FRAME_STARVATION before any dispatch, keeping the CDP queue clean', async () => {
-      const { ctx, probes, invalidates } = createFrameGateContext({ frameAlive: () => false });
+      const { ctx, probes, invalidates, mockWc } = createFrameGateContext({ frameAlive: () => false });
+      let capturePageCalls = 0;
+      mockWc.capturePage = async () => {
+        capturePageCalls += 1;
+        // The wedged-presenter answer: a real image that is one solid color —
+        // the fallback tier must read that as the blank canvas, not evidence.
+        return { isEmpty: () => false, toPNG: () => makePng(3, 2), toBitmap: () => Buffer.alloc(12, 0xab) } as never;
+      };
       const devTools = new TabDevToolsHost(ctx);
       const methods = withCdpDouble(devTools);
 
@@ -1905,19 +1912,26 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
         (err: unknown) => err instanceof CaptureError && err.code === 'CAPTURE_FRAME_STARVATION' && /no frame|compositor/.test(err.message)
       );
       assert.ok(probes.length >= 2, 'the gate must have probed at entry and again before dispatch');
-      assert.strictEqual(invalidates(), 1, 'the repair ladder must have tried one compositor invalidate');
+      assert.strictEqual(invalidates(), 2, 'the repair ladder must have tried the compositor invalidate and the kick invalidate');
+      assert.strictEqual(capturePageCalls, 1, 'the starved viewport capture must fall back to the native raster tier exactly once');
       assert.strictEqual(methods.includes('Page.captureScreenshot'), false, 'a starved presenter must never receive the dispatch');
       assert.strictEqual(devTools.isTargetDraining('tab-1', 'desktop'), false, 'the refusal happens before dispatch, so the target never enters the drain quarantine');
     });
 
     it('restores the presented tab when a raised background capture remains frame-starved', async () => {
-      const { ctx, probes, invalidates } = createFrameGateContext({ frameAlive: () => false });
+      const { ctx, probes, invalidates, mockWc } = createFrameGateContext({ frameAlive: () => false });
+      mockWc.capturePage = async () => ({
+        isEmpty: () => false, toPNG: () => makePng(3, 2), toBitmap: () => Buffer.alloc(12, 0xcd),
+      }) as never;
       // tab-2 is created while activeTabId stays 'tab-1', so the capture runs the
       // background path and the pane is raised for the raster.
       ctx.createTab('https://example.com/background');
-      const raiseCalls: Array<{ inWindow?: boolean } | undefined> = [];
+      const raiseCalls: Array<Record<string, unknown>> = [];
       let reasserts = 0;
-      ctx.acquireCaptureLift = async () => { raiseCalls.push(undefined); return liftLease(() => {}, () => { raiseCalls.push({ inWindow: true }); return true; }); };
+      ctx.acquireCaptureLift = async (view, opts) => {
+        raiseCalls.push({ acquire: true, inWindow: opts?.inWindow });
+        return liftLease(() => {}, () => { raiseCalls.push({ upgrade: true }); return true; }, view);
+      };
       ctx.reassertPresentedView = () => { reasserts += 1; };
       const devTools = new TabDevToolsHost(ctx);
       const methods = withCdpDouble(devTools);
@@ -1926,13 +1940,58 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
         () => devTools.captureVerificationScreenshot(undefined, 'tab-2', 'desktop'),
         (err: unknown) => err instanceof CaptureError && err.code === 'CAPTURE_FRAME_STARVATION'
       );
-      assert.strictEqual(raiseCalls.length, 2, 'a background pane is raised onto the capture host, then re-raised in-window when it stays starved');
-      assert.strictEqual(raiseCalls[0], undefined, 'the first raise takes the capture host');
-      assert.deepStrictEqual(raiseCalls[1], { inWindow: true }, 'the repair ladder re-raises the starved pane into the real window');
-      assert.strictEqual(invalidates(), 1, 'the repair ladder must have tried one compositor invalidate');
+      assert.strictEqual(raiseCalls.length, 3, 'a background pane is raised onto the capture host, re-raised in-window, then lifted again by the compositor kick');
+      assert.deepStrictEqual(raiseCalls[0], { acquire: true, inWindow: undefined }, 'the first raise takes the capture host');
+      assert.deepStrictEqual(raiseCalls[1], { upgrade: true }, 'the repair ladder re-raises the starved pane into the real window');
+      assert.deepStrictEqual(raiseCalls[2], { acquire: true, inWindow: true }, 'the compositor kick releases the lease and reacquires an in-window lift');
+      assert.strictEqual(invalidates(), 1, 'a lifted pane takes the lift-recycle kick, not the presented-pane invalidate');
       assert.strictEqual(reasserts, 1, 'a refused capture must restore the user tab after the repair ladder ends');
-      assert.ok(probes.length >= 3, 'the gate must have probed at entry, after the invalidate, and after the in-window lift');
+      assert.ok(probes.length >= 4, 'the gate must have probed at entry, after the invalidate, after the in-window lift, and after the kick');
       assert.strictEqual(methods.includes('Page.captureScreenshot'), false, 'a starved raised pane must never reach the dispatch');
+    });
+
+    it('returns native-fallback pixels when the extended ladder leaves a viewport capture starved', async () => {
+      const { ctx, invalidates, mockWc } = createFrameGateContext({ frameAlive: () => false });
+      let capturePageCalls = 0;
+      mockWc.capturePage = async () => {
+        capturePageCalls += 1;
+        return {
+          isEmpty: () => false,
+          // Mixed pixels: a real frame, not the blank canvas — the fallback
+          // tier only accepts rasters that carry content.
+          toBitmap: () => Buffer.from([1, 2, 3, 4, 9, 8, 7, 6, 1, 2, 3, 4, 5, 6, 7, 8, 9, 8, 7, 6, 1, 2, 3, 4]),
+          toPNG: () => makePng(6, 4),
+        } as never;
+      };
+      const devTools = new TabDevToolsHost(ctx);
+      const methods = withCdpDouble(devTools);
+
+      const envelope = await devTools.captureVerificationScreenshot(undefined, 'tab-1', 'desktop');
+      assert.strictEqual(envelope.backend, 'native-fallback', 'a starved viewport capture must be labeled by the tier that produced the pixels');
+      assert.strictEqual(envelope.captureMode, 'viewport');
+      assert.deepStrictEqual(envelope.rasterSize, { width: 6, height: 4 });
+      assert.ok(envelope.data.length > 0, 'the fallback envelope must carry the native raster bytes');
+      assert.strictEqual(capturePageCalls, 1, 'exactly one bounded native raster attempt');
+      assert.strictEqual(methods.includes('Page.captureScreenshot'), false, 'a starved presenter must never receive the CDP dispatch');
+      assert.strictEqual(invalidates(), 2, 'invalidate rung and kick invalidate both ran before the fallback');
+      assert.strictEqual(devTools.isTargetDraining('tab-1', 'desktop'), false, 'the fallback refusal path never drains the CDP queue');
+    });
+
+    it('heals through the compositor kick when the second reassert restarts the presenter', async () => {
+      let alive = false;
+      let reasserts = 0;
+      const { ctx } = createFrameGateContext({ frameAlive: () => alive });
+      ctx.reassertPresentedView = () => {
+        reasserts += 1;
+        if (reasserts === 2) alive = true;
+      };
+      const devTools = new TabDevToolsHost(ctx);
+      const methods = withCdpDouble(devTools);
+
+      const envelope = await devTools.captureVerificationScreenshot(undefined, 'tab-1', 'desktop');
+      assert.strictEqual(envelope.backend, 'cdp');
+      assert.strictEqual(reasserts, 2, 'the kick re-ran the presented-view recycle');
+      assert.strictEqual(methods.includes('Page.captureScreenshot'), true, 'the healed presenter must receive the dispatch');
     });
 
     it('recovers a capture-host-starved background pane through the in-window lift and completes the capture', async () => {
