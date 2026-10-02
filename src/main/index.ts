@@ -3433,15 +3433,25 @@ async function openProjectWindow(payload: unknown, parent?: BrowserWindow | null
     // One parent for both dialogs: the folder chooser belongs to the window whose picker the user
     // just answered, not to whatever window happens to be focused by the time it opens.
     const pickerParent = parent ?? BrowserWindow.getFocusedWindow();
-    const picked = await pickProjectToOpen(pickerParent);
-    if (picked.kind === 'cancelled') return { status: 'CANCELLED' };
-    if (picked.kind === 'folder') {
+    // `pickFolder` skips the candidate picker entirely: the "+" menu's "Mở dự án…" is the
+    // request to open a NEW project from a directory, so the folder chooser is the answer —
+    // the stored-inventory picker stays for the app-menu entry and the Ctrl+Shift+O route.
+    const pickFolder = payload && typeof payload === 'object' && 'pickFolder' in payload && payload.pickFolder === true;
+    if (pickFolder) {
       const fromFolder = await resolveProjectFromFolder(pickerParent);
       if ('result' in fromFolder) return fromFolder.result;
       requested = fromFolder.projectId;
     } else {
-      recordLifecycleEvent('project-open.picked', { projectId: picked.projectId });
-      requested = picked.projectId;
+      const picked = await pickProjectToOpen(pickerParent);
+      if (picked.kind === 'cancelled') return { status: 'CANCELLED' };
+      if (picked.kind === 'folder') {
+        const fromFolder = await resolveProjectFromFolder(pickerParent);
+        if ('result' in fromFolder) return fromFolder.result;
+        requested = fromFolder.projectId;
+      } else {
+        recordLifecycleEvent('project-open.picked', { projectId: picked.projectId });
+        requested = picked.projectId;
+      }
     }
   }
   let projectId: string;

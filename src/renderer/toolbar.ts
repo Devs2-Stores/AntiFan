@@ -164,7 +164,7 @@ interface AntiFanToolbarApi {
    * The one explicit user intention to open a project. With no id Main presents its own
    * picker. Optional so a renderer hot-swapped ahead of its preload cannot fail at init.
    */
-  openProject?: (projectId?: string) => Promise<ProjectOpenResult>;
+  openProject?: (projectId?: string, options?: { pickFolder?: boolean }) => Promise<ProjectOpenResult>;
   /** The picker this chrome hosts: Main pushes a requestId, this lists candidates and answers. */
   listProjects?: () => Promise<unknown>;
   onProjectOpenPicker?: (callback: (payload: { requestId?: unknown }) => void) => unknown;

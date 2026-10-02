@@ -49,7 +49,7 @@ function answerOpenProject(harness: StandaloneHarness, answer: unknown): void {
 }
 
 describe('sidebar project chip', () => {
-  it('offers Open Project in a project window, and asks Main which project without naming one', async () => {
+  it('offers Open Project in a project window, and asks Main to choose the folder without naming one', async () => {
     const harness = loadStandalone({ initialState: { projectWindow: PROJECT_IDENTITY } });
     await flush();
     answerOpenProject(harness, { status: 'OPENED', projectId: 'project-beta' });
@@ -64,11 +64,10 @@ describe('sidebar project chip', () => {
     openButton(harness)?.click();
     await flush();
 
-    assert.deepStrictEqual(
-      openProjectCalls(harness),
-      [[]],
-      'the request carries no id: Main owns the choice of which project to open',
-    );
+    const calls = openProjectCalls(harness);
+    assert.strictEqual(calls.length, 1);
+    assert.strictEqual(calls[0]![0], undefined, 'the request carries no id: Main owns the choice of which project to open');
+    assert.strictEqual((calls[0]![1] as { pickFolder?: boolean } | undefined)?.pickFolder, true, 'the "+" menu asks Main to go straight to the folder chooser');
     assert.strictEqual(chipStatus(harness), 'Đã mở project-beta', 'the outcome is reported from what Main answered');
   });
 
@@ -83,7 +82,10 @@ describe('sidebar project chip', () => {
     openButton(harness)?.click();
     await flush();
 
-    assert.deepStrictEqual(openProjectCalls(harness), [[]]);
+    const calls = openProjectCalls(harness);
+    assert.strictEqual(calls.length, 1);
+    assert.strictEqual(calls[0]![0], undefined);
+    assert.strictEqual((calls[0]![1] as { pickFolder?: boolean } | undefined)?.pickFolder, true);
     assert.strictEqual(chipStatus(harness), 'Đã chuyển tới project-alpha');
   });
 

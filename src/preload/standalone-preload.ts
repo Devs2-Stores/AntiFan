@@ -32,9 +32,10 @@ const api = {
   openWorkspace: (sessionId?: string) => ipcRenderer.invoke('antifan:standalone:open-workspace', { sessionId }),
   // The one explicit user intention to open a project. With no id, Main presents its own
   // project-opening surface; the renderer never guesses a project from a title, a path or
-  // whatever tab happens to be focused.
-  openProject: (projectId?: string): Promise<ProjectOpenResult> =>
-    ipcRenderer.invoke(PROJECT_WINDOW_CHANNELS.PROJECT_OPEN, { projectId }),
+  // whatever tab happens to be focused. `pickFolder: true` asks Main to go straight to the
+  // native folder chooser instead of the stored-inventory picker.
+  openProject: (projectId?: string, options?: { pickFolder?: boolean }): Promise<ProjectOpenResult> =>
+    ipcRenderer.invoke(PROJECT_WINDOW_CHANNELS.PROJECT_OPEN, { projectId, pickFolder: options?.pickFolder === true }),
   // The picker's own three calls: the inventory Main offers, the push that asks this
   // surface to host the modal, and the one answer that settles the request. The renderer
   // echoes the requestId Main gave it back verbatim — it is the only proof the answer

@@ -162,6 +162,11 @@ function renderShellScopeChip() {
  * project the user meant is Main's answer to give, and a renderer that sent its own window's
  * id would turn "open another project" into "focus the one I am already in". The outcome is
  * reported from what Main answers, never inferred from the click.
+ *
+ * The "+" menu's "Mở dự án…" means "open a project by its folder", so `pickFolder: true`
+ * asks Main to go straight to the native folder chooser. The stored-inventory picker stays
+ * reachable from the app-menu "Mở dự án…" (Ctrl+Shift+O), which is the route that names an
+ * existing project.
  */
 async function openProjectFromScope() {
   if (!api?.openProject) {
@@ -169,7 +174,7 @@ async function openProjectFromScope() {
     return;
   }
   try {
-    const result = await api.openProject();
+    const result = await api.openProject(undefined, { pickFolder: true });
     const status = result && typeof result === 'object' ? result.status : '';
     if (status === 'OPENED') reportShellScope(`Đã mở ${result.projectId}`, false);
     else if (status === 'FOCUSED') reportShellScope(`Đã chuyển tới ${result.projectId}`, false);
@@ -1511,7 +1516,45 @@ function groupSessionsByCategory(list) {
   }
   applyStoredProjectOrder();
   groups.sort((a, b) => categoryOrder.indexOf(a.key) - categoryOrder.indexOf(b.key));
+  disambiguateProjectGroupLabels(groups);
   return groups;
+}
+
+/**
+ * Two stored projects can carry the same display name (e.g. the boot workspace and a
+ * folder-open minted before the boot workspace attached: Main refuses to merge identities
+ * the registry already holds, so both stay and both sections render the same heading).
+ * When project sections collide on a label, each gets a short suffix — the folder parent
+ * segment when the folders differ, the project id tail otherwise — so the user can tell
+ * the sections apart and pick the right one to remove. `group.displayLabel` is a read-out
+ * for the header only; rename, search and stored state keep the real label.
+ */
+function disambiguateProjectGroupLabels(groups) {
+  const projectGroups = groups.filter((g) => g && g.kind === 'project');
+  for (const g of projectGroups) g.displayLabel = '';
+  const byLabel = new Map();
+  for (const g of projectGroups) {
+    const label = (g.label || '').trim();
+    if (!label) continue;
+    const bucket = byLabel.get(label) || [];
+    bucket.push(g);
+    byLabel.set(label, bucket);
+  }
+  for (const [label, bucket] of byLabel) {
+    if (bucket.length < 2) continue;
+    const folders = new Set(bucket.map((g) => (typeof g.folderPath === 'string' ? g.folderPath : '').replace(/[\\/]+$/, '')));
+    for (const g of bucket) {
+      let suffix = '';
+      if (folders.size > 1 && typeof g.folderPath === 'string' && g.folderPath) {
+        const parts = g.folderPath.replace(/[\\/]+$/, '').split(/[\\/]+/).filter(Boolean);
+        suffix = parts[parts.length - 1] || '';
+      }
+      if (!suffix && typeof g.projectId === 'string' && g.projectId) {
+        suffix = '…' + g.projectId.slice(-4);
+      }
+      g.displayLabel = suffix ? `${label} · ${suffix}` : label;
+    }
+  }
 }
 
 /**
@@ -6589,7 +6632,8 @@ function ensureCategoryHeader(group) {
   }
 
   const label = header.querySelector('.terminal-tab-category-label');
-  if (label && label.textContent !== group.label) label.textContent = group.label;
+  const shownLabel = typeof group.displayLabel === 'string' && group.displayLabel ? group.displayLabel : group.label;
+  if (label && label.textContent !== shownLabel) label.textContent = shownLabel;
   // The group colour has to be visible in the layout the user actually works in. The
   // horizontal chip cannot carry it in the sidebar, so the header name does: an
   // uncoloured group falls back to the muted header CSS, and the derived palette gives
@@ -6830,22 +6874,53 @@ function hideProjectHeaderMenu() {
 }
 
 /**
+ * Every stored project that claims a folder path, compared with the separator/case
+ * folding Windows needs. Usually 0 or 1 entries; a root that was opened before the
+ * boot workspace attached can legitimately have two, and the caller lists each so
+ * the user can pick which record to remove — silently picking one would merge
+ * identities Main keeps separate.
+ */
+function projectIdsForFolderPath(folderPath) {
+  const want = (typeof folderPath === 'string' ? folderPath : '')
+    .replace(/[\\/]+$/, '').replace(/\\/g, '/').toLowerCase();
+  if (!want) return [];
+  const out = [];
+  for (const [projectId, info] of projectStoredInfo) {
+    const ws = (typeof info?.workspacePath === 'string' ? info.workspacePath : '')
+      .replace(/[\\/]+$/, '').replace(/\\/g, '/').toLowerCase();
+    if (ws === want) out.push(projectId);
+  }
+  return out;
+}
+
+/**
  * The project section's action menu (right-click). Everything the header used to carry as
  * inline buttons — new terminal, Space, brief, star, colour, open, remove — lives here so
  * the header stays a name and a count. Targets are read from the header's live attributes:
  * the element is reused across renders while its group object is rebuilt.
  */
+
 function showProjectHeaderMenu(e, header) {
   e.preventDefault();
   e.stopPropagation();
   hideContextMenu();
-  const projectId = header.getAttribute('data-project-id') || '';
+  let projectId = header.getAttribute('data-project-id') || '';
   const folderPath = header.getAttribute('data-folder-path') || '';
   const capsuleKey = header.getAttribute('data-category') || '';
   const capsuleId = isCapsuleGroupKey(capsuleKey)
     ? capsuleKey.slice(CAPSULE_GROUP_PREFIX.length)
     : (header.getAttribute('data-capsule-id') || '');
-  const name = (header.querySelector('.terminal-tab-category-label') || {}).textContent || projectId;
+  // A folder section carries no project id — but the stored inventory knows which
+  // project(s) own that root, so the menu can still offer the project's actions.
+  // More than one claimant is real (a root opened before the boot workspace
+  // attached): the single-target actions (star, colour, open) keep the header's own
+  // id, while remove is offered once per claimant with its stored name so the user
+  // picks the exact record.
+  const folderProjectIds = !projectId && folderPath ? projectIdsForFolderPath(folderPath) : [];
+  if (!projectId && folderProjectIds.length === 1) projectId = folderProjectIds[0];
+  const name = (projectStoredInfo.get(projectId) || {}).name
+    || (header.querySelector('.terminal-tab-category-label') || {}).textContent
+    || projectId;
   const starred = Boolean((projectAppearance.get(projectId) || {}).starred);
   const items = [];
   if (folderPath && typeof api?.newTerminalInFolder === 'function') {
@@ -6866,9 +6941,14 @@ function showProjectHeaderMenu(e, header) {
   if (projectId && isSharedManagerShell() && typeof api?.openProject === 'function') {
     items.push({ label: 'Mở dự án này (Web Hub)', run: () => openProjectWebHub(projectId) });
   }
-  if (projectId && typeof api?.removeProject === 'function') {
-    items.push({ divider: true });
-    items.push({ label: 'Bỏ dự án khỏi danh sách', danger: true, run: () => removeProjectFromMenu(projectId, name) });
+  if (typeof api?.removeProject === 'function') {
+    const removable = projectId ? [projectId] : folderProjectIds;
+    if (removable.length > 0) items.push({ divider: true });
+    for (const pid of removable) {
+      const stored = (projectStoredInfo.get(pid) || {}).name || pid;
+      const label = removable.length > 1 ? `Xóa dự án "${stored}" (…${pid.slice(-4)})` : 'Xóa dự án khỏi danh sách';
+      items.push({ label, danger: true, run: () => removeProjectFromMenu(pid, stored) });
+    }
   }
   if (!items.some((item) => item.run)) return;
 
