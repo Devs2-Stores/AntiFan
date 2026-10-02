@@ -205,6 +205,10 @@ async function startHarness(options: { delayOldClose?: boolean } = {}): Promise<
     }),
     // This suite owns dispatch semantics, not renewal cadence.
     ANTIFAN_HEARTBEAT_MS: '60000',
+    // The mock bridge is a harness fixture, not a real terminal session:
+    // without this scrub an inherited data root would make proxy failure
+    // telemetry land in the live bridge-client-failures journal.
+    ANTIFAN_DATA_ROOT: undefined,
   };
   for (const key of DISCOVERY_ENV_KEYS) delete env[key];
 

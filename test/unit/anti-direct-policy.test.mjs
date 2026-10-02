@@ -140,20 +140,57 @@ test('before_agent_start arms anti-direct mode on Vietnamese natural language di
 	assert.equal(skipped[0].data.triggeredBy, 'natural_language');
 });
 
-test('process.env.ANTIFAN_ANTI_DIRECT=1 causes even generic prompts to skip Core pack', async () => {
+test('a stale ANTIFAN_ANTI_DIRECT=1 latch is cleared by the first plain prompt', async () => {
 	process.env.ANTIFAN_ANTI_DIRECT = '1';
+	process.env.ANTIFAN_CORE_TIMEOUT_MS = '1';
 
 	const h = makePi();
 	bridgeHook(h.pi);
 
 	await h.emit('session_start');
 
-	const messages = await h.emitBeforeAgentStart('analyze checkout flow');
-	assert.equal(messages.length, 0);
+	// The env latch this session never armed must not survive a plain prompt —
+	// otherwise Core retrieval stays refused while state reads unarmed (the
+	// half-stuck shape of the annotation-mode bug).
+	await h.emitBeforeAgentStart('analyze checkout flow');
+	assert.equal(process.env.ANTIFAN_ANTI_DIRECT, undefined, 'plain prompt clears a stale env latch');
+	const resets = h.entries.filter((e) => e.data?.event === 'BRIDGE_ANTI_DIRECT_RESET');
+	assert.ok(resets.length >= 1, 'emitted BRIDGE_ANTI_DIRECT_RESET');
+});
 
-	const skipped = h.entries.filter((e) => e.data?.event === 'BRIDGE_CONTEXT_SKIPPED');
-	assert.ok(skipped.length >= 1);
-	assert.equal(skipped[0].data.intent, 'user-direct');
+test('a plain prompt after an armed run disarms, and stale anti-direct text cannot re-arm', async () => {
+	delete process.env.ANTIFAN_ANTI_DIRECT;
+	delete process.env.ANTIFAN_ANTI_DIRECT_ORIGIN;
+
+	const h = makePi();
+	bridgeHook(h.pi);
+	await h.emit('session_start');
+
+	await h.emitBeforeAgentStart('/queue [⚡Direct-Edit] sửa nút cart');
+	assert.equal(process.env.ANTIFAN_ANTI_DIRECT, '1', 'tag armed the run');
+
+	await h.emitBeforeAgentStart('cảm ơn, xong rồi');
+	assert.equal(process.env.ANTIFAN_ANTI_DIRECT, undefined, 'plain prompt disarms the latch');
+	const resets = h.entries.filter((e) => e.data?.event === 'BRIDGE_ANTI_DIRECT_RESET');
+	assert.ok(resets.length >= 1);
+
+	// History still carries anti-direct strings (the annotation prompt itself);
+	// the context pass derives from the LAST user message — "cảm ơn" — so it
+	// must not re-arm.
+	const [res] = await h.emit('context', {
+		messages: [
+			{ role: 'user', content: '[⚡Direct-Edit] sửa nút cart (anti-direct đã bật)' },
+			{ role: 'agent', content: 'đã sửa xong, anti-direct policy active' },
+			{ role: 'user', content: 'cảm ơn, xong rồi' },
+		],
+	});
+	assert.equal(process.env.ANTIFAN_ANTI_DIRECT, undefined, 'stale history cannot re-arm after a reset');
+	void res;
+
+	// And a fresh tagged annotation re-arms normally — the mode is prompt-scoped,
+	// not one-shot.
+	await h.emitBeforeAgentStart('/queue [⚡Direct-Edit] sửa tiếp nút checkout');
+	assert.equal(process.env.ANTIFAN_ANTI_DIRECT, '1', 'a new tag re-arms cleanly');
 });
 
 // ---------------------------------------------------------------------------

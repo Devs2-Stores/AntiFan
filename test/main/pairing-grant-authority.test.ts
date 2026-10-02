@@ -41,6 +41,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { EventEmitter } from 'node:events';
 import { spawn } from 'node:child_process';
+import * as crypto from 'node:crypto';
 import { WebSocket } from 'ws';
 import { BridgeServer } from '../../src/main/bridge/bridge-server';
 import { AttachmentRegistry } from '../../src/main/run/attachment-registry';
@@ -66,7 +67,10 @@ import {
 const REPO_ROOT = ((): string => {
   let dir = __dirname;
   for (let i = 0; i < 6; i++) {
-    if (fs.existsSync(path.join(dir, 'scripts', 'antifan-agent.cjs'))) return dir;
+    // Anchor on package.json, never on scripts/: the build mirrors scripts into
+    // .compiled/, so checking for a script alone would resolve the repository
+    // root to the STALE compiled copy and hash the wrong proxy build.
+    if (fs.existsSync(path.join(dir, 'package.json')) && fs.existsSync(path.join(dir, 'scripts', 'antifan-agent.cjs'))) return dir;
     const parent = path.dirname(dir);
     if (parent === dir) break;
     dir = parent;
@@ -936,7 +940,7 @@ async function runOmpPairingChild(
   child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
   child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
   const exitCode = await new Promise<number | null>((resolve) => {
-    const timer = setTimeout(() => { try { child.kill(); } catch {} }, 60_000);
+    const timer = setTimeout(() => { try { child.kill(); } catch {} }, 60_000); // watchdog only: the child exits on its own
     child.on('close', (code: number | null) => { clearTimeout(timer); resolve(code); });
   });
   assert.strictEqual(exitCode, 0, `omp pairing child exited ${exitCode}: ${stderr}`);
@@ -948,6 +952,70 @@ async function runOmpPairingChild(
     { ok?: boolean; error?: string; errorCode?: string; exchange?: Record<string, unknown> };
   if (!parsed.ok) return { error: parsed.error, errorCode: parsed.errorCode, stdout, stderr };
   return { exchange: parsed.exchange, stdout, stderr };
+}
+
+/**
+ * Runs one exchange, then mutates what `fs.readFileSync(__filename)` returns and
+ * runs a SECOND exchange in the same process — the load-time PROXY_BUILD must
+ * survive the simulated post-load upgrade and be sent unchanged on the re-pair.
+ * The hook lives inside the module's own scope so the probe touches no real
+ * file and compiles the shipped script in place (sibling requires resolve).
+ */
+async function runOmpPairingChildAcrossUpgrade(
+  port: number,
+  envOverrides: NodeJS.ProcessEnv
+): Promise<{ exchanges: Array<Record<string, unknown>>; stderr: string }> {
+  const childScript = [
+    "const fs = require('node:fs');",
+    "const path = require('node:path');",
+    "const Module = require('node:module');",
+    'const target = process.argv[1];',
+    'const port = Number(process.argv[2]);',
+    // Compiled in place: the module sees the real __filename and sibling
+    // requires resolve. The appended shim exports what we need and exposes a
+    // drift hook that makes a later readFileSync(__filename) hand back upgraded
+    // bytes — the on-disk rewrite a stale proxy lives through.
+    "const source = fs.readFileSync(target, 'utf8') + '\\nmodule.exports.performPairingExchange = performPairingExchange;\\nmodule.exports.__injectUpgrade = () => { const f = require(\\'node:fs\\'); const orig = f.readFileSync; f.readFileSync = (p, o) => p === __filename ? Buffer.from(\\'upgraded proxy bytes on disk\\') : orig.call(f, p, o); };\\n';",
+    'const mod = new Module(target, null);',
+    'mod.filename = target;',
+    'mod.paths = Module._nodeModulePaths(path.dirname(target));',
+    'mod._compile(source, target);',
+    '(async () => {',
+    '  const first = await mod.exports.performPairingExchange(\'127.0.0.1\', port);',
+    '  mod.exports.__injectUpgrade();',
+    '  const second = await mod.exports.performPairingExchange(\'127.0.0.1\', port);',
+    "  process.stdout.write('ANTIFAN_RESULT:' + JSON.stringify({ ok: true, exchanges: [first, second] }), () => process.exit(0));",
+    "})().catch((err) => { process.stdout.write('ANTIFAN_RESULT:' + JSON.stringify({ ok: false, error: String((err && err.message) || err) }), () => process.exit(0)); });",
+  ].join('\n');
+
+  const env: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (key.startsWith('ANTIFAN_')) continue;
+    env[key] = value;
+  }
+  Object.assign(env, envOverrides);
+
+  const child = spawn(process.execPath, ['-e', childScript, OMP_MCP, String(port)], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env,
+  });
+  let stdout = '';
+  let stderr = '';
+  child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
+  child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
+  const exitCode = await new Promise<number | null>((resolve) => {
+    const timer = setTimeout(() => { try { child.kill(); } catch {} }, 60_000); // watchdog only: the child exits on its own
+    child.on('close', (code: number | null) => { clearTimeout(timer); resolve(code); });
+  });
+  assert.strictEqual(exitCode, 0, `proxy-upgrade child exited ${exitCode}: ${stderr}`);
+
+  const marker = 'ANTIFAN_RESULT:';
+  const markerAt = stdout.lastIndexOf(marker);
+  assert.ok(markerAt >= 0, `proxy-upgrade child produced no result line: ${stdout}${stderr}`);
+  const parsed = JSON.parse(stdout.slice(markerAt + marker.length)) as
+    { ok?: boolean; error?: string; exchanges?: Array<Record<string, unknown>> };
+  assert.ok(parsed.ok && parsed.exchanges, `proxy-upgrade pairing failed: ${parsed.error || stdout}${stderr}`);
+  return { exchanges: parsed.exchanges, stderr };
 }
 
 describe('Fresh pairing evidence exchange (HTTP, ControlPlaneRuntime-scoped)', () => {
@@ -1269,6 +1337,123 @@ describe('Fresh pairing evidence exchange (HTTP, ControlPlaneRuntime-scoped)', (
     } finally {
       try { stub.close(); } catch {}
       try { fs.rmSync(proxyCwd, { recursive: true, force: true }); } catch {}
+    }
+  });
+});
+
+// ── Stale-proxy build detection ──────────────────────────────────────────────
+// A proxy process survives Desktop restarts and keeps executing the
+// antifan-omp-mcp.cjs bytes it was spawned from. The proxy sends the digest of
+// those loaded bytes (`proxyBuild`); the bridge echoes the hash of the script
+// it ships and flags `proxyStale` on mismatch. A proxy that predates the field
+// sends nothing and still pairs — refusing it would orphan every pre-field
+// session.
+describe('Stale-proxy build detection on the exchange', () => {
+  const scriptDigest = (): string =>
+    crypto.createHash('sha256').update(fs.readFileSync(OMP_MCP)).digest('hex').slice(0, 16);
+
+  it('answers proxyStale=false and echoes the shipped digest when the declared build matches', async () => {
+    await withIsolatedRoots(async () => {
+      const fixture = await startBridge();
+      try {
+        const code = await claimChallengeCode(fixture.server);
+        const { status, body } = await postExchange(fixture.port, {
+          code,
+          clientClass: 'mcp',
+          proxyBuild: scriptDigest(),
+        });
+        assert.strictEqual(status, 200, `matching proxy build must pair: ${JSON.stringify(body)}`);
+        assert.strictEqual(body.proxyBuild, scriptDigest(), 'the bridge must echo the digest of the script it ships');
+        assert.strictEqual(body.proxyStale, false);
+      } finally {
+        fixture.dispose();
+      }
+    });
+  });
+
+  it('flags proxyStale=true on a mismatched digest but still mints the attachment', async () => {
+    await withIsolatedRoots(async () => {
+      const fixture = await startBridge();
+      try {
+        const code = await claimChallengeCode(fixture.server);
+        const { status, body } = await postExchange(fixture.port, {
+          code,
+          clientClass: 'mcp',
+          proxyBuild: 'deadbeefdeadbeef',
+        });
+        assert.strictEqual(status, 200, `a stale proxy must still pair — refusing it would orphan pre-field sessions: ${JSON.stringify(body)}`);
+        assert.strictEqual(body.proxyStale, true);
+        assert.strictEqual(body.proxyBuild, scriptDigest());
+        assert.ok(body.secret, 'the stale proxy still receives usable authority');
+      } finally {
+        fixture.dispose();
+      }
+    });
+  });
+
+  it('leaves proxyStale undefined when the client declares no build (pre-field proxy)', async () => {
+    await withIsolatedRoots(async () => {
+      const fixture = await startBridge();
+      try {
+        const code = await claimChallengeCode(fixture.server);
+        const { status, body } = await postExchange(fixture.port, { code, clientClass: 'mcp' });
+        assert.strictEqual(status, 200);
+        assert.strictEqual(body.proxyStale, undefined);
+      } finally {
+        fixture.dispose();
+      }
+    });
+  });
+
+  it('sends the load-time digest on a re-pair even after the on-disk script changes', async () => {
+    // The advisory invariant end-to-end: the proxy loads, an upgrade rewrites
+    // the file it was spawned from, and the SAME process re-pairs. Because
+    // PROXY_BUILD is captured at module load, the second exchange must carry
+    // the digest of the bytes the process executes — not the upgraded bytes a
+    // lazy readFileSync would return. The drift hook simulates the rewrite
+    // inside the module scope; no repo file is mutated.
+    const received: Array<{ path: string; payload: Record<string, unknown> }> = [];
+    const stub = http.createServer((req, res) => {
+      let raw = '';
+      req.on('data', (chunk: Buffer) => { raw += chunk.toString(); });
+      req.on('end', () => {
+        let payload: Record<string, unknown> = {};
+        try { payload = JSON.parse(raw || '{}') as Record<string, unknown>; } catch {}
+        received.push({ path: req.url || '', payload });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        if ((req.url || '').endsWith('/challenge')) {
+          res.end(JSON.stringify({ success: true, code: `stub-code-${received.length}` }));
+        } else {
+          res.end(JSON.stringify({ success: true, secret: 'stub-secret', grant: 'write', grantSource: 'ceiling' }));
+        }
+      });
+    });
+    await new Promise<void>((resolve, reject) => {
+      stub.once('error', reject);
+      stub.listen(0, '127.0.0.1', () => resolve());
+    });
+    const address = stub.address();
+    const stubPort = address && typeof address === 'object' ? address.port : 0;
+    assert.ok(stubPort > 0, 'stub bridge must be listening');
+
+    try {
+      const { exchanges, stderr } = await runOmpPairingChildAcrossUpgrade(stubPort, {
+        ANTIFAN_SESSION_GRANT: 'write',
+      });
+      assert.strictEqual(exchanges.length, 2, 'both pairings must succeed');
+      const exchangeCalls = received.filter((r) => r.path.endsWith('/exchange'));
+      assert.strictEqual(exchangeCalls.length, 2, 'the proxy must POST the exchange twice');
+      const first = exchangeCalls[0]?.payload.proxyBuild;
+      const second = exchangeCalls[1]?.payload.proxyBuild;
+      const shippedDigest = crypto.createHash('sha256').update(fs.readFileSync(OMP_MCP)).digest('hex').slice(0, 16);
+      assert.strictEqual(first, shippedDigest, 'the first exchange must carry the digest of the loaded script');
+      assert.strictEqual(
+        second,
+        first,
+        'the re-pair must still report the loaded bytes, not the post-load upgrade on disk'
+      );
+    } finally {
+      try { stub.close(); } catch {}
     }
   });
 });

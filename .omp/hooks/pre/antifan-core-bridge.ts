@@ -1036,24 +1036,25 @@ export default function antifanCoreBridgeHook(pi: BridgeAPI): void {
 			const isSameTask = state.taskHash !== null && taskHash === state.taskHash;
 			state.taskHash = taskHash;
 
-			// Identical prompt re-seed: reuse the pack, do not spawn again.
-			if (state.pack && isSameTask) {
-				return undefined;
-			}
-
-			// Anti-direct policy check (P0 priority: user explicit directive outranks auto heuristics).
-			// The environment is only the session's initial latch — what a spawned
-			// subagent inherits — and a prompt signal is what the person typed, so the
-			// signal outranks it. Before any signal, the latch is what was inherited.
-			const inherited = state.directMode === "unset" ? inheritedEditMode() : null;
-			const antiDirectCheck = detectAntiDirectIntent(task, inherited?.mode ?? state.directMode);
+			// Mode signals live in the prompt text. An event that carries no prompt
+			// is not a user message: the anti-direct check is skipped so it cannot
+			// unscope an armed run mid-task (identical to the edit-guard rule).
+			// Mode signals live in non-empty prompt text. An event that carries no
+			// prompt — or only whitespace — is not a user message: the anti-direct
+			// check is skipped so it cannot unscope an armed run mid-task
+			// (identical to the edit-guard rule).
+			const hasPrompt = typeof prompt === "string" && prompt.trim().length > 0;
+			const inherited =
+				hasPrompt && state.directMode === "unset" ? inheritedEditMode() : null;
+			const antiDirectCheck = hasPrompt
+				? detectAntiDirectIntent(task, inherited?.mode ?? state.directMode)
+				: { action: "none" as const, mode: state.directMode };
 			if (antiDirectCheck.action === "disarm") {
 				// An annotation ticked for Core context is an explicit per-prompt
 				// request: it must switch a Direct-armed session back, not just
 				// skip the arming this once.
 				state.directMode = "core";
 				state.antiDirect = false;
-				state.antiDirectTrigger = null;
 				delete process.env.ANTIFAN_ANTI_DIRECT;
 				delete process.env.ANTIFAN_ANTI_DIRECT_ORIGIN;
 			} else if (antiDirectCheck.action === "arm") {
@@ -1082,6 +1083,29 @@ export default function antifanCoreBridgeHook(pi: BridgeAPI): void {
 					});
 					log("info", `core pack skipped: anti-direct policy active (triggeredBy=${state.antiDirectTrigger}, taskHash=${taskHash ?? "none"})`);
 				}
+				return undefined;
+			} else if (state.antiDirect || state.directMode !== "unset" || process.env.ANTIFAN_ANTI_DIRECT === "1") {
+				// Plain prompt after an annotation-scoped mode: the mode's scope was
+				// its own prompt, so this run is unarmed again. The env clause
+				// clears a stale ANTIFAN_ANTI_DIRECT this session never armed — the
+				// half-stuck shape where retrieval stays refused while state reads
+				// clean. The context handler's rehydrate derives from the last user
+				// message, so no flag is needed to hold a reset.
+				if (state.antiDirect || process.env.ANTIFAN_ANTI_DIRECT === "1") {
+					recordEvent("BRIDGE_ANTI_DIRECT_RESET", {
+						taskHash,
+						previousMode: state.directMode,
+						reason: "plain prompt: annotation-scoped mode ended",
+					});
+					log("info", `anti-direct policy cleared by plain prompt (was=${state.directMode})`);
+				}
+				state.antiDirect = false;
+				state.antiDirectTrigger = null;
+				state.directMode = "unset";
+				delete process.env.ANTIFAN_ANTI_DIRECT;
+				delete process.env.ANTIFAN_ANTI_DIRECT_ORIGIN;
+			}
+			if (state.pack && isSameTask) {
 				return undefined;
 			}
 
@@ -1191,14 +1215,35 @@ export default function antifanCoreBridgeHook(pi: BridgeAPI): void {
 		try {
 			const messages = messagesField(event);
 			if (!messages) return undefined;
-			// Rehydrate / detect anti-direct if wrapper message exists in conversation.
-			// An explicit Core request outranks it: a Direct-armed session must not be
-			// re-armed by a stale conversation mention after the user ticked Core.
-			if (state.directMode !== "core" && !state.antiDirect && messages.some((m) => typeof m?.content === "string" && m.content.includes("anti-direct"))) {
-				state.antiDirect = true;
-				state.directMode = "direct";
-				state.antiDirectTrigger = "user_skill_invocation";
-				process.env.ANTIFAN_ANTI_DIRECT = "1";
+			// Rehydrate / detect anti-direct from the LAST user message, run through
+			// the same derivation the arming path uses. The previous substring scan
+			// re-armed on bridge-authored text ("anti-direct policy" appears in its
+			// own skip/refusal messages) — the user's latest word is the intent, and
+			// a plain latest message can never re-arm. Explicit Core still wins:
+			// an armed session must not be re-armed after the user ticked Core.
+			if (state.directMode !== "core" && !state.antiDirect) {
+				const messageText = (m: unknown): string => {
+					const c = (m as Record<string, unknown> | null)?.content;
+					if (typeof c === "string") return c;
+					if (Array.isArray(c)) {
+						return c
+							.map((p) => (p && typeof p === "object" && typeof (p as Record<string, unknown>).text === "string" ? ((p as Record<string, unknown>).text as string) : ""))
+							.join(" ");
+					}
+					return "";
+				};
+				const lastUserText = [...messages]
+					.reverse()
+					.filter((m) => (m as Record<string, unknown>)?.role === "user")
+					.map((m) => messageText(m))
+					.find((t) => t.trim().length > 0);
+				if (lastUserText && SCOPED_MODES.includes(deriveEditMode(lastUserText, "unset").mode)) {
+					const mode = deriveEditMode(lastUserText, "unset").mode;
+					state.antiDirect = true;
+					state.directMode = mode;
+					state.antiDirectTrigger = "user_skill_invocation";
+					process.env.ANTIFAN_ANTI_DIRECT = "1";
+				}
 			}
 			let keptCurrent = false;
 			let changed = false;

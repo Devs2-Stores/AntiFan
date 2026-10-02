@@ -73,16 +73,19 @@ person who typed the tag feels the difference in the first minute.
    (`ANTI_DIRECT_TAG_RE`, `CORE_CONTEXT_TAG_RE`, `ANTI_DIRECT_NL_RE`) are deleted by that import so the
    surfaces can never disagree; its `detectAntiDirectIntent` survives as a thin adapter that calls
    `deriveEditMode` and maps the decision onto arm/disarm (it no longer owns a pattern of its own).
-2. **Modes are latched per session, last explicit signal wins.** A prompt with `[🧠Core-Context]` always
-   disarms, including while Direct is latched. A prompt with no mode signal keeps the latched mode.
-3. **The mode is a mode, not a prison.** Two exits exist and are the contract: the Core tag in any
-   prompt, and `[🧠Core-Context]` typed directly in the terminal (both resolve through the same
-   `deriveEditMode`). A third, file-based one: `%ANTIFAN_DATA_ROOT%/edit-guard.json` may extend the
-   write allow-list. **`/anti-direct off` is not an exit** — it is not implemented, and the skill
-   matcher (`ANTI_DIRECT_SKILL_RE`) matches `anti-direct` inside it, so typing it *arms* Direct-Edit.
-   The text is recorded here rather than shipped as a claim: an exit that does the opposite is worse
-   than no exit. Implementing one means matching an explicit off-form before the skill matcher and
-   resolving it to `core`/`unset` (its own change, with the disarm test in the lane below).
+2. **Modes are annotation-scoped, armed by signal, reset by silence.** A prompt carrying a mode tag
+   (`[⚡Direct-Edit]`, `[🚀Super-Fast]`, `[🧠Core-Context]`) or the anti-direct skill/natural-language
+   arms that mode for its own run. A prompt with **no signal disarms** — the mode belongs to the
+   annotation that carried it, so the next plain message is normal chat again. (Revised 2026-10-02:
+   the original latch-until-Core design trapped sessions in Super-Fast — one tagged annotation
+   poisoned every following message.)
+3. **The mode is a mode, not a prison.** Three exits exist and are the contract: a plain prompt
+   (the default path — silence resets to `unset`), the Core tag in any prompt, and the file-based
+   `%ANTIFAN_DATA_ROOT%/edit-guard.json` write allow-list extension. **`/anti-direct off` is not an
+   exit** — it is not implemented, and the skill matcher (`ANTI_DIRECT_SKILL_RE`) matches
+   `anti-direct` inside it, so typing it *arms* Direct-Edit. Implementing one means matching an
+   explicit off-form before the skill matcher and resolving it to `core`/`unset` (its own change,
+   with the disarm test in the lane below).
 4. **Enforcement is path-scoped, not tool-scoped, wherever a path exists.** Write/edit refusals are
    decided by the resolved target path; tool blocks are a short, named list.
 5. **Fail closed when the workspace shape is unknown.** No theme root and no `.antifan/` ⇒ no writes at
@@ -104,12 +107,13 @@ person who typed the tag feels the difference in the first minute.
 | `/\[[^\]]*core[- ]?(?:context\|pack)\]/i` in the prompt | `core`, trigger `annotation_tag` |
 | `/\b(?:skill:)?anti-direct\b/i` in the prompt | `direct`, trigger `skill_invocation` |
 | `ANTI_DIRECT_NL_RE` in the prompt | `direct`, trigger `natural_language` |
-| otherwise | latched session mode, else `unset` |
+| otherwise | `unset`, trigger `none` (the tag's scope is its own prompt) |
 
-`ANTIFAN_EDIT_MODE` (`unset\|core\|direct\|fast`) is **not** consulted per prompt: it seeds the latch at
-`session_start` (and on lazy session creation), which is what a spawned subagent inherits. An explicit
-tag therefore always wins, including `[🧠Core-Context]` as the way out of a latched Fast session — the
-env channel can never trap a session in a mode the person is trying to leave.
+`ANTIFAN_EDIT_MODE` (`unset\|core\|direct\|fast`) seeds the latch at `session_start` (and on lazy
+session creation), which is what a spawned subagent inherits; the session branch entry
+(`antifan.edit-mode`) does the same across resume. Either way the latch only covers the gap before
+the first prompt: the prompt's own signals decide the run, and a prompt with no signal ends the
+armed mode rather than continuing it.
 
 The tag regexes accept the emoji spellings the picker emits (`[⚡Direct-Edit]`, `[🧠Core-Context]`) and
 the plain spellings a person types (`[Direct-Edit]`, `[Super-Fast]`, `[Core-Context]`) because
@@ -160,31 +164,33 @@ Verified by the probe, so the mode needs no bespoke storage to survive resume:
   `settings_schema.json`, and workspace documents). A root-level `*.js` is not.
 
 Refusal table (write/edit-like tools: `write`, `edit`, `ast_edit`, `patch`, `append`, any
-`xd://file_write` device path):
+`xd://file_write` device path) — **Fast only**; see the mode table below:
 
 | Situation | Code |
 | --- | --- |
 | Target resolves outside `themeRoot` (or outside `cwd` when no theme root, and no allow-list entry covers it) | `REFUSED_EDIT_SCOPE` |
 | No theme root, no `.antifan/`, no allow-list entry | `REFUSED_THEME_ROOT_UNRESOLVED` |
-| Mode `unset`/`core` | not enforced |
+| Mode `unset`/`core`/`direct` | not enforced |
 
-Tool blocks:
+Tool blocks (revised 2026-10-02 — Direct refused `task`/`eval` and scoped writes; the contract is now
+"Direct suppresses Core, nothing else"):
 
 | Mode | Blocked | Code |
 | --- | --- | --- |
-| `direct` | `task`, `eval` (subagents are what Direct exists to avoid) | `REFUSED_DIRECT_MODE_TOOL` |
-| `fast` | the above plus `bash`, `web_search`, **every device path on any tool** (`xd://…` or `mcp://…`, whatever the tool is), and tool names matching `^(anti\|theme\|browser)\.` or `mcp__antifan_browser_*` | `REFUSED_FAST_MODE_TOOL` / `REFUSED_FAST_MODE_MCP` |
+| `direct` | **nothing locally** — no Core pack, Core retrieval refused by the bridge (`REFUSED_CORE_RETRIEVAL_POLICY`); dispatch, eval, shell, devices and out-of-theme writes all pass | — |
+| `fast` | `task`, `eval`, `bash`, `web_search`, **every device path on any tool** (`xd://…` or `mcp://…`, whatever the tool is), and tool names matching `^(anti\|theme\|browser)\.` or `mcp__antifan_browser_*` | `REFUSED_FAST_MODE_TOOL` / `REFUSED_FAST_MODE_MCP` |
 
 Two consequences of that row, both true in the shipped policy (`edit-guard-policy.ts`) and both easy to
 read past: a `write` whose `path` is `xd://file_write` is refused as **`REFUSED_FAST_MODE_MCP`**, not by
 the scope table — the device check runs before the path check, so `xd://file_write` never reaches
 `REFUSED_EDIT_SCOPE` in fast mode (`test/unit/edit-guard.test.mjs` pins a `read` on `xd://lsp` the same
-way); and the device rule is *any* device, not only MCP devices, so Direct keeps `anti.`/`theme.`-named
-tools but a device URI is still a device URI.
+way); and the device rule is *any* device, not only MCP devices — none of it applies to Direct, which
+refuses no tool or path at all.
 
-Direct keeps AntiFan MCP inspection tools: the skill's own workflow verifies with `anti.inspect.*`, and
-the picker prompt ships `@markdown`/`@image` artifacts that inspection is meant to re-check. Fast is the
-"no shell, no browser, just files" mode.
+Direct's enforcement lives entirely in `antifan-core-bridge`: pack seeding is skipped and Core
+retrieval/search calls are refused with `REFUSED_CORE_RETRIEVAL_POLICY`. Everything else — dispatch,
+eval, shell, `anti.*`/`theme.*` inspection, writes anywhere — behaves as an unscoped session. Fast is
+the "no shell, no browser, no dispatch, just files" mode.
 
 Subagent sessions inherit the parent's mode through the **env latch**, not through a kind check: on
 `session_start`/`before_agent_start` the guard writes `ANTIFAN_EDIT_MODE` into the process env
@@ -192,21 +198,21 @@ Subagent sessions inherit the parent's mode through the **env latch**, not throu
 `readEditModeEnv() → readEditModeFromBranch() → 'unset'` (`buildSession`). So a subagent that runs in
 the same process, or in a child process that inherited the environment, is armed with `trigger:
 env_latch`; a session started by some other route with no env var and no branch entry starts
-`unset`. Because `task` is blocked in both modes the inheritance only matters for sessions that
-already exist when the mode is armed, and it keeps a subagent from writing under a parent that is
-scoped.
+`unset`. Under the prompt-scoped contract the latch only covers tool calls that precede the child's
+first prompt — the first prompt's own signals decide the run, and a signal-less prompt ends the mode.
 
 Refusals are returned as `{ block: true, reason }`. Every refusal and every allowed write is logged —
 never thrown — because a hook that throws turns a policy into an outage.
 
-**A call the wiring could not classify is a refusal while the session is scoped.** If the `tool_call`
-handler fails before the policy runs (an unreadable context, a workspace read that vanished), the
-fallback reads the scope from the session record and then from the env latch, and refuses with
-`REFUSED_GUARD_ERROR` instead of passing the call through: an unclassified call has not been cleared,
-and clearing by failure is the one outcome the guard exists to prevent. An unscoped session still falls
-through, because there is nothing to enforce there and a stuck write tool would be an outage — which is
-also why the arming handlers (`session_start`, `before_agent_start`) keep their silent catch: a failed
-arm leaves a session unscoped, which the person sees immediately as missing refusals and can re-issue.
+**A call the wiring could not classify is a refusal while the session is `fast`-scoped.** If the
+`tool_call` handler fails before the policy runs (an unreadable context, a workspace read that
+vanished), the fallback reads the scope from the session record and then from the env latch, and
+refuses with `REFUSED_GUARD_ERROR` instead of passing the call through: an unclassified call has not
+been cleared, and clearing by failure is the one outcome the guard exists to prevent. `direct` and
+unscoped sessions fall through — Direct has no local refusals to protect, so a failure invents none;
+an unscoped session has nothing to enforce, and a stuck write tool would be an outage — which is also
+why the arming handlers (`session_start`, `before_agent_start`) keep their silent catch: a failed arm
+leaves a session unscoped, which the person sees immediately as missing refusals and can re-issue.
 
 ## Audit log (shared contract with the Manager run card)
 
@@ -299,23 +305,22 @@ the guard's latch after the process starts.
 
 ## Non-goals
 
-- No OS-level sandbox: Direct still permits `bash`, so a determined agent can edit outside the theme root
-  through the shell. The guard is a mode for a cooperative agent plus an audited refusal trail, not a
-  security boundary; the honest claim is "refuses and logs", not "cannot".
-- **The host-bridge prelude is outside the interception surface, and blocking the `eval` tool is the
-  only seam that covers it.** `omp://hooks.md` states it directly: eval prelude invocations such as
-  `browser.open(...)`, direct `BrowserTab` helpers, `tab.run(...)`, direct `computer` helpers and
-  `computer.run(fnOrCode, options)` "are host bridge calls, not AgentTool calls, so they do not emit
-  `tool_call` or `tool_result`". The guard therefore never sees them: no block, no audit row, and a
-  `computer.run(fnOrCode, …)` body runs in the app's own context where no path policy applies. What the
-  design *does* claim is that `eval` is named in both block lists (`DIRECT_BLOCKED_TOOLS`,
-  `FAST_BLOCKED_TOOLS`), so in Direct/Fast the agent cannot reach that surface through the tool layer at
-  all. Consequence to accept knowingly: any caller that runs an eval prelude without the tool layer — a
-  host-driven call, a user-invoked prelude, or an agent spawned by such a call — is unguarded and
-  unaudited. Do not read Direct/Fast as "the agent cannot change the storefront"; read it as "the agent's
-  *tool* calls are refused and logged, and the one tool that would carry it past that boundary is
-  refused too".
-- No change to the Core retrieval policy owned by `antifan-core-bridge`.
+- No OS-level sandbox: Direct permits everything the unscoped session does (including `bash`), and
+  Fast refuses the shell at the tool layer only. The guard is a mode for a cooperative agent plus an
+  audited refusal trail, not a security boundary; the honest claim is "refuses and logs", not
+  "cannot".
+- **The host-bridge prelude is outside the interception surface.** `omp://hooks.md` states it
+  directly: eval prelude invocations such as `browser.open(...)`, direct `BrowserTab` helpers,
+  `tab.run(...)`, direct `computer` helpers and `computer.run(fnOrCode, options)` "are host bridge
+  calls, not AgentTool calls, so they do not emit `tool_call` or `tool_result`". The guard therefore
+  never sees them: no block, no audit row, and a `computer.run(fnOrCode, …)` body runs in the app's
+  own context where no path policy applies. In Fast the `eval` *tool* is blocked
+  (`FAST_BLOCKED_TOOLS`), covering the tool-layer surface; in Direct nothing is blocked, per the
+  revised contract. Do not read Fast as "the agent cannot change the storefront"; read it as "the
+  agent's *tool* calls are refused and logged, and the one tool that would carry it past that
+  boundary is refused too".
+- No change to the Core retrieval policy owned by `antifan-core-bridge` beyond the reset wiring —
+  `REFUSED_CORE_RETRIEVAL_POLICY` and the pack skip are unchanged.
 - The inert `.omp/extensions/antifan-fix-guard` extension is left untouched (deleting it is a separate
   call for its owner); this design neither depends on it nor claims it enforces anything.
 - No new mode beyond `core | direct | fast`.
@@ -329,18 +334,20 @@ factory over synthetic `pi.on` handlers — which also means module-level state 
 
 - tag parsing: emoji and plain spellings, case-insensitive, side by side with an unrelated chip tag
   (`[🎨Theme-Fix]`), and a prompt whose only tag is Core.
-- latch semantics: Direct latched, then a tagless prompt stays Direct; Core tag disarms; a second Direct
-  prompt re-arms; `/skill:anti-direct` arms.
+- scope semantics: a tag arms the mode for that prompt; a tagless prompt resets to `unset` (normal
+  chat); Core tag disarms; `/skill:anti-direct` arms.
 - resume: `session_start` rehydrates the mode from a branch containing an `antifan.edit-mode` custom
-  entry, and starts `unset` when the branch has none.
+  entry — enough to scope tool calls that precede the first prompt — and that first prompt decides
+  the mode for the run; starts `unset` when the branch has none.
 - scope table, on a real temp workspace fixture (`.antifan/`, `templates/`, `assets/x.scss`,
   `../outside/evil.liquid`): allow `assets/x.scss`; refuse `../outside/evil.liquid` with
   `REFUSED_EDIT_SCOPE`; refuse everything with `REFUSED_THEME_ROOT_UNRESOLVED` when the fixture has
   neither `.antifan/` nor theme dirs; honour `allowExtraPaths`.
-- tool blocks: `task` refused in Direct; `bash`, `web_search`, `write` with
-  `path: "xd://mcp__antifan_browser_anti_browser_tabs_list"` refused in Fast; the same MCP call allowed
-  in Direct.
-- subagent inheritance: a subagent session under a Fast parent refuses a write.
+- tool blocks: `task`, `eval`, `bash`, `web_search` and `write` with
+  `path: "xd://mcp__antifan_browser_anti_browser_tabs_list"` refused in Fast; every call — including
+  `task`, `eval` and out-of-theme writes — allowed in Direct.
+- subagent inheritance: a subagent session under a Fast parent refuses a write until its own first
+  prompt decides the mode.
 - audit log: rows appended with the right `decision`/`code`, `runSeq` increments on
   `before_agent_start`, and the file is created under the annotation-bound root. Only a call that
   can change a file leaves a row — a `read` (or any other path-carrying but non-mutating tool) leaves
@@ -349,8 +356,9 @@ factory over synthetic `pi.on` handlers — which also means module-level state 
   latched non-`core`, per "Persistence and mirrors"), skipped when `ANTIFAN_DATA_ROOT` is unset, and
   never throws when the directory is missing.
 - hostile inputs: `input` absent, `path` non-string, a 10 MB prompt, a malformed `edit-guard.json` — all
-  produce a refusal or a no-op, never a throw. A handler that fails before the policy runs is a refusal
-  while scoped (`REFUSED_GUARD_ERROR`), not a no-op.
+  produce a refusal or a no-op, never a throw. A handler that fails before the policy runs is a
+  refusal while `fast`-scoped (`REFUSED_GUARD_ERROR`), not a no-op; `direct` and unset sessions pass
+  the call through.
 
 `test/unit/theme-qa-gate-hook.test.mjs` (existing file, extended): Direct/Fast mode ⇒ zero reminders
 across six unmarked tool results; one `turn_end` summary line naming the changed-file count; Core mode ⇒
@@ -475,7 +483,7 @@ installer's `run-state` entry (optional) exists ahead of it, and S1's required c
 | --- | --- |
 | Which mode a prompt latches, and what a mode means | `deriveEditMode` / `EDIT_MODES` / `SCOPED_MODES` / `ANTI_DIRECT_NL_RE` / `EDIT_MODE_ENV`, `src/omp-hooks/edit-mode.ts` |
 | Which paths a scoped session may write, and what the workspace root is | `resolveWorkspaceShape` / `classifyWritePath` / `loadEditGuardConfig` (`%ANTIFAN_DATA_ROOT%/edit-guard.json`), `src/omp-hooks/theme-paths.ts` |
-| Which tool calls are refused, and with which code | `planToolCall` / `REFUSAL_CODES` / `DIRECT_BLOCKED_TOOLS` / `FAST_BLOCKED_TOOLS` / `WRITE_TOOLS`, `src/omp-hooks/edit-guard-policy.ts` |
+| Which tool calls are refused, and with which code | `planToolCall` / `REFUSAL_CODES` / `FAST_BLOCKED_TOOLS` / `WRITE_TOOLS`, `src/omp-hooks/edit-guard-policy.ts` (Direct refuses nothing here; its Core suppression lives in `antifan-core-bridge`) |
 | What was refused or changed, per session and per turn | `rowFor` / `appendRows` / `LOG_DIR_PARTS`, `src/omp-hooks/edit-guard.ts` |
 | Where the mode survives a resume and reaches subagents | `writeMirror` (mirror file) + `applyEnvMirror` (`ANTIFAN_EDIT_MODE`) + `pi.appendEntry(GUARD_ENTRY_TYPE)`, same file |
 | Whether the storefront QA gate speaks, and the one line per scoped turn | `sessionMode` + the `SCOPED_MODES` early returns + `EDIT_GUARD_MARKER` turn line, `src/omp-hooks/theme-qa-gate.ts` |

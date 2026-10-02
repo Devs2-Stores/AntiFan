@@ -34,7 +34,7 @@ describe('Phase 04: E2E Industrial Overhaul & Storefront Latency Benchmarks', ()
   let testAttachmentId: string;
   let testAuthorityRevision: string;
   let mcpChild: ChildProcess;
-  const scriptPath = path.resolve(__dirname, '../../scripts/antifan-omp-mcp.cjs');
+  const scriptPath = path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs');
 
   const validPngBytes = Buffer.from([
     0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
@@ -213,6 +213,8 @@ describe('Phase 04: E2E Industrial Overhaul & Storefront Latency Benchmarks', ()
       antifan_owner_pid: true,
       antifan_authority_revision: true,
       antifan_bound_tab_id: true,
+      // Test proxies must not write failures into the live journal.
+      antifan_data_root: true,
     };
     for (const key of Object.keys(env)) {
       if (pinnedContextKeys[key.toLowerCase()] === true) delete env[key];

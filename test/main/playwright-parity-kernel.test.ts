@@ -1262,7 +1262,7 @@ describe('Phase 5: Playwright Parity Kernel & Gap Telemetry Verification', () =>
 
   it('19. antifan-omp-mcp tool definitions include ref parameter and Playwright tools', () => {
     const ompScript = require('fs').readFileSync(
-      require('path').resolve(__dirname, '../../scripts/antifan-omp-mcp.cjs'),
+      require('path').resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs'),
       'utf8'
     );
     assert.ok(ompScript.includes("['anti.agent.cursor.type'"), 'Must declare anti.agent.cursor.type');

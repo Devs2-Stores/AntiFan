@@ -150,12 +150,14 @@ test("tag vocabulary covers emoji and plain spellings, case-insensitively", () =
   assert.equal(SUPER_FAST_TAG_RE.test("[🚀Super-Fast]"), true);
 });
 
-test("tags win over the latch; a tagless prompt keeps it", () => {
+test("tags win over the latch; a tagless prompt disarms back to normal chat", () => {
   const latched = deriveEditMode("[⚡Direct-Edit] go", "unset");
   assert.deepEqual(latched, { mode: "direct", trigger: "annotation_tag", changed: true });
 
-  const kept = deriveEditMode("keep working on the hero section", "direct");
-  assert.deepEqual(kept, { mode: "direct", trigger: "latched", changed: false });
+  // The mode is annotation-scoped: a prompt with no mode signal is normal chat,
+  // not a continuation of the armed run.
+  const reset = deriveEditMode("keep working on the hero section", "direct");
+  assert.deepEqual(reset, { mode: "unset", trigger: "none", changed: true });
 
   const disarmed = deriveEditMode("[🧠Core-Context] now think", "fast");
   assert.deepEqual(disarmed, { mode: "core", trigger: "annotation_tag", changed: true });
@@ -169,7 +171,7 @@ test("env is an initial latch only, never an override of what the person types",
   assert.equal(readEditModeEnv({ [EDIT_MODE_ENV]: " fast " }), "fast");
   assert.equal(readEditModeEnv({ [EDIT_MODE_ENV]: "turbo" }), null);
   assert.equal(readEditModeEnv({}), null);
-  // deriveEditMode has no env parameter: only tags/latch decide.
+  // deriveEditMode has no env parameter: only the prompt's own signals decide.
   assert.equal(deriveEditMode("[🧠Core-Context]", "fast").mode, "core");
 });
 
@@ -298,21 +300,23 @@ test("Super-Fast refuses the shell, dispatch, the network and every device call"
   assert.equal(plan("fast", "read", { path: "xd://lsp" }).code, "REFUSED_FAST_MODE_MCP");
 });
 
-test("Direct refuses dispatch and code eval but keeps live inspection", () => {
-  assert.equal(plan("direct", "task", {}).code, "REFUSED_DIRECT_MODE_TOOL");
-  assert.equal(plan("direct", "eval", {}).code, "REFUSED_DIRECT_MODE_TOOL");
+test("Direct suppresses Core but refuses no tool — dispatch, eval, shell and devices all pass", () => {
+  assert.equal(plan("direct", "task", {}).decision, "allow");
+  assert.equal(plan("direct", "eval", {}).decision, "allow");
+  assert.equal(plan("direct", "bash", { command: "ls" }).decision, "allow");
   const mcp = plan("direct", "write", { path: "xd://mcp__antifan_browser_anti_inspect_styles" });
   assert.equal(mcp.decision, "allow");
-  assert.equal(plan("direct", "bash", { command: "ls" }).decision, "allow");
   assert.equal(plan("direct", "read", { path: "xd://lsp" }).decision, "allow");
 });
 
-test("write scope is enforced per target, and an unnamed target is refused", () => {
+test("write scope is enforced in Fast per target, and an unnamed target is refused", () => {
   const root = makeThemeWorkspace();
-  assert.equal(plan("direct", "write", { path: "assets/a.scss" }, root).decision, "allow");
-  const blocked = plan("direct", "edit", { path: "src/main/index.ts" }, root);
+  assert.equal(plan("fast", "write", { path: "assets/a.scss" }, root).decision, "allow");
+  const blocked = plan("fast", "edit", { path: "src/main/index.ts" }, root);
   assert.equal(blocked.decision, "block");
   assert.equal(blocked.code, "REFUSED_EDIT_SCOPE");
+  // Direct does not scope writes: the same out-of-theme target is allowed.
+  assert.equal(plan("direct", "edit", { path: "src/main/index.ts" }, root).decision, "allow");
 
   const patch = plan("fast", "edit", { input: "[node_modules/pkg/index.js#ABCD]\n-old\n+new" }, root);
   assert.equal(patch.decision, "block");
@@ -365,14 +369,16 @@ test("arming Super-Fast latches, persists the branch entry, writes the mirror, s
     assert.equal(mirror.schema, 1);
     assert.equal(mirror.ompSessionId, "sess-fast");
 
-    // A tagless follow-up prompt keeps Fast and writes no second entry.
+    // A tagless follow-up prompt is normal chat: the mode resets to unset, a
+    // second entry records the change, and the env latch is cleared.
     await hook.emit("before_agent_start", { prompt: "now the footer" }, ctx);
-    assert.equal(hook.entries.length, 1);
-    assert.equal(hook.entries[0].data.mode, "fast");
+    assert.equal(hook.entries.length, 2);
+    assert.equal(hook.entries[1].data.mode, "unset");
+    assert.equal(process.env[EDIT_MODE_ENV], undefined);
 
     await hook.emit("session_shutdown", {}, ctx);
     assert.equal(process.env[EDIT_MODE_ENV], undefined);
-    assert.equal(fs.existsSync(path.join(dataRoot, "runtime", "edit-mode", "sess-fast.json")), true);
+    assert.equal(fs.existsSync(path.join(dataRoot, "runtime", "edit-mode", "sess-fast.json")), false);
   });
 });
 
@@ -394,7 +400,7 @@ test("Core-Context disarms a latched Fast session and the mirror is dropped on s
   });
 });
 
-test("a resumed session rehydrates Fast from the branch and keeps refusing", async () => {
+test("a resumed session rehydrates Fast from the branch; a plain prompt then ends it", async () => {
   const root = makeThemeWorkspace();
   const branch = [
     { type: "message", role: "user" },
@@ -404,24 +410,31 @@ test("a resumed session rehydrates Fast from the branch and keeps refusing", asy
   editGuardHook(hook.pi);
   const ctx = hook.context(root, "sess-resume", branch);
   await hook.emit("session_start", {}, ctx);
-  await hook.emit("before_agent_start", { prompt: "continue" }, ctx);
-  const refusals = await hook.emit(
+  // Before the first prompt the latch still reads from the branch.
+  const armedRefusal = await hook.emit(
     "tool_call",
     { toolName: "write", input: { path: "xd://mcp__antifan_browser_anti_browser_tabs_list" } },
     ctx,
   );
-  assert.equal(refusals.length, 1);
-  assert.equal(refusals[0].block, true);
-  assert.ok(refusals[0].reason.includes("REFUSED_FAST_MODE_MCP"));
+  assert.equal(armedRefusal.length, 1);
+  assert.ok(armedRefusal[0].reason.includes("REFUSED_FAST_MODE_MCP"));
+  // The resumed session's first real prompt carries no tag: normal chat resumes.
+  await hook.emit("before_agent_start", { prompt: "continue" }, ctx);
+  const afterReset = await hook.emit(
+    "tool_call",
+    { toolName: "write", input: { path: "xd://mcp__antifan_browser_anti_browser_tabs_list" } },
+    ctx,
+  );
+  assert.deepEqual(afterReset, [], "a plain prompt unscopes a mode rehydrated from the branch");
 });
 
-test("refusals and audit rows: scope refusal, tool refusal, allow rows with runSeq", async () => {
+test("refusals and audit rows in Fast: scope refusal, tool refusal, allow rows with runSeq", async () => {
   const root = makeThemeWorkspace();
   const hook = makeHook();
   editGuardHook(hook.pi);
   const ctx = hook.context(root, "sess-audit");
   await hook.emit("session_start", {}, ctx);
-  await hook.emit("before_agent_start", { prompt: "[⚡Direct-Edit] fix hero" }, ctx);
+  await hook.emit("before_agent_start", { prompt: "[🚀Super-Fast] fix hero" }, ctx);
 
   const scopeRefusal = await hook.emit(
     "tool_call",
@@ -435,7 +448,7 @@ test("refusals and audit rows: scope refusal, tool refusal, allow rows with runS
 
   const dispatchRefusal = await hook.emit("tool_call", { toolName: "task", input: {} }, ctx);
   assert.equal(dispatchRefusal.length, 1);
-  assert.ok(dispatchRefusal[0].reason.includes("REFUSED_DIRECT_MODE_TOOL"));
+  assert.ok(dispatchRefusal[0].reason.includes("REFUSED_FAST_MODE_TOOL"));
 
   const allowed = await hook.emit(
     "tool_call",
@@ -455,7 +468,7 @@ test("refusals and audit rows: scope refusal, tool refusal, allow rows with runS
     rows.map((row) => [row.decision, row.code]),
     [
       ["block", "REFUSED_EDIT_SCOPE"],
-      ["block", "REFUSED_DIRECT_MODE_TOOL"],
+      ["block", "REFUSED_FAST_MODE_TOOL"],
       ["allow", "ALLOWED"],
     ],
   );
@@ -650,7 +663,7 @@ test("a throwing logger or an unprintable thrown value cannot defeat the refusal
   editGuardHook(loggerDown.pi);
   const scopedCtx = loggerDown.context(root, "sess-logger-down-guard-error");
   await loggerDown.emit("session_start", {}, scopedCtx);
-  await loggerDown.emit("before_agent_start", { prompt: "[⚡Direct-Edit] go" }, scopedCtx);
+  await loggerDown.emit("before_agent_start", { prompt: "[🚀Super-Fast] go" }, scopedCtx);
   const write = { toolName: "write", input: { path: "sections/hero.liquid" } };
   const throwingContext = (thrown) => ({
     cwd: root,
@@ -692,7 +705,7 @@ test("a call the guard cannot classify is refused while scoped and passed throug
   editGuardHook(scoped.pi);
   const scopedCtx = scoped.context(root, "sess-guard-error");
   await scoped.emit("session_start", {}, scopedCtx);
-  await scoped.emit("before_agent_start", { prompt: "[⚡Direct-Edit] go" }, scopedCtx);
+  await scoped.emit("before_agent_start", { prompt: "[🚀Super-Fast] go" }, scopedCtx);
   const scopedResult = await scoped.emit("tool_call", write, unreadableContext);
   assert.equal(scopedResult.length, 1, "a guard that cannot classify a call must not clear it");
   assert.ok(scopedResult[0].reason.includes("REFUSED_GUARD_ERROR"));

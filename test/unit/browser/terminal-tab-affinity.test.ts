@@ -221,9 +221,9 @@ describe('Terminal-to-Tab Agent Affinity Contract Tests (NativeTabHost Seam)', (
     assert.strictEqual(isolatedTabs[0].id, 'tab-lemon');
     assert.strictEqual(isolatedTabs[0].isBoundTab, true);
 
-    // 2. When unbound (global view): all tabs are returned
-    const allTabs = port.listTabs({}) as any[];
-    assert.strictEqual(allTabs.length, 2);
+    // 2. An unbound caller has no measured scope: nothing is listed — the full
+    // window is only ever answered to an explicit global ask.
+    assert.deepStrictEqual(port.listTabs({}), []);
   });
 
   it('9b. listTabs returns only what the session owns, never the user strip', () => {
@@ -240,10 +240,12 @@ describe('Terminal-to-Tab Agent Affinity Contract Tests (NativeTabHost Seam)', (
     // The session owns an agent tab the visible strip cannot describe; the user's
     assert.deepStrictEqual(port.listTabs({ target: boundTarget, scope: 'session' }), []);
 
-    // Asking for the whole window is explicit, not a fallback.
-    assert.deepStrictEqual(port.listTabs({}), [
-      { id: 'tab-user-a', url: 'https://user-a.test', title: 'User A' },
-      { id: 'tab-user-b', url: 'https://user-b.test', title: 'User B' },
+    // Asking for the whole window is explicit (scope 'global'), never a
+    // fallback — an unbound bare call measures no scope and lists nothing.
+    assert.deepStrictEqual(port.listTabs({}), []);
+    assert.deepStrictEqual(port.listTabs({ scope: 'global' }), [
+      { id: 'tab-user-a', url: 'https://user-a.test', title: 'User A', affiliated: false, isBoundTab: false, isPrimaryTab: false },
+      { id: 'tab-user-b', url: 'https://user-b.test', title: 'User B', affiliated: false, isBoundTab: false, isPrimaryTab: false },
     ]);
   });
 

@@ -484,6 +484,25 @@ export class BridgeServer {
     }
     return this.tabHost;
   }
+
+  /**
+   * Hash of the on-disk MCP proxy script this build ships. The proxy sends the
+   * digest of the bytes it loaded at spawn; a mismatch flags a proxy that
+   * predates the running build. Recomputed per exchange (one ~150KB read per
+   * pairing — rare) so a mid-process upgrade or a transient read failure can
+   * never freeze a wrong answer: read failure degrades silently to undefined,
+   * and the next exchange measures the file as it is then.
+   */
+  private expectedProxyBuildHash(): string | undefined {
+    try {
+      const appRoot = app && typeof app.getAppPath === 'function' ? app.getAppPath() : process.cwd();
+      const scriptPath = path.join(appRoot, 'scripts', 'antifan-omp-mcp.cjs');
+      const content = fs.readFileSync(scriptPath);
+      return crypto.createHash('sha256').update(content).digest('hex').slice(0, 16);
+    } catch {
+      return undefined;
+    }
+  }
   public async rotateToken(): Promise<string> {
     this.token = this.resolveMasterToken();
 
@@ -1147,6 +1166,21 @@ export class BridgeServer {
               const attemptId = makeControlPlaneId('attempt');
               const binding = this.runtimeBindingProvider ? this.runtimeBindingProvider() : undefined;
               const suppliedTabId = typeof data.tabId === 'string' && data.tabId.trim() ? data.tabId.trim() : undefined;
+              // Stale-proxy detection: a proxy process survives Desktop restarts and
+              // keeps running whatever antifan-omp-mcp.cjs was loaded at spawn. The
+              // client sends its own script hash; the bridge echoes the hash of the
+              // on-disk script and flags a mismatch so the caller can surface it —
+              // a missing hash means an old proxy, which is stale by definition but
+              // still pairs (refusing it would orphan every pre-field session).
+              const declaredProxyBuild = typeof data.proxyBuild === 'string' ? data.proxyBuild : undefined;
+              const expectedProxyBuild = this.expectedProxyBuildHash();
+              const proxyStale = declaredProxyBuild === undefined ? undefined : declaredProxyBuild !== expectedProxyBuild;
+              if (proxyStale === true) {
+                console.warn(
+                  `[BridgeServer] MCP proxy build ${declaredProxyBuild} does not match on-disk script ${expectedProxyBuild}: ` +
+                    'the proxy was spawned before this build and will keep old dispatch behavior until its session relaunches.'
+                );
+              }
               const terminalSessionId = typeof data.terminalSessionId === 'string' && data.terminalSessionId.trim() ? data.terminalSessionId.trim() : undefined;
               const suppliedProjectId = typeof data.projectId === 'string' ? data.projectId.trim() : undefined;
               const suppliedWorkspaceId = typeof data.workspaceId === 'string' ? data.workspaceId.trim() : undefined;
@@ -1255,6 +1289,8 @@ export class BridgeServer {
                 grant,
                 recoveredStaleAnchor: staleAnchor,
                 grantSource,
+                proxyBuild: expectedProxyBuild,
+                proxyStale,
               }));
               return;
             }

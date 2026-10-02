@@ -249,6 +249,7 @@ describe('Context Bridge Lifecycle E2E (Audit #29)', () => {
     delete env.ANTIFAN_MCP_BOOTSTRAP;
     delete env.ANTIFAN_ATTACHMENT_SECRET;
     delete env.ANTIFAN_ATTACHMENT_ID;
+    delete env.ANTIFAN_DATA_ROOT;
 
     const proc = spawn(process.execPath, [mcpScript], {
       cwd: rootDir,

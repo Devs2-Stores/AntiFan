@@ -8,6 +8,17 @@ const { Server } = require('@modelcontextprotocol/sdk/server/index.js');
 const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
 const { CallToolRequestSchema, ListToolsRequestSchema } = require('@modelcontextprotocol/sdk/types.js');
 
+// Hash of this script file, computed once at module load so the digest always
+// describes the bytes this process executes — never the on-disk upgrade that a
+// stale process would otherwise self-report as current on re-pair.
+const PROXY_BUILD = (() => {
+  try {
+    return crypto.createHash('sha256').update(fs.readFileSync(__filename)).digest('hex').slice(0, 16);
+  } catch {
+    return undefined;
+  }
+})();
+
 // Definition row shape: [name, description, properties, required?, oneOf?,
 // ambientTargetField?]. The sixth element names the advertised field that
 // selects the tab the capability acts on; when it is present, an omitted value
@@ -70,8 +81,8 @@ const definitions = [
   ['anti.inspect.region', 'Inspect spatial region bounds, collecting intersecting visible DOM elements with coordinates and z-index.', { x: { type: 'number' }, y: { type: 'number' }, width: { type: 'number' }, height: { type: 'number' }, selector: { type: 'string' }, ref: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], [], 'tabId'],
   ['anti.trace.interaction', 'Trace an interactive action (click, hover, focus, type, scroll) capturing pre/post DOM changes, style deltas, and layout shifts.', { action: { type: 'string', enum: ['click', 'hover', 'focus', 'type', 'scroll'] }, selector: { type: 'string' }, ref: { type: 'string' }, text: { type: 'string' }, deltaY: { type: 'number' }, settleMs: { type: 'number' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, ['action'], [], 'tabId'],
   ['anti.visual.compare', 'Compare current viewport or tab against baseline screenshot with pixel-level diffing, element selection, dynamic masking, and configurable tolerance.', { baselineScreenshotRef: { type: 'string' }, baselineRef: { type: 'string' }, comparisonTabId: { type: 'string' }, tolerance: { type: 'number' }, selector: { type: 'string' }, clipRect: { type: 'object', properties: { x: { type: 'number' }, y: { type: 'number' }, width: { type: 'number' }, height: { type: 'number' } } }, maskSelectors: { type: 'array', items: { type: 'string' } }, maskOptionalSelectors: { type: 'array', items: { type: 'string' } }, normalizeScroll: { type: 'boolean' }, fullPage: { type: 'boolean', description: 'Capture and compare entire document scroll height' }, useDefaultWidgetMasks: { type: 'boolean' }, leaseToken: { type: 'string' }, trackedSelectors: { type: 'array', items: { type: 'string' } }, heightTolerance: { type: 'number' }, allowHeightDrift: { type: 'boolean' }, maxGeometryDeltaPx: { type: 'number' }, expectedUrl: { type: 'string' }, expectedTargetUrl: { type: 'string' }, expectedBaselineUrl: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], [], 'tabId'],
-  ['browser.promote-baseline', 'Canonically capture the current tab (or specified tabId) via CDP, stage screenshot artifact, and promote it to an authoritative visual baseline reference.', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, fullPage: { type: 'boolean', description: 'Capture the entire document as the promoted baseline.' }, clipRect: { type: 'object', properties: { x: { type: 'number' }, y: { type: 'number' }, width: { type: 'number' }, height: { type: 'number' } } } }, [], [], 'tabId'],
-  ['anti.visual.promote_baseline', 'Alias for browser.promote-baseline: canonically capture and promote the current tab to an authoritative visual baseline reference.', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, fullPage: { type: 'boolean', description: 'Capture the entire document as the promoted baseline.' }, clipRect: { type: 'object', properties: { x: { type: 'number' }, y: { type: 'number' }, width: { type: 'number' }, height: { type: 'number' } } } }, [], [], 'tabId'],
+  ['browser.promote-baseline', 'Canonically capture the current tab (or specified tabId) via CDP, stage screenshot artifact, and promote it to an authoritative visual baseline reference.', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, fullPage: { type: 'boolean', description: 'Capture the entire document as the promoted baseline.' }, clipRect: { type: 'object', properties: { x: { type: 'number' }, y: { type: 'number' }, width: { type: 'number' }, height: { type: 'number' } } }, materializeDataSrc: { type: 'boolean', description: 'Swap data-src/data-srcset into live sources before capture (opt-in; mutates the page)' } }, [], [], 'tabId'],
+  ['anti.visual.promote_baseline', 'Alias for browser.promote-baseline: canonically capture and promote the current tab to an authoritative visual baseline reference.', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, fullPage: { type: 'boolean', description: 'Capture the entire document as the promoted baseline.' }, clipRect: { type: 'object', properties: { x: { type: 'number' }, y: { type: 'number' }, width: { type: 'number' }, height: { type: 'number' } } }, materializeDataSrc: { type: 'boolean', description: 'Swap data-src/data-srcset into live sources before capture (opt-in; mutates the page)' } }, [], [], 'tabId'],
   ['anti.media.freeze', 'Freeze or unfreeze dynamic media (videos, audios, CSS animations) in tab to enable deterministic visual comparisons. Native requestAnimationFrame scheduling is left untouched, so RAF-driven motion requires the settle barrier instead.', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, freeze: { type: 'boolean', description: 'True to freeze media and pause animations; false to resume' } }, [], [], 'tabId'],
   ['anti.inspect.page_inventory', 'Scan entire physical page structure from y=0 to scrollHeight, returning list of all sections, coordinates, heights, and layout groups (chống sót header/footer/newsletter).', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], [], 'tabId'],
   ['anti.inspect.style_diff', 'Compare computed CSS styles and box-model metrics between elements on two tabs (or two selectors).', { selector: { type: 'string', description: 'CSS selector of target element on tab 1' }, comparisonSelector: { type: 'string', description: 'CSS selector on tab 2 (defaults to selector)' }, tabId: { type: 'string' }, comparisonTabId: { type: 'string' }, properties: { type: 'array', items: { type: 'string' }, description: 'CSS properties to compare' } }, ['selector'], [], 'tabId'],
@@ -1511,7 +1522,7 @@ const READ_SAFE_CAPABILITIES = Object.freeze({
 // ─── Multiplexed Persistent Dispatch Socket ──────────────────────────────────
 let dispatchWs = null;
 let dispatchConnecting = null;
-const pendingDispatchCalls = new Map(); // id -> { resolve, reject, timer }
+const pendingDispatchCalls = new Map(); // id -> { ws, transmitted, signedAttachmentId, requestId, idempotencyKey, resolve, reject, timer }
 
 function wireDispatchSocket(ws) {
   ws.on('message', (raw) => {
@@ -1535,7 +1546,12 @@ function wireDispatchSocket(ws) {
       clearTimeout(entry.timer);
       if (response.success) {
         if (response.data && typeof response.data === 'object') {
-          persistAuthorityRevision(response.data.authorityRevision || response.data.replacementAuthorityRevision);
+          // A late response riding a superseded socket must not persist the OLD
+          // authority's revision into the healed session — only the live
+          // dispatch socket's answers may move currentAuthorityRevision.
+          if (ws === dispatchWs) {
+            persistAuthorityRevision(response.data.authorityRevision || response.data.replacementAuthorityRevision);
+          }
           if (response.data.data !== undefined) {
             entry.resolve(response.data.data);
             return;
@@ -1544,7 +1560,7 @@ function wireDispatchSocket(ws) {
         entry.resolve(response.data);
       } else {
         const payload = response.data && typeof response.data === 'object' ? response.data : {};
-        persistAuthorityRevision(payload.replacementAuthorityRevision || payload.authorityRevision);
+        if (ws === dispatchWs) persistAuthorityRevision(payload.replacementAuthorityRevision || payload.authorityRevision);
         const code = typeof payload.code === 'string' && payload.code
           ? payload.code
           : (typeof response.error === 'string' && response.error.includes(':')
@@ -1761,6 +1777,9 @@ async function performPairingExchange(host, port, options = {}) {
         err.errorCode = 'PAIRING_CHALLENGE_FAILED';
         throw err;
       }
+      // Self-hash read once at module load (PROXY_BUILD at file top): the bytes
+      // this process actually executes, so a later on-disk upgrade cannot make
+      // a stale proxy report a matching build on re-pair.
       const exchange = await httpJsonPost(host, port, '/api/pairing/exchange', {
         code,
         clientClass: 'mcp',
@@ -1768,12 +1787,20 @@ async function performPairingExchange(host, port, options = {}) {
         // 'write' grant, which then refuses every eval-risk capability (anti.browser.evaluate,
         // anti.inspect.eval) with a POLICY_DENIED that never mentions the grant.
         requestedGrant: resolveSessionGrant(),
+        proxyBuild: PROXY_BUILD,
         tabId: process.env.ANTIFAN_BOUND_TAB_ID || undefined,
         terminalSessionId: process.env.ANTIFAN_TERMINAL_AFFINITY_SESSION_ID || process.env.ANTIFAN_TERMINAL_PARENT_SESSION_ID || process.env.ANTIFAN_TERMINAL_SESSION_ID || undefined,
         projectId: getBootstrap()?.projectId,
         workspaceId: getBootstrap()?.workspaceId,
         cwd: process.cwd(),
       });
+      if (exchange?.proxyStale === true) {
+        process.stderr.write(
+          `[AntiFan Pairing] proxy build mismatch: this process is running an older antifan-omp-mcp.cjs ` +
+          `than the bridge ships (proxy ${PROXY_BUILD}, expected ${exchange.proxyBuild}). ` +
+          `Relaunch the MCP session to pick up current dispatch behavior.\n`
+        );
+      }
       if (!exchange?.success || !exchange?.secret) {
         const err = new Error(`PAIRING_EXCHANGE_FAILED: ${exchange?.message || exchange?.error || 'No secret returned'}`);
         err.errorCode = 'PAIRING_EXCHANGE_FAILED';
@@ -2583,8 +2610,10 @@ async function invoke(method, params = {}, callerRequestId) {
     try {
       ws = await ensureDispatchSocket(currentBoot);
     } catch (err) {
-      err.details = { ...err.details, transmitted: false, signedAttachmentId: currentBoot.attachmentId };
-      throw err;
+      // This rejection object may be shared by every invoke awaiting the same
+      // dispatchConnecting — stamp a copy, never mutate the shared error, so
+      // each caller carries ITS OWN signedAttachmentId into diagnostics.
+      throw transportError(err.code || 'CONNECTION_ERROR', String((err && err.message) || err), { ...(err && err.details), transmitted: false, signedAttachmentId: currentBoot.attachmentId });
     }
     // ensureDispatchSocket may have autohealed: it replaces dynamicBootstrap with
     // the healed authority while `currentBoot` still names the stale one. Sign the
@@ -2737,12 +2766,16 @@ async function invoke(method, params = {}, callerRequestId) {
         let changed = false;
         if (ambientTargetField && !ambientTargetSuppliedByCaller) {
           const target = resolveBoundTabId(healed.tabId);
-          if (target) effectiveParams[ambientTargetField] = target;
-          else delete effectiveParams[ambientTargetField];
-          injectedAmbientTabId = target || null;
-          changed = true;
+          // Remint identity only when the ambient target actually moved: same
+          // target means byte-identical params, and keeping the existing
+          // idempotencyKey preserves joinability across the recovery.
+          if (target !== injectedAmbientTabId) {
+            if (target) effectiveParams[ambientTargetField] = target;
+            else delete effectiveParams[ambientTargetField];
+            injectedAmbientTabId = target || null;
+            identity = resolveInvocationIdentity(undefined, {});
+          }
         }
-        if (changed || !identity.idempotencyKey) identity = resolveInvocationIdentity(undefined, {});
       } else if (healed.attachmentId !== err.details?.signedAttachmentId && !READ_SAFE_CAPABILITIES[method]) {
         throw transportError('EXECUTION_UNCERTAIN', JSON.stringify({
           code: 'EXECUTION_UNCERTAIN',
@@ -2752,6 +2785,9 @@ async function invoke(method, params = {}, callerRequestId) {
       }
     }
   }
+  // Unreachable today (attempt===2 forces the throw branch above); guards any
+  // future continue-path from silently resolving a tool call to undefined.
+  throw transportError('CONNECTION_ERROR', JSON.stringify({ code: 'CONNECTION_ERROR', message: `AntiFan RPC exhausted retries: ${mapped}` }));
 }
 
 // ─── Dedicated Isolated Heartbeat Channel ────────────────────────────────────

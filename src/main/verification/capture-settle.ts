@@ -645,9 +645,14 @@ export function buildPreCaptureSampleExpr(options: { fullPage?: boolean } = {}):
   const isSrclessLazy = (img) => {
     if (!img || isCannotLoad(img) || isTrackingBeacon(img)) return false;
     const rawSrc = img.getAttribute ? img.getAttribute('src') : null;
+    const lazySignal = img.getAttribute && (img.getAttribute('data-src') || img.getAttribute('data-srcset'));
     const effectiveSrcless = (!img.src && !img.currentSrc && !img.srcset) || (rawSrc === '' && !img.currentSrc && !img.srcset);
-    if (!effectiveSrcless) return false;
-    if (img.getAttribute && (img.getAttribute('data-src') || img.getAttribute('data-srcset'))) return true;
+    // A loaded data: placeholder with a real source waiting in data-* is
+    // unmaterialized too — its currentSrc is nonempty but the raster is not the
+    // page's content. Permanent data: icons carry no lazy-source attribute.
+    const dataPlaceholderPending = typeof rawSrc === 'string' && rawSrc.indexOf('data:') === 0 && Boolean(lazySignal);
+    if (!effectiveSrcless && !dataPlaceholderPending) return false;
+    if (lazySignal) return true;
     const pic = img.closest ? img.closest('picture') : null;
     if (pic && pic.querySelector && pic.querySelector('source[data-srcset]')) return true;
     return false;
@@ -1024,7 +1029,7 @@ export async function evaluatePreCaptureQuiescence(
     ready = false;
     failingPredicate = 'imagesSettled';
     reason = srclessImages > 0
-      ? `Detected ${srclessImages} unmaterialized image(s) (empty src with lazy-source attrs)${sample2.pendingImages > 0 ? ` alongside ${sample2.pendingImages} pending image(s) still loading` : ''}`
+      ? `Detected ${srclessImages} unmaterialized image(s) (empty src with lazy-source attrs)${sample2.pendingImages > 0 ? ` alongside ${sample2.pendingImages} pending image(s) still loading` : ''}; remedy: promote with materializeDataSrc:true to swap data-src/data-srcset, or materialize the page manually and retry`
       : `Detected ${sample2.pendingImages} pending image(s) still loading`;
   } else if (!imageIdentityStable) {
     ready = false;

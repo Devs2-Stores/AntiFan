@@ -8,7 +8,7 @@ describe('Phase 02: Behavioral Persistent Transport & Concurrency Integration', 
   let wss: WebSocketServer;
   let serverPort: number;
   let child: ChildProcess;
-  const scriptPath = path.resolve(__dirname, '../../scripts/antifan-omp-mcp.cjs');
+  const scriptPath = path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs');
   const testSecret = 'secret-test-uuid-token';
   const testAttachmentId = 'binding-test-attachment';
   let activeConnections: WebSocket[] = [];
@@ -95,6 +95,7 @@ describe('Phase 02: Behavioral Persistent Transport & Concurrency Integration', 
       'ANTIFAN_OWNER_PID',
       'ANTIFAN_AUTHORITY_REVISION',
       'ANTIFAN_BOUND_TAB_ID',
+      'ANTIFAN_DATA_ROOT',
     ]) {
       delete (env as Record<string, unknown>)[key];
     }

@@ -812,7 +812,16 @@ export function buildReferenceMaterializationScript(options?: ReferenceMateriali
     // imgs srcless on levents.asia while reporting a completed walk).
     for (const img of Array.from(document.images)) {
       try {
-        if (!img.src && !img.currentSrc) {
+        const current = img.currentSrc || img.src || '';
+        const isDataPlaceholder = typeof current === 'string' && current.indexOf('data:') === 0;
+        // A lazy img still needs materializing when it has no effective source
+        // OR when its only source is a data: URI while a real lazy source waits
+        // in data-src/data-srcset — the base64 placeholder case the strict
+        // srcless check misses (loaded placeholder parks currentSrc, yet the
+        // raster is not the page's content). Permanent data: icons carry no
+        // lazy-source attribute, so they stay clean.
+        const lazySignal = img.getAttribute('data-src') || img.getAttribute('data-srcset');
+        if (!current || (isDataPlaceholder && lazySignal)) {
           const dataSrc = img.getAttribute('data-src');
           const dataSrcset = img.getAttribute('data-srcset');
           let swapped = false;
@@ -853,9 +862,15 @@ export function buildReferenceMaterializationScript(options?: ReferenceMateriali
           if (img.offsetParent === null && img.offsetWidth === 0 && img.offsetHeight === 0) continue;
           if (r.width <= 2 && r.height <= 2) continue;
           const rawSrc = img.getAttribute('src');
+          const lazySignal = img.getAttribute('data-src') || img.getAttribute('data-srcset');
           const effectiveSrcless = (!img.src && !img.currentSrc && !img.srcset) || (rawSrc === '' && !img.currentSrc && !img.srcset);
-          if (!effectiveSrcless) continue;
-          if (img.getAttribute('data-src') || img.getAttribute('data-srcset')) { n++; continue; }
+          // Same base64-placeholder case as the swap predicate: a loaded data:
+          // URI parking the img while the real source waits in data-* is
+          // unmaterialized content, not a permanent inline icon (those carry no
+          // lazy-source attribute and stay clean).
+          const dataPlaceholderPending = typeof rawSrc === 'string' && rawSrc.indexOf('data:') === 0 && Boolean(lazySignal);
+          if (!effectiveSrcless && !dataPlaceholderPending) continue;
+          if (lazySignal) { n++; continue; }
           const pic = img.closest ? img.closest('picture') : null;
           if (pic && pic.querySelector && pic.querySelector('source[data-srcset]')) n++;
         } catch {}
@@ -887,11 +902,15 @@ export function buildReferenceMaterializationScript(options?: ReferenceMateriali
     window.scrollTo(0, startY);
     const placeholdersAfter = countPlaceholders();
     const unmaterialized = countUnmaterialized();
+    const stillPending = Array.from(document.images).filter((i) => i.src && !i.complete).length;
     return {
-      // Honest verdict: the walk completed is not the page materialized. A receipt that
-      // reports materialized while placeholders remain certified a 89%-blank baseline
-      // (vbase_1790899945342_d52fe25af2b0 on levents.asia).
-      materialized: placeholdersAfter === 0,
+      // Honest verdict: the walk completed is not the page materialized, and the
+      // broad placeholder counter — which counts any data:-URI or still-decoding
+      // img, including permanent inline icons — is too noisy to be the verdict:
+      // it would false-positive on exactly the data-URI-heavy loaders that
+      // motivated this flag. materialized answers the strict claim instead: no
+      // rendered lazy-source img still srcless, and none still pending.
+      materialized: unmaterialized === 0 && stillPending === 0,
       href: String(location.href || ''),
       passes,
       docHeightBefore,
@@ -900,7 +919,7 @@ export function buildReferenceMaterializationScript(options?: ReferenceMateriali
       startY,
       decoded,
       imagesTotal: document.images.length,
-      imagesStillPending: Array.from(document.images).filter((i) => i.src && !i.complete).length,
+      imagesStillPending: stillPending,
       placeholdersBefore,
       placeholdersAfter,
       unmaterialized,

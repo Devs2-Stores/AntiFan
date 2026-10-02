@@ -50,7 +50,7 @@ export const EDIT_MODE_ENV = "ANTIFAN_EDIT_MODE";
 
 export const EDIT_MODES: readonly EditMode[] = ["unset", "core", "direct", "fast"];
 
-/** Direct and Super-Fast scope writes and silence storefront QA. */
+/** Scoped modes silence storefront QA (the gate) and get audit accounting (the guard). Only `fast` refuses tools and scopes writes; `direct` adds no local blocks — its contract is Core suppression, owned by the bridge hook. */
 export const SCOPED_MODES: readonly EditMode[] = ["direct", "fast"];
 
 export const MODE_LABELS: Record<EditMode, string> = {
@@ -84,9 +84,10 @@ export function readEditModeFromBranch(branch: unknown): EditMode | null {
 }
 
 /**
- * Tags win over the latched mode; a prompt with no signal keeps what the session
- * already latched. Skill invocation and spoken arming are the same intent as the
- * Direct tag; only an explicit Core signal, or leaving the session, disarms.
+ * Tags win over the latched mode; a prompt with no signal disarms — the mode is
+ * an annotation-scoped contract, not a session prison, so normal chat returns to
+ * `unset` without needing a [Core-Context] tag. Skill invocation and spoken
+ * arming are the same intent as the Direct tag.
  */
 export function deriveEditMode(
   prompt: string | undefined,
@@ -103,5 +104,7 @@ export function deriveEditMode(
   if (CORE_TAG_RE.test(text)) return decide("core", "annotation_tag");
   if (ANTI_DIRECT_SKILL_RE.test(text)) return decide("direct", "skill_invocation");
   if (ANTI_DIRECT_NL_RE.test(text)) return decide("direct", "natural_language");
-  return { mode: latched, trigger: latched === "unset" ? "none" : "latched", changed: false };
+  // No signal in this prompt: the mode was armed by a tag, and the tag's scope
+  // is its own prompt — a following plain prompt is normal chat again.
+  return { mode: "unset", trigger: "none", changed: latched !== "unset" };
 }

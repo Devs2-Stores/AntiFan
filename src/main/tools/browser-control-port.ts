@@ -3274,16 +3274,27 @@ export class BrowserControlPort {
   }
   async eval(target: BrowserTarget, expression: string, explicitTabId?: string, paneId?: 'desktop' | 'mobile', options?: { requireRenderSurface?: boolean; allowDegradedSurface?: boolean; timeoutMs?: number }): Promise<unknown> {
     if (!expression.trim()) throw new CapabilityError('INVALID_ARGUMENT', 'JavaScript expression is required');
-    // A caller-declared budget is clamped under the capability's invocation
+    // A caller-declared budget must fit under the capability's invocation
     // budget so the in-page guard — not the platform's execution timeout —
-    // produces the typed answer.
+    // produces the typed answer; an over-budget ask is refused, never clamped.
     const evalBudgetMs = options?.timeoutMs === undefined
       ? undefined
       : (() => {
           if (typeof options.timeoutMs !== 'number' || !Number.isFinite(options.timeoutMs) || options.timeoutMs <= 0) {
             throw new CapabilityError('INVALID_ARGUMENT', `timeoutMs must be a positive finite number of milliseconds, got ${JSON.stringify(options.timeoutMs)}`);
           }
-          return Math.min(Math.round(options.timeoutMs), BROWSER_EVAL_TIMEOUT_CEILING_MS, Math.max(1_000, BROWSER_EVAL_INVOCATION_BUDGET_MS - 1_000));
+          // A request above the effective ceiling gets clamped nowhere — it is
+          // refused with the real bound named, so a caller waiting longer than
+          // the invocation budget never mistakes the clamp for an honored ask.
+          const effectiveMaxMs = Math.min(BROWSER_EVAL_TIMEOUT_CEILING_MS, Math.max(1_000, BROWSER_EVAL_INVOCATION_BUDGET_MS - 1_000));
+          if (options.timeoutMs > effectiveMaxMs) {
+            throw new CapabilityError(
+              'INVALID_ARGUMENT',
+              `timeoutMs ${Math.round(options.timeoutMs)} exceeds the allowed budget for this capability: the eval invocation is bounded at ${effectiveMaxMs}ms, so the in-page guard cannot be asked to observe longer than that`,
+              { requestedTimeoutMs: Math.round(options.timeoutMs), effectiveMaxTimeoutMs: effectiveMaxMs }
+            );
+          }
+          return Math.round(options.timeoutMs);
         })();
     const tabId = this.resolveTargetTab(target, explicitTabId);
     return this.passivePool.execute(tabId, async () => {
@@ -3507,7 +3518,11 @@ export class BrowserControlPort {
           }
           await delayWithSignal(50, waitSignal);
         }
-        throw (waitSignal.reason || new CapabilityError('WAIT_ABORTED', 'Wait was aborted'));
+        throw (waitSignal.reason || new CapabilityError(
+          'WAIT_ABORTED',
+          'Wait was aborted',
+          { lastSample, lastProbeError }
+        ));
       }
       if (this.host.wait) {
         return await this.host.wait({ ...params, tabId, paneId: effectivePane }, waitSignal);
@@ -6005,6 +6020,7 @@ export class BrowserControlPort {
       paneId?: 'desktop' | 'mobile';
       fullPage?: boolean;
       clipRect?: { x: number; y: number; width: number; height: number };
+      materializeDataSrc?: boolean;
     } = {}
   ): Promise<VisualBaselineRef> {
     if (!context.browserTarget) {
@@ -6029,6 +6045,29 @@ export class BrowserControlPort {
     const effectivePane = params.paneId || 'desktop';
     const observedUrl = this.host.getTabUrl?.(tabId);
     const documentGeneration = this.host.getDocumentGeneration?.(tabId);
+
+    // Opt-in materialization for lazy loaders the capture's own settle gates
+    // would refuse: with materializeDataSrc the walk swaps data-src/data-srcset
+    // into live src/srcset before capture, so a custom-observer page (e.g.
+    // Pancake data-src) can promote in one call instead of requiring a manual
+    // evaluate-swap dance first. Default stays false — promotion must not
+    // mutate a page the caller only asked to measure.
+    if (params.materializeDataSrc === true) {
+      const materialization = (await this.host.evalJs(
+        buildReferenceMaterializationScript({ materializeDataSrc: true }),
+        tabId,
+        effectivePane,
+        false,
+        REFERENCE_MATERIALIZATION_BOUND_MS
+      )) as { materialized?: boolean; unmaterialized?: number; imagesStillPending?: number } | null;
+      if (!materialization || materialization.materialized !== true) {
+        throw new CapabilityError(
+          'REFERENCE_MATERIALIZATION_INCOMPLETE',
+          `Promotion materialization did not finish on tab '${tabId}': unmaterialized=${materialization?.unmaterialized ?? 'unmeasured'}, pending=${materialization?.imagesStillPending ?? 'unmeasured'}. Materialize manually (swap data-src/src and drain pending images) and retry, or capture without promoting.`,
+          { unmaterialized: materialization?.unmaterialized, imagesStillPending: materialization?.imagesStillPending }
+        );
+      }
+    }
 
     const envelope = await this.host.captureVerificationScreenshot(params.clipRect, tabId, effectivePane, {
       format: 'png',
@@ -6055,6 +6094,11 @@ export class BrowserControlPort {
       attemptId: context.attemptId,
       projectId,
       workspaceId,
+      // An oversized baseline raster must never persist truncated bytes as an
+      // artifact a promote could mistake for whole: reject at stage time so the
+      // caller gets ARTIFACT_TOO_LARGE and a fresh capture decision, instead of
+      // a stored fragment refused only later by the truncated-flag check.
+      overflowMode: 'reject',
     });
 
     return this.baselineAuthority.promote(staged.id, context, {

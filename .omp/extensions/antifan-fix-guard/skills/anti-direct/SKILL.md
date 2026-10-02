@@ -27,8 +27,8 @@ This skill arms **Direct Edit Mode** for the current AntiFan session and child s
 
 ## Arming Surfaces
 
-- Skill invocation (`/skill:anti-direct`) or a natural-language directive arms the mode for the whole session.
-- Every Element Picker annotation carries a mode tag in its prompt: `[⚡Direct-Edit]` (popup default) arms the mode, `[🧠Core-Context]` (Core tick) clears it again. The last explicit signal wins, so a ticked Core annotation is never swallowed by an armed Direct session.
+- Skill invocation (`/skill:anti-direct`) or a natural-language directive arms the mode for that prompt's run; a following prompt with no mode signal is normal chat again — the mode is annotation-scoped, not session-latched.
+- Every Element Picker annotation carries a mode tag in its prompt: `[⚡Direct-Edit]` (popup default) arms the mode, `[🚀Super-Fast]` arms the stricter file-only mode, `[🧠Core-Context]` (Core tick) clears it and restores Core packs. A plain prompt also clears the mode — "chat thường" never stays stuck in a scoped mode.
 
 ## Workflow
 

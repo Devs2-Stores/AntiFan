@@ -44,12 +44,21 @@ describe('Port eval: caller timeoutMs clamp', () => {
     assert.strictEqual(seen.timeout, undefined);
   });
 
-  it('clamps an over-budget timeoutMs to the invocation budget ceiling', async () => {
+  it('refuses an over-budget timeoutMs with the real bound named, never clamps', async () => {
     const seen: { timeout?: unknown } = {};
     const port = new BrowserControlPort(makeHost(seen));
-    await port.eval(target, 'return 1', undefined, undefined, { timeoutMs: 999_999 });
-    // Ceiling is min(120_000 ceiling, 29_000 budget-minus-guard) = 29_000.
-    assert.strictEqual(seen.timeout, 29_000);
+    await assert.rejects(
+      () => port.eval(target, 'return 1', undefined, undefined, { timeoutMs: 999_999 }),
+      (err: unknown) => {
+        assert.ok(err instanceof CapabilityError);
+        assert.strictEqual(err.code, 'INVALID_ARGUMENT');
+        const details = err.details as { requestedTimeoutMs?: number; effectiveMaxTimeoutMs?: number };
+        assert.strictEqual(details?.requestedTimeoutMs, 999_999);
+        assert.strictEqual(details?.effectiveMaxTimeoutMs, 29_000);
+        return true;
+      }
+    );
+    assert.strictEqual(seen.timeout, undefined, 'evalJs must not run when the ask exceeds the invocation budget');
   });
 
   it('rejects non-positive and non-finite timeoutMs before any eval', async () => {

@@ -1,9 +1,11 @@
 /**
  * Edit-guard hook — the user-scope enforcement half of the edit-mode contract.
  *
- * Arms a mode from the prompt (or inherits it), refuses writes that leave the
- * writable set, refuses the tools a scoped mode excludes, and leaves an
- * append-only audit trail the Manager and the QA gate both read:
+ * Arms a mode from the prompt (or inherits it), and enforces per mode: `direct`
+ * refuses nothing locally — its contract is Core suppression and lives in the
+ * bridge hook; `fast` refuses the shell, dispatch, eval, search and every
+ * device call, and confines writes to the theme's writable set. Both modes
+ * leave an append-only audit trail the Manager and the QA gate both read:
  * `<workspaceRoot>/.antifan/edit-guard/<ompSessionId>.jsonl`.
  *
  * Nothing in here throws: a hook that throws turns a policy into an outage, so
@@ -153,8 +155,10 @@ function scopeEvidence(ctx: unknown): EditMode | null {
   }
 }
 
-function isScopedMode(mode: EditMode | null): mode is "direct" | "fast" {
-  return mode === "direct" || mode === "fast";
+function isScopedMode(mode: EditMode | null): mode is "fast" {
+  // Only fast has refusals to protect; a classification failure in direct must
+  // not invent the one block its contract (Core suppression only) does not own.
+  return mode === "fast";
 }
 
 /** A logger that throws must not change a decision: it is a report, not an authority. */
@@ -325,8 +329,14 @@ export default function editGuardHook(pi: GuardPi): void {
   pi.on("before_agent_start", (event, ctx) => {
     try {
       const session = ensureSession(ctx);
+      // Mode signals live in non-empty prompt text. A prompt-less or blank event
+      // (steering, internal restarts) is not a user message and must not
+      // re-derive — otherwise it would silently unscope an armed run mid-task.
       const prompt = (event as { prompt?: unknown } | undefined)?.prompt;
-      const decision = deriveEditMode(typeof prompt === "string" ? prompt : undefined, session.mode);
+      const decision =
+        typeof prompt === "string" && prompt.trim().length > 0
+          ? deriveEditMode(prompt, session.mode)
+          : { mode: session.mode, trigger: session.trigger, changed: false as const };
       session.runSeq += 1;
       session.runChanged = [];
       if (decision.changed) {

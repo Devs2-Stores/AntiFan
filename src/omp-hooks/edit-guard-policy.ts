@@ -23,7 +23,6 @@ import { classifyWritePath, type WorkspaceShape } from "./theme-paths";
 export const REFUSAL_CODES = {
   EDIT_SCOPE: "REFUSED_EDIT_SCOPE",
   THEME_ROOT_UNRESOLVED: "REFUSED_THEME_ROOT_UNRESOLVED",
-  DIRECT_MODE_TOOL: "REFUSED_DIRECT_MODE_TOOL",
   FAST_MODE_TOOL: "REFUSED_FAST_MODE_TOOL",
   FAST_MODE_MCP: "REFUSED_FAST_MODE_MCP",
   /** The wiring failed before the policy could classify the call. See `edit-guard.ts`. */
@@ -44,10 +43,7 @@ export const WRITE_TOOLS: Record<string, true> = {
   append: true,
 };
 
-/** Direct is "edit the source, skip the ceremony" — no dispatch, no code eval. */
-export const DIRECT_BLOCKED_TOOLS: Record<string, true> = { task: true, eval: true };
-
-/** Super-Fast additionally drops the shell and the network. */
+/** Super-Fast is file-only: no dispatch, no eval, no shell, no network. */
 export const FAST_BLOCKED_TOOLS: Record<string, true> = {
   task: true,
   eval: true,
@@ -115,32 +111,30 @@ export function planToolCall(params: {
     return { decision: "allow", code: "MODE_UNSET", reason: "", targets: fileTargets, device };
   }
 
-  const label = MODE_LABELS[mode];
-  if (mode === "fast") {
-    if (FAST_BLOCKED_TOOLS[tool] === true) {
-      return {
-        decision: "block",
-        code: REFUSAL_CODES.FAST_MODE_TOOL,
-        reason: `${REFUSAL_CODES.FAST_MODE_TOOL}: '${tool}' is disabled in Super-Fast (${label} edits files directly; no shell, no dispatch). Send [Core-Context] to run it.`,
-        targets: fileTargets,
-        device,
-      };
-    }
-    if (isMcp || device !== null) {
-      return {
-        decision: "block",
-        code: REFUSAL_CODES.FAST_MODE_MCP,
-        reason: `${REFUSAL_CODES.FAST_MODE_MCP}: ${device ? deviceLabel(device) : tool} is a live-browser/device call and is disabled in Super-Fast. Send [Core-Context] to use it.`,
-        targets: fileTargets,
-        device,
-      };
-    }
+  // Direct-Edit is a Core-suppression contract, not a tool policy: the bridge
+  // hook owns the no-Core rule (pack skipped, retrieval refused); everything
+  // else — dispatch, eval, shell, devices, out-of-scope writes — runs exactly
+  // as an unscoped session. Only writes are still accounted so the run summary
+  // and audit log keep an honest changed-file list.
+  if (mode === "direct") {
+    return { decision: "allow", code: "ALLOWED", reason: "", targets: fileTargets, device };
   }
-  if (mode === "direct" && DIRECT_BLOCKED_TOOLS[tool] === true) {
+
+  const label = MODE_LABELS[mode];
+  if (FAST_BLOCKED_TOOLS[tool] === true) {
     return {
       decision: "block",
-      code: REFUSAL_CODES.DIRECT_MODE_TOOL,
-      reason: `${REFUSAL_CODES.DIRECT_MODE_TOOL}: '${tool}' is disabled in Direct-Edit (edit the source in this session, no dispatch, no code eval). Send [Core-Context] to run it.`,
+      code: REFUSAL_CODES.FAST_MODE_TOOL,
+      reason: `${REFUSAL_CODES.FAST_MODE_TOOL}: '${tool}' is disabled in Super-Fast (${label} edits files directly; no shell, no dispatch). Send [Core-Context] to run it.`,
+      targets: fileTargets,
+      device,
+    };
+  }
+  if (isMcp || device !== null) {
+    return {
+      decision: "block",
+      code: REFUSAL_CODES.FAST_MODE_MCP,
+      reason: `${REFUSAL_CODES.FAST_MODE_MCP}: ${device ? deviceLabel(device) : tool} is a live-browser/device call and is disabled in Super-Fast. Send [Core-Context] to use it.`,
       targets: fileTargets,
       device,
     };

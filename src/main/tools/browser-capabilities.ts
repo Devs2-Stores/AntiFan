@@ -2960,9 +2960,10 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
             height: { type: 'number' },
           },
         },
+        materializeDataSrc: { type: 'boolean', description: 'Swap data-src/data-srcset into live sources before capture so custom lazy loaders (e.g. Pancake) promote in one call; mutates the page — opt-in only' },
       },
     },
-    execute: (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; fullPage?: boolean; clipRect?: { x: number; y: number; width: number; height: number } }, context) => {
+    execute: (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; fullPage?: boolean; clipRect?: { x: number; y: number; width: number; height: number }; materializeDataSrc?: boolean }, context) => {
       return browser.promoteBaseline(context, params);
     },
   });
@@ -2988,9 +2989,10 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
             height: { type: 'number' },
           },
         },
+        materializeDataSrc: { type: 'boolean', description: 'Swap data-src/data-srcset into live sources before capture so custom lazy loaders (e.g. Pancake) promote in one call; mutates the page — opt-in only' },
       },
     },
-    execute: (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; fullPage?: boolean; clipRect?: { x: number; y: number; width: number; height: number } }, context) => {
+    execute: (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; fullPage?: boolean; clipRect?: { x: number; y: number; width: number; height: number }; materializeDataSrc?: boolean }, context) => {
       return browser.promoteBaseline(context, params);
     },
   });
