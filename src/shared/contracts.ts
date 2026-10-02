@@ -372,6 +372,31 @@ export const TOOLBAR_CHANNELS = {
   SHOW_MENU_BAR: 'antifan:toolbar:show-menu-bar',
 };
 
+/**
+ * Session pet: the floating always-on-top window that mirrors terminal-session
+ * activity. `STATE` is main → pet only (snapshot of every tracked session plus
+ * the aggregate level); `ACTION` is pet → main for the gestures the surface
+ * allows — open the Terminal Manager, pin/unpin always-on-top, hide, or raise
+ * its context menu.
+ */
+export const PET_CHANNELS = {
+  STATE: 'antifan:pet:state',
+  ACTION: 'antifan:pet:action',
+} as const;
+
+export type PetAction = 'open-manager' | 'set-pinned' | 'hide' | 'context-menu';
+
+export interface PetSessionRow {
+  id: string;
+  name: string;
+  level: 'waiting' | 'streaming' | 'thinking' | 'completed' | 'sleeping' | 'idle';
+}
+
+export interface PetStatePush {
+  level: PetSessionRow['level'];
+  sessions: PetSessionRow[];
+}
+
 export interface ToolbarPhoneStatus {
   state: 'connected' | 'disconnected' | 'unknown';
   name?: string;

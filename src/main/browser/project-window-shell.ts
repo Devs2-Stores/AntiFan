@@ -205,13 +205,13 @@ export interface ShellContentGeometry {
  * Resolve a renderer asset that may live beside the compiled output or in the
  * source tree during development.
  */
-function resolveRendererAsset(fileName: string): string {
+export function resolveRendererAsset(fileName: string): string {
   const compiled = path.join(__dirname, '..', '..', 'renderer', fileName);
   if (fs.existsSync(compiled)) return compiled;
   return path.join(process.cwd(), 'src', 'renderer', fileName);
 }
 
-function resolvePreloadAsset(fileName: string): string {
+export function resolvePreloadAsset(fileName: string): string {
   return path.join(__dirname, '..', '..', 'preload', fileName);
 }
 

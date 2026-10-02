@@ -161,6 +161,14 @@ export interface ApplicationMenuOptions {
    * Omitting the callback leaves the entry visibly disabled.
    */
   reattachProject?: (projectId: string, window: BrowserWindow | null) => void;
+  /**
+   * Session pet surface: the floating always-on-top window mirroring terminal
+   * activity. `togglePet` flips it and answers the new state so the checkbox
+   * self-corrects; `petEnabled` seeds the check when the menu is built.
+   * Omitting the pair hides the entry entirely.
+   */
+  togglePet?: () => boolean;
+  petEnabled?: boolean;
 }
 
 /**
@@ -588,6 +596,17 @@ export function buildApplicationMenu(mainWindow: BrowserWindow, tabHost?: Native
           click: (_item, focusedWindow: BaseWindow | undefined) =>
             options?.openSharedTerminalManager?.((focusedWindow as BrowserWindow | undefined) ?? null),
         },
+        ...(typeof options?.togglePet === 'function'
+          ? [{
+              label: 'Session Pet (trạng thái nổi)',
+              type: 'checkbox' as const,
+              checked: options.petEnabled === true,
+              accelerator: 'CmdOrCtrl+Shift+P',
+              click: (item: Electron.MenuItem) => {
+                item.checked = options.togglePet!();
+              },
+            }]
+          : []),
         { type: 'separator' },
         {
           label: 'Toggle Sidebar Terminal',

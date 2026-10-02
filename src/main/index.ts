@@ -47,7 +47,7 @@ import {
 import { NativeTabHost, collectTabSearchInventory, activateTabSearchResult, isUnhostedTerminalWindow, purgeSavedTabsFileForProject, foldDetachedOwnerRecord, listDetachedProjectOwnerRecords, normalizeSavedTabsDocument, savedTabsFilePath, savedTabsOwnerIsDetached, type TabSearchInventoryRow, type TabSearchActivationFailure } from './browser/native-tab-host';
 import { closeAuxiliaryWindow } from './browser/auxiliary-close';
 import { ProjectWindowManager, type OpenIntent } from './browser/project-window-manager';
-import { ProjectWindowShell, ownerKey, ownerLabel, type ChromeSurface, type WindowOwner } from './browser/project-window-shell';
+import { ProjectWindowShell, ownerKey, ownerLabel, resolveRendererAsset, resolvePreloadAsset, type ChromeSurface, type WindowOwner } from './browser/project-window-shell';
 import { TabAuthorityDirectory } from './browser/tab-authority-directory';
 import { TabAmbientAuthority } from './browser/tab-ambient-authority';
 import {
@@ -89,6 +89,7 @@ import { TerminalManager, DEFAULT_TERMINAL_CAPSULE_ID } from './browser/terminal
 import { ensureDaemon } from './terminal-daemon/daemon-spawner';
 import { DaemonTerminalProxy } from './terminal-daemon/daemon-client';
 import { TerminalOutputRouter } from './browser/terminal-output-router';
+import { PetWindowController } from './browser/pet-window';
 import { EventEmitter } from 'node:events';
 import { buildApplicationMenu } from './browser/app-menu';
 import { WindowStateManager } from './browser/window-state';
@@ -792,6 +793,7 @@ function hostForTabOrDegrade(tabId: string | undefined, seam: string): NativeTab
 }
 let bridgeServer: BridgeServer | null = null;
 let windowStateManager: WindowStateManager | null = null;
+let petController: PetWindowController | null = null;
 let controlPlane: ControlPlaneRuntime | null = null;
 let browserPort: BrowserControlPort | null = null;
 let cockpitPort: CockpitPort | null = null;
@@ -2418,6 +2420,8 @@ function installApplicationMenu(): void {
     // no active project to scope the click by, so the menu resolves the project id
     // from `windowOwnerKey` and the same entrypoint runs it.
     reattachProject: (projectId, _window) => { void reattachProject({ projectId }); },
+    togglePet: () => petController?.toggle() ?? false,
+    petEnabled: petController?.isEnabled() ?? false,
   }));
 }
 
@@ -4004,6 +4008,26 @@ async function createWindow(): Promise<void> {
   bootstrapShell = shell;
   recordBenchmark({ surface: 'startup', name: 'windowCtor' });
 
+  // Session pet: the floating status window subscribes to the terminal seam
+  // directly, so it must be built after the daemon proxy was installed as the
+  // singleton (ensureDaemon above) and before the menu reads its state.
+  petController = new PetWindowController({
+    rendererFile: resolveRendererAsset,
+    preloadFile: resolvePreloadAsset,
+    onEnabledChanged: () => installApplicationMenu(),
+    openTerminalManager: () => { void openSharedTerminalManagerWindow(); },
+    // Authoritative waiting_user: the run file is written by the agent's
+    // run-state hook the moment an ask tool is invoked — PTY heuristics miss
+    // TUI panels whose last line is a hint bar.
+    getRunCards: () => runStateService?.getRunsSync() ?? [],
+    onRunCardsChange: (listener) => {
+      const service = runStateService;
+      if (!service) return undefined;
+      service.on('change', listener);
+      return () => { try { service.removeListener('change', listener); } catch {} };
+    },
+  });
+
   // Set Top Menubar (File, Edit, Selection, View, Go, Run, Terminal, Help)
   installApplicationMenu();
 
@@ -4760,6 +4784,8 @@ app.on('will-quit', () => {
   // await. It stays as the last line of defence for an exit that reached the platform
   // without an orderly teardown (an OS-initiated quit).
   bridgeServer?.dispose();
+  petController?.dispose();
+  petController = null;
   for (const h of tabAuthorities.hosts()) {
     h.dispose();
   }

@@ -42,6 +42,7 @@ const filesToCopy = [
   'exports-shim.js',
   'toolbar.html', 'toolbar.css',
   'standalone.html', 'standalone.css', 'standalone-overrides.css', 'standalone.js',
+  'pet.html',
   'frame-backdrop.html', 'frame-backdrop.css',
   'antifan-logo.jpg'
 ];
