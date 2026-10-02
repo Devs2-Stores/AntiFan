@@ -160,8 +160,17 @@ if (CapabilityCatalogue && BrowserControlPort && makeControlPlaneId && problems.
       return () => { coreCalls.push(prop); return { recorded: prop }; };
     },
   });
+  // The cockpit port is a recording stub like the core port: registering must
+  // never dereference it, and an absent arg would leave the theme.cockpit_*
+  // family unregistered and report phantom divergence.
+  const recordingCockpitPort = new Proxy({}, {
+    get: (_target, prop) => {
+      if (typeof prop !== 'string') return undefined;
+      return () => { throw new Error(`stub CockpitPort member '${prop}' invoked during catalogue parity`); };
+    },
+  });
   const registrations = {
-    registerBrowserCapabilities: [browserPort, undefined, getWorkspaceRoot],
+    registerBrowserCapabilities: [browserPort, undefined, getWorkspaceRoot, undefined, undefined, recordingCockpitPort],
     registerFileCapabilities: [{}, getWorkspaceRoot, undefined],
     registerArtifactCapabilities: [{}],
     registerTerminalCapabilities: [{}],

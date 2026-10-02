@@ -9,6 +9,8 @@ import { LayoutOverflowEngine } from '../qa/scanners/layout-overflow-engine';
 import { HsGateRules, HsEvaluationResult } from '../qa/rules/hs-gate-rules';
 import type { ThemeQaWorkflow } from '../qa/theme-qa-workflow';
 import { ThemeQaRepairCoordinator } from '../qa/theme-qa-repair-coordinator';
+import type { CockpitPort } from './cockpit-port';
+import { registerCockpitCapabilities } from './cockpit-capabilities';
 import { confineWorkspaceRoot } from '../qa/diagnostics-filter';
 import { recordFallbackTelemetry, FallbackTelemetryPayload } from '../telemetry/fallback-recorder';
 import { IssueRegister, VerificationVerdict } from '../session/issue-register';
@@ -256,7 +258,7 @@ export function extractErrorMessage(err: unknown): string | null {
   return text ? text.slice(0, QA_RECEIPT_ERROR_MESSAGE_MAX) : null;
 }
 
-export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, browser: BrowserControlPort, themeQaWorkflow?: ThemeQaWorkflow, getWorkspaceRoot?: () => string, receipts?: ReceiptStore, getStylesheetUrlMap?: () => Record<string, string>): void {
+export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, browser: BrowserControlPort, themeQaWorkflow?: ThemeQaWorkflow, getWorkspaceRoot?: () => string, receipts?: ReceiptStore, getStylesheetUrlMap?: () => Record<string, string>, cockpit?: CockpitPort): void {
   const coordinator = themeQaWorkflow ? new ThemeQaRepairCoordinator(themeQaWorkflow) : undefined;
   /**
    * `expression` and `expressionFile` are mutually exclusive forms of the same
@@ -1837,6 +1839,10 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     inputSchema: { type: 'object', properties: { sessionId: { type: 'string' } }, required: ['sessionId'] },
     execute: (params: Record<string, unknown>, context) => catalogue.get('theme.qa_rollback')!.execute(params, context),
   });
+  // theme.cockpit_* family: registered only when the host actually wired a
+  // CockpitPort (the gate and headless builds pass none — the registrations
+  // must not exist in a catalogue that cannot execute them).
+  if (cockpit) registerCockpitCapabilities(catalogue, cockpit, browser);
 
   catalogue.register({
     name: 'theme.assert_cart',

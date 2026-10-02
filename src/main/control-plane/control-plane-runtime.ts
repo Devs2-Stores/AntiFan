@@ -14,6 +14,7 @@ import { ArtifactStore, type ArtifactStoreOptions, type ArtifactStoreStats } fro
 import { CapabilityCatalogue } from '../tools/capability-catalogue';
 import { CapabilityTransportAdapter } from '../tools/capability-transport';
 import { BrowserControlPort } from '../tools/browser-control-port';
+import type { CockpitPort } from '../tools/cockpit-port';
 import { registerBrowserCapabilities } from '../tools/browser-capabilities';
 import { registerDeviceCapabilities } from '../tools/device-capabilities';
 import type { DeviceControlPort, DeviceRegistryPort } from '../device/device-control-port';
@@ -359,7 +360,7 @@ export class ControlPlaneRuntime {
   beginDrain(): void { this.switchState = { ...this.switchState, lifecycle: 'draining' }; this.capabilities.beginDrain(); }
   completeDrain(): void { this.switchState = { ...this.switchState, lifecycle: 'drained' }; this.capabilities.completeDrain(); }
   rollbackLegacy(): void { this.switchState = { mode: 'legacy', lifecycle: 'legacy' }; this.capabilities.switchToLegacy(); }
-  registerBrowser(browser: BrowserControlPort): void {
+  registerBrowser(browser: BrowserControlPort, cockpit?: CockpitPort): void {
     this.themeTransactions.bindBrowserPort(browser);
     this.themeQaWorkflow = new ThemeQaWorkflow({
       browser,
@@ -368,7 +369,7 @@ export class ControlPlaneRuntime {
       transactionRegistry: this.themeTransactions,
       trackerIsolation: (target, active, paneId) => browser.setTrackerIsolation(target, active, paneId),
     });
-    registerBrowserCapabilities(this.capabilities, browser, this.themeQaWorkflow, () => this.getWorkspaceRoot(), this.receipts);
+    registerBrowserCapabilities(this.capabilities, browser, this.themeQaWorkflow, () => this.getWorkspaceRoot(), this.receipts, undefined, cockpit);
   }
 
   /**
