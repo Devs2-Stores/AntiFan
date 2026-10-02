@@ -106,7 +106,11 @@ function loadHook() {
 function makeWorkspace() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "qa-gate-ws-"));
   scratchDirs.push(root);
-  fs.mkdirSync(path.join(root, ".antifan"), { recursive: true });
+  // The real annotation store shape AnnotationManager pre-creates; a bare
+  // `.antifan/` no longer arms the binding (space.json/edit-guard roots are
+  // not workspaces), so fixtures need a marker subdir.
+  fs.mkdirSync(path.join(root, ".antifan", "annotations"), { recursive: true });
+  fs.mkdirSync(path.join(root, ".antifan", "qa-receipts"), { recursive: true });
   for (const dir of ["sections", "reports", "plans", "docs", "scripts"]) {
     fs.mkdirSync(path.join(root, dir), { recursive: true });
   }
@@ -143,7 +147,7 @@ function editCall(handlers, ctx, absPath, addedLines = ["color: red;"]) {
   );
 }
 
-function result(handlers, ctx, content, toolName = "read") {
+function result(handlers, ctx, content, toolName = "write") {
   return handlers.get("tool_result")({ toolName, content }, ctx);
 }
 
@@ -267,8 +271,8 @@ test("reminder text contains no bypass token and cannot clear the gate it descri
     !/qaStatus\s*:\s*QA_(UNAVAILABLE|INCONCLUSIVE)/.test(reminder),
     "reminder must not reproduce the qaStatus declaration form"
   );
-  assert.ok(reminder.includes("SELF_QA_DIRECTIVE"), "reminder must point at the authority");
-  assert.ok(reminder.includes("annotation-prompt.ts"), "reminder must cite the directive location");
+  assert.ok(reminder.includes("SELF_QA_DIRECTIVE"), "reminder must name the directive contract");
+  assert.ok(!reminder.includes("annotation-prompt.ts"), "reminder must not cite a repo-relative path the consumer cwd cannot resolve");
   assert.ok(reminder.includes("QA_UNAVAILABLE") && reminder.includes("QA_INCONCLUSIVE"), "terminal names stay discoverable");
 
   // Regression for the self-clearing exploit: echoing the reminder into an
@@ -1388,5 +1392,91 @@ test("bridge file selection: dev beside prod prefers the live pid's record", () 
     if (prevConfigDir !== undefined) process.env.ANTIFAN_CONFIG_DIR = prevConfigDir;
     else delete process.env.ANTIFAN_CONFIG_DIR;
   }
+});
+
+// ---------------------------------------------------------------------------
+// Workspace binding & receipt placement (bug D.1: bare .antifan/ ancestor must
+// not arm the gate, and a nested project's receipts must clear an ancestor bind)
+// ---------------------------------------------------------------------------
+
+test("a bare ancestor .antifan/ (space.json + edit-guard only) never arms the binding", () => {
+  const { handlers } = loadHook();
+  const umbrella = fs.mkdtempSync(path.join(os.tmpdir(), "qa-gate-umbrella-"));
+  scratchDirs.push(umbrella);
+  // Exactly the E:/Work/.antifan/ shape that caused the production deadlock:
+  // space.json plus an edit-guard log dir — no annotations/, no qa-receipts/.
+  fs.mkdirSync(path.join(umbrella, ".antifan", "edit-guard"), { recursive: true });
+  fs.writeFileSync(path.join(umbrella, ".antifan", "space.json"), "{}", "utf8");
+  const project = path.join(umbrella, "customizes", "shop");
+  fs.mkdirSync(path.join(project, "sections"), { recursive: true });
+  const ctx = { cwd: project };
+
+  writeCall(handlers, ctx, path.join(project, "sections", "hero.liquid"));
+  const { reminders } = fire(handlers, ctx, 2 * REMIND_EVERY);
+  assert.equal(reminders, 0, "a space.json/edit-guard-only .antifan/ ancestor must not arm the gate");
+});
+
+test("a receipt one level under the bound root clears the ancestor's pending edit", () => {
+  const { handlers } = loadHook();
+  const root = makeWorkspace();
+  // The project's real annotation workspace sits one directory under the root
+  // the gate bound to; theme.qa_validate confines its receipts there.
+  const childReceipts = path.join(root, "shopproj", ".antifan", "qa-receipts");
+  fs.mkdirSync(childReceipts, { recursive: true });
+  const ctx = { cwd: root };
+
+  writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
+  fs.writeFileSync(
+    path.join(childReceipts, "r1.json"),
+    JSON.stringify({ createdAt: new Date().toISOString() }),
+    "utf8"
+  );
+
+  // Reconcile runs on every result — even read-class — so the nested receipt clears it
+  // (this first result also drains the one-shot MCP-first chunk, which is fine).
+  const cleared = resText(result(handlers, ctx, "read output", "read"));
+  assert.equal(
+    count(cleared, GATE_REMINDER_SENTINEL),
+    0,
+    "reconciled pending edit: read result carries no reminder"
+  );
+  // …and stays cleared for the mutation results that carry reminders.
+  assert.equal(fire(handlers, ctx, 2 * REMIND_EVERY).reminders, 0, "nested receipt cleared the ancestor-bound pending edit");
+});
+
+test("the reminder treats annotationId/expectedUrl as OPTIONAL and cites no repo path", () => {
+  const { handlers } = loadHook();
+  const root = makeWorkspace();
+  const ctx = { cwd: root };
+  writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
+  const reminder = resText(result(handlers, ctx, "ok"));
+
+  assert.equal(count(reminder, GATE_REMINDER_SENTINEL), 1);
+  assert.ok(/annotationId[^.]{0,40}optional/i.test(reminder), "annotationId must be marked optional, not required");
+  assert.ok(
+    !reminder.includes('annotationId from the annotation "QA Binding" line'),
+    "annotationId must not be demanded from a QA Binding line that may not exist"
+  );
+  assert.ok(reminder.includes("theme.qa_validate"), "the tool name stays discoverable without repo context");
+});
+
+test("pending edits remind on mutation results only — read/grep/glob/bash stay clean", () => {
+  const { handlers } = loadHook();
+  const root = makeWorkspace();
+  const ctx = { cwd: root };
+  writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
+
+  for (const tool of ["read", "grep", "glob", "ls", "bash"]) {
+    const res = result(handlers, ctx, `${tool} output`, tool);
+    const text = resText(res);
+    assert.equal(count(text, GATE_REMINDER_SENTINEL), 0, `${tool} result must not carry the QA reminder`);
+  }
+
+  const mutation = resText(result(handlers, ctx, "write ok", "write"));
+  assert.equal(count(mutation, GATE_REMINDER_SENTINEL), 1, "a write-class result still carries the reminder");
+
+  const edit = resText(result(handlers, ctx, "edit ok", "edit"));
+  const editReminderCount = count(edit, GATE_REMINDER_SENTINEL);
+  assert.ok(editReminderCount <= 1, "edit-class results stay on the reminder cadence");
 });
 

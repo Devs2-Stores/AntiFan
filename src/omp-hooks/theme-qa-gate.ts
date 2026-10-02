@@ -18,10 +18,10 @@
  * Chat sessions in theme workspaces never receive SELF_QA_DIRECTIVE (that
  * string only lands in annotation-built prompts). Measured 2026-09-21 on
  * Seahorse2 `01a0c1aa`: the agent grepped/edited Liquid first; MCP inspect
- * only ran after the user steered "Dùng AntiFAN MCP check lại". The first
  * tool_result in a theme cwd therefore carries an MCP-first directive, and a
- * pending edit reminds on every unmarked result (the previous 1-in-8 throttle
- * hid the gate in short turns).
+ * pending edit reminds on each unmarked MUTATION result — read/grep/glob/bash
+ * results stay clean (a pending reminder on every result spammed ~50 outputs
+ * per armed turn without adding evidence).
  * Other deadlock hardening:
  *  - the pending flag carries a TTL, so a workspace without a receipt dir can
  *    never pin the gate forever;
@@ -421,11 +421,34 @@ function mcpFirstMessage(): Record<string, unknown> {
   };
 }
 
-/** Walk up from a file path; a workspace is annotation-bound iff it has .antifan/. */
+/**
+ * A real annotation workspace: AnnotationManager.getStorageDirectories
+ * pre-creates `.antifan/annotations/` + `.antifan/qa-receipts/` under a bound
+ * project root. A bare `.antifan/` is NOT enough — shared roots like
+ * `E:/Work/.antifan/` hold only `space.json` and `edit-guard/` logs, and
+ * binding there pins the gate on a root whose receipt dir the project's
+ * `theme.qa_validate` never writes (the permanent PENDING deadlock).
+ */
+function isAnnotationWorkspace(dir: string): boolean {
+  try {
+    for (const sub of ["annotations", "qa-receipts"]) {
+      try {
+        if (fs.statSync(path.join(dir, ".antifan", sub)).isDirectory()) return true;
+      } catch {
+        /* marker subdir absent */
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return false;
+}
+
+/** Walk up from a file path; a workspace is annotation-bound iff it carries a real annotation store. */
 function findAnnotationWorkspace(filePath: string, cwd: string): string | null {
   let dir = path.dirname(path.isAbsolute(filePath) ? filePath : path.join(cwd, filePath));
   for (let i = 0; i < 12; i++) {
-    if (fs.existsSync(path.join(dir, ".antifan"))) return dir;
+    if (isAnnotationWorkspace(dir)) return dir;
     const parent = path.dirname(dir);
     if (parent === dir) return null;
     dir = parent;
@@ -563,10 +586,10 @@ interface ScopedSessionState {
   dirty: boolean;
 }
 const scopedSessionStates = new Map<string, ScopedSessionState>();
-function latestReceiptTime(workspaceRoot: string): number {
+/** Newest receipt timestamp in one qa-receipts dir (0 when absent/empty/unreadable). */
+function latestReceiptInDir(dir: string): number {
+  let latest = 0;
   try {
-    const dir = path.join(workspaceRoot, RECEIPT_DIR);
-    let latest = 0;
     for (const name of fs.readdirSync(dir)) {
       if (!name.endsWith(".json")) continue;
       try {
@@ -576,11 +599,44 @@ function latestReceiptTime(workspaceRoot: string): number {
         const effective = Number.isNaN(ts) ? stat.mtimeMs : ts;
         if (effective > latest) latest = effective;
       } catch {
-        const stat = fs.statSync(path.join(dir, name));
-        if (stat.mtimeMs > latest) latest = stat.mtimeMs;
+        try {
+          const stat = fs.statSync(path.join(dir, name));
+          if (stat.mtimeMs > latest) latest = stat.mtimeMs;
+        } catch {
+          /* vanished between readdir and stat */
+        }
       }
     }
-    return latest;
+  } catch {
+    return 0;
+  }
+  return latest;
+}
+
+/**
+ * Newest receipt for a bound root. When the root's own dir yields nothing,
+ * also probe exactly one level down — `<root>/<project>/.antifan/qa-receipts/` —
+ * because `theme.qa_validate` confines receipts to the project workspaceRoot,
+ * which can sit one directory under the ancestor the gate bound to (a bare
+ * `.antifan/` ancestor may still hold the pending key while a real annotation
+ * workspace below it receives the receipts).
+ */
+function latestReceiptTime(workspaceRoot: string): number {
+  try {
+    const latest = latestReceiptInDir(path.join(workspaceRoot, RECEIPT_DIR));
+    if (latest > 0) return latest;
+    let nested = 0;
+    for (const child of fs.readdirSync(workspaceRoot)) {
+      try {
+        const childDir = path.join(workspaceRoot, child);
+        if (!fs.statSync(childDir).isDirectory()) continue;
+        const t = latestReceiptInDir(path.join(childDir, RECEIPT_DIR));
+        if (t > nested) nested = t;
+      } catch {
+        /* unreadable child */
+      }
+    }
+    return nested;
   } catch {
     return 0;
   }
@@ -872,16 +928,20 @@ function clearPending(root: string): void {
 /**
  * The reminder deliberately never contains a BYPASS_TOKENS string (in either
  * spelling): it points at the authority instead, naming the terminal statuses
- * without reproducing the exact declaration the gate matches on.
+ * without reproducing the exact declaration the gate matches on. It also never
+ * cites a repo-relative source path — the consuming session's cwd is the theme
+ * workspace, where `src/shared/annotation-prompt.ts` does not resolve — so the
+ * SELF_QA_DIRECTIVE contract steps are inlined here instead.
  */
 function reminderText(): string {
   const roots = [...pendingEdits.keys()].join(", ");
   return (
     `\n\n${GATE_MARKER} QA GATE PENDING — theme file(s) under ${roots} were edited without a fresh AntiFan QA receipt. ` +
-    `Before reporting done: run theme.qa_validate (tabId + workspaceRoot + expectedUrl + annotationId from the annotation "QA Binding" line) so a receipt lands in .antifan/qa-receipts/. ` +
-    `If a receipt is genuinely impossible, follow SELF_QA_DIRECTIVE steps 5-6 in src/shared/annotation-prompt.ts and declare the matching terminal status in your OWN assistant message — ` +
-    `the QA_UNAVAILABLE terminal status for a missing capability or an auth failure, the QA_INCONCLUSIVE terminal status for environment failures such as SETTLE_INCOMPLETE or CAPTURE_NOT_READY — each with the original error code. ` +
-    `For a pure CSS micro edit (single plain assets/ *.css|*.scss file, <=10 changed lines total, no Liquid), follow SELF_QA_DIRECTIVE step 9 in src/shared/annotation-prompt.ts and declare the micro static terminal status with the file, selector and changed-line count in your own message — the gate validates it against the edit IT observed. ` +
+    `Before reporting done: run theme.qa_validate with tabId + workspaceRoot + expectedUrl (expectedUrl and annotationId are OPTIONAL per the tool schema; when no annotation "QA Binding" line exists, tabId + workspaceRoot alone is enough) so a receipt lands in .antifan/qa-receipts/. ` +
+    `If a receipt is genuinely impossible, declare the matching SELF_QA_DIRECTIVE terminal status in your OWN assistant message — ` +
+    `the QA_UNAVAILABLE terminal status when the capability is missing (re-probe once on CAPABILITY_NOT_FOUND, it may have registered after a restart) or auth fails (ATTACHMENT_REQUIRED / ATTACHMENT_INVALID / MCP_CONTEXT_REQUIRED / UNAUTHENTICATED); ` +
+    `the QA_INCONCLUSIVE terminal status for environment failures (SETTLE_INCOMPLETE, CAPTURE_NOT_READY) after one reload/re-probe retry — each with the original error code. ` +
+    `For a pure CSS micro edit (single plain assets/ *.css|*.scss file, <=10 changed lines total, no Liquid), declare the micro static terminal status with the file, selector and changed-line count in your own message — the gate validates it against the edit IT observed. ` +
     `Declaring QA_PASSED without a receipt is a contract violation. ` +
     `The gate clears on a fresh receipt or on that assistant-side declaration; nothing else clears it.`
   );
@@ -989,8 +1049,15 @@ export default function themeQaGate(pi: HookAPI): void {
         chunks.push(MCP_FIRST_TEXT);
       }
       if (pendingEdits.size > 0) {
+        // Reconcile on EVERY result: a receipt written by theme.qa_validate (not
+        // itself a write-class tool) must clear the gate promptly.
         reconcileReceipts();
-        if (pendingEdits.size > 0 && !contentHasMarker(event.content, GATE_MARKER)) {
+        // …but the reminder only lands on a mutation-class result. A reminder on
+        // every pending read/grep/bash output spammed ~50 results per turn once
+        // armed; the reminder belongs on the result of a write/edit, right where
+        // the unverified surface grows.
+        const resultTool = String(event.toolName ?? event.name ?? "").toLowerCase();
+        if (pendingEdits.size > 0 && WRITE_TOOLS.has(resultTool) && !contentHasMarker(event.content, GATE_MARKER)) {
           toolResultCounter += 1;
           if ((toolResultCounter - 1) % REMIND_EVERY === 0) {
             chunks.push(reminderText());
