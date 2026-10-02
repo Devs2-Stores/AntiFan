@@ -24,7 +24,7 @@
     "hooks:install": "node scripts/install-omp-hooks.mjs --install",
     "hooks:rollback": "node scripts/install-omp-hooks.mjs --rollback",
     "prune:orphans": "node scripts/prune-orphan-emit.mjs",
-    "compile": "node scripts/build-native-host-shim.mjs && node scripts/check-emit-integrity.mjs && tsc -p ./ && node scripts/check-mcp-budget-dominance.mjs && node scripts/prune-orphan-emit.mjs && node scripts/copy-static.mjs && npm run build:extension && node scripts/check-mcp-dispatch-payload.mjs && node scripts/stage-daemon-host.mjs",
+    "compile": "node scripts/build-native-host-shim.mjs && node scripts/check-emit-integrity.mjs && tsc -p ./ && node scripts/check-mcp-budget-dominance.mjs && node scripts/prune-orphan-emit.mjs && node scripts/copy-static.mjs && node scripts/check-renderer-assets.mjs && npm run build:extension && node scripts/check-mcp-dispatch-payload.mjs && node scripts/stage-daemon-host.mjs",
     "watch": "tsc -p ./ --watch",
     "start": "node scripts/run-electron.cjs .",
     "dev": "node --max-old-space-size=4096 scripts/dev.mjs",
