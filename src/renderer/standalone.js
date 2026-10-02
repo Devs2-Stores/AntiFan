@@ -5634,148 +5634,20 @@ function startInlineRename(sessionId, tabWrapEl, titleSpanEl) {
   });
 }
 
-const sessionActivity = new Map();
-
-// Trailing-edge throttle: at most one classification pass per 100ms per session
-// while streaming; the pending timer always re-runs with the latest data so the
-// final chunk of a burst is still classified.
-const sessionActivityThrottle = new Map();
+// Per-session activity flags; classified by the shared SessionActivityTracker
+// (src/shared/session-activity.ts, shipped as the SessionActivityTracker global)
+// so the tab strip and the main-process session pet read one state machine. A
+// missing copied asset would otherwise throw ReferenceError at bootstrap and
+// kill every indicator — the inert shim keeps the strip quiet but alive.
+const sessionActivityTracker = typeof SessionActivityTracker === 'function'
+  ? new SessionActivityTracker((sessionId) => updateTabActivityUi(sessionId))
+  : { sessions: new Map(), ingest() {} };
+const sessionActivity = sessionActivityTracker.sessions;
 
 function notifySessionActivity(sessionId, data) {
-  if (!sessionId || !data || typeof data !== 'string') return;
-
-  // State control sequences bypass the stream throttle immediately
-  const actPreview = sessionActivity.get(sessionId);
-  const tailPreview = actPreview?.tail || '';
-  if (data.includes('\x1b]777;antifan;') || data.includes('\x1b]1337;antifan_wait=') || (tailPreview + data).includes('\x1b]777;antifan;')) {
-    classifySessionActivity(sessionId, data);
-    return;
-  }
-
-  const now = Date.now();
-  let th = sessionActivityThrottle.get(sessionId);
-  if (!th) {
-    th = { lastRun: 0, timer: null, pendingData: '' };
-    sessionActivityThrottle.set(sessionId, th);
-  }
-  if (th.timer) {
-    th.pendingData = data;
-    return;
-  }
-  const elapsed = now - th.lastRun;
-  if (elapsed < 100) {
-    th.pendingData = data;
-    th.timer = setTimeout(() => {
-      th.timer = null;
-      const d = th.pendingData;
-      th.pendingData = '';
-      th.lastRun = Date.now();
-      classifySessionActivity(sessionId, d);
-    }, 100 - elapsed);
-    return;
-  }
-  th.lastRun = now;
-  classifySessionActivity(sessionId, data);
+  sessionActivityTracker.ingest(sessionId, data);
 }
 
-function classifySessionActivity(sessionId, data) {
-  if (!sessionId || !data || typeof data !== 'string') return;
-
-  let act = sessionActivity.get(sessionId);
-  if (!act) {
-    act = { isStreaming: false, isAi: false, isWaiting: false, isCompleted: false, idleTimer: null, doneTimer: null, tail: '' };
-    sessionActivity.set(sessionId, act);
-  }
-
-  const combined = (act.tail || '') + data;
-  act.tail = data.length > 64 ? data.slice(-64) : combined.slice(-64);
-
-  // Fast-path: Explicit OSC sequence from wait-alert or AntiFan agents
-  const wait1Idx = Math.max(combined.lastIndexOf('\x1b]777;antifan;wait=1'), combined.lastIndexOf('\x1b]1337;antifan_wait=1'));
-  const wait0Idx = Math.max(combined.lastIndexOf('\x1b]777;antifan;wait=0'), combined.lastIndexOf('\x1b]1337;antifan_wait=0'));
-  if (wait0Idx !== -1 && wait0Idx > wait1Idx) {
-    act.tail = '';
-    act.isWaiting = false;
-    updateTabActivityUi(sessionId);
-    return;
-  }
-  if (wait1Idx !== -1 && wait1Idx > wait0Idx) {
-    act.tail = '';
-    clearTimeout(act.idleTimer);
-    clearTimeout(act.doneTimer);
-    act.isWaiting = true;
-    act.isStreaming = false;
-    act.isCompleted = false;
-    updateTabActivityUi(sessionId);
-    return;
-  }
-  // Filter out ANSI sequences
-  const clean = data.replace(/\u001b\[[0-9;?]*[a-zA-Z]/g, '').trim();
-  if (!clean) return; // Pure cursor movements, clear lines, redraws
-
-  // Filter out standard idle shell prompts and copyright headers
-  if (/^PS\s+[^>]*>\s*$/i.test(clean)) return;
-  if (/^[a-zA-Z]:\\[^>]*>\s*$/i.test(clean)) return;
-  if (/^[\w.-]+@[\w.-]+:[^$#]*[$#]\s*$/i.test(clean)) return;
-  if (/^Windows\s+PowerShell/i.test(clean)) return;
-  if (/^Copyright\s+\(C\)\s+Microsoft/i.test(clean)) return;
-  if (/^Install the latest PowerShell/i.test(clean)) return;
-  // Detect AI patterns, progress bars, or active execution
-  const isAiIndicator = (
-    /Claude|Codex|OpenCode|DeepSeek|Gemini|Qwen|Kimi|ChatGPT|Thinking\.\.\.|Streaming\.\.\.|⠋|⠙|⠹|⠸|⠼|⠴|⠦|⠧|⠇|⠏|\[in_progress\]|\[task\]|Agent|Evaluating|Generating/i.test(data)
-  );
-
-  if (isAiIndicator) {
-    act.isAi = true;
-  }
-
-  // Detect if output stopped at an interactive prompt waiting for user answer
-  const isWaitPrompt = (
-    /(?:\(y\/n\)|\(Y\/n\)|\(y\/N\)|\(Y\/N\)|\[y\/n\]|\[Y\/n\]|\[y\/N\]|\[Y\/N\])\s*$/i.test(clean) ||
-    (act.isAi && (
-      /(?:Do you want to proceed|Waiting for user input|waiting for approval|Press any key|Enter your choice|chờ bạn trả lời|câu trả lời|\bAllow once\b|\bAllow always\b|\bDeny\b)/i.test(clean) ||
-      (/\?\s*$/.test(clean) && clean.length < 240)
-    ))
-  );
-  if (isWaitPrompt) {
-    clearTimeout(act.idleTimer);
-    clearTimeout(act.doneTimer);
-    act.isWaiting = true;
-    act.isStreaming = false;
-    act.isCompleted = false;
-    updateTabActivityUi(sessionId);
-    return;
-  }
-
-  // If streaming output resumed, clear waiting
-  if (act.isWaiting) {
-    act.isWaiting = false;
-  }
-
-  clearTimeout(act.idleTimer);
-  clearTimeout(act.doneTimer);
-
-  const wasStreaming = act.isStreaming;
-  act.isStreaming = true;
-  act.isCompleted = false;
-
-  if (!wasStreaming) {
-    updateTabActivityUi(sessionId);
-  }
-
-  // Set debounce timer: when terminal output stops for 1.0s, mark as completed then idle
-  act.idleTimer = setTimeout(() => {
-    act.isStreaming = false;
-    act.isCompleted = true;
-    updateTabActivityUi(sessionId);
-
-    act.doneTimer = setTimeout(() => {
-      act.isCompleted = false;
-      act.isAi = false;
-      updateTabActivityUi(sessionId);
-    }, 2000);
-  }, 1000);
-}
 
 function updateTabActivityUi(sessionId) {
   const wrap = tabsEl?.querySelector(`.terminal-tab-wrap[data-session-id="${sessionId}"]`);
@@ -5824,6 +5696,16 @@ function updateTabActivityUi(sessionId) {
     if (beaconEl) {
       beaconEl.className = 'terminal-tab-status-beacon streaming';
       beaconEl.title = act.isAi ? '⚡ AI đang phản hồi...' : 'Đang xử lý...';
+      beaconEl.innerHTML = '';
+    }
+  } else if (act?.isThinking) {
+    wrap.classList.remove('is-waiting', 'is-streaming', 'is-completed');
+    if (iconEl) {
+      iconEl.innerHTML = `<span style="font-size:11px;" title="Agent đang suy nghĩ…">🤔</span>`;
+    }
+    if (beaconEl) {
+      beaconEl.className = 'terminal-tab-status-beacon thinking';
+      beaconEl.title = '⏳ Agent đang suy nghĩ…';
       beaconEl.innerHTML = '';
     }
   } else if (act?.isCompleted) {

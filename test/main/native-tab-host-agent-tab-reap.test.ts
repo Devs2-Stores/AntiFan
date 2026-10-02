@@ -142,8 +142,10 @@ describe('agent tab reap sweep', () => {
     await host.runAgentTabReapSweep();
     assert.ok(host.tabs.has('minted-1'));
 
-    host.tabs.get('minted-1').lastActiveAt -= 2000;
-    host.tabs.get('minted-1').agentActivityAt -= 2000;
+    const minted = host.tabs.get('minted-1');
+    assert.strictEqual(typeof minted.agentActivityAt, 'number');
+    minted.lastActiveAt -= 2000;
+    minted.agentActivityAt -= 2000;
     await host.runAgentTabReapSweep();
     assert.strictEqual(host.tabs.has('minted-1'), false);
     assert.strictEqual(host.automationTabId, null);

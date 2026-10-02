@@ -73,6 +73,7 @@ const themeChecklistPrelude = (() => {
     'window.ThemeChecklistShared = module.exports;\n' +
     '})();\n';
 })();
+
 // Prepend exports fallback to compiled renderer JS files to avoid inline script requirement
 const jsFiles = ['toolbar.js', 'frame-backdrop.js'];
 for (const jsFile of jsFiles) {
@@ -106,6 +107,7 @@ for (const jsFile of jsFiles) {
 const sharedSrcDir = path.join(COMPILED_ROOT, 'src', 'shared');
 for (const spec of [
   { file: 'terminal-write-dispatcher.js', globals: ['TerminalWriteDispatcher', 'globalTerminalWriteDispatcher'] },
+  { file: 'session-activity.js', globals: ['SessionActivityTracker', 'sessionActivityLevel'] },
 ]) {
   const sharedDst = path.join(rendererOutDir, spec.file);
   const sharedSrc = path.join(sharedSrcDir, spec.file);
