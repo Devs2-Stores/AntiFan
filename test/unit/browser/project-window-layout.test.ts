@@ -534,44 +534,47 @@ describe('project window per-shell layout isolation', () => {
 
   it('keeps capture-host ownership inside the shell that raised the pane', async () => {
     const { a, b } = await createTwoShellFixture();
-    // acquireCaptureLift takes the Electron view; the recording double stands in for it.
-    const aView = recordOf(a.host, a.firstTabId).view as unknown as WebContentsView;
-    const bView = recordOf(b.host, b.firstTabId).view as unknown as WebContentsView;
+    const aView = recordOf(a.host, a.secondTabId).view as unknown as WebContentsView;
+    const bView = recordOf(b.host, b.secondTabId).view as unknown as WebContentsView;
     const bChildrenBefore = [...b.window.contentView.children];
 
-    // Lifting A's pane parks it on A's own off-screen capture window.
-    const aLease = await a.host.acquireCaptureLift(aView);
-    const aCaptureHost = internalsOf(a.host).captureHostWindow;
-    assert.ok(aCaptureHost, "A's capture lift creates A's own capture host");
-    assert.equal(internalsOf(a.host).captureLift?.view, aView, "A lifts its own pane for capture");
-    assert.equal(internalsOf(a.host).captureLift?.origin, 'capture-host', "A's pane is parked offscreen, not over the presented tab");
-    assert.ok(aCaptureHost!.contentView.children.includes(aView), "A's pane is hosted by A's own capture window");
-    assert.ok(!a.window.contentView.children.includes(aView), "a captured pane leaves A's own window stack");
+    await a.host.runWithAttachedTabView(aView, async () => {
+      // Lifting A's pane parks it on A's own off-screen capture window.
+      const aLease = await a.host.acquireCaptureLift(aView);
+      const aCaptureHost = internalsOf(a.host).captureHostWindow;
+      assert.ok(aCaptureHost, "A's capture lift creates A's own capture host");
+      assert.equal(internalsOf(a.host).captureLift?.view, aView, "A lifts its own pane for capture");
+      assert.equal(internalsOf(a.host).captureLift?.origin, 'capture-host', "A's pane is parked offscreen, not over the presented tab");
+      assert.ok(aCaptureHost!.contentView.children.includes(aView), "A's pane is hosted by A's own capture window");
+      assert.ok(!a.window.contentView.children.includes(aView), "a captured pane leaves A's own window stack");
 
-    assert.equal(internalsOf(b.host).captureHostWindow, null, "A's capture must not create a capture host for B");
-    assert.equal(internalsOf(b.host).captureLift, null, "B must never inherit A's lifted capture pane");
-    assert.deepEqual(b.window.contentView.children, bChildrenBefore, "A's capture must not paint into B's window");
-    assert.ok(b.window.contentView.children.includes(bView), "B keeps presenting its own tab while A captures");
-    assert.ok(!b.window.contentView.children.includes(aView), "A's pane must never enter B's view stack");
+      assert.equal(internalsOf(b.host).captureHostWindow, null, "A's capture must not create a capture host for B");
+      assert.equal(internalsOf(b.host).captureLift, null, "B must never inherit A's lifted capture pane");
+      assert.deepEqual(b.window.contentView.children, bChildrenBefore, "A's capture must not paint into B's window");
+      assert.ok(b.window.contentView.children.includes(recordOf(b.host, b.firstTabId).view as unknown as WebContentsView), "B keeps presenting its own tab while A captures");
+      assert.ok(!b.window.contentView.children.includes(aView), "A's pane must never enter B's view stack");
 
-    // B's own capture uses B's own host and leaves A's alone.
-    const bLease = await b.host.acquireCaptureLift(bView);
-    const bCaptureHost = internalsOf(b.host).captureHostWindow;
-    assert.ok(bCaptureHost, "B's capture lift creates B's own capture host");
-    assert.notEqual(bCaptureHost, aCaptureHost, "each shell owns a separate capture host window");
-    assert.equal(internalsOf(b.host).captureLift?.view, bView, "B lifts its own pane");
-    assert.ok(bCaptureHost!.contentView.children.includes(bView), "B's pane is hosted by B's own capture window");
-    assert.ok(!b.window.contentView.children.includes(bView), "B's captured pane leaves B's window stack");
-    assert.equal(internalsOf(a.host).captureLift?.view, aView, "A's lifted pane survives B's capture");
-    assert.ok(aCaptureHost!.contentView.children.includes(aView), "A's capture host still holds A's pane");
+      await b.host.runWithAttachedTabView(bView, async () => {
+        // B's own capture uses B's own host and leaves A's alone.
+        const bLease = await b.host.acquireCaptureLift(bView);
+        const bCaptureHost = internalsOf(b.host).captureHostWindow;
+        assert.ok(bCaptureHost, "B's capture lift creates B's own capture host");
+        assert.notEqual(bCaptureHost, aCaptureHost, "each shell owns a separate capture host window");
+        assert.equal(internalsOf(b.host).captureLift?.view, bView, "B lifts its own pane");
+        assert.ok(bCaptureHost!.contentView.children.includes(bView), "B's pane is hosted by B's own capture window");
+        assert.ok(!b.window.contentView.children.includes(bView), "B's captured pane leaves B's window stack");
+        assert.equal(internalsOf(a.host).captureLift?.view, aView, "A's lifted pane survives B's capture");
+        assert.ok(aCaptureHost!.contentView.children.includes(aView), "A's capture host still holds A's pane");
 
-    // Releasing B's lease returns B's pane to B's window and touches nothing in A.
-    bLease.release('raster-finished');
-    assert.equal(internalsOf(b.host).captureLift, null, "B's release frees only B's lifted pane");
-    assert.ok(b.window.contentView.children.includes(bView), "B's pane returns to B's own window");
-    assert.equal(internalsOf(a.host).captureLift?.view, aView, "A's lifted pane must survive B's release");
-    assert.ok(aCaptureHost!.contentView.children.includes(aView), "A's capture host is untouched by B's release");
-    assert.equal(internalsOf(b.host).captureHostWindow, bCaptureHost, "B's own capture host stays B's");
-    aLease.release('raster-finished');
+        // Releasing B's lease returns B's pane to B's capture context and touches nothing in A.
+        bLease.release('raster-finished');
+        assert.equal(internalsOf(b.host).captureLift, null, "B's release frees only B's lifted pane");
+        assert.equal(internalsOf(a.host).captureLift?.view, aView, "A's lifted pane must survive B's release");
+        assert.ok(aCaptureHost!.contentView.children.includes(aView), "A's capture host is untouched by B's release");
+        assert.equal(internalsOf(b.host).captureHostWindow, bCaptureHost, "B's own capture host stays B's");
+      });
+
+      aLease.release('raster-finished');
+    });
   });
 });

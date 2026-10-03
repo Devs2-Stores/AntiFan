@@ -1,54 +1,66 @@
 {
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "timestamp": "2026-09-02T16:01:00.000Z",
-  "overallScore": 96,
-  "passed": true,
+  "timestamp": "2026-10-03T04:02:05.864Z",
+  "overallScore": 100,
+  "passed": false,
+  "verdict": "INCONCLUSIVE",
+  "coverage": {
+    "measuredDimensions": 2,
+    "totalDimensions": 8,
+    "measuredViewports": 0,
+    "totalViewports": 3
+  },
   "dimensions": {
     "visualFidelity": {
-      "score": 90,
-      "details": "Desktop diff: 1.0%, threshold < 10% (Live anti.visual.compare telemetry)"
+      "score": null,
+      "details": "Visual diff unmeasured (no baseline comparison supplied)"
     },
     "domSemantics": {
-      "score": 98,
-      "details": "Semantic tags (header, nav, main, section, footer, h1-h3) and clean tree structure validated"
+      "score": null,
+      "details": "DOM semantics unmeasured (this workflow runs no semantic-tree scanner)"
     },
     "cssModularity": {
-      "score": 96,
-      "details": "Modular section CSS and responsive breakpoints without inline style pollution"
+      "score": null,
+      "details": "CSS modularity unmeasured (this workflow runs no stylesheet-modularity scanner)"
     },
     "interactiveOperability": {
-      "score": 100,
-      "details": "All hover submenus, hero sliders, and modals pass CleanTabProbe assertions"
+      "score": null,
+      "details": "Interactive operability unmeasured (no interaction probe executed in this run)"
     },
     "haravanCompliance": {
       "score": 100,
-      "details": "Haravan OS 2.0 sections, schema presets, liquid snippets, and JSON templates compiled"
+      "details": "Liquid syntax clean per scanner static/browser checks (does not certify full Haravan OS 2.0 or runtime platform compliance)"
     },
     "assetIntegrity": {
       "score": 100,
-      "details": "All assets and local font subsets resolved with proper MIME headers and 0 broken links"
+      "details": "All assets and local font subsets resolved without broken links"
     },
     "responsiveParity": {
-      "score": 90,
-      "details": "Tablet diff: 1.0%, Mobile diff: 1.0%, all viewports < 10%"
+      "score": null,
+      "details": "Responsive viewports unmeasured (no baseline comparison supplied)"
     },
     "performanceCWV": {
-      "score": 95,
-      "details": "No render-blocking scripts, clean lazy loading, and fast local static delivery"
+      "score": null,
+      "details": "Core Web Vitals and performance unmeasured (no CWV telemetry measured in this run)"
     }
   },
   "viewports": {
     "desktop": {
-      "mismatchPercent": 1.0,
-      "passed": true
+      "mismatchPercent": null,
+      "passed": false,
+      "measured": false,
+      "verdict": "INCONCLUSIVE"
     },
     "tablet": {
-      "mismatchPercent": 1.0,
-      "passed": true
+      "mismatchPercent": null,
+      "passed": false,
+      "measured": false,
+      "verdict": "INCONCLUSIVE"
     },
     "mobile": {
-      "mismatchPercent": 1.0,
-      "passed": true
+      "mismatchPercent": null,
+      "passed": false,
+      "measured": false,
+      "verdict": "INCONCLUSIVE"
     }
   }
 }

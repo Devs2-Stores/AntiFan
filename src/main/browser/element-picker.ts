@@ -7,11 +7,14 @@
 /**
  * One "Gửi tới" option in the annotation target select. `value` is a terminal
  * session id, or the literal 'auto' resolver entry (route by site URL).
+ * `disabled` marks a parked (sleeping/exited) terminal: shown for visibility,
+ * never a deliverable target.
  */
 export interface AnnotationTargetOption {
   value: string;
   label: string;
   selected: boolean;
+  disabled?: boolean;
 }
 
 /**
@@ -27,6 +30,8 @@ export interface AnnotationTargetMenu {
   /** Flat options: 'auto' first, then sessions without a folderKey. */
   options: AnnotationTargetOption[];
   groups: Array<{ label: string; options: AnnotationTargetOption[] }>;
+  /** Running, non-split rows — the only values a pick may legitimately dispatch to. */
+  deliverableCount: number;
 }
 
 /**
@@ -44,6 +49,7 @@ export function buildAnnotationTargetMenu(sessions: unknown, requestedId: unknow
     displayLabel?: string;
     folderKey?: string;
     folderLabel?: string;
+    state?: string;
   }
   const pickRow = (row: unknown): TargetRow | undefined => {
     if (!row || typeof row !== 'object') return undefined;
@@ -57,6 +63,7 @@ export function buildAnnotationTargetMenu(sessions: unknown, requestedId: unknow
       displayLabel: typeof rec.displayLabel === 'string' ? rec.displayLabel : undefined,
       folderKey: typeof rec.folderKey === 'string' ? rec.folderKey : undefined,
       folderLabel: typeof rec.folderLabel === 'string' ? rec.folderLabel : undefined,
+      state: typeof rec.state === 'string' ? rec.state : undefined,
     };
   };
   const list: TargetRow[] = [];
@@ -66,8 +73,12 @@ export function buildAnnotationTargetMenu(sessions: unknown, requestedId: unknow
       if (parsed) list.push(parsed);
     }
   }
-  const ids = list.map((s) => s.id);
-  const selected = typeof requestedId === 'string' && requestedId && (requestedId === 'auto' || ids.includes(requestedId))
+  // Selection validity is judged on running rows only: parked or dead rows stay
+  // visible (disabled below) but can never be a remembered or dispatchable
+  // target — a row without a live shell can only respawn a bare prompt, which
+  // is exactly where a queued prompt used to vanish.
+  const deliverableIds = list.filter((s) => s.state === undefined || s.state === 'running').map((s) => s.id);
+  const selected = typeof requestedId === 'string' && requestedId && (requestedId === 'auto' || deliverableIds.includes(requestedId))
     ? requestedId
     : 'auto';
   const options: AnnotationTargetOption[] = [
@@ -76,10 +87,15 @@ export function buildAnnotationTargetMenu(sessions: unknown, requestedId: unknow
   const groups: Array<{ label: string; options: AnnotationTargetOption[] }> = [];
   const groupIndex = new Map<string, { label: string; options: AnnotationTargetOption[] }>();
   for (const s of list) {
+    const dormant = s.state !== undefined && s.state !== 'running';
     const option: AnnotationTargetOption = {
       value: s.id,
-      label: s.displayLabel || s.name || s.id,
-      selected: s.id === selected,
+      // A non-running row names its own state: 💤 parked, ✕ dead. The marker is
+      // why the menu is honest — an all-parked list must not look like a live
+      // target set, and a row that cannot receive must not look selectable.
+      label: (s.displayLabel || s.name || s.id) + (dormant ? (s.state === 'sleeping' ? ' 💤' : ' ✕') : ''),
+      selected: !dormant && s.id === selected,
+      ...(dormant ? { disabled: true } : {}),
     };
     if (!s.folderKey) {
       options.push(option);
@@ -93,7 +109,7 @@ export function buildAnnotationTargetMenu(sessions: unknown, requestedId: unknow
     }
     group.options.push(option);
   }
-  return { selectedValue: selected, options, groups };
+  return { selectedValue: selected, options, groups, deliverableCount: deliverableIds.length };
 }
 export const ELEMENT_PICKER_SCRIPT = `(() => {
   if (window.__antifanPickerActive) return;
@@ -914,14 +930,17 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
     termSelect.id = 'antifanTerminalSelect';
     termSelect.style.cssText = 'flex:1;min-width:0;background:#0f172a;color:#38bdf8;border:1px solid #263b50;border-radius:4px;padding:2px 4px;font-size:11px;font-weight:500;outline:none;cursor:pointer;text-overflow:ellipsis;';
 
+    let hasSendTarget = false;
     if (termContext.sessions && termContext.sessions.length > 0) {
       const targetMenu = buildAnnotationTargetMenu(termContext.sessions, rememberedSessionId);
       const preferredSessionId = targetMenu.selectedValue;
+      hasSendTarget = targetMenu.deliverableCount > 0;
 
       const appendItem = (host, item) => {
         const opt = document.createElement('option');
         opt.value = item.value;
         opt.selected = item.selected;
+        if (item.disabled) opt.disabled = true;
         opt.textContent = item.label;
         host.appendChild(opt);
       };
@@ -941,9 +960,12 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
         window.__antifanTerminalContext.annotationSessionId = selectedSessionId;
       });
     } else {
+      // Zero base sessions in this window's scope: name the real state instead
+      // of promising an "Active" terminal that does not exist — a send from
+      // here resolves nothing and would silently drop the pick.
       const opt = document.createElement('option');
       opt.value = '';
-      opt.textContent = 'Terminal hiện tại (Active)';
+      opt.textContent = 'Không có terminal — mở một terminal trước';
       termSelect.appendChild(opt);
     }
 
@@ -1374,16 +1396,14 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
       }
     });
 
-    textarea.oninput = () => {
-      if (statusMsg.style.display !== 'none') {
-        statusMsg.style.display = 'none';
-      }
-    };
-
     const doSubmit = (options) => {
       if (isSubmitting) return;
       const copyOnly = !!(options && options.copyOnly);
-
+      // Keyboard submit shares this path with the button: a send without any
+      // running target is silently dropped downstream, so refuse it here.
+      // Copy Prompt stays allowed — it is the documented escape when nothing
+      // live can receive the pick.
+      if (!copyOnly && !hasSendTarget) return;
       // The textarea carries the mode tags; re-derive the prompt from chip state
       // so a cleared textarea (/queue + tags only) is still validated as empty
       // instead of shipping a body-less tagged comment.
@@ -1615,11 +1635,22 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
     }
     const sendBtn = modal.querySelector('#btnModalSend');
     if (sendBtn) {
+      // No live target means every send resolves to the same silent dispatch
+      // skip — disable the affordance instead of letting it pretend to connect.
+      if (!hasSendTarget) {
+        sendBtn.disabled = true;
+        sendBtn.style.opacity = '0.45';
+        sendBtn.style.cursor = 'not-allowed';
+        sendBtn.title = 'Không có terminal đang chạy để gửi — đánh thức terminal 💤 hoặc mở terminal mới, rồi thử lại';
+        statusMsg.textContent = 'Không có terminal đang chạy. Đánh thức terminal 💤 (nhấp vào tab) hoặc mở terminal mới — hoặc dùng Copy Prompt.';
+        statusMsg.style.display = 'block';
+      }
       sendBtn.onclick = (ev) => {
         if (ev) {
           ev.preventDefault();
           ev.stopPropagation();
         }
+        if (!hasSendTarget) return;
         doSubmit();
       };
       sendBtn.onpointerdown = (ev) => {

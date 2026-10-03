@@ -34,7 +34,6 @@ import {
   BRIDGE_CHANNELS,
   FRAME_BACKDROP_CHANNELS,
   PROJECT_WINDOW_CHANNELS,
-  PET_CHANNELS,
   TERMINAL_CHANNELS,
   TOOLBAR_CHANNELS,
 } from '../../src/shared/contracts';
@@ -240,7 +239,7 @@ describe('Chrome IPC Routes Table Audit', () => {
 
     // Resolve CONSTANT.member call-site arguments to channel literals from the
     // declared contract objects — built before the receiver scan so constant-form
-    // receivers (ipcMain.on(PET_CHANNELS.ACTION, …)) resolve the same as literals.
+    // receivers (ipcMain.on(CONSTANT_CHANNELS.ACTION, …)) resolve the same as literals.
     const contractsText = fs.readFileSync(path.join(root, 'src', 'shared', 'contracts.ts'), 'utf8');
     const identToChannel = new Map<string, string>();
     for (const match of contractsText.matchAll(/export\s+const\s+([A-Z_]+_CHANNELS)\s*=\s*\{([\s\S]*?)\}\s*(?:as\s+const)?;/g)) {
@@ -270,7 +269,7 @@ describe('Chrome IPC Routes Table Audit', () => {
       for (const match of text.matchAll(/\bipcMain\s*\.\s*(handle|handleOnce|on|once)\s*\(\s*['"]([^'"]+)['"]/g)) {
         directReceivers.set(match[2] ?? '', (match[1] ?? '').startsWith('handle') ? 'handle' : 'on');
       }
-      // Constant-form receivers: ipcMain.on(PET_CHANNELS.ACTION, handler).
+      // Constant-form receivers: ipcMain.on(CONSTANT_CHANNELS.ACTION, handler).
       for (const match of text.matchAll(/\bipcMain\s*\.\s*(handle|handleOnce|on|once)\s*\(\s*([A-Z_]+_CHANNELS)\s*\.\s*([A-Z0-9_]+)/g)) {
         const resolved = identToChannel.get(`${match[2]}.${match[3]}`);
         if (resolved) directReceivers.set(resolved, (match[1] ?? '').startsWith('handle') ? 'handle' : 'on');
@@ -308,7 +307,6 @@ describe('Chrome IPC Routes Table Audit', () => {
       TOOLBAR_CHANNELS.PHONE_STATUS,
       TOOLBAR_CHANNELS.THEME_QA_STATE,
       TOOLBAR_CHANNELS.THEME_CHECKLIST_UPDATED,
-      PET_CHANNELS.STATE,
     ]);
 
 

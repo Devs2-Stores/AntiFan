@@ -941,6 +941,17 @@ export function loadStandalone(options: {
     FitAddon: { FitAddon: FitAddonGlobal },
   });
 
+  const sessionActivityPath = path.join(RENDERER_DIR, 'session-activity.js');
+  if (fs.existsSync(sessionActivityPath)) {
+    vm.runInContext(fs.readFileSync(sessionActivityPath, 'utf8'), context, { filename: 'session-activity.js' });
+    if (windowStub.SessionActivityTracker) {
+      (context as unknown as Record<string, unknown>).SessionActivityTracker = windowStub.SessionActivityTracker;
+    }
+    if (windowStub.sessionActivityLevel) {
+      (context as unknown as Record<string, unknown>).sessionActivityLevel = windowStub.sessionActivityLevel;
+    }
+  }
+
   vm.runInContext(fs.readFileSync(STANDALONE_PATH, 'utf8'), context, { filename: 'standalone.js' });
 
   const read = <T>(expression: string): T => vm.runInContext(expression, context) as T;

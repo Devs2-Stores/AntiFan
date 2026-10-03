@@ -59,7 +59,7 @@ import { LocalSessionVault, isTrustedSessionVaultSender } from './local-session-
 import { LocalCredentialVault, resolveSenderFrameOrigin } from './local-credential-vault';
 import { HaravanUploader } from './haravan-uploader';
 import type { ActionSequenceParams, ActionSequenceResult } from './tab-automation-host';
-import { TerminalManager, DEFAULT_TERMINAL_CAPSULE_ID, workspaceTerminalProvenance, selectAnnotationTargets, type SessionSummary, type TerminalDiagnosticsReport, type TerminalManagerStats, type TerminalSessionStateProjection } from './terminal-manager';
+import { TerminalManager, DEFAULT_TERMINAL_CAPSULE_ID, workspaceTerminalProvenance, selectAnnotationTargets, selectAnnotationPickerRows, type SessionSummary, type TerminalDiagnosticsReport, type TerminalManagerStats, type TerminalSessionStateProjection } from './terminal-manager';
 import { checkForUpdatesAndRestart } from './app-menu';
 import { SkillScanner } from './skill-scanner';
 import { getCoreHealthService } from '../diagnostics/core-health';
@@ -8374,7 +8374,7 @@ export class NativeTabHost extends EventEmitter {
         const tabSessionId = this.getTabTerminalSession(id);
         const termContextData: Record<string, unknown> = {
           tabId: id,
-          sessions: selectAnnotationTargets(this.visibleTerminalSessions()),
+          sessions: selectAnnotationPickerRows(this.visibleTerminalSessions()),
           selectedSessionId: tm.getActiveSessionId(),
           annotationMode: TabDevToolsHost.lastAnnotationMode,
           annotationActionChip: TabDevToolsHost.lastAnnotationActionChip,

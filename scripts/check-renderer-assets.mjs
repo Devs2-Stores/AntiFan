@@ -9,13 +9,11 @@
  * with a green build; this gate fails the compile instead.
  *
  * Consumed asset closure (derived, not hard-coded):
- *   - string literals passed to `resolveRendererAsset('…')`, the injected
- *     `rendererFile('…')` callback (pet window) and the renderer literals inside
+ *   - string literals passed to `resolveRendererAsset('…')` and the renderer literals inside
  *     `resolveStandaloneRendererPage`, all of which land under `src/renderer/`;
- *   - string literals passed to `resolvePreloadAsset('…')` / `preloadFile('…')`,
- *     which land under `src/preload/`;
+ *   - string literals passed to `resolvePreloadAsset('…')`, which land under `src/preload/`;
  *   - `<script src>` / `<link href>` references inside each shipped HTML file
- *     (`standalone.html`, `toolbar.html`, `pet.html`, `frame-backdrop.html`),
+ *     (`standalone.html`, `toolbar.html`, `frame-backdrop.html`),
  *     plus `.js`/`.css` literals inside their inline scripts — external URLs,
  *     non-file refs and `node_modules/` paths are skipped.
  *
@@ -112,7 +110,7 @@ function collectConsumed() {
   for (const file of srcFiles) {
     const text = fs.readFileSync(file, 'utf8');
     const ev = toPosix(path.relative(ROOT, file));
-    // Direct resolvers and the injected pet-window callbacks.
+    // Direct resolvers.
     for (const re of [
       /resolveRendererAsset\(\s*'([^']+)'/g,
       /resolvePreloadAsset\(\s*'([^']+)'/g,

@@ -580,13 +580,25 @@ export interface TerminalManagerStats {
  * The sessions an annotation can be sent to, derived from `listSessions()`.
  *
  * Only a running base session has a shell that accepts the queued prompt, and a
- * split pane is the same tab as the parent it belongs to — so a sleeping session
- * or a pane would only add a target row a user cannot act on (and the pane would
- * duplicate its parent). The annotation picker's target list is built from this,
- * never from the raw session list.
+ * split pane is the same tab as the parent it belongs to — so this is the
+ * DISPATCH scope. The picker shows a wider set (see `selectAnnotationPickerRows`):
+ * parked terminals stay visible as disabled rows so an all-sleeping window does
+ * not render an empty menu that silently drops the send.
  */
 export function selectAnnotationTargets(sessions: SessionSummary[]): SessionSummary[] {
   return sessions.filter((s) => s.state === 'running' && !s.splitOf);
+}
+
+/**
+ * Every base-session row the picker may name, running or parked.
+ *
+ * Rows that are not running carry no live shell — sleeping killed the process
+ * tree, so a write would only ever reach a bare respawned prompt, never the
+ * agent that was parked — so the picker renders them `disabled` rather than
+ * hiding them. Split panes still never appear: they duplicate their parent.
+ */
+export function selectAnnotationPickerRows(sessions: SessionSummary[]): SessionSummary[] {
+  return sessions.filter((s) => !s.splitOf);
 }
 export interface TerminalSessionDiagnostics {
   sessionId: string;

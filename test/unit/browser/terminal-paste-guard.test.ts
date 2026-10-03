@@ -1,270 +1,257 @@
-import { describe, it, beforeEach } from 'node:test';
+import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-describe('Terminal Paste Safety Guard & Multiline Protection', () => {
-  let sanitizePasteText: (text: string) => { isMultiline: boolean; text: string; lines: string[] };
-  let showMultilinePasteModal: (rawText: string, lines: string[], sendInput: (t: string) => void, targetTerm?: any) => void;
-  let dispatchSafePaste: (rawText: string, sendInput: (t: string) => void, targetTerm?: any) => void;
-
-  // Lightweight pure DOM mock for testing modal lifecycle
-  let mockElements: Map<string, any>;
-  let mockWindowListeners: Map<string, Array<(e: any) => void>>;
-
-  function createMockElement(id?: string, className?: string): any {
-    const listeners = new Map<string, Array<(e: any) => void>>();
-    const classes = new Set<string>();
-    if (className) {
-      className.split(' ').filter(Boolean).forEach(c => classes.add(c));
-    }
-    const el = {
-      id: id || '',
-      className: className || '',
-      innerHTML: '',
-      classList: {
-        add: (c: string) => classes.add(c),
-        remove: (c: string) => classes.delete(c),
-        contains: (c: string) => classes.has(c),
-      },
-      addEventListener: (evt: string, cb: (e: any) => void) => {
-        if (!listeners.has(evt)) listeners.set(evt, []);
-        listeners.get(evt)!.push(cb);
-      },
-      removeEventListener: (evt: string, cb: (e: any) => void) => {
-        const arr = listeners.get(evt);
-        if (arr) {
-          const idx = arr.indexOf(cb);
-          if (idx !== -1) arr.splice(idx, 1);
-        }
-      },
-      click: () => {
-        const arr = listeners.get('click');
-        if (arr) {
-          arr.forEach(cb => cb({ target: el }));
-        }
-      },
-      focus: () => {},
-      querySelector: (selector: string) => {
-        if (selector.startsWith('#')) {
-          const targetId = selector.slice(1);
-          return mockElements.get(targetId) || null;
-        }
-        return null;
-      },
-    };
-    if (id) {
-      mockElements.set(id, el);
-    }
-    return el;
-  }
-
-  beforeEach(() => {
-    mockElements = new Map();
-    mockWindowListeners = new Map();
-
-    const mockDocument = {
-      getElementById: (id: string) => mockElements.get(id) || null,
-      createElement: (_tag: string) => {
-        const el = createMockElement();
-        return el;
-      },
-      body: {
-        appendChild: (el: any) => {
-          if (el.id) mockElements.set(el.id, el);
-          return el;
-        },
-      },
-      activeElement: null as any,
-    };
-
-    const mockWindow = {
-      addEventListener: (evt: string, cb: (e: any) => void) => {
-        if (!mockWindowListeners.has(evt)) mockWindowListeners.set(evt, []);
-        mockWindowListeners.get(evt)!.push(cb);
-      },
-      removeEventListener: (evt: string, cb: (e: any) => void) => {
-        const arr = mockWindowListeners.get(evt);
-        if (arr) {
-          const idx = arr.indexOf(cb);
-          if (idx !== -1) arr.splice(idx, 1);
-        }
-      },
-      dispatchEvent: (evt: any) => {
-        const arr = mockWindowListeners.get(evt.type);
-        if (arr) {
-          arr.forEach(cb => cb(evt));
-        }
-      },
-    };
-
-    // Load functions from standalone.js via evaluation with mocked browser environment
+describe('Terminal Clipboard & Custom Key Handling (Native Paste Policy)', () => {
+  function loadSetupTerminalClipboard() {
     const standaloneJsPath = path.resolve(__dirname, '../../../src/renderer/standalone.js');
     const standaloneCode = fs.readFileSync(standaloneJsPath, 'utf8');
 
-    // Extract sanitizePasteText
-    const sanitizeMatch = standaloneCode.match(/function sanitizePasteText[\s\S]*?^}/m);
-    assert.ok(sanitizeMatch, 'sanitizePasteText must be found in standalone.js');
-    sanitizePasteText = new Function('return ' + sanitizeMatch[0])();
+    // Extract setupTerminalClipboard
+    const fnMatch = standaloneCode.match(/function setupTerminalClipboard[\s\S]*?^}/m);
+    assert.ok(fnMatch, 'setupTerminalClipboard must be defined in standalone.js');
 
-    // Create environment for showMultilinePasteModal and dispatchSafePaste
-    const sandboxFn = new Function('document', 'window', 'sanitizePasteText', `
-      let activePasteModalCleanup = null;
-      ${standaloneCode.match(/function showMultilinePasteModal[\s\S]*?^}/m)![0]}
-      ${standaloneCode.match(/function dispatchSafePaste[\s\S]*?^}/m)![0]}
-      return { showMultilinePasteModal, dispatchSafePaste };
+    // Extract writeClipboard
+    const writeClipMatch = standaloneCode.match(/function writeClipboard[\s\S]*?^}/m);
+    assert.ok(writeClipMatch, 'writeClipboard must be defined in standalone.js');
+
+    const sandbox = new Function('writeClipboard', `
+      ${fnMatch[0]}
+      return setupTerminalClipboard;
     `);
 
-    const result = sandboxFn(mockDocument, mockWindow, sanitizePasteText);
-    showMultilinePasteModal = result.showMultilinePasteModal;
-    dispatchSafePaste = result.dispatchSafePaste;
+    let lastWrittenClipboard = '';
+    const mockWriteClipboard = (t: string) => { lastWrittenClipboard = t; };
+    const setupTerminalClipboard = sandbox(mockWriteClipboard);
+
+    return {
+      setupTerminalClipboard,
+      getLastWrittenClipboard: () => lastWrittenClipboard,
+    };
+  }
+
+  interface MockKeyEvent {
+    type: string;
+    key: string;
+    ctrlKey?: boolean;
+    metaKey?: boolean;
+    shiftKey?: boolean;
+    altKey?: boolean;
+    keyCode?: number;
+    preventDefault?: () => void;
+    stopPropagation?: () => void;
+  }
+
+  interface MockCustomEvent {
+    type?: string;
+    preventDefault?: () => void;
+    stopPropagation?: () => void;
+  }
+
+  function createMockTerm(initialSelection = '') {
+    let keyHandler: ((e: MockKeyEvent) => boolean) | null = null;
+    const elementListeners = new Map<string, Array<(e: MockCustomEvent) => void>>();
+    let currentSelection = initialSelection;
+    let selectedAll = false;
+    let cleared = false;
+
+    const termMock = {
+      element: {
+        addEventListener: (evt: string, cb: (e: MockCustomEvent) => void) => {
+          if (!elementListeners.has(evt)) elementListeners.set(evt, []);
+          elementListeners.get(evt)!.push(cb);
+        },
+        removeEventListener: (evt: string, cb: (e: MockCustomEvent) => void) => {
+          const arr = elementListeners.get(evt);
+          if (arr) {
+            const idx = arr.indexOf(cb);
+            if (idx !== -1) arr.splice(idx, 1);
+          }
+        },
+        dispatchEvent: (evt: MockCustomEvent) => {
+          const arr = elementListeners.get(evt.type || '');
+          if (arr) arr.forEach(cb => cb(evt));
+        },
+      },
+      attachCustomKeyEventHandler: (handler: (e: MockKeyEvent) => boolean) => {
+        keyHandler = handler;
+      },
+      hasSelection: () => Boolean(currentSelection),
+      getSelection: () => currentSelection,
+      clearSelection: () => { currentSelection = ''; },
+      selectAll: () => { selectedAll = true; },
+      clear: () => { cleared = true; },
+      focus: () => {},
+      dispatchKey: (evt: MockKeyEvent) => {
+        if (!keyHandler) return true;
+        return keyHandler(evt);
+      },
+      hasElementListener: (evt: string) => elementListeners.has(evt) && elementListeners.get(evt)!.length > 0,
+      triggerElementEvent: (evtName: string, eventObj: MockCustomEvent) => {
+        const arr = elementListeners.get(evtName);
+        if (arr) arr.forEach(cb => cb(eventObj));
+      },
+      isCleared: () => cleared,
+      isSelectedAll: () => selectedAll,
+    };
+
+    return termMock;
+  }
+
+  it('does NOT intercept Ctrl+V or Cmd+V, returning true for native browser/xterm handling', () => {
+    const { setupTerminalClipboard } = loadSetupTerminalClipboard();
+    const term = createMockTerm();
+    setupTerminalClipboard(term);
+
+    // Ctrl+V keydown event
+    const ctrlVEvent = {
+      type: 'keydown',
+      key: 'v',
+      ctrlKey: true,
+      metaKey: false,
+      shiftKey: false,
+      altKey: false,
+      preventDefault: () => { assert.fail('Ctrl+V must NOT call preventDefault'); },
+      stopPropagation: () => { assert.fail('Ctrl+V must NOT call stopPropagation'); },
+    };
+
+    const handled = term.dispatchKey(ctrlVEvent);
+    assert.strictEqual(handled, true, 'Ctrl+V must return true so xterm handles paste natively');
+
+    // Cmd+V on macOS
+    const cmdVEvent = {
+      type: 'keydown',
+      key: 'v',
+      ctrlKey: false,
+      metaKey: true,
+      shiftKey: false,
+      altKey: false,
+      preventDefault: () => { assert.fail('Cmd+V must NOT call preventDefault'); },
+      stopPropagation: () => { assert.fail('Cmd+V must NOT call stopPropagation'); },
+    };
+
+    const cmdHandled = term.dispatchKey(cmdVEvent);
+    assert.strictEqual(cmdHandled, true, 'Cmd+V must return true so xterm handles paste natively');
   });
 
-  describe('1. Trailing Newline Auto-Trim for Single-Line Commands', () => {
-    it('preserves single-line command with no newline', () => {
-      const res = sanitizePasteText('git status');
-      assert.strictEqual(res.isMultiline, false);
-      assert.strictEqual(res.text, 'git status');
-      assert.deepStrictEqual(res.lines, ['git status']);
-    });
+  it('does NOT register any custom DOM paste event listener on terminal element', () => {
+    const { setupTerminalClipboard } = loadSetupTerminalClipboard();
+    const term = createMockTerm();
+    setupTerminalClipboard(term);
 
-    it('strips trailing \\n so command does NOT auto-execute on paste', () => {
-      const res = sanitizePasteText('git status\n');
-      assert.strictEqual(res.isMultiline, false);
-      assert.strictEqual(res.text, 'git status');
-      assert.deepStrictEqual(res.lines, ['git status']);
-    });
-
-    it('strips trailing \\r\\n so Windows PowerShell command does NOT auto-execute', () => {
-      const res = sanitizePasteText('Get-Process antifan\r\n');
-      assert.strictEqual(res.isMultiline, false);
-      assert.strictEqual(res.text, 'Get-Process antifan');
-      assert.deepStrictEqual(res.lines, ['Get-Process antifan']);
-    });
-
-    it('strips multiple redundant trailing newlines', () => {
-      const res = sanitizePasteText('npm run test\r\n\n\r\n');
-      assert.strictEqual(res.isMultiline, false);
-      assert.strictEqual(res.text, 'npm run test');
-      assert.deepStrictEqual(res.lines, ['npm run test']);
-    });
-
-    it('handles empty or falsy inputs safely', () => {
-      const res1 = sanitizePasteText('');
-      assert.strictEqual(res1.isMultiline, false);
-      assert.strictEqual(res1.text, '');
-
-      const res2 = (sanitizePasteText as any)(null);
-      assert.strictEqual(res2.isMultiline, false);
-      assert.strictEqual(res2.text, '');
-    });
+    assert.strictEqual(
+      term.hasElementListener('paste'),
+      false,
+      'No custom paste listener should be attached to targetTerm.element'
+    );
   });
 
-  describe('2. Multiline Detection & Line Extraction', () => {
-    it('correctly detects genuine two-line input with LF', () => {
-      const res = sanitizePasteText('echo line1\necho line2');
-      assert.strictEqual(res.isMultiline, true);
-      assert.strictEqual(res.text, 'echo line1\necho line2');
-      assert.deepStrictEqual(res.lines, ['echo line1', 'echo line2']);
-    });
+  it('preserves Ctrl+C copy when selection exists and passes through when empty', () => {
+    const { setupTerminalClipboard, getLastWrittenClipboard } = loadSetupTerminalClipboard();
+    const termWithSelection = createMockTerm('selected text');
+    setupTerminalClipboard(termWithSelection);
 
-    it('correctly detects genuine multiline input with CRLF and trailing newline', () => {
-      const res = sanitizePasteText('cd /app\r\nls -la\r\nnode index.js\r\n');
-      assert.strictEqual(res.isMultiline, true);
-      assert.deepStrictEqual(res.lines, ['cd /app', 'ls -la', 'node index.js']);
-    });
+    let defaultPrevented = false;
+    let propagationStopped = false;
+    const copyEvent = {
+      type: 'keydown',
+      key: 'c',
+      ctrlKey: true,
+      metaKey: false,
+      shiftKey: false,
+      altKey: false,
+      preventDefault: () => { defaultPrevented = true; },
+      stopPropagation: () => { propagationStopped = true; },
+    };
 
-    it('handles script blocks with internal empty lines', () => {
-      const multiline = 'function test() {\n  console.log("hello");\n}\ntest();';
-      const res = sanitizePasteText(multiline);
-      assert.strictEqual(res.isMultiline, true);
-      assert.strictEqual(res.lines.length, 4);
-    });
+    const copyResult = termWithSelection.dispatchKey(copyEvent);
+    assert.strictEqual(copyResult, false, 'Ctrl+C with selection must return false to prevent sending SIGINT');
+    assert.strictEqual(defaultPrevented, true);
+    assert.strictEqual(propagationStopped, true);
+    assert.strictEqual(getLastWrittenClipboard(), 'selected text');
+
+    // Without selection
+    const termEmpty = createMockTerm('');
+    setupTerminalClipboard(termEmpty);
+
+    const sigintEvent = {
+      type: 'keydown',
+      key: 'c',
+      ctrlKey: true,
+      metaKey: false,
+      shiftKey: false,
+      altKey: false,
+      preventDefault: () => { assert.fail('Must not prevent default on SIGINT'); },
+      stopPropagation: () => { assert.fail('Must not stop propagation on SIGINT'); },
+    };
+
+    const sigintResult = termEmpty.dispatchKey(sigintEvent);
+    assert.strictEqual(sigintResult, true, 'Ctrl+C without selection must return true to allow SIGINT');
   });
 
-  describe('3. Unified Ingress Dispatch & Multiline Modal Interaction', () => {
-    it('dispatches single-line directly to sendInput without opening modal', () => {
-      let dispatchedText = '';
-      const sendInput = (t: string) => { dispatchedText = t; };
-      const termMock = { focus: () => {} };
+  it('preserves Ctrl+A select all and Ctrl+K clear', () => {
+    const { setupTerminalClipboard } = loadSetupTerminalClipboard();
+    const term = createMockTerm();
+    setupTerminalClipboard(term);
 
-      dispatchSafePaste('cargo build --release\r\n', sendInput, termMock);
-      assert.strictEqual(dispatchedText, 'cargo build --release');
+    // Ctrl+A
+    const selectAllEvent = {
+      type: 'keydown',
+      key: 'a',
+      ctrlKey: true,
+      metaKey: false,
+      shiftKey: false,
+      altKey: false,
+      preventDefault: () => {},
+      stopPropagation: () => {},
+    };
+    const aResult = term.dispatchKey(selectAllEvent);
+    assert.strictEqual(aResult, false);
+    assert.strictEqual(term.isSelectedAll(), true);
 
-      const backdrop = mockElements.get('multilinePasteBackdrop');
-      assert.strictEqual(backdrop?.classList.contains('active') ?? false, false);
-    });
+    // Ctrl+K
+    const clearEvent = {
+      type: 'keydown',
+      key: 'k',
+      ctrlKey: true,
+      metaKey: false,
+      shiftKey: false,
+      altKey: false,
+      preventDefault: () => {},
+      stopPropagation: () => {},
+    };
+    const kResult = term.dispatchKey(clearEvent);
+    assert.strictEqual(kResult, false);
+    assert.strictEqual(term.isCleared(), true);
+  });
 
-    it('opens modal on multiline paste and executes Primary action on Enter / Click', () => {
-      let dispatchedText = '';
-      const sendInput = (t: string) => { dispatchedText = t; };
-      let focused = false;
-      const termMock = { focus: () => { focused = true; } };
+  it('right-click contextmenu copies selected text without intercepting paste when empty', () => {
+    const { setupTerminalClipboard, getLastWrittenClipboard } = loadSetupTerminalClipboard();
+    const term = createMockTerm('selected for right-click');
+    setupTerminalClipboard(term);
 
-      const multilineText = 'npm install\r\nnpm run build';
-      // Register buttons into mockElements so querySelector finds them
-      createMockElement('btnPasteMultiLine');
-      createMockElement('btnPasteSingleLine');
-      createMockElement('btnPasteCancel');
+    let defaultPrevented = false;
+    let propagationStopped = false;
+    const cmEvent = {
+      preventDefault: () => { defaultPrevented = true; },
+      stopPropagation: () => { propagationStopped = true; },
+    };
 
-      dispatchSafePaste(multilineText, sendInput, termMock);
+    term.triggerElementEvent('contextmenu', cmEvent);
+    assert.strictEqual(defaultPrevented, true);
+    assert.strictEqual(propagationStopped, true);
+    assert.strictEqual(getLastWrittenClipboard(), 'selected for right-click');
+    assert.strictEqual(term.hasSelection(), false, 'Selection should be cleared after right-click copy');
 
-      const backdrop = mockElements.get('multilinePasteBackdrop');
-      assert.ok(backdrop);
-      assert.strictEqual(backdrop.classList.contains('active'), true);
-
-      const btnMulti = mockElements.get('btnPasteMultiLine');
-      assert.ok(btnMulti, 'Primary multiline paste button must exist');
-
-      // Click Primary: pastes raw multiline
-      btnMulti.click();
-      assert.strictEqual(dispatchedText, multilineText);
-      assert.strictEqual(backdrop.classList.contains('active'), false);
-      assert.strictEqual(focused, true, 'Focus must be restored to terminal');
-    });
-
-    it('joins commands with safe semicolon separator on Secondary action', () => {
-      let dispatchedText = '';
-      const sendInput = (t: string) => { dispatchedText = t; };
-      const termMock = { focus: () => {} };
-
-      const multilineText = 'git checkout main\ngit pull origin main\ngit status';
-      createMockElement('btnPasteMultiLine');
-      createMockElement('btnPasteSingleLine');
-      createMockElement('btnPasteCancel');
-
-      dispatchSafePaste(multilineText, sendInput, termMock);
-
-      const backdrop = mockElements.get('multilinePasteBackdrop');
-      assert.ok(backdrop);
-      const btnSingle = mockElements.get('btnPasteSingleLine');
-
-      btnSingle.click();
-      assert.strictEqual(dispatchedText, 'git checkout main; git pull origin main; git status');
-      assert.strictEqual(backdrop.classList.contains('active'), false);
-    });
-
-    it('cancels paste and restores focus on Cancel action', () => {
-      let dispatchedText = '';
-      const sendInput = (t: string) => { dispatchedText = t; };
-      let focused = false;
-      const termMock = { focus: () => { focused = true; } };
-
-      const multilineText = 'rm -rf /\nrm -rf /home';
-      createMockElement('btnPasteMultiLine');
-      createMockElement('btnPasteSingleLine');
-      createMockElement('btnPasteCancel');
-
-      dispatchSafePaste(multilineText, sendInput, termMock);
-
-      const backdrop = mockElements.get('multilinePasteBackdrop');
-      assert.ok(backdrop);
-      const btnCancel = mockElements.get('btnPasteCancel');
-
-      btnCancel.click();
-      assert.strictEqual(dispatchedText, '', 'No text should be sent on cancel');
-      assert.strictEqual(backdrop.classList.contains('active'), false);
-      assert.strictEqual(focused, true, 'Focus must be restored to terminal');
-    });
+    // When empty
+    defaultPrevented = false;
+    const cmEmptyEvent = {
+      preventDefault: () => { defaultPrevented = true; },
+      stopPropagation: () => {},
+    };
+    term.triggerElementEvent('contextmenu', cmEmptyEvent);
+    // No paste was called; clipboard unchanged
+    assert.strictEqual(getLastWrittenClipboard(), 'selected for right-click');
   });
 });

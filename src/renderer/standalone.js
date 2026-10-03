@@ -1875,248 +1875,9 @@ function writeClipboard(text) {
   navigator.clipboard?.writeText?.(text).catch(() => {});
 }
 
-function readClipboard() {
-  if (api?.readFromClipboard) {
-    try { return api.readFromClipboard() || ''; } catch {}
-  }
-  return navigator.clipboard?.readText?.() || Promise.resolve('');
-}
 
-/**
- * Smart Newline Sanitizer & Classifier for Terminal Clipboard Pastes.
- * - If single line (or single line with trailing newlines): returns { isMultiline: false, text: trimmedEnd }
- *   -> Trailing newline is stripped so the command appears on the prompt without auto-submitting.
- * - If genuine multiline (2+ content lines): returns { isMultiline: true, text: rawText, lines }
- */
-function sanitizePasteText(rawText) {
-  if (typeof rawText !== 'string' || !rawText) {
-    return { isMultiline: false, text: '', lines: [] };
-  }
-  // Strip trailing newlines (\r and \n)
-  const trimmedEnd = rawText.replace(/[\r\n]+$/, '');
-  const normalizedLines = trimmedEnd.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
-
-  if (normalizedLines.length <= 1) {
-    return {
-      isMultiline: false,
-      text: trimmedEnd,
-      lines: [trimmedEnd],
-    };
-  }
-
-  return {
-    isMultiline: true,
-    text: rawText,
-    lines: normalizedLines,
-  };
-}
-
-let activePasteModalCleanup = null;
-
-/**
- * Renders the accessible Multiline Paste Confirmation Modal.
- * Prompts the user before writing multiline content into PTY.
- */
-function showMultilinePasteModal(rawText, lines, sendInput, targetTerm) {
-  // If an active paste modal is already open, close it first
-  if (typeof activePasteModalCleanup === 'function') {
-    try { activePasteModalCleanup(); } catch {}
-  }
-
-  let backdrop = document.getElementById('multilinePasteBackdrop');
-  if (!backdrop) {
-    backdrop = document.createElement('div');
-    backdrop.id = 'multilinePasteBackdrop';
-    backdrop.className = 'multiline-paste-backdrop';
-    document.body.appendChild(backdrop);
-  }
-
-  const lineCount = lines.length;
-  const previewMax = 6;
-  const displayLines = lines.slice(0, previewMax);
-  const remainingCount = lineCount - previewMax;
-
-  const previewHtml = displayLines.map((line, idx) => {
-    const escaped = line
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
-    return `<div><span class="line-num">${idx + 1}</span>${escaped}</div>`;
-  }).join('');
-
-  const moreHintHtml = remainingCount > 0
-    ? `<div class="more-hint">+ ${remainingCount} dòng khác...</div>`
-    : '';
-
-  backdrop.innerHTML = `
-    <div class="multiline-paste-modal" role="dialog" aria-modal="true" aria-labelledby="pasteModalTitle">
-      <div class="multiline-paste-header">
-        <div class="multiline-paste-icon">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-            <line x1="12" y1="9" x2="12" y2="13"/>
-            <line x1="12" y1="17" x2="12.01" y2="17"/>
-          </svg>
-        </div>
-        <div class="multiline-paste-title-group">
-          <h3 id="pasteModalTitle" class="multiline-paste-title">Xác nhận dán nhiều dòng lệnh</h3>
-          <p class="multiline-paste-desc">Clipboard chứa <strong>${lineCount}</strong> dòng văn bản. Việc dán trực tiếp có thể tự động kích hoạt thực thi các lệnh trong terminal.</p>
-        </div>
-      </div>
-      <div class="multiline-paste-preview">${previewHtml}${moreHintHtml}</div>
-      <div class="multiline-paste-actions">
-        <button id="btnPasteCancel" type="button" class="multiline-paste-btn tertiary">Hủy (Esc)</button>
-        <button id="btnPasteSingleLine" type="button" class="multiline-paste-btn secondary">Gộp thành 1 dòng</button>
-        <button id="btnPasteMultiLine" type="button" class="multiline-paste-btn primary">Dán nhiều dòng (Enter)</button>
-      </div>
-    </div>
-  `;
-
-  backdrop.classList.add('active');
-
-  const btnCancel = backdrop.querySelector('#btnPasteCancel');
-  const btnSingle = backdrop.querySelector('#btnPasteSingleLine');
-  const btnMulti = backdrop.querySelector('#btnPasteMultiLine');
-
-  btnMulti?.focus();
-
-  const closeModal = () => {
-    backdrop.classList.remove('active');
-    backdrop.innerHTML = '';
-    window.removeEventListener('keydown', onKeyTrap, true);
-    backdrop.removeEventListener('click', onBackdropClick);
-    activePasteModalCleanup = null;
-    try { targetTerm?.focus?.(); } catch {}
-  };
-
-  activePasteModalCleanup = closeModal;
-
-  const onBackdropClick = (e) => {
-    if (e.target === backdrop) {
-      closeModal();
-    }
-  };
-
-  const onKeyTrap = (e) => {
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      e.stopPropagation();
-      closeModal();
-      return;
-    }
-    if (e.key === 'Enter') {
-      if (document.activeElement === btnSingle || document.activeElement === btnCancel) {
-        return;
-      }
-      e.preventDefault();
-      e.stopPropagation();
-      btnMulti?.click();
-      return;
-    }
-    if (e.key === 'Tab') {
-      const focusable = [btnMulti, btnSingle, btnCancel].filter(Boolean);
-      const currentIndex = focusable.indexOf(document.activeElement);
-      if (e.shiftKey) {
-        if (currentIndex <= 0) {
-          e.preventDefault();
-          focusable[focusable.length - 1]?.focus();
-        }
-      } else {
-        if (currentIndex === focusable.length - 1) {
-          e.preventDefault();
-          focusable[0]?.focus();
-        }
-      }
-    }
-  };
-
-  window.addEventListener('keydown', onKeyTrap, true);
-  backdrop.addEventListener('click', onBackdropClick);
-
-  btnCancel?.addEventListener('click', () => {
-    closeModal();
-  });
-
-  btnSingle?.addEventListener('click', () => {
-    // Join commands with safe semicolon separator, ignoring comments & empty lines
-    const joined = lines
-      .map(l => l.trim())
-      .filter(Boolean)
-      .join('; ');
-    closeModal();
-    if (joined) {
-      sendInput(joined);
-    }
-  });
-
-  btnMulti?.addEventListener('click', () => {
-    closeModal();
-    sendInput(rawText);
-  });
-}
-
-/**
- * Unified Ingress for all terminal paste channels.
- */
-function dispatchSafePaste(rawText, sendInput, targetTerm) {
-  if (!rawText) return;
-  const classified = sanitizePasteText(rawText);
-  if (classified.isMultiline) {
-    showMultilinePasteModal(classified.text, classified.lines, sendInput, targetTerm);
-  } else {
-    sendInput(classified.text);
-  }
-}
-
-async function handleTerminalPaste(sendInput, targetTerm) {
-  // 1. Read text directly from clipboard
-  const res = readClipboard();
-  if (typeof res === 'string' && res) {
-    dispatchSafePaste(res, sendInput, targetTerm);
-    return true;
-  } else if (res && typeof res.then === 'function') {
-    try {
-      const text = await res;
-      if (text) {
-        dispatchSafePaste(text, sendInput, targetTerm);
-        return true;
-      }
-    } catch {}
-  }
-
-  // 2. If no text, check if clipboard has an image
-  if (api?.pasteImageFromClipboard) {
-    try {
-      const imgRes = await api.pasteImageFromClipboard();
-      if (imgRes && imgRes.ok && imgRes.imagePath) {
-        sendInput(imgRes.imagePath);
-        return true;
-      }
-    } catch {}
-  }
-  return false;
-}
-
-function setupTerminalClipboard(targetTerm, getSessionId) {
+function setupTerminalClipboard(targetTerm) {
   if (!targetTerm) return;
-
-  let lastPasteTimestamp = 0;
-  let lastPastedText = '';
-
-  const sendInput = (text) => {
-    if (!text) return;
-    const now = Date.now();
-    // Guard against duplicate paste triggers occurring within 200ms
-    if (text === lastPastedText && now - lastPasteTimestamp < 200) {
-      return;
-    }
-    lastPasteTimestamp = now;
-    lastPastedText = text;
-
-    const sid = getSessionId ? getSessionId() : activeId;
-    if (sid) api?.sendTerminalInputTo(sid, text);
-    else api?.sendTerminalInput(text);
-  };
 
   targetTerm.attachCustomKeyEventHandler((e) => {
     // Pass Alt key without browser menu interference or unwanted scrolling
@@ -2152,13 +1913,6 @@ function setupTerminalClipboard(targetTerm, getSessionId) {
       return false;
     }
 
-    // Ctrl+V / Cmd+V / Ctrl+Shift+V: Paste from clipboard (Text or Image)
-    if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'v' || e.key === 'V')) {
-      e.preventDefault();
-      e.stopPropagation();
-      handleTerminalPaste(sendInput, targetTerm);
-      return false;
-    }
 
     // Ctrl+A / Cmd+A: Select all text in terminal
     if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && (e.key === 'a' || e.key === 'A')) {
@@ -2235,21 +1989,8 @@ function setupTerminalClipboard(targetTerm, getSessionId) {
     }
   });
 
-  // DOM Event: Paste (e.g. from browser edit menu, middle-click, or accelerator)
-  targetTerm.element?.addEventListener('paste', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const text = e.clipboardData?.getData('text/plain');
-    if (typeof text === 'string' && text) {
-      dispatchSafePaste(text, sendInput, targetTerm);
-      return;
-    }
-
-    handleTerminalPaste(sendInput, targetTerm);
-  });
-
   // Right-Click Context Menu / Mouse Action (Windows Terminal / PowerShell standard)
-  targetTerm.element?.addEventListener('contextmenu', async (e) => {
+  targetTerm.element?.addEventListener('contextmenu', (e) => {
     e.preventDefault();
     e.stopPropagation();
 
@@ -2260,9 +2001,6 @@ function setupTerminalClipboard(targetTerm, getSessionId) {
         writeClipboard(selected);
         targetTerm.clearSelection();
       }
-    } else {
-      // If no text selected, right click PASTES clipboard (Text or Image)
-      handleTerminalPaste(sendInput, targetTerm);
     }
   });
 }
@@ -2293,11 +2031,6 @@ const terminalPool = {
   get size() { return rawTerminalPool.size; },
   [Symbol.iterator]() { return rawTerminalPool[Symbol.iterator](); },
 };
-if (typeof window !== 'undefined') {
-  window.__antifanSanitizePasteText = sanitizePasteText;
-  window.__antifanDispatchSafePaste = dispatchSafePaste;
-  window.__antifanShowMultilinePasteModal = showMultilinePasteModal;
-}
 window.__antifanTerminalPool = terminalPool;
 const rendererInstanceId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `renderer-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 window.__antifanRendererInstanceId = rendererInstanceId;
@@ -3309,7 +3042,7 @@ function getOrCreateTerminalPane(sessionId, snapshot, snapshotSeq = 0, isAuthori
   sTerm.open(paneEl);
   // The WebGL renderer is attached once the pool item exists (setPaneWebgl below).
   const webLinksAddon = attachWebLinksAddon(sTerm, () => sessionId);
-  setupTerminalClipboard(sTerm, () => sessionId);
+  setupTerminalClipboard(sTerm);
 
   mainPane.appendChild(paneEl);
   if (globalResizeObserver) {
@@ -3980,7 +3713,7 @@ function mountSplit(sessionId, snapshot = undefined, snapshotSeq = undefined) {
     if (splitWebglAddon === lost) splitWebglAddon = null;
   });
   splitWebLinksAddon = attachWebLinksAddon(splitTerm, () => splitId);
-  setupTerminalClipboard(splitTerm, () => splitId);
+  setupTerminalClipboard(splitTerm);
 
   splitTerm.onData((data) => {
     if (!splitId) return;

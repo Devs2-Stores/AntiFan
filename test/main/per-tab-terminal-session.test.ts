@@ -176,7 +176,7 @@ describe('Per-tab terminal memory in Popup Annotation', () => {
     host.stopInspect('tab-1');
   });
 
-  it('offers only running base sessions as annotation targets (no sleeping, no split pane)', async (t) => {
+  it('offers running base sessions as annotation targets; parked rows render disabled (no split pane)', async (t) => {
     const JSDOM = loadJsdom();
     const host = createHost(['tab-1']);
     host.setTabTerminalSession('tab-1', sessionA);
@@ -209,12 +209,77 @@ describe('Per-tab terminal memory in Popup Annotation', () => {
     const select = dom.window.document.getElementById('antifanTerminalSelect') as HTMLSelectElement | null;
     assert.ok(select, 'the annotation modal must render its target select');
     assert.deepStrictEqual(
-      Array.from(select.options).map((o) => o.value),
-      ['auto', sessionA],
-      'only the running base session may be offered beside auto'
+      Array.from(select.options).map((o) => [o.value, o.disabled]),
+      [
+        ['auto', false],
+        [sessionA, false],
+        // Parked and dead rows stay visible but are never selectable targets:
+        // a pick naming one resolves nothing, which is how silent drops start.
+        ['terminal-nap', true],
+        ['terminal-dead', true],
+      ],
+      'running base sessions are enabled; parked rows stay visible but disabled'
     );
+    assert.strictEqual(select.value, sessionA, 'the tab-remembered session preselects while it stays deliverable');
+    const sendBtn = dom.window.document.querySelector('#btnModalSend') as HTMLButtonElement | null;
+    assert.ok(sendBtn && !sendBtn.disabled, 'a deliverable target exists so send stays enabled');
     host.stopInspect('tab-1');
     dom.window.close();
+  });
+
+  it('disables send and renders no fake Active row when every visible session is parked', async (t) => {
+    // The reported "annotation loses the terminal" case: every session in the
+    // window's scope is sleeping, so the pick can name nothing live. The modal
+    // must refuse the send honestly instead of offering 'Terminal hiện tại
+    // (Active)' and silently dropping the dispatch.
+    const JSDOM = loadJsdom();
+    const host = createHost(['tab-1']);
+    liveSessions = [
+      { id: 'terminal-nap', name: 'Terminal NAP', cwd: tempDir, state: 'sleeping' },
+      { id: 'terminal-dead', name: 'Terminal DEAD', cwd: tempDir, state: 'exited' },
+    ];
+
+    let injected = '';
+    const wc: HostWebContents = {
+      isDestroyed: () => false,
+      executeJavaScript: async (code: string) => {
+        if (code.includes('__antifanTerminalContext')) injected = code;
+        return undefined;
+      },
+    };
+    host.tabs.get('tab-1')!.view = { webContents: wc };
+    host.startInspect();
+
+    const dom = new JSDOM('<!doctype html><html><body><div class="grid">x</div></body></html>', { runScripts: 'outside-only', url: 'http://localhost/' });
+    const ctx = dom.getInternalVMContext();
+    vm.runInContext(injected, ctx);
+    const target = dom.window.document.querySelector('.grid') as HTMLElement;
+    target.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, cancelable: true, composed: true }));
+    const select = dom.window.document.getElementById('antifanTerminalSelect') as HTMLSelectElement | null;
+    assert.ok(select, 'the annotation modal must render its target select');
+    assert.deepStrictEqual(
+      Array.from(select.options).map((o) => [o.value, o.disabled]),
+      [
+        ['auto', false],
+        ['terminal-nap', true],
+        ['terminal-dead', true],
+      ],
+      'parked rows stay listed as disabled; no fake Active target is invented'
+    );
+    const sendBtn = dom.window.document.querySelector('#btnModalSend') as HTMLButtonElement | null;
+    assert.ok(sendBtn?.disabled, 'send is refused while nothing running can receive it');
+    const copyBtn = dom.window.document.querySelector('#btnModalCopy') as HTMLButtonElement | null;
+    assert.ok(copyBtn && !copyBtn.disabled, 'Copy Prompt stays available as the manual escape');
+    const status = dom.window.document.getElementById('statusMsg') as HTMLElement | null;
+    assert.ok(status && status.style.display === 'block' && status.textContent.includes('terminal'), 'the modal must explain why send is unavailable');
+    host.stopInspect('tab-1');
+    dom.window.close();
+    // This suite shares `liveSessions` across tests: leave it the way the
+    // following tests expect — the two live sessions the harness seeded.
+    liveSessions = [
+      { id: sessionA, name: 'Terminal A', cwd: tempDir, state: 'running' },
+      { id: sessionB, name: 'Terminal B', cwd: tempDir, state: 'running' },
+    ];
   });
 
   it('guarantees startInspect is idempotent when called repeatedly and advances inspectGeneration on stop', () => {

@@ -80,3 +80,6 @@ Microsoft/
 customizes/
 # Root throwaway scratch scripts
 /temp-scratch*.cjs
+.baseline-*
+.compiled-*/
+.scratch/

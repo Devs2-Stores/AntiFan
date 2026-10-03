@@ -16,7 +16,7 @@ import { ELEMENT_PICKER_SCRIPT } from './element-picker';
 import { dispatchAnnotationToTerminal, stripDeliveryMode } from './annotation-dispatch';
 import { recordLifecycleEvent } from '../diagnostics/main-lifecycle-log';
 import { AnnotationManager } from '../bridge/annotation-manager';
-import { TerminalManager, selectAnnotationTargets } from './terminal-manager';
+import { TerminalManager, selectAnnotationTargets, selectAnnotationPickerRows } from './terminal-manager';
 import { canonicalFolderKey } from '../project/workspace-capsule';
 import { DEFAULT_WORKSPACE_ROOTS, resolveWorkspaceFromUrl } from './workspace-resolver';
 import { StorageLocations } from '../config/storage-locations';
@@ -543,7 +543,7 @@ export class TabDevToolsHost {
     const tabSessionId = this.ctx.getTabTerminalSession(activeTabId);
     const termContextData: Record<string, unknown> = {
       tabId: activeTabId,
-      sessions: selectAnnotationTargets(this.ctx.visibleTerminalSessions()),
+      sessions: selectAnnotationPickerRows(this.ctx.visibleTerminalSessions()),
       selectedSessionId: activeSessionId,
       annotationMode: TabDevToolsHost.lastAnnotationMode,
       annotationActionChip: TabDevToolsHost.lastAnnotationActionChip,
@@ -762,7 +762,7 @@ export class TabDevToolsHost {
         });
         if (!wc.isDestroyed()) {
           wc.executeJavaScript(`(() => {
-            window.__antifanTerminalContext = Object.assign(window.__antifanTerminalContext || {}, ${JSON.stringify({ sessions: scope, selectedSessionId: '' })});
+            window.__antifanTerminalContext = Object.assign(window.__antifanTerminalContext || {}, ${JSON.stringify({ sessions: selectAnnotationPickerRows(this.ctx.visibleTerminalSessions()), selectedSessionId: '' })});
           })();`).catch(() => {});
         }
       }
