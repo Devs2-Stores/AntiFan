@@ -4312,7 +4312,7 @@ async function createWindow(): Promise<void> {
   const cockpitPortLocal = new CockpitPort({
     hasTab: (tabId) => Boolean(tabId && tabAuthorities.hostForTab(tabId) !== undefined),
     getTabUrl: (tabId) => hostForTabOrDegrade(tabId, 'cockpit.getTabUrl')?.getTabUrl(tabId) ?? '',
-    resolveTabWorkspaceRoot: (tabId, tabUrl) => hostForTabOrDegrade(tabId, 'cockpit.resolveTabWorkspaceRoot')?.resolveTargetWorkspace(undefined, tabUrl) ?? '',
+    resolveTabWorkspaceRoot: (tabId, tabUrl) => hostForTabOrDegrade(tabId, 'cockpit.resolveTabWorkspaceRoot')?.resolveTabWorkspace(tabId, tabUrl) ?? '',
     navigateAndWait: (tabId, url, timeoutMs) => hostForTabOrBootstrap(tabId).navigateAndWait(tabId, url, timeoutMs),
     runThemeQa: (tabId, options) => hostForTabOrBootstrap(tabId).runThemeQa(tabId, options),
     getThemeQaState: (tabId) => hostForTabOrBootstrap(tabId).getThemeQaState(tabId),

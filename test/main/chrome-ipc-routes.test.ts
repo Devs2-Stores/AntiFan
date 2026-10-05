@@ -417,12 +417,14 @@ describe('theme checklist IPC route confinement', () => {
     const host = checklistRouteHost as unknown as {
       tabs: Map<string, { state: { url: string } }>;
       activeTabId: string;
-      resolveTargetWorkspace: (targetSessionId?: string, tabUrl?: string) => string;
+      resolveTabWorkspace: (tabId?: string, tabUrl?: string) => string;
       controlPlane?: { getWorkspaceRoot(): string };
     };
     host.tabs = new Map([['tab-1', { state: { url: 'http://shop-a.local/' } }]]);
     host.activeTabId = 'tab-1';
-    host.resolveTargetWorkspace = () => checklistRouteState.resolvedRoot;
+    // Shadow the prototype resolver: the routes must consume the tab-scoped
+    // resolution result verbatim, so the seam returns the seated root.
+    host.resolveTabWorkspace = () => checklistRouteState.resolvedRoot;
     host.controlPlane = { getWorkspaceRoot: () => '' };
   };
 
@@ -494,5 +496,25 @@ describe('theme checklist IPC route confinement', () => {
       scope, workspaceRoot: '', items: saveItems(), baseUpdatedAt: first.updatedAt,
     }) as { ok: boolean; conflict?: boolean };
     assert.strictEqual(correctBase.conflict !== true, true, 'the real base still lands');
+  });
+
+  it('fails closed to a provisional scope on LOAD even when the control plane names a foreign root', () => {
+    // Regression: the route used to fall back to controlPlane.getWorkspaceRoot()
+    // when the tab resolved nothing, handing a foreign project root to the
+    // checklist store. An unresolvable tab must stay provisional.
+    const foreign = fs.mkdtempSync(path.join(os.tmpdir(), 'af-checklist-leak-'));
+    try {
+      seatChecklistHost('');
+      const host = checklistRouteHost as unknown as { controlPlane?: { getWorkspaceRoot(): string } };
+      host.controlPlane = { getWorkspaceRoot: () => foreign };
+      const scope = checklistScope('http://shop-a.local', UNKNOWN_WORKSPACE_TAG);
+      const result = checklistRouteHarness.invoke(TOOLBAR_CHANNELS.THEME_CHECKLIST_LOAD, {
+        scope, workspaceRoot: '',
+      }) as { workspaceRoot: string; isProvisional: boolean };
+      assert.strictEqual(result.isProvisional, true, 'an unresolvable tab stays provisional');
+      assert.strictEqual(result.workspaceRoot, '', 'the control-plane root must not substitute for the tab root');
+    } finally {
+      fs.rmSync(foreign, { recursive: true, force: true });
+    }
   });
 });

@@ -2596,8 +2596,7 @@ export class NativeTabHost extends EventEmitter {
       // steer state outside the real root. An unresolvable host root fails
       // closed to '' (provisional scope) instead of passing the candidate.
       const activeTab = host.tabs.get(host.activeTabId);
-      const resolvedRoot = host.resolveTargetWorkspace(undefined, activeTab?.state.url)
-        || (host.controlPlane ? host.controlPlane.getWorkspaceRoot() : '');
+      const resolvedRoot = host.resolveTabWorkspace(host.activeTabId, activeTab?.state.url);
       const workspaceRoot = resolvedRoot ? confineWorkspaceRoot(candidate, resolvedRoot) : '';
       return host.themeChecklistLoad({ scope, workspaceRoot });
     },
@@ -2612,8 +2611,7 @@ export class NativeTabHost extends EventEmitter {
       const items = 'items' in input ? input.items : undefined;
       const baseUpdatedAt = typeof input.baseUpdatedAt === 'number' ? input.baseUpdatedAt : undefined;
       const activeTab = host.tabs.get(host.activeTabId);
-      const resolvedRoot = host.resolveTargetWorkspace(undefined, activeTab?.state.url)
-        || (host.controlPlane ? host.controlPlane.getWorkspaceRoot() : '');
+      const resolvedRoot = host.resolveTabWorkspace(host.activeTabId, activeTab?.state.url);
       const workspaceRoot = resolvedRoot ? confineWorkspaceRoot(candidate, resolvedRoot) : '';
       return host.themeChecklistSave({ scope, workspaceRoot, items, baseUpdatedAt });
     },
@@ -2623,7 +2621,7 @@ export class NativeTabHost extends EventEmitter {
     surface: 'toolbar',
     run: ({ host }) => {
       const activeTab = host.tabs.get(host.activeTabId);
-      return { workspacePath: host.resolveTargetWorkspace(undefined, activeTab?.state.url) };
+      return { workspacePath: host.resolveTabWorkspace(host.activeTabId, activeTab?.state.url) };
     },
   },
   {
@@ -5070,7 +5068,7 @@ export class NativeTabHost extends EventEmitter {
     surface: ['sidebar', 'terminalPopout'],
     run: async ({ host }, event) => {
       const activeTab = host.tabs.get(host.activeTabId);
-      const targetWorkspace = host.resolveTargetWorkspace(undefined, activeTab?.state.url);
+      const targetWorkspace = host.resolveTabWorkspace(host.activeTabId, activeTab?.state.url);
       const runs = host.runStateService ? await host.runStateService.getRuns() : [];
       return {
         isOpen: host.shell.isSidebarOpen,
@@ -13236,6 +13234,75 @@ export class NativeTabHost extends EventEmitter {
     this.setTabTerminalSession(tabId || this.activeTabId, sessionId);
   }
 
+  /**
+   * Fail-closed, tab-scoped workspace resolver for tab-facing surfaces (Cockpit,
+   * theme QA, toolbar checklist, workspace identify).
+   *
+   * `resolveTargetWorkspace` answers "which workspace owns this terminal/session"
+   * and legitimately consults ambient state (active capsule, active terminal,
+   * global CWD) because its callers are interactive terminal actions. A tab is
+   * not a terminal session: forwarding a tabId there is a category error, and
+   * omitting it collapses onto the process-global active capsule — which is how
+   * a tab stamped with the S2 Spa capsule resolved `E:\Work\apps\Pancake` while
+   * Pancake happened to be the active capsule.
+   *
+   * Precedence (each tier verified to exist on disk before it wins):
+   *   1. Tab's stamped capsuleId — mint-time capability token.
+   *   2. Tab's bound terminal session CWD (skips 'auto': dynamic focus tracking
+   *      is not a pinned binding).
+   *   3. Window workspace affiliation — verified container root, never another
+   *      window's workspace.
+   *   4. URL classification via resolveWorkspaceFromUrl.
+   *   5. Fail-closed '' — NEVER capsuleManager.getActive(), NEVER global CWD;
+   *      '' degrades to a provisional, in-memory-only scope.
+   */
+  public resolveTabWorkspace(tabId?: string, tabUrl?: string): string {
+    const targetTabId = this.resolveTargetTabId(tabId || this.activeTabId);
+    const tab = targetTabId ? this.tabs.get(targetTabId) : undefined;
+
+    // 1. Tab's stamped capsuleId — the mint-time ownership stamp.
+    const capId = targetTabId ? this.getTabCapsuleId(targetTabId) : undefined;
+    if (capId && this.capsuleManager) {
+      const capsule = this.capsuleManager.list().find((c) => c.id.toLowerCase() === capId.toLowerCase());
+      if (capsule?.workspacePath) {
+        const normalized = path.normalize(capsule.workspacePath);
+        if (fs.existsSync(normalized)) return normalized;
+      }
+    }
+
+    // 2. Tab's bound terminal session CWD (explicit user pick or live agent affinity).
+    if (targetTabId) {
+      const termSessionId = this.getTabTerminalSession(targetTabId);
+      if (termSessionId && termSessionId !== 'auto') {
+        const session = TerminalManager.getInstance().getSession(termSessionId);
+        if (session?.cwd) {
+          const normalized = path.normalize(session.cwd);
+          if (fs.existsSync(normalized)) return normalized;
+        }
+      }
+    }
+
+    // 3. Owning window's verified workspace affiliation.
+    const windowRoot = this.resolveWindowWorkspaceRoot();
+    if (windowRoot) {
+      const normalized = path.normalize(windowRoot);
+      if (fs.existsSync(normalized)) return normalized;
+    }
+
+    // 4. Deterministic URL classification.
+    const effectiveUrl = tabUrl || tab?.state.url;
+    if (effectiveUrl) {
+      const urlWorkspace = resolveWorkspaceFromUrl(effectiveUrl, DEFAULT_WORKSPACE_ROOTS);
+      if (urlWorkspace) {
+        const normalized = path.normalize(urlWorkspace);
+        if (fs.existsSync(normalized)) return normalized;
+      }
+    }
+
+    // 5. Fail-closed: an unresolvable tab owns no workspace.
+    return '';
+  }
+
   public resolveTargetWorkspace(targetSessionId?: string, tabUrl?: string): string {
     const tm = TerminalManager.getInstance();
     if (targetSessionId && targetSessionId !== 'auto') {
@@ -14821,8 +14888,7 @@ export class NativeTabHost extends EventEmitter {
     // Fail closed when no host root resolved: passing the candidate through
     // `confineWorkspaceRoot`'s empty-default branch would let a traversal
     // root steer receipts for an unbound tab (C). '' degrades to provisional.
-    const resolvedRoot = this.resolveTargetWorkspace(undefined, tab.state.url)
-      || (this.controlPlane ? this.controlPlane.getWorkspaceRoot() : '');
+    const resolvedRoot = this.resolveTabWorkspace(requestedTabId, tab.state.url);
     const workspaceRoot = resolvedRoot
       ? confineWorkspaceRoot(options?.workspaceRoot, resolvedRoot)
       : '';
