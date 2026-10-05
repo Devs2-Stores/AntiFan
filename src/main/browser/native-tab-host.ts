@@ -28,7 +28,6 @@ import { getSecureWebPreferences, sanitizeUrl, isAllowedNavigation, cleanRestore
 import { ELEMENT_PICKER_SCRIPT } from './element-picker';
 import { resolveWorkspaceFromUrl, DEFAULT_WORKSPACE_ROOTS } from './workspace-resolver';
 import { FONT_FINDER_SCRIPT } from './font-finder';
-import { GPU_LENS_SCRIPT } from './gpu-lens';
 import { RULER_SCRIPT } from './ruler';
 import {
   DEVICE_PRESETS,
@@ -8364,7 +8363,7 @@ export class NativeTabHost extends EventEmitter {
         wc.executeJavaScript(RULER_SCRIPT).catch(() => {});
       }
       if (this.isLensActive && id === this.activeTabId) {
-        wc.executeJavaScript(GPU_LENS_SCRIPT).catch(() => {});
+        this.stopLens();
       }
       if (this.isFontFinderActive && id === this.activeTabId) {
         wc.executeJavaScript(FONT_FINDER_SCRIPT).catch(() => {});
@@ -9021,6 +9020,9 @@ export class NativeTabHost extends EventEmitter {
 
       const previousTabId = this.activeTabId;
       const previousTab = previousTabId ? this.tabs.get(previousTabId) : null;
+      if (previousTabId !== targetId && this.isLensActive) {
+        this.stopLens();
+      }
       if (previousTab && previousTabId !== targetId && this.isFontFinderActive) {
         const cleanScript = `(() => {
           if (typeof window.__antifanFontFinderCleanup === 'function') window.__antifanFontFinderCleanup();
@@ -9117,12 +9119,6 @@ export class NativeTabHost extends EventEmitter {
         targetWc.executeJavaScript(RULER_SCRIPT).catch(() => {});
         if (target.mobileView && !target.mobileView.webContents.isDestroyed()) {
           target.mobileView.webContents.executeJavaScript(RULER_SCRIPT).catch(() => {});
-        }
-      }
-      if (this.isLensActive && targetWc && !targetWc.isDestroyed()) {
-        targetWc.executeJavaScript(GPU_LENS_SCRIPT).catch(() => {});
-        if (target.mobileView && !target.mobileView.webContents.isDestroyed()) {
-          target.mobileView.webContents.executeJavaScript(GPU_LENS_SCRIPT).catch(() => {});
         }
       }
       if (this.isFontFinderActive && targetWc && !targetWc.isDestroyed()) {
@@ -9373,6 +9369,9 @@ export class NativeTabHost extends EventEmitter {
     }
     if (this.isInspecting && this.inspectedTabId === tabId) {
       this.stopInspect(tabId);
+    }
+    if (this.isLensActive && this.activeTabId === tabId) {
+      this.stopLens();
     }
     if (this.activeTabId === tabId) {
       try {

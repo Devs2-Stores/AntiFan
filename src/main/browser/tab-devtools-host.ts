@@ -10,7 +10,7 @@ import { net, clipboard, Rectangle } from 'electron';
 import { AntiFanTab, SplitPaneId, AntiFanPickedElement } from '../../shared/contracts';
 import { CapabilityError } from '../../shared/control-plane-contracts';
 import { FONT_FINDER_SCRIPT } from './font-finder';
-import { GPU_LENS_SCRIPT } from './gpu-lens';
+import { GPU_LENS_SCRIPT, GPU_LENS_CLEANUP_SCRIPT } from './gpu-lens';
 import { RULER_SCRIPT } from './ruler';
 import { ELEMENT_PICKER_SCRIPT } from './element-picker';
 import { dispatchAnnotationToTerminal, stripDeliveryMode } from './annotation-dispatch';
@@ -311,6 +311,7 @@ export class TabDevToolsHost {
   private isInspecting: boolean = false;
   private isProcessingInspectPick: boolean = false;
   public inspectGeneration: number = 0;
+  public lensGeneration: number = 0;
   public inspectedTabId: string | null = null;
   private cdpQueues = new Map<number, Promise<unknown>>();
   private cdpDrainingTargets = new Map<number, { method: string; token: symbol; startedAt?: number }>();
@@ -432,6 +433,7 @@ export class TabDevToolsHost {
   }
 
   public async startLens(): Promise<void> {
+    const currentGeneration = ++this.lensGeneration;
     const active = this.ctx.getTabRecord(this.ctx.getActiveTabId());
     if (!active) return;
     // The active tab is never hibernated (sweep excludes it), but `view` is
@@ -439,6 +441,7 @@ export class TabDevToolsHost {
     const lensWc = active.view?.webContents;
     if (!lensWc || lensWc.isDestroyed()) return;
     this.isLensActive = true;
+    let captureOk = false;
     try {
       await withEvalCeiling({
         wc: lensWc,
@@ -446,6 +449,9 @@ export class TabDevToolsHost {
         softBudgetMs: this.ctx.evalSoftBudgetMs ?? LENS_CAPTURE_SOFT_BUDGET_MS,
         work: async () => {
           const img = await lensWc.capturePage();
+          if (this.lensGeneration !== currentGeneration || !this.isLensActive || lensWc.isDestroyed()) {
+            return;
+          }
           const dataUrl = img.toDataURL();
           await lensWc.executeJavaScript(`(() => {
             window.__antifanLensScreenshot = ${JSON.stringify(dataUrl)};
@@ -453,27 +459,37 @@ export class TabDevToolsHost {
               window.__antifanLensUpdateSnapshot(${JSON.stringify(dataUrl)});
             }
           })()`);
+          captureOk = true;
         },
         terminate: (target) => this.sendCdpCommand(target, 'Runtime.terminateExecution', {}).catch(() => undefined),
       });
     } catch (err) {
       console.error('[tab-devtools-host] Failed to capture page for lens:', err);
     }
+    if (this.lensGeneration !== currentGeneration || !this.isLensActive || lensWc.isDestroyed()) {
+      return;
+    }
+    if (!captureOk) {
+      this.isLensActive = false;
+      this.ctx.broadcastState();
+      return;
+    }
     lensWc.executeJavaScript(GPU_LENS_SCRIPT).catch(() => {});
     this.ctx.broadcastState();
   }
 
   public stopLens(): void {
+    this.lensGeneration++;
     this.isLensActive = false;
-    const active = this.ctx.getTabRecord(this.ctx.getActiveTabId());
-    const stopWc = active?.view?.webContents;
-    if (stopWc && !stopWc.isDestroyed()) {
-      stopWc.executeJavaScript(`(() => {
-        if (window.__antifanLensCleanup) window.__antifanLensCleanup();
-        const lens = document.getElementById('antifan-gpu-lens');
-        if (lens) lens.remove();
-        window.__antifanLensActive = false;
-      })()`).catch(() => {});
+    for (const [, tab] of this.ctx.getAllTabs()) {
+      const cleanWc = (wc: Electron.WebContents | null | undefined) => {
+        if (!wc || wc.isDestroyed()) return;
+        wc.executeJavaScript(GPU_LENS_CLEANUP_SCRIPT).catch(() => {});
+      };
+      cleanWc(tab.view?.webContents);
+      if (tab.state.splitMode && tab.mobileView) {
+        cleanWc(tab.mobileView.webContents);
+      }
     }
     this.ctx.broadcastState();
   }
@@ -4207,7 +4223,7 @@ ${expression}
     }
     this.isProcessingInspectPick = false;
     this.isFontFinderActive = false;
-    this.isLensActive = false;
+    this.stopLens();
     this.isRulerActive = false;
 
     // 1. Snapshot listeners and remove registered event listeners first

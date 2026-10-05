@@ -215,9 +215,10 @@ describe('withEvalCeiling & TabDevToolsHost bounded eval', () => {
       const snapshotScript = scriptsExecuted.find((s) => s.includes('window.__antifanLensScreenshot ='));
       assert.strictEqual(snapshotScript, undefined, 'Must not inject snapshot script or substitute blank image');
 
-      // Fire-and-forget GPU_LENS_SCRIPT must still have run
+      // When capture fails/times out, GPU_LENS_SCRIPT must NOT be injected and lens must be reset to inactive
       const gpuLensScript = scriptsExecuted.find((s) => s.includes('antifan-gpu-lens'));
-      assert.ok(gpuLensScript, 'GPU_LENS_SCRIPT injection must still run after capture refusal');
+      assert.strictEqual(gpuLensScript, undefined, 'GPU_LENS_SCRIPT must not be injected when capture fails');
+      assert.strictEqual(host.getIsLensActive(), false, 'Lens must be reset to inactive on capture failure');
     } finally {
       console.error = origError;
     }

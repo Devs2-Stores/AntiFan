@@ -5,17 +5,25 @@
  */
 
 export const GPU_LENS_SCRIPT = `(() => {
-  if (window.__antifanLensActive) {
-    if (window.__antifanLensCleanup) window.__antifanLensCleanup();
-    return;
+  const stagedSnapshot = window.__antifanLensScreenshot;
+  if (typeof window.__antifanLensCleanup === 'function') {
+    try { window.__antifanLensCleanup(); } catch {}
+  }
+  if (stagedSnapshot && !window.__antifanLensScreenshot) {
+    window.__antifanLensScreenshot = stagedSnapshot;
   }
   window.__antifanLensActive = true;
 
   const LENS_ID = 'antifan-gpu-lens';
   const LENS_SIZE = 220;
   let zoomLevel = 2.5;
+  let rafId = null;
 
   const cleanup = () => {
+    if (rafId) {
+      cancelAnimationFrame(rafId);
+      rafId = null;
+    }
     window.removeEventListener('mousemove', onMove, { capture: true, passive: true });
     window.removeEventListener('wheel', onWheel, { capture: true, passive: false });
     window.removeEventListener('keydown', onKey, true);
@@ -25,6 +33,7 @@ export const GPU_LENS_SCRIPT = `(() => {
     window.__antifanLensActive = false;
     window.__antifanLensCleanup = null;
     window.__antifanLensUpdateSnapshot = null;
+    delete window.__antifanLensScreenshot;
   };
   window.__antifanLensCleanup = cleanup;
 
@@ -216,7 +225,6 @@ export const GPU_LENS_SCRIPT = `(() => {
     ctx.restore();
   }
 
-  let rafId = null;
   const onMove = (e) => {
     lastX = e.clientX;
     lastY = e.clientY;
@@ -236,3 +244,15 @@ export const GPU_LENS_SCRIPT = `(() => {
   window.addEventListener('wheel', onWheel, { capture: true, passive: false });
   window.addEventListener('keydown', onKey, true);
 })();`;
+
+export const GPU_LENS_CLEANUP_SCRIPT = `(() => {
+  if (typeof window.__antifanLensCleanup === 'function') {
+    try { window.__antifanLensCleanup(); } catch {}
+  }
+  const lens = document.getElementById('antifan-gpu-lens');
+  if (lens) lens.remove();
+  window.__antifanLensActive = false;
+  window.__antifanLensCleanup = null;
+  window.__antifanLensUpdateSnapshot = null;
+  delete window.__antifanLensScreenshot;
+})()`;

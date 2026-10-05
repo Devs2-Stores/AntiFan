@@ -935,6 +935,17 @@ body, html {
   color: #ffffff;
 }
 
+.app-menu-item.mode-active,
+.app-menu-item.active {
+  background: rgba(56, 189, 248, 0.16);
+  color: #38bdf8;
+}
+
+.app-menu-item.mode-active .menu-icon,
+.app-menu-item.active .menu-icon {
+  color: #38bdf8;
+}
+
 .app-menu-item .menu-icon {
   display: flex;
   align-items: center;

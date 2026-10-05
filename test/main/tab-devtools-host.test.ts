@@ -222,6 +222,65 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
     assert.ok(scriptsExecuted.some((s) => s.includes('__antifanLensActive = false')));
   });
 
+  it('2b. stopLens cleans up all open tabs and mobile views in split mode', () => {
+    const { ctx, scriptsExecuted, tabs } = createMockContext();
+    ctx.createTab('https://example.com/tab2');
+    const tab1 = tabs.get('tab-1')!;
+    const mobileScripts: string[] = [];
+    const mockMobileWc = {
+      isDestroyed: () => false,
+      executeJavaScript: async (script: string) => {
+        mobileScripts.push(script);
+        return undefined;
+      },
+    };
+    tab1.state.splitMode = true;
+    tab1.mobileView = { webContents: mockMobileWc } as unknown as MockTabRecord['mobileView'];
+
+    const devTools = new TabDevToolsHost(ctx);
+    devTools.setIsLensActive(true);
+
+    devTools.stopLens();
+    assert.strictEqual(devTools.getIsLensActive(), false);
+    assert.ok(scriptsExecuted.filter((s) => s.includes('__antifanLensCleanup')).length >= 2);
+    assert.ok(mobileScripts.some((s) => s.includes('__antifanLensCleanup')));
+  });
+
+  it('2c. race condition: stopLens called during in-flight capturePage aborts lens injection', async () => {
+    const { ctx, tabs } = createMockContext();
+    const tab1 = tabs.get('tab-1')!;
+    const scripts: string[] = [];
+    let resolveCapture: () => void = () => {};
+    const capturePromise = new Promise<void>((res) => { resolveCapture = res; });
+    tab1.view.webContents.capturePage = async () => {
+      await capturePromise;
+      return {
+        isEmpty: () => false,
+        toPNG: () => Buffer.from(''),
+        toDataURL: () => 'data:image/png;base64,mock',
+        getSize: () => ({ width: 1, height: 1 }),
+        crop: () => ({ isEmpty: () => false, toPNG: () => Buffer.from('') }),
+      };
+    };
+    tab1.view.webContents.executeJavaScript = async (script: string) => {
+      scripts.push(script);
+      return undefined;
+    };
+
+    const devTools = new TabDevToolsHost(ctx);
+    const startPromise = devTools.startLens();
+    assert.strictEqual(devTools.getIsLensActive(), true);
+
+    devTools.stopLens();
+    assert.strictEqual(devTools.getIsLensActive(), false);
+
+    resolveCapture();
+    await startPromise;
+
+    assert.strictEqual(devTools.getIsLensActive(), false);
+    assert.ok(!scripts.some((s) => s.includes('const LENS_ID = \'antifan-gpu-lens\'')));
+  });
+
   it('3. toggles Screen Ruler across all open tabs and cleans up grid', () => {
     const { ctx, scriptsExecuted, getBroadcastCount } = createMockContext();
     const devTools = new TabDevToolsHost(ctx);
