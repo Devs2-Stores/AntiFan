@@ -32,6 +32,7 @@ type CreateTabCall = {
     devicePresetId?: string;
     mobile?: boolean;
     anchorTabId?: string;
+    plane?: 'user' | 'agent';
   };
 };
 
@@ -511,5 +512,110 @@ describe('Opening a tab for a session', () => {
     assert.deepStrictEqual(created, ['tab-created-1']);
     assert.deepStrictEqual(closed, ['tab-created-1']);
     assert.deepStrictEqual(retargets, []);
+  });
+
+  it('preserves default agent plane and OSR options when userFacing is omitted', () => {
+    const { port, created, createCalls } = makeHarness({
+      anchorAlive: true,
+      adopt: true,
+      owned: ['tab-anchor'],
+      affiliation: { projectId: 'project-alpha', workspaceId: 'workspace-one', capsuleId: 'capsule-a' },
+    });
+    const routedTarget: BrowserTarget = {
+      tabId: 'tab-anchor',
+      documentGeneration: 1,
+      browserEpoch: 1,
+      runtimeId: 'rt-test',
+      projectId: 'project-alpha',
+      workspaceId: 'workspace-one',
+    };
+
+    const result = port.openTab({}, { target: routedTarget });
+
+    assert.deepStrictEqual(result, { tabId: 'tab-created-1' });
+    assert.deepStrictEqual(created, ['tab-created-1']);
+    assert.equal(createCalls.length, 1);
+    const call = createCalls[0];
+    assert.ok(call);
+    assert.equal(call.activate, false);
+    assert.equal(call.options?.plane, 'agent');
+    assert.equal(call.options?.offscreen, undefined);
+    assert.equal(call.options?.ephemeral, undefined);
+  });
+
+  it('opens a userFacing tab on routed path with offscreen: false, ephemeral: false, and plane: user', () => {
+    const { port, created, createCalls } = makeHarness({
+      anchorAlive: true,
+      adopt: true,
+      owned: ['tab-anchor'],
+      affiliation: { projectId: 'project-alpha', workspaceId: 'workspace-one', capsuleId: 'capsule-a' },
+    });
+    const routedTarget: BrowserTarget = {
+      tabId: 'tab-anchor',
+      documentGeneration: 1,
+      browserEpoch: 1,
+      runtimeId: 'rt-test',
+      projectId: 'project-alpha',
+      workspaceId: 'workspace-one',
+    };
+
+    const result = port.openTab({ userFacing: true, activate: true }, { target: routedTarget });
+
+    assert.deepStrictEqual(result, { tabId: 'tab-created-1' });
+    assert.deepStrictEqual(created, ['tab-created-1']);
+    assert.equal(createCalls.length, 1);
+    const call = createCalls[0];
+    assert.ok(call);
+    assert.equal(call.activate, true);
+    assert.equal(call.options?.offscreen, false);
+    assert.equal(call.options?.ephemeral, false);
+    assert.equal(call.options?.plane, 'user');
+    assert.equal(call.options?.capsuleId, 'capsule-a');
+    assert.equal(call.options?.anchorTabId, 'tab-anchor');
+  });
+
+  it('opens a userFacing tab on unrouted path with offscreen: false, ephemeral: false, and plane: user', () => {
+    const { port, target, created, createCalls } = makeHarness({
+      anchorAlive: true,
+      adopt: true,
+      owned: ['tab-anchor'],
+      affiliation: { projectId: 'project-alpha', workspaceId: 'workspace-one', capsuleId: 'capsule-a' },
+    });
+
+    const result = port.openTab({ userFacing: true }, { target });
+
+    assert.deepStrictEqual(result, { tabId: 'tab-created-1' });
+    assert.deepStrictEqual(created, ['tab-created-1']);
+    assert.equal(createCalls.length, 1);
+    const call = createCalls[0];
+    assert.ok(call);
+    assert.equal(call.activate, false);
+    assert.equal(call.options?.offscreen, false);
+    assert.equal(call.options?.ephemeral, false);
+    assert.equal(call.options?.plane, 'user');
+  });
+
+  it('refuses contradictory userFacing: true with offscreen: true using INVALID_ARGUMENT', () => {
+    const { port, target } = makeHarness({
+      anchorAlive: true,
+      adopt: true,
+      owned: ['tab-anchor'],
+    });
+
+    const error = refusal(() => port.openTab({ userFacing: true, offscreen: true }, { target }));
+    assert.equal(error.code, 'INVALID_ARGUMENT');
+    assert.match(error.message, /contradictory/);
+  });
+
+  it('refuses contradictory userFacing: true with ephemeral: true using INVALID_ARGUMENT', () => {
+    const { port, target } = makeHarness({
+      anchorAlive: true,
+      adopt: true,
+      owned: ['tab-anchor'],
+    });
+
+    const error = refusal(() => port.openTab({ userFacing: true, ephemeral: true }, { target }));
+    assert.equal(error.code, 'INVALID_ARGUMENT');
+    assert.match(error.message, /contradictory/);
   });
 });

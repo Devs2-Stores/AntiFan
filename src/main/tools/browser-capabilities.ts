@@ -359,12 +359,13 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         anchorTabId: { type: 'string', description: 'Live same-project tab selecting the window for creation' },
         ephemeral: { type: 'boolean' },
         offscreen: { type: 'boolean' },
+        userFacing: { type: 'boolean', description: 'Open tab directly on the visible user plane (non-ephemeral, non-offscreen) for interactive inspection/debugging' },
         devicePresetId: { type: 'string', description: 'Device preset ID (e.g. iphone-15, xiaomi-14)' },
         mobile: { type: 'boolean', description: 'Open directly in mobile mode with mobile User-Agent and viewport' },
         projectId: { type: 'string', description: 'Scope selector: must equal this session\'s authenticated projectId. A foreign or unbound selector is refused before allocation; it never widens authority.' },
       },
     },
-    execute: (params: { url?: string; activate?: boolean; anchorTabId?: string; ephemeral?: boolean; offscreen?: boolean; devicePresetId?: string; mobile?: boolean; projectId?: string }, context) => browser.openTab(params, { target: context?.browserTarget, authenticatedProjectId: context?.projectId }),
+    execute: (params: { url?: string; activate?: boolean; anchorTabId?: string; ephemeral?: boolean; offscreen?: boolean; userFacing?: boolean; devicePresetId?: string; mobile?: boolean; projectId?: string }, context) => browser.openTab(params, { target: context?.browserTarget, authenticatedProjectId: context?.projectId }),
   });
   catalogue.register({
     name: 'browser.close-tab',
@@ -1243,8 +1244,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     description: 'Alias for browser.open-tab',
     risk: 'write',
     policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
-    inputSchema: { type: 'object', properties: { url: { type: 'string' }, activate: { type: 'boolean' }, anchorTabId: { type: 'string', description: 'Live same-project tab selecting the window for creation' }, ephemeral: { type: 'boolean' }, offscreen: { type: 'boolean' }, projectId: { type: 'string', description: 'Scope selector: must equal this session\'s authenticated projectId. A foreign or unbound selector is refused before allocation; it never widens authority.' } } },
-    execute: (params: { url?: string; activate?: boolean; anchorTabId?: string; ephemeral?: boolean; offscreen?: boolean; projectId?: string }, context) => browser.openTab(params, { target: context?.browserTarget, authenticatedProjectId: context?.projectId }),
+    inputSchema: { type: 'object', properties: { url: { type: 'string' }, activate: { type: 'boolean' }, anchorTabId: { type: 'string', description: 'Live same-project tab selecting the window for creation' }, ephemeral: { type: 'boolean' }, offscreen: { type: 'boolean' }, userFacing: { type: 'boolean', description: 'Open tab directly on the visible user plane (non-ephemeral, non-offscreen) for interactive inspection/debugging' }, projectId: { type: 'string', description: 'Scope selector: must equal this session\'s authenticated projectId. A foreign or unbound selector is refused before allocation; it never widens authority.' } } },
+    execute: (params: { url?: string; activate?: boolean; anchorTabId?: string; ephemeral?: boolean; offscreen?: boolean; userFacing?: boolean; projectId?: string }, context) => browser.openTab(params, { target: context?.browserTarget, authenticatedProjectId: context?.projectId }),
   });
 
   catalogue.register({
@@ -2117,12 +2118,13 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         anchorTabId: { type: 'string', description: 'Live same-project tab selecting the window for creation' },
         ephemeral: { type: 'boolean' },
         offscreen: { type: 'boolean' },
+        userFacing: { type: 'boolean', description: 'Open tab directly on the visible user plane (non-ephemeral, non-offscreen) for interactive inspection/debugging' },
         devicePresetId: { type: 'string', description: 'Device preset ID (e.g. iphone-15, xiaomi-14)' },
         mobile: { type: 'boolean', description: 'Open directly in mobile mode with mobile User-Agent and viewport' },
         projectId: { type: 'string', description: 'Scope selector: must equal this session\'s authenticated projectId. A foreign or unbound selector is refused before allocation; it never widens authority.' },
       },
     },
-    execute: (params: { url?: string; activate?: boolean; anchorTabId?: string; ephemeral?: boolean; offscreen?: boolean; devicePresetId?: string; mobile?: boolean; projectId?: string }, context) => browser.openTab(params, { target: context?.browserTarget, authenticatedProjectId: context?.projectId }),
+    execute: (params: { url?: string; activate?: boolean; anchorTabId?: string; ephemeral?: boolean; offscreen?: boolean; userFacing?: boolean; devicePresetId?: string; mobile?: boolean; projectId?: string }, context) => browser.openTab(params, { target: context?.browserTarget, authenticatedProjectId: context?.projectId }),
   });
   catalogue.register({
     name: 'anti.browser.tabs.activate',

@@ -98,6 +98,7 @@ export class AntiFanMcpServer {
             anchorTabId: { type: 'string', description: 'Live same-project tab selecting the window for creation' },
             ephemeral: { type: 'boolean', description: 'Agent-plane tab excluded from the user tab strip' },
             offscreen: { type: 'boolean', description: 'Agent-plane tab that renders without foregrounding the visible surface' },
+            userFacing: { type: 'boolean', description: 'Open tab directly on the visible user plane (non-ephemeral, non-offscreen) for interactive inspection/debugging' },
             projectId: { type: 'string', description: 'Scope selector: must equal this session\'s authenticated projectId. A foreign or unbound selector is refused before allocation; it never widens authority.' },
           },
         },

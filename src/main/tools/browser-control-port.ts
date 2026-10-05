@@ -3894,7 +3894,7 @@ export class BrowserControlPort {
     return affiliation.capsuleId;
   }
 
-  openTab(options: { url?: string; activate?: boolean; ephemeral?: boolean; offscreen?: boolean; devicePresetId?: string; mobile?: boolean; projectId?: string } = {}, context?: { target?: BrowserTarget; authenticatedProjectId?: string }): { tabId: string } {
+  openTab(options: { url?: string; activate?: boolean; ephemeral?: boolean; offscreen?: boolean; userFacing?: boolean; devicePresetId?: string; mobile?: boolean; projectId?: string } = {}, context?: { target?: BrowserTarget; authenticatedProjectId?: string }): { tabId: string } {
     if (!this.host.createTab) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'createTab is not supported by host');
     const boundTabId = context?.target?.tabId;
     // The projectId selector is validated before any allocation: it may only
@@ -3923,25 +3923,38 @@ export class BrowserControlPort {
     const verifiedCapsuleId = this.verifyRoutedAnchorCapsule(boundTabId, target);
     // Phase 2 (step 11): forward the offscreen option so dedicated agent tabs keep
     // rendering without foregrounding the user's visible surface.
+    // When userFacing is true, tab opens directly on the visible user plane (non-ephemeral, non-offscreen, plane: 'user').
+    if (options.userFacing === true && (options.offscreen === true || options.ephemeral === true)) {
+      throw new CapabilityError(
+        'INVALID_ARGUMENT',
+        'options.userFacing=true cannot be combined with contradictory options.offscreen=true or options.ephemeral=true',
+        { userFacing: options.userFacing, offscreen: options.offscreen, ephemeral: options.ephemeral }
+      );
+    }
+    const wantsUserPlane = options.userFacing === true;
+    const isEphemeral = wantsUserPlane ? false : options.ephemeral;
+    const isOffscreen = wantsUserPlane ? false : options.offscreen;
+    const plane = wantsUserPlane ? ('user' as const) : ('agent' as const);
+
     const createOptions = (routed && target && target.projectId && target.workspaceId)
       ? {
-          ephemeral: options.ephemeral,
-          offscreen: options.offscreen,
+          ephemeral: isEphemeral,
+          offscreen: isOffscreen,
           devicePresetId: options.devicePresetId,
           mobile: options.mobile,
           capsuleId: verifiedCapsuleId,
           anchorTabId: boundTabId,
-          plane: 'agent' as const,
+          plane,
         }
       : {
-          ephemeral: options.ephemeral,
-          offscreen: options.offscreen,
+          ephemeral: isEphemeral,
+          offscreen: isOffscreen,
           devicePresetId: options.devicePresetId,
           mobile: options.mobile,
           // `anchorTabId` params are validated transport-side and arrive via the
           // bound target on the routed branch; the unrouted branch must not
           // forward a raw caller-supplied anchor past authority checks.
-          plane: 'agent' as const,
+          plane,
         };
     const tabId = this.host.createTab(options.url || 'about:blank', options.activate ?? false, createOptions);
     if (boundTabId && this.host.adoptChildTab) {
