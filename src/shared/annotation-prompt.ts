@@ -89,7 +89,10 @@ CẤM bịa kết quả QA: không tự gán summary.passed hay criticalCount n�
 export const SELF_QA_DIRECTIVE_READONLY = `## Self-QA (READ-ONLY — bằng chứng hiện trạng)
 Nếu tool \`theme.qa_validate\` có sẵn (MCP AntiFan), dùng nó để cung cấp bằng chứng hiện trạng — truyền \`tabId\`/\`workspaceRoot\`/\`expectedUrl\` từ dòng "QA Binding" của annotation. Không bắt buộc — task này không sửa file.`;
 
-export function buildSelfQaDirective(intent: TaskIntent): string {
+export function buildSelfQaDirective(intent: TaskIntent, userInstruction: string = ''): string {
+  if (intent === 'testing' && /fix|sua|repair|chinh|doi|cap nhat|update|thay|xoa|them|tao|build|implement|chua|khong|ko|sai|hong|lech|in dam|mau sac/i.test(normalizeInstruction(userInstruction))) {
+    return SELF_QA_DIRECTIVE;
+  }
   return SELF_QA_READONLY_INTENTS[intent] ? SELF_QA_DIRECTIVE_READONLY : SELF_QA_DIRECTIVE;
 }
 
@@ -154,7 +157,8 @@ export function classifyTaskIntent(instruction: string): TaskIntent {
   if (/mcp|model context protocol|tool schema|tool integration|mcp server/.test(value)) return 'mcp-integration';
   if (/\b(?:performance|optimi[sz]|core web vitals|lcp|cls|inp|latency|throughput|memory usage)\b|hieu nang|toi uu toc do/.test(value)) return 'performance';
   if (/documentation|docs|readme|guide|manual|huong dan|tai lieu/.test(value)) return 'documentation';
-  if (/fix|bug|error|broken|loi|sua|repair|regression/.test(value)) return 'bug-fix';
+  const hasBugOrDefect = /\b(?:fix|bug|error|broken|loi|sua|repair|regression|sai|hong|lech|thieu)\b|khong an|ko an|khong chay|ko chay|khong hoat dong|ko hoat dong|chua dung|khong dung|ko dung|chua chay|chua hoat dong|bi loi|bi lech|bi mat/.test(value);
+  if (hasBugOrDefect) return 'bug-fix';
   if (/\b(?:test|testing|coverage|qa)\b|quality assurance|kiem thu|bo sung test|viet test/.test(value)) return 'testing';
   if (/architecture|architectural|system design|api design|schema design|trade[- ]?off|decision record|kien truc/.test(value)) return 'architecture';
   if (/migrat|upgrade version|\bport\b|compatibility change|chuyen doi|nang cap phien ban/.test(value)) return 'migration';
@@ -242,7 +246,8 @@ export function buildAgentTaskHeader(userInstruction: string, terminalStateOverr
     : intent === 'extract-component'
     ? '- No repository file edits. No refactoring the owning theme. The only deliverable is the code snippet.'
     : '- Unrequested adjacent fixes, speculative improvements, unrelated refactors, and silent public-contract changes.';
-  const executionPermission = ['review', 'research', 'security', 'documentation', 'testing'].includes(intent)
+  const hasMutationRequest = /fix|sua|repair|chinh|doi|cap nhat|update|thay|xoa|them|tao|build|implement|chua|khong|ko|sai|hong|lech|in dam|mau sac/i.test(normalizeInstruction(instruction));
+  const executionPermission = (['review', 'research', 'security', 'documentation'].includes(intent) || (intent === 'testing' && !hasMutationRequest))
     ? 'READ-ONLY analysis: READY means the analysis workflow may begin; it does not authorize code mutation unless the user explicitly requests implementation.'
     : intent === 'extract-component'
     ? 'SNIPPET-ONLY: produce the component code in the reply. Do not create, edit, or delete any file in the repository.'
@@ -274,7 +279,7 @@ ${criteria}
 - **PRESERVES**: Existing behavior outside request boundary.
 - **DELIBERATELY CHANGES**: Only targeted code and properties.
 - **RISKS & SIDE EFFECTS**: Check regression paths and constraints before committing.
-${buildSelfQaDirective(intent)}
+${buildSelfQaDirective(intent, instruction)}
 
 ${STANDALONE_AGENT_CONTRACT}
 ${INTENT_MODULES[intent]}`;

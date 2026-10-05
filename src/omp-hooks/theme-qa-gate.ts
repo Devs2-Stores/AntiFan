@@ -56,6 +56,7 @@ import {
   type EditMode,
 } from "./edit-mode";
 import { resolveWorkspaceShape } from "./theme-paths";
+import { DEVICE_PATH_RE } from "./edit-guard-policy";
 
 interface ExtensionContext {
   cwd?: string;
@@ -966,16 +967,18 @@ export default function themeQaGate(pi: HookAPI): void {
 
   pi.on("tool_call", (event, ctx) => {
     try {
+      const toolName = String(event.toolName ?? event.name ?? "").toLowerCase();
+      const targets = extractTargetPaths(event.input);
+      const isDeviceOnly = targets.length > 0 && targets.every((t) => DEVICE_PATH_RE.test(t));
+      const isWrite = WRITE_TOOLS.has(toolName) && !isDeviceOnly;
       const sessionKey = sessionIdOf(ctx) || (ctx?.cwd ?? process.cwd());
       const st = scopedSessionStates.get(sessionKey);
       if (st) {
-        st.dirty = true;
+        if (isWrite) st.dirty = true;
       } else {
-        scopedSessionStates.set(sessionKey, { lastEmittedSeq: null, dirty: true });
+        scopedSessionStates.set(sessionKey, { lastEmittedSeq: null, dirty: isWrite });
       }
-      const toolName = String(event.toolName ?? event.name ?? "").toLowerCase();
-      if (!WRITE_TOOLS.has(toolName)) return;
-      const targets = extractTargetPaths(event.input);
+      if (!isWrite) return;
       if (targets.length === 0) return;
       const cwd = ctx.cwd ?? process.cwd();
       const absTargets = Array.from(new Set(targets.map((t) => toAbsolutePath(t, cwd))));

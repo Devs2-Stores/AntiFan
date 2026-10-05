@@ -51,7 +51,7 @@ export const FAST_BLOCKED_TOOLS: Record<string, true> = {
   web_search: true,
 };
 
-const DEVICE_PATH_RE = /^(?:xd|mcp):\/\//i;
+export const DEVICE_PATH_RE = /^(?:xd|mcp):\/\//i;
 const MCP_DEVICE_RE = /^(?:xd:\/\/mcp__|mcp:\/\/)/i;
 const MCP_TOOL_NAME_RE = /^(?:anti|theme|browser)\.|mcp__antifan_browser_/i;
 

@@ -24,7 +24,7 @@ const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", ".
 const HOOK_SRC_DIR = path.join(REPO, "src", "omp-hooks");
 const HOOK_PATH = process.env.THEME_QA_GATE_HOOK ?? path.join(HOOK_SRC_DIR, "theme-qa-gate.ts");
 /** src/omp-hooks modules the hook imports relatively; staged beside every load. */
-const HOOK_DEPS = ["edit-mode.ts", "theme-paths.ts"];
+const HOOK_DEPS = ["edit-mode.ts", "theme-paths.ts", "edit-guard-policy.ts"];
 
 // The hook reads ANTIFAN_EDIT_MODE from the real process env: a developer shell
 // that exported it must not change what these tests observe.
@@ -906,6 +906,66 @@ test("scoped mode: intervening context without tool_call does not trigger duplic
   writeCall(handlers, ctx, path.join(root, "sections", "banner.liquid"));
   handlers.get("turn_end")({ type: "turn_end" }, ctx);
   assert.equal(sent.length, 2, "turn_end emits again after genuine tool activity");
+});
+
+test("scoped mode: read-only tools stay silent at turn_end; write tools emit", () => {
+  const { handlers, sent } = loadHook();
+  const root = makeWorkspace();
+  const sessionId = "01a0scoped-readonly-silent";
+  const ctx = sessionCtx(root, sessionId, [modeEntry("direct")]);
+
+  // Turn 1: Fresh session, read-only tool (bash ls)
+  handlers.get("tool_call")({ toolName: "bash", input: { command: "ls" } }, ctx);
+  handlers.get("turn_end")({ type: "turn_end" }, ctx);
+  assert.equal(sent.length, 0, "fresh session read-only call produces zero turn_end notices");
+
+  // Turn 2: Second read-only tool (grep)
+  handlers.get("tool_call")({ toolName: "grep", input: { pattern: "announcement" } }, ctx);
+  handlers.get("turn_end")({ type: "turn_end" }, ctx);
+  assert.equal(sent.length, 0, "subsequent read-only call stays completely silent");
+
+  // Turn 3: Third read-only tool (read)
+  handlers.get("tool_call")({ toolName: "read", input: { path: "layout/theme.liquid" } }, ctx);
+  handlers.get("turn_end")({ type: "turn_end" }, ctx);
+  assert.equal(sent.length, 0, "third read-only call stays completely silent");
+
+  // Turn 4: Write tool call
+  writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
+  handlers.get("turn_end")({ type: "turn_end" }, ctx);
+  assert.equal(sent.length, 1, "turn_end emits exactly once after write tool");
+
+  // Turn 5: Read-only call after write tool
+  handlers.get("tool_call")({ toolName: "grep", input: { pattern: "hero" } }, ctx);
+  handlers.get("turn_end")({ type: "turn_end" }, ctx);
+  assert.equal(sent.length, 1, "read-only call after write does not re-emit");
+});
+
+test("scoped mode: device calls via write tool (xd://, mcp://) stay silent at turn_end", () => {
+  const { handlers, sent } = loadHook();
+  const root = makeWorkspace();
+  const sessionId = "01a0scoped-device-tools";
+  const ctx = sessionCtx(root, sessionId, [modeEntry("direct")]);
+
+  // Turn 1: Device MCP call using write tool with xd:// URI
+  handlers.get("tool_call")(
+    { toolName: "write", input: { path: "xd://mcp__antifan_browser_anti_browser_tabs_list" } },
+    ctx,
+  );
+  handlers.get("turn_end")({ type: "turn_end" }, ctx);
+  assert.equal(sent.length, 0, "device tabs_list call produces zero turn_end notices");
+
+  // Turn 2: Another device MCP call using write tool with mcp:// URI
+  handlers.get("tool_call")(
+    { toolName: "write", input: { path: "mcp://antifan_browser/anti.browser.evaluate" } },
+    ctx,
+  );
+  handlers.get("turn_end")({ type: "turn_end" }, ctx);
+  assert.equal(sent.length, 0, "device evaluate call produces zero turn_end notices");
+
+  // Turn 3: Real theme file write tool call
+  writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
+  handlers.get("turn_end")({ type: "turn_end" }, ctx);
+  assert.equal(sent.length, 1, "real file write emits skip notice at turn_end");
 });
 
 test("scoped mode: consecutive 0-change runs emit once per runSeq, not suppressed by identical count", () => {

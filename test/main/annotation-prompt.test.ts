@@ -4,6 +4,7 @@ import {
   AGENT_CONTRACT_VERSION,
   buildAgentTaskHeader,
   buildSelfQaDirective,
+  classifyTaskIntent,
   SELF_QA_DIRECTIVE,
   SELF_QA_DIRECTIVE_READONLY,
 } from '../../src/shared/annotation-prompt';
@@ -112,5 +113,26 @@ describe('Annotation prompt self-QA directive', () => {
     const contractIndex = header.indexOf('## Core Execution Invariants');
     assert.ok(ledgerIndex !== -1 && directiveIndex !== -1 && contractIndex !== -1);
     assert.ok(ledgerIndex < directiveIndex && directiveIndex < contractIndex);
+  });
+
+  it('resolves compound intent with defect cues to bug-fix instead of pure testing', () => {
+    const compoundInstruction = 'Chữ ko có in đậm, màu sắc bị sai, test tính năng Filter cho tôi';
+    const intent = classifyTaskIntent(compoundInstruction);
+    assert.strictEqual(intent, 'bug-fix', 'compound request with defect cues must resolve to bug-fix');
+
+    const header = buildAgentTaskHeader(compoundInstruction);
+    assert.ok(header.includes('Gated by core contract, fresh evidence, and intent verification.'));
+    assert.ok(!header.includes('READ-ONLY analysis'));
+    assert.ok(header.includes(SELF_QA_DIRECTIVE));
+  });
+
+  it('keeps pure testing instructions as read-only testing intent', () => {
+    const pureTestInstruction = 'Viết unit test cho hàm applyFilters';
+    const intent = classifyTaskIntent(pureTestInstruction);
+    assert.strictEqual(intent, 'testing', 'pure test request must resolve to testing');
+
+    const header = buildAgentTaskHeader(pureTestInstruction);
+    assert.ok(header.includes('READ-ONLY analysis'));
+    assert.ok(header.includes(SELF_QA_DIRECTIVE_READONLY));
   });
 });
