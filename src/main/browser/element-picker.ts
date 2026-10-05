@@ -702,6 +702,85 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
       publishPick({ canceled: true });
     };
   };
+  const isExcludedNode = (node) => {
+    if (!node || node.nodeType !== 1) return true;
+    if (node.id === OVERLAY_ID || node.id === BADGE_ID || node.id === MULTI_BAR_ID) return true;
+    if (node.id === MODAL_ID || node.closest?.('#' + MODAL_ID) || node.closest?.('#' + MULTI_BAR_ID)) return true;
+    return false;
+  };
+
+  const getBlockingSurfaceContainer = (node) => {
+    if (!node || node.nodeType !== 1) return null;
+    const dialog = node.closest?.('dialog, [role="dialog"], [role="modal"], [aria-modal="true"]');
+    if (dialog && !isExcludedNode(dialog)) return dialog;
+
+    let curr = node;
+    while (curr && curr !== document.body && curr !== document.documentElement) {
+      if (isExcludedNode(curr)) {
+        curr = curr.parentElement;
+        continue;
+      }
+      const cls = (typeof curr.className === 'string' ? curr.className : '').toLowerCase();
+      const id = (typeof curr.id === 'string' ? curr.id : '').toLowerCase();
+      const isDrawerOrModal = (
+        cls.includes('drawer') || cls.includes('modal') || cls.includes('offcanvas') ||
+        cls.includes('off-canvas') || cls.includes('popup') || cls.includes('sheet') ||
+        cls.includes('flyout') || cls.includes('backdrop') || cls.includes('sidebar-filter') ||
+        cls.includes('filter-drawer') || cls.includes('cart-drawer') || cls.includes('menu-drawer') ||
+        id.includes('drawer') || id.includes('modal') || id.includes('popup') || id.includes('offcanvas')
+      );
+      if (isDrawerOrModal) return curr;
+
+      try {
+        const style = window.getComputedStyle ? window.getComputedStyle(curr) : curr.style;
+        if (style) {
+          const pos = style.position;
+          if (pos === 'fixed' || pos === 'sticky') {
+            const zIdx = parseInt(style.zIndex, 10);
+            if (!isNaN(zIdx) && zIdx > 0) return curr;
+          }
+        }
+      } catch {}
+
+      curr = curr.parentElement;
+    }
+    return null;
+  };
+
+  const isPermittedStackHit = (candidate, topHit, blockingContainer) => {
+    if (!candidate || isExcludedNode(candidate)) return false;
+    if (!topHit) return true;
+    if (candidate === topHit) return true;
+
+    if (blockingContainer) {
+      return blockingContainer.contains(candidate);
+    }
+
+    if (getBlockingSurfaceContainer(candidate)) {
+      return false;
+    }
+
+    if (topHit.contains(candidate)) return true;
+
+    let p = topHit.parentElement;
+    let depth = 0;
+    while (p && p !== document.body && p !== document.documentElement && depth < 5) {
+      if (p.contains(candidate)) {
+        const rTop = topHit.getBoundingClientRect();
+        const rCand = candidate.getBoundingClientRect();
+        const intersects = !(
+          rCand.right < rTop.left ||
+          rCand.left > rTop.right ||
+          rCand.bottom < rTop.top ||
+          rCand.top > rTop.bottom
+        );
+        if (intersects) return true;
+      }
+      p = p.parentElement;
+      depth++;
+    }
+    return false;
+  };
 
   const resolveElementFromEvent = (e) => {
     let clientX = e.clientX;
@@ -717,6 +796,23 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
     let el = null;
     if (typeof clientX === 'number' && typeof clientY === 'number') {
       try {
+        let topHit = null;
+        if (document.elementFromPoint) {
+          const hit = document.elementFromPoint(clientX, clientY);
+          if (hit && !isExcludedNode(hit)) topHit = hit;
+        }
+        if (!topHit && document.elementsFromPoint) {
+          const hits = document.elementsFromPoint(clientX, clientY);
+          for (let i = 0; i < hits.length; i++) {
+            if (hits[i] && !isExcludedNode(hits[i])) {
+              topHit = hits[i];
+              break;
+            }
+          }
+        }
+
+        const blockingContainer = topHit ? getBlockingSurfaceContainer(topHit) : null;
+
         // 1. Dilation Ring for micro-targets (dots, pagination bullets, nav arrows, small buttons)
         const probeOffsets = [
           [0, 0], [0, -6], [0, 6], [-6, 0], [6, 0],
@@ -733,13 +829,10 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
           for (let hIdx = 0; hIdx < hits.length; hIdx++) {
             const h = hits[hIdx];
             if (!h || h.nodeType !== 1) continue;
-            if (h.id === OVERLAY_ID || h.id === BADGE_ID || h.id === MULTI_BAR_ID || h.closest?.('#' + MODAL_ID) || h.closest?.('#' + MULTI_BAR_ID)) continue;
+            if (isExcludedNode(h)) continue;
+            if (!isPermittedStackHit(h, topHit, blockingContainer)) continue;
             const cls = (typeof h.className === 'string' ? h.className : '').toLowerCase();
             const r = h.getBoundingClientRect();
-            // Class-name matches are heuristics only. A large layout wrapper whose class
-            // merely CONTAINS a pattern token (e.g. div.mn-home__nav-area, 1588x3140) must
-            // not count as a micro target: it sits in every descendant's hit stack, so it
-            // would hijack every hover inside it and its children could never be picked.
             const isMicroClassHit = (
               cls.includes('dot') || cls.includes('bullet') || cls.includes('pagination') ||
               cls.includes('arrow') || cls.includes('nav-') || cls.includes('swiper-button') ||
@@ -757,13 +850,14 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
           if (el) break;
         }
 
-        // 2. Multi-layer stack piercing: prioritize slide items, images or media over massive layout wrappers
+        // 2. Multi-layer stack piercing: prioritize slide items, images or media within component boundary
         if (!el && document.elementsFromPoint && typeof document.elementsFromPoint === 'function') {
           const stack = document.elementsFromPoint(clientX, clientY);
           for (let sIdx = 0; sIdx < stack.length; sIdx++) {
             const node = stack[sIdx];
             if (!node || node.nodeType !== 1) continue;
-            if (node.id === OVERLAY_ID || node.id === BADGE_ID || node.id === MULTI_BAR_ID || node.closest?.('#' + MODAL_ID) || node.closest?.('#' + MULTI_BAR_ID)) continue;
+            if (isExcludedNode(node)) continue;
+            if (!isPermittedStackHit(node, topHit, blockingContainer)) continue;
             const cls = (typeof node.className === 'string' ? node.className : '').toLowerCase();
             const isSlideItem = cls.includes('item') || cls.includes('slide') || cls.includes('swiper-slide') || cls.includes('slick-slide');
             const isLeafMedia = node.tagName === 'IMG' || node.tagName === 'VIDEO' || node.tagName === 'PICTURE' || node.tagName === 'SVG';
@@ -774,12 +868,9 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
           }
         }
 
-        // 3. Fallback to standard document.elementFromPoint
+        // 3. Fallback to standard topHit
         if (!el) {
-          const hit = document.elementFromPoint(clientX, clientY);
-          if (hit && hit.id !== OVERLAY_ID && hit.id !== BADGE_ID && hit.id !== MULTI_BAR_ID && !hit.closest?.('#' + MODAL_ID) && !hit.closest?.('#' + MULTI_BAR_ID)) {
-            el = hit;
-          }
+          el = topHit;
         }
       } catch {}
     }
@@ -788,18 +879,18 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
       for (let i = 0; i < path.length; i++) {
         const node = path[i];
         if (node && node.nodeType === 1) {
-          if (node.id === OVERLAY_ID || node.id === BADGE_ID || node.id === MULTI_BAR_ID || node.closest?.('#' + MODAL_ID) || node.closest?.('#' + MULTI_BAR_ID)) continue;
+          if (isExcludedNode(node)) continue;
           el = node;
           break;
         }
       }
     }
 
-    if (!el && e.target && e.target.nodeType === 1) {
+    if (!el && e.target && e.target.nodeType === 1 && !isExcludedNode(e.target)) {
       el = e.target;
     }
 
-    if (el && (el.id === OVERLAY_ID || el.id === BADGE_ID || el.id === MULTI_BAR_ID || el.closest?.('#' + MODAL_ID) || el.closest?.('#' + MULTI_BAR_ID))) {
+    if (el && isExcludedNode(el)) {
       return null;
     }
     return el;
@@ -1697,19 +1788,23 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
     if (now - lastClickTime < 250) return;
     lastClickTime = now;
 
-    const path = (e.composedPath && typeof e.composedPath === 'function') ? e.composedPath() : [];
-    let el = currentTarget;
+    let el = resolveElementFromEvent(e);
     if (!el) {
+      const path = (e.composedPath && typeof e.composedPath === 'function') ? e.composedPath() : [];
       for (let i = 0; i < path.length; i++) {
         const node = path[i];
         if (node && node.nodeType === 1) {
-          if (node.id === OVERLAY_ID || node.id === BADGE_ID || node.id === MULTI_BAR_ID || node.id === MODAL_ID || (node.closest && (node.closest('#' + MODAL_ID) || node.closest('#' + MULTI_BAR_ID)))) continue;
+          if (isExcludedNode(node)) continue;
           el = node;
           break;
         }
       }
     }
-    if (!el) el = (e.target && e.target.nodeType === 1 ? e.target : document.body);
+    if (!el && e.target && e.target.nodeType === 1 && !isExcludedNode(e.target)) {
+      el = e.target;
+    }
+    if (!el) el = document.body;
+    currentTarget = el;
     showCommentModal(el);
   };
 

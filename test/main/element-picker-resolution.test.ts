@@ -449,7 +449,10 @@ describe('Element Picker Comment Modal Mode Tags & Copy Prompt', () => {
 
   it('Send publishes without copyOnly and leaves the clipboard to the host', async (t) => {
     const { JSDOM } = loadJsdom();
-    const h = createPickerHarness(JSDOM);
+    const h = createPickerHarness(JSDOM, {
+      sessions: [{ id: 's-1', name: 'Terminal 1', cwd: 'E:\\Work' }],
+      selectedSessionId: 's-1',
+    });
     const modal = h.openModal();
     assert.ok(modal);
     modalTextarea(h, modal).value = '/queue [⚡Direct-Edit] sửa khoảng cách supplier';
@@ -1117,5 +1120,317 @@ describe('Element Picker Send-To Terminal Groups', () => {
     );
     h.win.__antifanPickerCleanup?.();
     h.win.close();
+  });
+});
+
+describe('Element Picker Blocking Surface & Piercing Resolution', () => {
+  it('stops dilation and stack piercing at modal/drawer boundary and targets drawer on hover/click', () => {
+    const { JSDOM } = loadJsdom();
+    const dom = new JSDOM(`<!doctype html>
+<html>
+<head></head>
+<body>
+  <div class="collection-page" id="col-page">
+    <div class="product-grid">
+      <div class="product-card" id="card-1" style="position:relative; width:200px; height:200px;">
+        <img class="product-img" id="bg-img" src="item.jpg" style="width:200px; height:200px;" />
+      </div>
+      <div class="pagination-wrapper" style="position:relative; width:200px; height:50px;">
+        <button class="owl-dot" id="bg-dot" style="width:20px; height:20px;"></button>
+      </div>
+    </div>
+  </div>
+
+  <div class="drawer sidebar-filter" id="filter-drawer" style="position:fixed; top:0; left:0; width:300px; height:600px; z-index:1000; background:#fff;">
+    <div class="drawer-header" id="drawer-hdr" style="height:50px;">Filter</div>
+    <div class="drawer-content" id="drawer-body" style="height:450px; background:#fafafa;">
+      <button class="btn-filter" id="drawer-btn-filter" style="width:100px; height:40px;">Apply</button>
+    </div>
+  </div>
+</body>
+</html>`, {
+      runScripts: 'outside-only',
+      url: 'https://m-n-bakery.myharavan.com/collections/all',
+    });
+
+    const win = dom.window as unknown as JsdomLike['window'];
+    const doc = win.document;
+
+    const setRect = (el: Element | null, x: number, y: number, w: number, h: number) => {
+      if (!el) return;
+      el.getBoundingClientRect = () => ({
+        x, y, width: w, height: h, top: y, right: x + w, bottom: y + h, left: x, toJSON: () => ({})
+      });
+    };
+
+    setRect(doc.getElementById('filter-drawer'), 0, 0, 300, 600);
+    setRect(doc.getElementById('drawer-hdr'), 0, 0, 300, 50);
+    setRect(doc.getElementById('drawer-body'), 0, 50, 300, 450);
+    setRect(doc.getElementById('drawer-btn-filter'), 20, 70, 100, 40);
+    setRect(doc.getElementById('card-1'), 50, 50, 200, 200);
+    setRect(doc.getElementById('bg-img'), 50, 50, 200, 200);
+    setRect(doc.getElementById('bg-dot'), 50, 300, 20, 20);
+
+    doc.elementFromPoint = (x: number, y: number) => {
+      if (x >= 0 && x <= 300 && y >= 0 && y <= 600) {
+        if (x >= 20 && x <= 120 && y >= 70 && y <= 110) return doc.getElementById('drawer-btn-filter');
+        if (y < 50) return doc.getElementById('drawer-hdr');
+        return doc.getElementById('drawer-body');
+      }
+      if (x >= 50 && x <= 70 && y >= 300 && y <= 320) return doc.getElementById('bg-dot');
+      return doc.body;
+    };
+
+    doc.elementsFromPoint = (x: number, y: number) => {
+      const list: Element[] = [];
+      const top = doc.elementFromPoint(x, y);
+      if (top && top !== doc.body) list.push(top);
+      if (x >= 50 && x <= 250 && y >= 50 && y <= 250) {
+        const img = doc.getElementById('bg-img');
+        const card = doc.getElementById('card-1');
+        if (img && !list.includes(img)) list.push(img);
+        if (card && !list.includes(card)) list.push(card);
+      }
+      if (x >= 50 && x <= 70 && y >= 300 && y <= 320) {
+        const dot = doc.getElementById('bg-dot');
+        if (dot && !list.includes(dot)) list.push(dot);
+      }
+      list.push(doc.body);
+      return list;
+    };
+
+    const pendingFrames: FrameRequestCallback[] = [];
+    win.requestAnimationFrame = (cb: FrameRequestCallback): number => {
+      pendingFrames.push(cb);
+      return pendingFrames.length;
+    };
+    win.cancelAnimationFrame = () => {};
+
+    win.eval(ELEMENT_PICKER_SCRIPT);
+
+    const overlay = doc.getElementById('antifan-inspect-overlay');
+    assert.ok(overlay, 'overlay must exist');
+
+    const sendHover = (x: number, y: number) => {
+      const ev = new win.Event('pointermove', { bubbles: true, cancelable: true });
+      Object.defineProperty(ev, 'clientX', { value: x });
+      Object.defineProperty(ev, 'clientY', { value: y });
+      win.dispatchEvent(ev);
+      while (pendingFrames.length > 0) {
+        const frame = pendingFrames.shift();
+        if (frame) frame(0);
+      }
+    };
+
+    const sendClick = (x: number, y: number) => {
+      const pd = new win.Event('pointerdown', { bubbles: true, cancelable: true });
+      Object.defineProperty(pd, 'clientX', { value: x });
+      Object.defineProperty(pd, 'clientY', { value: y });
+      win.dispatchEvent(pd);
+
+      const clk = new win.Event('click', { bubbles: true, cancelable: true });
+      Object.defineProperty(clk, 'clientX', { value: x });
+      Object.defineProperty(clk, 'clientY', { value: y });
+      win.dispatchEvent(clk);
+    };
+
+    // 1. Hover on drawer whitespace over background card: blocking surface guard must stop at drawer-body!
+    sendHover(150, 150);
+    assert.strictEqual(overlay.style.top, '50px');
+    assert.strictEqual(overlay.style.left, '0px');
+    assert.strictEqual(overlay.style.width, '300px');
+    assert.strictEqual(overlay.style.height, '450px');
+    const badge = doc.getElementById('antifan-inspect-badge');
+    assert.ok(badge && badge.textContent?.includes('div#drawer-body'), 'badge must identify div#drawer-body, not background image');
+
+    // 2. Hover over micro dot behind drawer: dilation ring must NOT pierce through drawer!
+    sendHover(60, 310);
+    assert.strictEqual(overlay.style.top, '50px');
+    assert.strictEqual(overlay.style.left, '0px');
+    assert.ok(badge && badge.textContent?.includes('div#drawer-body'), 'badge must stay on div#drawer-body without piercing to dot');
+
+    // 3. Click on drawer whitespace opens comment modal targeting drawer-body
+    sendClick(150, 150);
+    const modal = doc.getElementById('antifan-comment-modal');
+    assert.ok(modal, 'comment modal must open on click');
+    assert.ok(modal.textContent?.includes('div#drawer-body'), 'modal header must explicitly identify div#drawer-body as target');
+    assert.ok(!modal.textContent?.includes('img#bg-img'), 'modal header must never identify obscured background image');
+    const textarea = modal.querySelector('textarea') as HTMLTextAreaElement;
+    assert.ok(textarea, 'textarea must exist');
+
+    win.__antifanPickerCleanup?.();
+    win.close();
+  });
+
+  it('pierces transparent link overlay to child media within same component card when no drawer blocks', () => {
+    const { JSDOM } = loadJsdom();
+    const dom = new JSDOM(`<!doctype html>
+<html>
+<head></head>
+<body>
+  <div class="collection-page" id="col-page">
+    <div class="product-grid">
+      <div class="product-card" id="card-1" style="position:relative; width:200px; height:200px;">
+        <img class="product-img" id="bg-img" src="item.jpg" style="width:200px; height:200px;" />
+        <a class="card-link" id="card-link-1" href="/p1" style="position:absolute; inset:0; width:200px; height:200px;"></a>
+      </div>
+    </div>
+  </div>
+</body>
+</html>`, {
+      runScripts: 'outside-only',
+      url: 'https://m-n-bakery.myharavan.com/collections/all',
+    });
+
+    const win = dom.window as unknown as JsdomLike['window'];
+    const doc = win.document;
+
+    const setRect = (el: Element | null, x: number, y: number, w: number, h: number) => {
+      if (!el) return;
+      el.getBoundingClientRect = () => ({
+        x, y, width: w, height: h, top: y, right: x + w, bottom: y + h, left: x, toJSON: () => ({})
+      });
+    };
+
+    setRect(doc.getElementById('card-1'), 50, 50, 200, 200);
+    setRect(doc.getElementById('bg-img'), 50, 50, 200, 200);
+    setRect(doc.getElementById('card-link-1'), 50, 50, 200, 200);
+
+    doc.elementFromPoint = (x: number, y: number) => {
+      if (x >= 50 && x <= 250 && y >= 50 && y <= 250) return doc.getElementById('card-link-1');
+      return doc.body;
+    };
+
+    doc.elementsFromPoint = (x: number, y: number) => {
+      const list: Element[] = [];
+      const top = doc.elementFromPoint(x, y);
+      if (top && top !== doc.body) list.push(top);
+      if (x >= 50 && x <= 250 && y >= 50 && y <= 250) {
+        const link = doc.getElementById('card-link-1');
+        const img = doc.getElementById('bg-img');
+        const card = doc.getElementById('card-1');
+        if (link && !list.includes(link)) list.push(link);
+        if (img && !list.includes(img)) list.push(img);
+        if (card && !list.includes(card)) list.push(card);
+      }
+      list.push(doc.body);
+      return list;
+    };
+
+    const pendingFrames: FrameRequestCallback[] = [];
+    win.requestAnimationFrame = (cb: FrameRequestCallback): number => {
+      pendingFrames.push(cb);
+      return pendingFrames.length;
+    };
+    win.cancelAnimationFrame = () => {};
+
+    win.eval(ELEMENT_PICKER_SCRIPT);
+
+    const overlay = doc.getElementById('antifan-inspect-overlay');
+    assert.ok(overlay, 'overlay must exist');
+
+    const sendHover = (x: number, y: number) => {
+      const ev = new win.Event('pointermove', { bubbles: true, cancelable: true });
+      Object.defineProperty(ev, 'clientX', { value: x });
+      Object.defineProperty(ev, 'clientY', { value: y });
+      win.dispatchEvent(ev);
+      while (pendingFrames.length > 0) {
+        const frame = pendingFrames.shift();
+        if (frame) frame(0);
+      }
+    };
+
+    sendHover(100, 100);
+    assert.strictEqual(overlay.style.top, '50px');
+    assert.strictEqual(overlay.style.left, '50px');
+    assert.strictEqual(overlay.style.width, '200px');
+    assert.strictEqual(overlay.style.height, '200px');
+    const badge = doc.getElementById('antifan-inspect-badge');
+    assert.ok(badge && badge.textContent?.includes('img#bg-img'), 'badge must identify pierced child media img#bg-img');
+
+    win.__antifanPickerCleanup?.();
+    win.close();
+  });
+
+  it('does not revive stale currentTarget when click lands on unresolvable or excluded surface', () => {
+    const { JSDOM } = loadJsdom();
+    const dom = new JSDOM(`<!doctype html>
+<html>
+<head></head>
+<body>
+  <div class="product-card" id="card-1" style="position:relative; width:200px; height:200px;">
+    <img class="product-img" id="bg-img" src="item.jpg" style="width:200px; height:200px;" />
+  </div>
+  <div id="blank-area" style="position:fixed; top:300px; left:0; width:100px; height:100px;"></div>
+</body>
+</html>`, {
+      runScripts: 'outside-only',
+      url: 'https://m-n-bakery.myharavan.com/collections/all',
+    });
+
+    const win = dom.window as unknown as JsdomLike['window'];
+    const doc = win.document;
+
+    const setRect = (el: Element | null, x: number, y: number, w: number, h: number) => {
+      if (!el) return;
+      el.getBoundingClientRect = () => ({
+        x, y, width: w, height: h, top: y, right: x + w, bottom: y + h, left: x, toJSON: () => ({})
+      });
+    };
+
+    setRect(doc.getElementById('card-1'), 0, 0, 200, 200);
+    setRect(doc.getElementById('bg-img'), 0, 0, 200, 200);
+    setRect(doc.getElementById('blank-area'), 0, 300, 100, 100);
+
+    doc.elementFromPoint = (x: number, y: number) => {
+      if (x <= 200 && y <= 200) return doc.getElementById('bg-img');
+      if (y >= 300 && y <= 400) return doc.getElementById('blank-area');
+      return doc.body;
+    };
+
+    doc.elementsFromPoint = (x: number, y: number) => {
+      const top = doc.elementFromPoint(x, y);
+      return top ? [top, doc.body] : [doc.body];
+    };
+
+    const pendingFrames: FrameRequestCallback[] = [];
+    win.requestAnimationFrame = (cb: FrameRequestCallback): number => {
+      pendingFrames.push(cb);
+      return pendingFrames.length;
+    };
+    win.cancelAnimationFrame = () => {};
+
+    win.eval(ELEMENT_PICKER_SCRIPT);
+
+    const sendHover = (x: number, y: number) => {
+      const ev = new win.Event('pointermove', { bubbles: true, cancelable: true });
+      Object.defineProperty(ev, 'clientX', { value: x });
+      Object.defineProperty(ev, 'clientY', { value: y });
+      win.dispatchEvent(ev);
+      while (pendingFrames.length > 0) {
+        const frame = pendingFrames.shift();
+        if (frame) frame(0);
+      }
+    };
+
+    // 1. Initial hover sets currentTarget to bg-img
+    sendHover(50, 50);
+    const badge = doc.getElementById('antifan-inspect-badge');
+    assert.ok(badge && badge.textContent?.includes('img#bg-img'));
+
+    // 2. Now click lands on blank-area
+    const clk = new win.Event('click', { bubbles: true, cancelable: true });
+    Object.defineProperty(clk, 'clientX', { value: 50 });
+    Object.defineProperty(clk, 'clientY', { value: 350 });
+    win.dispatchEvent(clk);
+
+    // Modal must target blank-area, NEVER the stale bg-img from prior hover
+    const modal = doc.getElementById('antifan-comment-modal');
+    assert.ok(modal, 'comment modal must open on click');
+    assert.ok(modal.textContent?.includes('div#blank-area'), 'modal must target blank-area, not stale hover target');
+    assert.ok(!modal.textContent?.includes('img#bg-img'), 'modal must not revive stale bg-img');
+
+    win.__antifanPickerCleanup?.();
+    win.close();
   });
 });
