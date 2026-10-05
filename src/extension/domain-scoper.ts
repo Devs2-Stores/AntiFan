@@ -55,11 +55,38 @@ export function extractEtldPlusOne(hostname: string | null | undefined): string 
   return rootDomain || cleanHost;
 }
 
+export const GOOGLE_AUTH_COOKIE_PATTERNS: readonly RegExp[] = [
+  /^(SAPISID|APISID|SSID|HSID|SID|LOGIN_INFO|OSID|SIDCC|ACCOUNT_CHOOSER)$/i,
+  /^__Secure-[0-9]?(P?APISID|P?SID|OSID|PSIDCC)$/i,
+];
+
+export function isGoogleAuthCookieName(name: string | null | undefined): boolean {
+  if (typeof name !== 'string') return false;
+  const trimmed = name.trim();
+  if (!trimmed) return false;
+  for (const pattern of GOOGLE_AUTH_COOKIE_PATTERNS) {
+    if (pattern.test(trimmed)) return true;
+  }
+  return false;
+}
+
+export function isGoogleOrYouTubeDomain(domain?: string | null): boolean {
+  if (!domain) return false;
+  const clean = domain.replace(/^\./, '').trim().toLowerCase();
+  const patterns = SCOPE_PROFILES.google;
+  return patterns ? patterns.some((p) => p.test(clean)) : false;
+}
+
+export interface CookieScopeOptions {
+  allowGoogleAuth?: boolean;
+}
+
 export function isCookieInScope(
   cookie: { domain?: string | null; name?: string; path?: string },
   enabledProfiles: string[] = ['google', 'ecommerce'],
   activeTabHostname: string | null = null,
-  customDomains: string[] = []
+  customDomains: string[] = [],
+  options?: CookieScopeOptions
 ): boolean {
   const rawDomain = (cookie.domain || '').replace(/^\./, '').trim().toLowerCase();
   if (!rawDomain) return false;
@@ -69,6 +96,16 @@ export function isCookieInScope(
   if (isIdentityCookieName(cookie.name)) {
     return false;
   }
+  // 0.1. Google/YouTube session auth tokens are single-owner per browser instance.
+  // Pushing them in the background (periodic auto-hydration, onChanged delta sync)
+  // clobbers active SPAs in AntiFan (e.g. YouTube Music "Tài khoản Google đã thay đổi").
+  // They are only admitted on deliberate user-initiated actions (popup SYNC_ACTIVE_TAB).
+  // Crucially, this check requires the domain to be Google/YouTube so unrelated sites with
+  // generic cookie names like 'SID' or 'SSID' are never inadvertently suppressed.
+  if (!options?.allowGoogleAuth && isGoogleOrYouTubeDomain(rawDomain) && isGoogleAuthCookieName(cookie.name)) {
+    return false;
+  }
+
   // 1. Wildcard or all profiles enabled
   if (enabledProfiles.includes('all') || enabledProfiles.includes('*')) {
     return true;

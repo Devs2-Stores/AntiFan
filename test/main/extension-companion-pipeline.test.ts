@@ -738,3 +738,58 @@ test('Companion Pipeline: identity cookies stay out of extension scope under eve
   assert.strictEqual(isCookieInScope({ name: 'cart', domain: '.haravan.com' }, ['ecommerce']), true);
   assert.strictEqual(isCookieInScope({ name: 'cart', domain: '.haravan.com' }, ['all']), true);
 });
+
+test('Companion Pipeline: Google auth cookies are suppressed in background sync but permitted on manual active-tab sync', async () => {
+  const googleAuthCookies = [
+    { name: 'SAPISID', domain: '.google.com' },
+    { name: 'LOGIN_INFO', domain: '.youtube.com' },
+    { name: 'SID', domain: '.google.com' },
+    { name: 'SSID', domain: '.google.com' },
+    { name: '__Secure-3PSID', domain: '.google.com' },
+    { name: '__Secure-1PAPISID', domain: '.google.com' },
+  ];
+
+  // 1. Background sync (default options, e.g. triggerAutoHydration and chrome.cookies.onChanged)
+  // Must suppress Google auth cookies across all profile configurations to prevent desyncing active SPAs in AntiFan
+  for (const c of googleAuthCookies) {
+    assert.strictEqual(isCookieInScope(c, ['all']), false, `${c.name} must be suppressed in background sync under 'all'`);
+    assert.strictEqual(isCookieInScope(c, ['google']), false, `${c.name} must be suppressed in background sync under 'google'`);
+    assert.strictEqual(isCookieInScope(c, ['*']), false, `${c.name} must be suppressed in background sync under '*'`);
+    assert.strictEqual(isCookieInScope(c, ['google'], 'music.youtube.com'), false, `${c.name} must be suppressed without allowGoogleAuth`);
+  }
+
+  // Non-auth Google preferences & consent cookies remain in scope in the background
+  assert.strictEqual(isCookieInScope({ name: 'PREF', domain: '.youtube.com' }, ['google']), true);
+  assert.strictEqual(isCookieInScope({ name: 'SOCS', domain: '.google.com' }, ['google']), true);
+
+  // 2. Manual sync (allowGoogleAuth: true from popup SYNC_ACTIVE_TAB)
+  // Deliberate user action allows syncing Google auth cookies for the active tab
+  for (const c of googleAuthCookies) {
+    const activeHost = c.domain.includes('youtube') ? 'music.youtube.com' : 'accounts.google.com';
+    assert.strictEqual(
+      isCookieInScope(c, ['google'], activeHost, [], { allowGoogleAuth: true }),
+      true,
+      `${c.name} must be allowed on manual active-tab sync`
+    );
+  }
+
+  // 3. Platform identity cookies (Haravan idsrv) remain blocked even if allowGoogleAuth is passed
+  assert.strictEqual(
+    isCookieInScope({ name: 'idsrv.session', domain: '.accounts.haravan.com' }, ['ecommerce'], 'accounts.haravan.com', [], { allowGoogleAuth: true }),
+    false,
+    'Haravan identity cookies must stay blocked regardless of allowGoogleAuth'
+  );
+
+  // 4. Non-Google domains with same-named cookies (e.g. 'SID', 'SSID') must NOT be suppressed
+  assert.strictEqual(
+    isCookieInScope({ name: 'SID', domain: '.example.com' }, ['all']),
+    true,
+    'SID on non-Google domain must stay in scope under wildcard'
+  );
+  assert.strictEqual(
+    isCookieInScope({ name: 'SSID', domain: '.example.com' }, ['all']),
+    true,
+    'SSID on non-Google domain must stay in scope under wildcard'
+  );
+});
+

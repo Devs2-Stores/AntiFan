@@ -842,10 +842,32 @@
     const rootDomain = getDomain2(cleanHost, { allowPrivateDomains: true });
     return rootDomain || cleanHost;
   }
-  function isCookieInScope(cookie, enabledProfiles2 = ["google", "ecommerce"], activeTabHostname = null, customDomains = []) {
+  var GOOGLE_AUTH_COOKIE_PATTERNS = [
+    /^(SAPISID|APISID|SSID|HSID|SID|LOGIN_INFO|OSID|SIDCC|ACCOUNT_CHOOSER)$/i,
+    /^__Secure-[0-9]?(P?APISID|P?SID|OSID|PSIDCC)$/i
+  ];
+  function isGoogleAuthCookieName(name) {
+    if (typeof name !== "string") return false;
+    const trimmed = name.trim();
+    if (!trimmed) return false;
+    for (const pattern of GOOGLE_AUTH_COOKIE_PATTERNS) {
+      if (pattern.test(trimmed)) return true;
+    }
+    return false;
+  }
+  function isGoogleOrYouTubeDomain(domain) {
+    if (!domain) return false;
+    const clean = domain.replace(/^\./, "").trim().toLowerCase();
+    const patterns = SCOPE_PROFILES.google;
+    return patterns ? patterns.some((p) => p.test(clean)) : false;
+  }
+  function isCookieInScope(cookie, enabledProfiles2 = ["google", "ecommerce"], activeTabHostname = null, customDomains = [], options) {
     const rawDomain = (cookie.domain || "").replace(/^\./, "").trim().toLowerCase();
     if (!rawDomain) return false;
     if (isIdentityCookieName(cookie.name)) {
+      return false;
+    }
+    if (!options?.allowGoogleAuth && isGoogleOrYouTubeDomain(rawDomain) && isGoogleAuthCookieName(cookie.name)) {
       return false;
     }
     if (enabledProfiles2.includes("all") || enabledProfiles2.includes("*")) {
@@ -1363,7 +1385,7 @@
             }
             const allCookies = await chrome.cookies.getAll({});
             const targetCookies = allCookies.filter(
-              (c) => isCookieInScope(c, enabledProfiles, activeHost)
+              (c) => isCookieInScope(c, enabledProfiles, activeHost, [], { allowGoogleAuth: true })
             );
             const dispatched = await dispatchDeltaSync({ upserted: targetCookies, removed: [] });
             sendResponse({

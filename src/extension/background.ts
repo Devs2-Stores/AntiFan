@@ -488,7 +488,7 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
 
           const allCookies = await chrome.cookies.getAll({});
           const targetCookies = allCookies.filter((c: ExtensionCookie) =>
-            isCookieInScope(c, enabledProfiles, activeHost)
+            isCookieInScope(c, enabledProfiles, activeHost, [], { allowGoogleAuth: true })
           );
 
           // Report what the bridge actually accepted, never what we attempted:
