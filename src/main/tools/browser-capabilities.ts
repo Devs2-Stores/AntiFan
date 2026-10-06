@@ -1749,8 +1749,10 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
               throw firstErr; // refuse: failover does not satisfy the route contract
             }
           }
-          report = await runValidate(recoveredTarget);
+          // Recovery succeeded at the rebind — record it BEFORE revalidation so
+          // the staged report serializes the real counters, not a stale zero.
           receiptRecovery.succeeded = 1;
+          report = await runValidate(recoveredTarget);
         }
         const summary = (report as { summary?: { passed?: boolean; criticalCount?: number } }).summary;
         passed = summary?.passed ?? null;
