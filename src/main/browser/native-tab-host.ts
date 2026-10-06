@@ -27,7 +27,7 @@ import type { ExecutionAttachmentRecord } from '../../shared/control-plane-contr
 import { getSecureWebPreferences, sanitizeUrl, isAllowedNavigation, cleanRestoredUrl, isInternalWidgetOrSubframeUrl } from '../security/security-policy';
 import { ELEMENT_PICKER_SCRIPT } from './element-picker';
 import { resolveWorkspaceFromUrl, DEFAULT_WORKSPACE_ROOTS } from './workspace-resolver';
-import { FONT_FINDER_SCRIPT } from './font-finder';
+import { FONT_FINDER_SCRIPT, FONT_FINDER_CLEANUP_SCRIPT } from './font-finder';
 import { RULER_SCRIPT } from './ruler';
 import {
   DEVICE_PRESETS,
@@ -8364,7 +8364,7 @@ export class NativeTabHost extends EventEmitter {
         this.stopLens();
       }
       if (this.isFontFinderActive && id === this.activeTabId) {
-        wc.executeJavaScript(FONT_FINDER_SCRIPT).catch(() => {});
+        this.stopFontFinder();
       }
       if (this.isInspecting && id === this.activeTabId) {
         const tm = TerminalManager.getInstance();
@@ -9022,19 +9022,11 @@ export class NativeTabHost extends EventEmitter {
         this.stopLens();
       }
       if (previousTab && previousTabId !== targetId && this.isFontFinderActive) {
-        const cleanScript = `(() => {
-          if (typeof window.__antifanFontFinderCleanup === 'function') window.__antifanFontFinderCleanup();
-          const tip = document.getElementById('antifan-font-tooltip');
-          if (tip) tip.remove();
-          const outline = document.getElementById('antifan-font-hover-outline');
-          if (outline) outline.remove();
-          window.__antifanFontFinderActive = false;
-        })()`;
         if (previousTab.view && !previousTab.view.webContents.isDestroyed()) {
-          previousTab.view.webContents.executeJavaScript(cleanScript).catch(() => {});
+          previousTab.view.webContents.executeJavaScript(FONT_FINDER_CLEANUP_SCRIPT).catch(() => {});
         }
         if (previousTab.mobileView && !previousTab.mobileView.webContents.isDestroyed()) {
-          previousTab.mobileView.webContents.executeJavaScript(cleanScript).catch(() => {});
+          previousTab.mobileView.webContents.executeJavaScript(FONT_FINDER_CLEANUP_SCRIPT).catch(() => {});
         }
       }
 
@@ -9370,6 +9362,9 @@ export class NativeTabHost extends EventEmitter {
     }
     if (this.isLensActive && this.activeTabId === tabId) {
       this.stopLens();
+    }
+    if (this.isFontFinderActive && this.activeTabId === tabId) {
+      this.stopFontFinder();
     }
     if (this.activeTabId === tabId) {
       try {

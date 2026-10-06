@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-10-01T04:33:17.994Z",
+  "timestamp": "2026-10-06T10:42:58.909Z",
   "themeQa": {
     "beforeClick": {
       "btnText": "QA",
@@ -51,15 +51,15 @@
   "ipcCalls": [
     {
       "channel": "antifan:toolbar:get-initial-state",
-      "time": 1790829198294
+      "time": 1791283379386
     },
     {
       "channel": "antifan:toolbar:theme-qa-run",
-      "time": 1790829198799
+      "time": 1791283379906
     },
     {
       "channel": "antifan:workflow:get-state",
-      "time": 1790829199119
+      "time": 1791283380355
     },
     {
       "channel": "antifan:workflow:run",
@@ -103,13 +103,17 @@
           ]
         }
       },
-      "time": 1790829199957
+      "time": 1791283381103
     }
   ],
   "rendererLogs": [
     {
       "level": 2,
       "msg": "[ThemeStudio] Workspace identity unavailable; scoping the checklist to the unknown-workspace scope: Error: Error invoking remote method 'antifan:toolbar:workspace-identify': Error: No handler registered for 'antifan:toolbar:workspace-identify'"
+    },
+    {
+      "level": 2,
+      "msg": "[ThemeStudio] Checklist load failed; falling back to localStorage state: Error: Error invoking remote method 'antifan:toolbar:theme-checklist-load': Error: No handler registered for 'antifan:toolbar:theme-checklist-load'"
     },
     {
       "level": 3,

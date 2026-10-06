@@ -206,6 +206,45 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
     assert.ok(mobileScripts.some((s) => s.includes('__antifanFontFinderActive = false')));
   });
 
+  it('1c. stopFontFinder cleans up all open tabs and mobile views in split mode', () => {
+    const { ctx, scriptsExecuted, tabs } = createMockContext();
+    ctx.createTab('https://example.com/tab2');
+    const tab1 = tabs.get('tab-1')!;
+    const mobileScripts: string[] = [];
+    const mockMobileWc = {
+      isDestroyed: () => false,
+      executeJavaScript: async (script: string) => {
+        mobileScripts.push(script);
+        return undefined;
+      },
+    };
+    tab1.state.splitMode = true;
+    tab1.mobileView = { webContents: mockMobileWc } as unknown as MockTabRecord['mobileView'];
+
+    const devTools = new TabDevToolsHost(ctx);
+    devTools.setIsFontFinderActive(true);
+
+    devTools.stopFontFinder();
+    assert.strictEqual(devTools.getIsFontFinderActive(), false);
+    assert.ok(scriptsExecuted.filter((s) => s.includes('__antifanFontFinderActive = false')).length >= 2);
+    assert.ok(mobileScripts.some((s) => s.includes('__antifanFontFinderActive = false')));
+  });
+
+  it('1d. stopFontFinder resets active state so subsequent load does not re-inject', () => {
+    const { ctx } = createMockContext();
+    const devTools = new TabDevToolsHost(ctx);
+
+    devTools.startFontFinder();
+    assert.strictEqual(devTools.getIsFontFinderActive(), true);
+
+    devTools.stopFontFinder();
+    assert.strictEqual(devTools.getIsFontFinderActive(), false);
+
+    const wouldReinject = devTools.getIsFontFinderActive();
+    assert.strictEqual(wouldReinject, false);
+  });
+
+
   it('2. toggles GPU Lens, captures snapshot, and cleans up', async () => {
     const { ctx, scriptsExecuted, getBroadcastCount } = createMockContext();
     const devTools = new TabDevToolsHost(ctx);

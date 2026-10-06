@@ -226,6 +226,76 @@ describe('Split View 3 Fixes Regression Suite', () => {
     // Assert new tab received Font Finder injection
     assert.ok(newDesktopScripts.some(s => s.includes('__antifanFontFinderActive = true') || s.length > 50), 'New tab desktop received Font Finder script');
   });
+  it('Issue 2c: did-finish-load on active tab triggers stopFontFinder and stopLens handlers instead of re-injecting', () => {
+    const listeners = new Map<string, (...args: unknown[]) => void>();
+    const executedScripts: string[] = [];
+    let stopFontFinderCalled = 0;
+    let stopLensCalled = 0;
+
+    const mockWc = {
+      isDestroyed: () => false,
+      on: (event: string, fn: (...args: unknown[]) => void) => {
+        listeners.set(event, fn);
+      },
+      getURL: () => 'https://example.com/test',
+      session: {
+        cookies: {
+          flushStore: async () => {},
+        },
+      },
+      executeJavaScript: async (s: string) => {
+        executedScripts.push(s);
+      },
+      invalidate: () => {},
+      setWindowOpenHandler: () => {},
+    };
+
+    const tab = {
+      id: 'tab-1',
+      state: { url: 'https://example.com/test', splitMode: false },
+      view: { webContents: mockWc },
+      redirectChain: [] as string[],
+    };
+
+    const host = Object.create(NativeTabHost.prototype) as any;
+    host.shell = createShellDouble();
+    host.tabs = new Map([['tab-1', tab]]);
+    host.activeTabId = 'tab-1';
+    host.appliedClipRadius = new Set();
+    host.networkTracker = { ensureAttached: async () => {}, resetInflight: () => {} };
+    host.applySiteMute = () => {};
+    host.injectAutoJsonViewer = () => {};
+    host.isTabViewAttached = () => true;
+    host.updateLayout = () => {};
+    host.stopFontFinder = () => {
+      stopFontFinderCalled++;
+      host.isFontFinderActive = false;
+    };
+    host.stopLens = () => {
+      stopLensCalled++;
+      host.isLensActive = false;
+    };
+
+    // 1. When Font Finder is active on active tab, did-finish-load triggers stopFontFinder and does NOT re-inject
+    host.isFontFinderActive = true;
+    host.isLensActive = false;
+    (host as any).setupTabWebContentsEvents('tab-1', tab.view, tab.state, 'desktop');
+
+    const onFinishLoad = listeners.get('did-finish-load');
+    assert.ok(typeof onFinishLoad === 'function', 'did-finish-load listener registered');
+    onFinishLoad();
+
+    assert.strictEqual(stopFontFinderCalled, 1, 'stopFontFinder called on did-finish-load');
+    assert.strictEqual(host.isFontFinderActive, false, 'isFontFinderActive reset to false');
+    assert.strictEqual(executedScripts.filter(s => s.includes('__antifanFontFinderActive = true')).length, 0, 'No Font Finder script injected on reload');
+
+    // 2. When GPU Lens is active on active tab, did-finish-load triggers stopLens and does NOT re-inject
+    host.isLensActive = true;
+    onFinishLoad();
+    assert.strictEqual(stopLensCalled, 1, 'stopLens called on did-finish-load');
+    assert.strictEqual(host.isLensActive, false, 'isLensActive reset to false');
+    assert.strictEqual(executedScripts.filter(s => s.includes('__antifanLensActive = true')).length, 0, 'No GPU Lens script injected on reload');
+  });
 
   it('Issue 3: ELEMENT_PICKER_SCRIPT includes dynamic repositioning, max-height clamping, and resize listeners', () => {
     // 1. Verify script has max-height and overflow constraints on modal style

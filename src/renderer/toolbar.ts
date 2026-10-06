@@ -3613,6 +3613,11 @@ function updateControls() {
     if (isFontFinderActive) btnFontFinder.classList.add('mode-active');
     else btnFontFinder.classList.remove('mode-active');
   }
+  const menuItemFontFinder = document.getElementById('menuItemFontFinder');
+  if (menuItemFontFinder) {
+    if (isFontFinderActive) menuItemFontFinder.classList.add('mode-active');
+    else menuItemFontFinder.classList.remove('mode-active');
+  }
   const menuItemGpuLens = document.getElementById('menuItemGpuLens');
   if (menuItemGpuLens) {
     if (isLensActive) menuItemGpuLens.classList.add('mode-active');

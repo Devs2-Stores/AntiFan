@@ -132,9 +132,22 @@ export class BlueprintExtractor {
       return false;
     };
 
+    const isFramerInactiveVariant = (node: ParsedElementNode): boolean => {
+      const framerName = node.attributes['data-framer-name'];
+      if (!framerName) return false;
+      const style = (node.attributes['style'] || '').toLowerCase();
+      const ariaHidden = node.attributes['aria-hidden'];
+      const hiddenAttr = node.attributes['hidden'];
+      if (ariaHidden === 'true' || hiddenAttr !== undefined) return true;
+      if (style.includes('display:none') || style.includes('display: none') || style.includes('visibility:hidden')) {
+        return true;
+      }
+      return false;
+    };
+
     let secIndex = 1;
     for (const node of blocks) {
-      if (isNodeEmpty(node) || isThirdPartyWidget(node)) {
+      if (isNodeEmpty(node) || isThirdPartyWidget(node) || isFramerInactiveVariant(node)) {
         continue;
       }
 

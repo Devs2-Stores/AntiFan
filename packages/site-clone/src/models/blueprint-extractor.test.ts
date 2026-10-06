@@ -312,4 +312,26 @@ describe('BlueprintExtractor - AST DOM Parsing & Safety Invariants', () => {
       'Real content section is preserved'
     );
   });
+
+  it('14. Prunes inactive Framer Dual-DOM responsive variant branches (hidden Phone/Mobile variants)', () => {
+    const html = `
+      <body>
+        <section data-framer-name="Desktop" class="framer-hero">
+          <h1>Desktop Hero Banner</h1>
+        </section>
+        <section data-framer-name="Phone" class="framer-hero-phone" style="display:none;" aria-hidden="true">
+          <h1>Mobile Hero Banner (Hidden Variant)</h1>
+        </section>
+        <section class="section-footer">
+          <p>Footer Content</p>
+        </section>
+      </body>
+    `;
+
+    const sections = extractor.extractSections(html);
+    assert.strictEqual(sections.length, 2, 'Inactive Framer variant must be pruned');
+    assert.ok(sections[0].rawHtml.includes('Desktop Hero Banner'));
+    assert.ok(!sections.some(s => s.rawHtml.includes('Mobile Hero Banner (Hidden Variant)')));
+    assert.ok(sections[1].rawHtml.includes('Footer Content'));
+  });
 });

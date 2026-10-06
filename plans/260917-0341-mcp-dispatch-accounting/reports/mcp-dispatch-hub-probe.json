@@ -1,22 +1,22 @@
 {
   "probe": "test/e2e/mcp-dispatch-hub-probe.cjs",
-  "startedAt": "2026-10-01T04:33:14.997Z",
-  "finishedAt": "2026-10-01T04:33:16.948Z",
+  "startedAt": "2026-10-06T10:42:55.095Z",
+  "finishedAt": "2026-10-06T10:42:57.410Z",
   "electron": "43.4.0",
   "node": "24.18.1",
   "cwd": "E:\\Work\\apps\\AntiFan",
   "artifacts": {
     "toolbarHtml": {
       "path": ".compiled\\src\\renderer\\toolbar.html",
-      "sha256": "282b6ba7c182d04719a24a6c3a6c2d0d420eec084f430b31c6c5d7bc4c0fdb29",
-      "bytes": 59781,
-      "mtimeMs": 1790751882239.9905
+      "sha256": "df659c56b12e337429100ff5ac9d1957d8d221d6a3c0d2a07c6b06aff5ff0dee",
+      "bytes": 60234,
+      "mtimeMs": 1791040992195.7512
     },
     "toolbarJs": {
       "path": ".compiled\\src\\renderer\\toolbar.js",
-      "sha256": "2fc66633def1d7b30aacf8fe74ce13c20c88d10a4de9e2c968dda976edab929b",
-      "bytes": 265419,
-      "mtimeMs": 1790828884431.0667
+      "sha256": "88cae5d84090585410d6adb8586eee61122f5930ebcfbd923801753c7f8d7079",
+      "bytes": 291954,
+      "mtimeMs": 1791223344985.882
     },
     "exportsShim": {
       "path": ".compiled\\src\\renderer\\exports-shim.js",
@@ -26,31 +26,31 @@
     },
     "toolbarPreload": {
       "path": ".compiled\\src\\preload\\toolbar-preload.js",
-      "sha256": "308562525b14de304cd61cd5e8ba7e72179ac0f81fe8bce9471b431230b6b764",
-      "bytes": 14774,
-      "mtimeMs": 1790826207597.2954
+      "sha256": "94b060efc5d9fde74dc05d5f874cc03dc837a498033e2d2fe246e2d7e6e58b69",
+      "bytes": 16074,
+      "mtimeMs": 1791219490626.8442
     },
     "mcpDispatchService": {
       "path": ".compiled\\src\\main\\diagnostics\\mcp-dispatch-service.js",
       "sha256": "9e0dbbce342e17a6f4426e72be4560ce869a188eee8166065a63063304238d71",
       "bytes": 37148,
-      "mtimeMs": 1790826206147.7026
+      "mtimeMs": 1791219488527.3362
     },
     "sourceToolbarTs": {
       "path": "src\\renderer\\toolbar.ts",
-      "sha256": "09d61a86d9b88941e2bd75d83a63e9381d6f3c4f37203f5b2e5aa9dfacf126e8",
-      "bytes": 272582,
-      "mtimeMs": 1790752420754.934
+      "sha256": "fd9afd97ed2d5d97a161948886e90693ed10402fbfe68569a271edac2aafb422",
+      "bytes": 278988,
+      "mtimeMs": 1791186518548.5771
     },
     "sourceToolbarHtml": {
       "path": "src\\renderer\\toolbar.html",
-      "sha256": "282b6ba7c182d04719a24a6c3a6c2d0d420eec084f430b31c6c5d7bc4c0fdb29",
-      "bytes": 59781,
-      "mtimeMs": 1790751882239.9905
+      "sha256": "df659c56b12e337429100ff5ac9d1957d8d221d6a3c0d2a07c6b06aff5ff0dee",
+      "bytes": 60234,
+      "mtimeMs": 1791040992195.7512
     },
     "sourceVsCompiled": {
-      "compiledToolbarJsMtimeMs": 1790828884431.0667,
-      "sourceToolbarTsMtimeMs": 1790752420754.934,
+      "compiledToolbarJsMtimeMs": 1791223344985.882,
+      "sourceToolbarTsMtimeMs": 1791186518548.5771,
       "sourceIsNewerThanCompiled": false,
       "note": "This probe observes the COMPILED renderer. If the source is newer, the observed revision is not the current source revision and the hashes above (not the working tree) define what passed. Re-run after a compile to certify the newer source."
     }
@@ -106,7 +106,7 @@
     "location": "file:///E:/Work/apps/AntiFan/.compiled/src/renderer/toolbar.html",
     "readyState": "complete",
     "title": "AntiFan Browser",
-    "bridgeKeys": 82,
+    "bridgeKeys": 86,
     "hasBridge": true,
     "hasGetMcpDispatchState": true,
     "hasGetWorkflowState": true,
@@ -128,7 +128,7 @@
     },
     "overlayBefore": "none",
     "baselineCensus": {
-      "elements": 740,
+      "elements": 747,
       "img": 1,
       "imgWithOnerror": 0,
       "script": 2,
@@ -159,7 +159,7 @@
       "residueElements": 0
     },
     "afterSelfTestCensus": {
-      "elements": 740,
+      "elements": 747,
       "img": 1,
       "imgWithOnerror": 0,
       "script": 2,
@@ -187,7 +187,7 @@
         "sentinelWait": {
           "ok": true,
           "label": "list text contains sentinel calls 7",
-          "waitedMs": 62
+          "waitedMs": 198
         },
         "navClass": "hub-nav-tab active",
         "navAriaSelected": null,
@@ -389,7 +389,7 @@
         "detailNameChildElementCount": 0,
         "detailDescChildElementCount": 0,
         "census": {
-          "elements": 772,
+          "elements": 779,
           "img": 1,
           "imgWithOnerror": 0,
           "script": 2,
@@ -477,7 +477,7 @@
         "sentinelWait": {
           "ok": true,
           "label": "list text contains sentinel NO_DATA_ROOT_RESOLVED",
-          "waitedMs": 65
+          "waitedMs": 60
         },
         "navClass": "hub-nav-tab active",
         "navAriaSelected": null,
@@ -533,7 +533,7 @@
         "detailNameChildElementCount": 0,
         "detailDescChildElementCount": 0,
         "census": {
-          "elements": 741,
+          "elements": 748,
           "img": 1,
           "imgWithOnerror": 0,
           "script": 2,
@@ -615,7 +615,7 @@
         "sentinelWait": {
           "ok": true,
           "label": "list text contains sentinel CENSUS_DRIFT",
-          "waitedMs": 65
+          "waitedMs": 61
         },
         "navClass": "hub-nav-tab active",
         "navAriaSelected": null,
@@ -671,7 +671,7 @@
         "detailNameChildElementCount": 0,
         "detailDescChildElementCount": 0,
         "census": {
-          "elements": 741,
+          "elements": 748,
           "img": 1,
           "imgWithOnerror": 0,
           "script": 2,
@@ -753,7 +753,7 @@
         "sentinelWait": {
           "ok": true,
           "label": "list text contains sentinel UNRECOGNIZED",
-          "waitedMs": 51
+          "waitedMs": 56
         },
         "navClass": "hub-nav-tab active",
         "navAriaSelected": null,
@@ -927,7 +927,7 @@
         "detailNameChildElementCount": 0,
         "detailDescChildElementCount": 0,
         "census": {
-          "elements": 770,
+          "elements": 777,
           "img": 1,
           "imgWithOnerror": 0,
           "script": 2,
@@ -1048,7 +1048,7 @@
         "sentinelWait": {
           "ok": true,
           "label": "list text contains sentinel secrets",
-          "waitedMs": 51
+          "waitedMs": 62
         },
         "navClass": "hub-nav-tab active",
         "navAriaSelected": null,
@@ -1140,22 +1140,22 @@
           },
           "docScrollHeight": 695,
           "list": {
-            "w": 319.14,
-            "h": 576.38,
-            "top": 269.39,
-            "left": 48.33
+            "w": 324,
+            "h": 585.16,
+            "top": 268.2,
+            "left": 40.05
           },
           "reconciliation": {
-            "w": 303.38,
-            "h": 121.19,
-            "top": 277.27,
-            "left": 56.21
+            "w": 308,
+            "h": 123.03,
+            "top": 276.2,
+            "left": 48.05
           },
           "margin": {
-            "w": 303.38,
-            "h": 52.24,
-            "top": 630.98,
-            "left": 56.21
+            "w": 308,
+            "h": 53.03,
+            "top": 635.3,
+            "left": 48.05
           },
           "truncation": null,
           "rowsWithPositiveHeight": 5,
@@ -1163,46 +1163,46 @@
             {
               "id": "mcpDispatchReconciliation",
               "rect": {
-                "w": 303.38,
-                "h": 121.19,
-                "top": 277.27,
-                "left": 56.21
+                "w": 308,
+                "h": 123.03,
+                "top": 276.2,
+                "left": 48.05
               }
             },
             {
               "id": "mcpDispatchRow:0",
               "rect": {
-                "w": 303.38,
-                "h": 107.4,
-                "top": 404.37,
-                "left": 56.21
+                "w": 308,
+                "h": 109.03,
+                "top": 405.23,
+                "left": 48.05
               }
             },
             {
               "id": "mcpDispatchRow:1",
               "rect": {
-                "w": 303.38,
-                "h": 107.4,
-                "top": 517.67,
-                "left": 56.21
+                "w": 308,
+                "h": 109.03,
+                "top": 520.27,
+                "left": 48.05
               }
             },
             {
               "id": "mcpDispatchQuarantineMargin",
               "rect": {
-                "w": 303.38,
-                "h": 52.24,
-                "top": 630.98,
-                "left": 56.21
+                "w": 308,
+                "h": 53.03,
+                "top": 635.3,
+                "left": 48.05
               }
             },
             {
               "id": "mcpDispatchCoreHole",
               "rect": {
-                "w": 303.38,
-                "h": 148.77,
-                "top": 689.13,
-                "left": 56.21
+                "w": 308,
+                "h": 151.03,
+                "top": 694.33,
+                "left": 48.05
               }
             }
           ],
@@ -1222,7 +1222,7 @@
         "detailNameChildElementCount": 0,
         "detailDescChildElementCount": 0,
         "census": {
-          "elements": 770,
+          "elements": 777,
           "img": 1,
           "imgWithOnerror": 0,
           "script": 2,
@@ -1761,73 +1761,73 @@
     {
       "channel": "antifan:toolbar:get-initial-state",
       "scenario": null,
-      "at": "2026-10-01T04:33:15.325Z",
+      "at": "2026-10-06T10:42:55.649Z",
       "argSummary": null
     },
     {
       "channel": "antifan:toolbar:workspace-identify",
       "scenario": null,
-      "at": "2026-10-01T04:33:15.326Z",
+      "at": "2026-10-06T10:42:55.651Z",
       "argSummary": null
     },
     {
       "channel": "antifan:toolbar:get-phone-status",
       "scenario": null,
-      "at": "2026-10-01T04:33:15.330Z",
+      "at": "2026-10-06T10:42:55.656Z",
       "argSummary": "undefined"
     },
     {
       "channel": "antifan:workflow:get-state",
       "scenario": "A-measured-truncated",
-      "at": "2026-10-01T04:33:15.379Z",
+      "at": "2026-10-06T10:42:55.755Z",
       "argSummary": null
     },
     {
       "channel": "antifan:core-health:get-state",
       "scenario": "A-measured-truncated",
-      "at": "2026-10-01T04:33:15.379Z",
+      "at": "2026-10-06T10:42:55.755Z",
       "argSummary": "undefined"
     },
     {
       "channel": "antifan:mcp-dispatch:get-state",
       "scenario": "A-measured-truncated",
-      "at": "2026-10-01T04:33:15.379Z",
+      "at": "2026-10-06T10:42:55.755Z",
       "argSummary": null
     },
     {
       "channel": "antifan:toolbar:set-overlay",
       "scenario": "A-measured-truncated",
-      "at": "2026-10-01T04:33:15.379Z",
+      "at": "2026-10-06T10:42:55.756Z",
       "argSummary": "true"
     },
     {
       "channel": "antifan:mcp-dispatch:get-state",
       "scenario": "A-measured-truncated",
-      "at": "2026-10-01T04:33:15.380Z",
+      "at": "2026-10-06T10:42:55.757Z",
       "argSummary": null
     },
     {
       "channel": "antifan:mcp-dispatch:get-state",
       "scenario": "B-unmeasured-no-census",
-      "at": "2026-10-01T04:33:15.864Z",
+      "at": "2026-10-06T10:42:56.272Z",
       "argSummary": null
     },
     {
       "channel": "antifan:mcp-dispatch:get-state",
       "scenario": "C-unmeasured-with-census",
-      "at": "2026-10-01T04:33:16.062Z",
+      "at": "2026-10-06T10:42:56.472Z",
       "argSummary": null
     },
     {
       "channel": "antifan:mcp-dispatch:get-state",
       "scenario": "D1-hostile-projected",
-      "at": "2026-10-01T04:33:16.261Z",
+      "at": "2026-10-06T10:42:56.679Z",
       "argSummary": null
     },
     {
       "channel": "antifan:mcp-dispatch:get-state",
       "scenario": "D2-hostile-raw",
-      "at": "2026-10-01T04:33:16.597Z",
+      "at": "2026-10-06T10:42:57.042Z",
       "argSummary": null
     }
   ],
@@ -1846,7 +1846,7 @@
       "expected": "window.antifanToolbar.getMcpDispatchState is a function (real compiled preload)",
       "observed": {
         "hasBridge": true,
-        "bridgeKeys": 82,
+        "bridgeKeys": 86,
         "hasGetMcpDispatchState": true,
         "hasGetWorkflowState": true
       }
@@ -1918,7 +1918,7 @@
       "expected": "baseline document has 0 elements with inline on* attributes, 0 img[onerror], canary 0",
       "observed": {
         "census": {
-          "elements": 740,
+          "elements": 747,
           "img": 1,
           "imgWithOnerror": 0,
           "script": 2,
@@ -1943,7 +1943,7 @@
       "expected": "window.alert override armed and never invoked (canary === 0)",
       "observed": {
         "canary": 0,
-        "elements": 740
+        "elements": 747
       }
     },
     {
@@ -1977,7 +1977,7 @@
         "sentinelWait": {
           "ok": true,
           "label": "list text contains sentinel calls 7",
-          "waitedMs": 62
+          "waitedMs": 198
         },
         "listItemCount": 6,
         "listIds": [
@@ -2216,7 +2216,7 @@
         "sentinelWait": {
           "ok": true,
           "label": "list text contains sentinel NO_DATA_ROOT_RESOLVED",
-          "waitedMs": 65
+          "waitedMs": 60
         },
         "listItemCount": 0,
         "notice": {
@@ -2375,7 +2375,7 @@
           ]
         },
         "census": {
-          "elements": 770,
+          "elements": 777,
           "img": 1,
           "imgWithOnerror": 0,
           "script": 2,
@@ -2384,7 +2384,7 @@
           "canary": 0
         },
         "baseline": {
-          "elements": 740,
+          "elements": 747,
           "img": 1,
           "imgWithOnerror": 0,
           "script": 2,
@@ -2494,7 +2494,7 @@
           ]
         },
         "census": {
-          "elements": 770,
+          "elements": 777,
           "img": 1,
           "imgWithOnerror": 0,
           "script": 2,
@@ -2503,7 +2503,7 @@
           "canary": 0
         },
         "baseline": {
-          "elements": 740,
+          "elements": 747,
           "img": 1,
           "imgWithOnerror": 0,
           "script": 2,

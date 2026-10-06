@@ -277,3 +277,18 @@ export const FONT_FINDER_SCRIPT = `(() => {
   window.addEventListener('keydown', onKey, true);
   if (document.documentElement) document.documentElement.style.cursor = 'help';
 })();`;
+
+export const FONT_FINDER_CLEANUP_SCRIPT = `(() => {
+  if (typeof window.__antifanFontFinderCleanup === 'function') {
+    try { window.__antifanFontFinderCleanup(); } catch {}
+  }
+  const bg = document.getElementById('antifan-font-badge');
+  if (bg) bg.remove();
+  const ov = document.getElementById('antifan-font-overlay');
+  if (ov) ov.remove();
+  const st = document.getElementById('antifan-font-styles');
+  if (st) st.remove();
+  if (document.documentElement) document.documentElement.style.cursor = '';
+  window.__antifanFontFinderActive = false;
+  window.__antifanFontFinderCleanup = null;
+})()`;

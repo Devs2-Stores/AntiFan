@@ -377,6 +377,8 @@ describe('Phase 5: Playwright Parity Kernel & Gap Telemetry Verification', () =>
       getTabRecord: () => ({ state: { id: 'tab-p1', offscreen: true } }),
       getActiveTabId: () => 'tab-user',
       getTabWebContents: () => mockWc,
+      getAllTabs: () => [][Symbol.iterator](),
+      broadcastState: () => {},
       withTabAgentWorking: async (_tabId: string, fn: () => Promise<string>) => fn(),
     });
 
@@ -428,6 +430,8 @@ describe('Phase 5: Playwright Parity Kernel & Gap Telemetry Verification', () =>
       getTabRecord: () => ({ state: { id: 'tab-303' } }),
       getActiveTabId: () => 'tab-303',
       getTabWebContents: () => mockWc,
+      getAllTabs: () => [][Symbol.iterator](),
+      broadcastState: () => {},
     });
 
     // 1. Concurrent command dispatch: AsyncMethodA (20ms) and AsyncMethodB (5ms) dispatched simultaneously
@@ -898,6 +902,8 @@ describe('Phase 5: Playwright Parity Kernel & Gap Telemetry Verification', () =>
       getTabRecord: () => ({ state: { id: 'tab-101' } }),
       getActiveTabId: () => 'tab-101',
       getTabWebContents: () => mockWc1,
+      getAllTabs: () => [][Symbol.iterator](),
+      broadcastState: () => {},
     });
 
     // Execute CDP commands on both WebContents

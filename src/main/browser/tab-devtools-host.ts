@@ -9,7 +9,7 @@ import path from 'node:path';
 import { net, clipboard, Rectangle } from 'electron';
 import { AntiFanTab, SplitPaneId, AntiFanPickedElement } from '../../shared/contracts';
 import { CapabilityError } from '../../shared/control-plane-contracts';
-import { FONT_FINDER_SCRIPT } from './font-finder';
+import { FONT_FINDER_SCRIPT, FONT_FINDER_CLEANUP_SCRIPT } from './font-finder';
 import { GPU_LENS_SCRIPT, GPU_LENS_CLEANUP_SCRIPT } from './gpu-lens';
 import { RULER_SCRIPT } from './ruler';
 import { ELEMENT_PICKER_SCRIPT } from './element-picker';
@@ -401,22 +401,15 @@ export class TabDevToolsHost {
 
   public stopFontFinder(): void {
     this.isFontFinderActive = false;
-    const active = this.ctx.getTabRecord(this.ctx.getActiveTabId());
-    if (active) {
-      const cleanScript = `(() => {
-        const bg = document.getElementById('antifan-font-badge');
-        if (bg) bg.remove();
-        const ov = document.getElementById('antifan-font-overlay');
-        if (ov) ov.remove();
-        if (typeof window.__antifanFontFinderCleanup === 'function') window.__antifanFontFinderCleanup();
-        if (document.documentElement) document.documentElement.style.cursor = '';
-        window.__antifanFontFinderActive = false;
-      })()`;
-      if (active.view && !active.view.webContents.isDestroyed()) {
-        active.view.webContents.executeJavaScript(cleanScript).catch(() => {});
+    const cleanWc = (wc: Electron.WebContents | null | undefined) => {
+      if (wc && !wc.isDestroyed()) {
+        wc.executeJavaScript(FONT_FINDER_CLEANUP_SCRIPT).catch(() => {});
       }
-      if (active.state.splitMode && active.mobileView && !active.mobileView.webContents.isDestroyed()) {
-        active.mobileView.webContents.executeJavaScript(cleanScript).catch(() => {});
+    };
+    for (const [, tab] of this.ctx.getAllTabs()) {
+      cleanWc(tab.view?.webContents);
+      if (tab.mobileView) {
+        cleanWc(tab.mobileView.webContents);
       }
     }
     this.ctx.broadcastState();
