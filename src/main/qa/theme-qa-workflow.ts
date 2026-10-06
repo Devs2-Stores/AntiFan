@@ -390,6 +390,10 @@ export class ThemeQaWorkflow {
       syncReceipt?: SyncSettleResult;
       initialDocGen?: number;
     };
+    /** Recovery counters from the capability wrapper (e.g. failover rebind after
+     * TARGET_STALE). The workflow performs no retries itself — it mirrors the
+     * caller's real counts so the report never hard-codes zero. */
+    recovery?: { attempted: number; succeeded: number };
   }): Promise<ThemeQaReport> {
     if (input.signal?.aborted) {
       throw new CapabilityError('TARGET_STALE', 'Theme QA validation was aborted by document navigation');
@@ -1294,7 +1298,7 @@ export class ThemeQaWorkflow {
         artifactIds: artifacts.map((item) => item.id),
         verification: verificationAxis,
         execution: executionAxis,
-        recovery: { attempted: 0, succeeded: 0 },
+        recovery: input.recovery ?? { attempted: 0, succeeded: 0 },
         evidenceCoverage,
         ...(isolationOutcome ? { trackerIsolation: isolationOutcome } : {}),
         createdAt: Date.now(),
@@ -1346,7 +1350,7 @@ export class ThemeQaWorkflow {
       ...(isolationOutcome ? { trackerIsolation: isolationOutcome } : {}),
       verification: verificationAxis,
       execution: executionAxis,
-      recovery: { attempted: 0, succeeded: 0 },
+      recovery: input.recovery ?? { attempted: 0, succeeded: 0 },
       evidenceCoverage,
       createdAt: Date.now(),
     };

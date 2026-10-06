@@ -21,7 +21,7 @@ describe('qa-state refusal classifier', () => {
     assert.equal(dispositionFor(capErr('NO_RENDER_SURFACE'), 'read'), 'DEGRADED_CONTINUE');
     assert.equal(dispositionFor(capErr('WAIT_TIMEOUT'), 'read'), 'RETRY_REQUIRED');
     assert.equal(dispositionFor(capErr('SETTLE_INCOMPLETE'), 'read'), 'INCONCLUSIVE');
-    assert.equal(dispositionFor(capErr('TRUST_BOUNDARY_VIOLATION'), 'read'), 'HARD_BLOCK');
+    assert.equal(dispositionFor(capErr('POLICY_DENIED'), 'read'), 'HARD_BLOCK');
     assert.equal(dispositionFor(capErr('REPLAY_DENIED'), 'read'), 'HARD_BLOCK');
   });
 

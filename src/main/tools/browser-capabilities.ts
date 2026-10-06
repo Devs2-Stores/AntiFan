@@ -1688,6 +1688,9 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         multiBreakpoint: params.multiBreakpoint,
         viewports: params.viewports,
         target: t,
+        // Mirror real wrapper recovery into the report — never hard-code zero
+        // after a failover rebind succeeded.
+        recovery: receiptRecovery,
       });
       try {
         if (!target?.tabId) {

@@ -64,9 +64,6 @@ export class ThemeMutationSession {
   private currentLineage: ThemeLineage;
   private readonly initialDocGen: number;
   private verifiedLineage = false;
-  /** Pre-mutation viewport capture (P1 mutation-relative visual baseline).
-   * Best-effort: absent when the tab is unreachable — never blocks begin(). */
-  private r0VisualBaselineRef: string | null = null;
 
   constructor(
     context: ThemeWorkspaceContext,

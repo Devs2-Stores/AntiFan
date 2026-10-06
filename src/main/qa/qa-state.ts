@@ -43,7 +43,6 @@ const HARD_BLOCK_CODES: Record<string, true> = {
   UNAUTHENTICATED: true,
   SCOPE_MISMATCH: true,
   ATTACHMENT_REBIND_FAILED: true,
-  TRUST_BOUNDARY_VIOLATION: true,
 };
 
 /** Transient target/state failures a read path may recover by rebind + one retry. */
