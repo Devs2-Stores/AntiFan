@@ -185,6 +185,7 @@ interface AntiFanToolbarApi {
   setOverlay: (active: boolean, customHeight?: number) => Promise<void>;
   getWorkflowState: () => Promise<{ tools: any[]; workflows: any[] }>;
   runWorkflow: (payload: { workflowId?: string; workflowDef?: any }) => Promise<any>;
+  invokeMcpTool: (payload: { name: string; params?: Record<string, unknown>; confirmRisk?: boolean }) => Promise<{ ok: boolean; data?: unknown; error?: { code: string; message: string } }>;
   abortWorkflow: () => Promise<boolean>;
   saveWorkflow: (item: { id?: string; name: string; description?: string; steps: unknown[] }) => Promise<unknown>;
   deleteWorkflow: (id: string) => Promise<boolean>;
@@ -1696,6 +1697,9 @@ const hubMcpDispatchProvenance = document.getElementById('mcpDispatchProvenance'
 const hubDetailEmpty = document.getElementById('hubDetailEmpty') as HTMLElement | null;
 const hubWfDetail = document.getElementById('hubWfDetail') as HTMLElement | null;
 const hubMcpDetail = document.getElementById('hubMcpDetail') as HTMLElement | null;
+const mcpInvokeParams = document.getElementById('mcpInvokeParams') as HTMLTextAreaElement | null;
+const mcpInvokeResult = document.getElementById('mcpInvokeResult') as HTMLElement | null;
+const btnRunMcpTool = document.getElementById('btnRunMcpTool') as HTMLButtonElement | null;
 
 const wfDetailCategory = document.getElementById('wfDetailCategory') as HTMLElement | null;
 const wfDetailName = document.getElementById('wfDetailName') as HTMLElement | null;
@@ -2939,6 +2943,86 @@ function selectMcpTool(tool: any) {
     } catch {
       mcpSchemaCode.textContent = String(tool.inputSchema);
     }
+  }
+  // Seed the invoke box with a params skeleton built from required schema fields so a
+  // one-field tool is one keystroke from runnable; optional fields stay out of it.
+  if (mcpInvokeParams) {
+    const schema = (tool.inputSchema && typeof tool.inputSchema === 'object') ? tool.inputSchema as { required?: unknown[]; properties?: Record<string, { type?: string; default?: unknown }> } : {};
+    const required = Array.isArray(schema.required) ? schema.required.filter((f): f is string => typeof f === 'string') : [];
+    const props = schema.properties && typeof schema.properties === 'object' ? schema.properties : {};
+    const skeleton: Record<string, unknown> = {};
+    for (const field of required) {
+      const prop = props[field] || {};
+      skeleton[field] = prop.default !== undefined ? prop.default : prop.type === 'number' || prop.type === 'integer' ? 0 : prop.type === 'boolean' ? false : prop.type === 'array' ? [] : prop.type === 'object' ? {} : '';
+    }
+    mcpInvokeParams.value = JSON.stringify(skeleton, null, 2);
+  }
+  if (mcpInvokeResult) {
+    mcpInvokeResult.style.display = 'none';
+    mcpInvokeResult.textContent = '';
+    mcpInvokeResult.classList.remove('is-error');
+  }
+  if (btnRunMcpTool) {
+    btnRunMcpTool.disabled = false;
+  }
+}
+
+let isMcpToolRunning = false;
+async function runSelectedMcpTool() {
+  const tool = hubSelectedMcpTool;
+  if (!tool || isMcpToolRunning || !mcpInvokeResult) return;
+  let params: Record<string, unknown> = {};
+  const rawParams = (mcpInvokeParams?.value || '').trim();
+  if (rawParams) {
+    try {
+      const parsed: unknown = JSON.parse(rawParams);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        mcpInvokeResult.style.display = 'block';
+        mcpInvokeResult.classList.add('is-error');
+        mcpInvokeResult.textContent = 'Params phải là một JSON object {…}';
+        return;
+      }
+      params = parsed as Record<string, unknown>;
+    } catch (err: unknown) {
+      mcpInvokeResult.style.display = 'block';
+      mcpInvokeResult.classList.add('is-error');
+      mcpInvokeResult.textContent = `JSON không hợp lệ: ${err instanceof Error ? err.message : String(err)}`;
+      return;
+    }
+  }
+
+  const risk = String((tool.permissions && tool.permissions[0]) || 'read');
+  let confirmRisk = false;
+  if (risk !== 'read') {
+    confirmRisk = await showConfirmDialog(`Tool '${tool.name}' có quyền '${risk.toUpperCase()}' — sẽ tác động tab/workspace hiện tại. Chạy luôn?`);
+    if (!confirmRisk) return;
+  }
+
+  isMcpToolRunning = true;
+  if (btnRunMcpTool) btnRunMcpTool.disabled = true;
+  mcpInvokeResult.style.display = 'block';
+  mcpInvokeResult.classList.remove('is-error');
+  mcpInvokeResult.textContent = `Đang chạy ${tool.name}…`;
+  try {
+    const res = await getApi()?.invokeMcpTool?.({ name: tool.name, params, confirmRisk });
+    if (!res) {
+      mcpInvokeResult.classList.add('is-error');
+      mcpInvokeResult.textContent = 'IPC invokeMcpTool không khả dụng.';
+      return;
+    }
+    if (res.ok) {
+      mcpInvokeResult.classList.remove('is-error');
+      mcpInvokeResult.textContent = typeof res.data === 'string' ? res.data : JSON.stringify(res.data ?? null, null, 2);
+    } else {
+      mcpInvokeResult.classList.add('is-error');
+      mcpInvokeResult.textContent = `${res.error?.code || 'ERROR'}: ${res.error?.message || 'Unknown error'}`;
+    }
+  } catch (err: unknown) {
+    mcpInvokeResult.classList.add('is-error');
+    mcpInvokeResult.textContent = err instanceof Error ? err.message : String(err);
+  } finally {
+    isMcpToolRunning = false;
+    if (btnRunMcpTool) btnRunMcpTool.disabled = false;
   }
 }
 
@@ -5257,6 +5341,7 @@ async function initToolbar() {
   tabNavRootCauses?.addEventListener('click', () => setHubTab('root-causes'));
   tabNavRegressions?.addEventListener('click', () => setHubTab('regressions'));
   tabNavMcpDispatch?.addEventListener('click', () => { setHubTab('mcp-dispatch'); void refreshMcpDispatchState(); });
+  btnRunMcpTool?.addEventListener('click', () => { void runSelectedMcpTool(); });
   btnCoreRefresh?.addEventListener('click', async () => {
     await refreshCoreHealthState(true);
     renderHubList();

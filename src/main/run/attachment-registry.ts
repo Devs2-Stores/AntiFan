@@ -147,6 +147,7 @@ function cloneAuthoritySnapshot(auth: MainResolvedAuthority): MainResolvedAuthor
 // write rate (~1 append per threshold per session) and how stale a reloaded record can be
 // after a restart.
 const RENEWAL_PERSIST_THRESHOLD_MS = 60_000;
+export const ATTACHMENT_SUSPENDED_GRACE_MS = 10_000;
 
 export class AttachmentRegistry {
   private readonly records = new Map<string, ExecutionAttachmentRecord>();
@@ -161,6 +162,8 @@ export class AttachmentRegistry {
   private closeAdmission?: PageCloseAdmission;
   private disposeListener?: (info: { attachmentId: string; tabId?: string; browserTarget?: BrowserTarget }) => void;
   private uncompactedFramesCount = 0;
+  private readonly suspendedTimers = new Map<string, NodeJS.Timeout>();
+  public suspendedGraceMs = ATTACHMENT_SUSPENDED_GRACE_MS;
   /**
    * Wall-clock stamp of the last durable frame per attachment. Renewals reset `expiresAt`
    * to `now + extensionMs`, so the throttle needs the elapsed time since the last durable
@@ -195,9 +198,18 @@ export class AttachmentRegistry {
   constructor(
     private readonly delegate?: AttachmentValidatorDelegate,
     private readonly dataRoot?: string,
-    maxHistoricalRevisions: number = 100
+    maxHistoricalRevisions: number = 100,
+    suspendedGraceMs?: number
   ) {
     this.maxHistoricalRevisions = Math.max(1, maxHistoricalRevisions ?? 100);
+    if (typeof suspendedGraceMs === 'number' && Number.isFinite(suspendedGraceMs) && suspendedGraceMs >= 0) {
+      this.suspendedGraceMs = suspendedGraceMs;
+    }
+  }
+
+  private clearSuspendedTimer(attachmentId: string): void {
+    clearTimeout(this.suspendedTimers.get(attachmentId));
+    this.suspendedTimers.delete(attachmentId);
   }
 
   private runWithMutationLock<T>(fn: () => Promise<T>): Promise<T> {
@@ -647,7 +659,7 @@ export class AttachmentRegistry {
     });
   }
 
-  authenticateAttachmentCredentials(attachmentId: string, secret: string): ExecutionAttachmentRecord {
+  authenticateAttachmentCredentials(attachmentId: string, secret: string, connectionId?: string): ExecutionAttachmentRecord {
     if (this.isQuarantined) {
       throw new CapabilityError('DURABILITY_FAILED', 'Attachment registry is in quarantined failure state');
     }
@@ -666,6 +678,19 @@ export class AttachmentRegistry {
     }
     if (record.state === 'revoked') {
       throw new CapabilityError('AUTHENTICATION_DENIED', `Attachment ${record.id} has been revoked`);
+    }
+    if (record.state === 'suspended') {
+      this.clearSuspendedTimer(attachmentId);
+      record.state = 'active';
+      if (connectionId && typeof connectionId === 'string') {
+        let conns = this.connectionIndex.get(attachmentId);
+        if (!conns) {
+          conns = new Set<string>();
+          this.connectionIndex.set(attachmentId, conns);
+        }
+        conns.add(connectionId);
+        record.connectionId = connectionId;
+      }
     }
     return record;
   }
@@ -714,9 +739,10 @@ export class AttachmentRegistry {
       runId?: string;
       attemptId?: string;
       authorityRevision?: string;
+      connectionId?: string;
     }
   ): { record: ExecutionAttachmentRecord; authority: MainResolvedAuthority } {
-    const record = this.authenticateAttachmentCredentials(attachmentId, secret);
+    const record = this.authenticateAttachmentCredentials(attachmentId, secret, lineage?.connectionId);
 
     if (lineage?.runId && lineage.runId !== record.runId) {
       throw new CapabilityError('LINEAGE_MISMATCH', `Run ID mismatch: expected ${record.runId}, got ${lineage.runId}`);
@@ -746,15 +772,21 @@ export class AttachmentRegistry {
 
   validateLiveExecution(record: ExecutionAttachmentRecord, revision: string, invocationId?: string): MainResolvedAuthority {
     if (record.state === 'expired' || Date.now() > record.expiresAt) {
+      this.clearSuspendedTimer(record.id);
       record.state = 'expired';
       this.notifyDispose(record);
       throw new CapabilityError('ATTACHMENT_STALE', `Attachment ${record.id} has expired`);
     }
 
     if (record.state === 'revoked') {
+      this.clearSuspendedTimer(record.id);
       throw new CapabilityError('ATTACHMENT_STALE', `Attachment ${record.id} has been revoked`);
     }
 
+    if (record.state === 'suspended') {
+      this.clearSuspendedTimer(record.id);
+      record.state = 'active';
+    }
     // Terminal-origin attachments stay bound to the project their terminal lives
     // in: re-resolve the minting terminal's scope on every dispatch so a terminal
     // moved to another project loses the authority minted under the old one.
@@ -867,12 +899,19 @@ export class AttachmentRegistry {
     }
 
     if (record.state === 'revoked') {
+      this.clearSuspendedTimer(record.id);
       throw new CapabilityError('ATTACHMENT_STALE', `Attachment ${record.id} has been revoked`);
     }
 
     if (record.state === 'expired' || Date.now() > record.expiresAt) {
+      this.clearSuspendedTimer(record.id);
       record.state = 'expired';
       throw new CapabilityError('ATTACHMENT_STALE', `Attachment ${record.id} has expired`);
+    }
+
+    if (record.state === 'suspended') {
+      this.clearSuspendedTimer(record.id);
+      record.state = 'active';
     }
 
     if (claims.runId && claims.runId !== record.runId) {
@@ -917,6 +956,7 @@ export class AttachmentRegistry {
       if (this.delegate.getHostEpoch) {
         const currentHostEpoch = this.delegate.getHostEpoch();
         if (record.hostEpoch !== currentHostEpoch) {
+          this.clearSuspendedTimer(record.id);
           record.state = 'revoked';
           throw new CapabilityError('ATTACHMENT_STALE', `Attachment host epoch ${record.hostEpoch} does not match current host epoch ${currentHostEpoch}`);
         }
@@ -925,6 +965,7 @@ export class AttachmentRegistry {
       if (this.delegate.getAttemptState) {
         const attemptState = this.delegate.getAttemptState(record.attemptId);
         if (attemptState === undefined || (attemptState !== 'running' && attemptState !== 'prepared' && attemptState !== 'dispatching')) {
+          this.clearSuspendedTimer(record.id);
           record.state = 'revoked';
           throw new CapabilityError('ATTEMPT_NOT_ACTIVE', `Attempt ${record.attemptId} is in terminal or inactive state: ${attemptState ?? 'unknown'}`);
         }
@@ -1125,7 +1166,7 @@ export class AttachmentRegistry {
     if (!token || typeof token !== 'string') return null;
     const now = Date.now();
     for (const record of this.records.values()) {
-      if (record.state === 'active' && now <= record.expiresAt) {
+      if ((record.state === 'active' || record.state === 'suspended') && now <= record.expiresAt) {
         if (verifySecret(token, record.secretHash)) {
           return record.id;
         }
@@ -1136,7 +1177,7 @@ export class AttachmentRegistry {
   verifyAttachmentSecret(attachmentId: string, secret: string): boolean {
     if (!attachmentId || typeof attachmentId !== 'string' || !secret || typeof secret !== 'string') return false;
     const record = this.records.get(attachmentId);
-    if (!record || record.state !== 'active' || Date.now() > record.expiresAt) return false;
+    if (!record || (record.state !== 'active' && record.state !== 'suspended') || Date.now() > record.expiresAt) return false;
     return verifySecret(secret, record.secretHash);
   }
   async renewAttachment(
@@ -1159,8 +1200,13 @@ export class AttachmentRegistry {
         throw new CapabilityError('ATTACHMENT_INVALID', 'Attachment secret verification failed');
       }
       if (Date.now() > record.expiresAt) {
+        this.clearSuspendedTimer(attachmentId);
         record.state = 'expired';
         throw new CapabilityError('ATTACHMENT_STALE', `Attachment ${record.id} has expired`);
+      }
+      this.clearSuspendedTimer(attachmentId);
+      if (record.state === 'suspended') {
+        record.state = 'active';
       }
       if (record.state !== 'active') {
         throw new CapabilityError(
@@ -1173,6 +1219,7 @@ export class AttachmentRegistry {
         if (this.delegate.getHostEpoch) {
           const currentHostEpoch = this.delegate.getHostEpoch();
           if (record.hostEpoch !== currentHostEpoch) {
+            this.clearSuspendedTimer(record.id);
             record.state = 'revoked';
             throw new CapabilityError('ATTACHMENT_STALE', `Attachment host epoch ${record.hostEpoch} does not match current host epoch ${currentHostEpoch}`);
           }
@@ -1188,6 +1235,7 @@ export class AttachmentRegistry {
           // mid-session as `AUTHENTICATION_DENIED: Attachment <id> has been revoked` and forced a
           // fresh pairing exchange on nearly every tool call.
           if (attemptState !== undefined && attemptState !== 'running' && attemptState !== 'prepared' && attemptState !== 'dispatching') {
+            this.clearSuspendedTimer(record.id);
             record.state = 'revoked';
             throw new CapabilityError('ATTEMPT_NOT_ACTIVE', `Attempt ${record.attemptId} is in terminal or inactive state: ${attemptState}`);
           }
@@ -1280,6 +1328,7 @@ export class AttachmentRegistry {
   }
 
   private async revokeAttachmentUnlocked(attachmentId: string): Promise<void> {
+    this.clearSuspendedTimer(attachmentId);
     const record = this.records.get(attachmentId);
     if (record) {
       // A terminal record renews nothing, so its renewing connections stop counting it:
@@ -1325,7 +1374,23 @@ export class AttachmentRegistry {
           this.connectionIndex.delete(attachmentId);
           const record = this.records.get(attachmentId);
           if (record && record.state === 'active') {
-            releasable.push(attachmentId);
+            if (this.suspendedGraceMs <= 0) {
+              releasable.push(attachmentId);
+            } else {
+              record.state = 'suspended';
+              this.clearSuspendedTimer(attachmentId);
+              const timer = setTimeout(() => {
+                void this.runWithMutationLock(async () => {
+                  this.suspendedTimers.delete(attachmentId);
+                  const current = this.records.get(attachmentId);
+                  if (current && current.state === 'suspended') {
+                    await this.revokeAttachmentUnlocked(attachmentId);
+                  }
+                });
+              }, this.suspendedGraceMs);
+              timer.unref?.();
+              this.suspendedTimers.set(attachmentId, timer);
+            }
           }
         }
       }
@@ -1339,6 +1404,19 @@ export class AttachmentRegistry {
     await this.runWithMutationLock(async () => {
       await this.revokeAttachmentUnlocked(attachmentId);
     });
+  }
+
+  dispose(): void {
+    for (const [attachmentId, timer] of this.suspendedTimers) {
+      clearTimeout(timer);
+      const record = this.records.get(attachmentId);
+      if (record && record.state === 'suspended') {
+        record.state = 'revoked';
+        record.revokedAt = Date.now();
+        this.notifyDispose(record);
+      }
+    }
+    this.suspendedTimers.clear();
   }
 
   /** Phase 2 (step 10): deterministic attachment disposal hook. The composition root
@@ -1503,8 +1581,9 @@ export class AttachmentRegistry {
       let retained = 0;
       const now = Date.now();
       for (const record of [...this.records.values()]) {
-        if (record.state !== 'active') continue;
+        if (record.state !== 'active' && record.state !== 'suspended') continue;
         if (typeof record.expiresAt === 'number' && record.expiresAt <= now) {
+          this.clearSuspendedTimer(record.id);
           const candidateRecord: ExecutionAttachmentRecord = { ...record, state: 'expired' };
           const existingRevisions = Array.from(this.revisions.values()).filter((r) => r.attachmentId === record.id);
           await this.appendPersistenceFrameUnlocked(candidateRecord, existingRevisions);
@@ -1548,7 +1627,7 @@ export class AttachmentRegistry {
     const now = Date.now();
     const MAX_EXPIRED_RETENTION_MS = 24 * 60 * 60 * 1000;
     for (const record of this.records.values()) {
-      if (record.state === 'active' || (record.expiresAt && now <= record.expiresAt + MAX_EXPIRED_RETENTION_MS)) {
+      if (record.state === 'active' || record.state === 'suspended' || (record.expiresAt && now <= record.expiresAt + MAX_EXPIRED_RETENTION_MS)) {
         ids.add(record.id);
       }
     }

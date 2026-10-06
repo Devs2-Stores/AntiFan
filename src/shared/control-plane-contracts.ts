@@ -584,7 +584,7 @@ export interface AuthenticatedCapabilityContext {
   authorityRevision?: string;
   dispatchChildIntent?: (spec: ChildDispatchSpec) => Promise<InternalChildCapabilityResponse>;
 }
-export type AttachmentState = 'issued' | 'bound' | 'active' | 'revoked' | 'expired' | 'stale';
+export type AttachmentState = 'issued' | 'bound' | 'active' | 'revoked' | 'expired' | 'stale' | 'suspended';
 
 export interface ExecutionAttachmentRecord {
   id: string;

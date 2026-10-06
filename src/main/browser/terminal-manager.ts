@@ -261,6 +261,8 @@ export class SessionRecord {
   public pendingClearScreen?: boolean;
   public altScreen?: boolean;
   public altScreenScanTail?: string;
+  public win32InputMode?: boolean;
+  public win32InputScanTail?: string;
   public inputLineBuffer?: string;
   public category?: string;
   public sleptAt?: number;
@@ -485,6 +487,10 @@ const MAX_EMIT_TIME_STAMPS_PER_SESSION = 256;
 export const ALT_SCREEN_ON_SEQ = '\x1b[?1049h';
 export const ALT_SCREEN_OFF_SEQ = '\x1b[?1049l';
 export const ALT_SCREEN_SEQ_LENGTH = ALT_SCREEN_ON_SEQ.length;
+export const WIN32_INPUT_MODE_ON_SEQ = '\x1b[?9001h';
+export const WIN32_INPUT_MODE_OFF_SEQ = '\x1b[?9001l';
+export const WIN32_INPUT_MODE_SEQ_LENGTH = 8;
+export const WIN32_INPUT_LEAKED_KEYSTROKE_RE = /;\d+;\d+;\d+;\d+_\[/;
 // waitTerminal output-match scans only the transcript tail: a full 4MB regex
 // scan on every wait call stalls the main thread for a match that virtually
 // always lives in recent output.
@@ -1771,12 +1777,41 @@ export class TerminalManager extends EventEmitter {
     // retained. The last escape seen wins when both appear in one chunk: leaving
     // the alternate screen is what a viewer must observe, and a stale `true`
     // would silence the next clear-screen repaint.
+    const prevAltScreen = Boolean(s.altScreen);
     const altScan = (s.altScreenScanTail || '') + data;
     s.altScreenScanTail = altScan.slice(-(ALT_SCREEN_SEQ_LENGTH - 1));
+    let justLeftAltScreen = false;
     if (altScan.includes('\x1b[?1049')) {
       const entered = altScan.lastIndexOf(ALT_SCREEN_ON_SEQ);
       const left = altScan.lastIndexOf(ALT_SCREEN_OFF_SEQ);
-      if (entered >= 0 || left >= 0) s.altScreen = entered > left;
+      if (entered >= 0 || left >= 0) {
+        s.altScreen = entered > left;
+        if (!s.altScreen && (prevAltScreen || left > entered)) {
+          justLeftAltScreen = true;
+        }
+      }
+    }
+    const win32Scan = (s.win32InputScanTail || '') + data;
+    s.win32InputScanTail = win32Scan.slice(-(WIN32_INPUT_MODE_SEQ_LENGTH - 1));
+    if (win32Scan.includes('\x1b[?9001')) {
+      const entered = win32Scan.lastIndexOf(WIN32_INPUT_MODE_ON_SEQ);
+      const left = win32Scan.lastIndexOf(WIN32_INPUT_MODE_OFF_SEQ);
+      if (entered >= 0 || left >= 0) s.win32InputMode = entered > left;
+    }
+    if (!s.altScreen && s.win32InputMode === true) {
+      const leakedKeystrokes = WIN32_INPUT_LEAKED_KEYSTROKE_RE.test(data);
+      if (leakedKeystrokes || justLeftAltScreen) {
+        try {
+          s.pty?.write(WIN32_INPUT_MODE_OFF_SEQ);
+        } catch {}
+        s.win32InputMode = false;
+        recordBenchmark({
+          surface: 'terminal',
+          name: 'win32InputRecovered',
+          extra: { sessionId: s.id, reason: leakedKeystrokes ? 'leakedKeystroke' : 'altScreenExit' },
+        });
+        this.emit('terminal.win32InputRecovered', { sessionId: s.id });
+      }
     }
     if (s.pendingClearScreen && !s.altScreen) {
       // The shell is repainting after cls/clear/Ctrl+L: drop the transcript and
@@ -2080,6 +2115,10 @@ export class TerminalManager extends EventEmitter {
     // Detach the handle synchronously: a keystroke arriving during the async kill
     // must not be written into a process that is being torn down.
     s.pty = null;
+    s.altScreen = false;
+    s.altScreenScanTail = undefined;
+    s.win32InputMode = false;
+    s.win32InputScanTail = undefined;
     const pid = ptyInstance?.pid;
     // A pty write issued in the current event-loop turn is still queued on the
     // libuv loop. Tearing the pty down before that write flushes leaves a
@@ -2443,6 +2482,8 @@ export class TerminalManager extends EventEmitter {
     s.pendingClearScreen = false;
     s.altScreen = false;
     s.altScreenScanTail = undefined;
+    s.win32InputMode = false;
+    s.win32InputScanTail = undefined;
     s.inputLineBuffer = '';
     s.state = 'sleeping';
     s.sleptAt = Date.now();

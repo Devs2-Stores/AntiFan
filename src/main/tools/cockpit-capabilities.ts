@@ -12,6 +12,11 @@
  * Registration must never dereference `cockpit` or `browser` members: the
  * budget-dominance gate builds the catalogue against recording stubs, so
  * collaborator access happens only inside `execute` bodies.
+ * MAINTENANCE: adding/removing/renaming a `theme.cockpit_*` capability (or its
+ * error semantics) must update the managed skill `antifan-qa-cockpit`
+ * (~/.omp/agent/managed-skills/antifan-qa-cockpit/SKILL.md) in the same commit —
+ * its §4 reference table is regenerated from this file, and its refusal table
+ * mirrors the CapabilityError codes thrown below.
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';

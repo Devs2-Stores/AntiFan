@@ -1298,11 +1298,12 @@ export function checkRouteIdentity(
     };
   }
 
+  const normalizeUrlInput = (u: string) => (/^https?:\/\//i.test(u.trim()) ? u.trim() : 'https://' + u.trim());
   const trimmedExpected = expectedUrl.trim();
   let expectedParsed: URL;
   let observedParsed: URL;
   try {
-    expectedParsed = new URL(trimmedExpected);
+    expectedParsed = new URL(normalizeUrlInput(trimmedExpected));
   } catch (err) {
     return {
       ok: false,
@@ -1316,7 +1317,7 @@ export function checkRouteIdentity(
     };
   }
   try {
-    observedParsed = new URL(safeObserved);
+    observedParsed = new URL(normalizeUrlInput(safeObserved));
   } catch (err) {
     return {
       ok: false,

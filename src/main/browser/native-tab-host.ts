@@ -52,6 +52,7 @@ import { buildPreviewUrl, parsePreviewUrl } from '../server/preview-url-codec';
 import type { ControlPlaneResourceStats, ControlPlaneRuntime } from '../control-plane/control-plane-runtime';
 import type { BrowserTarget } from '../../shared/control-plane-contracts';
 import type { WorkflowDefinition } from '../workflow/workflow-schema';
+import type { CliSessionResult } from '../run/run-service';
 import { ChromeProfileSyncManager } from './chrome-profile-sync';
 import { buildCookieSetDetails, runCapsuleToProfileMigration, type CapsuleMigrationCookie, type CapsuleMigrationDeps } from './capsule-partition-migration';
 import { LocalSessionVault, isTrustedSessionVaultSender } from './local-session-vault';
@@ -4188,6 +4189,94 @@ export class NativeTabHost extends EventEmitter {
         return true;
       }
       return false;
+    },
+  },
+  {
+    // The Hub's MCP detail pane invokes one advertised capability through the same
+    // authority path every other caller uses: a fresh short-lived CLI session supplies
+    // the attachment, the grant is derived from the capability's own declared risk
+    // (never from renderer input), and the session is ended — and its attachment
+    // revoked — in the finally block regardless of outcome.
+    channel: 'antifan:mcp:invoke',
+    surface: 'toolbar',
+    run: async ({ host }, event, args) => {
+      if (!isTrustedSessionVaultSender(event)) {
+        return { ok: false, error: { code: 'FORBIDDEN_SENDER', message: 'Untrusted sender' } };
+      }
+      if (!host.controlPlane) {
+        return { ok: false, error: { code: 'CONTROL_PLANE_UNAVAILABLE', message: 'Control plane runtime is not initialized' } };
+      }
+      const payload = (args[0] && typeof args[0] === 'object' ? args[0] : {}) as { name?: unknown; params?: unknown; confirmRisk?: unknown };
+      const name = typeof payload.name === 'string' ? payload.name.trim() : '';
+      if (!name) {
+        return { ok: false, error: { code: 'INVALID_ARGUMENT', message: 'name is required' } };
+      }
+      const definition = host.controlPlane.capabilities.get(name);
+      if (!definition) {
+        return { ok: false, error: { code: 'CAPABILITY_NOT_FOUND', message: `Unknown capability: ${name}` } };
+      }
+      const risk = definition.risk === 'write' || definition.risk === 'execute' || definition.risk === 'eval'
+        ? definition.risk
+        : 'read';
+      if (risk !== 'read' && payload.confirmRisk !== true) {
+        return { ok: false, error: { code: 'CONFIRMATION_REQUIRED', message: `Capability '${name}' has risk '${risk}'; re-invoke with confirmRisk: true.` } };
+      }
+      const params = (payload.params && typeof payload.params === 'object' && !Array.isArray(payload.params))
+        ? payload.params as Record<string, unknown>
+        : {};
+      const lease = host.controlPlane.getLease();
+      const hostEpoch = typeof host.browserEpoch === 'number' ? host.browserEpoch : 1;
+      if (hostEpoch !== lease.hostEpoch) {
+        return { ok: false, error: { code: 'STALE_EPOCH', message: `Stale browser epoch: host ${hostEpoch} vs lease ${lease.hostEpoch}` } };
+      }
+      const activeTabId = host.getActiveTabId();
+
+      let session: CliSessionResult | undefined;
+      try {
+        session = await host.controlPlane.createCliSession({
+          backendId: 'hub-mcp-invoke',
+          grant: risk,
+          tabId: activeTabId || undefined,
+          browserEpoch: hostEpoch,
+          ttlMs: 60_000,
+          ownerPid: process.pid,
+        });
+        const dispatchResult = await host.controlPlane.transport.dispatchIntent({
+          requestId: session.attempt.id,
+          idempotencyKey: `hub-mcp-${randomUUID()}`,
+          attachmentId: session.launch.attachmentId,
+          attachmentSecret: session.launch.secret,
+          authorityRevision: session.launch.authorityRevision,
+          name,
+          params,
+        });
+        if (dispatchResult.ok) {
+          return {
+            ok: true,
+            requestId: dispatchResult.requestId,
+            invocationId: dispatchResult.invocationId,
+            data: dispatchResult.data,
+          };
+        }
+        return {
+          ok: false,
+          error: {
+            code: dispatchResult.error?.code || 'CAPABILITY_ERROR',
+            message: dispatchResult.error?.message || 'Capability dispatch failed',
+            details: dispatchResult.error?.details,
+          },
+        };
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        const code = err && typeof err === 'object' && 'code' in err ? err.code : undefined;
+        return { ok: false, error: { code: typeof code === 'string' && code ? code : 'CAPABILITY_ERROR', message } };
+      } finally {
+        if (session) {
+          try {
+            await host.controlPlane.endCliSession(session.run.id, session.attempt.id, 'completed');
+          } catch {}
+        }
+      }
     },
   },
   {
@@ -10540,7 +10629,7 @@ export class NativeTabHost extends EventEmitter {
     }
     return true;
   }
-  public async navigateAndWait(tabId: string, inputUrl: string, timeoutMs: number = 8000): Promise<boolean> {
+  public async navigateAndWait(tabId: string, inputUrl: string, timeoutMs: number = 20000): Promise<boolean> {
     const tab = this.tabs.get(tabId);
     if (!tab) return false;
     const cleanUrl = sanitizeUrl(inputUrl);
@@ -10609,14 +10698,14 @@ export class NativeTabHost extends EventEmitter {
     }
     return true;
   }
-  public async reloadAndWait(tabId: string, timeoutMs: number = 8000, options?: { ownedReloadToken?: string }): Promise<boolean> {
+  public async reloadAndWait(tabId: string, timeoutMs: number = 20000, options?: { ownedReloadToken?: string }): Promise<boolean> {
     const tab = this.tabs.get(tabId);
     if (!tab) return false;
     if (options?.ownedReloadToken) {
       this.registerOwnedReload(tabId, options.ownedReloadToken);
     }
     const isBackground = tabId !== this.activeTabId;
-    const effectiveTimeoutMs = timeoutMs !== 8000 ? timeoutMs : (isBackground ? 10000 : 8000);
+    const effectiveTimeoutMs = timeoutMs !== 20000 ? timeoutMs : (isBackground ? 25000 : 20000);
     // A hibernated tab's wake IS the reload: rebuild + loadURL, then settle on
     // the same did-stop-loading gate capability callers use.
     if (tab.state.hibernated === true) {
@@ -10684,7 +10773,7 @@ export class NativeTabHost extends EventEmitter {
     return this.networkTracker;
   }
 
-  private createLoadCompletionWaiter(wc: Electron.WebContents, timeoutMs: number = 8000, onTimeout?: () => void): { promise: Promise<boolean>; cancel: () => void } {
+  private createLoadCompletionWaiter(wc: Electron.WebContents, timeoutMs: number = 20000, onTimeout?: () => void): { promise: Promise<boolean>; cancel: () => void } {
     let cancelFn: () => void = () => {};
     const promise = new Promise<boolean>((resolve) => {
       if (!wc || wc.isDestroyed()) {
@@ -10749,7 +10838,7 @@ export class NativeTabHost extends EventEmitter {
 
   private createNavigationLifecycleWaiter(
     wc: Electron.WebContents,
-    timeoutMs: number = 8000,
+    timeoutMs: number = 20000,
     startTimeoutMs: number = 3000,
     tabId?: string,
     committedTargetUrl?: string

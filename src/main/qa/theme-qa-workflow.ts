@@ -92,6 +92,7 @@ export interface ThemeQaSummary {
   totalIssues: number;
   criticalCount: number;
   verdict?: 'PASS' | 'FAIL' | 'INCONCLUSIVE';
+  domUnstable?: boolean;
 }
 export interface QaMatrixDimension {
   score: number | null;
@@ -117,6 +118,7 @@ export interface QaMatrixReport {
   overallScore: number | null;
   passed: boolean;
   verdict?: 'PASS' | 'FAIL' | 'INCONCLUSIVE';
+  domUnstable?: boolean;
   coverage?: QaMatrixCoverage;
   dimensions: {
     visualFidelity: QaMatrixDimension;
@@ -149,6 +151,12 @@ export interface TrackerIsolationOutcome {
  * (runResponsiveCheck) measures. Single source for the per-width map. */
 export const QA_RESPONSIVE_WIDTHS: readonly number[] = [320, 375, 768, 1024, 1440];
 
+export type VisualSettleReceiptExtended = VisualSettleReceipt & {
+  layoutStable?: boolean;
+  domUnstable?: boolean;
+  evidenceGaps?: string[];
+};
+
 export interface ThemeQaReport {
   runId: string;
   attemptId: string;
@@ -159,8 +167,7 @@ export interface ThemeQaReport {
   findings?: ThemeQaDetailedFindings;
   artifacts: ArtifactRef[];
   qaMatrix?: QaMatrixReport;
-  settleReceipt?: VisualSettleReceipt;
-  /** Attached when the settings-contract ratchet evaluated; present on failure so MCP callers see the same verdict the disk receipt records. */
+  settleReceipt?: VisualSettleReceiptExtended;
   settingsRatchet?: { ok: boolean; newFailures: number; legacyDebt: number; findings: unknown[] } | null;
   /** Resilient-QA state axes. `verification` mirrors summary.verdict; `execution`
    * is DEGRADED when evidence gaps exist but the run completed, BLOCKED only on
@@ -579,7 +586,7 @@ export class ThemeQaWorkflow {
       };
       rebindTarget(activeTarget);
       // Stage 2 & 3: Composed Settle Barrier (Phase 4: settleCapture)
-      let receipt: VisualSettleReceipt | undefined;
+      let receipt: VisualSettleReceiptExtended | undefined;
       let missingCapability = false;
       try {
         if (typeof this.ports.browser.freezeMedia === 'function') {
@@ -592,10 +599,28 @@ export class ThemeQaWorkflow {
         if (typeof this.ports.browser.settleCapture === 'function') {
           receipt = await this.ports.browser.settleCapture(activeTarget, 'desktop', undefined, { signal: input.signal });
           if (!receipt || !receipt.settleComplete) {
-            throw new CapabilityError(
-              'SETTLE_INCOMPLETE',
-              `Theme QA settle gate incomplete: gates not all settled (network=${receipt?.gates?.network}, fonts=${receipt?.gates?.fonts}, images=${receipt?.gates?.images}, dom=${receipt?.gates?.dom})${this.describeInflight(activeTarget, receipt)}`
-            );
+            const gates = receipt?.gates;
+            const domOnlyUnsettled =
+              receipt != null &&
+              gates?.network === true &&
+              gates?.fonts === true &&
+              gates?.images === true &&
+              gates?.dom === false &&
+              receipt.layoutStable !== false;
+
+            if (domOnlyUnsettled && receipt) {
+              receipt.domUnstable = true;
+              if (Array.isArray(receipt.evidenceGaps)) {
+                receipt.evidenceGaps.push('DOM mutations remained active during settle window (domUnstable)');
+              } else {
+                receipt.evidenceGaps = ['DOM mutations remained active during settle window (domUnstable)'];
+              }
+            } else {
+              throw new CapabilityError(
+                'SETTLE_INCOMPLETE',
+                `Theme QA settle gate incomplete: gates not all settled (network=${receipt?.gates?.network}, fonts=${receipt?.gates?.fonts}, images=${receipt?.gates?.images}, dom=${receipt?.gates?.dom})${this.describeInflight(activeTarget, receipt)}`
+              );
+            }
           }
         } else {
           missingCapability = true;
@@ -610,7 +635,7 @@ export class ThemeQaWorkflow {
       }
       return { receipt, missingCapability };
     });
-    const settleReceipt: VisualSettleReceipt | undefined = loadPhase.result.receipt;
+    const settleReceipt: VisualSettleReceiptExtended | undefined = loadPhase.result.receipt;
     const settleMissingCapability = loadPhase.result.missingCapability;
     const isolationOutcome = loadPhase.isolation;
 
@@ -673,6 +698,19 @@ export class ThemeQaWorkflow {
       evidenceGaps.push('Authoritative settlement capability missing (browser.settleCapture is not available on host); cannot certify authoritative PASS');
     }
 
+    if (settleReceipt?.domUnstable) {
+      const domUnstableGap = 'DOM mutations remained active during settle window (domUnstable)';
+      if (!evidenceGaps.includes(domUnstableGap)) {
+        evidenceGaps.push(domUnstableGap);
+      }
+    }
+    if (Array.isArray(settleReceipt?.evidenceGaps)) {
+      for (const gap of settleReceipt.evidenceGaps) {
+        if (!evidenceGaps.includes(gap)) {
+          evidenceGaps.push(gap);
+        }
+      }
+    }
     if (mutationMissingBarrier && mutationBarrierError) {
       evidenceGaps.push(mutationBarrierError);
     }
@@ -1220,11 +1258,16 @@ export class ThemeQaWorkflow {
       summaryVerdict = 'FAIL';
     }
 
+    if (settleReceipt?.domUnstable === true && summaryVerdict === 'PASS') {
+      summaryVerdict = 'INCONCLUSIVE';
+    }
+
     const summary: ThemeQaSummary = {
       passed: summaryVerdict === 'PASS',
       verdict: summaryVerdict,
       totalIssues,
       criticalCount: hsResult.errorsCount + liquidResult.errors.length + serverCrashResult.errorsCount + diagnosticIssues.length + overflowIssueCount + assetResult.brokenAssets.length + integrityCriticals.length,
+      ...(settleReceipt?.domUnstable ? { domUnstable: true } : {}),
     };
 
     // Resilient axes: verification is the storefront verdict; execution is
@@ -1322,7 +1365,7 @@ export class ThemeQaWorkflow {
       })
     );
 
-    const qaMatrix = ThemeQaWorkflow.computeQaMatrix(summary, checklist, findings, input.viewports);
+    const qaMatrix = ThemeQaWorkflow.computeQaMatrix(summary, checklist, findings, input.viewports, settleReceipt);
 
     if (input.workspaceRoot) {
       try {
@@ -1364,7 +1407,8 @@ export class ThemeQaWorkflow {
       desktop?: { mismatchPercent: number; passed: boolean };
       tablet?: { mismatchPercent: number; passed: boolean };
       mobile?: { mismatchPercent: number; passed: boolean };
-    }
+    },
+    settleReceipt?: VisualSettleReceiptExtended
   ): QaMatrixReport {
     const parseViewport = (rawVp?: { mismatchPercent?: unknown; passed?: unknown }): QaMatrixViewportItem => {
       const isValidNumber = typeof rawVp?.mismatchPercent === 'number' &&
@@ -1514,6 +1558,10 @@ export class ThemeQaWorkflow {
       verdict = summary.criticalCount > 0 ? 'FAIL' : 'INCONCLUSIVE';
     }
 
+    if ((settleReceipt?.domUnstable === true || summary.domUnstable === true) && verdict === 'PASS') {
+      verdict = 'INCONCLUSIVE';
+    }
+
     const passed = verdict === 'PASS';
 
     return {
@@ -1528,6 +1576,7 @@ export class ThemeQaWorkflow {
         tablet: vpTablet,
         mobile: vpMobile,
       },
+      ...((settleReceipt?.domUnstable || summary.domUnstable) ? { domUnstable: true } : {}),
     };
   }
   private assertOwnership(target: BrowserTarget): void {

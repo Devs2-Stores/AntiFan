@@ -10,6 +10,9 @@ import {
   createDefaultComponentContractIR,
 } from '../models/clone-ir.js';
 
+const REPO_ROOT = path.resolve(__dirname, '../../../..');
+const FIXTURE_ICON = path.join(REPO_ROOT, 'assets', 'icon.png');
+
 describe('ThemeCompiler - Haravan Flat Architecture & Canonical Contract (Audit Phase 05)', () => {
   const compiler = new ThemeCompiler();
   it('blocks unclassified code and invalidates approvals when bytes change', () => {
@@ -67,7 +70,7 @@ describe('ThemeCompiler - Haravan Flat Architecture & Canonical Contract (Audit 
     try {
       const assetsDir = path.join(tempDir, 'source-assets');
       fs.mkdirSync(assetsDir);
-      for (const name of ['logo.png', 'slide1.jpg', 'slide2.jpg']) fs.copyFileSync(path.resolve('assets/icon.png'), path.join(assetsDir, name));
+      for (const name of ['logo.png', 'slide1.jpg', 'slide2.jpg']) fs.copyFileSync(FIXTURE_ICON, path.join(assetsDir, name));
       const result = compiler.compileTheme(tempDir, sampleHtml, { settingsMode: 'legacy-html', assetsDir });
       assert.strictEqual(result.success, true);
       assert.strictEqual(result.targetContract.settingsMode, 'legacy-html');
@@ -431,7 +434,7 @@ describe('ThemeCompiler - Haravan Flat Architecture & Canonical Contract (Audit 
     try {
       const assetsDir = path.join(tempDir, 'source-assets');
       fs.mkdirSync(assetsDir);
-      for (const name of ['logo.png', 'hero.png', 'hero@2x.png']) fs.copyFileSync(path.resolve('assets/icon.png'), path.join(assetsDir, name));
+      for (const name of ['logo.png', 'hero.png', 'hero@2x.png']) fs.copyFileSync(FIXTURE_ICON, path.join(assetsDir, name));
       compiler.compileTheme(tempDir, html, { assetsDir });
       const snippetPath = path.join(tempDir, 'snippets', 'srcset_sec.liquid');
       assert.ok(fs.existsSync(snippetPath));

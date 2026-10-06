@@ -30,6 +30,10 @@ const HOOK_DEPS = ["edit-mode.ts", "theme-paths.ts", "edit-guard-policy.ts"];
 // that exported it must not change what these tests observe.
 const PREV_EDIT_MODE = process.env.ANTIFAN_EDIT_MODE;
 delete process.env.ANTIFAN_EDIT_MODE;
+const PREV_DATA_ROOT = process.env.ANTIFAN_DATA_ROOT;
+delete process.env.ANTIFAN_DATA_ROOT;
+const PREV_CONFIG_DIR = process.env.ANTIFAN_CONFIG_DIR;
+delete process.env.ANTIFAN_CONFIG_DIR;
 
 const BYPASS_TOKENS = [
   "qaStatus: QA_UNAVAILABLE",
@@ -76,6 +80,10 @@ test.after(() => {
   }
   if (PREV_EDIT_MODE === undefined) delete process.env.ANTIFAN_EDIT_MODE;
   else process.env.ANTIFAN_EDIT_MODE = PREV_EDIT_MODE;
+  if (PREV_DATA_ROOT === undefined) delete process.env.ANTIFAN_DATA_ROOT;
+  else process.env.ANTIFAN_DATA_ROOT = PREV_DATA_ROOT;
+  if (PREV_CONFIG_DIR === undefined) delete process.env.ANTIFAN_CONFIG_DIR;
+  else process.env.ANTIFAN_CONFIG_DIR = PREV_CONFIG_DIR;
 });
 
 /** Stage-load a pristine copy of the hook and capture its registered handlers. */

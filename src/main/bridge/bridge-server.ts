@@ -2585,6 +2585,7 @@ export class BridgeServer {
             const terminalGen = typeof p.terminalGeneration === 'string' || typeof p.terminalGeneration === 'number' ? p.terminalGeneration : undefined;
             let tabId = typeof p.tabId === 'string' && p.tabId.trim() ? p.tabId.trim() : undefined;
             const requestProjectId = typeof p.projectId === 'string' && p.projectId.trim() ? p.projectId.trim() : undefined;
+            const wantsVisibleTab = Boolean(p.userFacing ?? p.interactive ?? false);
             // Every mint/lookup below runs on the host that owns the terminal or the
             // attachment's bound tab — never the construction host. The resolved host and
             // pinned capsule travel together so tab ownership, affinity, and capsule agree.
@@ -2644,9 +2645,10 @@ export class BridgeServer {
                   console.warn(`[antifan] startSession: terminal ${terminalSessionId}#${terminalGen} has no affinity in this instance (pid ${process.pid}); provisioning a local agent tab. A foreign attach was likely corrected.`);
                   // The anchor is minted on the terminal's owning window and stamped with
                   // the terminal's capsule — the ambient capsule is never a substitute.
-                  tabId = sessionHost.createTab('about:blank', false, {
-                    offscreen: true,
-                    ephemeral: true,
+                  tabId = sessionHost.createTab('about:blank', wantsVisibleTab, {
+                    offscreen: !wantsVisibleTab,
+                    ephemeral: !wantsVisibleTab,
+                    plane: wantsVisibleTab ? 'user' : 'agent',
                     ...(mintTarget?.capsuleId ? { capsuleId: mintTarget.capsuleId } : {}),
                   });
                   if (typeof sessionHost.bindTerminalAgentAffinity === 'function') {
@@ -2671,9 +2673,10 @@ export class BridgeServer {
                   // to — validated by the resolver, so an unknown/ambiguous claim pins nothing.
                   mintTarget = this.resolveMintTarget({ projectId: requestProjectId });
                   const mintHost = mintTarget?.host ?? this.tabHost;
-                  tabId = mintHost.createTab('about:blank', false, {
-                    offscreen: true,
-                    ephemeral: true,
+                  tabId = mintHost.createTab('about:blank', wantsVisibleTab, {
+                    offscreen: !wantsVisibleTab,
+                    ephemeral: !wantsVisibleTab,
+                    plane: wantsVisibleTab ? 'user' : 'agent',
                     ...(mintTarget?.capsuleId ? { capsuleId: mintTarget.capsuleId } : {}),
                   });
                 }

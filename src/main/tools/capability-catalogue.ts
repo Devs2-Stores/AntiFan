@@ -636,8 +636,47 @@ export class CapabilityCatalogue {
         throw new CapabilityError('TARGET_MISMATCH', 'Cannot target tab: context has no bound browser target.');
       }
 
+      const boundTabId = context.browserTarget.tabId;
+
       // Short-circuit exact bound-ID equality: caller explicitly passed the currently bound tabId
-      if (reqTabId === context.browserTarget.tabId) {
+      if (reqTabId === boundTabId) {
+        return;
+      }
+
+      const isMobileSibling = (candidate: string, bound: string): boolean => {
+        if (!candidate || !bound) return false;
+        const normCand = candidate.trim().toLowerCase();
+        const normBound = bound.trim().toLowerCase();
+        if (normCand === `${normBound}:mobile` || normCand === 'mobile') {
+          return true;
+        }
+        if (normCand.endsWith(':mobile')) {
+          const base = candidate.trim().slice(0, -7).trim();
+          if (base.toLowerCase() === normBound) return true;
+          if (this.options.resolveTabId) {
+            const resolved = this.options.resolveTabId(base);
+            if (resolved && resolved.trim().toLowerCase() === normBound) return true;
+          }
+        }
+        if (this.options.resolveTabId) {
+          const resolved = this.options.resolveTabId(candidate.trim());
+          if (resolved && resolved.trim().toLowerCase() === normBound && (normCand.includes('mobile') || normCand.endsWith(':mobile'))) {
+            return true;
+          }
+        }
+        if (this.options.isTabAllowed) {
+          if (this.options.isTabAllowed(bound, candidate.trim()) && (normCand.includes('mobile') || normCand.endsWith(':mobile'))) {
+            return true;
+          }
+        }
+        return false;
+      };
+
+      if (isMobileSibling(reqTabId, boundTabId)) {
+        (params as Record<string, unknown>).tabId = boundTabId;
+        if (!(params as Record<string, unknown>).paneId) {
+          (params as Record<string, unknown>).paneId = 'mobile';
+        }
         return;
       }
 
@@ -692,6 +731,13 @@ export class CapabilityCatalogue {
                   workspaceId: authoritativeWs.id,
                 });
               if (!readOnlyEscalation) {
+                if (isMobileSibling(reqTabId, boundTabId) || isMobileSibling(canonicalId, boundTabId)) {
+                  (params as Record<string, unknown>).tabId = boundTabId;
+                  if (!(params as Record<string, unknown>).paneId) {
+                    (params as Record<string, unknown>).paneId = 'mobile';
+                  }
+                  return;
+                }
                 throw new CapabilityError(
                   'TARGET_MISMATCH',
                   `Tab ID mismatch: expected ${context.browserTarget.tabId}, got ${reqTabId}. Note: In split review mode, use the bound tabId with paneId: "mobile" to target the mobile pane.`

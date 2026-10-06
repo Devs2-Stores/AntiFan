@@ -162,6 +162,7 @@ const toolbarApi = {
   // Workflow & MCP Hub APIs
   getWorkflowState: () => ipcRenderer.invoke('antifan:workflow:get-state'),
   runWorkflow: (payload: { workflowId?: string; workflowDef?: unknown }) => ipcRenderer.invoke('antifan:workflow:run', payload),
+  invokeMcpTool: (payload: { name: string; params?: Record<string, unknown>; confirmRisk?: boolean }) => ipcRenderer.invoke('antifan:mcp:invoke', payload),
   abortWorkflow: () => ipcRenderer.invoke('antifan:workflow:abort'),
   saveWorkflow: (item: { id?: string; name: string; description?: string; steps: unknown[] }) => ipcRenderer.invoke('antifan:workflow:save', item),
   deleteWorkflow: (id: string) => ipcRenderer.invoke('antifan:workflow:delete', id),

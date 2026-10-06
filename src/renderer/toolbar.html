@@ -778,6 +778,10 @@
                   <div class="hub-detail-desc" id="mcpDetailDesc">Tool description</div>
                 </div>
                 <div class="hub-detail-header-right">
+                  <button class="hub-btn-run hub-btn-mcp-run" id="btnRunMcpTool" title="Chạy tool này với tham số bên dưới">
+                    <span>▶</span>
+                    <span>Chạy Tool</span>
+                  </button>
                   <span class="hub-perm-badge" id="mcpDetailPermission">Permission: Read</span>
                 </div>
               </div>
@@ -785,6 +789,12 @@
               <div class="hub-section-title">⚙️ THAM SỐ ĐẦU VÀO (INPUT SCHEMA)</div>
               <div class="hub-schema-view" id="mcpSchemaView">
                 <pre class="hub-schema-code" id="mcpSchemaCode"></pre>
+              </div>
+
+              <div class="hub-section-title">🧪 CHẠY THỬ (INVOKE)</div>
+              <div class="hub-mcp-invoke">
+                <textarea class="hub-mcp-params" id="mcpInvokeParams" rows="4" spellcheck="false" placeholder='{"param": "value"}'></textarea>
+                <pre class="hub-schema-code hub-mcp-result" id="mcpInvokeResult" style="display:none;"></pre>
               </div>
             </div>
 
