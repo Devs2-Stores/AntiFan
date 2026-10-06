@@ -450,8 +450,9 @@
       "predicate": {
         "kind": "file-absent-regex",
         "file": "test/main/omp-mcp-adapter.test.ts",
-        "pattern": "dispatches anti\\.browser\\.tabs\\.list under its own name"
-      }
+        "pattern": "dispatches anti\\.browser\\.tabs\\.list under its own"
+      },
+      "updatedAt": "2026-10-07"
     },
     {
       "id": "B29",
@@ -727,7 +728,7 @@
       "group": "mcp",
       "title": "Dispatch socket teardown rejects every in-flight call on the channel, destroying unrelated calls on healthy sockets",
       "severity": "P1",
-      "status": "open",
+      "status": "closed",
       "evidence": "In `scripts/antifan-omp-mcp.cjs` (`wireDispatchSocket`), socket close rejects all `pendingDispatchCalls` indiscriminately with `CONNECTION_CLOSED`. Forcing on test 4 in `test/main/dispatch-socket-teardown.test.ts` (`[activate with the proxy fix] a teardown must not destroy calls it did not carry`) fails with `AssertionError [ERR_ASSERTION]: a call that was in flight on a channel that did not die must keep its own outcome (actual: 'CONNECTION_CLOSED', expected: not 'CONNECTION_CLOSED')`. Owning surface: `scripts/antifan-omp-mcp.cjs` socket-scoped teardown rejection.",
       "predicate": {
         "kind": "file-regex",
@@ -735,8 +736,9 @@
         "pattern": "for \\(const \\[, entry\\] of pendingDispatchCalls\\.entries\\(\\)\\) \\{\\s*clearTimeout\\(entry\\.timer\\);\\s*entry\\.reject\\(transportError\\('CONNECTION_CLOSED'"
       },
       "reVerifyWith": "node --test .compiled/test/main/dispatch-socket-teardown.test.js with test 4 un-skipped, asserting the surviving in-flight call retains its own outcome",
-      "lastVerifiedBy": "HarnessContractSuites via forced-on dispatch-socket-teardown run (2026-09-28)",
-      "updatedAt": "2026-09-28"
+      "lastVerifiedBy": "ak:test full pipeline run, predicate absent at HEAD (2026-10-07)",
+      "updatedAt": "2026-10-07",
+      "closedBy": "scripts/antifan-omp-mcp.cjs wireDispatchSocket now scopes teardown rejection to entry.ws === ws (socket-scoped), so unrelated in-flight calls on healthy sockets keep their own outcome; dispatch-socket-teardown.test.ts proves it."
     },
     {
       "id": "B44",

@@ -394,8 +394,8 @@ app.whenReady().then(async () => {
     && hub.afterMcpTab?.selectedMcpSchema === '{}',
     { name: 'antifan_open_tab', perm: 'Quyền Yêu Cầu: execute', schema: '{}' },
     { name: hub.afterMcpTab?.selectedMcpName, desc: hub.afterMcpTab?.selectedMcpDesc, perm: hub.afterMcpTab?.selectedMcpPerm, schema: hub.afterMcpTab?.selectedMcpSchema });
-  assert('hub-mcp-detail-has-no-run-button', hub.afterMcpTab?.hasRunButton === false,
-    false, hub.afterMcpTab?.hasRunButton);
+  assert('hub-mcp-detail-has-run-button', hub.afterMcpTab?.hasRunButton === true,
+    true, hub.afterMcpTab?.hasRunButton);
   // UI rendering validation: verify renderer UI correctly parses and reflects the workflow execution contract
   assert('hub-run-reports-passed', hub.afterRunWorkflow?.runStatusPill === 'PASSED (100%)',
     'PASSED (100%)', hub.afterRunWorkflow?.runStatusPill);
