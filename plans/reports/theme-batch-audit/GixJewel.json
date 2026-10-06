@@ -1,0 +1,2171 @@
+{
+  "themeDir": "E:\\Work\\customizes\\GixJewel",
+  "generatedAt": "2026-10-05T22:13:30.168Z",
+  "ok": false,
+  "schemas": {
+    "ok": true,
+    "schemaFiles": [
+      {
+        "path": "config/settings_schema.json",
+        "ok": true,
+        "error": null
+      }
+    ],
+    "sectionCount": 0,
+    "failures": []
+  },
+  "settingsBinding": {
+    "ok": false,
+    "undeclared": [
+      {
+        "id": "collection_one_products",
+        "files": [
+          "templates/index.noslider.liquid"
+        ]
+      },
+      {
+        "id": "collection_one_products_limit",
+        "files": [
+          "templates/index.noslider.liquid"
+        ]
+      },
+      {
+        "id": "collection_one_products_title",
+        "files": [
+          "templates/index.noslider.liquid"
+        ]
+      },
+      {
+        "id": "collection_sort",
+        "files": [
+          "templates/collection.liquid"
+        ]
+      },
+      {
+        "id": "fanpage_faceook",
+        "files": [
+          "snippets/facebook-widget.liquid",
+          "snippets/footer.liquid"
+        ]
+      },
+      {
+        "id": "fb_chat",
+        "files": [
+          "snippets/haravan-fb-messages.liquid"
+        ]
+      },
+      {
+        "id": "fb_chat_title",
+        "files": [
+          "snippets/haravan-fb-messages.liquid"
+        ]
+      },
+      {
+        "id": "lbl_address1",
+        "files": [
+          "templates/customers[addresses].liquid"
+        ]
+      },
+      {
+        "id": "lbl_address2",
+        "files": [
+          "templates/customers[addresses].liquid"
+        ]
+      },
+      {
+        "id": "lbl_company",
+        "files": [
+          "templates/customers[addresses].liquid"
+        ]
+      },
+      {
+        "id": "lbl_first_name",
+        "files": [
+          "templates/customers[addresses].liquid"
+        ]
+      },
+      {
+        "id": "lbl_last_name",
+        "files": [
+          "templates/customers[addresses].liquid"
+        ]
+      },
+      {
+        "id": "lbl_phone",
+        "files": [
+          "templates/customers[addresses].liquid"
+        ]
+      },
+      {
+        "id": "show_fanpage_faceook",
+        "files": [
+          "snippets/facebook-widget.liquid"
+        ]
+      }
+    ],
+    "dead": [
+      {
+        "id": "1_price_to"
+      },
+      {
+        "id": "1enter_tag_2"
+      },
+      {
+        "id": "1tag_title_custom_2"
+      },
+      {
+        "id": "1use_tag_custom_2"
+      },
+      {
+        "id": "2_price_from"
+      },
+      {
+        "id": "2_price_to"
+      },
+      {
+        "id": "2enter_tag_2"
+      },
+      {
+        "id": "2tag_title_custom_2"
+      },
+      {
+        "id": "2use_tag_custom_2"
+      },
+      {
+        "id": "3_price_from"
+      },
+      {
+        "id": "3_price_to"
+      },
+      {
+        "id": "3enter_tag_2"
+      },
+      {
+        "id": "3tag_title_custom_2"
+      },
+      {
+        "id": "3use_tag_custom_2"
+      },
+      {
+        "id": "4_price_from"
+      },
+      {
+        "id": "4_price_to"
+      },
+      {
+        "id": "5_price_from"
+      },
+      {
+        "id": "6_price_from"
+      },
+      {
+        "id": "6_price_to"
+      },
+      {
+        "id": "7_price_from"
+      },
+      {
+        "id": "7_price_to"
+      },
+      {
+        "id": "8_price_from"
+      },
+      {
+        "id": "8_price_to"
+      },
+      {
+        "id": "addthis_icon7_action"
+      },
+      {
+        "id": "addthis_icon7_show"
+      },
+      {
+        "id": "addthis_icon7_tootlip"
+      },
+      {
+        "id": "banner_btn_color"
+      },
+      {
+        "id": "banner_btntext_color"
+      },
+      {
+        "id": "banner_title_color"
+      },
+      {
+        "id": "btn_bg_shop"
+      },
+      {
+        "id": "color_code_new_1"
+      },
+      {
+        "id": "color_code_new_10"
+      },
+      {
+        "id": "color_code_new_11"
+      },
+      {
+        "id": "color_code_new_12"
+      },
+      {
+        "id": "color_code_new_13"
+      },
+      {
+        "id": "color_code_new_14"
+      },
+      {
+        "id": "color_code_new_15"
+      },
+      {
+        "id": "color_code_new_16"
+      },
+      {
+        "id": "color_code_new_17"
+      },
+      {
+        "id": "color_code_new_18"
+      },
+      {
+        "id": "color_code_new_19"
+      },
+      {
+        "id": "color_code_new_2"
+      },
+      {
+        "id": "color_code_new_20"
+      },
+      {
+        "id": "color_code_new_21"
+      },
+      {
+        "id": "color_code_new_22"
+      },
+      {
+        "id": "color_code_new_23"
+      },
+      {
+        "id": "color_code_new_24"
+      },
+      {
+        "id": "color_code_new_25"
+      },
+      {
+        "id": "color_code_new_26"
+      },
+      {
+        "id": "color_code_new_27"
+      },
+      {
+        "id": "color_code_new_28"
+      },
+      {
+        "id": "color_code_new_29"
+      },
+      {
+        "id": "color_code_new_3"
+      },
+      {
+        "id": "color_code_new_30"
+      },
+      {
+        "id": "color_code_new_4"
+      },
+      {
+        "id": "color_code_new_5"
+      },
+      {
+        "id": "color_code_new_6"
+      },
+      {
+        "id": "color_code_new_7"
+      },
+      {
+        "id": "color_code_new_8"
+      },
+      {
+        "id": "color_code_new_9"
+      },
+      {
+        "id": "color_name_new_1"
+      },
+      {
+        "id": "color_name_new_10"
+      },
+      {
+        "id": "color_name_new_11"
+      },
+      {
+        "id": "color_name_new_12"
+      },
+      {
+        "id": "color_name_new_13"
+      },
+      {
+        "id": "color_name_new_14"
+      },
+      {
+        "id": "color_name_new_15"
+      },
+      {
+        "id": "color_name_new_16"
+      },
+      {
+        "id": "color_name_new_17"
+      },
+      {
+        "id": "color_name_new_18"
+      },
+      {
+        "id": "color_name_new_19"
+      },
+      {
+        "id": "color_name_new_2"
+      },
+      {
+        "id": "color_name_new_20"
+      },
+      {
+        "id": "color_name_new_21"
+      },
+      {
+        "id": "color_name_new_22"
+      },
+      {
+        "id": "color_name_new_23"
+      },
+      {
+        "id": "color_name_new_24"
+      },
+      {
+        "id": "color_name_new_25"
+      },
+      {
+        "id": "color_name_new_26"
+      },
+      {
+        "id": "color_name_new_27"
+      },
+      {
+        "id": "color_name_new_28"
+      },
+      {
+        "id": "color_name_new_29"
+      },
+      {
+        "id": "color_name_new_3"
+      },
+      {
+        "id": "color_name_new_30"
+      },
+      {
+        "id": "color_name_new_4"
+      },
+      {
+        "id": "color_name_new_5"
+      },
+      {
+        "id": "color_name_new_6"
+      },
+      {
+        "id": "color_name_new_7"
+      },
+      {
+        "id": "color_name_new_8"
+      },
+      {
+        "id": "color_name_new_9"
+      },
+      {
+        "id": "color_title"
+      },
+      {
+        "id": "enter_tag_2"
+      },
+      {
+        "id": "fashion01_banner_1_alt"
+      },
+      {
+        "id": "fashion01_banner_1_image.jpg"
+      },
+      {
+        "id": "fashion01_banner_1_link"
+      },
+      {
+        "id": "fashion01_banner_2_alt"
+      },
+      {
+        "id": "fashion01_banner_2_image.jpg"
+      },
+      {
+        "id": "fashion01_banner_2_link"
+      },
+      {
+        "id": "fashion01_banner_3_alt"
+      },
+      {
+        "id": "fashion01_banner_3_image.jpg"
+      },
+      {
+        "id": "fashion01_banner_3_link"
+      },
+      {
+        "id": "fashion01_banner_4_alt"
+      },
+      {
+        "id": "fashion01_banner_4_image.jpg"
+      },
+      {
+        "id": "fashion01_banner_4_link"
+      },
+      {
+        "id": "fashion01_bannerbottom_image.jpg"
+      },
+      {
+        "id": "fashion01_bannertop_image.jpg"
+      },
+      {
+        "id": "fashion01_bannertop_mobile.jpg"
+      },
+      {
+        "id": "fashion01_collection_tabs_1_handle"
+      },
+      {
+        "id": "fashion01_collection_tabs_1_title"
+      },
+      {
+        "id": "fashion01_collection_tabs_2_handle"
+      },
+      {
+        "id": "fashion01_collection_tabs_2_show"
+      },
+      {
+        "id": "fashion01_collection_tabs_2_title"
+      },
+      {
+        "id": "fashion01_collection_tabs_3_handle"
+      },
+      {
+        "id": "fashion01_collection_tabs_3_show"
+      },
+      {
+        "id": "fashion01_collection_tabs_3_title"
+      },
+      {
+        "id": "fashion01_collection_tabs_4_handle"
+      },
+      {
+        "id": "fashion01_collection_tabs_4_show"
+      },
+      {
+        "id": "fashion01_collection_tabs_4_title"
+      },
+      {
+        "id": "fashion01_coupon_1_code"
+      },
+      {
+        "id": "fashion01_coupon_1_date"
+      },
+      {
+        "id": "fashion01_coupon_1_note1"
+      },
+      {
+        "id": "fashion01_coupon_1_note2"
+      },
+      {
+        "id": "fashion01_coupon_1_note3"
+      },
+      {
+        "id": "fashion01_coupon_1_text"
+      },
+      {
+        "id": "fashion01_coupon_1_title"
+      },
+      {
+        "id": "fashion01_coupon_2_code"
+      },
+      {
+        "id": "fashion01_coupon_2_date"
+      },
+      {
+        "id": "fashion01_coupon_2_note1"
+      },
+      {
+        "id": "fashion01_coupon_2_note2"
+      },
+      {
+        "id": "fashion01_coupon_2_note3"
+      },
+      {
+        "id": "fashion01_coupon_2_text"
+      },
+      {
+        "id": "fashion01_coupon_2_title"
+      },
+      {
+        "id": "fashion01_coupon_3_code"
+      },
+      {
+        "id": "fashion01_coupon_3_date"
+      },
+      {
+        "id": "fashion01_coupon_3_note1"
+      },
+      {
+        "id": "fashion01_coupon_3_note2"
+      },
+      {
+        "id": "fashion01_coupon_3_note3"
+      },
+      {
+        "id": "fashion01_coupon_3_text"
+      },
+      {
+        "id": "fashion01_coupon_3_title"
+      },
+      {
+        "id": "fashion01_coupon_4_code"
+      },
+      {
+        "id": "fashion01_coupon_4_date"
+      },
+      {
+        "id": "fashion01_coupon_4_note1"
+      },
+      {
+        "id": "fashion01_coupon_4_note2"
+      },
+      {
+        "id": "fashion01_coupon_4_note3"
+      },
+      {
+        "id": "fashion01_coupon_4_text"
+      },
+      {
+        "id": "fashion01_coupon_4_title"
+      },
+      {
+        "id": "fashion01_coupon_banner_img.jpg"
+      },
+      {
+        "id": "fashion01_frame_image.png"
+      },
+      {
+        "id": "fashion01_services_1_img.png"
+      },
+      {
+        "id": "fashion01_services_1_text"
+      },
+      {
+        "id": "fashion01_services_1_title"
+      },
+      {
+        "id": "fashion01_services_2_img.png"
+      },
+      {
+        "id": "fashion01_services_2_text"
+      },
+      {
+        "id": "fashion01_services_2_title"
+      },
+      {
+        "id": "fashion01_services_3_img.png"
+      },
+      {
+        "id": "fashion01_services_3_text"
+      },
+      {
+        "id": "fashion01_services_3_title"
+      },
+      {
+        "id": "fashion01_services_4_img.png"
+      },
+      {
+        "id": "fashion01_services_4_text"
+      },
+      {
+        "id": "fashion01_services_4_title"
+      },
+      {
+        "id": "fashion02_bannerbottom_image.jpg"
+      },
+      {
+        "id": "fashion02_collection_onsale_1_handle"
+      },
+      {
+        "id": "fashion02_collection_onsale_1_show"
+      },
+      {
+        "id": "fashion02_collection_onsale_1_title"
+      },
+      {
+        "id": "fashion02_collection_onsale_2_handle"
+      },
+      {
+        "id": "fashion02_collection_onsale_2_show"
+      },
+      {
+        "id": "fashion02_collection_onsale_2_title"
+      },
+      {
+        "id": "fashion02_collection_onsale_3_handle"
+      },
+      {
+        "id": "fashion02_collection_onsale_3_show"
+      },
+      {
+        "id": "fashion02_collection_onsale_3_title"
+      },
+      {
+        "id": "fashion02_collection_onsale_4_handle"
+      },
+      {
+        "id": "fashion02_collection_onsale_4_show"
+      },
+      {
+        "id": "fashion02_collection_onsale_4_title"
+      },
+      {
+        "id": "fashion02_coupon_1_code"
+      },
+      {
+        "id": "fashion02_coupon_1_date"
+      },
+      {
+        "id": "fashion02_coupon_1_note1"
+      },
+      {
+        "id": "fashion02_coupon_1_note2"
+      },
+      {
+        "id": "fashion02_coupon_1_note3"
+      },
+      {
+        "id": "fashion02_coupon_1_text"
+      },
+      {
+        "id": "fashion02_coupon_1_title"
+      },
+      {
+        "id": "fashion02_coupon_2_code"
+      },
+      {
+        "id": "fashion02_coupon_2_date"
+      },
+      {
+        "id": "fashion02_coupon_2_note1"
+      },
+      {
+        "id": "fashion02_coupon_2_note2"
+      },
+      {
+        "id": "fashion02_coupon_2_note3"
+      },
+      {
+        "id": "fashion02_coupon_2_text"
+      },
+      {
+        "id": "fashion02_coupon_2_title"
+      },
+      {
+        "id": "fashion02_coupon_3_code"
+      },
+      {
+        "id": "fashion02_coupon_3_date"
+      },
+      {
+        "id": "fashion02_coupon_3_note1"
+      },
+      {
+        "id": "fashion02_coupon_3_note2"
+      },
+      {
+        "id": "fashion02_coupon_3_note3"
+      },
+      {
+        "id": "fashion02_coupon_3_text"
+      },
+      {
+        "id": "fashion02_coupon_3_title"
+      },
+      {
+        "id": "fashion02_coupon_4_code"
+      },
+      {
+        "id": "fashion02_coupon_4_date"
+      },
+      {
+        "id": "fashion02_coupon_4_note1"
+      },
+      {
+        "id": "fashion02_coupon_4_note2"
+      },
+      {
+        "id": "fashion02_coupon_4_note3"
+      },
+      {
+        "id": "fashion02_coupon_4_text"
+      },
+      {
+        "id": "fashion02_coupon_4_title"
+      },
+      {
+        "id": "fashion02_coupon_banner_img.jpg"
+      },
+      {
+        "id": "fashion02_frame_image.png"
+      },
+      {
+        "id": "fashion02_headbanner_image.jpg"
+      },
+      {
+        "id": "fashion02_headbanner_mobile.jpg"
+      },
+      {
+        "id": "fashion02_kinescope_1_alt"
+      },
+      {
+        "id": "fashion02_kinescope_1_link"
+      },
+      {
+        "id": "fashion02_kinescope_1_photo.jpg"
+      },
+      {
+        "id": "fashion02_kinescope_2_alt"
+      },
+      {
+        "id": "fashion02_kinescope_2_link"
+      },
+      {
+        "id": "fashion02_kinescope_2_photo.jpg"
+      },
+      {
+        "id": "fashion02_kinescope_3_alt"
+      },
+      {
+        "id": "fashion02_kinescope_3_link"
+      },
+      {
+        "id": "fashion02_kinescope_3_photo.jpg"
+      },
+      {
+        "id": "fashion02_kinescope_4_alt"
+      },
+      {
+        "id": "fashion02_kinescope_4_link"
+      },
+      {
+        "id": "fashion02_kinescope_4_photo.jpg"
+      },
+      {
+        "id": "fashion02_support_1_ico.png"
+      },
+      {
+        "id": "fashion02_support_1_text"
+      },
+      {
+        "id": "fashion02_support_1_title"
+      },
+      {
+        "id": "fashion02_support_2_ico.png"
+      },
+      {
+        "id": "fashion02_support_2_text"
+      },
+      {
+        "id": "fashion02_support_2_title"
+      },
+      {
+        "id": "fashion02_support_3_ico.png"
+      },
+      {
+        "id": "fashion02_support_3_text"
+      },
+      {
+        "id": "fashion02_support_3_title"
+      },
+      {
+        "id": "fashion02_support_4_ico.png"
+      },
+      {
+        "id": "fashion02_support_4_text"
+      },
+      {
+        "id": "fashion02_support_4_title"
+      },
+      {
+        "id": "footer-fax"
+      },
+      {
+        "id": "header_01_color_bkg"
+      },
+      {
+        "id": "header_01_color_text"
+      },
+      {
+        "id": "header_01_topbar_bkg"
+      },
+      {
+        "id": "header_01_topbar_text"
+      },
+      {
+        "id": "header_02_color_bkg"
+      },
+      {
+        "id": "header_02_color_hover"
+      },
+      {
+        "id": "header_02_color_text"
+      },
+      {
+        "id": "header_02_topbar_bkg"
+      },
+      {
+        "id": "header_02_topbar_text"
+      },
+      {
+        "id": "header_03_color_bkg"
+      },
+      {
+        "id": "header_03_color_text"
+      },
+      {
+        "id": "header_03_topbar_bkg"
+      },
+      {
+        "id": "header_03_topbar_text"
+      },
+      {
+        "id": "hinhanhbanericon1"
+      },
+      {
+        "id": "hinhanhbanericon2"
+      },
+      {
+        "id": "hinhanhbanericon3"
+      },
+      {
+        "id": "hinhanhbanericon4"
+      },
+      {
+        "id": "hinhanhbanericon5"
+      },
+      {
+        "id": "hinhanhbanericoncontent1"
+      },
+      {
+        "id": "hinhanhbanericoncontent2"
+      },
+      {
+        "id": "hinhanhbanericoncontent3"
+      },
+      {
+        "id": "hinhanhbanericoncontent4"
+      },
+      {
+        "id": "hinhanhbanericoncontent5"
+      },
+      {
+        "id": "hinhanhbanericonhutton1"
+      },
+      {
+        "id": "hinhanhbanericonhutton2"
+      },
+      {
+        "id": "hinhanhbanericonhutton3"
+      },
+      {
+        "id": "hinhanhbanericonhutton4"
+      },
+      {
+        "id": "hinhanhbanericonhutton5"
+      },
+      {
+        "id": "hinhanhbanericonlink1"
+      },
+      {
+        "id": "hinhanhbanericonlink2"
+      },
+      {
+        "id": "hinhanhbanericonlink3"
+      },
+      {
+        "id": "hinhanhbanericonlink4"
+      },
+      {
+        "id": "hinhanhbanericonlink5"
+      },
+      {
+        "id": "home_category_1_alt"
+      },
+      {
+        "id": "home_category_1_banner"
+      },
+      {
+        "id": "home_category_1_link"
+      },
+      {
+        "id": "home_category_1_show"
+      },
+      {
+        "id": "home_category_1_title"
+      },
+      {
+        "id": "home_category_2_alt"
+      },
+      {
+        "id": "home_category_2_banner"
+      },
+      {
+        "id": "home_category_2_link"
+      },
+      {
+        "id": "home_category_2_show"
+      },
+      {
+        "id": "home_category_2_title"
+      },
+      {
+        "id": "home_category_3_alt"
+      },
+      {
+        "id": "home_category_3_banner"
+      },
+      {
+        "id": "home_category_3_link"
+      },
+      {
+        "id": "home_category_3_show"
+      },
+      {
+        "id": "home_category_3_title"
+      },
+      {
+        "id": "home_category_4_alt"
+      },
+      {
+        "id": "home_category_4_banner"
+      },
+      {
+        "id": "home_category_4_link"
+      },
+      {
+        "id": "home_category_4_show"
+      },
+      {
+        "id": "home_category_4_title"
+      },
+      {
+        "id": "home_category_5_alt"
+      },
+      {
+        "id": "home_category_5_banner"
+      },
+      {
+        "id": "home_category_5_link"
+      },
+      {
+        "id": "home_category_5_show"
+      },
+      {
+        "id": "home_category_5_title"
+      },
+      {
+        "id": "icon_social_1.png"
+      },
+      {
+        "id": "icon_social_2.png"
+      },
+      {
+        "id": "icon_social_3.png"
+      },
+      {
+        "id": "icon_social_4.png"
+      },
+      {
+        "id": "icon_social_5.png"
+      },
+      {
+        "id": "icon_social_6.png"
+      },
+      {
+        "id": "icon_social_7.png"
+      },
+      {
+        "id": "index_fashion01_collection_tabs_1_handle"
+      },
+      {
+        "id": "index_fashion01_collection_tabs_1_title"
+      },
+      {
+        "id": "index_fashion01_collection_tabs_2_handle"
+      },
+      {
+        "id": "index_fashion01_collection_tabs_2_show"
+      },
+      {
+        "id": "index_fashion01_collection_tabs_2_title"
+      },
+      {
+        "id": "index_fashion01_collection_tabs_3_handle"
+      },
+      {
+        "id": "index_fashion01_collection_tabs_3_show"
+      },
+      {
+        "id": "index_fashion01_collection_tabs_3_title"
+      },
+      {
+        "id": "index_fashion01_collection_tabs_4_handle"
+      },
+      {
+        "id": "index_fashion01_collection_tabs_4_show"
+      },
+      {
+        "id": "index_fashion01_collection_tabs_4_title"
+      },
+      {
+        "id": "mucluc"
+      },
+      {
+        "id": "new_menumega_check_1"
+      },
+      {
+        "id": "new_menumega_check_2"
+      },
+      {
+        "id": "new_menumega_check_3"
+      },
+      {
+        "id": "new_menumega_check_4"
+      },
+      {
+        "id": "new_menumega_check_5"
+      },
+      {
+        "id": "new_menumega_check_6"
+      },
+      {
+        "id": "new_menumega_check_7"
+      },
+      {
+        "id": "new_menumega_imagea_link_1"
+      },
+      {
+        "id": "new_menumega_imagea_link_2"
+      },
+      {
+        "id": "new_menumega_imagea_link_3"
+      },
+      {
+        "id": "new_menumega_imagea_link_4"
+      },
+      {
+        "id": "new_menumega_imagea_link_5"
+      },
+      {
+        "id": "new_menumega_imagea_link_6"
+      },
+      {
+        "id": "new_menumega_imagea_link_7"
+      },
+      {
+        "id": "new_menumega_imagea_src_1.png"
+      },
+      {
+        "id": "new_menumega_imagea_src_2.png"
+      },
+      {
+        "id": "new_menumega_imagea_src_3.png"
+      },
+      {
+        "id": "new_menumega_imagea_src_4.png"
+      },
+      {
+        "id": "new_menumega_imagea_src_5.png"
+      },
+      {
+        "id": "new_menumega_imagea_src_6.png"
+      },
+      {
+        "id": "new_menumega_imagea_src_7.png"
+      },
+      {
+        "id": "new_menumega_imagea_title_1"
+      },
+      {
+        "id": "new_menumega_imagea_title_2"
+      },
+      {
+        "id": "new_menumega_imagea_title_3"
+      },
+      {
+        "id": "new_menumega_imagea_title_4"
+      },
+      {
+        "id": "new_menumega_imagea_title_5"
+      },
+      {
+        "id": "new_menumega_imagea_title_6"
+      },
+      {
+        "id": "new_menumega_imagea_title_7"
+      },
+      {
+        "id": "new_menumega_imageb_link_1"
+      },
+      {
+        "id": "new_menumega_imageb_link_2"
+      },
+      {
+        "id": "new_menumega_imageb_link_3"
+      },
+      {
+        "id": "new_menumega_imageb_link_4"
+      },
+      {
+        "id": "new_menumega_imageb_link_5"
+      },
+      {
+        "id": "new_menumega_imageb_link_6"
+      },
+      {
+        "id": "new_menumega_imageb_link_7"
+      },
+      {
+        "id": "new_menumega_imageb_src_1.png"
+      },
+      {
+        "id": "new_menumega_imageb_src_2.png"
+      },
+      {
+        "id": "new_menumega_imageb_src_3.png"
+      },
+      {
+        "id": "new_menumega_imageb_src_4.png"
+      },
+      {
+        "id": "new_menumega_imageb_src_5.png"
+      },
+      {
+        "id": "new_menumega_imageb_src_6.png"
+      },
+      {
+        "id": "new_menumega_imageb_src_7.png"
+      },
+      {
+        "id": "new_menumega_imageb_title_1"
+      },
+      {
+        "id": "new_menumega_imageb_title_2"
+      },
+      {
+        "id": "new_menumega_imageb_title_3"
+      },
+      {
+        "id": "new_menumega_imageb_title_4"
+      },
+      {
+        "id": "new_menumega_imageb_title_5"
+      },
+      {
+        "id": "new_menumega_imageb_title_6"
+      },
+      {
+        "id": "new_menumega_imageb_title_7"
+      },
+      {
+        "id": "new_menumega_imagec_link_1"
+      },
+      {
+        "id": "new_menumega_imagec_link_2"
+      },
+      {
+        "id": "new_menumega_imagec_link_3"
+      },
+      {
+        "id": "new_menumega_imagec_link_4"
+      },
+      {
+        "id": "new_menumega_imagec_link_5"
+      },
+      {
+        "id": "new_menumega_imagec_link_6"
+      },
+      {
+        "id": "new_menumega_imagec_link_7"
+      },
+      {
+        "id": "new_menumega_imagec_src_1.png"
+      },
+      {
+        "id": "new_menumega_imagec_src_2.png"
+      },
+      {
+        "id": "new_menumega_imagec_src_3.png"
+      },
+      {
+        "id": "new_menumega_imagec_src_4.png"
+      },
+      {
+        "id": "new_menumega_imagec_src_5.png"
+      },
+      {
+        "id": "new_menumega_imagec_src_6.png"
+      },
+      {
+        "id": "new_menumega_imagec_src_7.png"
+      },
+      {
+        "id": "new_menumega_imagec_title_1"
+      },
+      {
+        "id": "new_menumega_imagec_title_2"
+      },
+      {
+        "id": "new_menumega_imagec_title_3"
+      },
+      {
+        "id": "new_menumega_imagec_title_4"
+      },
+      {
+        "id": "new_menumega_imagec_title_5"
+      },
+      {
+        "id": "new_menumega_imagec_title_6"
+      },
+      {
+        "id": "new_menumega_imagec_title_7"
+      },
+      {
+        "id": "popup_contact_bkg"
+      },
+      {
+        "id": "popup_contact_description_1"
+      },
+      {
+        "id": "popup_contact_description_2"
+      },
+      {
+        "id": "popup_contact_description_3"
+      },
+      {
+        "id": "shop_text_color"
+      },
+      {
+        "id": "shop_text_hover_color"
+      },
+      {
+        "id": "shop_title_color"
+      },
+      {
+        "id": "slide_1_alt"
+      },
+      {
+        "id": "slide_1_link"
+      },
+      {
+        "id": "slide_2_alt"
+      },
+      {
+        "id": "slide_2_link"
+      },
+      {
+        "id": "slide_3_alt"
+      },
+      {
+        "id": "slide_3_link"
+      },
+      {
+        "id": "slide_4_alt"
+      },
+      {
+        "id": "slide_4_link"
+      },
+      {
+        "id": "slideshow_2"
+      },
+      {
+        "id": "slideshow_3"
+      },
+      {
+        "id": "slideshow_4"
+      },
+      {
+        "id": "slideshow_action1"
+      },
+      {
+        "id": "slideshow_action2"
+      },
+      {
+        "id": "slideshow_action3"
+      },
+      {
+        "id": "slideshow_action4"
+      },
+      {
+        "id": "slideshow_action_title1"
+      },
+      {
+        "id": "slideshow_action_title2"
+      },
+      {
+        "id": "slideshow_action_title3"
+      },
+      {
+        "id": "slideshow_action_title4"
+      },
+      {
+        "id": "tag_title_custom_2"
+      },
+      {
+        "id": "tagsize_1_img.jpg"
+      },
+      {
+        "id": "tagsize_1_text"
+      },
+      {
+        "id": "tagsize_2_img.jpg"
+      },
+      {
+        "id": "tagsize_2_text"
+      },
+      {
+        "id": "tagsize_3_img.jpg"
+      },
+      {
+        "id": "tagsize_3_text"
+      },
+      {
+        "id": "tagsize_4_img.jpg"
+      },
+      {
+        "id": "tagsize_4_text"
+      },
+      {
+        "id": "use_color_filter"
+      },
+      {
+        "id": "use_color_filter_1"
+      },
+      {
+        "id": "use_color_filter_10"
+      },
+      {
+        "id": "use_color_filter_11"
+      },
+      {
+        "id": "use_color_filter_12"
+      },
+      {
+        "id": "use_color_filter_13"
+      },
+      {
+        "id": "use_color_filter_14"
+      },
+      {
+        "id": "use_color_filter_15"
+      },
+      {
+        "id": "use_color_filter_16"
+      },
+      {
+        "id": "use_color_filter_17"
+      },
+      {
+        "id": "use_color_filter_18"
+      },
+      {
+        "id": "use_color_filter_19"
+      },
+      {
+        "id": "use_color_filter_2"
+      },
+      {
+        "id": "use_color_filter_20"
+      },
+      {
+        "id": "use_color_filter_21"
+      },
+      {
+        "id": "use_color_filter_22"
+      },
+      {
+        "id": "use_color_filter_23"
+      },
+      {
+        "id": "use_color_filter_24"
+      },
+      {
+        "id": "use_color_filter_25"
+      },
+      {
+        "id": "use_color_filter_26"
+      },
+      {
+        "id": "use_color_filter_27"
+      },
+      {
+        "id": "use_color_filter_28"
+      },
+      {
+        "id": "use_color_filter_29"
+      },
+      {
+        "id": "use_color_filter_3"
+      },
+      {
+        "id": "use_color_filter_30"
+      },
+      {
+        "id": "use_color_filter_4"
+      },
+      {
+        "id": "use_color_filter_5"
+      },
+      {
+        "id": "use_color_filter_6"
+      },
+      {
+        "id": "use_color_filter_7"
+      },
+      {
+        "id": "use_color_filter_8"
+      },
+      {
+        "id": "use_color_filter_9"
+      },
+      {
+        "id": "use_tag_custom_2"
+      },
+      {
+        "id": "use_vendor_filter"
+      },
+      {
+        "id": "vendor_limit"
+      },
+      {
+        "id": "vendor_title"
+      }
+    ],
+    "failures": [
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "collection_one_products",
+        "detail": "settings.collection_one_products is read in templates/index.noslider.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "collection_one_products_limit",
+        "detail": "settings.collection_one_products_limit is read in templates/index.noslider.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "collection_one_products_title",
+        "detail": "settings.collection_one_products_title is read in templates/index.noslider.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "collection_sort",
+        "detail": "settings.collection_sort is read in templates/collection.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "fanpage_faceook",
+        "detail": "settings.fanpage_faceook is read in snippets/facebook-widget.liquid, snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "fb_chat",
+        "detail": "settings.fb_chat is read in snippets/haravan-fb-messages.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "fb_chat_title",
+        "detail": "settings.fb_chat_title is read in snippets/haravan-fb-messages.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "lbl_address1",
+        "detail": "settings.lbl_address1 is read in templates/customers[addresses].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "lbl_address2",
+        "detail": "settings.lbl_address2 is read in templates/customers[addresses].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "lbl_company",
+        "detail": "settings.lbl_company is read in templates/customers[addresses].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "lbl_first_name",
+        "detail": "settings.lbl_first_name is read in templates/customers[addresses].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "lbl_last_name",
+        "detail": "settings.lbl_last_name is read in templates/customers[addresses].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "lbl_phone",
+        "detail": "settings.lbl_phone is read in templates/customers[addresses].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "show_fanpage_faceook",
+        "detail": "settings.show_fanpage_faceook is read in snippets/facebook-widget.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      }
+    ]
+  },
+  "assets": {
+    "ok": false,
+    "counts": {
+      "localPresent": 35,
+      "localMissing": 5,
+      "remote": 0
+    },
+    "localMissing": [
+      {
+        "ref": "fontawesome-webfont.svg",
+        "files": [
+          "snippets/optimize_head.liquid"
+        ]
+      },
+      {
+        "ref": "fontawesome-webfont.ttf",
+        "files": [
+          "snippets/optimize_head.liquid"
+        ]
+      },
+      {
+        "ref": "icon_social_6.png",
+        "files": [
+          "snippets/addthis-sharing-new.liquid"
+        ]
+      },
+      {
+        "ref": "large",
+        "files": [
+          "snippets/menu-mobile.liquid",
+          "snippets/menu.liquid"
+        ]
+      },
+      {
+        "ref": "logo.png",
+        "files": [
+          "snippets/schema.liquid"
+        ]
+      }
+    ],
+    "remote": []
+  },
+  "renders": [],
+  "refusals": [
+    {
+      "check": "settings-binding",
+      "failures": [
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "collection_one_products",
+          "detail": "settings.collection_one_products is read in templates/index.noslider.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "collection_one_products_limit",
+          "detail": "settings.collection_one_products_limit is read in templates/index.noslider.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "collection_one_products_title",
+          "detail": "settings.collection_one_products_title is read in templates/index.noslider.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "collection_sort",
+          "detail": "settings.collection_sort is read in templates/collection.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "fanpage_faceook",
+          "detail": "settings.fanpage_faceook is read in snippets/facebook-widget.liquid, snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "fb_chat",
+          "detail": "settings.fb_chat is read in snippets/haravan-fb-messages.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "fb_chat_title",
+          "detail": "settings.fb_chat_title is read in snippets/haravan-fb-messages.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "lbl_address1",
+          "detail": "settings.lbl_address1 is read in templates/customers[addresses].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "lbl_address2",
+          "detail": "settings.lbl_address2 is read in templates/customers[addresses].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "lbl_company",
+          "detail": "settings.lbl_company is read in templates/customers[addresses].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "lbl_first_name",
+          "detail": "settings.lbl_first_name is read in templates/customers[addresses].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "lbl_last_name",
+          "detail": "settings.lbl_last_name is read in templates/customers[addresses].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "lbl_phone",
+          "detail": "settings.lbl_phone is read in templates/customers[addresses].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "show_fanpage_faceook",
+          "detail": "settings.show_fanpage_faceook is read in snippets/facebook-widget.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        }
+      ]
+    },
+    {
+      "check": "assets",
+      "failures": [
+        {
+          "rule": "ASSET_MISSING_LOCAL",
+          "ref": "fontawesome-webfont.svg",
+          "files": [
+            "snippets/optimize_head.liquid"
+          ]
+        },
+        {
+          "rule": "ASSET_MISSING_LOCAL",
+          "ref": "fontawesome-webfont.ttf",
+          "files": [
+            "snippets/optimize_head.liquid"
+          ]
+        },
+        {
+          "rule": "ASSET_MISSING_LOCAL",
+          "ref": "icon_social_6.png",
+          "files": [
+            "snippets/addthis-sharing-new.liquid"
+          ]
+        },
+        {
+          "rule": "ASSET_MISSING_LOCAL",
+          "ref": "large",
+          "files": [
+            "snippets/menu-mobile.liquid",
+            "snippets/menu.liquid"
+          ]
+        },
+        {
+          "rule": "ASSET_MISSING_LOCAL",
+          "ref": "logo.png",
+          "files": [
+            "snippets/schema.liquid"
+          ]
+        }
+      ]
+    },
+    {
+      "check": "haravan-contracts",
+      "failures": [
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "slideshow_1",
+          "file": "config/settings.html",
+          "line": 757,
+          "message": "Duplicate setting control name 'slideshow_1' in config/settings.html",
+          "detail": "Found 2 controls sharing name 'slideshow_1'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_BLOG_ARTICLES_COUNT",
+          "file": "templates/article.liquid",
+          "line": 18,
+          "message": "use blog.articles_count for article totals instead of articles.size",
+          "detail": "Haravan DotLiquid requires blog.articles_count (templates/article.liquid:18)"
+        },
+        {
+          "rule": "HARAVAN_BLOG_ARTICLES_COUNT",
+          "file": "templates/blog.liquid",
+          "line": 19,
+          "message": "use blog.articles_count for article totals instead of articles.size",
+          "detail": "Haravan DotLiquid requires blog.articles_count (templates/blog.liquid:19)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "collection_sort",
+          "file": "templates/collection.liquid",
+          "line": 50,
+          "message": "setting 'settings.collection_sort' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'collection_sort' (templates/collection.liquid:50)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "lbl_last_name",
+          "file": "templates/customers[addresses].liquid",
+          "line": 258,
+          "message": "setting 'settings.lbl_last_name' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'lbl_last_name' (templates/customers[addresses].liquid:258)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "lbl_first_name",
+          "file": "templates/customers[addresses].liquid",
+          "line": 262,
+          "message": "setting 'settings.lbl_first_name' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'lbl_first_name' (templates/customers[addresses].liquid:262)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "lbl_company",
+          "file": "templates/customers[addresses].liquid",
+          "line": 266,
+          "message": "setting 'settings.lbl_company' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'lbl_company' (templates/customers[addresses].liquid:266)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "lbl_address1",
+          "file": "templates/customers[addresses].liquid",
+          "line": 270,
+          "message": "setting 'settings.lbl_address1' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'lbl_address1' (templates/customers[addresses].liquid:270)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "lbl_address2",
+          "file": "templates/customers[addresses].liquid",
+          "line": 274,
+          "message": "setting 'settings.lbl_address2' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'lbl_address2' (templates/customers[addresses].liquid:274)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "lbl_phone",
+          "file": "templates/customers[addresses].liquid",
+          "line": 292,
+          "message": "setting 'settings.lbl_phone' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'lbl_phone' (templates/customers[addresses].liquid:292)"
+        },
+        {
+          "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+          "file": "templates/index.header-style-01.liquid",
+          "line": 86,
+          "message": "included snippet 'index' does not exist under snippets/",
+          "detail": "Target snippet 'index' was not found in snippets/ (templates/index.header-style-01.liquid:86)"
+        },
+        {
+          "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+          "file": "templates/index.header-style-01.liquid",
+          "line": 100,
+          "message": "included snippet 'sitenav-sidebar' does not exist under snippets/",
+          "detail": "Target snippet 'sitenav-sidebar' was not found in snippets/ (templates/index.header-style-01.liquid:100)"
+        },
+        {
+          "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+          "file": "templates/index.header-style-02.liquid",
+          "line": 86,
+          "message": "included snippet 'index' does not exist under snippets/",
+          "detail": "Target snippet 'index' was not found in snippets/ (templates/index.header-style-02.liquid:86)"
+        },
+        {
+          "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+          "file": "templates/index.header-style-02.liquid",
+          "line": 100,
+          "message": "included snippet 'sitenav-sidebar' does not exist under snippets/",
+          "detail": "Target snippet 'sitenav-sidebar' was not found in snippets/ (templates/index.header-style-02.liquid:100)"
+        },
+        {
+          "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+          "file": "templates/index.header-style-03.liquid",
+          "line": 86,
+          "message": "included snippet 'index' does not exist under snippets/",
+          "detail": "Target snippet 'index' was not found in snippets/ (templates/index.header-style-03.liquid:86)"
+        },
+        {
+          "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+          "file": "templates/index.header-style-03.liquid",
+          "line": 100,
+          "message": "included snippet 'sitenav-sidebar' does not exist under snippets/",
+          "detail": "Target snippet 'sitenav-sidebar' was not found in snippets/ (templates/index.header-style-03.liquid:100)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "collection_one_products",
+          "file": "templates/index.noslider.liquid",
+          "line": 40,
+          "message": "setting 'settings.collection_one_products' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'collection_one_products' (templates/index.noslider.liquid:40)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "collection_one_products",
+          "file": "templates/index.noslider.liquid",
+          "line": 40,
+          "message": "setting 'settings.collection_one_products' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'collection_one_products' (templates/index.noslider.liquid:40)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "collection_one_products_title",
+          "file": "templates/index.noslider.liquid",
+          "line": 41,
+          "message": "setting 'settings.collection_one_products_title' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'collection_one_products_title' (templates/index.noslider.liquid:41)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "collection_one_products",
+          "file": "templates/index.noslider.liquid",
+          "line": 50,
+          "message": "setting 'settings.collection_one_products' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'collection_one_products' (templates/index.noslider.liquid:50)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "collection_one_products",
+          "file": "templates/index.noslider.liquid",
+          "line": 51,
+          "message": "setting 'settings.collection_one_products' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'collection_one_products' (templates/index.noslider.liquid:51)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "collection_one_products_limit",
+          "file": "templates/index.noslider.liquid",
+          "line": 51,
+          "message": "setting 'settings.collection_one_products_limit' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'collection_one_products_limit' (templates/index.noslider.liquid:51)"
+        },
+        {
+          "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+          "file": "templates/list-collections.liquid",
+          "line": 11,
+          "message": "included snippet 'breadcrumb1' does not exist under snippets/",
+          "detail": "Target snippet 'breadcrumb1' was not found in snippets/ (templates/list-collections.liquid:11)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "show_fanpage_faceook",
+          "file": "snippets/facebook-widget.liquid",
+          "line": 2,
+          "message": "setting 'settings.show_fanpage_faceook' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'show_fanpage_faceook' (snippets/facebook-widget.liquid:2)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "fanpage_faceook",
+          "file": "snippets/facebook-widget.liquid",
+          "line": 4,
+          "message": "setting 'settings.fanpage_faceook' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'fanpage_faceook' (snippets/facebook-widget.liquid:4)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "fanpage_faceook",
+          "file": "snippets/footer.liquid",
+          "line": 132,
+          "message": "setting 'settings.fanpage_faceook' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'fanpage_faceook' (snippets/footer.liquid:132)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "fanpage_faceook",
+          "file": "snippets/footer.liquid",
+          "line": 132,
+          "message": "setting 'settings.fanpage_faceook' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'fanpage_faceook' (snippets/footer.liquid:132)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "fanpage_faceook",
+          "file": "snippets/footer.liquid",
+          "line": 132,
+          "message": "setting 'settings.fanpage_faceook' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'fanpage_faceook' (snippets/footer.liquid:132)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "fb_chat_title",
+          "file": "snippets/haravan-fb-messages.liquid",
+          "line": 3,
+          "message": "setting 'settings.fb_chat_title' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'fb_chat_title' (snippets/haravan-fb-messages.liquid:3)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "fb_chat",
+          "file": "snippets/haravan-fb-messages.liquid",
+          "line": 4,
+          "message": "setting 'settings.fb_chat' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'fb_chat' (snippets/haravan-fb-messages.liquid:4)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "fb_chat",
+          "file": "snippets/haravan-fb-messages.liquid",
+          "line": 6,
+          "message": "setting 'settings.fb_chat' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'fb_chat' (snippets/haravan-fb-messages.liquid:6)"
+        }
+      ]
+    }
+  ],
+  "haravanContracts": {
+    "ok": false,
+    "failures": [
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "slideshow_1",
+        "file": "config/settings.html",
+        "line": 757,
+        "message": "Duplicate setting control name 'slideshow_1' in config/settings.html",
+        "detail": "Found 2 controls sharing name 'slideshow_1'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_BLOG_ARTICLES_COUNT",
+        "file": "templates/article.liquid",
+        "line": 18,
+        "message": "use blog.articles_count for article totals instead of articles.size",
+        "detail": "Haravan DotLiquid requires blog.articles_count (templates/article.liquid:18)"
+      },
+      {
+        "rule": "HARAVAN_BLOG_ARTICLES_COUNT",
+        "file": "templates/blog.liquid",
+        "line": 19,
+        "message": "use blog.articles_count for article totals instead of articles.size",
+        "detail": "Haravan DotLiquid requires blog.articles_count (templates/blog.liquid:19)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "collection_sort",
+        "file": "templates/collection.liquid",
+        "line": 50,
+        "message": "setting 'settings.collection_sort' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'collection_sort' (templates/collection.liquid:50)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "lbl_last_name",
+        "file": "templates/customers[addresses].liquid",
+        "line": 258,
+        "message": "setting 'settings.lbl_last_name' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'lbl_last_name' (templates/customers[addresses].liquid:258)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "lbl_first_name",
+        "file": "templates/customers[addresses].liquid",
+        "line": 262,
+        "message": "setting 'settings.lbl_first_name' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'lbl_first_name' (templates/customers[addresses].liquid:262)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "lbl_company",
+        "file": "templates/customers[addresses].liquid",
+        "line": 266,
+        "message": "setting 'settings.lbl_company' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'lbl_company' (templates/customers[addresses].liquid:266)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "lbl_address1",
+        "file": "templates/customers[addresses].liquid",
+        "line": 270,
+        "message": "setting 'settings.lbl_address1' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'lbl_address1' (templates/customers[addresses].liquid:270)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "lbl_address2",
+        "file": "templates/customers[addresses].liquid",
+        "line": 274,
+        "message": "setting 'settings.lbl_address2' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'lbl_address2' (templates/customers[addresses].liquid:274)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "lbl_phone",
+        "file": "templates/customers[addresses].liquid",
+        "line": 292,
+        "message": "setting 'settings.lbl_phone' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'lbl_phone' (templates/customers[addresses].liquid:292)"
+      },
+      {
+        "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+        "file": "templates/index.header-style-01.liquid",
+        "line": 86,
+        "message": "included snippet 'index' does not exist under snippets/",
+        "detail": "Target snippet 'index' was not found in snippets/ (templates/index.header-style-01.liquid:86)"
+      },
+      {
+        "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+        "file": "templates/index.header-style-01.liquid",
+        "line": 100,
+        "message": "included snippet 'sitenav-sidebar' does not exist under snippets/",
+        "detail": "Target snippet 'sitenav-sidebar' was not found in snippets/ (templates/index.header-style-01.liquid:100)"
+      },
+      {
+        "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+        "file": "templates/index.header-style-02.liquid",
+        "line": 86,
+        "message": "included snippet 'index' does not exist under snippets/",
+        "detail": "Target snippet 'index' was not found in snippets/ (templates/index.header-style-02.liquid:86)"
+      },
+      {
+        "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+        "file": "templates/index.header-style-02.liquid",
+        "line": 100,
+        "message": "included snippet 'sitenav-sidebar' does not exist under snippets/",
+        "detail": "Target snippet 'sitenav-sidebar' was not found in snippets/ (templates/index.header-style-02.liquid:100)"
+      },
+      {
+        "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+        "file": "templates/index.header-style-03.liquid",
+        "line": 86,
+        "message": "included snippet 'index' does not exist under snippets/",
+        "detail": "Target snippet 'index' was not found in snippets/ (templates/index.header-style-03.liquid:86)"
+      },
+      {
+        "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+        "file": "templates/index.header-style-03.liquid",
+        "line": 100,
+        "message": "included snippet 'sitenav-sidebar' does not exist under snippets/",
+        "detail": "Target snippet 'sitenav-sidebar' was not found in snippets/ (templates/index.header-style-03.liquid:100)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "collection_one_products",
+        "file": "templates/index.noslider.liquid",
+        "line": 40,
+        "message": "setting 'settings.collection_one_products' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'collection_one_products' (templates/index.noslider.liquid:40)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "collection_one_products",
+        "file": "templates/index.noslider.liquid",
+        "line": 40,
+        "message": "setting 'settings.collection_one_products' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'collection_one_products' (templates/index.noslider.liquid:40)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "collection_one_products_title",
+        "file": "templates/index.noslider.liquid",
+        "line": 41,
+        "message": "setting 'settings.collection_one_products_title' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'collection_one_products_title' (templates/index.noslider.liquid:41)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "collection_one_products",
+        "file": "templates/index.noslider.liquid",
+        "line": 50,
+        "message": "setting 'settings.collection_one_products' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'collection_one_products' (templates/index.noslider.liquid:50)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "collection_one_products",
+        "file": "templates/index.noslider.liquid",
+        "line": 51,
+        "message": "setting 'settings.collection_one_products' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'collection_one_products' (templates/index.noslider.liquid:51)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "collection_one_products_limit",
+        "file": "templates/index.noslider.liquid",
+        "line": 51,
+        "message": "setting 'settings.collection_one_products_limit' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'collection_one_products_limit' (templates/index.noslider.liquid:51)"
+      },
+      {
+        "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+        "file": "templates/list-collections.liquid",
+        "line": 11,
+        "message": "included snippet 'breadcrumb1' does not exist under snippets/",
+        "detail": "Target snippet 'breadcrumb1' was not found in snippets/ (templates/list-collections.liquid:11)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "show_fanpage_faceook",
+        "file": "snippets/facebook-widget.liquid",
+        "line": 2,
+        "message": "setting 'settings.show_fanpage_faceook' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'show_fanpage_faceook' (snippets/facebook-widget.liquid:2)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "fanpage_faceook",
+        "file": "snippets/facebook-widget.liquid",
+        "line": 4,
+        "message": "setting 'settings.fanpage_faceook' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'fanpage_faceook' (snippets/facebook-widget.liquid:4)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "fanpage_faceook",
+        "file": "snippets/footer.liquid",
+        "line": 132,
+        "message": "setting 'settings.fanpage_faceook' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'fanpage_faceook' (snippets/footer.liquid:132)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "fanpage_faceook",
+        "file": "snippets/footer.liquid",
+        "line": 132,
+        "message": "setting 'settings.fanpage_faceook' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'fanpage_faceook' (snippets/footer.liquid:132)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "fanpage_faceook",
+        "file": "snippets/footer.liquid",
+        "line": 132,
+        "message": "setting 'settings.fanpage_faceook' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'fanpage_faceook' (snippets/footer.liquid:132)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "fb_chat_title",
+        "file": "snippets/haravan-fb-messages.liquid",
+        "line": 3,
+        "message": "setting 'settings.fb_chat_title' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'fb_chat_title' (snippets/haravan-fb-messages.liquid:3)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "fb_chat",
+        "file": "snippets/haravan-fb-messages.liquid",
+        "line": 4,
+        "message": "setting 'settings.fb_chat' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'fb_chat' (snippets/haravan-fb-messages.liquid:4)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "fb_chat",
+        "file": "snippets/haravan-fb-messages.liquid",
+        "line": 6,
+        "message": "setting 'settings.fb_chat' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'fb_chat' (snippets/haravan-fb-messages.liquid:6)"
+      }
+    ]
+  }
+}

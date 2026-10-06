@@ -1,0 +1,2649 @@
+{
+  "themeDir": "E:\\Work\\customizes\\Thietbihoaphat",
+  "generatedAt": "2026-10-05T22:14:18.989Z",
+  "ok": false,
+  "schemas": {
+    "ok": false,
+    "schemaFiles": [
+      {
+        "path": "config/settings_schema.json",
+        "ok": false,
+        "error": "group 0 setting 0 id must be a non-empty string"
+      }
+    ],
+    "sectionCount": 0,
+    "failures": [
+      {
+        "rule": "SETTINGS_SCHEMA_SHAPE_INVALID",
+        "path": "config/settings_schema.json",
+        "detail": "group 0 setting 0 id must be a non-empty string"
+      }
+    ]
+  },
+  "settingsBinding": {
+    "ok": false,
+    "undeclared": [
+      {
+        "id": "ajax_cart_method",
+        "files": [
+          "snippets/cart-drawer.liquid",
+          "snippets/footer-script.liquid"
+        ]
+      },
+      {
+        "id": "cart_notes_enable",
+        "files": [
+          "snippets/ajax-cart-template.liquid",
+          "templates/cart.addcomplete.liquid",
+          "templates/cart.liquid"
+        ]
+      },
+      {
+        "id": "cart_vendor_enable",
+        "files": [
+          "snippets/ajax-cart-template.liquid",
+          "templates/cart.addcomplete.liquid",
+          "templates/cart.liquid"
+        ]
+      },
+      {
+        "id": "col_pro_limit",
+        "files": [
+          "templates/search.liquid"
+        ]
+      },
+      {
+        "id": "newsletter_form_action",
+        "files": [
+          "snippets/popup-subscribe.liquid"
+        ]
+      },
+      {
+        "id": "primary_color",
+        "files": [
+          "layout/lp-structure.liquid"
+        ]
+      },
+      {
+        "id": "use_check_quantity",
+        "files": [
+          "snippets/quick-view-template.liquid"
+        ]
+      },
+      {
+        "id": "use_social_googleplus",
+        "files": [
+          "snippets/popup-subscribe.liquid"
+        ]
+      },
+      {
+        "id": "use_vacation_note",
+        "files": [
+          "templates/cart.addcomplete.liquid"
+        ]
+      },
+      {
+        "id": "vacation_note",
+        "files": [
+          "templates/cart.addcomplete.liquid"
+        ]
+      }
+    ],
+    "dead": [
+      {
+        "id": "base_font"
+      },
+      {
+        "id": "blog_banner_3_1.png"
+      },
+      {
+        "id": "blog_banner_3_10.png"
+      },
+      {
+        "id": "blog_banner_3_2.png"
+      },
+      {
+        "id": "blog_banner_3_3.png"
+      },
+      {
+        "id": "blog_banner_3_4.png"
+      },
+      {
+        "id": "blog_banner_3_5.png"
+      },
+      {
+        "id": "blog_banner_3_6.png"
+      },
+      {
+        "id": "blog_banner_3_7.png"
+      },
+      {
+        "id": "blog_banner_3_8.png"
+      },
+      {
+        "id": "blog_banner_3_9.png"
+      },
+      {
+        "id": "blog_banner_alt_3_1"
+      },
+      {
+        "id": "blog_banner_alt_3_10"
+      },
+      {
+        "id": "blog_banner_alt_3_2"
+      },
+      {
+        "id": "blog_banner_alt_3_3"
+      },
+      {
+        "id": "blog_banner_alt_3_4"
+      },
+      {
+        "id": "blog_banner_alt_3_5"
+      },
+      {
+        "id": "blog_banner_alt_3_6"
+      },
+      {
+        "id": "blog_banner_alt_3_7"
+      },
+      {
+        "id": "blog_banner_alt_3_8"
+      },
+      {
+        "id": "blog_banner_alt_3_9"
+      },
+      {
+        "id": "blog_banner_url_3_1"
+      },
+      {
+        "id": "blog_banner_url_3_10"
+      },
+      {
+        "id": "blog_banner_url_3_2"
+      },
+      {
+        "id": "blog_banner_url_3_3"
+      },
+      {
+        "id": "blog_banner_url_3_4"
+      },
+      {
+        "id": "blog_banner_url_3_5"
+      },
+      {
+        "id": "blog_banner_url_3_6"
+      },
+      {
+        "id": "blog_banner_url_3_7"
+      },
+      {
+        "id": "blog_banner_url_3_8"
+      },
+      {
+        "id": "blog_banner_url_3_9"
+      },
+      {
+        "id": "blog_si_limit_1"
+      },
+      {
+        "id": "blog_si_limit_10"
+      },
+      {
+        "id": "blog_si_limit_2"
+      },
+      {
+        "id": "blog_si_limit_3"
+      },
+      {
+        "id": "blog_si_limit_4"
+      },
+      {
+        "id": "blog_si_limit_5"
+      },
+      {
+        "id": "blog_si_limit_6"
+      },
+      {
+        "id": "blog_si_limit_7"
+      },
+      {
+        "id": "blog_si_limit_8"
+      },
+      {
+        "id": "blog_si_limit_9"
+      },
+      {
+        "id": "breadcrumb_bg1.png"
+      },
+      {
+        "id": "breadcrumb_bg2.png"
+      },
+      {
+        "id": "breadcrumb_bg3.png"
+      },
+      {
+        "id": "breadcrumb_bg4.png"
+      },
+      {
+        "id": "breadcrumb_bg5.png"
+      },
+      {
+        "id": "check_zalo"
+      },
+      {
+        "id": "col_search_select"
+      },
+      {
+        "id": "color_body_bg"
+      },
+      {
+        "id": "color_body_text"
+      },
+      {
+        "id": "color_borders"
+      },
+      {
+        "id": "color_secondary"
+      },
+      {
+        "id": "color_value_1"
+      },
+      {
+        "id": "color_value_10"
+      },
+      {
+        "id": "color_value_11"
+      },
+      {
+        "id": "color_value_12"
+      },
+      {
+        "id": "color_value_13"
+      },
+      {
+        "id": "color_value_14"
+      },
+      {
+        "id": "color_value_15"
+      },
+      {
+        "id": "color_value_16"
+      },
+      {
+        "id": "color_value_17"
+      },
+      {
+        "id": "color_value_18"
+      },
+      {
+        "id": "color_value_19"
+      },
+      {
+        "id": "color_value_2"
+      },
+      {
+        "id": "color_value_20"
+      },
+      {
+        "id": "color_value_3"
+      },
+      {
+        "id": "color_value_4"
+      },
+      {
+        "id": "color_value_5"
+      },
+      {
+        "id": "color_value_6"
+      },
+      {
+        "id": "color_value_7"
+      },
+      {
+        "id": "color_value_8"
+      },
+      {
+        "id": "color_value_9"
+      },
+      {
+        "id": "color_value_title_1"
+      },
+      {
+        "id": "color_value_title_10"
+      },
+      {
+        "id": "color_value_title_11"
+      },
+      {
+        "id": "color_value_title_12"
+      },
+      {
+        "id": "color_value_title_13"
+      },
+      {
+        "id": "color_value_title_14"
+      },
+      {
+        "id": "color_value_title_15"
+      },
+      {
+        "id": "color_value_title_16"
+      },
+      {
+        "id": "color_value_title_17"
+      },
+      {
+        "id": "color_value_title_18"
+      },
+      {
+        "id": "color_value_title_19"
+      },
+      {
+        "id": "color_value_title_2"
+      },
+      {
+        "id": "color_value_title_20"
+      },
+      {
+        "id": "color_value_title_3"
+      },
+      {
+        "id": "color_value_title_4"
+      },
+      {
+        "id": "color_value_title_5"
+      },
+      {
+        "id": "color_value_title_6"
+      },
+      {
+        "id": "color_value_title_7"
+      },
+      {
+        "id": "color_value_title_8"
+      },
+      {
+        "id": "color_value_title_9"
+      },
+      {
+        "id": "copyright_bg_color"
+      },
+      {
+        "id": "copyright_text_color"
+      },
+      {
+        "id": "favicon.png"
+      },
+      {
+        "id": "footer_bg.png"
+      },
+      {
+        "id": "footer_bg_color"
+      },
+      {
+        "id": "footer_text_color"
+      },
+      {
+        "id": "footer_text_color_hover"
+      },
+      {
+        "id": "footer_text_color_title"
+      },
+      {
+        "id": "hdm_bg_color"
+      },
+      {
+        "id": "hdm_text_color"
+      },
+      {
+        "id": "hdt_bg_color"
+      },
+      {
+        "id": "hdt_text_color"
+      },
+      {
+        "id": "hdt_texthover_color"
+      },
+      {
+        "id": "hfp_enable_countdown"
+      },
+      {
+        "id": "home_art2_limit"
+      },
+      {
+        "id": "home_col1.png"
+      },
+      {
+        "id": "home_col1_alt"
+      },
+      {
+        "id": "home_col1_hover.png"
+      },
+      {
+        "id": "home_col1_hover_alt"
+      },
+      {
+        "id": "home_col1_title"
+      },
+      {
+        "id": "home_col1_url"
+      },
+      {
+        "id": "home_col2.png"
+      },
+      {
+        "id": "home_col2_1"
+      },
+      {
+        "id": "home_col2_2"
+      },
+      {
+        "id": "home_col2_3"
+      },
+      {
+        "id": "home_col2_4"
+      },
+      {
+        "id": "home_col2_5"
+      },
+      {
+        "id": "home_col2_alt"
+      },
+      {
+        "id": "home_col2_hover.png"
+      },
+      {
+        "id": "home_col2_hover_alt"
+      },
+      {
+        "id": "home_col2_select_1"
+      },
+      {
+        "id": "home_col2_select_2"
+      },
+      {
+        "id": "home_col2_select_3"
+      },
+      {
+        "id": "home_col2_select_4"
+      },
+      {
+        "id": "home_col2_select_5"
+      },
+      {
+        "id": "home_col2_title"
+      },
+      {
+        "id": "home_col2_title_1"
+      },
+      {
+        "id": "home_col2_title_2"
+      },
+      {
+        "id": "home_col2_title_3"
+      },
+      {
+        "id": "home_col2_title_4"
+      },
+      {
+        "id": "home_col2_title_5"
+      },
+      {
+        "id": "home_col2_url"
+      },
+      {
+        "id": "home_col3.png"
+      },
+      {
+        "id": "home_col3_alt"
+      },
+      {
+        "id": "home_col3_hover.png"
+      },
+      {
+        "id": "home_col3_hover_alt"
+      },
+      {
+        "id": "home_col3_title"
+      },
+      {
+        "id": "home_col3_url"
+      },
+      {
+        "id": "home_col4.png"
+      },
+      {
+        "id": "home_col4_alt"
+      },
+      {
+        "id": "home_col4_hover.png"
+      },
+      {
+        "id": "home_col4_hover_alt"
+      },
+      {
+        "id": "home_col4_title"
+      },
+      {
+        "id": "home_col4_url"
+      },
+      {
+        "id": "home_col5.png"
+      },
+      {
+        "id": "home_col5_alt"
+      },
+      {
+        "id": "home_col5_hover.png"
+      },
+      {
+        "id": "home_col5_hover_alt"
+      },
+      {
+        "id": "home_col5_title"
+      },
+      {
+        "id": "home_col5_url"
+      },
+      {
+        "id": "home_col6.png"
+      },
+      {
+        "id": "home_col6_alt"
+      },
+      {
+        "id": "home_col6_hover.png"
+      },
+      {
+        "id": "home_col6_hover_alt"
+      },
+      {
+        "id": "home_col6_title"
+      },
+      {
+        "id": "home_col6_url"
+      },
+      {
+        "id": "home_col_1_show"
+      },
+      {
+        "id": "home_col_2_show"
+      },
+      {
+        "id": "home_col_3_show"
+      },
+      {
+        "id": "home_col_4_show"
+      },
+      {
+        "id": "home_col_5_show"
+      },
+      {
+        "id": "home_col_6_show"
+      },
+      {
+        "id": "home_number1"
+      },
+      {
+        "id": "home_number2"
+      },
+      {
+        "id": "home_number3"
+      },
+      {
+        "id": "home_number4"
+      },
+      {
+        "id": "home_number_icon1"
+      },
+      {
+        "id": "home_number_icon2"
+      },
+      {
+        "id": "home_number_icon3"
+      },
+      {
+        "id": "home_number_icon4"
+      },
+      {
+        "id": "home_number_title1"
+      },
+      {
+        "id": "home_number_title2"
+      },
+      {
+        "id": "home_number_title3"
+      },
+      {
+        "id": "home_number_title4"
+      },
+      {
+        "id": "home_partner_1.png"
+      },
+      {
+        "id": "home_partner_10.png"
+      },
+      {
+        "id": "home_partner_10_alt"
+      },
+      {
+        "id": "home_partner_10_show"
+      },
+      {
+        "id": "home_partner_10_url"
+      },
+      {
+        "id": "home_partner_1_alt"
+      },
+      {
+        "id": "home_partner_1_show"
+      },
+      {
+        "id": "home_partner_1_url"
+      },
+      {
+        "id": "home_partner_2.png"
+      },
+      {
+        "id": "home_partner_2_alt"
+      },
+      {
+        "id": "home_partner_2_show"
+      },
+      {
+        "id": "home_partner_2_url"
+      },
+      {
+        "id": "home_partner_3.png"
+      },
+      {
+        "id": "home_partner_3_alt"
+      },
+      {
+        "id": "home_partner_3_show"
+      },
+      {
+        "id": "home_partner_3_url"
+      },
+      {
+        "id": "home_partner_4.png"
+      },
+      {
+        "id": "home_partner_4_alt"
+      },
+      {
+        "id": "home_partner_4_show"
+      },
+      {
+        "id": "home_partner_4_url"
+      },
+      {
+        "id": "home_partner_5.png"
+      },
+      {
+        "id": "home_partner_5_alt"
+      },
+      {
+        "id": "home_partner_5_show"
+      },
+      {
+        "id": "home_partner_5_url"
+      },
+      {
+        "id": "home_partner_6.png"
+      },
+      {
+        "id": "home_partner_6_alt"
+      },
+      {
+        "id": "home_partner_6_show"
+      },
+      {
+        "id": "home_partner_6_url"
+      },
+      {
+        "id": "home_partner_7.png"
+      },
+      {
+        "id": "home_partner_7_alt"
+      },
+      {
+        "id": "home_partner_7_show"
+      },
+      {
+        "id": "home_partner_7_url"
+      },
+      {
+        "id": "home_partner_8.png"
+      },
+      {
+        "id": "home_partner_8_alt"
+      },
+      {
+        "id": "home_partner_8_show"
+      },
+      {
+        "id": "home_partner_8_url"
+      },
+      {
+        "id": "home_partner_9.png"
+      },
+      {
+        "id": "home_partner_9_alt"
+      },
+      {
+        "id": "home_partner_9_show"
+      },
+      {
+        "id": "home_partner_9_url"
+      },
+      {
+        "id": "home_section_1"
+      },
+      {
+        "id": "home_section_2"
+      },
+      {
+        "id": "home_section_3"
+      },
+      {
+        "id": "home_section_4"
+      },
+      {
+        "id": "home_section_5"
+      },
+      {
+        "id": "home_section_6"
+      },
+      {
+        "id": "home_section_7"
+      },
+      {
+        "id": "home_section_8"
+      },
+      {
+        "id": "home_section_9"
+      },
+      {
+        "id": "home_sub_desc_1"
+      },
+      {
+        "id": "home_sub_desc_2"
+      },
+      {
+        "id": "home_sub_img.png"
+      },
+      {
+        "id": "home_sub_title_1"
+      },
+      {
+        "id": "home_sub_title_2"
+      },
+      {
+        "id": "home_sub_url_1"
+      },
+      {
+        "id": "home_sub_url_2"
+      },
+      {
+        "id": "home_sub_url_title_1"
+      },
+      {
+        "id": "home_sub_url_title_2"
+      },
+      {
+        "id": "htesti_limit"
+      },
+      {
+        "id": "htesti_select_img.png"
+      },
+      {
+        "id": "logo.png"
+      },
+      {
+        "id": "mb_nav_show"
+      },
+      {
+        "id": "megamenu_10_col1_limit"
+      },
+      {
+        "id": "megamenu_10_col1_select"
+      },
+      {
+        "id": "megamenu_10_col2_limit"
+      },
+      {
+        "id": "megamenu_10_col2_select"
+      },
+      {
+        "id": "megamenu_10_col3_limit"
+      },
+      {
+        "id": "megamenu_10_col3_select"
+      },
+      {
+        "id": "megamenu_10_col4_limit"
+      },
+      {
+        "id": "megamenu_10_col4_select"
+      },
+      {
+        "id": "megamenu_10_show_col1"
+      },
+      {
+        "id": "megamenu_10_show_col2"
+      },
+      {
+        "id": "megamenu_10_show_col3"
+      },
+      {
+        "id": "megamenu_10_show_col4"
+      },
+      {
+        "id": "megamenu_10_show_submenu1"
+      },
+      {
+        "id": "megamenu_10_show_submenu2"
+      },
+      {
+        "id": "megamenu_10_show_submenu3"
+      },
+      {
+        "id": "megamenu_10_show_submenu4"
+      },
+      {
+        "id": "megamenu_10_submenu1_select"
+      },
+      {
+        "id": "megamenu_10_submenu2_select"
+      },
+      {
+        "id": "megamenu_10_submenu3_select"
+      },
+      {
+        "id": "megamenu_10_submenu4_select"
+      },
+      {
+        "id": "megamenu_1_col1_limit"
+      },
+      {
+        "id": "megamenu_1_col1_select"
+      },
+      {
+        "id": "megamenu_1_col2_limit"
+      },
+      {
+        "id": "megamenu_1_col2_select"
+      },
+      {
+        "id": "megamenu_1_col3_limit"
+      },
+      {
+        "id": "megamenu_1_col3_select"
+      },
+      {
+        "id": "megamenu_1_col4_limit"
+      },
+      {
+        "id": "megamenu_1_col4_select"
+      },
+      {
+        "id": "megamenu_1_show_col1"
+      },
+      {
+        "id": "megamenu_1_show_col2"
+      },
+      {
+        "id": "megamenu_1_show_col3"
+      },
+      {
+        "id": "megamenu_1_show_col4"
+      },
+      {
+        "id": "megamenu_1_show_submenu1"
+      },
+      {
+        "id": "megamenu_1_show_submenu2"
+      },
+      {
+        "id": "megamenu_1_show_submenu3"
+      },
+      {
+        "id": "megamenu_1_show_submenu4"
+      },
+      {
+        "id": "megamenu_1_submenu1_select"
+      },
+      {
+        "id": "megamenu_1_submenu2_select"
+      },
+      {
+        "id": "megamenu_1_submenu3_select"
+      },
+      {
+        "id": "megamenu_1_submenu4_select"
+      },
+      {
+        "id": "megamenu_2_col1_limit"
+      },
+      {
+        "id": "megamenu_2_col1_select"
+      },
+      {
+        "id": "megamenu_2_col2_limit"
+      },
+      {
+        "id": "megamenu_2_col2_select"
+      },
+      {
+        "id": "megamenu_2_col3_limit"
+      },
+      {
+        "id": "megamenu_2_col3_select"
+      },
+      {
+        "id": "megamenu_2_col4_limit"
+      },
+      {
+        "id": "megamenu_2_col4_select"
+      },
+      {
+        "id": "megamenu_2_show_col1"
+      },
+      {
+        "id": "megamenu_2_show_col2"
+      },
+      {
+        "id": "megamenu_2_show_col3"
+      },
+      {
+        "id": "megamenu_2_show_col4"
+      },
+      {
+        "id": "megamenu_2_show_submenu1"
+      },
+      {
+        "id": "megamenu_2_show_submenu2"
+      },
+      {
+        "id": "megamenu_2_show_submenu3"
+      },
+      {
+        "id": "megamenu_2_show_submenu4"
+      },
+      {
+        "id": "megamenu_2_submenu1_select"
+      },
+      {
+        "id": "megamenu_2_submenu2_select"
+      },
+      {
+        "id": "megamenu_2_submenu3_select"
+      },
+      {
+        "id": "megamenu_2_submenu4_select"
+      },
+      {
+        "id": "megamenu_3_col1_limit"
+      },
+      {
+        "id": "megamenu_3_col1_select"
+      },
+      {
+        "id": "megamenu_3_col2_limit"
+      },
+      {
+        "id": "megamenu_3_col2_select"
+      },
+      {
+        "id": "megamenu_3_col3_limit"
+      },
+      {
+        "id": "megamenu_3_col3_select"
+      },
+      {
+        "id": "megamenu_3_col4_limit"
+      },
+      {
+        "id": "megamenu_3_col4_select"
+      },
+      {
+        "id": "megamenu_3_show_col1"
+      },
+      {
+        "id": "megamenu_3_show_col2"
+      },
+      {
+        "id": "megamenu_3_show_col3"
+      },
+      {
+        "id": "megamenu_3_show_col4"
+      },
+      {
+        "id": "megamenu_3_show_submenu1"
+      },
+      {
+        "id": "megamenu_3_show_submenu2"
+      },
+      {
+        "id": "megamenu_3_show_submenu3"
+      },
+      {
+        "id": "megamenu_3_show_submenu4"
+      },
+      {
+        "id": "megamenu_3_submenu1_select"
+      },
+      {
+        "id": "megamenu_3_submenu2_select"
+      },
+      {
+        "id": "megamenu_3_submenu3_select"
+      },
+      {
+        "id": "megamenu_3_submenu4_select"
+      },
+      {
+        "id": "megamenu_4_col1_limit"
+      },
+      {
+        "id": "megamenu_4_col1_select"
+      },
+      {
+        "id": "megamenu_4_col2_limit"
+      },
+      {
+        "id": "megamenu_4_col2_select"
+      },
+      {
+        "id": "megamenu_4_col3_limit"
+      },
+      {
+        "id": "megamenu_4_col3_select"
+      },
+      {
+        "id": "megamenu_4_col4_limit"
+      },
+      {
+        "id": "megamenu_4_col4_select"
+      },
+      {
+        "id": "megamenu_4_show_col1"
+      },
+      {
+        "id": "megamenu_4_show_col2"
+      },
+      {
+        "id": "megamenu_4_show_col3"
+      },
+      {
+        "id": "megamenu_4_show_col4"
+      },
+      {
+        "id": "megamenu_4_show_submenu1"
+      },
+      {
+        "id": "megamenu_4_show_submenu2"
+      },
+      {
+        "id": "megamenu_4_show_submenu3"
+      },
+      {
+        "id": "megamenu_4_show_submenu4"
+      },
+      {
+        "id": "megamenu_4_submenu1_select"
+      },
+      {
+        "id": "megamenu_4_submenu2_select"
+      },
+      {
+        "id": "megamenu_4_submenu3_select"
+      },
+      {
+        "id": "megamenu_4_submenu4_select"
+      },
+      {
+        "id": "megamenu_5_col1_limit"
+      },
+      {
+        "id": "megamenu_5_col1_select"
+      },
+      {
+        "id": "megamenu_5_col2_limit"
+      },
+      {
+        "id": "megamenu_5_col2_select"
+      },
+      {
+        "id": "megamenu_5_col3_limit"
+      },
+      {
+        "id": "megamenu_5_col3_select"
+      },
+      {
+        "id": "megamenu_5_col4_limit"
+      },
+      {
+        "id": "megamenu_5_col4_select"
+      },
+      {
+        "id": "megamenu_5_show_col1"
+      },
+      {
+        "id": "megamenu_5_show_col2"
+      },
+      {
+        "id": "megamenu_5_show_col3"
+      },
+      {
+        "id": "megamenu_5_show_col4"
+      },
+      {
+        "id": "megamenu_5_show_submenu1"
+      },
+      {
+        "id": "megamenu_5_show_submenu2"
+      },
+      {
+        "id": "megamenu_5_show_submenu3"
+      },
+      {
+        "id": "megamenu_5_show_submenu4"
+      },
+      {
+        "id": "megamenu_5_submenu1_select"
+      },
+      {
+        "id": "megamenu_5_submenu2_select"
+      },
+      {
+        "id": "megamenu_5_submenu3_select"
+      },
+      {
+        "id": "megamenu_5_submenu4_select"
+      },
+      {
+        "id": "megamenu_6_col1_limit"
+      },
+      {
+        "id": "megamenu_6_col1_select"
+      },
+      {
+        "id": "megamenu_6_col2_limit"
+      },
+      {
+        "id": "megamenu_6_col2_select"
+      },
+      {
+        "id": "megamenu_6_col3_limit"
+      },
+      {
+        "id": "megamenu_6_col3_select"
+      },
+      {
+        "id": "megamenu_6_col4_limit"
+      },
+      {
+        "id": "megamenu_6_col4_select"
+      },
+      {
+        "id": "megamenu_6_show_col1"
+      },
+      {
+        "id": "megamenu_6_show_col2"
+      },
+      {
+        "id": "megamenu_6_show_col3"
+      },
+      {
+        "id": "megamenu_6_show_col4"
+      },
+      {
+        "id": "megamenu_6_show_submenu1"
+      },
+      {
+        "id": "megamenu_6_show_submenu2"
+      },
+      {
+        "id": "megamenu_6_show_submenu3"
+      },
+      {
+        "id": "megamenu_6_show_submenu4"
+      },
+      {
+        "id": "megamenu_6_submenu1_select"
+      },
+      {
+        "id": "megamenu_6_submenu2_select"
+      },
+      {
+        "id": "megamenu_6_submenu3_select"
+      },
+      {
+        "id": "megamenu_6_submenu4_select"
+      },
+      {
+        "id": "megamenu_7_col1_limit"
+      },
+      {
+        "id": "megamenu_7_col1_select"
+      },
+      {
+        "id": "megamenu_7_col2_limit"
+      },
+      {
+        "id": "megamenu_7_col2_select"
+      },
+      {
+        "id": "megamenu_7_col3_limit"
+      },
+      {
+        "id": "megamenu_7_col3_select"
+      },
+      {
+        "id": "megamenu_7_col4_limit"
+      },
+      {
+        "id": "megamenu_7_col4_select"
+      },
+      {
+        "id": "megamenu_7_show_col1"
+      },
+      {
+        "id": "megamenu_7_show_col2"
+      },
+      {
+        "id": "megamenu_7_show_col3"
+      },
+      {
+        "id": "megamenu_7_show_col4"
+      },
+      {
+        "id": "megamenu_7_show_submenu1"
+      },
+      {
+        "id": "megamenu_7_show_submenu2"
+      },
+      {
+        "id": "megamenu_7_show_submenu3"
+      },
+      {
+        "id": "megamenu_7_show_submenu4"
+      },
+      {
+        "id": "megamenu_7_submenu1_select"
+      },
+      {
+        "id": "megamenu_7_submenu2_select"
+      },
+      {
+        "id": "megamenu_7_submenu3_select"
+      },
+      {
+        "id": "megamenu_7_submenu4_select"
+      },
+      {
+        "id": "megamenu_8_col1_limit"
+      },
+      {
+        "id": "megamenu_8_col1_select"
+      },
+      {
+        "id": "megamenu_8_col2_limit"
+      },
+      {
+        "id": "megamenu_8_col2_select"
+      },
+      {
+        "id": "megamenu_8_col3_limit"
+      },
+      {
+        "id": "megamenu_8_col3_select"
+      },
+      {
+        "id": "megamenu_8_col4_limit"
+      },
+      {
+        "id": "megamenu_8_col4_select"
+      },
+      {
+        "id": "megamenu_8_show_col1"
+      },
+      {
+        "id": "megamenu_8_show_col2"
+      },
+      {
+        "id": "megamenu_8_show_col3"
+      },
+      {
+        "id": "megamenu_8_show_col4"
+      },
+      {
+        "id": "megamenu_8_show_submenu1"
+      },
+      {
+        "id": "megamenu_8_show_submenu2"
+      },
+      {
+        "id": "megamenu_8_show_submenu3"
+      },
+      {
+        "id": "megamenu_8_show_submenu4"
+      },
+      {
+        "id": "megamenu_8_submenu1_select"
+      },
+      {
+        "id": "megamenu_8_submenu2_select"
+      },
+      {
+        "id": "megamenu_8_submenu3_select"
+      },
+      {
+        "id": "megamenu_8_submenu4_select"
+      },
+      {
+        "id": "megamenu_9_col1_limit"
+      },
+      {
+        "id": "megamenu_9_col1_select"
+      },
+      {
+        "id": "megamenu_9_col2_limit"
+      },
+      {
+        "id": "megamenu_9_col2_select"
+      },
+      {
+        "id": "megamenu_9_col3_limit"
+      },
+      {
+        "id": "megamenu_9_col3_select"
+      },
+      {
+        "id": "megamenu_9_col4_limit"
+      },
+      {
+        "id": "megamenu_9_col4_select"
+      },
+      {
+        "id": "megamenu_9_show_col1"
+      },
+      {
+        "id": "megamenu_9_show_col2"
+      },
+      {
+        "id": "megamenu_9_show_col3"
+      },
+      {
+        "id": "megamenu_9_show_col4"
+      },
+      {
+        "id": "megamenu_9_show_submenu1"
+      },
+      {
+        "id": "megamenu_9_show_submenu2"
+      },
+      {
+        "id": "megamenu_9_show_submenu3"
+      },
+      {
+        "id": "megamenu_9_show_submenu4"
+      },
+      {
+        "id": "megamenu_9_submenu1_select"
+      },
+      {
+        "id": "megamenu_9_submenu2_select"
+      },
+      {
+        "id": "megamenu_9_submenu3_select"
+      },
+      {
+        "id": "megamenu_9_submenu4_select"
+      },
+      {
+        "id": "mobile_bot_nav_icon1"
+      },
+      {
+        "id": "mobile_bot_nav_icon2"
+      },
+      {
+        "id": "mobile_bot_nav_icon3"
+      },
+      {
+        "id": "mobile_bot_nav_icon4"
+      },
+      {
+        "id": "mobile_bot_nav_title1"
+      },
+      {
+        "id": "mobile_bot_nav_title2"
+      },
+      {
+        "id": "mobile_bot_nav_title3"
+      },
+      {
+        "id": "mobile_bot_nav_title4"
+      },
+      {
+        "id": "mobile_bot_nav_url1"
+      },
+      {
+        "id": "mobile_bot_nav_url2"
+      },
+      {
+        "id": "mobile_bot_nav_url3"
+      },
+      {
+        "id": "mobile_bot_nav_url4"
+      },
+      {
+        "id": "nav_bg_color"
+      },
+      {
+        "id": "navbar_text_color"
+      },
+      {
+        "id": "navbar_texthover_color"
+      },
+      {
+        "id": "popup_bg.png"
+      },
+      {
+        "id": "popup_li_1"
+      },
+      {
+        "id": "popup_li_2"
+      },
+      {
+        "id": "popup_li_3"
+      },
+      {
+        "id": "popup_li_4"
+      },
+      {
+        "id": "share_fb_home.png"
+      },
+      {
+        "id": "show_blog_banner_3_1"
+      },
+      {
+        "id": "show_blog_banner_3_10"
+      },
+      {
+        "id": "show_blog_banner_3_2"
+      },
+      {
+        "id": "show_blog_banner_3_3"
+      },
+      {
+        "id": "show_blog_banner_3_4"
+      },
+      {
+        "id": "show_blog_banner_3_5"
+      },
+      {
+        "id": "show_blog_banner_3_6"
+      },
+      {
+        "id": "show_blog_banner_3_7"
+      },
+      {
+        "id": "show_blog_banner_3_8"
+      },
+      {
+        "id": "show_blog_banner_3_9"
+      },
+      {
+        "id": "sidebar_col_par_1"
+      },
+      {
+        "id": "sidebar_col_par_10"
+      },
+      {
+        "id": "sidebar_col_par_11"
+      },
+      {
+        "id": "sidebar_col_par_12"
+      },
+      {
+        "id": "sidebar_col_par_13"
+      },
+      {
+        "id": "sidebar_col_par_14"
+      },
+      {
+        "id": "sidebar_col_par_15"
+      },
+      {
+        "id": "sidebar_col_par_16"
+      },
+      {
+        "id": "sidebar_col_par_17"
+      },
+      {
+        "id": "sidebar_col_par_18"
+      },
+      {
+        "id": "sidebar_col_par_19"
+      },
+      {
+        "id": "sidebar_col_par_2"
+      },
+      {
+        "id": "sidebar_col_par_20"
+      },
+      {
+        "id": "sidebar_col_par_3"
+      },
+      {
+        "id": "sidebar_col_par_4"
+      },
+      {
+        "id": "sidebar_col_par_5"
+      },
+      {
+        "id": "sidebar_col_par_6"
+      },
+      {
+        "id": "sidebar_col_par_7"
+      },
+      {
+        "id": "sidebar_col_par_8"
+      },
+      {
+        "id": "sidebar_col_par_9"
+      },
+      {
+        "id": "sidebar_enable_par_1"
+      },
+      {
+        "id": "sidebar_enable_par_10"
+      },
+      {
+        "id": "sidebar_enable_par_11"
+      },
+      {
+        "id": "sidebar_enable_par_12"
+      },
+      {
+        "id": "sidebar_enable_par_13"
+      },
+      {
+        "id": "sidebar_enable_par_14"
+      },
+      {
+        "id": "sidebar_enable_par_15"
+      },
+      {
+        "id": "sidebar_enable_par_16"
+      },
+      {
+        "id": "sidebar_enable_par_17"
+      },
+      {
+        "id": "sidebar_enable_par_18"
+      },
+      {
+        "id": "sidebar_enable_par_19"
+      },
+      {
+        "id": "sidebar_enable_par_2"
+      },
+      {
+        "id": "sidebar_enable_par_20"
+      },
+      {
+        "id": "sidebar_enable_par_3"
+      },
+      {
+        "id": "sidebar_enable_par_4"
+      },
+      {
+        "id": "sidebar_enable_par_5"
+      },
+      {
+        "id": "sidebar_enable_par_6"
+      },
+      {
+        "id": "sidebar_enable_par_7"
+      },
+      {
+        "id": "sidebar_enable_par_8"
+      },
+      {
+        "id": "sidebar_enable_par_9"
+      },
+      {
+        "id": "sidebar_menu_par_1"
+      },
+      {
+        "id": "sidebar_menu_par_10"
+      },
+      {
+        "id": "sidebar_menu_par_11"
+      },
+      {
+        "id": "sidebar_menu_par_12"
+      },
+      {
+        "id": "sidebar_menu_par_13"
+      },
+      {
+        "id": "sidebar_menu_par_14"
+      },
+      {
+        "id": "sidebar_menu_par_15"
+      },
+      {
+        "id": "sidebar_menu_par_16"
+      },
+      {
+        "id": "sidebar_menu_par_17"
+      },
+      {
+        "id": "sidebar_menu_par_18"
+      },
+      {
+        "id": "sidebar_menu_par_19"
+      },
+      {
+        "id": "sidebar_menu_par_2"
+      },
+      {
+        "id": "sidebar_menu_par_20"
+      },
+      {
+        "id": "sidebar_menu_par_3"
+      },
+      {
+        "id": "sidebar_menu_par_4"
+      },
+      {
+        "id": "sidebar_menu_par_5"
+      },
+      {
+        "id": "sidebar_menu_par_6"
+      },
+      {
+        "id": "sidebar_menu_par_7"
+      },
+      {
+        "id": "sidebar_menu_par_8"
+      },
+      {
+        "id": "sidebar_menu_par_9"
+      },
+      {
+        "id": "slide_1"
+      },
+      {
+        "id": "slide_1_alt"
+      },
+      {
+        "id": "slide_1_link"
+      },
+      {
+        "id": "slide_1_title"
+      },
+      {
+        "id": "slide_2"
+      },
+      {
+        "id": "slide_2_alt"
+      },
+      {
+        "id": "slide_2_link"
+      },
+      {
+        "id": "slide_2_title"
+      },
+      {
+        "id": "slide_3"
+      },
+      {
+        "id": "slide_3_alt"
+      },
+      {
+        "id": "slide_3_link"
+      },
+      {
+        "id": "slide_3_title"
+      },
+      {
+        "id": "slide_4"
+      },
+      {
+        "id": "slide_4_alt"
+      },
+      {
+        "id": "slide_4_link"
+      },
+      {
+        "id": "slide_4_title"
+      },
+      {
+        "id": "slide_5"
+      },
+      {
+        "id": "slide_5_alt"
+      },
+      {
+        "id": "slide_5_link"
+      },
+      {
+        "id": "slide_5_title"
+      },
+      {
+        "id": "slideshow_1.jpg"
+      },
+      {
+        "id": "slideshow_2.jpg"
+      },
+      {
+        "id": "slideshow_3.jpg"
+      },
+      {
+        "id": "slideshow_4.jpg"
+      },
+      {
+        "id": "slideshow_5.jpg"
+      },
+      {
+        "id": "store_address_1"
+      },
+      {
+        "id": "store_address_10"
+      },
+      {
+        "id": "store_address_2"
+      },
+      {
+        "id": "store_address_3"
+      },
+      {
+        "id": "store_address_4"
+      },
+      {
+        "id": "store_address_5"
+      },
+      {
+        "id": "store_address_6"
+      },
+      {
+        "id": "store_address_7"
+      },
+      {
+        "id": "store_address_8"
+      },
+      {
+        "id": "store_address_9"
+      },
+      {
+        "id": "store_enable_1"
+      },
+      {
+        "id": "store_enable_10"
+      },
+      {
+        "id": "store_enable_2"
+      },
+      {
+        "id": "store_enable_3"
+      },
+      {
+        "id": "store_enable_4"
+      },
+      {
+        "id": "store_enable_5"
+      },
+      {
+        "id": "store_enable_6"
+      },
+      {
+        "id": "store_enable_7"
+      },
+      {
+        "id": "store_enable_8"
+      },
+      {
+        "id": "store_enable_9"
+      },
+      {
+        "id": "store_googlemap_1"
+      },
+      {
+        "id": "store_googlemap_10"
+      },
+      {
+        "id": "store_googlemap_2"
+      },
+      {
+        "id": "store_googlemap_3"
+      },
+      {
+        "id": "store_googlemap_4"
+      },
+      {
+        "id": "store_googlemap_5"
+      },
+      {
+        "id": "store_googlemap_6"
+      },
+      {
+        "id": "store_googlemap_7"
+      },
+      {
+        "id": "store_googlemap_8"
+      },
+      {
+        "id": "store_googlemap_9"
+      },
+      {
+        "id": "store_img_1.png"
+      },
+      {
+        "id": "store_img_10.png"
+      },
+      {
+        "id": "store_img_2.png"
+      },
+      {
+        "id": "store_img_3.png"
+      },
+      {
+        "id": "store_img_4.png"
+      },
+      {
+        "id": "store_img_5.png"
+      },
+      {
+        "id": "store_img_6.png"
+      },
+      {
+        "id": "store_img_7.png"
+      },
+      {
+        "id": "store_img_8.png"
+      },
+      {
+        "id": "store_img_9.png"
+      },
+      {
+        "id": "store_tel_1"
+      },
+      {
+        "id": "store_tel_10"
+      },
+      {
+        "id": "store_tel_2"
+      },
+      {
+        "id": "store_tel_3"
+      },
+      {
+        "id": "store_tel_4"
+      },
+      {
+        "id": "store_tel_5"
+      },
+      {
+        "id": "store_tel_6"
+      },
+      {
+        "id": "store_tel_7"
+      },
+      {
+        "id": "store_tel_8"
+      },
+      {
+        "id": "store_tel_9"
+      },
+      {
+        "id": "title_font"
+      },
+      {
+        "id": "use_megamenu_1"
+      },
+      {
+        "id": "use_megamenu_10"
+      },
+      {
+        "id": "use_megamenu_2"
+      },
+      {
+        "id": "use_megamenu_3"
+      },
+      {
+        "id": "use_megamenu_4"
+      },
+      {
+        "id": "use_megamenu_5"
+      },
+      {
+        "id": "use_megamenu_6"
+      },
+      {
+        "id": "use_megamenu_7"
+      },
+      {
+        "id": "use_megamenu_8"
+      },
+      {
+        "id": "use_megamenu_9"
+      },
+      {
+        "id": "use_popup_li_1"
+      },
+      {
+        "id": "use_popup_li_2"
+      },
+      {
+        "id": "use_popup_li_3"
+      },
+      {
+        "id": "use_popup_li_4"
+      }
+    ],
+    "failures": [
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "ajax_cart_method",
+        "detail": "settings.ajax_cart_method is read in snippets/cart-drawer.liquid, snippets/footer-script.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "cart_notes_enable",
+        "detail": "settings.cart_notes_enable is read in snippets/ajax-cart-template.liquid, templates/cart.addcomplete.liquid, templates/cart.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "cart_vendor_enable",
+        "detail": "settings.cart_vendor_enable is read in snippets/ajax-cart-template.liquid, templates/cart.addcomplete.liquid, templates/cart.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "col_pro_limit",
+        "detail": "settings.col_pro_limit is read in templates/search.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "newsletter_form_action",
+        "detail": "settings.newsletter_form_action is read in snippets/popup-subscribe.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "primary_color",
+        "detail": "settings.primary_color is read in layout/lp-structure.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "use_check_quantity",
+        "detail": "settings.use_check_quantity is read in snippets/quick-view-template.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "use_social_googleplus",
+        "detail": "settings.use_social_googleplus is read in snippets/popup-subscribe.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "use_vacation_note",
+        "detail": "settings.use_vacation_note is read in templates/cart.addcomplete.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "vacation_note",
+        "detail": "settings.vacation_note is read in templates/cart.addcomplete.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      }
+    ]
+  },
+  "assets": {
+    "ok": false,
+    "counts": {
+      "localPresent": 25,
+      "localMissing": 1,
+      "remote": 0
+    },
+    "localMissing": [
+      {
+        "ref": "respond-proxy.html",
+        "files": [
+          "snippets/oldie-js.liquid"
+        ]
+      }
+    ],
+    "remote": []
+  },
+  "renders": [],
+  "refusals": [
+    {
+      "check": "schema",
+      "failures": [
+        {
+          "rule": "SETTINGS_SCHEMA_SHAPE_INVALID",
+          "path": "config/settings_schema.json",
+          "detail": "group 0 setting 0 id must be a non-empty string"
+        }
+      ]
+    },
+    {
+      "check": "settings-binding",
+      "failures": [
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "ajax_cart_method",
+          "detail": "settings.ajax_cart_method is read in snippets/cart-drawer.liquid, snippets/footer-script.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "cart_notes_enable",
+          "detail": "settings.cart_notes_enable is read in snippets/ajax-cart-template.liquid, templates/cart.addcomplete.liquid, templates/cart.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "cart_vendor_enable",
+          "detail": "settings.cart_vendor_enable is read in snippets/ajax-cart-template.liquid, templates/cart.addcomplete.liquid, templates/cart.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "col_pro_limit",
+          "detail": "settings.col_pro_limit is read in templates/search.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "newsletter_form_action",
+          "detail": "settings.newsletter_form_action is read in snippets/popup-subscribe.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "primary_color",
+          "detail": "settings.primary_color is read in layout/lp-structure.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "use_check_quantity",
+          "detail": "settings.use_check_quantity is read in snippets/quick-view-template.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "use_social_googleplus",
+          "detail": "settings.use_social_googleplus is read in snippets/popup-subscribe.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "use_vacation_note",
+          "detail": "settings.use_vacation_note is read in templates/cart.addcomplete.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "vacation_note",
+          "detail": "settings.vacation_note is read in templates/cart.addcomplete.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        }
+      ]
+    },
+    {
+      "check": "assets",
+      "failures": [
+        {
+          "rule": "ASSET_MISSING_LOCAL",
+          "ref": "respond-proxy.html",
+          "files": [
+            "snippets/oldie-js.liquid"
+          ]
+        }
+      ]
+    },
+    {
+      "check": "haravan-contracts",
+      "failures": [
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "show_size",
+          "file": "config/settings.html",
+          "line": 3874,
+          "message": "Duplicate setting control name 'show_size' in config/settings.html",
+          "detail": "Found 2 controls sharing name 'show_size'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "sort_size_title",
+          "file": "config/settings.html",
+          "line": 3878,
+          "message": "Duplicate setting control name 'sort_size_title' in config/settings.html",
+          "detail": "Found 2 controls sharing name 'sort_size_title'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "size_value",
+          "file": "config/settings.html",
+          "line": 3883,
+          "message": "Duplicate setting control name 'size_value' in config/settings.html",
+          "detail": "Found 2 controls sharing name 'size_value'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "primary_color",
+          "file": "layout/lp-structure.liquid",
+          "line": 1,
+          "message": "setting 'settings.primary_color' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'primary_color' (layout/lp-structure.liquid:1)"
+        },
+        {
+          "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+          "file": "layout/theme.liquid",
+          "line": 105,
+          "message": "included snippet 'home-gallery-modal-youtube' does not exist under snippets/",
+          "detail": "Target snippet 'home-gallery-modal-youtube' was not found in snippets/ (layout/theme.liquid:105)"
+        },
+        {
+          "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+          "file": "layout/theme.liquid",
+          "line": 109,
+          "message": "included snippet 'banner-collection' does not exist under snippets/",
+          "detail": "Target snippet 'banner-collection' was not found in snippets/ (layout/theme.liquid:109)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "cart_vendor_enable",
+          "file": "templates/cart.addcomplete.liquid",
+          "line": 52,
+          "message": "setting 'settings.cart_vendor_enable' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'cart_vendor_enable' (templates/cart.addcomplete.liquid:52)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "use_vacation_note",
+          "file": "templates/cart.addcomplete.liquid",
+          "line": 144,
+          "message": "setting 'settings.use_vacation_note' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'use_vacation_note' (templates/cart.addcomplete.liquid:144)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "vacation_note",
+          "file": "templates/cart.addcomplete.liquid",
+          "line": 146,
+          "message": "setting 'settings.vacation_note' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'vacation_note' (templates/cart.addcomplete.liquid:146)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "cart_notes_enable",
+          "file": "templates/cart.addcomplete.liquid",
+          "line": 149,
+          "message": "setting 'settings.cart_notes_enable' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'cart_notes_enable' (templates/cart.addcomplete.liquid:149)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "cart_vendor_enable",
+          "file": "templates/cart.liquid",
+          "line": 41,
+          "message": "setting 'settings.cart_vendor_enable' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'cart_vendor_enable' (templates/cart.liquid:41)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "cart_notes_enable",
+          "file": "templates/cart.liquid",
+          "line": 99,
+          "message": "setting 'settings.cart_notes_enable' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'cart_notes_enable' (templates/cart.liquid:99)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "cart_notes_enable",
+          "file": "templates/cart.liquid",
+          "line": 105,
+          "message": "setting 'settings.cart_notes_enable' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'cart_notes_enable' (templates/cart.liquid:105)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "cart_vendor_enable",
+          "file": "templates/cart.liquid",
+          "line": 147,
+          "message": "setting 'settings.cart_vendor_enable' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'cart_vendor_enable' (templates/cart.liquid:147)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "cart_notes_enable",
+          "file": "templates/cart.liquid",
+          "line": 193,
+          "message": "setting 'settings.cart_notes_enable' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'cart_notes_enable' (templates/cart.liquid:193)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "cart_notes_enable",
+          "file": "templates/cart.liquid",
+          "line": 199,
+          "message": "setting 'settings.cart_notes_enable' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'cart_notes_enable' (templates/cart.liquid:199)"
+        },
+        {
+          "rule": "HARAVAN_DUPLICATE_PAGINATE",
+          "file": "templates/collection.lp-detail.json.liquid",
+          "line": 1,
+          "message": "Multiple {% paginate %} tags detected (2). Haravan DotLiquid permits at most one paginate block per template.",
+          "detail": "Having more than one paginate tag causes DotLiquid fatal HTTP 500 error on Haravan (templates/collection.lp-detail.json.liquid)"
+        },
+        {
+          "rule": "HARAVAN_DUPLICATE_PAGINATE",
+          "file": "templates/customers[addresses].liquid",
+          "line": 1,
+          "message": "Multiple {% paginate %} tags detected (2). Haravan DotLiquid permits at most one paginate block per template.",
+          "detail": "Having more than one paginate tag causes DotLiquid fatal HTTP 500 error on Haravan (templates/customers[addresses].liquid)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "col_pro_limit",
+          "file": "templates/search.liquid",
+          "line": 6,
+          "message": "setting 'settings.col_pro_limit' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'col_pro_limit' (templates/search.liquid:6)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "cart_vendor_enable",
+          "file": "snippets/ajax-cart-template.liquid",
+          "line": 33,
+          "message": "setting 'settings.cart_vendor_enable' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'cart_vendor_enable' (snippets/ajax-cart-template.liquid:33)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "cart_notes_enable",
+          "file": "snippets/ajax-cart-template.liquid",
+          "line": 80,
+          "message": "setting 'settings.cart_notes_enable' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'cart_notes_enable' (snippets/ajax-cart-template.liquid:80)"
+        },
+        {
+          "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+          "file": "snippets/breadcrumb.liquid",
+          "line": 4,
+          "message": "included snippet 'megamenu' does not exist under snippets/",
+          "detail": "Target snippet 'megamenu' was not found in snippets/ (snippets/breadcrumb.liquid:4)"
+        },
+        {
+          "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+          "file": "snippets/breadcrumb.liquid",
+          "line": 26,
+          "message": "included snippet 'megamenu' does not exist under snippets/",
+          "detail": "Target snippet 'megamenu' was not found in snippets/ (snippets/breadcrumb.liquid:26)"
+        },
+        {
+          "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+          "file": "snippets/breadcrumb.liquid",
+          "line": 126,
+          "message": "included snippet 'megamenu' does not exist under snippets/",
+          "detail": "Target snippet 'megamenu' was not found in snippets/ (snippets/breadcrumb.liquid:126)"
+        },
+        {
+          "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+          "file": "snippets/breadcrumb.liquid",
+          "line": 226,
+          "message": "included snippet 'megamenu' does not exist under snippets/",
+          "detail": "Target snippet 'megamenu' was not found in snippets/ (snippets/breadcrumb.liquid:226)"
+        },
+        {
+          "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+          "file": "snippets/breadcrumb.liquid",
+          "line": 326,
+          "message": "included snippet 'megamenu' does not exist under snippets/",
+          "detail": "Target snippet 'megamenu' was not found in snippets/ (snippets/breadcrumb.liquid:326)"
+        },
+        {
+          "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+          "file": "snippets/breadcrumb.liquid",
+          "line": 426,
+          "message": "included snippet 'megamenu' does not exist under snippets/",
+          "detail": "Target snippet 'megamenu' was not found in snippets/ (snippets/breadcrumb.liquid:426)"
+        },
+        {
+          "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+          "file": "snippets/breadcrumb.liquid",
+          "line": 525,
+          "message": "included snippet 'megamenu' does not exist under snippets/",
+          "detail": "Target snippet 'megamenu' was not found in snippets/ (snippets/breadcrumb.liquid:525)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "ajax_cart_method",
+          "file": "snippets/cart-drawer.liquid",
+          "line": 2,
+          "message": "setting 'settings.ajax_cart_method' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'ajax_cart_method' (snippets/cart-drawer.liquid:2)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "ajax_cart_method",
+          "file": "snippets/footer-script.liquid",
+          "line": 23,
+          "message": "setting 'settings.ajax_cart_method' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'ajax_cart_method' (snippets/footer-script.liquid:23)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "newsletter_form_action",
+          "file": "snippets/popup-subscribe.liquid",
+          "line": 37,
+          "message": "setting 'settings.newsletter_form_action' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'newsletter_form_action' (snippets/popup-subscribe.liquid:37)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "newsletter_form_action",
+          "file": "snippets/popup-subscribe.liquid",
+          "line": 38,
+          "message": "setting 'settings.newsletter_form_action' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'newsletter_form_action' (snippets/popup-subscribe.liquid:38)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "use_social_googleplus",
+          "file": "snippets/popup-subscribe.liquid",
+          "line": 45,
+          "message": "setting 'settings.use_social_googleplus' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'use_social_googleplus' (snippets/popup-subscribe.liquid:45)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "use_social_googleplus",
+          "file": "snippets/popup-subscribe.liquid",
+          "line": 74,
+          "message": "setting 'settings.use_social_googleplus' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'use_social_googleplus' (snippets/popup-subscribe.liquid:74)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "use_check_quantity",
+          "file": "snippets/quick-view-template.liquid",
+          "line": 77,
+          "message": "setting 'settings.use_check_quantity' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'use_check_quantity' (snippets/quick-view-template.liquid:77)"
+        }
+      ]
+    }
+  ],
+  "haravanContracts": {
+    "ok": false,
+    "failures": [
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "show_size",
+        "file": "config/settings.html",
+        "line": 3874,
+        "message": "Duplicate setting control name 'show_size' in config/settings.html",
+        "detail": "Found 2 controls sharing name 'show_size'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "sort_size_title",
+        "file": "config/settings.html",
+        "line": 3878,
+        "message": "Duplicate setting control name 'sort_size_title' in config/settings.html",
+        "detail": "Found 2 controls sharing name 'sort_size_title'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "size_value",
+        "file": "config/settings.html",
+        "line": 3883,
+        "message": "Duplicate setting control name 'size_value' in config/settings.html",
+        "detail": "Found 2 controls sharing name 'size_value'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "primary_color",
+        "file": "layout/lp-structure.liquid",
+        "line": 1,
+        "message": "setting 'settings.primary_color' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'primary_color' (layout/lp-structure.liquid:1)"
+      },
+      {
+        "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+        "file": "layout/theme.liquid",
+        "line": 105,
+        "message": "included snippet 'home-gallery-modal-youtube' does not exist under snippets/",
+        "detail": "Target snippet 'home-gallery-modal-youtube' was not found in snippets/ (layout/theme.liquid:105)"
+      },
+      {
+        "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+        "file": "layout/theme.liquid",
+        "line": 109,
+        "message": "included snippet 'banner-collection' does not exist under snippets/",
+        "detail": "Target snippet 'banner-collection' was not found in snippets/ (layout/theme.liquid:109)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "cart_vendor_enable",
+        "file": "templates/cart.addcomplete.liquid",
+        "line": 52,
+        "message": "setting 'settings.cart_vendor_enable' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'cart_vendor_enable' (templates/cart.addcomplete.liquid:52)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "use_vacation_note",
+        "file": "templates/cart.addcomplete.liquid",
+        "line": 144,
+        "message": "setting 'settings.use_vacation_note' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'use_vacation_note' (templates/cart.addcomplete.liquid:144)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "vacation_note",
+        "file": "templates/cart.addcomplete.liquid",
+        "line": 146,
+        "message": "setting 'settings.vacation_note' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'vacation_note' (templates/cart.addcomplete.liquid:146)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "cart_notes_enable",
+        "file": "templates/cart.addcomplete.liquid",
+        "line": 149,
+        "message": "setting 'settings.cart_notes_enable' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'cart_notes_enable' (templates/cart.addcomplete.liquid:149)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "cart_vendor_enable",
+        "file": "templates/cart.liquid",
+        "line": 41,
+        "message": "setting 'settings.cart_vendor_enable' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'cart_vendor_enable' (templates/cart.liquid:41)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "cart_notes_enable",
+        "file": "templates/cart.liquid",
+        "line": 99,
+        "message": "setting 'settings.cart_notes_enable' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'cart_notes_enable' (templates/cart.liquid:99)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "cart_notes_enable",
+        "file": "templates/cart.liquid",
+        "line": 105,
+        "message": "setting 'settings.cart_notes_enable' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'cart_notes_enable' (templates/cart.liquid:105)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "cart_vendor_enable",
+        "file": "templates/cart.liquid",
+        "line": 147,
+        "message": "setting 'settings.cart_vendor_enable' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'cart_vendor_enable' (templates/cart.liquid:147)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "cart_notes_enable",
+        "file": "templates/cart.liquid",
+        "line": 193,
+        "message": "setting 'settings.cart_notes_enable' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'cart_notes_enable' (templates/cart.liquid:193)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "cart_notes_enable",
+        "file": "templates/cart.liquid",
+        "line": 199,
+        "message": "setting 'settings.cart_notes_enable' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'cart_notes_enable' (templates/cart.liquid:199)"
+      },
+      {
+        "rule": "HARAVAN_DUPLICATE_PAGINATE",
+        "file": "templates/collection.lp-detail.json.liquid",
+        "line": 1,
+        "message": "Multiple {% paginate %} tags detected (2). Haravan DotLiquid permits at most one paginate block per template.",
+        "detail": "Having more than one paginate tag causes DotLiquid fatal HTTP 500 error on Haravan (templates/collection.lp-detail.json.liquid)"
+      },
+      {
+        "rule": "HARAVAN_DUPLICATE_PAGINATE",
+        "file": "templates/customers[addresses].liquid",
+        "line": 1,
+        "message": "Multiple {% paginate %} tags detected (2). Haravan DotLiquid permits at most one paginate block per template.",
+        "detail": "Having more than one paginate tag causes DotLiquid fatal HTTP 500 error on Haravan (templates/customers[addresses].liquid)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "col_pro_limit",
+        "file": "templates/search.liquid",
+        "line": 6,
+        "message": "setting 'settings.col_pro_limit' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'col_pro_limit' (templates/search.liquid:6)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "cart_vendor_enable",
+        "file": "snippets/ajax-cart-template.liquid",
+        "line": 33,
+        "message": "setting 'settings.cart_vendor_enable' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'cart_vendor_enable' (snippets/ajax-cart-template.liquid:33)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "cart_notes_enable",
+        "file": "snippets/ajax-cart-template.liquid",
+        "line": 80,
+        "message": "setting 'settings.cart_notes_enable' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'cart_notes_enable' (snippets/ajax-cart-template.liquid:80)"
+      },
+      {
+        "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+        "file": "snippets/breadcrumb.liquid",
+        "line": 4,
+        "message": "included snippet 'megamenu' does not exist under snippets/",
+        "detail": "Target snippet 'megamenu' was not found in snippets/ (snippets/breadcrumb.liquid:4)"
+      },
+      {
+        "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+        "file": "snippets/breadcrumb.liquid",
+        "line": 26,
+        "message": "included snippet 'megamenu' does not exist under snippets/",
+        "detail": "Target snippet 'megamenu' was not found in snippets/ (snippets/breadcrumb.liquid:26)"
+      },
+      {
+        "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+        "file": "snippets/breadcrumb.liquid",
+        "line": 126,
+        "message": "included snippet 'megamenu' does not exist under snippets/",
+        "detail": "Target snippet 'megamenu' was not found in snippets/ (snippets/breadcrumb.liquid:126)"
+      },
+      {
+        "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+        "file": "snippets/breadcrumb.liquid",
+        "line": 226,
+        "message": "included snippet 'megamenu' does not exist under snippets/",
+        "detail": "Target snippet 'megamenu' was not found in snippets/ (snippets/breadcrumb.liquid:226)"
+      },
+      {
+        "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+        "file": "snippets/breadcrumb.liquid",
+        "line": 326,
+        "message": "included snippet 'megamenu' does not exist under snippets/",
+        "detail": "Target snippet 'megamenu' was not found in snippets/ (snippets/breadcrumb.liquid:326)"
+      },
+      {
+        "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+        "file": "snippets/breadcrumb.liquid",
+        "line": 426,
+        "message": "included snippet 'megamenu' does not exist under snippets/",
+        "detail": "Target snippet 'megamenu' was not found in snippets/ (snippets/breadcrumb.liquid:426)"
+      },
+      {
+        "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+        "file": "snippets/breadcrumb.liquid",
+        "line": 525,
+        "message": "included snippet 'megamenu' does not exist under snippets/",
+        "detail": "Target snippet 'megamenu' was not found in snippets/ (snippets/breadcrumb.liquid:525)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "ajax_cart_method",
+        "file": "snippets/cart-drawer.liquid",
+        "line": 2,
+        "message": "setting 'settings.ajax_cart_method' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'ajax_cart_method' (snippets/cart-drawer.liquid:2)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "ajax_cart_method",
+        "file": "snippets/footer-script.liquid",
+        "line": 23,
+        "message": "setting 'settings.ajax_cart_method' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'ajax_cart_method' (snippets/footer-script.liquid:23)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "newsletter_form_action",
+        "file": "snippets/popup-subscribe.liquid",
+        "line": 37,
+        "message": "setting 'settings.newsletter_form_action' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'newsletter_form_action' (snippets/popup-subscribe.liquid:37)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "newsletter_form_action",
+        "file": "snippets/popup-subscribe.liquid",
+        "line": 38,
+        "message": "setting 'settings.newsletter_form_action' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'newsletter_form_action' (snippets/popup-subscribe.liquid:38)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "use_social_googleplus",
+        "file": "snippets/popup-subscribe.liquid",
+        "line": 45,
+        "message": "setting 'settings.use_social_googleplus' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'use_social_googleplus' (snippets/popup-subscribe.liquid:45)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "use_social_googleplus",
+        "file": "snippets/popup-subscribe.liquid",
+        "line": 74,
+        "message": "setting 'settings.use_social_googleplus' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'use_social_googleplus' (snippets/popup-subscribe.liquid:74)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "use_check_quantity",
+        "file": "snippets/quick-view-template.liquid",
+        "line": 77,
+        "message": "setting 'settings.use_check_quantity' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'use_check_quantity' (snippets/quick-view-template.liquid:77)"
+      }
+    ]
+  }
+}

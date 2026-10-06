@@ -1,0 +1,5890 @@
+{
+  "themeDir": "E:\\Work\\customizes\\KellyPerfume",
+  "generatedAt": "2026-10-05T22:13:44.786Z",
+  "ok": false,
+  "schemas": {
+    "ok": true,
+    "schemaFiles": [],
+    "sectionCount": 0,
+    "failures": []
+  },
+  "settingsBinding": {
+    "ok": false,
+    "undeclared": [
+      {
+        "id": "blog_template_all_posts_label",
+        "files": [
+          "templates/blog.liquid"
+        ]
+      },
+      {
+        "id": "blog_template_breadcrumb_home",
+        "files": [
+          "templates/blog.liquid"
+        ]
+      },
+      {
+        "id": "customer_layout",
+        "files": [
+          "templates/customers[activate_account].liquid",
+          "templates/customers[order].liquid",
+          "templates/customers[reset_password].liquid"
+        ]
+      },
+      {
+        "id": "desc_product_service_1",
+        "files": [
+          "templates/cart.liquid"
+        ]
+      },
+      {
+        "id": "desc_product_service_2",
+        "files": [
+          "templates/cart.liquid"
+        ]
+      },
+      {
+        "id": "desc_product_service_3",
+        "files": [
+          "templates/cart.liquid"
+        ]
+      },
+      {
+        "id": "desc_product_service_4",
+        "files": [
+          "templates/cart.liquid"
+        ]
+      },
+      {
+        "id": "desc_product_service_5",
+        "files": [
+          "templates/cart.liquid"
+        ]
+      },
+      {
+        "id": "fanpage_faceook",
+        "files": [
+          "snippets/facebook-widget.liquid"
+        ]
+      },
+      {
+        "id": "fb_chat",
+        "files": [
+          "snippets/haravan-fb-messages.liquid"
+        ]
+      },
+      {
+        "id": "fb_chat_title",
+        "files": [
+          "snippets/haravan-fb-messages.liquid"
+        ]
+      },
+      {
+        "id": "lbl_address1",
+        "files": [
+          "templates/customers[addresses].liquid"
+        ]
+      },
+      {
+        "id": "lbl_address2",
+        "files": [
+          "templates/customers[addresses].liquid"
+        ]
+      },
+      {
+        "id": "lbl_company",
+        "files": [
+          "templates/customers[addresses].liquid"
+        ]
+      },
+      {
+        "id": "lbl_first_name",
+        "files": [
+          "templates/customers[addresses].liquid"
+        ]
+      },
+      {
+        "id": "lbl_last_name",
+        "files": [
+          "templates/customers[addresses].liquid"
+        ]
+      },
+      {
+        "id": "lbl_phone",
+        "files": [
+          "templates/customers[addresses].liquid"
+        ]
+      },
+      {
+        "id": "limit_collection",
+        "files": [
+          "templates/collection.liquid",
+          "templates/search.filter.liquid",
+          "templates/search.liquid"
+        ]
+      },
+      {
+        "id": "show_fanpage_faceook",
+        "files": [
+          "snippets/facebook-widget.liquid"
+        ]
+      },
+      {
+        "id": "show_product_service",
+        "files": [
+          "templates/cart.liquid"
+        ]
+      },
+      {
+        "id": "title_product_service",
+        "files": [
+          "templates/cart.liquid"
+        ]
+      }
+    ],
+    "dead": [
+      {
+        "id": "bocongthuong.png"
+      },
+      {
+        "id": "brand-abercrombie-fitch.png"
+      },
+      {
+        "id": "brand-adidas.png"
+      },
+      {
+        "id": "brand-afnan.png"
+      },
+      {
+        "id": "brand-al-haramain.png"
+      },
+      {
+        "id": "brand-al-rehab.png"
+      },
+      {
+        "id": "brand-alaia-paris.png"
+      },
+      {
+        "id": "brand-alexandria-fragrances.png"
+      },
+      {
+        "id": "brand-alfred-dunhill.png"
+      },
+      {
+        "id": "brand-amouage.png"
+      },
+      {
+        "id": "brand-anna-sui.png"
+      },
+      {
+        "id": "brand-arabiyat-prestige.png"
+      },
+      {
+        "id": "brand-ariana-grande.png"
+      },
+      {
+        "id": "brand-armaf.png"
+      },
+      {
+        "id": "brand-atelier-cologne.png"
+      },
+      {
+        "id": "brand-atelier-des-ors.png"
+      },
+      {
+        "id": "brand-attar.png"
+      },
+      {
+        "id": "brand-azzaro.png"
+      },
+      {
+        "id": "brand-banana-republic.png"
+      },
+      {
+        "id": "brand-bdk.png"
+      },
+      {
+        "id": "brand-bentley.png"
+      },
+      {
+        "id": "brand-beverly-hills-polo-club.png"
+      },
+      {
+        "id": "brand-billie-eilish.png"
+      },
+      {
+        "id": "brand-boadicea-the-victorious.png"
+      },
+      {
+        "id": "brand-bond-no-9.png"
+      },
+      {
+        "id": "brand-borntostandout.png"
+      },
+      {
+        "id": "brand-britney-spears.png"
+      },
+      {
+        "id": "brand-brut.png"
+      },
+      {
+        "id": "brand-burberry.png"
+      },
+      {
+        "id": "brand-butterfly-thai-perfume.png"
+      },
+      {
+        "id": "brand-bvlgari.png"
+      },
+      {
+        "id": "brand-byredo.png"
+      },
+      {
+        "id": "brand-calvin-klein.png"
+      },
+      {
+        "id": "brand-carner-barcelona.png"
+      },
+      {
+        "id": "brand-carolina-herrera.png"
+      },
+      {
+        "id": "brand-cartier.png"
+      },
+      {
+        "id": "brand-celine.png"
+      },
+      {
+        "id": "brand-chanel.png"
+      },
+      {
+        "id": "brand-chloe.png"
+      },
+      {
+        "id": "brand-christian-dior.png"
+      },
+      {
+        "id": "brand-clean-reserve.png"
+      },
+      {
+        "id": "brand-clive-christian.png"
+      },
+      {
+        "id": "brand-coach.png"
+      },
+      {
+        "id": "brand-coreterno.png"
+      },
+      {
+        "id": "brand-creed.png"
+      },
+      {
+        "id": "brand-custom-191.png"
+      },
+      {
+        "id": "brand-custom-192.png"
+      },
+      {
+        "id": "brand-custom-193.png"
+      },
+      {
+        "id": "brand-custom-194.png"
+      },
+      {
+        "id": "brand-custom-195.png"
+      },
+      {
+        "id": "brand-custom-196.png"
+      },
+      {
+        "id": "brand-custom-197.png"
+      },
+      {
+        "id": "brand-custom-198.png"
+      },
+      {
+        "id": "brand-custom-199.png"
+      },
+      {
+        "id": "brand-custom-200.png"
+      },
+      {
+        "id": "brand-custom-201.png"
+      },
+      {
+        "id": "brand-custom-202.png"
+      },
+      {
+        "id": "brand-custom-203.png"
+      },
+      {
+        "id": "brand-custom-204.png"
+      },
+      {
+        "id": "brand-custom-205.png"
+      },
+      {
+        "id": "brand-custom-206.png"
+      },
+      {
+        "id": "brand-custom-207.png"
+      },
+      {
+        "id": "brand-custom-208.png"
+      },
+      {
+        "id": "brand-custom-209.png"
+      },
+      {
+        "id": "brand-custom-210.png"
+      },
+      {
+        "id": "brand-custom-211.png"
+      },
+      {
+        "id": "brand-custom-212.png"
+      },
+      {
+        "id": "brand-custom-213.png"
+      },
+      {
+        "id": "brand-custom-214.png"
+      },
+      {
+        "id": "brand-custom-215.png"
+      },
+      {
+        "id": "brand-custom-216.png"
+      },
+      {
+        "id": "brand-custom-217.png"
+      },
+      {
+        "id": "brand-custom-218.png"
+      },
+      {
+        "id": "brand-custom-219.png"
+      },
+      {
+        "id": "brand-custom-220.png"
+      },
+      {
+        "id": "brand-custom-221.png"
+      },
+      {
+        "id": "brand-custom-222.png"
+      },
+      {
+        "id": "brand-custom-223.png"
+      },
+      {
+        "id": "brand-custom-224.png"
+      },
+      {
+        "id": "brand-custom-225.png"
+      },
+      {
+        "id": "brand-custom-226.png"
+      },
+      {
+        "id": "brand-custom-227.png"
+      },
+      {
+        "id": "brand-custom-228.png"
+      },
+      {
+        "id": "brand-custom-229.png"
+      },
+      {
+        "id": "brand-custom-230.png"
+      },
+      {
+        "id": "brand-custom-231.png"
+      },
+      {
+        "id": "brand-custom-232.png"
+      },
+      {
+        "id": "brand-custom-233.png"
+      },
+      {
+        "id": "brand-custom-234.png"
+      },
+      {
+        "id": "brand-custom-235.png"
+      },
+      {
+        "id": "brand-custom-236.png"
+      },
+      {
+        "id": "brand-custom-237.png"
+      },
+      {
+        "id": "brand-custom-238.png"
+      },
+      {
+        "id": "brand-custom-239.png"
+      },
+      {
+        "id": "brand-custom-240.png"
+      },
+      {
+        "id": "brand-custom-241.png"
+      },
+      {
+        "id": "brand-custom-242.png"
+      },
+      {
+        "id": "brand-custom-243.png"
+      },
+      {
+        "id": "brand-custom-244.png"
+      },
+      {
+        "id": "brand-custom-245.png"
+      },
+      {
+        "id": "brand-custom-246.png"
+      },
+      {
+        "id": "brand-custom-247.png"
+      },
+      {
+        "id": "brand-custom-248.png"
+      },
+      {
+        "id": "brand-custom-249.png"
+      },
+      {
+        "id": "brand-custom-250.png"
+      },
+      {
+        "id": "brand-custom-251.png"
+      },
+      {
+        "id": "brand-custom-252.png"
+      },
+      {
+        "id": "brand-custom-253.png"
+      },
+      {
+        "id": "brand-custom-254.png"
+      },
+      {
+        "id": "brand-custom-255.png"
+      },
+      {
+        "id": "brand-custom-256.png"
+      },
+      {
+        "id": "brand-custom-257.png"
+      },
+      {
+        "id": "brand-custom-258.png"
+      },
+      {
+        "id": "brand-custom-259.png"
+      },
+      {
+        "id": "brand-custom-260.png"
+      },
+      {
+        "id": "brand-custom-261.png"
+      },
+      {
+        "id": "brand-custom-262.png"
+      },
+      {
+        "id": "brand-custom-263.png"
+      },
+      {
+        "id": "brand-custom-264.png"
+      },
+      {
+        "id": "brand-custom-265.png"
+      },
+      {
+        "id": "brand-custom-266.png"
+      },
+      {
+        "id": "brand-custom-267.png"
+      },
+      {
+        "id": "brand-custom-268.png"
+      },
+      {
+        "id": "brand-custom-269.png"
+      },
+      {
+        "id": "brand-custom-270.png"
+      },
+      {
+        "id": "brand-custom-271.png"
+      },
+      {
+        "id": "brand-custom-272.png"
+      },
+      {
+        "id": "brand-custom-273.png"
+      },
+      {
+        "id": "brand-custom-274.png"
+      },
+      {
+        "id": "brand-custom-275.png"
+      },
+      {
+        "id": "brand-custom-276.png"
+      },
+      {
+        "id": "brand-custom-277.png"
+      },
+      {
+        "id": "brand-custom-278.png"
+      },
+      {
+        "id": "brand-custom-279.png"
+      },
+      {
+        "id": "brand-custom-280.png"
+      },
+      {
+        "id": "brand-custom-281.png"
+      },
+      {
+        "id": "brand-custom-282.png"
+      },
+      {
+        "id": "brand-custom-283.png"
+      },
+      {
+        "id": "brand-custom-284.png"
+      },
+      {
+        "id": "brand-custom-285.png"
+      },
+      {
+        "id": "brand-custom-286.png"
+      },
+      {
+        "id": "brand-custom-287.png"
+      },
+      {
+        "id": "brand-custom-288.png"
+      },
+      {
+        "id": "brand-custom-289.png"
+      },
+      {
+        "id": "brand-custom-290.png"
+      },
+      {
+        "id": "brand-custom-291.png"
+      },
+      {
+        "id": "brand-custom-292.png"
+      },
+      {
+        "id": "brand-custom-293.png"
+      },
+      {
+        "id": "brand-custom-294.png"
+      },
+      {
+        "id": "brand-custom-295.png"
+      },
+      {
+        "id": "brand-custom-296.png"
+      },
+      {
+        "id": "brand-custom-297.png"
+      },
+      {
+        "id": "brand-custom-298.png"
+      },
+      {
+        "id": "brand-custom-299.png"
+      },
+      {
+        "id": "brand-custom-300.png"
+      },
+      {
+        "id": "brand-d-annam.png"
+      },
+      {
+        "id": "brand-d-orsay.png"
+      },
+      {
+        "id": "brand-d-s-durga.png"
+      },
+      {
+        "id": "brand-davidoff.png"
+      },
+      {
+        "id": "brand-diesel.png"
+      },
+      {
+        "id": "brand-diptyque.png"
+      },
+      {
+        "id": "brand-dolce-gabbana.png"
+      },
+      {
+        "id": "brand-donna-karan.png"
+      },
+      {
+        "id": "brand-dsquared2.png"
+      },
+      {
+        "id": "brand-el-ganso.png"
+      },
+      {
+        "id": "brand-elie-saab.png"
+      },
+      {
+        "id": "brand-elizabeth-arden.png"
+      },
+      {
+        "id": "brand-ella-k.png"
+      },
+      {
+        "id": "brand-ermenegildo-zegna.png"
+      },
+      {
+        "id": "brand-escentric.png"
+      },
+      {
+        "id": "brand-estee-lauder.png"
+      },
+      {
+        "id": "brand-etat-libre-d-orange.png"
+      },
+      {
+        "id": "brand-ex-nihilo.png"
+      },
+      {
+        "id": "brand-ferrari.png"
+      },
+      {
+        "id": "brand-filippo-sorcinelli.png"
+      },
+      {
+        "id": "brand-flavia-parfum.png"
+      },
+      {
+        "id": "brand-floris-london.png"
+      },
+      {
+        "id": "brand-fragrance-world.png"
+      },
+      {
+        "id": "brand-franck-boclet.png"
+      },
+      {
+        "id": "brand-frederic-malle.png"
+      },
+      {
+        "id": "brand-french-avenue.png"
+      },
+      {
+        "id": "brand-fugazzi.png"
+      },
+      {
+        "id": "brand-ghala-zayed.png"
+      },
+      {
+        "id": "brand-giardini-di-toscana.png"
+      },
+      {
+        "id": "brand-giorgio-armani.png"
+      },
+      {
+        "id": "brand-givenchy.png"
+      },
+      {
+        "id": "brand-glossier.png"
+      },
+      {
+        "id": "brand-goldfield-banks.png"
+      },
+      {
+        "id": "brand-gres.png"
+      },
+      {
+        "id": "brand-gritti.png"
+      },
+      {
+        "id": "brand-gucci.png"
+      },
+      {
+        "id": "brand-guerlain.png"
+      },
+      {
+        "id": "brand-guess.png"
+      },
+      {
+        "id": "brand-guy-laroche.png"
+      },
+      {
+        "id": "brand-hermes.png"
+      },
+      {
+        "id": "brand-hugo-boss.png"
+      },
+      {
+        "id": "brand-initio-parfums-prives.png"
+      },
+      {
+        "id": "brand-issey-miyake.png"
+      },
+      {
+        "id": "brand-jaguar.png"
+      },
+      {
+        "id": "brand-jean-paul-gaultier.png"
+      },
+      {
+        "id": "brand-jeanne.png"
+      },
+      {
+        "id": "brand-jessica-simpson.png"
+      },
+      {
+        "id": "brand-jimmy-choo.png"
+      },
+      {
+        "id": "brand-jo-malone.png"
+      },
+      {
+        "id": "brand-john-varvatos.png"
+      },
+      {
+        "id": "brand-juicy-couture.png"
+      },
+      {
+        "id": "brand-juliette-has-a-gun.png"
+      },
+      {
+        "id": "brand-karl-lagerfeld.png"
+      },
+      {
+        "id": "brand-katy-perry.png"
+      },
+      {
+        "id": "brand-kayali.png"
+      },
+      {
+        "id": "brand-kenzo.png"
+      },
+      {
+        "id": "brand-khac.png"
+      },
+      {
+        "id": "brand-kilian.png"
+      },
+      {
+        "id": "brand-kira-parfum.png"
+      },
+      {
+        "id": "brand-l-orchestre.png"
+      },
+      {
+        "id": "brand-laboratorio-olfattivo.png"
+      },
+      {
+        "id": "brand-lacoste.png"
+      },
+      {
+        "id": "brand-lalique.png"
+      },
+      {
+        "id": "brand-lancome.png"
+      },
+      {
+        "id": "brand-lanvin.png"
+      },
+      {
+        "id": "brand-lattafa.png"
+      },
+      {
+        "id": "brand-le-labo.png"
+      },
+      {
+        "id": "brand-les-liquides-imaginaires.png"
+      },
+      {
+        "id": "brand-les-soeurs-de-noe.png"
+      },
+      {
+        "id": "brand-loewe.png"
+      },
+      {
+        "id": "brand-lolita-lempicka.png"
+      },
+      {
+        "id": "brand-longtien.png"
+      },
+      {
+        "id": "brand-louis-vuitton.png"
+      },
+      {
+        "id": "brand-mad-et-len.png"
+      },
+      {
+        "id": "brand-maison-alhambra.png"
+      },
+      {
+        "id": "brand-maison-crivelli.png"
+      },
+      {
+        "id": "brand-maison-francis-kurkdjian.png"
+      },
+      {
+        "id": "brand-maison-margiela.png"
+      },
+      {
+        "id": "brand-maison-matine.png"
+      },
+      {
+        "id": "brand-maison-rebatchi.png"
+      },
+      {
+        "id": "brand-mancera.png"
+      },
+      {
+        "id": "brand-marc-jacobs.png"
+      },
+      {
+        "id": "brand-matiere-premiere.png"
+      },
+      {
+        "id": "brand-mcm.png"
+      },
+      {
+        "id": "brand-memo-paris.png"
+      },
+      {
+        "id": "brand-memoire-des-sens.png"
+      },
+      {
+        "id": "brand-mercedes-benz.png"
+      },
+      {
+        "id": "brand-michael-kors.png"
+      },
+      {
+        "id": "brand-missoni-wave.png"
+      },
+      {
+        "id": "brand-mizensir.png"
+      },
+      {
+        "id": "brand-montale.png"
+      },
+      {
+        "id": "brand-montblanc.png"
+      },
+      {
+        "id": "brand-moschino.png"
+      },
+      {
+        "id": "brand-mykonos.png"
+      },
+      {
+        "id": "brand-nacho-vidal.png"
+      },
+      {
+        "id": "brand-narciso-rodriguez.png"
+      },
+      {
+        "id": "brand-nasomatto.png"
+      },
+      {
+        "id": "brand-nautica.png"
+      },
+      {
+        "id": "brand-nishane.png"
+      },
+      {
+        "id": "brand-once.png"
+      },
+      {
+        "id": "brand-orto-parisi.png"
+      },
+      {
+        "id": "brand-paco-rabanne.png"
+      },
+      {
+        "id": "brand-panouge-paris.png"
+      },
+      {
+        "id": "brand-parfums-de-marly.png"
+      },
+      {
+        "id": "brand-penhaligon-s.png"
+      },
+      {
+        "id": "brand-prada.png"
+      },
+      {
+        "id": "brand-profumum-roma.png"
+      },
+      {
+        "id": "brand-ralph-lauren.png"
+      },
+      {
+        "id": "brand-ramon-monegal.png"
+      },
+      {
+        "id": "brand-rayhaan.png"
+      },
+      {
+        "id": "brand-revlon.png"
+      },
+      {
+        "id": "brand-reyane-tradition.png"
+      },
+      {
+        "id": "brand-roja.png"
+      },
+      {
+        "id": "brand-rue.png"
+      },
+      {
+        "id": "brand-sabrina-carpenter.png"
+      },
+      {
+        "id": "brand-salvatore-ferragamo.png"
+      },
+      {
+        "id": "brand-serge-lutens.png"
+      },
+      {
+        "id": "brand-sospiro-perfumes.png"
+      },
+      {
+        "id": "brand-soulvent.png"
+      },
+      {
+        "id": "brand-sphinx-fragrances.png"
+      },
+      {
+        "id": "brand-stella-mccartney.png"
+      },
+      {
+        "id": "brand-strangers-parfumerie.png"
+      },
+      {
+        "id": "brand-surrati.png"
+      },
+      {
+        "id": "brand-ten-handleize.png"
+      },
+      {
+        "id": "brand-thameen.png"
+      },
+      {
+        "id": "brand-the-different-company.png"
+      },
+      {
+        "id": "brand-the-merchant-of-venice.png"
+      },
+      {
+        "id": "brand-the-woods-collection.png"
+      },
+      {
+        "id": "brand-thierry-mugler.png"
+      },
+      {
+        "id": "brand-thomas-kosmala.png"
+      },
+      {
+        "id": "brand-tom-ford.png"
+      },
+      {
+        "id": "brand-tommy-hilfiger.png"
+      },
+      {
+        "id": "brand-trussardi.png"
+      },
+      {
+        "id": "brand-une-nuit-nomade.png"
+      },
+      {
+        "id": "brand-valentino.png"
+      },
+      {
+        "id": "brand-van-cleef-arpels.png"
+      },
+      {
+        "id": "brand-versace.png"
+      },
+      {
+        "id": "brand-victor-rolf.png"
+      },
+      {
+        "id": "brand-victoria-s-secret.png"
+      },
+      {
+        "id": "brand-viktor-rolf.png"
+      },
+      {
+        "id": "brand-xerjoff.png"
+      },
+      {
+        "id": "brand-yves-saint-laurent.png"
+      },
+      {
+        "id": "brand-zadig-voltaire.png"
+      },
+      {
+        "id": "brand-zimaya.png"
+      },
+      {
+        "id": "collection_banner_default.png"
+      },
+      {
+        "id": "collection_banner_default_mobile.png"
+      },
+      {
+        "id": "collection_category_1.png"
+      },
+      {
+        "id": "collection_category_1_alt"
+      },
+      {
+        "id": "collection_category_1_collection"
+      },
+      {
+        "id": "collection_category_1_title"
+      },
+      {
+        "id": "collection_category_2.png"
+      },
+      {
+        "id": "collection_category_2_alt"
+      },
+      {
+        "id": "collection_category_2_collection"
+      },
+      {
+        "id": "collection_category_2_title"
+      },
+      {
+        "id": "collection_category_3.png"
+      },
+      {
+        "id": "collection_category_3_alt"
+      },
+      {
+        "id": "collection_category_3_collection"
+      },
+      {
+        "id": "collection_category_3_title"
+      },
+      {
+        "id": "collection_category_4.png"
+      },
+      {
+        "id": "collection_category_4_alt"
+      },
+      {
+        "id": "collection_category_4_collection"
+      },
+      {
+        "id": "collection_category_4_title"
+      },
+      {
+        "id": "collection_category_5.png"
+      },
+      {
+        "id": "collection_category_5_alt"
+      },
+      {
+        "id": "collection_category_5_collection"
+      },
+      {
+        "id": "collection_category_5_title"
+      },
+      {
+        "id": "collection_category_6.png"
+      },
+      {
+        "id": "collection_category_6_alt"
+      },
+      {
+        "id": "collection_category_6_collection"
+      },
+      {
+        "id": "collection_category_6_title"
+      },
+      {
+        "id": "collection_filter_group_2_item_1_color"
+      },
+      {
+        "id": "collection_filter_group_2_item_1_label"
+      },
+      {
+        "id": "collection_filter_group_2_item_2_color"
+      },
+      {
+        "id": "collection_filter_group_2_item_2_label"
+      },
+      {
+        "id": "collection_filter_group_2_item_3_color"
+      },
+      {
+        "id": "collection_filter_group_2_item_3_label"
+      },
+      {
+        "id": "collection_filter_group_2_item_4_color"
+      },
+      {
+        "id": "collection_filter_group_2_item_4_label"
+      },
+      {
+        "id": "collection_filter_group_4_mode"
+      },
+      {
+        "id": "collection_filter_group_4_title"
+      },
+      {
+        "id": "collection_filter_group_4_values"
+      },
+      {
+        "id": "collection_filter_group_5_mode"
+      },
+      {
+        "id": "collection_filter_group_5_title"
+      },
+      {
+        "id": "collection_filter_group_5_values"
+      },
+      {
+        "id": "collection_filter_group_6_mode"
+      },
+      {
+        "id": "collection_filter_group_6_title"
+      },
+      {
+        "id": "collection_filter_group_6_values"
+      },
+      {
+        "id": "collection_filter_group_7_mode"
+      },
+      {
+        "id": "collection_filter_group_7_title"
+      },
+      {
+        "id": "collection_filter_group_7_values"
+      },
+      {
+        "id": "collection_filter_group_8_mode"
+      },
+      {
+        "id": "collection_filter_group_8_title"
+      },
+      {
+        "id": "collection_filter_group_8_values"
+      },
+      {
+        "id": "collection_filter_group_9_mode"
+      },
+      {
+        "id": "collection_filter_group_9_title"
+      },
+      {
+        "id": "collection_filter_group_9_values"
+      },
+      {
+        "id": "collection_filter_price_range_1_from"
+      },
+      {
+        "id": "collection_filter_price_range_1_label"
+      },
+      {
+        "id": "collection_filter_price_range_1_to"
+      },
+      {
+        "id": "collection_filter_price_range_2_from"
+      },
+      {
+        "id": "collection_filter_price_range_2_label"
+      },
+      {
+        "id": "collection_filter_price_range_2_to"
+      },
+      {
+        "id": "collection_filter_price_range_3_from"
+      },
+      {
+        "id": "collection_filter_price_range_3_label"
+      },
+      {
+        "id": "collection_filter_price_range_3_to"
+      },
+      {
+        "id": "collection_filter_price_range_4_from"
+      },
+      {
+        "id": "collection_filter_price_range_4_label"
+      },
+      {
+        "id": "collection_filter_price_range_4_to"
+      },
+      {
+        "id": "collection_filter_price_range_5_from"
+      },
+      {
+        "id": "collection_filter_price_range_5_label"
+      },
+      {
+        "id": "collection_filter_price_range_5_to"
+      },
+      {
+        "id": "favicon.png"
+      },
+      {
+        "id": "footer_payment_1.png"
+      },
+      {
+        "id": "footer_payment_1_alt"
+      },
+      {
+        "id": "footer_payment_2.png"
+      },
+      {
+        "id": "footer_payment_2_alt"
+      },
+      {
+        "id": "footer_payment_3.png"
+      },
+      {
+        "id": "footer_payment_3_alt"
+      },
+      {
+        "id": "footer_payment_4.png"
+      },
+      {
+        "id": "footer_payment_4_alt"
+      },
+      {
+        "id": "footer_payment_5.png"
+      },
+      {
+        "id": "footer_payment_5_alt"
+      },
+      {
+        "id": "footer_payment_6.png"
+      },
+      {
+        "id": "footer_payment_6_alt"
+      },
+      {
+        "id": "header_logo.png"
+      },
+      {
+        "id": "header_mobile_nav_bg"
+      },
+      {
+        "id": "header_mobile_nav_close_bg"
+      },
+      {
+        "id": "header_mobile_nav_close_text"
+      },
+      {
+        "id": "header_mobile_nav_header_bg"
+      },
+      {
+        "id": "header_mobile_nav_header_text"
+      },
+      {
+        "id": "header_mobile_nav_text"
+      },
+      {
+        "id": "header_offer_1_alt"
+      },
+      {
+        "id": "header_offer_1_button"
+      },
+      {
+        "id": "header_offer_1_image.png"
+      },
+      {
+        "id": "header_offer_1_link"
+      },
+      {
+        "id": "header_offer_1_text"
+      },
+      {
+        "id": "header_offer_1_title"
+      },
+      {
+        "id": "header_offer_2_alt"
+      },
+      {
+        "id": "header_offer_2_button"
+      },
+      {
+        "id": "header_offer_2_image.png"
+      },
+      {
+        "id": "header_offer_2_link"
+      },
+      {
+        "id": "header_offer_2_text"
+      },
+      {
+        "id": "header_offer_2_title"
+      },
+      {
+        "id": "header_offer_3_alt"
+      },
+      {
+        "id": "header_offer_3_button"
+      },
+      {
+        "id": "header_offer_3_image.png"
+      },
+      {
+        "id": "header_offer_3_link"
+      },
+      {
+        "id": "header_offer_3_text"
+      },
+      {
+        "id": "header_offer_3_title"
+      },
+      {
+        "id": "header_offer_4_alt"
+      },
+      {
+        "id": "header_offer_4_button"
+      },
+      {
+        "id": "header_offer_4_image.png"
+      },
+      {
+        "id": "header_offer_4_link"
+      },
+      {
+        "id": "header_offer_4_text"
+      },
+      {
+        "id": "header_offer_4_title"
+      },
+      {
+        "id": "header_offer_5_alt"
+      },
+      {
+        "id": "header_offer_5_button"
+      },
+      {
+        "id": "header_offer_5_image.png"
+      },
+      {
+        "id": "header_offer_5_link"
+      },
+      {
+        "id": "header_offer_5_text"
+      },
+      {
+        "id": "header_offer_5_title"
+      },
+      {
+        "id": "header_offer_6_alt"
+      },
+      {
+        "id": "header_offer_6_button"
+      },
+      {
+        "id": "header_offer_6_image.png"
+      },
+      {
+        "id": "header_offer_6_link"
+      },
+      {
+        "id": "header_offer_6_text"
+      },
+      {
+        "id": "header_offer_6_title"
+      },
+      {
+        "id": "header_offer_7_alt"
+      },
+      {
+        "id": "header_offer_7_button"
+      },
+      {
+        "id": "header_offer_7_image.png"
+      },
+      {
+        "id": "header_offer_7_link"
+      },
+      {
+        "id": "header_offer_7_text"
+      },
+      {
+        "id": "header_offer_7_title"
+      },
+      {
+        "id": "header_offer_8_alt"
+      },
+      {
+        "id": "header_offer_8_button"
+      },
+      {
+        "id": "header_offer_8_image.png"
+      },
+      {
+        "id": "header_offer_8_link"
+      },
+      {
+        "id": "header_offer_8_text"
+      },
+      {
+        "id": "header_offer_8_title"
+      },
+      {
+        "id": "home_brand_values_1.png"
+      },
+      {
+        "id": "home_brand_values_1_alt"
+      },
+      {
+        "id": "home_brand_values_1_text"
+      },
+      {
+        "id": "home_brand_values_1_title"
+      },
+      {
+        "id": "home_brand_values_2.png"
+      },
+      {
+        "id": "home_brand_values_2_alt"
+      },
+      {
+        "id": "home_brand_values_2_text"
+      },
+      {
+        "id": "home_brand_values_2_title"
+      },
+      {
+        "id": "home_brand_values_3.png"
+      },
+      {
+        "id": "home_brand_values_3_alt"
+      },
+      {
+        "id": "home_brand_values_3_text"
+      },
+      {
+        "id": "home_brand_values_3_title"
+      },
+      {
+        "id": "home_explore_collections_card_1.png"
+      },
+      {
+        "id": "home_explore_collections_card_1_alt"
+      },
+      {
+        "id": "home_explore_collections_card_1_collection"
+      },
+      {
+        "id": "home_explore_collections_card_1_label"
+      },
+      {
+        "id": "home_explore_collections_card_2.png"
+      },
+      {
+        "id": "home_explore_collections_card_2_alt"
+      },
+      {
+        "id": "home_explore_collections_card_2_collection"
+      },
+      {
+        "id": "home_explore_collections_card_2_label"
+      },
+      {
+        "id": "home_explore_collections_item_1_collection"
+      },
+      {
+        "id": "home_explore_collections_item_1_label"
+      },
+      {
+        "id": "home_explore_collections_item_2_collection"
+      },
+      {
+        "id": "home_explore_collections_item_2_label"
+      },
+      {
+        "id": "home_explore_collections_item_3_collection"
+      },
+      {
+        "id": "home_explore_collections_item_3_label"
+      },
+      {
+        "id": "home_explore_collections_item_4_collection"
+      },
+      {
+        "id": "home_explore_collections_item_4_label"
+      },
+      {
+        "id": "home_featured_brand_1.png"
+      },
+      {
+        "id": "home_featured_brand_1_alt"
+      },
+      {
+        "id": "home_featured_brand_2.png"
+      },
+      {
+        "id": "home_featured_brand_2_alt"
+      },
+      {
+        "id": "home_featured_brand_3.png"
+      },
+      {
+        "id": "home_featured_brand_3_alt"
+      },
+      {
+        "id": "home_featured_brand_4.png"
+      },
+      {
+        "id": "home_featured_brand_4_alt"
+      },
+      {
+        "id": "home_featured_brand_5.png"
+      },
+      {
+        "id": "home_featured_brand_5_alt"
+      },
+      {
+        "id": "home_featured_brand_6.png"
+      },
+      {
+        "id": "home_featured_brand_6_alt"
+      },
+      {
+        "id": "home_instagram_showcase_1.png"
+      },
+      {
+        "id": "home_instagram_showcase_1_alt"
+      },
+      {
+        "id": "home_instagram_showcase_1_link"
+      },
+      {
+        "id": "home_instagram_showcase_2.png"
+      },
+      {
+        "id": "home_instagram_showcase_2_alt"
+      },
+      {
+        "id": "home_instagram_showcase_2_link"
+      },
+      {
+        "id": "home_instagram_showcase_3.png"
+      },
+      {
+        "id": "home_instagram_showcase_3_alt"
+      },
+      {
+        "id": "home_instagram_showcase_3_link"
+      },
+      {
+        "id": "home_instagram_showcase_4.png"
+      },
+      {
+        "id": "home_instagram_showcase_4_alt"
+      },
+      {
+        "id": "home_instagram_showcase_4_link"
+      },
+      {
+        "id": "home_instagram_showcase_5.png"
+      },
+      {
+        "id": "home_instagram_showcase_5_alt"
+      },
+      {
+        "id": "home_instagram_showcase_5_link"
+      },
+      {
+        "id": "home_instagram_showcase_6.png"
+      },
+      {
+        "id": "home_instagram_showcase_6_alt"
+      },
+      {
+        "id": "home_instagram_showcase_6_link"
+      },
+      {
+        "id": "home_popup_image.png"
+      },
+      {
+        "id": "home_simple_steps_label_1"
+      },
+      {
+        "id": "home_simple_steps_label_2"
+      },
+      {
+        "id": "home_simple_steps_label_3"
+      },
+      {
+        "id": "home_simple_steps_label_4"
+      },
+      {
+        "id": "home_slider_1.png"
+      },
+      {
+        "id": "home_slider_1_alt"
+      },
+      {
+        "id": "home_slider_1_button"
+      },
+      {
+        "id": "home_slider_1_eyebrow"
+      },
+      {
+        "id": "home_slider_1_highlight"
+      },
+      {
+        "id": "home_slider_1_link"
+      },
+      {
+        "id": "home_slider_1_mobile.png"
+      },
+      {
+        "id": "home_slider_1_text"
+      },
+      {
+        "id": "home_slider_1_title"
+      },
+      {
+        "id": "home_slider_2.png"
+      },
+      {
+        "id": "home_slider_2_alt"
+      },
+      {
+        "id": "home_slider_2_button"
+      },
+      {
+        "id": "home_slider_2_eyebrow"
+      },
+      {
+        "id": "home_slider_2_highlight"
+      },
+      {
+        "id": "home_slider_2_link"
+      },
+      {
+        "id": "home_slider_2_mobile.png"
+      },
+      {
+        "id": "home_slider_2_text"
+      },
+      {
+        "id": "home_slider_2_title"
+      },
+      {
+        "id": "home_slider_3.png"
+      },
+      {
+        "id": "home_slider_3_alt"
+      },
+      {
+        "id": "home_slider_3_button"
+      },
+      {
+        "id": "home_slider_3_eyebrow"
+      },
+      {
+        "id": "home_slider_3_highlight"
+      },
+      {
+        "id": "home_slider_3_link"
+      },
+      {
+        "id": "home_slider_3_mobile.png"
+      },
+      {
+        "id": "home_slider_3_text"
+      },
+      {
+        "id": "home_slider_3_title"
+      },
+      {
+        "id": "home_sticker_1.png"
+      },
+      {
+        "id": "home_sticker_1_alt"
+      },
+      {
+        "id": "home_sticker_1_label"
+      },
+      {
+        "id": "home_sticker_2.png"
+      },
+      {
+        "id": "home_sticker_2_alt"
+      },
+      {
+        "id": "home_sticker_2_label"
+      },
+      {
+        "id": "home_sticker_3.png"
+      },
+      {
+        "id": "home_sticker_3_alt"
+      },
+      {
+        "id": "home_sticker_3_label"
+      },
+      {
+        "id": "home_sticker_4.png"
+      },
+      {
+        "id": "home_sticker_4_alt"
+      },
+      {
+        "id": "home_sticker_4_label"
+      },
+      {
+        "id": "home_sticker_5.png"
+      },
+      {
+        "id": "home_sticker_5_alt"
+      },
+      {
+        "id": "home_sticker_5_label"
+      },
+      {
+        "id": "home_sticker_6.png"
+      },
+      {
+        "id": "home_sticker_6_alt"
+      },
+      {
+        "id": "home_sticker_6_label"
+      },
+      {
+        "id": "home_sticker_7.png"
+      },
+      {
+        "id": "home_sticker_7_alt"
+      },
+      {
+        "id": "home_sticker_7_label"
+      },
+      {
+        "id": "home_top_sellers_tab_1_collection"
+      },
+      {
+        "id": "home_top_sellers_tab_1_label"
+      },
+      {
+        "id": "home_top_sellers_tab_2_collection"
+      },
+      {
+        "id": "home_top_sellers_tab_2_label"
+      },
+      {
+        "id": "home_top_sellers_tab_3_collection"
+      },
+      {
+        "id": "home_top_sellers_tab_3_label"
+      },
+      {
+        "id": "megamenubanner10img1.png"
+      },
+      {
+        "id": "megamenubanner10img2.png"
+      },
+      {
+        "id": "megamenubanner10img3.png"
+      },
+      {
+        "id": "megamenubanner10link1"
+      },
+      {
+        "id": "megamenubanner10link2"
+      },
+      {
+        "id": "megamenubanner10link3"
+      },
+      {
+        "id": "megamenubanner1img1.png"
+      },
+      {
+        "id": "megamenubanner1img2.png"
+      },
+      {
+        "id": "megamenubanner1img3.png"
+      },
+      {
+        "id": "megamenubanner1link1"
+      },
+      {
+        "id": "megamenubanner1link2"
+      },
+      {
+        "id": "megamenubanner1link3"
+      },
+      {
+        "id": "megamenubanner2img1.png"
+      },
+      {
+        "id": "megamenubanner2img2.png"
+      },
+      {
+        "id": "megamenubanner2img3.png"
+      },
+      {
+        "id": "megamenubanner2link1"
+      },
+      {
+        "id": "megamenubanner2link2"
+      },
+      {
+        "id": "megamenubanner2link3"
+      },
+      {
+        "id": "megamenubanner3img1.png"
+      },
+      {
+        "id": "megamenubanner3img2.png"
+      },
+      {
+        "id": "megamenubanner3img3.png"
+      },
+      {
+        "id": "megamenubanner3link1"
+      },
+      {
+        "id": "megamenubanner3link2"
+      },
+      {
+        "id": "megamenubanner3link3"
+      },
+      {
+        "id": "megamenubanner4img1.png"
+      },
+      {
+        "id": "megamenubanner4img2.png"
+      },
+      {
+        "id": "megamenubanner4img3.png"
+      },
+      {
+        "id": "megamenubanner4link1"
+      },
+      {
+        "id": "megamenubanner4link2"
+      },
+      {
+        "id": "megamenubanner4link3"
+      },
+      {
+        "id": "megamenubanner5img1.png"
+      },
+      {
+        "id": "megamenubanner5img2.png"
+      },
+      {
+        "id": "megamenubanner5img3.png"
+      },
+      {
+        "id": "megamenubanner5link1"
+      },
+      {
+        "id": "megamenubanner5link2"
+      },
+      {
+        "id": "megamenubanner5link3"
+      },
+      {
+        "id": "megamenubanner6img1.png"
+      },
+      {
+        "id": "megamenubanner6img2.png"
+      },
+      {
+        "id": "megamenubanner6img3.png"
+      },
+      {
+        "id": "megamenubanner6link1"
+      },
+      {
+        "id": "megamenubanner6link2"
+      },
+      {
+        "id": "megamenubanner6link3"
+      },
+      {
+        "id": "megamenubanner7img1.png"
+      },
+      {
+        "id": "megamenubanner7img2.png"
+      },
+      {
+        "id": "megamenubanner7img3.png"
+      },
+      {
+        "id": "megamenubanner7link1"
+      },
+      {
+        "id": "megamenubanner7link2"
+      },
+      {
+        "id": "megamenubanner7link3"
+      },
+      {
+        "id": "megamenubanner8img1.png"
+      },
+      {
+        "id": "megamenubanner8img2.png"
+      },
+      {
+        "id": "megamenubanner8img3.png"
+      },
+      {
+        "id": "megamenubanner8link1"
+      },
+      {
+        "id": "megamenubanner8link2"
+      },
+      {
+        "id": "megamenubanner8link3"
+      },
+      {
+        "id": "megamenubanner9img1.png"
+      },
+      {
+        "id": "megamenubanner9img2.png"
+      },
+      {
+        "id": "megamenubanner9img3.png"
+      },
+      {
+        "id": "megamenubanner9link1"
+      },
+      {
+        "id": "megamenubanner9link2"
+      },
+      {
+        "id": "megamenubanner9link3"
+      },
+      {
+        "id": "megamenushowbanner101"
+      },
+      {
+        "id": "megamenushowbanner102"
+      },
+      {
+        "id": "megamenushowbanner103"
+      },
+      {
+        "id": "megamenushowbanner11"
+      },
+      {
+        "id": "megamenushowbanner12"
+      },
+      {
+        "id": "megamenushowbanner13"
+      },
+      {
+        "id": "megamenushowbanner21"
+      },
+      {
+        "id": "megamenushowbanner22"
+      },
+      {
+        "id": "megamenushowbanner23"
+      },
+      {
+        "id": "megamenushowbanner31"
+      },
+      {
+        "id": "megamenushowbanner32"
+      },
+      {
+        "id": "megamenushowbanner33"
+      },
+      {
+        "id": "megamenushowbanner41"
+      },
+      {
+        "id": "megamenushowbanner42"
+      },
+      {
+        "id": "megamenushowbanner43"
+      },
+      {
+        "id": "megamenushowbanner51"
+      },
+      {
+        "id": "megamenushowbanner52"
+      },
+      {
+        "id": "megamenushowbanner53"
+      },
+      {
+        "id": "megamenushowbanner61"
+      },
+      {
+        "id": "megamenushowbanner62"
+      },
+      {
+        "id": "megamenushowbanner63"
+      },
+      {
+        "id": "megamenushowbanner71"
+      },
+      {
+        "id": "megamenushowbanner72"
+      },
+      {
+        "id": "megamenushowbanner73"
+      },
+      {
+        "id": "megamenushowbanner81"
+      },
+      {
+        "id": "megamenushowbanner82"
+      },
+      {
+        "id": "megamenushowbanner83"
+      },
+      {
+        "id": "megamenushowbanner91"
+      },
+      {
+        "id": "megamenushowbanner92"
+      },
+      {
+        "id": "megamenushowbanner93"
+      },
+      {
+        "id": "page_stores_map_data_note"
+      },
+      {
+        "id": "product_accordion_page_1"
+      },
+      {
+        "id": "product_accordion_page_2"
+      },
+      {
+        "id": "product_accordion_page_3"
+      },
+      {
+        "id": "product_accordion_page_4"
+      },
+      {
+        "id": "product_accordion_page_5"
+      },
+      {
+        "id": "product_accordion_title_1"
+      },
+      {
+        "id": "product_accordion_title_2"
+      },
+      {
+        "id": "product_accordion_title_3"
+      },
+      {
+        "id": "product_accordion_title_4"
+      },
+      {
+        "id": "product_accordion_title_5"
+      },
+      {
+        "id": "product_meta_icon_1.png"
+      },
+      {
+        "id": "product_meta_icon_2.png"
+      },
+      {
+        "id": "product_meta_icon_3.png"
+      },
+      {
+        "id": "product_meta_label_1"
+      },
+      {
+        "id": "product_meta_label_2"
+      },
+      {
+        "id": "product_meta_label_3"
+      },
+      {
+        "id": "redirect_404_home"
+      },
+      {
+        "id": "redirect_collection_all_home"
+      },
+      {
+        "id": "redirect_products_home"
+      },
+      {
+        "id": "share_fb_home.png"
+      },
+      {
+        "id": "showmegamenu1"
+      },
+      {
+        "id": "showmegamenu10"
+      },
+      {
+        "id": "showmegamenu2"
+      },
+      {
+        "id": "showmegamenu3"
+      },
+      {
+        "id": "showmegamenu4"
+      },
+      {
+        "id": "showmegamenu5"
+      },
+      {
+        "id": "showmegamenu6"
+      },
+      {
+        "id": "showmegamenu7"
+      },
+      {
+        "id": "showmegamenu8"
+      },
+      {
+        "id": "showmegamenu9"
+      },
+      {
+        "id": "social_floating_1.png"
+      },
+      {
+        "id": "social_floating_1_link"
+      },
+      {
+        "id": "social_floating_1_title"
+      },
+      {
+        "id": "social_floating_2.png"
+      },
+      {
+        "id": "social_floating_2_link"
+      },
+      {
+        "id": "social_floating_2_title"
+      },
+      {
+        "id": "social_floating_3.png"
+      },
+      {
+        "id": "social_floating_3_link"
+      },
+      {
+        "id": "social_floating_3_title"
+      },
+      {
+        "id": "social_floating_4.png"
+      },
+      {
+        "id": "social_floating_4_link"
+      },
+      {
+        "id": "social_floating_4_title"
+      },
+      {
+        "id": "social_floating_5.png"
+      },
+      {
+        "id": "social_floating_5_link"
+      },
+      {
+        "id": "social_floating_5_title"
+      },
+      {
+        "id": "social_floating_6.png"
+      },
+      {
+        "id": "social_floating_6_link"
+      },
+      {
+        "id": "social_floating_6_title"
+      },
+      {
+        "id": "topbar_bg_color"
+      },
+      {
+        "id": "topbar_message_1"
+      },
+      {
+        "id": "topbar_message_2"
+      },
+      {
+        "id": "topbar_message_3"
+      },
+      {
+        "id": "topbar_message_4"
+      },
+      {
+        "id": "topbar_message_5"
+      },
+      {
+        "id": "topbar_text_color"
+      },
+      {
+        "id": "use_collection_category_2"
+      },
+      {
+        "id": "use_collection_category_3"
+      },
+      {
+        "id": "use_collection_category_4"
+      },
+      {
+        "id": "use_collection_category_5"
+      },
+      {
+        "id": "use_collection_category_6"
+      },
+      {
+        "id": "use_collection_filter_group_2_item_1"
+      },
+      {
+        "id": "use_collection_filter_group_2_item_2"
+      },
+      {
+        "id": "use_collection_filter_group_2_item_3"
+      },
+      {
+        "id": "use_collection_filter_group_2_item_4"
+      },
+      {
+        "id": "use_collection_filter_group_4"
+      },
+      {
+        "id": "use_collection_filter_group_5"
+      },
+      {
+        "id": "use_collection_filter_group_6"
+      },
+      {
+        "id": "use_collection_filter_group_7"
+      },
+      {
+        "id": "use_collection_filter_group_8"
+      },
+      {
+        "id": "use_collection_filter_group_9"
+      },
+      {
+        "id": "use_collection_filter_price_range_1"
+      },
+      {
+        "id": "use_collection_filter_price_range_2"
+      },
+      {
+        "id": "use_collection_filter_price_range_3"
+      },
+      {
+        "id": "use_collection_filter_price_range_4"
+      },
+      {
+        "id": "use_collection_filter_price_range_5"
+      },
+      {
+        "id": "use_footer_payment_1"
+      },
+      {
+        "id": "use_footer_payment_2"
+      },
+      {
+        "id": "use_footer_payment_3"
+      },
+      {
+        "id": "use_footer_payment_4"
+      },
+      {
+        "id": "use_footer_payment_5"
+      },
+      {
+        "id": "use_footer_payment_6"
+      },
+      {
+        "id": "use_header_offer_1"
+      },
+      {
+        "id": "use_header_offer_2"
+      },
+      {
+        "id": "use_header_offer_3"
+      },
+      {
+        "id": "use_header_offer_4"
+      },
+      {
+        "id": "use_header_offer_5"
+      },
+      {
+        "id": "use_header_offer_6"
+      },
+      {
+        "id": "use_header_offer_7"
+      },
+      {
+        "id": "use_header_offer_8"
+      },
+      {
+        "id": "use_home_slider_2"
+      },
+      {
+        "id": "use_home_slider_3"
+      },
+      {
+        "id": "use_home_sticker_1"
+      },
+      {
+        "id": "use_home_sticker_2"
+      },
+      {
+        "id": "use_home_sticker_3"
+      },
+      {
+        "id": "use_home_sticker_4"
+      },
+      {
+        "id": "use_home_sticker_5"
+      },
+      {
+        "id": "use_home_sticker_6"
+      },
+      {
+        "id": "use_home_sticker_7"
+      },
+      {
+        "id": "use_product_accordion_1"
+      },
+      {
+        "id": "use_product_accordion_2"
+      },
+      {
+        "id": "use_product_accordion_3"
+      },
+      {
+        "id": "use_product_accordion_4"
+      },
+      {
+        "id": "use_product_accordion_5"
+      },
+      {
+        "id": "use_product_meta_item_1"
+      },
+      {
+        "id": "use_product_meta_item_2"
+      },
+      {
+        "id": "use_product_meta_item_3"
+      },
+      {
+        "id": "use_social_floating_1"
+      },
+      {
+        "id": "use_social_floating_2"
+      },
+      {
+        "id": "use_social_floating_3"
+      },
+      {
+        "id": "use_social_floating_4"
+      },
+      {
+        "id": "use_social_floating_5"
+      },
+      {
+        "id": "use_social_floating_6"
+      },
+      {
+        "id": "use_topbar_message_1"
+      },
+      {
+        "id": "use_topbar_message_2"
+      },
+      {
+        "id": "use_topbar_message_3"
+      },
+      {
+        "id": "use_topbar_message_4"
+      },
+      {
+        "id": "use_topbar_message_5"
+      },
+      {
+        "id": "vendor_image_name_1"
+      },
+      {
+        "id": "vendor_image_name_10"
+      },
+      {
+        "id": "vendor_image_name_100"
+      },
+      {
+        "id": "vendor_image_name_101"
+      },
+      {
+        "id": "vendor_image_name_102"
+      },
+      {
+        "id": "vendor_image_name_103"
+      },
+      {
+        "id": "vendor_image_name_104"
+      },
+      {
+        "id": "vendor_image_name_105"
+      },
+      {
+        "id": "vendor_image_name_106"
+      },
+      {
+        "id": "vendor_image_name_107"
+      },
+      {
+        "id": "vendor_image_name_108"
+      },
+      {
+        "id": "vendor_image_name_109"
+      },
+      {
+        "id": "vendor_image_name_11"
+      },
+      {
+        "id": "vendor_image_name_110"
+      },
+      {
+        "id": "vendor_image_name_111"
+      },
+      {
+        "id": "vendor_image_name_112"
+      },
+      {
+        "id": "vendor_image_name_113"
+      },
+      {
+        "id": "vendor_image_name_114"
+      },
+      {
+        "id": "vendor_image_name_115"
+      },
+      {
+        "id": "vendor_image_name_116"
+      },
+      {
+        "id": "vendor_image_name_117"
+      },
+      {
+        "id": "vendor_image_name_118"
+      },
+      {
+        "id": "vendor_image_name_119"
+      },
+      {
+        "id": "vendor_image_name_12"
+      },
+      {
+        "id": "vendor_image_name_120"
+      },
+      {
+        "id": "vendor_image_name_121"
+      },
+      {
+        "id": "vendor_image_name_122"
+      },
+      {
+        "id": "vendor_image_name_123"
+      },
+      {
+        "id": "vendor_image_name_124"
+      },
+      {
+        "id": "vendor_image_name_125"
+      },
+      {
+        "id": "vendor_image_name_126"
+      },
+      {
+        "id": "vendor_image_name_127"
+      },
+      {
+        "id": "vendor_image_name_128"
+      },
+      {
+        "id": "vendor_image_name_129"
+      },
+      {
+        "id": "vendor_image_name_13"
+      },
+      {
+        "id": "vendor_image_name_130"
+      },
+      {
+        "id": "vendor_image_name_131"
+      },
+      {
+        "id": "vendor_image_name_132"
+      },
+      {
+        "id": "vendor_image_name_133"
+      },
+      {
+        "id": "vendor_image_name_134"
+      },
+      {
+        "id": "vendor_image_name_135"
+      },
+      {
+        "id": "vendor_image_name_136"
+      },
+      {
+        "id": "vendor_image_name_137"
+      },
+      {
+        "id": "vendor_image_name_138"
+      },
+      {
+        "id": "vendor_image_name_139"
+      },
+      {
+        "id": "vendor_image_name_14"
+      },
+      {
+        "id": "vendor_image_name_140"
+      },
+      {
+        "id": "vendor_image_name_141"
+      },
+      {
+        "id": "vendor_image_name_142"
+      },
+      {
+        "id": "vendor_image_name_143"
+      },
+      {
+        "id": "vendor_image_name_144"
+      },
+      {
+        "id": "vendor_image_name_145"
+      },
+      {
+        "id": "vendor_image_name_146"
+      },
+      {
+        "id": "vendor_image_name_147"
+      },
+      {
+        "id": "vendor_image_name_148"
+      },
+      {
+        "id": "vendor_image_name_149"
+      },
+      {
+        "id": "vendor_image_name_15"
+      },
+      {
+        "id": "vendor_image_name_150"
+      },
+      {
+        "id": "vendor_image_name_151"
+      },
+      {
+        "id": "vendor_image_name_152"
+      },
+      {
+        "id": "vendor_image_name_153"
+      },
+      {
+        "id": "vendor_image_name_154"
+      },
+      {
+        "id": "vendor_image_name_155"
+      },
+      {
+        "id": "vendor_image_name_156"
+      },
+      {
+        "id": "vendor_image_name_157"
+      },
+      {
+        "id": "vendor_image_name_158"
+      },
+      {
+        "id": "vendor_image_name_159"
+      },
+      {
+        "id": "vendor_image_name_16"
+      },
+      {
+        "id": "vendor_image_name_160"
+      },
+      {
+        "id": "vendor_image_name_161"
+      },
+      {
+        "id": "vendor_image_name_162"
+      },
+      {
+        "id": "vendor_image_name_163"
+      },
+      {
+        "id": "vendor_image_name_164"
+      },
+      {
+        "id": "vendor_image_name_165"
+      },
+      {
+        "id": "vendor_image_name_166"
+      },
+      {
+        "id": "vendor_image_name_167"
+      },
+      {
+        "id": "vendor_image_name_168"
+      },
+      {
+        "id": "vendor_image_name_169"
+      },
+      {
+        "id": "vendor_image_name_17"
+      },
+      {
+        "id": "vendor_image_name_170"
+      },
+      {
+        "id": "vendor_image_name_171"
+      },
+      {
+        "id": "vendor_image_name_172"
+      },
+      {
+        "id": "vendor_image_name_173"
+      },
+      {
+        "id": "vendor_image_name_174"
+      },
+      {
+        "id": "vendor_image_name_175"
+      },
+      {
+        "id": "vendor_image_name_176"
+      },
+      {
+        "id": "vendor_image_name_177"
+      },
+      {
+        "id": "vendor_image_name_178"
+      },
+      {
+        "id": "vendor_image_name_179"
+      },
+      {
+        "id": "vendor_image_name_18"
+      },
+      {
+        "id": "vendor_image_name_180"
+      },
+      {
+        "id": "vendor_image_name_181"
+      },
+      {
+        "id": "vendor_image_name_182"
+      },
+      {
+        "id": "vendor_image_name_183"
+      },
+      {
+        "id": "vendor_image_name_184"
+      },
+      {
+        "id": "vendor_image_name_185"
+      },
+      {
+        "id": "vendor_image_name_186"
+      },
+      {
+        "id": "vendor_image_name_187"
+      },
+      {
+        "id": "vendor_image_name_188"
+      },
+      {
+        "id": "vendor_image_name_189"
+      },
+      {
+        "id": "vendor_image_name_19"
+      },
+      {
+        "id": "vendor_image_name_190"
+      },
+      {
+        "id": "vendor_image_name_191"
+      },
+      {
+        "id": "vendor_image_name_192"
+      },
+      {
+        "id": "vendor_image_name_193"
+      },
+      {
+        "id": "vendor_image_name_194"
+      },
+      {
+        "id": "vendor_image_name_195"
+      },
+      {
+        "id": "vendor_image_name_196"
+      },
+      {
+        "id": "vendor_image_name_197"
+      },
+      {
+        "id": "vendor_image_name_198"
+      },
+      {
+        "id": "vendor_image_name_199"
+      },
+      {
+        "id": "vendor_image_name_2"
+      },
+      {
+        "id": "vendor_image_name_20"
+      },
+      {
+        "id": "vendor_image_name_200"
+      },
+      {
+        "id": "vendor_image_name_201"
+      },
+      {
+        "id": "vendor_image_name_202"
+      },
+      {
+        "id": "vendor_image_name_203"
+      },
+      {
+        "id": "vendor_image_name_204"
+      },
+      {
+        "id": "vendor_image_name_205"
+      },
+      {
+        "id": "vendor_image_name_206"
+      },
+      {
+        "id": "vendor_image_name_207"
+      },
+      {
+        "id": "vendor_image_name_208"
+      },
+      {
+        "id": "vendor_image_name_209"
+      },
+      {
+        "id": "vendor_image_name_21"
+      },
+      {
+        "id": "vendor_image_name_210"
+      },
+      {
+        "id": "vendor_image_name_211"
+      },
+      {
+        "id": "vendor_image_name_212"
+      },
+      {
+        "id": "vendor_image_name_213"
+      },
+      {
+        "id": "vendor_image_name_214"
+      },
+      {
+        "id": "vendor_image_name_215"
+      },
+      {
+        "id": "vendor_image_name_216"
+      },
+      {
+        "id": "vendor_image_name_217"
+      },
+      {
+        "id": "vendor_image_name_218"
+      },
+      {
+        "id": "vendor_image_name_219"
+      },
+      {
+        "id": "vendor_image_name_22"
+      },
+      {
+        "id": "vendor_image_name_220"
+      },
+      {
+        "id": "vendor_image_name_221"
+      },
+      {
+        "id": "vendor_image_name_222"
+      },
+      {
+        "id": "vendor_image_name_223"
+      },
+      {
+        "id": "vendor_image_name_224"
+      },
+      {
+        "id": "vendor_image_name_225"
+      },
+      {
+        "id": "vendor_image_name_226"
+      },
+      {
+        "id": "vendor_image_name_227"
+      },
+      {
+        "id": "vendor_image_name_228"
+      },
+      {
+        "id": "vendor_image_name_229"
+      },
+      {
+        "id": "vendor_image_name_23"
+      },
+      {
+        "id": "vendor_image_name_230"
+      },
+      {
+        "id": "vendor_image_name_231"
+      },
+      {
+        "id": "vendor_image_name_232"
+      },
+      {
+        "id": "vendor_image_name_233"
+      },
+      {
+        "id": "vendor_image_name_234"
+      },
+      {
+        "id": "vendor_image_name_235"
+      },
+      {
+        "id": "vendor_image_name_236"
+      },
+      {
+        "id": "vendor_image_name_237"
+      },
+      {
+        "id": "vendor_image_name_238"
+      },
+      {
+        "id": "vendor_image_name_239"
+      },
+      {
+        "id": "vendor_image_name_24"
+      },
+      {
+        "id": "vendor_image_name_240"
+      },
+      {
+        "id": "vendor_image_name_241"
+      },
+      {
+        "id": "vendor_image_name_242"
+      },
+      {
+        "id": "vendor_image_name_243"
+      },
+      {
+        "id": "vendor_image_name_244"
+      },
+      {
+        "id": "vendor_image_name_245"
+      },
+      {
+        "id": "vendor_image_name_246"
+      },
+      {
+        "id": "vendor_image_name_247"
+      },
+      {
+        "id": "vendor_image_name_248"
+      },
+      {
+        "id": "vendor_image_name_249"
+      },
+      {
+        "id": "vendor_image_name_25"
+      },
+      {
+        "id": "vendor_image_name_250"
+      },
+      {
+        "id": "vendor_image_name_251"
+      },
+      {
+        "id": "vendor_image_name_252"
+      },
+      {
+        "id": "vendor_image_name_253"
+      },
+      {
+        "id": "vendor_image_name_254"
+      },
+      {
+        "id": "vendor_image_name_255"
+      },
+      {
+        "id": "vendor_image_name_256"
+      },
+      {
+        "id": "vendor_image_name_257"
+      },
+      {
+        "id": "vendor_image_name_258"
+      },
+      {
+        "id": "vendor_image_name_259"
+      },
+      {
+        "id": "vendor_image_name_26"
+      },
+      {
+        "id": "vendor_image_name_260"
+      },
+      {
+        "id": "vendor_image_name_261"
+      },
+      {
+        "id": "vendor_image_name_262"
+      },
+      {
+        "id": "vendor_image_name_263"
+      },
+      {
+        "id": "vendor_image_name_264"
+      },
+      {
+        "id": "vendor_image_name_265"
+      },
+      {
+        "id": "vendor_image_name_266"
+      },
+      {
+        "id": "vendor_image_name_267"
+      },
+      {
+        "id": "vendor_image_name_268"
+      },
+      {
+        "id": "vendor_image_name_269"
+      },
+      {
+        "id": "vendor_image_name_27"
+      },
+      {
+        "id": "vendor_image_name_270"
+      },
+      {
+        "id": "vendor_image_name_271"
+      },
+      {
+        "id": "vendor_image_name_272"
+      },
+      {
+        "id": "vendor_image_name_273"
+      },
+      {
+        "id": "vendor_image_name_274"
+      },
+      {
+        "id": "vendor_image_name_275"
+      },
+      {
+        "id": "vendor_image_name_276"
+      },
+      {
+        "id": "vendor_image_name_277"
+      },
+      {
+        "id": "vendor_image_name_278"
+      },
+      {
+        "id": "vendor_image_name_279"
+      },
+      {
+        "id": "vendor_image_name_28"
+      },
+      {
+        "id": "vendor_image_name_280"
+      },
+      {
+        "id": "vendor_image_name_281"
+      },
+      {
+        "id": "vendor_image_name_282"
+      },
+      {
+        "id": "vendor_image_name_283"
+      },
+      {
+        "id": "vendor_image_name_284"
+      },
+      {
+        "id": "vendor_image_name_285"
+      },
+      {
+        "id": "vendor_image_name_286"
+      },
+      {
+        "id": "vendor_image_name_287"
+      },
+      {
+        "id": "vendor_image_name_288"
+      },
+      {
+        "id": "vendor_image_name_289"
+      },
+      {
+        "id": "vendor_image_name_29"
+      },
+      {
+        "id": "vendor_image_name_290"
+      },
+      {
+        "id": "vendor_image_name_291"
+      },
+      {
+        "id": "vendor_image_name_292"
+      },
+      {
+        "id": "vendor_image_name_293"
+      },
+      {
+        "id": "vendor_image_name_294"
+      },
+      {
+        "id": "vendor_image_name_295"
+      },
+      {
+        "id": "vendor_image_name_296"
+      },
+      {
+        "id": "vendor_image_name_297"
+      },
+      {
+        "id": "vendor_image_name_298"
+      },
+      {
+        "id": "vendor_image_name_299"
+      },
+      {
+        "id": "vendor_image_name_3"
+      },
+      {
+        "id": "vendor_image_name_30"
+      },
+      {
+        "id": "vendor_image_name_300"
+      },
+      {
+        "id": "vendor_image_name_31"
+      },
+      {
+        "id": "vendor_image_name_32"
+      },
+      {
+        "id": "vendor_image_name_33"
+      },
+      {
+        "id": "vendor_image_name_34"
+      },
+      {
+        "id": "vendor_image_name_35"
+      },
+      {
+        "id": "vendor_image_name_36"
+      },
+      {
+        "id": "vendor_image_name_37"
+      },
+      {
+        "id": "vendor_image_name_38"
+      },
+      {
+        "id": "vendor_image_name_39"
+      },
+      {
+        "id": "vendor_image_name_4"
+      },
+      {
+        "id": "vendor_image_name_40"
+      },
+      {
+        "id": "vendor_image_name_41"
+      },
+      {
+        "id": "vendor_image_name_42"
+      },
+      {
+        "id": "vendor_image_name_43"
+      },
+      {
+        "id": "vendor_image_name_44"
+      },
+      {
+        "id": "vendor_image_name_45"
+      },
+      {
+        "id": "vendor_image_name_46"
+      },
+      {
+        "id": "vendor_image_name_47"
+      },
+      {
+        "id": "vendor_image_name_48"
+      },
+      {
+        "id": "vendor_image_name_49"
+      },
+      {
+        "id": "vendor_image_name_5"
+      },
+      {
+        "id": "vendor_image_name_50"
+      },
+      {
+        "id": "vendor_image_name_51"
+      },
+      {
+        "id": "vendor_image_name_52"
+      },
+      {
+        "id": "vendor_image_name_53"
+      },
+      {
+        "id": "vendor_image_name_54"
+      },
+      {
+        "id": "vendor_image_name_55"
+      },
+      {
+        "id": "vendor_image_name_56"
+      },
+      {
+        "id": "vendor_image_name_57"
+      },
+      {
+        "id": "vendor_image_name_58"
+      },
+      {
+        "id": "vendor_image_name_59"
+      },
+      {
+        "id": "vendor_image_name_6"
+      },
+      {
+        "id": "vendor_image_name_60"
+      },
+      {
+        "id": "vendor_image_name_61"
+      },
+      {
+        "id": "vendor_image_name_62"
+      },
+      {
+        "id": "vendor_image_name_63"
+      },
+      {
+        "id": "vendor_image_name_64"
+      },
+      {
+        "id": "vendor_image_name_65"
+      },
+      {
+        "id": "vendor_image_name_66"
+      },
+      {
+        "id": "vendor_image_name_67"
+      },
+      {
+        "id": "vendor_image_name_68"
+      },
+      {
+        "id": "vendor_image_name_69"
+      },
+      {
+        "id": "vendor_image_name_7"
+      },
+      {
+        "id": "vendor_image_name_70"
+      },
+      {
+        "id": "vendor_image_name_71"
+      },
+      {
+        "id": "vendor_image_name_72"
+      },
+      {
+        "id": "vendor_image_name_73"
+      },
+      {
+        "id": "vendor_image_name_74"
+      },
+      {
+        "id": "vendor_image_name_75"
+      },
+      {
+        "id": "vendor_image_name_76"
+      },
+      {
+        "id": "vendor_image_name_77"
+      },
+      {
+        "id": "vendor_image_name_78"
+      },
+      {
+        "id": "vendor_image_name_79"
+      },
+      {
+        "id": "vendor_image_name_8"
+      },
+      {
+        "id": "vendor_image_name_80"
+      },
+      {
+        "id": "vendor_image_name_81"
+      },
+      {
+        "id": "vendor_image_name_82"
+      },
+      {
+        "id": "vendor_image_name_83"
+      },
+      {
+        "id": "vendor_image_name_84"
+      },
+      {
+        "id": "vendor_image_name_85"
+      },
+      {
+        "id": "vendor_image_name_86"
+      },
+      {
+        "id": "vendor_image_name_87"
+      },
+      {
+        "id": "vendor_image_name_88"
+      },
+      {
+        "id": "vendor_image_name_89"
+      },
+      {
+        "id": "vendor_image_name_9"
+      },
+      {
+        "id": "vendor_image_name_90"
+      },
+      {
+        "id": "vendor_image_name_91"
+      },
+      {
+        "id": "vendor_image_name_92"
+      },
+      {
+        "id": "vendor_image_name_93"
+      },
+      {
+        "id": "vendor_image_name_94"
+      },
+      {
+        "id": "vendor_image_name_95"
+      },
+      {
+        "id": "vendor_image_name_96"
+      },
+      {
+        "id": "vendor_image_name_97"
+      },
+      {
+        "id": "vendor_image_name_98"
+      },
+      {
+        "id": "vendor_image_name_99"
+      }
+    ],
+    "failures": [
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "blog_template_all_posts_label",
+        "detail": "settings.blog_template_all_posts_label is read in templates/blog.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "blog_template_breadcrumb_home",
+        "detail": "settings.blog_template_breadcrumb_home is read in templates/blog.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "customer_layout",
+        "detail": "settings.customer_layout is read in templates/customers[activate_account].liquid, templates/customers[order].liquid, templates/customers[reset_password].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "desc_product_service_1",
+        "detail": "settings.desc_product_service_1 is read in templates/cart.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "desc_product_service_2",
+        "detail": "settings.desc_product_service_2 is read in templates/cart.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "desc_product_service_3",
+        "detail": "settings.desc_product_service_3 is read in templates/cart.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "desc_product_service_4",
+        "detail": "settings.desc_product_service_4 is read in templates/cart.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "desc_product_service_5",
+        "detail": "settings.desc_product_service_5 is read in templates/cart.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "fanpage_faceook",
+        "detail": "settings.fanpage_faceook is read in snippets/facebook-widget.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "fb_chat",
+        "detail": "settings.fb_chat is read in snippets/haravan-fb-messages.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "fb_chat_title",
+        "detail": "settings.fb_chat_title is read in snippets/haravan-fb-messages.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "lbl_address1",
+        "detail": "settings.lbl_address1 is read in templates/customers[addresses].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "lbl_address2",
+        "detail": "settings.lbl_address2 is read in templates/customers[addresses].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "lbl_company",
+        "detail": "settings.lbl_company is read in templates/customers[addresses].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "lbl_first_name",
+        "detail": "settings.lbl_first_name is read in templates/customers[addresses].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "lbl_last_name",
+        "detail": "settings.lbl_last_name is read in templates/customers[addresses].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "lbl_phone",
+        "detail": "settings.lbl_phone is read in templates/customers[addresses].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "limit_collection",
+        "detail": "settings.limit_collection is read in templates/collection.liquid, templates/search.filter.liquid, templates/search.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "show_fanpage_faceook",
+        "detail": "settings.show_fanpage_faceook is read in snippets/facebook-widget.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "show_product_service",
+        "detail": "settings.show_product_service is read in templates/cart.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "title_product_service",
+        "detail": "settings.title_product_service is read in templates/cart.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      }
+    ]
+  },
+  "assets": {
+    "ok": false,
+    "counts": {
+      "localPresent": 58,
+      "localMissing": 1,
+      "remote": 0
+    },
+    "localMissing": [
+      {
+        "ref": "icon_avatar.png",
+        "files": [
+          "templates/customers[account].liquid",
+          "templates/customers[account].orders.liquid",
+          "templates/customers[addresses].liquid",
+          "templates/customers[order].liquid"
+        ]
+      }
+    ],
+    "remote": []
+  },
+  "renders": [],
+  "refusals": [
+    {
+      "check": "settings-binding",
+      "failures": [
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "blog_template_all_posts_label",
+          "detail": "settings.blog_template_all_posts_label is read in templates/blog.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "blog_template_breadcrumb_home",
+          "detail": "settings.blog_template_breadcrumb_home is read in templates/blog.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "customer_layout",
+          "detail": "settings.customer_layout is read in templates/customers[activate_account].liquid, templates/customers[order].liquid, templates/customers[reset_password].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "desc_product_service_1",
+          "detail": "settings.desc_product_service_1 is read in templates/cart.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "desc_product_service_2",
+          "detail": "settings.desc_product_service_2 is read in templates/cart.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "desc_product_service_3",
+          "detail": "settings.desc_product_service_3 is read in templates/cart.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "desc_product_service_4",
+          "detail": "settings.desc_product_service_4 is read in templates/cart.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "desc_product_service_5",
+          "detail": "settings.desc_product_service_5 is read in templates/cart.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "fanpage_faceook",
+          "detail": "settings.fanpage_faceook is read in snippets/facebook-widget.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "fb_chat",
+          "detail": "settings.fb_chat is read in snippets/haravan-fb-messages.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "fb_chat_title",
+          "detail": "settings.fb_chat_title is read in snippets/haravan-fb-messages.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "lbl_address1",
+          "detail": "settings.lbl_address1 is read in templates/customers[addresses].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "lbl_address2",
+          "detail": "settings.lbl_address2 is read in templates/customers[addresses].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "lbl_company",
+          "detail": "settings.lbl_company is read in templates/customers[addresses].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "lbl_first_name",
+          "detail": "settings.lbl_first_name is read in templates/customers[addresses].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "lbl_last_name",
+          "detail": "settings.lbl_last_name is read in templates/customers[addresses].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "lbl_phone",
+          "detail": "settings.lbl_phone is read in templates/customers[addresses].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "limit_collection",
+          "detail": "settings.limit_collection is read in templates/collection.liquid, templates/search.filter.liquid, templates/search.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "show_fanpage_faceook",
+          "detail": "settings.show_fanpage_faceook is read in snippets/facebook-widget.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "show_product_service",
+          "detail": "settings.show_product_service is read in templates/cart.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "title_product_service",
+          "detail": "settings.title_product_service is read in templates/cart.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        }
+      ]
+    },
+    {
+      "check": "assets",
+      "failures": [
+        {
+          "rule": "ASSET_MISSING_LOCAL",
+          "ref": "icon_avatar.png",
+          "files": [
+            "templates/customers[account].liquid",
+            "templates/customers[account].orders.liquid",
+            "templates/customers[addresses].liquid",
+            "templates/customers[order].liquid"
+          ]
+        }
+      ]
+    },
+    {
+      "check": "haravan-contracts",
+      "failures": [
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "header_use_image_logo",
+          "file": "config/settings.html",
+          "line": 3919,
+          "message": "Duplicate setting control name 'header_use_image_logo' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'header_use_image_logo'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "header_logo_text",
+          "file": "config/settings.html",
+          "line": 3923,
+          "message": "Duplicate setting control name 'header_logo_text' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'header_logo_text'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "header_logo_alt",
+          "file": "config/settings.html",
+          "line": 3927,
+          "message": "Duplicate setting control name 'header_logo_alt' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'header_logo_alt'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "use_header_offers",
+          "file": "config/settings.html",
+          "line": 3985,
+          "message": "Duplicate setting control name 'use_header_offers' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'use_header_offers'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "header_offers_title",
+          "file": "config/settings.html",
+          "line": 3989,
+          "message": "Duplicate setting control name 'header_offers_title' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'header_offers_title'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "header_offers_count",
+          "file": "config/settings.html",
+          "line": 3993,
+          "message": "Duplicate setting control name 'header_offers_count' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'header_offers_count'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "use_header_offer_1",
+          "file": "config/settings.html",
+          "line": 3999,
+          "message": "Duplicate setting control name 'use_header_offer_1' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'use_header_offer_1'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "header_offer_1_alt",
+          "file": "config/settings.html",
+          "line": 4019,
+          "message": "Duplicate setting control name 'header_offer_1_alt' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'header_offer_1_alt'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "header_offer_1_title",
+          "file": "config/settings.html",
+          "line": 4003,
+          "message": "Duplicate setting control name 'header_offer_1_title' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'header_offer_1_title'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "header_offer_1_text",
+          "file": "config/settings.html",
+          "line": 4007,
+          "message": "Duplicate setting control name 'header_offer_1_text' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'header_offer_1_text'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "header_offer_1_button",
+          "file": "config/settings.html",
+          "line": 4011,
+          "message": "Duplicate setting control name 'header_offer_1_button' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'header_offer_1_button'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "header_offer_1_link",
+          "file": "config/settings.html",
+          "line": 4015,
+          "message": "Duplicate setting control name 'header_offer_1_link' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'header_offer_1_link'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "use_header_offer_2",
+          "file": "config/settings.html",
+          "line": 4025,
+          "message": "Duplicate setting control name 'use_header_offer_2' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'use_header_offer_2'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "header_offer_2_alt",
+          "file": "config/settings.html",
+          "line": 4045,
+          "message": "Duplicate setting control name 'header_offer_2_alt' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'header_offer_2_alt'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "header_offer_2_title",
+          "file": "config/settings.html",
+          "line": 4029,
+          "message": "Duplicate setting control name 'header_offer_2_title' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'header_offer_2_title'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "header_offer_2_text",
+          "file": "config/settings.html",
+          "line": 4033,
+          "message": "Duplicate setting control name 'header_offer_2_text' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'header_offer_2_text'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "header_offer_2_button",
+          "file": "config/settings.html",
+          "line": 4037,
+          "message": "Duplicate setting control name 'header_offer_2_button' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'header_offer_2_button'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "header_offer_2_link",
+          "file": "config/settings.html",
+          "line": 4041,
+          "message": "Duplicate setting control name 'header_offer_2_link' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'header_offer_2_link'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "use_header_offer_3",
+          "file": "config/settings.html",
+          "line": 4051,
+          "message": "Duplicate setting control name 'use_header_offer_3' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'use_header_offer_3'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "header_offer_3_alt",
+          "file": "config/settings.html",
+          "line": 4071,
+          "message": "Duplicate setting control name 'header_offer_3_alt' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'header_offer_3_alt'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "header_offer_3_title",
+          "file": "config/settings.html",
+          "line": 4055,
+          "message": "Duplicate setting control name 'header_offer_3_title' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'header_offer_3_title'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "header_offer_3_text",
+          "file": "config/settings.html",
+          "line": 4059,
+          "message": "Duplicate setting control name 'header_offer_3_text' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'header_offer_3_text'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "header_offer_3_button",
+          "file": "config/settings.html",
+          "line": 4063,
+          "message": "Duplicate setting control name 'header_offer_3_button' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'header_offer_3_button'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "header_offer_3_link",
+          "file": "config/settings.html",
+          "line": 4067,
+          "message": "Duplicate setting control name 'header_offer_3_link' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'header_offer_3_link'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "use_header_offer_4",
+          "file": "config/settings.html",
+          "line": 4077,
+          "message": "Duplicate setting control name 'use_header_offer_4' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'use_header_offer_4'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "header_offer_4_alt",
+          "file": "config/settings.html",
+          "line": 4097,
+          "message": "Duplicate setting control name 'header_offer_4_alt' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'header_offer_4_alt'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "header_offer_4_title",
+          "file": "config/settings.html",
+          "line": 4081,
+          "message": "Duplicate setting control name 'header_offer_4_title' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'header_offer_4_title'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "header_offer_4_text",
+          "file": "config/settings.html",
+          "line": 4085,
+          "message": "Duplicate setting control name 'header_offer_4_text' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'header_offer_4_text'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "header_offer_4_button",
+          "file": "config/settings.html",
+          "line": 4089,
+          "message": "Duplicate setting control name 'header_offer_4_button' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'header_offer_4_button'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "header_offer_4_link",
+          "file": "config/settings.html",
+          "line": 4093,
+          "message": "Duplicate setting control name 'header_offer_4_link' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'header_offer_4_link'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "use_header_offer_5",
+          "file": "config/settings.html",
+          "line": 4103,
+          "message": "Duplicate setting control name 'use_header_offer_5' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'use_header_offer_5'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "header_offer_5_alt",
+          "file": "config/settings.html",
+          "line": 4123,
+          "message": "Duplicate setting control name 'header_offer_5_alt' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'header_offer_5_alt'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "header_offer_5_title",
+          "file": "config/settings.html",
+          "line": 4107,
+          "message": "Duplicate setting control name 'header_offer_5_title' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'header_offer_5_title'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "header_offer_5_text",
+          "file": "config/settings.html",
+          "line": 4111,
+          "message": "Duplicate setting control name 'header_offer_5_text' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'header_offer_5_text'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "header_offer_5_button",
+          "file": "config/settings.html",
+          "line": 4115,
+          "message": "Duplicate setting control name 'header_offer_5_button' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'header_offer_5_button'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "header_offer_5_link",
+          "file": "config/settings.html",
+          "line": 4119,
+          "message": "Duplicate setting control name 'header_offer_5_link' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'header_offer_5_link'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "use_header_offer_6",
+          "file": "config/settings.html",
+          "line": 4129,
+          "message": "Duplicate setting control name 'use_header_offer_6' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'use_header_offer_6'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "header_offer_6_alt",
+          "file": "config/settings.html",
+          "line": 4149,
+          "message": "Duplicate setting control name 'header_offer_6_alt' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'header_offer_6_alt'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "header_offer_6_title",
+          "file": "config/settings.html",
+          "line": 4133,
+          "message": "Duplicate setting control name 'header_offer_6_title' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'header_offer_6_title'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "header_offer_6_text",
+          "file": "config/settings.html",
+          "line": 4137,
+          "message": "Duplicate setting control name 'header_offer_6_text' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'header_offer_6_text'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "header_offer_6_button",
+          "file": "config/settings.html",
+          "line": 4141,
+          "message": "Duplicate setting control name 'header_offer_6_button' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'header_offer_6_button'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "header_offer_6_link",
+          "file": "config/settings.html",
+          "line": 4145,
+          "message": "Duplicate setting control name 'header_offer_6_link' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'header_offer_6_link'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "use_header_offer_7",
+          "file": "config/settings.html",
+          "line": 4155,
+          "message": "Duplicate setting control name 'use_header_offer_7' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'use_header_offer_7'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "header_offer_7_alt",
+          "file": "config/settings.html",
+          "line": 4175,
+          "message": "Duplicate setting control name 'header_offer_7_alt' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'header_offer_7_alt'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "header_offer_7_title",
+          "file": "config/settings.html",
+          "line": 4159,
+          "message": "Duplicate setting control name 'header_offer_7_title' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'header_offer_7_title'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "header_offer_7_text",
+          "file": "config/settings.html",
+          "line": 4163,
+          "message": "Duplicate setting control name 'header_offer_7_text' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'header_offer_7_text'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "header_offer_7_button",
+          "file": "config/settings.html",
+          "line": 4167,
+          "message": "Duplicate setting control name 'header_offer_7_button' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'header_offer_7_button'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "header_offer_7_link",
+          "file": "config/settings.html",
+          "line": 4171,
+          "message": "Duplicate setting control name 'header_offer_7_link' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'header_offer_7_link'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "use_header_offer_8",
+          "file": "config/settings.html",
+          "line": 4181,
+          "message": "Duplicate setting control name 'use_header_offer_8' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'use_header_offer_8'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "header_offer_8_alt",
+          "file": "config/settings.html",
+          "line": 4201,
+          "message": "Duplicate setting control name 'header_offer_8_alt' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'header_offer_8_alt'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "header_offer_8_title",
+          "file": "config/settings.html",
+          "line": 4185,
+          "message": "Duplicate setting control name 'header_offer_8_title' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'header_offer_8_title'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "header_offer_8_text",
+          "file": "config/settings.html",
+          "line": 4189,
+          "message": "Duplicate setting control name 'header_offer_8_text' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'header_offer_8_text'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "header_offer_8_button",
+          "file": "config/settings.html",
+          "line": 4193,
+          "message": "Duplicate setting control name 'header_offer_8_button' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'header_offer_8_button'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "header_offer_8_link",
+          "file": "config/settings.html",
+          "line": 4197,
+          "message": "Duplicate setting control name 'header_offer_8_link' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'header_offer_8_link'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "use_header_search",
+          "file": "config/settings.html",
+          "line": 3955,
+          "message": "Duplicate setting control name 'use_header_search' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'use_header_search'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "search_title",
+          "file": "config/settings.html",
+          "line": 3959,
+          "message": "Duplicate setting control name 'search_title' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'search_title'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "search_placeholder",
+          "file": "config/settings.html",
+          "line": 3963,
+          "message": "Duplicate setting control name 'search_placeholder' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'search_placeholder'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "sugges_search",
+          "file": "config/settings.html",
+          "line": 3971,
+          "message": "Duplicate setting control name 'sugges_search' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'sugges_search'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "header_search_hint",
+          "file": "config/settings.html",
+          "line": 3967,
+          "message": "Duplicate setting control name 'header_search_hint' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'header_search_hint'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "header_search_collection",
+          "file": "config/settings.html",
+          "line": 3975,
+          "message": "Duplicate setting control name 'header_search_collection' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'header_search_collection'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "use_top_bar",
+          "file": "config/settings.html",
+          "line": 3869,
+          "message": "Duplicate setting control name 'use_top_bar' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'use_top_bar'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "use_topbar_message_1",
+          "file": "config/settings.html",
+          "line": 3873,
+          "message": "Duplicate setting control name 'use_topbar_message_1' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'use_topbar_message_1'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "topbar_message_1",
+          "file": "config/settings.html",
+          "line": 3877,
+          "message": "Duplicate setting control name 'topbar_message_1' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'topbar_message_1'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "use_topbar_message_2",
+          "file": "config/settings.html",
+          "line": 3881,
+          "message": "Duplicate setting control name 'use_topbar_message_2' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'use_topbar_message_2'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "topbar_message_2",
+          "file": "config/settings.html",
+          "line": 3885,
+          "message": "Duplicate setting control name 'topbar_message_2' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'topbar_message_2'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "use_topbar_message_3",
+          "file": "config/settings.html",
+          "line": 3889,
+          "message": "Duplicate setting control name 'use_topbar_message_3' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'use_topbar_message_3'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "topbar_message_3",
+          "file": "config/settings.html",
+          "line": 3893,
+          "message": "Duplicate setting control name 'topbar_message_3' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'topbar_message_3'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "use_topbar_message_4",
+          "file": "config/settings.html",
+          "line": 3897,
+          "message": "Duplicate setting control name 'use_topbar_message_4' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'use_topbar_message_4'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "topbar_message_4",
+          "file": "config/settings.html",
+          "line": 3901,
+          "message": "Duplicate setting control name 'topbar_message_4' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'topbar_message_4'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "use_topbar_message_5",
+          "file": "config/settings.html",
+          "line": 3905,
+          "message": "Duplicate setting control name 'use_topbar_message_5' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'use_topbar_message_5'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "topbar_message_5",
+          "file": "config/settings.html",
+          "line": 3909,
+          "message": "Duplicate setting control name 'topbar_message_5' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'topbar_message_5'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "mainmenuskincare",
+          "file": "config/settings.html",
+          "line": 3937,
+          "message": "Duplicate setting control name 'mainmenuskincare' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'mainmenuskincare'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "header_mobile_nav_title",
+          "file": "config/settings.html",
+          "line": 3941,
+          "message": "Duplicate setting control name 'header_mobile_nav_title' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'header_mobile_nav_title'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "header_mobile_nav_subtitle",
+          "file": "config/settings.html",
+          "line": 3945,
+          "message": "Duplicate setting control name 'header_mobile_nav_subtitle' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'header_mobile_nav_subtitle'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "showmegamenu1",
+          "file": "config/settings.html",
+          "line": 4212,
+          "message": "Duplicate setting control name 'showmegamenu1' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'showmegamenu1'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "megamenushowbanner11",
+          "file": "config/settings.html",
+          "line": 4216,
+          "message": "Duplicate setting control name 'megamenushowbanner11' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'megamenushowbanner11'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "megamenubanner1link1",
+          "file": "config/settings.html",
+          "line": 4220,
+          "message": "Duplicate setting control name 'megamenubanner1link1' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'megamenubanner1link1'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "megamenushowbanner12",
+          "file": "config/settings.html",
+          "line": 4224,
+          "message": "Duplicate setting control name 'megamenushowbanner12' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'megamenushowbanner12'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "megamenubanner1link2",
+          "file": "config/settings.html",
+          "line": 4228,
+          "message": "Duplicate setting control name 'megamenubanner1link2' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'megamenubanner1link2'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "megamenushowbanner13",
+          "file": "config/settings.html",
+          "line": 4232,
+          "message": "Duplicate setting control name 'megamenushowbanner13' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'megamenushowbanner13'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "megamenubanner1link3",
+          "file": "config/settings.html",
+          "line": 4236,
+          "message": "Duplicate setting control name 'megamenubanner1link3' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'megamenubanner1link3'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "showmegamenu2",
+          "file": "config/settings.html",
+          "line": 4242,
+          "message": "Duplicate setting control name 'showmegamenu2' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'showmegamenu2'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "megamenushowbanner21",
+          "file": "config/settings.html",
+          "line": 4246,
+          "message": "Duplicate setting control name 'megamenushowbanner21' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'megamenushowbanner21'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "megamenubanner2link1",
+          "file": "config/settings.html",
+          "line": 4250,
+          "message": "Duplicate setting control name 'megamenubanner2link1' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'megamenubanner2link1'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "megamenushowbanner22",
+          "file": "config/settings.html",
+          "line": 4254,
+          "message": "Duplicate setting control name 'megamenushowbanner22' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'megamenushowbanner22'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "megamenubanner2link2",
+          "file": "config/settings.html",
+          "line": 4258,
+          "message": "Duplicate setting control name 'megamenubanner2link2' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'megamenubanner2link2'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "megamenushowbanner23",
+          "file": "config/settings.html",
+          "line": 4262,
+          "message": "Duplicate setting control name 'megamenushowbanner23' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'megamenushowbanner23'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "megamenubanner2link3",
+          "file": "config/settings.html",
+          "line": 4266,
+          "message": "Duplicate setting control name 'megamenubanner2link3' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'megamenubanner2link3'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "showmegamenu3",
+          "file": "config/settings.html",
+          "line": 4272,
+          "message": "Duplicate setting control name 'showmegamenu3' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'showmegamenu3'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "megamenushowbanner31",
+          "file": "config/settings.html",
+          "line": 4276,
+          "message": "Duplicate setting control name 'megamenushowbanner31' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'megamenushowbanner31'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "megamenubanner3link1",
+          "file": "config/settings.html",
+          "line": 4280,
+          "message": "Duplicate setting control name 'megamenubanner3link1' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'megamenubanner3link1'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "megamenushowbanner32",
+          "file": "config/settings.html",
+          "line": 4284,
+          "message": "Duplicate setting control name 'megamenushowbanner32' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'megamenushowbanner32'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "megamenubanner3link2",
+          "file": "config/settings.html",
+          "line": 4288,
+          "message": "Duplicate setting control name 'megamenubanner3link2' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'megamenubanner3link2'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "megamenushowbanner33",
+          "file": "config/settings.html",
+          "line": 4292,
+          "message": "Duplicate setting control name 'megamenushowbanner33' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'megamenushowbanner33'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "megamenubanner3link3",
+          "file": "config/settings.html",
+          "line": 4296,
+          "message": "Duplicate setting control name 'megamenubanner3link3' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'megamenubanner3link3'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "showmegamenu4",
+          "file": "config/settings.html",
+          "line": 4302,
+          "message": "Duplicate setting control name 'showmegamenu4' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'showmegamenu4'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "megamenushowbanner41",
+          "file": "config/settings.html",
+          "line": 4306,
+          "message": "Duplicate setting control name 'megamenushowbanner41' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'megamenushowbanner41'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "megamenubanner4link1",
+          "file": "config/settings.html",
+          "line": 4310,
+          "message": "Duplicate setting control name 'megamenubanner4link1' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'megamenubanner4link1'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "megamenushowbanner42",
+          "file": "config/settings.html",
+          "line": 4314,
+          "message": "Duplicate setting control name 'megamenushowbanner42' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'megamenushowbanner42'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "megamenubanner4link2",
+          "file": "config/settings.html",
+          "line": 4318,
+          "message": "Duplicate setting control name 'megamenubanner4link2' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'megamenubanner4link2'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "megamenushowbanner43",
+          "file": "config/settings.html",
+          "line": 4322,
+          "message": "Duplicate setting control name 'megamenushowbanner43' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'megamenushowbanner43'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "megamenubanner4link3",
+          "file": "config/settings.html",
+          "line": 4326,
+          "message": "Duplicate setting control name 'megamenubanner4link3' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'megamenubanner4link3'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "showmegamenu5",
+          "file": "config/settings.html",
+          "line": 4332,
+          "message": "Duplicate setting control name 'showmegamenu5' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'showmegamenu5'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "megamenushowbanner51",
+          "file": "config/settings.html",
+          "line": 4336,
+          "message": "Duplicate setting control name 'megamenushowbanner51' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'megamenushowbanner51'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "megamenubanner5link1",
+          "file": "config/settings.html",
+          "line": 4340,
+          "message": "Duplicate setting control name 'megamenubanner5link1' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'megamenubanner5link1'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "megamenushowbanner52",
+          "file": "config/settings.html",
+          "line": 4344,
+          "message": "Duplicate setting control name 'megamenushowbanner52' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'megamenushowbanner52'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "megamenubanner5link2",
+          "file": "config/settings.html",
+          "line": 4348,
+          "message": "Duplicate setting control name 'megamenubanner5link2' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'megamenubanner5link2'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "megamenushowbanner53",
+          "file": "config/settings.html",
+          "line": 4352,
+          "message": "Duplicate setting control name 'megamenushowbanner53' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'megamenushowbanner53'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "megamenubanner5link3",
+          "file": "config/settings.html",
+          "line": 4356,
+          "message": "Duplicate setting control name 'megamenubanner5link3' in config/settings.html",
+          "detail": "Found 3 controls sharing name 'megamenubanner5link3'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "brand-memo-paris.png",
+          "file": "config/settings.html",
+          "line": 5892,
+          "message": "Duplicate setting control name 'brand-memo-paris.png' in config/settings.html",
+          "detail": "Found 2 controls sharing name 'brand-memo-paris.png'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "brand-penhaligon-s.png",
+          "file": "config/settings.html",
+          "line": 6060,
+          "message": "Duplicate setting control name 'brand-penhaligon-s.png' in config/settings.html",
+          "detail": "Found 2 controls sharing name 'brand-penhaligon-s.png'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "blog_template_breadcrumb_home",
+          "file": "templates/blog.liquid",
+          "line": 16,
+          "message": "setting 'settings.blog_template_breadcrumb_home' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'blog_template_breadcrumb_home' (templates/blog.liquid:16)"
+        },
+        {
+          "rule": "HARAVAN_FORBIDDEN_OBJECT",
+          "file": "templates/blog.liquid",
+          "line": 66,
+          "message": "Shopify-only object 'request.' is forbidden in Haravan themes",
+          "detail": "Object 'request.' is not supported in Haravan DotLiquid (templates/blog.liquid:66)"
+        },
+        {
+          "rule": "HARAVAN_FORBIDDEN_OBJECT",
+          "file": "templates/blog.liquid",
+          "line": 66,
+          "message": "Shopify-only object 'request.' is forbidden in Haravan themes",
+          "detail": "Object 'request.' is not supported in Haravan DotLiquid (templates/blog.liquid:66)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "blog_template_all_posts_label",
+          "file": "templates/blog.liquid",
+          "line": 66,
+          "message": "setting 'settings.blog_template_all_posts_label' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'blog_template_all_posts_label' (templates/blog.liquid:66)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "show_product_service",
+          "file": "templates/cart.liquid",
+          "line": 150,
+          "message": "setting 'settings.show_product_service' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'show_product_service' (templates/cart.liquid:150)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "title_product_service",
+          "file": "templates/cart.liquid",
+          "line": 153,
+          "message": "setting 'settings.title_product_service' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'title_product_service' (templates/cart.liquid:153)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "desc_product_service_1",
+          "file": "templates/cart.liquid",
+          "line": 157,
+          "message": "setting 'settings.desc_product_service_1' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'desc_product_service_1' (templates/cart.liquid:157)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "desc_product_service_1",
+          "file": "templates/cart.liquid",
+          "line": 157,
+          "message": "setting 'settings.desc_product_service_1' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'desc_product_service_1' (templates/cart.liquid:157)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "desc_product_service_2",
+          "file": "templates/cart.liquid",
+          "line": 158,
+          "message": "setting 'settings.desc_product_service_2' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'desc_product_service_2' (templates/cart.liquid:158)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "desc_product_service_2",
+          "file": "templates/cart.liquid",
+          "line": 158,
+          "message": "setting 'settings.desc_product_service_2' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'desc_product_service_2' (templates/cart.liquid:158)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "desc_product_service_3",
+          "file": "templates/cart.liquid",
+          "line": 159,
+          "message": "setting 'settings.desc_product_service_3' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'desc_product_service_3' (templates/cart.liquid:159)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "desc_product_service_3",
+          "file": "templates/cart.liquid",
+          "line": 159,
+          "message": "setting 'settings.desc_product_service_3' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'desc_product_service_3' (templates/cart.liquid:159)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "desc_product_service_4",
+          "file": "templates/cart.liquid",
+          "line": 160,
+          "message": "setting 'settings.desc_product_service_4' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'desc_product_service_4' (templates/cart.liquid:160)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "desc_product_service_4",
+          "file": "templates/cart.liquid",
+          "line": 160,
+          "message": "setting 'settings.desc_product_service_4' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'desc_product_service_4' (templates/cart.liquid:160)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "desc_product_service_5",
+          "file": "templates/cart.liquid",
+          "line": 161,
+          "message": "setting 'settings.desc_product_service_5' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'desc_product_service_5' (templates/cart.liquid:161)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "desc_product_service_5",
+          "file": "templates/cart.liquid",
+          "line": 161,
+          "message": "setting 'settings.desc_product_service_5' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'desc_product_service_5' (templates/cart.liquid:161)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "limit_collection",
+          "file": "templates/collection.liquid",
+          "line": 75,
+          "message": "setting 'settings.limit_collection' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'limit_collection' (templates/collection.liquid:75)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "customer_layout",
+          "file": "templates/customers[activate_account].liquid",
+          "line": 1,
+          "message": "setting 'settings.customer_layout' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'customer_layout' (templates/customers[activate_account].liquid:1)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "lbl_last_name",
+          "file": "templates/customers[addresses].liquid",
+          "line": 195,
+          "message": "setting 'settings.lbl_last_name' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'lbl_last_name' (templates/customers[addresses].liquid:195)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "lbl_first_name",
+          "file": "templates/customers[addresses].liquid",
+          "line": 199,
+          "message": "setting 'settings.lbl_first_name' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'lbl_first_name' (templates/customers[addresses].liquid:199)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "lbl_company",
+          "file": "templates/customers[addresses].liquid",
+          "line": 203,
+          "message": "setting 'settings.lbl_company' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'lbl_company' (templates/customers[addresses].liquid:203)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "lbl_address1",
+          "file": "templates/customers[addresses].liquid",
+          "line": 207,
+          "message": "setting 'settings.lbl_address1' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'lbl_address1' (templates/customers[addresses].liquid:207)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "lbl_address2",
+          "file": "templates/customers[addresses].liquid",
+          "line": 211,
+          "message": "setting 'settings.lbl_address2' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'lbl_address2' (templates/customers[addresses].liquid:211)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "lbl_phone",
+          "file": "templates/customers[addresses].liquid",
+          "line": 229,
+          "message": "setting 'settings.lbl_phone' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'lbl_phone' (templates/customers[addresses].liquid:229)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "customer_layout",
+          "file": "templates/customers[order].liquid",
+          "line": 1,
+          "message": "setting 'settings.customer_layout' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'customer_layout' (templates/customers[order].liquid:1)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "customer_layout",
+          "file": "templates/customers[reset_password].liquid",
+          "line": 1,
+          "message": "setting 'settings.customer_layout' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'customer_layout' (templates/customers[reset_password].liquid:1)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "limit_collection",
+          "file": "templates/search.filter.liquid",
+          "line": 2,
+          "message": "setting 'settings.limit_collection' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'limit_collection' (templates/search.filter.liquid:2)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "limit_collection",
+          "file": "templates/search.liquid",
+          "line": 2,
+          "message": "setting 'settings.limit_collection' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'limit_collection' (templates/search.liquid:2)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "show_fanpage_faceook",
+          "file": "snippets/facebook-widget.liquid",
+          "line": 2,
+          "message": "setting 'settings.show_fanpage_faceook' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'show_fanpage_faceook' (snippets/facebook-widget.liquid:2)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "fanpage_faceook",
+          "file": "snippets/facebook-widget.liquid",
+          "line": 4,
+          "message": "setting 'settings.fanpage_faceook' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'fanpage_faceook' (snippets/facebook-widget.liquid:4)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "fb_chat_title",
+          "file": "snippets/haravan-fb-messages.liquid",
+          "line": 3,
+          "message": "setting 'settings.fb_chat_title' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'fb_chat_title' (snippets/haravan-fb-messages.liquid:3)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "fb_chat",
+          "file": "snippets/haravan-fb-messages.liquid",
+          "line": 4,
+          "message": "setting 'settings.fb_chat' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'fb_chat' (snippets/haravan-fb-messages.liquid:4)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "fb_chat",
+          "file": "snippets/haravan-fb-messages.liquid",
+          "line": 6,
+          "message": "setting 'settings.fb_chat' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'fb_chat' (snippets/haravan-fb-messages.liquid:6)"
+        }
+      ]
+    }
+  ],
+  "haravanContracts": {
+    "ok": false,
+    "failures": [
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "header_use_image_logo",
+        "file": "config/settings.html",
+        "line": 3919,
+        "message": "Duplicate setting control name 'header_use_image_logo' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'header_use_image_logo'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "header_logo_text",
+        "file": "config/settings.html",
+        "line": 3923,
+        "message": "Duplicate setting control name 'header_logo_text' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'header_logo_text'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "header_logo_alt",
+        "file": "config/settings.html",
+        "line": 3927,
+        "message": "Duplicate setting control name 'header_logo_alt' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'header_logo_alt'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "use_header_offers",
+        "file": "config/settings.html",
+        "line": 3985,
+        "message": "Duplicate setting control name 'use_header_offers' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'use_header_offers'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "header_offers_title",
+        "file": "config/settings.html",
+        "line": 3989,
+        "message": "Duplicate setting control name 'header_offers_title' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'header_offers_title'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "header_offers_count",
+        "file": "config/settings.html",
+        "line": 3993,
+        "message": "Duplicate setting control name 'header_offers_count' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'header_offers_count'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "use_header_offer_1",
+        "file": "config/settings.html",
+        "line": 3999,
+        "message": "Duplicate setting control name 'use_header_offer_1' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'use_header_offer_1'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "header_offer_1_alt",
+        "file": "config/settings.html",
+        "line": 4019,
+        "message": "Duplicate setting control name 'header_offer_1_alt' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'header_offer_1_alt'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "header_offer_1_title",
+        "file": "config/settings.html",
+        "line": 4003,
+        "message": "Duplicate setting control name 'header_offer_1_title' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'header_offer_1_title'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "header_offer_1_text",
+        "file": "config/settings.html",
+        "line": 4007,
+        "message": "Duplicate setting control name 'header_offer_1_text' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'header_offer_1_text'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "header_offer_1_button",
+        "file": "config/settings.html",
+        "line": 4011,
+        "message": "Duplicate setting control name 'header_offer_1_button' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'header_offer_1_button'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "header_offer_1_link",
+        "file": "config/settings.html",
+        "line": 4015,
+        "message": "Duplicate setting control name 'header_offer_1_link' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'header_offer_1_link'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "use_header_offer_2",
+        "file": "config/settings.html",
+        "line": 4025,
+        "message": "Duplicate setting control name 'use_header_offer_2' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'use_header_offer_2'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "header_offer_2_alt",
+        "file": "config/settings.html",
+        "line": 4045,
+        "message": "Duplicate setting control name 'header_offer_2_alt' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'header_offer_2_alt'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "header_offer_2_title",
+        "file": "config/settings.html",
+        "line": 4029,
+        "message": "Duplicate setting control name 'header_offer_2_title' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'header_offer_2_title'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "header_offer_2_text",
+        "file": "config/settings.html",
+        "line": 4033,
+        "message": "Duplicate setting control name 'header_offer_2_text' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'header_offer_2_text'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "header_offer_2_button",
+        "file": "config/settings.html",
+        "line": 4037,
+        "message": "Duplicate setting control name 'header_offer_2_button' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'header_offer_2_button'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "header_offer_2_link",
+        "file": "config/settings.html",
+        "line": 4041,
+        "message": "Duplicate setting control name 'header_offer_2_link' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'header_offer_2_link'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "use_header_offer_3",
+        "file": "config/settings.html",
+        "line": 4051,
+        "message": "Duplicate setting control name 'use_header_offer_3' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'use_header_offer_3'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "header_offer_3_alt",
+        "file": "config/settings.html",
+        "line": 4071,
+        "message": "Duplicate setting control name 'header_offer_3_alt' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'header_offer_3_alt'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "header_offer_3_title",
+        "file": "config/settings.html",
+        "line": 4055,
+        "message": "Duplicate setting control name 'header_offer_3_title' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'header_offer_3_title'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "header_offer_3_text",
+        "file": "config/settings.html",
+        "line": 4059,
+        "message": "Duplicate setting control name 'header_offer_3_text' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'header_offer_3_text'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "header_offer_3_button",
+        "file": "config/settings.html",
+        "line": 4063,
+        "message": "Duplicate setting control name 'header_offer_3_button' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'header_offer_3_button'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "header_offer_3_link",
+        "file": "config/settings.html",
+        "line": 4067,
+        "message": "Duplicate setting control name 'header_offer_3_link' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'header_offer_3_link'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "use_header_offer_4",
+        "file": "config/settings.html",
+        "line": 4077,
+        "message": "Duplicate setting control name 'use_header_offer_4' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'use_header_offer_4'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "header_offer_4_alt",
+        "file": "config/settings.html",
+        "line": 4097,
+        "message": "Duplicate setting control name 'header_offer_4_alt' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'header_offer_4_alt'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "header_offer_4_title",
+        "file": "config/settings.html",
+        "line": 4081,
+        "message": "Duplicate setting control name 'header_offer_4_title' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'header_offer_4_title'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "header_offer_4_text",
+        "file": "config/settings.html",
+        "line": 4085,
+        "message": "Duplicate setting control name 'header_offer_4_text' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'header_offer_4_text'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "header_offer_4_button",
+        "file": "config/settings.html",
+        "line": 4089,
+        "message": "Duplicate setting control name 'header_offer_4_button' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'header_offer_4_button'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "header_offer_4_link",
+        "file": "config/settings.html",
+        "line": 4093,
+        "message": "Duplicate setting control name 'header_offer_4_link' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'header_offer_4_link'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "use_header_offer_5",
+        "file": "config/settings.html",
+        "line": 4103,
+        "message": "Duplicate setting control name 'use_header_offer_5' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'use_header_offer_5'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "header_offer_5_alt",
+        "file": "config/settings.html",
+        "line": 4123,
+        "message": "Duplicate setting control name 'header_offer_5_alt' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'header_offer_5_alt'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "header_offer_5_title",
+        "file": "config/settings.html",
+        "line": 4107,
+        "message": "Duplicate setting control name 'header_offer_5_title' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'header_offer_5_title'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "header_offer_5_text",
+        "file": "config/settings.html",
+        "line": 4111,
+        "message": "Duplicate setting control name 'header_offer_5_text' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'header_offer_5_text'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "header_offer_5_button",
+        "file": "config/settings.html",
+        "line": 4115,
+        "message": "Duplicate setting control name 'header_offer_5_button' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'header_offer_5_button'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "header_offer_5_link",
+        "file": "config/settings.html",
+        "line": 4119,
+        "message": "Duplicate setting control name 'header_offer_5_link' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'header_offer_5_link'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "use_header_offer_6",
+        "file": "config/settings.html",
+        "line": 4129,
+        "message": "Duplicate setting control name 'use_header_offer_6' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'use_header_offer_6'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "header_offer_6_alt",
+        "file": "config/settings.html",
+        "line": 4149,
+        "message": "Duplicate setting control name 'header_offer_6_alt' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'header_offer_6_alt'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "header_offer_6_title",
+        "file": "config/settings.html",
+        "line": 4133,
+        "message": "Duplicate setting control name 'header_offer_6_title' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'header_offer_6_title'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "header_offer_6_text",
+        "file": "config/settings.html",
+        "line": 4137,
+        "message": "Duplicate setting control name 'header_offer_6_text' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'header_offer_6_text'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "header_offer_6_button",
+        "file": "config/settings.html",
+        "line": 4141,
+        "message": "Duplicate setting control name 'header_offer_6_button' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'header_offer_6_button'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "header_offer_6_link",
+        "file": "config/settings.html",
+        "line": 4145,
+        "message": "Duplicate setting control name 'header_offer_6_link' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'header_offer_6_link'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "use_header_offer_7",
+        "file": "config/settings.html",
+        "line": 4155,
+        "message": "Duplicate setting control name 'use_header_offer_7' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'use_header_offer_7'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "header_offer_7_alt",
+        "file": "config/settings.html",
+        "line": 4175,
+        "message": "Duplicate setting control name 'header_offer_7_alt' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'header_offer_7_alt'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "header_offer_7_title",
+        "file": "config/settings.html",
+        "line": 4159,
+        "message": "Duplicate setting control name 'header_offer_7_title' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'header_offer_7_title'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "header_offer_7_text",
+        "file": "config/settings.html",
+        "line": 4163,
+        "message": "Duplicate setting control name 'header_offer_7_text' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'header_offer_7_text'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "header_offer_7_button",
+        "file": "config/settings.html",
+        "line": 4167,
+        "message": "Duplicate setting control name 'header_offer_7_button' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'header_offer_7_button'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "header_offer_7_link",
+        "file": "config/settings.html",
+        "line": 4171,
+        "message": "Duplicate setting control name 'header_offer_7_link' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'header_offer_7_link'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "use_header_offer_8",
+        "file": "config/settings.html",
+        "line": 4181,
+        "message": "Duplicate setting control name 'use_header_offer_8' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'use_header_offer_8'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "header_offer_8_alt",
+        "file": "config/settings.html",
+        "line": 4201,
+        "message": "Duplicate setting control name 'header_offer_8_alt' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'header_offer_8_alt'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "header_offer_8_title",
+        "file": "config/settings.html",
+        "line": 4185,
+        "message": "Duplicate setting control name 'header_offer_8_title' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'header_offer_8_title'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "header_offer_8_text",
+        "file": "config/settings.html",
+        "line": 4189,
+        "message": "Duplicate setting control name 'header_offer_8_text' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'header_offer_8_text'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "header_offer_8_button",
+        "file": "config/settings.html",
+        "line": 4193,
+        "message": "Duplicate setting control name 'header_offer_8_button' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'header_offer_8_button'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "header_offer_8_link",
+        "file": "config/settings.html",
+        "line": 4197,
+        "message": "Duplicate setting control name 'header_offer_8_link' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'header_offer_8_link'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "use_header_search",
+        "file": "config/settings.html",
+        "line": 3955,
+        "message": "Duplicate setting control name 'use_header_search' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'use_header_search'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "search_title",
+        "file": "config/settings.html",
+        "line": 3959,
+        "message": "Duplicate setting control name 'search_title' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'search_title'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "search_placeholder",
+        "file": "config/settings.html",
+        "line": 3963,
+        "message": "Duplicate setting control name 'search_placeholder' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'search_placeholder'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "sugges_search",
+        "file": "config/settings.html",
+        "line": 3971,
+        "message": "Duplicate setting control name 'sugges_search' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'sugges_search'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "header_search_hint",
+        "file": "config/settings.html",
+        "line": 3967,
+        "message": "Duplicate setting control name 'header_search_hint' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'header_search_hint'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "header_search_collection",
+        "file": "config/settings.html",
+        "line": 3975,
+        "message": "Duplicate setting control name 'header_search_collection' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'header_search_collection'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "use_top_bar",
+        "file": "config/settings.html",
+        "line": 3869,
+        "message": "Duplicate setting control name 'use_top_bar' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'use_top_bar'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "use_topbar_message_1",
+        "file": "config/settings.html",
+        "line": 3873,
+        "message": "Duplicate setting control name 'use_topbar_message_1' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'use_topbar_message_1'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "topbar_message_1",
+        "file": "config/settings.html",
+        "line": 3877,
+        "message": "Duplicate setting control name 'topbar_message_1' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'topbar_message_1'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "use_topbar_message_2",
+        "file": "config/settings.html",
+        "line": 3881,
+        "message": "Duplicate setting control name 'use_topbar_message_2' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'use_topbar_message_2'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "topbar_message_2",
+        "file": "config/settings.html",
+        "line": 3885,
+        "message": "Duplicate setting control name 'topbar_message_2' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'topbar_message_2'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "use_topbar_message_3",
+        "file": "config/settings.html",
+        "line": 3889,
+        "message": "Duplicate setting control name 'use_topbar_message_3' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'use_topbar_message_3'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "topbar_message_3",
+        "file": "config/settings.html",
+        "line": 3893,
+        "message": "Duplicate setting control name 'topbar_message_3' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'topbar_message_3'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "use_topbar_message_4",
+        "file": "config/settings.html",
+        "line": 3897,
+        "message": "Duplicate setting control name 'use_topbar_message_4' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'use_topbar_message_4'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "topbar_message_4",
+        "file": "config/settings.html",
+        "line": 3901,
+        "message": "Duplicate setting control name 'topbar_message_4' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'topbar_message_4'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "use_topbar_message_5",
+        "file": "config/settings.html",
+        "line": 3905,
+        "message": "Duplicate setting control name 'use_topbar_message_5' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'use_topbar_message_5'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "topbar_message_5",
+        "file": "config/settings.html",
+        "line": 3909,
+        "message": "Duplicate setting control name 'topbar_message_5' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'topbar_message_5'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "mainmenuskincare",
+        "file": "config/settings.html",
+        "line": 3937,
+        "message": "Duplicate setting control name 'mainmenuskincare' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'mainmenuskincare'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "header_mobile_nav_title",
+        "file": "config/settings.html",
+        "line": 3941,
+        "message": "Duplicate setting control name 'header_mobile_nav_title' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'header_mobile_nav_title'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "header_mobile_nav_subtitle",
+        "file": "config/settings.html",
+        "line": 3945,
+        "message": "Duplicate setting control name 'header_mobile_nav_subtitle' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'header_mobile_nav_subtitle'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "showmegamenu1",
+        "file": "config/settings.html",
+        "line": 4212,
+        "message": "Duplicate setting control name 'showmegamenu1' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'showmegamenu1'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "megamenushowbanner11",
+        "file": "config/settings.html",
+        "line": 4216,
+        "message": "Duplicate setting control name 'megamenushowbanner11' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'megamenushowbanner11'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "megamenubanner1link1",
+        "file": "config/settings.html",
+        "line": 4220,
+        "message": "Duplicate setting control name 'megamenubanner1link1' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'megamenubanner1link1'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "megamenushowbanner12",
+        "file": "config/settings.html",
+        "line": 4224,
+        "message": "Duplicate setting control name 'megamenushowbanner12' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'megamenushowbanner12'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "megamenubanner1link2",
+        "file": "config/settings.html",
+        "line": 4228,
+        "message": "Duplicate setting control name 'megamenubanner1link2' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'megamenubanner1link2'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "megamenushowbanner13",
+        "file": "config/settings.html",
+        "line": 4232,
+        "message": "Duplicate setting control name 'megamenushowbanner13' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'megamenushowbanner13'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "megamenubanner1link3",
+        "file": "config/settings.html",
+        "line": 4236,
+        "message": "Duplicate setting control name 'megamenubanner1link3' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'megamenubanner1link3'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "showmegamenu2",
+        "file": "config/settings.html",
+        "line": 4242,
+        "message": "Duplicate setting control name 'showmegamenu2' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'showmegamenu2'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "megamenushowbanner21",
+        "file": "config/settings.html",
+        "line": 4246,
+        "message": "Duplicate setting control name 'megamenushowbanner21' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'megamenushowbanner21'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "megamenubanner2link1",
+        "file": "config/settings.html",
+        "line": 4250,
+        "message": "Duplicate setting control name 'megamenubanner2link1' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'megamenubanner2link1'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "megamenushowbanner22",
+        "file": "config/settings.html",
+        "line": 4254,
+        "message": "Duplicate setting control name 'megamenushowbanner22' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'megamenushowbanner22'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "megamenubanner2link2",
+        "file": "config/settings.html",
+        "line": 4258,
+        "message": "Duplicate setting control name 'megamenubanner2link2' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'megamenubanner2link2'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "megamenushowbanner23",
+        "file": "config/settings.html",
+        "line": 4262,
+        "message": "Duplicate setting control name 'megamenushowbanner23' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'megamenushowbanner23'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "megamenubanner2link3",
+        "file": "config/settings.html",
+        "line": 4266,
+        "message": "Duplicate setting control name 'megamenubanner2link3' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'megamenubanner2link3'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "showmegamenu3",
+        "file": "config/settings.html",
+        "line": 4272,
+        "message": "Duplicate setting control name 'showmegamenu3' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'showmegamenu3'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "megamenushowbanner31",
+        "file": "config/settings.html",
+        "line": 4276,
+        "message": "Duplicate setting control name 'megamenushowbanner31' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'megamenushowbanner31'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "megamenubanner3link1",
+        "file": "config/settings.html",
+        "line": 4280,
+        "message": "Duplicate setting control name 'megamenubanner3link1' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'megamenubanner3link1'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "megamenushowbanner32",
+        "file": "config/settings.html",
+        "line": 4284,
+        "message": "Duplicate setting control name 'megamenushowbanner32' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'megamenushowbanner32'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "megamenubanner3link2",
+        "file": "config/settings.html",
+        "line": 4288,
+        "message": "Duplicate setting control name 'megamenubanner3link2' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'megamenubanner3link2'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "megamenushowbanner33",
+        "file": "config/settings.html",
+        "line": 4292,
+        "message": "Duplicate setting control name 'megamenushowbanner33' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'megamenushowbanner33'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "megamenubanner3link3",
+        "file": "config/settings.html",
+        "line": 4296,
+        "message": "Duplicate setting control name 'megamenubanner3link3' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'megamenubanner3link3'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "showmegamenu4",
+        "file": "config/settings.html",
+        "line": 4302,
+        "message": "Duplicate setting control name 'showmegamenu4' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'showmegamenu4'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "megamenushowbanner41",
+        "file": "config/settings.html",
+        "line": 4306,
+        "message": "Duplicate setting control name 'megamenushowbanner41' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'megamenushowbanner41'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "megamenubanner4link1",
+        "file": "config/settings.html",
+        "line": 4310,
+        "message": "Duplicate setting control name 'megamenubanner4link1' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'megamenubanner4link1'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "megamenushowbanner42",
+        "file": "config/settings.html",
+        "line": 4314,
+        "message": "Duplicate setting control name 'megamenushowbanner42' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'megamenushowbanner42'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "megamenubanner4link2",
+        "file": "config/settings.html",
+        "line": 4318,
+        "message": "Duplicate setting control name 'megamenubanner4link2' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'megamenubanner4link2'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "megamenushowbanner43",
+        "file": "config/settings.html",
+        "line": 4322,
+        "message": "Duplicate setting control name 'megamenushowbanner43' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'megamenushowbanner43'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "megamenubanner4link3",
+        "file": "config/settings.html",
+        "line": 4326,
+        "message": "Duplicate setting control name 'megamenubanner4link3' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'megamenubanner4link3'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "showmegamenu5",
+        "file": "config/settings.html",
+        "line": 4332,
+        "message": "Duplicate setting control name 'showmegamenu5' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'showmegamenu5'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "megamenushowbanner51",
+        "file": "config/settings.html",
+        "line": 4336,
+        "message": "Duplicate setting control name 'megamenushowbanner51' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'megamenushowbanner51'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "megamenubanner5link1",
+        "file": "config/settings.html",
+        "line": 4340,
+        "message": "Duplicate setting control name 'megamenubanner5link1' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'megamenubanner5link1'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "megamenushowbanner52",
+        "file": "config/settings.html",
+        "line": 4344,
+        "message": "Duplicate setting control name 'megamenushowbanner52' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'megamenushowbanner52'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "megamenubanner5link2",
+        "file": "config/settings.html",
+        "line": 4348,
+        "message": "Duplicate setting control name 'megamenubanner5link2' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'megamenubanner5link2'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "megamenushowbanner53",
+        "file": "config/settings.html",
+        "line": 4352,
+        "message": "Duplicate setting control name 'megamenushowbanner53' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'megamenushowbanner53'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "megamenubanner5link3",
+        "file": "config/settings.html",
+        "line": 4356,
+        "message": "Duplicate setting control name 'megamenubanner5link3' in config/settings.html",
+        "detail": "Found 3 controls sharing name 'megamenubanner5link3'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "brand-memo-paris.png",
+        "file": "config/settings.html",
+        "line": 5892,
+        "message": "Duplicate setting control name 'brand-memo-paris.png' in config/settings.html",
+        "detail": "Found 2 controls sharing name 'brand-memo-paris.png'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "brand-penhaligon-s.png",
+        "file": "config/settings.html",
+        "line": 6060,
+        "message": "Duplicate setting control name 'brand-penhaligon-s.png' in config/settings.html",
+        "detail": "Found 2 controls sharing name 'brand-penhaligon-s.png'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "blog_template_breadcrumb_home",
+        "file": "templates/blog.liquid",
+        "line": 16,
+        "message": "setting 'settings.blog_template_breadcrumb_home' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'blog_template_breadcrumb_home' (templates/blog.liquid:16)"
+      },
+      {
+        "rule": "HARAVAN_FORBIDDEN_OBJECT",
+        "file": "templates/blog.liquid",
+        "line": 66,
+        "message": "Shopify-only object 'request.' is forbidden in Haravan themes",
+        "detail": "Object 'request.' is not supported in Haravan DotLiquid (templates/blog.liquid:66)"
+      },
+      {
+        "rule": "HARAVAN_FORBIDDEN_OBJECT",
+        "file": "templates/blog.liquid",
+        "line": 66,
+        "message": "Shopify-only object 'request.' is forbidden in Haravan themes",
+        "detail": "Object 'request.' is not supported in Haravan DotLiquid (templates/blog.liquid:66)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "blog_template_all_posts_label",
+        "file": "templates/blog.liquid",
+        "line": 66,
+        "message": "setting 'settings.blog_template_all_posts_label' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'blog_template_all_posts_label' (templates/blog.liquid:66)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "show_product_service",
+        "file": "templates/cart.liquid",
+        "line": 150,
+        "message": "setting 'settings.show_product_service' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'show_product_service' (templates/cart.liquid:150)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "title_product_service",
+        "file": "templates/cart.liquid",
+        "line": 153,
+        "message": "setting 'settings.title_product_service' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'title_product_service' (templates/cart.liquid:153)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "desc_product_service_1",
+        "file": "templates/cart.liquid",
+        "line": 157,
+        "message": "setting 'settings.desc_product_service_1' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'desc_product_service_1' (templates/cart.liquid:157)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "desc_product_service_1",
+        "file": "templates/cart.liquid",
+        "line": 157,
+        "message": "setting 'settings.desc_product_service_1' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'desc_product_service_1' (templates/cart.liquid:157)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "desc_product_service_2",
+        "file": "templates/cart.liquid",
+        "line": 158,
+        "message": "setting 'settings.desc_product_service_2' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'desc_product_service_2' (templates/cart.liquid:158)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "desc_product_service_2",
+        "file": "templates/cart.liquid",
+        "line": 158,
+        "message": "setting 'settings.desc_product_service_2' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'desc_product_service_2' (templates/cart.liquid:158)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "desc_product_service_3",
+        "file": "templates/cart.liquid",
+        "line": 159,
+        "message": "setting 'settings.desc_product_service_3' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'desc_product_service_3' (templates/cart.liquid:159)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "desc_product_service_3",
+        "file": "templates/cart.liquid",
+        "line": 159,
+        "message": "setting 'settings.desc_product_service_3' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'desc_product_service_3' (templates/cart.liquid:159)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "desc_product_service_4",
+        "file": "templates/cart.liquid",
+        "line": 160,
+        "message": "setting 'settings.desc_product_service_4' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'desc_product_service_4' (templates/cart.liquid:160)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "desc_product_service_4",
+        "file": "templates/cart.liquid",
+        "line": 160,
+        "message": "setting 'settings.desc_product_service_4' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'desc_product_service_4' (templates/cart.liquid:160)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "desc_product_service_5",
+        "file": "templates/cart.liquid",
+        "line": 161,
+        "message": "setting 'settings.desc_product_service_5' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'desc_product_service_5' (templates/cart.liquid:161)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "desc_product_service_5",
+        "file": "templates/cart.liquid",
+        "line": 161,
+        "message": "setting 'settings.desc_product_service_5' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'desc_product_service_5' (templates/cart.liquid:161)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "limit_collection",
+        "file": "templates/collection.liquid",
+        "line": 75,
+        "message": "setting 'settings.limit_collection' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'limit_collection' (templates/collection.liquid:75)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "customer_layout",
+        "file": "templates/customers[activate_account].liquid",
+        "line": 1,
+        "message": "setting 'settings.customer_layout' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'customer_layout' (templates/customers[activate_account].liquid:1)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "lbl_last_name",
+        "file": "templates/customers[addresses].liquid",
+        "line": 195,
+        "message": "setting 'settings.lbl_last_name' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'lbl_last_name' (templates/customers[addresses].liquid:195)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "lbl_first_name",
+        "file": "templates/customers[addresses].liquid",
+        "line": 199,
+        "message": "setting 'settings.lbl_first_name' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'lbl_first_name' (templates/customers[addresses].liquid:199)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "lbl_company",
+        "file": "templates/customers[addresses].liquid",
+        "line": 203,
+        "message": "setting 'settings.lbl_company' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'lbl_company' (templates/customers[addresses].liquid:203)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "lbl_address1",
+        "file": "templates/customers[addresses].liquid",
+        "line": 207,
+        "message": "setting 'settings.lbl_address1' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'lbl_address1' (templates/customers[addresses].liquid:207)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "lbl_address2",
+        "file": "templates/customers[addresses].liquid",
+        "line": 211,
+        "message": "setting 'settings.lbl_address2' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'lbl_address2' (templates/customers[addresses].liquid:211)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "lbl_phone",
+        "file": "templates/customers[addresses].liquid",
+        "line": 229,
+        "message": "setting 'settings.lbl_phone' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'lbl_phone' (templates/customers[addresses].liquid:229)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "customer_layout",
+        "file": "templates/customers[order].liquid",
+        "line": 1,
+        "message": "setting 'settings.customer_layout' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'customer_layout' (templates/customers[order].liquid:1)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "customer_layout",
+        "file": "templates/customers[reset_password].liquid",
+        "line": 1,
+        "message": "setting 'settings.customer_layout' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'customer_layout' (templates/customers[reset_password].liquid:1)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "limit_collection",
+        "file": "templates/search.filter.liquid",
+        "line": 2,
+        "message": "setting 'settings.limit_collection' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'limit_collection' (templates/search.filter.liquid:2)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "limit_collection",
+        "file": "templates/search.liquid",
+        "line": 2,
+        "message": "setting 'settings.limit_collection' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'limit_collection' (templates/search.liquid:2)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "show_fanpage_faceook",
+        "file": "snippets/facebook-widget.liquid",
+        "line": 2,
+        "message": "setting 'settings.show_fanpage_faceook' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'show_fanpage_faceook' (snippets/facebook-widget.liquid:2)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "fanpage_faceook",
+        "file": "snippets/facebook-widget.liquid",
+        "line": 4,
+        "message": "setting 'settings.fanpage_faceook' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'fanpage_faceook' (snippets/facebook-widget.liquid:4)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "fb_chat_title",
+        "file": "snippets/haravan-fb-messages.liquid",
+        "line": 3,
+        "message": "setting 'settings.fb_chat_title' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'fb_chat_title' (snippets/haravan-fb-messages.liquid:3)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "fb_chat",
+        "file": "snippets/haravan-fb-messages.liquid",
+        "line": 4,
+        "message": "setting 'settings.fb_chat' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'fb_chat' (snippets/haravan-fb-messages.liquid:4)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "fb_chat",
+        "file": "snippets/haravan-fb-messages.liquid",
+        "line": 6,
+        "message": "setting 'settings.fb_chat' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'fb_chat' (snippets/haravan-fb-messages.liquid:6)"
+      }
+    ]
+  }
+}

@@ -1,0 +1,2359 @@
+{
+  "themeDir": "E:\\Work\\customizes\\Vyantechnology",
+  "generatedAt": "2026-10-05T22:14:37.564Z",
+  "ok": false,
+  "schemas": {
+    "ok": true,
+    "schemaFiles": [
+      {
+        "path": "config/settings_schema.json",
+        "ok": true,
+        "error": null
+      }
+    ],
+    "sectionCount": 0,
+    "failures": []
+  },
+  "settingsBinding": {
+    "ok": false,
+    "undeclared": [
+      {
+        "id": "aside_blog_title",
+        "files": [
+          "snippets/aside_col_cate.liquid",
+          "snippets/sidebar-blog.liquid"
+        ]
+      },
+      {
+        "id": "aside_category_enable",
+        "files": [
+          "snippets/collections_menu.liquid"
+        ]
+      },
+      {
+        "id": "aside_col_menu",
+        "files": [
+          "snippets/aside_col_cate.liquid"
+        ]
+      },
+      {
+        "id": "aside_col_title",
+        "files": [
+          "snippets/aside_col_cate.liquid"
+        ]
+      },
+      {
+        "id": "blog_banner_alt",
+        "files": [
+          "snippets/sidebar-blog.liquid"
+        ]
+      },
+      {
+        "id": "blog_banner_enable",
+        "files": [
+          "snippets/sidebar-blog.liquid"
+        ]
+      },
+      {
+        "id": "blog_banner_link",
+        "files": [
+          "snippets/sidebar-blog.liquid"
+        ]
+      },
+      {
+        "id": "bogs_aside_recent_limit",
+        "files": [
+          "snippets/evo-aside-blog.liquid"
+        ]
+      },
+      {
+        "id": "bogs_aside_recent_title",
+        "files": [
+          "snippets/evo-aside-blog.liquid"
+        ]
+      },
+      {
+        "id": "code_messenger_mb",
+        "files": [
+          "snippets/mainchin.liquid"
+        ]
+      },
+      {
+        "id": "contact_menu",
+        "files": [
+          "templates/page.faq.liquid"
+        ]
+      },
+      {
+        "id": "contact_menu_title",
+        "files": [
+          "templates/page.faq.liquid"
+        ]
+      },
+      {
+        "id": "customer_layout",
+        "files": [
+          "templates/customers[activate_account].liquid"
+        ]
+      },
+      {
+        "id": "evo_block_product_option_5",
+        "files": [
+          "snippets/section_product_5.liquid"
+        ]
+      },
+      {
+        "id": "evo_block_product_option_6",
+        "files": [
+          "snippets/section_product_7.liquid"
+        ]
+      },
+      {
+        "id": "html",
+        "files": [
+          "templates/page.warranty.liquid"
+        ]
+      },
+      {
+        "id": "main-color",
+        "files": [
+          "templates/customers[account].liquid",
+          "templates/customers[addresses].liquid",
+          "templates/customers[order].liquid"
+        ]
+      },
+      {
+        "id": "mau_chudao",
+        "files": [
+          "snippets/api.jquery.custom.liquid"
+        ]
+      },
+      {
+        "id": "pd_related_blogs_id",
+        "files": [
+          "snippets/evo-relative-product-article.liquid"
+        ]
+      },
+      {
+        "id": "pd_related_blogs_limit",
+        "files": [
+          "snippets/evo-relative-product-article.liquid"
+        ]
+      },
+      {
+        "id": "pd_related_blogs_prefix",
+        "files": [
+          "snippets/evo-relative-product-article.liquid",
+          "templates/article.liquid"
+        ]
+      },
+      {
+        "id": "prod_vendor_show",
+        "files": [
+          "snippets/mainchin.liquid"
+        ]
+      },
+      {
+        "id": "product_layout_style",
+        "files": [
+          "snippets/mainchin.liquid"
+        ]
+      },
+      {
+        "id": "product_tab3_enable",
+        "files": [
+          "layout/theme.liquid"
+        ]
+      },
+      {
+        "id": "product_upsell_enable",
+        "files": [
+          "templates/product.liquid"
+        ]
+      },
+      {
+        "id": "productreviews_hrvapp_use",
+        "files": [
+          "snippets/mainchin.liquid"
+        ]
+      },
+      {
+        "id": "promotion_hrvapp",
+        "files": [
+          "snippets/mainchin.liquid"
+        ]
+      },
+      {
+        "id": "promotion_hrvapp_use",
+        "files": [
+          "snippets/mainchin.liquid"
+        ]
+      },
+      {
+        "id": "sec_deal_limits",
+        "files": [
+          "templates/collection.ajaxload.liquid"
+        ]
+      },
+      {
+        "id": "sidebar_blog",
+        "files": [
+          "snippets/evo-aside-blog.liquid"
+        ]
+      },
+      {
+        "id": "social_facebook_link",
+        "files": [
+          "snippets/evo-schema.liquid"
+        ]
+      },
+      {
+        "id": "social_twitter_link",
+        "files": [
+          "snippets/evo-schema.liquid"
+        ]
+      },
+      {
+        "id": "sport_product_limit",
+        "files": [
+          "templates/collection.ajaxload4.liquid"
+        ]
+      },
+      {
+        "id": "store_time",
+        "files": [
+          "templates/cart.liquid"
+        ]
+      },
+      {
+        "id": "top_news_blog",
+        "files": [
+          "snippets/sidebar-blog.liquid"
+        ]
+      },
+      {
+        "id": "top_news_enable",
+        "files": [
+          "snippets/sidebar-blog.liquid"
+        ]
+      },
+      {
+        "id": "top_news_title",
+        "files": [
+          "snippets/sidebar-blog.liquid"
+        ]
+      }
+    ],
+    "dead": [
+      {
+        "id": "account-banner.jpg"
+      },
+      {
+        "id": "account_policy_icon.svg"
+      },
+      {
+        "id": "backtotop_enable"
+      },
+      {
+        "id": "buy_repay"
+      },
+      {
+        "id": "call_buy_img.png"
+      },
+      {
+        "id": "call_buy_img.svg"
+      },
+      {
+        "id": "cart_payment_1.svg"
+      },
+      {
+        "id": "cart_payment_2.svg"
+      },
+      {
+        "id": "cart_payment_3.svg"
+      },
+      {
+        "id": "cart_payment_4.svg"
+      },
+      {
+        "id": "col_banner_1.jpg"
+      },
+      {
+        "id": "col_banner_2.jpg"
+      },
+      {
+        "id": "col_banner_3.jpg"
+      },
+      {
+        "id": "col_banner_alt_1"
+      },
+      {
+        "id": "col_banner_alt_2"
+      },
+      {
+        "id": "col_banner_alt_3"
+      },
+      {
+        "id": "col_banner_enable_1"
+      },
+      {
+        "id": "col_banner_enable_2"
+      },
+      {
+        "id": "col_banner_enable_3"
+      },
+      {
+        "id": "col_banner_link_1"
+      },
+      {
+        "id": "col_banner_link_2"
+      },
+      {
+        "id": "col_banner_link_3"
+      },
+      {
+        "id": "col_banner_small_1.jpg"
+      },
+      {
+        "id": "col_banner_small_2.jpg"
+      },
+      {
+        "id": "color_1"
+      },
+      {
+        "id": "color_10"
+      },
+      {
+        "id": "color_10_c"
+      },
+      {
+        "id": "color_1_c"
+      },
+      {
+        "id": "color_2"
+      },
+      {
+        "id": "color_2_c"
+      },
+      {
+        "id": "color_3"
+      },
+      {
+        "id": "color_3_c"
+      },
+      {
+        "id": "color_4"
+      },
+      {
+        "id": "color_4_c"
+      },
+      {
+        "id": "color_5"
+      },
+      {
+        "id": "color_5_c"
+      },
+      {
+        "id": "color_6"
+      },
+      {
+        "id": "color_6_c"
+      },
+      {
+        "id": "color_7"
+      },
+      {
+        "id": "color_7_c"
+      },
+      {
+        "id": "color_8"
+      },
+      {
+        "id": "color_8_c"
+      },
+      {
+        "id": "color_9"
+      },
+      {
+        "id": "color_9_c"
+      },
+      {
+        "id": "color_gradient_2"
+      },
+      {
+        "id": "color_gradient_3"
+      },
+      {
+        "id": "color_product"
+      },
+      {
+        "id": "evo_banner_option"
+      },
+      {
+        "id": "evo_block_product_banner_2.jpg"
+      },
+      {
+        "id": "evo_block_product_banner_3.jpg"
+      },
+      {
+        "id": "evo_block_product_banner_alt_2"
+      },
+      {
+        "id": "evo_block_product_banner_alt_3"
+      },
+      {
+        "id": "evo_block_product_banner_link_2"
+      },
+      {
+        "id": "evo_block_product_banner_link_3"
+      },
+      {
+        "id": "evo_block_product_menu_2"
+      },
+      {
+        "id": "evo_block_product_menu_3"
+      },
+      {
+        "id": "evo_block_product_menu_4"
+      },
+      {
+        "id": "evo_block_product_menu_6"
+      },
+      {
+        "id": "evo_block_product_menu_9"
+      },
+      {
+        "id": "evo_sbl.png"
+      },
+      {
+        "id": "evo_sbr.png"
+      },
+      {
+        "id": "evo_select_product_2"
+      },
+      {
+        "id": "evo_select_product_3"
+      },
+      {
+        "id": "favicon.png"
+      },
+      {
+        "id": "feature_banner.jpg"
+      },
+      {
+        "id": "feature_banner_1.jpg"
+      },
+      {
+        "id": "feature_banner_2.jpg"
+      },
+      {
+        "id": "feature_banner_mobile.jpg"
+      },
+      {
+        "id": "footer_bct_logo.png"
+      },
+      {
+        "id": "home_section_1"
+      },
+      {
+        "id": "home_section_10"
+      },
+      {
+        "id": "home_section_10_margin"
+      },
+      {
+        "id": "home_section_11"
+      },
+      {
+        "id": "home_section_11_margin"
+      },
+      {
+        "id": "home_section_1_margin"
+      },
+      {
+        "id": "home_section_2"
+      },
+      {
+        "id": "home_section_2_margin"
+      },
+      {
+        "id": "home_section_3"
+      },
+      {
+        "id": "home_section_3_margin"
+      },
+      {
+        "id": "home_section_4"
+      },
+      {
+        "id": "home_section_4_margin"
+      },
+      {
+        "id": "home_section_5"
+      },
+      {
+        "id": "home_section_5_margin"
+      },
+      {
+        "id": "home_section_6"
+      },
+      {
+        "id": "home_section_6_margin"
+      },
+      {
+        "id": "home_section_7"
+      },
+      {
+        "id": "home_section_7_margin"
+      },
+      {
+        "id": "home_section_8"
+      },
+      {
+        "id": "home_section_8_margin"
+      },
+      {
+        "id": "home_section_9"
+      },
+      {
+        "id": "home_section_9_margin"
+      },
+      {
+        "id": "image_dac_diem_prefix"
+      },
+      {
+        "id": "index-cate-icon-1.png"
+      },
+      {
+        "id": "index-cate-icon-1.svg"
+      },
+      {
+        "id": "index-cate-icon-10.png"
+      },
+      {
+        "id": "index-cate-icon-10.svg"
+      },
+      {
+        "id": "index-cate-icon-11.png"
+      },
+      {
+        "id": "index-cate-icon-11.svg"
+      },
+      {
+        "id": "index-cate-icon-12.png"
+      },
+      {
+        "id": "index-cate-icon-12.svg"
+      },
+      {
+        "id": "index-cate-icon-13.png"
+      },
+      {
+        "id": "index-cate-icon-13.svg"
+      },
+      {
+        "id": "index-cate-icon-14.png"
+      },
+      {
+        "id": "index-cate-icon-14.svg"
+      },
+      {
+        "id": "index-cate-icon-15.png"
+      },
+      {
+        "id": "index-cate-icon-15.svg"
+      },
+      {
+        "id": "index-cate-icon-2.png"
+      },
+      {
+        "id": "index-cate-icon-2.svg"
+      },
+      {
+        "id": "index-cate-icon-3.png"
+      },
+      {
+        "id": "index-cate-icon-3.svg"
+      },
+      {
+        "id": "index-cate-icon-4.png"
+      },
+      {
+        "id": "index-cate-icon-4.svg"
+      },
+      {
+        "id": "index-cate-icon-5.png"
+      },
+      {
+        "id": "index-cate-icon-5.svg"
+      },
+      {
+        "id": "index-cate-icon-6.png"
+      },
+      {
+        "id": "index-cate-icon-6.svg"
+      },
+      {
+        "id": "index-cate-icon-7.png"
+      },
+      {
+        "id": "index-cate-icon-7.svg"
+      },
+      {
+        "id": "index-cate-icon-8.png"
+      },
+      {
+        "id": "index-cate-icon-8.svg"
+      },
+      {
+        "id": "index-cate-icon-9.png"
+      },
+      {
+        "id": "index-cate-icon-9.svg"
+      },
+      {
+        "id": "logo-mb.png"
+      },
+      {
+        "id": "logo.png"
+      },
+      {
+        "id": "mega-1-image.jpg"
+      },
+      {
+        "id": "mega-1-link"
+      },
+      {
+        "id": "mega-2-image.jpg"
+      },
+      {
+        "id": "mega-2-link"
+      },
+      {
+        "id": "mega-3-image.jpg"
+      },
+      {
+        "id": "mega-3-link"
+      },
+      {
+        "id": "newpr_tb_i_1.png"
+      },
+      {
+        "id": "newpr_tb_i_2.png"
+      },
+      {
+        "id": "newpr_tb_i_3.png"
+      },
+      {
+        "id": "newpr_tb_i_4.png"
+      },
+      {
+        "id": "newpr_topbar_item_alt_1"
+      },
+      {
+        "id": "newpr_topbar_item_alt_2"
+      },
+      {
+        "id": "newpr_topbar_item_alt_3"
+      },
+      {
+        "id": "newpr_topbar_item_alt_4"
+      },
+      {
+        "id": "newpr_topbar_item_check_1"
+      },
+      {
+        "id": "newpr_topbar_item_check_2"
+      },
+      {
+        "id": "newpr_topbar_item_check_3"
+      },
+      {
+        "id": "newpr_topbar_item_check_4"
+      },
+      {
+        "id": "newpr_topbar_item_text_1"
+      },
+      {
+        "id": "newpr_topbar_item_text_2"
+      },
+      {
+        "id": "newpr_topbar_item_text_3"
+      },
+      {
+        "id": "newpr_topbar_item_text_4"
+      },
+      {
+        "id": "news_update_icon.svg"
+      },
+      {
+        "id": "newsicon.png"
+      },
+      {
+        "id": "payment_1.svg"
+      },
+      {
+        "id": "payment_2.svg"
+      },
+      {
+        "id": "payment_3.svg"
+      },
+      {
+        "id": "payment_4.svg"
+      },
+      {
+        "id": "payment_5.svg"
+      },
+      {
+        "id": "payment_6.svg"
+      },
+      {
+        "id": "product_deliverly_1_ico.png"
+      },
+      {
+        "id": "product_deliverly_1_show"
+      },
+      {
+        "id": "product_deliverly_1_text"
+      },
+      {
+        "id": "product_deliverly_2_ico.png"
+      },
+      {
+        "id": "product_deliverly_2_show"
+      },
+      {
+        "id": "product_deliverly_2_text"
+      },
+      {
+        "id": "product_deliverly_3_ico.png"
+      },
+      {
+        "id": "product_deliverly_3_show"
+      },
+      {
+        "id": "product_deliverly_3_text"
+      },
+      {
+        "id": "product_deliverly_4_ico.png"
+      },
+      {
+        "id": "product_deliverly_4_show"
+      },
+      {
+        "id": "product_deliverly_4_text"
+      },
+      {
+        "id": "product_deliverly_5_ico.png"
+      },
+      {
+        "id": "product_deliverly_5_show"
+      },
+      {
+        "id": "product_deliverly_5_text"
+      },
+      {
+        "id": "product_deliverly_6_ico.png"
+      },
+      {
+        "id": "product_deliverly_6_show"
+      },
+      {
+        "id": "product_deliverly_6_text"
+      },
+      {
+        "id": "product_deliverly_txt1"
+      },
+      {
+        "id": "product_deliverly_txt2"
+      },
+      {
+        "id": "product_main_policy_0_img.jpg"
+      },
+      {
+        "id": "product_main_policy_0_img_mb.jpg"
+      },
+      {
+        "id": "product_main_policy_0_link"
+      },
+      {
+        "id": "product_main_policy_0_text"
+      },
+      {
+        "id": "product_main_policy_1_img.jpg"
+      },
+      {
+        "id": "product_main_policy_1_text"
+      },
+      {
+        "id": "product_main_policy_2_img.jpg"
+      },
+      {
+        "id": "product_main_policy_2_text"
+      },
+      {
+        "id": "product_main_policy_page_enable"
+      },
+      {
+        "id": "product_quantity_enable"
+      },
+      {
+        "id": "product_tab1_title"
+      },
+      {
+        "id": "product_tab2_title"
+      },
+      {
+        "id": "promotion_banner.jpg"
+      },
+      {
+        "id": "sec_product_blog"
+      },
+      {
+        "id": "sidebar_list_1"
+      },
+      {
+        "id": "slider_1.jpg"
+      },
+      {
+        "id": "slider_1_alt"
+      },
+      {
+        "id": "slider_1_enable"
+      },
+      {
+        "id": "slider_1_url"
+      },
+      {
+        "id": "slider_2.jpg"
+      },
+      {
+        "id": "slider_2_alt"
+      },
+      {
+        "id": "slider_2_enable"
+      },
+      {
+        "id": "slider_2_url"
+      },
+      {
+        "id": "slider_3.jpg"
+      },
+      {
+        "id": "slider_3_alt"
+      },
+      {
+        "id": "slider_3_enable"
+      },
+      {
+        "id": "slider_3_url"
+      },
+      {
+        "id": "slider_4.jpg"
+      },
+      {
+        "id": "slider_4_alt"
+      },
+      {
+        "id": "slider_4_enable"
+      },
+      {
+        "id": "slider_4_url"
+      },
+      {
+        "id": "slider_5.jpg"
+      },
+      {
+        "id": "slider_5_alt"
+      },
+      {
+        "id": "slider_5_enable"
+      },
+      {
+        "id": "slider_5_url"
+      },
+      {
+        "id": "slider_6.jpg"
+      },
+      {
+        "id": "slider_6_alt"
+      },
+      {
+        "id": "slider_6_url"
+      },
+      {
+        "id": "slider_7.jpg"
+      },
+      {
+        "id": "slider_7_alt"
+      },
+      {
+        "id": "slider_7_url"
+      },
+      {
+        "id": "slider_8.jpg"
+      },
+      {
+        "id": "slider_8_alt"
+      },
+      {
+        "id": "slider_8_url"
+      },
+      {
+        "id": "store_popup_bg.png"
+      },
+      {
+        "id": "warranty_banner_iconz.png"
+      },
+      {
+        "id": "warranty_commit_icon_1z.png"
+      },
+      {
+        "id": "warranty_commit_icon_2z.png"
+      },
+      {
+        "id": "warranty_commit_icon_3z.png"
+      },
+      {
+        "id": "warranty_commit_icon_4z.png"
+      },
+      {
+        "id": "warranty_guide_icon_1z.png"
+      },
+      {
+        "id": "warranty_guide_icon_2z.png"
+      },
+      {
+        "id": "warranty_guide_icon_3z.png"
+      },
+      {
+        "id": "warranty_info_icon_1z.png"
+      },
+      {
+        "id": "warranty_info_icon_2z.png"
+      },
+      {
+        "id": "warranty_info_icon_3z.png"
+      },
+      {
+        "id": "warranty_info_icon_4z.png"
+      },
+      {
+        "id": "warranty_info_icon_5z.png"
+      },
+      {
+        "id": "warranty_info_icon_6z.png"
+      },
+      {
+        "id": "warranty_not_found_iconz.png"
+      },
+      {
+        "id": "warranty_status_active_iconz.png"
+      },
+      {
+        "id": "warranty_status_expired_iconz.png"
+      }
+    ],
+    "failures": [
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "aside_blog_title",
+        "detail": "settings.aside_blog_title is read in snippets/aside_col_cate.liquid, snippets/sidebar-blog.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "aside_category_enable",
+        "detail": "settings.aside_category_enable is read in snippets/collections_menu.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "aside_col_menu",
+        "detail": "settings.aside_col_menu is read in snippets/aside_col_cate.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "aside_col_title",
+        "detail": "settings.aside_col_title is read in snippets/aside_col_cate.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "blog_banner_alt",
+        "detail": "settings.blog_banner_alt is read in snippets/sidebar-blog.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "blog_banner_enable",
+        "detail": "settings.blog_banner_enable is read in snippets/sidebar-blog.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "blog_banner_link",
+        "detail": "settings.blog_banner_link is read in snippets/sidebar-blog.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "bogs_aside_recent_limit",
+        "detail": "settings.bogs_aside_recent_limit is read in snippets/evo-aside-blog.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "bogs_aside_recent_title",
+        "detail": "settings.bogs_aside_recent_title is read in snippets/evo-aside-blog.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "code_messenger_mb",
+        "detail": "settings.code_messenger_mb is read in snippets/mainchin.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "contact_menu",
+        "detail": "settings.contact_menu is read in templates/page.faq.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "contact_menu_title",
+        "detail": "settings.contact_menu_title is read in templates/page.faq.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "customer_layout",
+        "detail": "settings.customer_layout is read in templates/customers[activate_account].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "evo_block_product_option_5",
+        "detail": "settings.evo_block_product_option_5 is read in snippets/section_product_5.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "evo_block_product_option_6",
+        "detail": "settings.evo_block_product_option_6 is read in snippets/section_product_7.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "html",
+        "detail": "settings.html is read in templates/page.warranty.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "main-color",
+        "detail": "settings.main-color is read in templates/customers[account].liquid, templates/customers[addresses].liquid, templates/customers[order].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "mau_chudao",
+        "detail": "settings.mau_chudao is read in snippets/api.jquery.custom.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "pd_related_blogs_id",
+        "detail": "settings.pd_related_blogs_id is read in snippets/evo-relative-product-article.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "pd_related_blogs_limit",
+        "detail": "settings.pd_related_blogs_limit is read in snippets/evo-relative-product-article.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "pd_related_blogs_prefix",
+        "detail": "settings.pd_related_blogs_prefix is read in snippets/evo-relative-product-article.liquid, templates/article.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "prod_vendor_show",
+        "detail": "settings.prod_vendor_show is read in snippets/mainchin.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "product_layout_style",
+        "detail": "settings.product_layout_style is read in snippets/mainchin.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "product_tab3_enable",
+        "detail": "settings.product_tab3_enable is read in layout/theme.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "product_upsell_enable",
+        "detail": "settings.product_upsell_enable is read in templates/product.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "productreviews_hrvapp_use",
+        "detail": "settings.productreviews_hrvapp_use is read in snippets/mainchin.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "promotion_hrvapp",
+        "detail": "settings.promotion_hrvapp is read in snippets/mainchin.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "promotion_hrvapp_use",
+        "detail": "settings.promotion_hrvapp_use is read in snippets/mainchin.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "sec_deal_limits",
+        "detail": "settings.sec_deal_limits is read in templates/collection.ajaxload.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "sidebar_blog",
+        "detail": "settings.sidebar_blog is read in snippets/evo-aside-blog.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "social_facebook_link",
+        "detail": "settings.social_facebook_link is read in snippets/evo-schema.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "social_twitter_link",
+        "detail": "settings.social_twitter_link is read in snippets/evo-schema.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "sport_product_limit",
+        "detail": "settings.sport_product_limit is read in templates/collection.ajaxload4.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "store_time",
+        "detail": "settings.store_time is read in templates/cart.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "top_news_blog",
+        "detail": "settings.top_news_blog is read in snippets/sidebar-blog.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "top_news_enable",
+        "detail": "settings.top_news_enable is read in snippets/sidebar-blog.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "top_news_title",
+        "detail": "settings.top_news_title is read in snippets/sidebar-blog.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      }
+    ]
+  },
+  "assets": {
+    "ok": false,
+    "counts": {
+      "localPresent": 76,
+      "localMissing": 3,
+      "remote": 0
+    },
+    "localMissing": [
+      {
+        "ref": "blog_banner.jpg",
+        "files": [
+          "snippets/sidebar-blog.liquid"
+        ]
+      },
+      {
+        "ref": "contact_bg.jpg",
+        "files": [
+          "templates/page.faq.liquid"
+        ]
+      },
+      {
+        "ref": "no_image.jpg",
+        "files": [
+          "snippets/mainchin.liquid"
+        ]
+      }
+    ],
+    "remote": []
+  },
+  "renders": [],
+  "refusals": [
+    {
+      "check": "settings-binding",
+      "failures": [
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "aside_blog_title",
+          "detail": "settings.aside_blog_title is read in snippets/aside_col_cate.liquid, snippets/sidebar-blog.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "aside_category_enable",
+          "detail": "settings.aside_category_enable is read in snippets/collections_menu.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "aside_col_menu",
+          "detail": "settings.aside_col_menu is read in snippets/aside_col_cate.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "aside_col_title",
+          "detail": "settings.aside_col_title is read in snippets/aside_col_cate.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "blog_banner_alt",
+          "detail": "settings.blog_banner_alt is read in snippets/sidebar-blog.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "blog_banner_enable",
+          "detail": "settings.blog_banner_enable is read in snippets/sidebar-blog.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "blog_banner_link",
+          "detail": "settings.blog_banner_link is read in snippets/sidebar-blog.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "bogs_aside_recent_limit",
+          "detail": "settings.bogs_aside_recent_limit is read in snippets/evo-aside-blog.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "bogs_aside_recent_title",
+          "detail": "settings.bogs_aside_recent_title is read in snippets/evo-aside-blog.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "code_messenger_mb",
+          "detail": "settings.code_messenger_mb is read in snippets/mainchin.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "contact_menu",
+          "detail": "settings.contact_menu is read in templates/page.faq.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "contact_menu_title",
+          "detail": "settings.contact_menu_title is read in templates/page.faq.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "customer_layout",
+          "detail": "settings.customer_layout is read in templates/customers[activate_account].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "evo_block_product_option_5",
+          "detail": "settings.evo_block_product_option_5 is read in snippets/section_product_5.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "evo_block_product_option_6",
+          "detail": "settings.evo_block_product_option_6 is read in snippets/section_product_7.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "html",
+          "detail": "settings.html is read in templates/page.warranty.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "main-color",
+          "detail": "settings.main-color is read in templates/customers[account].liquid, templates/customers[addresses].liquid, templates/customers[order].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "mau_chudao",
+          "detail": "settings.mau_chudao is read in snippets/api.jquery.custom.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "pd_related_blogs_id",
+          "detail": "settings.pd_related_blogs_id is read in snippets/evo-relative-product-article.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "pd_related_blogs_limit",
+          "detail": "settings.pd_related_blogs_limit is read in snippets/evo-relative-product-article.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "pd_related_blogs_prefix",
+          "detail": "settings.pd_related_blogs_prefix is read in snippets/evo-relative-product-article.liquid, templates/article.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "prod_vendor_show",
+          "detail": "settings.prod_vendor_show is read in snippets/mainchin.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "product_layout_style",
+          "detail": "settings.product_layout_style is read in snippets/mainchin.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "product_tab3_enable",
+          "detail": "settings.product_tab3_enable is read in layout/theme.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "product_upsell_enable",
+          "detail": "settings.product_upsell_enable is read in templates/product.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "productreviews_hrvapp_use",
+          "detail": "settings.productreviews_hrvapp_use is read in snippets/mainchin.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "promotion_hrvapp",
+          "detail": "settings.promotion_hrvapp is read in snippets/mainchin.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "promotion_hrvapp_use",
+          "detail": "settings.promotion_hrvapp_use is read in snippets/mainchin.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "sec_deal_limits",
+          "detail": "settings.sec_deal_limits is read in templates/collection.ajaxload.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "sidebar_blog",
+          "detail": "settings.sidebar_blog is read in snippets/evo-aside-blog.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "social_facebook_link",
+          "detail": "settings.social_facebook_link is read in snippets/evo-schema.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "social_twitter_link",
+          "detail": "settings.social_twitter_link is read in snippets/evo-schema.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "sport_product_limit",
+          "detail": "settings.sport_product_limit is read in templates/collection.ajaxload4.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "store_time",
+          "detail": "settings.store_time is read in templates/cart.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "top_news_blog",
+          "detail": "settings.top_news_blog is read in snippets/sidebar-blog.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "top_news_enable",
+          "detail": "settings.top_news_enable is read in snippets/sidebar-blog.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "top_news_title",
+          "detail": "settings.top_news_title is read in snippets/sidebar-blog.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        }
+      ]
+    },
+    {
+      "check": "assets",
+      "failures": [
+        {
+          "rule": "ASSET_MISSING_LOCAL",
+          "ref": "blog_banner.jpg",
+          "files": [
+            "snippets/sidebar-blog.liquid"
+          ]
+        },
+        {
+          "rule": "ASSET_MISSING_LOCAL",
+          "ref": "contact_bg.jpg",
+          "files": [
+            "templates/page.faq.liquid"
+          ]
+        },
+        {
+          "rule": "ASSET_MISSING_LOCAL",
+          "ref": "no_image.jpg",
+          "files": [
+            "snippets/mainchin.liquid"
+          ]
+        }
+      ]
+    },
+    {
+      "check": "haravan-contracts",
+      "failures": [
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "product_tab3_enable",
+          "file": "layout/theme.liquid",
+          "line": 189,
+          "message": "setting 'settings.product_tab3_enable' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'product_tab3_enable' (layout/theme.liquid:189)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "pd_related_blogs_prefix",
+          "file": "templates/article.liquid",
+          "line": 40,
+          "message": "setting 'settings.pd_related_blogs_prefix' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'pd_related_blogs_prefix' (templates/article.liquid:40)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "store_time",
+          "file": "templates/cart.liquid",
+          "line": 127,
+          "message": "setting 'settings.store_time' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'store_time' (templates/cart.liquid:127)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "sec_deal_limits",
+          "file": "templates/collection.ajaxload.liquid",
+          "line": 11,
+          "message": "setting 'settings.sec_deal_limits' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'sec_deal_limits' (templates/collection.ajaxload.liquid:11)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "sport_product_limit",
+          "file": "templates/collection.ajaxload4.liquid",
+          "line": 9,
+          "message": "setting 'settings.sport_product_limit' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'sport_product_limit' (templates/collection.ajaxload4.liquid:9)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "main-color",
+          "file": "templates/customers[account].liquid",
+          "line": 14,
+          "message": "setting 'settings.main-color' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'main-color' (templates/customers[account].liquid:14)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "customer_layout",
+          "file": "templates/customers[activate_account].liquid",
+          "line": 1,
+          "message": "setting 'settings.customer_layout' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'customer_layout' (templates/customers[activate_account].liquid:1)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "main-color",
+          "file": "templates/customers[addresses].liquid",
+          "line": 10,
+          "message": "setting 'settings.main-color' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'main-color' (templates/customers[addresses].liquid:10)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "main-color",
+          "file": "templates/customers[order].liquid",
+          "line": 9,
+          "message": "setting 'settings.main-color' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'main-color' (templates/customers[order].liquid:9)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "contact_menu_title",
+          "file": "templates/page.faq.liquid",
+          "line": 9,
+          "message": "setting 'settings.contact_menu_title' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'contact_menu_title' (templates/page.faq.liquid:9)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "contact_menu",
+          "file": "templates/page.faq.liquid",
+          "line": 11,
+          "message": "setting 'settings.contact_menu' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'contact_menu' (templates/page.faq.liquid:11)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "html",
+          "file": "templates/page.warranty.liquid",
+          "line": 138,
+          "message": "setting 'settings.html' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'html' (templates/page.warranty.liquid:138)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "product_upsell_enable",
+          "file": "templates/product.liquid",
+          "line": 66,
+          "message": "setting 'settings.product_upsell_enable' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'product_upsell_enable' (templates/product.liquid:66)"
+        },
+        {
+          "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+          "file": "templates/search.data_list.liquid",
+          "line": 28,
+          "message": "included snippet 'product-list-item' does not exist under snippets/",
+          "detail": "Target snippet 'product-list-item' was not found in snippets/ (templates/search.data_list.liquid:28)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "mau_chudao",
+          "file": "snippets/api.jquery.custom.liquid",
+          "line": 389,
+          "message": "setting 'settings.mau_chudao' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'mau_chudao' (snippets/api.jquery.custom.liquid:389)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "aside_col_menu",
+          "file": "snippets/aside_col_cate.liquid",
+          "line": 2,
+          "message": "setting 'settings.aside_col_menu' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'aside_col_menu' (snippets/aside_col_cate.liquid:2)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "aside_col_menu",
+          "file": "snippets/aside_col_cate.liquid",
+          "line": 3,
+          "message": "setting 'settings.aside_col_menu' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'aside_col_menu' (snippets/aside_col_cate.liquid:3)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "aside_col_menu",
+          "file": "snippets/aside_col_cate.liquid",
+          "line": 43,
+          "message": "setting 'settings.aside_col_menu' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'aside_col_menu' (snippets/aside_col_cate.liquid:43)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "aside_col_title",
+          "file": "snippets/aside_col_cate.liquid",
+          "line": 44,
+          "message": "setting 'settings.aside_col_title' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'aside_col_title' (snippets/aside_col_cate.liquid:44)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "aside_col_title",
+          "file": "snippets/aside_col_cate.liquid",
+          "line": 47,
+          "message": "setting 'settings.aside_col_title' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'aside_col_title' (snippets/aside_col_cate.liquid:47)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "aside_col_menu",
+          "file": "snippets/aside_col_cate.liquid",
+          "line": 49,
+          "message": "setting 'settings.aside_col_menu' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'aside_col_menu' (snippets/aside_col_cate.liquid:49)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "aside_blog_title",
+          "file": "snippets/aside_col_cate.liquid",
+          "line": 101,
+          "message": "setting 'settings.aside_blog_title' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'aside_blog_title' (snippets/aside_col_cate.liquid:101)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "aside_category_enable",
+          "file": "snippets/collections_menu.liquid",
+          "line": 1,
+          "message": "setting 'settings.aside_category_enable' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'aside_category_enable' (snippets/collections_menu.liquid:1)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "sidebar_blog",
+          "file": "snippets/evo-aside-blog.liquid",
+          "line": 3,
+          "message": "setting 'settings.sidebar_blog' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'sidebar_blog' (snippets/evo-aside-blog.liquid:3)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "bogs_aside_recent_title",
+          "file": "snippets/evo-aside-blog.liquid",
+          "line": 3,
+          "message": "setting 'settings.bogs_aside_recent_title' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'bogs_aside_recent_title' (snippets/evo-aside-blog.liquid:3)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "bogs_aside_recent_title",
+          "file": "snippets/evo-aside-blog.liquid",
+          "line": 3,
+          "message": "setting 'settings.bogs_aside_recent_title' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'bogs_aside_recent_title' (snippets/evo-aside-blog.liquid:3)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "sidebar_blog",
+          "file": "snippets/evo-aside-blog.liquid",
+          "line": 6,
+          "message": "setting 'settings.sidebar_blog' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'sidebar_blog' (snippets/evo-aside-blog.liquid:6)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "bogs_aside_recent_limit",
+          "file": "snippets/evo-aside-blog.liquid",
+          "line": 6,
+          "message": "setting 'settings.bogs_aside_recent_limit' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'bogs_aside_recent_limit' (snippets/evo-aside-blog.liquid:6)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "sidebar_blog",
+          "file": "snippets/evo-aside-blog.liquid",
+          "line": 22,
+          "message": "setting 'settings.sidebar_blog' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'sidebar_blog' (snippets/evo-aside-blog.liquid:22)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "pd_related_blogs_prefix",
+          "file": "snippets/evo-relative-product-article.liquid",
+          "line": 2,
+          "message": "setting 'settings.pd_related_blogs_prefix' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'pd_related_blogs_prefix' (snippets/evo-relative-product-article.liquid:2)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "pd_related_blogs_limit",
+          "file": "snippets/evo-relative-product-article.liquid",
+          "line": 12,
+          "message": "setting 'settings.pd_related_blogs_limit' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'pd_related_blogs_limit' (snippets/evo-relative-product-article.liquid:12)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "pd_related_blogs_id",
+          "file": "snippets/evo-relative-product-article.liquid",
+          "line": 31,
+          "message": "setting 'settings.pd_related_blogs_id' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'pd_related_blogs_id' (snippets/evo-relative-product-article.liquid:31)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "social_facebook_link",
+          "file": "snippets/evo-schema.liquid",
+          "line": 14,
+          "message": "setting 'settings.social_facebook_link' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'social_facebook_link' (snippets/evo-schema.liquid:14)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "social_twitter_link",
+          "file": "snippets/evo-schema.liquid",
+          "line": 15,
+          "message": "setting 'settings.social_twitter_link' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'social_twitter_link' (snippets/evo-schema.liquid:15)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "code_messenger_mb",
+          "file": "snippets/mainchin.liquid",
+          "line": 95,
+          "message": "setting 'settings.code_messenger_mb' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'code_messenger_mb' (snippets/mainchin.liquid:95)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "productreviews_hrvapp_use",
+          "file": "snippets/mainchin.liquid",
+          "line": 126,
+          "message": "setting 'settings.productreviews_hrvapp_use' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'productreviews_hrvapp_use' (snippets/mainchin.liquid:126)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "prod_vendor_show",
+          "file": "snippets/mainchin.liquid",
+          "line": 151,
+          "message": "setting 'settings.prod_vendor_show' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'prod_vendor_show' (snippets/mainchin.liquid:151)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "promotion_hrvapp_use",
+          "file": "snippets/mainchin.liquid",
+          "line": 193,
+          "message": "setting 'settings.promotion_hrvapp_use' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'promotion_hrvapp_use' (snippets/mainchin.liquid:193)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "promotion_hrvapp",
+          "file": "snippets/mainchin.liquid",
+          "line": 193,
+          "message": "setting 'settings.promotion_hrvapp' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'promotion_hrvapp' (snippets/mainchin.liquid:193)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "promotion_hrvapp_use",
+          "file": "snippets/mainchin.liquid",
+          "line": 245,
+          "message": "setting 'settings.promotion_hrvapp_use' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'promotion_hrvapp_use' (snippets/mainchin.liquid:245)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "promotion_hrvapp",
+          "file": "snippets/mainchin.liquid",
+          "line": 245,
+          "message": "setting 'settings.promotion_hrvapp' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'promotion_hrvapp' (snippets/mainchin.liquid:245)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "product_layout_style",
+          "file": "snippets/mainchin.liquid",
+          "line": 832,
+          "message": "setting 'settings.product_layout_style' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'product_layout_style' (snippets/mainchin.liquid:832)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "evo_block_product_option_5",
+          "file": "snippets/section_product_5.liquid",
+          "line": 5,
+          "message": "setting 'settings.evo_block_product_option_5' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'evo_block_product_option_5' (snippets/section_product_5.liquid:5)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "evo_block_product_option_6",
+          "file": "snippets/section_product_7.liquid",
+          "line": 3,
+          "message": "setting 'settings.evo_block_product_option_6' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'evo_block_product_option_6' (snippets/section_product_7.liquid:3)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "aside_blog_title",
+          "file": "snippets/sidebar-blog.liquid",
+          "line": 3,
+          "message": "setting 'settings.aside_blog_title' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'aside_blog_title' (snippets/sidebar-blog.liquid:3)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "aside_blog_title",
+          "file": "snippets/sidebar-blog.liquid",
+          "line": 59,
+          "message": "setting 'settings.aside_blog_title' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'aside_blog_title' (snippets/sidebar-blog.liquid:59)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "top_news_enable",
+          "file": "snippets/sidebar-blog.liquid",
+          "line": 64,
+          "message": "setting 'settings.top_news_enable' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'top_news_enable' (snippets/sidebar-blog.liquid:64)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "top_news_blog",
+          "file": "snippets/sidebar-blog.liquid",
+          "line": 65,
+          "message": "setting 'settings.top_news_blog' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'top_news_blog' (snippets/sidebar-blog.liquid:65)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "top_news_blog",
+          "file": "snippets/sidebar-blog.liquid",
+          "line": 66,
+          "message": "setting 'settings.top_news_blog' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'top_news_blog' (snippets/sidebar-blog.liquid:66)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "top_news_blog",
+          "file": "snippets/sidebar-blog.liquid",
+          "line": 72,
+          "message": "setting 'settings.top_news_blog' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'top_news_blog' (snippets/sidebar-blog.liquid:72)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "top_news_title",
+          "file": "snippets/sidebar-blog.liquid",
+          "line": 72,
+          "message": "setting 'settings.top_news_title' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'top_news_title' (snippets/sidebar-blog.liquid:72)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "top_news_title",
+          "file": "snippets/sidebar-blog.liquid",
+          "line": 72,
+          "message": "setting 'settings.top_news_title' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'top_news_title' (snippets/sidebar-blog.liquid:72)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "top_news_blog",
+          "file": "snippets/sidebar-blog.liquid",
+          "line": 74,
+          "message": "setting 'settings.top_news_blog' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'top_news_blog' (snippets/sidebar-blog.liquid:74)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "top_news_blog",
+          "file": "snippets/sidebar-blog.liquid",
+          "line": 75,
+          "message": "setting 'settings.top_news_blog' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'top_news_blog' (snippets/sidebar-blog.liquid:75)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "top_news_title",
+          "file": "snippets/sidebar-blog.liquid",
+          "line": 91,
+          "message": "setting 'settings.top_news_title' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'top_news_title' (snippets/sidebar-blog.liquid:91)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "blog_banner_enable",
+          "file": "snippets/sidebar-blog.liquid",
+          "line": 96,
+          "message": "setting 'settings.blog_banner_enable' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'blog_banner_enable' (snippets/sidebar-blog.liquid:96)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "blog_banner_link",
+          "file": "snippets/sidebar-blog.liquid",
+          "line": 98,
+          "message": "setting 'settings.blog_banner_link' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'blog_banner_link' (snippets/sidebar-blog.liquid:98)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "blog_banner_alt",
+          "file": "snippets/sidebar-blog.liquid",
+          "line": 98,
+          "message": "setting 'settings.blog_banner_alt' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'blog_banner_alt' (snippets/sidebar-blog.liquid:98)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "blog_banner_alt",
+          "file": "snippets/sidebar-blog.liquid",
+          "line": 99,
+          "message": "setting 'settings.blog_banner_alt' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'blog_banner_alt' (snippets/sidebar-blog.liquid:99)"
+        },
+        {
+          "rule": "HARAVAN_SINGLE_CHROME",
+          "file": "snippets/header.liquid",
+          "line": 1,
+          "message": "snippets/header.liquid must have at most 1 <header> tag, found 2",
+          "detail": "Multiple <header> tags found in snippets/header.liquid (2). Themes must use a single canonical <header> container."
+        }
+      ]
+    }
+  ],
+  "haravanContracts": {
+    "ok": false,
+    "failures": [
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "product_tab3_enable",
+        "file": "layout/theme.liquid",
+        "line": 189,
+        "message": "setting 'settings.product_tab3_enable' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'product_tab3_enable' (layout/theme.liquid:189)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "pd_related_blogs_prefix",
+        "file": "templates/article.liquid",
+        "line": 40,
+        "message": "setting 'settings.pd_related_blogs_prefix' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'pd_related_blogs_prefix' (templates/article.liquid:40)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "store_time",
+        "file": "templates/cart.liquid",
+        "line": 127,
+        "message": "setting 'settings.store_time' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'store_time' (templates/cart.liquid:127)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "sec_deal_limits",
+        "file": "templates/collection.ajaxload.liquid",
+        "line": 11,
+        "message": "setting 'settings.sec_deal_limits' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'sec_deal_limits' (templates/collection.ajaxload.liquid:11)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "sport_product_limit",
+        "file": "templates/collection.ajaxload4.liquid",
+        "line": 9,
+        "message": "setting 'settings.sport_product_limit' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'sport_product_limit' (templates/collection.ajaxload4.liquid:9)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "main-color",
+        "file": "templates/customers[account].liquid",
+        "line": 14,
+        "message": "setting 'settings.main-color' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'main-color' (templates/customers[account].liquid:14)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "customer_layout",
+        "file": "templates/customers[activate_account].liquid",
+        "line": 1,
+        "message": "setting 'settings.customer_layout' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'customer_layout' (templates/customers[activate_account].liquid:1)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "main-color",
+        "file": "templates/customers[addresses].liquid",
+        "line": 10,
+        "message": "setting 'settings.main-color' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'main-color' (templates/customers[addresses].liquid:10)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "main-color",
+        "file": "templates/customers[order].liquid",
+        "line": 9,
+        "message": "setting 'settings.main-color' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'main-color' (templates/customers[order].liquid:9)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "contact_menu_title",
+        "file": "templates/page.faq.liquid",
+        "line": 9,
+        "message": "setting 'settings.contact_menu_title' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'contact_menu_title' (templates/page.faq.liquid:9)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "contact_menu",
+        "file": "templates/page.faq.liquid",
+        "line": 11,
+        "message": "setting 'settings.contact_menu' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'contact_menu' (templates/page.faq.liquid:11)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "html",
+        "file": "templates/page.warranty.liquid",
+        "line": 138,
+        "message": "setting 'settings.html' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'html' (templates/page.warranty.liquid:138)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "product_upsell_enable",
+        "file": "templates/product.liquid",
+        "line": 66,
+        "message": "setting 'settings.product_upsell_enable' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'product_upsell_enable' (templates/product.liquid:66)"
+      },
+      {
+        "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+        "file": "templates/search.data_list.liquid",
+        "line": 28,
+        "message": "included snippet 'product-list-item' does not exist under snippets/",
+        "detail": "Target snippet 'product-list-item' was not found in snippets/ (templates/search.data_list.liquid:28)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "mau_chudao",
+        "file": "snippets/api.jquery.custom.liquid",
+        "line": 389,
+        "message": "setting 'settings.mau_chudao' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'mau_chudao' (snippets/api.jquery.custom.liquid:389)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "aside_col_menu",
+        "file": "snippets/aside_col_cate.liquid",
+        "line": 2,
+        "message": "setting 'settings.aside_col_menu' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'aside_col_menu' (snippets/aside_col_cate.liquid:2)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "aside_col_menu",
+        "file": "snippets/aside_col_cate.liquid",
+        "line": 3,
+        "message": "setting 'settings.aside_col_menu' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'aside_col_menu' (snippets/aside_col_cate.liquid:3)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "aside_col_menu",
+        "file": "snippets/aside_col_cate.liquid",
+        "line": 43,
+        "message": "setting 'settings.aside_col_menu' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'aside_col_menu' (snippets/aside_col_cate.liquid:43)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "aside_col_title",
+        "file": "snippets/aside_col_cate.liquid",
+        "line": 44,
+        "message": "setting 'settings.aside_col_title' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'aside_col_title' (snippets/aside_col_cate.liquid:44)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "aside_col_title",
+        "file": "snippets/aside_col_cate.liquid",
+        "line": 47,
+        "message": "setting 'settings.aside_col_title' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'aside_col_title' (snippets/aside_col_cate.liquid:47)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "aside_col_menu",
+        "file": "snippets/aside_col_cate.liquid",
+        "line": 49,
+        "message": "setting 'settings.aside_col_menu' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'aside_col_menu' (snippets/aside_col_cate.liquid:49)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "aside_blog_title",
+        "file": "snippets/aside_col_cate.liquid",
+        "line": 101,
+        "message": "setting 'settings.aside_blog_title' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'aside_blog_title' (snippets/aside_col_cate.liquid:101)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "aside_category_enable",
+        "file": "snippets/collections_menu.liquid",
+        "line": 1,
+        "message": "setting 'settings.aside_category_enable' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'aside_category_enable' (snippets/collections_menu.liquid:1)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "sidebar_blog",
+        "file": "snippets/evo-aside-blog.liquid",
+        "line": 3,
+        "message": "setting 'settings.sidebar_blog' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'sidebar_blog' (snippets/evo-aside-blog.liquid:3)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "bogs_aside_recent_title",
+        "file": "snippets/evo-aside-blog.liquid",
+        "line": 3,
+        "message": "setting 'settings.bogs_aside_recent_title' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'bogs_aside_recent_title' (snippets/evo-aside-blog.liquid:3)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "bogs_aside_recent_title",
+        "file": "snippets/evo-aside-blog.liquid",
+        "line": 3,
+        "message": "setting 'settings.bogs_aside_recent_title' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'bogs_aside_recent_title' (snippets/evo-aside-blog.liquid:3)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "sidebar_blog",
+        "file": "snippets/evo-aside-blog.liquid",
+        "line": 6,
+        "message": "setting 'settings.sidebar_blog' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'sidebar_blog' (snippets/evo-aside-blog.liquid:6)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "bogs_aside_recent_limit",
+        "file": "snippets/evo-aside-blog.liquid",
+        "line": 6,
+        "message": "setting 'settings.bogs_aside_recent_limit' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'bogs_aside_recent_limit' (snippets/evo-aside-blog.liquid:6)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "sidebar_blog",
+        "file": "snippets/evo-aside-blog.liquid",
+        "line": 22,
+        "message": "setting 'settings.sidebar_blog' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'sidebar_blog' (snippets/evo-aside-blog.liquid:22)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "pd_related_blogs_prefix",
+        "file": "snippets/evo-relative-product-article.liquid",
+        "line": 2,
+        "message": "setting 'settings.pd_related_blogs_prefix' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'pd_related_blogs_prefix' (snippets/evo-relative-product-article.liquid:2)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "pd_related_blogs_limit",
+        "file": "snippets/evo-relative-product-article.liquid",
+        "line": 12,
+        "message": "setting 'settings.pd_related_blogs_limit' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'pd_related_blogs_limit' (snippets/evo-relative-product-article.liquid:12)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "pd_related_blogs_id",
+        "file": "snippets/evo-relative-product-article.liquid",
+        "line": 31,
+        "message": "setting 'settings.pd_related_blogs_id' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'pd_related_blogs_id' (snippets/evo-relative-product-article.liquid:31)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "social_facebook_link",
+        "file": "snippets/evo-schema.liquid",
+        "line": 14,
+        "message": "setting 'settings.social_facebook_link' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'social_facebook_link' (snippets/evo-schema.liquid:14)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "social_twitter_link",
+        "file": "snippets/evo-schema.liquid",
+        "line": 15,
+        "message": "setting 'settings.social_twitter_link' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'social_twitter_link' (snippets/evo-schema.liquid:15)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "code_messenger_mb",
+        "file": "snippets/mainchin.liquid",
+        "line": 95,
+        "message": "setting 'settings.code_messenger_mb' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'code_messenger_mb' (snippets/mainchin.liquid:95)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "productreviews_hrvapp_use",
+        "file": "snippets/mainchin.liquid",
+        "line": 126,
+        "message": "setting 'settings.productreviews_hrvapp_use' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'productreviews_hrvapp_use' (snippets/mainchin.liquid:126)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "prod_vendor_show",
+        "file": "snippets/mainchin.liquid",
+        "line": 151,
+        "message": "setting 'settings.prod_vendor_show' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'prod_vendor_show' (snippets/mainchin.liquid:151)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "promotion_hrvapp_use",
+        "file": "snippets/mainchin.liquid",
+        "line": 193,
+        "message": "setting 'settings.promotion_hrvapp_use' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'promotion_hrvapp_use' (snippets/mainchin.liquid:193)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "promotion_hrvapp",
+        "file": "snippets/mainchin.liquid",
+        "line": 193,
+        "message": "setting 'settings.promotion_hrvapp' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'promotion_hrvapp' (snippets/mainchin.liquid:193)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "promotion_hrvapp_use",
+        "file": "snippets/mainchin.liquid",
+        "line": 245,
+        "message": "setting 'settings.promotion_hrvapp_use' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'promotion_hrvapp_use' (snippets/mainchin.liquid:245)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "promotion_hrvapp",
+        "file": "snippets/mainchin.liquid",
+        "line": 245,
+        "message": "setting 'settings.promotion_hrvapp' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'promotion_hrvapp' (snippets/mainchin.liquid:245)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "product_layout_style",
+        "file": "snippets/mainchin.liquid",
+        "line": 832,
+        "message": "setting 'settings.product_layout_style' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'product_layout_style' (snippets/mainchin.liquid:832)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "evo_block_product_option_5",
+        "file": "snippets/section_product_5.liquid",
+        "line": 5,
+        "message": "setting 'settings.evo_block_product_option_5' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'evo_block_product_option_5' (snippets/section_product_5.liquid:5)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "evo_block_product_option_6",
+        "file": "snippets/section_product_7.liquid",
+        "line": 3,
+        "message": "setting 'settings.evo_block_product_option_6' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'evo_block_product_option_6' (snippets/section_product_7.liquid:3)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "aside_blog_title",
+        "file": "snippets/sidebar-blog.liquid",
+        "line": 3,
+        "message": "setting 'settings.aside_blog_title' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'aside_blog_title' (snippets/sidebar-blog.liquid:3)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "aside_blog_title",
+        "file": "snippets/sidebar-blog.liquid",
+        "line": 59,
+        "message": "setting 'settings.aside_blog_title' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'aside_blog_title' (snippets/sidebar-blog.liquid:59)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "top_news_enable",
+        "file": "snippets/sidebar-blog.liquid",
+        "line": 64,
+        "message": "setting 'settings.top_news_enable' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'top_news_enable' (snippets/sidebar-blog.liquid:64)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "top_news_blog",
+        "file": "snippets/sidebar-blog.liquid",
+        "line": 65,
+        "message": "setting 'settings.top_news_blog' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'top_news_blog' (snippets/sidebar-blog.liquid:65)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "top_news_blog",
+        "file": "snippets/sidebar-blog.liquid",
+        "line": 66,
+        "message": "setting 'settings.top_news_blog' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'top_news_blog' (snippets/sidebar-blog.liquid:66)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "top_news_blog",
+        "file": "snippets/sidebar-blog.liquid",
+        "line": 72,
+        "message": "setting 'settings.top_news_blog' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'top_news_blog' (snippets/sidebar-blog.liquid:72)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "top_news_title",
+        "file": "snippets/sidebar-blog.liquid",
+        "line": 72,
+        "message": "setting 'settings.top_news_title' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'top_news_title' (snippets/sidebar-blog.liquid:72)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "top_news_title",
+        "file": "snippets/sidebar-blog.liquid",
+        "line": 72,
+        "message": "setting 'settings.top_news_title' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'top_news_title' (snippets/sidebar-blog.liquid:72)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "top_news_blog",
+        "file": "snippets/sidebar-blog.liquid",
+        "line": 74,
+        "message": "setting 'settings.top_news_blog' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'top_news_blog' (snippets/sidebar-blog.liquid:74)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "top_news_blog",
+        "file": "snippets/sidebar-blog.liquid",
+        "line": 75,
+        "message": "setting 'settings.top_news_blog' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'top_news_blog' (snippets/sidebar-blog.liquid:75)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "top_news_title",
+        "file": "snippets/sidebar-blog.liquid",
+        "line": 91,
+        "message": "setting 'settings.top_news_title' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'top_news_title' (snippets/sidebar-blog.liquid:91)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "blog_banner_enable",
+        "file": "snippets/sidebar-blog.liquid",
+        "line": 96,
+        "message": "setting 'settings.blog_banner_enable' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'blog_banner_enable' (snippets/sidebar-blog.liquid:96)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "blog_banner_link",
+        "file": "snippets/sidebar-blog.liquid",
+        "line": 98,
+        "message": "setting 'settings.blog_banner_link' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'blog_banner_link' (snippets/sidebar-blog.liquid:98)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "blog_banner_alt",
+        "file": "snippets/sidebar-blog.liquid",
+        "line": 98,
+        "message": "setting 'settings.blog_banner_alt' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'blog_banner_alt' (snippets/sidebar-blog.liquid:98)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "blog_banner_alt",
+        "file": "snippets/sidebar-blog.liquid",
+        "line": 99,
+        "message": "setting 'settings.blog_banner_alt' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'blog_banner_alt' (snippets/sidebar-blog.liquid:99)"
+      },
+      {
+        "rule": "HARAVAN_SINGLE_CHROME",
+        "file": "snippets/header.liquid",
+        "line": 1,
+        "message": "snippets/header.liquid must have at most 1 <header> tag, found 2",
+        "detail": "Multiple <header> tags found in snippets/header.liquid (2). Themes must use a single canonical <header> container."
+      }
+    ]
+  }
+}

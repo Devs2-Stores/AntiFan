@@ -1,0 +1,3814 @@
+{
+  "themeDir": "E:\\Work\\customizes\\Galassia",
+  "generatedAt": "2026-10-05T22:13:26.126Z",
+  "ok": false,
+  "schemas": {
+    "ok": true,
+    "schemaFiles": [
+      {
+        "path": "config/settings_schema.json",
+        "ok": true,
+        "error": null
+      }
+    ],
+    "sectionCount": 0,
+    "failures": []
+  },
+  "settingsBinding": {
+    "ok": false,
+    "undeclared": [
+      {
+        "id": "alt-ldp-video-banner",
+        "files": [
+          "snippets/ldp-black-friday-3.liquid"
+        ]
+      },
+      {
+        "id": "bg_color_menu_mb",
+        "files": [
+          "snippets/style-theme.liquid"
+        ]
+      },
+      {
+        "id": "bg_image_fls",
+        "files": [
+          "snippets/section-flash-sale.liquid"
+        ]
+      },
+      {
+        "id": "choose_col_grou3",
+        "files": [
+          "snippets/section-collection-group-3.liquid"
+        ]
+      },
+      {
+        "id": "choose_of_brand",
+        "files": [
+          "snippets/variable-wd.liquid"
+        ]
+      },
+      {
+        "id": "choose_of_collection",
+        "files": [
+          "snippets/variable-wd.liquid"
+        ]
+      },
+      {
+        "id": "choose_related",
+        "files": [
+          "snippets/variable-wd.liquid"
+        ]
+      },
+      {
+        "id": "col_template",
+        "files": [
+          "snippets/variable-wd.liquid"
+        ]
+      },
+      {
+        "id": "color_text_category",
+        "files": [
+          "snippets/section-category.liquid"
+        ]
+      },
+      {
+        "id": "content-information-collection",
+        "files": [
+          "snippets/banner-footer.liquid"
+        ]
+      },
+      {
+        "id": "content_cart_note",
+        "files": [
+          "templates/cart.liquid"
+        ]
+      },
+      {
+        "id": "dataType",
+        "files": [
+          "snippets/variable-wd.liquid"
+        ]
+      },
+      {
+        "id": "icon-title-coupon",
+        "files": [
+          "snippets/ldp-black-friday-4.liquid"
+        ]
+      },
+      {
+        "id": "id_video_ldp",
+        "files": [
+          "snippets/ldp-black-friday-3.liquid"
+        ]
+      },
+      {
+        "id": "page_sizechart_1",
+        "files": [
+          "snippets/size-chart.liquid"
+        ]
+      },
+      {
+        "id": "page_sizechart_1_normal",
+        "files": [
+          "snippets/size-chart-normal.liquid"
+        ]
+      },
+      {
+        "id": "page_sizechart_2",
+        "files": [
+          "snippets/size-chart.liquid"
+        ]
+      },
+      {
+        "id": "page_sizechart_2_normal",
+        "files": [
+          "snippets/size-chart-normal.liquid"
+        ]
+      },
+      {
+        "id": "shop_color_head_title",
+        "files": [
+          "snippets/style-theme.liquid"
+        ]
+      },
+      {
+        "id": "show_banner_ft_custom",
+        "files": [
+          "snippets/banner-footer.liquid"
+        ]
+      },
+      {
+        "id": "show_countdown_banner_ldp",
+        "files": [
+          "templates/page.ldp.liquid"
+        ]
+      },
+      {
+        "id": "show_tab_sizechart_1",
+        "files": [
+          "snippets/size-chart.liquid"
+        ]
+      },
+      {
+        "id": "show_tab_sizechart_1_normal",
+        "files": [
+          "snippets/size-chart-normal.liquid"
+        ]
+      },
+      {
+        "id": "show_tab_sizechart_2",
+        "files": [
+          "snippets/size-chart-normal.liquid",
+          "snippets/size-chart.liquid"
+        ]
+      },
+      {
+        "id": "show_tab_sizechart_2_normal",
+        "files": [
+          "snippets/size-chart-normal.liquid"
+        ]
+      },
+      {
+        "id": "text-btn-information-collection",
+        "files": [
+          "snippets/banner-footer.liquid"
+        ]
+      },
+      {
+        "id": "text_color_menu_mb",
+        "files": [
+          "snippets/style-theme.liquid"
+        ]
+      },
+      {
+        "id": "time_day_headbanner",
+        "files": [
+          "templates/page.ldp.liquid"
+        ]
+      },
+      {
+        "id": "time_line_deal_1",
+        "files": [
+          "snippets/product-right-info-default.liquid",
+          "snippets/variable-wd.liquid"
+        ]
+      },
+      {
+        "id": "time_line_headbanner",
+        "files": [
+          "templates/page.ldp.liquid"
+        ]
+      },
+      {
+        "id": "time_month_headbanner",
+        "files": [
+          "templates/page.ldp.liquid"
+        ]
+      },
+      {
+        "id": "time_year_deal_1",
+        "files": [
+          "snippets/product-right-info-default.liquid",
+          "snippets/variable-wd.liquid"
+        ]
+      },
+      {
+        "id": "time_year_deal_1_ldp",
+        "files": [
+          "snippets/ldp-black-friday-2.liquid",
+          "templates/page.ldp.liquid"
+        ]
+      },
+      {
+        "id": "time_year_headbanner",
+        "files": [
+          "templates/page.ldp.liquid"
+        ]
+      },
+      {
+        "id": "title-information-collection",
+        "files": [
+          "snippets/banner-footer.liquid"
+        ]
+      },
+      {
+        "id": "title_home_blog",
+        "files": [
+          "snippets/section-blog-home.liquid"
+        ]
+      },
+      {
+        "id": "title_sidebar_sizechart",
+        "files": [
+          "snippets/size-chart.liquid"
+        ]
+      },
+      {
+        "id": "title_sidebar_sizechart_normal",
+        "files": [
+          "snippets/size-chart-normal.liquid"
+        ]
+      },
+      {
+        "id": "title_sizechart_1",
+        "files": [
+          "snippets/size-chart.liquid"
+        ]
+      },
+      {
+        "id": "title_sizechart_1_normal",
+        "files": [
+          "snippets/size-chart-normal.liquid"
+        ]
+      },
+      {
+        "id": "type_paginate",
+        "files": [
+          "snippets/variable-wd.liquid"
+        ]
+      },
+      {
+        "id": "type_variant",
+        "files": [
+          "snippets/mini-cart-alsolike.liquid",
+          "snippets/swatch-quickview.liquid",
+          "snippets/swatch.liquid",
+          "snippets/variant-color.liquid"
+        ]
+      },
+      {
+        "id": "url",
+        "files": [
+          "snippets/variable-wd.liquid"
+        ]
+      },
+      {
+        "id": "url-image-information-collection",
+        "files": [
+          "snippets/banner-footer.liquid"
+        ]
+      },
+      {
+        "id": "url-image-information-collection-mob",
+        "files": [
+          "snippets/banner-footer.liquid"
+        ]
+      },
+      {
+        "id": "url-information-collection",
+        "files": [
+          "snippets/banner-footer.liquid"
+        ]
+      },
+      {
+        "id": "url_banner_ldp_flashsale_bottom",
+        "files": [
+          "snippets/ldp-black-friday-3.liquid"
+        ]
+      },
+      {
+        "id": "use_bg_image_fls",
+        "files": [
+          "snippets/section-flash-sale.liquid"
+        ]
+      },
+      {
+        "id": "use_of_brand",
+        "files": [
+          "snippets/variable-wd.liquid"
+        ]
+      },
+      {
+        "id": "use_of_collection",
+        "files": [
+          "snippets/variable-wd.liquid"
+        ]
+      },
+      {
+        "id": "use_product_seen",
+        "files": [
+          "snippets/variable-wd.liquid"
+        ]
+      },
+      {
+        "id": "vertical_slider",
+        "files": [
+          "snippets/product-left-image.liquid"
+        ]
+      }
+    ],
+    "dead": [
+      {
+        "id": "1_price_to"
+      },
+      {
+        "id": "2_price_from"
+      },
+      {
+        "id": "2_price_to"
+      },
+      {
+        "id": "3_price_from"
+      },
+      {
+        "id": "3_price_to"
+      },
+      {
+        "id": "4_price_from"
+      },
+      {
+        "id": "4_price_to"
+      },
+      {
+        "id": "5_price_from"
+      },
+      {
+        "id": "addthis_icon1_action"
+      },
+      {
+        "id": "addthis_icon1_color1"
+      },
+      {
+        "id": "addthis_icon1_color2"
+      },
+      {
+        "id": "addthis_icon1_show"
+      },
+      {
+        "id": "addthis_icon1_tootlip"
+      },
+      {
+        "id": "addthis_icon2_action"
+      },
+      {
+        "id": "addthis_icon2_color1"
+      },
+      {
+        "id": "addthis_icon2_color2"
+      },
+      {
+        "id": "addthis_icon2_show"
+      },
+      {
+        "id": "addthis_icon2_tootlip"
+      },
+      {
+        "id": "addthis_icon3_color1"
+      },
+      {
+        "id": "addthis_icon3_color2"
+      },
+      {
+        "id": "addthis_icon3_content"
+      },
+      {
+        "id": "addthis_icon3_show"
+      },
+      {
+        "id": "addthis_icon3_title"
+      },
+      {
+        "id": "addthis_icon3_title2"
+      },
+      {
+        "id": "addthis_icon3_tootlip"
+      },
+      {
+        "id": "addthis_icon4_action"
+      },
+      {
+        "id": "addthis_icon4_color1"
+      },
+      {
+        "id": "addthis_icon4_color2"
+      },
+      {
+        "id": "addthis_icon4_show"
+      },
+      {
+        "id": "addthis_icon4_tootlip"
+      },
+      {
+        "id": "addthis_iconList_show"
+      },
+      {
+        "id": "appbuyxgety_icon"
+      },
+      {
+        "id": "banner_btn_color"
+      },
+      {
+        "id": "banner_btntext_color"
+      },
+      {
+        "id": "banner_group_1"
+      },
+      {
+        "id": "banner_group_2"
+      },
+      {
+        "id": "banner_group_3"
+      },
+      {
+        "id": "banner_group_alt_1"
+      },
+      {
+        "id": "banner_group_alt_2"
+      },
+      {
+        "id": "banner_group_alt_3"
+      },
+      {
+        "id": "banner_group_content_1"
+      },
+      {
+        "id": "banner_group_content_2"
+      },
+      {
+        "id": "banner_group_content_3"
+      },
+      {
+        "id": "banner_group_subtitle_1"
+      },
+      {
+        "id": "banner_group_subtitle_2"
+      },
+      {
+        "id": "banner_group_subtitle_3"
+      },
+      {
+        "id": "banner_group_text_btn_1"
+      },
+      {
+        "id": "banner_group_text_btn_2"
+      },
+      {
+        "id": "banner_group_text_btn_3"
+      },
+      {
+        "id": "banner_group_title_1"
+      },
+      {
+        "id": "banner_group_title_2"
+      },
+      {
+        "id": "banner_group_title_3"
+      },
+      {
+        "id": "banner_instar_1"
+      },
+      {
+        "id": "banner_instar_1-jpg"
+      },
+      {
+        "id": "banner_instar_10"
+      },
+      {
+        "id": "banner_instar_10-jpg"
+      },
+      {
+        "id": "banner_instar_2"
+      },
+      {
+        "id": "banner_instar_2-jpg"
+      },
+      {
+        "id": "banner_instar_3"
+      },
+      {
+        "id": "banner_instar_3-jpg"
+      },
+      {
+        "id": "banner_instar_4"
+      },
+      {
+        "id": "banner_instar_4-jpg"
+      },
+      {
+        "id": "banner_instar_5"
+      },
+      {
+        "id": "banner_instar_5-jpg"
+      },
+      {
+        "id": "banner_instar_6"
+      },
+      {
+        "id": "banner_instar_6-jpg"
+      },
+      {
+        "id": "banner_instar_7"
+      },
+      {
+        "id": "banner_instar_7-jpg"
+      },
+      {
+        "id": "banner_instar_8"
+      },
+      {
+        "id": "banner_instar_8-jpg"
+      },
+      {
+        "id": "banner_instar_9"
+      },
+      {
+        "id": "banner_instar_9-jpg"
+      },
+      {
+        "id": "banner_instar_alt_1"
+      },
+      {
+        "id": "banner_instar_alt_10"
+      },
+      {
+        "id": "banner_instar_alt_2"
+      },
+      {
+        "id": "banner_instar_alt_3"
+      },
+      {
+        "id": "banner_instar_alt_4"
+      },
+      {
+        "id": "banner_instar_alt_5"
+      },
+      {
+        "id": "banner_instar_alt_6"
+      },
+      {
+        "id": "banner_instar_alt_7"
+      },
+      {
+        "id": "banner_instar_alt_8"
+      },
+      {
+        "id": "banner_instar_alt_9"
+      },
+      {
+        "id": "banner_title_color"
+      },
+      {
+        "id": "bg_btn_slider_1"
+      },
+      {
+        "id": "bg_btn_slider_2"
+      },
+      {
+        "id": "bg_btn_slider_3"
+      },
+      {
+        "id": "bg_btn_slider_4"
+      },
+      {
+        "id": "block_home_category1"
+      },
+      {
+        "id": "block_home_category1_alt"
+      },
+      {
+        "id": "block_home_category1_button"
+      },
+      {
+        "id": "block_home_category1_link"
+      },
+      {
+        "id": "block_home_category1_subtitle"
+      },
+      {
+        "id": "block_home_category1_title"
+      },
+      {
+        "id": "block_home_category2"
+      },
+      {
+        "id": "block_home_category2_alt"
+      },
+      {
+        "id": "block_home_category2_button"
+      },
+      {
+        "id": "block_home_category2_link"
+      },
+      {
+        "id": "block_home_category2_subtitle"
+      },
+      {
+        "id": "block_home_category2_title"
+      },
+      {
+        "id": "block_home_category3"
+      },
+      {
+        "id": "block_home_category3_alt"
+      },
+      {
+        "id": "block_home_category3_button"
+      },
+      {
+        "id": "block_home_category3_link"
+      },
+      {
+        "id": "block_home_category3_subtitle"
+      },
+      {
+        "id": "block_home_category3_title"
+      },
+      {
+        "id": "blog_menu"
+      },
+      {
+        "id": "btn_bg_shop"
+      },
+      {
+        "id": "category_image_1"
+      },
+      {
+        "id": "category_image_2"
+      },
+      {
+        "id": "category_image_3"
+      },
+      {
+        "id": "category_image_4"
+      },
+      {
+        "id": "category_image_5"
+      },
+      {
+        "id": "category_image_6"
+      },
+      {
+        "id": "category_title_first_1"
+      },
+      {
+        "id": "category_title_first_2"
+      },
+      {
+        "id": "category_title_first_3"
+      },
+      {
+        "id": "category_title_first_4"
+      },
+      {
+        "id": "category_title_first_5"
+      },
+      {
+        "id": "category_title_first_6"
+      },
+      {
+        "id": "category_url_1"
+      },
+      {
+        "id": "category_url_2"
+      },
+      {
+        "id": "category_url_3"
+      },
+      {
+        "id": "category_url_4"
+      },
+      {
+        "id": "category_url_5"
+      },
+      {
+        "id": "category_url_6"
+      },
+      {
+        "id": "category_use_1"
+      },
+      {
+        "id": "category_use_2"
+      },
+      {
+        "id": "category_use_3"
+      },
+      {
+        "id": "category_use_4"
+      },
+      {
+        "id": "category_use_5"
+      },
+      {
+        "id": "category_use_6"
+      },
+      {
+        "id": "checkout_logo_image"
+      },
+      {
+        "id": "checkout_logo_position"
+      },
+      {
+        "id": "checkout_logo_size"
+      },
+      {
+        "id": "code_messenger_mb"
+      },
+      {
+        "id": "col-tab-fls-1"
+      },
+      {
+        "id": "col-tab-fls-2"
+      },
+      {
+        "id": "col-tab-fls-3"
+      },
+      {
+        "id": "collection_banner"
+      },
+      {
+        "id": "collection_one"
+      },
+      {
+        "id": "collection_one_limit"
+      },
+      {
+        "id": "collection_sidebar"
+      },
+      {
+        "id": "collection_two"
+      },
+      {
+        "id": "collection_two_limit"
+      },
+      {
+        "id": "color_btn_slider_1"
+      },
+      {
+        "id": "color_btn_slider_2"
+      },
+      {
+        "id": "color_btn_slider_3"
+      },
+      {
+        "id": "color_btn_slider_4"
+      },
+      {
+        "id": "color_code_new_1"
+      },
+      {
+        "id": "color_code_new_10"
+      },
+      {
+        "id": "color_code_new_11"
+      },
+      {
+        "id": "color_code_new_12"
+      },
+      {
+        "id": "color_code_new_13"
+      },
+      {
+        "id": "color_code_new_14"
+      },
+      {
+        "id": "color_code_new_15"
+      },
+      {
+        "id": "color_code_new_16"
+      },
+      {
+        "id": "color_code_new_17"
+      },
+      {
+        "id": "color_code_new_18"
+      },
+      {
+        "id": "color_code_new_19"
+      },
+      {
+        "id": "color_code_new_2"
+      },
+      {
+        "id": "color_code_new_20"
+      },
+      {
+        "id": "color_code_new_21"
+      },
+      {
+        "id": "color_code_new_22"
+      },
+      {
+        "id": "color_code_new_23"
+      },
+      {
+        "id": "color_code_new_24"
+      },
+      {
+        "id": "color_code_new_25"
+      },
+      {
+        "id": "color_code_new_26"
+      },
+      {
+        "id": "color_code_new_27"
+      },
+      {
+        "id": "color_code_new_28"
+      },
+      {
+        "id": "color_code_new_29"
+      },
+      {
+        "id": "color_code_new_3"
+      },
+      {
+        "id": "color_code_new_30"
+      },
+      {
+        "id": "color_code_new_4"
+      },
+      {
+        "id": "color_code_new_5"
+      },
+      {
+        "id": "color_code_new_6"
+      },
+      {
+        "id": "color_code_new_7"
+      },
+      {
+        "id": "color_code_new_8"
+      },
+      {
+        "id": "color_code_new_9"
+      },
+      {
+        "id": "color_name_new_1"
+      },
+      {
+        "id": "color_name_new_10"
+      },
+      {
+        "id": "color_name_new_11"
+      },
+      {
+        "id": "color_name_new_12"
+      },
+      {
+        "id": "color_name_new_13"
+      },
+      {
+        "id": "color_name_new_14"
+      },
+      {
+        "id": "color_name_new_15"
+      },
+      {
+        "id": "color_name_new_16"
+      },
+      {
+        "id": "color_name_new_17"
+      },
+      {
+        "id": "color_name_new_18"
+      },
+      {
+        "id": "color_name_new_19"
+      },
+      {
+        "id": "color_name_new_2"
+      },
+      {
+        "id": "color_name_new_20"
+      },
+      {
+        "id": "color_name_new_21"
+      },
+      {
+        "id": "color_name_new_22"
+      },
+      {
+        "id": "color_name_new_23"
+      },
+      {
+        "id": "color_name_new_24"
+      },
+      {
+        "id": "color_name_new_25"
+      },
+      {
+        "id": "color_name_new_26"
+      },
+      {
+        "id": "color_name_new_27"
+      },
+      {
+        "id": "color_name_new_28"
+      },
+      {
+        "id": "color_name_new_29"
+      },
+      {
+        "id": "color_name_new_3"
+      },
+      {
+        "id": "color_name_new_30"
+      },
+      {
+        "id": "color_name_new_4"
+      },
+      {
+        "id": "color_name_new_5"
+      },
+      {
+        "id": "color_name_new_6"
+      },
+      {
+        "id": "color_name_new_7"
+      },
+      {
+        "id": "color_name_new_8"
+      },
+      {
+        "id": "color_name_new_9"
+      },
+      {
+        "id": "color_title"
+      },
+      {
+        "id": "content_service_1"
+      },
+      {
+        "id": "content_service_2"
+      },
+      {
+        "id": "content_service_3"
+      },
+      {
+        "id": "content_service_4"
+      },
+      {
+        "id": "coupon_10_code"
+      },
+      {
+        "id": "coupon_10_description"
+      },
+      {
+        "id": "coupon_10_hsd"
+      },
+      {
+        "id": "coupon_10_img.png"
+      },
+      {
+        "id": "coupon_10_show"
+      },
+      {
+        "id": "coupon_10_title"
+      },
+      {
+        "id": "coupon_1_code"
+      },
+      {
+        "id": "coupon_1_description"
+      },
+      {
+        "id": "coupon_1_hsd"
+      },
+      {
+        "id": "coupon_1_img.png"
+      },
+      {
+        "id": "coupon_1_show"
+      },
+      {
+        "id": "coupon_1_title"
+      },
+      {
+        "id": "coupon_2_code"
+      },
+      {
+        "id": "coupon_2_description"
+      },
+      {
+        "id": "coupon_2_hsd"
+      },
+      {
+        "id": "coupon_2_img.png"
+      },
+      {
+        "id": "coupon_2_show"
+      },
+      {
+        "id": "coupon_2_title"
+      },
+      {
+        "id": "coupon_3_code"
+      },
+      {
+        "id": "coupon_3_description"
+      },
+      {
+        "id": "coupon_3_hsd"
+      },
+      {
+        "id": "coupon_3_img.png"
+      },
+      {
+        "id": "coupon_3_show"
+      },
+      {
+        "id": "coupon_3_title"
+      },
+      {
+        "id": "coupon_4_code"
+      },
+      {
+        "id": "coupon_4_description"
+      },
+      {
+        "id": "coupon_4_hsd"
+      },
+      {
+        "id": "coupon_4_img.png"
+      },
+      {
+        "id": "coupon_4_show"
+      },
+      {
+        "id": "coupon_4_title"
+      },
+      {
+        "id": "coupon_5_code"
+      },
+      {
+        "id": "coupon_5_description"
+      },
+      {
+        "id": "coupon_5_hsd"
+      },
+      {
+        "id": "coupon_5_img.png"
+      },
+      {
+        "id": "coupon_5_show"
+      },
+      {
+        "id": "coupon_5_title"
+      },
+      {
+        "id": "coupon_6_code"
+      },
+      {
+        "id": "coupon_6_description"
+      },
+      {
+        "id": "coupon_6_hsd"
+      },
+      {
+        "id": "coupon_6_img.png"
+      },
+      {
+        "id": "coupon_6_show"
+      },
+      {
+        "id": "coupon_6_title"
+      },
+      {
+        "id": "coupon_7_code"
+      },
+      {
+        "id": "coupon_7_description"
+      },
+      {
+        "id": "coupon_7_hsd"
+      },
+      {
+        "id": "coupon_7_img.png"
+      },
+      {
+        "id": "coupon_7_show"
+      },
+      {
+        "id": "coupon_7_title"
+      },
+      {
+        "id": "coupon_8_code"
+      },
+      {
+        "id": "coupon_8_description"
+      },
+      {
+        "id": "coupon_8_hsd"
+      },
+      {
+        "id": "coupon_8_img.png"
+      },
+      {
+        "id": "coupon_8_show"
+      },
+      {
+        "id": "coupon_8_title"
+      },
+      {
+        "id": "coupon_9_code"
+      },
+      {
+        "id": "coupon_9_description"
+      },
+      {
+        "id": "coupon_9_hsd"
+      },
+      {
+        "id": "coupon_9_img.png"
+      },
+      {
+        "id": "coupon_9_show"
+      },
+      {
+        "id": "coupon_9_title"
+      },
+      {
+        "id": "email_mb"
+      },
+      {
+        "id": "end-time-tab-fls-1"
+      },
+      {
+        "id": "end-time-tab-fls-2"
+      },
+      {
+        "id": "end-time-tab-fls-3"
+      },
+      {
+        "id": "enter_tag_2"
+      },
+      {
+        "id": "favicon"
+      },
+      {
+        "id": "favicon.ico"
+      },
+      {
+        "id": "favicon.png"
+      },
+      {
+        "id": "filter_title"
+      },
+      {
+        "id": "first_collection_default_1"
+      },
+      {
+        "id": "first_title_collection_default_1"
+      },
+      {
+        "id": "footer-address"
+      },
+      {
+        "id": "footer-email"
+      },
+      {
+        "id": "footer-fax"
+      },
+      {
+        "id": "footer-tell"
+      },
+      {
+        "id": "footer1_information"
+      },
+      {
+        "id": "footer1_title"
+      },
+      {
+        "id": "footer2_title"
+      },
+      {
+        "id": "footer_address"
+      },
+      {
+        "id": "footer_email"
+      },
+      {
+        "id": "footer_link1_menu"
+      },
+      {
+        "id": "footer_link1_show"
+      },
+      {
+        "id": "footer_link1_title"
+      },
+      {
+        "id": "footer_phone"
+      },
+      {
+        "id": "footer_time"
+      },
+      {
+        "id": "four_alt_1"
+      },
+      {
+        "id": "four_alt_2"
+      },
+      {
+        "id": "four_alt_3"
+      },
+      {
+        "id": "four_alt_4"
+      },
+      {
+        "id": "four_banner_image_1.jpg"
+      },
+      {
+        "id": "four_banner_image_2.jpg"
+      },
+      {
+        "id": "four_banner_image_3.jpg"
+      },
+      {
+        "id": "four_banner_image_4.jpg"
+      },
+      {
+        "id": "four_url_1"
+      },
+      {
+        "id": "four_url_2"
+      },
+      {
+        "id": "four_url_3"
+      },
+      {
+        "id": "four_url_4"
+      },
+      {
+        "id": "galassia_cart_onebuy_image.png"
+      },
+      {
+        "id": "galassia_newsletter_placeholder"
+      },
+      {
+        "id": "galassia_newsletter_success"
+      },
+      {
+        "id": "google_maps_code"
+      },
+      {
+        "id": "h_banner_group_1"
+      },
+      {
+        "id": "h_banner_group_2"
+      },
+      {
+        "id": "h_banner_group_3"
+      },
+      {
+        "id": "header_01_color_bkg"
+      },
+      {
+        "id": "header_01_color_text"
+      },
+      {
+        "id": "header_01_topbar_bkg"
+      },
+      {
+        "id": "header_01_topbar_text"
+      },
+      {
+        "id": "header_02_color_bkg"
+      },
+      {
+        "id": "header_02_color_hover"
+      },
+      {
+        "id": "header_02_color_text"
+      },
+      {
+        "id": "header_02_topbar_bkg"
+      },
+      {
+        "id": "header_02_topbar_text"
+      },
+      {
+        "id": "header_03_color_bkg"
+      },
+      {
+        "id": "header_03_color_text"
+      },
+      {
+        "id": "header_03_topbar_bkg"
+      },
+      {
+        "id": "header_03_topbar_text"
+      },
+      {
+        "id": "header_home_selected"
+      },
+      {
+        "id": "heading_collection_one"
+      },
+      {
+        "id": "heading_collection_two"
+      },
+      {
+        "id": "home_about_button"
+      },
+      {
+        "id": "home_about_image"
+      },
+      {
+        "id": "home_about_link"
+      },
+      {
+        "id": "home_about_page"
+      },
+      {
+        "id": "home_about_show"
+      },
+      {
+        "id": "home_about_title"
+      },
+      {
+        "id": "home_category_1_alt"
+      },
+      {
+        "id": "home_category_1_banner"
+      },
+      {
+        "id": "home_category_1_link"
+      },
+      {
+        "id": "home_category_1_show"
+      },
+      {
+        "id": "home_category_1_title"
+      },
+      {
+        "id": "home_category_2_alt"
+      },
+      {
+        "id": "home_category_2_banner"
+      },
+      {
+        "id": "home_category_2_link"
+      },
+      {
+        "id": "home_category_2_show"
+      },
+      {
+        "id": "home_category_2_title"
+      },
+      {
+        "id": "home_category_3_alt"
+      },
+      {
+        "id": "home_category_3_banner"
+      },
+      {
+        "id": "home_category_3_link"
+      },
+      {
+        "id": "home_category_3_show"
+      },
+      {
+        "id": "home_category_3_title"
+      },
+      {
+        "id": "home_category_4_alt"
+      },
+      {
+        "id": "home_category_4_banner"
+      },
+      {
+        "id": "home_category_4_link"
+      },
+      {
+        "id": "home_category_4_show"
+      },
+      {
+        "id": "home_category_4_title"
+      },
+      {
+        "id": "home_category_5_alt"
+      },
+      {
+        "id": "home_category_5_banner"
+      },
+      {
+        "id": "home_category_5_link"
+      },
+      {
+        "id": "home_category_5_show"
+      },
+      {
+        "id": "home_category_5_title"
+      },
+      {
+        "id": "hottline_mb"
+      },
+      {
+        "id": "icon-fl-ldp.png"
+      },
+      {
+        "id": "icon_service_1"
+      },
+      {
+        "id": "icon_service_2"
+      },
+      {
+        "id": "icon_service_3"
+      },
+      {
+        "id": "icon_service_4"
+      },
+      {
+        "id": "img_load_fls.png"
+      },
+      {
+        "id": "info_header"
+      },
+      {
+        "id": "ldp-head-banner-mob.jpg"
+      },
+      {
+        "id": "ldp-head-banner.jpg"
+      },
+      {
+        "id": "limit_col_new_1"
+      },
+      {
+        "id": "link_logo_bct"
+      },
+      {
+        "id": "logo_bct"
+      },
+      {
+        "id": "news_recent_show"
+      },
+      {
+        "id": "news_recent_title"
+      },
+      {
+        "id": "page_banner"
+      },
+      {
+        "id": "page_banner_link"
+      },
+      {
+        "id": "page_menu"
+      },
+      {
+        "id": "pagination_blog_limit"
+      },
+      {
+        "id": "policy_cart_1"
+      },
+      {
+        "id": "policy_cart_2"
+      },
+      {
+        "id": "policy_cart_3"
+      },
+      {
+        "id": "policy_cart_4"
+      },
+      {
+        "id": "policy_cart_title"
+      },
+      {
+        "id": "popup_contact_alt"
+      },
+      {
+        "id": "popup_contact_banner"
+      },
+      {
+        "id": "popup_contact_bkg"
+      },
+      {
+        "id": "popup_contact_content"
+      },
+      {
+        "id": "popup_contact_description_1"
+      },
+      {
+        "id": "popup_contact_description_2"
+      },
+      {
+        "id": "popup_contact_description_3"
+      },
+      {
+        "id": "popup_contact_link"
+      },
+      {
+        "id": "popup_contact_select"
+      },
+      {
+        "id": "popup_contact_show"
+      },
+      {
+        "id": "popup_contact_time"
+      },
+      {
+        "id": "popup_contact_title"
+      },
+      {
+        "id": "product_best_seller_title"
+      },
+      {
+        "id": "product_suggest_title"
+      },
+      {
+        "id": "productspg_featured_quantity"
+      },
+      {
+        "id": "productspg_related_products"
+      },
+      {
+        "id": "productspg_related_title"
+      },
+      {
+        "id": "promotion_hrvapp_use"
+      },
+      {
+        "id": "section_index_1"
+      },
+      {
+        "id": "section_index_10"
+      },
+      {
+        "id": "section_index_11"
+      },
+      {
+        "id": "section_index_2"
+      },
+      {
+        "id": "section_index_3"
+      },
+      {
+        "id": "section_index_4"
+      },
+      {
+        "id": "section_index_5"
+      },
+      {
+        "id": "section_index_6"
+      },
+      {
+        "id": "section_index_7"
+      },
+      {
+        "id": "section_index_8"
+      },
+      {
+        "id": "section_index_9"
+      },
+      {
+        "id": "section_ldp_1"
+      },
+      {
+        "id": "section_ldp_2"
+      },
+      {
+        "id": "section_ldp_3"
+      },
+      {
+        "id": "section_ldp_4"
+      },
+      {
+        "id": "section_ldp_5"
+      },
+      {
+        "id": "section_ldp_6"
+      },
+      {
+        "id": "share_fb_home"
+      },
+      {
+        "id": "shop_title_color"
+      },
+      {
+        "id": "show_block_home_category"
+      },
+      {
+        "id": "show_blog_menu"
+      },
+      {
+        "id": "show_collection_filter"
+      },
+      {
+        "id": "show_footer1"
+      },
+      {
+        "id": "show_footer2"
+      },
+      {
+        "id": "show_google_maps"
+      },
+      {
+        "id": "show_logo_bct"
+      },
+      {
+        "id": "show_page_banner"
+      },
+      {
+        "id": "show_page_menu"
+      },
+      {
+        "id": "slide_1"
+      },
+      {
+        "id": "slide_1_alt"
+      },
+      {
+        "id": "slide_1_animation"
+      },
+      {
+        "id": "slide_1_big_title"
+      },
+      {
+        "id": "slide_1_button_name"
+      },
+      {
+        "id": "slide_1_color_big_title"
+      },
+      {
+        "id": "slide_1_color_small_title"
+      },
+      {
+        "id": "slide_1_link"
+      },
+      {
+        "id": "slide_1_position_box"
+      },
+      {
+        "id": "slide_1_small_title"
+      },
+      {
+        "id": "slide_2"
+      },
+      {
+        "id": "slide_2_alt"
+      },
+      {
+        "id": "slide_2_animation"
+      },
+      {
+        "id": "slide_2_big_title"
+      },
+      {
+        "id": "slide_2_button_name"
+      },
+      {
+        "id": "slide_2_color_big_title"
+      },
+      {
+        "id": "slide_2_color_small_title"
+      },
+      {
+        "id": "slide_2_link"
+      },
+      {
+        "id": "slide_2_position_box"
+      },
+      {
+        "id": "slide_2_small_title"
+      },
+      {
+        "id": "slide_3"
+      },
+      {
+        "id": "slide_3_alt"
+      },
+      {
+        "id": "slide_3_animation"
+      },
+      {
+        "id": "slide_3_big_title"
+      },
+      {
+        "id": "slide_3_button_name"
+      },
+      {
+        "id": "slide_3_color_big_title"
+      },
+      {
+        "id": "slide_3_color_small_title"
+      },
+      {
+        "id": "slide_3_link"
+      },
+      {
+        "id": "slide_3_position_box"
+      },
+      {
+        "id": "slide_3_small_title"
+      },
+      {
+        "id": "slide_4"
+      },
+      {
+        "id": "slide_4_alt"
+      },
+      {
+        "id": "slide_4_animation"
+      },
+      {
+        "id": "slide_4_big_title"
+      },
+      {
+        "id": "slide_4_button_name"
+      },
+      {
+        "id": "slide_4_color_big_title"
+      },
+      {
+        "id": "slide_4_color_small_title"
+      },
+      {
+        "id": "slide_4_link"
+      },
+      {
+        "id": "slide_4_position_box"
+      },
+      {
+        "id": "slide_4_small_title"
+      },
+      {
+        "id": "slideshow_1"
+      },
+      {
+        "id": "slideshow_1-jpg"
+      },
+      {
+        "id": "slideshow_1_height"
+      },
+      {
+        "id": "slideshow_1_height_mob"
+      },
+      {
+        "id": "slideshow_1_width"
+      },
+      {
+        "id": "slideshow_1_width_mob"
+      },
+      {
+        "id": "slideshow_2"
+      },
+      {
+        "id": "slideshow_2-jpg"
+      },
+      {
+        "id": "slideshow_2_height"
+      },
+      {
+        "id": "slideshow_2_height_mob"
+      },
+      {
+        "id": "slideshow_2_mob-jpg"
+      },
+      {
+        "id": "slideshow_2_width"
+      },
+      {
+        "id": "slideshow_2_width_mob"
+      },
+      {
+        "id": "slideshow_3"
+      },
+      {
+        "id": "slideshow_3-jpg"
+      },
+      {
+        "id": "slideshow_3_height"
+      },
+      {
+        "id": "slideshow_3_height_mob"
+      },
+      {
+        "id": "slideshow_3_mob-jpg"
+      },
+      {
+        "id": "slideshow_3_width"
+      },
+      {
+        "id": "slideshow_3_width_mob"
+      },
+      {
+        "id": "slideshow_4"
+      },
+      {
+        "id": "slideshow_4-jpg"
+      },
+      {
+        "id": "slideshow_4_height"
+      },
+      {
+        "id": "slideshow_4_height_mob"
+      },
+      {
+        "id": "slideshow_4_width"
+      },
+      {
+        "id": "slideshow_4_width_mob"
+      },
+      {
+        "id": "start-time-tab-fls-1"
+      },
+      {
+        "id": "start-time-tab-fls-2"
+      },
+      {
+        "id": "start-time-tab-fls-3"
+      },
+      {
+        "id": "tag_title_custom_2"
+      },
+      {
+        "id": "text_service_1"
+      },
+      {
+        "id": "text_service_2"
+      },
+      {
+        "id": "text_service_3"
+      },
+      {
+        "id": "text_service_4"
+      },
+      {
+        "id": "three-alt-banner-ldp-black-friday-1"
+      },
+      {
+        "id": "three-alt-banner-ldp-black-friday-1_urlx"
+      },
+      {
+        "id": "three-alt-banner-ldp-black-friday-2"
+      },
+      {
+        "id": "three-alt-banner-ldp-black-friday-2_urlx"
+      },
+      {
+        "id": "three-alt-banner-ldp-black-friday-3"
+      },
+      {
+        "id": "three-alt-banner-ldp-black-friday-3_urlx"
+      },
+      {
+        "id": "three-banner-ldp-black-friday-1.jpg"
+      },
+      {
+        "id": "three-banner-ldp-black-friday-2.jpg"
+      },
+      {
+        "id": "three-banner-ldp-black-friday-3.jpg"
+      },
+      {
+        "id": "title-tab-fls-1"
+      },
+      {
+        "id": "title-tab-fls-2"
+      },
+      {
+        "id": "title-tab-fls-3"
+      },
+      {
+        "id": "title_blog_menu"
+      },
+      {
+        "id": "title_home_blog_1"
+      },
+      {
+        "id": "title_list_1"
+      },
+      {
+        "id": "title_list_2"
+      },
+      {
+        "id": "title_list_3"
+      },
+      {
+        "id": "title_list_col"
+      },
+      {
+        "id": "title_page_menu"
+      },
+      {
+        "id": "title_tag_3"
+      },
+      {
+        "id": "use_category"
+      },
+      {
+        "id": "use_chatbot"
+      },
+      {
+        "id": "use_collection_one_products"
+      },
+      {
+        "id": "use_collection_two_products"
+      },
+      {
+        "id": "use_color_filter"
+      },
+      {
+        "id": "use_color_filter_1"
+      },
+      {
+        "id": "use_color_filter_10"
+      },
+      {
+        "id": "use_color_filter_11"
+      },
+      {
+        "id": "use_color_filter_12"
+      },
+      {
+        "id": "use_color_filter_13"
+      },
+      {
+        "id": "use_color_filter_14"
+      },
+      {
+        "id": "use_color_filter_15"
+      },
+      {
+        "id": "use_color_filter_16"
+      },
+      {
+        "id": "use_color_filter_17"
+      },
+      {
+        "id": "use_color_filter_18"
+      },
+      {
+        "id": "use_color_filter_19"
+      },
+      {
+        "id": "use_color_filter_2"
+      },
+      {
+        "id": "use_color_filter_20"
+      },
+      {
+        "id": "use_color_filter_21"
+      },
+      {
+        "id": "use_color_filter_22"
+      },
+      {
+        "id": "use_color_filter_23"
+      },
+      {
+        "id": "use_color_filter_24"
+      },
+      {
+        "id": "use_color_filter_25"
+      },
+      {
+        "id": "use_color_filter_26"
+      },
+      {
+        "id": "use_color_filter_27"
+      },
+      {
+        "id": "use_color_filter_28"
+      },
+      {
+        "id": "use_color_filter_29"
+      },
+      {
+        "id": "use_color_filter_3"
+      },
+      {
+        "id": "use_color_filter_30"
+      },
+      {
+        "id": "use_color_filter_4"
+      },
+      {
+        "id": "use_color_filter_5"
+      },
+      {
+        "id": "use_color_filter_6"
+      },
+      {
+        "id": "use_color_filter_7"
+      },
+      {
+        "id": "use_color_filter_8"
+      },
+      {
+        "id": "use_color_filter_9"
+      },
+      {
+        "id": "use_img_load_fls"
+      },
+      {
+        "id": "use_info_header"
+      },
+      {
+        "id": "use_logo"
+      },
+      {
+        "id": "use_price_filter"
+      },
+      {
+        "id": "use_product_style"
+      },
+      {
+        "id": "use_service_1"
+      },
+      {
+        "id": "use_service_2"
+      },
+      {
+        "id": "use_service_3"
+      },
+      {
+        "id": "use_service_4"
+      },
+      {
+        "id": "use_social_fixed"
+      },
+      {
+        "id": "use_tag_custom_2"
+      },
+      {
+        "id": "use_vendor_filter"
+      },
+      {
+        "id": "vendor_limit"
+      },
+      {
+        "id": "vendor_title"
+      },
+      {
+        "id": "w_banner_group_1"
+      },
+      {
+        "id": "w_banner_group_2"
+      },
+      {
+        "id": "w_banner_group_3"
+      }
+    ],
+    "failures": [
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "alt-ldp-video-banner",
+        "detail": "settings.alt-ldp-video-banner is read in snippets/ldp-black-friday-3.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "bg_color_menu_mb",
+        "detail": "settings.bg_color_menu_mb is read in snippets/style-theme.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "bg_image_fls",
+        "detail": "settings.bg_image_fls is read in snippets/section-flash-sale.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "choose_col_grou3",
+        "detail": "settings.choose_col_grou3 is read in snippets/section-collection-group-3.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "choose_of_brand",
+        "detail": "settings.choose_of_brand is read in snippets/variable-wd.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "choose_of_collection",
+        "detail": "settings.choose_of_collection is read in snippets/variable-wd.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "choose_related",
+        "detail": "settings.choose_related is read in snippets/variable-wd.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "col_template",
+        "detail": "settings.col_template is read in snippets/variable-wd.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "color_text_category",
+        "detail": "settings.color_text_category is read in snippets/section-category.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "content-information-collection",
+        "detail": "settings.content-information-collection is read in snippets/banner-footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "content_cart_note",
+        "detail": "settings.content_cart_note is read in templates/cart.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "dataType",
+        "detail": "settings.dataType is read in snippets/variable-wd.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "icon-title-coupon",
+        "detail": "settings.icon-title-coupon is read in snippets/ldp-black-friday-4.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "id_video_ldp",
+        "detail": "settings.id_video_ldp is read in snippets/ldp-black-friday-3.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "page_sizechart_1",
+        "detail": "settings.page_sizechart_1 is read in snippets/size-chart.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "page_sizechart_1_normal",
+        "detail": "settings.page_sizechart_1_normal is read in snippets/size-chart-normal.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "page_sizechart_2",
+        "detail": "settings.page_sizechart_2 is read in snippets/size-chart.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "page_sizechart_2_normal",
+        "detail": "settings.page_sizechart_2_normal is read in snippets/size-chart-normal.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "shop_color_head_title",
+        "detail": "settings.shop_color_head_title is read in snippets/style-theme.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "show_banner_ft_custom",
+        "detail": "settings.show_banner_ft_custom is read in snippets/banner-footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "show_countdown_banner_ldp",
+        "detail": "settings.show_countdown_banner_ldp is read in templates/page.ldp.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "show_tab_sizechart_1",
+        "detail": "settings.show_tab_sizechart_1 is read in snippets/size-chart.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "show_tab_sizechart_1_normal",
+        "detail": "settings.show_tab_sizechart_1_normal is read in snippets/size-chart-normal.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "show_tab_sizechart_2",
+        "detail": "settings.show_tab_sizechart_2 is read in snippets/size-chart-normal.liquid, snippets/size-chart.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "show_tab_sizechart_2_normal",
+        "detail": "settings.show_tab_sizechart_2_normal is read in snippets/size-chart-normal.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "text-btn-information-collection",
+        "detail": "settings.text-btn-information-collection is read in snippets/banner-footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "text_color_menu_mb",
+        "detail": "settings.text_color_menu_mb is read in snippets/style-theme.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "time_day_headbanner",
+        "detail": "settings.time_day_headbanner is read in templates/page.ldp.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "time_line_deal_1",
+        "detail": "settings.time_line_deal_1 is read in snippets/product-right-info-default.liquid, snippets/variable-wd.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "time_line_headbanner",
+        "detail": "settings.time_line_headbanner is read in templates/page.ldp.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "time_month_headbanner",
+        "detail": "settings.time_month_headbanner is read in templates/page.ldp.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "time_year_deal_1",
+        "detail": "settings.time_year_deal_1 is read in snippets/product-right-info-default.liquid, snippets/variable-wd.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "time_year_deal_1_ldp",
+        "detail": "settings.time_year_deal_1_ldp is read in snippets/ldp-black-friday-2.liquid, templates/page.ldp.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "time_year_headbanner",
+        "detail": "settings.time_year_headbanner is read in templates/page.ldp.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "title-information-collection",
+        "detail": "settings.title-information-collection is read in snippets/banner-footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "title_home_blog",
+        "detail": "settings.title_home_blog is read in snippets/section-blog-home.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "title_sidebar_sizechart",
+        "detail": "settings.title_sidebar_sizechart is read in snippets/size-chart.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "title_sidebar_sizechart_normal",
+        "detail": "settings.title_sidebar_sizechart_normal is read in snippets/size-chart-normal.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "title_sizechart_1",
+        "detail": "settings.title_sizechart_1 is read in snippets/size-chart.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "title_sizechart_1_normal",
+        "detail": "settings.title_sizechart_1_normal is read in snippets/size-chart-normal.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "type_paginate",
+        "detail": "settings.type_paginate is read in snippets/variable-wd.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "type_variant",
+        "detail": "settings.type_variant is read in snippets/mini-cart-alsolike.liquid, snippets/swatch-quickview.liquid, snippets/swatch.liquid, snippets/variant-color.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "url",
+        "detail": "settings.url is read in snippets/variable-wd.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "url-image-information-collection",
+        "detail": "settings.url-image-information-collection is read in snippets/banner-footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "url-image-information-collection-mob",
+        "detail": "settings.url-image-information-collection-mob is read in snippets/banner-footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "url-information-collection",
+        "detail": "settings.url-information-collection is read in snippets/banner-footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "url_banner_ldp_flashsale_bottom",
+        "detail": "settings.url_banner_ldp_flashsale_bottom is read in snippets/ldp-black-friday-3.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "use_bg_image_fls",
+        "detail": "settings.use_bg_image_fls is read in snippets/section-flash-sale.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "use_of_brand",
+        "detail": "settings.use_of_brand is read in snippets/variable-wd.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "use_of_collection",
+        "detail": "settings.use_of_collection is read in snippets/variable-wd.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "use_product_seen",
+        "detail": "settings.use_product_seen is read in snippets/variable-wd.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "vertical_slider",
+        "detail": "settings.vertical_slider is read in snippets/product-left-image.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      }
+    ]
+  },
+  "assets": {
+    "ok": false,
+    "counts": {
+      "localPresent": 32,
+      "localMissing": 7,
+      "remote": 0
+    },
+    "localMissing": [
+      {
+        "ref": "banner_ldp_flashsale_bottom.jpg",
+        "files": [
+          "snippets/ldp-black-friday-3.liquid"
+        ]
+      },
+      {
+        "ref": "grande",
+        "files": [
+          "snippets/main-countdown-banner.liquid"
+        ]
+      },
+      {
+        "ref": "heart-fill.svg",
+        "files": [
+          "snippets/variable-wd.liquid"
+        ]
+      },
+      {
+        "ref": "ldp-video-banner-mob.jpg",
+        "files": [
+          "snippets/ldp-black-friday-3.liquid"
+        ]
+      },
+      {
+        "ref": "ldp-video-banner.jpg",
+        "files": [
+          "snippets/ldp-black-friday-3.liquid"
+        ]
+      },
+      {
+        "ref": "logo.png",
+        "files": [
+          "snippets/footer-scripts.liquid"
+        ]
+      },
+      {
+        "ref": "medium",
+        "files": [
+          "snippets/style-theme.liquid"
+        ]
+      }
+    ],
+    "remote": []
+  },
+  "renders": [],
+  "refusals": [
+    {
+      "check": "settings-binding",
+      "failures": [
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "alt-ldp-video-banner",
+          "detail": "settings.alt-ldp-video-banner is read in snippets/ldp-black-friday-3.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "bg_color_menu_mb",
+          "detail": "settings.bg_color_menu_mb is read in snippets/style-theme.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "bg_image_fls",
+          "detail": "settings.bg_image_fls is read in snippets/section-flash-sale.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "choose_col_grou3",
+          "detail": "settings.choose_col_grou3 is read in snippets/section-collection-group-3.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "choose_of_brand",
+          "detail": "settings.choose_of_brand is read in snippets/variable-wd.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "choose_of_collection",
+          "detail": "settings.choose_of_collection is read in snippets/variable-wd.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "choose_related",
+          "detail": "settings.choose_related is read in snippets/variable-wd.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "col_template",
+          "detail": "settings.col_template is read in snippets/variable-wd.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "color_text_category",
+          "detail": "settings.color_text_category is read in snippets/section-category.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "content-information-collection",
+          "detail": "settings.content-information-collection is read in snippets/banner-footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "content_cart_note",
+          "detail": "settings.content_cart_note is read in templates/cart.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "dataType",
+          "detail": "settings.dataType is read in snippets/variable-wd.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "icon-title-coupon",
+          "detail": "settings.icon-title-coupon is read in snippets/ldp-black-friday-4.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "id_video_ldp",
+          "detail": "settings.id_video_ldp is read in snippets/ldp-black-friday-3.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "page_sizechart_1",
+          "detail": "settings.page_sizechart_1 is read in snippets/size-chart.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "page_sizechart_1_normal",
+          "detail": "settings.page_sizechart_1_normal is read in snippets/size-chart-normal.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "page_sizechart_2",
+          "detail": "settings.page_sizechart_2 is read in snippets/size-chart.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "page_sizechart_2_normal",
+          "detail": "settings.page_sizechart_2_normal is read in snippets/size-chart-normal.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "shop_color_head_title",
+          "detail": "settings.shop_color_head_title is read in snippets/style-theme.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "show_banner_ft_custom",
+          "detail": "settings.show_banner_ft_custom is read in snippets/banner-footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "show_countdown_banner_ldp",
+          "detail": "settings.show_countdown_banner_ldp is read in templates/page.ldp.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "show_tab_sizechart_1",
+          "detail": "settings.show_tab_sizechart_1 is read in snippets/size-chart.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "show_tab_sizechart_1_normal",
+          "detail": "settings.show_tab_sizechart_1_normal is read in snippets/size-chart-normal.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "show_tab_sizechart_2",
+          "detail": "settings.show_tab_sizechart_2 is read in snippets/size-chart-normal.liquid, snippets/size-chart.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "show_tab_sizechart_2_normal",
+          "detail": "settings.show_tab_sizechart_2_normal is read in snippets/size-chart-normal.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "text-btn-information-collection",
+          "detail": "settings.text-btn-information-collection is read in snippets/banner-footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "text_color_menu_mb",
+          "detail": "settings.text_color_menu_mb is read in snippets/style-theme.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "time_day_headbanner",
+          "detail": "settings.time_day_headbanner is read in templates/page.ldp.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "time_line_deal_1",
+          "detail": "settings.time_line_deal_1 is read in snippets/product-right-info-default.liquid, snippets/variable-wd.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "time_line_headbanner",
+          "detail": "settings.time_line_headbanner is read in templates/page.ldp.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "time_month_headbanner",
+          "detail": "settings.time_month_headbanner is read in templates/page.ldp.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "time_year_deal_1",
+          "detail": "settings.time_year_deal_1 is read in snippets/product-right-info-default.liquid, snippets/variable-wd.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "time_year_deal_1_ldp",
+          "detail": "settings.time_year_deal_1_ldp is read in snippets/ldp-black-friday-2.liquid, templates/page.ldp.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "time_year_headbanner",
+          "detail": "settings.time_year_headbanner is read in templates/page.ldp.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "title-information-collection",
+          "detail": "settings.title-information-collection is read in snippets/banner-footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "title_home_blog",
+          "detail": "settings.title_home_blog is read in snippets/section-blog-home.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "title_sidebar_sizechart",
+          "detail": "settings.title_sidebar_sizechart is read in snippets/size-chart.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "title_sidebar_sizechart_normal",
+          "detail": "settings.title_sidebar_sizechart_normal is read in snippets/size-chart-normal.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "title_sizechart_1",
+          "detail": "settings.title_sizechart_1 is read in snippets/size-chart.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "title_sizechart_1_normal",
+          "detail": "settings.title_sizechart_1_normal is read in snippets/size-chart-normal.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "type_paginate",
+          "detail": "settings.type_paginate is read in snippets/variable-wd.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "type_variant",
+          "detail": "settings.type_variant is read in snippets/mini-cart-alsolike.liquid, snippets/swatch-quickview.liquid, snippets/swatch.liquid, snippets/variant-color.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "url",
+          "detail": "settings.url is read in snippets/variable-wd.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "url-image-information-collection",
+          "detail": "settings.url-image-information-collection is read in snippets/banner-footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "url-image-information-collection-mob",
+          "detail": "settings.url-image-information-collection-mob is read in snippets/banner-footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "url-information-collection",
+          "detail": "settings.url-information-collection is read in snippets/banner-footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "url_banner_ldp_flashsale_bottom",
+          "detail": "settings.url_banner_ldp_flashsale_bottom is read in snippets/ldp-black-friday-3.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "use_bg_image_fls",
+          "detail": "settings.use_bg_image_fls is read in snippets/section-flash-sale.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "use_of_brand",
+          "detail": "settings.use_of_brand is read in snippets/variable-wd.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "use_of_collection",
+          "detail": "settings.use_of_collection is read in snippets/variable-wd.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "use_product_seen",
+          "detail": "settings.use_product_seen is read in snippets/variable-wd.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "vertical_slider",
+          "detail": "settings.vertical_slider is read in snippets/product-left-image.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        }
+      ]
+    },
+    {
+      "check": "assets",
+      "failures": [
+        {
+          "rule": "ASSET_MISSING_LOCAL",
+          "ref": "banner_ldp_flashsale_bottom.jpg",
+          "files": [
+            "snippets/ldp-black-friday-3.liquid"
+          ]
+        },
+        {
+          "rule": "ASSET_MISSING_LOCAL",
+          "ref": "grande",
+          "files": [
+            "snippets/main-countdown-banner.liquid"
+          ]
+        },
+        {
+          "rule": "ASSET_MISSING_LOCAL",
+          "ref": "heart-fill.svg",
+          "files": [
+            "snippets/variable-wd.liquid"
+          ]
+        },
+        {
+          "rule": "ASSET_MISSING_LOCAL",
+          "ref": "ldp-video-banner-mob.jpg",
+          "files": [
+            "snippets/ldp-black-friday-3.liquid"
+          ]
+        },
+        {
+          "rule": "ASSET_MISSING_LOCAL",
+          "ref": "ldp-video-banner.jpg",
+          "files": [
+            "snippets/ldp-black-friday-3.liquid"
+          ]
+        },
+        {
+          "rule": "ASSET_MISSING_LOCAL",
+          "ref": "logo.png",
+          "files": [
+            "snippets/footer-scripts.liquid"
+          ]
+        },
+        {
+          "rule": "ASSET_MISSING_LOCAL",
+          "ref": "medium",
+          "files": [
+            "snippets/style-theme.liquid"
+          ]
+        }
+      ]
+    },
+    {
+      "check": "haravan-contracts",
+      "failures": [
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "slideshow_1_mob-jpg",
+          "file": "config/settings.html",
+          "line": 699,
+          "message": "Duplicate setting control name 'slideshow_1_mob-jpg' in config/settings.html",
+          "detail": "Found 2 controls sharing name 'slideshow_1_mob-jpg'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+          "file": "layout/theme.liquid",
+          "line": 77,
+          "message": "included snippet 'optimize_rerender' does not exist under snippets/",
+          "detail": "Target snippet 'optimize_rerender' was not found in snippets/ (layout/theme.liquid:77)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "content_cart_note",
+          "file": "templates/cart.liquid",
+          "line": 111,
+          "message": "setting 'settings.content_cart_note' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'content_cart_note' (templates/cart.liquid:111)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "time_year_deal_1_ldp",
+          "file": "templates/page.ldp.liquid",
+          "line": 22,
+          "message": "setting 'settings.time_year_deal_1_ldp' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'time_year_deal_1_ldp' (templates/page.ldp.liquid:22)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "time_month_headbanner",
+          "file": "templates/page.ldp.liquid",
+          "line": 25,
+          "message": "setting 'settings.time_month_headbanner' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'time_month_headbanner' (templates/page.ldp.liquid:25)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "time_day_headbanner",
+          "file": "templates/page.ldp.liquid",
+          "line": 25,
+          "message": "setting 'settings.time_day_headbanner' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'time_day_headbanner' (templates/page.ldp.liquid:25)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "time_year_headbanner",
+          "file": "templates/page.ldp.liquid",
+          "line": 25,
+          "message": "setting 'settings.time_year_headbanner' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'time_year_headbanner' (templates/page.ldp.liquid:25)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "time_line_headbanner",
+          "file": "templates/page.ldp.liquid",
+          "line": 25,
+          "message": "setting 'settings.time_line_headbanner' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'time_line_headbanner' (templates/page.ldp.liquid:25)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "show_countdown_banner_ldp",
+          "file": "templates/page.ldp.liquid",
+          "line": 26,
+          "message": "setting 'settings.show_countdown_banner_ldp' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'show_countdown_banner_ldp' (templates/page.ldp.liquid:26)"
+        },
+        {
+          "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+          "file": "templates/product.liquid",
+          "line": 28,
+          "message": "included snippet 'bigpen-review' does not exist under snippets/",
+          "detail": "Target snippet 'bigpen-review' was not found in snippets/ (templates/product.liquid:28)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "show_banner_ft_custom",
+          "file": "snippets/banner-footer.liquid",
+          "line": 1,
+          "message": "setting 'settings.show_banner_ft_custom' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'show_banner_ft_custom' (snippets/banner-footer.liquid:1)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "url-image-information-collection",
+          "file": "snippets/banner-footer.liquid",
+          "line": 4,
+          "message": "setting 'settings.url-image-information-collection' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'url-image-information-collection' (snippets/banner-footer.liquid:4)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "url-image-information-collection-mob",
+          "file": "snippets/banner-footer.liquid",
+          "line": 4,
+          "message": "setting 'settings.url-image-information-collection-mob' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'url-image-information-collection-mob' (snippets/banner-footer.liquid:4)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "title-information-collection",
+          "file": "snippets/banner-footer.liquid",
+          "line": 4,
+          "message": "setting 'settings.title-information-collection' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'title-information-collection' (snippets/banner-footer.liquid:4)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "title-information-collection",
+          "file": "snippets/banner-footer.liquid",
+          "line": 11,
+          "message": "setting 'settings.title-information-collection' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'title-information-collection' (snippets/banner-footer.liquid:11)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "content-information-collection",
+          "file": "snippets/banner-footer.liquid",
+          "line": 14,
+          "message": "setting 'settings.content-information-collection' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'content-information-collection' (snippets/banner-footer.liquid:14)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "url-information-collection",
+          "file": "snippets/banner-footer.liquid",
+          "line": 17,
+          "message": "setting 'settings.url-information-collection' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'url-information-collection' (snippets/banner-footer.liquid:17)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "text-btn-information-collection",
+          "file": "snippets/banner-footer.liquid",
+          "line": 17,
+          "message": "setting 'settings.text-btn-information-collection' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'text-btn-information-collection' (snippets/banner-footer.liquid:17)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "time_year_deal_1_ldp",
+          "file": "snippets/ldp-black-friday-2.liquid",
+          "line": 2,
+          "message": "setting 'settings.time_year_deal_1_ldp' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'time_year_deal_1_ldp' (snippets/ldp-black-friday-2.liquid:2)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "url_banner_ldp_flashsale_bottom",
+          "file": "snippets/ldp-black-friday-3.liquid",
+          "line": 3,
+          "message": "setting 'settings.url_banner_ldp_flashsale_bottom' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'url_banner_ldp_flashsale_bottom' (snippets/ldp-black-friday-3.liquid:3)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "id_video_ldp",
+          "file": "snippets/ldp-black-friday-3.liquid",
+          "line": 8,
+          "message": "setting 'settings.id_video_ldp' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'id_video_ldp' (snippets/ldp-black-friday-3.liquid:8)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "alt-ldp-video-banner",
+          "file": "snippets/ldp-black-friday-3.liquid",
+          "line": 12,
+          "message": "setting 'settings.alt-ldp-video-banner' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'alt-ldp-video-banner' (snippets/ldp-black-friday-3.liquid:12)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "icon-title-coupon",
+          "file": "snippets/ldp-black-friday-4.liquid",
+          "line": 4,
+          "message": "setting 'settings.icon-title-coupon' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'icon-title-coupon' (snippets/ldp-black-friday-4.liquid:4)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "type_variant",
+          "file": "snippets/mini-cart-alsolike.liquid",
+          "line": 37,
+          "message": "setting 'settings.type_variant' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'type_variant' (snippets/mini-cart-alsolike.liquid:37)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "vertical_slider",
+          "file": "snippets/product-left-image.liquid",
+          "line": 18,
+          "message": "setting 'settings.vertical_slider' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'vertical_slider' (snippets/product-left-image.liquid:18)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "time_year_deal_1",
+          "file": "snippets/product-right-info-default.liquid",
+          "line": 61,
+          "message": "setting 'settings.time_year_deal_1' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'time_year_deal_1' (snippets/product-right-info-default.liquid:61)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "time_line_deal_1",
+          "file": "snippets/product-right-info-default.liquid",
+          "line": 61,
+          "message": "setting 'settings.time_line_deal_1' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'time_line_deal_1' (snippets/product-right-info-default.liquid:61)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "title_home_blog",
+          "file": "snippets/section-blog-home.liquid",
+          "line": 8,
+          "message": "setting 'settings.title_home_blog' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'title_home_blog' (snippets/section-blog-home.liquid:8)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "color_text_category",
+          "file": "snippets/section-category.liquid",
+          "line": 1,
+          "message": "setting 'settings.color_text_category' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'color_text_category' (snippets/section-category.liquid:1)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "choose_col_grou3",
+          "file": "snippets/section-collection-group-3.liquid",
+          "line": 21,
+          "message": "setting 'settings.choose_col_grou3' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'choose_col_grou3' (snippets/section-collection-group-3.liquid:21)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "use_bg_image_fls",
+          "file": "snippets/section-flash-sale.liquid",
+          "line": 3,
+          "message": "setting 'settings.use_bg_image_fls' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'use_bg_image_fls' (snippets/section-flash-sale.liquid:3)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "bg_image_fls",
+          "file": "snippets/section-flash-sale.liquid",
+          "line": 3,
+          "message": "setting 'settings.bg_image_fls' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'bg_image_fls' (snippets/section-flash-sale.liquid:3)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "title_sidebar_sizechart_normal",
+          "file": "snippets/size-chart-normal.liquid",
+          "line": 3,
+          "message": "setting 'settings.title_sidebar_sizechart_normal' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'title_sidebar_sizechart_normal' (snippets/size-chart-normal.liquid:3)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "show_tab_sizechart_1_normal",
+          "file": "snippets/size-chart-normal.liquid",
+          "line": 10,
+          "message": "setting 'settings.show_tab_sizechart_1_normal' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'show_tab_sizechart_1_normal' (snippets/size-chart-normal.liquid:10)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "title_sizechart_1_normal",
+          "file": "snippets/size-chart-normal.liquid",
+          "line": 13,
+          "message": "setting 'settings.title_sizechart_1_normal' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'title_sizechart_1_normal' (snippets/size-chart-normal.liquid:13)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "show_tab_sizechart_2_normal",
+          "file": "snippets/size-chart-normal.liquid",
+          "line": 17,
+          "message": "setting 'settings.show_tab_sizechart_2_normal' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'show_tab_sizechart_2_normal' (snippets/size-chart-normal.liquid:17)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "title_sizechart_1_normal",
+          "file": "snippets/size-chart-normal.liquid",
+          "line": 20,
+          "message": "setting 'settings.title_sizechart_1_normal' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'title_sizechart_1_normal' (snippets/size-chart-normal.liquid:20)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "show_tab_sizechart_1_normal",
+          "file": "snippets/size-chart-normal.liquid",
+          "line": 25,
+          "message": "setting 'settings.show_tab_sizechart_1_normal' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'show_tab_sizechart_1_normal' (snippets/size-chart-normal.liquid:25)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "page_sizechart_1_normal",
+          "file": "snippets/size-chart-normal.liquid",
+          "line": 28,
+          "message": "setting 'settings.page_sizechart_1_normal' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'page_sizechart_1_normal' (snippets/size-chart-normal.liquid:28)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "show_tab_sizechart_2",
+          "file": "snippets/size-chart-normal.liquid",
+          "line": 32,
+          "message": "setting 'settings.show_tab_sizechart_2' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'show_tab_sizechart_2' (snippets/size-chart-normal.liquid:32)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "page_sizechart_2_normal",
+          "file": "snippets/size-chart-normal.liquid",
+          "line": 35,
+          "message": "setting 'settings.page_sizechart_2_normal' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'page_sizechart_2_normal' (snippets/size-chart-normal.liquid:35)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "title_sidebar_sizechart",
+          "file": "snippets/size-chart.liquid",
+          "line": 3,
+          "message": "setting 'settings.title_sidebar_sizechart' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'title_sidebar_sizechart' (snippets/size-chart.liquid:3)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "show_tab_sizechart_1",
+          "file": "snippets/size-chart.liquid",
+          "line": 10,
+          "message": "setting 'settings.show_tab_sizechart_1' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'show_tab_sizechart_1' (snippets/size-chart.liquid:10)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "title_sizechart_1",
+          "file": "snippets/size-chart.liquid",
+          "line": 13,
+          "message": "setting 'settings.title_sizechart_1' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'title_sizechart_1' (snippets/size-chart.liquid:13)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "show_tab_sizechart_2",
+          "file": "snippets/size-chart.liquid",
+          "line": 17,
+          "message": "setting 'settings.show_tab_sizechart_2' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'show_tab_sizechart_2' (snippets/size-chart.liquid:17)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "title_sizechart_1",
+          "file": "snippets/size-chart.liquid",
+          "line": 20,
+          "message": "setting 'settings.title_sizechart_1' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'title_sizechart_1' (snippets/size-chart.liquid:20)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "show_tab_sizechart_1",
+          "file": "snippets/size-chart.liquid",
+          "line": 25,
+          "message": "setting 'settings.show_tab_sizechart_1' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'show_tab_sizechart_1' (snippets/size-chart.liquid:25)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "page_sizechart_1",
+          "file": "snippets/size-chart.liquid",
+          "line": 28,
+          "message": "setting 'settings.page_sizechart_1' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'page_sizechart_1' (snippets/size-chart.liquid:28)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "show_tab_sizechart_2",
+          "file": "snippets/size-chart.liquid",
+          "line": 32,
+          "message": "setting 'settings.show_tab_sizechart_2' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'show_tab_sizechart_2' (snippets/size-chart.liquid:32)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "page_sizechart_2",
+          "file": "snippets/size-chart.liquid",
+          "line": 35,
+          "message": "setting 'settings.page_sizechart_2' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'page_sizechart_2' (snippets/size-chart.liquid:35)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "shop_color_head_title",
+          "file": "snippets/style-theme.liquid",
+          "line": 17,
+          "message": "setting 'settings.shop_color_head_title' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'shop_color_head_title' (snippets/style-theme.liquid:17)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "bg_color_menu_mb",
+          "file": "snippets/style-theme.liquid",
+          "line": 20,
+          "message": "setting 'settings.bg_color_menu_mb' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'bg_color_menu_mb' (snippets/style-theme.liquid:20)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "text_color_menu_mb",
+          "file": "snippets/style-theme.liquid",
+          "line": 21,
+          "message": "setting 'settings.text_color_menu_mb' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'text_color_menu_mb' (snippets/style-theme.liquid:21)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "type_variant",
+          "file": "snippets/swatch-quickview.liquid",
+          "line": 16,
+          "message": "setting 'settings.type_variant' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'type_variant' (snippets/swatch-quickview.liquid:16)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "type_variant",
+          "file": "snippets/swatch.liquid",
+          "line": 18,
+          "message": "setting 'settings.type_variant' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'type_variant' (snippets/swatch.liquid:18)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "time_year_deal_1",
+          "file": "snippets/variable-wd.liquid",
+          "line": 22,
+          "message": "setting 'settings.time_year_deal_1' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'time_year_deal_1' (snippets/variable-wd.liquid:22)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "time_line_deal_1",
+          "file": "snippets/variable-wd.liquid",
+          "line": 22,
+          "message": "setting 'settings.time_line_deal_1' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'time_line_deal_1' (snippets/variable-wd.liquid:22)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "col_template",
+          "file": "snippets/variable-wd.liquid",
+          "line": 27,
+          "message": "setting 'settings.col_template' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'col_template' (snippets/variable-wd.liquid:27)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "type_paginate",
+          "file": "snippets/variable-wd.liquid",
+          "line": 27,
+          "message": "setting 'settings.type_paginate' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'type_paginate' (snippets/variable-wd.liquid:27)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "choose_related",
+          "file": "snippets/variable-wd.liquid",
+          "line": 30,
+          "message": "setting 'settings.choose_related' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'choose_related' (snippets/variable-wd.liquid:30)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "choose_of_collection",
+          "file": "snippets/variable-wd.liquid",
+          "line": 32,
+          "message": "setting 'settings.choose_of_collection' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'choose_of_collection' (snippets/variable-wd.liquid:32)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "use_of_collection",
+          "file": "snippets/variable-wd.liquid",
+          "line": 33,
+          "message": "setting 'settings.use_of_collection' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'use_of_collection' (snippets/variable-wd.liquid:33)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "choose_of_brand",
+          "file": "snippets/variable-wd.liquid",
+          "line": 34,
+          "message": "setting 'settings.choose_of_brand' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'choose_of_brand' (snippets/variable-wd.liquid:34)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "use_of_brand",
+          "file": "snippets/variable-wd.liquid",
+          "line": 35,
+          "message": "setting 'settings.use_of_brand' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'use_of_brand' (snippets/variable-wd.liquid:35)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "use_product_seen",
+          "file": "snippets/variable-wd.liquid",
+          "line": 36,
+          "message": "setting 'settings.use_product_seen' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'use_product_seen' (snippets/variable-wd.liquid:36)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "url",
+          "file": "snippets/variable-wd.liquid",
+          "line": 86,
+          "message": "setting 'settings.url' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'url' (snippets/variable-wd.liquid:86)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "dataType",
+          "file": "snippets/variable-wd.liquid",
+          "line": 86,
+          "message": "setting 'settings.dataType' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'dataType' (snippets/variable-wd.liquid:86)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "type_variant",
+          "file": "snippets/variant-color.liquid",
+          "line": 3,
+          "message": "setting 'settings.type_variant' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'type_variant' (snippets/variant-color.liquid:3)"
+        }
+      ]
+    }
+  ],
+  "haravanContracts": {
+    "ok": false,
+    "failures": [
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "slideshow_1_mob-jpg",
+        "file": "config/settings.html",
+        "line": 699,
+        "message": "Duplicate setting control name 'slideshow_1_mob-jpg' in config/settings.html",
+        "detail": "Found 2 controls sharing name 'slideshow_1_mob-jpg'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+        "file": "layout/theme.liquid",
+        "line": 77,
+        "message": "included snippet 'optimize_rerender' does not exist under snippets/",
+        "detail": "Target snippet 'optimize_rerender' was not found in snippets/ (layout/theme.liquid:77)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "content_cart_note",
+        "file": "templates/cart.liquid",
+        "line": 111,
+        "message": "setting 'settings.content_cart_note' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'content_cart_note' (templates/cart.liquid:111)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "time_year_deal_1_ldp",
+        "file": "templates/page.ldp.liquid",
+        "line": 22,
+        "message": "setting 'settings.time_year_deal_1_ldp' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'time_year_deal_1_ldp' (templates/page.ldp.liquid:22)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "time_month_headbanner",
+        "file": "templates/page.ldp.liquid",
+        "line": 25,
+        "message": "setting 'settings.time_month_headbanner' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'time_month_headbanner' (templates/page.ldp.liquid:25)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "time_day_headbanner",
+        "file": "templates/page.ldp.liquid",
+        "line": 25,
+        "message": "setting 'settings.time_day_headbanner' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'time_day_headbanner' (templates/page.ldp.liquid:25)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "time_year_headbanner",
+        "file": "templates/page.ldp.liquid",
+        "line": 25,
+        "message": "setting 'settings.time_year_headbanner' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'time_year_headbanner' (templates/page.ldp.liquid:25)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "time_line_headbanner",
+        "file": "templates/page.ldp.liquid",
+        "line": 25,
+        "message": "setting 'settings.time_line_headbanner' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'time_line_headbanner' (templates/page.ldp.liquid:25)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "show_countdown_banner_ldp",
+        "file": "templates/page.ldp.liquid",
+        "line": 26,
+        "message": "setting 'settings.show_countdown_banner_ldp' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'show_countdown_banner_ldp' (templates/page.ldp.liquid:26)"
+      },
+      {
+        "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+        "file": "templates/product.liquid",
+        "line": 28,
+        "message": "included snippet 'bigpen-review' does not exist under snippets/",
+        "detail": "Target snippet 'bigpen-review' was not found in snippets/ (templates/product.liquid:28)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "show_banner_ft_custom",
+        "file": "snippets/banner-footer.liquid",
+        "line": 1,
+        "message": "setting 'settings.show_banner_ft_custom' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'show_banner_ft_custom' (snippets/banner-footer.liquid:1)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "url-image-information-collection",
+        "file": "snippets/banner-footer.liquid",
+        "line": 4,
+        "message": "setting 'settings.url-image-information-collection' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'url-image-information-collection' (snippets/banner-footer.liquid:4)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "url-image-information-collection-mob",
+        "file": "snippets/banner-footer.liquid",
+        "line": 4,
+        "message": "setting 'settings.url-image-information-collection-mob' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'url-image-information-collection-mob' (snippets/banner-footer.liquid:4)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "title-information-collection",
+        "file": "snippets/banner-footer.liquid",
+        "line": 4,
+        "message": "setting 'settings.title-information-collection' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'title-information-collection' (snippets/banner-footer.liquid:4)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "title-information-collection",
+        "file": "snippets/banner-footer.liquid",
+        "line": 11,
+        "message": "setting 'settings.title-information-collection' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'title-information-collection' (snippets/banner-footer.liquid:11)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "content-information-collection",
+        "file": "snippets/banner-footer.liquid",
+        "line": 14,
+        "message": "setting 'settings.content-information-collection' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'content-information-collection' (snippets/banner-footer.liquid:14)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "url-information-collection",
+        "file": "snippets/banner-footer.liquid",
+        "line": 17,
+        "message": "setting 'settings.url-information-collection' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'url-information-collection' (snippets/banner-footer.liquid:17)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "text-btn-information-collection",
+        "file": "snippets/banner-footer.liquid",
+        "line": 17,
+        "message": "setting 'settings.text-btn-information-collection' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'text-btn-information-collection' (snippets/banner-footer.liquid:17)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "time_year_deal_1_ldp",
+        "file": "snippets/ldp-black-friday-2.liquid",
+        "line": 2,
+        "message": "setting 'settings.time_year_deal_1_ldp' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'time_year_deal_1_ldp' (snippets/ldp-black-friday-2.liquid:2)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "url_banner_ldp_flashsale_bottom",
+        "file": "snippets/ldp-black-friday-3.liquid",
+        "line": 3,
+        "message": "setting 'settings.url_banner_ldp_flashsale_bottom' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'url_banner_ldp_flashsale_bottom' (snippets/ldp-black-friday-3.liquid:3)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "id_video_ldp",
+        "file": "snippets/ldp-black-friday-3.liquid",
+        "line": 8,
+        "message": "setting 'settings.id_video_ldp' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'id_video_ldp' (snippets/ldp-black-friday-3.liquid:8)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "alt-ldp-video-banner",
+        "file": "snippets/ldp-black-friday-3.liquid",
+        "line": 12,
+        "message": "setting 'settings.alt-ldp-video-banner' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'alt-ldp-video-banner' (snippets/ldp-black-friday-3.liquid:12)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "icon-title-coupon",
+        "file": "snippets/ldp-black-friday-4.liquid",
+        "line": 4,
+        "message": "setting 'settings.icon-title-coupon' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'icon-title-coupon' (snippets/ldp-black-friday-4.liquid:4)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "type_variant",
+        "file": "snippets/mini-cart-alsolike.liquid",
+        "line": 37,
+        "message": "setting 'settings.type_variant' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'type_variant' (snippets/mini-cart-alsolike.liquid:37)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "vertical_slider",
+        "file": "snippets/product-left-image.liquid",
+        "line": 18,
+        "message": "setting 'settings.vertical_slider' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'vertical_slider' (snippets/product-left-image.liquid:18)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "time_year_deal_1",
+        "file": "snippets/product-right-info-default.liquid",
+        "line": 61,
+        "message": "setting 'settings.time_year_deal_1' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'time_year_deal_1' (snippets/product-right-info-default.liquid:61)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "time_line_deal_1",
+        "file": "snippets/product-right-info-default.liquid",
+        "line": 61,
+        "message": "setting 'settings.time_line_deal_1' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'time_line_deal_1' (snippets/product-right-info-default.liquid:61)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "title_home_blog",
+        "file": "snippets/section-blog-home.liquid",
+        "line": 8,
+        "message": "setting 'settings.title_home_blog' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'title_home_blog' (snippets/section-blog-home.liquid:8)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "color_text_category",
+        "file": "snippets/section-category.liquid",
+        "line": 1,
+        "message": "setting 'settings.color_text_category' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'color_text_category' (snippets/section-category.liquid:1)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "choose_col_grou3",
+        "file": "snippets/section-collection-group-3.liquid",
+        "line": 21,
+        "message": "setting 'settings.choose_col_grou3' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'choose_col_grou3' (snippets/section-collection-group-3.liquid:21)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "use_bg_image_fls",
+        "file": "snippets/section-flash-sale.liquid",
+        "line": 3,
+        "message": "setting 'settings.use_bg_image_fls' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'use_bg_image_fls' (snippets/section-flash-sale.liquid:3)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "bg_image_fls",
+        "file": "snippets/section-flash-sale.liquid",
+        "line": 3,
+        "message": "setting 'settings.bg_image_fls' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'bg_image_fls' (snippets/section-flash-sale.liquid:3)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "title_sidebar_sizechart_normal",
+        "file": "snippets/size-chart-normal.liquid",
+        "line": 3,
+        "message": "setting 'settings.title_sidebar_sizechart_normal' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'title_sidebar_sizechart_normal' (snippets/size-chart-normal.liquid:3)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "show_tab_sizechart_1_normal",
+        "file": "snippets/size-chart-normal.liquid",
+        "line": 10,
+        "message": "setting 'settings.show_tab_sizechart_1_normal' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'show_tab_sizechart_1_normal' (snippets/size-chart-normal.liquid:10)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "title_sizechart_1_normal",
+        "file": "snippets/size-chart-normal.liquid",
+        "line": 13,
+        "message": "setting 'settings.title_sizechart_1_normal' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'title_sizechart_1_normal' (snippets/size-chart-normal.liquid:13)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "show_tab_sizechart_2_normal",
+        "file": "snippets/size-chart-normal.liquid",
+        "line": 17,
+        "message": "setting 'settings.show_tab_sizechart_2_normal' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'show_tab_sizechart_2_normal' (snippets/size-chart-normal.liquid:17)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "title_sizechart_1_normal",
+        "file": "snippets/size-chart-normal.liquid",
+        "line": 20,
+        "message": "setting 'settings.title_sizechart_1_normal' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'title_sizechart_1_normal' (snippets/size-chart-normal.liquid:20)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "show_tab_sizechart_1_normal",
+        "file": "snippets/size-chart-normal.liquid",
+        "line": 25,
+        "message": "setting 'settings.show_tab_sizechart_1_normal' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'show_tab_sizechart_1_normal' (snippets/size-chart-normal.liquid:25)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "page_sizechart_1_normal",
+        "file": "snippets/size-chart-normal.liquid",
+        "line": 28,
+        "message": "setting 'settings.page_sizechart_1_normal' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'page_sizechart_1_normal' (snippets/size-chart-normal.liquid:28)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "show_tab_sizechart_2",
+        "file": "snippets/size-chart-normal.liquid",
+        "line": 32,
+        "message": "setting 'settings.show_tab_sizechart_2' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'show_tab_sizechart_2' (snippets/size-chart-normal.liquid:32)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "page_sizechart_2_normal",
+        "file": "snippets/size-chart-normal.liquid",
+        "line": 35,
+        "message": "setting 'settings.page_sizechart_2_normal' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'page_sizechart_2_normal' (snippets/size-chart-normal.liquid:35)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "title_sidebar_sizechart",
+        "file": "snippets/size-chart.liquid",
+        "line": 3,
+        "message": "setting 'settings.title_sidebar_sizechart' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'title_sidebar_sizechart' (snippets/size-chart.liquid:3)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "show_tab_sizechart_1",
+        "file": "snippets/size-chart.liquid",
+        "line": 10,
+        "message": "setting 'settings.show_tab_sizechart_1' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'show_tab_sizechart_1' (snippets/size-chart.liquid:10)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "title_sizechart_1",
+        "file": "snippets/size-chart.liquid",
+        "line": 13,
+        "message": "setting 'settings.title_sizechart_1' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'title_sizechart_1' (snippets/size-chart.liquid:13)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "show_tab_sizechart_2",
+        "file": "snippets/size-chart.liquid",
+        "line": 17,
+        "message": "setting 'settings.show_tab_sizechart_2' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'show_tab_sizechart_2' (snippets/size-chart.liquid:17)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "title_sizechart_1",
+        "file": "snippets/size-chart.liquid",
+        "line": 20,
+        "message": "setting 'settings.title_sizechart_1' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'title_sizechart_1' (snippets/size-chart.liquid:20)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "show_tab_sizechart_1",
+        "file": "snippets/size-chart.liquid",
+        "line": 25,
+        "message": "setting 'settings.show_tab_sizechart_1' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'show_tab_sizechart_1' (snippets/size-chart.liquid:25)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "page_sizechart_1",
+        "file": "snippets/size-chart.liquid",
+        "line": 28,
+        "message": "setting 'settings.page_sizechart_1' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'page_sizechart_1' (snippets/size-chart.liquid:28)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "show_tab_sizechart_2",
+        "file": "snippets/size-chart.liquid",
+        "line": 32,
+        "message": "setting 'settings.show_tab_sizechart_2' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'show_tab_sizechart_2' (snippets/size-chart.liquid:32)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "page_sizechart_2",
+        "file": "snippets/size-chart.liquid",
+        "line": 35,
+        "message": "setting 'settings.page_sizechart_2' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'page_sizechart_2' (snippets/size-chart.liquid:35)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "shop_color_head_title",
+        "file": "snippets/style-theme.liquid",
+        "line": 17,
+        "message": "setting 'settings.shop_color_head_title' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'shop_color_head_title' (snippets/style-theme.liquid:17)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "bg_color_menu_mb",
+        "file": "snippets/style-theme.liquid",
+        "line": 20,
+        "message": "setting 'settings.bg_color_menu_mb' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'bg_color_menu_mb' (snippets/style-theme.liquid:20)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "text_color_menu_mb",
+        "file": "snippets/style-theme.liquid",
+        "line": 21,
+        "message": "setting 'settings.text_color_menu_mb' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'text_color_menu_mb' (snippets/style-theme.liquid:21)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "type_variant",
+        "file": "snippets/swatch-quickview.liquid",
+        "line": 16,
+        "message": "setting 'settings.type_variant' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'type_variant' (snippets/swatch-quickview.liquid:16)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "type_variant",
+        "file": "snippets/swatch.liquid",
+        "line": 18,
+        "message": "setting 'settings.type_variant' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'type_variant' (snippets/swatch.liquid:18)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "time_year_deal_1",
+        "file": "snippets/variable-wd.liquid",
+        "line": 22,
+        "message": "setting 'settings.time_year_deal_1' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'time_year_deal_1' (snippets/variable-wd.liquid:22)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "time_line_deal_1",
+        "file": "snippets/variable-wd.liquid",
+        "line": 22,
+        "message": "setting 'settings.time_line_deal_1' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'time_line_deal_1' (snippets/variable-wd.liquid:22)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "col_template",
+        "file": "snippets/variable-wd.liquid",
+        "line": 27,
+        "message": "setting 'settings.col_template' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'col_template' (snippets/variable-wd.liquid:27)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "type_paginate",
+        "file": "snippets/variable-wd.liquid",
+        "line": 27,
+        "message": "setting 'settings.type_paginate' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'type_paginate' (snippets/variable-wd.liquid:27)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "choose_related",
+        "file": "snippets/variable-wd.liquid",
+        "line": 30,
+        "message": "setting 'settings.choose_related' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'choose_related' (snippets/variable-wd.liquid:30)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "choose_of_collection",
+        "file": "snippets/variable-wd.liquid",
+        "line": 32,
+        "message": "setting 'settings.choose_of_collection' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'choose_of_collection' (snippets/variable-wd.liquid:32)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "use_of_collection",
+        "file": "snippets/variable-wd.liquid",
+        "line": 33,
+        "message": "setting 'settings.use_of_collection' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'use_of_collection' (snippets/variable-wd.liquid:33)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "choose_of_brand",
+        "file": "snippets/variable-wd.liquid",
+        "line": 34,
+        "message": "setting 'settings.choose_of_brand' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'choose_of_brand' (snippets/variable-wd.liquid:34)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "use_of_brand",
+        "file": "snippets/variable-wd.liquid",
+        "line": 35,
+        "message": "setting 'settings.use_of_brand' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'use_of_brand' (snippets/variable-wd.liquid:35)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "use_product_seen",
+        "file": "snippets/variable-wd.liquid",
+        "line": 36,
+        "message": "setting 'settings.use_product_seen' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'use_product_seen' (snippets/variable-wd.liquid:36)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "url",
+        "file": "snippets/variable-wd.liquid",
+        "line": 86,
+        "message": "setting 'settings.url' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'url' (snippets/variable-wd.liquid:86)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "dataType",
+        "file": "snippets/variable-wd.liquid",
+        "line": 86,
+        "message": "setting 'settings.dataType' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'dataType' (snippets/variable-wd.liquid:86)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "type_variant",
+        "file": "snippets/variant-color.liquid",
+        "line": 3,
+        "message": "setting 'settings.type_variant' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'type_variant' (snippets/variant-color.liquid:3)"
+      }
+    ]
+  }
+}

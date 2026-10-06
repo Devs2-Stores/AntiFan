@@ -1,0 +1,2846 @@
+{
+  "themeDir": "E:\\Work\\customizes\\Eiddo",
+  "generatedAt": "2026-10-05T22:13:22.344Z",
+  "ok": false,
+  "schemas": {
+    "ok": true,
+    "schemaFiles": [
+      {
+        "path": "config/settings_schema.json",
+        "ok": true,
+        "error": null
+      }
+    ],
+    "sectionCount": 0,
+    "failures": []
+  },
+  "settingsBinding": {
+    "ok": false,
+    "undeclared": [
+      {
+        "id": "alt_banner_index",
+        "files": [
+          "snippets/section-home-banner.liquid"
+        ]
+      },
+      {
+        "id": "banner_brand_alt",
+        "files": [
+          "snippets/section-home-brand.liquid",
+          "templates/page.brand.liquid"
+        ]
+      },
+      {
+        "id": "collection_tab",
+        "files": [
+          "snippets/section-home-product-tab.liquid"
+        ]
+      },
+      {
+        "id": "content_cart_note",
+        "files": [
+          "templates/cart.liquid"
+        ]
+      },
+      {
+        "id": "hast_app_review",
+        "files": [
+          "snippets/schema-footer.liquid"
+        ]
+      },
+      {
+        "id": "img_banner_index_desktop",
+        "files": [
+          "snippets/section-home-banner.liquid"
+        ]
+      },
+      {
+        "id": "img_banner_index_mobile",
+        "files": [
+          "snippets/section-home-banner.liquid"
+        ]
+      },
+      {
+        "id": "limit_collection_tab",
+        "files": [
+          "snippets/section-home-product-tab.liquid"
+        ]
+      },
+      {
+        "id": "page_sizecart",
+        "files": [
+          "snippets/modal-sizechart.liquid"
+        ]
+      },
+      {
+        "id": "render_search_suggest",
+        "files": [
+          "snippets/search-suggest.liquid"
+        ]
+      },
+      {
+        "id": "time_line_deal_1",
+        "files": [
+          "snippets/product-right-info.liquid",
+          "snippets/variable-wd.liquid"
+        ]
+      },
+      {
+        "id": "time_year_deal_1",
+        "files": [
+          "snippets/product-right-info.liquid",
+          "snippets/variable-wd.liquid"
+        ]
+      },
+      {
+        "id": "title_collection_tab",
+        "files": [
+          "snippets/section-home-product-tab.liquid"
+        ]
+      },
+      {
+        "id": "title_filter_tag",
+        "files": [
+          "snippets/sidebar-left-collection.liquid"
+        ]
+      },
+      {
+        "id": "title_home_blog",
+        "files": [
+          "snippets/section-home-blog.liquid"
+        ]
+      },
+      {
+        "id": "title_menu_collection",
+        "files": [
+          "snippets/sidebar-left-collection.liquid"
+        ]
+      },
+      {
+        "id": "title_service",
+        "files": [
+          "templates/product.layout-two.liquid"
+        ]
+      },
+      {
+        "id": "type_image_product",
+        "files": [
+          "snippets/master-include.liquid"
+        ]
+      },
+      {
+        "id": "type_variant",
+        "files": [
+          "snippets/swatch-quickview.liquid",
+          "snippets/swatch.liquid",
+          "snippets/variant-color.liquid"
+        ]
+      },
+      {
+        "id": "url_banner_index",
+        "files": [
+          "snippets/section-home-banner.liquid"
+        ]
+      },
+      {
+        "id": "use_change_theme",
+        "files": [
+          "snippets/bigpen-review.liquid"
+        ]
+      }
+    ],
+    "dead": [
+      {
+        "id": "1_price_to"
+      },
+      {
+        "id": "2_price_from"
+      },
+      {
+        "id": "2_price_to"
+      },
+      {
+        "id": "3_price_from"
+      },
+      {
+        "id": "3_price_to"
+      },
+      {
+        "id": "4_price_from"
+      },
+      {
+        "id": "4_price_to"
+      },
+      {
+        "id": "5_price_from"
+      },
+      {
+        "id": "addthis_icon1_action"
+      },
+      {
+        "id": "addthis_icon1_color1"
+      },
+      {
+        "id": "addthis_icon1_color2"
+      },
+      {
+        "id": "addthis_icon1_show"
+      },
+      {
+        "id": "addthis_icon1_tootlip"
+      },
+      {
+        "id": "addthis_icon2_action"
+      },
+      {
+        "id": "addthis_icon2_color1"
+      },
+      {
+        "id": "addthis_icon2_color2"
+      },
+      {
+        "id": "addthis_icon2_show"
+      },
+      {
+        "id": "addthis_icon2_tootlip"
+      },
+      {
+        "id": "addthis_icon3_color1"
+      },
+      {
+        "id": "addthis_icon3_color2"
+      },
+      {
+        "id": "addthis_icon3_content"
+      },
+      {
+        "id": "addthis_icon3_show"
+      },
+      {
+        "id": "addthis_icon3_title"
+      },
+      {
+        "id": "addthis_icon3_title2"
+      },
+      {
+        "id": "addthis_icon3_tootlip"
+      },
+      {
+        "id": "addthis_icon4_action"
+      },
+      {
+        "id": "addthis_icon4_color1"
+      },
+      {
+        "id": "addthis_icon4_color2"
+      },
+      {
+        "id": "addthis_icon4_show"
+      },
+      {
+        "id": "addthis_icon4_tootlip"
+      },
+      {
+        "id": "addthis_iconList_show"
+      },
+      {
+        "id": "appbuyxgety_icon"
+      },
+      {
+        "id": "banner_btn_color"
+      },
+      {
+        "id": "banner_btntext_color"
+      },
+      {
+        "id": "banner_group_1"
+      },
+      {
+        "id": "banner_group_2"
+      },
+      {
+        "id": "banner_group_3"
+      },
+      {
+        "id": "banner_group_alt_1"
+      },
+      {
+        "id": "banner_group_alt_2"
+      },
+      {
+        "id": "banner_group_alt_3"
+      },
+      {
+        "id": "banner_title_color"
+      },
+      {
+        "id": "block_home_category1"
+      },
+      {
+        "id": "block_home_category1_alt"
+      },
+      {
+        "id": "block_home_category1_button"
+      },
+      {
+        "id": "block_home_category1_link"
+      },
+      {
+        "id": "block_home_category1_subtitle"
+      },
+      {
+        "id": "block_home_category1_title"
+      },
+      {
+        "id": "block_home_category2"
+      },
+      {
+        "id": "block_home_category2_alt"
+      },
+      {
+        "id": "block_home_category2_button"
+      },
+      {
+        "id": "block_home_category2_link"
+      },
+      {
+        "id": "block_home_category2_subtitle"
+      },
+      {
+        "id": "block_home_category2_title"
+      },
+      {
+        "id": "block_home_category3"
+      },
+      {
+        "id": "block_home_category3_alt"
+      },
+      {
+        "id": "block_home_category3_button"
+      },
+      {
+        "id": "block_home_category3_link"
+      },
+      {
+        "id": "block_home_category3_subtitle"
+      },
+      {
+        "id": "block_home_category3_title"
+      },
+      {
+        "id": "blog_menu"
+      },
+      {
+        "id": "brand_alt_1"
+      },
+      {
+        "id": "brand_alt_10"
+      },
+      {
+        "id": "brand_alt_11"
+      },
+      {
+        "id": "brand_alt_12"
+      },
+      {
+        "id": "brand_alt_13"
+      },
+      {
+        "id": "brand_alt_14"
+      },
+      {
+        "id": "brand_alt_15"
+      },
+      {
+        "id": "brand_alt_16"
+      },
+      {
+        "id": "brand_alt_17"
+      },
+      {
+        "id": "brand_alt_18"
+      },
+      {
+        "id": "brand_alt_19"
+      },
+      {
+        "id": "brand_alt_2"
+      },
+      {
+        "id": "brand_alt_20"
+      },
+      {
+        "id": "brand_alt_21"
+      },
+      {
+        "id": "brand_alt_22"
+      },
+      {
+        "id": "brand_alt_23"
+      },
+      {
+        "id": "brand_alt_24"
+      },
+      {
+        "id": "brand_alt_3"
+      },
+      {
+        "id": "brand_alt_4"
+      },
+      {
+        "id": "brand_alt_5"
+      },
+      {
+        "id": "brand_alt_6"
+      },
+      {
+        "id": "brand_alt_7"
+      },
+      {
+        "id": "brand_alt_8"
+      },
+      {
+        "id": "brand_alt_9"
+      },
+      {
+        "id": "brand_image_1"
+      },
+      {
+        "id": "brand_image_10"
+      },
+      {
+        "id": "brand_image_11"
+      },
+      {
+        "id": "brand_image_12"
+      },
+      {
+        "id": "brand_image_13"
+      },
+      {
+        "id": "brand_image_14"
+      },
+      {
+        "id": "brand_image_15"
+      },
+      {
+        "id": "brand_image_16"
+      },
+      {
+        "id": "brand_image_17"
+      },
+      {
+        "id": "brand_image_18"
+      },
+      {
+        "id": "brand_image_19"
+      },
+      {
+        "id": "brand_image_2"
+      },
+      {
+        "id": "brand_image_20"
+      },
+      {
+        "id": "brand_image_21"
+      },
+      {
+        "id": "brand_image_22"
+      },
+      {
+        "id": "brand_image_23"
+      },
+      {
+        "id": "brand_image_24"
+      },
+      {
+        "id": "brand_image_3"
+      },
+      {
+        "id": "brand_image_4"
+      },
+      {
+        "id": "brand_image_5"
+      },
+      {
+        "id": "brand_image_6"
+      },
+      {
+        "id": "brand_image_7"
+      },
+      {
+        "id": "brand_image_8"
+      },
+      {
+        "id": "brand_image_9"
+      },
+      {
+        "id": "brand_show_1"
+      },
+      {
+        "id": "brand_show_10"
+      },
+      {
+        "id": "brand_show_11"
+      },
+      {
+        "id": "brand_show_12"
+      },
+      {
+        "id": "brand_show_13"
+      },
+      {
+        "id": "brand_show_14"
+      },
+      {
+        "id": "brand_show_15"
+      },
+      {
+        "id": "brand_show_16"
+      },
+      {
+        "id": "brand_show_17"
+      },
+      {
+        "id": "brand_show_18"
+      },
+      {
+        "id": "brand_show_19"
+      },
+      {
+        "id": "brand_show_2"
+      },
+      {
+        "id": "brand_show_20"
+      },
+      {
+        "id": "brand_show_21"
+      },
+      {
+        "id": "brand_show_22"
+      },
+      {
+        "id": "brand_show_23"
+      },
+      {
+        "id": "brand_show_24"
+      },
+      {
+        "id": "brand_show_3"
+      },
+      {
+        "id": "brand_show_4"
+      },
+      {
+        "id": "brand_show_5"
+      },
+      {
+        "id": "brand_show_6"
+      },
+      {
+        "id": "brand_show_7"
+      },
+      {
+        "id": "brand_show_8"
+      },
+      {
+        "id": "brand_show_9"
+      },
+      {
+        "id": "brand_url_1"
+      },
+      {
+        "id": "brand_url_10"
+      },
+      {
+        "id": "brand_url_11"
+      },
+      {
+        "id": "brand_url_12"
+      },
+      {
+        "id": "brand_url_13"
+      },
+      {
+        "id": "brand_url_14"
+      },
+      {
+        "id": "brand_url_15"
+      },
+      {
+        "id": "brand_url_16"
+      },
+      {
+        "id": "brand_url_17"
+      },
+      {
+        "id": "brand_url_18"
+      },
+      {
+        "id": "brand_url_19"
+      },
+      {
+        "id": "brand_url_2"
+      },
+      {
+        "id": "brand_url_20"
+      },
+      {
+        "id": "brand_url_21"
+      },
+      {
+        "id": "brand_url_22"
+      },
+      {
+        "id": "brand_url_23"
+      },
+      {
+        "id": "brand_url_24"
+      },
+      {
+        "id": "brand_url_3"
+      },
+      {
+        "id": "brand_url_4"
+      },
+      {
+        "id": "brand_url_5"
+      },
+      {
+        "id": "brand_url_6"
+      },
+      {
+        "id": "brand_url_7"
+      },
+      {
+        "id": "brand_url_8"
+      },
+      {
+        "id": "brand_url_9"
+      },
+      {
+        "id": "btn_bg_shop"
+      },
+      {
+        "id": "category_image_1"
+      },
+      {
+        "id": "category_image_10"
+      },
+      {
+        "id": "category_image_11"
+      },
+      {
+        "id": "category_image_12"
+      },
+      {
+        "id": "category_image_13"
+      },
+      {
+        "id": "category_image_14"
+      },
+      {
+        "id": "category_image_2"
+      },
+      {
+        "id": "category_image_3"
+      },
+      {
+        "id": "category_image_4"
+      },
+      {
+        "id": "category_image_5"
+      },
+      {
+        "id": "category_image_6"
+      },
+      {
+        "id": "category_image_7"
+      },
+      {
+        "id": "category_image_8"
+      },
+      {
+        "id": "category_image_9"
+      },
+      {
+        "id": "category_title_first_1"
+      },
+      {
+        "id": "category_title_first_10"
+      },
+      {
+        "id": "category_title_first_11"
+      },
+      {
+        "id": "category_title_first_12"
+      },
+      {
+        "id": "category_title_first_13"
+      },
+      {
+        "id": "category_title_first_14"
+      },
+      {
+        "id": "category_title_first_2"
+      },
+      {
+        "id": "category_title_first_3"
+      },
+      {
+        "id": "category_title_first_4"
+      },
+      {
+        "id": "category_title_first_5"
+      },
+      {
+        "id": "category_title_first_6"
+      },
+      {
+        "id": "category_title_first_7"
+      },
+      {
+        "id": "category_title_first_8"
+      },
+      {
+        "id": "category_title_first_9"
+      },
+      {
+        "id": "category_url_1"
+      },
+      {
+        "id": "category_url_10"
+      },
+      {
+        "id": "category_url_11"
+      },
+      {
+        "id": "category_url_12"
+      },
+      {
+        "id": "category_url_13"
+      },
+      {
+        "id": "category_url_14"
+      },
+      {
+        "id": "category_url_2"
+      },
+      {
+        "id": "category_url_3"
+      },
+      {
+        "id": "category_url_4"
+      },
+      {
+        "id": "category_url_5"
+      },
+      {
+        "id": "category_url_6"
+      },
+      {
+        "id": "category_url_7"
+      },
+      {
+        "id": "category_url_8"
+      },
+      {
+        "id": "category_url_9"
+      },
+      {
+        "id": "category_use_1"
+      },
+      {
+        "id": "category_use_10"
+      },
+      {
+        "id": "category_use_11"
+      },
+      {
+        "id": "category_use_12"
+      },
+      {
+        "id": "category_use_13"
+      },
+      {
+        "id": "category_use_14"
+      },
+      {
+        "id": "category_use_2"
+      },
+      {
+        "id": "category_use_3"
+      },
+      {
+        "id": "category_use_4"
+      },
+      {
+        "id": "category_use_5"
+      },
+      {
+        "id": "category_use_6"
+      },
+      {
+        "id": "category_use_7"
+      },
+      {
+        "id": "category_use_8"
+      },
+      {
+        "id": "category_use_9"
+      },
+      {
+        "id": "checkout_logo_image"
+      },
+      {
+        "id": "checkout_logo_position"
+      },
+      {
+        "id": "checkout_logo_size"
+      },
+      {
+        "id": "code_messenger_mb"
+      },
+      {
+        "id": "collection_banner"
+      },
+      {
+        "id": "collection_one"
+      },
+      {
+        "id": "collection_one_limit"
+      },
+      {
+        "id": "collection_two"
+      },
+      {
+        "id": "collection_two_limit"
+      },
+      {
+        "id": "color_code_new_1"
+      },
+      {
+        "id": "color_code_new_10"
+      },
+      {
+        "id": "color_code_new_11"
+      },
+      {
+        "id": "color_code_new_12"
+      },
+      {
+        "id": "color_code_new_13"
+      },
+      {
+        "id": "color_code_new_14"
+      },
+      {
+        "id": "color_code_new_15"
+      },
+      {
+        "id": "color_code_new_16"
+      },
+      {
+        "id": "color_code_new_17"
+      },
+      {
+        "id": "color_code_new_18"
+      },
+      {
+        "id": "color_code_new_19"
+      },
+      {
+        "id": "color_code_new_2"
+      },
+      {
+        "id": "color_code_new_20"
+      },
+      {
+        "id": "color_code_new_21"
+      },
+      {
+        "id": "color_code_new_22"
+      },
+      {
+        "id": "color_code_new_23"
+      },
+      {
+        "id": "color_code_new_24"
+      },
+      {
+        "id": "color_code_new_25"
+      },
+      {
+        "id": "color_code_new_26"
+      },
+      {
+        "id": "color_code_new_27"
+      },
+      {
+        "id": "color_code_new_28"
+      },
+      {
+        "id": "color_code_new_29"
+      },
+      {
+        "id": "color_code_new_3"
+      },
+      {
+        "id": "color_code_new_30"
+      },
+      {
+        "id": "color_code_new_4"
+      },
+      {
+        "id": "color_code_new_5"
+      },
+      {
+        "id": "color_code_new_6"
+      },
+      {
+        "id": "color_code_new_7"
+      },
+      {
+        "id": "color_code_new_8"
+      },
+      {
+        "id": "color_code_new_9"
+      },
+      {
+        "id": "color_name_new_1"
+      },
+      {
+        "id": "color_name_new_10"
+      },
+      {
+        "id": "color_name_new_11"
+      },
+      {
+        "id": "color_name_new_12"
+      },
+      {
+        "id": "color_name_new_13"
+      },
+      {
+        "id": "color_name_new_14"
+      },
+      {
+        "id": "color_name_new_15"
+      },
+      {
+        "id": "color_name_new_16"
+      },
+      {
+        "id": "color_name_new_17"
+      },
+      {
+        "id": "color_name_new_18"
+      },
+      {
+        "id": "color_name_new_19"
+      },
+      {
+        "id": "color_name_new_2"
+      },
+      {
+        "id": "color_name_new_20"
+      },
+      {
+        "id": "color_name_new_21"
+      },
+      {
+        "id": "color_name_new_22"
+      },
+      {
+        "id": "color_name_new_23"
+      },
+      {
+        "id": "color_name_new_24"
+      },
+      {
+        "id": "color_name_new_25"
+      },
+      {
+        "id": "color_name_new_26"
+      },
+      {
+        "id": "color_name_new_27"
+      },
+      {
+        "id": "color_name_new_28"
+      },
+      {
+        "id": "color_name_new_29"
+      },
+      {
+        "id": "color_name_new_3"
+      },
+      {
+        "id": "color_name_new_30"
+      },
+      {
+        "id": "color_name_new_4"
+      },
+      {
+        "id": "color_name_new_5"
+      },
+      {
+        "id": "color_name_new_6"
+      },
+      {
+        "id": "color_name_new_7"
+      },
+      {
+        "id": "color_name_new_8"
+      },
+      {
+        "id": "color_name_new_9"
+      },
+      {
+        "id": "color_text_fl_sg"
+      },
+      {
+        "id": "color_title"
+      },
+      {
+        "id": "coupon_apply_text_1"
+      },
+      {
+        "id": "coupon_apply_text_2"
+      },
+      {
+        "id": "coupon_apply_text_3"
+      },
+      {
+        "id": "coupon_apply_text_4"
+      },
+      {
+        "id": "coupon_apply_url_1"
+      },
+      {
+        "id": "coupon_apply_url_2"
+      },
+      {
+        "id": "coupon_apply_url_3"
+      },
+      {
+        "id": "coupon_apply_url_4"
+      },
+      {
+        "id": "coupon_code_1"
+      },
+      {
+        "id": "coupon_code_10"
+      },
+      {
+        "id": "coupon_code_2"
+      },
+      {
+        "id": "coupon_code_3"
+      },
+      {
+        "id": "coupon_code_4"
+      },
+      {
+        "id": "coupon_code_5"
+      },
+      {
+        "id": "coupon_code_6"
+      },
+      {
+        "id": "coupon_code_7"
+      },
+      {
+        "id": "coupon_code_8"
+      },
+      {
+        "id": "coupon_code_9"
+      },
+      {
+        "id": "coupon_condition_1"
+      },
+      {
+        "id": "coupon_condition_10"
+      },
+      {
+        "id": "coupon_condition_2"
+      },
+      {
+        "id": "coupon_condition_3"
+      },
+      {
+        "id": "coupon_condition_4"
+      },
+      {
+        "id": "coupon_condition_5"
+      },
+      {
+        "id": "coupon_condition_6"
+      },
+      {
+        "id": "coupon_condition_7"
+      },
+      {
+        "id": "coupon_condition_8"
+      },
+      {
+        "id": "coupon_condition_9"
+      },
+      {
+        "id": "coupon_expiry_date_1"
+      },
+      {
+        "id": "coupon_expiry_date_10"
+      },
+      {
+        "id": "coupon_expiry_date_2"
+      },
+      {
+        "id": "coupon_expiry_date_3"
+      },
+      {
+        "id": "coupon_expiry_date_4"
+      },
+      {
+        "id": "coupon_expiry_date_5"
+      },
+      {
+        "id": "coupon_expiry_date_6"
+      },
+      {
+        "id": "coupon_expiry_date_7"
+      },
+      {
+        "id": "coupon_expiry_date_8"
+      },
+      {
+        "id": "coupon_expiry_date_9"
+      },
+      {
+        "id": "coupon_max_discount_1"
+      },
+      {
+        "id": "coupon_max_discount_2"
+      },
+      {
+        "id": "coupon_max_discount_3"
+      },
+      {
+        "id": "coupon_max_discount_4"
+      },
+      {
+        "id": "coupon_name_1"
+      },
+      {
+        "id": "coupon_name_10"
+      },
+      {
+        "id": "coupon_name_2"
+      },
+      {
+        "id": "coupon_name_3"
+      },
+      {
+        "id": "coupon_name_4"
+      },
+      {
+        "id": "coupon_name_5"
+      },
+      {
+        "id": "coupon_name_6"
+      },
+      {
+        "id": "coupon_name_7"
+      },
+      {
+        "id": "coupon_name_8"
+      },
+      {
+        "id": "coupon_name_9"
+      },
+      {
+        "id": "coupon_shor_name_1"
+      },
+      {
+        "id": "coupon_shor_name_10"
+      },
+      {
+        "id": "coupon_shor_name_2"
+      },
+      {
+        "id": "coupon_shor_name_3"
+      },
+      {
+        "id": "coupon_shor_name_4"
+      },
+      {
+        "id": "coupon_shor_name_5"
+      },
+      {
+        "id": "coupon_shor_name_6"
+      },
+      {
+        "id": "coupon_shor_name_7"
+      },
+      {
+        "id": "coupon_shor_name_8"
+      },
+      {
+        "id": "coupon_shor_name_9"
+      },
+      {
+        "id": "coupon_use_1"
+      },
+      {
+        "id": "coupon_use_10"
+      },
+      {
+        "id": "coupon_use_2"
+      },
+      {
+        "id": "coupon_use_3"
+      },
+      {
+        "id": "coupon_use_4"
+      },
+      {
+        "id": "coupon_use_5"
+      },
+      {
+        "id": "coupon_use_6"
+      },
+      {
+        "id": "coupon_use_7"
+      },
+      {
+        "id": "coupon_use_8"
+      },
+      {
+        "id": "coupon_use_9"
+      },
+      {
+        "id": "email_mb"
+      },
+      {
+        "id": "enter_tag_2"
+      },
+      {
+        "id": "favicon"
+      },
+      {
+        "id": "favicon.ico"
+      },
+      {
+        "id": "favicon.png"
+      },
+      {
+        "id": "filter_title"
+      },
+      {
+        "id": "first_collection_default_1"
+      },
+      {
+        "id": "first_title_collection_default_1"
+      },
+      {
+        "id": "footer-address"
+      },
+      {
+        "id": "footer-email"
+      },
+      {
+        "id": "footer-fax"
+      },
+      {
+        "id": "footer-tell"
+      },
+      {
+        "id": "footer1_information"
+      },
+      {
+        "id": "footer1_title"
+      },
+      {
+        "id": "footer2_title"
+      },
+      {
+        "id": "footer_address"
+      },
+      {
+        "id": "footer_email"
+      },
+      {
+        "id": "footer_link1_menu"
+      },
+      {
+        "id": "footer_link1_show"
+      },
+      {
+        "id": "footer_link1_title"
+      },
+      {
+        "id": "footer_phone"
+      },
+      {
+        "id": "footer_time"
+      },
+      {
+        "id": "google_maps_code"
+      },
+      {
+        "id": "header_01_color_bkg"
+      },
+      {
+        "id": "header_01_color_text"
+      },
+      {
+        "id": "header_01_topbar_bkg"
+      },
+      {
+        "id": "header_01_topbar_text"
+      },
+      {
+        "id": "header_02_color_bkg"
+      },
+      {
+        "id": "header_02_color_hover"
+      },
+      {
+        "id": "header_02_color_text"
+      },
+      {
+        "id": "header_02_topbar_bkg"
+      },
+      {
+        "id": "header_02_topbar_text"
+      },
+      {
+        "id": "header_03_color_bkg"
+      },
+      {
+        "id": "header_03_color_text"
+      },
+      {
+        "id": "header_03_topbar_bkg"
+      },
+      {
+        "id": "header_03_topbar_text"
+      },
+      {
+        "id": "header_home_selected"
+      },
+      {
+        "id": "heading_collection_one"
+      },
+      {
+        "id": "heading_collection_two"
+      },
+      {
+        "id": "home_about_button"
+      },
+      {
+        "id": "home_about_image"
+      },
+      {
+        "id": "home_about_link"
+      },
+      {
+        "id": "home_about_page"
+      },
+      {
+        "id": "home_about_show"
+      },
+      {
+        "id": "home_about_title"
+      },
+      {
+        "id": "home_category_1_alt"
+      },
+      {
+        "id": "home_category_1_banner"
+      },
+      {
+        "id": "home_category_1_link"
+      },
+      {
+        "id": "home_category_1_show"
+      },
+      {
+        "id": "home_category_1_title"
+      },
+      {
+        "id": "home_category_2_alt"
+      },
+      {
+        "id": "home_category_2_banner"
+      },
+      {
+        "id": "home_category_2_link"
+      },
+      {
+        "id": "home_category_2_show"
+      },
+      {
+        "id": "home_category_2_title"
+      },
+      {
+        "id": "home_category_3_alt"
+      },
+      {
+        "id": "home_category_3_banner"
+      },
+      {
+        "id": "home_category_3_link"
+      },
+      {
+        "id": "home_category_3_show"
+      },
+      {
+        "id": "home_category_3_title"
+      },
+      {
+        "id": "home_category_4_alt"
+      },
+      {
+        "id": "home_category_4_banner"
+      },
+      {
+        "id": "home_category_4_link"
+      },
+      {
+        "id": "home_category_4_show"
+      },
+      {
+        "id": "home_category_4_title"
+      },
+      {
+        "id": "home_category_5_alt"
+      },
+      {
+        "id": "home_category_5_banner"
+      },
+      {
+        "id": "home_category_5_link"
+      },
+      {
+        "id": "home_category_5_show"
+      },
+      {
+        "id": "home_category_5_title"
+      },
+      {
+        "id": "hottline_mb"
+      },
+      {
+        "id": "icon_nav_1"
+      },
+      {
+        "id": "icon_nav_10"
+      },
+      {
+        "id": "icon_nav_11"
+      },
+      {
+        "id": "icon_nav_12"
+      },
+      {
+        "id": "icon_nav_13"
+      },
+      {
+        "id": "icon_nav_14"
+      },
+      {
+        "id": "icon_nav_15"
+      },
+      {
+        "id": "icon_nav_16"
+      },
+      {
+        "id": "icon_nav_17"
+      },
+      {
+        "id": "icon_nav_18"
+      },
+      {
+        "id": "icon_nav_19"
+      },
+      {
+        "id": "icon_nav_2"
+      },
+      {
+        "id": "icon_nav_20"
+      },
+      {
+        "id": "icon_nav_3"
+      },
+      {
+        "id": "icon_nav_4"
+      },
+      {
+        "id": "icon_nav_5"
+      },
+      {
+        "id": "icon_nav_6"
+      },
+      {
+        "id": "icon_nav_7"
+      },
+      {
+        "id": "icon_nav_8"
+      },
+      {
+        "id": "icon_nav_9"
+      },
+      {
+        "id": "icon_service_1"
+      },
+      {
+        "id": "icon_service_2"
+      },
+      {
+        "id": "icon_service_3"
+      },
+      {
+        "id": "icon_service_4"
+      },
+      {
+        "id": "icon_title_collection_default_1"
+      },
+      {
+        "id": "img_load_fls.png"
+      },
+      {
+        "id": "info_header"
+      },
+      {
+        "id": "limit_col_new_1"
+      },
+      {
+        "id": "linear_title_fl_1"
+      },
+      {
+        "id": "link_logo_bct"
+      },
+      {
+        "id": "logo"
+      },
+      {
+        "id": "logo_bct"
+      },
+      {
+        "id": "menu_brand"
+      },
+      {
+        "id": "news_recent_show"
+      },
+      {
+        "id": "news_recent_title"
+      },
+      {
+        "id": "page_banner"
+      },
+      {
+        "id": "page_banner_link"
+      },
+      {
+        "id": "page_menu"
+      },
+      {
+        "id": "pagination_blog_limit"
+      },
+      {
+        "id": "policy_cart_1"
+      },
+      {
+        "id": "policy_cart_2"
+      },
+      {
+        "id": "policy_cart_3"
+      },
+      {
+        "id": "policy_cart_4"
+      },
+      {
+        "id": "policy_cart_title"
+      },
+      {
+        "id": "popup_contact_alt"
+      },
+      {
+        "id": "popup_contact_banner"
+      },
+      {
+        "id": "popup_contact_bkg"
+      },
+      {
+        "id": "popup_contact_content"
+      },
+      {
+        "id": "popup_contact_description_1"
+      },
+      {
+        "id": "popup_contact_description_2"
+      },
+      {
+        "id": "popup_contact_description_3"
+      },
+      {
+        "id": "popup_contact_link"
+      },
+      {
+        "id": "popup_contact_select"
+      },
+      {
+        "id": "popup_contact_show"
+      },
+      {
+        "id": "popup_contact_time"
+      },
+      {
+        "id": "popup_contact_title"
+      },
+      {
+        "id": "price_select_promotion_1"
+      },
+      {
+        "id": "price_select_promotion_2"
+      },
+      {
+        "id": "product_select_promotion_1"
+      },
+      {
+        "id": "product_select_promotion_2"
+      },
+      {
+        "id": "productspg_featured_quantity"
+      },
+      {
+        "id": "productspg_related_products"
+      },
+      {
+        "id": "productspg_related_title"
+      },
+      {
+        "id": "promotion_hrvapp_use"
+      },
+      {
+        "id": "section_index_1"
+      },
+      {
+        "id": "section_index_10"
+      },
+      {
+        "id": "section_index_2"
+      },
+      {
+        "id": "section_index_3"
+      },
+      {
+        "id": "section_index_4"
+      },
+      {
+        "id": "section_index_5"
+      },
+      {
+        "id": "section_index_6"
+      },
+      {
+        "id": "section_index_7"
+      },
+      {
+        "id": "section_index_8"
+      },
+      {
+        "id": "section_index_9"
+      },
+      {
+        "id": "share_fb_home"
+      },
+      {
+        "id": "shop_title_color"
+      },
+      {
+        "id": "show_block_home_category"
+      },
+      {
+        "id": "show_blog_menu"
+      },
+      {
+        "id": "show_footer1"
+      },
+      {
+        "id": "show_footer2"
+      },
+      {
+        "id": "show_google_maps"
+      },
+      {
+        "id": "show_logo_bct"
+      },
+      {
+        "id": "show_page_banner"
+      },
+      {
+        "id": "show_page_menu"
+      },
+      {
+        "id": "show_prd_sgfls_1"
+      },
+      {
+        "id": "show_prd_sgfls_10"
+      },
+      {
+        "id": "show_prd_sgfls_2"
+      },
+      {
+        "id": "show_prd_sgfls_3"
+      },
+      {
+        "id": "show_prd_sgfls_4"
+      },
+      {
+        "id": "show_prd_sgfls_5"
+      },
+      {
+        "id": "show_prd_sgfls_6"
+      },
+      {
+        "id": "show_prd_sgfls_7"
+      },
+      {
+        "id": "show_prd_sgfls_8"
+      },
+      {
+        "id": "show_prd_sgfls_9"
+      },
+      {
+        "id": "show_select_promotion_1"
+      },
+      {
+        "id": "show_select_promotion_2"
+      },
+      {
+        "id": "slide_1"
+      },
+      {
+        "id": "slide_1_alt"
+      },
+      {
+        "id": "slide_1_link"
+      },
+      {
+        "id": "slide_2"
+      },
+      {
+        "id": "slide_2_alt"
+      },
+      {
+        "id": "slide_2_link"
+      },
+      {
+        "id": "slide_3"
+      },
+      {
+        "id": "slide_3_alt"
+      },
+      {
+        "id": "slide_3_link"
+      },
+      {
+        "id": "slide_4"
+      },
+      {
+        "id": "slide_4_alt"
+      },
+      {
+        "id": "slide_4_link"
+      },
+      {
+        "id": "slideshow_1"
+      },
+      {
+        "id": "slideshow_1-jpg"
+      },
+      {
+        "id": "slideshow_2"
+      },
+      {
+        "id": "slideshow_2-jpg"
+      },
+      {
+        "id": "slideshow_2_mob-jpg"
+      },
+      {
+        "id": "slideshow_3"
+      },
+      {
+        "id": "slideshow_3-jpg"
+      },
+      {
+        "id": "slideshow_3_mob-jpg"
+      },
+      {
+        "id": "slideshow_4"
+      },
+      {
+        "id": "slideshow_4-jpg"
+      },
+      {
+        "id": "slideshow_4_mob-jpg"
+      },
+      {
+        "id": "tag_title_custom_2"
+      },
+      {
+        "id": "text_service_1"
+      },
+      {
+        "id": "text_service_2"
+      },
+      {
+        "id": "text_service_3"
+      },
+      {
+        "id": "text_service_4"
+      },
+      {
+        "id": "title_blog_menu"
+      },
+      {
+        "id": "title_home_blog_1"
+      },
+      {
+        "id": "title_list_1"
+      },
+      {
+        "id": "title_list_2"
+      },
+      {
+        "id": "title_list_3"
+      },
+      {
+        "id": "title_list_col"
+      },
+      {
+        "id": "title_page_menu"
+      },
+      {
+        "id": "title_prd_sgfls_1"
+      },
+      {
+        "id": "title_prd_sgfls_10"
+      },
+      {
+        "id": "title_prd_sgfls_2"
+      },
+      {
+        "id": "title_prd_sgfls_3"
+      },
+      {
+        "id": "title_prd_sgfls_4"
+      },
+      {
+        "id": "title_prd_sgfls_5"
+      },
+      {
+        "id": "title_prd_sgfls_6"
+      },
+      {
+        "id": "title_prd_sgfls_7"
+      },
+      {
+        "id": "title_prd_sgfls_8"
+      },
+      {
+        "id": "title_prd_sgfls_9"
+      },
+      {
+        "id": "title_tag_3"
+      },
+      {
+        "id": "url_prd_sgfls_1"
+      },
+      {
+        "id": "url_prd_sgfls_10"
+      },
+      {
+        "id": "url_prd_sgfls_2"
+      },
+      {
+        "id": "url_prd_sgfls_3"
+      },
+      {
+        "id": "url_prd_sgfls_4"
+      },
+      {
+        "id": "url_prd_sgfls_5"
+      },
+      {
+        "id": "url_prd_sgfls_6"
+      },
+      {
+        "id": "url_prd_sgfls_7"
+      },
+      {
+        "id": "url_prd_sgfls_8"
+      },
+      {
+        "id": "url_prd_sgfls_9"
+      },
+      {
+        "id": "use_category"
+      },
+      {
+        "id": "use_chatbot"
+      },
+      {
+        "id": "use_collection_one_products"
+      },
+      {
+        "id": "use_collection_two_products"
+      },
+      {
+        "id": "use_color_filter_1"
+      },
+      {
+        "id": "use_color_filter_10"
+      },
+      {
+        "id": "use_color_filter_11"
+      },
+      {
+        "id": "use_color_filter_12"
+      },
+      {
+        "id": "use_color_filter_13"
+      },
+      {
+        "id": "use_color_filter_14"
+      },
+      {
+        "id": "use_color_filter_15"
+      },
+      {
+        "id": "use_color_filter_16"
+      },
+      {
+        "id": "use_color_filter_17"
+      },
+      {
+        "id": "use_color_filter_18"
+      },
+      {
+        "id": "use_color_filter_19"
+      },
+      {
+        "id": "use_color_filter_2"
+      },
+      {
+        "id": "use_color_filter_20"
+      },
+      {
+        "id": "use_color_filter_21"
+      },
+      {
+        "id": "use_color_filter_22"
+      },
+      {
+        "id": "use_color_filter_23"
+      },
+      {
+        "id": "use_color_filter_24"
+      },
+      {
+        "id": "use_color_filter_25"
+      },
+      {
+        "id": "use_color_filter_26"
+      },
+      {
+        "id": "use_color_filter_27"
+      },
+      {
+        "id": "use_color_filter_28"
+      },
+      {
+        "id": "use_color_filter_29"
+      },
+      {
+        "id": "use_color_filter_3"
+      },
+      {
+        "id": "use_color_filter_30"
+      },
+      {
+        "id": "use_color_filter_4"
+      },
+      {
+        "id": "use_color_filter_5"
+      },
+      {
+        "id": "use_color_filter_6"
+      },
+      {
+        "id": "use_color_filter_7"
+      },
+      {
+        "id": "use_color_filter_8"
+      },
+      {
+        "id": "use_color_filter_9"
+      },
+      {
+        "id": "use_info_header"
+      },
+      {
+        "id": "use_logo"
+      },
+      {
+        "id": "use_product_style"
+      },
+      {
+        "id": "use_service_1"
+      },
+      {
+        "id": "use_service_2"
+      },
+      {
+        "id": "use_service_3"
+      },
+      {
+        "id": "use_service_4"
+      },
+      {
+        "id": "use_social_fixed"
+      },
+      {
+        "id": "use_tag_custom_2"
+      },
+      {
+        "id": "vendor_title"
+      }
+    ],
+    "failures": [
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "alt_banner_index",
+        "detail": "settings.alt_banner_index is read in snippets/section-home-banner.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "banner_brand_alt",
+        "detail": "settings.banner_brand_alt is read in snippets/section-home-brand.liquid, templates/page.brand.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "collection_tab",
+        "detail": "settings.collection_tab is read in snippets/section-home-product-tab.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "content_cart_note",
+        "detail": "settings.content_cart_note is read in templates/cart.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "hast_app_review",
+        "detail": "settings.hast_app_review is read in snippets/schema-footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "img_banner_index_desktop",
+        "detail": "settings.img_banner_index_desktop is read in snippets/section-home-banner.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "img_banner_index_mobile",
+        "detail": "settings.img_banner_index_mobile is read in snippets/section-home-banner.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "limit_collection_tab",
+        "detail": "settings.limit_collection_tab is read in snippets/section-home-product-tab.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "page_sizecart",
+        "detail": "settings.page_sizecart is read in snippets/modal-sizechart.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "render_search_suggest",
+        "detail": "settings.render_search_suggest is read in snippets/search-suggest.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "time_line_deal_1",
+        "detail": "settings.time_line_deal_1 is read in snippets/product-right-info.liquid, snippets/variable-wd.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "time_year_deal_1",
+        "detail": "settings.time_year_deal_1 is read in snippets/product-right-info.liquid, snippets/variable-wd.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "title_collection_tab",
+        "detail": "settings.title_collection_tab is read in snippets/section-home-product-tab.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "title_filter_tag",
+        "detail": "settings.title_filter_tag is read in snippets/sidebar-left-collection.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "title_home_blog",
+        "detail": "settings.title_home_blog is read in snippets/section-home-blog.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "title_menu_collection",
+        "detail": "settings.title_menu_collection is read in snippets/sidebar-left-collection.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "title_service",
+        "detail": "settings.title_service is read in templates/product.layout-two.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "type_image_product",
+        "detail": "settings.type_image_product is read in snippets/master-include.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "type_variant",
+        "detail": "settings.type_variant is read in snippets/swatch-quickview.liquid, snippets/swatch.liquid, snippets/variant-color.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "url_banner_index",
+        "detail": "settings.url_banner_index is read in snippets/section-home-banner.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "use_change_theme",
+        "detail": "settings.use_change_theme is read in snippets/bigpen-review.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      }
+    ]
+  },
+  "assets": {
+    "ok": false,
+    "counts": {
+      "localPresent": 31,
+      "localMissing": 4,
+      "remote": 0
+    },
+    "localMissing": [
+      {
+        "ref": "blog_no_image.jpg",
+        "files": [
+          "snippets/article-loop-home-small.liquid",
+          "snippets/article-loop-large-home.liquid",
+          "snippets/article-loop.liquid"
+        ]
+      },
+      {
+        "ref": "logo.png",
+        "files": [
+          "snippets/footer-scripts.liquid",
+          "snippets/schema-footer.liquid",
+          "snippets/schema-shop-backup.liquid"
+        ]
+      },
+      {
+        "ref": "no_image.jpg",
+        "files": [
+          "snippets/blog-sidebar.liquid",
+          "snippets/customer-account-order-detail.liquid",
+          "templates/cart.liquid",
+          "templates/cart.mini.liquid",
+          "templates/cart.update.liquid",
+          "templates/collection.related-product-sidebar.liquid",
+          "templates/page.contact.liquid",
+          "templates/page.liquid",
+          "templates/page.wishlist.liquid",
+          "templates/product.recommend-sidebar.liquid",
+          "templates/search.suggest-product-sidebar.liquid"
+        ]
+      },
+      {
+        "ref": "table-of-content.js",
+        "files": [
+          "snippets/schema-shop-backup.liquid"
+        ]
+      }
+    ],
+    "remote": []
+  },
+  "renders": [],
+  "refusals": [
+    {
+      "check": "settings-binding",
+      "failures": [
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "alt_banner_index",
+          "detail": "settings.alt_banner_index is read in snippets/section-home-banner.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "banner_brand_alt",
+          "detail": "settings.banner_brand_alt is read in snippets/section-home-brand.liquid, templates/page.brand.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "collection_tab",
+          "detail": "settings.collection_tab is read in snippets/section-home-product-tab.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "content_cart_note",
+          "detail": "settings.content_cart_note is read in templates/cart.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "hast_app_review",
+          "detail": "settings.hast_app_review is read in snippets/schema-footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "img_banner_index_desktop",
+          "detail": "settings.img_banner_index_desktop is read in snippets/section-home-banner.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "img_banner_index_mobile",
+          "detail": "settings.img_banner_index_mobile is read in snippets/section-home-banner.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "limit_collection_tab",
+          "detail": "settings.limit_collection_tab is read in snippets/section-home-product-tab.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "page_sizecart",
+          "detail": "settings.page_sizecart is read in snippets/modal-sizechart.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "render_search_suggest",
+          "detail": "settings.render_search_suggest is read in snippets/search-suggest.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "time_line_deal_1",
+          "detail": "settings.time_line_deal_1 is read in snippets/product-right-info.liquid, snippets/variable-wd.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "time_year_deal_1",
+          "detail": "settings.time_year_deal_1 is read in snippets/product-right-info.liquid, snippets/variable-wd.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "title_collection_tab",
+          "detail": "settings.title_collection_tab is read in snippets/section-home-product-tab.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "title_filter_tag",
+          "detail": "settings.title_filter_tag is read in snippets/sidebar-left-collection.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "title_home_blog",
+          "detail": "settings.title_home_blog is read in snippets/section-home-blog.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "title_menu_collection",
+          "detail": "settings.title_menu_collection is read in snippets/sidebar-left-collection.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "title_service",
+          "detail": "settings.title_service is read in templates/product.layout-two.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "type_image_product",
+          "detail": "settings.type_image_product is read in snippets/master-include.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "type_variant",
+          "detail": "settings.type_variant is read in snippets/swatch-quickview.liquid, snippets/swatch.liquid, snippets/variant-color.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "url_banner_index",
+          "detail": "settings.url_banner_index is read in snippets/section-home-banner.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "use_change_theme",
+          "detail": "settings.use_change_theme is read in snippets/bigpen-review.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        }
+      ]
+    },
+    {
+      "check": "assets",
+      "failures": [
+        {
+          "rule": "ASSET_MISSING_LOCAL",
+          "ref": "blog_no_image.jpg",
+          "files": [
+            "snippets/article-loop-home-small.liquid",
+            "snippets/article-loop-large-home.liquid",
+            "snippets/article-loop.liquid"
+          ]
+        },
+        {
+          "rule": "ASSET_MISSING_LOCAL",
+          "ref": "logo.png",
+          "files": [
+            "snippets/footer-scripts.liquid",
+            "snippets/schema-footer.liquid",
+            "snippets/schema-shop-backup.liquid"
+          ]
+        },
+        {
+          "rule": "ASSET_MISSING_LOCAL",
+          "ref": "no_image.jpg",
+          "files": [
+            "snippets/blog-sidebar.liquid",
+            "snippets/customer-account-order-detail.liquid",
+            "templates/cart.liquid",
+            "templates/cart.mini.liquid",
+            "templates/cart.update.liquid",
+            "templates/collection.related-product-sidebar.liquid",
+            "templates/page.contact.liquid",
+            "templates/page.liquid",
+            "templates/page.wishlist.liquid",
+            "templates/product.recommend-sidebar.liquid",
+            "templates/search.suggest-product-sidebar.liquid"
+          ]
+        },
+        {
+          "rule": "ASSET_MISSING_LOCAL",
+          "ref": "table-of-content.js",
+          "files": [
+            "snippets/schema-shop-backup.liquid"
+          ]
+        }
+      ]
+    },
+    {
+      "check": "haravan-contracts",
+      "failures": [
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "title_filter_size",
+          "file": "config/settings.html",
+          "line": 1185,
+          "message": "Duplicate setting control name 'title_filter_size' in config/settings.html",
+          "detail": "Found 2 controls sharing name 'title_filter_size'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "content_cart_note",
+          "file": "templates/cart.liquid",
+          "line": 87,
+          "message": "setting 'settings.content_cart_note' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'content_cart_note' (templates/cart.liquid:87)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "banner_brand_alt",
+          "file": "templates/page.brand.liquid",
+          "line": 16,
+          "message": "setting 'settings.banner_brand_alt' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'banner_brand_alt' (templates/page.brand.liquid:16)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "title_service",
+          "file": "templates/product.layout-two.liquid",
+          "line": 16,
+          "message": "setting 'settings.title_service' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'title_service' (templates/product.layout-two.liquid:16)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "use_change_theme",
+          "file": "snippets/bigpen-review.liquid",
+          "line": 64,
+          "message": "setting 'settings.use_change_theme' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'use_change_theme' (snippets/bigpen-review.liquid:64)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "type_image_product",
+          "file": "snippets/master-include.liquid",
+          "line": 23,
+          "message": "setting 'settings.type_image_product' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'type_image_product' (snippets/master-include.liquid:23)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "page_sizecart",
+          "file": "snippets/modal-sizechart.liquid",
+          "line": 3,
+          "message": "setting 'settings.page_sizecart' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'page_sizecart' (snippets/modal-sizechart.liquid:3)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "time_year_deal_1",
+          "file": "snippets/product-right-info.liquid",
+          "line": 60,
+          "message": "setting 'settings.time_year_deal_1' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'time_year_deal_1' (snippets/product-right-info.liquid:60)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "time_line_deal_1",
+          "file": "snippets/product-right-info.liquid",
+          "line": 60,
+          "message": "setting 'settings.time_line_deal_1' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'time_line_deal_1' (snippets/product-right-info.liquid:60)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "hast_app_review",
+          "file": "snippets/schema-footer.liquid",
+          "line": 1,
+          "message": "setting 'settings.hast_app_review' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'hast_app_review' (snippets/schema-footer.liquid:1)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "render_search_suggest",
+          "file": "snippets/search-suggest.liquid",
+          "line": 2,
+          "message": "setting 'settings.render_search_suggest' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'render_search_suggest' (snippets/search-suggest.liquid:2)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "url_banner_index",
+          "file": "snippets/section-home-banner.liquid",
+          "line": 4,
+          "message": "setting 'settings.url_banner_index' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'url_banner_index' (snippets/section-home-banner.liquid:4)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "img_banner_index_mobile",
+          "file": "snippets/section-home-banner.liquid",
+          "line": 6,
+          "message": "setting 'settings.img_banner_index_mobile' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'img_banner_index_mobile' (snippets/section-home-banner.liquid:6)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "img_banner_index_mobile",
+          "file": "snippets/section-home-banner.liquid",
+          "line": 6,
+          "message": "setting 'settings.img_banner_index_mobile' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'img_banner_index_mobile' (snippets/section-home-banner.liquid:6)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "img_banner_index_desktop",
+          "file": "snippets/section-home-banner.liquid",
+          "line": 7,
+          "message": "setting 'settings.img_banner_index_desktop' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'img_banner_index_desktop' (snippets/section-home-banner.liquid:7)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "img_banner_index_desktop",
+          "file": "snippets/section-home-banner.liquid",
+          "line": 7,
+          "message": "setting 'settings.img_banner_index_desktop' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'img_banner_index_desktop' (snippets/section-home-banner.liquid:7)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "alt_banner_index",
+          "file": "snippets/section-home-banner.liquid",
+          "line": 8,
+          "message": "setting 'settings.alt_banner_index' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'alt_banner_index' (snippets/section-home-banner.liquid:8)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "title_home_blog",
+          "file": "snippets/section-home-blog.liquid",
+          "line": 8,
+          "message": "setting 'settings.title_home_blog' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'title_home_blog' (snippets/section-home-blog.liquid:8)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "title_home_blog",
+          "file": "snippets/section-home-blog.liquid",
+          "line": 10,
+          "message": "setting 'settings.title_home_blog' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'title_home_blog' (snippets/section-home-blog.liquid:10)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "banner_brand_alt",
+          "file": "snippets/section-home-brand.liquid",
+          "line": 16,
+          "message": "setting 'settings.banner_brand_alt' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'banner_brand_alt' (snippets/section-home-brand.liquid:16)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "title_collection_tab",
+          "file": "snippets/section-home-product-tab.liquid",
+          "line": 6,
+          "message": "setting 'settings.title_collection_tab' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'title_collection_tab' (snippets/section-home-product-tab.liquid:6)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "collection_tab",
+          "file": "snippets/section-home-product-tab.liquid",
+          "line": 9,
+          "message": "setting 'settings.collection_tab' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'collection_tab' (snippets/section-home-product-tab.liquid:9)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "collection_tab",
+          "file": "snippets/section-home-product-tab.liquid",
+          "line": 15,
+          "message": "setting 'settings.collection_tab' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'collection_tab' (snippets/section-home-product-tab.liquid:15)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "limit_collection_tab",
+          "file": "snippets/section-home-product-tab.liquid",
+          "line": 20,
+          "message": "setting 'settings.limit_collection_tab' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'limit_collection_tab' (snippets/section-home-product-tab.liquid:20)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "title_menu_collection",
+          "file": "snippets/sidebar-left-collection.liquid",
+          "line": 11,
+          "message": "setting 'settings.title_menu_collection' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'title_menu_collection' (snippets/sidebar-left-collection.liquid:11)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "title_filter_tag",
+          "file": "snippets/sidebar-left-collection.liquid",
+          "line": 113,
+          "message": "setting 'settings.title_filter_tag' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'title_filter_tag' (snippets/sidebar-left-collection.liquid:113)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "type_variant",
+          "file": "snippets/swatch-quickview.liquid",
+          "line": 16,
+          "message": "setting 'settings.type_variant' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'type_variant' (snippets/swatch-quickview.liquid:16)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "type_variant",
+          "file": "snippets/swatch.liquid",
+          "line": 18,
+          "message": "setting 'settings.type_variant' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'type_variant' (snippets/swatch.liquid:18)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "time_year_deal_1",
+          "file": "snippets/variable-wd.liquid",
+          "line": 23,
+          "message": "setting 'settings.time_year_deal_1' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'time_year_deal_1' (snippets/variable-wd.liquid:23)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "time_line_deal_1",
+          "file": "snippets/variable-wd.liquid",
+          "line": 23,
+          "message": "setting 'settings.time_line_deal_1' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'time_line_deal_1' (snippets/variable-wd.liquid:23)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "type_variant",
+          "file": "snippets/variant-color.liquid",
+          "line": 3,
+          "message": "setting 'settings.type_variant' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'type_variant' (snippets/variant-color.liquid:3)"
+        }
+      ]
+    }
+  ],
+  "haravanContracts": {
+    "ok": false,
+    "failures": [
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "title_filter_size",
+        "file": "config/settings.html",
+        "line": 1185,
+        "message": "Duplicate setting control name 'title_filter_size' in config/settings.html",
+        "detail": "Found 2 controls sharing name 'title_filter_size'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "content_cart_note",
+        "file": "templates/cart.liquid",
+        "line": 87,
+        "message": "setting 'settings.content_cart_note' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'content_cart_note' (templates/cart.liquid:87)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "banner_brand_alt",
+        "file": "templates/page.brand.liquid",
+        "line": 16,
+        "message": "setting 'settings.banner_brand_alt' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'banner_brand_alt' (templates/page.brand.liquid:16)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "title_service",
+        "file": "templates/product.layout-two.liquid",
+        "line": 16,
+        "message": "setting 'settings.title_service' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'title_service' (templates/product.layout-two.liquid:16)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "use_change_theme",
+        "file": "snippets/bigpen-review.liquid",
+        "line": 64,
+        "message": "setting 'settings.use_change_theme' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'use_change_theme' (snippets/bigpen-review.liquid:64)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "type_image_product",
+        "file": "snippets/master-include.liquid",
+        "line": 23,
+        "message": "setting 'settings.type_image_product' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'type_image_product' (snippets/master-include.liquid:23)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "page_sizecart",
+        "file": "snippets/modal-sizechart.liquid",
+        "line": 3,
+        "message": "setting 'settings.page_sizecart' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'page_sizecart' (snippets/modal-sizechart.liquid:3)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "time_year_deal_1",
+        "file": "snippets/product-right-info.liquid",
+        "line": 60,
+        "message": "setting 'settings.time_year_deal_1' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'time_year_deal_1' (snippets/product-right-info.liquid:60)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "time_line_deal_1",
+        "file": "snippets/product-right-info.liquid",
+        "line": 60,
+        "message": "setting 'settings.time_line_deal_1' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'time_line_deal_1' (snippets/product-right-info.liquid:60)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "hast_app_review",
+        "file": "snippets/schema-footer.liquid",
+        "line": 1,
+        "message": "setting 'settings.hast_app_review' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'hast_app_review' (snippets/schema-footer.liquid:1)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "render_search_suggest",
+        "file": "snippets/search-suggest.liquid",
+        "line": 2,
+        "message": "setting 'settings.render_search_suggest' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'render_search_suggest' (snippets/search-suggest.liquid:2)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "url_banner_index",
+        "file": "snippets/section-home-banner.liquid",
+        "line": 4,
+        "message": "setting 'settings.url_banner_index' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'url_banner_index' (snippets/section-home-banner.liquid:4)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "img_banner_index_mobile",
+        "file": "snippets/section-home-banner.liquid",
+        "line": 6,
+        "message": "setting 'settings.img_banner_index_mobile' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'img_banner_index_mobile' (snippets/section-home-banner.liquid:6)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "img_banner_index_mobile",
+        "file": "snippets/section-home-banner.liquid",
+        "line": 6,
+        "message": "setting 'settings.img_banner_index_mobile' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'img_banner_index_mobile' (snippets/section-home-banner.liquid:6)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "img_banner_index_desktop",
+        "file": "snippets/section-home-banner.liquid",
+        "line": 7,
+        "message": "setting 'settings.img_banner_index_desktop' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'img_banner_index_desktop' (snippets/section-home-banner.liquid:7)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "img_banner_index_desktop",
+        "file": "snippets/section-home-banner.liquid",
+        "line": 7,
+        "message": "setting 'settings.img_banner_index_desktop' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'img_banner_index_desktop' (snippets/section-home-banner.liquid:7)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "alt_banner_index",
+        "file": "snippets/section-home-banner.liquid",
+        "line": 8,
+        "message": "setting 'settings.alt_banner_index' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'alt_banner_index' (snippets/section-home-banner.liquid:8)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "title_home_blog",
+        "file": "snippets/section-home-blog.liquid",
+        "line": 8,
+        "message": "setting 'settings.title_home_blog' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'title_home_blog' (snippets/section-home-blog.liquid:8)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "title_home_blog",
+        "file": "snippets/section-home-blog.liquid",
+        "line": 10,
+        "message": "setting 'settings.title_home_blog' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'title_home_blog' (snippets/section-home-blog.liquid:10)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "banner_brand_alt",
+        "file": "snippets/section-home-brand.liquid",
+        "line": 16,
+        "message": "setting 'settings.banner_brand_alt' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'banner_brand_alt' (snippets/section-home-brand.liquid:16)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "title_collection_tab",
+        "file": "snippets/section-home-product-tab.liquid",
+        "line": 6,
+        "message": "setting 'settings.title_collection_tab' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'title_collection_tab' (snippets/section-home-product-tab.liquid:6)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "collection_tab",
+        "file": "snippets/section-home-product-tab.liquid",
+        "line": 9,
+        "message": "setting 'settings.collection_tab' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'collection_tab' (snippets/section-home-product-tab.liquid:9)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "collection_tab",
+        "file": "snippets/section-home-product-tab.liquid",
+        "line": 15,
+        "message": "setting 'settings.collection_tab' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'collection_tab' (snippets/section-home-product-tab.liquid:15)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "limit_collection_tab",
+        "file": "snippets/section-home-product-tab.liquid",
+        "line": 20,
+        "message": "setting 'settings.limit_collection_tab' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'limit_collection_tab' (snippets/section-home-product-tab.liquid:20)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "title_menu_collection",
+        "file": "snippets/sidebar-left-collection.liquid",
+        "line": 11,
+        "message": "setting 'settings.title_menu_collection' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'title_menu_collection' (snippets/sidebar-left-collection.liquid:11)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "title_filter_tag",
+        "file": "snippets/sidebar-left-collection.liquid",
+        "line": 113,
+        "message": "setting 'settings.title_filter_tag' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'title_filter_tag' (snippets/sidebar-left-collection.liquid:113)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "type_variant",
+        "file": "snippets/swatch-quickview.liquid",
+        "line": 16,
+        "message": "setting 'settings.type_variant' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'type_variant' (snippets/swatch-quickview.liquid:16)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "type_variant",
+        "file": "snippets/swatch.liquid",
+        "line": 18,
+        "message": "setting 'settings.type_variant' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'type_variant' (snippets/swatch.liquid:18)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "time_year_deal_1",
+        "file": "snippets/variable-wd.liquid",
+        "line": 23,
+        "message": "setting 'settings.time_year_deal_1' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'time_year_deal_1' (snippets/variable-wd.liquid:23)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "time_line_deal_1",
+        "file": "snippets/variable-wd.liquid",
+        "line": 23,
+        "message": "setting 'settings.time_line_deal_1' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'time_line_deal_1' (snippets/variable-wd.liquid:23)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "type_variant",
+        "file": "snippets/variant-color.liquid",
+        "line": 3,
+        "message": "setting 'settings.type_variant' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'type_variant' (snippets/variant-color.liquid:3)"
+      }
+    ]
+  }
+}

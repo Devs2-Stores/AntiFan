@@ -1,0 +1,2372 @@
+{
+  "themeDir": "E:\\Work\\customizes\\Sunriseplus",
+  "generatedAt": "2026-10-05T22:14:16.308Z",
+  "ok": false,
+  "schemas": {
+    "ok": true,
+    "schemaFiles": [],
+    "sectionCount": 0,
+    "failures": []
+  },
+  "settingsBinding": {
+    "ok": false,
+    "undeclared": [
+      {
+        "id": "cart_item_order",
+        "files": [
+          "snippets/homepage-order.liquid"
+        ]
+      },
+      {
+        "id": "coupon_order_code",
+        "files": [
+          "snippets/homepage-order.liquid"
+        ]
+      },
+      {
+        "id": "coupon_order_note",
+        "files": [
+          "snippets/homepage-order.liquid"
+        ]
+      },
+      {
+        "id": "coupon_order_text",
+        "files": [
+          "snippets/homepage-order.liquid"
+        ]
+      },
+      {
+        "id": "display_column_footer_1",
+        "files": [
+          "snippets/footer.liquid"
+        ]
+      },
+      {
+        "id": "display_column_footer_2",
+        "files": [
+          "snippets/footer.liquid"
+        ]
+      },
+      {
+        "id": "display_column_footer_3",
+        "files": [
+          "snippets/footer.liquid"
+        ]
+      },
+      {
+        "id": "display_logo_footer",
+        "files": [
+          "snippets/footer.liquid"
+        ]
+      },
+      {
+        "id": "display_newsletter_footer",
+        "files": [
+          "snippets/footer.liquid"
+        ]
+      },
+      {
+        "id": "display_social_footer",
+        "files": [
+          "snippets/footer.liquid"
+        ]
+      },
+      {
+        "id": "header_home_selected",
+        "files": [
+          "layout/theme.liquid"
+        ]
+      },
+      {
+        "id": "heading_item_order",
+        "files": [
+          "snippets/homepage-order.liquid"
+        ]
+      },
+      {
+        "id": "home_bannerslider_show",
+        "files": [
+          "snippets/master-include.liquid"
+        ]
+      },
+      {
+        "id": "home_counters_show",
+        "files": [
+          "snippets/footer.liquid"
+        ]
+      },
+      {
+        "id": "home_coupon_order_show",
+        "files": [
+          "snippets/homepage-order.liquid"
+        ]
+      },
+      {
+        "id": "hotline_while_price_zero",
+        "files": [
+          "templates/product.liquid",
+          "templates/product.quickview.liquid",
+          "templates/product.style-01.liquid",
+          "templates/product.style-02.liquid",
+          "templates/product.style-03.liquid"
+        ]
+      },
+      {
+        "id": "info_footer",
+        "files": [
+          "snippets/footer.liquid"
+        ]
+      },
+      {
+        "id": "lbl_address1",
+        "files": [
+          "templates/customers[addresses].liquid"
+        ]
+      },
+      {
+        "id": "lbl_address2",
+        "files": [
+          "templates/customers[addresses].liquid"
+        ]
+      },
+      {
+        "id": "lbl_company",
+        "files": [
+          "templates/customers[addresses].liquid"
+        ]
+      },
+      {
+        "id": "lbl_first_name",
+        "files": [
+          "templates/customers[addresses].liquid"
+        ]
+      },
+      {
+        "id": "lbl_last_name",
+        "files": [
+          "templates/customers[addresses].liquid"
+        ]
+      },
+      {
+        "id": "lbl_phone",
+        "files": [
+          "templates/customers[addresses].liquid"
+        ]
+      },
+      {
+        "id": "limit_item_order",
+        "files": [
+          "snippets/homepage-order.liquid",
+          "templates/collection.order.liquid"
+        ]
+      },
+      {
+        "id": "link_fb_social_footer",
+        "files": [
+          "snippets/footer.liquid"
+        ]
+      },
+      {
+        "id": "link_ins_social_footer",
+        "files": [
+          "snippets/footer.liquid"
+        ]
+      },
+      {
+        "id": "link_ytb_social_footer",
+        "files": [
+          "snippets/footer.liquid"
+        ]
+      },
+      {
+        "id": "logo_bct_alt",
+        "files": [
+          "snippets/footer.liquid"
+        ]
+      },
+      {
+        "id": "logo_bct_image",
+        "files": [
+          "snippets/footer.liquid"
+        ]
+      },
+      {
+        "id": "logo_bct_link",
+        "files": [
+          "snippets/footer.liquid"
+        ]
+      },
+      {
+        "id": "menu_link_footer_1",
+        "files": [
+          "snippets/footer.liquid"
+        ]
+      },
+      {
+        "id": "menu_link_footer_2",
+        "files": [
+          "snippets/footer.liquid"
+        ]
+      },
+      {
+        "id": "menu_link_footer_3",
+        "files": [
+          "snippets/footer.liquid"
+        ]
+      },
+      {
+        "id": "text_logo_1",
+        "files": [
+          "snippets/footer.liquid"
+        ]
+      },
+      {
+        "id": "text_logo_2",
+        "files": [
+          "snippets/footer.liquid"
+        ]
+      },
+      {
+        "id": "time_delivery_show",
+        "files": [
+          "snippets/homepage-order.liquid"
+        ]
+      },
+      {
+        "id": "title_column_footer_1",
+        "files": [
+          "snippets/footer.liquid"
+        ]
+      },
+      {
+        "id": "title_column_footer_2",
+        "files": [
+          "snippets/footer.liquid"
+        ]
+      },
+      {
+        "id": "title_column_footer_3",
+        "files": [
+          "snippets/footer.liquid"
+        ]
+      },
+      {
+        "id": "title_newsletter_footer",
+        "files": [
+          "snippets/footer.liquid"
+        ]
+      },
+      {
+        "id": "title_social_footer",
+        "files": [
+          "snippets/footer.liquid"
+        ]
+      }
+    ],
+    "dead": [
+      {
+        "id": "collection_banner.jpg"
+      },
+      {
+        "id": "color_code_new_1"
+      },
+      {
+        "id": "color_code_new_10"
+      },
+      {
+        "id": "color_code_new_11"
+      },
+      {
+        "id": "color_code_new_12"
+      },
+      {
+        "id": "color_code_new_13"
+      },
+      {
+        "id": "color_code_new_14"
+      },
+      {
+        "id": "color_code_new_15"
+      },
+      {
+        "id": "color_code_new_16"
+      },
+      {
+        "id": "color_code_new_17"
+      },
+      {
+        "id": "color_code_new_18"
+      },
+      {
+        "id": "color_code_new_19"
+      },
+      {
+        "id": "color_code_new_2"
+      },
+      {
+        "id": "color_code_new_20"
+      },
+      {
+        "id": "color_code_new_21"
+      },
+      {
+        "id": "color_code_new_22"
+      },
+      {
+        "id": "color_code_new_23"
+      },
+      {
+        "id": "color_code_new_24"
+      },
+      {
+        "id": "color_code_new_25"
+      },
+      {
+        "id": "color_code_new_26"
+      },
+      {
+        "id": "color_code_new_27"
+      },
+      {
+        "id": "color_code_new_28"
+      },
+      {
+        "id": "color_code_new_29"
+      },
+      {
+        "id": "color_code_new_3"
+      },
+      {
+        "id": "color_code_new_30"
+      },
+      {
+        "id": "color_code_new_4"
+      },
+      {
+        "id": "color_code_new_5"
+      },
+      {
+        "id": "color_code_new_6"
+      },
+      {
+        "id": "color_code_new_7"
+      },
+      {
+        "id": "color_code_new_8"
+      },
+      {
+        "id": "color_code_new_9"
+      },
+      {
+        "id": "color_name_new_1"
+      },
+      {
+        "id": "color_name_new_10"
+      },
+      {
+        "id": "color_name_new_11"
+      },
+      {
+        "id": "color_name_new_12"
+      },
+      {
+        "id": "color_name_new_13"
+      },
+      {
+        "id": "color_name_new_14"
+      },
+      {
+        "id": "color_name_new_15"
+      },
+      {
+        "id": "color_name_new_16"
+      },
+      {
+        "id": "color_name_new_17"
+      },
+      {
+        "id": "color_name_new_18"
+      },
+      {
+        "id": "color_name_new_19"
+      },
+      {
+        "id": "color_name_new_2"
+      },
+      {
+        "id": "color_name_new_20"
+      },
+      {
+        "id": "color_name_new_21"
+      },
+      {
+        "id": "color_name_new_22"
+      },
+      {
+        "id": "color_name_new_23"
+      },
+      {
+        "id": "color_name_new_24"
+      },
+      {
+        "id": "color_name_new_25"
+      },
+      {
+        "id": "color_name_new_26"
+      },
+      {
+        "id": "color_name_new_27"
+      },
+      {
+        "id": "color_name_new_28"
+      },
+      {
+        "id": "color_name_new_29"
+      },
+      {
+        "id": "color_name_new_3"
+      },
+      {
+        "id": "color_name_new_30"
+      },
+      {
+        "id": "color_name_new_4"
+      },
+      {
+        "id": "color_name_new_5"
+      },
+      {
+        "id": "color_name_new_6"
+      },
+      {
+        "id": "color_name_new_7"
+      },
+      {
+        "id": "color_name_new_8"
+      },
+      {
+        "id": "color_name_new_9"
+      },
+      {
+        "id": "color_title"
+      },
+      {
+        "id": "favicon.png"
+      },
+      {
+        "id": "header_02_color_text_logo"
+      },
+      {
+        "id": "ldicon-discount-coupon.svg"
+      },
+      {
+        "id": "logo.png"
+      },
+      {
+        "id": "lp1-s10-box-background-01.jpg"
+      },
+      {
+        "id": "lp1-s10-box-background-02.jpg"
+      },
+      {
+        "id": "lp1-s10-box-background-03.jpg"
+      },
+      {
+        "id": "lp1-s10-product-secondary-01.png"
+      },
+      {
+        "id": "lp1-s10-product-secondary-02.png"
+      },
+      {
+        "id": "lp1-s10-product-secondary-03.png"
+      },
+      {
+        "id": "lp1-s11-glow-01.png"
+      },
+      {
+        "id": "lp1-s11-left-banner.png"
+      },
+      {
+        "id": "lp1-s11-shape-1-01.png"
+      },
+      {
+        "id": "lp1-s11-shape-10-01.png"
+      },
+      {
+        "id": "lp1-s11-shape-2-01.png"
+      },
+      {
+        "id": "lp1-s12-deco-01.png"
+      },
+      {
+        "id": "lp1-s12-deco-02.png"
+      },
+      {
+        "id": "lp1-s12-deco-03.jpg"
+      },
+      {
+        "id": "lp1-s12-deco-04.png"
+      },
+      {
+        "id": "lp1-s12-deco-05.jpg"
+      },
+      {
+        "id": "lp1-s12-product-secondary-01.png"
+      },
+      {
+        "id": "lp1-s12-product-secondary-02.png"
+      },
+      {
+        "id": "lp1-s2-deco-01.jpg"
+      },
+      {
+        "id": "lp1-s2-right-banner.png"
+      },
+      {
+        "id": "lp1-s3-review-a1-01.jpg"
+      },
+      {
+        "id": "lp1-s3-review-a1-02.jpg"
+      },
+      {
+        "id": "lp1-s3-review-a2-01.jpg"
+      },
+      {
+        "id": "lp1-s3-review-a2-02.jpg"
+      },
+      {
+        "id": "lp1-s3-review-a3-01.jpg"
+      },
+      {
+        "id": "lp1-s3-review-a3-02.jpg"
+      },
+      {
+        "id": "lp1-s3-warning-01.png"
+      },
+      {
+        "id": "lp1-s4-right-banner.png"
+      },
+      {
+        "id": "lp1-s4-wave-icon-01.svg"
+      },
+      {
+        "id": "lp1-s5-collagen-01.png"
+      },
+      {
+        "id": "lp1-s5-left-banner.png"
+      },
+      {
+        "id": "lp1-s5-review-b1-01.jpg"
+      },
+      {
+        "id": "lp1-s5-review-b2-01.jpg"
+      },
+      {
+        "id": "lp1-s5-review-b3-01.jpg"
+      },
+      {
+        "id": "lp1-s5-review-b4-01.jpg"
+      },
+      {
+        "id": "lp1-s5-review-b5-01.png"
+      },
+      {
+        "id": "lp1-s6-product-banner.png"
+      },
+      {
+        "id": "lp1-s6-wave-icon-01.svg"
+      },
+      {
+        "id": "lp1-s7-deco-01.png"
+      },
+      {
+        "id": "lp1-s7-deco-02.png"
+      },
+      {
+        "id": "lp1-s7-deco-03.png"
+      },
+      {
+        "id": "lp1-s7-deco-04.png"
+      },
+      {
+        "id": "lp1-s7-deco-05.jpeg"
+      },
+      {
+        "id": "lp1-s7-deco-06.png"
+      },
+      {
+        "id": "lp1-s7-deco-07.png"
+      },
+      {
+        "id": "lp1-s7-deco-08.png"
+      },
+      {
+        "id": "lp1-s7-deco-09.png"
+      },
+      {
+        "id": "lp1-s7-deco-10.png"
+      },
+      {
+        "id": "lp1-s7-loading-01.gif"
+      },
+      {
+        "id": "lp1-s7-screenshot-01.png"
+      },
+      {
+        "id": "lp1-s7-screenshot-02.png"
+      },
+      {
+        "id": "lp1_hero_logo.png"
+      },
+      {
+        "id": "lp1_index_section_1"
+      },
+      {
+        "id": "lp1_index_section_10"
+      },
+      {
+        "id": "lp1_index_section_11"
+      },
+      {
+        "id": "lp1_index_section_2"
+      },
+      {
+        "id": "lp1_index_section_3"
+      },
+      {
+        "id": "lp1_index_section_4"
+      },
+      {
+        "id": "lp1_index_section_5"
+      },
+      {
+        "id": "lp1_index_section_6"
+      },
+      {
+        "id": "lp1_index_section_7"
+      },
+      {
+        "id": "lp1_index_section_8"
+      },
+      {
+        "id": "lp1_index_section_9"
+      },
+      {
+        "id": "new-ldicon-arrow-left.svg"
+      },
+      {
+        "id": "page_banner.jpg"
+      },
+      {
+        "id": "popup_contact_banner.jpg"
+      },
+      {
+        "id": "popup_contact_bkg.jpg"
+      },
+      {
+        "id": "popup_contact_description_1"
+      },
+      {
+        "id": "popup_contact_description_2"
+      },
+      {
+        "id": "popup_contact_description_3"
+      },
+      {
+        "id": "share_fb_home.jpg"
+      },
+      {
+        "id": "shop_article_bg"
+      },
+      {
+        "id": "shop_article_border"
+      },
+      {
+        "id": "shop_article_link"
+      },
+      {
+        "id": "shop_main_color"
+      },
+      {
+        "id": "shop_text_color"
+      },
+      {
+        "id": "shop_text_hover_color"
+      },
+      {
+        "id": "shop_title_color"
+      },
+      {
+        "id": "use_color_filter"
+      },
+      {
+        "id": "use_color_filter_1"
+      },
+      {
+        "id": "use_color_filter_10"
+      },
+      {
+        "id": "use_color_filter_11"
+      },
+      {
+        "id": "use_color_filter_12"
+      },
+      {
+        "id": "use_color_filter_13"
+      },
+      {
+        "id": "use_color_filter_14"
+      },
+      {
+        "id": "use_color_filter_15"
+      },
+      {
+        "id": "use_color_filter_16"
+      },
+      {
+        "id": "use_color_filter_17"
+      },
+      {
+        "id": "use_color_filter_18"
+      },
+      {
+        "id": "use_color_filter_19"
+      },
+      {
+        "id": "use_color_filter_2"
+      },
+      {
+        "id": "use_color_filter_20"
+      },
+      {
+        "id": "use_color_filter_21"
+      },
+      {
+        "id": "use_color_filter_22"
+      },
+      {
+        "id": "use_color_filter_23"
+      },
+      {
+        "id": "use_color_filter_24"
+      },
+      {
+        "id": "use_color_filter_25"
+      },
+      {
+        "id": "use_color_filter_26"
+      },
+      {
+        "id": "use_color_filter_27"
+      },
+      {
+        "id": "use_color_filter_28"
+      },
+      {
+        "id": "use_color_filter_29"
+      },
+      {
+        "id": "use_color_filter_3"
+      },
+      {
+        "id": "use_color_filter_30"
+      },
+      {
+        "id": "use_color_filter_4"
+      },
+      {
+        "id": "use_color_filter_5"
+      },
+      {
+        "id": "use_color_filter_6"
+      },
+      {
+        "id": "use_color_filter_7"
+      },
+      {
+        "id": "use_color_filter_8"
+      },
+      {
+        "id": "use_color_filter_9"
+      }
+    ],
+    "failures": [
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "cart_item_order",
+        "detail": "settings.cart_item_order is read in snippets/homepage-order.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "coupon_order_code",
+        "detail": "settings.coupon_order_code is read in snippets/homepage-order.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "coupon_order_note",
+        "detail": "settings.coupon_order_note is read in snippets/homepage-order.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "coupon_order_text",
+        "detail": "settings.coupon_order_text is read in snippets/homepage-order.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "display_column_footer_1",
+        "detail": "settings.display_column_footer_1 is read in snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "display_column_footer_2",
+        "detail": "settings.display_column_footer_2 is read in snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "display_column_footer_3",
+        "detail": "settings.display_column_footer_3 is read in snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "display_logo_footer",
+        "detail": "settings.display_logo_footer is read in snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "display_newsletter_footer",
+        "detail": "settings.display_newsletter_footer is read in snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "display_social_footer",
+        "detail": "settings.display_social_footer is read in snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "header_home_selected",
+        "detail": "settings.header_home_selected is read in layout/theme.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "heading_item_order",
+        "detail": "settings.heading_item_order is read in snippets/homepage-order.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "home_bannerslider_show",
+        "detail": "settings.home_bannerslider_show is read in snippets/master-include.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "home_counters_show",
+        "detail": "settings.home_counters_show is read in snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "home_coupon_order_show",
+        "detail": "settings.home_coupon_order_show is read in snippets/homepage-order.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "hotline_while_price_zero",
+        "detail": "settings.hotline_while_price_zero is read in templates/product.liquid, templates/product.quickview.liquid, templates/product.style-01.liquid, templates/product.style-02.liquid, templates/product.style-03.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "info_footer",
+        "detail": "settings.info_footer is read in snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "lbl_address1",
+        "detail": "settings.lbl_address1 is read in templates/customers[addresses].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "lbl_address2",
+        "detail": "settings.lbl_address2 is read in templates/customers[addresses].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "lbl_company",
+        "detail": "settings.lbl_company is read in templates/customers[addresses].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "lbl_first_name",
+        "detail": "settings.lbl_first_name is read in templates/customers[addresses].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "lbl_last_name",
+        "detail": "settings.lbl_last_name is read in templates/customers[addresses].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "lbl_phone",
+        "detail": "settings.lbl_phone is read in templates/customers[addresses].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "limit_item_order",
+        "detail": "settings.limit_item_order is read in snippets/homepage-order.liquid, templates/collection.order.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "link_fb_social_footer",
+        "detail": "settings.link_fb_social_footer is read in snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "link_ins_social_footer",
+        "detail": "settings.link_ins_social_footer is read in snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "link_ytb_social_footer",
+        "detail": "settings.link_ytb_social_footer is read in snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "logo_bct_alt",
+        "detail": "settings.logo_bct_alt is read in snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "logo_bct_image",
+        "detail": "settings.logo_bct_image is read in snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "logo_bct_link",
+        "detail": "settings.logo_bct_link is read in snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "menu_link_footer_1",
+        "detail": "settings.menu_link_footer_1 is read in snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "menu_link_footer_2",
+        "detail": "settings.menu_link_footer_2 is read in snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "menu_link_footer_3",
+        "detail": "settings.menu_link_footer_3 is read in snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "text_logo_1",
+        "detail": "settings.text_logo_1 is read in snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "text_logo_2",
+        "detail": "settings.text_logo_2 is read in snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "time_delivery_show",
+        "detail": "settings.time_delivery_show is read in snippets/homepage-order.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "title_column_footer_1",
+        "detail": "settings.title_column_footer_1 is read in snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "title_column_footer_2",
+        "detail": "settings.title_column_footer_2 is read in snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "title_column_footer_3",
+        "detail": "settings.title_column_footer_3 is read in snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "title_newsletter_footer",
+        "detail": "settings.title_newsletter_footer is read in snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "title_social_footer",
+        "detail": "settings.title_social_footer is read in snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      }
+    ]
+  },
+  "assets": {
+    "ok": true,
+    "counts": {
+      "localPresent": 31,
+      "localMissing": 0,
+      "remote": 0
+    },
+    "localMissing": [],
+    "remote": []
+  },
+  "renders": [],
+  "refusals": [
+    {
+      "check": "settings-binding",
+      "failures": [
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "cart_item_order",
+          "detail": "settings.cart_item_order is read in snippets/homepage-order.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "coupon_order_code",
+          "detail": "settings.coupon_order_code is read in snippets/homepage-order.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "coupon_order_note",
+          "detail": "settings.coupon_order_note is read in snippets/homepage-order.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "coupon_order_text",
+          "detail": "settings.coupon_order_text is read in snippets/homepage-order.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "display_column_footer_1",
+          "detail": "settings.display_column_footer_1 is read in snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "display_column_footer_2",
+          "detail": "settings.display_column_footer_2 is read in snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "display_column_footer_3",
+          "detail": "settings.display_column_footer_3 is read in snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "display_logo_footer",
+          "detail": "settings.display_logo_footer is read in snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "display_newsletter_footer",
+          "detail": "settings.display_newsletter_footer is read in snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "display_social_footer",
+          "detail": "settings.display_social_footer is read in snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "header_home_selected",
+          "detail": "settings.header_home_selected is read in layout/theme.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "heading_item_order",
+          "detail": "settings.heading_item_order is read in snippets/homepage-order.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "home_bannerslider_show",
+          "detail": "settings.home_bannerslider_show is read in snippets/master-include.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "home_counters_show",
+          "detail": "settings.home_counters_show is read in snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "home_coupon_order_show",
+          "detail": "settings.home_coupon_order_show is read in snippets/homepage-order.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "hotline_while_price_zero",
+          "detail": "settings.hotline_while_price_zero is read in templates/product.liquid, templates/product.quickview.liquid, templates/product.style-01.liquid, templates/product.style-02.liquid, templates/product.style-03.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "info_footer",
+          "detail": "settings.info_footer is read in snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "lbl_address1",
+          "detail": "settings.lbl_address1 is read in templates/customers[addresses].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "lbl_address2",
+          "detail": "settings.lbl_address2 is read in templates/customers[addresses].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "lbl_company",
+          "detail": "settings.lbl_company is read in templates/customers[addresses].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "lbl_first_name",
+          "detail": "settings.lbl_first_name is read in templates/customers[addresses].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "lbl_last_name",
+          "detail": "settings.lbl_last_name is read in templates/customers[addresses].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "lbl_phone",
+          "detail": "settings.lbl_phone is read in templates/customers[addresses].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "limit_item_order",
+          "detail": "settings.limit_item_order is read in snippets/homepage-order.liquid, templates/collection.order.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "link_fb_social_footer",
+          "detail": "settings.link_fb_social_footer is read in snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "link_ins_social_footer",
+          "detail": "settings.link_ins_social_footer is read in snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "link_ytb_social_footer",
+          "detail": "settings.link_ytb_social_footer is read in snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "logo_bct_alt",
+          "detail": "settings.logo_bct_alt is read in snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "logo_bct_image",
+          "detail": "settings.logo_bct_image is read in snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "logo_bct_link",
+          "detail": "settings.logo_bct_link is read in snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "menu_link_footer_1",
+          "detail": "settings.menu_link_footer_1 is read in snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "menu_link_footer_2",
+          "detail": "settings.menu_link_footer_2 is read in snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "menu_link_footer_3",
+          "detail": "settings.menu_link_footer_3 is read in snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "text_logo_1",
+          "detail": "settings.text_logo_1 is read in snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "text_logo_2",
+          "detail": "settings.text_logo_2 is read in snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "time_delivery_show",
+          "detail": "settings.time_delivery_show is read in snippets/homepage-order.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "title_column_footer_1",
+          "detail": "settings.title_column_footer_1 is read in snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "title_column_footer_2",
+          "detail": "settings.title_column_footer_2 is read in snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "title_column_footer_3",
+          "detail": "settings.title_column_footer_3 is read in snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "title_newsletter_footer",
+          "detail": "settings.title_newsletter_footer is read in snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "title_social_footer",
+          "detail": "settings.title_social_footer is read in snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        }
+      ]
+    },
+    {
+      "check": "haravan-contracts",
+      "failures": [
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "shop_article_bg",
+          "file": "config/settings.html",
+          "line": 1378,
+          "message": "Duplicate setting control name 'shop_article_bg' in config/settings.html",
+          "detail": "Found 2 controls sharing name 'shop_article_bg'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "shop_article_border",
+          "file": "config/settings.html",
+          "line": 1382,
+          "message": "Duplicate setting control name 'shop_article_border' in config/settings.html",
+          "detail": "Found 2 controls sharing name 'shop_article_border'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+          "id": "shop_article_link",
+          "file": "config/settings.html",
+          "line": 1386,
+          "message": "Duplicate setting control name 'shop_article_link' in config/settings.html",
+          "detail": "Found 2 controls sharing name 'shop_article_link'. Every non-radio control must have a unique name."
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "header_home_selected",
+          "file": "layout/theme.liquid",
+          "line": 153,
+          "message": "setting 'settings.header_home_selected' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'header_home_selected' (layout/theme.liquid:153)"
+        },
+        {
+          "rule": "HARAVAN_BLOG_ARTICLES_COUNT",
+          "file": "templates/blog.liquid",
+          "line": 113,
+          "message": "use blog.articles_count for article totals instead of articles.size",
+          "detail": "Haravan DotLiquid requires blog.articles_count (templates/blog.liquid:113)"
+        },
+        {
+          "rule": "HARAVAN_BLOG_ARTICLES_COUNT",
+          "file": "templates/blog.liquid",
+          "line": 114,
+          "message": "use blog.articles_count for article totals instead of articles.size",
+          "detail": "Haravan DotLiquid requires blog.articles_count (templates/blog.liquid:114)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "limit_item_order",
+          "file": "templates/collection.order.liquid",
+          "line": 2,
+          "message": "setting 'settings.limit_item_order' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'limit_item_order' (templates/collection.order.liquid:2)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "lbl_last_name",
+          "file": "templates/customers[addresses].liquid",
+          "line": 242,
+          "message": "setting 'settings.lbl_last_name' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'lbl_last_name' (templates/customers[addresses].liquid:242)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "lbl_first_name",
+          "file": "templates/customers[addresses].liquid",
+          "line": 246,
+          "message": "setting 'settings.lbl_first_name' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'lbl_first_name' (templates/customers[addresses].liquid:246)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "lbl_company",
+          "file": "templates/customers[addresses].liquid",
+          "line": 250,
+          "message": "setting 'settings.lbl_company' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'lbl_company' (templates/customers[addresses].liquid:250)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "lbl_address1",
+          "file": "templates/customers[addresses].liquid",
+          "line": 254,
+          "message": "setting 'settings.lbl_address1' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'lbl_address1' (templates/customers[addresses].liquid:254)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "lbl_address2",
+          "file": "templates/customers[addresses].liquid",
+          "line": 258,
+          "message": "setting 'settings.lbl_address2' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'lbl_address2' (templates/customers[addresses].liquid:258)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "lbl_phone",
+          "file": "templates/customers[addresses].liquid",
+          "line": 276,
+          "message": "setting 'settings.lbl_phone' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'lbl_phone' (templates/customers[addresses].liquid:276)"
+        },
+        {
+          "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+          "file": "templates/list-collections.liquid",
+          "line": 12,
+          "message": "included snippet 'breadcrumb1' does not exist under snippets/",
+          "detail": "Target snippet 'breadcrumb1' was not found in snippets/ (templates/list-collections.liquid:12)"
+        },
+        {
+          "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+          "file": "templates/list-collections.liquid",
+          "line": 26,
+          "message": "included snippet 'collection-loop' does not exist under snippets/",
+          "detail": "Target snippet 'collection-loop' was not found in snippets/ (templates/list-collections.liquid:26)"
+        },
+        {
+          "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+          "file": "templates/page.stores.liquid",
+          "line": 2,
+          "message": "included snippet 'breadcrumb' does not exist under snippets/",
+          "detail": "Target snippet 'breadcrumb' was not found in snippets/ (templates/page.stores.liquid:2)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "hotline_while_price_zero",
+          "file": "templates/product.liquid",
+          "line": 677,
+          "message": "setting 'settings.hotline_while_price_zero' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'hotline_while_price_zero' (templates/product.liquid:677)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "hotline_while_price_zero",
+          "file": "templates/product.liquid",
+          "line": 679,
+          "message": "setting 'settings.hotline_while_price_zero' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'hotline_while_price_zero' (templates/product.liquid:679)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "hotline_while_price_zero",
+          "file": "templates/product.quickview.liquid",
+          "line": 183,
+          "message": "setting 'settings.hotline_while_price_zero' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'hotline_while_price_zero' (templates/product.quickview.liquid:183)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "hotline_while_price_zero",
+          "file": "templates/product.style-01.liquid",
+          "line": 386,
+          "message": "setting 'settings.hotline_while_price_zero' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'hotline_while_price_zero' (templates/product.style-01.liquid:386)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "hotline_while_price_zero",
+          "file": "templates/product.style-01.liquid",
+          "line": 388,
+          "message": "setting 'settings.hotline_while_price_zero' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'hotline_while_price_zero' (templates/product.style-01.liquid:388)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "hotline_while_price_zero",
+          "file": "templates/product.style-02.liquid",
+          "line": 367,
+          "message": "setting 'settings.hotline_while_price_zero' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'hotline_while_price_zero' (templates/product.style-02.liquid:367)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "hotline_while_price_zero",
+          "file": "templates/product.style-02.liquid",
+          "line": 369,
+          "message": "setting 'settings.hotline_while_price_zero' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'hotline_while_price_zero' (templates/product.style-02.liquid:369)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "hotline_while_price_zero",
+          "file": "templates/product.style-03.liquid",
+          "line": 371,
+          "message": "setting 'settings.hotline_while_price_zero' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'hotline_while_price_zero' (templates/product.style-03.liquid:371)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "hotline_while_price_zero",
+          "file": "templates/product.style-03.liquid",
+          "line": 373,
+          "message": "setting 'settings.hotline_while_price_zero' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'hotline_while_price_zero' (templates/product.style-03.liquid:373)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "home_counters_show",
+          "file": "snippets/footer.liquid",
+          "line": 1,
+          "message": "setting 'settings.home_counters_show' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'home_counters_show' (snippets/footer.liquid:1)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "display_newsletter_footer",
+          "file": "snippets/footer.liquid",
+          "line": 30,
+          "message": "setting 'settings.display_newsletter_footer' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'display_newsletter_footer' (snippets/footer.liquid:30)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "title_newsletter_footer",
+          "file": "snippets/footer.liquid",
+          "line": 39,
+          "message": "setting 'settings.title_newsletter_footer' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'title_newsletter_footer' (snippets/footer.liquid:39)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "display_social_footer",
+          "file": "snippets/footer.liquid",
+          "line": 53,
+          "message": "setting 'settings.display_social_footer' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'display_social_footer' (snippets/footer.liquid:53)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "title_social_footer",
+          "file": "snippets/footer.liquid",
+          "line": 57,
+          "message": "setting 'settings.title_social_footer' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'title_social_footer' (snippets/footer.liquid:57)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "link_fb_social_footer",
+          "file": "snippets/footer.liquid",
+          "line": 60,
+          "message": "setting 'settings.link_fb_social_footer' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'link_fb_social_footer' (snippets/footer.liquid:60)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "link_fb_social_footer",
+          "file": "snippets/footer.liquid",
+          "line": 62,
+          "message": "setting 'settings.link_fb_social_footer' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'link_fb_social_footer' (snippets/footer.liquid:62)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "link_ins_social_footer",
+          "file": "snippets/footer.liquid",
+          "line": 67,
+          "message": "setting 'settings.link_ins_social_footer' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'link_ins_social_footer' (snippets/footer.liquid:67)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "link_ins_social_footer",
+          "file": "snippets/footer.liquid",
+          "line": 69,
+          "message": "setting 'settings.link_ins_social_footer' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'link_ins_social_footer' (snippets/footer.liquid:69)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "link_ytb_social_footer",
+          "file": "snippets/footer.liquid",
+          "line": 74,
+          "message": "setting 'settings.link_ytb_social_footer' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'link_ytb_social_footer' (snippets/footer.liquid:74)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "link_ytb_social_footer",
+          "file": "snippets/footer.liquid",
+          "line": 76,
+          "message": "setting 'settings.link_ytb_social_footer' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'link_ytb_social_footer' (snippets/footer.liquid:76)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "display_logo_footer",
+          "file": "snippets/footer.liquid",
+          "line": 93,
+          "message": "setting 'settings.display_logo_footer' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'display_logo_footer' (snippets/footer.liquid:93)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "text_logo_1",
+          "file": "snippets/footer.liquid",
+          "line": 106,
+          "message": "setting 'settings.text_logo_1' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'text_logo_1' (snippets/footer.liquid:106)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "text_logo_2",
+          "file": "snippets/footer.liquid",
+          "line": 106,
+          "message": "setting 'settings.text_logo_2' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'text_logo_2' (snippets/footer.liquid:106)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "text_logo_1",
+          "file": "snippets/footer.liquid",
+          "line": 108,
+          "message": "setting 'settings.text_logo_1' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'text_logo_1' (snippets/footer.liquid:108)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "text_logo_1",
+          "file": "snippets/footer.liquid",
+          "line": 110,
+          "message": "setting 'settings.text_logo_1' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'text_logo_1' (snippets/footer.liquid:110)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "text_logo_2",
+          "file": "snippets/footer.liquid",
+          "line": 113,
+          "message": "setting 'settings.text_logo_2' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'text_logo_2' (snippets/footer.liquid:113)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "text_logo_2",
+          "file": "snippets/footer.liquid",
+          "line": 115,
+          "message": "setting 'settings.text_logo_2' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'text_logo_2' (snippets/footer.liquid:115)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "info_footer",
+          "file": "snippets/footer.liquid",
+          "line": 123,
+          "message": "setting 'settings.info_footer' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'info_footer' (snippets/footer.liquid:123)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "logo_bct_image",
+          "file": "snippets/footer.liquid",
+          "line": 124,
+          "message": "setting 'settings.logo_bct_image' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'logo_bct_image' (snippets/footer.liquid:124)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "logo_bct_link",
+          "file": "snippets/footer.liquid",
+          "line": 126,
+          "message": "setting 'settings.logo_bct_link' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'logo_bct_link' (snippets/footer.liquid:126)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "logo_bct_alt",
+          "file": "snippets/footer.liquid",
+          "line": 129,
+          "message": "setting 'settings.logo_bct_alt' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'logo_bct_alt' (snippets/footer.liquid:129)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "display_column_footer_1",
+          "file": "snippets/footer.liquid",
+          "line": 136,
+          "message": "setting 'settings.display_column_footer_1' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'display_column_footer_1' (snippets/footer.liquid:136)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "title_column_footer_1",
+          "file": "snippets/footer.liquid",
+          "line": 141,
+          "message": "setting 'settings.title_column_footer_1' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'title_column_footer_1' (snippets/footer.liquid:141)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "menu_link_footer_1",
+          "file": "snippets/footer.liquid",
+          "line": 149,
+          "message": "setting 'settings.menu_link_footer_1' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'menu_link_footer_1' (snippets/footer.liquid:149)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "display_column_footer_2",
+          "file": "snippets/footer.liquid",
+          "line": 157,
+          "message": "setting 'settings.display_column_footer_2' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'display_column_footer_2' (snippets/footer.liquid:157)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "title_column_footer_2",
+          "file": "snippets/footer.liquid",
+          "line": 162,
+          "message": "setting 'settings.title_column_footer_2' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'title_column_footer_2' (snippets/footer.liquid:162)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "menu_link_footer_2",
+          "file": "snippets/footer.liquid",
+          "line": 170,
+          "message": "setting 'settings.menu_link_footer_2' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'menu_link_footer_2' (snippets/footer.liquid:170)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "display_column_footer_3",
+          "file": "snippets/footer.liquid",
+          "line": 178,
+          "message": "setting 'settings.display_column_footer_3' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'display_column_footer_3' (snippets/footer.liquid:178)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "title_column_footer_3",
+          "file": "snippets/footer.liquid",
+          "line": 183,
+          "message": "setting 'settings.title_column_footer_3' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'title_column_footer_3' (snippets/footer.liquid:183)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "menu_link_footer_3",
+          "file": "snippets/footer.liquid",
+          "line": 191,
+          "message": "setting 'settings.menu_link_footer_3' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'menu_link_footer_3' (snippets/footer.liquid:191)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "heading_item_order",
+          "file": "snippets/homepage-order.liquid",
+          "line": 3,
+          "message": "setting 'settings.heading_item_order' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'heading_item_order' (snippets/homepage-order.liquid:3)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "heading_item_order",
+          "file": "snippets/homepage-order.liquid",
+          "line": 5,
+          "message": "setting 'settings.heading_item_order' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'heading_item_order' (snippets/homepage-order.liquid:5)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "limit_item_order",
+          "file": "snippets/homepage-order.liquid",
+          "line": 52,
+          "message": "setting 'settings.limit_item_order' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'limit_item_order' (snippets/homepage-order.liquid:52)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "limit_item_order",
+          "file": "snippets/homepage-order.liquid",
+          "line": 56,
+          "message": "setting 'settings.limit_item_order' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'limit_item_order' (snippets/homepage-order.liquid:56)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "cart_item_order",
+          "file": "snippets/homepage-order.liquid",
+          "line": 75,
+          "message": "setting 'settings.cart_item_order' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'cart_item_order' (snippets/homepage-order.liquid:75)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "time_delivery_show",
+          "file": "snippets/homepage-order.liquid",
+          "line": 136,
+          "message": "setting 'settings.time_delivery_show' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'time_delivery_show' (snippets/homepage-order.liquid:136)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "home_coupon_order_show",
+          "file": "snippets/homepage-order.liquid",
+          "line": 185,
+          "message": "setting 'settings.home_coupon_order_show' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'home_coupon_order_show' (snippets/homepage-order.liquid:185)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "coupon_order_text",
+          "file": "snippets/homepage-order.liquid",
+          "line": 189,
+          "message": "setting 'settings.coupon_order_text' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'coupon_order_text' (snippets/homepage-order.liquid:189)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "coupon_order_code",
+          "file": "snippets/homepage-order.liquid",
+          "line": 189,
+          "message": "setting 'settings.coupon_order_code' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'coupon_order_code' (snippets/homepage-order.liquid:189)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "coupon_order_note",
+          "file": "snippets/homepage-order.liquid",
+          "line": 190,
+          "message": "setting 'settings.coupon_order_note' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'coupon_order_note' (snippets/homepage-order.liquid:190)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "coupon_order_note",
+          "file": "snippets/homepage-order.liquid",
+          "line": 190,
+          "message": "setting 'settings.coupon_order_note' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'coupon_order_note' (snippets/homepage-order.liquid:190)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "coupon_order_code",
+          "file": "snippets/homepage-order.liquid",
+          "line": 192,
+          "message": "setting 'settings.coupon_order_code' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'coupon_order_code' (snippets/homepage-order.liquid:192)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "coupon_order_code",
+          "file": "snippets/homepage-order.liquid",
+          "line": 194,
+          "message": "setting 'settings.coupon_order_code' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'coupon_order_code' (snippets/homepage-order.liquid:194)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "home_bannerslider_show",
+          "file": "snippets/master-include.liquid",
+          "line": 29,
+          "message": "setting 'settings.home_bannerslider_show' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'home_bannerslider_show' (snippets/master-include.liquid:29)"
+        },
+        {
+          "rule": "HARAVAN_BLOG_ARTICLES_COUNT",
+          "file": "snippets/sidebar-blog.liquid",
+          "line": 72,
+          "message": "use blog.articles_count for article totals instead of articles.size",
+          "detail": "Haravan DotLiquid requires blog.articles_count (snippets/sidebar-blog.liquid:72)"
+        },
+        {
+          "rule": "HARAVAN_BLOG_ARTICLES_COUNT",
+          "file": "snippets/sidebar-blog.liquid",
+          "line": 73,
+          "message": "use blog.articles_count for article totals instead of articles.size",
+          "detail": "Haravan DotLiquid requires blog.articles_count (snippets/sidebar-blog.liquid:73)"
+        }
+      ]
+    }
+  ],
+  "haravanContracts": {
+    "ok": false,
+    "failures": [
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "shop_article_bg",
+        "file": "config/settings.html",
+        "line": 1378,
+        "message": "Duplicate setting control name 'shop_article_bg' in config/settings.html",
+        "detail": "Found 2 controls sharing name 'shop_article_bg'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "shop_article_border",
+        "file": "config/settings.html",
+        "line": 1382,
+        "message": "Duplicate setting control name 'shop_article_border' in config/settings.html",
+        "detail": "Found 2 controls sharing name 'shop_article_border'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTINGS_DUPLICATE_NAME",
+        "id": "shop_article_link",
+        "file": "config/settings.html",
+        "line": 1386,
+        "message": "Duplicate setting control name 'shop_article_link' in config/settings.html",
+        "detail": "Found 2 controls sharing name 'shop_article_link'. Every non-radio control must have a unique name."
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "header_home_selected",
+        "file": "layout/theme.liquid",
+        "line": 153,
+        "message": "setting 'settings.header_home_selected' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'header_home_selected' (layout/theme.liquid:153)"
+      },
+      {
+        "rule": "HARAVAN_BLOG_ARTICLES_COUNT",
+        "file": "templates/blog.liquid",
+        "line": 113,
+        "message": "use blog.articles_count for article totals instead of articles.size",
+        "detail": "Haravan DotLiquid requires blog.articles_count (templates/blog.liquid:113)"
+      },
+      {
+        "rule": "HARAVAN_BLOG_ARTICLES_COUNT",
+        "file": "templates/blog.liquid",
+        "line": 114,
+        "message": "use blog.articles_count for article totals instead of articles.size",
+        "detail": "Haravan DotLiquid requires blog.articles_count (templates/blog.liquid:114)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "limit_item_order",
+        "file": "templates/collection.order.liquid",
+        "line": 2,
+        "message": "setting 'settings.limit_item_order' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'limit_item_order' (templates/collection.order.liquid:2)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "lbl_last_name",
+        "file": "templates/customers[addresses].liquid",
+        "line": 242,
+        "message": "setting 'settings.lbl_last_name' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'lbl_last_name' (templates/customers[addresses].liquid:242)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "lbl_first_name",
+        "file": "templates/customers[addresses].liquid",
+        "line": 246,
+        "message": "setting 'settings.lbl_first_name' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'lbl_first_name' (templates/customers[addresses].liquid:246)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "lbl_company",
+        "file": "templates/customers[addresses].liquid",
+        "line": 250,
+        "message": "setting 'settings.lbl_company' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'lbl_company' (templates/customers[addresses].liquid:250)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "lbl_address1",
+        "file": "templates/customers[addresses].liquid",
+        "line": 254,
+        "message": "setting 'settings.lbl_address1' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'lbl_address1' (templates/customers[addresses].liquid:254)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "lbl_address2",
+        "file": "templates/customers[addresses].liquid",
+        "line": 258,
+        "message": "setting 'settings.lbl_address2' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'lbl_address2' (templates/customers[addresses].liquid:258)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "lbl_phone",
+        "file": "templates/customers[addresses].liquid",
+        "line": 276,
+        "message": "setting 'settings.lbl_phone' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'lbl_phone' (templates/customers[addresses].liquid:276)"
+      },
+      {
+        "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+        "file": "templates/list-collections.liquid",
+        "line": 12,
+        "message": "included snippet 'breadcrumb1' does not exist under snippets/",
+        "detail": "Target snippet 'breadcrumb1' was not found in snippets/ (templates/list-collections.liquid:12)"
+      },
+      {
+        "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+        "file": "templates/list-collections.liquid",
+        "line": 26,
+        "message": "included snippet 'collection-loop' does not exist under snippets/",
+        "detail": "Target snippet 'collection-loop' was not found in snippets/ (templates/list-collections.liquid:26)"
+      },
+      {
+        "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+        "file": "templates/page.stores.liquid",
+        "line": 2,
+        "message": "included snippet 'breadcrumb' does not exist under snippets/",
+        "detail": "Target snippet 'breadcrumb' was not found in snippets/ (templates/page.stores.liquid:2)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "hotline_while_price_zero",
+        "file": "templates/product.liquid",
+        "line": 677,
+        "message": "setting 'settings.hotline_while_price_zero' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'hotline_while_price_zero' (templates/product.liquid:677)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "hotline_while_price_zero",
+        "file": "templates/product.liquid",
+        "line": 679,
+        "message": "setting 'settings.hotline_while_price_zero' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'hotline_while_price_zero' (templates/product.liquid:679)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "hotline_while_price_zero",
+        "file": "templates/product.quickview.liquid",
+        "line": 183,
+        "message": "setting 'settings.hotline_while_price_zero' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'hotline_while_price_zero' (templates/product.quickview.liquid:183)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "hotline_while_price_zero",
+        "file": "templates/product.style-01.liquid",
+        "line": 386,
+        "message": "setting 'settings.hotline_while_price_zero' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'hotline_while_price_zero' (templates/product.style-01.liquid:386)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "hotline_while_price_zero",
+        "file": "templates/product.style-01.liquid",
+        "line": 388,
+        "message": "setting 'settings.hotline_while_price_zero' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'hotline_while_price_zero' (templates/product.style-01.liquid:388)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "hotline_while_price_zero",
+        "file": "templates/product.style-02.liquid",
+        "line": 367,
+        "message": "setting 'settings.hotline_while_price_zero' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'hotline_while_price_zero' (templates/product.style-02.liquid:367)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "hotline_while_price_zero",
+        "file": "templates/product.style-02.liquid",
+        "line": 369,
+        "message": "setting 'settings.hotline_while_price_zero' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'hotline_while_price_zero' (templates/product.style-02.liquid:369)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "hotline_while_price_zero",
+        "file": "templates/product.style-03.liquid",
+        "line": 371,
+        "message": "setting 'settings.hotline_while_price_zero' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'hotline_while_price_zero' (templates/product.style-03.liquid:371)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "hotline_while_price_zero",
+        "file": "templates/product.style-03.liquid",
+        "line": 373,
+        "message": "setting 'settings.hotline_while_price_zero' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'hotline_while_price_zero' (templates/product.style-03.liquid:373)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "home_counters_show",
+        "file": "snippets/footer.liquid",
+        "line": 1,
+        "message": "setting 'settings.home_counters_show' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'home_counters_show' (snippets/footer.liquid:1)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "display_newsletter_footer",
+        "file": "snippets/footer.liquid",
+        "line": 30,
+        "message": "setting 'settings.display_newsletter_footer' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'display_newsletter_footer' (snippets/footer.liquid:30)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "title_newsletter_footer",
+        "file": "snippets/footer.liquid",
+        "line": 39,
+        "message": "setting 'settings.title_newsletter_footer' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'title_newsletter_footer' (snippets/footer.liquid:39)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "display_social_footer",
+        "file": "snippets/footer.liquid",
+        "line": 53,
+        "message": "setting 'settings.display_social_footer' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'display_social_footer' (snippets/footer.liquid:53)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "title_social_footer",
+        "file": "snippets/footer.liquid",
+        "line": 57,
+        "message": "setting 'settings.title_social_footer' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'title_social_footer' (snippets/footer.liquid:57)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "link_fb_social_footer",
+        "file": "snippets/footer.liquid",
+        "line": 60,
+        "message": "setting 'settings.link_fb_social_footer' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'link_fb_social_footer' (snippets/footer.liquid:60)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "link_fb_social_footer",
+        "file": "snippets/footer.liquid",
+        "line": 62,
+        "message": "setting 'settings.link_fb_social_footer' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'link_fb_social_footer' (snippets/footer.liquid:62)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "link_ins_social_footer",
+        "file": "snippets/footer.liquid",
+        "line": 67,
+        "message": "setting 'settings.link_ins_social_footer' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'link_ins_social_footer' (snippets/footer.liquid:67)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "link_ins_social_footer",
+        "file": "snippets/footer.liquid",
+        "line": 69,
+        "message": "setting 'settings.link_ins_social_footer' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'link_ins_social_footer' (snippets/footer.liquid:69)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "link_ytb_social_footer",
+        "file": "snippets/footer.liquid",
+        "line": 74,
+        "message": "setting 'settings.link_ytb_social_footer' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'link_ytb_social_footer' (snippets/footer.liquid:74)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "link_ytb_social_footer",
+        "file": "snippets/footer.liquid",
+        "line": 76,
+        "message": "setting 'settings.link_ytb_social_footer' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'link_ytb_social_footer' (snippets/footer.liquid:76)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "display_logo_footer",
+        "file": "snippets/footer.liquid",
+        "line": 93,
+        "message": "setting 'settings.display_logo_footer' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'display_logo_footer' (snippets/footer.liquid:93)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "text_logo_1",
+        "file": "snippets/footer.liquid",
+        "line": 106,
+        "message": "setting 'settings.text_logo_1' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'text_logo_1' (snippets/footer.liquid:106)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "text_logo_2",
+        "file": "snippets/footer.liquid",
+        "line": 106,
+        "message": "setting 'settings.text_logo_2' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'text_logo_2' (snippets/footer.liquid:106)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "text_logo_1",
+        "file": "snippets/footer.liquid",
+        "line": 108,
+        "message": "setting 'settings.text_logo_1' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'text_logo_1' (snippets/footer.liquid:108)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "text_logo_1",
+        "file": "snippets/footer.liquid",
+        "line": 110,
+        "message": "setting 'settings.text_logo_1' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'text_logo_1' (snippets/footer.liquid:110)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "text_logo_2",
+        "file": "snippets/footer.liquid",
+        "line": 113,
+        "message": "setting 'settings.text_logo_2' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'text_logo_2' (snippets/footer.liquid:113)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "text_logo_2",
+        "file": "snippets/footer.liquid",
+        "line": 115,
+        "message": "setting 'settings.text_logo_2' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'text_logo_2' (snippets/footer.liquid:115)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "info_footer",
+        "file": "snippets/footer.liquid",
+        "line": 123,
+        "message": "setting 'settings.info_footer' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'info_footer' (snippets/footer.liquid:123)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "logo_bct_image",
+        "file": "snippets/footer.liquid",
+        "line": 124,
+        "message": "setting 'settings.logo_bct_image' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'logo_bct_image' (snippets/footer.liquid:124)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "logo_bct_link",
+        "file": "snippets/footer.liquid",
+        "line": 126,
+        "message": "setting 'settings.logo_bct_link' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'logo_bct_link' (snippets/footer.liquid:126)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "logo_bct_alt",
+        "file": "snippets/footer.liquid",
+        "line": 129,
+        "message": "setting 'settings.logo_bct_alt' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'logo_bct_alt' (snippets/footer.liquid:129)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "display_column_footer_1",
+        "file": "snippets/footer.liquid",
+        "line": 136,
+        "message": "setting 'settings.display_column_footer_1' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'display_column_footer_1' (snippets/footer.liquid:136)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "title_column_footer_1",
+        "file": "snippets/footer.liquid",
+        "line": 141,
+        "message": "setting 'settings.title_column_footer_1' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'title_column_footer_1' (snippets/footer.liquid:141)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "menu_link_footer_1",
+        "file": "snippets/footer.liquid",
+        "line": 149,
+        "message": "setting 'settings.menu_link_footer_1' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'menu_link_footer_1' (snippets/footer.liquid:149)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "display_column_footer_2",
+        "file": "snippets/footer.liquid",
+        "line": 157,
+        "message": "setting 'settings.display_column_footer_2' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'display_column_footer_2' (snippets/footer.liquid:157)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "title_column_footer_2",
+        "file": "snippets/footer.liquid",
+        "line": 162,
+        "message": "setting 'settings.title_column_footer_2' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'title_column_footer_2' (snippets/footer.liquid:162)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "menu_link_footer_2",
+        "file": "snippets/footer.liquid",
+        "line": 170,
+        "message": "setting 'settings.menu_link_footer_2' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'menu_link_footer_2' (snippets/footer.liquid:170)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "display_column_footer_3",
+        "file": "snippets/footer.liquid",
+        "line": 178,
+        "message": "setting 'settings.display_column_footer_3' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'display_column_footer_3' (snippets/footer.liquid:178)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "title_column_footer_3",
+        "file": "snippets/footer.liquid",
+        "line": 183,
+        "message": "setting 'settings.title_column_footer_3' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'title_column_footer_3' (snippets/footer.liquid:183)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "menu_link_footer_3",
+        "file": "snippets/footer.liquid",
+        "line": 191,
+        "message": "setting 'settings.menu_link_footer_3' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'menu_link_footer_3' (snippets/footer.liquid:191)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "heading_item_order",
+        "file": "snippets/homepage-order.liquid",
+        "line": 3,
+        "message": "setting 'settings.heading_item_order' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'heading_item_order' (snippets/homepage-order.liquid:3)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "heading_item_order",
+        "file": "snippets/homepage-order.liquid",
+        "line": 5,
+        "message": "setting 'settings.heading_item_order' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'heading_item_order' (snippets/homepage-order.liquid:5)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "limit_item_order",
+        "file": "snippets/homepage-order.liquid",
+        "line": 52,
+        "message": "setting 'settings.limit_item_order' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'limit_item_order' (snippets/homepage-order.liquid:52)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "limit_item_order",
+        "file": "snippets/homepage-order.liquid",
+        "line": 56,
+        "message": "setting 'settings.limit_item_order' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'limit_item_order' (snippets/homepage-order.liquid:56)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "cart_item_order",
+        "file": "snippets/homepage-order.liquid",
+        "line": 75,
+        "message": "setting 'settings.cart_item_order' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'cart_item_order' (snippets/homepage-order.liquid:75)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "time_delivery_show",
+        "file": "snippets/homepage-order.liquid",
+        "line": 136,
+        "message": "setting 'settings.time_delivery_show' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'time_delivery_show' (snippets/homepage-order.liquid:136)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "home_coupon_order_show",
+        "file": "snippets/homepage-order.liquid",
+        "line": 185,
+        "message": "setting 'settings.home_coupon_order_show' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'home_coupon_order_show' (snippets/homepage-order.liquid:185)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "coupon_order_text",
+        "file": "snippets/homepage-order.liquid",
+        "line": 189,
+        "message": "setting 'settings.coupon_order_text' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'coupon_order_text' (snippets/homepage-order.liquid:189)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "coupon_order_code",
+        "file": "snippets/homepage-order.liquid",
+        "line": 189,
+        "message": "setting 'settings.coupon_order_code' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'coupon_order_code' (snippets/homepage-order.liquid:189)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "coupon_order_note",
+        "file": "snippets/homepage-order.liquid",
+        "line": 190,
+        "message": "setting 'settings.coupon_order_note' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'coupon_order_note' (snippets/homepage-order.liquid:190)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "coupon_order_note",
+        "file": "snippets/homepage-order.liquid",
+        "line": 190,
+        "message": "setting 'settings.coupon_order_note' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'coupon_order_note' (snippets/homepage-order.liquid:190)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "coupon_order_code",
+        "file": "snippets/homepage-order.liquid",
+        "line": 192,
+        "message": "setting 'settings.coupon_order_code' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'coupon_order_code' (snippets/homepage-order.liquid:192)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "coupon_order_code",
+        "file": "snippets/homepage-order.liquid",
+        "line": 194,
+        "message": "setting 'settings.coupon_order_code' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'coupon_order_code' (snippets/homepage-order.liquid:194)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "home_bannerslider_show",
+        "file": "snippets/master-include.liquid",
+        "line": 29,
+        "message": "setting 'settings.home_bannerslider_show' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'home_bannerslider_show' (snippets/master-include.liquid:29)"
+      },
+      {
+        "rule": "HARAVAN_BLOG_ARTICLES_COUNT",
+        "file": "snippets/sidebar-blog.liquid",
+        "line": 72,
+        "message": "use blog.articles_count for article totals instead of articles.size",
+        "detail": "Haravan DotLiquid requires blog.articles_count (snippets/sidebar-blog.liquid:72)"
+      },
+      {
+        "rule": "HARAVAN_BLOG_ARTICLES_COUNT",
+        "file": "snippets/sidebar-blog.liquid",
+        "line": 73,
+        "message": "use blog.articles_count for article totals instead of articles.size",
+        "detail": "Haravan DotLiquid requires blog.articles_count (snippets/sidebar-blog.liquid:73)"
+      }
+    ]
+  }
+}

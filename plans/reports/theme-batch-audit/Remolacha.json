@@ -1,0 +1,1861 @@
+{
+  "themeDir": "E:\\Work\\customizes\\Remolacha",
+  "generatedAt": "2026-10-05T22:14:00.562Z",
+  "ok": false,
+  "schemas": {
+    "ok": false,
+    "schemaFiles": [
+      {
+        "path": "config/settings_schema.json",
+        "ok": false,
+        "error": "Unexpected token '/', \"/*[\n\t{\n\t\t\"\"... is not valid JSON"
+      }
+    ],
+    "sectionCount": 0,
+    "failures": [
+      {
+        "rule": "SETTINGS_SCHEMA_JSON_INVALID",
+        "path": "config/settings_schema.json",
+        "detail": "Unexpected token '/', \"/*[\n\t{\n\t\t\"\"... is not valid JSON"
+      }
+    ]
+  },
+  "settingsBinding": {
+    "ok": false,
+    "undeclared": [
+      {
+        "id": "appbuyxgety_icon",
+        "files": [
+          "snippets/product-loop-ldpage.liquid",
+          "templates/cart.liquid"
+        ]
+      },
+      {
+        "id": "block_home_category1",
+        "files": [
+          "templates/index.noslider.liquid",
+          "templates/index.slider.liquid"
+        ]
+      },
+      {
+        "id": "block_home_category2",
+        "files": [
+          "templates/index.noslider.liquid",
+          "templates/index.slider.liquid"
+        ]
+      },
+      {
+        "id": "block_home_category3",
+        "files": [
+          "templates/index.noslider.liquid",
+          "templates/index.slider.liquid"
+        ]
+      },
+      {
+        "id": "collection_sort",
+        "files": [
+          "templates/collection.liquid"
+        ]
+      },
+      {
+        "id": "fanpage_faceook",
+        "files": [
+          "snippets/facebook-widget.liquid"
+        ]
+      },
+      {
+        "id": "favicon",
+        "files": [
+          "templates/index.header-style-01.liquid",
+          "templates/index.header-style-02.liquid",
+          "templates/index.header-style-03.liquid",
+          "templates/page.guide.liquid"
+        ]
+      },
+      {
+        "id": "fb_chat",
+        "files": [
+          "snippets/haravan-fb-messages.liquid"
+        ]
+      },
+      {
+        "id": "fb_chat_title",
+        "files": [
+          "snippets/haravan-fb-messages.liquid"
+        ]
+      },
+      {
+        "id": "footer-address",
+        "files": [
+          "snippets/footer.liquid"
+        ]
+      },
+      {
+        "id": "footer1_information",
+        "files": [
+          "snippets/footer.liquid"
+        ]
+      },
+      {
+        "id": "lbl_address1",
+        "files": [
+          "templates/customers[addresses].liquid"
+        ]
+      },
+      {
+        "id": "lbl_address2",
+        "files": [
+          "templates/customers[addresses].liquid"
+        ]
+      },
+      {
+        "id": "lbl_company",
+        "files": [
+          "templates/customers[addresses].liquid"
+        ]
+      },
+      {
+        "id": "lbl_first_name",
+        "files": [
+          "templates/customers[addresses].liquid"
+        ]
+      },
+      {
+        "id": "lbl_last_name",
+        "files": [
+          "templates/customers[addresses].liquid"
+        ]
+      },
+      {
+        "id": "lbl_phone",
+        "files": [
+          "templates/customers[addresses].liquid"
+        ]
+      },
+      {
+        "id": "logo",
+        "files": [
+          "templates/page.guide.liquid"
+        ]
+      },
+      {
+        "id": "show_fanpage_faceook",
+        "files": [
+          "snippets/facebook-widget.liquid"
+        ]
+      }
+    ],
+    "dead": [
+      {
+        "id": "1_price_to"
+      },
+      {
+        "id": "2_price_from"
+      },
+      {
+        "id": "2_price_to"
+      },
+      {
+        "id": "3_price_from"
+      },
+      {
+        "id": "3_price_to"
+      },
+      {
+        "id": "4_price_from"
+      },
+      {
+        "id": "4_price_to"
+      },
+      {
+        "id": "5_price_from"
+      },
+      {
+        "id": "appbuyxgety-icon.png"
+      },
+      {
+        "id": "banner_btn_color"
+      },
+      {
+        "id": "banner_btntext_color"
+      },
+      {
+        "id": "banner_title_color"
+      },
+      {
+        "id": "bg_new_label"
+      },
+      {
+        "id": "block_home_category1.jpg"
+      },
+      {
+        "id": "block_home_category2.jpg"
+      },
+      {
+        "id": "block_home_category3.jpg"
+      },
+      {
+        "id": "btn_bg_shop"
+      },
+      {
+        "id": "collection_banner.jpg"
+      },
+      {
+        "id": "color_code_new_1"
+      },
+      {
+        "id": "color_code_new_10"
+      },
+      {
+        "id": "color_code_new_11"
+      },
+      {
+        "id": "color_code_new_12"
+      },
+      {
+        "id": "color_code_new_13"
+      },
+      {
+        "id": "color_code_new_14"
+      },
+      {
+        "id": "color_code_new_15"
+      },
+      {
+        "id": "color_code_new_16"
+      },
+      {
+        "id": "color_code_new_17"
+      },
+      {
+        "id": "color_code_new_18"
+      },
+      {
+        "id": "color_code_new_19"
+      },
+      {
+        "id": "color_code_new_2"
+      },
+      {
+        "id": "color_code_new_20"
+      },
+      {
+        "id": "color_code_new_21"
+      },
+      {
+        "id": "color_code_new_22"
+      },
+      {
+        "id": "color_code_new_23"
+      },
+      {
+        "id": "color_code_new_24"
+      },
+      {
+        "id": "color_code_new_25"
+      },
+      {
+        "id": "color_code_new_26"
+      },
+      {
+        "id": "color_code_new_27"
+      },
+      {
+        "id": "color_code_new_28"
+      },
+      {
+        "id": "color_code_new_29"
+      },
+      {
+        "id": "color_code_new_3"
+      },
+      {
+        "id": "color_code_new_30"
+      },
+      {
+        "id": "color_code_new_4"
+      },
+      {
+        "id": "color_code_new_5"
+      },
+      {
+        "id": "color_code_new_6"
+      },
+      {
+        "id": "color_code_new_7"
+      },
+      {
+        "id": "color_code_new_8"
+      },
+      {
+        "id": "color_code_new_9"
+      },
+      {
+        "id": "color_name_new_1"
+      },
+      {
+        "id": "color_name_new_10"
+      },
+      {
+        "id": "color_name_new_11"
+      },
+      {
+        "id": "color_name_new_12"
+      },
+      {
+        "id": "color_name_new_13"
+      },
+      {
+        "id": "color_name_new_14"
+      },
+      {
+        "id": "color_name_new_15"
+      },
+      {
+        "id": "color_name_new_16"
+      },
+      {
+        "id": "color_name_new_17"
+      },
+      {
+        "id": "color_name_new_18"
+      },
+      {
+        "id": "color_name_new_19"
+      },
+      {
+        "id": "color_name_new_2"
+      },
+      {
+        "id": "color_name_new_20"
+      },
+      {
+        "id": "color_name_new_21"
+      },
+      {
+        "id": "color_name_new_22"
+      },
+      {
+        "id": "color_name_new_23"
+      },
+      {
+        "id": "color_name_new_24"
+      },
+      {
+        "id": "color_name_new_25"
+      },
+      {
+        "id": "color_name_new_26"
+      },
+      {
+        "id": "color_name_new_27"
+      },
+      {
+        "id": "color_name_new_28"
+      },
+      {
+        "id": "color_name_new_29"
+      },
+      {
+        "id": "color_name_new_3"
+      },
+      {
+        "id": "color_name_new_30"
+      },
+      {
+        "id": "color_name_new_4"
+      },
+      {
+        "id": "color_name_new_5"
+      },
+      {
+        "id": "color_name_new_6"
+      },
+      {
+        "id": "color_name_new_7"
+      },
+      {
+        "id": "color_name_new_8"
+      },
+      {
+        "id": "color_name_new_9"
+      },
+      {
+        "id": "favicon.png"
+      },
+      {
+        "id": "header_01_color_bkg"
+      },
+      {
+        "id": "header_01_color_text"
+      },
+      {
+        "id": "header_01_topbar_bkg"
+      },
+      {
+        "id": "header_01_topbar_text"
+      },
+      {
+        "id": "header_02_color_bkg"
+      },
+      {
+        "id": "header_02_color_hover"
+      },
+      {
+        "id": "header_02_color_text"
+      },
+      {
+        "id": "header_02_topbar_bkg"
+      },
+      {
+        "id": "header_02_topbar_text"
+      },
+      {
+        "id": "header_03_color_bkg"
+      },
+      {
+        "id": "header_03_color_text"
+      },
+      {
+        "id": "header_03_topbar_bkg"
+      },
+      {
+        "id": "header_03_topbar_text"
+      },
+      {
+        "id": "home_about_image.jpg"
+      },
+      {
+        "id": "home_category_1_alt"
+      },
+      {
+        "id": "home_category_1_banner.jpg"
+      },
+      {
+        "id": "home_category_1_link"
+      },
+      {
+        "id": "home_category_1_show"
+      },
+      {
+        "id": "home_category_1_title"
+      },
+      {
+        "id": "home_category_2_alt"
+      },
+      {
+        "id": "home_category_2_banner.jpg"
+      },
+      {
+        "id": "home_category_2_link"
+      },
+      {
+        "id": "home_category_2_show"
+      },
+      {
+        "id": "home_category_2_title"
+      },
+      {
+        "id": "home_category_3_alt"
+      },
+      {
+        "id": "home_category_3_banner.jpg"
+      },
+      {
+        "id": "home_category_3_link"
+      },
+      {
+        "id": "home_category_3_show"
+      },
+      {
+        "id": "home_category_3_title"
+      },
+      {
+        "id": "home_category_4_alt"
+      },
+      {
+        "id": "home_category_4_banner.jpg"
+      },
+      {
+        "id": "home_category_4_link"
+      },
+      {
+        "id": "home_category_4_show"
+      },
+      {
+        "id": "home_category_4_title"
+      },
+      {
+        "id": "home_category_5_alt"
+      },
+      {
+        "id": "home_category_5_banner.jpg"
+      },
+      {
+        "id": "home_category_5_link"
+      },
+      {
+        "id": "home_category_5_show"
+      },
+      {
+        "id": "home_category_5_title"
+      },
+      {
+        "id": "kids01_banner_1.jpg"
+      },
+      {
+        "id": "kids01_banner_1_alt"
+      },
+      {
+        "id": "kids01_banner_1_link"
+      },
+      {
+        "id": "kids01_banner_2.jpg"
+      },
+      {
+        "id": "kids01_banner_2_alt"
+      },
+      {
+        "id": "kids01_banner_2_link"
+      },
+      {
+        "id": "kids01_banner_3.jpg"
+      },
+      {
+        "id": "kids01_banner_3_alt"
+      },
+      {
+        "id": "kids01_banner_3_link"
+      },
+      {
+        "id": "kids01_banner_4.jpg"
+      },
+      {
+        "id": "kids01_banner_4_alt"
+      },
+      {
+        "id": "kids01_banner_4_link"
+      },
+      {
+        "id": "kids01_bannertop_2.jpg"
+      },
+      {
+        "id": "kids01_bannertop_image.jpg"
+      },
+      {
+        "id": "kids01_bannertop_mobile.jpg"
+      },
+      {
+        "id": "kids01_collection_tabs_1_handle"
+      },
+      {
+        "id": "kids01_collection_tabs_1_title"
+      },
+      {
+        "id": "kids01_collection_tabs_2_handle"
+      },
+      {
+        "id": "kids01_collection_tabs_2_show"
+      },
+      {
+        "id": "kids01_collection_tabs_2_title"
+      },
+      {
+        "id": "kids01_collection_tabs_3_handle"
+      },
+      {
+        "id": "kids01_collection_tabs_3_show"
+      },
+      {
+        "id": "kids01_collection_tabs_3_title"
+      },
+      {
+        "id": "kids01_collection_tabs_4_handle"
+      },
+      {
+        "id": "kids01_collection_tabs_4_show"
+      },
+      {
+        "id": "kids01_collection_tabs_4_title"
+      },
+      {
+        "id": "kids01_collection_tabs_5_handle"
+      },
+      {
+        "id": "kids01_collection_tabs_5_title"
+      },
+      {
+        "id": "kids01_collection_tabs_6_handle"
+      },
+      {
+        "id": "kids01_collection_tabs_6_show"
+      },
+      {
+        "id": "kids01_collection_tabs_6_title"
+      },
+      {
+        "id": "kids01_collection_tabs_7_handle"
+      },
+      {
+        "id": "kids01_collection_tabs_7_show"
+      },
+      {
+        "id": "kids01_collection_tabs_7_title"
+      },
+      {
+        "id": "kids01_collection_tabs_8_handle"
+      },
+      {
+        "id": "kids01_collection_tabs_8_show"
+      },
+      {
+        "id": "kids01_collection_tabs_8_title"
+      },
+      {
+        "id": "kids01_color_bg"
+      },
+      {
+        "id": "kids01_color_main"
+      },
+      {
+        "id": "kids01_color_title"
+      },
+      {
+        "id": "kids01_countdown_bg"
+      },
+      {
+        "id": "kids01_coupon_1_code"
+      },
+      {
+        "id": "kids01_coupon_1_date"
+      },
+      {
+        "id": "kids01_coupon_1_note1"
+      },
+      {
+        "id": "kids01_coupon_1_note2"
+      },
+      {
+        "id": "kids01_coupon_1_note3"
+      },
+      {
+        "id": "kids01_coupon_1_text"
+      },
+      {
+        "id": "kids01_coupon_1_title"
+      },
+      {
+        "id": "kids01_coupon_2_code"
+      },
+      {
+        "id": "kids01_coupon_2_date"
+      },
+      {
+        "id": "kids01_coupon_2_note1"
+      },
+      {
+        "id": "kids01_coupon_2_note2"
+      },
+      {
+        "id": "kids01_coupon_2_note3"
+      },
+      {
+        "id": "kids01_coupon_2_text"
+      },
+      {
+        "id": "kids01_coupon_2_title"
+      },
+      {
+        "id": "kids01_coupon_3_code"
+      },
+      {
+        "id": "kids01_coupon_3_date"
+      },
+      {
+        "id": "kids01_coupon_3_note1"
+      },
+      {
+        "id": "kids01_coupon_3_note2"
+      },
+      {
+        "id": "kids01_coupon_3_note3"
+      },
+      {
+        "id": "kids01_coupon_3_text"
+      },
+      {
+        "id": "kids01_coupon_3_title"
+      },
+      {
+        "id": "kids01_coupon_4_code"
+      },
+      {
+        "id": "kids01_coupon_4_date"
+      },
+      {
+        "id": "kids01_coupon_4_note1"
+      },
+      {
+        "id": "kids01_coupon_4_note2"
+      },
+      {
+        "id": "kids01_coupon_4_note3"
+      },
+      {
+        "id": "kids01_coupon_4_text"
+      },
+      {
+        "id": "kids01_coupon_4_title"
+      },
+      {
+        "id": "kids01_coupon_bg"
+      },
+      {
+        "id": "kids01_coupon_light"
+      },
+      {
+        "id": "kids01_coupon_text"
+      },
+      {
+        "id": "kids01_flashsale_banner.jpg"
+      },
+      {
+        "id": "kids01_frame_image.png"
+      },
+      {
+        "id": "logo.png"
+      },
+      {
+        "id": "logo_bct.png"
+      },
+      {
+        "id": "page_banner.jpg"
+      },
+      {
+        "id": "popup_contact_banner.jpg"
+      },
+      {
+        "id": "popup_contact_bkg.jpg"
+      },
+      {
+        "id": "popup_contact_description_1"
+      },
+      {
+        "id": "popup_contact_description_2"
+      },
+      {
+        "id": "popup_contact_description_3"
+      },
+      {
+        "id": "product_card_border_color"
+      },
+      {
+        "id": "product_card_info_bg.png"
+      },
+      {
+        "id": "product_card_info_bg_color"
+      },
+      {
+        "id": "share_fb_home.jpg"
+      },
+      {
+        "id": "shop_article_bg"
+      },
+      {
+        "id": "shop_article_border"
+      },
+      {
+        "id": "shop_article_link"
+      },
+      {
+        "id": "shop_text_color"
+      },
+      {
+        "id": "shop_text_hover_color"
+      },
+      {
+        "id": "shop_title_color"
+      },
+      {
+        "id": "slide_2"
+      },
+      {
+        "id": "slide_2_alt"
+      },
+      {
+        "id": "slide_2_link"
+      },
+      {
+        "id": "slide_3"
+      },
+      {
+        "id": "slide_3_alt"
+      },
+      {
+        "id": "slide_3_link"
+      },
+      {
+        "id": "slide_4"
+      },
+      {
+        "id": "slide_4_alt"
+      },
+      {
+        "id": "slide_4_link"
+      },
+      {
+        "id": "slideshow_1.jpg"
+      },
+      {
+        "id": "slideshow_2.jpg"
+      },
+      {
+        "id": "slideshow_3.jpg"
+      },
+      {
+        "id": "slideshow_4.jpg"
+      },
+      {
+        "id": "txt_new_label"
+      },
+      {
+        "id": "use_color_filter_1"
+      },
+      {
+        "id": "use_color_filter_10"
+      },
+      {
+        "id": "use_color_filter_11"
+      },
+      {
+        "id": "use_color_filter_12"
+      },
+      {
+        "id": "use_color_filter_13"
+      },
+      {
+        "id": "use_color_filter_14"
+      },
+      {
+        "id": "use_color_filter_15"
+      },
+      {
+        "id": "use_color_filter_16"
+      },
+      {
+        "id": "use_color_filter_17"
+      },
+      {
+        "id": "use_color_filter_18"
+      },
+      {
+        "id": "use_color_filter_19"
+      },
+      {
+        "id": "use_color_filter_2"
+      },
+      {
+        "id": "use_color_filter_20"
+      },
+      {
+        "id": "use_color_filter_21"
+      },
+      {
+        "id": "use_color_filter_22"
+      },
+      {
+        "id": "use_color_filter_23"
+      },
+      {
+        "id": "use_color_filter_24"
+      },
+      {
+        "id": "use_color_filter_25"
+      },
+      {
+        "id": "use_color_filter_26"
+      },
+      {
+        "id": "use_color_filter_27"
+      },
+      {
+        "id": "use_color_filter_28"
+      },
+      {
+        "id": "use_color_filter_29"
+      },
+      {
+        "id": "use_color_filter_3"
+      },
+      {
+        "id": "use_color_filter_30"
+      },
+      {
+        "id": "use_color_filter_4"
+      },
+      {
+        "id": "use_color_filter_5"
+      },
+      {
+        "id": "use_color_filter_6"
+      },
+      {
+        "id": "use_color_filter_7"
+      },
+      {
+        "id": "use_color_filter_8"
+      },
+      {
+        "id": "use_color_filter_9"
+      }
+    ],
+    "failures": [
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "appbuyxgety_icon",
+        "detail": "settings.appbuyxgety_icon is read in snippets/product-loop-ldpage.liquid, templates/cart.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "block_home_category1",
+        "detail": "settings.block_home_category1 is read in templates/index.noslider.liquid, templates/index.slider.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "block_home_category2",
+        "detail": "settings.block_home_category2 is read in templates/index.noslider.liquid, templates/index.slider.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "block_home_category3",
+        "detail": "settings.block_home_category3 is read in templates/index.noslider.liquid, templates/index.slider.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "collection_sort",
+        "detail": "settings.collection_sort is read in templates/collection.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "fanpage_faceook",
+        "detail": "settings.fanpage_faceook is read in snippets/facebook-widget.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "favicon",
+        "detail": "settings.favicon is read in templates/index.header-style-01.liquid, templates/index.header-style-02.liquid, templates/index.header-style-03.liquid, templates/page.guide.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "fb_chat",
+        "detail": "settings.fb_chat is read in snippets/haravan-fb-messages.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "fb_chat_title",
+        "detail": "settings.fb_chat_title is read in snippets/haravan-fb-messages.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "footer-address",
+        "detail": "settings.footer-address is read in snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "footer1_information",
+        "detail": "settings.footer1_information is read in snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "lbl_address1",
+        "detail": "settings.lbl_address1 is read in templates/customers[addresses].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "lbl_address2",
+        "detail": "settings.lbl_address2 is read in templates/customers[addresses].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "lbl_company",
+        "detail": "settings.lbl_company is read in templates/customers[addresses].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "lbl_first_name",
+        "detail": "settings.lbl_first_name is read in templates/customers[addresses].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "lbl_last_name",
+        "detail": "settings.lbl_last_name is read in templates/customers[addresses].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "lbl_phone",
+        "detail": "settings.lbl_phone is read in templates/customers[addresses].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "logo",
+        "detail": "settings.logo is read in templates/page.guide.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "show_fanpage_faceook",
+        "detail": "settings.show_fanpage_faceook is read in snippets/facebook-widget.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+      }
+    ]
+  },
+  "assets": {
+    "ok": false,
+    "counts": {
+      "localPresent": 32,
+      "localMissing": 2,
+      "remote": 0
+    },
+    "localMissing": [
+      {
+        "ref": "grande",
+        "files": [
+          "templates/page.ldp-kids-01.liquid"
+        ]
+      },
+      {
+        "ref": "large",
+        "files": [
+          "layout/theme.liquid"
+        ]
+      }
+    ],
+    "remote": []
+  },
+  "renders": [],
+  "refusals": [
+    {
+      "check": "schema",
+      "failures": [
+        {
+          "rule": "SETTINGS_SCHEMA_JSON_INVALID",
+          "path": "config/settings_schema.json",
+          "detail": "Unexpected token '/', \"/*[\n\t{\n\t\t\"\"... is not valid JSON"
+        }
+      ]
+    },
+    {
+      "check": "settings-binding",
+      "failures": [
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "appbuyxgety_icon",
+          "detail": "settings.appbuyxgety_icon is read in snippets/product-loop-ldpage.liquid, templates/cart.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "block_home_category1",
+          "detail": "settings.block_home_category1 is read in templates/index.noslider.liquid, templates/index.slider.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "block_home_category2",
+          "detail": "settings.block_home_category2 is read in templates/index.noslider.liquid, templates/index.slider.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "block_home_category3",
+          "detail": "settings.block_home_category3 is read in templates/index.noslider.liquid, templates/index.slider.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "collection_sort",
+          "detail": "settings.collection_sort is read in templates/collection.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "fanpage_faceook",
+          "detail": "settings.fanpage_faceook is read in snippets/facebook-widget.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "favicon",
+          "detail": "settings.favicon is read in templates/index.header-style-01.liquid, templates/index.header-style-02.liquid, templates/index.header-style-03.liquid, templates/page.guide.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "fb_chat",
+          "detail": "settings.fb_chat is read in snippets/haravan-fb-messages.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "fb_chat_title",
+          "detail": "settings.fb_chat_title is read in snippets/haravan-fb-messages.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "footer-address",
+          "detail": "settings.footer-address is read in snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "footer1_information",
+          "detail": "settings.footer1_information is read in snippets/footer.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "lbl_address1",
+          "detail": "settings.lbl_address1 is read in templates/customers[addresses].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "lbl_address2",
+          "detail": "settings.lbl_address2 is read in templates/customers[addresses].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "lbl_company",
+          "detail": "settings.lbl_company is read in templates/customers[addresses].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "lbl_first_name",
+          "detail": "settings.lbl_first_name is read in templates/customers[addresses].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "lbl_last_name",
+          "detail": "settings.lbl_last_name is read in templates/customers[addresses].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "lbl_phone",
+          "detail": "settings.lbl_phone is read in templates/customers[addresses].liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "logo",
+          "detail": "settings.logo is read in templates/page.guide.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "show_fanpage_faceook",
+          "detail": "settings.show_fanpage_faceook is read in snippets/facebook-widget.liquid but is declared in neither config/settings_schema.json nor the control names of config/settings.html"
+        }
+      ]
+    },
+    {
+      "check": "assets",
+      "failures": [
+        {
+          "rule": "ASSET_MISSING_LOCAL",
+          "ref": "grande",
+          "files": [
+            "templates/page.ldp-kids-01.liquid"
+          ]
+        },
+        {
+          "rule": "ASSET_MISSING_LOCAL",
+          "ref": "large",
+          "files": [
+            "layout/theme.liquid"
+          ]
+        }
+      ]
+    },
+    {
+      "check": "haravan-contracts",
+      "failures": [
+        {
+          "rule": "HARAVAN_BLOG_ARTICLES_COUNT",
+          "file": "templates/article.liquid",
+          "line": 18,
+          "message": "use blog.articles_count for article totals instead of articles.size",
+          "detail": "Haravan DotLiquid requires blog.articles_count (templates/article.liquid:18)"
+        },
+        {
+          "rule": "HARAVAN_BLOG_ARTICLES_COUNT",
+          "file": "templates/blog.liquid",
+          "line": 19,
+          "message": "use blog.articles_count for article totals instead of articles.size",
+          "detail": "Haravan DotLiquid requires blog.articles_count (templates/blog.liquid:19)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "appbuyxgety_icon",
+          "file": "templates/cart.liquid",
+          "line": 89,
+          "message": "setting 'settings.appbuyxgety_icon' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'appbuyxgety_icon' (templates/cart.liquid:89)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "collection_sort",
+          "file": "templates/collection.liquid",
+          "line": 52,
+          "message": "setting 'settings.collection_sort' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'collection_sort' (templates/collection.liquid:52)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "lbl_last_name",
+          "file": "templates/customers[addresses].liquid",
+          "line": 258,
+          "message": "setting 'settings.lbl_last_name' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'lbl_last_name' (templates/customers[addresses].liquid:258)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "lbl_first_name",
+          "file": "templates/customers[addresses].liquid",
+          "line": 262,
+          "message": "setting 'settings.lbl_first_name' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'lbl_first_name' (templates/customers[addresses].liquid:262)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "lbl_company",
+          "file": "templates/customers[addresses].liquid",
+          "line": 266,
+          "message": "setting 'settings.lbl_company' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'lbl_company' (templates/customers[addresses].liquid:266)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "lbl_address1",
+          "file": "templates/customers[addresses].liquid",
+          "line": 270,
+          "message": "setting 'settings.lbl_address1' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'lbl_address1' (templates/customers[addresses].liquid:270)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "lbl_address2",
+          "file": "templates/customers[addresses].liquid",
+          "line": 274,
+          "message": "setting 'settings.lbl_address2' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'lbl_address2' (templates/customers[addresses].liquid:274)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "lbl_phone",
+          "file": "templates/customers[addresses].liquid",
+          "line": 292,
+          "message": "setting 'settings.lbl_phone' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'lbl_phone' (templates/customers[addresses].liquid:292)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "favicon",
+          "file": "templates/index.header-style-01.liquid",
+          "line": 18,
+          "message": "setting 'settings.favicon' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'favicon' (templates/index.header-style-01.liquid:18)"
+        },
+        {
+          "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+          "file": "templates/index.header-style-01.liquid",
+          "line": 86,
+          "message": "included snippet 'index' does not exist under snippets/",
+          "detail": "Target snippet 'index' was not found in snippets/ (templates/index.header-style-01.liquid:86)"
+        },
+        {
+          "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+          "file": "templates/index.header-style-01.liquid",
+          "line": 100,
+          "message": "included snippet 'sitenav-sidebar' does not exist under snippets/",
+          "detail": "Target snippet 'sitenav-sidebar' was not found in snippets/ (templates/index.header-style-01.liquid:100)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "favicon",
+          "file": "templates/index.header-style-02.liquid",
+          "line": 18,
+          "message": "setting 'settings.favicon' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'favicon' (templates/index.header-style-02.liquid:18)"
+        },
+        {
+          "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+          "file": "templates/index.header-style-02.liquid",
+          "line": 86,
+          "message": "included snippet 'index' does not exist under snippets/",
+          "detail": "Target snippet 'index' was not found in snippets/ (templates/index.header-style-02.liquid:86)"
+        },
+        {
+          "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+          "file": "templates/index.header-style-02.liquid",
+          "line": 100,
+          "message": "included snippet 'sitenav-sidebar' does not exist under snippets/",
+          "detail": "Target snippet 'sitenav-sidebar' was not found in snippets/ (templates/index.header-style-02.liquid:100)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "favicon",
+          "file": "templates/index.header-style-03.liquid",
+          "line": 18,
+          "message": "setting 'settings.favicon' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'favicon' (templates/index.header-style-03.liquid:18)"
+        },
+        {
+          "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+          "file": "templates/index.header-style-03.liquid",
+          "line": 86,
+          "message": "included snippet 'index' does not exist under snippets/",
+          "detail": "Target snippet 'index' was not found in snippets/ (templates/index.header-style-03.liquid:86)"
+        },
+        {
+          "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+          "file": "templates/index.header-style-03.liquid",
+          "line": 100,
+          "message": "included snippet 'sitenav-sidebar' does not exist under snippets/",
+          "detail": "Target snippet 'sitenav-sidebar' was not found in snippets/ (templates/index.header-style-03.liquid:100)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "block_home_category1",
+          "file": "templates/index.noslider.liquid",
+          "line": 81,
+          "message": "setting 'settings.block_home_category1' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'block_home_category1' (templates/index.noslider.liquid:81)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "block_home_category1",
+          "file": "templates/index.noslider.liquid",
+          "line": 81,
+          "message": "setting 'settings.block_home_category1' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'block_home_category1' (templates/index.noslider.liquid:81)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "block_home_category2",
+          "file": "templates/index.noslider.liquid",
+          "line": 98,
+          "message": "setting 'settings.block_home_category2' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'block_home_category2' (templates/index.noslider.liquid:98)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "block_home_category2",
+          "file": "templates/index.noslider.liquid",
+          "line": 98,
+          "message": "setting 'settings.block_home_category2' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'block_home_category2' (templates/index.noslider.liquid:98)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "block_home_category3",
+          "file": "templates/index.noslider.liquid",
+          "line": 115,
+          "message": "setting 'settings.block_home_category3' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'block_home_category3' (templates/index.noslider.liquid:115)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "block_home_category3",
+          "file": "templates/index.noslider.liquid",
+          "line": 115,
+          "message": "setting 'settings.block_home_category3' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'block_home_category3' (templates/index.noslider.liquid:115)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "block_home_category1",
+          "file": "templates/index.slider.liquid",
+          "line": 49,
+          "message": "setting 'settings.block_home_category1' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'block_home_category1' (templates/index.slider.liquid:49)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "block_home_category1",
+          "file": "templates/index.slider.liquid",
+          "line": 49,
+          "message": "setting 'settings.block_home_category1' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'block_home_category1' (templates/index.slider.liquid:49)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "block_home_category2",
+          "file": "templates/index.slider.liquid",
+          "line": 66,
+          "message": "setting 'settings.block_home_category2' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'block_home_category2' (templates/index.slider.liquid:66)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "block_home_category2",
+          "file": "templates/index.slider.liquid",
+          "line": 66,
+          "message": "setting 'settings.block_home_category2' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'block_home_category2' (templates/index.slider.liquid:66)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "block_home_category3",
+          "file": "templates/index.slider.liquid",
+          "line": 83,
+          "message": "setting 'settings.block_home_category3' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'block_home_category3' (templates/index.slider.liquid:83)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "block_home_category3",
+          "file": "templates/index.slider.liquid",
+          "line": 83,
+          "message": "setting 'settings.block_home_category3' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'block_home_category3' (templates/index.slider.liquid:83)"
+        },
+        {
+          "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+          "file": "templates/list-collections.liquid",
+          "line": 11,
+          "message": "included snippet 'breadcrumb1' does not exist under snippets/",
+          "detail": "Target snippet 'breadcrumb1' was not found in snippets/ (templates/list-collections.liquid:11)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "favicon",
+          "file": "templates/page.guide.liquid",
+          "line": 10,
+          "message": "setting 'settings.favicon' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'favicon' (templates/page.guide.liquid:10)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "logo",
+          "file": "templates/page.guide.liquid",
+          "line": 26,
+          "message": "setting 'settings.logo' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'logo' (templates/page.guide.liquid:26)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "show_fanpage_faceook",
+          "file": "snippets/facebook-widget.liquid",
+          "line": 2,
+          "message": "setting 'settings.show_fanpage_faceook' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'show_fanpage_faceook' (snippets/facebook-widget.liquid:2)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "fanpage_faceook",
+          "file": "snippets/facebook-widget.liquid",
+          "line": 4,
+          "message": "setting 'settings.fanpage_faceook' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'fanpage_faceook' (snippets/facebook-widget.liquid:4)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "footer1_information",
+          "file": "snippets/footer.liquid",
+          "line": 73,
+          "message": "setting 'settings.footer1_information' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'footer1_information' (snippets/footer.liquid:73)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "footer1_information",
+          "file": "snippets/footer.liquid",
+          "line": 74,
+          "message": "setting 'settings.footer1_information' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'footer1_information' (snippets/footer.liquid:74)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "footer-address",
+          "file": "snippets/footer.liquid",
+          "line": 102,
+          "message": "setting 'settings.footer-address' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'footer-address' (snippets/footer.liquid:102)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "footer-address",
+          "file": "snippets/footer.liquid",
+          "line": 102,
+          "message": "setting 'settings.footer-address' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'footer-address' (snippets/footer.liquid:102)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "fb_chat_title",
+          "file": "snippets/haravan-fb-messages.liquid",
+          "line": 3,
+          "message": "setting 'settings.fb_chat_title' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'fb_chat_title' (snippets/haravan-fb-messages.liquid:3)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "fb_chat",
+          "file": "snippets/haravan-fb-messages.liquid",
+          "line": 4,
+          "message": "setting 'settings.fb_chat' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'fb_chat' (snippets/haravan-fb-messages.liquid:4)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "fb_chat",
+          "file": "snippets/haravan-fb-messages.liquid",
+          "line": 6,
+          "message": "setting 'settings.fb_chat' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'fb_chat' (snippets/haravan-fb-messages.liquid:6)"
+        },
+        {
+          "rule": "HARAVAN_SETTING_UNRESOLVED",
+          "id": "appbuyxgety_icon",
+          "file": "snippets/product-loop-ldpage.liquid",
+          "line": 35,
+          "message": "setting 'settings.appbuyxgety_icon' is read but unresolved in config/settings_data.json",
+          "detail": "Unresolved setting id 'appbuyxgety_icon' (snippets/product-loop-ldpage.liquid:35)"
+        }
+      ]
+    }
+  ],
+  "haravanContracts": {
+    "ok": false,
+    "failures": [
+      {
+        "rule": "HARAVAN_BLOG_ARTICLES_COUNT",
+        "file": "templates/article.liquid",
+        "line": 18,
+        "message": "use blog.articles_count for article totals instead of articles.size",
+        "detail": "Haravan DotLiquid requires blog.articles_count (templates/article.liquid:18)"
+      },
+      {
+        "rule": "HARAVAN_BLOG_ARTICLES_COUNT",
+        "file": "templates/blog.liquid",
+        "line": 19,
+        "message": "use blog.articles_count for article totals instead of articles.size",
+        "detail": "Haravan DotLiquid requires blog.articles_count (templates/blog.liquid:19)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "appbuyxgety_icon",
+        "file": "templates/cart.liquid",
+        "line": 89,
+        "message": "setting 'settings.appbuyxgety_icon' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'appbuyxgety_icon' (templates/cart.liquid:89)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "collection_sort",
+        "file": "templates/collection.liquid",
+        "line": 52,
+        "message": "setting 'settings.collection_sort' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'collection_sort' (templates/collection.liquid:52)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "lbl_last_name",
+        "file": "templates/customers[addresses].liquid",
+        "line": 258,
+        "message": "setting 'settings.lbl_last_name' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'lbl_last_name' (templates/customers[addresses].liquid:258)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "lbl_first_name",
+        "file": "templates/customers[addresses].liquid",
+        "line": 262,
+        "message": "setting 'settings.lbl_first_name' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'lbl_first_name' (templates/customers[addresses].liquid:262)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "lbl_company",
+        "file": "templates/customers[addresses].liquid",
+        "line": 266,
+        "message": "setting 'settings.lbl_company' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'lbl_company' (templates/customers[addresses].liquid:266)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "lbl_address1",
+        "file": "templates/customers[addresses].liquid",
+        "line": 270,
+        "message": "setting 'settings.lbl_address1' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'lbl_address1' (templates/customers[addresses].liquid:270)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "lbl_address2",
+        "file": "templates/customers[addresses].liquid",
+        "line": 274,
+        "message": "setting 'settings.lbl_address2' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'lbl_address2' (templates/customers[addresses].liquid:274)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "lbl_phone",
+        "file": "templates/customers[addresses].liquid",
+        "line": 292,
+        "message": "setting 'settings.lbl_phone' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'lbl_phone' (templates/customers[addresses].liquid:292)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "favicon",
+        "file": "templates/index.header-style-01.liquid",
+        "line": 18,
+        "message": "setting 'settings.favicon' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'favicon' (templates/index.header-style-01.liquid:18)"
+      },
+      {
+        "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+        "file": "templates/index.header-style-01.liquid",
+        "line": 86,
+        "message": "included snippet 'index' does not exist under snippets/",
+        "detail": "Target snippet 'index' was not found in snippets/ (templates/index.header-style-01.liquid:86)"
+      },
+      {
+        "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+        "file": "templates/index.header-style-01.liquid",
+        "line": 100,
+        "message": "included snippet 'sitenav-sidebar' does not exist under snippets/",
+        "detail": "Target snippet 'sitenav-sidebar' was not found in snippets/ (templates/index.header-style-01.liquid:100)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "favicon",
+        "file": "templates/index.header-style-02.liquid",
+        "line": 18,
+        "message": "setting 'settings.favicon' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'favicon' (templates/index.header-style-02.liquid:18)"
+      },
+      {
+        "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+        "file": "templates/index.header-style-02.liquid",
+        "line": 86,
+        "message": "included snippet 'index' does not exist under snippets/",
+        "detail": "Target snippet 'index' was not found in snippets/ (templates/index.header-style-02.liquid:86)"
+      },
+      {
+        "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+        "file": "templates/index.header-style-02.liquid",
+        "line": 100,
+        "message": "included snippet 'sitenav-sidebar' does not exist under snippets/",
+        "detail": "Target snippet 'sitenav-sidebar' was not found in snippets/ (templates/index.header-style-02.liquid:100)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "favicon",
+        "file": "templates/index.header-style-03.liquid",
+        "line": 18,
+        "message": "setting 'settings.favicon' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'favicon' (templates/index.header-style-03.liquid:18)"
+      },
+      {
+        "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+        "file": "templates/index.header-style-03.liquid",
+        "line": 86,
+        "message": "included snippet 'index' does not exist under snippets/",
+        "detail": "Target snippet 'index' was not found in snippets/ (templates/index.header-style-03.liquid:86)"
+      },
+      {
+        "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+        "file": "templates/index.header-style-03.liquid",
+        "line": 100,
+        "message": "included snippet 'sitenav-sidebar' does not exist under snippets/",
+        "detail": "Target snippet 'sitenav-sidebar' was not found in snippets/ (templates/index.header-style-03.liquid:100)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "block_home_category1",
+        "file": "templates/index.noslider.liquid",
+        "line": 81,
+        "message": "setting 'settings.block_home_category1' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'block_home_category1' (templates/index.noslider.liquid:81)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "block_home_category1",
+        "file": "templates/index.noslider.liquid",
+        "line": 81,
+        "message": "setting 'settings.block_home_category1' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'block_home_category1' (templates/index.noslider.liquid:81)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "block_home_category2",
+        "file": "templates/index.noslider.liquid",
+        "line": 98,
+        "message": "setting 'settings.block_home_category2' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'block_home_category2' (templates/index.noslider.liquid:98)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "block_home_category2",
+        "file": "templates/index.noslider.liquid",
+        "line": 98,
+        "message": "setting 'settings.block_home_category2' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'block_home_category2' (templates/index.noslider.liquid:98)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "block_home_category3",
+        "file": "templates/index.noslider.liquid",
+        "line": 115,
+        "message": "setting 'settings.block_home_category3' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'block_home_category3' (templates/index.noslider.liquid:115)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "block_home_category3",
+        "file": "templates/index.noslider.liquid",
+        "line": 115,
+        "message": "setting 'settings.block_home_category3' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'block_home_category3' (templates/index.noslider.liquid:115)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "block_home_category1",
+        "file": "templates/index.slider.liquid",
+        "line": 49,
+        "message": "setting 'settings.block_home_category1' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'block_home_category1' (templates/index.slider.liquid:49)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "block_home_category1",
+        "file": "templates/index.slider.liquid",
+        "line": 49,
+        "message": "setting 'settings.block_home_category1' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'block_home_category1' (templates/index.slider.liquid:49)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "block_home_category2",
+        "file": "templates/index.slider.liquid",
+        "line": 66,
+        "message": "setting 'settings.block_home_category2' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'block_home_category2' (templates/index.slider.liquid:66)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "block_home_category2",
+        "file": "templates/index.slider.liquid",
+        "line": 66,
+        "message": "setting 'settings.block_home_category2' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'block_home_category2' (templates/index.slider.liquid:66)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "block_home_category3",
+        "file": "templates/index.slider.liquid",
+        "line": 83,
+        "message": "setting 'settings.block_home_category3' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'block_home_category3' (templates/index.slider.liquid:83)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "block_home_category3",
+        "file": "templates/index.slider.liquid",
+        "line": 83,
+        "message": "setting 'settings.block_home_category3' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'block_home_category3' (templates/index.slider.liquid:83)"
+      },
+      {
+        "rule": "HARAVAN_INCLUDE_TARGET_MISSING",
+        "file": "templates/list-collections.liquid",
+        "line": 11,
+        "message": "included snippet 'breadcrumb1' does not exist under snippets/",
+        "detail": "Target snippet 'breadcrumb1' was not found in snippets/ (templates/list-collections.liquid:11)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "favicon",
+        "file": "templates/page.guide.liquid",
+        "line": 10,
+        "message": "setting 'settings.favicon' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'favicon' (templates/page.guide.liquid:10)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "logo",
+        "file": "templates/page.guide.liquid",
+        "line": 26,
+        "message": "setting 'settings.logo' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'logo' (templates/page.guide.liquid:26)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "show_fanpage_faceook",
+        "file": "snippets/facebook-widget.liquid",
+        "line": 2,
+        "message": "setting 'settings.show_fanpage_faceook' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'show_fanpage_faceook' (snippets/facebook-widget.liquid:2)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "fanpage_faceook",
+        "file": "snippets/facebook-widget.liquid",
+        "line": 4,
+        "message": "setting 'settings.fanpage_faceook' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'fanpage_faceook' (snippets/facebook-widget.liquid:4)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "footer1_information",
+        "file": "snippets/footer.liquid",
+        "line": 73,
+        "message": "setting 'settings.footer1_information' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'footer1_information' (snippets/footer.liquid:73)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "footer1_information",
+        "file": "snippets/footer.liquid",
+        "line": 74,
+        "message": "setting 'settings.footer1_information' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'footer1_information' (snippets/footer.liquid:74)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "footer-address",
+        "file": "snippets/footer.liquid",
+        "line": 102,
+        "message": "setting 'settings.footer-address' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'footer-address' (snippets/footer.liquid:102)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "footer-address",
+        "file": "snippets/footer.liquid",
+        "line": 102,
+        "message": "setting 'settings.footer-address' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'footer-address' (snippets/footer.liquid:102)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "fb_chat_title",
+        "file": "snippets/haravan-fb-messages.liquid",
+        "line": 3,
+        "message": "setting 'settings.fb_chat_title' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'fb_chat_title' (snippets/haravan-fb-messages.liquid:3)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "fb_chat",
+        "file": "snippets/haravan-fb-messages.liquid",
+        "line": 4,
+        "message": "setting 'settings.fb_chat' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'fb_chat' (snippets/haravan-fb-messages.liquid:4)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "fb_chat",
+        "file": "snippets/haravan-fb-messages.liquid",
+        "line": 6,
+        "message": "setting 'settings.fb_chat' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'fb_chat' (snippets/haravan-fb-messages.liquid:6)"
+      },
+      {
+        "rule": "HARAVAN_SETTING_UNRESOLVED",
+        "id": "appbuyxgety_icon",
+        "file": "snippets/product-loop-ldpage.liquid",
+        "line": 35,
+        "message": "setting 'settings.appbuyxgety_icon' is read but unresolved in config/settings_data.json",
+        "detail": "Unresolved setting id 'appbuyxgety_icon' (snippets/product-loop-ldpage.liquid:35)"
+      }
+    ]
+  }
+}
