@@ -43,6 +43,7 @@ const HARD_BLOCK_CODES: Record<string, true> = {
   UNAUTHENTICATED: true,
   SCOPE_MISMATCH: true,
   ATTACHMENT_REBIND_FAILED: true,
+  TRUST_BOUNDARY_VIOLATION: true,
 };
 
 /** Transient target/state failures a read path may recover by rebind + one retry. */
@@ -106,11 +107,15 @@ export function extractErrorCode(err: unknown): string {
 export function dispositionFor(err: unknown, op: QaOperationKind): RefusalDisposition {
   if (op === 'write') return 'HARD_BLOCK';
   const code = extractErrorCode(err);
-  if (HARD_BLOCK_CODES[code]) return 'HARD_BLOCK';
-  if (AUTO_RECOVER_CODES[code]) return 'AUTO_RECOVER';
-  if (DEGRADED_CODES[code]) return 'DEGRADED_CONTINUE';
-  if (RETRY_CODES[code]) return 'RETRY_REQUIRED';
-  if (INCONCLUSIVE_CODES[code]) return 'INCONCLUSIVE';
+  // hasOwnProperty, not indexing: error codes are attacker/environment-controlled
+  // strings, and 'toString'/'constructor'/'hasOwnProperty' would otherwise read
+  // Object.prototype members as truthy classifications.
+  const has = (table: Record<string, true>): boolean => Object.prototype.hasOwnProperty.call(table, code);
+  if (has(HARD_BLOCK_CODES)) return 'HARD_BLOCK';
+  if (has(AUTO_RECOVER_CODES)) return 'AUTO_RECOVER';
+  if (has(DEGRADED_CODES)) return 'DEGRADED_CONTINUE';
+  if (has(RETRY_CODES)) return 'RETRY_REQUIRED';
+  if (has(INCONCLUSIVE_CODES)) return 'INCONCLUSIVE';
   return 'INCONCLUSIVE';
 }
 

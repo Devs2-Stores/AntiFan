@@ -4,15 +4,12 @@ import * as vm from 'node:vm';
 import { LayoutOverflowEngine, ViewportOverflowResult } from '../../src/main/qa/scanners/layout-overflow-engine';
 
 describe('LayoutOverflowEngine', () => {
-  it('defines standard e-commerce breakpoints (mobile, tablet, desktop)', () => {
+  it('defines the canonical five-width responsive contract (320/375/768/1024/1440)', () => {
     const bps = LayoutOverflowEngine.BREAKPOINTS;
-    assert.strictEqual(bps.length, 3);
+    assert.strictEqual(bps.length, 5);
+    assert.deepStrictEqual(bps.map((b) => b.width), [375, 320, 768, 1024, 1440]);
     assert.strictEqual(bps[0]?.name, 'mobile');
-    assert.strictEqual(bps[0]?.width, 393);
-    assert.strictEqual(bps[1]?.name, 'tablet');
-    assert.strictEqual(bps[1]?.width, 820);
-    assert.strictEqual(bps[2]?.name, 'desktop');
-    assert.strictEqual(bps[2]?.width, 1440);
+    assert.strictEqual(bps[4]?.name, 'desktop');
   });
 
   it('compiles and executes layout overflow engine script in contract-complete sandbox', () => {

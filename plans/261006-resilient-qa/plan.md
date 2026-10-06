@@ -1,6 +1,16 @@
+---
+title: "resilient-qa"
+description: "QA state axes, refusal dispositions, layout integrity engine, responsive contract, evidence coverage"
+status: done
+priority: P1
+effort: "6h"
+tags: ["qa", "workflow", "layout-integrity", "mcp"]
+created: 2026-10-06
+---
+
 # Plan — Resilient QA (OMP × AntiFan report)
 
-Status: in_progress
+Status: completed (capture-ladder item deferred — see Phases note)
 Created: 2026-10-06
 
 ## Outcome
@@ -26,6 +36,6 @@ AntiFan QA separates Verification (PASS/FAIL/INCONCLUSIVE), Execution (RUNNING/C
 - Focused tests green; existing gate tests unaffected.
 
 ## Phases
-- P0: state model + refusal classifier + auto-recovery + capture degradation + integrity engine + responsive contract
-- P1: mutation visual baseline + layout-shift witness + evidence coverage + repair-loop disposition
+- P0: state model + refusal classifier + auto-recovery + integrity engine + responsive contract. Capture-ladder (viewport→clip→segmented→fullPage): DEFERRED — existing viewport capture already has CDP/native fallback and clip/fullPage carry deliberate refusal semantics; no ladder was implemented in this scope.
+- P1: pre-mutation reference screenshot (staged artifact, NOT a promoted vbase_ baseline) + layout-shift witness + evidence coverage + repair-loop disposition
 - P2: visual-ambiguity escalation list in report (surface for AI/human review; no fake vision call)

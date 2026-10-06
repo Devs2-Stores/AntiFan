@@ -1292,6 +1292,10 @@ export class ThemeQaWorkflow {
         checklist,
         findings,
         artifactIds: artifacts.map((item) => item.id),
+        verification: verificationAxis,
+        execution: executionAxis,
+        recovery: { attempted: 0, succeeded: 0 },
+        evidenceCoverage,
         ...(isolationOutcome ? { trackerIsolation: isolationOutcome } : {}),
         createdAt: Date.now(),
       },
@@ -1299,7 +1303,6 @@ export class ThemeQaWorkflow {
       2
     );
     const reportData = sanitizePii(reportDataRaw);
-
     artifacts.push(
       this.ports.artifacts.stage({
         kind: 'report',

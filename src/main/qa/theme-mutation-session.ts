@@ -95,7 +95,6 @@ export class ThemeMutationSession {
   public get lineage(): Readonly<ThemeLineage> {
     return { ...this.currentLineage };
   }
-
   public get sessionState(): SessionState {
     return this.state;
   }
@@ -104,18 +103,25 @@ export class ThemeMutationSession {
     return this.r0Manifest;
   }
 
-  /** ArtifactRef id of the pre-mutation viewport screenshot, when captured. */
-  public get visualBaselineRef(): string | null {
-    return this.r0VisualBaselineRef;
-  }
-
   public get touchedFiles(): string[] {
     return Array.from(this.modifiedFiles);
   }
+
+  private r0PreMutationScreenshotRef: string | null = null;
+
+  /** ArtifactRef id of the pre-mutation viewport screenshot, when captured.
+   * This is a staged screenshot artifact, NOT a promoted vbase_ baseline — it
+   * provides reference imagery for ambiguity review but cannot drive
+   * anti.visual.compare as a certified baseline. */
+  public get preMutationScreenshotRef(): string | null {
+    return this.r0PreMutationScreenshotRef;
+  }
+
   /**
-   * Acquires exclusive workspace lock and captures baseline R0 manifest snapshot.
+   * Acquires the exclusive workspace lock and captures the baseline R0 manifest snapshot.
+   * Idempotency: Can only be called once from 'idle' state.
    */
-  public async begin(): Promise<{ sessionId: string; r0Manifest: WorkspaceSnapshotManifest; lineage: ThemeLineage; visualBaselineRef: string | null }> {
+  public async begin(): Promise<{ sessionId: string; r0Manifest: WorkspaceSnapshotManifest; lineage: ThemeLineage; preMutationScreenshotRef: string | null }> {
     if (this.state !== 'idle') {
       throw new CapabilityError(
         'TRANSACTION_CONFLICT',
@@ -128,11 +134,11 @@ export class ThemeMutationSession {
     );
     this.state = 'active';
 
-    // Mutation-relative visual baseline (P1): a lightweight viewport capture of
-    // the pre-edit state, so post-mutation QA can diff against a fresh baseline
-    // rather than requiring a promoted one. Strictly best-effort — an
-    // unreachable or unrenderable tab never blocks session start; the baseline
-    // simply stays absent (visual compare remains optional evidence).
+    // Pre-mutation viewport screenshot (P1): reference imagery of the pre-edit
+    // state for post-mutation ambiguity review. This is a staged artifact, not
+    // a promoted vbase_ baseline — anti.visual.compare still requires a
+    // certified baseline via promote_baseline. Strictly best-effort: an
+    // unreachable or unrenderable tab never blocks session start.
     if (this.browserPort && typeof this.browserPort.screenshot === 'function' && this.context.targetTabId) {
       try {
         const baselineTarget = {
@@ -146,12 +152,12 @@ export class ThemeMutationSession {
         const envelope = await this.browserPort.screenshot(baselineTarget, this.sessionId, `${this.sessionId}-r0`, this.context.targetTabId);
         const ref = envelope?.artifactRef;
         if (ref && typeof ref === 'object' && typeof (ref as { id?: unknown }).id === 'string') {
-          this.r0VisualBaselineRef = (ref as { id: string }).id;
+          this.r0PreMutationScreenshotRef = (ref as { id: string }).id;
         }
       } catch {
         // Best-effort evidence only: screenshot failure degrades to "no
-        // baseline" — it must never turn a workspace begin into a refusal.
-        this.r0VisualBaselineRef = null;
+        // reference image" — it must never turn a workspace begin into a refusal.
+        this.r0PreMutationScreenshotRef = null;
       }
     }
 
@@ -159,7 +165,7 @@ export class ThemeMutationSession {
       sessionId: this.sessionId,
       r0Manifest: this.r0Manifest,
       lineage: this.lineage,
-      visualBaselineRef: this.r0VisualBaselineRef,
+      preMutationScreenshotRef: this.r0PreMutationScreenshotRef,
     };
   }
 
