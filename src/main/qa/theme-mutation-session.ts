@@ -64,6 +64,9 @@ export class ThemeMutationSession {
   private currentLineage: ThemeLineage;
   private readonly initialDocGen: number;
   private verifiedLineage = false;
+  /** Pre-mutation viewport capture (P1 mutation-relative visual baseline).
+   * Best-effort: absent when the tab is unreachable — never blocks begin(). */
+  private r0VisualBaselineRef: string | null = null;
 
   constructor(
     context: ThemeWorkspaceContext,
@@ -101,14 +104,18 @@ export class ThemeMutationSession {
     return this.r0Manifest;
   }
 
+  /** ArtifactRef id of the pre-mutation viewport screenshot, when captured. */
+  public get visualBaselineRef(): string | null {
+    return this.r0VisualBaselineRef;
+  }
+
   public get touchedFiles(): string[] {
     return Array.from(this.modifiedFiles);
   }
-
   /**
    * Acquires exclusive workspace lock and captures baseline R0 manifest snapshot.
    */
-  public async begin(): Promise<{ sessionId: string; r0Manifest: WorkspaceSnapshotManifest; lineage: ThemeLineage }> {
+  public async begin(): Promise<{ sessionId: string; r0Manifest: WorkspaceSnapshotManifest; lineage: ThemeLineage; visualBaselineRef: string | null }> {
     if (this.state !== 'idle') {
       throw new CapabilityError(
         'TRANSACTION_CONFLICT',
@@ -121,10 +128,38 @@ export class ThemeMutationSession {
     );
     this.state = 'active';
 
+    // Mutation-relative visual baseline (P1): a lightweight viewport capture of
+    // the pre-edit state, so post-mutation QA can diff against a fresh baseline
+    // rather than requiring a promoted one. Strictly best-effort — an
+    // unreachable or unrenderable tab never blocks session start; the baseline
+    // simply stays absent (visual compare remains optional evidence).
+    if (this.browserPort && typeof this.browserPort.screenshot === 'function' && this.context.targetTabId) {
+      try {
+        const baselineTarget = {
+          projectId: this.context.storeId,
+          workspaceId: this.context.workspaceRoot,
+          runtimeId: `session:${this.sessionId}`,
+          tabId: this.context.targetTabId,
+          documentGeneration: this.initialDocGen,
+          browserEpoch: this.currentLineage.browserEpoch,
+        };
+        const envelope = await this.browserPort.screenshot(baselineTarget, this.sessionId, `${this.sessionId}-r0`, this.context.targetTabId);
+        const ref = envelope?.artifactRef;
+        if (ref && typeof ref === 'object' && typeof (ref as { id?: unknown }).id === 'string') {
+          this.r0VisualBaselineRef = (ref as { id: string }).id;
+        }
+      } catch {
+        // Best-effort evidence only: screenshot failure degrades to "no
+        // baseline" — it must never turn a workspace begin into a refusal.
+        this.r0VisualBaselineRef = null;
+      }
+    }
+
     return {
       sessionId: this.sessionId,
       r0Manifest: this.r0Manifest,
       lineage: this.lineage,
+      visualBaselineRef: this.r0VisualBaselineRef,
     };
   }
 

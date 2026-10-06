@@ -193,12 +193,18 @@ export class ThemeQaRepairCoordinator {
           session.verificationAttempts,
           MAX_REPAIR_ITERATIONS
         );
+        // Resilient semantics: the error carries an INCONCLUSIVE disposition so
+        // callers can separate "storefront failed" from "evidence incomplete";
+        // blocking itself stays governed by the 3-axis flood/attempt guards —
+        // a missingness flood in one round means verification cannot proceed
+        // meaningfully, which is a legitimate block boundary.
         session.status = gapDecision.action === 'ABORT_BLOCKED' ? 'blocked' : 'awaiting_fix';
         throw new CapabilityError(
           'SETTLE_INCOMPLETE',
-          gapDecision.action === 'ABORT_BLOCKED'
+          session.status === 'blocked'
             ? 'STOP_CRITERIA_EXCEEDED: Repair verification lacks complete regression evidence'
-            : 'Repair verification lacks complete regression evidence'
+            : 'Repair verification lacks complete regression evidence',
+          { disposition: 'INCONCLUSIVE', evidenceGaps: report.findings?.evidenceGaps?.length ?? 0 }
         );
       }
       session.lastVerifiedRevision = revision;

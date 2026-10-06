@@ -4042,6 +4042,17 @@ export class BrowserControlPort {
     this.host.setAutomationTabId(cleanId);
     return { success: true, tabId: cleanId };
   }
+
+  /** Public failover lookup for QA auto-recovery: names a live replacement tab
+   * the host already associates with the stale one, or undefined. Read-only —
+   * authority/rebind still go through rebindTarget(). */
+  public resolveFailoverTargetTab(staleTabId: string): string | undefined {
+    if (!this.host.getFailoverTargetTab) return undefined;
+    const candidate = this.host.getFailoverTargetTab(staleTabId);
+    if (typeof candidate !== 'string' || candidate.trim().length === 0) return undefined;
+    const exists = this.host.hasTab ? this.host.hasTab(candidate.trim()) : (this.host.getTabList?.() || []).some((t) => isTabRecord(t) && t.id === candidate.trim());
+    return exists ? candidate.trim() : undefined;
+  }
   rebindTarget(options: { tabId?: string } = {}, target?: BrowserTarget): { success: boolean; tabId: string; documentGeneration: number; browserEpoch: number; url?: string; title?: string } {
     let effectiveTabId = options.tabId && typeof options.tabId === 'string' ? options.tabId.trim() : (target?.tabId ? target.tabId.trim() : '');
     if (this.host.getTabList) {

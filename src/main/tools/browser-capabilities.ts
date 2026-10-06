@@ -9,7 +9,8 @@ import { loadOrBootstrapBaseline, evaluateSettingsRatchet, type SettingsFinding 
 import { LiquidErrorScanner } from '../qa/scanners/liquid-error-scanner';
 import { LayoutOverflowEngine } from '../qa/scanners/layout-overflow-engine';
 import { HsGateRules, HsEvaluationResult } from '../qa/rules/hs-gate-rules';
-import type { ThemeQaWorkflow } from '../qa/theme-qa-workflow';
+import type { ThemeQaWorkflow, ThemeQaReport } from '../qa/theme-qa-workflow';
+import { dispositionFor, isRebindableStale, type RefusalDisposition } from '../qa/qa-state';
 import { ThemeQaRepairCoordinator } from '../qa/theme-qa-repair-coordinator';
 import type { CockpitPort } from './cockpit-port';
 import { registerCockpitCapabilities } from './cockpit-capabilities';
@@ -1675,6 +1676,19 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         legacyDebt: number;
         findings: SettingsFinding[];
       } | null = null;
+      // Resilient-QA axes mirrored onto the receipt so consuming runtimes can
+      // separate "storefront failed" from "automation degraded".
+      let receiptExecution: 'COMPLETED' | 'DEGRADED' | 'BLOCKED' = 'COMPLETED';
+      let receiptRecovery = { attempted: 0, succeeded: 0 };
+      let receiptDisposition: RefusalDisposition | null = null;
+      const runValidate = async (t: BrowserTarget) => themeQaWorkflow!.validate({
+        runId,
+        attemptId,
+        workspaceRoot: confinedRoot,
+        multiBreakpoint: params.multiBreakpoint,
+        viewports: params.viewports,
+        target: t,
+      });
       try {
         if (!target?.tabId) {
           throw new CapabilityError('TARGET_MISMATCH', 'No valid browser target bound to context');
@@ -1692,14 +1706,49 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
             );
           }
         }
-        const report = await themeQaWorkflow.validate({
-          runId,
-          attemptId,
-          workspaceRoot: confinedRoot,
-          multiBreakpoint: params.multiBreakpoint,
-          viewports: params.viewports,
-          target,
-        });
+        // Auto-recovery is narrow by design: only a TARGET_STALE (or sibling
+        // transient code) whose error details carry a rebind signal AND whose
+        // host can name a failover tab earns exactly one re-validate on the new
+        // target. Route gate, identity, and policy errors above are preflight
+        // hard blocks and never enter this path. Full validate() is not blindly
+        // retried — the failover target makes the reload/barrier re-run sound.
+        let report: ThemeQaReport;
+        try {
+          report = await runValidate(target);
+        } catch (firstErr) {
+          const disposition = dispositionFor(firstErr, 'read');
+          receiptDisposition = disposition;
+          if (disposition !== 'AUTO_RECOVER' || !isRebindableStale(firstErr)) {
+            throw firstErr;
+          }
+          const failoverTabId = browser.resolveFailoverTargetTab(target.tabId);
+          if (!failoverTabId || failoverTabId === target.tabId) {
+            throw firstErr;
+          }
+          receiptRecovery.attempted = 1;
+          const rebound = browser.rebindTarget({ tabId: failoverTabId }, target);
+          if (!rebound?.success || !rebound.tabId) {
+            throw firstErr;
+          }
+          const recoveredTarget: BrowserTarget = {
+            ...target,
+            tabId: rebound.tabId,
+            documentGeneration: rebound.documentGeneration,
+            browserEpoch: rebound.browserEpoch,
+            url: rebound.url ?? target.url,
+          };
+          // A failover tab is a different document — the preflight route gate
+          // must pass on IT before revalidation, or we'd certify the wrong page.
+          if (typeof params.expectedUrl === 'string' && params.expectedUrl.trim()) {
+            const recoveredUrl = await browser.getLiveTabUrl(recoveredTarget.tabId);
+            const recoveredRoute = checkRouteIdentity(params.expectedUrl, recoveredUrl, browser.getTabRedirectChain(recoveredTarget.tabId));
+            if (!recoveredRoute.ok) {
+              throw firstErr; // refuse: failover does not satisfy the route contract
+            }
+          }
+          report = await runValidate(recoveredTarget);
+          receiptRecovery.succeeded = 1;
+        }
         const summary = (report as { summary?: { passed?: boolean; criticalCount?: number } }).summary;
         passed = summary?.passed ?? null;
         criticalCount = summary?.criticalCount ?? null;
@@ -1798,6 +1847,15 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
           receiptVerdict = classifyTerminalVerdict(err);
           errorCode = extractErrorCode(err);
           errorMessage = extractErrorMessage(err);
+          // Terminal classification: identity/policy errors are the only
+          // BLOCKED executions; every other refusal degrades the run to
+          // INCONCLUSIVE evidence with DEGRADED execution (or records the
+          // retry demand / unreadable attempt explicitly).
+          const disp = dispositionFor(err, 'read');
+          receiptDisposition = receiptDisposition || disp;
+          if (disp === 'HARD_BLOCK') receiptExecution = 'BLOCKED';
+          else if (disp === 'RETRY_REQUIRED') { receiptExecution = 'DEGRADED'; receiptRecovery.attempted = 0; }
+          else if (disp !== 'AUTO_RECOVER' || receiptRecovery.succeeded === 0) receiptExecution = 'DEGRADED';
         } catch {
           errorCode = 'UNKNOWN_ERROR';
           errorMessage = null;
@@ -1825,6 +1883,9 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
               observedUrl: observedUrl || null,
               workspaceRoot: confinedRoot,
               verdict: receiptVerdict,
+              execution: receiptExecution,
+              recovery: receiptRecovery,
+              disposition: receiptDisposition,
               errorCode,
               errorMessage,
               errorReason: errorMessage,

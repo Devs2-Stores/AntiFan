@@ -179,11 +179,15 @@ export class LayoutOverflowEngine {
   }
 
   /**
-   * Standard device presets for multi-breakpoint testing
+   * Canonical QA viewport contract — the same five CSS widths the host
+   * runResponsiveCheck sweep measures (320/375/768/1024/1440). Presets here are
+   * metadata only; per-width measurement authority lives in the sweep.
    */
   public static readonly BREAKPOINTS = [
-    { name: 'mobile' as const, width: 393, height: 852, label: 'iPhone 16 (Mobile)' },
-    { name: 'tablet' as const, width: 820, height: 1180, label: 'iPad Air (Tablet)' },
-    { name: 'desktop' as const, width: 1440, height: 900, label: 'Standard Laptop (Desktop)' },
+    { name: 'mobile' as const, width: 375, height: 667, label: 'Small Mobile (375)' },
+    { name: 'mobile-xs' as const, width: 320, height: 568, label: 'Extra Small (320)' },
+    { name: 'tablet' as const, width: 768, height: 1024, label: 'Tablet (768)' },
+    { name: 'laptop' as const, width: 1024, height: 768, label: 'Laptop (1024)' },
+    { name: 'desktop' as const, width: 1440, height: 900, label: 'Desktop (1440)' },
   ];
 }

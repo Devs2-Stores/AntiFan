@@ -10,6 +10,8 @@ import { LiquidErrorScanner, LiquidScanResult, LiquidErrorFinding } from './scan
 import { ServerCrashScanner, ServerCrashScanResult, ServerCrashFinding } from './scanners/server-crash-scanner';
 import { BrokenAssetScanner, BrokenAssetScanResult, BrokenAssetFinding } from './scanners/broken-asset-scanner';
 import { LayoutOverflowEngine, ViewportOverflowResult } from './scanners/layout-overflow-engine';
+import { LayoutIntegrityEngine, type LayoutIntegrityResult, type LayoutIntegrityFinding } from './scanners/layout-integrity-engine';
+import type { QaVerification, QaExecution, QaRecovery } from './qa-state';
 import { HsGateRules, HsEvaluationResult, HsRuleViolation } from './rules/hs-gate-rules';
 import { classifyDiagnostics, extractCorrelatableAssetFailures, DiagnosticsInput, DiagnosticIssue } from './diagnostics-filter';
 import { formatInflightNote } from '../browser/first-party-network-tracker';
@@ -32,7 +34,7 @@ export interface ThemeQaChecklist {
 }
 
 export interface ThemeQaIssueItem {
-  category: 'diagnostics' | 'liquid' | 'overflow' | 'broken_asset' | 'hs_rule';
+  category: 'diagnostics' | 'liquid' | 'overflow' | 'broken_asset' | 'hs_rule' | 'layout_integrity';
   signature: string;
   severity: 'critical' | 'warning';
   message: string;
@@ -71,6 +73,19 @@ export interface ThemeQaDetailedFindings {
   differential?: ThemeQaDifferentialAttribution;
   evidenceGaps?: string[];
   diagnosticScreenshot?: ThemeQaDiagnosticScreenshot;
+  /** Geometry-first integrity scan: overlap/clipping/occlusion/offscreen/sticky + layout-shift witness. */
+  layoutIntegrity?: LayoutIntegrityResult;
+  /** Visual findings that deterministic rules cannot settle — surfaced for AI/human review, never auto-failed. */
+  visualAmbiguities?: string[];
+  /** Per-breakpoint finding counts keyed by CSS width ("320","375","768","1024","1440"). */
+  responsive?: Record<string, {
+    documentOverflow: boolean;
+    criticalOverflow: number;
+    criticalOverlap: number;
+    criticalClipping: number;
+    criticalOcclusion: number;
+    criticalOffscreen: number;
+  }>;
 }
 export interface ThemeQaSummary {
   passed: boolean;
@@ -130,6 +145,10 @@ export interface TrackerIsolationOutcome {
   reason?: string;
 }
 
+/** Canonical responsive contract — same five widths the host sweep
+ * (runResponsiveCheck) measures. Single source for the per-width map. */
+export const QA_RESPONSIVE_WIDTHS: readonly number[] = [320, 375, 768, 1024, 1440];
+
 export interface ThemeQaReport {
   runId: string;
   attemptId: string;
@@ -143,6 +162,14 @@ export interface ThemeQaReport {
   settleReceipt?: VisualSettleReceipt;
   /** Attached when the settings-contract ratchet evaluated; present on failure so MCP callers see the same verdict the disk receipt records. */
   settingsRatchet?: { ok: boolean; newFailures: number; legacyDebt: number; findings: unknown[] } | null;
+  /** Resilient-QA state axes. `verification` mirrors summary.verdict; `execution`
+   * is DEGRADED when evidence gaps exist but the run completed, BLOCKED only on
+   * terminal aborts that prevented the report (thrown path sets it on receipt). */
+  verification: QaVerification;
+  execution: QaExecution;
+  recovery: { attempted: number; succeeded: number };
+  /** Fraction of scanner dimensions that produced measurement evidence (0..1). */
+  evidenceCoverage: number;
   createdAt: number;
 }
 export interface ThemeQaWorkflowPorts {
@@ -708,11 +735,15 @@ export class ThemeQaWorkflow {
       rethrowTargetLifecycleError(error);
       evidenceGaps.push(`Layout overflow scanner evaluation failed: ${error instanceof Error ? error.message : String(error)}`);
     }
+    // Captured for the per-width responsive map; stays undefined when the
+    // multi-breakpoint sweep did not run or returned no breakpoint payload.
+    let responsiveBreakpoints: Record<string, unknown> | undefined;
     if (input.multiBreakpoint) {
       try {
         const responsive = await this.ports.browser.responsiveCheck(activeTarget.tabId);
         const isOk = !responsive || typeof responsive !== 'object' || (responsive as Record<string, unknown>).ok !== false;
         const breakpoints = responsive && typeof responsive === 'object' ? (responsive as Record<string, unknown>).breakpoints : undefined;
+        responsiveBreakpoints = breakpoints && typeof breakpoints === 'object' ? breakpoints as Record<string, unknown> : undefined;
         if (!isOk) {
           const errMsg = (responsive as Record<string, unknown>).error;
           evidenceGaps.push(`Responsive multi-breakpoint sweep failed: ${typeof errMsg === 'string' ? errMsg : 'host returned ok: false'}`);
@@ -763,6 +794,67 @@ export class ThemeQaWorkflow {
         rethrowTargetLifecycleError(error);
         evidenceGaps.push(`Responsive multi-breakpoint sweep failed or unsupported: ${error instanceof Error ? error.message : String(error)}`);
       }
+    }
+
+    // 6.5 Layout Integrity Engine — overlap/clipping/occlusion/offscreen/sticky
+    // + layout-shift witness on the ACTIVE viewport. Failures degrade to an
+    // evidence gap; the geometry findings themselves never block the run.
+    let integrityResult: LayoutIntegrityResult | undefined;
+    let integrityRan = false;
+    try {
+      checkAborted();
+      const evalRes = await this.ports.browser.eval(activeTarget, LayoutIntegrityEngine.getBrowserScanScript('active'));
+      checkAborted();
+      const rec = evalRes && typeof evalRes === 'object' ? (evalRes as Record<string, unknown>) : undefined;
+      if (rec && Array.isArray(rec.findings)) {
+        integrityResult = evalRes as LayoutIntegrityResult;
+        integrityRan = true;
+        if (integrityResult.measured === false) {
+          const reason = LayoutIntegrityEngine.readUnmeasuredReason(evalRes);
+          evidenceGaps.push(`Layout integrity not measured: ${reason || 'engine reported unmeasured'}`);
+        }
+      }
+      // A malformed or absent payload is simply unmeasured — the overflow engine's
+      // marker contract requires an explicit `measured:false` to declare a gap, so
+      // stale hosts and harness stubs don't fabricate missing evidence.
+    } catch (error) {
+      rethrowTargetLifecycleError(error);
+      evidenceGaps.push(`Layout integrity scanner evaluation failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    const integrityFindings: LayoutIntegrityFinding[] = integrityResult && Array.isArray(integrityResult.findings) ? integrityResult.findings : [];
+    const integrityCriticals = integrityFindings.filter((f) => f.severity === 'critical');
+    const integrityAmbiguities = integrityFindings
+      .filter((f) => f.severity === 'warning')
+      .map((f) => `[${f.kind}] ${f.selector ? `${f.selector} — ` : ''}${f.details}`);
+
+    // Per-breakpoint responsive contract: 320/375/768/1024/1440. The
+    // multi-breakpoint sweep (runResponsiveCheck) only measures document-level
+    // horizontal overflow per width; integrity detectors run on the active
+    // viewport, so non-active widths report overflow-only counts and never
+    // claim measured overlap/occlusion evidence.
+    const responsiveMap: Record<string, {
+      documentOverflow: boolean;
+      criticalOverflow: number;
+      criticalOverlap: number;
+      criticalClipping: number;
+      criticalOcclusion: number;
+      criticalOffscreen: number;
+    }> = {};
+    const countKind = (kind: LayoutIntegrityFinding['kind']): number =>
+      integrityFindings.filter((f) => f.kind === kind && f.severity === 'critical').length;
+    for (const w of QA_RESPONSIVE_WIDTHS) {
+      const bp = responsiveBreakpoints?.[String(w)] as Record<string, unknown> | undefined;
+      const docOverflow = Boolean(bp && bp.hasHorizontalOverflow === true);
+      const activeWidth = overflowResult.viewport.width;
+      const isActive = activeWidth === w;
+      responsiveMap[String(w)] = {
+        documentOverflow: docOverflow,
+        criticalOverflow: docOverflow ? 1 : 0,
+        criticalOverlap: isActive ? countKind('overlap') : 0,
+        criticalClipping: isActive ? countKind('clipping') : 0,
+        criticalOcclusion: isActive ? countKind('occlusion') : 0,
+        criticalOffscreen: isActive ? countKind('offscreen') + countKind('zero-size') : 0,
+      };
     }
 
     // 7. Broken Asset Telemetry (DOM + CDP Network Correlation)
@@ -1007,6 +1099,13 @@ export class ThemeQaWorkflow {
           message: v.message,
           details: { ruleId: v.ruleId, ruleTitle: v.ruleTitle, selector: v.selector, recommendation: v.recommendation },
         })),
+      ...integrityCriticals.map((f): ThemeQaIssueItem => ({
+        category: 'layout_integrity',
+        signature: `layout_integrity:${f.kind}:${f.selector || ''}:${f.details.slice(0, 80)}`,
+        severity: 'critical',
+        message: `Layout integrity ${f.kind}: ${f.details}`,
+        details: { kind: f.kind, selector: f.selector, rect: f.rect },
+      })),
     ];
 
     for (const cur of currentItems) {
@@ -1091,7 +1190,8 @@ export class ThemeQaWorkflow {
       hsResult.totalViolations +
       serverCrashResult.errorsCount +
       diagnosticIssues.length +
-      diagnosticWarnings.length;
+      diagnosticWarnings.length +
+      integrityFindings.length;
     // Observed defects verdict only for checks the caller kept enabled; `enabledChecks` remains a
     // verdict filter, while engine checklist authority is preserved separately in `checklist`.
     const checkParticipates = (key: keyof ThemeQaChecklist): boolean => !enabled || enabled[key] !== false;
@@ -1101,7 +1201,10 @@ export class ThemeQaWorkflow {
       (checkParticipates('assetsValid') && assetResult.hasBrokenAssets) ||
       (checkParticipates('hsCompliant') && hsResult.errorsCount > 0) ||
       serverCrashResult.hasCrash ||
-      diagnosticIssues.length > 0;
+      diagnosticIssues.length > 0 ||
+      // Critical geometry defects are storefront failures, not evidence gaps —
+      // an occluded Add-to-Cart fails verification regardless of settle state.
+      integrityCriticals.length > 0;
     const hasMissingEvidence = settleMissingCapability || mutationMissingBarrier || evidenceGaps.length > 0 || activeChecklistEntries.length === 0;
 
     let summaryVerdict: 'PASS' | 'FAIL' | 'INCONCLUSIVE' = 'PASS';
@@ -1117,8 +1220,23 @@ export class ThemeQaWorkflow {
       passed: summaryVerdict === 'PASS',
       verdict: summaryVerdict,
       totalIssues,
-      criticalCount: hsResult.errorsCount + liquidResult.errors.length + serverCrashResult.errorsCount + diagnosticIssues.length + overflowIssueCount + assetResult.brokenAssets.length,
+      criticalCount: hsResult.errorsCount + liquidResult.errors.length + serverCrashResult.errorsCount + diagnosticIssues.length + overflowIssueCount + assetResult.brokenAssets.length + integrityCriticals.length,
     };
+
+    // Resilient axes: verification is the storefront verdict; execution is
+    // DEGRADED whenever evidence is incomplete but the run still completed —
+    // BLOCKED is only reachable via a thrown terminal path (receipt records it).
+    const verificationAxis: QaVerification = summaryVerdict;
+    const executionAxis: QaExecution = hasMissingEvidence ? 'DEGRADED' : 'COMPLETED';
+    const measuredDims = [
+      liquidScanRan,
+      overflowResult.measured === true,
+      assetScanRan,
+      hsScanRan,
+      true, // diagnostics classification always runs on whatever payload exists
+      integrityRan && integrityResult?.measured === true,
+    ];
+    const evidenceCoverage = measuredDims.filter(Boolean).length / measuredDims.length;
 
     const screenshotArtifactId =
       evidence.screenshot?.artifactRef &&
@@ -1148,6 +1266,9 @@ export class ThemeQaWorkflow {
       ...(preReloadDiagnosticsObj ? { preReloadDiagnostics: preReloadDiagnosticsObj } : {}),
       ...(differential ? { differential } : {}),
       ...(evidenceGaps.length > 0 ? { evidenceGaps } : {}),
+      ...(integrityResult ? { layoutIntegrity: integrityResult } : {}),
+      ...(integrityAmbiguities.length > 0 ? { visualAmbiguities: integrityAmbiguities } : {}),
+      responsive: responsiveMap,
       diagnosticScreenshot,
     };
 
@@ -1220,6 +1341,10 @@ export class ThemeQaWorkflow {
       qaMatrix,
       ...(settleReceipt ? { settleReceipt } : {}),
       ...(isolationOutcome ? { trackerIsolation: isolationOutcome } : {}),
+      verification: verificationAxis,
+      execution: executionAxis,
+      recovery: { attempted: 0, succeeded: 0 },
+      evidenceCoverage,
       createdAt: Date.now(),
     };
   }
