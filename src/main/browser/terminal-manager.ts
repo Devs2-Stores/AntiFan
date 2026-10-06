@@ -2119,6 +2119,29 @@ export class TerminalManager extends EventEmitter {
     s.altScreenScanTail = undefined;
     s.win32InputMode = false;
     s.win32InputScanTail = undefined;
+    // The sockets below are destroyed while writes can still be queued on them.
+    // A queued write whose peer is already gone surfaces later as an async
+    // 'error' (EPIPE) on the SOCKET, not on the pty object; under test-lane
+    // CPU contention the peer can die inside the yield below, before the
+    // suppressing listener is attached, so it must go on synchronously now
+    // (measured: lane run died at `closeSession` with `write EPIPE` from
+    // `Socket._writeGeneric`, attributed to the test that was awaiting it).
+    {
+      const earlySocketOwner = ptyInstance as unknown as {
+        _socket?: { on?: (event: string, listener: () => void) => unknown };
+        _agent?: { _inSocket?: { on?: (event: string, listener: () => void) => unknown }; _outSocket?: { on?: (event: string, listener: () => void) => unknown } };
+      } | null;
+      const earlySockets = [
+        earlySocketOwner?._agent?._inSocket,
+        earlySocketOwner?._agent?._outSocket,
+        earlySocketOwner?._socket,
+      ];
+      for (const socket of earlySockets) {
+        if (socket && typeof socket.on === 'function') {
+          try { socket.on('error', () => {}); } catch {}
+        }
+      }
+    }
     const pid = ptyInstance?.pid;
     // A pty write issued in the current event-loop turn is still queued on the
     // libuv loop. Tearing the pty down before that write flushes leaves a
