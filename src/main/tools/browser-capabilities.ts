@@ -1,9 +1,11 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { BrowserTarget, CapabilityRequestContext, AuthenticatedCapabilityContext, CapabilityError, CapabilityEffectPolicyInput, CapabilityRisk, ReceiptBinding, digestText } from '../../shared/control-plane-contracts';
 import { BrowserControlPort, BrowserWaitParams, VISUAL_COMPARE_EXECUTION_BUDGET_MS, VISUAL_COMPARE_CANCELLATION_ACK_MS, FULL_PAGE_CAPTURE_EXECUTION_BUDGET_MS, FULL_PAGE_CAPTURE_CANCELLATION_ACK_MS, VIEWPORT_CAPTURE_EXECUTION_BUDGET_MS, VIEWPORT_CAPTURE_CANCELLATION_ACK_MS, REFERENCE_CAPTURE_EXECUTION_BUDGET_MS, REFERENCE_CAPTURE_CANCELLATION_ACK_MS, BROWSER_WAIT_INVOCATION_BUDGET_MS, BROWSER_EVAL_INVOCATION_BUDGET_MS } from './browser-control-port';
 import { CapabilityCatalogue } from './capability-catalogue';
 import { PlatformDetector } from '../qa/scanners/platform-detector';
+import { loadOrBootstrapBaseline, evaluateSettingsRatchet, type SettingsFinding } from '../qa/settings-ratchet';
 import { LiquidErrorScanner } from '../qa/scanners/liquid-error-scanner';
 import { LayoutOverflowEngine } from '../qa/scanners/layout-overflow-engine';
 import { HsGateRules, HsEvaluationResult } from '../qa/rules/hs-gate-rules';
@@ -24,6 +26,30 @@ import { checkRouteIdentity } from '../verification/visual-capture';
 import { ReceiptStore } from '../session/receipt-store';
 import { VerificationCircuitBreaker } from '../verification/circuit-breaker';
 import { DEADLINES } from '../../shared/deadline-chain';
+function resolveRepoRoot(): string {
+  let dir = __dirname;
+  for (let i = 0; i < 8; i++) {
+    if (fs.existsSync(path.join(dir, 'scripts', 'lib', 'theme-checks.mjs'))) {
+      return dir;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return process.cwd();
+}
+
+function isHaravanThemeWorkspace(workspaceRoot: string): boolean {
+  if (!workspaceRoot || !fs.existsSync(workspaceRoot)) return false;
+  if (fs.existsSync(path.join(workspaceRoot, '.haravan-cli_local.json'))) return true;
+  if (fs.existsSync(path.join(workspaceRoot, 'config', 'settings.html'))) return true;
+  try {
+    const detected = PlatformDetector.detectFromWorkspace(workspaceRoot);
+    if (detected.platform === 'haravan') return true;
+  } catch {}
+  return false;
+}
+
 function getThemeHierarchyScript(): string {
   return `(() => {
     const template = document.documentElement?.getAttribute('data-template')
@@ -1643,6 +1669,12 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       let errorMessage: string | null = null;
       let passed: boolean | null = null;
       let criticalCount: number | null = null;
+      let settingsRatchetPayload: {
+        ok: boolean;
+        newFailures: number;
+        legacyDebt: number;
+        findings: SettingsFinding[];
+      } | null = null;
       try {
         if (!target?.tabId) {
           throw new CapabilityError('TARGET_MISMATCH', 'No valid browser target bound to context');
@@ -1672,6 +1704,91 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         passed = summary?.passed ?? null;
         criticalCount = summary?.criticalCount ?? null;
         receiptVerdict = summary?.passed === true && (summary?.criticalCount ?? 0) === 0 ? 'QA_PASSED' : 'QA_FAILED';
+
+        if (confinedRoot && isHaravanThemeWorkspace(confinedRoot)) {
+          try {
+            const repoRoot = resolveRepoRoot();
+            const themeChecksPath = path.join(repoRoot, 'scripts', 'lib', 'theme-checks.mjs');
+            if (fs.existsSync(themeChecksPath)) {
+              // Dynamic import: scripts/lib/theme-checks.mjs is an uncompiled pure-ESM CLI module outside TypeScript rootDir.
+              const themeChecksModule = await import(pathToFileURL(themeChecksPath).href);
+              const { checkHaravanLiquidContracts, checkSettingsBinding } = themeChecksModule;
+              const haravanContracts = typeof checkHaravanLiquidContracts === 'function'
+                ? checkHaravanLiquidContracts(confinedRoot, { platform: 'haravan' })
+                : { ok: true, failures: [] };
+              const settingsBinding = typeof checkSettingsBinding === 'function'
+                ? checkSettingsBinding(confinedRoot)
+                : { ok: true, failures: [] };
+
+              const findings: SettingsFinding[] = [];
+              if (Array.isArray(haravanContracts?.failures)) {
+                for (const f of haravanContracts.failures) {
+                  findings.push({
+                    rule: f.rule,
+                    id: f.id,
+                    file: f.file || 'config/settings.html',
+                    line: f.line,
+                    message: f.message,
+                    detail: f.detail,
+                  });
+                }
+              }
+              if (Array.isArray(settingsBinding?.failures)) {
+                for (const f of settingsBinding.failures) {
+                  if (Array.isArray(f.files) && f.files.length > 0) {
+                    for (const file of f.files) {
+                      findings.push({
+                        rule: f.rule,
+                        id: f.id,
+                        file,
+                        line: f.line,
+                        message: f.message,
+                        detail: f.detail,
+                      });
+                    }
+                  } else {
+                    findings.push({
+                      rule: f.rule,
+                      id: f.id,
+                      file: f.file || 'config/settings.html',
+                      line: f.line,
+                      message: f.message,
+                      detail: f.detail,
+                    });
+                  }
+                }
+              }
+
+              const baseline = loadOrBootstrapBaseline(confinedRoot, findings);
+              const ratchetResult = evaluateSettingsRatchet(baseline, findings, confinedRoot);
+
+              settingsRatchetPayload = {
+                ok: ratchetResult.ok,
+                newFailures: ratchetResult.newFailures.length,
+                legacyDebt: ratchetResult.legacyDebt.length,
+                findings: ratchetResult.newFailures,
+              };
+
+              if (!ratchetResult.ok) {
+                receiptVerdict = 'QA_FAILED';
+                passed = false;
+                errorCode = errorCode || 'SETTINGS_CONTRACT_REGRESSION';
+                errorMessage = `Settings contract regression: ${ratchetResult.newFailures.length} new finding(s) introduced.`;
+                // The report returned to the MCP caller must agree with the on-disk
+                // receipt: agents gate on summary.passed/criticalCount, so a ratchet
+                // failure has to be visible on the returned object, not only the receipt.
+                report.summary.passed = false;
+                report.summary.verdict = 'FAIL';
+                // A settings-contract regression is a critical finding class for
+                // consumers that gate on criticalCount alone.
+                report.summary.criticalCount = Math.max(report.summary.criticalCount ?? 0, 1);
+                report.settingsRatchet = settingsRatchetPayload;
+              }
+            }
+          } catch {
+            // Theme check failure is non-fatal for workflow execution
+          }
+        }
         return report;
       } catch (err) {
         // Terminal failure: the report never materialised, so the receipt must say so.
@@ -1710,10 +1827,14 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
               verdict: receiptVerdict,
               errorCode,
               errorMessage,
+              errorReason: errorMessage,
               passed,
               criticalCount,
               createdAt: new Date().toISOString(),
             };
+            if (settingsRatchetPayload) {
+              (receipt as Record<string, unknown>).settingsRatchet = settingsRatchetPayload;
+            }
             const receiptsDir = path.join(confinedRoot, '.antifan', 'qa-receipts');
             fs.mkdirSync(receiptsDir, { recursive: true });
             const safeRunId = String(receipt.runId).replace(/[^a-zA-Z0-9_-]/g, '_');

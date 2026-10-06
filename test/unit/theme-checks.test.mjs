@@ -11,8 +11,8 @@
  * binding fixtures also carry `section.settings.*`/`block.settings.*` reads and
  * a setting mentioned only inside `{% comment %}` — if either were mistaken for
  * a global read, the clean theme would report an undeclared setting. The upload
- * fixture proves that a `settings['logo.png']` read resolves against the control
- * name that carries the extension, that the `item` cart loop is accepted while
+ * fixture proves that an upload setting must be referenced via 'logo.png' | asset_url
+ * rather than settings['logo.png'], that the `item` cart loop is accepted while
  * the documented `cart_item` alias is refused, and that `product.media` needs a
  * `product.images` fallback in the same file; the inert fixture proves that
  * control names inside an HTML comment declare nothing.
@@ -237,7 +237,7 @@ test('checkSettingsBinding reports every read as undeclared when the schema is m
 test('checkSettingsBinding resolves bracket reads against the settings.html control names', () => {
   const result = checkSettingsBinding(fixtureTheme('theme-haravan-upload'));
   assert.equal(result.ok, true, JSON.stringify(result.failures));
-  assert.deepEqual(result.undeclared, [], 'an upload id is declared by the control name that carries its extension');
+  assert.deepEqual(result.undeclared, [], 'a bracket-read id is declared by the control name');
 });
 
 test('checkSettingsBinding ignores control names inside an HTML comment', () => {
@@ -245,7 +245,7 @@ test('checkSettingsBinding ignores control names inside an HTML comment', () => 
   assert.equal(result.ok, false);
   assert.deepEqual(
     result.undeclared,
-    [{ id: 'header_logo.png', files: ['snippets/hero.liquid'] }],
+    [{ id: 'header_logo_text', files: ['snippets/hero.liquid'] }],
     'a commented-out control declares nothing, so its read is unbacked',
   );
 });
@@ -495,4 +495,102 @@ test('checkAssetReferences pins the broken theme verdict', () => {
     ],
     counts: { localPresent: 1, localMissing: 2, remote: 2 },
   });
+});
+
+test('HARAVAN_SETTINGS_UPLOAD_READ refuses settings[\'logo.png\'] when logo.png is a file input', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'theme-upload-read-'));
+  try {
+    fs.mkdirSync(path.join(tempDir, 'config'), { recursive: true });
+    fs.mkdirSync(path.join(tempDir, 'snippets'), { recursive: true });
+    fs.writeFileSync(
+      path.join(tempDir, 'config', 'settings.html'),
+      '<fieldset><input type="file" name="logo.png" /></fieldset>',
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(tempDir, 'snippets', 'hero.liquid'),
+      '<img src="{{ settings[\'logo.png\'] }}">',
+      'utf8',
+    );
+    const result = checkHaravanLiquidContracts(tempDir);
+    assert.equal(result.ok, false);
+    const uploadReads = result.failures.filter((f) => f.rule === 'HARAVAN_SETTINGS_UPLOAD_READ');
+    assert.equal(uploadReads.length, 1);
+    assert.equal(uploadReads[0].id, 'logo.png');
+    assert.equal(uploadReads[0].file, 'snippets/hero.liquid');
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('HARAVAN_SETTINGS_UPLOAD_READ flags dynamic bracket reads from capture ending in image extension', () => {
+  const result = checkHaravanLiquidContracts(fixtureTheme('theme-dynamic-upload-read'));
+  assert.equal(result.ok, false);
+  const uploadReads = result.failures.filter((f) => f.rule === 'HARAVAN_SETTINGS_UPLOAD_READ');
+  assert.equal(uploadReads.length, 1);
+  assert.equal(uploadReads[0].id, 'fleet-vessel-{{ m }}-img.jpg');
+  assert.equal(uploadReads[0].file, 'snippets/fleet.liquid');
+});
+
+test('HARAVAN_SETTINGS_DUPLICATE_NAME ignores radio groups but flags duplicate text inputs', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'theme-dup-name-'));
+  try {
+    fs.mkdirSync(path.join(tempDir, 'config'), { recursive: true });
+    fs.mkdirSync(path.join(tempDir, 'snippets'), { recursive: true });
+    fs.writeFileSync(
+      path.join(tempDir, 'config', 'settings.html'),
+      `<fieldset>
+        <!-- Radio group with same name is allowed -->
+        <input type="radio" name="layout_mode" value="grid" />
+        <input type="radio" name="layout_mode" value="list" />
+        <!-- Duplicate text inputs are forbidden -->
+        <input type="text" name="dup_title" value="1" />
+        <input type="text" name="dup_title" value="2" />
+      </fieldset>`,
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(tempDir, 'snippets', 'test.liquid'),
+      '{{ settings.dup_title }}',
+      'utf8',
+    );
+    const result = checkHaravanLiquidContracts(tempDir);
+    assert.equal(result.ok, false);
+    const dups = result.failures.filter((f) => f.rule === 'HARAVAN_SETTINGS_DUPLICATE_NAME');
+    assert.equal(dups.length, 1);
+    assert.equal(dups[0].id, 'dup_title');
+    assert.equal(dups[0].line, 7);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('HARAVAN_SETTING_UNRESOLVED flags keys present in settings_data.json but missing from settings.html', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'theme-unresolved-'));
+  try {
+    fs.mkdirSync(path.join(tempDir, 'config'), { recursive: true });
+    fs.mkdirSync(path.join(tempDir, 'snippets'), { recursive: true });
+    fs.writeFileSync(
+      path.join(tempDir, 'config', 'settings.html'),
+      '<fieldset><input type="text" name="declared_key" value="ok" /></fieldset>',
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(tempDir, 'config', 'settings_data.json'),
+      JSON.stringify({ current: { declared_key: 'ok', orphan_key: 'orphan' } }),
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(tempDir, 'snippets', 'test.liquid'),
+      '{{ settings.declared_key }} {{ settings.orphan_key }}',
+      'utf8',
+    );
+    const result = checkHaravanLiquidContracts(tempDir);
+    assert.equal(result.ok, false);
+    const unresolved = result.failures.filter((f) => f.rule === 'HARAVAN_SETTING_UNRESOLVED');
+    assert.equal(unresolved.length, 1);
+    assert.equal(unresolved[0].id, 'orphan_key');
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
 });

@@ -28,8 +28,8 @@ import {
   type EditMode,
   type EditModeTrigger,
 } from "./edit-mode";
-import { planToolCall, REFUSAL_CODES, WRITE_TOOLS } from "./edit-guard-policy";
-import { resolveWorkspaceShape, type WorkspaceShape } from "./theme-paths";
+import { extractTargetPaths, planToolCall, REFUSAL_CODES, WRITE_TOOLS } from "./edit-guard-policy";
+import { resolveShopIdentity, resolveWorkspaceShape, type WorkspaceShape } from "./theme-paths";
 
 export const GUARD_ENTRY_TYPE = "antifan.edit-mode";
 export const LOG_DIR_PARTS = [".antifan", "edit-guard"];
@@ -360,10 +360,42 @@ export default function editGuardHook(pi: GuardPi): void {
   pi.on("tool_call", (event, ctx) => {
     try {
       const session = ensureSession(ctx);
-      if (!(SCOPED_MODES as readonly string[]).includes(session.mode)) return undefined;
       const record = contextRecord(event);
       const tool = String(record.toolName ?? record.name ?? "");
       const input = contextRecord(record.input);
+      const targets = extractTargetPaths(input);
+
+      const isSettingsDataWrite =
+        WRITE_TOOLS[tool.trim().toLowerCase()] === true &&
+        targets.some((t) => /(^|[/\\])config[/\\]settings_data\.json$/i.test(t));
+
+      if (isSettingsDataWrite) {
+        if (!(SCOPED_MODES as readonly string[]).includes(session.mode)) {
+          // Fail-closed: 'unset', 'core', or any unknown mode must never write
+          // config/settings_data.json directly. Only explicit [⚡Direct-Edit] or
+          // [🚀Super-Fast] scoped sessions may bypass (with a warning below).
+          const reason =
+            "REFUSED_SETTINGS_DATA_DIRECT_WRITE: Direct write/edit to config/settings_data.json is prohibited outside scoped modes. Use theme.transaction.write_cas with targetTabId to enforce shop isolation, or activate explicit [⚡Direct-Edit].";
+          appendRows(session, [
+            rowFor(
+              session,
+              tool,
+              targets.find((t) => /(^|[/\\])config[/\\]settings_data\.json$/i.test(t)) ?? "config/settings_data.json",
+              "block",
+              REFUSAL_CODES.SETTINGS_DATA_DIRECT_WRITE,
+            ),
+          ]);
+          warnSafely(pi, reason);
+          return { block: true, reason };
+        }
+        if (session.mode === "direct" || session.mode === "fast") {
+          const root = session.shape.themeRoot ?? session.shape.workspaceRoot;
+          const shop = resolveShopIdentity(root);
+          warnSafely(pi, `[edit-guard] Modifying settings_data.json directly for shop org=${shop?.orgId} theme=${shop?.themeId}`);
+        }
+      }
+
+      if (!(SCOPED_MODES as readonly string[]).includes(session.mode)) return undefined;
       const plan = planToolCall({ mode: session.mode, tool, input, shape: session.shape });
       if (plan.decision === "block") {
         appendRows(session, [rowFor(session, tool, plan.targets[0] ?? plan.device ?? "", "block", plan.code)]);

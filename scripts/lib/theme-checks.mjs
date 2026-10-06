@@ -435,6 +435,7 @@ export function checkHaravanLiquidContracts(themeDir, options = {}) {
     });
   }
 
+  const fileInputNames = new Set();
   if (hasSettingsHtml) {
     const htmlSource = readFileIfPresent(settingsHtmlPath) ?? '';
     const lines = htmlSource.split('\n');
@@ -451,26 +452,51 @@ export function checkHaravanLiquidContracts(themeDir, options = {}) {
         break;
       }
     }
-  }
 
-  // Collect all known/declared settings keys
-  const knownSettings = new Set();
-  if (fs.existsSync(settingsDataPath)) {
-    const dataParsed = parseJsonDocument(readFileIfPresent(settingsDataPath) ?? '{}');
-    if (dataParsed.ok && isPlainObject(dataParsed.value)) {
-      const root = dataParsed.value;
-      if (isPlainObject(root.current)) {
-        for (const k of Object.keys(root.current)) knownSettings.add(k);
+    // Parse controls, extract file inputs, and detect duplicate control names (HARAVAN_SETTINGS_DUPLICATE_NAME)
+    const strippedHtml = htmlSource.replace(HTML_COMMENT_BLOCK, (match) => match.replace(/[^\r\n]/g, ' '));
+    const controlTagRegex = /<(input|select|textarea)\b([^>]*)>/gi;
+    let controlMatch;
+    const occurrences = new Map();
+    while ((controlMatch = controlTagRegex.exec(strippedHtml)) !== null) {
+      const tag = controlMatch[1].toLowerCase();
+      const attrs = controlMatch[2];
+      const nameMatch = /\bname\s*=\s*(?:['"]([^'"]+)['"]|([^\s>]+))/i.exec(attrs);
+      if (nameMatch) {
+        const name = nameMatch[1] ?? nameMatch[2];
+        let type = tag;
+        if (tag === 'input') {
+          const typeMatch = /\btype\s*=\s*(?:['"]([^'"]+)['"]|([^\s>]+))/i.exec(attrs);
+          type = (typeMatch ? (typeMatch[1] ?? typeMatch[2]) : 'text').toLowerCase();
+          if (type === 'file') {
+            fileInputNames.add(name);
+          }
+        }
+        const line = strippedHtml.slice(0, controlMatch.index).split('\n').length;
+        if (!occurrences.has(name)) occurrences.set(name, []);
+        occurrences.get(name).push({ type, line });
       }
-      for (const k of Object.keys(root)) {
-        if (k !== 'current' && k !== 'presets') knownSettings.add(k);
+    }
+
+    for (const [name, entries] of occurrences.entries()) {
+      if (entries.length > 1) {
+        const allRadio = entries.every((e) => e.type === 'radio');
+        if (!allRadio) {
+          failures.push({
+            rule: 'HARAVAN_SETTINGS_DUPLICATE_NAME',
+            id: name,
+            file: 'config/settings.html',
+            line: entries[1].line,
+            message: `Duplicate setting control name '${name}' in config/settings.html`,
+            detail: `Found ${entries.length} controls sharing name '${name}'. Every non-radio control must have a unique name.`,
+          });
+        }
       }
     }
   }
-  // Declared ids come from both sources (`collectDeclaredSettingIds` unions the
-  // schema with the live control names in config/settings.html).
-  for (const k of collectDeclaredSettingIds(themeDir)) knownSettings.add(k);
 
+  // Collect all declared settings keys (strictly from declarations, excluding settings_data.json)
+  const knownSettings = collectDeclaredSettingIds(themeDir);
   // 3. Scan all Liquid source files
   const liquidDirs = ['layout', 'templates', 'snippets', 'sections'];
   for (const directory of liquidDirs) {
@@ -484,6 +510,24 @@ export function checkHaravanLiquidContracts(themeDir, options = {}) {
       // Strip Liquid comments while preserving newlines
       const source = rawSource.replace(LIQUID_COMMENT_BLOCK, (match) => match.replace(/[^\r\n]/g, ' '));
       const lines = source.split('\n');
+      // Pre-scan capture blocks that assign image filenames
+      const capturedImageVars = new Map();
+      const CAPTURE_BLOCK_REGEX = /\{%-?\s*capture\s+([A-Za-z0-9_]+)\s*-?%}([\s\S]*?)\{%-?\s*endcapture\s*-?%}/g;
+      let captureMatch;
+      while ((captureMatch = CAPTURE_BLOCK_REGEX.exec(source)) !== null) {
+        const varName = captureMatch[1];
+        const body = captureMatch[2].trim();
+        if (/\.(?:png|jpe?g|webp|gif|ico|svg|bmp|avif)$/i.test(body)) {
+          const captureLine = source.slice(0, captureMatch.index).split('\n').length;
+          // Multiple capture blocks may reuse one var name in a file (e.g. a
+          // header loop and a footer loop both capturing `img_k`); keep every
+          // occurrence so a later capture never blinds an earlier read.
+          const list = capturedImageVars.get(varName) ?? [];
+          list.push({ pattern: body, line: captureLine });
+          capturedImageVars.set(varName, list);
+        }
+      }
+
 
       for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
         const lineNum = lineIndex + 1;
@@ -608,17 +652,51 @@ export function checkHaravanLiquidContracts(themeDir, options = {}) {
           }
         }
 
-        // Check unresolved settings (dot and bracket spellings alike)
+        // Check upload settings reads and unresolved settings
         const settingsMatches = matchSettingReadIds(lineText);
         for (const settingId of settingsMatches) {
-          if (knownSettings.size > 0 && !knownSettings.has(settingId)) {
+          if (fileInputNames.has(settingId)) {
+            failures.push({
+              rule: 'HARAVAN_SETTINGS_UPLOAD_READ',
+              id: settingId,
+              file: relativePath,
+              line: lineNum,
+              message: `Upload setting '${settingId}' must be referenced via '${settingId}' | asset_url, not settings['${settingId}']`,
+              detail: `An <input type="file"> uploads an asset to assets/. Reading it via settings object fails or breaks asset resolution.`,
+            });
+          } else if (knownSettings.size > 0 && !knownSettings.has(settingId)) {
             failures.push({
               rule: 'HARAVAN_SETTING_UNRESOLVED',
+              id: settingId,
               file: relativePath,
               line: lineNum,
               message: `setting 'settings.${settingId}' is read but unresolved in config/settings_data.json`,
               detail: `Unresolved setting id '${settingId}' (${relativePath}:${lineNum})`,
             });
+          }
+        }
+
+        // Check dynamic bracket reads preceded by a capture block ending in an image extension
+        const SETTINGS_DYNAMIC_BRACKET_REGEX = /(?<![\w.$])settings\[\s*([A-Za-z_][A-Za-z0-9_]*)\s*\]/g;
+        let dynMatch;
+        while ((dynMatch = SETTINGS_DYNAMIC_BRACKET_REGEX.exec(lineText)) !== null) {
+          const dynVar = dynMatch[1];
+          if (capturedImageVars.has(dynVar)) {
+            const entries = capturedImageVars.get(dynVar);
+            // Resolve the active capture: the most recent capture of this var
+            // at or before the read line. A read must never bind to a capture
+            // declared below it.
+            const entry = [...entries].reverse().find((e) => lineNum >= e.line);
+            if (entry) {
+              failures.push({
+                rule: 'HARAVAN_SETTINGS_UPLOAD_READ',
+                id: entry.pattern,
+                file: relativePath,
+                line: lineNum,
+                message: `Upload setting '${entry.pattern}' must be referenced via '${entry.pattern}' | asset_url, not settings['${entry.pattern}']`,
+                detail: `An <input type="file"> uploads an asset to assets/. Reading it via settings object fails or breaks asset resolution.`,
+              });
+            }
           }
         }
       }

@@ -182,6 +182,16 @@ const LIQUID_TAG_RE = /\{\{|\{%/;
 
 /** workspaceRoot -> timestamp of the earliest still-unverified edit. */
 const pendingEdits = new Map<string, number>();
+interface HookSettingsFinding {
+  rule: string;
+  id?: string;
+  file: string;
+  line?: number;
+  message?: string;
+  detail?: string;
+}
+/** workspaceRoot -> settings regression findings from the latest receipt. */
+const pendingSettingsFindings = new Map<string, HookSettingsFinding[]>();
 /** Bypass / micro declarations, kept for auditability. */
 const bypassLog: Array<{
   at: string;
@@ -588,30 +598,92 @@ interface ScopedSessionState {
 }
 const scopedSessionStates = new Map<string, ScopedSessionState>();
 /** Newest receipt timestamp in one qa-receipts dir (0 when absent/empty/unreadable). */
-function latestReceiptInDir(dir: string): number {
-  let latest = 0;
+interface ReceiptRecord {
+  time: number;
+  receipt: Record<string, unknown>;
+}
+
+/** Newest receipt record in one qa-receipts dir (null when absent/empty/unreadable).
+ * Single-clock ordering: the .json file with the newest filesystem mtime is the
+ * newest run. If that winner is unparseable (in-flight write, truncation), the
+ * returned receipt body is {} so the gate stays armed rather than inheriting an
+ * older QA_PASSED. createdAt is never used for ordering — a stale or skewed
+ * timestamp could otherwise mask a newer corrupt receipt.
+ */
+function latestReceiptRecordInDir(dir: string): ReceiptRecord | null {
+  let newestMtime = 0;
+  let newestPaths: string[] = [];
   try {
     for (const name of fs.readdirSync(dir)) {
       if (!name.endsWith(".json")) continue;
+      const fullPath = path.join(dir, name);
       try {
-        const raw = JSON.parse(fs.readFileSync(path.join(dir, name), "utf8")) as { createdAt?: string };
-        const ts = raw.createdAt ? Date.parse(raw.createdAt) : NaN;
-        const stat = fs.statSync(path.join(dir, name));
-        const effective = Number.isNaN(ts) ? stat.mtimeMs : ts;
-        if (effective > latest) latest = effective;
-      } catch {
-        try {
-          const stat = fs.statSync(path.join(dir, name));
-          if (stat.mtimeMs > latest) latest = stat.mtimeMs;
-        } catch {
-          /* vanished between readdir and stat */
+        const stat = fs.statSync(fullPath);
+        if (stat.mtimeMs > newestMtime) {
+          newestMtime = stat.mtimeMs;
+          newestPaths = [fullPath];
+        } else if (stat.mtimeMs === newestMtime && newestMtime > 0) {
+          newestPaths.push(fullPath);
         }
+      } catch {
+        /* vanished between readdir and stat */
       }
     }
   } catch {
-    return 0;
+    return null;
   }
-  return latest;
+  if (newestPaths.length === 0 || newestMtime === 0) return null;
+  // Corrupt wins ties deterministically: scan the winner set; a parse failure
+  // returns a receipt stamped QA_UNREADABLE so the gate stays armed regardless
+  // of readdir order. Valid JSON lacking a verdict keeps legacy semantics
+  // (clears) — only unreadable or explicitly-failed receipts block clearing.
+  let firstParsed: Record<string, unknown> | null = null;
+  let sawCorrupt = false;
+  for (const p of newestPaths) {
+    try {
+      const raw = JSON.parse(fs.readFileSync(p, "utf8")) as unknown;
+      // JSON.parse also accepts null/arrays/primitives — none is a receipt.
+      // Only a non-null object can carry a verdict; anything else is unreadable.
+      if (raw && typeof raw === "object" && !Array.isArray(raw) && !firstParsed) {
+        firstParsed = raw as Record<string, unknown>;
+      } else if (!(raw && typeof raw === "object" && !Array.isArray(raw))) {
+        sawCorrupt = true;
+      }
+    } catch {
+      sawCorrupt = true;
+    }
+  }
+  if (sawCorrupt || !firstParsed) return { time: newestMtime, receipt: { verdict: "QA_UNREADABLE" } };
+  return { time: newestMtime, receipt: firstParsed };
+}
+
+/** Newest receipt record for a workspaceRoot (probing direct and 1 level down). */
+function latestReceiptRecord(workspaceRoot: string): ReceiptRecord | null {
+  try {
+    const direct = latestReceiptRecordInDir(path.join(workspaceRoot, RECEIPT_DIR));
+    if (direct && direct.time > 0) return direct;
+    let nestedLatest: ReceiptRecord | null = null;
+    for (const child of fs.readdirSync(workspaceRoot)) {
+      try {
+        const childDir = path.join(workspaceRoot, child);
+        if (!fs.statSync(childDir).isDirectory()) continue;
+        const rec = latestReceiptRecordInDir(path.join(childDir, RECEIPT_DIR));
+        if (rec && (!nestedLatest || rec.time > nestedLatest.time)) {
+          nestedLatest = rec;
+        }
+      } catch {
+        /* unreadable child */
+      }
+    }
+    return nestedLatest;
+  } catch {
+    return null;
+  }
+}
+
+/** Newest receipt timestamp in one qa-receipts dir (0 when absent/empty/unreadable). */
+function latestReceiptInDir(dir: string): number {
+  return latestReceiptRecordInDir(dir)?.time ?? 0;
 }
 
 /**
@@ -623,30 +695,44 @@ function latestReceiptInDir(dir: string): number {
  * workspace below it receives the receipts).
  */
 function latestReceiptTime(workspaceRoot: string): number {
-  try {
-    const latest = latestReceiptInDir(path.join(workspaceRoot, RECEIPT_DIR));
-    if (latest > 0) return latest;
-    let nested = 0;
-    for (const child of fs.readdirSync(workspaceRoot)) {
-      try {
-        const childDir = path.join(workspaceRoot, child);
-        if (!fs.statSync(childDir).isDirectory()) continue;
-        const t = latestReceiptInDir(path.join(childDir, RECEIPT_DIR));
-        if (t > nested) nested = t;
-      } catch {
-        /* unreadable child */
-      }
-    }
-    return nested;
-  } catch {
-    return 0;
-  }
+  return latestReceiptRecord(workspaceRoot)?.time ?? 0;
 }
 
-/** Drop pending entries that a fresh receipt now covers. */
+/** Drop pending entries that a fresh receipt now covers, preserving armed status on settings regressions. */
 function reconcileReceipts(): void {
   for (const [root, editTs] of pendingEdits) {
-    if (latestReceiptTime(root) >= editTs) clearPending(root);
+    const rec = latestReceiptRecord(root);
+    if (rec && rec.time >= editTs) {
+      const receipt = rec.receipt;
+      const settingsRatchet = receipt.settingsRatchet as {
+        ok?: boolean;
+        findings?: HookSettingsFinding[];
+        newFailures?: number;
+      } | undefined;
+
+      if (receipt.verdict === "QA_FAILED") {
+        // DO NOT clear pendingEdits.delete(root). Keep gate armed for ANY failed
+        // receipt — including non-Haravan and visual-only failures that carry no
+        // settingsRatchet at all.
+        // Settings findings are cached for reminder formatting only when the
+        // ratchet itself reported new failures.
+        if (settingsRatchet && settingsRatchet.ok === false) {
+          const findings = Array.isArray(settingsRatchet.findings) ? settingsRatchet.findings : [];
+          pendingSettingsFindings.set(root, findings);
+        } else {
+          // Ratchet clean or absent: drop stale settings findings left over from
+          // an earlier regression so reminders never resurrect resolved data.
+          pendingSettingsFindings.delete(root);
+        }
+      } else if (receipt.verdict === "QA_UNREADABLE") {
+        // Corrupt/in-flight receipt selected as newest: keep the gate armed —
+        // fail closed rather than trusting an unreadable verdict.
+      } else {
+        // QA_PASSED, absent verdict (legacy receipts), or any other value: clear.
+        // An unreadable newest receipt never reaches this branch (QA_UNREADABLE).
+        clearPending(root);
+      }
+    }
   }
 }
 
@@ -920,10 +1006,11 @@ function microRecordQualifies(rec: MicroEditRecord | undefined): rec is MicroEdi
   return true;
 }
 
-/** Clear the pending edit AND its micro record for one root. */
+/** Clear the pending edit AND its micro record AND cached settings findings for one root. */
 function clearPending(root: string): void {
   pendingEdits.delete(root);
   microEdits.delete(root);
+  pendingSettingsFindings.delete(root);
 }
 
 /**
@@ -935,6 +1022,26 @@ function clearPending(root: string): void {
  * SELF_QA_DIRECTIVE contract steps are inlined here instead.
  */
 function reminderText(): string {
+  const allFindings: HookSettingsFinding[] = [];
+  for (const root of pendingEdits.keys()) {
+    const list = pendingSettingsFindings.get(root);
+    if (list && list.length > 0) {
+      allFindings.push(...list);
+    }
+  }
+
+  if (allFindings.length > 0) {
+    const formatted = allFindings
+      .map((f) => {
+        const loc = f.line ? `${f.file}:${f.line}` : f.file;
+        const idPart = f.id ? ` (${f.id})` : "";
+        const idVal = f.id ?? "";
+        return `${GATE_MARKER} QA GATE PENDING — Settings regression detected: ${f.rule} at ${loc}${idPart}. Fix: replace with '${idVal}' | asset_url.`;
+      })
+      .join("\n");
+    return `\n\n${formatted}\nRun theme.qa_validate with tabId + workspaceRoot once resolved.`;
+  }
+
   const roots = [...pendingEdits.keys()].join(", ");
   return (
     `\n\n${GATE_MARKER} QA GATE PENDING — theme file(s) under ${roots} were edited without a fresh AntiFan QA receipt. ` +
@@ -953,6 +1060,7 @@ export default function themeQaGate(pi: HookAPI): void {
     try {
       pendingEdits.clear();
       microEdits.clear();
+      pendingSettingsFindings.clear();
       churnWarnedPaths.clear();
       pendingChurnHints.clear();
       sessionModes.clear();
@@ -1074,6 +1182,42 @@ export default function themeQaGate(pi: HookAPI): void {
     }
   });
 
+interface RatchetStats {
+  newCount: number;
+  debtCount: number;
+}
+
+function readLatestRatchetStats(workspaceRoot: string): RatchetStats | null {
+  try {
+    const rec = latestReceiptRecord(workspaceRoot);
+    if (rec?.receipt?.settingsRatchet && typeof rec.receipt.settingsRatchet === "object") {
+      const sr = rec.receipt.settingsRatchet as { newFailures?: number; legacyDebt?: number };
+      return {
+        newCount: typeof sr.newFailures === "number" ? sr.newFailures : 0,
+        debtCount: typeof sr.legacyDebt === "number" ? sr.legacyDebt : 0,
+      };
+    }
+
+    const baselinePath = path.join(workspaceRoot, ".antifan", "settings-baseline.json");
+    if (fs.existsSync(baselinePath)) {
+      const parsed = JSON.parse(fs.readFileSync(baselinePath, "utf8")) as {
+        totalFindings?: number;
+        counts?: Record<string, number>;
+      };
+      const debt = typeof parsed.totalFindings === "number"
+        ? parsed.totalFindings
+        : Object.values(parsed.counts || {}).reduce((s, c) => s + (typeof c === "number" ? c : 0), 0);
+      return {
+        newCount: 0,
+        debtCount: debt,
+      };
+    }
+  } catch {
+    /* unreadable */
+  }
+  return null;
+}
+
   /**
    * A scoped turn says one thing at its end: what this run changed and that
    * storefront QA was skipped. One line per turn is what replaces
@@ -1088,6 +1232,7 @@ export default function themeQaGate(pi: HookAPI): void {
       const sessionKey = sid || shape.workspaceRoot;
       const summary = auditRunSummary(shape.workspaceRoot, sid);
       const st = scopedSessionStates.get(sessionKey);
+      const wasDirty = Boolean(st && st.dirty);
 
       // Deduplication guard against ping-pong infinite loop:
       // 1) If this runSeq has already been emitted for this session, skip:
@@ -1104,6 +1249,19 @@ export default function themeQaGate(pi: HookAPI): void {
         lastEmittedSeq: summary.maxSeq,
         dirty: false,
       });
+      if (wasDirty) {
+        const stats = readLatestRatchetStats(shape.workspaceRoot);
+        if (stats) {
+          pi.sendMessage?.({
+            customType: "theme-qa-gate",
+            content: `[theme-qa-gate:scoped] Settings check: ${stats.newCount} new finding(s), ${stats.debtCount} legacy debt items. (Direct-Edit non-blocking)`,
+            display: true,
+            attribution: "agent",
+            details: { kind: "settings-ratchet-scoped", mode, newCount: stats.newCount, debtCount: stats.debtCount },
+          });
+          return;
+        }
+      }
 
       pi.sendMessage?.({
         customType: "theme-qa-gate",

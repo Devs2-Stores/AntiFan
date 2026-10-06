@@ -216,3 +216,89 @@ export function classifyWritePath(shape: WorkspaceShape, rawTarget: unknown): Wr
     reason: `outside the writable set of ${shape.themeRoot ?? shape.workspaceRoot}`,
   };
 }
+
+export interface ShopIdentityTuple {
+  orgId: string;
+  themeId: string;
+  themeName?: string;
+  source: "cli_local" | "workspace_context";
+}
+
+export function resolveShopIdentity(workspaceRoot: string): ShopIdentityTuple | null {
+  if (!workspaceRoot || typeof workspaceRoot !== "string") return null;
+
+  const cliLocalPath = path.join(workspaceRoot, ".haravan-cli_local.json");
+  try {
+    if (fs.existsSync(cliLocalPath)) {
+      const raw = fs.readFileSync(cliLocalPath, "utf8");
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object") {
+        const orgId = parsed.org_id != null ? String(parsed.org_id).trim() : "";
+        const themeId = parsed.theme_id != null ? String(parsed.theme_id).trim() : "";
+        if (orgId.length > 0 && themeId.length > 0) {
+          const themeName =
+            typeof parsed.theme_name === "string" && parsed.theme_name.trim().length > 0
+              ? parsed.theme_name.trim()
+              : undefined;
+          return {
+            orgId,
+            themeId,
+            themeName,
+            source: "cli_local",
+          };
+        }
+      }
+    }
+  } catch {
+    // Malformed JSON or unreadable file: fall through to fallback
+  }
+
+  const candidateContextFiles = [
+    path.join(workspaceRoot, ".workspace-context.json"),
+    path.join(workspaceRoot, "workspace-context.json"),
+  ];
+
+  for (const ctxPath of candidateContextFiles) {
+    try {
+      if (fs.existsSync(ctxPath)) {
+        const raw = fs.readFileSync(ctxPath, "utf8");
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object") {
+          const haravan = parsed.haravan;
+          if (haravan && typeof haravan === "object") {
+            const orgId =
+              haravan.org_id != null
+                ? String(haravan.org_id).trim()
+                : haravan.orgId != null
+                  ? String(haravan.orgId).trim()
+                  : "";
+            const themeId =
+              haravan.theme_id != null
+                ? String(haravan.theme_id).trim()
+                : haravan.themeId != null
+                  ? String(haravan.themeId).trim()
+                  : "";
+            if (orgId.length > 0 && themeId.length > 0) {
+              const themeName =
+                typeof haravan.theme_name === "string" && haravan.theme_name.trim().length > 0
+                  ? haravan.theme_name.trim()
+                  : typeof haravan.themeName === "string" && haravan.themeName.trim().length > 0
+                    ? haravan.themeName.trim()
+                    : undefined;
+              return {
+                orgId,
+                themeId,
+                themeName,
+                source: "workspace_context",
+              };
+            }
+          }
+        }
+      }
+    } catch {
+      // Continue to next candidate
+    }
+  }
+
+  return null;
+}

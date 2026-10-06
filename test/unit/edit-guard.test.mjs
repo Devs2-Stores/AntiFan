@@ -719,3 +719,82 @@ test("a call the guard cannot classify is refused while scoped and passed throug
   const unscopedResult = await unscoped.emit("tool_call", write, unreadableContext);
   assert.deepEqual(unscopedResult, [], "an unscoped session has nothing to enforce, so a failure is not a refusal");
 });
+
+test("hook blocks config/settings_data.json in mode === 'unset' (standard OMP session)", async () => {
+  const root = makeThemeWorkspace();
+  const hook = makeHook();
+  editGuardHook(hook.pi);
+  const ctx = hook.context(root, "sess-unset-settings");
+  await hook.emit("session_start", {}, ctx);
+  const result = await hook.emit(
+    "tool_call",
+    { toolName: "write", input: { path: "config/settings_data.json", content: "{}" } },
+    ctx,
+  );
+  assert.equal(result.length, 1, "handler must return a block response for config/settings_data.json in unset mode");
+  assert.equal(result[0].block, true);
+  assert.ok(result[0].reason.includes("REFUSED_SETTINGS_DATA_DIRECT_WRITE"));
+});
+
+test("hook blocks config/settings_data.json in mode === 'core' (fail-closed regression)", async () => {
+  const root = makeThemeWorkspace();
+  const hook = makeHook();
+  editGuardHook(hook.pi);
+  const ctx = hook.context(root, "sess-core-settings");
+  await hook.emit("session_start", {}, ctx);
+  await hook.emit("before_agent_start", { prompt: "[🧠Core-Context] think" }, ctx);
+  const result = await hook.emit(
+    "tool_call",
+    { toolName: "write", input: { path: "config/settings_data.json", content: "{}" } },
+    ctx,
+  );
+  assert.equal(result.length, 1, "handler must return a block response for config/settings_data.json in core mode");
+  assert.equal(result[0].block, true);
+  assert.ok(result[0].reason.includes("REFUSED_SETTINGS_DATA_DIRECT_WRITE"));
+});
+
+test("hook permits config/settings_data.json in mode === 'direct' with warning", async () => {
+  const root = makeThemeWorkspace();
+  const hook = makeHook();
+  editGuardHook(hook.pi);
+  const ctx = hook.context(root, "sess-direct-settings");
+  await hook.emit("session_start", {}, ctx);
+  await hook.emit("before_agent_start", { prompt: "[⚡Direct-Edit] update config" }, ctx);
+  const result = await hook.emit(
+    "tool_call",
+    { toolName: "write", input: { path: "config/settings_data.json", content: "{}" } },
+    ctx,
+  );
+  assert.deepEqual(result, [], "handler must return undefined (allowed) in direct mode");
+  assert.ok(hook.warnings.some((m) => m.includes("[edit-guard] Modifying settings_data.json directly")));
+});
+
+test("hook permits config/settings_data.json in mode === 'fast' with warning", async () => {
+  const root = makeThemeWorkspace();
+  const hook = makeHook();
+  editGuardHook(hook.pi);
+  const ctx = hook.context(root, "sess-fast-settings");
+  await hook.emit("session_start", {}, ctx);
+  await hook.emit("before_agent_start", { prompt: "[🚀Super-Fast] update config" }, ctx);
+  const result = await hook.emit(
+    "tool_call",
+    { toolName: "write", input: { path: "config/settings_data.json", content: "{}" } },
+    ctx,
+  );
+  assert.deepEqual(result, [], "handler must return undefined (allowed) in fast mode");
+  assert.ok(hook.warnings.some((m) => m.includes("[edit-guard] Modifying settings_data.json directly")));
+});
+
+test("hook allows normal edits like snippets/header.liquid in mode === 'unset'", async () => {
+  const root = makeThemeWorkspace();
+  const hook = makeHook();
+  editGuardHook(hook.pi);
+  const ctx = hook.context(root, "sess-unset-header");
+  await hook.emit("session_start", {}, ctx);
+  const result = await hook.emit(
+    "tool_call",
+    { toolName: "write", input: { path: "snippets/header.liquid", content: "<p>header</p>" } },
+    ctx,
+  );
+  assert.deepEqual(result, [], "normal theme edits must return undefined (allowed) in unset mode");
+});

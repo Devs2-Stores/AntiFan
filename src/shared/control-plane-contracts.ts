@@ -776,7 +776,11 @@ export type CapabilityErrorCode =
   | 'SCOPE_MISMATCH'
   | 'ROUTE_UNRESOLVED'
   | 'NAVIGATION_FAILED'
-  | 'SUCCESS_WITH_REPLACEMENT_AUTHORITY_REQUIRED';
+  | 'SUCCESS_WITH_REPLACEMENT_AUTHORITY_REQUIRED'
+  | 'WORKSPACE_SHOP_UNBOUND'
+  | 'TARGET_TAB_REQUIRED'
+  | 'TAB_SHOP_UNVERIFIED'
+  | 'SHOP_IDENTITY_MISMATCH';
 
 export class CapabilityError extends Error {
   readonly code: CapabilityErrorCode;

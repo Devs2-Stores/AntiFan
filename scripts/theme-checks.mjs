@@ -93,6 +93,9 @@ console.log(`[theme-checks] settings: undeclared=${binding.undeclared.length} de
 console.log(`[theme-checks] assets: localPresent=${assets.counts.localPresent} localMissing=${assets.counts.localMissing} remote=${assets.counts.remote}`);
 if (haravanContracts) {
   console.log(`[theme-checks] haravan-contracts: ok=${haravanContracts.ok} failures=${haravanContracts.failures.length}`);
+  for (const failure of haravanContracts.failures) {
+    console.log(`[theme-checks] haravan failure: [${failure.rule}] ${failure.file}:${failure.line} ${failure.message}`);
+  }
 }
 for (const render of renders) {
   console.log(`[theme-checks] render ${render.file}: ok=${render.ok} failures=${render.failures.length}`);

@@ -10,10 +10,6 @@
   <meta name="description" content="{{ shop.description | default: shop.name | escape }}" />
 {%- endif -%}
 
-{%- if settings.favicon != blank -%}
-  <link rel="shortcut icon" href="{{ settings.favicon }}" type="image/png" />
-{%- else -%}
-  <link rel="shortcut icon" href="{{ 'favicon.png' | asset_url }}" type="image/png" />
-{%- endif -%}
+<link rel="shortcut icon" href="{{ 'favicon' | asset_url }}" type="image/png" />
 
 {% include 'fb-open-graph-tags' %}

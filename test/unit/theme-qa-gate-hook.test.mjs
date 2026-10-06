@@ -1540,3 +1540,413 @@ test("pending edits remind on mutation results only — read/grep/glob/bash stay
   assert.ok(editReminderCount <= 1, "edit-class results stay on the reminder cadence");
 });
 
+function loadSettingsRatchet() {
+  const compiledPath = path.join(REPO, ".compiled", "src", "main", "qa", "settings-ratchet.js");
+  if (fs.existsSync(compiledPath)) {
+    return require(compiledPath);
+  }
+  const srcPath = path.join(REPO, "src", "main", "qa", "settings-ratchet.ts");
+  const tmp = path.join(os.tmpdir(), `settings-ratchet-${loadSeq++}.mts`);
+  scratchDirs.push(tmp);
+  fs.writeFileSync(tmp, fs.readFileSync(srcPath, "utf8"), "utf8");
+  return require(tmp);
+}
+
+test("settings ratchet bootstrap creates baseline file with correct multiset counts", () => {
+  const { loadOrBootstrapBaseline, evaluateSettingsRatchet, findingKey } = loadSettingsRatchet();
+  const root = makeWorkspace();
+  const findings = [
+    { rule: "HARAVAN_SETTINGS_UPLOAD_READ", id: "logo.png", file: "snippets/header.liquid", line: 12 },
+    { rule: "HARAVAN_SETTINGS_UPLOAD_READ", id: "favicon.png", file: "snippets/head.liquid", line: 5 },
+    { rule: "HARAVAN_SETTINGS_UPLOAD_READ", id: "logo.png", file: "snippets/header.liquid", line: 25 },
+    { rule: "SETTING_UNDECLARED", id: "unknown_setting", file: "templates/index.liquid", line: 40 },
+  ];
+
+  const baseline = loadOrBootstrapBaseline(root, findings);
+  const baselinePath = path.join(root, ".antifan", "settings-baseline.json");
+  assert.ok(fs.existsSync(baselinePath), "baseline file must be written to disk");
+
+  const onDisk = JSON.parse(fs.readFileSync(baselinePath, "utf8"));
+  assert.equal(onDisk.reviewed, false, "bootstrapped baseline must start in AUDIT mode (reviewed: false)");
+  assert.equal(onDisk.totalFindings, 4);
+
+  const logoKey = findingKey(findings[0]);
+  const favKey = findingKey(findings[1]);
+  const undeclaredKey = findingKey(findings[3]);
+
+  assert.equal(onDisk.counts[logoKey], 2, "duplicate bad reads in same file accumulate in multiset count");
+  assert.equal(onDisk.counts[favKey], 1);
+  assert.equal(onDisk.counts[undeclaredKey], 1);
+
+  // Idempotence: re-bootstrapping on existing file preserves data
+  const reloaded = loadOrBootstrapBaseline(root, []);
+  assert.equal(reloaded.totalFindings, 4, "re-bootstrapping must return existing baseline without zeroing");
+  assert.equal(reloaded.counts[logoKey], 2);
+
+  // In AUDIT mode (reviewed: false), evaluateSettingsRatchet returns ok: true and auditOnly: true
+  const evalResult = evaluateSettingsRatchet(baseline, findings, root);
+  assert.equal(evalResult.ok, true, "audit-mode baseline must not block");
+  assert.equal(evalResult.auditOnly, true);
+  assert.equal(evalResult.newFailures.length, 0);
+  assert.equal(evalResult.legacyDebt.length, 3);
+});
+
+test("settings ratchet ignores line movement when read count remains identical", () => {
+  const { loadOrBootstrapBaseline, evaluateSettingsRatchet } = loadSettingsRatchet();
+  const root = makeWorkspace();
+  const f1 = [
+    { rule: "HARAVAN_SETTINGS_UPLOAD_READ", id: "hero_banner.png", file: "sections/hero.liquid", line: 10 },
+  ];
+  const baseline = loadOrBootstrapBaseline(root, f1);
+  baseline.reviewed = true; // Human review completed
+
+  // Line shifted from 10 to 75 due to code changes above it
+  const f2 = [
+    { rule: "HARAVAN_SETTINGS_UPLOAD_READ", id: "hero_banner.png", file: "sections/hero.liquid", line: 75 },
+  ];
+  const result = evaluateSettingsRatchet(baseline, f2, root);
+  assert.equal(result.ok, true, "line shift must not trigger new failure");
+  assert.equal(result.newFailures.length, 0);
+  assert.equal(result.legacyDebt.length, 1);
+  assert.equal(result.legacyDebt[0].count, 1);
+  assert.equal(result.legacyDebt[0].line, 75);
+});
+
+test("settings ratchet fails when a second duplicate bad read is added to an existing file", () => {
+  const { loadOrBootstrapBaseline, evaluateSettingsRatchet } = loadSettingsRatchet();
+  const root = makeWorkspace();
+  const f1 = [
+    { rule: "HARAVAN_SETTINGS_UPLOAD_READ", id: "logo.png", file: "snippets/header.liquid", line: 10 },
+  ];
+  const baseline = loadOrBootstrapBaseline(root, f1);
+  baseline.reviewed = true; // Human review completed
+
+  // Added second bad read in same file
+  const f2 = [
+    { rule: "HARAVAN_SETTINGS_UPLOAD_READ", id: "logo.png", file: "snippets/header.liquid", line: 10 },
+    { rule: "HARAVAN_SETTINGS_UPLOAD_READ", id: "logo.png", file: "snippets/header.liquid", line: 30 },
+  ];
+  const result = evaluateSettingsRatchet(baseline, f2, root);
+  assert.equal(result.ok, false, "increasing count of bad read must fail evaluated ratchet");
+  assert.equal(result.newFailures.length, 1);
+  assert.equal(result.newFailures[0].count, 1);
+  assert.equal(result.newFailures[0].id, "logo.png");
+  assert.equal(result.newFailures[0].file, "snippets/header.liquid");
+});
+
+test("settings ratchet updates baseline downwards when legacy bad read is deleted", () => {
+  const { loadOrBootstrapBaseline, evaluateSettingsRatchet, findingKey } = loadSettingsRatchet();
+  const root = makeWorkspace();
+  const f1 = [
+    { rule: "HARAVAN_SETTINGS_UPLOAD_READ", id: "logo.png", file: "snippets/header.liquid", line: 10 },
+    { rule: "HARAVAN_SETTINGS_UPLOAD_READ", id: "banner.png", file: "snippets/hero.liquid", line: 15 },
+  ];
+  const baseline = loadOrBootstrapBaseline(root, f1);
+  assert.equal(baseline.totalFindings, 2);
+
+  // Delete banner.png bad read (debt fixed)
+  const f2 = [
+    { rule: "HARAVAN_SETTINGS_UPLOAD_READ", id: "logo.png", file: "snippets/header.liquid", line: 10 },
+  ];
+  const result1 = evaluateSettingsRatchet(baseline, f2, root);
+  assert.equal(result1.ok, true);
+  assert.equal(result1.baselineUpdated, true, "ratchet must update baseline when debt is fixed");
+  assert.equal(baseline.totalFindings, 1);
+
+  const disk1 = JSON.parse(fs.readFileSync(path.join(root, ".antifan", "settings-baseline.json"), "utf8"));
+  assert.equal(disk1.totalFindings, 1, "persisted baseline must ratchet down total findings to 1");
+  const bannerKey = findingKey({ rule: "HARAVAN_SETTINGS_UPLOAD_READ", id: "banner.png", file: "snippets/hero.liquid" });
+  assert.equal(disk1.counts[bannerKey] ?? 0, 0, "fixed bad read must drop from baseline counts");
+
+  // Delete logo.png bad read as well (all debt fixed)
+  const f3 = [];
+  const result2 = evaluateSettingsRatchet(baseline, f3, root);
+  assert.equal(result2.ok, true);
+  assert.equal(result2.baselineUpdated, true);
+  assert.equal(baseline.totalFindings, 0);
+
+  const disk2 = JSON.parse(fs.readFileSync(path.join(root, ".antifan", "settings-baseline.json"), "utf8"));
+  assert.equal(disk2.totalFindings, 0);
+});
+
+test("settings ratchet: temporary file delete→restore converts restored debt into blocking regression (documented drift risk)", () => {
+  const { loadOrBootstrapBaseline, evaluateSettingsRatchet } = loadSettingsRatchet();
+  const root = makeWorkspace();
+  const badRead = { rule: "HARAVAN_SETTINGS_UPLOAD_READ", id: "banner.png", file: "snippets/hero.liquid", line: 15 };
+  const baseline = loadOrBootstrapBaseline(root, [badRead]);
+  baseline.reviewed = true;
+
+  // Step 1 — file deleted: finding vanishes, baseline ratchets the key away.
+  const delResult = evaluateSettingsRatchet(baseline, [], root);
+  assert.equal(delResult.ok, true);
+  assert.equal(delResult.baselineUpdated, true);
+
+  // Step 2 — file restored with identical bad read: baseline no longer holds
+  // the key, so the debt re-presents as a NEW failure (blocking). This is the
+  // known drift hazard: transient deletes inside a reviewed baseline lose debt
+  // history. Asserting current behavior makes the risk explicit and testable —
+  // a future fix (e.g. snapshot retention / grace window) flips this assertion.
+  const restoreResult = evaluateSettingsRatchet(baseline, [badRead], root);
+  assert.equal(restoreResult.ok, false, "restored legacy debt is re-flagged as new failure after baseline ratchet-down");
+  assert.equal(restoreResult.newFailures.length, 1);
+  assert.equal(restoreResult.newFailures[0].id, "banner.png");
+
+  // Step 3 — persist:false caller never mutates the baseline object or disk:
+  const diskBefore = fs.readFileSync(path.join(root, ".antifan", "settings-baseline.json"), "utf8");
+  const readOnlyBaseline = loadOrBootstrapBaseline(root, []);
+  const readOnlyResult = evaluateSettingsRatchet(readOnlyBaseline, [], { workspaceRoot: root, persist: false });
+  const diskAfter = fs.readFileSync(path.join(root, ".antifan", "settings-baseline.json"), "utf8");
+  assert.equal(diskAfter, diskBefore, "persist:false must never write the baseline file");
+  assert.equal(readOnlyResult.baselineUpdated, false, "post-restore baseline is already clean — no diff to report");
+  assert.equal(readOnlyResult.ok, true);
+});
+
+test("theme-qa-gate keeps pendingEdits armed and formats reminder when receipt has settings regression", () => {
+  const { handlers } = loadHook();
+  const root = makeWorkspace();
+  const ctx = { cwd: root };
+
+  // Write a theme file to arm the gate
+  writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
+
+  // Emitting a receipt with QA_FAILED and settingsRatchet regressions
+  const receiptsDir = path.join(root, ".antifan", "qa-receipts");
+  fs.writeFileSync(
+    path.join(receiptsDir, "r-failed.json"),
+    JSON.stringify({
+      verdict: "QA_FAILED",
+      createdAt: new Date().toISOString(),
+      settingsRatchet: {
+        ok: false,
+        newFailures: 1,
+        legacyDebt: 0,
+        findings: [
+          { rule: "HARAVAN_SETTINGS_UPLOAD_READ", id: "logo.png", file: "snippets/header.liquid", line: 15 },
+        ],
+      },
+    }),
+    "utf8"
+  );
+
+  // Reconcile runs on tool result, gate must REMAIN armed
+  const writeRes = resText(result(handlers, ctx, "write ok", "write"));
+  assert.equal(count(writeRes, GATE_REMINDER_SENTINEL), 1, "gate must remain armed on settings regression");
+  assert.ok(
+    writeRes.includes("Settings regression detected: HARAVAN_SETTINGS_UPLOAD_READ at snippets/header.liquid:15 (logo.png)"),
+    "reminder must format settings regression rule, location and id"
+  );
+  assert.ok(
+    writeRes.includes("Fix: replace with 'logo.png' | asset_url"),
+    "reminder must provide specific asset_url fix guidance"
+  );
+
+  // Now emit a passing receipt
+  fs.writeFileSync(
+    path.join(receiptsDir, "r-passed.json"),
+    JSON.stringify({
+      verdict: "QA_PASSED",
+      createdAt: new Date(Date.now() + 1000).toISOString(),
+      settingsRatchet: {
+        ok: true,
+        newFailures: 0,
+        legacyDebt: 0,
+        findings: [],
+      },
+    }),
+    "utf8"
+  );
+
+  // Next tool result reconciles and clears the gate — assert on a write-class
+  // result since read-class results never emit the reminder even when armed.
+  const clearedRes = resText(result(handlers, ctx, "write ok 2", "write"));
+  assert.equal(count(clearedRes, GATE_REMINDER_SENTINEL), 0, "passing receipt clears the gate");
+});
+
+test("theme-qa-gate keeps gate armed when QA_FAILED receipt carries ratchet ok:true (visual-only failure)", () => {
+  const { handlers } = loadHook();
+  const root = makeWorkspace();
+  const ctx = { cwd: root };
+
+  writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
+
+  const receiptsDir = path.join(root, ".antifan", "qa-receipts");
+  fs.writeFileSync(
+    path.join(receiptsDir, "r-failed-visual.json"),
+    JSON.stringify({
+      verdict: "QA_FAILED",
+      createdAt: new Date().toISOString(),
+      settingsRatchet: {
+        ok: true,
+        newFailures: 0,
+        legacyDebt: 2,
+        findings: [],
+      },
+    }),
+    "utf8"
+  );
+
+  // Any QA_FAILED receipt keeps the gate armed — the failure is non-settings
+  // but still unverified. Reminders emit only on write-class tool_results
+  // (read-class results are intentionally silenced), so assert via a write.
+  const armedRes = resText(result(handlers, ctx, "write ok", "write"));
+  assert.equal(count(armedRes, GATE_REMINDER_SENTINEL), 1, "QA_FAILED keeps gate armed even when ratchet is ok");
+  assert.ok(
+    !armedRes.includes("Settings regression detected"),
+    "ratchet-ok failure must not format a settings regression reminder"
+  );
+});
+
+test("theme-qa-gate keeps gate armed when QA_FAILED receipt has no settingsRatchet (non-Haravan failure)", () => {
+  const { handlers } = loadHook();
+  const root = makeWorkspace();
+  const ctx = { cwd: root };
+
+  writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
+
+  const receiptsDir = path.join(root, ".antifan", "qa-receipts");
+  fs.writeFileSync(
+    path.join(receiptsDir, "r-failed-generic.json"),
+    JSON.stringify({
+      verdict: "QA_FAILED",
+      createdAt: new Date().toISOString(),
+    }),
+    "utf8"
+  );
+
+  const armedRes = resText(result(handlers, ctx, "write ok", "write"));
+  assert.equal(count(armedRes, GATE_REMINDER_SENTINEL), 1, "QA_FAILED without settingsRatchet keeps gate armed");
+  assert.ok(
+    !armedRes.includes("Settings regression detected"),
+    "no settingsRatchet means no settings reminder text"
+  );
+});
+test("theme-qa-gate keeps gate armed when newest receipt is corrupt and older receipt passed", () => {
+  const { handlers } = loadHook();
+  const root = makeWorkspace();
+  const ctx = { cwd: root };
+
+  const receiptsDir = path.join(root, ".antifan", "qa-receipts");
+  fs.mkdirSync(receiptsDir, { recursive: true });
+
+  // Older valid QA_PASSED — deliberately backdated so the corrupt file is newest.
+  fs.writeFileSync(
+    path.join(receiptsDir, "a-pass.json"),
+    JSON.stringify({ verdict: "QA_PASSED", createdAt: new Date(Date.now() - 60_000).toISOString() }),
+    "utf8"
+  );
+  // Arm the gate AFTER the old pass exists.
+  writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
+
+  // Newer corrupt receipt — future-dated so rec.time >= editTs deterministically;
+  // must win selection and yield an empty receipt, keeping the gate armed.
+  const corrupt = path.join(receiptsDir, "z-corrupt.json");
+  fs.writeFileSync(corrupt, "{ not valid json", "utf8");
+  const future = new Date(Date.now() + 5_000);
+  fs.utimesSync(corrupt, future, future);
+
+  const armedRes = resText(result(handlers, ctx, "write ok", "write"));
+  assert.equal(count(armedRes, GATE_REMINDER_SENTINEL), 1, "corrupt newest receipt must not clear the gate");
+});
+
+test("theme-qa-gate keeps gate armed when corrupt receipt ties a valid pass at equal mtime", () => {
+  const { handlers } = loadHook();
+  const root = makeWorkspace();
+  const ctx = { cwd: root };
+
+  writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
+
+  const receiptsDir = path.join(root, ".antifan", "qa-receipts");
+  fs.mkdirSync(receiptsDir, { recursive: true });
+
+  // Both receipts postdate the edit and share one millisecond — the corrupt
+  // file must still win selection over the pass regardless of readdir order.
+  const shared = new Date();
+  const passFile = path.join(receiptsDir, "b-pass.json");
+  fs.writeFileSync(
+    passFile,
+    JSON.stringify({ verdict: "QA_PASSED", createdAt: shared.toISOString() }),
+    "utf8"
+  );
+  const corrupt = path.join(receiptsDir, "a-corrupt.json");
+  fs.writeFileSync(corrupt, "{ broken", "utf8");
+  fs.utimesSync(passFile, shared, shared);
+  fs.utimesSync(corrupt, shared, shared);
+
+  const armedRes = resText(result(handlers, ctx, "write ok", "write"));
+  assert.equal(count(armedRes, GATE_REMINDER_SENTINEL), 1, "equal-mtime corrupt receipt must keep the gate armed");
+});
+
+test("theme-qa-gate keeps gate armed when newest receipt is valid JSON but not an object", () => {
+  const { handlers } = loadHook();
+  const root = makeWorkspace();
+  const ctx = { cwd: root };
+
+  writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
+
+  const receiptsDir = path.join(root, ".antifan", "qa-receipts");
+  fs.mkdirSync(receiptsDir, { recursive: true });
+
+  // Pass receipt is older; a JSON array receipt is written last (newest mtime).
+  // JSON.parse accepts it, but it is not a receipt object — verdict reads
+  // undefined and must NOT reach the legacy clear branch.
+  const passFile = path.join(receiptsDir, "a-pass.json");
+  fs.writeFileSync(
+    passFile,
+    JSON.stringify({ verdict: "QA_PASSED", createdAt: new Date().toISOString() }),
+    "utf8"
+  );
+  const older = new Date(Date.now() - 30_000);
+  fs.utimesSync(passFile, older, older);
+
+  const arrayReceipt = path.join(receiptsDir, "z-array.json");
+  fs.writeFileSync(arrayReceipt, JSON.stringify(["QA_PASSED"]), "utf8");
+
+  const armedRes = resText(result(handlers, ctx, "write ok", "write"));
+  assert.equal(count(armedRes, GATE_REMINDER_SENTINEL), 1, "non-object JSON receipt must not clear the gate");
+
+  // A future-pass receipt still clears afterward — the gate didn't pin.
+  const realPass = path.join(receiptsDir, "z-realpass.json");
+  fs.writeFileSync(realPass, JSON.stringify({ verdict: "QA_PASSED" }), "utf8");
+  const future = new Date(Date.now() + 60_000);
+  fs.utimesSync(realPass, future, future);
+  const clearedRes = resText(result(handlers, ctx, "read", "read"));
+  assert.equal(count(clearedRes, GATE_REMINDER_SENTINEL), 0, "newest valid pass clears after array receipt");
+});
+
+
+
+test("scoped mode: dirty turn with settings ratchet stats emits single-line count at turn_end", () => {
+  const { handlers, sent } = loadHook();
+  const root = makeWorkspace();
+  const ctx = { cwd: root };
+
+  fs.writeFileSync(
+    path.join(root, ".antifan", "settings-baseline.json"),
+    JSON.stringify({
+      reviewed: false,
+      bootstrappedAt: new Date().toISOString(),
+      counts: { "HARAVAN_SETTINGS_UPLOAD_READ::logo.png::snippets/header.liquid": 3 },
+      totalFindings: 3,
+    }),
+    "utf8"
+  );
+
+  withEditMode("direct", () => {
+    writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
+    handlers.get("turn_end")({ type: "turn_end" }, ctx);
+
+    assert.equal(sent.length, 1, "turn_end sends exactly one line in scoped mode");
+    assert.equal(
+       sent[0].content,
+      "[theme-qa-gate:scoped] Settings check: 0 new finding(s), 3 legacy debt items. (Direct-Edit non-blocking)"
+    );
+    assert.equal(sent[0].customType, "theme-qa-gate");
+    assert.deepEqual(sent[0].details, {
+      kind: "settings-ratchet-scoped",
+      mode: "direct",
+      newCount: 0,
+      debtCount: 3,
+    });
+  });
+});
+

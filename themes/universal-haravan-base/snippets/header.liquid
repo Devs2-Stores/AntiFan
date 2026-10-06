@@ -26,11 +26,7 @@
 
       <div class="site-logo">
         <a href="/" rel="home">
-          {%- if settings.header_logo != blank -%}
-            <img src="{{ settings.header_logo }}" alt="{{ shop.name | escape }}" loading="eager" width="160" height="40" />
-          {%- else -%}
-            <span>{{ shop.name | escape }}</span>
-          {%- endif -%}
+          <img src="{{ 'header_logo' | asset_url }}" alt="{{ shop.name | escape }}" loading="eager" width="160" height="40" />
         </a>
       </div>
 

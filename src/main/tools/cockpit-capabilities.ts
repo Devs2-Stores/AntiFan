@@ -13,6 +13,9 @@
  * budget-dominance gate builds the catalogue against recording stubs, so
  * collaborator access happens only inside `execute` bodies.
  */
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import {
   CapabilityError,
   type CapabilityRequestContext,
@@ -23,10 +26,13 @@ import type { CapabilityEffectPolicyInput } from '../../shared/control-plane-con
 import type { BrowserControlPort } from './browser-control-port';
 import type { CockpitPort, CockpitScopeIdentity } from './cockpit-port';
 import type { ChecklistMutationOp } from '../qa/theme-checklist-store';
+import { PlatformDetector } from '../qa/scanners/platform-detector';
+import { loadOrBootstrapBaseline, evaluateSettingsRatchet, type SettingsFinding } from '../qa/settings-ratchet';
 import {
   PAGE_DEFS,
   PRODUCT_PAGE_PATH,
   buildChecklistReport,
+  adaptChecklistItems,
   type ThemeChecklistItem,
 } from '../../shared/theme-checklist';
 import { confineWorkspaceRoot } from '../qa/diagnostics-filter';
@@ -51,6 +57,167 @@ type CockpitParams = {
   workspaceRoot?: string;
 };
 
+export interface CockpitSettingsSummary {
+  ok: boolean;
+  newFailures: number;
+  legacyDebt: number;
+  topViolations: SettingsFinding[];
+}
+
+function isHaravanThemeWorkspace(workspaceRoot: string): boolean {
+  if (!workspaceRoot || !fs.existsSync(workspaceRoot)) return false;
+  if (fs.existsSync(path.join(workspaceRoot, '.haravan-cli_local.json'))) return true;
+  if (fs.existsSync(path.join(workspaceRoot, 'config', 'settings.html'))) return true;
+  try {
+    const detected = PlatformDetector.detectFromWorkspace(workspaceRoot);
+    if (detected.platform === 'haravan') return true;
+  } catch {}
+  return false;
+}
+
+function detectThemeSettingsMode(workspaceRoot?: string): 'legacy' | 'f1genz' {
+  if (!workspaceRoot || !fs.existsSync(workspaceRoot)) return 'f1genz';
+  const hasSettingsHtml = fs.existsSync(path.join(workspaceRoot, 'config', 'settings.html'));
+  const hasSettingsSchema = fs.existsSync(path.join(workspaceRoot, 'config', 'settings_schema.json'));
+  if (hasSettingsHtml && !hasSettingsSchema) return 'legacy';
+  if (hasSettingsHtml) {
+    try {
+      const raw = fs.readFileSync(path.join(workspaceRoot, 'config', 'settings_schema.json'), 'utf8');
+      const parsed = JSON.parse(raw);
+      const isLive = Array.isArray(parsed) && parsed.some((panel) => Array.isArray(panel?.settings) && panel.settings.length > 0);
+      if (!isLive) return 'legacy';
+    } catch {
+      return 'legacy';
+    }
+  }
+  return 'f1genz';
+}
+
+/**
+ * Locate the AntiFan repo root by walking up from this module until
+ * scripts/lib/theme-checks.mjs resolves — identical contract to the copies in
+ * browser-capabilities.ts and theme-transaction-capabilities.ts. process.cwd()
+ * is the caller's workspace, not the repo, so it must never locate this script.
+ */
+function resolveRepoRoot(): string {
+  let dir = __dirname;
+  for (let i = 0; i < 8; i++) {
+    if (fs.existsSync(path.join(dir, 'scripts', 'lib', 'theme-checks.mjs'))) {
+      return dir;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return process.cwd();
+}
+
+async function collectHaravanSettingsFindings(workspaceRoot: string): Promise<SettingsFinding[]> {
+  const repoRoot = resolveRepoRoot();
+  const themeChecksPath = path.join(repoRoot, 'scripts', 'lib', 'theme-checks.mjs');
+  if (!fs.existsSync(themeChecksPath)) return [];
+
+  try {
+    const themeChecksModule = await import(pathToFileURL(themeChecksPath).href);
+    const {
+      checkHaravanLiquidContracts,
+      checkSettingsBinding,
+      checkAssetReferences,
+    } = themeChecksModule;
+
+    const haravanContracts = typeof checkHaravanLiquidContracts === 'function'
+      ? checkHaravanLiquidContracts(workspaceRoot, { platform: 'haravan' })
+      : null;
+    const settingsBinding = typeof checkSettingsBinding === 'function'
+      ? checkSettingsBinding(workspaceRoot)
+      : null;
+    const assets = typeof checkAssetReferences === 'function'
+      ? checkAssetReferences(workspaceRoot)
+      : null;
+
+    const findings: SettingsFinding[] = [];
+
+    if (Array.isArray(haravanContracts?.failures)) {
+      for (const f of haravanContracts.failures) {
+        findings.push({
+          rule: f.rule || 'HARAVAN_CONTRACT_FAILURE',
+          id: f.id,
+          file: f.file || 'config/settings.html',
+          line: f.line,
+          message: f.message,
+          detail: f.detail,
+        });
+      }
+    }
+
+    if (Array.isArray(settingsBinding?.failures)) {
+      for (const f of settingsBinding.failures) {
+        if (Array.isArray(f.files) && f.files.length > 0) {
+          for (const file of f.files) {
+            findings.push({
+              rule: f.rule || 'SETTINGS_BINDING_FAILURE',
+              id: f.id,
+              file,
+              line: f.line,
+              message: f.message,
+              detail: f.detail,
+            });
+          }
+        } else {
+          findings.push({
+            rule: f.rule || 'SETTINGS_BINDING_FAILURE',
+            id: f.id,
+            file: f.file || 'config/settings.html',
+            line: f.line,
+            message: f.message,
+            detail: f.detail,
+          });
+        }
+      }
+    }
+
+    if (Array.isArray(assets?.localMissing)) {
+      for (const m of assets.localMissing) {
+        findings.push({
+          rule: 'LOCAL_ASSET_MISSING',
+          file: (Array.isArray(m.files) && m.files[0]) || 'assets/',
+          line: 1,
+          message: `Asset '${m.ref}' not found locally`,
+          detail: `Local asset missing: ${m.ref}`,
+        });
+      }
+    }
+
+    return findings;
+  } catch {
+    return [];
+  }
+}
+
+export async function resolveSettingsSummary(workspaceRoot?: string): Promise<CockpitSettingsSummary | undefined> {
+  if (!workspaceRoot || !isHaravanThemeWorkspace(workspaceRoot)) {
+    return undefined;
+  }
+  try {
+    const findings = await collectHaravanSettingsFindings(workspaceRoot);
+    // Non-pure ratchet: load baseline FRESH on every call so in-memory ratchet mutation
+    // never leaks or drifts across invocations.
+    const baseline = loadOrBootstrapBaseline(workspaceRoot, findings);
+    // Cockpit is strictly READ-ONLY surface: pass { persist: false }
+    const settingsRatchet = evaluateSettingsRatchet(baseline, findings, {
+      workspaceRoot,
+      persist: false,
+    });
+    return {
+      ok: settingsRatchet.ok,
+      newFailures: settingsRatchet.newFailures.length,
+      legacyDebt: settingsRatchet.legacyDebt.length,
+      topViolations: settingsRatchet.newFailures.slice(0, 5),
+    };
+  } catch {
+    return undefined;
+  }
+}
 /**
  * The single scope assertion point: everything derives from the bound tab id
  * the control plane already authorized (`requiresBrowserTarget`), and a caller
@@ -125,8 +292,10 @@ export function registerCockpitCapabilities(
     execute: (params: CockpitParams, context) => {
       const identity = resolveBoundScope(cockpit, params, context, 'theme.cockpit_list');
       const loaded = cockpit.checklistLoad(identity.tabId, { scope: identity.scope, workspaceRoot: identity.workspaceRoot });
+      const themeMode = detectThemeSettingsMode(identity.workspaceRoot);
+      const items = adaptChecklistItems(loaded.items, themeMode);
       const pages = new Map<string, { page: string; done: number; total: number }>();
-      for (const item of loaded.items) {
+      for (const item of items) {
         const entry = pages.get(item.page) || { page: item.page, done: 0, total: 0 };
         entry.total += 1;
         if (item.done) entry.done += 1;
@@ -135,9 +304,9 @@ export function registerCockpitCapabilities(
       return {
         scope: loaded.scope,
         workspaceRoot: loaded.workspaceRoot,
-        items: loaded.items,
-        done: loaded.items.filter((item) => item.done).length,
-        total: loaded.items.length,
+        items,
+        done: items.filter((item) => item.done).length,
+        total: items.length,
         pages: Array.from(pages.values()),
         isProvisional: loaded.isProvisional,
         updatedAt: loaded.updatedAt,
@@ -334,10 +503,16 @@ export function registerCockpitCapabilities(
     requiresBrowserTarget: true,
     policy: readPolicy(),
     inputSchema: { type: 'object', properties: { tabId: { type: 'string' } } },
-    execute: (_params: { tabId?: string }, context) => {
+    execute: async (_params: { tabId?: string }, context) => {
       const identity = resolveBoundScope(cockpit, _params, context, 'theme.cockpit_findings');
       const state = cockpit.getThemeQaState(identity.tabId);
-      return { scope: identity.scope, isProvisional: identity.isProvisional, ...state };
+      const settingsSummary = await resolveSettingsSummary(identity.workspaceRoot);
+      return {
+        scope: identity.scope,
+        isProvisional: identity.isProvisional,
+        ...state,
+        ...(settingsSummary ? { settingsSummary } : {}),
+      };
     },
   });
 
@@ -348,13 +523,17 @@ export function registerCockpitCapabilities(
     requiresBrowserTarget: true,
     policy: readPolicy(),
     inputSchema: { type: 'object', properties: { ...scopeProps } },
-    execute: (params: CockpitParams, context) => {
+    execute: async (params: CockpitParams, context) => {
       const identity = resolveBoundScope(cockpit, params, context, 'theme.cockpit_report');
       const loaded = cockpit.checklistLoad(identity.tabId, { scope: identity.scope, workspaceRoot: identity.workspaceRoot });
+      const themeMode = detectThemeSettingsMode(identity.workspaceRoot);
+      const items = adaptChecklistItems(loaded.items, themeMode);
+      const settingsSummary = await resolveSettingsSummary(identity.workspaceRoot);
       return {
-        markdown: buildChecklistReport(loaded.scope, loaded.items),
+        markdown: buildChecklistReport(loaded.scope, items, settingsSummary),
         scope: loaded.scope,
         isProvisional: loaded.isProvisional,
+        ...(settingsSummary ? { settingsSummary } : {}),
       };
     },
   });

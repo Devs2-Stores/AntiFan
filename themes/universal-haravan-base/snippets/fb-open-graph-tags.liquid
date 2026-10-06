@@ -31,8 +31,8 @@
 {%- elsif template contains 'article' and article.image -%}
   <meta property="og:image" content="{{ article | img_url: 'grande' }}" />
   <meta property="og:image:secure_url" content="{{ article | img_url: 'grande' }}" />
-{%- elsif settings.header_logo != blank -%}
-  <meta property="og:image" content="{{ settings.header_logo }}" />
+{%- else -%}
+  <meta property="og:image" content="{{ 'header_logo' | asset_url }}" />
 {%- endif -%}
 
 <meta name="twitter:card" content="summary_large_image" />

@@ -1,0 +1,4 @@
+{% for m in (1..3) %}
+  {% capture m_file %}fleet-vessel-{{ m }}-img.jpg{% endcapture %}
+  <img src="{{ settings[m_file] }}" />
+{% endfor %}

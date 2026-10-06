@@ -20,6 +20,10 @@ export interface ThemeChecklistItem {
    * Absent means "no note"; the field survives a save/load round-trip.
    */
   note?: string;
+  /** Optional action linking directly to capability (e.g. 'theme.settings_check') */
+  action?: string;
+  /** Extended / platform-adaptive description */
+  description?: string;
 }
 
 export interface ThemePageDef {
@@ -101,6 +105,41 @@ export const PAGE_DEFS: Record<string, ThemePageDef> = {
     note: QA_GATE_DISCLAIMER,
   },
 };
+export type ThemeSettingsMode = 'legacy' | 'f1genz' | string;
+
+export function getQag04Description(mode?: ThemeSettingsMode): string {
+  return (mode === 'legacy')
+    ? 'Validate settings.html controls, duplicate names, and upload asset_url references via theme.settings_check.'
+    : 'Validate settings_schema.json definitions and Liquid bindings via theme.settings_check.';
+}
+
+let themeMode: ThemeSettingsMode = 'f1genz';
+
+export function setChecklistThemeMode(mode: ThemeSettingsMode): void {
+  themeMode = mode;
+  const qag = DEFAULT_THEME_CHECKLIST.find((it) => it.id === 'qag-04');
+  if (qag) {
+    const desc = getQag04Description(themeMode);
+    qag.desc = desc;
+    qag.description = desc;
+    qag.action = 'theme.settings_check';
+  }
+}
+
+export function adaptChecklistItems(items: ThemeChecklistItem[], mode?: ThemeSettingsMode): ThemeChecklistItem[] {
+  return items.map((it) => {
+    if (it.id === 'qag-04') {
+      const desc = getQag04Description(mode);
+      return {
+        ...it,
+        desc,
+        description: desc,
+        action: 'theme.settings_check',
+      };
+    }
+    return it;
+  });
+}
 
 export const DEFAULT_THEME_CHECKLIST: ThemeChecklistItem[] = [
   // 1. TRANG CHỦ (HOME)
@@ -161,7 +200,22 @@ export const DEFAULT_THEME_CHECKLIST: ThemeChecklistItem[] = [
   { id: 'qag-01', code: 'QAG-01', name: 'Responsive 375px Không Tràn Ngang', desc: 'Dùng thanh Thử Viewport 375px duyệt toàn bộ các trang', qaPoint: 'Tuyệt đối không có phần tử nào gây scrollbar ngang', page: 'qa-gate', pathHint: '/', done: false },
   { id: 'qag-02', code: 'QAG-02', name: 'Kiểm Tra Trạng Thái Trống (Empty State)', desc: 'Test danh mục không có SP, giỏ rỗng, tìm kiếm không ra', qaPoint: 'Layout không bị sập hay méo khung khi dữ liệu trống', page: 'qa-gate', pathHint: '/collections/all', done: false },
   { id: 'qag-03', code: 'QAG-03', name: '0 Lỗi Đỏ Console JS & 0 Ảnh Hỏng 404', desc: 'Mở DevTools Console kiểm tra toàn bộ các trang', qaPoint: 'Không có Uncaught TypeError, không có tài nguyên 404', page: 'qa-gate', pathHint: '/', done: false },
-  { id: 'qag-04', code: 'QAG-04', name: 'Kiểm Tra Cấu Hình Theme Settings', desc: 'Bật/tắt các setting trong theme admin (settings_schema.json)', qaPoint: 'Mọi setting đều có tác dụng ngoài storefront, không setting rác', page: 'qa-gate', pathHint: '/', done: false },
+  {
+    id: 'qag-04',
+    code: 'QAG-04',
+    name: 'Kiểm Tra Cấu Hình Theme Settings',
+    desc: (themeMode === 'legacy')
+      ? 'Validate settings.html controls, duplicate names, and upload asset_url references via theme.settings_check.'
+      : 'Validate settings_schema.json definitions and Liquid bindings via theme.settings_check.',
+    description: (themeMode === 'legacy')
+      ? 'Validate settings.html controls, duplicate names, and upload asset_url references via theme.settings_check.'
+      : 'Validate settings_schema.json definitions and Liquid bindings via theme.settings_check.',
+    action: 'theme.settings_check',
+    qaPoint: 'Mọi setting đều có tác dụng ngoài storefront, không setting rác',
+    page: 'qa-gate',
+    pathHint: '/',
+    done: false,
+  },
 ];
 
 /**
@@ -208,7 +262,16 @@ export function checklistScope(origin: string, tag?: string): string {
  * The progress report both the toolbar export button and `theme.cockpit_report`
  * render: identical structure so a diff between surfaces is impossible.
  */
-export function buildChecklistReport(scope: string, items: ThemeChecklistItem[]): string {
+export function buildChecklistReport(
+  scope: string,
+  items: ThemeChecklistItem[],
+  settingsSummary?: {
+    ok: boolean;
+    newFailures: number;
+    legacyDebt: number;
+    topViolations?: Array<{ rule: string; id?: string; file: string; line?: number; message?: string }>;
+  }
+): string {
   const total = items.length;
   const doneCount = items.filter((it) => it.done).length;
   const percent = total > 0 ? Math.round((doneCount / total) * 100) : 0;
@@ -223,6 +286,9 @@ export function buildChecklistReport(scope: string, items: ThemeChecklistItem[])
   lines.push(`- **Tổng tiến độ:** ${doneCount}/${total} mục (${percent}%)`);
   lines.push(`- **Đánh giá tổng thể:** ${percent === 100 ? '✅ SẴN SÀNG NGHIỆM THU / HANDOFF' : percent >= 80 ? '🟡 ĐANG HOÀN THIỆN (GẦN XONG)' : '🔴 ĐANG PHÁT TRIỂN'}`);
   lines.push(`- **Phạm vi bằng chứng:** ${QA_GATE_DISCLAIMER}`);
+  if (settingsSummary) {
+    lines.push(`- **Cấu hình Theme Settings:** ${settingsSummary.ok ? '✅ Hợp lệ' : '❌ Có lỗi mới'} (Lỗi mới: ${settingsSummary.newFailures}, Nợ cũ: ${settingsSummary.legacyDebt})`);
+  }
   lines.push('');
 
   pageKeys.forEach((key) => {

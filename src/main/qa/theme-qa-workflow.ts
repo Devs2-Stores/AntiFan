@@ -141,7 +141,8 @@ export interface ThemeQaReport {
   artifacts: ArtifactRef[];
   qaMatrix?: QaMatrixReport;
   settleReceipt?: VisualSettleReceipt;
-  trackerIsolation?: TrackerIsolationOutcome;
+  /** Attached when the settings-contract ratchet evaluated; present on failure so MCP callers see the same verdict the disk receipt records. */
+  settingsRatchet?: { ok: boolean; newFailures: number; legacyDebt: number; findings: unknown[] } | null;
   createdAt: number;
 }
 export interface ThemeQaWorkflowPorts {
