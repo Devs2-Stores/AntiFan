@@ -185,6 +185,181 @@ export function resolveApplicationMenuHost(
   return passedHost ?? null;
 }
 
+/**
+ * Keyboard fallback for the shell windows whose native menubar is removed
+ * (see `ProjectWindowShell`: `setMenu(null)` retires `electron::MenuBar`, which
+ * is the only owner of the `RootView::RestoreFocus` calls that can be fed a
+ * stale `last_focused_view_tracker_` after a tab WebContentsView is reparented).
+ *
+ * With the menubar gone the window's menu accelerators are unregistered, so the
+ * same commands are dispatched from `before-input-event` instead. The chord table
+ * below is deliberately the exact accelerator list `buildApplicationMenu`
+ * registers, routed through the same `hostForClick` semantics: the sender's own
+ * window — not whichever window the menu was built against — answers for the
+ * command.
+ */
+export interface ApplicationMenuShortcutContext {
+  /**
+   * The host the sender belongs to, resolved exactly the way `resolveSender`
+   * resolves chrome and tab senders. Null hosts keep the chord reserved (consumed,
+   * no-op) — same outcome as a menu accelerator that resolves no host.
+   */
+  host: NativeTabHost | null;
+  /** The window the sender lives in, for options callbacks that are window-modal. */
+  window: BrowserWindow | null;
+  /** The webContents that received the key — zoom roles act on the focused contents. */
+  sender: Electron.WebContents;
+  /** The same option bag the installed menu was built with. */
+  options?: ApplicationMenuOptions;
+}
+
+function shortcutChord(input: Electron.Input): string {
+  const parts: string[] = [];
+  if (input.control) parts.push('Ctrl');
+  if (input.meta) parts.push('Meta');
+  if (input.alt) parts.push('Alt');
+  if (input.shift) parts.push('Shift');
+  // Alphabetic keys arrive lowercase or uppercase depending on Shift; the
+  // accelerator table names them uppercase, so the letter is normalized while
+  // the modifier flags keep the real distinction (Ctrl+Shift+T stays Ctrl+Shift+T).
+  const key = /^[a-zA-Z]$/.test(input.key) ? input.key.toUpperCase() : input.key;
+  parts.push(key);
+  return parts.join('+');
+}
+
+/**
+ * Run one menu command for a physical keystroke. Returns true when the chord is a
+ * registered application accelerator and must not reach the page (caller should
+ * `preventDefault`), false when the key is not ours.
+ */
+export function dispatchApplicationMenuShortcut(input: Electron.Input, ctx: ApplicationMenuShortcutContext): boolean {
+  if (input.type !== 'keyDown') return false;
+  const { host, options } = ctx;
+  const window = ctx.window;
+  switch (shortcutChord(input)) {
+    // File
+    case 'Ctrl+Shift+O':
+      options?.openProjectPicker?.(window);
+      return true;
+    case 'Ctrl+T':
+      host?.createTab('https://www.google.com');
+      return true;
+    case 'Ctrl+Shift+T':
+      host?.reopenClosedTab();
+      return true;
+    case 'Ctrl+W': {
+      const activeId = host?.getActiveTabId();
+      if (host && activeId) host.closeTab(activeId, 'user-menu');
+      return true;
+    }
+    case 'Ctrl+Shift+S':
+      void host?.captureScreenshot();
+      return true;
+    case 'Ctrl+Q':
+      app.quit();
+      return true;
+
+    // View — the three reload entries all run host.reload, matching the menu.
+    case 'Ctrl+R':
+    case 'Ctrl+Shift+R':
+      if (host) {
+        const id = host.getActiveTabId();
+        if (id) host.reload(id);
+      }
+      return true;
+    case 'F5':
+      if (host) {
+        const id = host.getActiveTabId();
+        if (id) host.reload(id);
+      }
+      return true;
+    case 'Ctrl+Shift+B':
+      host?.toggleBookmarkBar();
+      return true;
+    // Zoom — no native menubar means no zoom role; go through host.setZoom so
+    // `state.zoomFactor` stays the single authoritative value (the same pipeline
+    // the wheel-zoom IPC and `zoom-changed` listener already feed).
+    case 'Ctrl+0':
+    case 'Ctrl+num0':
+      if (host) host.setZoom(host.getActiveTabId(), 1.0);
+      return true;
+    case 'Ctrl+=':
+    case 'Ctrl++':
+    case 'Ctrl+numadd': {
+      if (host) {
+        const id = host.getActiveTabId();
+        const current = host.getTabList().find((tab) => tab.id === id)?.zoomFactor || 1.0;
+        host.setZoom(id, Math.min(5.0, Number((current + 0.1).toFixed(2))));
+      }
+      return true;
+    }
+    case 'Ctrl+-':
+    case 'Ctrl+numsub': {
+      if (host) {
+        const id = host.getActiveTabId();
+        const current = host.getTabList().find((tab) => tab.id === id)?.zoomFactor || 1.0;
+        host.setZoom(id, Math.max(0.25, Number((current - 0.1).toFixed(2))));
+      }
+      return true;
+    }
+    case 'F11':
+      host?.toggleFullScreen();
+      return true;
+    case 'Ctrl+Shift+I':
+    case 'F12':
+      host?.toggleDevTools();
+      return true;
+
+    // Browser
+    case 'Alt+Left':
+      if (host) {
+        const id = host.getActiveTabId();
+        if (id) host.goBack(id);
+      }
+      return true;
+    case 'Alt+Right':
+      if (host) {
+        const id = host.getActiveTabId();
+        if (id) host.goForward(id);
+      }
+      return true;
+    case 'Ctrl+D':
+      host?.bookmarkActiveTab();
+      return true;
+
+    // Tools
+    case 'Ctrl+B':
+      host?.toggleInspect();
+      return true;
+    case 'Ctrl+Alt+L':
+      host?.toggleLens();
+      return true;
+    case 'Ctrl+F':
+      host?.focusFindBar();
+      return true;
+
+    // Terminal
+    case 'Ctrl+Shift+M':
+      options?.openSharedTerminalManager?.(window);
+      return true;
+    case 'Ctrl+Alt+B':
+    case 'Ctrl+`':
+      host?.toggleSidebar();
+      return true;
+
+    // Help
+    case 'Ctrl+Alt+R':
+      host?.reloadWindow();
+      return true;
+    case 'Ctrl+Shift+U':
+      checkForUpdatesAndRestart(window);
+      return true;
+
+    default:
+      return false;
+  }
+}
+
 export function buildApplicationMenu(mainWindow: BrowserWindow, tabHost?: NativeTabHost | null, options?: ApplicationMenuOptions): Menu {
   const isMac = process.platform === 'darwin';
   /**

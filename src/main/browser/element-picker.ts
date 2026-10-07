@@ -970,11 +970,12 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
 
     overlay.style.display = 'block';
     badge.style.display = 'none';
-    let selectorName = el.tagName ? el.tagName.toLowerCase() : 'element';
+    let selectorName = (el.tagName ? el.tagName.toLowerCase() : '') || 'element';
     if (el.id) {
       selectorName += '#' + el.id;
-    } else if (el.className && typeof el.className === 'string') {
-      const cls = el.className.trim().split(/\\s+/).filter(Boolean)[0];
+    } else if (el.className) {
+      const rawClass = typeof el.className === 'string' ? el.className : (el.className && typeof el.className.baseVal === 'string' ? el.className.baseVal : '');
+      const cls = rawClass.trim().split(/\s+/).filter(Boolean)[0];
       if (cls && !cls.includes(':')) selectorName += '.' + cls;
     }
 
@@ -984,14 +985,17 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
     modal.id = MODAL_ID;
     modal.setAttribute('role', 'dialog');
     modal.setAttribute('aria-modal', 'true');
-    // Compact on phones (92vw), scales with viewport on large screens (cap 400px).
-    modal.style.cssText = 'position:fixed;z-index:2147483647;inset:auto;box-sizing:border-box;background:#0b111b;color:#e5eef8;border:1px solid #2c6d98;border-radius:10px;padding:10px 11px;box-shadow:0 14px 36px rgba(0,0,0,0.72),0 0 0 1px rgba(88,180,232,.08);width:min(92vw,400px);max-height:calc(100vh - 20px);overflow-y:auto;margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:12px;display:flex;flex-direction:column;gap:8px;';
+    // Compact on phones (92vw), scales with viewport on large screens (cap 420px).
+    modal.style.cssText = 'position:fixed;z-index:2147483647;inset:auto;box-sizing:border-box;background:rgba(11,17,27,0.96);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);color:#e2e8f0;border:1px solid rgba(56,189,248,0.28);border-radius:12px;padding:12px 14px;box-shadow:0 20px 48px rgba(0,0,0,0.7),0 0 0 1px rgba(255,255,255,0.06),0 0 24px rgba(14,165,233,0.12);width:min(94vw,420px);max-height:calc(100vh - 20px);overflow:hidden;margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:12px;display:flex;flex-direction:column;gap:8px;';
 
     const r = el.getBoundingClientRect();
     const targetParent = document.body || document.documentElement;
     const header = document.createElement('div');
-    header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;font-size:11px;color:#94a3b8;border-bottom:1px solid #203246;padding-bottom:6px;';
-    header.innerHTML = '<span style="font-weight:600;color:#38bdf8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:min(50vw,230px);">' + selectorName + '</span><button type="button" id="btnModalClose" style="background:transparent;border:none;color:#94a3b8;font-size:11px;cursor:pointer;padding:2px 4px;display:flex;align-items:center;gap:3px;border-radius:3px;" title="Hủy (Esc)"><span style="font-size:9.5px;color:#71717a;">Esc hủy</span> <span style="font-weight:bold;color:#ef4444;">✕</span></button>';
+    header.id = 'antifanModalHeader';
+    header.className = 'antifan-modal-header';
+    header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,0.08);width:100%;box-sizing:border-box;';
+    const escapedSelector = selectorName.replace(/"/g, '&quot;');
+    header.innerHTML = '<div class="antifan-modal-title-wrap" style="display:flex;align-items:center;gap:6px;min-width:0;flex:1;"><span style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:4px;background:rgba(56,189,248,0.15);color:#38bdf8;font-size:10px;font-family:monospace;font-weight:700;flex-shrink:0;">&lt;/&gt;</span><span class="antifan-selector-badge" style="font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:11.5px;font-weight:600;color:#38bdf8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;line-height:1.3;" title="' + escapedSelector + '">' + selectorName + '</span></div><button type="button" id="btnModalClose" style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);color:#94a3b8;font-size:11px;cursor:pointer;padding:2px 6px;display:flex;align-items:center;gap:4px;border-radius:4px;transition:all 0.15s ease;flex-shrink:0;" title="Hủy (Esc)"><kbd style="font-size:9.5px;color:#71717a;font-family:inherit;">Esc</kbd><span style="font-weight:bold;color:#ef4444;font-size:10px;">✕</span></button>';
     const closeBtn = header.querySelector('#btnModalClose');
     if (closeBtn) {
       closeBtn.onclick = (e) => {
@@ -1011,15 +1015,16 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
       ? termContext.annotationSessionId
       : '';
     const termRow = document.createElement('div');
-    termRow.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:6px;background:#060a11;border:1px solid #1e293b;border-radius:5px;padding:3px 7px;font-size:11px;box-sizing:border-box;';
-
+    termRow.id = 'antifanModalTermRow';
+    termRow.className = 'antifan-term-row';
+    termRow.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:6px;background:rgba(15,23,42,0.6);border:1px solid rgba(255,255,255,0.07);border-radius:7px;padding:4px 8px;font-size:11px;box-sizing:border-box;';
     const termLabel = document.createElement('div');
     termLabel.style.cssText = 'display:flex;align-items:center;gap:4px;color:#94a3b8;flex-shrink:0;';
-    termLabel.innerHTML = '<span style="font-size:11px;">🎯</span><span style="font-weight:600;color:#cbd5e1;">Gửi tới:</span>';
+    termLabel.innerHTML = '<span style="font-size:11px;">🎯</span><span style="font-weight:600;color:#cbd5e1;font-size:11px;">Gửi tới:</span>';
 
     const termSelect = document.createElement('select');
     termSelect.id = 'antifanTerminalSelect';
-    termSelect.style.cssText = 'flex:1;min-width:0;background:#0f172a;color:#38bdf8;border:1px solid #263b50;border-radius:4px;padding:2px 4px;font-size:11px;font-weight:500;outline:none;cursor:pointer;text-overflow:ellipsis;';
+    termSelect.style.cssText = 'flex:1;min-width:0;background:rgba(2,6,23,0.8);color:#38bdf8;border:1px solid rgba(56,189,248,0.25);border-radius:5px;padding:3px 6px;font-size:11px;font-weight:500;outline:none;cursor:pointer;text-overflow:ellipsis;';
 
     let hasSendTarget = false;
     if (termContext.sessions && termContext.sessions.length > 0) {
@@ -1065,10 +1070,9 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
     // Quick Action Chips row for skill routing
     const chipRow = document.createElement('div');
     chipRow.id = 'antifanChipRow';
-    chipRow.style.cssText = 'display:flex;align-items:center;gap:5px;overflow-x:auto;padding:1px 0;box-sizing:border-box;scrollbar-width:none;';
+    chipRow.style.cssText = 'display:flex;align-items:center;gap:6px;padding:1px 0;width:100%;box-sizing:border-box;';
 
     const VALID_MODES = ['direct', 'fast', 'core'];
-    const VALID_ACTION_CHIPS = ['theme', 'speed'];
 
     let initialMode = 'direct';
     if (typeof termContext.annotationMode === 'string' && VALID_MODES.includes(termContext.annotationMode)) {
@@ -1080,106 +1084,89 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
       } catch {}
     }
 
-    let initialActionChip = null;
-    if (termContext.annotationActionChip !== undefined) {
-      if (typeof termContext.annotationActionChip === 'string' && VALID_ACTION_CHIPS.includes(termContext.annotationActionChip)) {
-        initialActionChip = termContext.annotationActionChip;
-      }
-    } else {
-      try {
-        const storedChip = localStorage.getItem('antifan_annotation_action_chip');
-        if (storedChip && VALID_ACTION_CHIPS.includes(storedChip)) initialActionChip = storedChip;
-      } catch {}
-    }
-
-    let activeActionChip = initialActionChip;
+    let activeActionChip = null;
     const QUEUE_PREFIX = '/queue ';
     const DIRECT_TAG = '[⚡Direct-Edit]';
     const CORE_TAG = '[🧠Core-Context]';
-    // Enforcement-side counterparts are SUPER_FAST_TAG_RE / DIRECT_TAG_RE /
-    // CORE_TAG_RE in src/omp-hooks/edit-mode.ts. Importing is not viable: this
-    // script is serialized into the page and runs there with no module scope, and
-    // that module exports matchers rather than tag literals. Keep every spelling
-    // below accepted by those regexes.
     const SUPER_FAST_TAG = '[🚀Super-Fast]';
-    // The mode property marks the chips that own the single-select mode slot; the
-    // others are orthogonal routing chips sharing the same row.
+
     const actionChips = [
-      { id: 'theme', label: '🎨 Sửa Theme', tag: '[🎨Theme-Fix]', title: 'Áp dụng quy chuẩn theme platform (Haravan/Shopify/Sapo)' },
       { id: 'direct', mode: 'direct', label: '⚡ Direct Edit', tag: DIRECT_TAG, title: 'Sửa trực tiếp, bỏ qua tra Core context (anti-direct) — mặc định bật' },
       { id: 'fast', mode: 'fast', label: '🚀 Super-Fast', tag: SUPER_FAST_TAG, title: 'Chỉ sửa file trong theme: không shell, không browser/MCP — chế độ nhanh nhất' },
-      { id: 'speed', label: '🚀 PageSpeed', tag: '[🚀PageSpeed]', title: 'Tối ưu Core Web Vitals & pagespeed' },
+      { id: 'core', mode: 'core', label: '🧠 Core Context', tag: CORE_TAG, title: 'Tra Core context (claims + history)' },
     ];
 
-    // Direct Edit is the popup default, so the Core tick starts off. The tick
-    // mirrors the mode slot instead of owning it: exactly one of Direct Edit,
-    // Core context retrieval or Super-Fast is selected, and the mode tag the
-    // pre-hook reads is always the selected one — never a stack of them.
+    // Core input kept for accessibility & test backward compatibility
     const coreTick = document.createElement('label');
     coreTick.id = 'antifanCoreTick';
-    coreTick.title = 'Tra Core context (claims + history) cho annotation này — mặc định tắt';
-    coreTick.style.cssText = 'display:inline-flex;align-items:center;gap:4px;background:#0f172a;color:#94a3b8;border:1px solid #1e293b;border-radius:12px;padding:2px 8px;font-size:10px;font-weight:500;cursor:pointer;white-space:nowrap;line-height:1.2;flex-shrink:0;';
+    coreTick.style.cssText = 'display:none;';
     const coreTickInput = document.createElement('input');
     coreTickInput.type = 'checkbox';
     coreTickInput.id = 'antifanCoreTickInput';
     coreTickInput.checked = initialMode === 'core';
-    coreTickInput.style.cssText = 'margin:0;width:11px;height:11px;accent-color:#38bdf8;cursor:pointer;';
-    const coreTickText = document.createElement('span');
-    coreTickText.textContent = 'Core';
     coreTick.appendChild(coreTickInput);
-    coreTick.appendChild(coreTickText);
 
     const chipButtons = {};
     const MODE_TAGS = { direct: DIRECT_TAG, core: CORE_TAG, fast: SUPER_FAST_TAG };
     let mode = initialMode;
-    const persistAnnotationPrefs = (nextMode, nextChip) => {
+    const persistAnnotationPrefs = (nextMode) => {
       window.__antifanTerminalContext = window.__antifanTerminalContext || {};
       window.__antifanTerminalContext.annotationMode = nextMode;
-      window.__antifanTerminalContext.annotationActionChip = nextChip;
+      delete window.__antifanTerminalContext.annotationActionChip;
       try { localStorage.setItem('antifan_annotation_mode', nextMode); } catch {}
-      try {
-        if (nextChip) {
-          localStorage.setItem('antifan_annotation_action_chip', nextChip);
-        } else {
-          localStorage.removeItem('antifan_annotation_action_chip');
-        }
-      } catch {}
+      try { localStorage.removeItem('antifan_annotation_action_chip'); } catch {}
     };
     const setMode = (next) => {
       mode = next;
       coreTickInput.checked = next === 'core';
-      persistAnnotationPrefs(mode, activeActionChip);
+      persistAnnotationPrefs(mode);
     };
     const applyChipState = () => {
       actionChips.forEach((c) => {
         const btn = chipButtons[c.id];
         if (!btn) return;
-        const isOn = c.mode ? mode === c.mode : activeActionChip === c.id;
-        btn.style.background = isOn ? '#0284c7' : '#0f172a';
-        btn.style.color = isOn ? '#ffffff' : '#94a3b8';
-        btn.style.borderColor = isOn ? '#38bdf8' : '#1e293b';
+        const isOn = mode === c.mode;
+        if (isOn) {
+          if (c.id === 'fast') {
+            btn.style.background = 'rgba(249,115,22,0.18)';
+            btn.style.color = '#fb923c';
+            btn.style.borderColor = 'rgba(249,115,22,0.55)';
+            btn.style.boxShadow = '0 0 10px rgba(249,115,22,0.15)';
+          } else if (c.id === 'core') {
+            btn.style.background = 'rgba(168,85,247,0.18)';
+            btn.style.color = '#c084fc';
+            btn.style.borderColor = 'rgba(168,85,247,0.55)';
+            btn.style.boxShadow = '0 0 10px rgba(168,85,247,0.15)';
+          } else {
+            btn.style.background = 'rgba(14,165,233,0.18)';
+            btn.style.color = '#38bdf8';
+            btn.style.borderColor = 'rgba(56,189,248,0.55)';
+            btn.style.boxShadow = '0 0 10px rgba(56,189,248,0.15)';
+          }
+          btn.style.fontWeight = '600';
+        } else {
+          btn.style.background = 'rgba(15,23,42,0.6)';
+          btn.style.color = '#94a3b8';
+          btn.style.borderColor = 'rgba(255,255,255,0.08)';
+          btn.style.boxShadow = 'none';
+          btn.style.fontWeight = '500';
+        }
       });
-      coreTick.style.borderColor = mode === 'core' ? '#38bdf8' : '#1e293b';
+      coreTickInput.checked = mode === 'core';
     };
     const stripManagedTags = () => {
       let body = textarea.value.replace(/^(\\s*\\/queue\\b\\s*)+/gi, '');
       actionChips.forEach((c) => {
         body = body.split(c.tag).join('');
       });
-      body = body.split(CORE_TAG).join('');
+      // Also strip legacy action tags if present
+      body = body.split('[🎨Theme-Fix]').join('').split('[🚀PageSpeed]').join('');
       return body.replace(/\\s+/g, ' ').trim();
     };
-    // The prompt is always derived from chip state, so a hand-edited tag can
-    // never ship a body-less or double-tagged comment.
     const buildUserComment = (bodyOverride) => {
       const body = bodyOverride === undefined ? stripManagedTags() : String(bodyOverride).trim();
-      const tags = [];
-      if (activeActionChip) {
-        const active = actionChips.filter((c) => c.id === activeActionChip)[0];
-        if (active) tags.push(active.tag);
-      }
-      tags.push(MODE_TAGS[mode]);
-      return QUEUE_PREFIX + (tags.length ? tags.join(' ') + ' ' : '') + body;
+      const tag = MODE_TAGS[mode] || DIRECT_TAG;
+      return QUEUE_PREFIX + tag + ' ' + body;
     };
     const syncPromptTags = () => {
       textarea.value = buildUserComment();
@@ -1192,7 +1179,7 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
       btn.id = 'antifanChip-' + c.id;
       btn.textContent = c.label;
       btn.title = c.title;
-      btn.style.cssText = 'background:#0f172a;color:#94a3b8;border:1px solid #1e293b;border-radius:12px;padding:2px 8px;font-size:10px;font-weight:500;cursor:pointer;white-space:nowrap;transition:all 0.15s ease;line-height:1.2;';
+      btn.style.cssText = 'flex:1;display:inline-flex;align-items:center;justify-content:center;gap:4px;background:rgba(15,23,42,0.6);color:#94a3b8;border:1px solid rgba(255,255,255,0.08);border-radius:7px;padding:5px 8px;font-size:11px;font-weight:500;cursor:pointer;white-space:nowrap;transition:all 0.18s ease;text-align:center;box-sizing:border-box;';
       chipButtons[c.id] = btn;
 
       btn.onclick = (e) => {
@@ -1200,14 +1187,13 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
           e.stopPropagation();
           e.preventDefault();
         }
-        if (c.mode) {
-          // Direct keeps its two-mode toggle so a second click never strands it on;
-          // Super-Fast is a plain select that clears the other two. Routing chips
-          // toggle independently of the mode slot.
-          setMode(c.id === 'direct' && mode === 'direct' ? 'core' : c.mode);
+        if (c.id === 'direct') {
+          // Direct keeps its two-mode toggle so a second click flips to Core and back
+          setMode(mode === 'direct' ? 'core' : 'direct');
+        } else if (c.id === 'core') {
+          setMode(mode === 'core' ? 'direct' : 'core');
         } else {
-          activeActionChip = activeActionChip === c.id ? null : c.id;
-          persistAnnotationPrefs(mode, activeActionChip);
+          setMode(c.mode);
         }
         syncPromptTags();
         textarea.focus();
@@ -1216,8 +1202,6 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
       chipRow.appendChild(btn);
     });
     coreTickInput.onchange = () => {
-      // The tick is a shortcut for the Core mode, not a fourth mode: unticking it
-      // falls back to the popup default.
       setMode(coreTickInput.checked ? 'core' : 'direct');
       syncPromptTags();
       textarea.focus();
@@ -1226,8 +1210,15 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
     chipRow.appendChild(coreTick);
     const textarea = document.createElement('textarea');
     textarea.placeholder = 'Mô tả / yêu cầu sửa...';
-    textarea.style.cssText = 'width:100%;height:58px;min-height:58px;max-height:200px;background:#060a11;border:1px solid #263b50;border-radius:4px;color:#f8fafc;padding:8px;font-size:11.5px;font-family:inherit;outline:none;resize:none;box-sizing:border-box;line-height:1.4;overflow-y:auto;';
-
+    textarea.style.cssText = 'width:100%;height:62px;min-height:62px;max-height:180px;background:rgba(2,6,23,0.85);border:1px solid rgba(56,189,248,0.22);border-radius:7px;color:#f8fafc;padding:8px 10px;font-size:12px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;outline:none;resize:none;box-sizing:border-box;line-height:1.45;overflow-y:auto;transition:border-color 0.15s ease,box-shadow 0.15s ease;scrollbar-width:thin;';
+    textarea.onfocus = () => {
+      textarea.style.borderColor = '#38bdf8';
+      textarea.style.boxShadow = '0 0 0 2px rgba(56,189,248,0.2)';
+    };
+    textarea.onblur = () => {
+      textarea.style.borderColor = 'rgba(56,189,248,0.22)';
+      textarea.style.boxShadow = 'none';
+    };
     let repositionModal = () => {};
     const attachedImages = [];
     const previewContainer = document.createElement('div');
@@ -1272,8 +1263,13 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
     // so the modal stays compact on small screens. Copy Prompt publishes the same
     // artifacts but leaves the terminal untouched.
     const footer = document.createElement('div');
-    footer.style.cssText = 'display:flex;align-items:center;justify-content:flex-end;gap:6px;padding-top:1px;';
-    footer.innerHTML = '<button id="btnModalCopy" type="button" style="background:#0f172a;border:1px solid #1e293b;color:#94a3b8;border-radius:4px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer;" title="Copy prompt đầy đủ (kèm annotation + ảnh) và không gửi vào terminal">📋 Copy Prompt</button><button id="btnModalSend" type="button" style="background:#087ff5;border:none;color:#ffffff;border-radius:4px;padding:4px 12px;font-size:11px;font-weight:600;cursor:pointer;" title="Gửi và thực thi ngay">Gửi ↑</button>';
+    footer.id = 'antifanModalFooter';
+    footer.className = 'antifan-modal-footer';
+    footer.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;padding-top:2px;';
+    footer.innerHTML = '<span style="font-size:10px;color:#64748b;display:flex;align-items:center;gap:3px;" title="Dán ảnh trực tiếp từ clipboard"><span>📎</span><span>Dán ảnh (Ctrl+V)</span></span><div style="display:flex;align-items:center;gap:6px;"><button id="btnModalCopy" type="button" style="background:rgba(15,23,42,0.85);border:1px solid rgba(255,255,255,0.1);color:#cbd5e1;border-radius:6px;padding:5px 11px;font-size:11px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:4px;transition:all 0.15s ease;" title="Copy prompt đầy đủ (kèm annotation + ảnh) và không gửi vào terminal">📋 Copy Prompt</button><button id="btnModalSend" type="button" style="background:linear-gradient(135deg,#0284c7 0%,#0369a1 100%);border:1px solid rgba(56,189,248,0.5);color:#ffffff;border-radius:6px;padding:5px 14px;font-size:11px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:4px;box-shadow:0 2px 8px rgba(2,132,199,0.35);transition:all 0.15s ease;" title="Gửi và thực thi ngay">Gửi ↑</button></div>';
+    const modalStyle = document.createElement('style');
+    modalStyle.textContent = '#' + MODAL_ID + ',#' + MODAL_ID + ' *{box-sizing:border-box !important;text-shadow:none !important;letter-spacing:normal !important;text-transform:none !important;}#' + MODAL_ID + ' div{margin:0 !important;padding:0 !important;border:none !important;background:transparent !important;min-height:0 !important;height:auto !important;}#' + MODAL_ID + ' .antifan-modal-header{display:flex !important;flex-direction:row !important;align-items:center !important;justify-content:space-between !important;gap:8px !important;padding-bottom:8px !important;border-bottom:1px solid rgba(255,255,255,0.08) !important;width:100% !important;box-sizing:border-box !important;}#' + MODAL_ID + ' .antifan-modal-title-wrap{display:flex !important;flex-direction:row !important;align-items:center !important;gap:6px !important;min-width:0 !important;flex:1 1 auto !important;}#' + MODAL_ID + ' .antifan-selector-badge{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace !important;font-size:11.5px !important;font-weight:600 !important;color:#38bdf8 !important;overflow:hidden !important;text-overflow:ellipsis !important;white-space:nowrap !important;min-width:0 !important;flex:1 1 auto !important;line-height:1.3 !important;}#' + MODAL_ID + ' #btnModalClose{background:rgba(255,255,255,0.05) !important;border:1px solid rgba(255,255,255,0.1) !important;color:#94a3b8 !important;font-size:11px !important;cursor:pointer !important;padding:2px 7px !important;display:inline-flex !important;flex-direction:row !important;align-items:center !important;gap:4px !important;border-radius:4px !important;transition:all 0.15s ease !important;flex-shrink:0 !important;}#' + MODAL_ID + ' #btnModalClose:hover{background:rgba(239,68,68,0.18) !important;border-color:rgba(239,68,68,0.35) !important;color:#f87171 !important;}#' + MODAL_ID + ' .antifan-term-row{display:flex !important;flex-direction:row !important;align-items:center !important;justify-content:space-between !important;gap:6px !important;background:rgba(15,23,42,0.6) !important;border:1px solid rgba(255,255,255,0.07) !important;border-radius:7px !important;padding:4px 8px !important;font-size:11px !important;box-sizing:border-box !important;width:100% !important;}#' + MODAL_ID + ' #antifanChipRow{display:flex !important;flex-direction:row !important;align-items:center !important;gap:6px !important;padding:1px 0 !important;width:100% !important;box-sizing:border-box !important;}#' + MODAL_ID + ' #antifanChipRow button{flex:1 1 0 !important;display:inline-flex !important;flex-direction:row !important;align-items:center !important;justify-content:center !important;gap:4px !important;border-radius:7px !important;padding:5px 8px !important;font-size:11px !important;cursor:pointer !important;white-space:nowrap !important;transition:all 0.18s ease !important;text-align:center !important;box-sizing:border-box !important;min-width:0 !important;}#' + MODAL_ID + ' textarea{width:100% !important;min-height:62px !important;max-height:180px !important;background:rgba(2,6,23,0.85) !important;border:1px solid rgba(56,189,248,0.22) !important;border-radius:7px !important;color:#f8fafc !important;padding:8px 10px !important;font-size:12px !important;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif !important;outline:none !important;resize:none !important;box-sizing:border-box !important;line-height:1.45 !important;overflow-y:auto !important;transition:border-color 0.15s ease,box-shadow 0.15s ease !important;scrollbar-width:thin !important;}#' + MODAL_ID + ' textarea:focus{border-color:#38bdf8 !important;box-shadow:0 0 0 2px rgba(56,189,248,0.2) !important;}#' + MODAL_ID + ' .antifan-modal-footer{display:flex !important;flex-direction:row !important;align-items:center !important;justify-content:space-between !important;gap:8px !important;padding-top:2px !important;width:100% !important;box-sizing:border-box !important;}#' + MODAL_ID + ' button{text-transform:none !important;letter-spacing:normal !important;margin:0 !important;line-height:1.3 !important;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif !important;}#' + MODAL_ID + ' select{margin:0 !important;line-height:1.3 !important;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif !important;}#' + MODAL_ID + ' #btnModalCopy:hover{background:rgba(30,41,59,0.9) !important;color:#f8fafc !important;}#' + MODAL_ID + ' #btnModalSend:hover{filter:brightness(1.1) !important;box-shadow:0 4px 14px rgba(2,132,199,0.5) !important;}';
+    modal.appendChild(modalStyle);
     modal.appendChild(header);
     modal.appendChild(termRow);
     modal.appendChild(chipRow);
@@ -1282,32 +1278,41 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
     modal.appendChild(statusMsg);
     modal.appendChild(footer);
     targetParent.appendChild(modal);
-    // Position against the measured modal box AFTER all children are appended:
-    // the responsive width (min(92vw,400px)) and the real rendered height must
-    // feed the collision math, or a bottom-edge clamp would use ~0 height.
+    // Stable placement: resolve placement once on modal open so typing or resizing
+    // never causes erratic flipping ('lệch lung tung') between top and bottom.
+    let initialPlacement = null;
     repositionModal = () => {
-      const modalW = modal.offsetWidth || 310;
-      const modalH = modal.offsetHeight || 190;
+      const modalW = modal.offsetWidth || 340;
+      const modalH = modal.offsetHeight || 210;
       const vpW = window.innerWidth || document.documentElement.clientWidth || 400;
       const vpH = window.innerHeight || document.documentElement.clientHeight || 600;
 
-      let top = r.bottom + 6;
-      let left = r.left;
-
-      if (top + modalH > vpH - 10) {
-        const topAbove = r.top - modalH - 6;
-        if (topAbove >= 10) {
-          top = topAbove;
+      if (!initialPlacement) {
+        const spaceBelow = vpH - (r.bottom + 6);
+        const spaceAbove = r.top - 6;
+        if (spaceBelow < modalH + 12 && spaceAbove > spaceBelow) {
+          initialPlacement = 'above';
         } else {
-          top = Math.max(10, vpH - modalH - 10);
+          initialPlacement = 'below';
         }
       }
 
-      if (left + modalW > vpW - 10) {
-        left = Math.max(10, vpW - modalW - 10);
+      let top;
+      if (initialPlacement === 'above') {
+        top = r.top - modalH - 6;
+        if (top < 12) top = 12;
+      } else {
+        top = r.bottom + 6;
+        if (top + modalH > vpH - 12) {
+          top = Math.max(12, vpH - modalH - 12);
+        }
       }
-      top = Math.max(10, Math.min(vpH - modalH - 10, top));
-      left = Math.max(10, Math.min(vpW - modalW - 10, left));
+
+      let left = r.left;
+      if (left + modalW > vpW - 12) {
+        left = Math.max(12, vpW - modalW - 12);
+      }
+      left = Math.max(12, left);
 
       modal.style.top = top + 'px';
       modal.style.left = left + 'px';
@@ -1323,12 +1328,10 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
     textarea.focus();
     textarea.setSelectionRange(textarea.value.length, textarea.value.length);
     const textareaAutoGrow = () => {
+      textarea.style.height = 'auto';
       const scrollH = textarea.scrollHeight;
-      if (scrollH > 58) {
-        textarea.style.height = Math.min(200, scrollH) + 'px';
-      } else {
-        textarea.style.height = '58px';
-      }
+      const targetH = Math.max(62, Math.min(180, scrollH));
+      textarea.style.height = targetH + 'px';
       repositionModal();
     };
     textareaAutoGrow();

@@ -18,7 +18,7 @@ import { StorageLocations } from '../config/storage-locations';
 import { parseOwnerKey } from '../project/project-context';
 import { openSpace, createConfirmationStore, type SpaceOpenDeps } from '../project/space-open';
 import { buildSpaceTemplate, writeSpaceManifestExclusive, antifanDirUnignoredInGit } from '../project/space-manifest';
-import type { SpaceInitResult } from '../../shared/contracts';
+import type { SpaceInitResult, ReadFilePreviewResult } from '../../shared/contracts';
 import { AntiFanTab, SplitPaneId, AntiFanPickedElement, TOOLBAR_CHANNELS, SIDEBAR_CHANNELS, TERMINAL_CHANNELS, FRAME_BACKDROP_CHANNELS, PROJECT_WINDOW_CHANNELS, TerminalAckPayload, TerminalDataPayload, TerminalNewInFolderResult, SpaceOpenResult, TerminalTabLayout, TerminalTabPrefs, TERMINAL_TAB_LAYOUT_DEFAULT_WIDTH, clampTerminalTabSidebarWidth, TERMINAL_CATEGORY_COLORS_MAX, TERMINAL_CATEGORY_COLOR_PATTERN, ToolbarPhoneStatus, TerminalAgentAffinityInfo, ProjectWindowIdentity, BRIDGE_CHANNELS, RunCardState, RunControlOp, RunControlReason, RunControlResult, CapsuleBrief, CapsuleBriefResult, CapsuleBriefReason } from '../../shared/contracts';
 import { buildBridgeHealthReport, subscribeBridgeHealth } from '../bridge/bridge-health';
 import { RunStateService } from '../run/run-state-service';
@@ -143,7 +143,7 @@ import {
   sanitizeTabForPersistence,
   migratePersistedTab,
 } from './split-review-coordinator';
-import { shouldHibernate, HIBERNATE_IDLE_MS, HIBERNATE_SWEEP_INTERVAL_MS, type HibernationContext } from './tab-hibernation';
+import { shouldHibernate, hibernationIdleMsForUrl, HIBERNATE_IDLE_MS, HIBERNATE_SWEEP_INTERVAL_MS, type HibernationContext } from './tab-hibernation';
 import { shouldReapAgentTab, AGENT_TAB_IDLE_MS, AGENT_TAB_REAP_SWEEP_INTERVAL_MS, type ReapingContext } from './tab-reaping';
 export interface NativeTabHostResourceStats {
   disposed: boolean;
@@ -3451,6 +3451,105 @@ export class NativeTabHost extends EventEmitter {
     run: ({ host }, event, args) => { return host.openInVSCode(typeof args[0] === 'string' ? args[0] : undefined); },
   },
   {
+    channel: TERMINAL_CHANNELS.READ_FILE_PREVIEW,
+    surface: ['sidebar', 'terminalPopout'],
+    run: async ({ host }, event, args): Promise<ReadFilePreviewResult> => {
+      const raw = args[0];
+      const payload = raw && typeof raw === 'object' ? (raw as { filePath?: unknown; sessionId?: unknown }) : {};
+      const rawPath = typeof payload.filePath === 'string' ? payload.filePath.trim() : '';
+      const sessionId = typeof payload.sessionId === 'string' ? payload.sessionId.trim() : '';
+      if (!rawPath) {
+        return {
+          ok: false,
+          filePath: '',
+          fileName: '',
+          reason: 'INVALID_PAYLOAD',
+          message: 'Đường dẫn file không hợp lệ',
+        };
+      }
+
+      let targetPath = rawPath;
+      if ((targetPath.startsWith('"') && targetPath.endsWith('"')) ||
+          (targetPath.startsWith("'") && targetPath.endsWith("'")) ||
+          (targetPath.startsWith('`') && targetPath.endsWith('`'))) {
+        targetPath = targetPath.slice(1, -1).trim();
+      }
+      targetPath = targetPath.replace(/[,\.;\)]+$/, '');
+      const lineColMatch = /:(\d+)(?::\d+)?$/.exec(targetPath);
+      if (lineColMatch) {
+        targetPath = targetPath.slice(0, lineColMatch.index).trim();
+      }
+
+      if (!path.isAbsolute(targetPath)) {
+        let baseCwd = '';
+        if (sessionId) {
+          try {
+            const s = TerminalManager.getInstance().getSession(sessionId);
+            if (s && s.cwd) baseCwd = s.cwd;
+          } catch {}
+        }
+        if (!baseCwd) {
+          const activeCapsule = host.capsuleManager?.getActive?.();
+          if (activeCapsule?.workspacePath) baseCwd = activeCapsule.workspacePath;
+        }
+        targetPath = baseCwd ? path.resolve(baseCwd, targetPath) : path.resolve(targetPath);
+      }
+
+      const fileName = path.basename(targetPath);
+      try {
+        if (!fs.existsSync(targetPath)) {
+          return { ok: false, filePath: targetPath, fileName, reason: 'NOT_FOUND', message: `File không tồn tại: ${targetPath}` };
+        }
+        const stat = fs.statSync(targetPath);
+        if (stat.isDirectory()) {
+          return { ok: false, filePath: targetPath, fileName, reason: 'IS_DIRECTORY', message: `Đường dẫn là thư mục, không phải file: ${targetPath}`, size: stat.size };
+        }
+        const MAX_READ_BYTES = 512 * 1024;
+        const MAX_ALLOW_SIZE = 10 * 1024 * 1024;
+        if (stat.size > MAX_ALLOW_SIZE) {
+          return { ok: false, filePath: targetPath, fileName, reason: 'TOO_LARGE', message: `File quá lớn (${(stat.size / (1024 * 1024)).toFixed(1)} MB), hãy mở bằng VS Code`, size: stat.size };
+        }
+
+        const fd = fs.openSync(targetPath, 'r');
+        try {
+          const bytesToRead = Math.min(stat.size, MAX_READ_BYTES);
+          const buffer = Buffer.alloc(bytesToRead);
+          fs.readSync(fd, buffer, 0, bytesToRead, 0);
+
+          const checkLen = Math.min(buffer.length, 4096);
+          for (let i = 0; i < checkLen; i++) {
+            if (buffer[i] === 0) {
+              return { ok: false, filePath: targetPath, fileName, reason: 'BINARY_FILE', message: 'File nhị phân (binary/image), không thể xem dạng text', size: stat.size };
+            }
+          }
+
+          const content = buffer.toString('utf8');
+          const isTruncated = stat.size > MAX_READ_BYTES;
+          const lineCount = content.split('\n').length;
+          return {
+            ok: true,
+            filePath: targetPath,
+            fileName,
+            content,
+            size: stat.size,
+            lineCount,
+            isTruncated,
+          };
+        } finally {
+          fs.closeSync(fd);
+        }
+      } catch (err) {
+        return {
+          ok: false,
+          filePath: targetPath,
+          fileName,
+          reason: 'READ_ERROR',
+          message: err instanceof Error ? err.message : String(err),
+        };
+      }
+    },
+  },
+  {
     channel: TERMINAL_CHANNELS.RESIZE,
     surface: ['sidebar', 'terminalPopout'],
     run: ({ host }, event, args) => {
@@ -5317,26 +5416,60 @@ export class NativeTabHost extends EventEmitter {
   }
 
   private openInVSCode(targetPath?: string): { ok: boolean; error?: string; workspacePath?: string } {
-    let workspacePath = targetPath;
-    if (!workspacePath || !fs.existsSync(workspacePath)) {
+    let cleanPath = typeof targetPath === 'string' ? targetPath.trim() : '';
+    let lineColSuffix = '';
+    if (cleanPath) {
+      const lineColMatch = cleanPath.match(/:\d+(?::\d+)?$/);
+      if (lineColMatch) {
+        lineColSuffix = lineColMatch[0];
+        cleanPath = cleanPath.slice(0, cleanPath.length - lineColSuffix.length);
+      }
+    }
+
+    let resolvedTarget = cleanPath;
+    let isFile = false;
+
+    // If not found directly, try resolving relative path against active workspace
+    if (!resolvedTarget || !fs.existsSync(resolvedTarget)) {
       const activeSessionId = TerminalManager.getInstance().getActiveSessionId();
       const activeTab = this.tabs.get(this.activeTabId);
-      workspacePath = this.resolveTargetWorkspace(activeSessionId, activeTab?.state.url);
+      const ws = this.resolveTargetWorkspace(activeSessionId, activeTab?.state.url);
+      if (ws && cleanPath && !path.isAbsolute(cleanPath)) {
+        const candidate = path.resolve(ws, cleanPath);
+        if (fs.existsSync(candidate)) {
+          resolvedTarget = candidate;
+        }
+      }
+      if (!resolvedTarget || !fs.existsSync(resolvedTarget)) {
+        resolvedTarget = ws ?? '';
+      }
     }
-    if (!workspacePath || !fs.existsSync(workspacePath)) {
+
+    if (!resolvedTarget || !fs.existsSync(resolvedTarget)) {
       return { ok: false, error: 'WORKSPACE_NOT_FOUND' };
     }
 
     try {
+      const stat = fs.statSync(resolvedTarget);
+      isFile = stat.isFile();
+    } catch {}
+
+    try {
       const isWin = process.platform === 'win32';
       const cmd = isWin ? 'code.cmd' : 'code';
-      const child = spawn(cmd, [workspacePath], {
+      const args: string[] = ['-r'];
+      if (isFile) {
+        args.push('-g', `${resolvedTarget}${lineColSuffix}`);
+      } else {
+        args.push(resolvedTarget);
+      }
+      const child = spawn(cmd, args, {
         detached: true,
         stdio: 'ignore',
         shell: process.platform === 'win32',
       });
       child.unref();
-      return { ok: true, workspacePath };
+      return { ok: true, workspacePath: resolvedTarget };
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }
@@ -9945,9 +10078,10 @@ export class NativeTabHost extends EventEmitter {
         cdpBoundTabIds: this.hibernationCdpBoundTabIds(),
         unloadVetoedTabIds: this.unloadVetoedTabIds,
         // The idle question is answered for the probe: `now` sits exactly at the
-        // tab's own idle boundary against the SAME threshold the policy uses.
-        now: (tab.lastActiveAt || 0) + (this.hibernationIdleMs || HIBERNATE_IDLE_MS),
-        idleMs: this.hibernationIdleMs || HIBERNATE_IDLE_MS,
+        // tab's own idle boundary against the SAME threshold the policy uses —
+        // URL floors (e.g. Docs/Sheets 20min) are resolved before the hand-off.
+        idleMs: hibernationIdleMsForUrl(tab.state.url, this.hibernationIdleMs || HIBERNATE_IDLE_MS),
+        now: (tab.lastActiveAt || 0) + hibernationIdleMsForUrl(tab.state.url, this.hibernationIdleMs || HIBERNATE_IDLE_MS),
       },
     );
     if (!decision.hibernate) return Promise.resolve(false);

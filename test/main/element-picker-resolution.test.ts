@@ -377,11 +377,11 @@ describe('Element Picker Comment Modal Mode Tags & Copy Prompt', () => {
 
     chip('fast').click();
     assert.strictEqual(promptOf(h, modal), '/queue [🚀Super-Fast] sửa lề nút cart', 'Super-Fast clears Direct Edit the same way');
-    chip('speed').click();
+    chip('core').click();
     assert.strictEqual(
       promptOf(h, modal),
-      '/queue [🚀PageSpeed] [🚀Super-Fast] sửa lề nút cart',
-      'an action-chip click adds its routing tag without clearing the selected mode',
+      '/queue [🧠Core-Context] sửa lề nút cart',
+      'Core chip replaces Super-Fast while keeping typed text',
     );
 
     h.win.__antifanPickerCleanup?.();
@@ -396,29 +396,29 @@ describe('Element Picker Comment Modal Mode Tags & Copy Prompt', () => {
     const textarea = modalTextarea(h, modal);
 
     textarea.value = '/queue [⚡Direct-Edit] đổi màu nút cart';
-    const themeChip = modal.querySelector('#antifanChip-theme');
-    assert.ok(themeChip instanceof h.win.HTMLElement);
-    themeChip.click();
-    assert.strictEqual(promptOf(h, modal), '/queue [🎨Theme-Fix] [⚡Direct-Edit] đổi màu nút cart');
+    const fastChip = modal.querySelector('#antifanChip-fast');
+    assert.ok(fastChip instanceof h.win.HTMLElement);
+    fastChip.click();
+    assert.strictEqual(promptOf(h, modal), '/queue [🚀Super-Fast] đổi màu nút cart');
 
-    const speedChip = modal.querySelector('#antifanChip-speed');
-    assert.ok(speedChip instanceof h.win.HTMLElement);
-    speedChip.click();
+    const coreChip = modal.querySelector('#antifanChip-core');
+    assert.ok(coreChip instanceof h.win.HTMLElement);
+    coreChip.click();
     assert.strictEqual(
       promptOf(h, modal),
-      '/queue [🚀PageSpeed] [⚡Direct-Edit] đổi màu nút cart',
-      'action chips are single-select, so the typed request survives while only the mode tag is permanent',
+      '/queue [🧠Core-Context] đổi màu nút cart',
+      'mode chips are single-select, so the typed request survives while only the active mode tag changes',
     );
 
-    // A hand-pasted duplicate tag must not survive into the published prompt.
-    textarea.value = '/queue [🚀PageSpeed] [🚀PageSpeed] xử lý lazy load ảnh hero';
-    const themeOff = modal.querySelector('#antifanChip-theme');
-    assert.ok(themeOff instanceof h.win.HTMLElement);
-    themeOff.click();
+    // A hand-pasted duplicate tag or legacy tag must not duplicate in the published prompt.
+    textarea.value = '/queue [🚀Super-Fast] [🚀Super-Fast] [🚀PageSpeed] xử lý lazy load ảnh hero';
+    const directChip = modal.querySelector('#antifanChip-direct');
+    assert.ok(directChip instanceof h.win.HTMLElement);
+    directChip.click();
     assert.strictEqual(
       promptOf(h, modal),
-      '/queue [🎨Theme-Fix] [⚡Direct-Edit] xử lý lazy load ảnh hero',
-      'stale and duplicated chip tags are dropped, never carried',
+      '/queue [⚡Direct-Edit] xử lý lazy load ảnh hero',
+      'stale, duplicate, and legacy tags are dropped, never carried',
     );
 
     h.win.__antifanPickerCleanup?.();
@@ -494,24 +494,20 @@ describe('Element Picker Comment Modal Mode Tags & Copy Prompt', () => {
     h.win.close();
   });
 
-  it('remembers mode and action chip selection across modal reopenings', async (t) => {
+  it('remembers mode selection across modal reopenings', async (t) => {
     const { JSDOM } = loadJsdom();
     const h = createPickerHarness(JSDOM);
     let modal = h.openModal();
     assert.ok(modal);
 
-    // Default starts as Direct Edit and no action chip
+    // Default starts as Direct Edit
     assert.strictEqual(promptOf(h, modal), '/queue [⚡Direct-Edit] ');
 
-    // Select Super-Fast and Sửa Theme
+    // Select Super-Fast
     const fastChip = modal.querySelector('#antifanChip-fast') as HTMLElement;
-    const themeChip = modal.querySelector('#antifanChip-theme') as HTMLElement;
     assert.ok(fastChip);
-    assert.ok(themeChip);
     fastChip.click();
-    themeChip.click();
-    assert.strictEqual(promptOf(h, modal), '/queue [🎨Theme-Fix] [🚀Super-Fast] ');
-
+    assert.strictEqual(promptOf(h, modal), '/queue [🚀Super-Fast] ');
     // Close modal via close button
     const closeBtn = modal.querySelector('#btnModalClose') as HTMLElement;
     assert.ok(closeBtn);
@@ -521,13 +517,15 @@ describe('Element Picker Comment Modal Mode Tags & Copy Prompt', () => {
     h.win.eval(ELEMENT_PICKER_SCRIPT);
     modal = h.openModal();
     assert.ok(modal);
-    assert.strictEqual(promptOf(h, modal), '/queue [🎨Theme-Fix] [🚀Super-Fast] ', 'reopened modal remembers selected chips');
+    assert.strictEqual(promptOf(h, modal), '/queue [🚀Super-Fast] ', 'reopened modal remembers selected mode');
     const coreTick = modal.querySelector('#antifanCoreTickInput') as HTMLInputElement;
     assert.strictEqual(coreTick.checked, false);
 
-    // Toggle Core on
-    coreTick.click();
-    assert.strictEqual(promptOf(h, modal), '/queue [🎨Theme-Fix] [🧠Core-Context] ');
+    // Toggle Core on via Core chip
+    const coreChip = modal.querySelector('#antifanChip-core') as HTMLElement;
+    assert.ok(coreChip);
+    coreChip.click();
+    assert.strictEqual(promptOf(h, modal), '/queue [🧠Core-Context] ');
 
     // Close and reopen again: must remember Core and Sửa Theme!
     (modal.querySelector('#btnModalClose') as HTMLElement).click();
@@ -535,27 +533,26 @@ describe('Element Picker Comment Modal Mode Tags & Copy Prompt', () => {
     h.win.eval(ELEMENT_PICKER_SCRIPT);
     modal = h.openModal();
     assert.ok(modal);
-    assert.strictEqual(promptOf(h, modal), '/queue [🎨Theme-Fix] [🧠Core-Context] ', 'reopened modal remembers Core tick');
+    assert.strictEqual(promptOf(h, modal), '/queue [🧠Core-Context] ', 'reopened modal remembers Core mode');
     assert.strictEqual((modal.querySelector('#antifanCoreTickInput') as HTMLInputElement).checked, true);
 
     h.win.__antifanPickerCleanup?.();
     h.win.close();
   });
 
-  it('restores saved mode and action chip from window.__antifanTerminalContext and localStorage', async (t) => {
+  it('restores saved mode from window.__antifanTerminalContext and localStorage', async (t) => {
     const { JSDOM } = loadJsdom();
     const h = createPickerHarness(JSDOM, {
       sessions: [{ id: 'term-1', name: 'Comnieusiba', cwd: '/work/Comnieusiba' }],
       selectedSessionId: 'term-1',
       annotationMode: 'fast',
-      annotationActionChip: 'speed',
     });
 
     const modal = h.openModal();
     assert.ok(modal);
 
     const textarea = modal.querySelector('textarea') as HTMLTextAreaElement;
-    assert.strictEqual(textarea.value, '/queue [🚀PageSpeed] [🚀Super-Fast] ', 'modal initializes with mode and action chip from terminal context');
+    assert.strictEqual(textarea.value, '/queue [🚀Super-Fast] ', 'modal initializes with mode from terminal context');
 
     h.win.__antifanPickerCleanup?.();
     h.win.close();

@@ -801,7 +801,41 @@ export const TERMINAL_CHANNELS = {
   RUN_CONTROL: 'antifan:run:control',
   /** The per-window run-card projection, pushed on every run-state change. */
   RUN_STATE: 'antifan:run:state',
+  /** Quick-Look preview of a local file referenced in terminal output. */
+  READ_FILE_PREVIEW: 'antifan:terminal:read-file-preview',
 } as const;
+
+export interface ReadFilePreviewRequest {
+  filePath: string;
+  sessionId?: string;
+}
+
+export type ReadFilePreviewReason =
+  | 'INVALID_PAYLOAD'
+  | 'NOT_FOUND'
+  | 'IS_DIRECTORY'
+  | 'TOO_LARGE'
+  | 'BINARY_FILE'
+  | 'READ_ERROR';
+
+export type ReadFilePreviewResult =
+  | {
+      ok: true;
+      filePath: string;
+      fileName: string;
+      content: string;
+      size: number;
+      lineCount: number;
+      isTruncated: boolean;
+    }
+  | {
+      ok: false;
+      filePath: string;
+      fileName: string;
+      reason: ReadFilePreviewReason;
+      message: string;
+      size?: number;
+    };
 
 /**
  * Why a folder-bound terminal mint was refused. Each member is a class the renderer can

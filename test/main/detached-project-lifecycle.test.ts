@@ -34,8 +34,14 @@ import {
   projectWindowAuthority,
   removeProjectEntry,
   setDetachedShellCloseDriverForTesting,
+  setDetachedShellHostFactoryForTesting,
+  setProjectWindowManagerForTesting,
+  setReattachForceConfirmationForTesting,
+  setWindowStateManagerForTesting,
   projectRegistry as sharedProjectRegistry,
 } from '../../src/main/index';
+import { ProjectWindowManager } from '../../src/main/browser/project-window-manager';
+import type { WindowStateManager } from '../../src/main/browser/window-state';
 
 // Reason: the harness needs the mutable module object (spies patch exports in
 // place), and an import-type namespace cannot name that object — `typeof import`
@@ -61,6 +67,10 @@ const PROJECT_V = 'project-00000000-0000-4000-8000-0000000000b5';
 const WORKSPACE_V = 'workspace-00000000-0000-4000-8000-0000000000b5';
 const PROJECT_W = 'project-00000000-0000-4000-8000-0000000000a6';
 const WORKSPACE_W = 'workspace-00000000-0000-4000-8000-0000000000a6';
+const PROJECT_X = 'project-00000000-0000-4000-8000-000000000097';
+const WORKSPACE_X = 'workspace-00000000-0000-4000-8000-000000000097';
+const PROJECT_Y = 'project-00000000-0000-4000-8000-000000000088';
+const WORKSPACE_Y = 'workspace-00000000-0000-4000-8000-000000000088';
 const WEB: WindowOwner = { kind: 'web' };
 
 let tmpDir = '';
@@ -634,5 +644,110 @@ describe('detach lifecycle', () => {
     assert.equal(webIds.length, 3);
     const stamped = (doc.owners.web?.tabs ?? []).filter((tab: AnyRecord) => tab.projectId === PROJECT_T);
     assert.equal(stamped.length, 3, 'every row — vetoed live and folded — ends stamped and hub-resident');
+  });
+
+
+  it('a confirmed force closes the vetoed shell and the reattach lands', async () => {
+    seedProject(PROJECT_X, WORKSPACE_X, 'Force Reattach');
+    const sequence: string[] = [];
+    const detachedHost = createHost({ kind: 'project', projectId: PROJECT_X }, [['fx-1']], 'fx-1');
+    detachedHost.persistSync();
+    const detached = installShell({ kind: 'project', projectId: PROJECT_X }, detachedHost as NativeTabHost);
+    const hubHost = createHost(WEB, [['hub-1']], 'hub-1');
+    stubMinting(hubHost);
+    const hub = installShell(WEB, hubHost as NativeTabHost);
+
+    setReattachForceConfirmationForTesting(async () => true);
+    setDetachedShellCloseDriverForTesting(async (shell, force) => {
+      sequence.push(force === true ? 'force-close' : 'close');
+      if (force !== true) return closeReportFor(ownerKey(shell.owner), 'retained', 'unload-veto');
+      detachedHost.persistSync();
+      detachedHost.isDisposed = true;
+      detached.window.destroyed = true;
+      return closeReportFor(ownerKey(shell.owner), 'closed', null);
+    });
+    try {
+      const result = await projectWindowAuthority.reattachProject(PROJECT_X);
+      assert.deepStrictEqual(result, { status: 'REATTACHED', projectId: PROJECT_X });
+    } finally {
+      setReattachForceConfirmationForTesting(null);
+      setDetachedShellCloseDriverForTesting(null);
+      detached.unregister();
+      hub.unregister();
+      unseedProject(PROJECT_X);
+    }
+
+    assert.deepStrictEqual(sequence, ['close', 'force-close'], 'the force retry runs only after the user confirms');
+    assert.equal(savedTabsOwnerIsDetached(savedTabsPath(), PROJECT_X), false, 'the marker is cleared');
+    assert.equal(readDoc().owners[`project:${PROJECT_X}`], undefined, 'the record folded into the hub');
+  });
+
+  it('a refused transfer on a fresh empty shell rolls back through reattach', async () => {
+    seedProject(PROJECT_Y, WORKSPACE_Y, 'Refused Fresh Detach');
+    // The hub presents PROJECT_Y with one tab whose page refuses to close —
+    // detach's transfer is refused before a single row moves.
+    const hubHost = createHost(WEB, [['vy-1']], 'vy-1');
+    hubHost.tabs.get('vy-1').projectId = PROJECT_Y;
+    hubHost.activeProjectId = PROJECT_Y;
+    hubHost.closePage = async () => 'vetoed';
+    stubMinting(hubHost);
+    const hub = installShell(WEB, hubHost as NativeTabHost);
+
+    const createdWindows: Array<{ destroyed: boolean }> = [];
+    const detachedRef: { host: AnyRecord | null } = { host: null };
+    const manager = new ProjectWindowManager({
+      createShell: (owner: WindowOwner) => {
+        const win = {
+          destroyed: false,
+          isDestroyed: () => win.destroyed,
+          isMinimized: () => false,
+          isVisible: () => !win.destroyed,
+          restore: () => {},
+          show: () => {},
+          showInactive: () => {},
+          focus: () => {},
+          once: () => {},
+          on: () => {},
+          removeListener: () => {},
+        };
+        createdWindows.push(win);
+        return { owner, window: win, onCloseRequest: () => {}, onClosed: () => {}, dispose: () => { win.destroyed = true; }, closeSelf: () => {} } as unknown as ProjectWindowShell;
+      },
+      presentShellInactive: () => {},
+    });
+    setProjectWindowManagerForTesting(manager);
+    setWindowStateManagerForTesting({
+      manage: () => {},
+      getValidBounds: () => ({}),
+    } as unknown as WindowStateManager);
+    setDetachedShellHostFactoryForTesting((shell) => {
+      detachedRef.host = createHost(shell.owner);
+      // The wiring arm only needs the call observed; the real restoreTabs drives
+      // createTab against shell chrome a fake shell never built.
+      detachedRef.host.restoreTabs = () => {};
+      return detachedRef.host as NativeTabHost;
+    });
+    setDetachedShellCloseDriverForTesting(async (shell) => {
+      detachedRef.host?.persistSync();
+      if (detachedRef.host) detachedRef.host.isDisposed = true;
+      for (const win of createdWindows) win.destroyed = true;
+      return closeReportFor(ownerKey(shell.owner), 'closed', null);
+    });
+    try {
+      const result = await projectWindowAuthority.detachProject(PROJECT_Y);
+      assert.deepStrictEqual(result, { status: 'FAILED', projectId: PROJECT_Y, reason: 'DETACH_REFUSED' });
+    } finally {
+      setDetachedShellCloseDriverForTesting(null);
+      setDetachedShellHostFactoryForTesting(null);
+      setProjectWindowManagerForTesting(null);
+      setWindowStateManagerForTesting(null);
+      hub.unregister();
+      unseedProject(PROJECT_Y);
+    }
+
+    assert.equal(detachedRef.host?.isDisposed, true, 'the orphaned shell was closed and disposed');
+    assert.equal(savedTabsOwnerIsDetached(savedTabsPath(), PROJECT_Y), false, 'no detached marker survives the rollback');
+    assert.equal(readDoc().owners[`project:${PROJECT_Y}`], undefined, 'the parked record folded back into owners.web');
+    assert.equal(hubHost.tabs.has('vy-1'), true, 'the vetoed tab stayed hub-resident');
   });
 });

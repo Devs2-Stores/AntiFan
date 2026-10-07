@@ -90,7 +90,8 @@ import { ensureDaemon } from './terminal-daemon/daemon-spawner';
 import { DaemonTerminalProxy } from './terminal-daemon/daemon-client';
 import { TerminalOutputRouter } from './browser/terminal-output-router';
 import { EventEmitter } from 'node:events';
-import { buildApplicationMenu } from './browser/app-menu';
+import { buildApplicationMenu, dispatchApplicationMenuShortcut } from './browser/app-menu';
+import type { ApplicationMenuOptions } from './browser/app-menu';
 import { WindowStateManager } from './browser/window-state';
 import { HistoryManager } from './browser/history-manager';
 import { configureBrowserSessionPartition } from './browser/browser-session-partition';
@@ -2069,6 +2070,26 @@ async function detachProject(payload: unknown, parent?: Electron.BrowserWindow |
     if (hubHost) {
       const result = await transferHubProjectTabs(hubHost, detachedHost, projectId);
       if (result.refused.length > 0) {
+        // Rollback for a fresh, empty shell: the detach just minted a `project:<id>`
+        // window AND stamped its persisted record `detached`, but nothing moved —
+        // leaving it would wedge the project in detached mode without a single tab
+        // to show for it (the marker alone keeps it out of the hub, today and at
+        // every boot). `reattachProject` owns the entire reverse path: it parks
+        // and closes the shell through the coordinator, folds the record back into
+        // `owners.web`, and clears the marker — the same unit the explicit menu
+        // action runs, so the rollback cannot leave a second convention behind.
+        // A shell that DID receive tabs keeps them (honest partial detach below),
+        // and a pre-existing shell the call only joined is never closed on its
+        // user's behalf.
+        if (created && result.transferred.length === 0) {
+          const rollback = await reattachProject({ projectId });
+          recordLifecycleEvent('project-detach.refused-rollback', {
+            projectId,
+            refused: result.refused.length,
+            rollbackStatus: rollback.status,
+          });
+          return { status: 'FAILED', projectId, reason: 'DETACH_REFUSED' };
+        }
         // Complete detach, honest partial: the project DID detach (the shell and its
         // transferred tabs stay), so the tabs that refused to leave are cleared of
         // their stamp — live, unscoped and VISIBLE on the hub — instead of remaining
@@ -2114,12 +2135,13 @@ const reattachInProgress = new Set<string>();
  * which production resolves only after the dying host's `dispose()` has run its
  * synchronous `persistSync`. Module-local, unreachable from any IPC surface.
  */
-let detachedShellCloseDriverForTesting: ((shell: ProjectWindowShell) => Promise<CloseReport>) | null = null;
+let detachedShellCloseDriverForTesting: ((shell: ProjectWindowShell, force?: boolean) => Promise<CloseReport>) | null = null;
 export function setDetachedShellCloseDriverForTesting(
-  driver: ((shell: ProjectWindowShell) => Promise<CloseReport>) | null,
+  driver: ((shell: ProjectWindowShell, force?: boolean) => Promise<CloseReport>) | null,
 ): void {
   detachedShellCloseDriverForTesting = driver;
 }
+
 
 /**
  * Close a detached `project:<id>` shell through the close coordinator and await the
@@ -2128,13 +2150,58 @@ export function setDetachedShellCloseDriverForTesting(
  * `closed` listener ordering (Main's `handleShellClosed` is registered before the
  * attempt's observer) means `dispose()` and its synchronous `persistSync` have
  * already run. Awaiting this promise IS awaiting the final write; nothing may fold
- * before it resolves.
+ * before it resolves. `force` swaps the request for `forceClose` — the same
+ * coordinator surface the confirmed destructive close uses — only after the user
+ * explicitly authorized it.
  */
-function closeDetachedShellForLifecycle(shell: ProjectWindowShell): Promise<CloseReport> {
+function closeDetachedShellForLifecycle(shell: ProjectWindowShell, force = false): Promise<CloseReport> {
   const driver = detachedShellCloseDriverForTesting;
-  if (driver) return driver(shell);
-  return closeCoordinator.attemptClose(ownerKey(shell.owner), 'user');
+  if (driver) return driver(shell, force);
+  const key = ownerKey(shell.owner);
+  return force ? closeCoordinator.forceClose(key) : closeCoordinator.attemptClose(key, 'user');
 }
+/**
+ * Test seam for the reattach refusal's destructive-confirmation dialog. Production
+ * falls through to the real `dialog.showMessageBox`; a probe answers without one.
+ * Mirrors `forceCloseConfirmationForProbe` — confirmation seams are module-local
+ * and unreachable from any IPC surface.
+ */
+let reattachForceConfirmationForTesting:
+  | ((shell: { ownerKey: string; title: string }) => Promise<boolean>)
+  | null = null;
+export function setReattachForceConfirmationForTesting(
+  probe: ((shell: { ownerKey: string; title: string }) => Promise<boolean>) | null,
+): void {
+  reattachForceConfirmationForTesting = probe;
+}
+
+/**
+ * Ask the user whether a refused reattach may close the detached shell forcibly.
+ * Default-deny: cancel/Escape answers 'keep detached' and a destroyed or throwing
+ * dialog surface does the same — a force close is only ever an explicit 'yes'.
+ */
+async function confirmForceReattach(shell: ProjectWindowShell): Promise<boolean> {
+  if (reattachForceConfirmationForTesting) {
+    return reattachForceConfirmationForTesting({ ownerKey: ownerKey(shell.owner), title: shell.title });
+  }
+  try {
+    const { response } = await dialog.showMessageBox(shell.window, {
+      type: 'warning',
+      title: 'Không thể gắn lại project?',
+      message: `Cửa sổ project "${shell.title}" từ chối đóng để gắn lại vào cửa sổ chính.`,
+      detail: 'Một trang đang veto đóng (dữ liệu chưa lưu) hoặc cửa sổ đang bận. Bắt buộc đóng sẽ hủy các thay đổi chưa lưu trong cửa sổ này.',
+      buttons: ['Giữ cửa sổ riêng', 'Bắt buộc gắn lại'],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+    });
+    return response === 1;
+  } catch (err) {
+    console.warn('[antifan] reattach force-confirmation failed; keeping the detached shell:', err);
+    return false;
+  }
+}
+
 
 /**
  * The explicit reattach — the ONLY path that folds a `project:<id>` owner record.
@@ -2191,10 +2258,33 @@ async function reattachProject(payload: unknown): Promise<ProjectReattachResult>
       const report = await closeDetachedShellForLifecycle(liveDetachedShell);
       recordCloseReport(report);
       if (report.disposition !== 'closed') {
-        // Veto or uncertainty: the record must stay marked, the shell stays alive,
-        // and NOTHING may fold. Fail closed with the refusal the caller can act on.
-        recordLifecycleEvent('project-reattach.refused', { projectId, haltedBy: report.haltedBy ?? 'retained' });
-        return { status: 'FAILED', projectId, reason: 'CLOSE_REFUSED' };
+        // Veto or uncertainty: the record stays marked and nothing may fold. But a
+        // permanent beforeunload veto (a dirty editor) would otherwise wedge the
+        // project in detached mode forever — reattach is the user's own window
+        // lifecycle action, so the refusal is surfaced WITH an explicit force
+        // escape. Only a confirmed 'yes' authorizes forceClose; every other
+        // answer leaves the exact pre-refusal state.
+        if (liveDetachedShell.window.isDestroyed()) {
+          // Racing a native teardown: refuse without offering a force on a dead window.
+          recordLifecycleEvent('project-reattach.refused', { projectId, haltedBy: 'unknown-outcome' });
+          return { status: 'FAILED', projectId, reason: 'CLOSE_REFUSED' };
+        }
+        const forceAuthorized = await confirmForceReattach(liveDetachedShell);
+        if (!forceAuthorized) {
+          recordLifecycleEvent('project-reattach.refused', { projectId, haltedBy: report.haltedBy ?? 'retained' });
+          return { status: 'FAILED', projectId, reason: 'CLOSE_REFUSED' };
+        }
+        const forcedReport = await closeDetachedShellForLifecycle(liveDetachedShell, true);
+        recordCloseReport(forcedReport);
+        if (forcedReport.disposition !== 'closed' && forcedReport.surface?.outcome !== 'closed') {
+          recordLifecycleEvent('project-reattach.refused', {
+            projectId,
+            haltedBy: forcedReport.haltedBy ?? 'retained',
+            forced: true,
+          });
+          return { status: 'FAILED', projectId, reason: 'CLOSE_REFUSED' };
+        }
+        recordLifecycleEvent('project-reattach.forced-close', { projectId, haltedBy: report.haltedBy ?? 'retained' });
       }
     }
 
@@ -2287,6 +2377,12 @@ export interface BridgeMintResolverDeps {
    */
   projectDetached(projectId: string): boolean;
   /**
+   * Whether `projectId` is the project this process booted for. The boot project is
+   * the hub's own default and no capsule ever claims it, so a terminal stamped with
+   * it has no capsule evidence by construction.
+   */
+  isBootProject(projectId: string): boolean;
+  /**
    * The hub host — the default window for claims nobody detached: project-owned
    * terminals still route through it (the hub presents that project), and
    * web/unassigned keys keep their shipped fallback. Never null: the bootstrap
@@ -2365,6 +2461,9 @@ export function createBridgeMintHostResolver(deps: BridgeMintResolverDeps): Brid
           { terminalSessionId: opts.terminalSessionId, ownerKey: ownerKeyValue, ...(claimedProjectId ? { projectId: claimedProjectId } : {}) },
         );
       }
+      if (claimedProjectId && !capsuleId && !claimedDetached && deps.isBootProject(claimedProjectId)) {
+        return { host: host ?? deps.hubHost(), capsuleId, unpinnedBootProject: true };
+      }
       return { host: host ?? deps.hubHost(), capsuleId };
     }
     if (opts.projectId) {
@@ -2391,15 +2490,14 @@ export function createBridgeMintHostResolver(deps: BridgeMintResolverDeps): Brid
 }
 
 /**
- * Install the one application menu. Commands resolve their window per click through
- * the directory (`resolveHostForWindow`), so the global accelerators act on the window
- * the user is actually in, and a window no shell describes refuses instead of silently
- * acting on another one.
+ * The option bag every application-menu surface shares: the installed native menu,
+ * and the `before-input-event` dispatcher that covers the shell windows whose
+ * native menubar was retired (see `ProjectWindowShell.stripMenuBar`). Building it
+ * once keeps the menu's clicks and the keyboard chords pointed at the same
+ * Main-owned entries.
  */
-function installApplicationMenu(): void {
-  const attachTo = bootstrapShell?.window ?? liveProjectShells()[0]?.window;
-  if (!attachTo || attachTo.isDestroyed()) return;
-  Menu.setApplicationMenu(buildApplicationMenu(attachTo, null, {
+function applicationMenuOptions(): ApplicationMenuOptions {
+  return {
     resolveHostForWindow: (window) => {
       const shell = shellForBrowserWindow(window);
       return shell ? tabAuthorities.hostForShell(shell) ?? null : null;
@@ -2418,7 +2516,69 @@ function installApplicationMenu(): void {
     // no active project to scope the click by, so the menu resolves the project id
     // from `windowOwnerKey` and the same entrypoint runs it.
     reattachProject: (projectId, _window) => { void reattachProject({ projectId }); },
-  }));
+  };
+}
+
+/**
+ * Install the one application menu. Commands resolve their window per click through
+ * the directory (`resolveHostForWindow`), so the global accelerators act on the window
+ * the user is actually in, and a window no shell describes refuses instead of silently
+ * acting on another one.
+ */
+function installApplicationMenu(): void {
+  const attachTo = bootstrapShell?.window ?? liveProjectShells()[0]?.window;
+  if (!attachTo || attachTo.isDestroyed()) return;
+  const options = applicationMenuOptions();
+  Menu.setApplicationMenu(buildApplicationMenu(attachTo, null, options));
+  // `Menu.setApplicationMenu` re-applies a native menubar to EVERY live window,
+  // re-arming the crash surface `ProjectWindowShell` retired at construction:
+  // `electron::MenuBar` arms `last_focused_view_tracker_` on Alt release and the
+  // tracker survives view reparenting until a MenuBar::RestoreFocus call feeds
+  // the stale view to `SetFocusedViewWithReason`'s ContainsView CHECK. Strip it
+  // back off every shell right now; the global object stays installed so
+  // `Menu.getApplicationMenu()` and non-shell auxiliary windows keep theirs.
+  if (process.platform !== 'darwin') {
+    for (const shell of liveProjectShells()) shell.stripMenuBar();
+  }
+  installMenulessAcceleratorDispatch(options);
+}
+
+let menulessAcceleratorDispatchInstalled = false;
+
+/**
+ * Route the menubar's chord set through `before-input-event` for every webContents
+ * a shell owns. Native accelerators die with the menubar; without this the strip
+ * would cost the window Ctrl+T/W/R/F5/F12/Alt+arrows and the rest. Resolution runs
+ * through `resolveSender` — chrome views, tab panes, terminal popouts — so a key
+ * pressed in a window always commands that window's host, matching what the menu's
+ * `focusedWindow` did. Devtools contents are skipped: devtools owns its own key
+ * surface and the menubar accelerators never applied to it either.
+ */
+function installMenulessAcceleratorDispatch(options: ApplicationMenuOptions): void {
+  if (menulessAcceleratorDispatchInstalled) return;
+  menulessAcceleratorDispatchInstalled = true;
+  const attached = new WeakSet<Electron.WebContents>();
+  const attach = (contents: Electron.WebContents): void => {
+    if (attached.has(contents) || contents.isDestroyed()) return;
+    attached.add(contents);
+    contents.on('before-input-event', (event, input) => {
+      if (input.type !== 'keyDown') return;
+      const routed = tabAuthorities.resolveSender(contents.id);
+      if (!routed || routed.surface === 'devtools') return;
+      let window: Electron.BrowserWindow | null = null;
+      try {
+        window = BrowserWindow.fromWebContents(contents);
+      } catch {}
+      if (dispatchApplicationMenuShortcut(input, { host: routed.host, window, sender: contents, options })) {
+        event.preventDefault();
+      }
+    });
+  };
+  app.on('web-contents-created', (_event, contents) => attach(contents));
+  // web-contents-created only hears FUTURE contents: the bootstrap shell and its
+  // restored tabs were born earlier in this very createWindow call, so the sweep
+  // below is what covers them — the WeakSet keeps the two paths from doubling up.
+  for (const contents of webContents.getAllWebContents()) attach(contents);
 }
 
 /**
@@ -4483,6 +4643,7 @@ async function createWindow(): Promise<void> {
       projectDetached: (projectId) => reattachInProgress.has(projectId)
         || liveProjectShells().some((s) => s.owner.kind === 'project' && s.owner.projectId === projectId)
         || savedTabsOwnerIsDetached(savedTabsFilePath(), projectId),
+      isBootProject: (projectId) => projectId === bootProjectIdValue,
       hubHost: () => hostForOwnerKey('web') ?? bootstrapHost,
     }));
     // Direct-RPC tab ops (switch/close/getDOM/capture/evalJS/navigate/reload/goBack/

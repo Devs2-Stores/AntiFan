@@ -310,6 +310,19 @@ describe('BridgeServer Terminal Affinity Resolution Live RPC Contract Tests', ()
     }
   });
 
+  it('10b. Mints unpinned for a project-claimed terminal when the resolver vouches it is the boot project', async () => {
+    installTerminalStub({}, { 'term-boot': 'project:proj-boot' });
+    resolverStub = () => ({ host: mockHost as unknown as NativeTabHost, unpinnedBootProject: true });
+    try {
+      const resp = await rpcCall('antifan.cli.startSession', { terminalSessionId: 'term-boot' });
+      assert.strictEqual(resp.success, true);
+      assert.strictEqual(lastSessionCreatedOpts?.tabId, 'tab-created');
+      assert.strictEqual(lastCreateTabCall()?.options?.capsuleId, undefined);
+    } finally {
+      restoreTerminalManager();
+    }
+  });
+
   it('11. Mints an unpinned anchor for an unattributed terminal', async () => {
     installTerminalStub({}, { 'term-daemon': 'unassigned' });
     const bindsBefore = mockHost.boundAffinity.length;

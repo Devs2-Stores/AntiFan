@@ -11,8 +11,42 @@ import type { AntiFanTab } from '../../shared/contracts';
 
 /** Idle threshold the user picked: 5 minutes. The production sweep always uses this constant. */
 export const HIBERNATE_IDLE_MS = 5 * 60 * 1000;
+/**
+ * Extended idle floor for Google Docs and Sheets editor tabs: 20 minutes. A
+ * sleeping editor tab loses its live renderer on return, so documents and
+ * spreadsheets the user works in get a longer grace period than an ordinary
+ * page before the sweep may park them.
+ */
+export const GOOGLE_DOCS_HIBERNATE_IDLE_MS = 20 * 60 * 1000;
 /** How often one host asks the policy about every tab. */
 export const HIBERNATE_SWEEP_INTERVAL_MS = 60 * 1000;
+
+/**
+ * True only for the Google Docs and Sheets editor surfaces under
+ * `docs.google.com` (`/document`, `/spreadsheets`). Presentations, forms and
+ * other paths keep the ordinary threshold. Malformed or absent URLs answer
+ * false — the floor is a privilege, never the default.
+ */
+export function isGoogleDocsEditorUrl(url: string | undefined): boolean {
+  if (typeof url !== 'string' || url.length === 0) return false;
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    if (host !== 'docs.google.com' && !host.endsWith('.docs.google.com')) return false;
+    return parsed.pathname.startsWith('/document') || parsed.pathname.startsWith('/spreadsheets');
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The idle threshold one tab's URL earns: `GOOGLE_DOCS_HIBERNATE_IDLE_MS` for
+ * Docs/Sheets editors, `baseMs` otherwise. The floor is a maximum, so a URL
+ * rule can only keep a tab awake longer, never shorten the base.
+ */
+export function hibernationIdleMsForUrl(url: string | undefined, baseMs: number): number {
+  return isGoogleDocsEditorUrl(url) ? Math.max(baseMs, GOOGLE_DOCS_HIBERNATE_IDLE_MS) : baseMs;
+}
 
 /**
  * Facts the policy cannot read from the tab record itself. The host computes
@@ -82,7 +116,8 @@ export function shouldHibernate(
   if (ctx.unloadVetoedTabIds?.has(tab.id)) return { hibernate: false, reason: 'unload-veto' };
 
   const now = typeof ctx.now === 'number' ? ctx.now : Date.now();
-  const idleMs = typeof ctx.idleMs === 'number' && ctx.idleMs > 0 ? ctx.idleMs : HIBERNATE_IDLE_MS;
+  const baseIdleMs = typeof ctx.idleMs === 'number' && ctx.idleMs > 0 ? ctx.idleMs : HIBERNATE_IDLE_MS;
+  const idleMs = hibernationIdleMsForUrl(state.url, baseIdleMs);
   const lastActiveAt = typeof tab.lastActiveAt === 'number' && tab.lastActiveAt > 0 ? tab.lastActiveAt : 0;
   if (now - lastActiveAt < idleMs) return { hibernate: false, reason: 'not-idle' };
 

@@ -1577,6 +1577,7 @@ function releaseTerminalPane(id, item) {
     }
   } catch {}
   item.writeTarget = null;
+  try { item.fileLinksProvider?.dispose(); } catch {}
   try { item.webLinksAddon?.dispose(); } catch {}
   try { item.webglAddon?.dispose(); } catch {}
   try { item.term.dispose(); } catch {}
@@ -2086,6 +2087,7 @@ let splitTerm = null;
 let splitFitAddon = null;
 let splitWebglAddon = null;
 let splitWebLinksAddon = null;
+let splitFileLinksProvider = null;
 let splitWriteTarget = null;
 let isSplitUserScrolledUp = false;
 let isSplitProgrammaticScroll = false;
@@ -2846,6 +2848,536 @@ function attachWebLinksAddon(term, currentSessionId) {
   return null;
 }
 
+/* -------------------------------------------------------------------------
+ * File Quick-Look Popup Modal
+ * ------------------------------------------------------------------------- */
+let fileQuickLookModalEl = null;
+let activeFileQuickLookClose = null;
+
+function getFileMeta(fileName) {
+  const ext = (fileName || '').split('.').pop().toLowerCase();
+  switch (ext) {
+    case 'js':
+    case 'cjs':
+    case 'mjs':
+      return { icon: '⚡', color: '#facc15', label: 'JavaScript' };
+    case 'ts':
+    case 'tsx':
+      return { icon: '🔷', color: '#38bdf8', label: 'TypeScript' };
+    case 'json':
+      return { icon: '{ }', color: '#fb923c', label: 'JSON' };
+    case 'css':
+    case 'scss':
+    case 'less':
+      return { icon: '🎨', color: '#38bdf8', label: 'CSS' };
+    case 'html':
+    case 'liquid':
+    case 'bwt':
+      return { icon: '🌐', color: '#f97316', label: 'HTML/Liquid' };
+    case 'md':
+      return { icon: '📝', color: '#94a3b8', label: 'Markdown' };
+    case 'sh':
+    case 'bash':
+    case 'zsh':
+    case 'ps1':
+      return { icon: '💻', color: '#4ade80', label: 'Shell' };
+    case 'svg':
+      return { icon: '🖼️', color: '#c084fc', label: 'SVG' };
+    default:
+      return { icon: '📄', color: '#94a3b8', label: 'File' };
+  }
+}
+
+function highlightSyntax(rawCode) {
+  const escaped = rawCode
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  const tokenRegex = /(\/\/[^\n]*|\/\*[\s\S]*?\*\/)|("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`)|(\b(?:import|export|from|default|const|let|var|function|return|if|else|for|while|do|class|extends|async|await|try|catch|finally|throw|new|typeof|instanceof|switch|case|break|continue|interface|type|enum|implements|public|private|protected|readonly|static|get|set|yield)\b)|(\b(?:true|false|null|undefined|NaN|Infinity)\b|\b\d+(?:\.\d+)?\b)|(\b[A-Z][a-zA-Z0-9_$]*\b)/g;
+
+  return escaped.replace(tokenRegex, (match, comment, string, keyword, literal, typeName) => {
+    if (comment) return `<span class="tok-comment">${comment}</span>`;
+    if (string) return `<span class="tok-string">${string}</span>`;
+    if (keyword) return `<span class="tok-keyword">${keyword}</span>`;
+    if (literal) return `<span class="tok-literal">${literal}</span>`;
+    if (typeName) return `<span class="tok-type">${typeName}</span>`;
+    return match;
+  });
+}
+
+function showQuickLookToast(modal, msg) {
+  let toast = modal.querySelector('.file-quick-look-toast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.className = 'file-quick-look-toast';
+    modal.querySelector('.file-quick-look-dialog')?.appendChild(toast);
+  }
+  toast.textContent = msg;
+  toast.style.display = 'block';
+  setTimeout(() => {
+    toast.style.display = 'none';
+  }, 1800);
+}
+
+function ensureFileQuickLookModal() {
+  if (fileQuickLookModalEl) return fileQuickLookModalEl;
+
+  const modal = document.createElement('div');
+  modal.id = 'fileQuickLookModal';
+  modal.className = 'file-quick-look-modal';
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+  modal.setAttribute('aria-label', 'Xem nhanh tập tin');
+  modal.style.display = 'none';
+
+  modal.innerHTML = `
+    <div class="file-quick-look-backdrop" id="fileQuickLookBackdrop"></div>
+    <div class="file-quick-look-dialog" id="fileQuickLookDialog">
+      <div class="file-quick-look-header">
+        <div class="file-quick-look-title-wrap">
+          <div class="file-quick-look-dots">
+            <button type="button" class="file-quick-look-dot file-quick-look-dot-close" id="btnQuickLookDotClose" title="Đóng (Esc)"></button>
+            <button type="button" class="file-quick-look-dot file-quick-look-dot-expand" id="btnQuickLookDotExpand" title="Phóng to / Thu nhỏ"></button>
+            <button type="button" class="file-quick-look-dot file-quick-look-dot-min" id="btnQuickLookDotMin" title="Thu nhỏ"></button>
+          </div>
+          <div class="file-quick-look-divider"></div>
+          <div class="file-quick-look-file-badge">
+            <span class="file-quick-look-icon" id="fileQuickLookIcon">📄</span>
+            <span class="file-quick-look-filename" id="fileQuickLookName">filename</span>
+          </div>
+          <span class="file-quick-look-path-badge" id="fileQuickLookPathBadge" title="Bấm để sao chép đường dẫn">path</span>
+        </div>
+        <div class="file-quick-look-actions">
+          <span class="file-quick-look-meta" id="fileQuickLookMeta">0 dòng • 0 KB</span>
+          <span class="file-quick-look-meta-target" id="fileQuickLookTargetBadge" style="display:none;">📍 Dòng 1</span>
+          <button type="button" class="file-quick-look-btn file-quick-look-btn-copy" id="btnFileQuickLookCopy" title="Sao chép toàn bộ nội dung (Copy All)">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8">
+              <rect x="5" y="5" width="9" height="9" rx="1.5"></rect>
+              <path d="M5 2.5H3.5A1.5 1.5 0 0 0 2 4v8.5"></path>
+            </svg>
+            <span>Sao chép</span>
+          </button>
+          <button type="button" class="file-quick-look-btn file-quick-look-btn-insert" id="btnFileQuickLookInsertPrompt" title="Chèn @file:line vào Terminal Prompt (Phím I)">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8">
+              <path d="M8 3v10M3 8h10"></path>
+            </svg>
+            <span>+ Prompt</span>
+          </button>
+          <button type="button" class="file-quick-look-btn file-quick-look-btn-vscode" id="btnFileQuickLookVSCode" title="Mở file này bằng VS Code (Phím V)">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8">
+              <path d="M12 4L4 12M12 4H6M12 4V10"></path>
+            </svg>
+            <span>VS Code</span>
+          </button>
+          <button type="button" class="file-quick-look-btn-close" id="btnFileQuickLookClose" title="Đóng (Esc)">
+            <span>✕</span>
+            <kbd style="font-size:9.5px;color:#71717a;font-family:inherit;">Esc</kbd>
+          </button>
+        </div>
+      </div>
+      <div class="file-quick-look-content" id="fileQuickLookContent">
+        <div class="file-quick-look-code-wrap">
+          <div class="file-quick-look-gutter" id="fileQuickLookGutter"></div>
+          <div class="file-quick-look-code" id="fileQuickLookCode"><code id="fileQuickLookCodeInner"></code></div>
+        </div>
+      </div>
+      <div class="file-quick-look-footer" id="fileQuickLookFooter">
+        <span id="fileQuickLookFooterInfo">📍 Bấm Esc để đóng • Click số dòng để copy path:line</span>
+        <span id="fileQuickLookFooterHint" style="color:#64748b;">AntiFan Terminal File Viewer</span>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+  fileQuickLookModalEl = modal;
+
+  const close = () => {
+    modal.style.display = 'none';
+    if (activeFileQuickLookClose) {
+      document.removeEventListener('keydown', activeFileQuickLookClose);
+      activeFileQuickLookClose = null;
+    }
+  };
+
+  modal.querySelector('#fileQuickLookBackdrop')?.addEventListener('click', close);
+  modal.querySelector('#btnFileQuickLookClose')?.addEventListener('click', close);
+  modal.querySelector('#btnQuickLookDotClose')?.addEventListener('click', close);
+
+  const dialogEl = modal.querySelector('#fileQuickLookDialog');
+  modal.querySelector('#btnQuickLookDotExpand')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    dialogEl?.classList.toggle('is-expanded');
+  });
+
+  return modal;
+}
+
+async function openFileQuickLook(rawPath, sessionId) {
+  if (!rawPath || typeof rawPath !== 'string') return;
+  const modal = ensureFileQuickLookModal();
+
+  let targetLine = null;
+  const lineColMatch = /:(\d+)(?::\d+)?$/.exec(rawPath);
+  if (lineColMatch) {
+    targetLine = parseInt(lineColMatch[1], 10);
+  }
+
+  const nameEl = modal.querySelector('#fileQuickLookName');
+  const iconEl = modal.querySelector('#fileQuickLookIcon');
+  const pathBadgeEl = modal.querySelector('#fileQuickLookPathBadge');
+  const metaEl = modal.querySelector('#fileQuickLookMeta');
+  const targetBadgeEl = modal.querySelector('#fileQuickLookTargetBadge');
+  const codeEl = modal.querySelector('#fileQuickLookCode');
+  const gutterEl = modal.querySelector('#fileQuickLookGutter');
+  const footerInfoEl = modal.querySelector('#fileQuickLookFooterInfo');
+  const copyBtn = modal.querySelector('#btnFileQuickLookCopy');
+  const insertPromptBtn = modal.querySelector('#btnFileQuickLookInsertPrompt');
+  const vsCodeBtn = modal.querySelector('#btnFileQuickLookVSCode');
+  if (insertPromptBtn) insertPromptBtn.onclick = null;
+  modal.style.display = 'flex';
+  if (nameEl) nameEl.textContent = 'Đang đọc...';
+  if (iconEl) iconEl.textContent = '📄';
+  if (pathBadgeEl) {
+    pathBadgeEl.textContent = rawPath;
+    pathBadgeEl.title = 'Bấm để sao chép đường dẫn: ' + rawPath;
+    pathBadgeEl.setAttribute('data-full-path', rawPath);
+  }
+  if (metaEl) metaEl.textContent = '...';
+  if (targetBadgeEl) {
+    if (targetLine) {
+      targetBadgeEl.style.display = 'inline-flex';
+      targetBadgeEl.textContent = `📍 Dòng ${targetLine}`;
+    } else {
+      targetBadgeEl.style.display = 'none';
+    }
+  }
+  if (codeEl) codeEl.innerHTML = '<div style="padding:12px;color:#94a3b8;">Đang tải nội dung file...</div>';
+  if (gutterEl) gutterEl.innerHTML = '';
+  if (footerInfoEl) {
+    footerInfoEl.className = '';
+    footerInfoEl.textContent = targetLine
+      ? `📍 Đang xem dòng ${targetLine} • Phím I chèn Prompt • Phím V mở VS Code • Esc để đóng`
+      : '📍 Phím I chèn Prompt • Phím V mở VS Code • Click số dòng để copy • Esc để đóng';
+  }
+
+  if (activeFileQuickLookClose) {
+    document.removeEventListener('keydown', activeFileQuickLookClose);
+  }
+  const onKeydown = (e) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      modal.style.display = 'none';
+      document.removeEventListener('keydown', onKeydown);
+      activeFileQuickLookClose = null;
+    } else if ((e.key === 'i' || e.key === 'I') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      insertPromptBtn?.click();
+    } else if ((e.key === 'v' || e.key === 'V') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      vsCodeBtn?.click();
+    }
+  };
+  activeFileQuickLookClose = onKeydown;
+  document.addEventListener('keydown', onKeydown);
+
+  // Path badge click to copy full path
+  if (pathBadgeEl) {
+    pathBadgeEl.onclick = (e) => {
+      e.stopPropagation();
+      const currentPath = pathBadgeEl.getAttribute('data-full-path') || pathBadgeEl.textContent || '';
+      if (!currentPath) return;
+      try {
+        if (navigator.clipboard?.writeText) {
+          navigator.clipboard.writeText(currentPath);
+        } else if (api?.writeClipboard) {
+          api.writeClipboard(currentPath);
+        }
+        showQuickLookToast(modal, '✓ Đã sao chép đường dẫn file!');
+      } catch {}
+    };
+  }
+
+  try {
+    const result = await api?.readFilePreview?.(rawPath, sessionId);
+    if (!result) {
+      if (nameEl) nameEl.textContent = 'Lỗi';
+      if (codeEl) codeEl.innerHTML = '<div style="padding:16px;color:#ef4444;">Preload chưa hỗ trợ readFilePreview hoặc không nhận được phản hồi.</div>';
+      return;
+    }
+
+    if (result.ok === true) {
+      const meta = getFileMeta(result.fileName);
+      if (iconEl) iconEl.textContent = meta.icon;
+      if (nameEl) nameEl.textContent = result.fileName;
+      if (pathBadgeEl) {
+        pathBadgeEl.textContent = result.filePath;
+        pathBadgeEl.title = 'Bấm để sao chép đường dẫn: ' + result.filePath;
+        pathBadgeEl.setAttribute('data-full-path', result.filePath);
+      }
+      const sizeStr = result.size < 1024 ? `${result.size} B` : `${(result.size / 1024).toFixed(1)} KB`;
+      if (metaEl) metaEl.textContent = `${meta.label} • ${result.lineCount} dòng • ${sizeStr}`;
+
+      if (copyBtn) {
+        copyBtn.onclick = (e) => {
+          e.stopPropagation();
+          try {
+            if (navigator.clipboard?.writeText) {
+              navigator.clipboard.writeText(result.content);
+            } else if (api?.writeClipboard) {
+              api.writeClipboard(result.content);
+            }
+            const textSpan = copyBtn.querySelector('span');
+            if (textSpan) {
+              const oldText = textSpan.textContent;
+              textSpan.textContent = '✓ Đã sao chép!';
+              copyBtn.classList.add('copied');
+              setTimeout(() => {
+                textSpan.textContent = oldText;
+                copyBtn.classList.remove('copied');
+              }, 2000);
+            }
+          } catch (err) {
+            console.error('[QuickLook] Copy failed:', err);
+          }
+        };
+      }
+
+      if (insertPromptBtn) {
+        insertPromptBtn.onclick = (e) => {
+          e.stopPropagation();
+          const targetSessionId = typeof sessionId === 'function' ? sessionId() : (sessionId || activeId);
+          const displayPath = result.filePath || rawPath;
+          const refText = targetLine ? `@${displayPath}:${targetLine} ` : `@${displayPath} `;
+          try {
+            if (targetSessionId) {
+              sendTerminalInputFor(targetSessionId, refText);
+            }
+            if (navigator.clipboard?.writeText) {
+              navigator.clipboard.writeText(refText.trim());
+            } else if (api?.writeClipboard) {
+              api.writeClipboard(refText.trim());
+            }
+            showQuickLookToast(modal, `✓ Đã chèn @${result.fileName}${targetLine ? `:${targetLine}` : ''} vào Prompt!`);
+            const textSpan = insertPromptBtn.querySelector('span');
+            if (textSpan) {
+              const oldText = textSpan.textContent;
+              textSpan.textContent = '✓ Đã chèn';
+              insertPromptBtn.classList.add('inserted');
+              setTimeout(() => {
+                textSpan.textContent = oldText;
+                insertPromptBtn.classList.remove('inserted');
+              }, 1800);
+            }
+          } catch (err) {
+            console.error('[QuickLook] Insert prompt failed:', err);
+          }
+        };
+      }
+
+      if (vsCodeBtn) {
+        vsCodeBtn.onclick = (e) => {
+          e.stopPropagation();
+          const targetWithLine = targetLine ? `${result.filePath}:${targetLine}` : result.filePath;
+          api?.openInVSCode?.(targetWithLine);
+        };
+      }
+
+      const lines = result.content.split('\n');
+      const lineCount = lines.length;
+
+      const gutterHtml = lines.map((_, idx) => {
+        const lineNum = idx + 1;
+        const isTarget = targetLine && targetLine === lineNum;
+        return `<div class="file-quick-look-line-num${isTarget ? ' highlight-line' : ''}" data-line="${lineNum}" title="Click để copy ${result.fileName}:${lineNum}">${lineNum}</div>`;
+      }).join('');
+      if (gutterEl) {
+        gutterEl.innerHTML = gutterHtml;
+        gutterEl.onclick = (e) => {
+          const lineNumEl = e.target.closest('.file-quick-look-line-num');
+          if (!lineNumEl) return;
+          const lineNum = lineNumEl.getAttribute('data-line');
+          if (!lineNum) return;
+          const fullRef = `${result.filePath}:${lineNum}`;
+          try {
+            if (navigator.clipboard?.writeText) {
+              navigator.clipboard.writeText(fullRef);
+            } else if (api?.writeClipboard) {
+              api.writeClipboard(fullRef);
+            }
+            showQuickLookToast(modal, `✓ Đã copy ${result.fileName}:${lineNum}`);
+          } catch {}
+        };
+      }
+
+      // Syntax highlight lines (fast regex tokenizer)
+      const codeHtml = lines.map((line, idx) => {
+        const lineNum = idx + 1;
+        const isTarget = targetLine && targetLine === lineNum;
+        const highlighted = highlightSyntax(line);
+        return `<div class="file-quick-look-code-row${isTarget ? ' highlight-line' : ''}" data-line="${lineNum}">${highlighted || ' '}</div>`;
+      }).join('');
+      if (codeEl) codeEl.innerHTML = codeHtml;
+
+      if (result.isTruncated && footerInfoEl) {
+        footerInfoEl.className = 'file-quick-look-footer-warn';
+        footerInfoEl.innerHTML = '⚠️ File lớn, chỉ hiển thị 512 KB đầu tiên. Bấm nút <b>VS Code</b> để xem đầy đủ.';
+      }
+
+      if (targetLine && targetLine > 0 && targetLine <= lineCount) {
+        setTimeout(() => {
+          const targetRow = codeEl?.querySelector(`.file-quick-look-code-row[data-line="${targetLine}"]`);
+          if (targetRow) {
+            targetRow.scrollIntoView({ block: 'center', behavior: 'smooth' });
+          }
+        }, 80);
+      }
+    } else {
+      if (iconEl) iconEl.textContent = '⚠️';
+      if (nameEl) nameEl.textContent = result.fileName || 'Không mở được file';
+      if (pathBadgeEl) {
+        pathBadgeEl.textContent = result.filePath || rawPath;
+        pathBadgeEl.title = result.filePath || rawPath;
+        pathBadgeEl.setAttribute('data-full-path', result.filePath || rawPath);
+      }
+      if (metaEl) metaEl.textContent = 'Lỗi';
+      if (codeEl) {
+        codeEl.innerHTML = `
+          <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:48px 24px;text-align:center;gap:12px;">
+            <div style="font-size:32px;">📁</div>
+            <div style="font-weight:600;font-size:14px;color:#f87171;">${result.message || 'Không thể đọc nội dung file.'}</div>
+            <div style="font-size:11px;color:#64748b;max-width:440px;">${result.filePath || rawPath}</div>
+            <button type="button" class="file-quick-look-btn file-quick-look-btn-vscode" id="btnQuickLookErrorVSCode" style="margin-top:8px;">
+              <span>Mở bằng VS Code</span>
+            </button>
+          </div>
+        `;
+        const errVsCodeBtn = codeEl.querySelector('#btnQuickLookErrorVSCode');
+        if (errVsCodeBtn) {
+          errVsCodeBtn.onclick = (e) => {
+            e.stopPropagation();
+            api?.openInVSCode?.(result.filePath || rawPath);
+          };
+        }
+      }
+      if (gutterEl) gutterEl.innerHTML = '';
+      if (vsCodeBtn) {
+        vsCodeBtn.onclick = (e) => {
+          e.stopPropagation();
+          api?.openInVSCode?.(result.filePath || rawPath);
+        };
+      }
+    }
+  } catch (err) {
+    if (nameEl) nameEl.textContent = 'Lỗi ngoại lệ';
+    if (codeEl) codeEl.innerHTML = `<div style="padding:16px;color:#ef4444;">${String(err)}</div>`;
+  }
+}
+const VALID_FILE_EXTENSIONS = {
+  ts: true, tsx: true, js: true, jsx: true, cjs: true, mjs: true,
+  json: true, json5: true, jsonc: true,
+  css: true, scss: true, sass: true, less: true,
+  html: true, htm: true, liquid: true, bwt: true,
+  md: true, markdown: true, txt: true, rtf: true,
+  yaml: true, yml: true, toml: true, ini: true, conf: true, config: true,
+  svg: true, png: true, jpg: true, jpeg: true, webp: true, gif: true, ico: true, avif: true,
+  sh: true, bash: true, zsh: true, ps1: true, bat: true, cmd: true,
+  py: true, rs: true, go: true, c: true, cpp: true, h: true, hpp: true, cs: true, java: true, kt: true, swift: true, rb: true, php: true,
+  lock: true, log: true, sql: true, csv: true, tsv: true, xml: true, vue: true, svelte: true, astro: true,
+  graphql: true, gql: true, proto: true, env: true
+};
+
+const DISALLOWED_EXTENSIONS = {
+  list: true, get: true, set: true, create: true, update: true, delete: true, close: true, activate: true,
+  reload: true, navigate: true, evaluate: true, stat: true, read: true, write: true, drop: true, drag: true,
+  hover: true, click: true, scroll: true, type: true, clear: true, freeze: true, capture: true, compare: true,
+  dump_dom: true, styles: true, snapshot: true, validate_gate: true, verify_claim: true, record_claim: true,
+  style_override: true, export_clean: true, resolve_element: true, tabs: true
+};
+function isValidTerminalFilePath(candidate) {
+  if (!candidate || typeof candidate !== 'string') return false;
+  let p = candidate.trim().replace(/^["'`]/, '').replace(/["'`]$/, '');
+  p = p.replace(/[,\.;\)]+$/, '');
+
+  // Exclude MCP tools, RPC methods, and internal protocol identifiers
+  if (
+    p.startsWith('anti.') ||
+    p.includes('/anti.') ||
+    p.includes('\\anti.') ||
+    p.startsWith('browser.') ||
+    p.includes('/browser.') ||
+    p.includes('\\browser.') ||
+    p.startsWith('theme.') ||
+    p.includes('/theme.') ||
+    p.includes('\\theme.') ||
+    p.startsWith('mcp__') ||
+    p.includes('mcp__') ||
+    p.startsWith('xd://') ||
+    p.includes('antifan-browser/') ||
+    p.includes('antifan-browser\\') ||
+    p.startsWith('console.') ||
+    p.startsWith('process.') ||
+    p.startsWith('window.') ||
+    p.startsWith('document.')
+  ) {
+    return false;
+  }
+  // Strip trailing line/col e.g. :45 or :45:10
+  const lineColIdx = p.search(/:\d+(?::\d+)?$/);
+  if (lineColIdx !== -1) {
+    p = p.slice(0, lineColIdx);
+  }
+
+  // Extract file extension
+  const lastDot = p.lastIndexOf('.');
+  if (lastDot === -1) return false;
+  const ext = p.slice(lastDot + 1).toLowerCase();
+
+  if (DISALLOWED_EXTENSIONS[ext]) return false;
+  return Boolean(VALID_FILE_EXTENSIONS[ext]);
+}
+
+function attachFileLinksProvider(term, currentSessionId) {
+  try {
+    if (typeof term?.registerLinkProvider !== 'function') return null;
+    const FILE_PATH_RE = /(?:^|[\s"'`(\[<])((?:[a-zA-Z]:[\\/][^\s:;,"'<>()[\]`\x1b]+|(?:\.{1,2}[\\/]|[a-zA-Z0-9_\-\.]+[\\/])[^\s:;,"'<>()[\]`\x1b]+\.[a-zA-Z0-9_\-]+|\/(?:home|Users|usr|var|tmp|etc|work|Work)[\\/][^\s:;,"'<>()[\]`\x1b]+|[a-zA-Z0-9_\-][a-zA-Z0-9_\-\.]*\.[a-zA-Z0-9_\-]+)(?::\d+(?::\d+)?)?)/g;
+
+    return term.registerLinkProvider({
+      provideLinks(y, callback) {
+        const line = term.buffer.active.getLine(y - 1);
+        if (!line) return callback(undefined);
+        const text = line.translateToString(true);
+        FILE_PATH_RE.lastIndex = 0;
+        const links = [];
+        let match;
+        while ((match = FILE_PATH_RE.exec(text)) !== null) {
+          const fullMatch = match[0];
+          const pathGroup = match[1];
+          if (!isValidTerminalFilePath(pathGroup)) continue;
+          const offsetInMatch = fullMatch.indexOf(pathGroup);
+          const startX = match.index + offsetInMatch;
+          const endX = startX + pathGroup.length;
+          links.push({
+            range: {
+              start: { x: startX + 1, y },
+              end: { x: endX + 1, y },
+            },
+            text: pathGroup,
+            activate(_event, clickedText) {
+              const sid = typeof currentSessionId === 'function' ? currentSessionId() : currentSessionId;
+              openFileQuickLook(clickedText, sid);
+            },
+          });
+        }
+        callback(links.length > 0 ? links : undefined);
+      },
+    });
+  } catch (e) {
+    console.warn('[Terminal] FileLinks provider error:', e);
+    return null;
+  }
+}
+
 function writeToTerminalPane(item, chunk) {
   if (!item || !chunk) return;
   const target = getWriteTargetFor(item);
@@ -3042,6 +3574,7 @@ function getOrCreateTerminalPane(sessionId, snapshot, snapshotSeq = 0, isAuthori
   sTerm.open(paneEl);
   // The WebGL renderer is attached once the pool item exists (setPaneWebgl below).
   const webLinksAddon = attachWebLinksAddon(sTerm, () => sessionId);
+  const fileLinksProvider = attachFileLinksProvider(sTerm, () => sessionId);
   setupTerminalClipboard(sTerm);
 
   mainPane.appendChild(paneEl);
@@ -3070,6 +3603,7 @@ function getOrCreateTerminalPane(sessionId, snapshot, snapshotSeq = 0, isAuthori
     paneEl,
     webglAddon: null,
     webLinksAddon,
+    fileLinksProvider,
     lastRenderedSeq: 0,
     sessionGeneration: (s && typeof s.sessionGeneration === 'number') ? s.sessionGeneration : 0,
     hydrationEpoch: 0,
@@ -3627,6 +4161,8 @@ function unmountSplit() {
   splitSessionState.pendingWriteAckSeq = 0;
   splitSessionState.lastAckedSeq = 0;
   try { splitWebLinksAddon?.dispose(); } catch {}
+  try { splitFileLinksProvider?.dispose(); } catch {}
+  splitFileLinksProvider = null;
   splitWebLinksAddon = null;
   try { splitWebglAddon?.dispose(); } catch {}
   splitWebglAddon = null;
@@ -3713,6 +4249,7 @@ function mountSplit(sessionId, snapshot = undefined, snapshotSeq = undefined) {
     if (splitWebglAddon === lost) splitWebglAddon = null;
   });
   splitWebLinksAddon = attachWebLinksAddon(splitTerm, () => splitId);
+  splitFileLinksProvider = attachFileLinksProvider(splitTerm, () => splitId);
   setupTerminalClipboard(splitTerm);
 
   splitTerm.onData((data) => {
@@ -3776,6 +4313,7 @@ function mountSplitClean(newSplitId) {
   if (phantom) {
     try { if (phantom.writeTarget && window.globalTerminalWriteDispatcher) window.globalTerminalWriteDispatcher.cancel(phantom.writeTarget); } catch {}
     try { phantom.webLinksAddon?.dispose(); } catch {}
+    try { phantom.fileLinksProvider?.dispose(); } catch {}
     try { phantom.webglAddon?.dispose(); } catch {}
     try { phantom.term?.dispose(); } catch {}
     try { phantom.paneEl?.remove(); } catch {}

@@ -6,6 +6,25 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 
 ## [v1.3.6] - Unreleased
 
+### Tính năng & Sửa lỗi — File Quick-Look, Terminal Link Provider & Phím tắt Zero-Latency VS Code
+
+- **File Quick-Look Modal**: Mở rộng toàn diện `min(97vw, 1720px) × min(93vh, 1020px)` với nút phóng to toàn màn hình; hiển thị metadata dòng/dung lượng/định dạng, badge đường dẫn có thể sao chép, gutter số dòng có click-to-copy và highlight dòng chỉ định.
+- **Nút & Phím tắt `+ Prompt` (Phím `I`)**: Tự động chèn `@file:line ` thẳng vào con trỏ terminal đang active kèm sao chép vào clipboard để ra lệnh ngay cho Agent.
+- **Zero-Latency VS Code Jump (Phím `V`)**: Nâng cấp `native-tab-host.ts:openInVSCode` tự động bóc tách `:line:col`, resolve đường dẫn tương đối theo workspace active và khởi chạy `code -r -g file:line` tái sử dụng cửa sổ VS Code hiện hữu trong < 300ms.
+- **Terminal Link Provider**: Bổ sung regex nhận diện các tệp tin ở thư mục gốc (`package.json:14`, `theme.liquid:88`, `CLAUDE.md`, v.v.), tích hợp bộ lọc chặn đứng các hàm toàn cục JS (`console.log`, `process.exit`) và các MCP tools (`anti.*`, `browser.*`, `theme.*`, `mcp__*`).
+
+### Sửa — Cô lập CSS và dọn dẹp Tag Mode cho Popup Annotation (Element Picker)
+
+- **Nguyên nhân vỡ layout**: Header bị giãn to 60px và các nút bị xô lệch do `MODAL_ID` là `antifan-comment-modal` nhưng stylesheet viết nhầm thành `#antifan-element-modal`, khiến toàn bộ CSS của trang web người dùng lọt vào bên trong popup.
+- **Sửa**: Đổi toàn bộ selector sang `#antifan-comment-modal` với cơ chế CSS Reset & Isolation toàn diện (`all: initial !important`); gỡ bỏ nút PageSpeed và Theme theo yêu cầu; dàn đều 3 mode action chips (`Direct Edit`, `Super-Fast`, `Core Context`) với viền phát sáng active và ghi nhớ trạng thái.
+
+### Sửa — Process chết với CHECK `ContainsView` trong `SetFocusedViewWithReason` sau reparent tab (3 crash cùng địa chỉ)
+
+- **Chuỗi nhân quả (minidump-đồng nhất, `STATUS_BREAKPOINT` @ `electron.exe+0xe22b52`, ×3 trong một ngày)**: mọi `ProjectWindowShell` sở hữu một `electron::MenuBar` (autoHideMenuBar không miễn — Alt chính là cách hiện bar). `RootView::HandleKeyEvent` ghi `last_focused_view_tracker_` mỗi lần thả Alt khi menubar tồn tại; `views::ViewTracker` chỉ clear con trỏ khi view bị **destroy**, không clear khi view bị **reparent** — shell reparent WebContentsView của tab cho capture-lift / detach khi switchTab / resurfacePresentedView / split pane. Tracker giữ view đã rời RootView ⇒ lần gọi `MenuBar::RestoreFocus` kế tiếp (AcceleratorPressed / OnDidChangeFocus / OnBeforeExecuteCommand) đưa nó vào `views::FocusManager::SetFocusedViewWithReason` → CHECK `view && ContainsView(view)` (`focus_manager.cc:330`) giết process. `ContainsView` check upstream (`RootView::RestoreFocus` không guard — lỗi upstream Electron).
+- **Sửa**: `ProjectWindowShell.stripMenuBar()` gọi `window.setMenu(null)` trên mọi shell (win/linux; macOS giữ NSMenu global không qua `views::MenuBar`). `MenuBar` là owner DUY NHẤT của cả ba callsite `RestoreFocus` ⇒ reset `menu_bar_` đóng hoàn toàn lớp crash. `Menu.setApplicationMenu` giữ nguyên installed (`getApplicationMenu()` non-null, e2e pin vẫn đúng; window phụ không-reparent giữ menubar+native accelerator); `installApplicationMenu` re-strip sau `setApplicationMenu` vì nó re-apply menubar cho mọi window đang sống. Alt giờ không còn ý nghĩa trên shell — không có bar để hiện.
+- **Phím tắt giữ nguyên qua `before-input-event`**: `dispatchApplicationMenuShortcut` (`app-menu.ts`) replay đúng chord set menubar từng đăng ký (Ctrl+T/W/R/Shift+T/D/F/B/S, F5/F11/F12, Ctrl+=/-/0 qua `host.setZoom` giữ `state.zoomFactor` authoritative, Ctrl+Shift+O/M/U, Ctrl+Alt+B/L/R, Ctrl+`, Ctrl+Q), resolve host của CHÍNH window chứa sender qua `tabAuthorities.resolveSender` — cùng semantics `focusedWindow` của menu. Gắn qua `web-contents-created` + sweep `getAllWebContents()` cho contents sinh trước `installApplicationMenu`; devtools skip (key surface riêng). Chord đã đăng ký vẫn consumed khi host null — y hệt accelerator reserved. macOS không đổi gì.
+- **Bằng chứng**: tsc sạch; `menuless-accelerator.test` 16/16 (mọi chord → đúng host method+args, keyUp/char không fire, passthrough phím thường, `setMenu(null)` lên window thật, double thiếu `setMenu` không nổ); suite shell/menu (project-window-manager, shell-disposal, teardown-guard, ipc-audit, active-tab-scope) xanh lại đủ. Live probe Electron thật: `ProjectWindowShell` constructor gọi `setMenu(null)` trên BrowserWindow thật, Ctrl+T dispatch qua `before-input-event` tới host, Ctrl+A passthrough. Crash gốc (tracker stale qua reparent) không tái hiện được synthetically — cần quan sát app sau restart.
+
 ### Sửa — Read tool tôn trọng `tabId` cùng project; tab vừa tạo hiện ngay trong `tabs.list`
 
 - **Triệu chứng**: `inspect.page_inventory`/`screenshot`/các read khác ném `TARGET_MISMATCH` khi caller truyền `tabId` của một tab cùng project nhưng thuộc session khác, buộc vòng `rebind → inspect → rebind`; tab vừa mint qua `tabs.create`/`antifan.openTab` (ephemeral/offscreen, đã adopt vào pool) vắng mặt khỏi `tabs.list` tới khi rebind.

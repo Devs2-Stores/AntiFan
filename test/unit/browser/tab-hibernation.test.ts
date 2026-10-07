@@ -108,6 +108,48 @@ describe('shouldHibernate policy', () => {
     assert.deepStrictEqual(d, { hibernate: true });
   });
 
+  it('holds a Google Docs tab idle past 5 minutes', () => {
+    const url = 'https://docs.google.com/document/d/abc123/edit';
+    const d = shouldHibernate(tab('tab-x', { url }, T0 - 10 * 60 * 1000), makeCtx());
+    assert.deepStrictEqual(d, { hibernate: false, reason: 'not-idle' });
+  });
+
+  it('holds a Google Sheets tab idle past 5 minutes', () => {
+    const url = 'https://docs.google.com/spreadsheets/d/xyz/edit#gid=0';
+    const d = shouldHibernate(tab('tab-x', { url }, T0 - 10 * 60 * 1000), makeCtx());
+    assert.deepStrictEqual(d, { hibernate: false, reason: 'not-idle' });
+  });
+
+  it('hibernates a Google Docs/Sheets tab past the 20-minute floor', () => {
+    for (const url of [
+      'https://docs.google.com/document/d/abc123/edit',
+      'https://docs.google.com/spreadsheets/d/xyz/edit',
+    ]) {
+      const d = shouldHibernate(tab('tab-x', { url }, T0 - 20 * 60 * 1000 - 1), makeCtx());
+      assert.deepStrictEqual(d, { hibernate: true }, url);
+    }
+  });
+
+  it('keeps the 5-minute threshold for non-editor Google URLs', () => {
+    const urls = [
+      'https://docs.google.com/',
+      'https://docs.google.com/presentation/d/p1/edit',
+      'https://docs.google.com/forms/d/f1/edit',
+      'https://docs.google.com.evil.test/document/d/x/edit',
+      'https://drive.google.com/drive/my-drive',
+      'https://sheets.google.com/',
+    ];
+    for (const url of urls) {
+      const d = shouldHibernate(tab('tab-x', { url }, T0 - 10 * 60 * 1000), makeCtx());
+      assert.deepStrictEqual(d, { hibernate: true }, url);
+    }
+  });
+
+  it('malformed URLs keep the 5-minute threshold', () => {
+    const d = shouldHibernate(tab('tab-x', { url: 'not a url' }, T0 - 10 * 60 * 1000), makeCtx());
+    assert.deepStrictEqual(d, { hibernate: true });
+  });
+
   it('treats a never-active tab (lastActiveAt absent) as idlest — hibernates', () => {
     const d = shouldHibernate(tab('tab-x'), makeCtx());
     assert.deepStrictEqual(d, { hibernate: true });

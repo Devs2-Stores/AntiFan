@@ -312,6 +312,7 @@ export class ProjectWindowShell {
       this.notifyClosed();
     });
     this.refreshDisplayInfo();
+    this.stripMenuBar();
 
     // Toolbar is never optional: it is the shell's own address surface.
     this.toolbarView = native.createView({
@@ -333,6 +334,33 @@ export class ProjectWindowShell {
     this.watchChromeLiveness('toolbar', this.toolbarView);
     this.watchChromeLiveness('sidebar', this.sidebarView);
     this.watchChromeLiveness('frameBackdrop', this.frameBackdropView);
+  }
+
+  /**
+   * Retire the native `electron::MenuBar` this window was born with.
+   *
+   * Crash class this closes (three identical minidumps, `electron.exe+0xe22b52`,
+   * `views::FocusManager::SetFocusedViewWithReason` CHECK `view && ContainsView(view)`):
+   * `RootView::HandleKeyEvent` records `last_focused_view_tracker_` on every Alt release
+   * while a menubar exists — autoHideMenuBar does NOT exempt it, Alt is precisely how the
+   * hidden strip is raised — and `ViewTracker` only clears that pointer when the tracked
+   * view is DESTROYED, never when it is detached. This shell reparents tab
+   * WebContentsViews for capture-lift, tab-switch detaches, resurface, and split panes, so
+   * the tracker can hold a view that no longer lives under the RootView; the next
+   * `MenuBar::RestoreFocus` caller (AcceleratorPressed / OnDidChangeFocus /
+   * OnBeforeExecuteCommand) feeds it to `SetFocusedViewWithReason` and the process dies.
+   *
+   * `setMenu(null)` resets `menu_bar_` (all three callers die with it) and unregisters the
+   * window's accelerators; the chord set the menu owned is replayed on `before-input-event`
+   * by `dispatchApplicationMenuShortcut` in app-menu.ts. macOS keeps its global NSMenu —
+   * it never instantiates `views::MenuBar` — so this is a no-op off win32/linux surfaces.
+   * Called again by `installApplicationMenu` after `Menu.setApplicationMenu` re-applies a
+   * menubar to every live window. Doubles may omit `setMenu`; `?.` keeps them working.
+   */
+  public stripMenuBar(): void {
+    if (process.platform === 'darwin') return;
+    if (this.window.isDestroyed()) return;
+    this.window.setMenu?.(null);
   }
 
   /**

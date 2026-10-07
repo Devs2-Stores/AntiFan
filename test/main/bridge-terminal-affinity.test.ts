@@ -64,6 +64,7 @@ function makeResolver(opts: {
   liveCapsules?: readonly string[];
   projectCapsules?: Record<string, string | undefined>;
   detached?: readonly string[];
+  bootProjectId?: string;
 }) {
   const hosts = opts.hosts ?? {};
   const tabHosts = opts.tabHosts ?? {};
@@ -77,6 +78,7 @@ function makeResolver(opts: {
     capsuleExists: (capsuleId) => (opts.liveCapsules ?? []).includes(capsuleId),
     projectCapsuleId: (projectId) => (opts.projectCapsules ?? {})[projectId],
     projectDetached: (projectId) => detached[projectId] === true,
+    isBootProject: (projectId) => projectId === opts.bootProjectId,
     hubHost: () => hosts['web'] ?? fakeHost('hub-fallback'),
   };
   return { resolve: createBridgeMintHostResolver(deps), deps, hosts };
@@ -193,6 +195,37 @@ describe('bridge mint resolver — terminal arm', () => {
     const out = resolve({ terminalSessionId: 'term-stale' });
     assert.equal(out?.host, hub);
     assert.equal(out?.capsuleId, 'capsule-pstale');
+  });
+
+  it('vouches a capsule-less claim of the boot project as unpinned on the hub', () => {
+    const { resolve } = makeResolver({
+      hosts: { web: hub },
+      ownerKeys: { 'term-boot': 'project:p-boot' },
+      bootProjectId: 'p-boot',
+    });
+    const out = resolve({ terminalSessionId: 'term-boot' });
+    assert.equal(out?.host, hub);
+    assert.equal(out?.capsuleId, undefined);
+    assert.equal(out?.unpinnedBootProject, true);
+  });
+
+  it('never vouches a capsule-less claim of a non-boot project', () => {
+    const { resolve } = makeResolver({
+      hosts: { web: hub },
+      ownerKeys: { 'term-orphan': 'project:p-orphan' },
+      bootProjectId: 'p-boot',
+    });
+    assert.equal(resolve({ terminalSessionId: 'term-orphan' })?.unpinnedBootProject, undefined);
+  });
+
+  it('does not vouch a boot project that is detached-but-windowless', () => {
+    const { resolve } = makeResolver({
+      hosts: { web: hub },
+      ownerKeys: { 'term-boot': 'project:p-boot' },
+      bootProjectId: 'p-boot',
+      detached: ['p-boot'],
+    });
+    assertUnresolved(() => resolve({ terminalSessionId: 'term-boot' }), /detached/i);
   });
 
   it('an unattributed terminal mints on the hub with no capsule pin', () => {

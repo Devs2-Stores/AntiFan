@@ -303,6 +303,12 @@ export interface BridgeMintTargetRequest {
 export interface BridgeMintTargetResolution {
   host: NativeTabHost;
   capsuleId?: string;
+  /**
+   * The resolver vouches that a project-claimed terminal legitimately has no capsule to
+   * pin: the claimed project is the process's boot project, which no capsule ever claims.
+   * Without it a project claim lacking a capsule is refused (fail closed).
+   */
+  unpinnedBootProject?: boolean;
 }
 
 export type BridgeMintHostResolver = (opts: BridgeMintTargetRequest) => BridgeMintTargetResolution | undefined;
@@ -3798,7 +3804,7 @@ export class BridgeServer {
     const parsedOwner = parseOwnerKey(ownerKey);
     const projectClaimed = parsedOwner.kind === 'project' || parsedOwner.kind === 'malformed';
     const resolution = this.mintHostResolver?.({ ...opts, terminalSessionId });
-    if (projectClaimed && (!resolution?.host || !resolution.capsuleId)) {
+    if (projectClaimed && (!resolution?.host || (!resolution.capsuleId && !resolution.unpinnedBootProject))) {
       throw new CapabilityError(
         'TERMINAL_SCOPE_UNRESOLVED',
         `TERMINAL_SCOPE_UNRESOLVED: Cannot mint an agent tab from terminal '${terminalSessionId}': a project owns it, but no owning window ` +
