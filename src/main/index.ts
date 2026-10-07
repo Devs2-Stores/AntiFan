@@ -45,6 +45,7 @@ import {
   type ProjectOpenDialogSpec,
 } from './project/project-open-picker';
 import { NativeTabHost, collectTabSearchInventory, activateTabSearchResult, isUnhostedTerminalWindow, purgeSavedTabsFileForProject, foldDetachedOwnerRecord, listDetachedProjectOwnerRecords, normalizeSavedTabsDocument, savedTabsFilePath, savedTabsOwnerIsDetached, type TabSearchInventoryRow, type TabSearchActivationFailure } from './browser/native-tab-host';
+import { singleInstanceLockExitCode } from './browser/single-instance-lock';
 import { closeAuxiliaryWindow } from './browser/auxiliary-close';
 import { ProjectWindowManager, type OpenIntent } from './browser/project-window-manager';
 import { ProjectWindowShell, ownerKey, ownerLabel, resolveRendererAsset, resolvePreloadAsset, type ChromeSurface, type WindowOwner } from './browser/project-window-shell';
@@ -822,8 +823,10 @@ let localIpcServer: LocalIpcServer | null = null;
 // Enforce single instance lock
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
-  console.log(`[antifan] Another instance is already running (${IS_DEV ? 'DEV' : 'PROD'}). Exiting.`);
-  app.exit(0);
+  const failOnContention = process.env.ANTIFAN_FAIL_ON_LOCK_CONTENTION === '1';
+  const exitCode = singleInstanceLockExitCode(gotTheLock, failOnContention);
+  console.error(`[antifan] Another instance is already running (${IS_DEV ? 'DEV' : 'PROD'}). Exiting with code ${exitCode}.`);
+  app.exit(exitCode ?? 0);
 } else {
   app.on('second-instance', (_event, commandLine) => {
     // A second launch is a user action in an already running process: bring the
