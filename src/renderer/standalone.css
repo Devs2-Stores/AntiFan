@@ -3224,6 +3224,11 @@ body.is-project-dragging .terminal-tab-category-header {
 .tok-keyword { color: #f472b6; font-weight: 500; }
 .tok-literal { color: #facc15; }
 .tok-type { color: #38bdf8; }
+.tok-tag { color: #f43f5e; font-weight: 500; }
+.tok-attr { color: #93c5fd; }
+.tok-liquid { color: #c084fc; font-weight: 500; }
+.tok-liquid-var { color: #f59e0b; }
+.tok-punct { color: #64748b; }
 
 .file-quick-look-footer {
   display: flex;

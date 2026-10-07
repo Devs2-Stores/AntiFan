@@ -2888,13 +2888,63 @@ function getFileMeta(fileName) {
   }
 }
 
-function highlightSyntax(rawCode) {
+function highlightSyntax(rawCode, ext = 'js') {
+  if (!rawCode) return ' ';
   const escaped = rawCode
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
 
-  const tokenRegex = /(\/\/[^\n]*|\/\*[\s\S]*?\*\/)|("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`)|(\b(?:import|export|from|default|const|let|var|function|return|if|else|for|while|do|class|extends|async|await|try|catch|finally|throw|new|typeof|instanceof|switch|case|break|continue|interface|type|enum|implements|public|private|protected|readonly|static|get|set|yield)\b)|(\b(?:true|false|null|undefined|NaN|Infinity)\b|\b\d+(?:\.\d+)?\b)|(\b[A-Z][a-zA-Z0-9_$]*\b)/g;
+  const cleanExt = (ext || 'js').toLowerCase();
+
+  // 1. HTML / Liquid / BWT / SVG
+  if (cleanExt === 'html' || cleanExt === 'liquid' || cleanExt === 'bwt' || cleanExt === 'svg') {
+    const tokenRegex = /(&lt;!--[\s\S]*?--&gt;)|(\{%-?[\s\S]*?-?%\})|(\{\{-?[\s\S]*?-?\}\})|(&lt;\/?[a-zA-Z0-9_\-]+)|(\/?&gt;)|(\"[^\"]*\"|'[^']*')|(\b[a-zA-Z0-9_\-:]+(?=\s*=))/g;
+    return escaped.replace(tokenRegex, (m, comment, liqTag, liqVar, tagOpen, tagClose, str, attr) => {
+      if (comment) return `<span class="tok-comment">${comment}</span>`;
+      if (liqTag) return `<span class="tok-liquid">${liqTag}</span>`;
+      if (liqVar) return `<span class="tok-liquid-var">${liqVar}</span>`;
+      if (tagOpen) {
+        const isClose = tagOpen.startsWith('&lt;/');
+        const pfx = isClose ? '&lt;/' : '&lt;';
+        const tagName = tagOpen.slice(pfx.length);
+        return `<span class="tok-punct">${pfx}</span><span class="tok-tag">${tagName}</span>`;
+      }
+      if (tagClose) return `<span class="tok-punct">${tagClose}</span>`;
+      if (str) return `<span class="tok-string">${str}</span>`;
+      if (attr) return `<span class="tok-attr">${attr}</span>`;
+      return m;
+    });
+  }
+
+  // 2. JSON
+  if (cleanExt === 'json' || cleanExt === 'json5' || cleanExt === 'jsonc') {
+    const tokenRegex = /(\"[^\"]*\"\s*(?=:))|(\"[^\"]*\")|(\b(?:true|false|null)\b|\b-?\d+(?:\.\d+)?\b)|([{}\[\],:])/g;
+    return escaped.replace(tokenRegex, (m, key, str, lit, punct) => {
+      if (key) return `<span class="tok-attr">${key}</span>`;
+      if (str) return `<span class="tok-string">${str}</span>`;
+      if (lit) return `<span class="tok-literal">${lit}</span>`;
+      if (punct) return `<span class="tok-punct">${punct}</span>`;
+      return m;
+    });
+  }
+
+  // 3. CSS / SCSS / LESS
+  if (cleanExt === 'css' || cleanExt === 'scss' || cleanExt === 'less') {
+    const tokenRegex = /(\/\*[\s\S]*?\*\/)|(\"[^\"]*\"|'[^']*')|(#[0-9a-fA-F]{3,8}\b|\b\d+(?:\.\d+)?(?:px|rem|em|%|vh|vw|ms|s|fr|deg)?\b)|(\.[a-zA-Z0-9_\-]+|#[a-zA-Z0-9_\-]+)|(\b[a-zA-Z0-9_\-]+(?=\s*:))|(\b(?:!important|url|var|calc|rgba?|hsla?)\b)/g;
+    return escaped.replace(tokenRegex, (m, comment, str, val, selector, prop, kw) => {
+      if (comment) return `<span class="tok-comment">${comment}</span>`;
+      if (str) return `<span class="tok-string">${str}</span>`;
+      if (val) return `<span class="tok-literal">${val}</span>`;
+      if (selector) return `<span class="tok-tag">${selector}</span>`;
+      if (prop) return `<span class="tok-attr">${prop}</span>`;
+      if (kw) return `<span class="tok-keyword">${kw}</span>`;
+      return m;
+    });
+  }
+
+  // 4. JavaScript / TypeScript / Default
+  const tokenRegex = /(\/\/[^\n]*|\/\*[\s\S]*?\*\/)|(\"[^\"]*\"|'[^']*'|`[^`]*`)|(\b(?:import|export|from|default|const|let|var|function|return|if|else|for|while|do|class|extends|async|await|try|catch|finally|throw|new|typeof|instanceof|switch|case|break|continue|interface|type|enum|implements|public|private|protected|readonly|static|get|set|yield)\b)|(\b(?:true|false|null|undefined|NaN|Infinity)\b|\b\d+(?:\.\d+)?\b)|(\b[A-Z][a-zA-Z0-9_$]{2,}\b)/g;
 
   return escaped.replace(tokenRegex, (match, comment, string, keyword, literal, typeName) => {
     if (comment) return `<span class="tok-comment">${comment}</span>`;
@@ -3210,11 +3260,12 @@ async function openFileQuickLook(rawPath, sessionId) {
         };
       }
 
+      const fileExt = (result.fileName || rawPath || '').split('.').pop().toLowerCase();
       // Syntax highlight lines (fast regex tokenizer)
       const codeHtml = lines.map((line, idx) => {
         const lineNum = idx + 1;
         const isTarget = targetLine && targetLine === lineNum;
-        const highlighted = highlightSyntax(line);
+        const highlighted = highlightSyntax(line, fileExt);
         return `<div class="file-quick-look-code-row${isTarget ? ' highlight-line' : ''}" data-line="${lineNum}">${highlighted || ' '}</div>`;
       }).join('');
       if (codeEl) codeEl.innerHTML = codeHtml;
