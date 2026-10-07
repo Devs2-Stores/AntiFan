@@ -6427,10 +6427,10 @@ document.addEventListener('click', (e) => {
     closeProjectChipMenu();
   }
 });
-// A fixed popover cannot track its anchor: strip scroll or window resize would
-// leave it floating on the wrong anchor point, so it simply dismisses instead.
+// A fixed popover cannot track its anchor: strip scroll closes it. No window
+// 'resize' listener here — acquireOverlay() itself resizes the toolbar view,
+// which would dismiss the menu on the tick right after opening.
 document.getElementById('tabStrip')?.addEventListener('scroll', closeProjectChipMenu);
-window.addEventListener('resize', closeProjectChipMenu);
 tabSearchOverlay?.addEventListener('click', (event) => {
   if (event.target === tabSearchOverlay) closeTabSearch(true);
 });
