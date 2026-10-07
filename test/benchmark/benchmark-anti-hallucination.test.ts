@@ -10,14 +10,24 @@ import { VerificationCircuitBreaker } from '../../src/main/verification/circuit-
 import { StorageLocations } from '../../src/main/config/storage-locations';
 
 const originalDataRoot = process.env.ANTIFAN_DATA_ROOT;
+const originalIssueRegisterDir = process.env.ANTIFAN_ISSUE_REGISTER_DIR;
+const originalVerificationRegisterDir = process.env.ANTIFAN_VERIFICATION_REGISTER_DIR;
 const issueRegisterDataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-benchmark-verification-'));
 process.env.ANTIFAN_DATA_ROOT = issueRegisterDataRoot;
+// Pin both register overrides too: a leaked override env from the parent would
+// otherwise route issue/verification writes outside this scratch root.
+process.env.ANTIFAN_ISSUE_REGISTER_DIR = issueRegisterDataRoot;
+process.env.ANTIFAN_VERIFICATION_REGISTER_DIR = issueRegisterDataRoot;
 StorageLocations.resetCache();
 
 after(() => {
   (IssueRegister as unknown as { instance: IssueRegister | null }).instance = null;
   if (originalDataRoot === undefined) delete process.env.ANTIFAN_DATA_ROOT;
   else process.env.ANTIFAN_DATA_ROOT = originalDataRoot;
+  if (originalIssueRegisterDir === undefined) delete process.env.ANTIFAN_ISSUE_REGISTER_DIR;
+  else process.env.ANTIFAN_ISSUE_REGISTER_DIR = originalIssueRegisterDir;
+  if (originalVerificationRegisterDir === undefined) delete process.env.ANTIFAN_VERIFICATION_REGISTER_DIR;
+  else process.env.ANTIFAN_VERIFICATION_REGISTER_DIR = originalVerificationRegisterDir;
   StorageLocations.resetCache();
   fs.rmSync(issueRegisterDataRoot, { recursive: true, force: true });
 });

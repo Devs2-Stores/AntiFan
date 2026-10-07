@@ -11,8 +11,12 @@ import { IssueRegister } from '../src/main/session/issue-register';
 // The e2e records verification claims through the live IssueRegister singleton;
 // without a scratch data root every run appends residue to the real register.
 const originalDataRoot = process.env.ANTIFAN_DATA_ROOT;
+const originalIssueRegisterDir = process.env.ANTIFAN_ISSUE_REGISTER_DIR;
+const originalVerificationRegisterDir = process.env.ANTIFAN_VERIFICATION_REGISTER_DIR;
 const scratchDataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-golden-slice-'));
 process.env.ANTIFAN_DATA_ROOT = scratchDataRoot;
+process.env.ANTIFAN_ISSUE_REGISTER_DIR = scratchDataRoot;
+process.env.ANTIFAN_VERIFICATION_REGISTER_DIR = scratchDataRoot;
 StorageLocations.resetCache();
 import {
   ThemeTaskContext,
@@ -259,6 +263,10 @@ describe('Phase 5: Golden Slice E2E & Architecture Gate Validation', () => {
     (IssueRegister as unknown as { instance: IssueRegister | null }).instance = null;
     if (originalDataRoot === undefined) delete process.env.ANTIFAN_DATA_ROOT;
     else process.env.ANTIFAN_DATA_ROOT = originalDataRoot;
+    if (originalIssueRegisterDir === undefined) delete process.env.ANTIFAN_ISSUE_REGISTER_DIR;
+    else process.env.ANTIFAN_ISSUE_REGISTER_DIR = originalIssueRegisterDir;
+    if (originalVerificationRegisterDir === undefined) delete process.env.ANTIFAN_VERIFICATION_REGISTER_DIR;
+    else process.env.ANTIFAN_VERIFICATION_REGISTER_DIR = originalVerificationRegisterDir;
     StorageLocations.resetCache();
     fs.rmSync(scratchDataRoot, { recursive: true, force: true });
   });

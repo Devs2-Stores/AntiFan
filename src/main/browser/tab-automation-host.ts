@@ -947,7 +947,11 @@ export class TabAutomationHost {
             }, refToken);
           } catch (err: unknown) {
             const reason = err instanceof Error ? err.message : String(err);
-            return { success: false, reason };
+            const code =
+              err && typeof err === 'object' && 'code' in err && typeof err.code === 'string'
+                ? err.code
+                : undefined;
+            return { success: false, reason, data: code ? { code } : undefined };
           }
 
           if (this.ctx.getSemanticDocumentGeneration(targetId, effectivePane) !== curGen || wc.isDestroyed()) {
@@ -1049,7 +1053,11 @@ export class TabAutomationHost {
             return { success: res.executed, data: { ...res, executionTier: 'isolated_synthetic' } };
           } catch (err: unknown) {
             const reason = err instanceof Error ? err.message : String(err);
-            return { success: false, reason };
+            const code =
+              err && typeof err === 'object' && 'code' in err && typeof err.code === 'string'
+                ? err.code
+                : undefined;
+            return { success: false, reason, data: code ? { code } : undefined };
           }
         });
       });
@@ -1197,7 +1205,11 @@ export class TabAutomationHost {
           return { success: res.executed, data: { ...res, executionTier: 'isolated_synthetic' } };
         } catch (err: unknown) {
           const reason = err instanceof Error ? err.message : String(err);
-          return { success: false, reason };
+          const code =
+            err && typeof err === 'object' && 'code' in err && typeof err.code === 'string'
+              ? err.code
+              : undefined;
+          return { success: false, reason, data: code ? { code } : undefined };
         }
       });
     });

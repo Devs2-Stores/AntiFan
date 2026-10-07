@@ -4039,6 +4039,11 @@ export class BrowserControlPort {
         );
       }
     }
+    // Boundary lock (F6): TARGET_MISMATCH is terminal for cross-project
+    // surfaces. file_read / file_write / eval against tabs outside this
+    // session's authority stay refused — a subagent session cannot read,
+    // mutate, or evaluate background tabs belonging to another project
+    // capsule, and no fallback path below may soften that.
     this.host.setAutomationTabId(cleanId);
     return { success: true, tabId: cleanId };
   }
@@ -4309,10 +4314,26 @@ export class BrowserControlPort {
     if (res?.success) return { success: true };
 
     const data = res?.data && typeof res.data === 'object' ? (res.data as Record<string, unknown>) : undefined;
-    const code = data && typeof data.code === 'string' ? data.code : undefined;
+    const dataCode = data && typeof data.code === 'string' ? data.code : undefined;
+    // Some hosts surface the failure code at top level rather than inside data —
+    // coalesce both shapes so the wire code is never silently dropped.
+    const topCode =
+      res && typeof res === 'object' && 'code' in res && typeof res.code === 'string'
+        ? res.code
+        : undefined;
+    const code = dataCode ?? topCode;
+    const metadata = data && data.metadata && typeof data.metadata === 'object' ? (data.metadata as Record<string, unknown>) : {};
     if (code === 'TARGET_OBSCURED') {
-      const metadata = data && data.metadata && typeof data.metadata === 'object' ? (data.metadata as Record<string, unknown>) : {};
       throw new CapabilityError('TARGET_OBSCURED', res?.reason || 'Action target is covered by another element', { ...metadata, tabId });
+    }
+    if (code) {
+      // Preserve the structured failure code instead of collapsing it to a
+      // bare {success:false} — transport classification and issue telemetry
+      // rely on machine-stable error codes. Host-forged codes are minted
+      // inside this codebase; the wire type is CapabilityErrorCode, only the
+      // data payload arrives untyped as string.
+      const capabilityCode = code as CapabilityError['code'];
+      throw new CapabilityError(capabilityCode, res?.reason || `Agent action '${action}' failed`, { ...metadata, tabId });
     }
     return { success: false };
   }

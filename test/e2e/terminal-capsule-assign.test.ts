@@ -472,7 +472,7 @@ async function run() {
   await check('terminal.web-hub-and-manager-hold-project-scopes', async function () {
     expect(startup.ownerKey === 'web', 'the startup owner key was ' + String(startup.ownerKey));
     expect(startup.owner.kind === 'web', 'the startup owner kind was ' + String(startup.owner.kind));
-    expect(startup.title === 'AntiFan Browser', 'the startup title was ' + String(startup.title));
+    expect(startup.title === 'Project-' + ALPHA.projectId, 'the startup title was ' + String(startup.title));
     const webShell = authority.shellFor('web');
     expect(webShell, 'the web hub has no shell');
     webSidebar = surfaceOf(webShell, 'sidebar');
@@ -482,14 +482,14 @@ async function run() {
     const webChip = webToolbar
       ? await webToolbar.executeJavaScript('document.getElementById("projectChipTitle")?.textContent || null', true)
       : null;
-    // The hub's own name is the multi-project surface, not one project's claim — an ambiguous
-    // capsule set (ALPHA carries two claims on purpose) cannot name a window the surface is not.
+    // The hub window retitles to the project it presents (the chip carries the same
+    // label), so the record and the native title both name the boot project's fallback.
     observations.webPresentation = {
       nativeTitle: webShell.window.getTitle(),
       recordTitle: startup.title,
       chip: webChip,
     };
-    expect(webShell.window.getTitle() === 'AntiFan Browser', 'the hub native title was ' + JSON.stringify(webShell.window.getTitle()));
+    expect(webShell.window.getTitle() === 'Project-' + ALPHA.projectId, 'the hub native title was ' + JSON.stringify(webShell.window.getTitle()));
     expect(hubHost() && hubHost().activeProject() === ALPHA.projectId, 'the hub is not showing the boot project: ' + String(hubHost() && hubHost().activeProject()));
 
     // Each session the hub mints is stamped with the project it was minted under — the mint
@@ -669,14 +669,16 @@ async function run() {
     expect(afterMove.pty.pid === originalPid, 'transfer restarted the running shell');
     expect(afterMove.cwd === originalCwd, 'transfer changed the running shell working directory');
     expect(capsuleOf(alphaSession) === BETA.capsuleId, 'transfer did not update the capsule');
-    // The scope the row left and the scope it joined are the two surfaces this row is about:
-    // the move's own open-the-destination step left the hub presenting BETA, so the row is
-    // listed there first — then switching the hub back to ALPHA (the user's own click) must
-    // drop it, because the stamp it carries no longer matches the presented scope.
+    // The assign is silent: the hub still presents ALPHA, so the re-stamped row leaves the
+    // presented scope as soon as the stamp lands. Switching to BETA (the user's own click)
+    // is what lists it there, and switching back to ALPHA drops it again, because the stamp
+    // it carries no longer matches the presented scope.
+    await waitForRowGone(webSidebar, alphaSession, 'the hub under ALPHA to drop the moved session');
+    await openProjectAndWait(webSidebar, BETA);
     await waitForRowIn(webSidebar, alphaSession, 'the hub under BETA to list the moved session');
     const movedTargetListed = true;
     await openProjectAndWait(webSidebar, ALPHA);
-    await waitForRowGone(webSidebar, alphaSession, 'the hub under ALPHA to drop the moved session');
+    await waitForRowGone(webSidebar, alphaSession, 'the hub back under ALPHA to drop the moved session');
     await waitForRowOwner(managerSidebar, alphaSession, projectOwnerKey(BETA), 'the manager to re-stamp the moved session to BETA');
     observations.moved = {
       sessionId: alphaSession,

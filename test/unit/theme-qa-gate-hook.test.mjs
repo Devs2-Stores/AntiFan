@@ -90,6 +90,17 @@ test.after(() => {
 function loadHook() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "qa-gate-hook-"));
   scratchDirs.push(dir);
+  // Hermeticity floor: hook runs must never read the ambient data root's
+  // config dir — a dead bridge-dev.json there cascades a suspension notice
+  // into every observed tool result under aggregate runs. Deliberately an
+  // EMPTY dir, not "unset": it preserves the no-bridge semantics a truly
+  // absent config dir would produce (the dataRoot fallback reads a config
+  // dir inside the scratch root, which is likewise empty).
+  if (!process.env.ANTIFAN_CONFIG_DIR) {
+    const emptyConfig = fs.mkdtempSync(path.join(os.tmpdir(), "qa-gate-config-"));
+    scratchDirs.push(emptyConfig);
+    process.env.ANTIFAN_CONFIG_DIR = emptyConfig;
+  }
   for (const dep of depSources) {
     fs.writeFileSync(path.join(dir, dep.name), stagedSource(dep.source), "utf8");
   }

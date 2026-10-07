@@ -17,6 +17,7 @@ import { IssueRegister } from '../../src/main/session/issue-register';
 import { StorageLocations } from '../../src/main/config/storage-locations';
 
 const originalDataRoot = process.env.ANTIFAN_DATA_ROOT;
+const originalIssueRegisterDir = process.env.ANTIFAN_ISSUE_REGISTER_DIR;
 const originalRegisterDir = process.env.ANTIFAN_VERIFICATION_REGISTER_DIR;
 const createdRoots: string[] = [];
 
@@ -31,6 +32,7 @@ function useFreshDataRoot(prefix: string): string {
   createdRoots.push(root);
   (IssueRegister as unknown as { instance: IssueRegister | null }).instance = null;
   process.env.ANTIFAN_DATA_ROOT = root;
+  delete process.env.ANTIFAN_ISSUE_REGISTER_DIR;
   delete process.env.ANTIFAN_VERIFICATION_REGISTER_DIR;
   StorageLocations.resetCache();
   return root;
@@ -77,6 +79,8 @@ after(() => {
   (IssueRegister as unknown as { instance: IssueRegister | null }).instance = null;
   if (originalDataRoot === undefined) delete process.env.ANTIFAN_DATA_ROOT;
   else process.env.ANTIFAN_DATA_ROOT = originalDataRoot;
+  if (originalIssueRegisterDir === undefined) delete process.env.ANTIFAN_ISSUE_REGISTER_DIR;
+  else process.env.ANTIFAN_ISSUE_REGISTER_DIR = originalIssueRegisterDir;
   if (originalRegisterDir === undefined) delete process.env.ANTIFAN_VERIFICATION_REGISTER_DIR;
   else process.env.ANTIFAN_VERIFICATION_REGISTER_DIR = originalRegisterDir;
   StorageLocations.resetCache();

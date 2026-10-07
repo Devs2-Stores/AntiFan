@@ -343,7 +343,13 @@ export class IssueRegister {
     try {
       fs.mkdirSync(antifanDir, { recursive: true });
     } catch {}
-    this.logPath = path.join(antifanDir, 'issue-register.jsonl');
+    // Mirrors ANTIFAN_VERIFICATION_REGISTER_DIR below: test lanes and harness
+    // runs must never write issue records into the live data root.
+    const issueDir = process.env.ANTIFAN_ISSUE_REGISTER_DIR || antifanDir;
+    try {
+      fs.mkdirSync(issueDir, { recursive: true });
+    } catch {}
+    this.logPath = path.join(issueDir, 'issue-register.jsonl');
     // The verification register is the artifact harness runs pollute: e2e and
     // smoke scripts record claims through the same singleton, and their residue
     // lands in the live register when the run shares the real data root. The
@@ -355,6 +361,14 @@ export class IssueRegister {
     this.verificationsPath = path.join(registerDir, 'verification-register.jsonl');
     this.loadInitialIssues();
     this.loadInitialVerifications();
+    try {
+      this.autoReconcileKnownIssues();
+    } catch (err) {
+      // Reconciliation is best-effort maintenance: a disk/parse failure here
+      // must never abort singleton construction (crash intake, health checks,
+      // and tool dispatch all route through getInstance()).
+      console.warn('[IssueRegister] autoReconcile failed:', err);
+    }
   }
 
   public static getInstance(): IssueRegister {
@@ -563,6 +577,10 @@ export class IssueRegister {
       severity: issue.severity || 'P2',
       status: issue.status || 'OPEN',
     };
+    // Never serialize an explicit undefined errorCode — downstream consumers
+    // read the field as machine-stable taxonomy and `undefined` rows break
+    // grouping/summarization.
+    if (fullRecord.errorCode === undefined) delete fullRecord.errorCode;
 
     if (fullRecord.claimId) {
       if (!fullRecord.affected) fullRecord.affected = [];
@@ -744,9 +762,13 @@ export class IssueRegister {
 
     for (const item of toResolve) {
       if (item.status !== 'RESOLVED') {
-        this.transitionIssue(item.id, 'RESOLVED', { force: true, notes });
-      } else if (notes) {
-        item.notes = item.notes ? `${item.notes}; ${notes}` : notes;
+        // In-place transition (equivalent to transitionIssue with force:true —
+        // reconcile only ever lands on terminal RESOLVED, which the status
+        // machine forbids from every live state) but batched: one rewriteFile
+        // for the whole pass instead of one read+write cycle per item, and the
+        // note appended exactly once.
+        item.status = 'RESOLVED';
+        if (!item.resolvedAt) item.resolvedAt = Date.now();
       }
       if (evidenceRef) {
         if (Array.isArray(evidenceRef)) {
@@ -768,6 +790,64 @@ export class IssueRegister {
     }
 
     return { resolvedCount: resolvedIds.length, resolvedIds };
+  }
+
+  /**
+   * One-shot, signature-scoped reconciliation pass run at singleton init.
+   * Closes records that are already proven fixed upstream but had no
+   * retirement mechanism: previously, a NATIVE_CRASH row stayed OPEN forever
+   * even after its root cause shipped, and unit-test fixtures written into the
+   * shared data root polluted the live register.
+   *
+   * Signature A — FocusManager/MenuBar CHECK crash: toolName
+   * 'runtime.process', errorCode 'NATIVE_CRASH', STATUS_BREAKPOINT at
+   * module offset 0xe22b52 on Electron <= 43.4.0. Fixed by
+   * ProjectWindowShell.stripMenuBar() (commit 29c3124d) and the Electron
+   * 43.7.9 binary upgrade. Records without the version signature stay OPEN:
+   * ACCESS_VIOLATION / DUI70 / 0x0517a7ed dumps lack a verified fix and are
+   * deliberately left untouched.
+   *
+   * Signature B — test-fixture residue: rows whose errorMessage is the
+   * literal fixture string 'Element obscured by modal overlay' recorded by
+   * unit tests before register isolation existed.
+   */
+  public autoReconcileKnownIssues(): { resolvedCrashes: number; retiredFixtures: number } {
+    const crashResult = this.reconcile(
+      {
+        predicate: (issue) => {
+          if (issue.status !== 'OPEN') return false;
+          if (issue.errorCode !== 'NATIVE_CRASH' && issue.reasonCode !== 'NATIVE_CRASH') return false;
+          const hay = `${issue.errorMessage || ''} ${issue.notes || ''}`;
+          // Offsets in dump notes are zero-padded (0x0000000000e22b52) and must
+          // match exactly — a suffix boundary keeps 0xe22b520-style neighbors out.
+          if (!hay.includes('STATUS_BREAKPOINT') || !/0x0*e22b52(?![0-9a-f])/i.test(hay)) return false;
+          // Version scope: only dumps recorded under the pre-fix binary are
+          // eligible. Require the structured electronVersion field — a loose
+          // version-like token elsewhere in notes is not evidence.
+          const versionMatch = /"electronVersion"\s*:\s*"([0-9.]+)"/.exec(hay);
+          const versionStr = versionMatch?.[1];
+          if (!versionStr) return false;
+          const [major = 0, minor = 0] = versionStr.split('.').map(Number);
+          return major < 43 || (major === 43 && minor <= 4);
+        },
+      },
+      ['commit:29c3124d', 'fix:stripMenuBar@src/main/browser/project-window-shell.ts:360', 'electron:43.7.9'],
+      'Auto-resolved: FocusManager CHECK crash fixed by stripMenuBar() and Electron 43.7.9 upgrade'
+    );
+
+    const fixtureResult = this.reconcile(
+      {
+        predicate: (issue) =>
+          issue.status === 'OPEN' &&
+          issue.toolName === 'anti.agent.cursor.type' &&
+          issue.errorMessage === 'Element obscured by modal overlay' &&
+          issue.errorCode === undefined,
+      },
+      'test-fixture-retirement',
+      'Auto-resolved: unit-test fixture residue recorded into the live register before ANTIFAN_ISSUE_REGISTER_DIR isolation existed'
+    );
+
+    return { resolvedCrashes: crashResult.resolvedCount, retiredFixtures: fixtureResult.resolvedCount };
   }
   public getIssue(id: string): IssueRecord | undefined {
     return this.issues.find((i) => i.id === id);

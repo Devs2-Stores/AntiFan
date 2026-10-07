@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-10-06T10:42:58.909Z",
+  "timestamp": "2026-10-07T18:52:42.103Z",
   "themeQa": {
     "beforeClick": {
       "btnText": "QA",
@@ -39,7 +39,7 @@
       "selectedMcpDesc": "Mở tab Chromium mới trong AntiFan Desktop",
       "selectedMcpPerm": "Quyền Yêu Cầu: execute",
       "selectedMcpSchema": "{}",
-      "hasRunButton": false
+      "hasRunButton": true
     },
     "afterRunWorkflow": {
       "runStatusPill": "PASSED (100%)",
@@ -51,15 +51,15 @@
   "ipcCalls": [
     {
       "channel": "antifan:toolbar:get-initial-state",
-      "time": 1791283379386
+      "time": 1791399162350
     },
     {
       "channel": "antifan:toolbar:theme-qa-run",
-      "time": 1791283379906
+      "time": 1791399162856
     },
     {
       "channel": "antifan:workflow:get-state",
-      "time": 1791283380355
+      "time": 1791399163179
     },
     {
       "channel": "antifan:workflow:run",
@@ -103,7 +103,7 @@
           ]
         }
       },
-      "time": 1791283381103
+      "time": 1791399163962
     }
   ],
   "rendererLogs": [
@@ -243,10 +243,10 @@
       }
     },
     {
-      "id": "hub-mcp-detail-has-no-run-button",
+      "id": "hub-mcp-detail-has-run-button",
       "verdict": "PASS",
-      "expected": false,
-      "observed": false
+      "expected": true,
+      "observed": true
     },
     {
       "id": "hub-run-reports-passed",

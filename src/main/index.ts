@@ -141,6 +141,7 @@ import {
 } from './diagnostics/main-lifecycle-log';
 import { pruneOldCrashDumps } from './diagnostics/crash-dump-retention';
 import { intakeCrashReports } from './diagnostics/crash-report-intake';
+import { IssueRegister } from './session/issue-register';
 
 // Fail-closed boot guard (`AP-DEADLINE-001`): the request deadline chain must strictly
 // increase from the innermost callee bound to the outermost caller bound. A flattened or
@@ -193,6 +194,10 @@ installExitRecorder(process);
 // For that class of death the dump is the only surviving artifact, and this is what makes
 // it findable on the next launch. The dump path must be set before the reporter starts.
 let crashDumpsDir: string | null = null;
+// Earliest boot marker: precedes crash-reporter setup so a process that dies
+// before any other lifecycle event still leaves one journal row proving it started.
+recordLifecycleEvent('boot.start', { argv0: process.argv[0] ? 'set' : 'unset' });
+
 try {
   crashDumpsDir = path.join(StorageLocations.getRuntimeDir(), 'crashDumps');
   fs.mkdirSync(crashDumpsDir, { recursive: true });
@@ -224,6 +229,10 @@ try {
     void intakeCrashReports({ crashDumpsDir: dumpsDir })
       .then((intake) => {
         if (!intake.completed) return;
+        // Dumps intaken this boot recorded OPEN rows after the constructor's
+        // one-shot reconcile ran; re-run the signature pass so a crash whose
+        // fix already shipped doesn't sit OPEN for a whole session.
+        try { IssueRegister.getInstance().autoReconcileKnownIssues(); } catch {}
         const prunedDumps = pruneOldCrashDumps(dumpsDir, 3);
         if (prunedDumps.length > 0) {
           recordLifecycleEvent('crashReporter.pruned', { prunedDumps: prunedDumps.length });

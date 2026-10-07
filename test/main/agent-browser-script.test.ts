@@ -371,7 +371,7 @@ describe('Agent Browser & Element Picker Injected Scripts', () => {
   });
 
   it('keeps the annotation editor compact above the storefront content', () => {
-    assert.ok(ELEMENT_PICKER_SCRIPT.includes('width:min(92vw,400px)'), 'Modal width must scale with viewport');
+    assert.ok(ELEMENT_PICKER_SCRIPT.includes('width:min(94vw,420px)'), 'Modal width must scale with viewport');
     assert.ok(ELEMENT_PICKER_SCRIPT.includes('modal.offsetHeight'), 'Modal position must use measured height');
     const measureIdx = ELEMENT_PICKER_SCRIPT.indexOf('modal.offsetHeight');
     const appendIdx = ELEMENT_PICKER_SCRIPT.indexOf("modal.appendChild(footer)");

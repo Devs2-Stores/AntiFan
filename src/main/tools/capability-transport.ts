@@ -21,6 +21,7 @@ import { CapabilityCatalogue } from './capability-catalogue';
 import { AttachmentRegistry, type PageCloseAdmission } from '../run/attachment-registry';
 import { onceCloseAdmissionRelease, assertPageAdmitsWork, assertApplicationAdmitsWork } from './browser-control-port';
 import { InvocationLedger } from '../session/invocation-ledger';
+import { IssueRegister } from '../session/issue-register';
 import { safeErrorText } from './browser-capabilities';
 
 /**
@@ -54,6 +55,22 @@ type EffectMarker = 'not-started' | 'effect-started' | 'effect-committed';
 type EffectAcknowledgement = 'no-effect' | 'effect-possible' | 'effect-committed';
 
 const CANONICAL_TAB_PATTERN = /^(tab-[a-zA-Z0-9_\-]+|[0-9a-f]{8}(?:-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?)$/i;
+
+/** Expected, caller-visible failure classes — policy/validation/abort outcomes
+ * that are part of the contract, not defects worth an issue-register row. */
+const BENIGN_SETTLEMENT_CODES = new Set([
+  'POLICY_DENIED',
+  'UNAUTHENTICATED',
+  'AUTHENTICATION_DENIED',
+  'CAPABILITY_NOT_FOUND',
+  'INVALID_ARGUMENTS',
+  'INVALID_ARGUMENT',
+  'SCHEMA_VALIDATION_FAILED',
+  'VALIDATION_FAILED',
+  'ABORTED',
+  'CANCELLED',
+  'PROCESS_INTERRUPTED',
+]);
 export interface CapabilityListItem {
   name: string;
   description: string;
@@ -202,6 +219,10 @@ export function isFreshInspectionCapability(
 
 export class CapabilityTransportAdapter {
   private closeAdmission?: PageCloseAdmission;
+  /** Rate-limit window (ms) for issue-register telemetry: one row per
+   * (capability, code) per window — a 100x POLICY_DENIED burst stays one row. */
+  private issueRecordWindow = new Map<string, number>();
+  private static readonly ISSUE_RECORD_WINDOW_MS = 60_000;
   constructor(
     private readonly catalogue: CapabilityCatalogue,
     private readonly attachmentRegistry: AttachmentRegistry,
@@ -1093,6 +1114,7 @@ export class CapabilityTransportAdapter {
     } catch (error: unknown) {
       // Step 7: Persist terminal receipt (classified error)
       const classified = this.classifySettlement(error, policy, execControl);
+      this.recordTransportIssue(intent, classified);
 
       const errObj = {
         code: classified.code,
@@ -1239,6 +1261,47 @@ export class CapabilityTransportAdapter {
       message: relayErrorMessage(err),
       details: typed?.details,
     };
+  }
+
+  /**
+   * Write one rate-limited issue-register row per (capability, code) per
+   * ISSUE_RECORD_WINDOW_MS for classified capability failures that would
+   * otherwise reach the wire without any telemetry record. Interrupted /
+   * aborted executions are expected control flow and stay out.
+   */
+  private recordTransportIssue(
+    intent: ClientInvocationIntent,
+    classified: { state: string; code: string; message: string }
+  ): void {
+    if (classified.state === 'interrupted') return;
+    // Expected, caller-visible failure classes are policy/validation outcomes,
+    // not defects — recording them would flood the register with noise.
+    if (BENIGN_SETTLEMENT_CODES.has(classified.code)) return;
+    const key = `${intent?.name ?? 'unknown'}|${classified.code}`;
+    const now = Date.now();
+    const last = this.issueRecordWindow.get(key) ?? 0;
+    if (now - last < CapabilityTransportAdapter.ISSUE_RECORD_WINDOW_MS) return;
+    // Bounded: tool×code cardinality is small, but a pathological capability
+    // name set must not grow this map without limit — evict the stalest key.
+    if (this.issueRecordWindow.size >= 256) {
+      let stalest: string | undefined;
+      let stalestAt = Infinity;
+      for (const [k, t] of this.issueRecordWindow) {
+        if (t < stalestAt) { stalest = k; stalestAt = t; }
+      }
+      if (stalest !== undefined) this.issueRecordWindow.delete(stalest);
+    }
+    this.issueRecordWindow.set(key, now);
+    try {
+      IssueRegister.getInstance().record({
+        toolName: intent?.name ?? 'capability.dispatch',
+        errorCode: classified.code,
+        errorMessage: classified.message,
+        severity: 'P3',
+        issueClass: 'runtime',
+        reasonCode: classified.code,
+      });
+    } catch {}
   }
 
   private canReadReceipt(

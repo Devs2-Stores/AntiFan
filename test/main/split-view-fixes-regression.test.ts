@@ -306,9 +306,9 @@ describe('Split View 3 Fixes Regression Suite', () => {
     assert.ok(ELEMENT_PICKER_SCRIPT.includes('repositionModal = () =>'), 'repositionModal function is declared and defined');
 
     // 3. Verify collision logic (flip above and clamp inside viewport bounds)
-    assert.ok(ELEMENT_PICKER_SCRIPT.includes('topAbove = r.top - modalH - 6'), 'calculates topAbove when overflowing bottom');
-    assert.ok(ELEMENT_PICKER_SCRIPT.includes('Math.min(vpH - modalH - 10, top)'), 'clamps top within viewport height');
-    assert.ok(ELEMENT_PICKER_SCRIPT.includes('Math.min(vpW - modalW - 10, left)'), 'clamps left within viewport width');
+    assert.ok(ELEMENT_PICKER_SCRIPT.includes('top = r.top - modalH - 6'), 'flips above when space below cannot fit the modal');
+    assert.ok(ELEMENT_PICKER_SCRIPT.includes('Math.max(12, vpH - modalH - 12)'), 'clamps top within viewport height');
+    assert.ok(ELEMENT_PICKER_SCRIPT.includes('Math.max(12, vpW - modalW - 12)'), 'clamps left within viewport width');
 
     // 4. Verify textareaAutoGrow triggers repositionModal
     assert.ok(ELEMENT_PICKER_SCRIPT.includes('repositionModal();\n    };\n    textareaAutoGrow();'), 'textareaAutoGrow invokes repositionModal');

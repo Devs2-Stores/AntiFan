@@ -18,6 +18,9 @@
  */
 import { spawn, spawnSync } from 'node:child_process';
 import process from 'node:process';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 // The static gates run before anything compiles and every lane that needs a build depends on
 // 'compile' separately. 'typecheck' belongs here: the script existed but no lane ran it, so a green
@@ -160,7 +163,15 @@ function parseArgs(argv) {
   return options;
 }
 
+/**
+ * Register isolation for spawned lanes: each lane gets its own scratch dir
+ * (shared dirs cause cross-lane residue and NTFS rename contention when a lane
+ * fans out parallel test processes) and both register overrides are pinned —
+ * a file that forgets its own isolation writes fixture rows into lane scratch,
+ * never into the live %ANTIFAN_DATA_ROOT%/issues/ registers.
+ */
 function runLane(lane, timeoutMs) {
+  const laneDir = mkdtempSync(join(tmpdir(), `antifan-lane-${lane.replace(/[^a-z0-9]+/gi, '-')}-`));
   const startedAt = Date.now();
   return new Promise((resolve) => {
     const custom = LANE_COMMANDS.get(lane);
@@ -170,6 +181,11 @@ function runLane(lane, timeoutMs) {
     const child = spawn(cmd, args, {
       stdio: 'inherit',
       shell: custom ? false : isWindows,
+      env: {
+        ...process.env,
+        ANTIFAN_ISSUE_REGISTER_DIR: laneDir,
+        ANTIFAN_VERIFICATION_REGISTER_DIR: laneDir,
+      },
       // A POSIX process group lets the timeout kill the whole lane, not just its first process.
       detached: !isWindows,
     });
@@ -180,6 +196,9 @@ function runLane(lane, timeoutMs) {
     }, timeoutMs);
     const finish = (status, signal) => {
       clearTimeout(timer);
+      // The lane is terminal: drop its scratch registers before reporting so a
+      // crashed lane cannot leak orphan dirs into os.tmpdir().
+      try { rmSync(laneDir, { recursive: true, force: true }); } catch {}
       resolve({
         lane,
         // A timed-out lane must never report green: if the child races its own exit to 0
