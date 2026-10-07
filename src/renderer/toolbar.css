@@ -4445,9 +4445,9 @@ body, html {
 
 /* PROJECT CHIP MENU: popover under the chip, mirrors app-dropdown styling. */
 .project-chip-menu {
-  position: absolute;
-  top: calc(100% + 8px);
-  left: 0;
+  /* fixed, not absolute: the chip lives inside .tab-strip's overflow-x scroll box,
+     so an absolutely-positioned child is clipped to the 38px strip. */
+  position: fixed;
   min-width: 240px;
   background: rgba(18, 18, 24, 0.97);
   backdrop-filter: blur(20px) saturate(180%);

@@ -6338,6 +6338,11 @@ const menuItemReattachProject = document.getElementById('menuItemReattachProject
 
 function openProjectChipMenu(): void {
   if (!projectChipMenu || !projectIdentityChip) return;
+  // The chip is inside .tab-strip's overflow-x scroll box, so the menu is `fixed`
+  // and is anchored to the chip's live rect every time it opens.
+  const rect = projectIdentityChip.getBoundingClientRect();
+  projectChipMenu.style.top = `${Math.round(rect.bottom) + 6}px`;
+  projectChipMenu.style.left = `${Math.round(rect.left)}px`;
   projectChipMenu.style.display = 'flex';
   projectIdentityChip.setAttribute('aria-expanded', 'true');
   acquireOverlay('project-chip');
@@ -6422,6 +6427,10 @@ document.addEventListener('click', (e) => {
     closeProjectChipMenu();
   }
 });
+// A fixed popover cannot track its anchor: strip scroll or window resize would
+// leave it floating on the wrong anchor point, so it simply dismisses instead.
+document.getElementById('tabStrip')?.addEventListener('scroll', closeProjectChipMenu);
+window.addEventListener('resize', closeProjectChipMenu);
 tabSearchOverlay?.addEventListener('click', (event) => {
   if (event.target === tabSearchOverlay) closeTabSearch(true);
 });
