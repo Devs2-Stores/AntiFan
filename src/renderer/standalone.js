@@ -1660,6 +1660,8 @@ let sleepPreviewSessionId = '';
 let sleepPreviewMode = '';
 /** Whether the mounted view already holds the full retained transcript. */
 let sleepPreviewFullLoaded = false;
+/** Text last written into the preview body — avoids O(n) DOM readback per push. */
+let sleepPreviewText = '';
 /** Session whose on-demand transcript view the user opened ('' = none). */
 let transcriptPreviewSessionId = '';
 
@@ -1670,6 +1672,7 @@ function teardownSleepPreview() {
   sleepPreviewSessionId = '';
   sleepPreviewMode = '';
   sleepPreviewFullLoaded = false;
+  sleepPreviewText = '';
 }
 
 /**
@@ -1708,11 +1711,58 @@ function transcriptToPlainText(raw) {
   return text.replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').trim();
 }
 
+/**
+ * Read shaping for a read-only transcript view, applied AFTER the control codes are
+ * stripped. Two bounds keep a multi-MB capture off the layout thread:
+ *  - consecutive identical lines collapse to a counter (a TUI spinner redraws the same
+ *    status line once per frame, so a capture can hold tens of thousands of copies);
+ *  - the body shows the last PREVIEW_MAX_LINES lines, with the omission stated. The
+ *    preview answers "what was this shell doing" — it is not a scrollback emulator.
+ */
+const PREVIEW_MAX_LINES = 2000;
+
+function previewBodyText(text) {
+  if (typeof text !== 'string' || !text) return text || '';
+  const lines = text.split('\n');
+  const out = [];
+  let runLine = '';
+  let runOutIndex = -1;
+  let runCount = 0;
+  const flushRun = () => {
+    if (runCount > 1) out[runOutIndex] = `${runLine}\n    ↳ lặp lại ×${runCount}`;
+    runLine = '';
+    runOutIndex = -1;
+    runCount = 0;
+  };
+  for (const line of lines) {
+    if (line && line === runLine) {
+      runCount += 1;
+      continue;
+    }
+    flushRun();
+    runLine = line;
+    runOutIndex = out.length;
+    runCount = 1;
+    out.push(line);
+  }
+  flushRun();
+  if (out.length <= PREVIEW_MAX_LINES) return out.join('\n');
+  const shown = out.slice(out.length - PREVIEW_MAX_LINES);
+  return `… (đã lược ${out.length - PREVIEW_MAX_LINES} dòng đầu — transcript đầy đủ vẫn giữ trong bản ghi phiên)\n\n${shown.join('\n')}`;
+}
+
+/** Last parsed preview text, keyed by the pushed buffer suffix — a sessions push that
+ * carries an unchanged tail must not re-run the strip pass. */
+let previewPlainCache = { key: '', text: '' };
+
 /** Plain text for a read-only transcript view. */
 function previewTranscriptText(session) {
   const raw = (session && typeof session.buffer === 'string') ? session.buffer : '';
-  const text = transcriptToPlainText(raw);
-  return text || '(Không có nội dung lưu lại)';
+  const key = `${session && session.id}:${raw.length}:${raw.slice(-256)}`;
+  if (previewPlainCache.key !== key) {
+    previewPlainCache = { key, text: previewBodyText(transcriptToPlainText(raw)) };
+  }
+  return previewPlainCache.text || '(Không có nội dung lưu lại)';
 }
 
 /**
@@ -1728,10 +1778,15 @@ function loadFullTranscriptInto(el, sessionId, mode, body) {
   Promise.resolve(pending)
     .then((result) => {
       if (sleepPreviewEl !== el || sleepPreviewSessionId !== sessionId || sleepPreviewMode !== mode) return;
-      const full = transcriptToPlainText(typeof result?.buffer === 'string' ? result.buffer : '');
+      const full = previewBodyText(transcriptToPlainText(typeof result?.buffer === 'string' ? result.buffer : ''));
       if (!full) return;
       sleepPreviewFullLoaded = true;
-      if (body.textContent !== full) body.textContent = full;
+      // Compare against the last written string, never body.textContent — reading a
+      // multi-MB text node back out of the DOM is the freeze this view used to cause.
+      if (sleepPreviewText !== full) {
+        body.textContent = full;
+        sleepPreviewText = full;
+      }
     })
     .catch(() => {});
 }
@@ -1769,13 +1824,19 @@ function resolveReadOnlyTranscriptMode(activeSession) {
 function renderSleepPreview(session, mode = 'sleeping') {
   if (!session || !mainPane) return;
   const requestedMode = mode === 'lossy' ? 'lossy' : 'sleeping';
-  const text = previewTranscriptText(session);
   if (sleepPreviewEl && sleepPreviewSessionId === session.id && sleepPreviewMode === requestedMode) {
     // A view that already holds the full retained transcript is a snapshot: re-slicing
-    // megabytes on every push would cost more than the staleness it removes.
+    // megabytes on every push would cost more than the staleness it removes. This check
+    // runs BEFORE previewTranscriptText so a settled view costs nothing per push.
     if (sleepPreviewFullLoaded) return;
+    const text = previewTranscriptText(session);
     const body = sleepPreviewEl.querySelector('.terminal-sleep-preview-body');
-    if (body && body.textContent !== text) body.textContent = text;
+    // Compare against the last written string, never body.textContent — reading a
+    // multi-MB text node back out of the DOM on every push is the freeze this caused.
+    if (body && sleepPreviewText !== text) {
+      body.textContent = text;
+      sleepPreviewText = text;
+    }
     return;
   }
   teardownSleepPreview();
@@ -1814,7 +1875,9 @@ function renderSleepPreview(session, mode = 'sleeping') {
 
   const body = document.createElement('pre');
   body.className = 'terminal-sleep-preview-body';
+  const text = previewTranscriptText(session);
   body.textContent = text;
+  sleepPreviewText = text;
 
   el.append(header, body);
   if (isLossy) {

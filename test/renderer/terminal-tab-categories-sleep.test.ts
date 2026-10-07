@@ -634,6 +634,44 @@ describe('Renderer sleep preview: a retained capture renders as text, not as esc
 
     assert.match(previewText(harness), /Không có nội dung lưu lại/);
   });
+  it('collapses a spinner redraw run into one counted line', () => {
+    // The lag this pins down: a slept TUI tab captured tens of thousands of identical
+    // "Working…" status lines, and the preview stuffed all of them into one <pre>.
+    const harness = loadStandalone();
+    const spinnerRun = Array.from({ length: 5000 }, () => '⠋ Working…');
+    const buffer = [...spinnerRun, 'final line'].join('\n');
+    const list = [{ id: 'sl4', name: 'Spinner', state: 'sleeping', buffer }];
+    seed(harness, list, 'sl4');
+    harness.renderTabs();
+    harness.syncTerminalPool(list, 'sl4');
+
+    const body = previewText(harness);
+    assert.match(body, /⠋ Working…\n\s+↳ lặp lại ×5000/, 'one spinner run collapses to a counted line');
+    assert.ok(body.includes('final line'), 'the line after the run survives');
+    assert.strictEqual(body.split('⠋ Working…').length - 1, 1, 'the run renders once, not 5000 times');
+  });
+
+  it('caps the body at the last 2000 lines and states the omission', () => {
+    const harness = loadStandalone();
+    const uniqueTail = Array.from({ length: 3000 }, (_, i) => `unique-line-${i}`);
+    const list = [{ id: 'sl5', name: 'Long', state: 'sleeping', buffer: uniqueTail.join('\n') }];
+    seed(harness, list, 'sl5');
+    harness.renderTabs();
+    harness.syncTerminalPool(list, 'sl5');
+
+    const body = previewText(harness);
+    assert.strictEqual(body.split('unique-line-').length - 1, 2000, 'the body is capped at the last 2000 lines');
+    assert.match(body, /đã lược 1000 dòng đầu/, 'the cap states how many lines were omitted');
+    assert.ok(body.includes('unique-line-2999'), 'the tail survives the cap');
+    assert.ok(!body.includes('unique-line-0\n'), 'the head is what is omitted');
+
+    // A settled view must not re-parse on every push: sync again with the same buffer
+    // and the same DOM must serve from the mount, not from another strip pass.
+    const elBefore = harness.sleepPreview();
+    harness.syncTerminalPool(list, 'sl5');
+    assert.strictEqual(harness.sleepPreview(), elBefore, 'an unchanged push keeps the mounted view');
+    assert.strictEqual(previewText(harness), body, 're-sync leaves the rendered text untouched');
+  });
 });
 
 describe('Renderer group header: reachable and operable from the keyboard', () => {
