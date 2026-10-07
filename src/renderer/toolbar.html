@@ -22,7 +22,27 @@
   <div id="toolbar-root">
     <!-- TAB STRIP -->
     <div class="tab-strip" id="tabStrip">
-      <div class="project-identity-chip" id="projectIdentityChip" role="status" aria-live="polite" style="display:none;"><span class="project-identity-dot"></span><span class="project-identity-name" id="projectIdentityName"></span></div>
+      <div class="project-identity-wrap" id="projectIdentityWrap">
+        <div class="project-identity-chip" id="projectIdentityChip" role="button" aria-live="polite" aria-haspopup="menu" aria-expanded="false" tabindex="0" style="display:none;"><span class="project-identity-dot"></span><span class="project-identity-name" id="projectIdentityName"></span><span class="project-identity-caret"><svg width="9" height="9" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6l4 4 4-4"/></svg></span></div>
+        <div class="project-chip-menu" id="projectChipMenu" role="menu" style="display:none;">
+          <div class="project-chip-menu-header">
+            <span class="project-chip-menu-badge" id="projectChipBadge">HUB</span>
+            <span class="project-chip-menu-title" id="projectChipTitle"></span>
+          </div>
+          <div class="project-chip-menu-path" id="projectChipPath" style="display:none;"></div>
+          <div class="project-chip-menu-actions">
+            <button type="button" class="project-chip-menu-item" id="menuProjectMove" role="menuitem">
+              <span class="menu-icon" id="menuProjectMoveIcon"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2h4v4M14 2L8 8"/><path d="M9 9l-7 7"/></svg></span>
+              <span class="menu-label" id="menuProjectMoveLabel">Tách ra cửa sổ riêng</span>
+              <span class="menu-shortcut">Ctrl+Shift+D</span>
+            </button>
+            <button type="button" class="project-chip-menu-item" id="menuProjectOpenOther" role="menuitem">
+              <span class="menu-icon"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4h5l1.5 2H14v7H2V4z"/></svg></span>
+              <span class="menu-label">Chuyển sang dự án khác…</span>
+            </button>
+          </div>
+        </div>
+      </div>
       <div class="tab-list" id="tabList"></div>
       <button class="btn-tab-search" id="btnTabSearch" title="Tìm tab trong mọi cửa sổ dự án" aria-label="Tìm tab trong mọi cửa sổ dự án" aria-haspopup="dialog" aria-expanded="false">
         <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
@@ -264,8 +284,19 @@
             <span class="menu-label">Check for Updates... (Recompile & Restart)</span>
             <span class="menu-shortcut">Ctrl+Shift+U</span>
           </div>
-          
-          <div class="app-menu-divider"></div>
+
+          <div class="app-menu-item" id="menuItemDetachProject" style="display:none;">
+            <span class="menu-icon"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2h4v4M14 2L8 8"/><path d="M9 9l-7 7"/></svg></span>
+            <span class="menu-label">Detach dự án ra cửa sổ riêng</span>
+            <span class="menu-shortcut">Ctrl+Shift+D</span>
+          </div>
+          <div class="app-menu-item" id="menuItemReattachProject" style="display:none;">
+            <span class="menu-icon"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 14H2v-4M2 14l6-6"/><path d="M7 7l7-7"/></svg></span>
+            <span class="menu-label">Gắn lại dự án vào Web Hub</span>
+            <span class="menu-shortcut">Ctrl+Shift+D</span>
+          </div>
+
+          <div class="app-menu-divider" id="menuProjectDivider" style="display:none;"></div>
 
           <div class="app-menu-item app-menu-has-sub" id="menuItemSyncProfile">
             <span class="menu-icon"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="5" r="3"/><path d="M2.5 14a5.5 5.5 0 0 1 11 0"/></svg></span>
@@ -391,6 +422,7 @@
           <table class="shortcuts-table">
             <tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>O</kbd></td><td>Mở dự án trong cửa sổ riêng</td></tr>
             <tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>M</kbd></td><td>Mở cửa sổ Terminal chung (quản lý session mọi dự án)</td></tr>
+            <tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd></td><td>Tách dự án ra cửa sổ riêng / Gắn lại vào Web Hub</td></tr>
             <tr><td><kbd>Ctrl</kbd>+<kbd>T</kbd></td><td>New Tab</td></tr>
             <tr><td><kbd>Ctrl</kbd>+<kbd>W</kbd></td><td>Close Tab</td></tr>
             <tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd></td><td>Reopen Closed Tab</td></tr>

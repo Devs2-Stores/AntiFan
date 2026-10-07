@@ -5593,12 +5593,11 @@ api?.onProjectOpenPicker?.((payload) => { void openProjectOpenPicker(payload); }
 
 
 /**
- * Move one terminal into a capsule's window, as the user asked for it.
+ * Move one terminal into a capsule's project, as the user asked for it.
  *
- * Step one opens (or focuses) the project's window because the move route never opens one;
- * step two hands the session over. Only a reported OPENED/FOCUSED reaches step two, and only
- * Main's own answer is reported as success — a cancelled open and every refusal leave the row
- * where it is and say why.
+ * The move is ownership-only: ASSIGN_PROJECT re-stamps the row and every window
+ * that shows it repaints under the target project — it never needs the project's
+ * own window opened or focused. Only Main's own answer is reported as success.
  */
 async function assignSessionToCapsule(sessionId, entry) {
   // A pane has no window of its own: the move is the tab's, so the whole family travels with it.
@@ -5609,12 +5608,8 @@ async function assignSessionToCapsule(sessionId, entry) {
     showTerminalNotice('Không chuyển được Terminal: preload thiếu assignTerminalProject');
     return false;
   }
-  if (!api?.openProject) {
-    showTerminalNotice('Không chuyển được Terminal: preload thiếu openProject');
-    return false;
-  }
   if (!projectId) {
-    showTerminalNotice(`Không chuyển được sang “${capsuleLabel}”: dự án này chưa gắn hồ sơ dự án nên không mở được cửa sổ`);
+    showTerminalNotice(`Không chuyển được sang “${capsuleLabel}”: dự án này chưa gắn hồ sơ dự án nên không xác định được đích`);
     return false;
   }
   if (capsuleAssignmentsInFlight.has(baseId)) {
@@ -5622,25 +5617,8 @@ async function assignSessionToCapsule(sessionId, entry) {
     return false;
   }
   capsuleAssignmentsInFlight.add(baseId);
-  showTerminalNotice(`Đang mở dự án “${capsuleLabel}”…`, 'info');
+  showTerminalNotice(`Đang chuyển Terminal sang dự án “${capsuleLabel}”…`, 'info');
   try {
-    let opened;
-    try {
-      opened = await api.openProject(projectId);
-    } catch (err) {
-      showTerminalNotice(`Không mở được dự án “${capsuleLabel}”: ${bridgeErrorText(err)}`);
-      return false;
-    }
-    const status = opened && typeof opened === 'object' ? opened.status : '';
-    if (status === 'CANCELLED') {
-      showTerminalNotice(`Đã huỷ mở dự án “${capsuleLabel}” — Terminal vẫn ở lại đây`, 'info');
-      return false;
-    }
-    if (status !== 'OPENED' && status !== 'FOCUSED') {
-      const reason = opened && typeof opened === 'object' ? opened.reason : '';
-      showTerminalNotice(`Không mở được dự án “${capsuleLabel}”: ${projectOpenFailureText(reason)}`);
-      return false;
-    }
 
     let reply;
     try {

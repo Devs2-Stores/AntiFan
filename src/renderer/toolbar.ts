@@ -115,6 +115,14 @@ type ProjectOpenResult =
   | { status: 'OPENED' | 'FOCUSED' | 'CANCELLED'; projectId?: string }
   | { status: 'FAILED'; projectId?: string; reason: string };
 
+type ProjectDetachResult =
+  | { status: 'DETACHED' | 'FOCUSED'; projectId: string }
+  | { status: 'FAILED'; projectId?: string; reason: string };
+
+type ProjectReattachResult =
+  | { status: 'REATTACHED'; projectId: string }
+  | { status: 'FAILED'; projectId?: string; reason: string };
+
 /** Payload shape of a successful THEME_CHECKLIST_LOAD invoke. */
 interface ThemeChecklistLoadResult {
   scope: string;
@@ -252,6 +260,9 @@ interface AntiFanToolbarApi {
     requestId: string;
     choice: { kind: 'project'; projectId: string } | { kind: 'folder' } | { kind: 'cancelled' };
   }) => Promise<unknown>;
+  /** Detach the presented project into its own shell, or bring a detached shell home. */
+  detachProject?: (request: { projectId: string }) => Promise<ProjectDetachResult>;
+  reattachProject?: (request: { projectId: string }) => Promise<ProjectReattachResult>;
   /**
    * Reasons Main refused a close or quit, pushed for display only. The payload arrives
    * unvalidated like every other cross-process message, so it is typed `unknown` here and
@@ -4318,6 +4329,7 @@ document.addEventListener('keydown', (e) => {
   if (themeItemEditOverlay?.style.display === 'flex') { closeItemEditorDialog(); return; }
   if (themeQaOverlay?.style.display === 'flex') { themeQaOverlay.style.display = 'none'; releaseOverlay('theme-qa'); return; }
   if (findBar?.style.display === 'flex') { hideFindBar(); return; }
+  if (projectChipMenu?.style.display === 'flex') { closeProjectChipMenu(); return; }
   if (omniboxSuggestDropdown?.style.display === 'block') { hideSuggestDropdown(); return; }
 });
 if (btnQuickInspect) btnQuickInspect.addEventListener('click', () => getApi()?.toggleInspect());
@@ -5830,11 +5842,19 @@ function parseProjectWindowIdentity(source: unknown): ProjectWindowIdentity | nu
 }
 
 /**
+ * The identity the last state broadcast described. Detach/reattach menu items and the
+ * chip popover both read it: a detached `project:` shell reattaches, a hub presenting a
+ * project detaches it.
+ */
+let lastProjectIdentity: ProjectWindowIdentity | null = null;
+
+/**
  * Paint the shell's project identity. A duplicate project name is distinguished by the
  * workspace path label, which is also the chip's tooltip.
  */
 function renderProjectWindowIdentity(source: unknown) {
   const identity = parseProjectWindowIdentity(source);
+  lastProjectIdentity = identity;
   // The strip scope follows the identity's own definite answer (H6): a web hub
   // presenting a project filters to its tabs plus shared ones; a retraction or a
   // shell that is not the hub renders everything rather than hiding tabs behind a
@@ -5849,13 +5869,52 @@ function renderProjectWindowIdentity(source: unknown) {
   const showsProject = Boolean(identity && identity.owner.kind !== 'unassigned' && identity.title
     && (identity.owner.kind === 'project' || identity.activeProjectId));
   chip.style.display = showsProject ? 'inline-flex' : 'none';
+  chip.classList.toggle('is-detached', identity?.owner.kind === 'project');
   if (identity && showsProject) {
     nameEl.textContent = identity.title;
     chip.title = identity.pathLabel ? `${identity.title} — ${identity.pathLabel}` : identity.title;
   } else {
     nameEl.textContent = '';
     chip.removeAttribute('title');
+    closeProjectChipMenu();
   }
+  syncProjectMenuItems();
+}
+
+/** The project id this chrome may detach/reattach, or null when neither applies. */
+function projectActionTarget(): string | null {
+  const identity = lastProjectIdentity;
+  if (!identity) return null;
+  if (identity.owner.kind === 'project') return identity.owner.projectId;
+  if (identity.owner.kind === 'web' && identity.activeProjectId) return identity.activeProjectId;
+  return null;
+}
+
+/** Reflect the identity into the ⋮ menu rows and the chip popover's content. */
+function syncProjectMenuItems(): void {
+  const detached = lastProjectIdentity?.owner.kind === 'project';
+  const hasTarget = projectActionTarget() !== null;
+  const detachItem = document.getElementById('menuItemDetachProject');
+  const reattachItem = document.getElementById('menuItemReattachProject');
+  const divider = document.getElementById('menuProjectDivider');
+  if (detachItem) detachItem.style.display = !detached && hasTarget ? '' : 'none';
+  if (reattachItem) reattachItem.style.display = detached ? '' : 'none';
+  if (divider) divider.style.display = hasTarget ? '' : 'none';
+  const badge = document.getElementById('projectChipBadge');
+  const title = document.getElementById('projectChipTitle');
+  const path = document.getElementById('projectChipPath');
+  const moveLabel = document.getElementById('menuProjectMoveLabel');
+  if (badge) {
+    badge.textContent = detached ? 'DETACHED' : 'HUB';
+    badge.classList.toggle('detached', detached);
+  }
+  if (title) title.textContent = lastProjectIdentity?.title || '';
+  if (path) {
+    const label = lastProjectIdentity?.pathLabel || '';
+    path.style.display = label ? '' : 'none';
+    path.textContent = label;
+  }
+  if (moveLabel) moveLabel.textContent = detached ? 'Gắn lại vào Web Hub' : 'Tách ra cửa sổ riêng';
 }
 
 /** Validate one inventory row. A row without an addressable id is dropped, not guessed. */
@@ -6264,6 +6323,105 @@ projectPickerOverlay?.addEventListener('click', (event) => {
   if (event.target === projectPickerOverlay) answerProjectPicker({ kind: 'cancelled' });
 });
 tabSearchClose?.addEventListener('click', () => closeTabSearch(true));
+// ---------------------------------------------------------------------------
+// Project chip menu — detach/reattach and project switching. The native menubar
+// is retired on win32/linux (FocusManager crash), so this chip popover plus the
+// ⋮ rows are the discoverable surface the File menu used to provide.
+// ---------------------------------------------------------------------------
+const projectIdentityChip = document.getElementById('projectIdentityChip') as HTMLElement | null;
+const projectChipMenu = document.getElementById('projectChipMenu') as HTMLElement | null;
+const projectChipWrap = document.getElementById('projectIdentityWrap') as HTMLElement | null;
+const menuProjectMove = document.getElementById('menuProjectMove') as HTMLButtonElement | null;
+const menuProjectOpenOther = document.getElementById('menuProjectOpenOther') as HTMLButtonElement | null;
+const menuItemDetachProject = document.getElementById('menuItemDetachProject') as HTMLElement | null;
+const menuItemReattachProject = document.getElementById('menuItemReattachProject') as HTMLElement | null;
+
+function openProjectChipMenu(): void {
+  if (!projectChipMenu || !projectIdentityChip) return;
+  projectChipMenu.style.display = 'flex';
+  projectIdentityChip.setAttribute('aria-expanded', 'true');
+  acquireOverlay('project-chip');
+  syncProjectMenuItems();
+}
+
+function closeProjectChipMenu(): void {
+  if (!projectChipMenu) return;
+  if (projectChipMenu.style.display !== 'none') releaseOverlay('project-chip');
+  projectChipMenu.style.display = 'none';
+  projectIdentityChip?.setAttribute('aria-expanded', 'false');
+}
+
+function projectMoveReasonText(reason: string | undefined): string {
+  if (reason === 'NOT_DETACHED') return 'Dự án không đang tách';
+  if (reason === 'CLOSE_REFUSED') return 'Một tab đang chặn đóng cửa sổ (xem thông báo)';
+  if (reason === 'REATTACH_IN_PROGRESS') return 'Đang gắn lại…';
+  if (reason === 'DETACH_REFUSED') return 'Có tab từ chối chuyển sang cửa sổ riêng';
+  return reason || 'không rõ nguyên nhân';
+}
+
+async function runProjectMove(): Promise<void> {
+  const projectId = projectActionTarget();
+  if (!projectId) { showToolbarToast('⚠️ Không xác định được dự án của cửa sổ này'); return; }
+  closeProjectChipMenu();
+  const detached = lastProjectIdentity?.owner.kind === 'project';
+  try {
+    if (detached) {
+      const result = await getApi()?.reattachProject?.({ projectId });
+      // Success closes this very window — nothing else to paint.
+      if (result && result.status === 'FAILED') showToolbarToast(`⚠️ Không gắn lại được: ${projectMoveReasonText(result.reason)}`);
+    } else {
+      const result = await getApi()?.detachProject?.({ projectId });
+      if (!result) { showToolbarToast('⚠️ Preload thiếu detachProject'); return; }
+      if (result.status === 'DETACHED') showToolbarToast('✅ Đã tách dự án ra cửa sổ riêng');
+      else if (result.status === 'FOCUSED') showToolbarToast('Dự án đã có cửa sổ riêng — đang hiển thị');
+      else if (result.status === 'FAILED') showToolbarToast(`⚠️ Không tách được: ${projectMoveReasonText(result.reason)}`);
+    }
+  } catch (err) {
+    showToolbarToast(`⚠️ ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+projectIdentityChip?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (projectChipMenu?.style.display === 'flex') closeProjectChipMenu();
+  else openProjectChipMenu();
+});
+projectIdentityChip?.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); openProjectChipMenu(); }
+  else if (e.key === 'ArrowDown' && projectChipMenu?.style.display === 'flex') {
+    e.preventDefault();
+    (projectChipMenu.querySelector('.project-chip-menu-item') as HTMLElement | null)?.focus();
+  }
+});
+projectChipMenu?.addEventListener('click', (e) => e.stopPropagation());
+projectChipMenu?.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    const items = Array.from(projectChipMenu.querySelectorAll<HTMLElement>('.project-chip-menu-item'));
+    const idx = items.indexOf(document.activeElement as HTMLElement);
+    items[(idx + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length]?.focus();
+  }
+});
+menuProjectMove?.addEventListener('click', () => { void runProjectMove(); });
+menuProjectOpenOther?.addEventListener('click', () => {
+  closeProjectChipMenu();
+  void getApi()?.openProject?.();
+});
+menuItemDetachProject?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  closeAppMenu();
+  void runProjectMove();
+});
+menuItemReattachProject?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  closeAppMenu();
+  void runProjectMove();
+});
+document.addEventListener('click', (e) => {
+  if (projectChipMenu?.style.display === 'flex' && projectChipWrap && !projectChipWrap.contains(e.target as Node)) {
+    closeProjectChipMenu();
+  }
+});
 tabSearchOverlay?.addEventListener('click', (event) => {
   if (event.target === tabSearchOverlay) closeTabSearch(true);
 });

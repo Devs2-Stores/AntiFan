@@ -10,8 +10,8 @@
  *   2. The list comes from Main's project inventory on every open, not capsule history;
  *      only a project with a canonical destination capsule is pickable.
  *   3. Typing filters on the name and the path, and Enter dispatches the row the user can see.
- *   4. The window is opened BEFORE the session is handed over, and a cancelled or refused open
- *      leaves the row exactly where it was.
+ *   4. The handover is direct: assigning never opens or focuses the target project's
+ *      window — ASSIGN_PROJECT re-stamps the row where the manager already shows it.
  */
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
@@ -280,7 +280,7 @@ describe('Renderer capsule picker — filtering and picking', () => {
     await flush();
 
     assert.strictEqual(popover.style.display, 'none', 'picking closes the picker');
-    assert.deepStrictEqual(lastArgs(harness, 'openProject'), ['proj-phukien'], "the target project's window is opened first");
+    assert.strictEqual(countCalls(harness, 'openProject'), 0, 'assigning a terminal must not pop the project window open');
     assert.deepStrictEqual(
       lastArgs(harness, 'assignTerminalProject'),
       ['c1', 'proj-phukien'],
@@ -309,7 +309,7 @@ describe('Renderer capsule picker — filtering and picking', () => {
     );
   });
 
-  it('leaves the row where it is when the target window is never opened', async () => {
+  it('moves the row straight to the project without opening its window', async () => {
     const harness = await loadManagerShell();
     harness.api.listCapsules = (async () => ({ activeCapsuleId: 'capsule-comnieu', capsules: CAPSULES })) as unknown as StandaloneHarness['api']['listCapsules'];
     harness.api.listProjects = async () => ({ candidates: PROJECTS });
@@ -326,12 +326,12 @@ describe('Renderer capsule picker — filtering and picking', () => {
     capsuleRow(popover, 'capsule-phukien').dispatch('click');
     await flush();
 
-    assert.deepStrictEqual(lastArgs(harness, 'openProject'), ['proj-phukien'], 'the window open was attempted');
-    assert.strictEqual(countCalls(harness, 'assignTerminalProject'), 0, 'a cancelled open must not hand the session over');
+    assert.strictEqual(countCalls(harness, 'openProject'), 0, 'the assignment path never touches the window opener');
+    assert.deepStrictEqual(lastArgs(harness, 'assignTerminalProject'), ['c1', 'proj-phukien']);
     assert.strictEqual(
-      harness.getSessions().find((session) => session.id === 'c1')?.capsuleId,
-      'capsule-comnieu',
-      'the row is still filed where it was',
+      harness.getSessions().find((session) => session.id === 'c1')?.ownerKey,
+      'project:proj-phukien',
+      'the row is filed under its new owner',
     );
   });
 

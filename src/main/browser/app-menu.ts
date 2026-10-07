@@ -241,6 +241,20 @@ export function dispatchApplicationMenuShortcut(input: Electron.Input, ctx: Appl
     case 'Ctrl+Shift+O':
       options?.openProjectPicker?.(window);
       return true;
+    case 'Ctrl+Shift+D': {
+      // Detach/reattach toggle: the chord mirrors the two File-menu clicks exactly.
+      // A detached `project:` shell has no active project, so its owner key says
+      // reattach; a hub window detaches the project it presents.
+      const ownerKeyValue = host?.windowOwnerKey() ?? '';
+      const owner = parseOwnerKey(ownerKeyValue);
+      if (owner.kind === 'project' && owner.projectId) {
+        options?.reattachProject?.(owner.projectId, window);
+        return true;
+      }
+      const detachId = host?.activeProject() ?? null;
+      if (detachId) options?.detachProject?.(detachId, window);
+      return true;
+    }
     case 'Ctrl+T':
       host?.createTab('https://www.google.com');
       return true;

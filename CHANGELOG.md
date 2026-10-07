@@ -6,7 +6,16 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 
 ## [v1.3.6] - Unreleased
 
+### Sửa — Gán Terminal vào dự án không còn tự bật cửa sổ dự án; Detach/Reattach có lại chỗ bấm sau khi menubar bị gỡ
+
+- **Gán terminal yên lặng**: `assignSessionToCapsule` (`standalone.js`) bỏ bước `openProject(projectId)` cưỡng bức trước khi move — tàn dư của kiến trúc window-per-project. `ASSIGN_PROJECT` (`native-tab-host.ts`) chỉ cần Terminal Manager mở, nên giờ terminal đổi owner ngay trong sidebar mà không giật focus/mở cửa sổ dự án lên (lỗi log `project-open.detached` mỗi lần "Gắn vào…").
+- **Detach/Reattach trong UI, không cần menubar**: chip dự án trên tab-strip giờ là button có caret — click mở popover (badge `HUB`/`DETACHED`, path, shortcut hint) với item **Tách ra cửa sổ riêng** / **Gắn lại vào Web Hub** và **Chuyển sang dự án khác…**; menu ⋮ của toolbar thêm hai row tương tự, ẩn-hiện theo `projectWindow` identity broadcast. `toolbar-preload` expose `detachProject`/`reattachProject` qua channel `PROJECT_DETACH`/`PROJECT_REATTACH` đã sẵn route `toolbar`/`sidebar`.
+- **Phím tắt `Ctrl+Shift+D`**: `dispatchApplicationMenuShortcut` mở rộng chord set — detached shell `project:` → `reattachProject`, hub đang trình bày dự án → `detachProject`, không có dự án thì consume im lặng. Bảng Keyboard Shortcuts cập nhật.
+- **Bối cảnh**: `stripMenuBar()` (commit d2dfc6a3) gỡ `electron::MenuBar` để vá crash `FocusManager::ContainsView CHECK`, kéo theo menu File chứa Detach/Reattach và item "Show Menu Bar (Alt)" trở nên vô tác dụng (`setMenuBarVisibility` là no-op khi menu null) — bản vá này trả đường điều khiển về chrome của app.
+- **Bằng chứng**: tsc sạch; `terminal-capsule-picker` 29/29 (hai test pin hợp đồng "mở cửa sổ trước" được viết lại thành assert `openProject` không bao giờ gọi), `menuless-accelerator`, `ipc-audit` 25/25, `detached-project-lifecycle` 11/11. Smoke dispatch `.compiled`: `project:` shell → reattach, hub+activeProject → detach, không project → consume no-op. Nạp trên app đang chạy: reload window `Ctrl+Alt+R` trên cửa sổ detached → chip `● <dự án>` → "Gắn lại vào Web Hub".
+
 ### Tính năng & Sửa lỗi — File Quick-Look, Terminal Link Provider & Phím tắt Zero-Latency VS Code
+
 
 - **File Quick-Look Modal**: Mở rộng toàn diện `min(97vw, 1720px) × min(93vh, 1020px)` với nút phóng to toàn màn hình; hiển thị metadata dòng/dung lượng/định dạng, badge đường dẫn có thể sao chép, gutter số dòng có click-to-copy và highlight dòng chỉ định.
 - **Nút & Phím tắt `+ Prompt` (Phím `I`)**: Tự động chèn `@file:line ` thẳng vào con trỏ terminal đang active kèm sao chép vào clipboard để ra lệnh ngay cho Agent.

@@ -4,7 +4,7 @@
  */
 import { contextBridge, ipcRenderer } from 'electron';
 import { PROJECT_WINDOW_CHANNELS } from '../shared/contracts';
-import type { CloseRefusalNotice, ForceCloseWindowResult, ProjectAppearanceRequest, ProjectAppearanceResult, ProjectOpenListResult, ProjectOpenPickerAnswerPayload, ProjectOpenPickerPush, ProjectOpenResult, ProjectTabActivationResult, ProjectTabSearchResult } from '../shared/contracts';
+import type { CloseRefusalNotice, ForceCloseWindowResult, ProjectAppearanceRequest, ProjectAppearanceResult, ProjectDetachResult, ProjectOpenListResult, ProjectOpenPickerAnswerPayload, ProjectOpenPickerPush, ProjectOpenResult, ProjectReattachResult, ProjectTabActivationResult, ProjectTabSearchResult } from '../shared/contracts';
 
 const CHANNELS = {
   GET_INITIAL_STATE: 'antifan:toolbar:get-initial-state',
@@ -146,6 +146,12 @@ const toolbarApi = {
   },
   answerProjectOpenPicker: (payload: ProjectOpenPickerAnswerPayload) =>
     ipcRenderer.invoke(PROJECT_WINDOW_CHANNELS.PROJECT_OPEN_PICKER_ANSWER, payload),
+  // Detach/reattach live behind the same channels the native menubar used; the
+  // menubar is retired on win32/linux so the toolbar carries the actions now.
+  detachProject: (request: { projectId: string }): Promise<ProjectDetachResult> =>
+    ipcRenderer.invoke(PROJECT_WINDOW_CHANNELS.PROJECT_DETACH, request),
+  reattachProject: (request: { projectId: string }): Promise<ProjectReattachResult> =>
+    ipcRenderer.invoke(PROJECT_WINDOW_CHANNELS.PROJECT_REATTACH, request),
 
   // A refused close or quit is Main's decision arriving for display only: the callback
   // returns nothing and the channel carries no reply, so a chrome cannot answer, approve or
