@@ -6141,9 +6141,7 @@ export class NativeTabHost extends EventEmitter {
         this.recyclePresentedLayer(activeTab.mobileView, true);
       }
     }
-    if (typeof wc.setBackgroundThrottling === 'function') {
-      try { wc.setBackgroundThrottling(false); } catch {}
-    }
+    this.setWebContentsThrottling(wc, false);
     this.enforceZOrder();
     this.detachUnpresentedTabViews();
     this.enforceZOrder();
@@ -6253,11 +6251,12 @@ export class NativeTabHost extends EventEmitter {
   private detachUnpresentedTabViews(): void {
     if (!this.shell.window || (typeof this.shell.window.isDestroyed === 'function' && this.shell.window.isDestroyed()) || !this.shell.window.contentView || !this.tabs) return;
     const activeTab = this.activeTabId ? this.tabs.get(this.activeTabId) : null;
-    for (const tab of this.tabs.values()) {
+    for (const [id, tab] of this.tabs.entries()) {
       for (const view of [tab.view, tab.mobileView]) {
         if (!view || view === activeTab?.view || view === activeTab?.mobileView) continue;
         if (this.isTemporarilyAttachedView(view)) continue;
         if (!this.isTabViewAttached(view)) continue;
+        this.setWebContentsThrottling(this.liveViewContents(view), this.backgroundThrottlingFor(id, tab));
         try { this.shell.window.contentView.removeChildView(view); } catch {}
       }
     }
@@ -6299,19 +6298,15 @@ export class NativeTabHost extends EventEmitter {
       state.count++;
     }
     const wc = view.webContents;
-    const wasThrottled = wc && 'backgroundThrottling' in wc && typeof wc.backgroundThrottling === 'boolean' ? wc.backgroundThrottling : true;
-    if (wc && typeof wc.setBackgroundThrottling === 'function') {
-      try { wc.setBackgroundThrottling(false); } catch {}
-    }
+    const wasThrottled = (wc && this.readBackgroundThrottling(wc)) ?? true;
+    this.setWebContentsThrottling(wc, false);
     if (wc && typeof wc.invalidate === 'function') {
       try { wc.invalidate(); } catch {}
     }
     try {
       return await action();
     } finally {
-      if (wc && !wc.isDestroyed() && typeof wc.setBackgroundThrottling === 'function') {
-        try { wc.setBackgroundThrottling(wasThrottled); } catch {}
-      }
+      this.setWebContentsThrottling(wc, wasThrottled);
       const current = this.temporaryViewAttachCounts.get(view);
       if (current) {
         current.count--;
@@ -9102,15 +9097,8 @@ export class NativeTabHost extends EventEmitter {
       // rides the deferral gate like every other agent-plane activation.
       this.switchTab(id, { plane: options?.plane === 'agent' ? 'agent' : 'user' });
     } else {
-      if (!isOffscreen && !isAgentTab) {
-        wc.once('did-stop-loading', () => {
-          if (!wc.isDestroyed() && this.tabs.has(id) && this.activeTabId !== id) {
-            try {
-              wc.setBackgroundThrottling(true);
-            } catch {}
-          }
-        });
-      }
+      // Background tabs start throttled (`webPreferences.backgroundThrottling` defaults to true);
+      // toggling it again on a view outside the window would un-hide its host.
       this.updateLayout();
       this.broadcastState();
     }
@@ -9281,10 +9269,15 @@ export class NativeTabHost extends EventEmitter {
             // A view an in-flight attach-for-capture call is holding stays put: detaching
             // it here breaks that caller's measurement, and its release then decides the
             // visible stack from a picture of it that is already stale.
+            // Throttle before detaching: the hide then really hides the host, so the page
+            // reports hidden and nothing un-hides it from outside the window afterwards.
+            const allowed = this.backgroundThrottlingFor(id, tab);
             if (tab.view && !this.isTemporarilyAttachedView(tab.view) && this.shell.window.contentView.children.includes(tab.view)) {
+              this.setWebContentsThrottling(this.liveViewContents(tab.view), allowed);
               try { this.shell.window.contentView.removeChildView(tab.view); } catch {}
             }
             if (tab.mobileView && !this.isTemporarilyAttachedView(tab.mobileView) && this.shell.window.contentView.children.includes(tab.mobileView)) {
+              this.setWebContentsThrottling(this.liveViewContents(tab.mobileView), allowed);
               try { this.shell.window.contentView.removeChildView(tab.mobileView); } catch {}
             }
           }
@@ -9409,40 +9402,48 @@ export class NativeTabHost extends EventEmitter {
       // Both panes are probed through the tolerant accessor: a view whose native object is gone
       // cannot be throttled, and asking it anyway would throw out of the clear/teardown step
       // that called this pass.
-      const desktop = this.liveViewContents(tab.view);
-      const mobile = this.liveViewContents(tab.mobileView);
-      // Offscreen agent tabs must keep painting continuously so capturePage always
-      // has a fresh compositor frame; skip throttling for offscreen tabs and keep backgroundThrottling: false.
-      if (tab.state.offscreen === true) {
-        if (desktop) {
-          try {
-            desktop.setBackgroundThrottling(false);
-          } catch {}
-        }
-        if (mobile) {
-          try {
-            mobile.setBackgroundThrottling(false);
-          } catch {}
-        }
-        continue;
-      }
-      const isForeground = id === this.activeTabId;
-      const isAgentWorking = tab.state.aiState === 'agent_working' || (this.automationHost?.agentWorkingRefs.get(id) || 0) > 0;
-      // Dynamic In-Flight Throttling Exemption (RT-02):
-      // Unthrottle if the tab is foreground OR currently executing active agent operations.
-      // Once agent finishes (returns to idle), tab immediately throttles to conserve CPU/RAM.
-      const shouldThrottle = !isForeground && !isAgentWorking;
-      if (desktop) {
-        try {
-          desktop.setBackgroundThrottling(shouldThrottle);
-        } catch {}
-      }
-      if (mobile) {
-        try {
-          mobile.setBackgroundThrottling(shouldThrottle);
-        } catch {}
-      }
+      const allowed = this.backgroundThrottlingFor(id, tab);
+      this.setWebContentsThrottling(this.liveViewContents(tab.view), allowed);
+      this.setWebContentsThrottling(this.liveViewContents(tab.mobileView), allowed);
     }
+  }
+
+  /**
+   * Whether Chromium may throttle a tab's panes. Offscreen agent tabs must keep painting so
+   * capturePage always has a fresh compositor frame. Otherwise only the presented tab and a tab
+   * an agent is operating on (RT-02 in-flight exemption) run unthrottled; once the agent goes
+   * idle the tab is throttled again to conserve CPU/RAM.
+   */
+  private backgroundThrottlingFor(id: string, tab: NativeTabRecord): boolean {
+    if (tab.state.offscreen === true) return false;
+    const isAgentWorking = tab.state.aiState === 'agent_working' || (this.automationHost?.agentWorkingRefs.get(id) || 0) > 0;
+    return id !== this.activeTabId && !isAgentWorking;
+  }
+
+  private readBackgroundThrottling(wc: Electron.WebContents): boolean | undefined {
+    try {
+      if (typeof wc.getBackgroundThrottling === 'function') return wc.getBackgroundThrottling();
+      if (typeof wc.backgroundThrottling === 'boolean') return wc.backgroundThrottling;
+    } catch {}
+    return undefined;
+  }
+
+  /**
+   * `setBackgroundThrottling()` un-hides a hidden RenderWidgetHost whatever value it is given,
+   * and the host of a view outside the window is hidden. Electron 43.4.0 did it through
+   * `RenderWidgetHostImpl::WasShown()`, desyncing the host from its view: once re-attached, the
+   * pane's frame stayed evictable and the tab went white/black while the page kept running
+   * (electron#52844). Later builds un-hide as hidden-but-painting, so a background tab handed a
+   * redundant `true` starts painting. Only a real change reaches Electron, and callers throttle
+   * a view before taking it out of the window rather than after.
+   */
+  private setWebContentsThrottling(wc: Electron.WebContents | null | undefined, allowed: boolean): void {
+    if (!wc || typeof wc.setBackgroundThrottling !== 'function') return;
+    try {
+      if (typeof wc.isDestroyed === 'function' && wc.isDestroyed()) return;
+      if (this.readBackgroundThrottling(wc) === allowed) return;
+      wc.setBackgroundThrottling(allowed);
+    } catch {}
   }
 
 

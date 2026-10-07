@@ -657,3 +657,59 @@ describe('Presented view resurface after the window was out of sight', () => {
     assert.strictEqual(presented.focusCalls, 0, 'a page that did not have focus (sidebar or toolbar did) is not handed it');
   });
 });
+
+describe('Background throttling never reaches a view outside the window', () => {
+  /**
+   * Electron's setBackgroundThrottling() un-hides the RenderWidgetHost of a detached view
+   * (43.4.0 left that pane's frame evictable once re-attached: a white/black pane over a live
+   * page). Every call is journaled with whether the view was in the window at that moment.
+   */
+  function recordThrottling(recorded: RecordedTab, children: unknown[], log: string[], initial: boolean): () => boolean {
+    let value = initial;
+    Object.assign(recorded.tab.view!.webContents, {
+      getBackgroundThrottling: () => value,
+      setBackgroundThrottling: (allowed: boolean) => {
+        log.push(`${recorded.tab.state.id}:${allowed}:${children.includes(recorded.tab.view) ? 'attached' : 'detached'}`);
+        value = allowed;
+      },
+    });
+    return () => value;
+  }
+
+  it('throttles the outgoing tab before detaching it and leaves already-throttled background tabs alone', () => {
+    const a = createTestTab('a');
+    const b = createTestTab('b');
+    const c = createTestTab('c');
+    const { host, children } = createPresentedHost({ tabs: [a, b, c], activeTabId: 'a', attached: [a.tab.view] });
+    delete host.applyTabThrottling; // the harness stubs it out; this suite exercises the real pass
+    const log: string[] = [];
+    const aThrottled = recordThrottling(a, children, log, false);
+    const bThrottled = recordThrottling(b, children, log, true);
+    recordThrottling(c, children, log, true);
+
+    assert.strictEqual(host.switchTab('b'), true);
+    assert.deepStrictEqual(children, [b.tab.view]);
+    assert.deepStrictEqual(log, ['a:true:attached', 'b:false:attached']);
+    assert.strictEqual(aThrottled(), true, 'the tab the user left is throttled');
+    assert.strictEqual(bThrottled(), false, 'the presented tab runs unthrottled');
+
+    log.length = 0;
+    host.applyTabThrottling();
+    assert.deepStrictEqual(log, [], 'a pass with nothing to change must not touch any view');
+  });
+
+  it('an attach-for-capture on a background tab toggles throttling only while the view is in the window', async () => {
+    const a = createTestTab('a');
+    const c = createTestTab('c');
+    const { host, children } = createPresentedHost({ tabs: [a, c], activeTabId: 'a', attached: [a.tab.view] });
+    host.layOutDetachedView = () => {};
+    const log: string[] = [];
+    recordThrottling(a, children, log, false);
+    const cThrottled = recordThrottling(c, children, log, true);
+
+    await host.runWithAttachedTabView(c.tab.view, async () => undefined);
+    assert.deepStrictEqual(log, ['c:false:attached', 'c:true:attached']);
+    assert.strictEqual(cThrottled(), true);
+    assert.deepStrictEqual(children, [a.tab.view], 'the capture leaves only the presented tab in the window');
+  });
+});
