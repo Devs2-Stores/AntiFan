@@ -118,6 +118,10 @@ async function readPsIdentity(pid) {
   }
 }
 
+// A process cannot change its own pid or start token. Cache only our own identity;
+// observations of every other pid stay fresh because they drive lock reclamation.
+let currentProcessIdentity;
+
 /**
  * Observe a pid through the platform adapter. `startToken === null` means the
  * process exists (or does not) but its start value could not be read.
@@ -140,9 +144,27 @@ export async function readProcessIdentity(pid) {
   return { pid, ...(await readPsIdentity(pid)) };
 }
 
+/**
+ * Cache only the current process identity. Its pid/start token cannot change,
+ * while every other pid observation remains fresh for lock-reclamation safety.
+ */
+export function createProcessIdentityCache(currentPid, read) {
+  let current;
+  return (pid) => {
+    if (pid !== currentPid) return read(pid);
+    current ??= Promise.resolve().then(() => read(pid));
+    return current;
+  };
+}
+
+const readCachedProcessIdentity = createProcessIdentityCache(
+  process.pid,
+  readProcessIdentity,
+);
+
 /** The token pair a writer stores, taken from one read so both fields agree. */
 export async function captureProcessIdentity(pid) {
-  const observed = await readProcessIdentity(pid);
+  const observed = await readCachedProcessIdentity(pid);
   return {
     pid: observed.pid,
     startedAt: observed.startedAt,
@@ -162,7 +184,9 @@ export async function proveHolderDead(record) {
   if (!Number.isInteger(pid) || pid <= 0) {
     return { dead: true, reason: 'PID_INVALID', observed: null };
   }
-  const observed = await readProcessIdentity(pid);
+  const observed = pid === process.pid
+    ? await readCachedProcessIdentity(pid)
+    : await readProcessIdentity(pid);
   if (!observed.alive) {
     return { dead: true, reason: 'PID_ABSENT', observed };
   }
