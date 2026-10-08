@@ -40,6 +40,8 @@ const BYPASS_TOKENS = [
   "qaStatus:QA_UNAVAILABLE",
   "qaStatus: QA_INCONCLUSIVE",
   "qaStatus:QA_INCONCLUSIVE",
+  "qaStatus: QA_PENDING_SYNC",
+  "qaStatus:QA_PENDING_SYNC",
 ];
 const MICRO_TOKEN = "qaStatus: QA_MICRO_STATIC";
 const TTL_MS = 10 * 60_000;
@@ -287,12 +289,14 @@ test("reminder text contains no bypass token and cannot clear the gate it descri
     assert.ok(!reminder.includes(token), `reminder must not contain ${JSON.stringify(token)}`);
   }
   assert.ok(
-    !/qaStatus\s*:\s*QA_(UNAVAILABLE|INCONCLUSIVE)/.test(reminder),
+    !/qaStatus\s*:\s*QA_(UNAVAILABLE|INCONCLUSIVE|PENDING_SYNC|FAILED)/.test(reminder),
     "reminder must not reproduce the qaStatus declaration form"
   );
   assert.ok(reminder.includes("SELF_QA_DIRECTIVE"), "reminder must name the directive contract");
   assert.ok(!reminder.includes("annotation-prompt.ts"), "reminder must not cite a repo-relative path the consumer cwd cannot resolve");
   assert.ok(reminder.includes("QA_UNAVAILABLE") && reminder.includes("QA_INCONCLUSIVE"), "terminal names stay discoverable");
+  assert.ok(reminder.includes("QA_PENDING_SYNC") && reminder.includes("QA_FAILED"), "sync-pending and failed statuses are discoverable");
+  assert.ok(reminder.includes("CAPTURE_FRAME_STARVATION") && reminder.includes("TARGET_STALE"), "env codes the directive routes to INCONCLUSIVE are listed");
 
   // Regression for the self-clearing exploit: echoing the reminder into an
   // assistant message must not satisfy the bypass scan.
@@ -326,6 +330,19 @@ test("bypass tokens clear the gate only from an assistant message", () => {
 
   handlers.get("context")({ messages: [{ role: "assistant", content: `QA done. ${token}` }] }, ctx);
   assert.equal(fire(handlers, ctx, 2 * REMIND_EVERY).reminders, 0, "assistant declaration clears the gate");
+});
+
+test("QA_PENDING_SYNC from an assistant clears the gate; QA_FAILED does not", () => {
+  const { handlers } = loadHook();
+  const root = makeWorkspace();
+  const ctx = { cwd: root };
+  writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
+
+  handlers.get("context")({ messages: [{ role: "assistant", content: "qaStatus: QA_FAILED after two rounds" }] }, ctx);
+  assert.equal(fire(handlers, ctx, REMIND_EVERY).reminders, 1, "QA_FAILED declaration must keep the gate armed");
+
+  handlers.get("context")({ messages: [{ role: "assistant", content: "Local edit done, awaiting user sync. qaStatus: QA_PENDING_SYNC" }] }, ctx);
+  assert.equal(fire(handlers, ctx, 2 * REMIND_EVERY).reminders, 0, "pending-sync declaration clears the gate");
 });
 
 test("TTL: a pending entry older than PENDING_TTL_MS is pruned; just inside it is not", () => {

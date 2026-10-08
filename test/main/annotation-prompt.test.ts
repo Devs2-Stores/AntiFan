@@ -58,7 +58,8 @@ describe('Annotation prompt self-QA directive', () => {
     assert.ok(header.includes('anti.screenshot.viewport'));
     assert.ok(header.includes('QA Binding'));
     assert.ok(header.includes('expectedUrl'));
-    assert.ok(header.includes('verification pending theme sync'));
+    assert.ok(header.includes('QA_PENDING_SYNC'), 'unsynced storefront has a dedicated non-BLOCKED terminal status');
+    assert.ok(header.includes('DONE_WITH_CONCERNS'));
   });
 
   it('directive requires a terminal qaStatus token and receipt evidence', () => {
@@ -68,6 +69,7 @@ describe('Annotation prompt self-QA directive', () => {
     assert.ok(header.includes('QA_FAILED'));
     assert.ok(header.includes('QA_INCONCLUSIVE'));
     assert.ok(header.includes('QA_UNAVAILABLE'));
+    assert.ok(header.includes('QA_PENDING_SYNC'));
     assert.ok(header.includes('qa-receipts'));
     assert.ok(header.includes('annotationId'));
   });

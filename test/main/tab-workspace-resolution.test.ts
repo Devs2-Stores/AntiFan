@@ -191,6 +191,27 @@ describe('resolveTabWorkspace precedence', () => {
 
     assert.strictEqual(host.resolveTabWorkspace('tab-x'), '');
   });
+
+  it('resolveTargetWorkspace: a classifiable tab URL outranks the ambient active capsule and active terminal', () => {
+    const host = createResolverHost(['tab-1']);
+    host.capsuleManager = { list: () => [], getActive: () => ({ id: 'capsule-pancake', workspacePath: pancakeDir }) };
+
+    const resolved = host.resolveTargetWorkspace(undefined, 'https://antifan.myharavan.com/');
+    assert.strictEqual(resolved.toLowerCase(), path.normalize(ROOT).toLowerCase(), 'URL classification beats the active Pancake capsule');
+  });
+
+  it('resolveTargetWorkspace: an unclassifiable tab URL still falls back to the active capsule', () => {
+    const host = createResolverHost(['tab-1']);
+    host.capsuleManager = { list: () => [], getActive: () => ({ id: 'capsule-pancake', workspacePath: pancakeDir }) };
+
+    assert.strictEqual(host.resolveTargetWorkspace(undefined, 'https://unmapped-domain.invalid/'), path.normalize(pancakeDir));
+  });
+
+  it('resolveTargetWorkspace: an explicit terminal session cwd still wins over the tab URL', () => {
+    const host = createResolverHost(['tab-1']);
+
+    assert.strictEqual(host.resolveTargetWorkspace('term-a', 'https://antifan.myharavan.com/'), path.normalize(termDir));
+  });
 });
 
 describe('runThemeQa workspace root', () => {

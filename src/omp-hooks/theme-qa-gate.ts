@@ -130,7 +130,16 @@ const OBSERVED_FAILURE_MARKERS = [
 const ANTIFAN_TOOL_RE = /antifan_browser|antifan-omp|mcp__antifan/i;
 
 const WRITE_TOOLS = new Set(["write", "edit", "ast_edit", "ast.edit", "patch", "append", "file.write"]);
-const BYPASS_TOKENS = ["qaStatus: QA_UNAVAILABLE", "qaStatus:QA_UNAVAILABLE", "qaStatus: QA_INCONCLUSIVE", "qaStatus:QA_INCONCLUSIVE"];
+const BYPASS_TOKENS = [
+  "qaStatus: QA_UNAVAILABLE",
+  "qaStatus:QA_UNAVAILABLE",
+  "qaStatus: QA_INCONCLUSIVE",
+  "qaStatus:QA_INCONCLUSIVE",
+  // Local edit done, live verification waits on a theme sync only the user may run
+  // (agents never push). An honest non-pass declaration, same standing as INCONCLUSIVE.
+  "qaStatus: QA_PENDING_SYNC",
+  "qaStatus:QA_PENDING_SYNC",
+];
 const RECEIPT_DIR = path.join(".antifan", "qa-receipts");
 
 /** A pending edit expires after 10 minutes: no receipt dir must never mean "forever". */
@@ -1048,7 +1057,9 @@ function reminderText(): string {
     `Before reporting done: run theme.qa_validate with tabId + workspaceRoot + expectedUrl (expectedUrl and annotationId are OPTIONAL per the tool schema; when no annotation "QA Binding" line exists, tabId + workspaceRoot alone is enough) so a receipt lands in .antifan/qa-receipts/. ` +
     `If a receipt is genuinely impossible, declare the matching SELF_QA_DIRECTIVE terminal status in your OWN assistant message — ` +
     `the QA_UNAVAILABLE terminal status when the capability is missing (re-probe once on CAPABILITY_NOT_FOUND, it may have registered after a restart) or auth fails (ATTACHMENT_REQUIRED / ATTACHMENT_INVALID / MCP_CONTEXT_REQUIRED / UNAUTHENTICATED); ` +
-    `the QA_INCONCLUSIVE terminal status for environment failures (SETTLE_INCOMPLETE, CAPTURE_NOT_READY) after one reload/re-probe retry — each with the original error code. ` +
+    `the QA_INCONCLUSIVE terminal status for environment failures (SETTLE_INCOMPLETE, CAPTURE_NOT_READY, CAPTURE_FRAME_STARVATION, CAPTURE_TIMEOUT, TARGET_BUSY_DRAINING, TARGET_STALE / TARGET_MISMATCH after one rebind_target retry) after one reload/re-probe retry — each with the original error code; ` +
+    `the QA_PENDING_SYNC terminal status when the live tab cannot show the edit until the user syncs the theme (the agent never pushes) — list the edited files and the sync the user must run; ` +
+    `the QA_FAILED terminal status after two failed repair rounds is reported honestly but does NOT clear this gate: fix and re-validate, or hand the failure to the dev. ` +
     `For a pure CSS micro edit (single plain assets/ *.css|*.scss file, <=10 changed lines total, no Liquid), declare the micro static terminal status with the file, selector and changed-line count in your own message — the gate validates it against the edit IT observed. ` +
     `Declaring QA_PASSED without a receipt is a contract violation. ` +
     `The gate clears on a fresh receipt or on that assistant-side declaration; nothing else clears it.`

@@ -13531,6 +13531,16 @@ export class NativeTabHost extends EventEmitter {
       }
     }
 
+    // 1b. A tab URL that classifies to a known shop outranks every ambient
+    // signal below: the app-wide active capsule and the active terminal belong
+    // to whichever window the user touched last, not to this tab.
+    if (tabUrl) {
+      const urlWorkspace = resolveWorkspaceFromUrl(tabUrl, DEFAULT_WORKSPACE_ROOTS);
+      if (urlWorkspace && fs.existsSync(path.normalize(urlWorkspace))) {
+        return path.normalize(urlWorkspace);
+      }
+    }
+
     // 2. Active capsule workspace
     const capsuleWs = this.capsuleManager.getActive()?.workspacePath;
     if (capsuleWs && fs.existsSync(path.normalize(capsuleWs))) {
