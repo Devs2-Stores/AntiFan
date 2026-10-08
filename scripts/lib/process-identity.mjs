@@ -41,24 +41,33 @@ function pidExists(pid) {
     return err && err.code === 'EPERM';
   }
 }
+export async function readWindowsIdentityIfPresent(pid, exists, query) {
+  if (!exists(pid)) {
+    return { alive: false, startToken: null, startTokenFormat: FORMAT_UNAVAILABLE, startedAt: null };
+  }
+  return query(pid);
+}
+
 
 async function readWin32Identity(pid) {
-  const script = `$p = Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}'; `
-    + `if ($p) { $p.CreationDate.ToUniversalTime().ToString('o') } else { '' }`;
-  const { stdout } = await execFileAsync(
-    'powershell',
-    ['-NoProfile', '-NonInteractive', '-Command', script],
-    { timeout: 25000, windowsHide: true, maxBuffer: 64 * 1024 }
-  );
-  const raw = String(stdout || '').trim();
-  if (!raw) return { alive: pidExists(pid), startToken: null, startTokenFormat: FORMAT_UNAVAILABLE, startedAt: null };
-  const parsed = Date.parse(raw);
-  return {
-    alive: true,
-    startToken: raw,
-    startTokenFormat: FORMAT_WIN32,
-    startedAt: Number.isNaN(parsed) ? null : new Date(parsed).toISOString(),
-  };
+  return readWindowsIdentityIfPresent(pid, pidExists, async (candidatePid) => {
+    const script = `$p = Get-CimInstance Win32_Process -Filter 'ProcessId=${candidatePid}'; `
+      + `if ($p) { $p.CreationDate.ToUniversalTime().ToString('o') } else { '' }`;
+    const { stdout } = await execFileAsync(
+      'powershell',
+      ['-NoProfile', '-NonInteractive', '-Command', script],
+      { timeout: 25000, windowsHide: true, maxBuffer: 64 * 1024 }
+    );
+    const raw = String(stdout || '').trim();
+    if (!raw) return { alive: pidExists(candidatePid), startToken: null, startTokenFormat: FORMAT_UNAVAILABLE, startedAt: null };
+    const parsed = Date.parse(raw);
+    return {
+      alive: true,
+      startToken: raw,
+      startTokenFormat: FORMAT_WIN32,
+      startedAt: Number.isNaN(parsed) ? null : new Date(parsed).toISOString(),
+    };
+  });
 }
 
 function procfsClockTicks() {

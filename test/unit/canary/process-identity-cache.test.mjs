@@ -18,3 +18,20 @@ test('caches only the current process identity and leaves other pid reads fresh'
   assert.notDeepEqual(otherSecond, otherFirst);
   assert.deepEqual(calls, [41, 42, 42]);
 });
+
+test('skips the Windows process query when the pid is already absent', async () => {
+  const { readWindowsIdentityIfPresent } = await import('../../../scripts/lib/process-identity.mjs');
+  let queries = 0;
+  const result = await readWindowsIdentityIfPresent(99, () => false, async () => {
+    queries++;
+    return { alive: true, startToken: 'unexpected', startTokenFormat: 'win32:CreationDate', startedAt: null };
+  });
+
+  assert.deepEqual(result, {
+    alive: false,
+    startToken: null,
+    startTokenFormat: 'unavailable',
+    startedAt: null,
+  });
+  assert.equal(queries, 0);
+});
