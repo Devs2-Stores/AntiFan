@@ -296,6 +296,16 @@ async function main() {
     await record('renameSession', () => proxy.renameSession(mainId, 'coverage probe'));
     await record('setCategory', () => proxy.setCategory(mainId, 'probe'));
     await record('setCapsule', () => proxy.setCapsule('probe-capsule', probeDir, mainId));
+    const roleApplied = await record('setSessionRole', () => proxy.setSessionRole(mainId, { role: 'shell' }));
+    if (roleApplied !== true) {
+      failures.push(`live: setSessionRole(${mainId}, {role:'shell'}) answered ${roleApplied}, expected true for a live session and a known role`);
+    }
+    // output-match without afterSeq scans output that already arrived, so the shell prompt the
+    // session printed before waitReady satisfies it without writing anything.
+    const waited = await record('waitTerminal', () => proxy.waitTerminal({ sessionId: mainId, condition: 'output-match', pattern: '>', timeoutMs: 5000 }));
+    if (waited && waited.satisfied !== true) {
+      failures.push(`live: waitTerminal(output-match '>') did not match the prompt already in the buffer: ${JSON.stringify(waited)}`);
+    }
     // The ack is the one call whose payload field names cannot be checked by a compile: the host
     // rebuilt an object field by field, so a wrong name (`appliedSeq` for `seq`) recorded 0 forever
     // and no type error appeared. Assert the value lands on the host, not merely that the call
@@ -330,6 +340,14 @@ async function main() {
       await proxy.waitReady(scratchId, 20000).catch(() => undefined);
       const splitId = await record('createSplitSession', () => proxy.createSplitSession(scratchId, probeDir));
       await record('switchSession', () => proxy.switchSession(scratchId));
+      // The facade answers owner/capsule from its cached summaries; the host broadcasts the session
+      // event before answering the transfer, so both must read the new values right away.
+      const moved = await record('transferSessionOwner', () => proxy.transferSessionOwner(scratchId, 'project:probe-owner', 'probe-owner-capsule'));
+      if (moved !== true) failures.push(`live: transferSessionOwner(${scratchId}) answered ${moved}, expected true for a live session`);
+      const ownerKey = await record('sessionOwnerKey', () => proxy.sessionOwnerKey(scratchId));
+      if (ownerKey !== 'project:probe-owner') failures.push(`live: sessionOwnerKey() read ${ownerKey} after the transfer, expected project:probe-owner`);
+      const capsuleId = await record('sessionCapsuleId', () => proxy.sessionCapsuleId(scratchId));
+      if (capsuleId !== 'probe-owner-capsule') failures.push(`live: sessionCapsuleId() read ${capsuleId} after the transfer, expected probe-owner-capsule`);
       if (splitId) await record('closeSplitSession', () => proxy.closeSplitSession(splitId));
       await record('sleepSession', () => proxy.sleepSession(scratchId));
       await record('wakeSession', () => proxy.wakeSession(scratchId));
@@ -340,11 +358,16 @@ async function main() {
 
     // Dispatch proof for every name in the protocol, including ones with no proxy method yet:
     // calling them raw separates "the daemon does not dispatch this" from "the proxy lacks it".
+    // A method whose handler validates an enum gets a valid payload of its own, or the generic
+    // payload proves nothing beyond "the handler refused garbage".
+    const RAW_PAYLOAD = {
+      waitTerminal: { sessionId: mainId, condition: 'output-match', pattern: '>', timeoutMs: 5000 },
+    };
     const undispatched = [];
     for (const [key, wire] of Object.entries(HOST_METHOD)) {
       if (key === 'shutdown') continue;
       try {
-        await client.call(wire, { sessionId: mainId, key: 'ENTER', orderIds: [mainId], capsuleId: 'probe', text: '', cols: 120, rows: 30 });
+        await client.call(wire, RAW_PAYLOAD[key] || { sessionId: mainId, key: 'ENTER', orderIds: [mainId], capsuleId: 'probe', text: '', cols: 120, rows: 30 });
       } catch (err) {
         const message = String(err && err.message ? err.message : err);
         const envelope = err && typeof err === 'object' ? err.rpcFailure : undefined;

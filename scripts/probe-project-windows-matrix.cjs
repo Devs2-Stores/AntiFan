@@ -1594,7 +1594,18 @@ async function run() {
   // ------------------------------------------------------------------ R1, two windows
   let betaKey = null;
   await automated('R1', async (row) => {
+    // Opening a project activates it in the single 'web' hub; it never mints a window. The one
+    // path to a second project window is the user's detach, so R1 opens B, then detaches it.
     const openResult = await openProject(alphaSidebar, BETA.projectId);
+    row.observed.openResult = openResult;
+    expect(openResult && (openResult.status === 'OPENED' || openResult.status === 'FOCUSED'), `opening B returned ${JSON.stringify(openResult)}`);
+    const detachResult = await bounded(
+      alphaSidebar.executeJavaScript(`window.antifanStandalone.detachProject({ projectId: ${JSON.stringify(BETA.projectId)} })`, true),
+      20000,
+      'sidebar detachProject',
+    );
+    row.observed.detachResult = detachResult;
+    expect(detachResult && detachResult.status === 'DETACHED', `detaching B returned ${JSON.stringify(detachResult)}`);
     const betaEntry = await waitFor(
       () => snapshot().find((entry) => entry.owner.kind === 'project' && entry.owner.projectId === BETA.projectId) || false,
       'the second project window',
@@ -1634,6 +1645,7 @@ async function run() {
     const betaEntryAfter = entryFor(betaKey);
     row.observed = {
       openResult,
+      detachResult,
       duplicate,
       placement,
       shellCountBefore: beforeDuplicate.length,
@@ -1644,7 +1656,6 @@ async function run() {
       betaTabs: betaEntryAfter?.tabIds,
     };
     row.ids = { windowIds: windowIdsOf([alphaKey, betaKey]), foregroundBefore: foregroundId(), foregroundAfter: foregroundId() };
-    expect(openResult && openResult.status === 'OPENED', `the project-open channel returned ${JSON.stringify(openResult)}`);
     expect(betaEntry.windowId !== bootstrap.windowId, `both windows reported id ${betaEntry.windowId}`);
     expect(betaEntry.hostOwnerKey === betaKey, `the second window's host key is '${betaEntry.hostOwnerKey}'`);
     expect(alphaEntry && betaEntryAfter, 'a window disappeared while the duplicate open ran');
