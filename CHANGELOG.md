@@ -6,6 +6,17 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 
 ## [v1.3.6] - Unreleased
 
+### Hiệu năng — Benchmark toàn bộ MCP và tăng tốc các tool chậm nhất
+
+- **Benchmark mới**: `npm run benchmark:mcp` (harness Electron riêng `scripts/benchmark-mcp-electron.cjs`, data/config/register ghim trong thư mục tạm, không đụng app đang chạy) và `npm run benchmark:mcp:live` (chạy từ terminal AntiFan đã gán dự án) đo từng tool qua đúng đường stdio proxy → bridge → `BrowserControlPort`: cold, p50/p95, kích thước response, chạy song song x8. Kết quả ở `plans/reports/mcp-tool-latency-benchmark.json`.
+- **Vòng cuộn materialize** (`visual-capture.ts`): bước cuộn = max(400 px, 85% chiều cao viewport), dwell 20 ms, dừng sau pass đầu nếu trang không cao thêm và không còn ảnh lazy chờ. `dump_dom` / `export_clean` ~2.7 s → ~0.58 s, `reference.capture` ~2.9 s → ~0.84 s.
+- **`PassiveExecutionPool`**: lời gọi lồng nhau trên tab đã giữ slot chạy trong slot của caller (`AsyncLocalStorage`); vượt giới hạn 4/tab thì xếp hàng FIFO tối đa 8 lời gọi trong 5 s thay vì trả `CAPABILITY_OVERLOADED` ngay. `screenshot.viewport` x8 song song: 4/8 lỗi → 0/8.
+- **`reloadAndWait`**: cửa sổ yên mạng sau `did-finish-load` 500 ms → 150 ms (`RELOAD_SETTLE_IDLE_MS`); `browser.wait` network giữ mặc định 500 ms. `navigate`/`reload` ~600 ms → ~250 ms.
+- **Super Core list tools** (`platform_semantics`, `principles`, `archetypes`, `anti_patterns`, `tool_intel`, `practice_parity`, `workarounds`, `commercial_intel`, `hidden_requirements`, `fix_patterns`): thêm `limit` (mặc định 100, `fix_patterns` 50, tối đa 1000) + `offset`, mới nhất trước. `platform_semantics` 25 MB / 5 s → 33 KB / 24 ms. `core.health` cache theo store generation (`data_version` + `total_changes`, TTL 10 s): 572 ms → 0.5 ms khi ấm.
+- **`materializeDataSrc` cho `anti.browser.dump_dom` / `anti.theme.export_clean` / `anti.screenshot.full_page`** (cùng cơ chế `promote_baseline`): theme dùng lazyload chỉ swap `data-src` khi người dùng tương tác (F1GENZ `img.lazyload`, `product_gift_label`) trước đây luôn bị từ chối `REFERENCE_MATERIALIZATION_INCOMPLETE` / `CAPTURE_NOT_READY` (đo trên M N Bakery: 4 ảnh srcless). Tuỳ chọn opt-in swap `data-src`/`data-srcset` vào `src`/`srcset` trong vòng cuộn trước khi export/chụp; mặc định tắt. Thông báo lỗi nay nêu rõ remedy. Benchmark thêm biến thể `#materializeDataSrc` cho ba tool.
+- **`npm run benchmark:mcp:live --tab <id>`**: đo trên tab có sẵn của người dùng (rebind, navigate/reload về URL hiện tại, bỏ các bước click/gõ/drop, trả lại viewport sau khi xong).
+- **Bằng chứng**: tsc sạch; `passive-execution-pool` 5/5 (thêm test re-entrancy + hàng đợi), `concurrency-multi-project` cập nhật cho hàng đợi, super-core 38/38; benchmark 94 tool: tổng p50 30.9 s → 15.4 s, không tool nào lỗi.
+
 ### Sửa — Gán Terminal vào dự án không còn tự bật cửa sổ dự án; Detach/Reattach có lại chỗ bấm sau khi menubar bị gỡ
 
 - **Gán terminal yên lặng**: `assignSessionToCapsule` (`standalone.js`) bỏ bước `openProject(projectId)` cưỡng bức trước khi move — tàn dư của kiến trúc window-per-project. `ASSIGN_PROJECT` (`native-tab-host.ts`) chỉ cần Terminal Manager mở, nên giờ terminal đổi owner ngay trong sidebar mà không giật focus/mở cửa sổ dự án lên (lỗi log `project-open.detached` mỗi lần "Gắn vào…").

@@ -246,11 +246,17 @@ describe('Multi-Project & Multi-Session Two-Tier Concurrency Stress Suite (Phase
         deferreds.push(d);
         void passivePool.execute('tab-stress-1', () => d.promise);
       }
+      // A burst over the cap parks; only a full queue refuses at once.
+      const parked: Array<Promise<string>> = [];
+      for (let i = 0; i < 8; i++) parked.push(passivePool.execute('tab-stress-1', async () => 'parked'));
+      assert.strictEqual(passivePool.getQueuedCount(), 8);
       await assert.rejects(
         async () => passivePool.execute('tab-stress-1', async () => 'overflow'),
         (err: unknown) => err instanceof CapabilityError && err.code === 'CAPABILITY_OVERLOADED'
       );
       for (const d of deferreds) d.resolve();
+      assert.deepStrictEqual(await Promise.all(parked), Array(8).fill('parked'));
+      assert.strictEqual(passivePool.getGlobalActiveCount(), 0);
 
       // 5. Suite 6, 7 & 8: ViewportGate FIFO, Human Preemption & Controller Safety
       const viewportGate = browserPort.viewportGate;

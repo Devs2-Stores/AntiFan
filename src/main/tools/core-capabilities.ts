@@ -148,6 +148,12 @@ export function createLazyCorePort(): CoreStorePort {
   };
 }
 
+/** Paging inputs shared by the Core list reads (clamped in packages/super-core `pageArgs`). */
+const LIST_PAGE = {
+  limit: { type: 'number', description: 'Rows per page (default 100; fix_patterns 50; max 1000)' },
+  offset: { type: 'number', description: 'Rows to skip, newest first' },
+} as const;
+
 const READ_POLICY = {
   effect: 'read' as const,
   risk: 'read' as const,
@@ -214,24 +220,24 @@ export function registerCoreCapabilities(catalogue: CapabilityCatalogue, core: C
   reg('core.record_anti_pattern', 'Record an anti-pattern.',
     { type: 'object', properties: { name: { type: 'string' }, whatNotToDo: { type: 'string' }, symptoms: { type: 'string' }, evidence: { type: 'string' }, affectedPlatform: { type: 'string' }, replacement: { type: 'string' } }, required: ['name'] },
     WRITE_POLICY, (p: Record<string, unknown>) => core.recordAntiPattern(p));
-  reg('core.anti_patterns', 'List anti-patterns.',
-    { type: 'object', properties: { platform: { type: 'string' }, status: { type: 'string' } } },
+  reg('core.anti_patterns', 'List anti-patterns. Newest first; pages of limit (default 100, max 1000) from offset.',
+    { type: 'object', properties: { platform: { type: 'string' }, status: { type: 'string' }, ...LIST_PAGE } },
     READ_POLICY, (p: Record<string, unknown>) => core.antiPatterns(p));
 
   // v4: Workaround Library
   reg('core.record_workaround', 'Record a workaround.',
     { type: 'object', properties: { problem: { type: 'string' }, condition: { type: 'string' }, solution: { type: 'string' }, reason: { type: 'string' }, platform: { type: 'string' }, version: { type: 'string' }, evidence: { type: 'string' } }, required: ['problem'] },
     WRITE_POLICY, (p: Record<string, unknown>) => core.recordWorkaround(p));
-  reg('core.workarounds', 'List workarounds.',
-    { type: 'object', properties: { platform: { type: 'string' }, stillValid: { type: 'boolean' } } },
+  reg('core.workarounds', 'List workarounds. Newest first; pages of limit (default 100, max 1000) from offset.',
+    { type: 'object', properties: { platform: { type: 'string' }, stillValid: { type: 'boolean' }, ...LIST_PAGE } },
     READ_POLICY, (p: Record<string, unknown>) => core.workarounds(p));
 
   // v4: Fix Patterns
   reg('core.record_fix_pattern', 'Record a fix pattern.',
     { type: 'object', properties: { before: { type: 'string' }, after: { type: 'string' }, why: { type: 'string' }, evidence: { type: 'string' }, lesson: { type: 'string' } } },
     WRITE_POLICY, (p: Record<string, unknown>) => core.recordFixPattern(p));
-  reg('core.fix_patterns', 'List fix patterns.',
-    { type: 'object', properties: { limit: { type: 'number' } } },
+  reg('core.fix_patterns', 'List fix patterns. Newest first; pages of limit (default 50, max 1000) from offset.',
+    { type: 'object', properties: { platform: { type: 'string' }, ...LIST_PAGE } },
     READ_POLICY, (p: Record<string, unknown>) => core.fixPatterns(p));
 
   // v4: Case-Based Reasoning
@@ -280,56 +286,56 @@ export function registerCoreCapabilities(catalogue: CapabilityCatalogue, core: C
   reg('core.record_principle', 'Record a personal engineering principle.',
     { type: 'object', properties: { statement: { type: 'string' }, source: { type: 'string' }, derivedFrom: { type: 'string' } }, required: ['statement'] },
     WRITE_POLICY, (p: Record<string, unknown>) => core.recordPrinciple(p));
-  reg('core.principles', 'List principles.',
-    { type: 'object', properties: { status: { type: 'string' } } },
+  reg('core.principles', 'List principles. Newest first; pages of limit (default 100, max 1000) from offset.',
+    { type: 'object', properties: { status: { type: 'string' }, ...LIST_PAGE } },
     READ_POLICY, (p: Record<string, unknown>) => core.principles(p));
 
   // v4: Hidden Requirements
   reg('core.record_hidden_requirement', 'Record a hidden requirement.',
     { type: 'object', properties: { task: { type: 'string' }, explicitReq: { type: 'string' }, inferredReq: { type: 'string' }, likelihood: { type: 'string' }, evidence: { type: 'string' } }, required: ['task'] },
     WRITE_POLICY, (p: Record<string, unknown>) => core.recordHiddenRequirement(p));
-  reg('core.hidden_requirements', 'List hidden requirements.',
-    { type: 'object', properties: { task: { type: 'string' } } },
+  reg('core.hidden_requirements', 'List hidden requirements. Newest first; pages of limit (default 100, max 1000) from offset.',
+    { type: 'object', properties: { task: { type: 'string' }, ...LIST_PAGE } },
     READ_POLICY, (p: Record<string, unknown>) => core.hiddenRequirements(p));
 
   // v4: Commercial Intelligence
   reg('core.record_commercial', 'Record commercial intelligence.',
     { type: 'object', properties: { taskType: { type: 'string' }, quote: { type: 'number' }, scope: { type: 'string' }, estimate: { type: 'number' }, actual: { type: 'number' }, risk: { type: 'string' }, revisionCount: { type: 'number' } }, required: ['taskType'] },
     WRITE_POLICY, (p: Record<string, unknown>) => core.recordCommercial(p));
-  reg('core.commercial_intel', 'List commercial intelligence.',
-    { type: 'object', properties: { taskType: { type: 'string' } } },
+  reg('core.commercial_intel', 'List commercial intelligence. Newest first; pages of limit (default 100, max 1000) from offset.',
+    { type: 'object', properties: { taskType: { type: 'string' }, ...LIST_PAGE } },
     READ_POLICY, (p: Record<string, unknown>) => core.commercialIntel(p));
 
   // v4: Tool Intelligence
   reg('core.record_tool', 'Record tool intelligence.',
     { type: 'object', properties: { name: { type: 'string' }, problemSolved: { type: 'string' }, workflowStage: { type: 'string' }, inputs: { type: 'string' }, outputs: { type: 'string' }, failureModes: { type: 'string' }, timeSaved: { type: 'number' }, maintenanceCost: { type: 'number' }, roi: { type: 'number' }, usageFrequency: { type: 'string' } }, required: ['name'] },
     WRITE_POLICY, (p: Record<string, unknown>) => core.recordTool(p));
-  reg('core.tool_intel', 'List tool intelligence.',
-    { type: 'object', properties: { status: { type: 'string' } } },
+  reg('core.tool_intel', 'List tool intelligence. Newest first; pages of limit (default 100, max 1000) from offset.',
+    { type: 'object', properties: { status: { type: 'string' }, ...LIST_PAGE } },
     READ_POLICY, (p: Record<string, unknown>) => core.toolIntel(p));
 
   // v4: Archetypes
   reg('core.record_archetype', 'Record a project archetype.',
     { type: 'object', properties: { name: { type: 'string' }, platform: { type: 'string' }, maturityLevel: { type: 'number' }, evidence: { type: 'array', items: { type: 'string' } } }, required: ['name'] },
     WRITE_POLICY, (p: Record<string, unknown>) => core.recordArchetype(p));
-  reg('core.archetypes', 'List archetypes.',
-    { type: 'object', properties: { platform: { type: 'string' } } },
+  reg('core.archetypes', 'List archetypes. Newest first; pages of limit (default 100, max 1000) from offset.',
+    { type: 'object', properties: { platform: { type: 'string' }, ...LIST_PAGE } },
     READ_POLICY, (p: Record<string, unknown>) => core.archetypes(p));
 
   // v4: Platform Semantics
   reg('core.record_platform_semantic', 'Record a platform semantic fact.',
     { type: 'object', properties: { platform: { type: 'string' }, semanticRole: { type: 'string' }, propertyName: { type: 'string' }, cssFact: { type: 'string' }, semanticTruth: { type: 'string' }, evidence: { type: 'string' } }, required: ['platform', 'semanticRole'] },
     WRITE_POLICY, (p: Record<string, unknown>) => core.recordPlatformSemantic(p));
-  reg('core.platform_semantics', 'List platform semantics.',
-    { type: 'object', properties: { platform: { type: 'string' }, semanticRole: { type: 'string' } } },
+  reg('core.platform_semantics', 'List platform semantics. Newest first; pages of limit (default 100, max 1000) from offset.',
+    { type: 'object', properties: { platform: { type: 'string' }, semanticRole: { type: 'string' }, ...LIST_PAGE } },
     READ_POLICY, (p: Record<string, unknown>) => core.platformSemantics(p));
 
   // v4: Practice Parity
   reg('core.record_practice_parity', 'Record declared vs observed practice parity.',
     { type: 'object', properties: { practice: { type: 'string' }, declared: { type: 'string' }, observed: { type: 'string' }, gap: { type: 'string' }, evidence: { type: 'string' } }, required: ['practice'] },
     WRITE_POLICY, (p: Record<string, unknown>) => core.recordPracticeParity(p));
-  reg('core.practice_parity', 'List practice parity records.',
-    { type: 'object', properties: { practice: { type: 'string' } } },
+  reg('core.practice_parity', 'List practice parity records. Newest first; pages of limit (default 100, max 1000) from offset.',
+    { type: 'object', properties: { practice: { type: 'string' }, ...LIST_PAGE } },
     READ_POLICY, (p: Record<string, unknown>) => core.practiceParity(p));
 
   // v4: Skill Genealogy

@@ -476,10 +476,11 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         paneId: { type: 'string', enum: ['desktop', 'mobile'] },
         clean: { type: 'boolean', description: 'Automatically sanitize Livewire/SSR metadata blobs', default: true },
         materialize: { type: 'boolean', description: 'Automatically walk and materialize full-page lazy/SSR content before dumping', default: true },
+        materializeDataSrc: { type: 'boolean', description: 'Also swap lazy data-src/data-srcset into live sources during the walk, for loaders that only swap on user interaction (default false: such images refuse the export as unmaterialized)' },
       },
       required: ['outputPath'],
     },
-    execute: async (params: { outputPath: string; selector?: string; tabId?: string; paneId?: 'desktop' | 'mobile'; clean?: boolean; materialize?: boolean }, context) => {
+    execute: async (params: { outputPath: string; selector?: string; tabId?: string; paneId?: 'desktop' | 'mobile'; clean?: boolean; materialize?: boolean; materializeDataSrc?: boolean }, context) => {
       let rootPath = process.cwd();
       if (context?.projectId && context?.workspaceId) {
         try {
@@ -2441,9 +2442,10 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         quality: { type: 'number' },
         leaseToken: { type: 'string', description: 'Evidence-run artifact lease token from artifact.preflight; required while the run holds an exclusive lease' },
         expectedUrl: { type: 'string', description: 'Expected route URL for route identity gate assertion' },
+        materializeDataSrc: { type: 'boolean', description: 'Swap lazy data-src/data-srcset into live sources before capture, for loaders that only swap on user interaction (default false: such images fail the imagesSettled gate with CAPTURE_NOT_READY)' },
       },
     },
-    execute: async (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; format?: 'png' | 'jpeg'; quality?: number; leaseToken?: string; expectedUrl?: string }, context) => {
+    execute: async (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; format?: 'png' | 'jpeg'; quality?: number; leaseToken?: string; expectedUrl?: string; materializeDataSrc?: boolean }, context) => {
       if (params.format === 'jpeg') {
         throw new CapabilityError('INVALID_ARGUMENT', 'anti.screenshot.full_page stages PNG evidence only; jpeg is not supported');
       }
@@ -2453,7 +2455,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         context.attemptId || 'attempt-unbound',
         params.tabId,
         params.paneId,
-        { leaseToken: params.leaseToken, signal: context.signal, timeoutMs: FULL_PAGE_CAPTURE_EXECUTION_BUDGET_MS, expectedUrl: params.expectedUrl }
+        { leaseToken: params.leaseToken, signal: context.signal, timeoutMs: FULL_PAGE_CAPTURE_EXECUTION_BUDGET_MS, expectedUrl: params.expectedUrl, materializeDataSrc: params.materializeDataSrc }
       );
     },
   });

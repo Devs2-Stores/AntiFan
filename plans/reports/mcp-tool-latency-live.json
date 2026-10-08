@@ -1,0 +1,1190 @@
+{
+  "timestamp": "2026-10-08T09:48:25.451Z",
+  "mode": "live",
+  "platform": "win32",
+  "runtime": "node v24.13.0",
+  "samplesPerTool": 5,
+  "target": "https://m-n-bakery.myharavan.com/",
+  "proxy": {
+    "initializeMs": 2919.7,
+    "toolsListMs": 17.6,
+    "toolsListBytes": 54179,
+    "toolCount": 138,
+    "firstBridgeCallMs": 365.7
+  },
+  "tabLifecycle": null,
+  "concurrency": [
+    {
+      "tool": "anti.browser.get_viewport",
+      "calls": 8,
+      "serialMs": 294.9,
+      "parallelMs": 100.6,
+      "speedup": 2.9,
+      "serialFailed": 0,
+      "parallelFailed": 0
+    },
+    {
+      "tool": "anti.inspect.styles",
+      "calls": 8,
+      "serialMs": 118.2,
+      "parallelMs": 50.8,
+      "speedup": 2.3,
+      "serialFailed": 0,
+      "parallelFailed": 0
+    },
+    {
+      "tool": "anti.screenshot.viewport",
+      "calls": 8,
+      "serialMs": 3461.9,
+      "parallelMs": 551.2,
+      "speedup": null,
+      "serialFailed": 0,
+      "parallelFailed": 5
+    }
+  ],
+  "tools": [
+    {
+      "tool": "anti.visual.compare",
+      "status": "PARTIAL",
+      "coldMs": 7483.9,
+      "p50Ms": 5131.1,
+      "p95Ms": 5385.9,
+      "maxMs": 5385.9,
+      "samples": 3,
+      "maxResponseBytes": 3032,
+      "errors": {
+        "IMAGE_IDENTITY_UNSTABLE": 1
+      },
+      "errorSample": "IMAGE_IDENTITY_UNSTABLE: Pre-capture quiescence predicate 'imageIdentityStable' failed on tab 'f2472251-6711-4788-b0e4-632954254535' pane 'desktop': Tracked image inventory moved while document geometry held constant: docHeight 6688 / scrol"
+    },
+    {
+      "tool": "theme.qa_validate",
+      "status": "OK",
+      "coldMs": 5163.6,
+      "p50Ms": 5057.5,
+      "p95Ms": 5656.5,
+      "maxMs": 5656.5,
+      "samples": 2,
+      "maxResponseBytes": 42497
+    },
+    {
+      "tool": "anti.theme.resolve_element",
+      "status": "OK",
+      "coldMs": 4641,
+      "p50Ms": 4061.5,
+      "p95Ms": 4493.4,
+      "maxMs": 4493.4,
+      "samples": 5,
+      "maxResponseBytes": 51082
+    },
+    {
+      "tool": "anti.browser.navigate",
+      "status": "OK",
+      "coldMs": 4270.2,
+      "p50Ms": 3777.8,
+      "p95Ms": 4054.5,
+      "maxMs": 4054.5,
+      "samples": 3,
+      "maxResponseBytes": 442
+    },
+    {
+      "tool": "anti.browser.reload",
+      "status": "OK",
+      "coldMs": 4065.8,
+      "p50Ms": 3565.8,
+      "p95Ms": 3575.2,
+      "maxMs": 3575.2,
+      "samples": 3,
+      "maxResponseBytes": 565
+    },
+    {
+      "tool": "anti.reference.capture#screenshot",
+      "status": "OK",
+      "coldMs": 2424.5,
+      "p50Ms": 2653.6,
+      "p95Ms": 2803,
+      "maxMs": 2803,
+      "samples": 3,
+      "maxResponseBytes": 3053
+    },
+    {
+      "tool": "anti.visual.compare#fullPage",
+      "status": "ERROR",
+      "coldMs": 2042,
+      "p50Ms": 2043,
+      "p95Ms": 2192.5,
+      "maxMs": 2192.5,
+      "samples": 3,
+      "maxResponseBytes": 415,
+      "errors": {
+        "CAPTURE_NOT_READY": 4
+      },
+      "errorSample": "CAPTURE_NOT_READY: Pre-capture quiescence predicate 'imagesSettled' failed on tab 'f2472251-6711-4788-b0e4-632954254535' pane 'desktop': Detected 4 unmaterialized image(s) (empty src with lazy-source attrs); remedy: promote with materialize"
+    },
+    {
+      "tool": "anti.screenshot.full_page",
+      "status": "ERROR",
+      "coldMs": 2149.8,
+      "p50Ms": 1880.8,
+      "p95Ms": 2150.5,
+      "maxMs": 2150.5,
+      "samples": 3,
+      "maxResponseBytes": 415,
+      "errors": {
+        "CAPTURE_NOT_READY": 4
+      },
+      "errorSample": "CAPTURE_NOT_READY: Pre-capture quiescence predicate 'imagesSettled' failed on tab 'f2472251-6711-4788-b0e4-632954254535' pane 'desktop': Detected 4 unmaterialized image(s) (empty src with lazy-source attrs); remedy: promote with materialize"
+    },
+    {
+      "tool": "anti.reference.capture",
+      "status": "OK",
+      "coldMs": 1823.4,
+      "p50Ms": 1839.5,
+      "p95Ms": 2196.8,
+      "maxMs": 2196.8,
+      "samples": 3,
+      "maxResponseBytes": 1735
+    },
+    {
+      "tool": "anti.theme.export_clean",
+      "status": "ERROR",
+      "coldMs": 1385.7,
+      "p50Ms": 1409.2,
+      "p95Ms": 1420.2,
+      "maxMs": 1420.2,
+      "samples": 3,
+      "maxResponseBytes": 238,
+      "errors": {
+        "REFERENCE_MATERIALIZATION_INCOMPLETE": 4
+      },
+      "errorSample": "REFERENCE_MATERIALIZATION_INCOMPLETE: DOM export materialization did not complete on tab 'f2472251-6711-4788-b0e4-632954254535'; no file was written"
+    },
+    {
+      "tool": "anti.browser.dump_dom",
+      "status": "ERROR",
+      "coldMs": 1402.7,
+      "p50Ms": 1404.7,
+      "p95Ms": 1410.7,
+      "maxMs": 1410.7,
+      "samples": 3,
+      "maxResponseBytes": 238,
+      "errors": {
+        "REFERENCE_MATERIALIZATION_INCOMPLETE": 4
+      },
+      "errorSample": "REFERENCE_MATERIALIZATION_INCOMPLETE: DOM export materialization did not complete on tab 'f2472251-6711-4788-b0e4-632954254535'; no file was written"
+    },
+    {
+      "tool": "anti.inspect.responsive_matrix",
+      "status": "OK",
+      "coldMs": 1434.3,
+      "p50Ms": 1259.1,
+      "p95Ms": 1482.8,
+      "maxMs": 1482.8,
+      "samples": 2,
+      "maxResponseBytes": 3317
+    },
+    {
+      "tool": "core.corpus_audit",
+      "status": "OK",
+      "coldMs": 1712.7,
+      "p50Ms": 1014.2,
+      "p95Ms": 1317.2,
+      "maxMs": 1317.2,
+      "samples": 5,
+      "maxResponseBytes": 372
+    },
+    {
+      "tool": "core.context_pack_v2",
+      "status": "OK",
+      "coldMs": 833,
+      "p50Ms": 956.2,
+      "p95Ms": 1254.8,
+      "maxMs": 1254.8,
+      "samples": 5,
+      "maxResponseBytes": 18899
+    },
+    {
+      "tool": "anti.screenshot.viewport#png",
+      "status": "OK",
+      "coldMs": 792.3,
+      "p50Ms": 865,
+      "p95Ms": 2022.3,
+      "maxMs": 2022.3,
+      "samples": 5,
+      "maxResponseBytes": 127883
+    },
+    {
+      "tool": "anti.visual.promote_baseline",
+      "status": "OK",
+      "coldMs": 757.4,
+      "p50Ms": 806.5,
+      "p95Ms": 1030.5,
+      "maxMs": 1030.5,
+      "samples": 2,
+      "maxResponseBytes": 861
+    },
+    {
+      "tool": "core.recommend",
+      "status": "OK",
+      "coldMs": 705.8,
+      "p50Ms": 770.1,
+      "p95Ms": 913.6,
+      "maxMs": 913.6,
+      "samples": 5,
+      "maxResponseBytes": 236502
+    },
+    {
+      "tool": "core.context_pack",
+      "status": "OK",
+      "coldMs": 595.7,
+      "p50Ms": 689.5,
+      "p95Ms": 833.4,
+      "maxMs": 833.4,
+      "samples": 5,
+      "maxResponseBytes": 11110
+    },
+    {
+      "tool": "anti.screenshot.viewport",
+      "status": "OK",
+      "coldMs": 699.4,
+      "p50Ms": 666.1,
+      "p95Ms": 770.5,
+      "maxMs": 770.5,
+      "samples": 5,
+      "maxResponseBytes": 95800
+    },
+    {
+      "tool": "browser.promote-baseline",
+      "status": "OK",
+      "coldMs": 808,
+      "p50Ms": 662.4,
+      "p95Ms": 836.5,
+      "maxMs": 836.5,
+      "samples": 2,
+      "maxResponseBytes": 861
+    },
+    {
+      "tool": "browser.wait#dom-stable",
+      "status": "OK",
+      "coldMs": 540.3,
+      "p50Ms": 563.2,
+      "p95Ms": 974.7,
+      "maxMs": 974.7,
+      "samples": 5,
+      "maxResponseBytes": 202
+    },
+    {
+      "tool": "browser.wait#network",
+      "status": "OK",
+      "coldMs": 516.9,
+      "p50Ms": 525.7,
+      "p95Ms": 972,
+      "maxMs": 972,
+      "samples": 5,
+      "maxResponseBytes": 172
+    },
+    {
+      "tool": "core.domain",
+      "status": "OK",
+      "coldMs": 773.5,
+      "p50Ms": 510.8,
+      "p95Ms": 637.1,
+      "maxMs": 637.1,
+      "samples": 5,
+      "maxResponseBytes": 174161
+    },
+    {
+      "tool": "core.query",
+      "status": "OK",
+      "coldMs": 427.8,
+      "p50Ms": 395.5,
+      "p95Ms": 554.6,
+      "maxMs": 554.6,
+      "samples": 5,
+      "maxResponseBytes": 10134
+    },
+    {
+      "tool": "core.reuse_metric",
+      "status": "OK",
+      "coldMs": 323.9,
+      "p50Ms": 249.4,
+      "p95Ms": 293.1,
+      "maxMs": 293.1,
+      "samples": 5,
+      "maxResponseBytes": 4916
+    },
+    {
+      "tool": "core.check_phase_gate",
+      "status": "OK",
+      "coldMs": 199.7,
+      "p50Ms": 197.7,
+      "p95Ms": 239.4,
+      "maxMs": 239.4,
+      "samples": 5,
+      "maxResponseBytes": 232
+    },
+    {
+      "tool": "core.find_similar",
+      "status": "OK",
+      "coldMs": 71.3,
+      "p50Ms": 196.5,
+      "p95Ms": 245.7,
+      "maxMs": 245.7,
+      "samples": 5,
+      "maxResponseBytes": 6465
+    },
+    {
+      "tool": "anti.inspect.matched_styles",
+      "status": "OK",
+      "coldMs": 660.6,
+      "p50Ms": 178.8,
+      "p95Ms": 686,
+      "maxMs": 686,
+      "samples": 5,
+      "maxResponseBytes": 12744
+    },
+    {
+      "tool": "anti.trace.interaction",
+      "status": "OK",
+      "coldMs": 215,
+      "p50Ms": 172.4,
+      "p95Ms": 172.9,
+      "maxMs": 172.9,
+      "samples": 5,
+      "maxResponseBytes": 19163
+    },
+    {
+      "tool": "storefront.resolve_product",
+      "status": "OK",
+      "coldMs": 116.4,
+      "p50Ms": 169.2,
+      "p95Ms": 202.4,
+      "maxMs": 202.4,
+      "samples": 3,
+      "maxResponseBytes": 471
+    },
+    {
+      "tool": "core.decay_check",
+      "status": "OK",
+      "coldMs": 53.9,
+      "p50Ms": 165.8,
+      "p95Ms": 196.8,
+      "maxMs": 196.8,
+      "samples": 5,
+      "maxResponseBytes": 142
+    },
+    {
+      "tool": "theme.resolve_product",
+      "status": "OK",
+      "coldMs": 234.3,
+      "p50Ms": 140.1,
+      "p95Ms": 258.1,
+      "maxMs": 258.1,
+      "samples": 3,
+      "maxResponseBytes": 471
+    },
+    {
+      "tool": "theme.debug_bundle",
+      "status": "OK",
+      "coldMs": 147.8,
+      "p50Ms": 125.5,
+      "p95Ms": 127.6,
+      "maxMs": 127.6,
+      "samples": 3,
+      "maxResponseBytes": 1963
+    },
+    {
+      "tool": "anti.agent.sequence",
+      "status": "OK",
+      "coldMs": 99.6,
+      "p50Ms": 102.4,
+      "p95Ms": 157.7,
+      "maxMs": 157.7,
+      "samples": 5,
+      "maxResponseBytes": 639
+    },
+    {
+      "tool": "anti.inspect.dom",
+      "status": "OK",
+      "coldMs": 85.8,
+      "p50Ms": 99.2,
+      "p95Ms": 109.6,
+      "maxMs": 109.6,
+      "samples": 5,
+      "maxResponseBytes": 456
+    },
+    {
+      "tool": "anti.agent.cursor.move",
+      "status": "OK",
+      "coldMs": 78.1,
+      "p50Ms": 94.6,
+      "p95Ms": 544.8,
+      "maxMs": 544.8,
+      "samples": 5,
+      "maxResponseBytes": 91
+    },
+    {
+      "tool": "core.classify_uncertainty",
+      "status": "OK",
+      "coldMs": 189.3,
+      "p50Ms": 92.6,
+      "p95Ms": 216.8,
+      "maxMs": 216.8,
+      "samples": 5,
+      "maxResponseBytes": 123
+    },
+    {
+      "tool": "core.knowledge_gaps",
+      "status": "OK",
+      "coldMs": 108.5,
+      "p50Ms": 86.2,
+      "p95Ms": 98.8,
+      "maxMs": 98.8,
+      "samples": 5,
+      "maxResponseBytes": 1187
+    },
+    {
+      "tool": "core.principles",
+      "status": "OK",
+      "coldMs": 103,
+      "p50Ms": 73.1,
+      "p95Ms": 85.6,
+      "maxMs": 85.6,
+      "samples": 5,
+      "maxResponseBytes": 43954
+    },
+    {
+      "tool": "anti.agent.cursor.hover",
+      "status": "OK",
+      "coldMs": 65.7,
+      "p50Ms": 61.9,
+      "p95Ms": 88.1,
+      "maxMs": 88.1,
+      "samples": 5,
+      "maxResponseBytes": 93
+    },
+    {
+      "tool": "core.platform_semantics",
+      "status": "OK",
+      "coldMs": 61.6,
+      "p50Ms": 59.5,
+      "p95Ms": 72,
+      "maxMs": 72,
+      "samples": 5,
+      "maxResponseBytes": 33144
+    },
+    {
+      "tool": "anti.inspect.snapshot#viewportOnly",
+      "status": "OK",
+      "coldMs": 48.1,
+      "p50Ms": 52.1,
+      "p95Ms": 53.7,
+      "maxMs": 53.7,
+      "samples": 5,
+      "maxResponseBytes": 2336
+    },
+    {
+      "tool": "anti.agent.cursor.highlight",
+      "status": "OK",
+      "coldMs": 38.7,
+      "p50Ms": 50.7,
+      "p95Ms": 72.7,
+      "maxMs": 72.7,
+      "samples": 5,
+      "maxResponseBytes": 97
+    },
+    {
+      "tool": "anti.inspect.snapshot",
+      "status": "OK",
+      "coldMs": 79.2,
+      "p50Ms": 50.6,
+      "p95Ms": 67.8,
+      "maxMs": 67.8,
+      "samples": 5,
+      "maxResponseBytes": 2286
+    },
+    {
+      "tool": "anti.spec.validate_gate",
+      "status": "OK",
+      "coldMs": 35.5,
+      "p50Ms": 47,
+      "p95Ms": 47.8,
+      "maxMs": 47.8,
+      "samples": 2,
+      "maxResponseBytes": 599
+    },
+    {
+      "tool": "anti.browser.tabs.list",
+      "status": "OK",
+      "coldMs": 51.9,
+      "p50Ms": 36.5,
+      "p95Ms": 90.1,
+      "maxMs": 90.1,
+      "samples": 5,
+      "maxResponseBytes": 964
+    },
+    {
+      "tool": "core.stats",
+      "status": "OK",
+      "coldMs": 2127.8,
+      "p50Ms": 34.8,
+      "p95Ms": 88.3,
+      "maxMs": 88.3,
+      "samples": 5,
+      "maxResponseBytes": 661
+    },
+    {
+      "tool": "browser.wait#selector",
+      "status": "OK",
+      "coldMs": 59.4,
+      "p50Ms": 34.2,
+      "p95Ms": 132,
+      "maxMs": 132,
+      "samples": 5,
+      "maxResponseBytes": 197
+    },
+    {
+      "tool": "anti.agent.cursor.scroll",
+      "status": "OK",
+      "coldMs": 18.6,
+      "p50Ms": 33.4,
+      "p95Ms": 39.8,
+      "maxMs": 39.8,
+      "samples": 5,
+      "maxResponseBytes": 94
+    },
+    {
+      "tool": "anti.browser.set_viewport",
+      "status": "OK",
+      "coldMs": 213.3,
+      "p50Ms": 30.6,
+      "p95Ms": 33.1,
+      "maxMs": 33.1,
+      "samples": 3,
+      "maxResponseBytes": 274
+    },
+    {
+      "tool": "anti.inspect.style_diff",
+      "status": "OK",
+      "coldMs": 26.5,
+      "p50Ms": 28.5,
+      "p95Ms": 37.3,
+      "maxMs": 37.3,
+      "samples": 5,
+      "maxResponseBytes": 1423
+    },
+    {
+      "tool": "anti.inspect.region",
+      "status": "OK",
+      "coldMs": 29.7,
+      "p50Ms": 28.4,
+      "p95Ms": 41.7,
+      "maxMs": 41.7,
+      "samples": 5,
+      "maxResponseBytes": 14527
+    },
+    {
+      "tool": "anti.inspect.dom#selector",
+      "status": "OK",
+      "coldMs": 32.5,
+      "p50Ms": 27.1,
+      "p95Ms": 30,
+      "maxMs": 30,
+      "samples": 5,
+      "maxResponseBytes": 201
+    },
+    {
+      "tool": "browser.set-viewport",
+      "status": "OK",
+      "coldMs": 18.6,
+      "p50Ms": 25.7,
+      "p95Ms": 54.9,
+      "maxMs": 54.9,
+      "samples": 3,
+      "maxResponseBytes": 274
+    },
+    {
+      "tool": "browser.wait#images-settled",
+      "status": "OK",
+      "coldMs": 22.4,
+      "p50Ms": 24.1,
+      "p95Ms": 40.2,
+      "maxMs": 40.2,
+      "samples": 5,
+      "maxResponseBytes": 177
+    },
+    {
+      "tool": "anti.inspect.page_inventory",
+      "status": "OK",
+      "coldMs": 24.9,
+      "p50Ms": 22.1,
+      "p95Ms": 48,
+      "maxMs": 48,
+      "samples": 5,
+      "maxResponseBytes": 4099
+    },
+    {
+      "tool": "anti.browser.evaluate",
+      "status": "OK",
+      "coldMs": 423.4,
+      "p50Ms": 21.1,
+      "p95Ms": 535.6,
+      "maxMs": 535.6,
+      "samples": 5,
+      "maxResponseBytes": 96
+    },
+    {
+      "tool": "anti.browser.tabs.get",
+      "status": "OK",
+      "coldMs": 66.2,
+      "p50Ms": 19.7,
+      "p95Ms": 32.8,
+      "maxMs": 32.8,
+      "samples": 5,
+      "maxResponseBytes": 962
+    },
+    {
+      "tool": "file.read",
+      "status": "OK",
+      "coldMs": 24.5,
+      "p50Ms": 19.2,
+      "p95Ms": 25.6,
+      "maxMs": 25.6,
+      "samples": 5,
+      "maxResponseBytes": 5314
+    },
+    {
+      "tool": "terminal.list",
+      "status": "OK",
+      "coldMs": 13.5,
+      "p50Ms": 18.9,
+      "p95Ms": 22.9,
+      "maxMs": 22.9,
+      "samples": 5,
+      "maxResponseBytes": 32313
+    },
+    {
+      "tool": "anti.inspect.styles",
+      "status": "OK",
+      "coldMs": 25.3,
+      "p50Ms": 18.8,
+      "p95Ms": 50.8,
+      "maxMs": 50.8,
+      "samples": 5,
+      "maxResponseBytes": 6463
+    },
+    {
+      "tool": "theme.cockpit_report",
+      "status": "OK",
+      "coldMs": 16.1,
+      "p50Ms": 17.8,
+      "p95Ms": 21.7,
+      "maxMs": 21.7,
+      "samples": 5,
+      "maxResponseBytes": 11021
+    },
+    {
+      "tool": "anti.verification.list",
+      "status": "OK",
+      "coldMs": 13.9,
+      "p50Ms": 17.5,
+      "p95Ms": 42.2,
+      "maxMs": 42.2,
+      "samples": 5,
+      "maxResponseBytes": 12031
+    },
+    {
+      "tool": "browser.get-viewport",
+      "status": "OK",
+      "coldMs": 18.6,
+      "p50Ms": 17,
+      "p95Ms": 24.4,
+      "maxMs": 24.4,
+      "samples": 5,
+      "maxResponseBytes": 326
+    },
+    {
+      "tool": "theme.cockpit_list",
+      "status": "OK",
+      "coldMs": 20.5,
+      "p50Ms": 15.5,
+      "p95Ms": 23.3,
+      "maxMs": 23.3,
+      "samples": 5,
+      "maxResponseBytes": 14655
+    },
+    {
+      "tool": "anti.browser.evaluate#bulk",
+      "status": "OK",
+      "coldMs": 11.7,
+      "p50Ms": 14.2,
+      "p95Ms": 19.5,
+      "maxMs": 19.5,
+      "samples": 5,
+      "maxResponseBytes": 421
+    },
+    {
+      "tool": "device.status",
+      "status": "OK",
+      "coldMs": 34.2,
+      "p50Ms": 14.1,
+      "p95Ms": 109,
+      "maxMs": 109,
+      "samples": 5,
+      "maxResponseBytes": 1610
+    },
+    {
+      "tool": "device.list",
+      "status": "ERROR",
+      "coldMs": 69,
+      "p50Ms": 13.7,
+      "p95Ms": 17.2,
+      "maxMs": 17.2,
+      "samples": 5,
+      "maxResponseBytes": 301,
+      "errors": {
+        "DEVICE_TRANSPORT_UNREACHABLE": 6
+      },
+      "errorSample": "DEVICE_TRANSPORT_UNREACHABLE: Device enumeration failed: No device is visible to the host. Connect it by USB and install Apple Mobile Device Support (standalone iTunes for Windows), or reach it over the network."
+    },
+    {
+      "tool": "theme.assert_cart",
+      "status": "OK",
+      "coldMs": 14.4,
+      "p50Ms": 13,
+      "p95Ms": 32.1,
+      "maxMs": 32.1,
+      "samples": 5,
+      "maxResponseBytes": 247
+    },
+    {
+      "tool": "theme.cockpit_findings",
+      "status": "OK",
+      "coldMs": 13.1,
+      "p50Ms": 11.5,
+      "p95Ms": 35.7,
+      "maxMs": 35.7,
+      "samples": 5,
+      "maxResponseBytes": 226
+    },
+    {
+      "tool": "anti.agent.cursor.clear",
+      "status": "OK",
+      "coldMs": 11.3,
+      "p50Ms": 11.4,
+      "p95Ms": 11.6,
+      "maxMs": 11.6,
+      "samples": 5,
+      "maxResponseBytes": 93
+    },
+    {
+      "tool": "anti.browser.get_viewport",
+      "status": "OK",
+      "coldMs": 13.7,
+      "p50Ms": 11.3,
+      "p95Ms": 12.6,
+      "maxMs": 12.6,
+      "samples": 5,
+      "maxResponseBytes": 326
+    },
+    {
+      "tool": "anti.media.freeze#unfreeze",
+      "status": "OK",
+      "coldMs": 12.4,
+      "p50Ms": 10,
+      "p95Ms": 31.5,
+      "maxMs": 31.5,
+      "samples": 5,
+      "maxResponseBytes": 764
+    },
+    {
+      "tool": "anti.media.freeze",
+      "status": "OK",
+      "coldMs": 22,
+      "p50Ms": 8.6,
+      "p95Ms": 33.5,
+      "maxMs": 33.5,
+      "samples": 5,
+      "maxResponseBytes": 762
+    },
+    {
+      "tool": "anti.theme.style_override",
+      "status": "OK",
+      "coldMs": 5.7,
+      "p50Ms": 8.4,
+      "p95Ms": 9,
+      "maxMs": 9,
+      "samples": 5,
+      "maxResponseBytes": 128
+    },
+    {
+      "tool": "theme.style_override",
+      "status": "OK",
+      "coldMs": 7.8,
+      "p50Ms": 7.8,
+      "p95Ms": 88,
+      "maxMs": 88,
+      "samples": 5,
+      "maxResponseBytes": 127
+    },
+    {
+      "tool": "core.practice_parity",
+      "status": "OK",
+      "coldMs": 6.6,
+      "p50Ms": 7.8,
+      "p95Ms": 11.1,
+      "maxMs": 11.1,
+      "samples": 5,
+      "maxResponseBytes": 55304
+    },
+    {
+      "tool": "core.archetypes",
+      "status": "OK",
+      "coldMs": 16.1,
+      "p50Ms": 7,
+      "p95Ms": 7.8,
+      "maxMs": 7.8,
+      "samples": 5,
+      "maxResponseBytes": 23107
+    },
+    {
+      "tool": "core.anti_patterns",
+      "status": "OK",
+      "coldMs": 4.9,
+      "p50Ms": 6.9,
+      "p95Ms": 8,
+      "maxMs": 8,
+      "samples": 5,
+      "maxResponseBytes": 80157
+    },
+    {
+      "tool": "core.tool_intel",
+      "status": "OK",
+      "coldMs": 6.4,
+      "p50Ms": 6.8,
+      "p95Ms": 18.8,
+      "maxMs": 18.8,
+      "samples": 5,
+      "maxResponseBytes": 54454
+    },
+    {
+      "tool": "core.hidden_requirements",
+      "status": "OK",
+      "coldMs": 3.2,
+      "p50Ms": 6.3,
+      "p95Ms": 10.9,
+      "maxMs": 10.9,
+      "samples": 5,
+      "maxResponseBytes": 20397
+    },
+    {
+      "tool": "core.fix_patterns",
+      "status": "OK",
+      "coldMs": 6.4,
+      "p50Ms": 5.7,
+      "p95Ms": 20.4,
+      "maxMs": 20.4,
+      "samples": 5,
+      "maxResponseBytes": 18365
+    },
+    {
+      "tool": "core.workarounds",
+      "status": "OK",
+      "coldMs": 5.7,
+      "p50Ms": 4.4,
+      "p95Ms": 5.4,
+      "maxMs": 5.4,
+      "samples": 5,
+      "maxResponseBytes": 55422
+    },
+    {
+      "tool": "core.health",
+      "status": "OK",
+      "coldMs": 2814.1,
+      "p50Ms": 3.7,
+      "p95Ms": 9.8,
+      "maxMs": 9.8,
+      "samples": 5,
+      "maxResponseBytes": 3464
+    },
+    {
+      "tool": "core.commercial_intel",
+      "status": "OK",
+      "coldMs": 4,
+      "p50Ms": 3.6,
+      "p95Ms": 5.4,
+      "maxMs": 5.4,
+      "samples": 5,
+      "maxResponseBytes": 36196
+    },
+    {
+      "tool": "core.skill_genealogy",
+      "status": "OK",
+      "coldMs": 1.2,
+      "p50Ms": 1.6,
+      "p95Ms": 2.9,
+      "maxMs": 2.9,
+      "samples": 5,
+      "maxResponseBytes": 77
+    },
+    {
+      "tool": "core.candidates",
+      "status": "OK",
+      "coldMs": 1.9,
+      "p50Ms": 0.9,
+      "p95Ms": 1.4,
+      "maxMs": 1.4,
+      "samples": 5,
+      "maxResponseBytes": 77
+    },
+    {
+      "tool": "core.experience_chain",
+      "status": "OK",
+      "coldMs": 1.9,
+      "p50Ms": 0.9,
+      "p95Ms": 1.1,
+      "maxMs": 1.1,
+      "samples": 5,
+      "maxResponseBytes": 77
+    }
+  ],
+  "skipped": [
+    {
+      "tool": "anti.browser.tabs.activate",
+      "reason": "live mode: acts on the shared session or durable registers (measured by the isolated Electron harness)"
+    },
+    {
+      "tool": "anti.browser.set_automation_target",
+      "reason": "live mode: acts on the shared session or durable registers (measured by the isolated Electron harness)"
+    },
+    {
+      "tool": "anti.browser.rebind_target",
+      "reason": "live mode: acts on the shared session or durable registers (measured by the isolated Electron harness)"
+    },
+    {
+      "tool": "anti.browser.evaluate_frame",
+      "reason": "live mode: acts on the shared session or durable registers (measured by the isolated Electron harness)"
+    },
+    {
+      "tool": "anti.artifact.stat",
+      "reason": "no artifact id surfaced by capture tools"
+    },
+    {
+      "tool": "anti.artifact.read",
+      "reason": "no artifact id surfaced by capture tools"
+    },
+    {
+      "tool": "anti.agent.cursor.click",
+      "reason": "would click/type/drop into the user tab (--tab); measured on the synthetic storefront"
+    },
+    {
+      "tool": "anti.agent.cursor.type",
+      "reason": "would click/type/drop into the user tab (--tab); measured on the synthetic storefront"
+    },
+    {
+      "tool": "anti.agent.drag",
+      "reason": "would click/type/drop into the user tab (--tab); measured on the synthetic storefront"
+    },
+    {
+      "tool": "anti.agent.file_upload",
+      "reason": "would click/type/drop into the user tab (--tab); measured on the synthetic storefront"
+    },
+    {
+      "tool": "anti.agent.drop",
+      "reason": "would click/type/drop into the user tab (--tab); measured on the synthetic storefront"
+    },
+    {
+      "tool": "anti.verification.record_claim",
+      "reason": "live mode: acts on the shared session or durable registers (measured by the isolated Electron harness)"
+    },
+    {
+      "tool": "anti.verification.verify_claim",
+      "reason": "live mode: acts on the shared session or durable registers (measured by the isolated Electron harness)"
+    },
+    {
+      "tool": "device.open_safari",
+      "reason": "drives a physical iOS device"
+    },
+    {
+      "tool": "device.navigate",
+      "reason": "drives a physical iOS device"
+    },
+    {
+      "tool": "device.reload",
+      "reason": "drives a physical iOS device"
+    },
+    {
+      "tool": "device.screenshot",
+      "reason": "drives a physical iOS device"
+    },
+    {
+      "tool": "device.tap",
+      "reason": "drives a physical iOS device"
+    },
+    {
+      "tool": "device.swipe",
+      "reason": "drives a physical iOS device"
+    },
+    {
+      "tool": "device.type",
+      "reason": "drives a physical iOS device"
+    },
+    {
+      "tool": "device.wait",
+      "reason": "drives a physical iOS device"
+    },
+    {
+      "tool": "theme.cockpit_mark",
+      "reason": "mutates a theme checklist scope on disk"
+    },
+    {
+      "tool": "theme.cockpit_mark_page",
+      "reason": "mutates a theme checklist scope on disk"
+    },
+    {
+      "tool": "theme.cockpit_add_item",
+      "reason": "mutates a theme checklist scope on disk"
+    },
+    {
+      "tool": "theme.cockpit_remove_item",
+      "reason": "mutates a theme checklist scope on disk"
+    },
+    {
+      "tool": "theme.cockpit_scan",
+      "reason": "navigates through checklist routes of a real theme workspace"
+    },
+    {
+      "tool": "anti.telemetry.record_fallback",
+      "reason": "appends fallback telemetry rows to the shared telemetry store"
+    },
+    {
+      "tool": "file.write",
+      "reason": "writes workspace files"
+    },
+    {
+      "tool": "core.receipt",
+      "reason": "writes the Super Core store"
+    },
+    {
+      "tool": "core.ingest_outcome",
+      "reason": "writes the Super Core store"
+    },
+    {
+      "tool": "core.adjudicate",
+      "reason": "writes the Super Core store"
+    },
+    {
+      "tool": "core.invalidate",
+      "reason": "writes the Super Core store"
+    },
+    {
+      "tool": "core.revoke",
+      "reason": "writes the Super Core store"
+    },
+    {
+      "tool": "core.snapshot",
+      "reason": "writes the Super Core store"
+    },
+    {
+      "tool": "core.rollback",
+      "reason": "writes the Super Core store"
+    },
+    {
+      "tool": "core.record_experience_node",
+      "reason": "writes the Super Core store"
+    },
+    {
+      "tool": "core.record_experience_edge",
+      "reason": "writes the Super Core store"
+    },
+    {
+      "tool": "core.record_anti_pattern",
+      "reason": "writes the Super Core store"
+    },
+    {
+      "tool": "core.record_workaround",
+      "reason": "writes the Super Core store"
+    },
+    {
+      "tool": "core.record_fix_pattern",
+      "reason": "writes the Super Core store"
+    },
+    {
+      "tool": "core.resolve_conflict",
+      "reason": "writes the Super Core store"
+    },
+    {
+      "tool": "core.record_regression",
+      "reason": "writes the Super Core store"
+    },
+    {
+      "tool": "core.replay_regression",
+      "reason": "writes the Super Core store"
+    },
+    {
+      "tool": "core.record_observation",
+      "reason": "writes the Super Core store"
+    },
+    {
+      "tool": "core.record_principle",
+      "reason": "writes the Super Core store"
+    },
+    {
+      "tool": "core.record_hidden_requirement",
+      "reason": "writes the Super Core store"
+    },
+    {
+      "tool": "core.record_commercial",
+      "reason": "writes the Super Core store"
+    },
+    {
+      "tool": "core.record_tool",
+      "reason": "writes the Super Core store"
+    },
+    {
+      "tool": "core.record_archetype",
+      "reason": "writes the Super Core store"
+    },
+    {
+      "tool": "core.record_platform_semantic",
+      "reason": "writes the Super Core store"
+    },
+    {
+      "tool": "core.record_practice_parity",
+      "reason": "writes the Super Core store"
+    },
+    {
+      "tool": "core.record_skill_version",
+      "reason": "writes the Super Core store"
+    },
+    {
+      "tool": "core.receipt_v2",
+      "reason": "writes the Super Core store"
+    },
+    {
+      "tool": "terminal.write",
+      "reason": "writes into a live terminal"
+    },
+    {
+      "tool": "terminal.resize",
+      "reason": "resizes a live terminal"
+    },
+    {
+      "tool": "terminal.wait",
+      "reason": "blocks on a live terminal session"
+    },
+    {
+      "tool": "terminal.create",
+      "reason": "spawns a terminal process in the app"
+    },
+    {
+      "tool": "terminal.close",
+      "reason": "kills a terminal process tree"
+    }
+  ],
+  "tabId": "f2472251-6711-4788-b0e4-632954254535",
+  "drainWaits": 12,
+  "uncovered": [],
+  "totalMs": 291478.9,
+  "proxyStderrTail": "ory by design.\"}\n(node:1364) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n[MCP Proxy RPC Error] {\"id\":\"e522bba5-a6b6-4ace-93e6-32ee6d92b276\",\"success\":false,\"data\":{\"code\":\"CAPABILITY_OVERLOADED\",\"message\":\"Concurrency limit exceeded for background operations on tab f2472251-6711-4788-b0e4-632954254535\"},\"error\":\"CAPABILITY_OVERLOADED: Concurrency limit exceeded for background operations on tab f2472251-6711-4788-b0e4-632954254535\"}\n[MCP Proxy RPC Error] {\"id\":\"71ee2b78-9b1a-456e-8665-55bd1a9f9306\",\"success\":false,\"data\":{\"code\":\"CAPABILITY_OVERLOADED\",\"message\":\"Concurrency limit exceeded for background operations on tab f2472251-6711-4788-b0e4-632954254535\"},\"error\":\"CAPABILITY_OVERLOADED: Concurrency limit exceeded for background operations on tab f2472251-6711-4788-b0e4-632954254535\"}\n[MCP Proxy RPC Error] {\"id\":\"d67cee43-18a8-4ad7-8582-ad54d4b9dd42\",\"success\":false,\"data\":{\"code\":\"CAPABILITY_OVERLOADED\",\"message\":\"Concurrency limit exceeded for background operations on tab f2472251-6711-4788-b0e4-632954254535\"},\"error\":\"CAPABILITY_OVERLOADED: Concurrency limit exceeded for background operations on tab f2472251-6711-4788-b0e4-632954254535\"}\n[MCP Proxy RPC Error] {\"id\":\"5ce4d08e-f85a-4079-baa6-cf43fd863c8c\",\"success\":false,\"data\":{\"code\":\"CAPABILITY_OVERLOADED\",\"message\":\"Concurrency limit exceeded for background operations on tab f2472251-6711-4788-b0e4-632954254535\"},\"error\":\"CAPABILITY_OVERLOADED: Concurrency limit exceeded for background operations on tab f2472251-6711-4788-b0e4-632954254535\"}\n[MCP Proxy RPC Error] {\"id\":\"d53da042-de37-4d77-b3eb-3d2d76a85615\",\"success\":false,\"data\":{\"code\":\"CAPABILITY_OVERLOADED\",\"message\":\"Concurrency limit exceeded for background operations on tab f2472251-6711-4788-b0e4-632954254535\"},\"error\":\"CAPABILITY_OVERLOADED: Concurrency limit exceeded for background operations on tab f2472251-6711-4788-b0e4-632954254535\"}\n"
+}

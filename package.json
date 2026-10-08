@@ -63,6 +63,8 @@
     "smoke:vault": "npm run compile && node scripts/run-electron.cjs scripts/smoke-vault.cjs",
     "smoke:two-shell": "npm run compile && node scripts/run-electron.cjs scripts/probe-two-shell-ipc.cjs",
     "benchmark:artifacts": "node scripts/benchmark-antigravity-artifacts.mjs",
+    "benchmark:mcp": "npm run compile && node scripts/run-electron.cjs scripts/benchmark-mcp-electron.cjs",
+    "benchmark:mcp:live": "node scripts/benchmark-mcp-tools.mjs",
     "benchmark:soak": "node scripts/benchmark-electron-performance.mjs --scenario soak",
     "benchmark:terminal-paint": "node scripts/run-electron.cjs test/e2e/terminal-paint-bench.cjs",
     "smoke:soak": "npm run compile && node scripts/run-electron.cjs scripts/smoke-real-soak.cjs",

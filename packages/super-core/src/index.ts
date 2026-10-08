@@ -103,6 +103,45 @@ const QUALITY_MIN_SCORE = 0.30;
 const MIN_QUALITY_CLAIMS = 2;
 const STATE_SCORE: Record<string, number> = { PROMOTED: 1, ACTIVE: 0.8, OBSERVED: 0.6 };
 
+/** Rows a list read returns when the caller names no `limit`. */
+export const LIST_DEFAULT_LIMIT = 100;
+/** Ceiling on one list page: platform_semantics alone holds 60k+ rows (25 MB). */
+export const LIST_MAX_LIMIT = 1000;
+/** Paging for the library list reads; the result stays a row array, newest first. */
+export interface ListPage { limit?: number; offset?: number }
+/**
+ * Clamps a caller page into `LIMIT ? OFFSET ?` arguments. Unbounded list reads
+ * shipped every row of the table to the agent, so a missing or oversized limit
+ * is clamped instead of honoured; `offset` walks the rest.
+ */
+function pageArgs(page: ListPage | undefined, defaultLimit = LIST_DEFAULT_LIMIT): [number, number] {
+  const rawLimit = Number(page?.limit);
+  const limit = Number.isFinite(rawLimit) && rawLimit >= 1 ? Math.min(Math.floor(rawLimit), LIST_MAX_LIMIT) : defaultLimit;
+  const rawOffset = Number(page?.offset);
+  const offset = Number.isFinite(rawOffset) && rawOffset > 0 ? Math.floor(rawOffset) : 0;
+  return [limit, offset];
+}
+/**
+ * How long a health report is reused while the store is unchanged. Health runs
+ * seven gates plus corpus audit, decay and gap scans (~0.6 s warm); the bound
+ * keeps the time-relative decay/temporal signals from going stale.
+ */
+const HEALTH_CACHE_MS = 10_000;
+/**
+ * Reuses the last result while the caller's key is unchanged and younger than
+ * `ttlMs`; any key change recomputes. One slot: callers key on store state.
+ */
+function generationMemo<A, R>(compute: (arg: A) => R, ttlMs: number): (key: string, arg: A) => R {
+  let last: { key: string; at: number; value: R } | null = null;
+  return (key, arg) => {
+    const now = Date.now();
+    if (last && last.key === key && now - last.at < ttlMs) return last.value;
+    const value = compute(arg);
+    last = { key, at: now, value };
+    return value;
+  };
+}
+
 export class Core {
   private db: DatabaseSync;
   readonly dbPath: string;
@@ -1064,13 +1103,13 @@ export class Core {
     return { patternId };
   }
 
-  antiPatterns(opts?: { platform?: string; status?: string }) {
+  antiPatterns(opts?: { platform?: string; status?: string } & ListPage) {
     const where: string[] = [];
     const args: unknown[] = [];
     if (opts?.platform) { where.push('affectedPlatform = ?'); args.push(opts.platform); }
     if (opts?.status) { where.push('status = ?'); args.push(opts.status); }
-    const sql = `SELECT * FROM anti_patterns${where.length ? ' WHERE ' + where.join(' AND ') : ''} ORDER BY createdAt DESC`;
-    return this.db.prepare(sql).all(...args as never[]);
+    const sql = `SELECT * FROM anti_patterns${where.length ? ' WHERE ' + where.join(' AND ') : ''} ORDER BY createdAt DESC LIMIT ? OFFSET ?`;
+    return this.db.prepare(sql).all(...args as never[], ...pageArgs(opts));
   }
 
   // ---- v4: Workaround Library (§29) ------------------------------------------
@@ -1081,13 +1120,13 @@ export class Core {
     return { workaroundId };
   }
 
-  workarounds(opts?: { platform?: string; stillValid?: boolean }) {
+  workarounds(opts?: { platform?: string; stillValid?: boolean } & ListPage) {
     const where: string[] = [];
     const args: unknown[] = [];
     if (opts?.platform) { where.push('platform = ?'); args.push(opts.platform); }
     if (opts?.stillValid !== undefined) { where.push('stillValid = ?'); args.push(opts.stillValid ? 1 : 0); }
-    const sql = `SELECT * FROM workarounds${where.length ? ' WHERE ' + where.join(' AND ') : ''} ORDER BY createdAt DESC`;
-    return this.db.prepare(sql).all(...args as never[]);
+    const sql = `SELECT * FROM workarounds${where.length ? ' WHERE ' + where.join(' AND ') : ''} ORDER BY createdAt DESC LIMIT ? OFFSET ?`;
+    return this.db.prepare(sql).all(...args as never[], ...pageArgs(opts));
   }
 
   // ---- v4: Fix Patterns (§31) -------------------------------------------------
@@ -1098,10 +1137,10 @@ export class Core {
     return { fixId };
   }
 
-  fixPatterns(opts?: { limit?: number; platform?: string }) {
+  fixPatterns(opts?: { platform?: string } & ListPage) {
     const where = opts?.platform ? 'WHERE platform = ?' : '';
     const args = opts?.platform ? [opts.platform] : [];
-    return this.db.prepare(`SELECT * FROM fix_patterns ${where} ORDER BY createdAt DESC LIMIT ?`).all(...args as never[], opts?.limit ?? 50);
+    return this.db.prepare(`SELECT * FROM fix_patterns ${where} ORDER BY createdAt DESC LIMIT ? OFFSET ?`).all(...args as never[], ...pageArgs(opts, 50));
   }
 
   // ---- v4: Case-Based Reasoning (§16) ----------------------------------------
@@ -1396,7 +1435,29 @@ export class Core {
   // support a judgement, so it reports UNKNOWN instead of a flattering score,
   // and DEGRADED names every failing gate in a stable order — a single named
   // gate would mask whichever other gates failed alongside it.
+  /**
+   * Store generation: `data_version` moves on commits from other connections,
+   * `total_changes()` on this connection's own writes. Equal generations mean
+   * every gate input read the same rows.
+   */
+  private storeGeneration(): string {
+    const dv = this.db.prepare('PRAGMA data_version').get();
+    const tc = this.db.prepare('SELECT total_changes() AS n').get();
+    const dataVersion = dv && 'data_version' in dv ? String(dv.data_version) : '?';
+    const totalChanges = tc && 'n' in tc ? String(tc.n) : '?';
+    return `${dataVersion}:${totalChanges}`;
+  }
+
+  private readonly healthMemo = generationMemo(
+    (opts: { staleDays?: number }) => this.computeHealth(opts),
+    HEALTH_CACHE_MS,
+  );
+
   health(opts: { staleDays?: number } = {}) {
+    return this.healthMemo(`${this.storeGeneration()}|${opts.staleDays ?? ''}`, opts);
+  }
+
+  private computeHealth(opts: { staleDays?: number }) {
     const gate = (name: string) => this.checkPhaseGate('health-surface', name, { record: false });
     const stats = this.stats();
     const audit = this.corpusAudit({ record: false });
@@ -1608,10 +1669,10 @@ export class Core {
     return row.principleId;
   }
 
-  principles(opts?: { status?: string }) {
+  principles(opts?: { status?: string } & ListPage) {
     const where = opts?.status ? 'WHERE status = ?' : '';
     const args = opts?.status ? [opts.status] : [];
-    return this.db.prepare(`SELECT * FROM principles ${where} ORDER BY createdAt DESC`).all(...args as never[]);
+    return this.db.prepare(`SELECT * FROM principles ${where} ORDER BY createdAt DESC LIMIT ? OFFSET ?`).all(...args as never[], ...pageArgs(opts));
   }
 
   // ---- v4: Hidden Requirements (§25) --------------------------------------------
@@ -1622,10 +1683,10 @@ export class Core {
     return { reqId };
   }
 
-  hiddenRequirements(opts?: { task?: string }) {
+  hiddenRequirements(opts?: { task?: string } & ListPage) {
     const where = opts?.task ? 'WHERE task LIKE ?' : '';
     const args = opts?.task ? [`%${opts.task}%`] : [];
-    return this.db.prepare(`SELECT * FROM hidden_requirements ${where} ORDER BY createdAt DESC`).all(...args as never[]);
+    return this.db.prepare(`SELECT * FROM hidden_requirements ${where} ORDER BY createdAt DESC LIMIT ? OFFSET ?`).all(...args as never[], ...pageArgs(opts));
   }
 
   // ---- v4: Commercial Intelligence (§26) ----------------------------------------
@@ -1636,10 +1697,10 @@ export class Core {
     return { intelId };
   }
 
-  commercialIntel(opts?: { taskType?: string }) {
+  commercialIntel(opts?: { taskType?: string } & ListPage) {
     const where = opts?.taskType ? 'WHERE taskType = ?' : '';
     const args = opts?.taskType ? [opts.taskType] : [];
-    return this.db.prepare(`SELECT * FROM commercial_intel ${where} ORDER BY createdAt DESC`).all(...args as never[]);
+    return this.db.prepare(`SELECT * FROM commercial_intel ${where} ORDER BY createdAt DESC LIMIT ? OFFSET ?`).all(...args as never[], ...pageArgs(opts));
   }
 
   // ---- v4: Tool Intelligence (§27) -----------------------------------------------
@@ -1650,10 +1711,10 @@ export class Core {
     return { toolId };
   }
 
-  toolIntel(opts?: { status?: string }) {
+  toolIntel(opts?: { status?: string } & ListPage) {
     const where = opts?.status ? 'WHERE status = ?' : '';
     const args = opts?.status ? [opts.status] : [];
-    return this.db.prepare(`SELECT * FROM tool_intel ${where} ORDER BY createdAt DESC`).all(...args as never[]);
+    return this.db.prepare(`SELECT * FROM tool_intel ${where} ORDER BY createdAt DESC LIMIT ? OFFSET ?`).all(...args as never[], ...pageArgs(opts));
   }
 
   // ---- v4: Archetypes (§33) ------------------------------------------------------
@@ -1664,10 +1725,10 @@ export class Core {
     return { archetypeId };
   }
 
-  archetypes(opts?: { platform?: string }) {
+  archetypes(opts?: { platform?: string } & ListPage) {
     const where = opts?.platform ? 'WHERE platform = ?' : '';
     const args = opts?.platform ? [opts.platform] : [];
-    return this.db.prepare(`SELECT * FROM archetypes ${where} ORDER BY createdAt DESC`).all(...args as never[]);
+    return this.db.prepare(`SELECT * FROM archetypes ${where} ORDER BY createdAt DESC LIMIT ? OFFSET ?`).all(...args as never[], ...pageArgs(opts));
   }
 
   // ---- v4: Platform Semantics (§12) -----------------------------------------------
@@ -1678,13 +1739,13 @@ export class Core {
     return { semanticId };
   }
 
-  platformSemantics(opts?: { platform?: string; semanticRole?: string }) {
+  platformSemantics(opts?: { platform?: string; semanticRole?: string } & ListPage) {
     const where: string[] = [];
     const args: unknown[] = [];
     if (opts?.platform) { where.push('platform = ?'); args.push(opts.platform); }
     if (opts?.semanticRole) { where.push('semanticRole = ?'); args.push(opts.semanticRole); }
-    const sql = `SELECT * FROM platform_semantics${where.length ? ' WHERE ' + where.join(' AND ') : ''} ORDER BY createdAt DESC`;
-    return this.db.prepare(sql).all(...args as never[]);
+    const sql = `SELECT * FROM platform_semantics${where.length ? ' WHERE ' + where.join(' AND ') : ''} ORDER BY createdAt DESC LIMIT ? OFFSET ?`;
+    return this.db.prepare(sql).all(...args as never[], ...pageArgs(opts));
   }
 
   // ---- v4: Practice Parity (§21) ---------------------------------------------------
@@ -1695,10 +1756,10 @@ export class Core {
     return { parityId };
   }
 
-  practiceParity(opts?: { practice?: string }) {
+  practiceParity(opts?: { practice?: string } & ListPage) {
     const where = opts?.practice ? 'WHERE practice LIKE ?' : '';
     const args = opts?.practice ? [`%${opts.practice}%`] : [];
-    return this.db.prepare(`SELECT * FROM practice_parity ${where} ORDER BY createdAt DESC`).all(...args as never[]);
+    return this.db.prepare(`SELECT * FROM practice_parity ${where} ORDER BY createdAt DESC LIMIT ? OFFSET ?`).all(...args as never[], ...pageArgs(opts));
   }
 
   // ---- v4: Skill Genealogy (§22) ----------------------------------------------------

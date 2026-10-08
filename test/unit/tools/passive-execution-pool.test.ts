@@ -5,7 +5,7 @@ import { CapabilityError } from '../../../src/shared/control-plane-contracts';
 
 describe('PassiveExecutionPool Unit Tests (Phase 03)', () => {
   it('allows concurrent executions up to 4 per tab and 16 globally', async () => {
-    const pool = new PassiveExecutionPool();
+    const pool = new PassiveExecutionPool({ queueTimeoutMs: 0 });
     const deferreds: Array<{ resolve: () => void; promise: Promise<void> }> = [];
 
     const createDeferred = () => {
@@ -66,7 +66,7 @@ describe('PassiveExecutionPool Unit Tests (Phase 03)', () => {
   });
 
   it('enforces 16 global concurrent operations across multiple tabs', async () => {
-    const pool = new PassiveExecutionPool();
+    const pool = new PassiveExecutionPool({ queueTimeoutMs: 0 });
     const deferreds: Array<{ resolve: () => void; promise: Promise<void> }> = [];
 
     const createDeferred = () => {
@@ -112,5 +112,63 @@ describe('PassiveExecutionPool Unit Tests (Phase 03)', () => {
 
     assert.strictEqual(pool.getActiveTabCount('tab-err'), 0);
     assert.strictEqual(pool.getGlobalActiveCount(), 0);
+  });
+
+  it('runs a nested execute on a held tab inside the caller slot', async () => {
+    const pool = new PassiveExecutionPool({ queueTimeoutMs: 0 });
+    const release = Promise.withResolvers<void>();
+    const outer = Array.from({ length: 4 }, () => pool.execute('tab-1', async () => {
+      await release.promise;
+      // Every slot is taken; the nested call must ride the caller's own slot
+      // (queueTimeoutMs 0 would refuse it at once if it were counted again).
+      return pool.execute('tab-1', async () => pool.getActiveTabCount('tab-1'));
+    }));
+    const tick = Promise.withResolvers<void>();
+    setImmediate(tick.resolve);
+    await tick.promise;
+    assert.strictEqual(pool.getActiveTabCount('tab-1'), 4);
+    release.resolve();
+    assert.deepStrictEqual(await Promise.all(outer), [4, 4, 4, 4]);
+    // Outside any holder the cap still applies.
+    const hold = Promise.withResolvers<void>();
+    const holders = Array.from({ length: 4 }, () => pool.execute('tab-1', () => hold.promise));
+    await assert.rejects(
+      async () => pool.execute('tab-1', async () => 'x'),
+      (err: unknown) => err instanceof CapabilityError && err.code === 'CAPABILITY_OVERLOADED'
+    );
+    hold.resolve();
+    await Promise.all(holders);
+  });
+
+  it('parks a burst over the cap in arrival order and refuses when parking times out', async () => {
+    const pool = new PassiveExecutionPool({ queueTimeoutMs: 200, maxQueued: 2 });
+    const hold = Promise.withResolvers<void>();
+    const holders = Array.from({ length: 4 }, () => pool.execute('tab-1', () => hold.promise));
+    const order: number[] = [];
+    const parked = [1, 2].map((n) => pool.execute('tab-1', async () => { order.push(n); }));
+    assert.strictEqual(pool.getQueuedCount(), 2);
+    // Queue full: refused at once, not after the timeout.
+    const started = Date.now();
+    await assert.rejects(
+      async () => pool.execute('tab-1', async () => 'x'),
+      (err: unknown) => err instanceof CapabilityError && err.code === 'CAPABILITY_OVERLOADED'
+    );
+    assert.ok(Date.now() - started < 100);
+    hold.resolve();
+    await Promise.all([...holders, ...parked]);
+    assert.deepStrictEqual(order, [1, 2]);
+    assert.strictEqual(pool.getGlobalActiveCount(), 0);
+
+    // Sustained overload: a parked caller is refused once its wait runs out.
+    const stuck = Promise.withResolvers<void>();
+    const blockers = Array.from({ length: 4 }, () => pool.execute('tab-1', () => stuck.promise));
+    await assert.rejects(
+      async () => pool.execute('tab-1', async () => 'late'),
+      (err: unknown) => err instanceof CapabilityError && err.code === 'CAPABILITY_OVERLOADED'
+    );
+    assert.strictEqual(pool.getQueuedCount(), 0);
+    stuck.resolve();
+    await Promise.all(blockers);
+    assert.strictEqual(pool.getActiveTabCount('tab-1'), 0);
   });
 });

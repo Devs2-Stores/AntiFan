@@ -1,0 +1,1213 @@
+{
+  "timestamp": "2026-10-08T08:13:04.251Z",
+  "mode": "electron",
+  "platform": "win32",
+  "runtime": "electron 43.7.9",
+  "samplesPerTool": 5,
+  "target": "http://127.0.0.1:61828/collections/all",
+  "proxy": {
+    "initializeMs": 569.3,
+    "toolsListMs": 9.8,
+    "toolsListBytes": 54179,
+    "toolCount": 138,
+    "firstBridgeCallMs": 54,
+    "tabsCloseMs": 20.3,
+    "tabsCloseError": null
+  },
+  "tabLifecycle": {
+    "create": {
+      "p50Ms": 22.9,
+      "p95Ms": 26.2
+    },
+    "close": {
+      "p50Ms": 24.3,
+      "p95Ms": 27.5
+    }
+  },
+  "concurrency": [
+    {
+      "tool": "anti.browser.get_viewport",
+      "calls": 8,
+      "serialMs": 33.8,
+      "parallelMs": 17.7,
+      "speedup": 1.9,
+      "serialFailed": 0,
+      "parallelFailed": 0
+    },
+    {
+      "tool": "anti.inspect.styles",
+      "calls": 8,
+      "serialMs": 35.8,
+      "parallelMs": 19.2,
+      "speedup": 1.9,
+      "serialFailed": 0,
+      "parallelFailed": 0
+    },
+    {
+      "tool": "anti.screenshot.viewport",
+      "calls": 8,
+      "serialMs": 2763.3,
+      "parallelMs": 926.8,
+      "speedup": 3,
+      "serialFailed": 0,
+      "parallelFailed": 0
+    }
+  ],
+  "tools": [
+    {
+      "tool": "anti.visual.compare#fullPage",
+      "status": "OK",
+      "coldMs": 2380,
+      "p50Ms": 2601.7,
+      "p95Ms": 2610.1,
+      "maxMs": 2610.1,
+      "samples": 3,
+      "maxResponseBytes": 4741
+    },
+    {
+      "tool": "anti.visual.compare",
+      "status": "OK",
+      "coldMs": 1724.1,
+      "p50Ms": 1698,
+      "p95Ms": 1701,
+      "maxMs": 1701,
+      "samples": 3,
+      "maxResponseBytes": 5918
+    },
+    {
+      "tool": "anti.reference.capture#screenshot",
+      "status": "OK",
+      "coldMs": 1159,
+      "p50Ms": 1154,
+      "p95Ms": 1163.1,
+      "maxMs": 1163.1,
+      "samples": 3,
+      "maxResponseBytes": 3098
+    },
+    {
+      "tool": "anti.screenshot.full_page",
+      "status": "OK",
+      "coldMs": 1168.8,
+      "p50Ms": 1131.1,
+      "p95Ms": 2107.8,
+      "maxMs": 2107.8,
+      "samples": 3,
+      "maxResponseBytes": 301523
+    },
+    {
+      "tool": "theme.qa_validate",
+      "status": "OK",
+      "coldMs": 1274.9,
+      "p50Ms": 1075.6,
+      "p95Ms": 1198.7,
+      "maxMs": 1198.7,
+      "samples": 2,
+      "maxResponseBytes": 26471
+    },
+    {
+      "tool": "anti.reference.capture",
+      "status": "OK",
+      "coldMs": 858.4,
+      "p50Ms": 836.5,
+      "p95Ms": 839.3,
+      "maxMs": 839.3,
+      "samples": 3,
+      "maxResponseBytes": 1770
+    },
+    {
+      "tool": "anti.theme.export_clean",
+      "status": "OK",
+      "coldMs": 578.1,
+      "p50Ms": 585.4,
+      "p95Ms": 616.9,
+      "maxMs": 616.9,
+      "samples": 3,
+      "maxResponseBytes": 296
+    },
+    {
+      "tool": "anti.browser.dump_dom",
+      "status": "OK",
+      "coldMs": 653,
+      "p50Ms": 581.1,
+      "p95Ms": 749,
+      "maxMs": 749,
+      "samples": 3,
+      "maxResponseBytes": 294
+    },
+    {
+      "tool": "browser.wait#dom-stable",
+      "status": "OK",
+      "coldMs": 552.4,
+      "p50Ms": 545.1,
+      "p95Ms": 549.7,
+      "maxMs": 549.7,
+      "samples": 5,
+      "maxResponseBytes": 200
+    },
+    {
+      "tool": "browser.wait#network",
+      "status": "OK",
+      "coldMs": 517,
+      "p50Ms": 516.2,
+      "p95Ms": 522.4,
+      "maxMs": 522.4,
+      "samples": 5,
+      "maxResponseBytes": 172
+    },
+    {
+      "tool": "core.corpus_audit",
+      "status": "OK",
+      "coldMs": 413.1,
+      "p50Ms": 415.7,
+      "p95Ms": 472.2,
+      "maxMs": 472.2,
+      "samples": 5,
+      "maxResponseBytes": 372
+    },
+    {
+      "tool": "anti.inspect.responsive_matrix",
+      "status": "OK",
+      "coldMs": 532.8,
+      "p50Ms": 389.4,
+      "p95Ms": 402,
+      "maxMs": 402,
+      "samples": 2,
+      "maxResponseBytes": 3120
+    },
+    {
+      "tool": "anti.screenshot.viewport#png",
+      "status": "OK",
+      "coldMs": 404.3,
+      "p50Ms": 347.9,
+      "p95Ms": 369.3,
+      "maxMs": 369.3,
+      "samples": 5,
+      "maxResponseBytes": 27843
+    },
+    {
+      "tool": "anti.visual.promote_baseline",
+      "status": "OK",
+      "coldMs": 338.9,
+      "p50Ms": 334,
+      "p95Ms": 367.9,
+      "maxMs": 367.9,
+      "samples": 2,
+      "maxResponseBytes": 910
+    },
+    {
+      "tool": "browser.promote-baseline",
+      "status": "OK",
+      "coldMs": 334.3,
+      "p50Ms": 332.6,
+      "p95Ms": 348.1,
+      "maxMs": 348.1,
+      "samples": 2,
+      "maxResponseBytes": 910
+    },
+    {
+      "tool": "anti.screenshot.viewport",
+      "status": "OK",
+      "coldMs": 364.1,
+      "p50Ms": 326.4,
+      "p95Ms": 344.5,
+      "maxMs": 344.5,
+      "samples": 5,
+      "maxResponseBytes": 56820
+    },
+    {
+      "tool": "anti.browser.navigate",
+      "status": "OK",
+      "coldMs": 259.6,
+      "p50Ms": 264.5,
+      "p95Ms": 280.7,
+      "maxMs": 280.7,
+      "samples": 3,
+      "maxResponseBytes": 446
+    },
+    {
+      "tool": "anti.browser.reload",
+      "status": "OK",
+      "coldMs": 263.2,
+      "p50Ms": 249.8,
+      "p95Ms": 255.3,
+      "maxMs": 255.3,
+      "samples": 3,
+      "maxResponseBytes": 580
+    },
+    {
+      "tool": "core.context_pack_v2",
+      "status": "OK",
+      "coldMs": 178.7,
+      "p50Ms": 204.2,
+      "p95Ms": 239,
+      "maxMs": 239,
+      "samples": 5,
+      "maxResponseBytes": 18898
+    },
+    {
+      "tool": "anti.agent.drag",
+      "status": "OK",
+      "coldMs": 214.1,
+      "p50Ms": 199.9,
+      "p95Ms": 227.5,
+      "maxMs": 227.5,
+      "samples": 5,
+      "maxResponseBytes": 646
+    },
+    {
+      "tool": "core.recommend",
+      "status": "OK",
+      "coldMs": 162.2,
+      "p50Ms": 173.4,
+      "p95Ms": 185.4,
+      "maxMs": 185.4,
+      "samples": 5,
+      "maxResponseBytes": 236503
+    },
+    {
+      "tool": "core.context_pack",
+      "status": "OK",
+      "coldMs": 194,
+      "p50Ms": 158.3,
+      "p95Ms": 165.5,
+      "maxMs": 165.5,
+      "samples": 5,
+      "maxResponseBytes": 11109
+    },
+    {
+      "tool": "core.check_phase_gate",
+      "status": "OK",
+      "coldMs": 152.5,
+      "p50Ms": 149.5,
+      "p95Ms": 170.3,
+      "maxMs": 170.3,
+      "samples": 5,
+      "maxResponseBytes": 232
+    },
+    {
+      "tool": "core.domain",
+      "status": "OK",
+      "coldMs": 137.6,
+      "p50Ms": 148.6,
+      "p95Ms": 194.7,
+      "maxMs": 194.7,
+      "samples": 5,
+      "maxResponseBytes": 174161
+    },
+    {
+      "tool": "anti.trace.interaction",
+      "status": "OK",
+      "coldMs": 139.7,
+      "p50Ms": 110.5,
+      "p95Ms": 130.1,
+      "maxMs": 130.1,
+      "samples": 5,
+      "maxResponseBytes": 5821
+    },
+    {
+      "tool": "core.query",
+      "status": "OK",
+      "coldMs": 98.1,
+      "p50Ms": 97.8,
+      "p95Ms": 127.2,
+      "maxMs": 127.2,
+      "samples": 5,
+      "maxResponseBytes": 10134
+    },
+    {
+      "tool": "anti.agent.sequence",
+      "status": "OK",
+      "coldMs": 57,
+      "p50Ms": 61.7,
+      "p95Ms": 62.8,
+      "maxMs": 62.8,
+      "samples": 5,
+      "maxResponseBytes": 652
+    },
+    {
+      "tool": "core.knowledge_gaps",
+      "status": "OK",
+      "coldMs": 37.5,
+      "p50Ms": 38.7,
+      "p95Ms": 45.6,
+      "maxMs": 45.6,
+      "samples": 5,
+      "maxResponseBytes": 1187
+    },
+    {
+      "tool": "core.reuse_metric",
+      "status": "OK",
+      "coldMs": 48.3,
+      "p50Ms": 38.4,
+      "p95Ms": 48.2,
+      "maxMs": 48.2,
+      "samples": 5,
+      "maxResponseBytes": 4916
+    },
+    {
+      "tool": "anti.agent.cursor.click",
+      "status": "OK",
+      "coldMs": 38.4,
+      "p50Ms": 33,
+      "p95Ms": 35.4,
+      "maxMs": 35.4,
+      "samples": 5,
+      "maxResponseBytes": 93
+    },
+    {
+      "tool": "anti.agent.cursor.hover",
+      "status": "OK",
+      "coldMs": 33.8,
+      "p50Ms": 32.8,
+      "p95Ms": 44.1,
+      "maxMs": 44.1,
+      "samples": 5,
+      "maxResponseBytes": 93
+    },
+    {
+      "tool": "anti.agent.cursor.move",
+      "status": "OK",
+      "coldMs": 74.1,
+      "p50Ms": 32.2,
+      "p95Ms": 177.6,
+      "maxMs": 177.6,
+      "samples": 5,
+      "maxResponseBytes": 91
+    },
+    {
+      "tool": "anti.browser.tabs.activate",
+      "status": "OK",
+      "coldMs": 23.5,
+      "p50Ms": 27.8,
+      "p95Ms": 60.3,
+      "maxMs": 60.3,
+      "samples": 5,
+      "maxResponseBytes": 144
+    },
+    {
+      "tool": "core.find_similar",
+      "status": "OK",
+      "coldMs": 21.6,
+      "p50Ms": 27.7,
+      "p95Ms": 31.4,
+      "maxMs": 31.4,
+      "samples": 5,
+      "maxResponseBytes": 6465
+    },
+    {
+      "tool": "anti.agent.cursor.type",
+      "status": "OK",
+      "coldMs": 24.2,
+      "p50Ms": 25.7,
+      "p95Ms": 72.1,
+      "maxMs": 72.1,
+      "samples": 5,
+      "maxResponseBytes": 91
+    },
+    {
+      "tool": "theme.debug_bundle",
+      "status": "OK",
+      "coldMs": 34,
+      "p50Ms": 25.5,
+      "p95Ms": 796.7,
+      "maxMs": 796.7,
+      "samples": 3,
+      "maxResponseBytes": 6411
+    },
+    {
+      "tool": "anti.agent.cursor.highlight",
+      "status": "OK",
+      "coldMs": 26.1,
+      "p50Ms": 24.8,
+      "p95Ms": 47.4,
+      "maxMs": 47.4,
+      "samples": 5,
+      "maxResponseBytes": 97
+    },
+    {
+      "tool": "core.platform_semantics",
+      "status": "OK",
+      "coldMs": 21.3,
+      "p50Ms": 23.5,
+      "p95Ms": 27,
+      "maxMs": 27,
+      "samples": 5,
+      "maxResponseBytes": 33144
+    },
+    {
+      "tool": "core.principles",
+      "status": "OK",
+      "coldMs": 23.9,
+      "p50Ms": 23.2,
+      "p95Ms": 25.6,
+      "maxMs": 25.6,
+      "samples": 5,
+      "maxResponseBytes": 43954
+    },
+    {
+      "tool": "core.classify_uncertainty",
+      "status": "OK",
+      "coldMs": 23.7,
+      "p50Ms": 22.8,
+      "p95Ms": 25.2,
+      "maxMs": 25.2,
+      "samples": 5,
+      "maxResponseBytes": 123
+    },
+    {
+      "tool": "anti.inspect.snapshot",
+      "status": "OK",
+      "coldMs": 40.7,
+      "p50Ms": 22.6,
+      "p95Ms": 28.7,
+      "maxMs": 28.7,
+      "samples": 5,
+      "maxResponseBytes": 4628
+    },
+    {
+      "tool": "anti.inspect.snapshot#viewportOnly",
+      "status": "OK",
+      "coldMs": 21.9,
+      "p50Ms": 22.6,
+      "p95Ms": 43,
+      "maxMs": 43,
+      "samples": 5,
+      "maxResponseBytes": 4751
+    },
+    {
+      "tool": "core.decay_check",
+      "status": "OK",
+      "coldMs": 21,
+      "p50Ms": 22.5,
+      "p95Ms": 28.7,
+      "maxMs": 28.7,
+      "samples": 5,
+      "maxResponseBytes": 142
+    },
+    {
+      "tool": "anti.agent.cursor.scroll",
+      "status": "OK",
+      "coldMs": 19.4,
+      "p50Ms": 15.3,
+      "p95Ms": 29.9,
+      "maxMs": 29.9,
+      "samples": 5,
+      "maxResponseBytes": 94
+    },
+    {
+      "tool": "anti.inspect.dom#selector",
+      "status": "OK",
+      "coldMs": 11.7,
+      "p50Ms": 14.9,
+      "p95Ms": 18.2,
+      "maxMs": 18.2,
+      "samples": 5,
+      "maxResponseBytes": 495
+    },
+    {
+      "tool": "anti.inspect.matched_styles",
+      "status": "OK",
+      "coldMs": 20.1,
+      "p50Ms": 14,
+      "p95Ms": 28.2,
+      "maxMs": 28.2,
+      "samples": 5,
+      "maxResponseBytes": 6339
+    },
+    {
+      "tool": "anti.inspect.dom",
+      "status": "OK",
+      "coldMs": 24.9,
+      "p50Ms": 13.7,
+      "p95Ms": 722.4,
+      "maxMs": 722.4,
+      "samples": 5,
+      "maxResponseBytes": 53959
+    },
+    {
+      "tool": "anti.spec.validate_gate",
+      "status": "OK",
+      "coldMs": 59.5,
+      "p50Ms": 13.5,
+      "p95Ms": 18.6,
+      "maxMs": 18.6,
+      "samples": 2,
+      "maxResponseBytes": 600
+    },
+    {
+      "tool": "core.stats",
+      "status": "OK",
+      "coldMs": 424.7,
+      "p50Ms": 12.1,
+      "p95Ms": 31.4,
+      "maxMs": 31.4,
+      "samples": 5,
+      "maxResponseBytes": 661
+    },
+    {
+      "tool": "anti.browser.evaluate#bulk",
+      "status": "OK",
+      "coldMs": 7.1,
+      "p50Ms": 9.3,
+      "p95Ms": 14.7,
+      "maxMs": 14.7,
+      "samples": 5,
+      "maxResponseBytes": 5726
+    },
+    {
+      "tool": "anti.theme.resolve_element",
+      "status": "OK",
+      "coldMs": 16,
+      "p50Ms": 7.4,
+      "p95Ms": 8.3,
+      "maxMs": 8.3,
+      "samples": 5,
+      "maxResponseBytes": 622
+    },
+    {
+      "tool": "anti.inspect.region",
+      "status": "OK",
+      "coldMs": 10.8,
+      "p50Ms": 7.3,
+      "p95Ms": 8.2,
+      "maxMs": 8.2,
+      "samples": 5,
+      "maxResponseBytes": 3858
+    },
+    {
+      "tool": "browser.wait#images-settled",
+      "status": "OK",
+      "coldMs": 8.4,
+      "p50Ms": 7.2,
+      "p95Ms": 8,
+      "maxMs": 8,
+      "samples": 5,
+      "maxResponseBytes": 177
+    },
+    {
+      "tool": "anti.browser.rebind_target",
+      "status": "OK",
+      "coldMs": 7.5,
+      "p50Ms": 7,
+      "p95Ms": 15.1,
+      "maxMs": 15.1,
+      "samples": 5,
+      "maxResponseBytes": 269
+    },
+    {
+      "tool": "anti.browser.set_automation_target",
+      "status": "OK",
+      "coldMs": 7.9,
+      "p50Ms": 6.8,
+      "p95Ms": 7,
+      "maxMs": 7,
+      "samples": 5,
+      "maxResponseBytes": 143
+    },
+    {
+      "tool": "anti.inspect.styles",
+      "status": "OK",
+      "coldMs": 11.1,
+      "p50Ms": 6.8,
+      "p95Ms": 7.3,
+      "maxMs": 7.3,
+      "samples": 5,
+      "maxResponseBytes": 1302
+    },
+    {
+      "tool": "anti.agent.cursor.clear",
+      "status": "OK",
+      "coldMs": 4.4,
+      "p50Ms": 6.6,
+      "p95Ms": 7.5,
+      "maxMs": 7.5,
+      "samples": 5,
+      "maxResponseBytes": 93
+    },
+    {
+      "tool": "anti.inspect.style_diff",
+      "status": "OK",
+      "coldMs": 8,
+      "p50Ms": 6.5,
+      "p95Ms": 21,
+      "maxMs": 21,
+      "samples": 5,
+      "maxResponseBytes": 1402
+    },
+    {
+      "tool": "anti.inspect.page_inventory",
+      "status": "OK",
+      "coldMs": 9,
+      "p50Ms": 6.3,
+      "p95Ms": 98,
+      "maxMs": 98,
+      "samples": 5,
+      "maxResponseBytes": 582
+    },
+    {
+      "tool": "file.read",
+      "status": "OK",
+      "coldMs": 7.1,
+      "p50Ms": 6.3,
+      "p95Ms": 13.4,
+      "maxMs": 13.4,
+      "samples": 5,
+      "maxResponseBytes": 5374
+    },
+    {
+      "tool": "browser.set-viewport",
+      "status": "OK",
+      "coldMs": 6.1,
+      "p50Ms": 5.9,
+      "p95Ms": 6.1,
+      "maxMs": 6.1,
+      "samples": 3,
+      "maxResponseBytes": 274
+    },
+    {
+      "tool": "anti.media.freeze",
+      "status": "OK",
+      "coldMs": 8.9,
+      "p50Ms": 5.9,
+      "p95Ms": 7.5,
+      "maxMs": 7.5,
+      "samples": 5,
+      "maxResponseBytes": 293
+    },
+    {
+      "tool": "anti.media.freeze#unfreeze",
+      "status": "OK",
+      "coldMs": 6,
+      "p50Ms": 5.6,
+      "p95Ms": 6.2,
+      "maxMs": 6.2,
+      "samples": 5,
+      "maxResponseBytes": 294
+    },
+    {
+      "tool": "storefront.resolve_product",
+      "status": "OK",
+      "coldMs": 5.1,
+      "p50Ms": 5.6,
+      "p95Ms": 5.6,
+      "maxMs": 5.6,
+      "samples": 3,
+      "maxResponseBytes": 217
+    },
+    {
+      "tool": "anti.browser.get_viewport",
+      "status": "OK",
+      "coldMs": 404.3,
+      "p50Ms": 5.5,
+      "p95Ms": 13.5,
+      "maxMs": 13.5,
+      "samples": 5,
+      "maxResponseBytes": 252
+    },
+    {
+      "tool": "anti.browser.set_viewport",
+      "status": "OK",
+      "coldMs": 128.7,
+      "p50Ms": 5.4,
+      "p95Ms": 6.2,
+      "maxMs": 6.2,
+      "samples": 3,
+      "maxResponseBytes": 274
+    },
+    {
+      "tool": "anti.browser.tabs.list",
+      "status": "OK",
+      "coldMs": 6.4,
+      "p50Ms": 5.3,
+      "p95Ms": 6.7,
+      "maxMs": 6.7,
+      "samples": 5,
+      "maxResponseBytes": 1284
+    },
+    {
+      "tool": "browser.get-viewport",
+      "status": "OK",
+      "coldMs": 5.4,
+      "p50Ms": 5.3,
+      "p95Ms": 5.8,
+      "maxMs": 5.8,
+      "samples": 5,
+      "maxResponseBytes": 252
+    },
+    {
+      "tool": "anti.browser.evaluate",
+      "status": "OK",
+      "coldMs": 7.1,
+      "p50Ms": 5.3,
+      "p95Ms": 5.7,
+      "maxMs": 5.7,
+      "samples": 5,
+      "maxResponseBytes": 91
+    },
+    {
+      "tool": "theme.resolve_product",
+      "status": "OK",
+      "coldMs": 6.1,
+      "p50Ms": 4.9,
+      "p95Ms": 5,
+      "maxMs": 5,
+      "samples": 3,
+      "maxResponseBytes": 217
+    },
+    {
+      "tool": "theme.cockpit_list",
+      "status": "OK",
+      "coldMs": 8.5,
+      "p50Ms": 4.9,
+      "p95Ms": 17.8,
+      "maxMs": 17.8,
+      "samples": 5,
+      "maxResponseBytes": 14624
+    },
+    {
+      "tool": "theme.cockpit_report",
+      "status": "OK",
+      "coldMs": 9.1,
+      "p50Ms": 4.8,
+      "p95Ms": 5.5,
+      "maxMs": 5.5,
+      "samples": 5,
+      "maxResponseBytes": 10997
+    },
+    {
+      "tool": "core.anti_patterns",
+      "status": "OK",
+      "coldMs": 3.2,
+      "p50Ms": 4.8,
+      "p95Ms": 5,
+      "maxMs": 5,
+      "samples": 5,
+      "maxResponseBytes": 80157
+    },
+    {
+      "tool": "anti.verification.record_claim",
+      "status": "OK",
+      "coldMs": 10.1,
+      "p50Ms": 4.7,
+      "p95Ms": 12.5,
+      "maxMs": 12.5,
+      "samples": 5,
+      "maxResponseBytes": 858
+    },
+    {
+      "tool": "theme.assert_cart",
+      "status": "OK",
+      "coldMs": 5.5,
+      "p50Ms": 4.6,
+      "p95Ms": 5.4,
+      "maxMs": 5.4,
+      "samples": 5,
+      "maxResponseBytes": 175
+    },
+    {
+      "tool": "anti.verification.list",
+      "status": "OK",
+      "coldMs": 10.1,
+      "p50Ms": 4.6,
+      "p95Ms": 9.6,
+      "maxMs": 9.6,
+      "samples": 5,
+      "maxResponseBytes": 5277
+    },
+    {
+      "tool": "browser.wait#selector",
+      "status": "OK",
+      "coldMs": 5.2,
+      "p50Ms": 4.4,
+      "p95Ms": 4.7,
+      "maxMs": 4.7,
+      "samples": 5,
+      "maxResponseBytes": 198
+    },
+    {
+      "tool": "anti.browser.tabs.get",
+      "status": "OK",
+      "coldMs": 5,
+      "p50Ms": 4.3,
+      "p95Ms": 4.7,
+      "maxMs": 4.7,
+      "samples": 5,
+      "maxResponseBytes": 690
+    },
+    {
+      "tool": "anti.browser.evaluate_frame",
+      "status": "OK",
+      "coldMs": 8,
+      "p50Ms": 4.1,
+      "p95Ms": 5.4,
+      "maxMs": 5.4,
+      "samples": 5,
+      "maxResponseBytes": 88
+    },
+    {
+      "tool": "theme.style_override",
+      "status": "OK",
+      "coldMs": 4.7,
+      "p50Ms": 4.1,
+      "p95Ms": 4.2,
+      "maxMs": 4.2,
+      "samples": 5,
+      "maxResponseBytes": 127
+    },
+    {
+      "tool": "anti.theme.style_override",
+      "status": "OK",
+      "coldMs": 4.7,
+      "p50Ms": 4,
+      "p95Ms": 4.2,
+      "maxMs": 4.2,
+      "samples": 5,
+      "maxResponseBytes": 128
+    },
+    {
+      "tool": "theme.cockpit_findings",
+      "status": "OK",
+      "coldMs": 3.8,
+      "p50Ms": 3.6,
+      "p95Ms": 3.7,
+      "maxMs": 3.7,
+      "samples": 5,
+      "maxResponseBytes": 214
+    },
+    {
+      "tool": "core.practice_parity",
+      "status": "OK",
+      "coldMs": 3,
+      "p50Ms": 2.9,
+      "p95Ms": 3.5,
+      "maxMs": 3.5,
+      "samples": 5,
+      "maxResponseBytes": 55304
+    },
+    {
+      "tool": "core.tool_intel",
+      "status": "OK",
+      "coldMs": 3.2,
+      "p50Ms": 2.3,
+      "p95Ms": 2.4,
+      "maxMs": 2.4,
+      "samples": 5,
+      "maxResponseBytes": 54454
+    },
+    {
+      "tool": "core.archetypes",
+      "status": "OK",
+      "coldMs": 3.9,
+      "p50Ms": 2.1,
+      "p95Ms": 3.2,
+      "maxMs": 3.2,
+      "samples": 5,
+      "maxResponseBytes": 23107
+    },
+    {
+      "tool": "core.fix_patterns",
+      "status": "OK",
+      "coldMs": 1.4,
+      "p50Ms": 2,
+      "p95Ms": 3.1,
+      "maxMs": 3.1,
+      "samples": 5,
+      "maxResponseBytes": 18365
+    },
+    {
+      "tool": "core.workarounds",
+      "status": "OK",
+      "coldMs": 2.7,
+      "p50Ms": 1.8,
+      "p95Ms": 2,
+      "maxMs": 2,
+      "samples": 5,
+      "maxResponseBytes": 55422
+    },
+    {
+      "tool": "core.commercial_intel",
+      "status": "OK",
+      "coldMs": 1.2,
+      "p50Ms": 1.1,
+      "p95Ms": 1.5,
+      "maxMs": 1.5,
+      "samples": 5,
+      "maxResponseBytes": 36196
+    },
+    {
+      "tool": "core.hidden_requirements",
+      "status": "OK",
+      "coldMs": 1.3,
+      "p50Ms": 1,
+      "p95Ms": 1,
+      "maxMs": 1,
+      "samples": 5,
+      "maxResponseBytes": 20397
+    },
+    {
+      "tool": "core.health",
+      "status": "OK",
+      "coldMs": 878.7,
+      "p50Ms": 0.5,
+      "p95Ms": 0.7,
+      "maxMs": 0.7,
+      "samples": 5,
+      "maxResponseBytes": 3464
+    },
+    {
+      "tool": "core.candidates",
+      "status": "OK",
+      "coldMs": 0.8,
+      "p50Ms": 0.5,
+      "p95Ms": 0.7,
+      "maxMs": 0.7,
+      "samples": 5,
+      "maxResponseBytes": 77
+    },
+    {
+      "tool": "core.skill_genealogy",
+      "status": "OK",
+      "coldMs": 0.6,
+      "p50Ms": 0.5,
+      "p95Ms": 0.6,
+      "maxMs": 0.6,
+      "samples": 5,
+      "maxResponseBytes": 77
+    },
+    {
+      "tool": "core.experience_chain",
+      "status": "OK",
+      "coldMs": 0.7,
+      "p50Ms": 0.3,
+      "p95Ms": 0.4,
+      "maxMs": 0.4,
+      "samples": 5,
+      "maxResponseBytes": 77
+    },
+    {
+      "tool": "anti.verification.verify_claim",
+      "status": "OK",
+      "coldMs": 23.4,
+      "p50Ms": null,
+      "p95Ms": null,
+      "maxMs": null,
+      "samples": 0,
+      "maxResponseBytes": 2102
+    }
+  ],
+  "skipped": [
+    {
+      "tool": "anti.artifact.stat",
+      "reason": "no artifact id surfaced by capture tools"
+    },
+    {
+      "tool": "anti.artifact.read",
+      "reason": "no artifact id surfaced by capture tools"
+    },
+    {
+      "tool": "anti.agent.file_upload",
+      "reason": "isolated harness: no host tab authority / device adapter wired (measured in live mode)"
+    },
+    {
+      "tool": "anti.agent.drop",
+      "reason": "isolated harness: no host tab authority / device adapter wired (measured in live mode)"
+    },
+    {
+      "tool": "terminal.list",
+      "reason": "isolated harness: no host tab authority / device adapter wired (measured in live mode)"
+    },
+    {
+      "tool": "device.list",
+      "reason": "isolated harness: no host tab authority / device adapter wired (measured in live mode)"
+    },
+    {
+      "tool": "device.status",
+      "reason": "isolated harness: no host tab authority / device adapter wired (measured in live mode)"
+    },
+    {
+      "tool": "device.open_safari",
+      "reason": "drives a physical iOS device"
+    },
+    {
+      "tool": "device.navigate",
+      "reason": "drives a physical iOS device"
+    },
+    {
+      "tool": "device.reload",
+      "reason": "drives a physical iOS device"
+    },
+    {
+      "tool": "device.screenshot",
+      "reason": "drives a physical iOS device"
+    },
+    {
+      "tool": "device.tap",
+      "reason": "drives a physical iOS device"
+    },
+    {
+      "tool": "device.swipe",
+      "reason": "drives a physical iOS device"
+    },
+    {
+      "tool": "device.type",
+      "reason": "drives a physical iOS device"
+    },
+    {
+      "tool": "device.wait",
+      "reason": "drives a physical iOS device"
+    },
+    {
+      "tool": "theme.cockpit_mark",
+      "reason": "mutates a theme checklist scope on disk"
+    },
+    {
+      "tool": "theme.cockpit_mark_page",
+      "reason": "mutates a theme checklist scope on disk"
+    },
+    {
+      "tool": "theme.cockpit_add_item",
+      "reason": "mutates a theme checklist scope on disk"
+    },
+    {
+      "tool": "theme.cockpit_remove_item",
+      "reason": "mutates a theme checklist scope on disk"
+    },
+    {
+      "tool": "theme.cockpit_scan",
+      "reason": "navigates through checklist routes of a real theme workspace"
+    },
+    {
+      "tool": "anti.telemetry.record_fallback",
+      "reason": "appends fallback telemetry rows to the shared telemetry store"
+    },
+    {
+      "tool": "file.write",
+      "reason": "writes workspace files"
+    },
+    {
+      "tool": "core.receipt",
+      "reason": "writes the Super Core store"
+    },
+    {
+      "tool": "core.ingest_outcome",
+      "reason": "writes the Super Core store"
+    },
+    {
+      "tool": "core.adjudicate",
+      "reason": "writes the Super Core store"
+    },
+    {
+      "tool": "core.invalidate",
+      "reason": "writes the Super Core store"
+    },
+    {
+      "tool": "core.revoke",
+      "reason": "writes the Super Core store"
+    },
+    {
+      "tool": "core.snapshot",
+      "reason": "writes the Super Core store"
+    },
+    {
+      "tool": "core.rollback",
+      "reason": "writes the Super Core store"
+    },
+    {
+      "tool": "core.record_experience_node",
+      "reason": "writes the Super Core store"
+    },
+    {
+      "tool": "core.record_experience_edge",
+      "reason": "writes the Super Core store"
+    },
+    {
+      "tool": "core.record_anti_pattern",
+      "reason": "writes the Super Core store"
+    },
+    {
+      "tool": "core.record_workaround",
+      "reason": "writes the Super Core store"
+    },
+    {
+      "tool": "core.record_fix_pattern",
+      "reason": "writes the Super Core store"
+    },
+    {
+      "tool": "core.resolve_conflict",
+      "reason": "writes the Super Core store"
+    },
+    {
+      "tool": "core.record_regression",
+      "reason": "writes the Super Core store"
+    },
+    {
+      "tool": "core.replay_regression",
+      "reason": "writes the Super Core store"
+    },
+    {
+      "tool": "core.record_observation",
+      "reason": "writes the Super Core store"
+    },
+    {
+      "tool": "core.record_principle",
+      "reason": "writes the Super Core store"
+    },
+    {
+      "tool": "core.record_hidden_requirement",
+      "reason": "writes the Super Core store"
+    },
+    {
+      "tool": "core.record_commercial",
+      "reason": "writes the Super Core store"
+    },
+    {
+      "tool": "core.record_tool",
+      "reason": "writes the Super Core store"
+    },
+    {
+      "tool": "core.record_archetype",
+      "reason": "writes the Super Core store"
+    },
+    {
+      "tool": "core.record_platform_semantic",
+      "reason": "writes the Super Core store"
+    },
+    {
+      "tool": "core.record_practice_parity",
+      "reason": "writes the Super Core store"
+    },
+    {
+      "tool": "core.record_skill_version",
+      "reason": "writes the Super Core store"
+    },
+    {
+      "tool": "core.receipt_v2",
+      "reason": "writes the Super Core store"
+    },
+    {
+      "tool": "terminal.write",
+      "reason": "writes into a live terminal"
+    },
+    {
+      "tool": "terminal.resize",
+      "reason": "resizes a live terminal"
+    },
+    {
+      "tool": "terminal.wait",
+      "reason": "blocks on a live terminal session"
+    },
+    {
+      "tool": "terminal.create",
+      "reason": "spawns a terminal process in the app"
+    },
+    {
+      "tool": "terminal.close",
+      "reason": "kills a terminal process tree"
+    }
+  ],
+  "tabId": "eb220acc-06f6-42cb-b0f9-f120d86f356f",
+  "drainWaits": 12,
+  "uncovered": [],
+  "totalMs": 143895.5,
+  "proxyStderrTail": "{\"code\":\"proxyTelemetryUnavailable\",\"message\":\"ANTIFAN_PROXY_TELEMETRY_DIR is not set for this process, so core.* proxy attempts are not recorded. This proxy was not launched by scripts/antifan-agent.cjs (the bin \\\"antifan-mcp\\\" and \\\"npm run mcp\\\" spawn it directly), and there is no fallback directory by design.\"}\n"
+}

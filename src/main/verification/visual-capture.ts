@@ -761,11 +761,23 @@ export function classifyRenderSurfaceCause(snapshot: Partial<RenderSurfaceSnapsh
   return 'viewport-unmeasured';
 }
 
-/** Scroll step for the materialization walk, in CSS pixels. */
+/**
+ * Minimum scroll step for the materialization walk, in CSS pixels. The walk steps
+ * by 85% of the viewport height when that is larger: every pixel still crosses the
+ * viewport (step < innerHeight), so zero-rootMargin observers fire, with less than
+ * half the steps of a fixed 400 px walk on a desktop viewport.
+ */
 export const REFERENCE_MATERIALIZATION_STEP_PX = 400;
-/** Dwell at each step so lazy observers can mount content before the next step. */
-export const REFERENCE_MATERIALIZATION_DWELL_MS = 50;
-/** Passes of the walk: the walk repeats while the document keeps growing. */
+/** Viewport fraction one step advances; < 1 keeps consecutive frames overlapping. */
+export const REFERENCE_MATERIALIZATION_STEP_VIEWPORT_RATIO = 0.85;
+/** Dwell at each step: one to two frames, enough for IntersectionObserver delivery. */
+export const REFERENCE_MATERIALIZATION_DWELL_MS = 20;
+/** Dwell at the document bottom so end-of-page loaders can append content. */
+export const REFERENCE_MATERIALIZATION_BOTTOM_DWELL_MS = 80;
+/**
+ * Passes of the walk: the walk repeats while the document keeps growing or lazy
+ * sources stay unmaterialized; a first pass that changed neither ends the walk.
+ */
 export const REFERENCE_MATERIALIZATION_MAX_PASSES = 6;
 /** Bound for the whole materialization walk, including decode waits. */
 export const REFERENCE_MATERIALIZATION_BOUND_MS = 30_000;
@@ -794,8 +806,9 @@ export interface ReferenceMaterializationScriptOptions {
 export function buildReferenceMaterializationScript(options?: ReferenceMaterializationScriptOptions): string {
   const materializeDataSrc = options?.materializeDataSrc === true;
   return `(async () => {
-    const step = ${REFERENCE_MATERIALIZATION_STEP_PX};
+    const step = Math.max(${REFERENCE_MATERIALIZATION_STEP_PX}, Math.floor((window.innerHeight || 0) * ${REFERENCE_MATERIALIZATION_STEP_VIEWPORT_RATIO}));
     const dwell = ${REFERENCE_MATERIALIZATION_DWELL_MS};
+    const bottomDwell = ${REFERENCE_MATERIALIZATION_BOTTOM_DWELL_MS};
     const maxPasses = ${REFERENCE_MATERIALIZATION_MAX_PASSES};
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     const height = () => Math.max(
@@ -888,8 +901,11 @@ export function buildReferenceMaterializationScript(options?: ReferenceMateriali
         await sleep(dwell);
       }
       window.scrollTo(0, H);
-      await sleep(200);
-      if (height() === H && pass >= 1) break;
+      await sleep(bottomDwell);
+      const grown = height() !== H;
+      // A second pass only re-walks the same pixels unless the document grew or a
+      // lazy source is still waiting; either of those keeps the walk going.
+      if (!grown && (pass >= 1 || (H === docHeightBefore && countUnmaterialized() === 0))) break;
       lastH = H;
     }
     let decoded = 0;

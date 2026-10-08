@@ -1351,7 +1351,8 @@ export interface CaptureLiftLease {
   upgradeToInWindow(opts?: { budgetMs?: number }): boolean;
   release(reason?: string): void;
 }
-
+/** First-party network silence `reloadAndWait` requires after did-finish-load. */
+export const RELOAD_SETTLE_IDLE_MS = 150;
 
 export class NativeTabHost extends EventEmitter {
   /**
@@ -10897,9 +10898,14 @@ export class NativeTabHost extends EventEmitter {
 
     if (!desktopOk || !mobileOk) return false;
 
+    // The load waiter already saw did-finish-load, so this only catches the
+    // first-party requests a page fires right after load. 150 ms of silence is
+    // enough for that; the old 500 ms window was dead time on every reload.
+    // An explicit `browser.wait` network condition keeps its own 500 ms default.
+    const quiet = { idleWindowMs: RELOAD_SETTLE_IDLE_MS, maxCeilingMs: Math.min(2000, effectiveTimeoutMs) };
     await Promise.all([
-      this.networkTracker.awaitQuiescence(tabId, 'desktop', { idleWindowMs: 500, maxCeilingMs: Math.min(2000, effectiveTimeoutMs) }),
-      isSplit ? this.networkTracker.awaitQuiescence(tabId, 'mobile', { idleWindowMs: 500, maxCeilingMs: Math.min(2000, effectiveTimeoutMs) }) : Promise.resolve(),
+      this.networkTracker.awaitQuiescence(tabId, 'desktop', quiet),
+      isSplit ? this.networkTracker.awaitQuiescence(tabId, 'mobile', quiet) : Promise.resolve(),
     ]);
 
     return true;

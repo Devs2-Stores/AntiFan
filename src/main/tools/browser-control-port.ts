@@ -2,6 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import * as crypto from 'node:crypto';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { buildTreeWalkerSanitizerScript } from './adapters/tree-walker-sanitizer';
 import {
   BrowserTarget,
@@ -529,12 +530,47 @@ export function admitPageOperation(
   return onceCloseAdmissionRelease(admission?.beginAdmittedOperation(tabId));
 }
 
+/** A caller parked until a slot frees; `grant` runs with the slot already counted. */
+interface PoolWaiter {
+  tabId: string;
+  grant: () => void;
+  refuse: (err: Error) => void;
+}
+
+export interface PassiveExecutionPoolOptions {
+  /** How long a caller over the per-tab/global cap waits for a slot; 0 refuses at once. */
+  queueTimeoutMs?: number;
+  /** Callers parked at once across all tabs; the next one is refused. */
+  maxQueued?: number;
+}
+
 export class PassiveExecutionPool {
   private tabActiveCounts = new Map<string, number>();
   private globalActiveCount = 0;
   private readonly MAX_PER_TAB = 4;
   private readonly MAX_GLOBAL = 16;
+  private readonly queueTimeoutMs: number;
+  private readonly maxQueued: number;
+  private readonly waiters: PoolWaiter[] = [];
   private closeAdmission?: PageCloseAdmission;
+  /**
+   * The slots the current async call chain holds. A nested `execute` on a tab the
+   * chain already holds (screenshot -> media freeze -> freezeMedia) runs inside the
+   * caller's slot: counting it again let four parallel captures fill every slot and
+   * then refuse their own freeze/unfreeze with CAPABILITY_OVERLOADED.
+   */
+  private readonly heldSlots = new AsyncLocalStorage<ReadonlyMap<string, { active: boolean }>>();
+
+  /**
+   * A burst over the cap parks briefly instead of failing: eight parallel
+   * captures on one tab used to lose four to CAPABILITY_OVERLOADED although each
+   * slot frees within a second. Sustained overload still refuses, by timeout or
+   * by a full queue.
+   */
+  constructor(options: PassiveExecutionPoolOptions = {}) {
+    this.queueTimeoutMs = Math.max(0, options.queueTimeoutMs ?? 5_000);
+    this.maxQueued = Math.max(0, options.maxQueued ?? 8);
+  }
 
   /** Injects the close-admission seam (see `PageCloseAdmission`); absent = previous behaviour. */
   setCloseAdmission(admission?: PageCloseAdmission): void {
@@ -542,9 +578,10 @@ export class PassiveExecutionPool {
   }
 
   async execute<T>(tabId: string, action: () => Promise<T>): Promise<T> {
-    const tabCount = this.tabActiveCounts.get(tabId) || 0;
-    if (tabCount >= this.MAX_PER_TAB || this.globalActiveCount >= this.MAX_GLOBAL) {
-      throw new CapabilityError('CAPABILITY_OVERLOADED', `Concurrency limit exceeded for background operations on tab ${tabId}`);
+    // `active` goes false when the holder settles, so work the holder spawned and
+    // left running cannot keep riding a slot it no longer owns.
+    if (this.heldSlots.getStore()?.get(tabId)?.active === true) {
+      return action();
     }
 
     // Close admission runs before the counters move, so a refusal (thrown by the gate)
@@ -552,18 +589,85 @@ export class PassiveExecutionPool {
     // registered before it is counted — a close measuring this pool sees real work
     // rather than a guess.
     assertPageAdmitsWork(this.closeAdmission, tabId, 'Background operation');
+    if (!this.tryTakeSlot(tabId)) {
+      await this.waitForSlot(tabId);
+      // The page may have started closing while this caller was parked.
+      try {
+        assertPageAdmitsWork(this.closeAdmission, tabId, 'Background operation');
+      } catch (err) {
+        this.releaseSlot(tabId);
+        throw err;
+      }
+    }
     const releaseAdmission = onceCloseAdmissionRelease(this.closeAdmission?.beginAdmittedOperation());
 
-    this.tabActiveCounts.set(tabId, tabCount + 1);
-    this.globalActiveCount++;
+    const slot = { active: true };
+    const held = new Map(this.heldSlots.getStore() ?? []);
+    held.set(tabId, slot);
     try {
-      return await action();
+      return await this.heldSlots.run(held, action);
     } finally {
+      slot.active = false;
       releaseAdmission();
-      const updated = (this.tabActiveCounts.get(tabId) || 1) - 1;
-      if (updated <= 0) this.tabActiveCounts.delete(tabId);
-      else this.tabActiveCounts.set(tabId, updated);
-      this.globalActiveCount = Math.max(0, this.globalActiveCount - 1);
+      this.releaseSlot(tabId);
+    }
+  }
+
+  private hasCapacity(tabId: string): boolean {
+    return (this.tabActiveCounts.get(tabId) || 0) < this.MAX_PER_TAB && this.globalActiveCount < this.MAX_GLOBAL;
+  }
+
+  private countSlot(tabId: string): void {
+    this.tabActiveCounts.set(tabId, (this.tabActiveCounts.get(tabId) || 0) + 1);
+    this.globalActiveCount++;
+  }
+
+  /** Takes a slot now unless the cap is reached or an earlier caller is parked for this tab. */
+  private tryTakeSlot(tabId: string): boolean {
+    if (!this.hasCapacity(tabId) || this.waiters.some((w) => w.tabId === tabId)) return false;
+    this.countSlot(tabId);
+    return true;
+  }
+
+  private overloaded(tabId: string): CapabilityError {
+    return new CapabilityError('CAPABILITY_OVERLOADED', `Concurrency limit exceeded for background operations on tab ${tabId}`);
+  }
+
+  private waitForSlot(tabId: string): Promise<void> {
+    if (this.queueTimeoutMs === 0 || this.waiters.length >= this.maxQueued) {
+      return Promise.reject(this.overloaded(tabId));
+    }
+    const { promise, resolve, reject } = Promise.withResolvers<void>();
+    const waiter: PoolWaiter = {
+      tabId,
+      grant: () => { clearTimeout(timer); resolve(); },
+      refuse: (err) => { clearTimeout(timer); reject(err); },
+    };
+    const timer = setTimeout(() => {
+      const idx = this.waiters.indexOf(waiter);
+      if (idx >= 0) this.waiters.splice(idx, 1);
+      reject(this.overloaded(tabId));
+    }, this.queueTimeoutMs);
+    this.waiters.push(waiter);
+    return promise;
+  }
+
+  /** Frees a slot and hands freed capacity to parked callers in arrival order. */
+  private releaseSlot(tabId: string): void {
+    const updated = (this.tabActiveCounts.get(tabId) || 1) - 1;
+    if (updated <= 0) this.tabActiveCounts.delete(tabId);
+    else this.tabActiveCounts.set(tabId, updated);
+    this.globalActiveCount = Math.max(0, this.globalActiveCount - 1);
+    for (let i = 0; i < this.waiters.length && this.globalActiveCount < this.MAX_GLOBAL;) {
+      const waiter = this.waiters[i]!;
+      // A tab's earlier waiter still parked keeps its later ones behind it.
+      if (this.hasCapacity(waiter.tabId) && !this.waiters.slice(0, i).some((w) => w.tabId === waiter.tabId)) {
+        this.waiters.splice(i, 1);
+        this.countSlot(waiter.tabId);
+        waiter.grant();
+      } else {
+        i++;
+      }
     }
   }
 
@@ -575,9 +679,14 @@ export class PassiveExecutionPool {
     return this.globalActiveCount;
   }
 
+  getQueuedCount(): number {
+    return this.waiters.length;
+  }
+
   clear(): void {
     this.tabActiveCounts.clear();
     this.globalActiveCount = 0;
+    for (const waiter of this.waiters.splice(0)) waiter.refuse(this.overloaded(waiter.tabId));
   }
 }
 export class WaitRegistry {
@@ -2285,19 +2394,27 @@ export class BrowserControlPort {
   async dumpDom(
     target: BrowserTarget,
     outputPath: string,
-    options?: { selector?: string; tabId?: string; paneId?: 'desktop' | 'mobile'; clean?: boolean; stripLivewire?: boolean; materialize?: boolean }
+    options?: { selector?: string; tabId?: string; paneId?: 'desktop' | 'mobile'; clean?: boolean; stripLivewire?: boolean; materialize?: boolean; materializeDataSrc?: boolean }
   ): Promise<{ path: string; byteCount: number; nodeCount: number; tabId: string }> {
     const tabId = this.resolveTargetTab(target, options?.tabId);
     return this.passivePool.execute(tabId, async () => {
       if (options?.materialize !== false) {
-        let materialization: unknown;
+        let materialization: { materialized?: boolean; unmaterialized?: number; imagesStillPending?: number } | null;
         try {
-          materialization = await this.host.evalJs(buildReferenceMaterializationScript(), tabId, options?.paneId, false, REFERENCE_MATERIALIZATION_BOUND_MS);
+          materialization = (await this.host.evalJs(buildReferenceMaterializationScript({ materializeDataSrc: options?.materializeDataSrc === true }), tabId, options?.paneId, false, REFERENCE_MATERIALIZATION_BOUND_MS)) as typeof materialization;
         } catch (error) {
           throw new CapabilityError('REFERENCE_MATERIALIZATION_INCOMPLETE', `DOM export materialization failed on tab '${tabId}': ${error instanceof Error ? error.message : String(error)}`, { tabId, cause: 'eval-failed' });
         }
-        if (!materialization || typeof materialization !== 'object' || !('materialized' in materialization) || materialization.materialized !== true) {
-          throw new CapabilityError('REFERENCE_MATERIALIZATION_INCOMPLETE', `DOM export materialization did not complete on tab '${tabId}'; no file was written`, { tabId, cause: 'walk-empty' });
+        if (!materialization || typeof materialization !== 'object' || materialization.materialized !== true) {
+          // A loader that only swaps data-src on user interaction leaves the walk
+          // with unmaterialized images it cannot fix by scrolling; name the count
+          // and the opt-in that swaps them, so the retry is one call away.
+          const unmaterialized = materialization?.unmaterialized ?? 'unmeasured';
+          const pending = materialization?.imagesStillPending ?? 'unmeasured';
+          const remedy = options?.materializeDataSrc === true
+            ? 'images are still pending after the data-src swap; wait for the page or retry'
+            : 'retry with materializeDataSrc:true to swap data-src/data-srcset into live sources before exporting';
+          throw new CapabilityError('REFERENCE_MATERIALIZATION_INCOMPLETE', `DOM export materialization did not complete on tab '${tabId}' (unmaterialized=${unmaterialized}, pending=${pending}); no file was written. Remedy: ${remedy}`, { tabId, cause: 'walk-empty', unmaterialized: materialization?.unmaterialized, imagesStillPending: materialization?.imagesStillPending });
         }
       }
       const shouldClean = options?.clean !== false || options?.stripLivewire === true;
@@ -2997,7 +3114,7 @@ export class BrowserControlPort {
     attemptId: string,
     explicitTabId?: string,
     paneId?: 'desktop' | 'mobile',
-    options?: { leaseToken?: string; signal?: AbortSignal; timeoutMs?: number; expectedUrl?: string | null }
+    options?: { leaseToken?: string; signal?: AbortSignal; timeoutMs?: number; expectedUrl?: string | null; materializeDataSrc?: boolean }
   ): Promise<Record<string, unknown>> {
     if (typeof this.host.captureVerificationScreenshot !== 'function') {
       throw new CapabilityError('CAPABILITY_NOT_FOUND', "Host does not implement required 'captureVerificationScreenshot' canonical CDP interface");
@@ -3018,6 +3135,26 @@ export class BrowserControlPort {
       () =>
         this.passivePool.execute(tabId, async () => {
           try {
+            // Opt-in, same as promote_baseline: a loader that only swaps data-src on
+            // user interaction fails the imagesSettled gate forever; the walk swaps
+            // the lazy sources first so the raster shows the page's images. Default
+            // false — a capture must not mutate a page the caller only asked to see.
+            if (options?.materializeDataSrc === true) {
+              const materialization = (await this.host.evalJs(
+                buildReferenceMaterializationScript({ materializeDataSrc: true }),
+                tabId,
+                effectivePane,
+                false,
+                REFERENCE_MATERIALIZATION_BOUND_MS
+              )) as { materialized?: boolean; unmaterialized?: number; imagesStillPending?: number } | null;
+              if (!materialization || materialization.materialized !== true) {
+                throw new CapabilityError(
+                  'REFERENCE_MATERIALIZATION_INCOMPLETE',
+                  `Full-page materialization did not finish on tab '${tabId}': unmaterialized=${materialization?.unmaterialized ?? 'unmeasured'}, pending=${materialization?.imagesStillPending ?? 'unmeasured'}. Wait for the page or capture the viewport instead.`,
+                  { tabId, paneId: effectivePane, unmaterialized: materialization?.unmaterialized, imagesStillPending: materialization?.imagesStillPending }
+                );
+              }
+            }
             return await this.captureFullPageEnvelope({ target, tabId, effectivePane, runId, attemptId, budget, leaseToken: options?.leaseToken, expectedUrl: options?.expectedUrl });
           } catch (err) {
             if (isViewportRestoreFailure(err)) {
