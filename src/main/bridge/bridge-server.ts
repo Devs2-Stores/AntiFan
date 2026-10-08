@@ -2751,13 +2751,16 @@ export class BridgeServer {
                 originTerminalSessionId: terminalSessionId,
               });
             } catch (err: unknown) {
-              const errMsg = err instanceof Error ? err.message : String(err || '');
-              const errCode = (err as { code?: string } | undefined)?.code;
+              // Recover only from the project-policy refusal of a tab THIS call inferred:
+              // the structured details name that exact tab, so an unrelated POLICY_DENIED
+              // (or a refusal about another tab) is rethrown, not retried.
+              const policyDetails = err instanceof CapabilityError && err.code === 'POLICY_DENIED' ? err.details : undefined;
               if (
+                tabId &&
                 !p.tabId &&
                 terminalSessionId &&
-                errCode === 'POLICY_DENIED' &&
-                errMsg.includes('Refusing to mint terminal-origin session: bound tab')
+                policyDetails?.tabId === tabId &&
+                typeof policyDetails.measuredProjectId === 'string'
               ) {
                 console.warn(
                   `[antifan] startSession: inferred tab '${tabId}' failed project policy check for terminal '${terminalSessionId}'. Provisioning a fresh tab in terminal project...`
@@ -2774,6 +2777,9 @@ export class BridgeServer {
                 });
                 if (typeof sessionHost.bindTerminalAgentAffinity === 'function') {
                   sessionHost.bindTerminalAgentAffinity(terminalSessionId, terminalGen, tabId);
+                }
+                if (!tabId || !this.hostTabExists(tabId, sessionHost)) {
+                  throw new Error(`TAB_NOT_FOUND: no live agent tab is available for this session (tabId '${tabId || 'none provisioned'}')`);
                 }
                 res = await this.controlPlaneRuntime.createCliSession({
                   projectId: requestProjectId,

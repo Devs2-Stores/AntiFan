@@ -1,3 +1,4 @@
+import { CapabilityError } from '../../../src/shared/control-plane-contracts';
 import { describe, it, before, after } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
@@ -364,6 +365,92 @@ describe('BridgeServer Terminal Affinity Resolution Live RPC Contract Tests', ()
       assert.strictEqual(altHost.createTabCalls[0]?.options?.capsuleId, 'capsule-active');
     } finally {
       restoreTerminalManager();
+    }
+  });
+
+  // Project isolation of the terminal-origin session mint: a tab affinity that
+  // measures in another project must never be reused, and the policy-denied
+  // recovery must only fire for the exact tab this call inferred.
+  function withControlPlane(overrides: Record<string, unknown>) {
+    server.setControlPlane({ ...mockControlPlane, ...overrides } as unknown as ControlPlaneRuntime);
+    return () => server.setControlPlane(mockControlPlane as unknown as ControlPlaneRuntime);
+  }
+
+  it('14. Discards an agent-tab affinity that measures in another project and mints a fresh tab', async () => {
+    const restoreCp = withControlPlane({
+      resolveTerminalScope: () => ({ kind: 'measured', projectId: 'proj-b' }),
+      resolveTabAffiliation: (tabId: string) => (tabId === 'tab-alive' ? { projectId: 'proj-a' } : undefined),
+    });
+    const mintsBefore = mockHost.createTabCalls.length;
+    try {
+      const resp = await rpcCall('antifan.cli.startSession', { terminalSessionId: 'term-alive', terminalGeneration: 1 });
+      assert.strictEqual(resp.success, true);
+      assert.strictEqual(lastSessionCreatedOpts?.tabId, 'tab-created', 'the cross-project affinity tab must not be bound');
+      assert.strictEqual(mockHost.createTabCalls.length, mintsBefore + 1, 'a fresh tab is minted in the terminal project');
+    } finally {
+      restoreCp();
+    }
+  });
+
+  it('15. Recovers from a project-policy refusal of the inferred tab by minting a fresh tab', async () => {
+    const seenTabIds: Array<string | undefined> = [];
+    const restoreCp = withControlPlane({
+      createCliSession: async (opts: { tabId?: string }) => {
+        seenTabIds.push(opts.tabId);
+        if (opts.tabId === 'tab-alive') {
+          throw new CapabilityError('POLICY_DENIED', "Refusing to mint terminal-origin session: bound tab 'tab-alive' measures in project 'proj-a'", {
+            tabId: 'tab-alive',
+            measuredProjectId: 'proj-a',
+            terminalProjectId: 'proj-b',
+          });
+        }
+        return mockControlPlane.createCliSession(opts);
+      },
+    });
+    try {
+      const resp = await rpcCall('antifan.cli.startSession', { terminalSessionId: 'term-alive', terminalGeneration: 1 });
+      assert.strictEqual(resp.success, true);
+      assert.deepStrictEqual(seenTabIds, ['tab-alive', 'tab-created'], 'exactly one retry, on the freshly minted tab');
+      assert.strictEqual(resp.data?.tabId, 'tab-created');
+    } finally {
+      restoreCp();
+    }
+  });
+
+  it('16. Rethrows a POLICY_DENIED that names a different tab than the one this call inferred', async () => {
+    const mintsBefore = mockHost.createTabCalls.length;
+    let calls = 0;
+    const restoreCp = withControlPlane({
+      createCliSession: async () => {
+        calls += 1;
+        throw new CapabilityError('POLICY_DENIED', 'unrelated refusal', { tabId: 'tab-other', measuredProjectId: 'proj-a' });
+      },
+    });
+    try {
+      const resp = await rpcCall('antifan.cli.startSession', { terminalSessionId: 'term-alive', terminalGeneration: 1 });
+      assert.strictEqual(resp.success, false);
+      assert.ok(String(resp.error).includes('unrelated refusal'));
+      assert.strictEqual(calls, 1, 'no retry for a refusal about another tab');
+      assert.strictEqual(mockHost.createTabCalls.length, mintsBefore, 'no tab minted');
+    } finally {
+      restoreCp();
+    }
+  });
+
+  it('17. Rethrows a POLICY_DENIED that carries no structured details', async () => {
+    let calls = 0;
+    const restoreCp = withControlPlane({
+      createCliSession: async () => {
+        calls += 1;
+        throw new CapabilityError('POLICY_DENIED', 'Refusing to mint terminal-origin session: bound tab (reworded message)');
+      },
+    });
+    try {
+      const resp = await rpcCall('antifan.cli.startSession', { terminalSessionId: 'term-alive', terminalGeneration: 1 });
+      assert.strictEqual(resp.success, false);
+      assert.strictEqual(calls, 1, 'message text alone never triggers the recovery');
+    } finally {
+      restoreCp();
     }
   });
 });
