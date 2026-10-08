@@ -43,6 +43,10 @@ const userDataDir = process.env.ANTIFAN_SITE_MUTE_USERDATA || fs.mkdtempSync(pat
 app.setPath('userData', userDataDir);
 process.env.ANTIFAN_DATA_ROOT = userDataDir;
 process.env.ANTIFAN_CONFIG_DIR = userDataDir;
+// The lane runner pins ANTIFAN_USER_DATA; savedTabsFilePath() prefers it over app.getPath,
+// so the smoke must override the pin or the app persists outside the dir this script reads.
+process.env.ANTIFAN_USER_DATA = userDataDir;
+process.env.ANTIFAN_USER_DATA_DIR = userDataDir;
 process.env.ANTIFAN_USE_TERMINAL_DAEMON = '0';
 
 const watchdog = setTimeout(() => {
