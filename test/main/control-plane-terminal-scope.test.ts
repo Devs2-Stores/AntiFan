@@ -507,4 +507,43 @@ describe('ControlPlaneRuntime terminal-origin project scope', () => {
       fs.rmSync(rootB, { recursive: true, force: true });
     }
   });
+
+  it('exposes resolveTerminalScope and resolveTabAffiliation for bridge validation', async () => {
+    const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-cp-termscope-'));
+    const rootA = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-projA-'));
+    const rootB = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-projB-'));
+    const projA = makeControlPlaneId('project');
+    const wsA = makeControlPlaneId('workspace');
+    const projB = makeControlPlaneId('project');
+    const wsB = makeControlPlaneId('workspace');
+    try {
+      const owners = new Map<string, string>([['term-b', `project:${projB}`]]);
+      const runtime = new ControlPlaneRuntime({
+        projectId: projA,
+        workspaceId: wsA,
+        dataRoot,
+        workspaceRoot: rootA,
+        terminal: makeTerminalStub(owners),
+        resolveTabAffiliation: (tabId) => (tabId === 'tab-a' ? { projectId: projA, workspaceId: wsA } : undefined),
+      });
+      await runtime.initialize();
+      register(runtime, projA, wsA, rootA, dataRoot);
+      register(runtime, projB, wsB, rootB, dataRoot);
+
+      const scope = runtime.resolveTerminalScope('term-b');
+      assert.strictEqual(scope.kind, 'measured');
+      if (scope.kind === 'measured') {
+        assert.strictEqual(scope.projectId, projB);
+        assert.strictEqual(scope.workspaceId, wsB);
+      }
+      const affA = runtime.resolveTabAffiliation('tab-a');
+      assert.strictEqual(affA?.projectId, projA);
+      const affNone = runtime.resolveTabAffiliation('tab-unknown');
+      assert.strictEqual(affNone, undefined);
+    } finally {
+      fs.rmSync(dataRoot, { recursive: true, force: true });
+      fs.rmSync(rootA, { recursive: true, force: true });
+      fs.rmSync(rootB, { recursive: true, force: true });
+    }
+  });
 });

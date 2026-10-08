@@ -2614,9 +2614,27 @@ export class BridgeServer {
                 if (typeof sessionHost.getTerminalAgentAffinity === 'function') {
                   const affinity = sessionHost.getTerminalAgentAffinity(terminalSessionId, terminalGen);
                   if (affinity) {
-                    if (affinity.status === 'alive' && this.hostTabExists(affinity.tabId, sessionHost)) {
+                    let affinityMatchesProject = true;
+                    if (this.controlPlaneRuntime && typeof this.controlPlaneRuntime.resolveTerminalScope === 'function') {
+                      const terminalScope = this.controlPlaneRuntime.resolveTerminalScope(terminalSessionId);
+                      if (terminalScope.kind === 'measured' && typeof this.controlPlaneRuntime.resolveTabAffiliation === 'function') {
+                        const tabAffiliation = this.controlPlaneRuntime.resolveTabAffiliation(affinity.tabId);
+                        if (tabAffiliation?.projectId && tabAffiliation.projectId !== terminalScope.projectId) {
+                          affinityMatchesProject = false;
+                          console.warn(
+                            `[antifan] startSession: tab previously attached to terminal ${terminalSessionId}#${terminalGen} (${affinity.tabId}) ` +
+                            `measures in project '${tabAffiliation.projectId}', not the terminal's measured project '${terminalScope.projectId}'. ` +
+                            `Discarding foreign affinity and auto-provisioning a replacement agent tab in the terminal's project.`
+                          );
+                          if (typeof sessionHost.releaseSessionTabPool === 'function') {
+                            sessionHost.releaseSessionTabPool(terminalSessionId);
+                          }
+                        }
+                      }
+                    }
+                    if (affinityMatchesProject && affinity.status === 'alive' && this.hostTabExists(affinity.tabId, sessionHost)) {
                       tabId = affinity.tabId;
-                    } else {
+                    } else if (affinityMatchesProject) {
                       const closedNotice = affinity.lastUrl ? `(${affinity.lastUrl})` : `(${affinity.tabId})`;
                       console.warn(
                         `[antifan] startSession: tab previously attached to terminal ${terminalSessionId}#${terminalGen} ${closedNotice} was closed or dead; auto-provisioning a replacement agent tab.`
@@ -2718,18 +2736,61 @@ export class BridgeServer {
             } : undefined;
 
             const ownerPid = typeof p.ownerPid === 'number' && p.ownerPid > 0 ? p.ownerPid : undefined;
-            const res = await this.controlPlaneRuntime.createCliSession({
-              projectId: requestProjectId,
-              workspaceId: typeof p.workspaceId === 'string' ? p.workspaceId : undefined,
-              cwd: typeof p.cwd === 'string' ? p.cwd : undefined,
-              backendId: p.backendId || 'cli',
-              grant: p.grant || 'eval',
-              tabId,
-              browserEpoch: p.browserEpoch,
-              ttlMs: typeof p.ttlMs === 'number' ? Math.min(Math.max(p.ttlMs, 10_000), 86_400_000) : 7_200_000,
-              ownerPid,
-              originTerminalSessionId: terminalSessionId,
-            });
+            let res;
+            try {
+              res = await this.controlPlaneRuntime.createCliSession({
+                projectId: requestProjectId,
+                workspaceId: typeof p.workspaceId === 'string' ? p.workspaceId : undefined,
+                cwd: typeof p.cwd === 'string' ? p.cwd : undefined,
+                backendId: p.backendId || 'cli',
+                grant: p.grant || 'eval',
+                tabId,
+                browserEpoch: p.browserEpoch,
+                ttlMs: typeof p.ttlMs === 'number' ? Math.min(Math.max(p.ttlMs, 10_000), 86_400_000) : 7_200_000,
+                ownerPid,
+                originTerminalSessionId: terminalSessionId,
+              });
+            } catch (err: unknown) {
+              const errMsg = err instanceof Error ? err.message : String(err || '');
+              const errCode = (err as { code?: string } | undefined)?.code;
+              if (
+                !p.tabId &&
+                terminalSessionId &&
+                errCode === 'POLICY_DENIED' &&
+                errMsg.includes('Refusing to mint terminal-origin session: bound tab')
+              ) {
+                console.warn(
+                  `[antifan] startSession: inferred tab '${tabId}' failed project policy check for terminal '${terminalSessionId}'. Provisioning a fresh tab in terminal project...`
+                );
+                const sessionHost = mintTarget?.host ?? this.tabHost;
+                if (typeof sessionHost.releaseSessionTabPool === 'function') {
+                  sessionHost.releaseSessionTabPool(terminalSessionId);
+                }
+                tabId = sessionHost.createTab('about:blank', wantsVisibleTab, {
+                  offscreen: !wantsVisibleTab,
+                  ephemeral: !wantsVisibleTab,
+                  plane: wantsVisibleTab ? 'user' : 'agent',
+                  ...(mintTarget?.capsuleId ? { capsuleId: mintTarget.capsuleId } : {}),
+                });
+                if (typeof sessionHost.bindTerminalAgentAffinity === 'function') {
+                  sessionHost.bindTerminalAgentAffinity(terminalSessionId, terminalGen, tabId);
+                }
+                res = await this.controlPlaneRuntime.createCliSession({
+                  projectId: requestProjectId,
+                  workspaceId: typeof p.workspaceId === 'string' ? p.workspaceId : undefined,
+                  cwd: typeof p.cwd === 'string' ? p.cwd : undefined,
+                  backendId: p.backendId || 'cli',
+                  grant: p.grant || 'eval',
+                  tabId,
+                  browserEpoch: p.browserEpoch,
+                  ttlMs: typeof p.ttlMs === 'number' ? Math.min(Math.max(p.ttlMs, 10_000), 86_400_000) : 7_200_000,
+                  ownerPid,
+                  originTerminalSessionId: terminalSessionId,
+                });
+              } else {
+                throw err;
+              }
+            }
             if (sessionFilter) {
               this.sessionCapabilityFilters.set(res.launch.attachmentId, sessionFilter);
               if (res.run?.id) this.sessionCapabilityFilters.set(res.run.id, sessionFilter);

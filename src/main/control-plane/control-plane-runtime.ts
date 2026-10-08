@@ -504,7 +504,7 @@ export class ControlPlaneRuntime {
    *                  (none attached, or more than one), or its project stamp is unusable. That is
    *                  ambiguity about a real claim, and it fails closed rather than guessing.
    */
-  private resolveTerminalScope(terminalSessionId: string):
+  public resolveTerminalScope(terminalSessionId: string):
     | { kind: 'measured'; projectId: string; workspaceId: string }
     | { kind: 'unattributed' }
     | { kind: 'unmeasurable' } {
@@ -540,6 +540,10 @@ export class ControlPlaneRuntime {
       return { kind: 'unmeasurable' };
     }
     return { kind: 'unattributed' };
+  }
+
+  public resolveTabAffiliation(tabId: string): { projectId?: string; workspaceId?: string; capsuleId?: string } | undefined {
+    return this.resolveTabAffiliationOption?.(tabId);
   }
 
   private isExplicitTerminalCwd(candidateCwd: string): boolean {
