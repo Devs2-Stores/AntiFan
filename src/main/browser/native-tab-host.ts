@@ -13556,15 +13556,6 @@ export class NativeTabHost extends EventEmitter {
       }
     }
 
-    // 4. Try to classify based on tab URL (e.g. seahorse.com.vn -> customizes/Seahorse2)
-    if (tabUrl) {
-      const urlWorkspace = resolveWorkspaceFromUrl(tabUrl, DEFAULT_WORKSPACE_ROOTS);
-      if (urlWorkspace) {
-        return urlWorkspace;
-      }
-    }
-
-
     // 6. Current CWD from TerminalManager
     const tmCwd = tm.getCurrentCwd();
     if (tmCwd && fs.existsSync(path.normalize(tmCwd))) {

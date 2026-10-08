@@ -7,8 +7,14 @@ import { NativeTabHost } from '../../src/main/browser/native-tab-host';
 import { AntiFanTab } from '../../src/shared/contracts';
 import { TerminalManager } from '../../src/main/browser/terminal-manager';
 import { CockpitPort } from '../../src/main/tools/cockpit-port';
+import { resolveWorkspaceFromUrl } from '../../src/main/browser/workspace-resolver';
 
-const ROOT = path.resolve(__dirname, '../../..');
+/** Expected workspace for a storefront URL, independent of where the repo is checked out (worktrees). */
+function classifiedWorkspace(url: string): string {
+  const ws = resolveWorkspaceFromUrl(url);
+  assert.ok(ws, `fixture URL ${url} must classify to a workspace`);
+  return path.normalize(ws).toLowerCase();
+}
 
 /**
  * Regression coverage for the tab-scoped workspace resolver.
@@ -159,7 +165,7 @@ describe('resolveTabWorkspace precedence', () => {
     const resolved = host.resolveTabWorkspace('tab-1');
     // DEFAULT_WORKSPACE_ROOTS literals carry a lowercase drive letter; the
     // Windows filesystem is case-insensitive, so identity is by content.
-    assert.strictEqual(resolved.toLowerCase(), path.normalize(ROOT).toLowerCase(), 'antifan.myharavan.com classifies to the local AntiFan workspace');
+    assert.strictEqual(resolved.toLowerCase(), classifiedWorkspace('https://antifan.myharavan.com/'), 'antifan.myharavan.com classifies to its mapped workspace');
   });
 
   it('a dead capsule path falls through to the next tier instead of claiming it', () => {
@@ -197,7 +203,7 @@ describe('resolveTabWorkspace precedence', () => {
     host.capsuleManager = { list: () => [], getActive: () => ({ id: 'capsule-pancake', workspacePath: pancakeDir }) };
 
     const resolved = host.resolveTargetWorkspace(undefined, 'https://antifan.myharavan.com/');
-    assert.strictEqual(resolved.toLowerCase(), path.normalize(ROOT).toLowerCase(), 'URL classification beats the active Pancake capsule');
+    assert.strictEqual(resolved.toLowerCase(), classifiedWorkspace('https://antifan.myharavan.com/'), 'URL classification beats the active Pancake capsule');
   });
 
   it('resolveTargetWorkspace: an unclassifiable tab URL still falls back to the active capsule', () => {

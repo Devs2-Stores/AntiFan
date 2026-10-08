@@ -47,6 +47,9 @@ describe('Annotation prompt self-QA directive', () => {
     assert.ok(header.includes('CAPABILITY_NOT_FOUND'));
     assert.ok(header.includes('SETTLE_INCOMPLETE'));
     assert.ok(header.includes('CAPTURE_NOT_READY'));
+    assert.ok(header.includes('CAPTURE_FRAME_STARVATION'));
+    assert.ok(header.includes('CAPTURE_TIMEOUT'));
+    assert.ok(header.includes('TARGET_BUSY_DRAINING'));
     assert.ok(header.includes('TARGET_MISMATCH'));
     assert.ok(header.includes('anti.browser.rebind_target'));
   });
