@@ -263,6 +263,7 @@ describe('P1-8: Resource Stability & Eviction Bounds', () => {
     beforeEach(() => {
       originalConfigDir = process.env.ANTIFAN_CONFIG_DIR;
       process.env.ANTIFAN_CONFIG_DIR = tempDir;
+      TerminalManager.setInstance(undefined);
       tm = TerminalManager.getInstance();
     });
 
@@ -270,6 +271,7 @@ describe('P1-8: Resource Stability & Eviction Bounds', () => {
       try {
         await tm.dispose();
       } catch {}
+      TerminalManager.setInstance(undefined);
       if (originalConfigDir !== undefined) {
         process.env.ANTIFAN_CONFIG_DIR = originalConfigDir;
       } else {
@@ -382,6 +384,7 @@ describe('P1-8: Resource Stability & Eviction Bounds', () => {
       const freshInternals = freshTm as unknown as TerminalManagerInternals;
       assert.strictEqual(freshInternals.isDisposed, false, 'Fresh instance must not be disposed');
       await freshTm.dispose();
+      TerminalManager.setInstance(undefined);
     });
 
     it('getStats() handles a malformed session row with neither bufferBytes nor buffer', () => {

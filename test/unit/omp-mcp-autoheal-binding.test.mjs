@@ -171,6 +171,12 @@ function startMockBridge(record, options = {}) {
           workspaceId: 'workspace-x', tabId: BOUND_TAB, expiresAt: Date.now() + 3_600_000,
         });
       }
+      if (msg.method === 'antifan.capability.dispatch' && msg.params?.name === 'browser.rebind-target' && options.autoRebindResolvesStale) {
+        if (options.staleTabId && msg.params?.params?.tabId === options.staleTabId) {
+          options.staleTabId = null;
+        }
+        return send({ ok: true, tabId: msg.params?.params?.tabId });
+      }
       if (msg.method === 'antifan.capability.dispatch' && options.staleTabId && msg.params?.params?.tabId === options.staleTabId) {
         return ws.send(JSON.stringify({ id: msg.id, success: false, error: 'TARGET_MISMATCH: Requested tab is stale', data: { code: 'TARGET_MISMATCH', message: 'Requested tab is stale', details: { requestedTabId: options.staleTabId, liveTabId: BOUND_TAB } } }));
       }
@@ -462,5 +468,26 @@ test('transmitted mutation refused REVISION_STALE resends on same-attachment reu
     assert.equal(record.filter(value => value.method === 'fixture.mutationExecuted').length, 1, 'first frame was refused before execution; join executes exactly once');
     assert.ok(record.some(value => value.method === 'fixture.attachmentReuseSucceeded'), 'autoheal must reuse the same attachment');
     assert.equal(record.filter(value => value.method === 'pairing.exchange').length, 0);
+  });
+});
+
+test('effectful capability recovers after TARGET_MISMATCH via auto-rebind without EXECUTION_UNCERTAIN (TA-04 / VF-07 / VF-08)', async () => {
+  await withRecoveryProxy({
+    recoveredStaleAnchor: true,
+    staleTabId: 'tab-stale-effectful',
+    autoRebindResolvesStale: true,
+  }, async ({ record, call }) => {
+    const response = await call(2, 'anti.browser.evaluate', {
+      expression: '21 * 2',
+      tabId: 'tab-stale-effectful',
+    });
+    assert.notEqual(response.result?.isError, true, `evaluate must succeed on attempt 1: ${JSON.stringify(response)}`);
+    assert.doesNotMatch(JSON.stringify(response), /EXECUTION_UNCERTAIN/);
+    const evalCalls = record.filter(value => value.method === 'antifan.capability.dispatch' && value.params?.name === 'anti.browser.evaluate');
+    assert.equal(evalCalls.length, 2, 'evaluate must dispatch twice: attempt 0 then recovered attempt 1');
+    assert.notEqual(evalCalls[0].params.idempotencyKey, evalCalls[1].params.idempotencyKey, 'idempotencyKey must rotate after rebind');
+    const rebindCalls = record.filter(value => value.method === 'antifan.capability.dispatch' && value.params?.name === 'browser.rebind-target');
+    assert.equal(rebindCalls.length, 1, 'rebind must be dispatched between attempts');
+    assert.equal(rebindCalls[0].params.params.tabId, 'tab-stale-effectful');
   });
 });

@@ -871,18 +871,27 @@ async function run() {
     // The same refusal at the router itself: identity, not prose. An unknown sender must raise
     // the router's own error class, which is the identity a caller can assert without trusting
     // a sentence.
+    // Dual module evaluation in Electron: the test harness imports ipc-router.js via its own
+    // require path, while NativeTabHost resolves it through Electron's main process module cache.
+    // Across separate evaluations, constructor prototype identity differs, causing instanceof to fail.
+    // Assert structural identity via error name and code ('UnknownChromeSenderError' / 'UNKNOWN_CHROME_SENDER').
     let thrown = null;
     try {
       dispatchChromeRoute(NativeTabHost.CHROME_ROUTES, CONTRACTS.TERMINAL_CHANNELS.LIST_SESSIONS, unknownCallerWindow.webContents, []);
     } catch (err) {
       thrown = err;
     }
-    observations.refusals.chromeIdentity = thrown
-      ? { name: String(thrown.name), code: String(thrown.code), isUnknownSenderError: thrown instanceof UnknownChromeSenderError }
+    const errObj = thrown && typeof thrown === 'object' ? thrown : null;
+    const isUnknownSenderError = Boolean(
+      thrown instanceof UnknownChromeSenderError ||
+      (errObj && errObj.name === 'UnknownChromeSenderError' && errObj.code === 'UNKNOWN_CHROME_SENDER')
+    );
+    observations.refusals.chromeIdentity = errObj
+      ? { name: String(errObj.name), code: String(errObj.code), isUnknownSenderError: isUnknownSenderError }
       : null;
     expect(
-      thrown instanceof UnknownChromeSenderError,
-      'the router did not refuse an unknown sender with its own error class: ' + (thrown ? String(thrown.name) : 'nothing was raised'),
+      isUnknownSenderError,
+      'the router did not refuse an unknown sender with its own error class: ' + (errObj ? String(errObj.name) + ' (' + String(errObj.code) + ')' : 'nothing was raised'),
     );
   }, async function () {
     if (unknownCallerWindow && !unknownCallerWindow.isDestroyed()) unknownCallerWindow.destroy();
@@ -955,11 +964,14 @@ async function run() {
       if (!sessionId) continue;
       try { await closeOwnedSession(sessionId); } catch (err) { console.log('  NOTE  session ' + sessionId + ' did not close: ' + messageOf(err)); }
     }
-    for (const entry of authority.snapshot()) {
-      authority.requestClose(entry.ownerKey);
-    }
     await waitFor(
-      function () { return authority.browserShellCount() === 0 ? true : false; },
+      function () {
+        if (authority.browserShellCount() === 0) return true;
+        for (const entry of authority.snapshot()) {
+          authority.requestClose(entry.ownerKey);
+        }
+        return false;
+      },
       'every remaining browser shell to close',
     );
     observations.teardown = { shellCount: authority.browserShellCount() };

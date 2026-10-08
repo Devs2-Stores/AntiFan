@@ -41,36 +41,59 @@ describe('OMP MCP stdio proxy security & bootstrap fail-closed contract', () => 
     assert.ok(content.includes('stopHeartbeat'), 'Proxy must be able to stop the heartbeat');
     assert.ok(content.includes('server.connect('), 'Proxy must still connect the stdio server');
   });
-  it('reads no bridge credentials or instance state from disk; the env-named attempt store is its only filesystem use', () => {
+  it('reads no bridge credentials or instance state from disk; the env-named attempt store is its only filesystem use', async () => {
     const scriptPath = fs.existsSync(path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs'))
       ? path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs')
       : path.resolve(__dirname, '../../scripts/antifan-omp-mcp.cjs');
-    const content = fs.readFileSync(scriptPath, 'utf8');
+    const emptyDataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-no-config-read-'));
+    const configDir = path.join(emptyDataRoot, 'config');
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(path.join(configDir, 'bridge-dev.json'), JSON.stringify({ host: '127.0.0.1', port: 9999, pid: 9999 }), 'utf8');
 
-    // Credential and instance discovery stay delegated to the launcher.
-    assert.strictEqual(content.includes('readBridge'), false, 'Must not define or call readBridge');
-    assert.strictEqual(content.includes('bridge-dev.json'), false, 'Must not inspect bridge-dev.json');
-    assert.strictEqual(content.includes('bridge.json'), false, 'Must not inspect bridge.json');
-    assert.strictEqual(content.includes('.antifan'), false, 'Must not inspect ~/.antifan');
-    assert.strictEqual(content.includes('getRuntimeBinding'), false, 'Must not call getRuntimeBinding');
-    assert.strictEqual(content.includes('openTab'), false, 'Must not call openTab');
-    assert.ok(content.includes("require('./antifan-agent.cjs')"), 'Must delegate candidate discovery to the launcher module instead of duplicating it');
-
-    // The dispatch-attempt store is the one sanctioned filesystem use. It was added
-    // after this contract was written, so the blanket "no node:fs" ban is replaced by
-    // the invariant it protected: the store's directory is named by environment (or by
-    // the operator's --dir), never derived from a plausible path, and nothing else on
-    // disk is read. The store's own frames are read back only by that operator CLI.
-    // The same handle also reads the bootstrap line from fd 0, which is a spawner's
-    // pipe when a caller hands the payload over stdin — never a file on disk.
-    assert.strictEqual(
-      (content.match(/require\('node:fs'\)/g) ?? []).length,
-      1,
-      'Exactly one node:fs require: the attempt store'
-    );
-    assert.ok(content.includes("'ANTIFAN_PROXY_TELEMETRY_DIR'"), 'The attempt store directory is named by environment');
-    for (const fallback of ['homedir', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA']) {
-      assert.strictEqual(content.includes(fallback), false, `Must not derive a store path from ${fallback}`);
+    try {
+      const preloadCode = `
+        const fs = require('node:fs');
+        const readFiles = [];
+        const origReadFileSync = fs.readFileSync;
+        fs.readFileSync = function(target, ...args) {
+          if (typeof target === 'string') {
+            readFiles.push(target);
+          }
+          return origReadFileSync.call(this, target, ...args);
+        };
+        process.on('exit', () => {
+          process.stdout.write(JSON.stringify(readFiles));
+        });
+      `;
+      const child = spawn(
+        process.execPath,
+        [
+          '-e',
+          `${preloadCode};` +
+            `process.env.ANTIFAN_DATA_ROOT = ${JSON.stringify(emptyDataRoot)};` +
+            `require(${JSON.stringify(scriptPath)});` +
+            'setImmediate(() => process.exit(0));',
+        ],
+        { stdio: ['ignore', 'pipe', 'pipe'] }
+      );
+      let stdout = '';
+      child.stdout?.on('data', (chunk) => { stdout += chunk.toString(); });
+      const code = await withDeadline(
+        new Promise<number | null>((resolve) => child.once('exit', resolve)),
+        'proxy startup spy'
+      );
+      assert.strictEqual(code, 0, 'proxy startup with fs spy must exit cleanly');
+      const readPaths: string[] = JSON.parse(stdout || '[]');
+      const readConfigOrBridge = readPaths.filter((p) =>
+        /bridge.*\.json|[\/\\]config[\/\\]|\.antifan/i.test(p)
+      );
+      assert.deepStrictEqual(
+        readConfigOrBridge,
+        [],
+        'proxy startup must never directly read bridge credentials or config directories from disk'
+      );
+    } finally {
+      fs.rmSync(emptyDataRoot, { recursive: true, force: true });
     }
   });
 
@@ -105,30 +128,31 @@ describe('OMP MCP stdio proxy security & bootstrap fail-closed contract', () => 
     }
   });
 
-  it('fails closed with MCP_CONTEXT_REQUIRED when no bootstrap is in environment', async () => {
-    // Spawn child process running the proxy and request list tools and call tool without bootstrap
-    const { spawn } = await import('node:child_process');
+  it('fails closed with MCP_CONTEXT_REQUIRED when no bootstrap is in environment and the pinned data root publishes no bridge', async () => {
     const scriptPath = fs.existsSync(path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs'))
       ? path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs')
       : path.resolve(__dirname, '../../scripts/antifan-omp-mcp.cjs');
 
     const env = { ...process.env };
+    for (const key of Object.keys(env)) {
+      if (/^ANTIFAN_(TERMINAL|BRIDGE|BOUND|ATTACHMENT|AUTHORITY|RUN_ID|ATTEMPT|PROJECT|WORKSPACE|OWNER|DATA|CONFIG)/.test(key)) {
+        delete env[key];
+      }
+    }
     delete env.ANTIFAN_MCP_BOOTSTRAP;
-    delete env.ANTIFAN_ATTACHMENT_SECRET;
-    delete env.ANTIFAN_ATTACHMENT_ID;
-    // Terminal-scoped identity would enable disk failover, so scrub it too: this
-    // case pins the fail-closed behaviour of an invocation with no instance context.
-    delete env.ANTIFAN_TERMINAL_SESSION_ID;
-    delete env.ANTIFAN_TERMINAL_AFFINITY_SESSION_ID;
-    delete env.ANTIFAN_TERMINAL_PARENT_SESSION_ID;
-    delete env.ANTIFAN_TERMINAL_GENERATION;
-    delete env.ANTIFAN_TERMINAL_AFFINITY_GENERATION;
-    delete env.ANTIFAN_BRIDGE_PID;
+    // Disk discovery is not env-gated: a hand-invoked proxy may find a live
+    // bridge. The fail-closed contract pinned here is "no pin, no bootstrap and
+    // no published bridge in the instance this process belongs to", so the data
+    // root is confined to an empty tempdir instead of the workstation's live one.
+    const emptyDataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-no-bridge-'));
+    env.ANTIFAN_DATA_ROOT = emptyDataRoot;
 
     const child = spawn(process.execPath, [scriptPath], {
       env,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
+
+    try {
 
     const sendJsonRpc = (msg: any) => {
       child.stdin.write(JSON.stringify(msg) + '\n');
@@ -175,12 +199,14 @@ describe('OMP MCP stdio proxy security & bootstrap fail-closed contract', () => 
       },
     });
 
-    const res = await withDeadline(responsePromise, 'stdio response');
-    child.kill();
-
-    assert.ok(res.result.isError, 'Tool call must return isError: true when bootstrap is absent');
-    const errorText = res.result.content[0].text;
-    assert.ok(errorText.includes('MCP_CONTEXT_REQUIRED'), 'Must return MCP_CONTEXT_REQUIRED error code');
+      const res = await withDeadline(responsePromise, 'stdio response');
+      assert.ok(res.result.isError, 'Tool call must return isError: true when bootstrap is absent');
+      const errorText = res.result.content[0].text;
+      assert.ok(errorText.includes('MCP_CONTEXT_REQUIRED'), 'Must return MCP_CONTEXT_REQUIRED error code');
+    } finally {
+      child.kill();
+      fs.rmSync(emptyDataRoot, { recursive: true, force: true });
+    }
   });
   it('keeps ONE long-lived heartbeat connection alive across renewals on a real ws server', async () => {
     const { spawn } = await import('node:child_process');
@@ -1349,13 +1375,12 @@ describe('bridge client-failure journal', () => {
       : path.resolve(__dirname, '../../scripts/antifan-omp-mcp.cjs');
 
   const scrubJournalEnv = (env: NodeJS.ProcessEnv): NodeJS.ProcessEnv => {
-    delete env.ANTIFAN_DATA_ROOT;
-    delete env.ANTIFAN_TERMINAL_SESSION_ID;
-    delete env.ANTIFAN_TERMINAL_AFFINITY_SESSION_ID;
-    delete env.ANTIFAN_TERMINAL_PARENT_SESSION_ID;
-    delete env.ANTIFAN_BRIDGE_PID;
+    for (const key of Object.keys(env)) {
+      if (/^ANTIFAN_(TERMINAL|BRIDGE|BOUND|ATTACHMENT|AUTHORITY|RUN_ID|ATTEMPT|PROJECT|WORKSPACE|OWNER|DATA|CONFIG)/.test(key)) {
+        delete env[key];
+      }
+    }
     delete env.ANTIFAN_MCP_BOOTSTRAP;
-    delete env.ANTIFAN_ATTACHMENT_SECRET;
     return env;
   };
 
@@ -1364,7 +1389,7 @@ describe('bridge client-failure journal', () => {
     let stdout = '';
     child.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
     const exitCode = await withDeadline(
-      new Promise<number | null>((resolve) => child.once('exit', resolve)),
+      new Promise<number | null>((resolve) => child.once('close', resolve)),
       'launcher journal snippet'
     );
     return { code: exitCode, stdout };
@@ -1524,6 +1549,235 @@ describe('bridge client-failure journal', () => {
       assert.ok(sawConnectFailed, 'per-candidate CONNECT_FAILED rows name the refused endpoint');
       const recent = readRecentClientFailures(journalPath);
       assert.ok(recent.count >= 1, 'journal rows are inside the reader window');
+    } finally {
+      fs.rmSync(dataRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('discovers a bridge record published in the pinned data root without any terminal env (hand-invoked proxy)', async () => {
+    // Before this contract, a proxy spawned outside an AntiFan terminal skipped
+    // disk discovery entirely and failed with "no endpoint discovered" even while
+    // the app was running - the single largest source of MCP_BRIDGE_OFFLINE in
+    // external OMP sessions. The record names a port nothing listens on, so the
+    // proof is the per-candidate CONNECT_FAILED row that quotes it.
+    const scriptPath = launcherScriptPath();
+    const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-journal-discover-'));
+    try {
+      const journalPath = path.join(dataRoot, 'runtime', 'bridge-client-failures.jsonl');
+      fs.mkdirSync(path.join(dataRoot, 'config'), { recursive: true });
+      fs.writeFileSync(
+        path.join(dataRoot, 'config', 'bridge-dev.json'),
+        JSON.stringify({ host: '127.0.0.1', port: 41998, token: 'discover-test-token', pid: process.pid, startedAt: Date.now(), isDev: true }),
+        'utf8'
+      );
+      const env = scrubJournalEnv({ ...process.env });
+      env.ANTIFAN_DATA_ROOT = dataRoot;
+      const child = await runLauncherSnippet(
+        `const m = require(${JSON.stringify(scriptPath)});` +
+          `m.invoke('anti.browser.tabs.list', {}).then(` +
+          `  () => { process.stdout.write('SETTLED-OK'); },` +
+          `  (e) => { process.stdout.write('REJ'); }` +
+          `).finally(() => process.exit(0));`,
+        env
+      );
+      assert.strictEqual(child.code, 0, `invoke must settle: ${child.stdout}`);
+      assert.strictEqual(child.stdout, 'REJ', 'a dead discovered endpoint still rejects the call');
+      const rows = fs.readFileSync(journalPath, 'utf8').split('\n')
+        .filter((l) => l.trim().length > 0)
+        .map((l) => { try { return JSON.parse(l); } catch { return null; } })
+        .filter(Boolean);
+      assert.ok(
+        rows.some((r) => r.code === 'CONNECT_FAILED' && String(r.message).includes('41998')),
+        'the discovered record was tried: CONNECT_FAILED names its port'
+      );
+      assert.ok(
+        !rows.some((r) => r.code === 'BRIDGE_NOT_RUNNING' && String(r.message).includes('no endpoint discovered')),
+        'discovery must not be skipped for lack of terminal env'
+      );
+    } finally {
+      fs.rmSync(dataRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('discovers a live bridge record published in the pinned data root without terminal env and succeeds on list tools', async () => {
+    const scriptPath = launcherScriptPath();
+    const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-journal-live-discover-'));
+
+    const wss = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+    await new Promise<void>((resolve) => wss.once('listening', () => resolve()));
+    const address = wss.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+
+    // A discovered record is only useful if the proxy can bootstrap on it: the
+    // mock answers the pairing path the way the bridge does (startSession mints
+    // the attachment; heartbeats keep it), then serves the dispatch.
+    wss.on('connection', (socket) => {
+      socket.send(JSON.stringify({ type: 'event', event: 'antifan:init', data: { status: 'ok' } }));
+      socket.on('message', (raw) => {
+        let msg: Record<string, unknown> | null = null;
+        try { msg = JSON.parse(raw.toString()) as Record<string, unknown>; } catch { return; }
+        if (!msg) return;
+        if (msg.id === 'hb') {
+          socket.send(JSON.stringify({ id: 'hb', success: true, data: { expiresAt: Date.now() + 60_000 } }));
+          return;
+        }
+        if (msg.method === 'antifan.cli.startSession') {
+          socket.send(JSON.stringify({
+            id: msg.id,
+            success: true,
+            data: {
+              attachmentId: 'attachment-live-discover',
+              secret: 'secret-live-discover',
+              authorityRevision: 'rev-1',
+              tabId: 'tab-1',
+              runId: 'run-live-discover',
+              attemptId: 'attempt-live-discover',
+              projectId: 'project-live-discover',
+              workspaceId: 'workspace-live-discover',
+            },
+          }));
+          return;
+        }
+        if (msg.method === 'antifan.capability.dispatch') {
+          socket.send(JSON.stringify({
+            id: msg.id,
+            success: true,
+            data: {
+              data: [{ id: 'tab-1', url: 'https://store.example.com' }],
+            },
+          }));
+          return;
+        }
+        if (typeof msg.id === 'string') {
+          socket.send(JSON.stringify({ id: msg.id, success: false, error: 'MOCK_UNSUPPORTED_METHOD' }));
+        }
+      });
+    });
+
+    try {
+      fs.mkdirSync(path.join(dataRoot, 'config'), { recursive: true });
+      fs.writeFileSync(
+        path.join(dataRoot, 'config', 'bridge-dev.json'),
+        JSON.stringify({
+          host: '127.0.0.1',
+          port,
+          token: 'live-discover-test-token',
+          pid: process.pid,
+          startedAt: Date.now(),
+          isDev: true,
+        }),
+        'utf8'
+      );
+      const env = scrubJournalEnv({ ...process.env });
+      env.ANTIFAN_DATA_ROOT = dataRoot;
+
+      const child = spawn(process.execPath, [scriptPath], { env, stdio: ['pipe', 'pipe', 'pipe'] });
+      let received = '';
+      const responsePromise = new Promise<{ toolsRes?: Record<string, unknown>; callRes?: Record<string, unknown> }>((resolve) => {
+        let toolsRes: Record<string, unknown> | undefined;
+        let callRes: Record<string, unknown> | undefined;
+        child.stdout?.on('data', (chunk) => {
+          received += chunk.toString();
+          const lines = received.split('\n');
+          for (const line of lines) {
+            if (line.trim().length > 0) {
+              try {
+                const parsed = JSON.parse(line) as Record<string, unknown>;
+                if (parsed.id === 1) toolsRes = parsed;
+                if (parsed.id === 2) callRes = parsed;
+                if (toolsRes && callRes) resolve({ toolsRes, callRes });
+              } catch {}
+            }
+          }
+        });
+      });
+
+      try {
+        child.stdin?.write(JSON.stringify({
+          jsonrpc: '2.0',
+          id: 0,
+          method: 'initialize',
+          params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test-client', version: '1.0.0' } },
+        }) + '\n');
+
+        child.stdin?.write(JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'tools/list',
+          params: {},
+        }) + '\n');
+
+        child.stdin?.write(JSON.stringify({
+          jsonrpc: '2.0',
+          id: 2,
+          method: 'tools/call',
+          params: { name: 'anti.browser.tabs.list', arguments: {} },
+        }) + '\n');
+
+        const { toolsRes, callRes } = await withDeadline(responsePromise, 'tools/list and tools/call response');
+        const toolsResult = toolsRes?.result as { tools?: unknown[] } | undefined;
+        assert.ok(toolsResult && Array.isArray(toolsResult.tools), 'tools/list must return tools array');
+        assert.ok(toolsResult.tools.length > 0, 'tools/list must return non-empty tools list');
+        const callResult = callRes?.result as { isError?: boolean } | undefined;
+        assert.strictEqual(callResult?.isError, undefined, 'tool call through discovered bridge must succeed');
+      } finally {
+        child.kill();
+      }
+    } finally {
+      await new Promise<void>((resolve) => wss.close(() => resolve()));
+      fs.rmSync(dataRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('discards a bridge record with a dead pid immediately without waiting for connect timeout', async () => {
+    const scriptPath = launcherScriptPath();
+    const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-journal-deadpid-'));
+    try {
+      const journalPath = path.join(dataRoot, 'runtime', 'bridge-client-failures.jsonl');
+      fs.mkdirSync(path.join(dataRoot, 'config'), { recursive: true });
+      const deadPid = 99999999;
+      fs.writeFileSync(
+        path.join(dataRoot, 'config', 'bridge-dev.json'),
+        JSON.stringify({
+          host: '127.0.0.1',
+          port: 41997,
+          token: 'dead-pid-test-token',
+          pid: deadPid,
+          startedAt: Date.now(),
+          isDev: true,
+        }),
+        'utf8'
+      );
+      const env = scrubJournalEnv({ ...process.env });
+      env.ANTIFAN_DATA_ROOT = dataRoot;
+      const started = Date.now();
+      const child = await runLauncherSnippet(
+        `const m = require(${JSON.stringify(scriptPath)});` +
+          `m.invoke('anti.browser.tabs.list', {}).then(` +
+          `  () => { process.stdout.write('SETTLED-OK'); },` +
+          `  (e) => { process.stdout.write('REJ'); }` +
+          `).finally(() => process.exit(0));`,
+        env
+      );
+      const elapsed = Date.now() - started;
+      assert.strictEqual(child.code, 0, `invoke must settle: ${child.stdout}`);
+      assert.strictEqual(child.stdout, 'REJ', 'dead pid record must be discarded and call rejected');
+      // The dial timeout is 15 s; a pruned candidate is never dialed. The bound is
+      // generous on purpose: a node child spawn under the full lane costs seconds.
+      assert.ok(elapsed < 10_000, `dead PID candidate must be discarded without the dial timeout, took ${elapsed}ms`);
+      assert.ok(fs.existsSync(journalPath), 'pruning to zero candidates must journal the no-candidate verdict');
+      const rows = fs.readFileSync(journalPath, 'utf8').split('\n')
+        .filter((l) => l.trim().length > 0)
+        .map((l) => { try { return JSON.parse(l); } catch { return null; } })
+        .filter(Boolean);
+      assert.ok(
+        !rows.some((r) => r.code === 'CONNECT_FAILED' && String(r.message).includes('41997')),
+        'dead PID candidate was pruned before dialing: no CONNECT_FAILED entry for port 41997'
+      );
+      assert.ok(
+        rows.some((r) => r.code === 'BRIDGE_NOT_RUNNING'),
+        'with the only candidate pruned, the launcher must journal BRIDGE_NOT_RUNNING'
+      );
     } finally {
       fs.rmSync(dataRoot, { recursive: true, force: true });
     }

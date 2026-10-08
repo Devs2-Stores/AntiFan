@@ -191,7 +191,12 @@ export function killProcessTree(pid: number): Promise<boolean> {
         resolve(success);
       }
     };
-    const timer = setTimeout(() => settle(false), 3000);
+    const timer = setTimeout(() => {
+      try {
+        process.kill(pid, 'SIGKILL');
+      } catch {}
+      settle(!isProcessAlive(pid));
+    }, 3000);
     timer.unref?.();
 
     if (process.platform === 'win32') {

@@ -28,7 +28,7 @@ describe('Live Chromium E2E: Theme Golden Product Card and Drawer', () => {
   it('proves both real Chromium slices and persists a bounded teardown-complete report', async () => {
     const rootDir = process.cwd();
     const orchestratorScript = path.join(rootDir, 'scripts', 'run-theme-golden-live-proof.cjs');
-    const proofPath = path.join(rootDir, 'plans', '260905-0012-core-pre-freeze-hardening-and-live-proof', 'reports', 'live-theme-proof.json');
+    const proofPath = path.join(rootDir, 'plans', '260905-0012-core-pre-freeze-hardening-and-live-proof', 'reports', 'live-theme-proof.local.json');
     try { fs.unlinkSync(proofPath); } catch {}
 
     const env = { ...process.env };

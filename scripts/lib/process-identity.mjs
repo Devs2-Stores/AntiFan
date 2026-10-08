@@ -49,8 +49,47 @@ export async function readWindowsIdentityIfPresent(pid, exists, query) {
 }
 
 
+function wmiToWin32CreationDate(wmi) {
+  const m = String(wmi).trim().match(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})\.(\d{1,6})([+-]\d+)/);
+  if (!m) return null;
+  const [_, yr, mo, dy, hr, min, sec, micro, tz] = m;
+  const tzMinutes = Number(tz);
+  const frac7 = micro.padEnd(7, '0');
+  const dUtc = new Date(Date.UTC(Number(yr), Number(mo) - 1, Number(dy), Number(hr), Number(min) - tzMinutes, Number(sec)));
+  const uYr = dUtc.getUTCFullYear();
+  const uMo = String(dUtc.getUTCMonth() + 1).padStart(2, '0');
+  const uDy = String(dUtc.getUTCDate()).padStart(2, '0');
+  const uHr = String(dUtc.getUTCHours()).padStart(2, '0');
+  const uMi = String(dUtc.getUTCMinutes()).padStart(2, '0');
+  const uSe = String(dUtc.getUTCSeconds()).padStart(2, '0');
+  return `${uYr}-${uMo}-${uDy}T${uHr}:${uMi}:${uSe}.${frac7}Z`;
+}
+
 async function readWin32Identity(pid) {
   return readWindowsIdentityIfPresent(pid, pidExists, async (candidatePid) => {
+    try {
+      const { stdout, stderr } = await execFileAsync(
+        'wmic',
+        ['process', 'where', `ProcessId=${candidatePid}`, 'get', 'CreationDate'],
+        { timeout: 8000, windowsHide: true, maxBuffer: 64 * 1024 }
+      );
+      const lines = String(stdout || '').trim().split(/\r?\n/).filter(Boolean);
+      const wmicVal = lines[lines.length - 1]?.trim();
+      const converted = wmicVal && wmicVal !== 'CreationDate' ? wmiToWin32CreationDate(wmicVal) : null;
+      if (converted) {
+        const parsed = Date.parse(converted);
+        return {
+          alive: true,
+          startToken: converted,
+          startTokenFormat: FORMAT_WIN32,
+          startedAt: Number.isNaN(parsed) ? null : new Date(parsed).toISOString(),
+        };
+      }
+      if (/No Instance\(s\) Available/i.test(stderr || '') || !pidExists(candidatePid)) {
+        return { alive: false, startToken: null, startTokenFormat: FORMAT_UNAVAILABLE, startedAt: null };
+      }
+    } catch {}
+
     const script = `$p = Get-CimInstance Win32_Process -Filter 'ProcessId=${candidatePid}'; `
       + `if ($p) { $p.CreationDate.ToUniversalTime().ToString('o') } else { '' }`;
     const { stdout } = await execFileAsync(

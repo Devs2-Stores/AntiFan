@@ -1,8 +1,8 @@
 {
-  "timestamp": "2026-10-03T04:02:05.864Z",
+  "timestamp": "2026-10-08T15:44:24.455Z",
   "overallScore": 100,
   "passed": false,
-  "verdict": "INCONCLUSIVE",
+  "verdict": "FAIL",
   "coverage": {
     "measuredDimensions": 2,
     "totalDimensions": 8,

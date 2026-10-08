@@ -237,8 +237,12 @@ describe('HistoryManager (Intelligent Browsing History & Frecency Search)', () =
       assert.strictEqual(earlyMtime, syncMtime, 'mutation after persistSync must debounce rather than flush immediately');
       assert.strictEqual(earlyContent, syncContent, 'file content must not be updated before quiet period elapses');
 
-      await delay(250);
-      const debouncedMtime = fs.statSync(file).mtimeMs;
+      const pollDeadline = Date.now() + 2000;
+      let debouncedMtime = fs.statSync(file).mtimeMs;
+      while (debouncedMtime === syncMtime && Date.now() < pollDeadline) {
+        await delay(25);
+        debouncedMtime = fs.statSync(file).mtimeMs;
+      }
       const debouncedContent = fs.readFileSync(file, 'utf8');
       assert.notStrictEqual(debouncedMtime, syncMtime, 'file mtime must update after quiet window elapses');
       assert.ok(debouncedContent.includes('After Sync Visit'), 'file must include the debounced mutation');

@@ -12,6 +12,9 @@ import { StorageLocations } from '../../src/main/config/storage-locations';
 const originalDataRoot = process.env.ANTIFAN_DATA_ROOT;
 const originalIssueRegisterDir = process.env.ANTIFAN_ISSUE_REGISTER_DIR;
 const originalVerificationRegisterDir = process.env.ANTIFAN_VERIFICATION_REGISTER_DIR;
+type RegisterSingleton = { instance: IssueRegister | null };
+const regHolder = IssueRegister as unknown as RegisterSingleton;
+regHolder.instance = null;
 const issueRegisterDataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-benchmark-verification-'));
 process.env.ANTIFAN_DATA_ROOT = issueRegisterDataRoot;
 // Pin both register overrides too: a leaked override env from the parent would

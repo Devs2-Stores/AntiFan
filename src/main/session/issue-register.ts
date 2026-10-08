@@ -338,19 +338,48 @@ const FIXTURE_TAB_ID = /\btab-(?:non-existent-999|unknown-999|closed-default|ws-
  * `anti.agent.cursor.type` modal-overlay string, a `test.*` synthetic capability
  * (the control-plane suites' tool names), or a refusal that names a fixture tab id.
  */
-function isTestFixtureResidue(issue: IssueRecord): boolean {
+export function isTestFixtureResidue(issue: IssueRecord): boolean {
+  // 1. Legacy cursor modal overlay fixture (browser-tab-identity-and-issue-register.test.ts)
   if (issue.toolName === 'anti.agent.cursor.type'
     && issue.errorMessage === 'Element obscured by modal overlay'
     && issue.errorCode === undefined) {
     return true;
   }
+  // 2. Synthetic test.* capability tools (control-plane and harness tests)
   if (typeof issue.toolName === 'string' && issue.toolName.startsWith('test.')) return true;
-  return typeof issue.errorMessage === 'string' && FIXTURE_TAB_ID.test(issue.errorMessage);
+  // 3. Fixture tab IDs in error message
+  if (typeof issue.errorMessage === 'string' && FIXTURE_TAB_ID.test(issue.errorMessage)) return true;
+  // 4. In-tab GViz protocol CSP_ERROR fixture (browser-tab-identity-and-issue-register.test.ts)
+  if (issue.toolName === 'anti.browser.evaluate'
+    && (issue.workaroundApplied === 'Fetched via in-tab GViz protocol' || issue.errorMessage === 'Trusted Type violation on docs.google.com')) {
+    return true;
+  }
+  // 5. Explicit fixture residue notes or test human exemption notes (semantic-evidence-and-guardrails.test.ts)
+  if (typeof issue.notes === 'string' && (issue.notes.includes('unit-test fixture residue') || issue.notes.includes('[HUMAN_EXEMPTION]'))) {
+    return true;
+  }
+  // 6. Benchmark anti-hallucination Scenario 2: MENU_INOPERATIVE (benchmark-anti-hallucination.test.ts)
+  if (issue.toolName === 'theme.qa' && issue.errorCode === 'MENU_INOPERATIVE' && issue.errorMessage === 'Mobile drawer menu fails to open on tap') {
+    return true;
+  }
+  // 7. Benchmark anti-hallucination Scenario 3: STYLE_MISMATCH (benchmark-anti-hallucination.test.ts)
+  if (issue.toolName === 'theme.qa' && issue.errorCode === 'STYLE_MISMATCH' && issue.errorMessage === 'Cart modal styling mismatch') {
+    return true;
+  }
+  // 8. Semantic evidence guardrails: LAYOUT_MISMATCH hero section (semantic-evidence-and-guardrails.test.ts)
+  if (issue.toolName === 'theme.qa' && issue.errorCode === 'LAYOUT_MISMATCH' && issue.errorMessage === 'Layout parity discrepancy in hero section') {
+    return true;
+  }
+  return false;
 }
 
 export class IssueRegister {
   private static instance: IssueRegister | null = null;
   private readonly issues: IssueRecord[] = [];
+  private static readonly fileChains = new Map<string, Promise<void>>();
+  private static readonly activeInstances = new Set<IssueRegister>();
+  private writeVersion = 0;
+  private persistedVersion = 0;
   private readonly logPath: string;
   private readonly verificationsPath: string;
   /**
@@ -409,6 +438,14 @@ export class IssueRegister {
       // and tool dispatch all route through getInstance()).
       console.warn('[IssueRegister] autoReconcile failed:', err);
     }
+    IssueRegister.activeInstances.add(this);
+    if (typeof process !== 'undefined' && typeof process.once === 'function') {
+      const onExit = () => {
+        try { this.flushPendingSync(); } catch {}
+      };
+      process.once('beforeExit', onExit);
+      process.once('exit', onExit);
+    }
   }
 
   public static getInstance(): IssueRegister {
@@ -466,13 +503,23 @@ export class IssueRegister {
    * rolled back. Records the file knows are reconciled onto the live objects —
    * a caller holding a returned record keeps observing its later mutations —
    * and records only this view knows (a pending append) are left in place.
+   *
+   * While this instance still owes the file a rewrite (an earlier mutation's
+   * async flush has not landed), the file is older than memory for every id this
+   * view already holds: adopting it would roll the pending mutation back. Only
+   * ids this view has never seen are taken from disk in that window; the flush
+   * itself merges memory over disk, so nothing on disk is lost either way.
    */
   private readIssuesForMutation(): IssueRecord[] {
+    const localIsNewer = this.persistedVersion < this.writeVersion;
     const byId = new Map(this.issues.map((record) => [record.id, record]));
     for (const record of this.readIssuesFromDisk()) {
       const existing = byId.get(record.id);
-      if (existing) Object.assign(existing, record);
-      else this.issues.push(record);
+      if (existing) {
+        if (!localIsNewer) Object.assign(existing, record);
+      } else {
+        this.issues.push(record);
+      }
     }
     return this.issues;
   }
@@ -593,6 +640,11 @@ export class IssueRegister {
       if (issue.tabId) existing.tabId = issue.tabId;
       if (issue.workaroundApplied) existing.workaroundApplied = issue.workaroundApplied;
       if (issue.reasonCode) existing.reasonCode = issue.reasonCode;
+      if (issue.issueClass) {
+        existing.issueClass = issue.issueClass;
+      } else if (!existing.issueClass) {
+        existing.issueClass = classifyIssue(existing);
+      }
       if (issue.notes) existing.notes = existing.notes ? `${existing.notes}; ${issue.notes}` : issue.notes;
       if (issue.evidenceRef) {
         existing.evidenceRef = issue.evidenceRef;
@@ -616,6 +668,7 @@ export class IssueRegister {
       timeFormatted: new Date(now).toISOString(),
       severity: issue.severity || 'P2',
       status: issue.status || 'OPEN',
+      issueClass: classifyIssue(issue),
     };
     // Never serialize an explicit undefined errorCode — downstream consumers
     // read the field as machine-stable taxonomy and `undefined` rows break
@@ -638,6 +691,8 @@ export class IssueRegister {
 
     this.issues.push(fullRecord);
 
+    this.writeVersion++;
+    this.persistedVersion = Math.max(this.persistedVersion, this.writeVersion);
     try {
       fs.appendFileSync(this.logPath, JSON.stringify(fullRecord) + '\n', 'utf8');
     } catch (err) {
@@ -1307,7 +1362,66 @@ export class IssueRegister {
    * leaves the file byte-identical. The in-memory list is refreshed to the
    * merged truth after a successful write.
    */
-  private rewriteFile(): void {
+  private async readIssuesFromDiskAsync(): Promise<IssueRecord[]> {
+    let content: string;
+    try {
+      content = await fs.promises.readFile(this.logPath, 'utf8');
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') return [];
+      throw durabilityFailure(`Failed to read issue register: ${String(err)}`);
+    }
+    const records: IssueRecord[] = [];
+    for (const line of content.split('\n')) {
+      if (!line.trim()) continue;
+      try {
+        const rec = JSON.parse(line) as IssueRecord;
+        if (rec?.id) records.push(rec);
+      } catch {}
+    }
+    return records;
+  }
+
+  /**
+   * Drain any in-flight asynchronous writes for this register instance.
+   */
+  public async drained(): Promise<void> {
+    const chain = IssueRegister.fileChains.get(this.logPath);
+    if (chain) await chain;
+  }
+
+  /**
+   * Drain all in-flight asynchronous writes across all registers or for a specific log path.
+   */
+  public static async drained(logPath?: string): Promise<void> {
+    if (logPath) {
+      const chain = IssueRegister.fileChains.get(logPath);
+      if (chain) await chain;
+    } else {
+      await Promise.all([...IssueRegister.fileChains.values()]);
+    }
+  }
+
+  public static async issuesDrained(): Promise<void> {
+    await IssueRegister.drained();
+  }
+
+  /**
+   * Synchronously flush all unpersisted issue mutations to disk. Used on process-exit paths.
+   */
+  public flushPendingSync(): void {
+    if (this.persistedVersion < this.writeVersion) {
+      this.performRewriteSync();
+    }
+  }
+
+  public static flushAllPendingSync(): void {
+    for (const inst of IssueRegister.activeInstances) {
+      try { inst.flushPendingSync(); } catch {}
+    }
+  }
+
+  private performRewriteSync(): void {
+    const currentVersion = this.writeVersion;
     let existingBytes = 0;
     try {
       existingBytes = fs.statSync(this.logPath).size;
@@ -1341,7 +1455,7 @@ export class IssueRegister {
 
     const lines =
       merged.map((i) => JSON.stringify(i)).join('\n') + (merged.length > 0 ? '\n' : '');
-    const tempPath = `${this.logPath}.tmp-${process.pid}-${Date.now()}`;
+    const tempPath = `${this.logPath}.tmp-${process.pid}-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
     try {
       fs.mkdirSync(path.dirname(this.logPath), { recursive: true });
       fs.writeFileSync(tempPath, lines, 'utf8');
@@ -1352,5 +1466,96 @@ export class IssueRegister {
     }
     this.issues.length = 0;
     this.issues.push(...merged);
+    this.persistedVersion = Math.max(this.persistedVersion, currentVersion);
   }
+
+  private async performRewriteAsync(): Promise<void> {
+    const currentVersion = this.writeVersion;
+    let existingBytes = 0;
+    try {
+      const st = await fs.promises.stat(this.logPath);
+      existingBytes = st.size;
+    } catch {
+      existingBytes = 0;
+    }
+    if (this.issues.length === 0 && existingBytes > 0) {
+      throw durabilityFailure(
+        `refusing to overwrite a ${existingBytes}-byte issue register with 0 records`
+      );
+    }
+
+    const onDisk = await this.readIssuesFromDiskAsync();
+    const merged = mergeRecordsById(onDisk, this.issues);
+    const onDiskIds = new Set(onDisk.map((i) => i.id));
+    const mergedIds = new Set(merged.map((i) => i.id));
+    const droppedIds = [...onDiskIds].filter((id) => !mergedIds.has(id));
+    if (droppedIds.length > 0) {
+      throw durabilityFailure(
+        `refusing to drop ${droppedIds.length} issue record(s) from the register: ` +
+          `${droppedIds.slice(0, 3).join(', ')}`
+      );
+    }
+    const duplicateLines = onDisk.length - onDiskIds.size;
+    if (duplicateLines > 0) {
+      console.warn(
+        `[IssueRegister] Issue register carried ${duplicateLines} duplicate id line(s); ` +
+          'collapsed to the newest record per id.'
+      );
+    }
+
+    const lines =
+      merged.map((i) => JSON.stringify(i)).join('\n') + (merged.length > 0 ? '\n' : '');
+    const tempPath = `${this.logPath}.tmp-${process.pid}-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    try {
+      await fs.promises.mkdir(path.dirname(this.logPath), { recursive: true });
+      await fs.promises.writeFile(tempPath, lines, 'utf8');
+      await fs.promises.rename(tempPath, this.logPath);
+    } catch (err) {
+      try { await fs.promises.unlink(tempPath); } catch {}
+      throw durabilityFailure(`Failed to persist issue register: ${String(err)}`);
+    }
+    this.issues.length = 0;
+    this.issues.push(...merged);
+    this.persistedVersion = Math.max(this.persistedVersion, currentVersion);
+  }
+
+  /**
+   * Issue writes are disk-reconciled and monotone, same contract as the
+   * verification register: the caller's in-memory list is merged with a fresh
+   * read of the file, so a stale or empty view can neither empty nor shrink a
+   * populated register; a violation is refused with `DURABILITY_FAILED` and
+   * leaves the file byte-identical. The in-memory list is refreshed to the
+   * merged truth after a successful write.
+   *
+   * Asynchronous on the main thread via per-file serialized promise chains;
+   * synchronous flush is supported for process exit and tests.
+   */
+  public rewriteFile(options?: { sync?: boolean }): Promise<void> {
+    const version = ++this.writeVersion;
+    if (options?.sync) {
+      this.performRewriteSync();
+      return Promise.resolve();
+    }
+
+    const prevChain = IssueRegister.fileChains.get(this.logPath) || Promise.resolve();
+    const nextChain = prevChain
+      .then(async () => {
+        if (this.persistedVersion >= version) return;
+        await this.performRewriteAsync();
+      })
+      .catch((err) => {
+        console.warn('[IssueRegister] Failed to persist issue register asynchronously:', err);
+      });
+
+    IssueRegister.fileChains.set(this.logPath, nextChain);
+    return nextChain;
+  }
+}
+
+export function issueRegisterDrained(): Promise<void> {
+  return IssueRegister.drained();
+}
+
+export function flushIssueRegisterSync(): void {
+  IssueRegister.flushAllPendingSync();
 }

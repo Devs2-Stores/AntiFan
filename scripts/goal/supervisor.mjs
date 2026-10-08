@@ -253,14 +253,6 @@ export async function runSupervisor({
     if (lock && lock.pid === pid && typeof lock.atMs === 'number') {
       runnerEvidenceMs = Math.max(runnerEvidenceMs ?? lock.atMs, lock.atMs);
     }
-    if (pid) await captureIdentity();
-
-    // The bootstrap clock starts at the earliest evidence the runner exists —
-    // its first heartbeat timestamp or this supervisor's own start — so a runner
-    // that began before its supervisor cannot borrow extra time.
-    const bootstrapStartMs = Math.min(startedAtMs, firstHeartbeatMs ?? startedAtMs);
-    const armed = Boolean(hb && hb.watchdogArmedAt);
-
     if (hb && hb.done) {
       return finish({ outcome: 'done', reason: hb.abortReason ?? 'RUNNER_DONE' });
     }
@@ -269,14 +261,23 @@ export async function runSupervisor({
       return finish({ outcome: 'gone', reason: 'RUNNER_EXITED' });
     }
 
-    if (hb && typeof hb.atMs === 'number' && now - hb.atMs > staleMs) {
+    if (pid) await captureIdentity();
+
+    const checkNow = Date.now();
+    // The bootstrap clock starts at the earliest evidence the runner exists —
+    // its first heartbeat timestamp or this supervisor's own start — so a runner
+    // that began before its supervisor cannot borrow extra time.
+    const bootstrapStartMs = Math.min(startedAtMs, firstHeartbeatMs ?? startedAtMs);
+    const armed = Boolean(hb && hb.watchdogArmedAt);
+
+    if (hb && typeof hb.atMs === 'number' && checkNow - hb.atMs > staleMs) {
       // A stale heartbeat with no attributable pid has nothing to kill; the run
       // still stops, but the receipt must not claim a kill that never happened.
       if (!pid) return finish({ outcome: 'no-runner', reason: 'HEARTBEAT_STALE' });
       return killAttributed('HEARTBEAT_STALE');
     }
 
-    if (!armed && now - bootstrapStartMs > bootstrapCeilingMs) {
+    if (!armed && checkNow - bootstrapStartMs > bootstrapCeilingMs) {
       if (!pid) {
         return finish({ outcome: 'no-runner', reason: 'BOOTSTRAP_CEILING' });
       }

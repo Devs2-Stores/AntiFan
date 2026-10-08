@@ -334,7 +334,7 @@ describe('verification register durability', () => {
     assert.strictEqual(fresh.listVerifications().length, 2);
   });
 
-  test('issue mutations merge with a peer process instead of clobbering it', () => {
+  test('issue mutations merge with a peer process instead of clobbering it', async () => {
     const root = useFreshDataRoot('antifan-issue-merge-');
     seedIssues(root, ['ISS-Z', 'ISS-W']);
 
@@ -350,6 +350,7 @@ describe('verification register durability', () => {
       toolName: 'test.probe',
       errorMessage: 'written by process A',
     });
+    await IssueRegister.drained();
 
     // B's rewrite must reconcile with the file: A's new record survives, and
     // A's mutation of ISS-Z is not rolled back by B's stale copy of it.
@@ -359,7 +360,7 @@ describe('verification register durability', () => {
       toolName: 'test.probe',
       errorMessage: 'written by process B',
     });
-
+    await IssueRegister.drained();
     assert.deepStrictEqual(
       onDiskIssueIds(root).sort(),
       ['ISS-W', 'ISS-X', 'ISS-Y', 'ISS-Z'],

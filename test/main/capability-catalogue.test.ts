@@ -1118,7 +1118,7 @@ describe('Capability catalogue', () => {
     assert.strictEqual(res.target.documentGeneration, 3);
   });
 
-  it('dispatches theme.style_override and anti.theme.style_override apply and clear', async () => {
+  it('dispatches theme.style_override and anti.theme.style_override apply, clear, remove, and revert', async () => {
     let evaluatedScript = '';
     const mockHost = {
       getTabList: () => [{ id: 'tab-1' }],
@@ -1165,6 +1165,24 @@ describe('Capability catalogue', () => {
     }, { lease, leaseToken: lease.token, projectId, workspaceId, grant: 'write', browserTarget: target }) as any;
     assert.strictEqual(clearRes.cleared, true);
     assert.strictEqual(clearRes.id, 'test-fix');
+
+    // 3. Remove override via synonym operation 'remove' (TA-16 / VF-04)
+    const removeRes = (await catalogue.dispatch('theme.style_override', {
+      operation: 'remove',
+      id: 'test-fix',
+    }, { lease, leaseToken: lease.token, projectId, workspaceId, grant: 'write', browserTarget: target })) as { cleared?: boolean; id?: string };
+    assert.strictEqual(removeRes.cleared, true);
+    assert.strictEqual(removeRes.id, 'test-fix');
+    assert.ok(evaluatedScript.includes('el.remove()'), 'operation "remove" must trigger el.remove() script');
+
+    // 4. Revert override via synonym operation 'revert' on alias anti.theme.style_override (TA-16 / VF-04)
+    const revertRes = (await catalogue.dispatch('anti.theme.style_override', {
+      operation: 'revert',
+      id: 'test-fix',
+    }, { lease, leaseToken: lease.token, projectId, workspaceId, grant: 'write', browserTarget: target })) as { cleared?: boolean; id?: string };
+    assert.strictEqual(revertRes.cleared, true);
+    assert.strictEqual(revertRes.id, 'test-fix');
+    assert.ok(evaluatedScript.includes('el.remove()'), 'operation "revert" must trigger el.remove() script');
   });
 
   it('rebinds host automation target upon antifan_set_automation_target and fails closed on unknown tabs', async () => {

@@ -53,8 +53,10 @@ const RENDERER_SHIM_PATH = path.join(COMPILED, 'src/renderer/exports-shim.js');
 const PRELOAD_PATH = path.join(COMPILED, 'src/preload/toolbar-preload.js');
 const SERVICE_PATH = path.join(COMPILED, 'src/main/diagnostics/mcp-dispatch-service.js');
 const REPORTS_DIR = path.join(ROOT, 'plans/260917-0341-mcp-dispatch-accounting/reports');
-const REPORT_JSON_PATH = path.join(REPORTS_DIR, 'mcp-dispatch-hub-probe.json');
-
+const REPORT_JSON_PATH = path.join(
+  REPORTS_DIR,
+  process.argv.includes('--publish') ? 'mcp-dispatch-hub-probe.json' : 'mcp-dispatch-hub-probe.local.json'
+);
 const HUB_BUTTON_ID = 'btnWorkflowHub';
 const HUB_OVERLAY_ID = 'workflowHubOverlay';
 const NAV_BUTTON_ID = 'tabNavMcpDispatch';

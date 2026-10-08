@@ -36,6 +36,7 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { WebSocketServer, WebSocket } from 'ws';
@@ -54,6 +55,9 @@ const DISCOVERY_ENV_KEYS = [
   'ANTIFAN_TERMINAL_PARENT_SESSION_ID',
   'ANTIFAN_TERMINAL_SESSION_ID',
   'ANTIFAN_BRIDGE_PID',
+  'ANTIFAN_BRIDGE_PORT',
+  'ANTIFAN_BRIDGE_HOST',
+  'ANTIFAN_BRIDGE_TOKEN',
   'ANTIFAN_ATTACHMENT_SECRET',
   'ANTIFAN_ATTACHMENT_ID',
   'ANTIFAN_MCP_PORT',
@@ -190,27 +194,36 @@ async function startHarness(options: { delayOldClose?: boolean } = {}): Promise<
     });
   });
 
+  const scratchDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-teardown-root-'));
   const env: Record<string, string | undefined> = {
     ...process.env,
-    ANTIFAN_MCP_BOOTSTRAP: JSON.stringify({
-      port,
-      secret: 'secret-1005-regression',
-      attachmentId: 'attachment-1005-regression',
-      authorityRevision: 'rev-1',
-      runId: 'run-1005',
-      attemptId: 'attempt-1005',
-      projectId: 'project-1005',
-      workspaceId: 'workspace-1005',
-      tabId: BOUND_TAB_ID,
-    }),
-    // This suite owns dispatch semantics, not renewal cadence.
-    ANTIFAN_HEARTBEAT_MS: '60000',
-    // The mock bridge is a harness fixture, not a real terminal session:
-    // without this scrub an inherited data root would make proxy failure
-    // telemetry land in the live bridge-client-failures journal.
-    ANTIFAN_DATA_ROOT: undefined,
   };
+  for (const key of Object.keys(env)) {
+    if (/^ANTIFAN_(TERMINAL|BRIDGE|BOUND|ATTACHMENT|AUTHORITY|RUN_ID|ATTEMPT|PROJECT|WORKSPACE|OWNER|DATA|CONFIG)/.test(key)) {
+      delete env[key];
+    }
+  }
   for (const key of DISCOVERY_ENV_KEYS) delete env[key];
+
+  env.ANTIFAN_MCP_BOOTSTRAP = JSON.stringify({
+    port,
+    secret: 'secret-1005-regression',
+    attachmentId: 'attachment-1005-regression',
+    authorityRevision: 'rev-1',
+    runId: 'run-1005',
+    attemptId: 'attempt-1005',
+    projectId: 'project-1005',
+    workspaceId: 'workspace-1005',
+    tabId: BOUND_TAB_ID,
+  });
+  // This suite owns dispatch semantics, not renewal cadence.
+  env.ANTIFAN_HEARTBEAT_MS = '60000';
+  // The mock bridge is a harness fixture, not a real terminal session. Discovery is
+  // no longer env-gated, so the data root is pinned to an EMPTY tempdir: failure
+  // telemetry lands there instead of the live journal, and autoheal can only find
+  // the (absent) records under it - never the developer's running desktop.
+  env.ANTIFAN_DATA_ROOT = scratchDir;
+  env.ANTIFAN_CONFIG_DIR = undefined;
 
   // Control the client event ordering, not the product handlers: a real old
   // socket close is held until a dispatch is pending on its replacement.
@@ -305,7 +318,18 @@ async function startHarness(options: { delayOldClose?: boolean } = {}): Promise<
       }) + '\n'
     );
   });
-  await withTimeout(initialized, 15_000, 'MCP initialize handshake');
+  try {
+    await withTimeout(initialized, 15_000, 'MCP initialize handshake');
+  } catch (err) {
+    refusing = true;
+    try { child.kill(); } catch {}
+    for (const ws of connections) {
+      try { ws.terminate(); } catch {}
+    }
+    try { wss.close(); } catch {}
+    try { fs.rmSync(scratchDir, { recursive: true, force: true }); } catch {}
+    throw err;
+  }
 
   const waitForDispatches = (count: number, timeoutMs: number): Promise<DispatchRecord[]> => {
     if (dispatches.length >= count) return Promise.resolve(dispatches.slice(0, count));
@@ -346,6 +370,7 @@ async function startHarness(options: { delayOldClose?: boolean } = {}): Promise<
         try { ws.terminate(); } catch {}
       }
       try { wss.close(); } catch {}
+      try { fs.rmSync(scratchDir, { recursive: true, force: true }); } catch {}
     },
   };
 }

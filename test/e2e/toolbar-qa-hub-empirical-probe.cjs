@@ -409,8 +409,11 @@ app.whenReady().then(async () => {
 
   const reportDir = path.resolve(__dirname, '../../plans/reports');
   fs.mkdirSync(reportDir, { recursive: true });
+  const telemetryFileName = process.argv.includes('--publish')
+    ? 'toolbar-qa-hub-empirical-telemetry.json'
+    : 'toolbar-qa-hub-empirical-telemetry.local.json';
   fs.writeFileSync(
-    path.join(reportDir, 'toolbar-qa-hub-empirical-telemetry.json'),
+    path.join(reportDir, telemetryFileName),
     JSON.stringify(telemetry, null, 2),
     'utf8'
   );

@@ -11,6 +11,9 @@ const { spawn, spawnSync } = require('node:child_process');
 const rootDir = path.resolve(__dirname, '..');
 const reportsDir = path.join(rootDir, 'plans', '260905-0012-core-pre-freeze-hardening-and-live-proof', 'reports');
 const finalProofPath = path.join(reportsDir, 'live-theme-proof.json');
+const shouldPublish = process.argv.includes('--publish');
+const targetProofPath = shouldPublish ? finalProofPath : path.join(reportsDir, 'live-theme-proof.local.json');
+const failureProofPath = shouldPublish ? path.join(reportsDir, 'live-theme-proof.failed.json') : path.join(reportsDir, 'live-theme-proof.local.json');
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-theme-golden-live-'));
 const stagingPath = path.join(reportsDir, `.live-theme-proof.staging-${process.pid}.json`);
 
@@ -53,7 +56,9 @@ async function removeTempDirectoryWhenUnlocked(directory, attempts = 20) {
 }
 
 async function main() {
-  try { fs.unlinkSync(finalProofPath); } catch {}
+  if (!shouldPublish) {
+    try { fs.unlinkSync(targetProofPath); } catch {}
+  }
   try { fs.unlinkSync(stagingPath); } catch {}
 
   const electronBin = require('electron');
@@ -104,14 +109,23 @@ async function main() {
     teardown: { ...staged.teardown, processBoundTempCleanup: 'completed' },
   };
   report.proofChecksum = checksumObject(report, 'proofChecksum');
-  atomicWriteJson(finalProofPath, report);
+  atomicWriteJson(targetProofPath, report);
   fs.unlinkSync(stagingPath);
-  console.log(`[OK] Persisted bounded live proof: ${path.relative(rootDir, finalProofPath).replace(/\\/g, '/')}`);
+  console.log(`[OK] Persisted bounded live proof: ${path.relative(rootDir, targetProofPath).replace(/\\/g, '/')}`);
   console.log('LIVE THEME GOLDEN PRODUCT CARD AND DRAWER SLICES PASSED.');
 }
 
 main().catch(async (error) => {
-  try { fs.unlinkSync(finalProofPath); } catch {}
+  try {
+    const failureReport = {
+      schemaVersion: 1,
+      type: 'antifan-live-theme-proof',
+      verdict: 'FAILED',
+      failedAt: new Date().toISOString(),
+      error: error && (error.stack || error.message || String(error)),
+    };
+    atomicWriteJson(failureProofPath, failureReport);
+  } catch {}
   try { fs.unlinkSync(stagingPath); } catch {}
   try { await removeTempDirectoryWhenUnlocked(tempRoot); } catch {}
   console.error('[Live Theme Proof Orchestrator FAIL]', error);

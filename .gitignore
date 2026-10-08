@@ -83,3 +83,12 @@ customizes/
 .baseline-*
 .compiled-*/
 .scratch/
+test/**/*.test.js
+
+# Runner local telemetry siblings (untracked; prevents polluting git status on pipeline runs)
+*.local.json
+plans/**/reports/*.local.json
+plans/reports/*.local.json
+specs/*.local.json
+live-theme-proof.failed.json
+plans/**/reports/live-theme-proof.failed.json

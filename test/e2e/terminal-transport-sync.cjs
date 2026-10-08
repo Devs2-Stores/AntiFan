@@ -38,7 +38,10 @@ app.commandLine.appendSwitch('disable-renderer-backgrounding');
 
 const reportsDir = path.join(__dirname, '..', '..', 'plans', 'reports');
 fs.mkdirSync(reportsDir, { recursive: true });
-const certFile = path.join(reportsDir, 'terminal-p0-transport-certification.json');
+const certFileName = process.argv.includes('--publish')
+  ? 'terminal-p0-transport-certification.json'
+  : 'terminal-p0-transport-certification.local.json';
+const certFile = path.join(reportsDir, certFileName);
 
 const testResults = {
   timestamp: new Date().toISOString(),

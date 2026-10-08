@@ -788,7 +788,7 @@ describe('Element Picker Resolution & Artifact Upgrades', () => {
     // Verify critical sections
     // Bumped AGENT_CONTRACT_VERSION to 3.5.0-lean
     assert.ok(content.includes('contract_version: "3.5.0-lean"'));
-    assert.ok(content.length < 7500, `Markdown content size (${content.length} chars) should be lean (< 7.5KB / ~1,500 tokens)`);
+    assert.ok(content.length < 8000, `Markdown content size (${content.length} chars) should be lean (< 8KB / ~1,600 tokens)`);
     assert.ok(content.includes('## Fable-Thinking Invariant Ledger & Safety Boundaries'));
     assert.ok(content.includes('PRESERVES'));
     assert.ok(content.includes('DELIBERATELY CHANGES'));

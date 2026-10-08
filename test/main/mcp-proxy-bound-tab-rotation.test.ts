@@ -35,6 +35,7 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { WebSocketServer, WebSocket } from 'ws';
@@ -51,22 +52,25 @@ const DISCOVERY_ENV_KEYS = [
   'ANTIFAN_TERMINAL_PARENT_SESSION_ID',
   'ANTIFAN_TERMINAL_SESSION_ID',
   'ANTIFAN_BRIDGE_PID',
+  'ANTIFAN_BRIDGE_PORT',
+  'ANTIFAN_BRIDGE_HOST',
+  'ANTIFAN_BRIDGE_TOKEN',
   'ANTIFAN_ATTACHMENT_SECRET',
   'ANTIFAN_ATTACHMENT_ID',
   'ANTIFAN_MCP_PORT',
   'ANTIFAN_OWNER_PID',
   'ANTIFAN_AUTHORITY_REVISION',
   'ANTIFAN_BOUND_TAB_ID',
-  'ANTIFAN_DATA_ROOT',
   'ANTIFAN_HOST',
 ];
-
 interface DispatchFrame {
   capability: string | undefined;
   params: Record<string, unknown>;
+  /** Ledger join key the proxy stamps beside `params` on every dispatch frame. */
+  idempotencyKey: string | undefined;
 }
 
-interface MockFailureResult {
+interface MockFailureResult extends Record<string, unknown> {
   __antiFanMockFailure: true;
   code: string;
   message: string;
@@ -127,7 +131,7 @@ async function startHarness(respond: (capability: string, params: Record<string,
     connections.add(ws);
     ws.on('close', () => connections.delete(ws));
     ws.on('message', (raw) => {
-      let message: { id?: string; method?: string; params?: { name?: string; params?: Record<string, unknown> } };
+      let message: { id?: string; method?: string; params?: { name?: string; params?: Record<string, unknown>; idempotencyKey?: string } };
       try {
         message = JSON.parse(raw.toString()) as typeof message;
       } catch {
@@ -142,7 +146,8 @@ async function startHarness(respond: (capability: string, params: Record<string,
       if (message.method === 'antifan.capability.dispatch') {
         const capability = message.params?.name || '';
         const params = message.params?.params || {};
-        frames.push({ capability, params });
+        const idempotencyKey = typeof message.params?.idempotencyKey === 'string' ? message.params.idempotencyKey : undefined;
+        frames.push({ capability, params, idempotencyKey });
         const data = respond(capability, params);
         if (data === undefined) return;
         if (isMockFailure(data)) {
@@ -165,6 +170,7 @@ async function startHarness(respond: (capability: string, params: Record<string,
     });
   });
 
+  const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-rotation-root-'));
   const env: Record<string, string | undefined> = {
     ...process.env,
     ANTIFAN_MCP_BOOTSTRAP: JSON.stringify({
@@ -179,6 +185,10 @@ async function startHarness(respond: (capability: string, params: Record<string,
       tabId: BOOTSTRAP_TAB_ID,
     }),
     ANTIFAN_HEARTBEAT_MS: '60000',
+    // Discovery is not env-gated: pin an empty data root so a transport failure in
+    // this harness can never heal onto the developer's running desktop.
+    ANTIFAN_DATA_ROOT: dataRoot,
+    ANTIFAN_CONFIG_DIR: undefined,
   };
   for (const key of DISCOVERY_ENV_KEYS) delete env[key];
 
@@ -253,6 +263,7 @@ async function startHarness(respond: (capability: string, params: Record<string,
         try { ws.terminate(); } catch {}
       }
       try { wss.close(); } catch {}
+      try { fs.rmSync(dataRoot, { recursive: true, force: true }); } catch {}
     },
   };
 }
@@ -362,7 +373,12 @@ describe('MCP proxy bound-tab default follows the authority', () => {
     }
   });
 
-  it('6. a refusal that names a live target for an id the caller chose is not retargeted', async () => {
+  it('6. a refusal of an id the caller chose is answered by one real rebind, never a silent swap to the live target', async () => {
+    // The caller named a tab other than the bound one: an explicit same-project
+    // retarget. The proxy performs it as a real `browser.rebind-target` (server-side
+    // scope check) and re-issues the call ONCE, still aimed at the caller's id. It
+    // never substitutes the `liveTabId` the refusal named - that is the omitted-tabId
+    // path (row 5), and applying it here would execute on a tab the caller did not ask for.
     const harness = await startHarness((capability) =>
       capability === 'browser.dom'
         ? mockFailure('TARGET_MISMATCH', `Unknown browser target: ${CALLER_TAB_ID}`, {
@@ -374,12 +390,133 @@ describe('MCP proxy bound-tab default follows the authority', () => {
     );
     try {
       const response = await harness.callTool(1, 'anti.inspect.dom', { tabId: CALLER_TAB_ID });
-      assert.equal(toolCallFailed(response), true, `a caller-chosen target must surface its refusal: ${harness.stderrText()}`);
-      assert.equal(
-        harness.dispatches('browser.dom').length,
-        1,
-        `a caller-chosen target must be executed exactly once: ${harness.stderrText()}`
+      assert.equal(toolCallFailed(response), true, `a refusal that survives the rebind must surface: ${harness.stderrText()}`);
+      const rebinds = harness.dispatches('browser.rebind-target');
+      assert.equal(rebinds.length, 1, `exactly one rebind attempt: ${harness.stderrText()}`);
+      assert.equal(rebinds[0]!.params.tabId, CALLER_TAB_ID, 'the rebind names the tab the caller chose');
+      const attempts = harness.dispatches('browser.dom');
+      assert.equal(attempts.length, 2, `the call is re-issued once after the rebind, then its refusal surfaces: ${harness.stderrText()}`);
+      for (const attempt of attempts) {
+        assert.equal(attempt.params.tabId, CALLER_TAB_ID, 'no attempt is silently aimed at the live target the refusal named');
+      }
+      assert.ok(attempts[0]!.idempotencyKey && attempts[1]!.idempotencyKey, 'every dispatch carries a ledger key');
+      assert.notStrictEqual(
+        attempts[0]!.idempotencyKey,
+        attempts[1]!.idempotencyKey,
+        'idempotencyKey must rotate between attempts after rebind (TA-05 / VF-15)'
       );
+    } finally {
+      harness.dispose();
+    }
+  });
+
+  it('7. cache-desync auto-rebind: caller-selected tab matching cached bootstrap still triggers rebind on TARGET_MISMATCH (TA-11 / VF-02)', async () => {
+    // If the server returns TARGET_MISMATCH even when the caller-requested tabId
+    // matches the proxy's cached bootstrap tabId (e.g. desktop rotated active tab or
+    // connection re-paired), the proxy must trust the server and trigger auto-rebind.
+    let domAttempt = 0;
+    const harness = await startHarness((capability) => {
+      if (capability === 'browser.dom') {
+        domAttempt++;
+        if (domAttempt === 1) {
+          return mockFailure('TARGET_MISMATCH', `Unknown browser target: ${BOOTSTRAP_TAB_ID}`, {
+            requestedTabId: BOOTSTRAP_TAB_ID,
+            liveTabId: LIVE_TAB_ID,
+            rebindTool: 'anti.browser.rebind_target',
+          });
+        }
+        return { elements: [] };
+      }
+      if (capability === 'browser.rebind-target') {
+        return { tabId: BOOTSTRAP_TAB_ID };
+      }
+      return {};
+    });
+    try {
+      const response = await harness.callTool(1, 'anti.inspect.dom', { tabId: BOOTSTRAP_TAB_ID });
+      assert.equal(toolCallFailed(response), false, `call should succeed on attempt 1 after rebind: ${harness.stderrText()}`);
+      const rebinds = harness.dispatches('browser.rebind-target');
+      assert.equal(rebinds.length, 1, 'rebind must be dispatched even when requestedTabId === cachedBootTabId');
+      assert.equal(rebinds[0]!.params.tabId, BOOTSTRAP_TAB_ID, 'the rebind names the tab the caller chose');
+      const attempts = harness.dispatches('browser.dom');
+      assert.equal(attempts.length, 2, 'the call is re-issued after rebind');
+      assert.ok(attempts[0]!.idempotencyKey && attempts[1]!.idempotencyKey, 'every dispatch carries a ledger key');
+      assert.notStrictEqual(
+        attempts[0]!.idempotencyKey,
+        attempts[1]!.idempotencyKey,
+        'idempotencyKey must rotate between attempts after rebind'
+      );
+    } finally {
+      harness.dispose();
+    }
+  });
+
+  it('8. effectful capability (anti.browser.evaluate) auto-rebinds after TARGET_MISMATCH and recovers on attempt 1 without EXECUTION_UNCERTAIN (TA-04 / VF-07)', async () => {
+    let evalAttempt = 0;
+    const harness = await startHarness((capability) => {
+      if (capability === 'anti.browser.evaluate') {
+        evalAttempt++;
+        if (evalAttempt === 1) {
+          return mockFailure('TARGET_MISMATCH', `Unknown browser target: ${CALLER_TAB_ID}`, {
+            requestedTabId: CALLER_TAB_ID,
+            liveTabId: BOOTSTRAP_TAB_ID,
+            rebindTool: 'anti.browser.rebind_target',
+          });
+        }
+        return { result: { value: 42 } };
+      }
+      if (capability === 'browser.rebind-target') {
+        return { tabId: CALLER_TAB_ID };
+      }
+      return {};
+    });
+    try {
+      const response = await harness.callTool(1, 'anti.browser.evaluate', {
+        expression: '6 * 7',
+        tabId: CALLER_TAB_ID,
+      });
+      assert.equal(toolCallFailed(response), false, `effectful evaluate must succeed on attempt 1 after auto-rebind: ${harness.stderrText()}`);
+      const rebinds = harness.dispatches('browser.rebind-target');
+      assert.equal(rebinds.length, 1, 'rebind must be dispatched');
+      assert.equal(rebinds[0]!.params.tabId, CALLER_TAB_ID, 'the rebind names the caller tabId');
+      const evalDispatches = harness.dispatches('anti.browser.evaluate');
+      assert.equal(evalDispatches.length, 2, 'evaluate must dispatch twice (attempt 0 then attempt 1)');
+      assert.ok(evalDispatches[0]!.idempotencyKey && evalDispatches[1]!.idempotencyKey, 'every dispatch carries a ledger key');
+      assert.notStrictEqual(
+        evalDispatches[0]!.idempotencyKey,
+        evalDispatches[1]!.idempotencyKey,
+        'idempotencyKey must rotate between attempts after rebind'
+      );
+    } finally {
+      harness.dispose();
+    }
+  });
+
+  it('9. proxy-head normalizes theme.style_override operation "remove" and "revert" to "clear" before dispatch (TA-16 / VF-04)', async () => {
+    const harness = await startHarness((capability) => {
+      if (capability === 'theme.style_override' || capability === 'anti.theme.style_override') {
+        return { cleared: true, id: 'fix-nav' };
+      }
+      return {};
+    });
+    try {
+      // Dispatch with operation 'remove'
+      const resRemove = await harness.callTool(1, 'theme.style_override', {
+        operation: 'remove',
+        id: 'fix-nav',
+      });
+      assert.equal(toolCallFailed(resRemove), false);
+      const lastRemoveDispatch = harness.lastDispatch('theme.style_override');
+      assert.equal(lastRemoveDispatch.params.operation, 'clear', 'operation "remove" must be normalized to "clear" on the wire');
+
+      // Dispatch with operation 'revert' via anti.theme.style_override
+      const resRevert = await harness.callTool(2, 'anti.theme.style_override', {
+        operation: 'revert',
+        id: 'fix-nav',
+      });
+      assert.equal(toolCallFailed(resRevert), false);
+      const lastRevertDispatch = harness.lastDispatch('anti.theme.style_override');
+      assert.equal(lastRevertDispatch.params.operation, 'clear', 'operation "revert" must be normalized to "clear" on the wire');
     } finally {
       harness.dispose();
     }

@@ -293,25 +293,37 @@ test('tool_call blocks retrieval tools with REFUSED_CORE_RETRIEVAL_POLICY in ant
 test('tool_call permits learning and write tools in anti-direct mode', async () => {
 	delete process.env.ANTIFAN_ANTI_DIRECT;
 
-	const h = makePi();
-	bridgeHook(h.pi);
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'anti-direct-stub-'));
+	const stub = path.join(dir, 'core-cli.cjs');
+	fs.writeFileSync(stub, 'console.log(JSON.stringify({ok:true,stats:{}})); process.exit(0);', 'utf8');
+	const prevCli = process.env.ANTIFAN_CORE_CLI;
+	process.env.ANTIFAN_CORE_CLI = stub;
 
-	await h.emit('session_start');
-	await h.emitBeforeAgentStart('/skill:anti-direct');
+	try {
+		const h = makePi();
+		bridgeHook(h.pi);
 
-	// core.record_fix_pattern is not blocked by anti-direct policy
-	const [recordBlock] = await h.emit('tool_call', {
-		toolName: 'core.record_fix_pattern',
-		input: { before: 'a', after: 'b' },
-	});
-	assert.equal(recordBlock?.block ?? false, false, 'core.record_fix_pattern is permitted');
+		await h.emit('session_start');
+		await h.emitBeforeAgentStart('/skill:anti-direct');
 
-	// core.ingest_outcome is not blocked by anti-direct policy
-	const [ingestBlock] = await h.emit('tool_call', {
-		toolName: 'core.ingest_outcome',
-		input: { task: 'fix', verdict: 'SUCCESS' },
-	});
-	assert.equal(ingestBlock?.block ?? false, false, 'core.ingest_outcome is permitted');
+		// core.record_fix_pattern is not blocked by anti-direct policy
+		const [recordBlock] = await h.emit('tool_call', {
+			toolName: 'core.record_fix_pattern',
+			input: { before: 'a', after: 'b' },
+		});
+		assert.equal(recordBlock?.block ?? false, false, 'core.record_fix_pattern is permitted');
+
+		// core.ingest_outcome is not blocked by anti-direct policy
+		const [ingestBlock] = await h.emit('tool_call', {
+			toolName: 'core.ingest_outcome',
+			input: { task: 'fix', verdict: 'SUCCESS' },
+		});
+		assert.equal(ingestBlock?.block ?? false, false, 'core.ingest_outcome is permitted');
+	} finally {
+		if (prevCli === undefined) delete process.env.ANTIFAN_CORE_CLI;
+		else process.env.ANTIFAN_CORE_CLI = prevCli;
+		try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
+	}
 });
 
 // ---------------------------------------------------------------------------

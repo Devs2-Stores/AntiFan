@@ -70,10 +70,17 @@ function resolveBridgeCandidates() {
     }
   }
 
-  // 2. Discover configuration directories across Drive E and standard locations
-  const candidateDirs = [
+  // 2. Discover configuration directories. A pinned data root / config dir is an
+  //    authoritative statement about WHICH instance this process belongs to (the
+  //    app injects it into its terminals; harnesses pin a tempdir to stay away
+  //    from the live app), so it confines discovery instead of merely leading
+  //    the broad scan. The broad scan across Drive E and standard locations is
+  //    the unpinned fallback only.
+  const pinnedDirs = [
     process.env.ANTIFAN_CONFIG_DIR,
     process.env.ANTIFAN_DATA_ROOT ? path.join(process.env.ANTIFAN_DATA_ROOT, 'config') : null,
+  ].filter(Boolean);
+  const candidateDirs = pinnedDirs.length > 0 ? pinnedDirs : [
     path.join('E:', 'Work', '.antifan-data', 'config'),
     path.join('E:\\', 'Work', '.antifan-data', 'config'),
     path.join('E:', '.antifan-data', 'config'),

@@ -20,7 +20,10 @@ app.commandLine.appendSwitch('disable-renderer-backgrounding');
 
 const reportsDir = path.join(__dirname, '..', '..', 'plans', 'reports');
 fs.mkdirSync(reportsDir, { recursive: true });
-const certFile = path.join(reportsDir, 'terminal-split-probe-telemetry.json');
+const certFileName = process.argv.includes('--publish')
+  ? 'terminal-split-probe-telemetry.json'
+  : 'terminal-split-probe-telemetry.local.json';
+const certFile = path.join(reportsDir, certFileName);
 
 const telemetry = {
   timestamp: new Date().toISOString(),

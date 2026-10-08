@@ -176,6 +176,152 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
     );
   });
 
+  it('3b. Network/image settle gaps on a laid-out page degrade to INCONCLUSIVE instead of throwing', async () => {
+    // Third-party trackers that never go idle and lazy srcless images are audit
+    // findings on a page whose layout and fonts have settled - the run must
+    // complete with the gaps on record, not crash the agent into a retry loop.
+    const ports = createMockPorts({
+      settleCapture: async () => ({
+        settleComplete: false,
+        gates: { network: false, fonts: true, images: false, dom: true },
+        timingsMs: { network: 5000, fonts: 100, images: 5000, dom: 5, total: 5000 },
+        brokenImages: [],
+        layoutStable: true,
+      }),
+    });
+    const workflow = new ThemeQaWorkflow(ports);
+
+    const report = await workflow.validate({
+      runId: 'run-soft-settle',
+      attemptId: 'att-soft-settle',
+      workspaceRoot: 'E:/Work/test-theme',
+      target: makeTarget(1),
+      viewports: {
+        desktop: { mismatchPercent: 0.5, passed: true },
+        tablet: { mismatchPercent: 1.0, passed: true },
+        mobile: { mismatchPercent: 1.5, passed: true },
+      },
+    });
+
+    assert.strictEqual(report.summary.passed, false, 'incomplete settle evidence can never certify PASS');
+    assert.strictEqual(report.summary.verdict, 'INCONCLUSIVE');
+    assert.strictEqual(report.summary.criticalCount, 0, 'settle gaps are evidence gaps, not defects');
+    assert.strictEqual(report.execution, 'DEGRADED');
+    assert.ok(report.findings?.evidenceGaps?.some((g) => g.includes('Network did not reach idle')));
+    assert.ok(report.findings?.evidenceGaps?.some((g) => g.includes('Images did not settle')));
+  });
+
+  it('3c. Unstable layout with fonts settled still throws SETTLE_INCOMPLETE (measurements would describe a page mid-render)', async () => {
+    const ports = createMockPorts({
+      settleCapture: async () => ({
+        settleComplete: false,
+        gates: { network: false, fonts: true, images: true, dom: false },
+        timingsMs: { network: 5000, fonts: 100, images: 5, dom: 5000, total: 5000 },
+        brokenImages: [],
+        layoutStable: false,
+      }),
+    });
+    const workflow = new ThemeQaWorkflow(ports);
+
+    await assert.rejects(
+      async () => {
+        await workflow.validate({
+          runId: 'run-unstable-layout',
+          attemptId: 'att-unstable-layout',
+          workspaceRoot: 'E:/Work/test-theme',
+          target: makeTarget(1),
+        });
+      },
+      (err: unknown) => {
+        assert.ok(err instanceof CapabilityError);
+        assert.strictEqual(err.code, 'SETTLE_INCOMPLETE');
+        return true;
+      }
+    );
+  });
+
+  it('3d. Observed critical storefront defect takes precedence over soft settle gaps (FAIL verdict, criticalCount > 0, execution DEGRADED)', async () => {
+    const ports = createMockPorts({
+      settleCapture: async () => ({
+        settleComplete: false,
+        gates: { network: false, fonts: true, images: false, dom: true },
+        timingsMs: { network: 5000, fonts: 100, images: 5000, dom: 5, total: 5000 },
+        brokenImages: [],
+        layoutStable: true,
+      }),
+      eval: async (_target: BrowserTarget, script: string) => {
+        if (script === liquidScript || script.includes('ERROR_PATTERNS') || script.includes('LiquidErrorScanner')) {
+          return { hasErrors: true, errors: [{ type: 'syntax', message: 'Unknown tag "foo"', location: 'index.liquid:1' }], scannedElementsCount: 5 };
+        }
+        if (script === layoutScript || script.includes('deadband = 1.0 * dpr') || script.includes('rawDeltaX') || script.includes('LayoutOverflowEngine')) {
+          return { viewport: { name: 'desktop', width: 1440, height: 900 }, hasOverflow: false, deltaX: 0, scrollWidth: 1440, clientWidth: 1440, culprits: [] };
+        }
+        if (script === assetScript || script.includes('naturalWidth') || script.includes('img.decode')) {
+          return { hasBrokenAssets: false, brokenAssets: [], totalImagesScanned: 5, totalStylesheetsScanned: 1 };
+        }
+        if (script.includes('HS-') || script.includes('violations') || script.includes('sapo') || script.includes('haravan') || script.includes('evaluateHtml')) {
+          return { passed: true, totalViolations: 0, errorsCount: 0, warningsCount: 0, violations: [] };
+        }
+        if (script === serverCrashScript || script.includes('crash') || script.includes('ServerCrashScanner')) {
+          return { hasCrash: false, errorsCount: 0, findings: [] };
+        }
+        return {};
+      },
+    });
+    const workflow = new ThemeQaWorkflow(ports);
+
+    const report = await workflow.validate({
+      runId: 'run-settle-gap-with-defect',
+      attemptId: 'att-settle-gap-with-defect',
+      workspaceRoot: 'E:/Work/test-theme',
+      target: makeTarget(1),
+      viewports: {
+        desktop: { mismatchPercent: 0.5, passed: true },
+        tablet: { mismatchPercent: 1.0, passed: true },
+        mobile: { mismatchPercent: 1.5, passed: true },
+      },
+    });
+
+    assert.strictEqual(report.summary.verdict, 'FAIL', 'Observed critical defect must take precedence over settle evidence gaps');
+    assert.strictEqual(report.summary.passed, false);
+    assert.ok(report.summary.criticalCount > 0, `Expected criticalCount > 0, got ${report.summary.criticalCount}`);
+    assert.strictEqual(report.execution, 'DEGRADED', 'Evidence gaps must still mark execution as DEGRADED');
+    assert.ok(report.findings?.evidenceGaps?.some((g) => g.includes('Network did not reach idle')));
+    assert.ok(report.findings?.evidenceGaps?.some((g) => g.includes('Images did not settle')));
+  });
+
+  it('3e. Active DOM mutations with quiescent layout degrade to INCONCLUSIVE with domUnstable flagged', async () => {
+    const ports = createMockPorts({
+      settleCapture: async () => ({
+        settleComplete: false,
+        gates: { network: true, fonts: true, images: true, dom: false },
+        timingsMs: { network: 5, fonts: 100, images: 5, dom: 5000, total: 5110 },
+        brokenImages: [],
+        layoutStable: true,
+      }),
+    });
+    const workflow = new ThemeQaWorkflow(ports);
+
+    const report = await workflow.validate({
+      runId: 'run-dom-unstable-settle',
+      attemptId: 'att-dom-unstable-settle',
+      workspaceRoot: 'E:/Work/test-theme',
+      target: makeTarget(1),
+      viewports: {
+        desktop: { mismatchPercent: 0.5, passed: true },
+        tablet: { mismatchPercent: 1.0, passed: true },
+        mobile: { mismatchPercent: 1.5, passed: true },
+      },
+    });
+
+    assert.strictEqual(report.summary.passed, false, 'incomplete settle evidence cannot certify PASS');
+    assert.strictEqual(report.summary.verdict, 'INCONCLUSIVE');
+    assert.strictEqual(report.execution, 'DEGRADED');
+    assert.strictEqual(report.settleReceipt?.domUnstable, true);
+    assert.strictEqual(report.summary.domUnstable, true);
+    assert.ok(report.findings?.evidenceGaps?.some((g) => g.includes('domUnstable') || g.includes('DOM mutations remained active')));
+  });
+
   it('4. Known mutation session with missing upload barrier fails certification as INCONCLUSIVE', async () => {
     const ports = createMockPorts();
     const workflow = new ThemeQaWorkflow(ports);

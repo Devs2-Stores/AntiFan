@@ -28,6 +28,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import WebSocket from 'ws';
 import { StorageLocations } from '../config/storage-locations';
+import { isProcessAlive } from '../process/process-registry';
 const HOST = '127.0.0.1';
 const HANDSHAKE_TIMEOUT_MS = 15000;
 const HEALTH_TIMEOUT_MS = 5000;
@@ -67,16 +68,6 @@ interface LiveRecord {
 }
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-function alive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 function dataRoot(): string {
   if (process.env.ANTIFAN_DATA_ROOT) return path.resolve(process.env.ANTIFAN_DATA_ROOT);
   try {
@@ -137,8 +128,14 @@ function clearLiveRecord(): void {
  * WMI escape. Returns 'in-job' | 'free' | 'unknown' (unknown is treated as free: L1 is tried, and
  * the post-spawn survival check still catches a hidden job).
  */
+let cachedJobMembership: 'in-job' | 'free' | 'unknown' | null = null;
+export function resetJobMembershipCacheForTesting(): void {
+  cachedJobMembership = null;
+}
+
 function detectJobMembership(): 'in-job' | 'free' | 'unknown' {
   if (process.platform !== 'win32') return 'free';
+  if (cachedJobMembership !== null) return cachedJobMembership;
   const script = [
     '$sig = "[DllImport(\\"kernel32.dll\\")] public static extern bool IsProcessInJob(System.IntPtr h, System.IntPtr j, out bool r);"',
     '$t = Add-Type -MemberDefinition $sig -Name J -Namespace W -PassThru',
@@ -153,8 +150,11 @@ function detectJobMembership(): 'in-job' | 'free' | 'unknown' {
       timeout: 8000,
       stdio: ['ignore', 'pipe', 'ignore'],
     }).trim();
-    return out === 'in-job' ? 'in-job' : out === 'free' ? 'free' : 'unknown';
+    const result = out === 'in-job' ? 'in-job' : out === 'free' ? 'free' : 'unknown';
+    cachedJobMembership = result;
+    return result;
   } catch {
+    cachedJobMembership = 'unknown';
     return 'unknown';
   }
 }
@@ -243,7 +243,7 @@ async function waitForHandshake(handshakePath: string, spawnedPid: number): Prom
         if (info.pid && info.port && info.token) return { ...info, handshakePath };
       } catch { /* partial write; keep polling */ }
     }
-    if (spawnedPid && !alive(spawnedPid)) return null;
+    if (spawnedPid && !isProcessAlive(spawnedPid)) return null;
     await delay(POLL_MS);
   }
   return null;
@@ -295,7 +295,7 @@ export async function ensureDaemon(opts: { cwd?: string } = {}): Promise<DaemonS
 
   /* ---- L0: re-attach to a live host ---- */
   const existing = readLiveRecord();
-  if (existing && alive(existing.pid) && (await probeHealth(existing.port, existing.token))) {
+  if (existing && isProcessAlive(existing.pid) && (await probeHealth(existing.port, existing.token))) {
     return { mode: 'attached', handle: { mode: 'attached', pid: existing.pid, port: existing.port, token: existing.token, version: existing.version } };
   }
   if (existing) clearLiveRecord(); // stale record from a dead host

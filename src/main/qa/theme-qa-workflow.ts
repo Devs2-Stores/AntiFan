@@ -600,20 +600,26 @@ export class ThemeQaWorkflow {
           receipt = await this.ports.browser.settleCapture(activeTarget, 'desktop', undefined, { signal: input.signal });
           if (!receipt || !receipt.settleComplete) {
             const gates = receipt?.gates;
-            const domOnlyUnsettled =
-              receipt != null &&
-              gates?.network === true &&
-              gates?.fonts === true &&
-              gates?.images === true &&
-              gates?.dom === false &&
-              receipt.layoutStable !== false;
-
-            if (domOnlyUnsettled && receipt) {
-              receipt.domUnstable = true;
-              if (Array.isArray(receipt.evidenceGaps)) {
-                receipt.evidenceGaps.push('DOM mutations remained active during settle window (domUnstable)');
-              } else {
-                receipt.evidenceGaps = ['DOM mutations remained active during settle window (domUnstable)'];
+            // Soft settle gaps are audit findings, not crashes: when the page has
+            // reached a stable layout with fonts loaded, pending network (third-
+            // party trackers, analytics), unsettled lazy images (srcless data-src /
+            // lazysizes) or live DOM mutations (carousels, Alpine/Livewire
+            // reactivity) are recorded as evidence gaps and the run completes
+            // with execution DEGRADED / verdict INCONCLUSIVE. Fonts still
+            // unsettled or an unstable layout means the measurements below would
+            // describe a page mid-render, so that remains a hard SETTLE_INCOMPLETE.
+            const layoutQuiescent = receipt != null && receipt.layoutStable !== false && gates?.fonts === true;
+            if (layoutQuiescent && receipt) {
+              const gaps = Array.isArray(receipt.evidenceGaps) ? receipt.evidenceGaps : (receipt.evidenceGaps = []);
+              if (gates?.network === false) {
+                gaps.push(`Network did not reach idle during settle window${this.describeInflight(activeTarget, receipt)}`);
+              }
+              if (gates?.images === false) {
+                gaps.push('Images did not settle during settle window (lazy/srcless images outstanding)');
+              }
+              if (gates?.dom === false) {
+                receipt.domUnstable = true;
+                gaps.push('DOM mutations remained active during settle window (domUnstable)');
               }
             } else {
               throw new CapabilityError(
@@ -1373,7 +1379,12 @@ export class ThemeQaWorkflow {
         if (!fs.existsSync(specsDir)) {
           fs.mkdirSync(specsDir, { recursive: true });
         }
-        fs.writeFileSync(path.join(specsDir, 'qa-matrix.json'), JSON.stringify(qaMatrix, null, 2), 'utf-8');
+        const isRepoRoot = fs.existsSync(path.join(input.workspaceRoot, 'package.json')) &&
+          !fs.existsSync(path.join(input.workspaceRoot, 'config', 'settings_schema.json'));
+        const matrixFileName = (process.argv.includes('--publish') || !isRepoRoot)
+          ? 'qa-matrix.json'
+          : 'qa-matrix.local.json';
+        fs.writeFileSync(path.join(specsDir, matrixFileName), JSON.stringify(qaMatrix, null, 2), 'utf-8');
       } catch {
         // Fallback gracefully if workspaceRoot is read-only
       }
