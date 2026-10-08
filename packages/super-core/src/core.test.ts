@@ -1290,3 +1290,32 @@ test('provenance folded into a principle by a repeat observation survives reopen
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('a merge flattens list-shaped provenance and leaves nothing for the next open to rewrite', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'core-principle-merge-'));
+  const dbPath = path.join(dir, 'core.db');
+  try {
+    const core = openCore(dbPath);
+    const { principleId } = core.recordPrinciple({ statement: 'Prefer boring designs', derivedFrom: JSON.stringify(['skills/x.md', 'skills/y.md']) });
+    core.recordPrinciple({ statement: 'prefer boring designs', source: 'skills/s.md', derivedFrom: JSON.stringify(['skills/y.md', 'skills/z.md']) });
+    core.close();
+
+    const raw = new DatabaseSync(dbPath);
+    try {
+      const row = raw.prepare('SELECT principleId, source, derivedFrom FROM principles').get() as { principleId: string; source: string; derivedFrom: string };
+      assert.equal(row.principleId, principleId);
+      assert.equal(row.source, 'skills/s.md', 'a bare keeper adopts the first source it is given');
+      assert.deepEqual(JSON.parse(row.derivedFrom), ['skills/s.md', 'skills/x.md', 'skills/y.md', 'skills/z.md'], 'an incoming JSON list is flattened, never nested');
+
+      // Consolidation on the next open recomputes derivedFrom from the same
+      // anchors; a merge that wrote a non-canonical shape gets rewritten here.
+      openCore(dbPath).close();
+      const after = raw.prepare('SELECT principleId, source, derivedFrom FROM principles').get();
+      assert.deepEqual({ ...after }, { ...row }, 'the next open finds the merged row already canonical');
+    } finally {
+      raw.close();
+    }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

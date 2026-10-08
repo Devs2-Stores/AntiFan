@@ -89,7 +89,13 @@ const BURST_CLIENTS = 12;
 const BURST_BUDGET_MS = 6000;
 /** The refill is PowerShell-backed on Windows, so warm-up is allowed to be slow. */
 const WARMUP_BUDGET_MS = 30000;
-const REFILL_BUDGET_MS = 6000;
+/**
+ * The refill test pins WHO triggers a refill (the bridge, not a later consumer), not how fast
+ * PowerShell runs: a refill costs two PowerShell DACL spawns, which take well over 6 s when the
+ * test lane runs suites in parallel. Without the depth refill the queue stays one short forever,
+ * so the warm-up bound still fails the defect.
+ */
+const REFILL_BUDGET_MS = WARMUP_BUDGET_MS;
 
 interface HttpResult {
   status: number;
@@ -218,25 +224,12 @@ function buildServer(): { server: BridgeServer; registry: AttachmentRegistry } {
 }
 
 /**
- * Both tests in this block encode the CONTRACT the bridge does NOT meet yet: measured against the
- * current compiled bridge, 12 concurrent clients leave 6 of them with no code inside the budget, and
- * a single claim is never compensated back to the standing depth. The fix is a bridge-side change
- * (`replenishPairingQueueNow` / `claimPairingChallenge`) tracked in
- * `docs/superpowers/specs/2026-09-28-test-harness-honesty-design.md` §3 row I11.
- * They are gated behind ANTIFAN_PAIRING_CONTRACT=1 so this known bridge-side defect does not block
- * unrelated lanes while the refill patch is staged. Enforce them as soon as that hunk lands, and
- * then delete this gate:
- *
- *     ANTIFAN_PAIRING_CONTRACT=1 npm run test:main
- *
- * A ready-to-run reproduction that needs no compile step lives in
- * `scratch/pairing-concurrency-probe.cjs` and fails these same assertions.
+ * The bridge's standing pairing queue contract: a concurrent burst of clients is served inside the
+ * client budget, and a claim is compensated back to the standing depth without another consumer
+ * asking (`replenishPairingQueue` / `replenishPairingQueueNow` in src/main/bridge/bridge-server.ts,
+ * bottleneck B44 in plans/bottlenecks.json).
  */
-const CONTRACT_GATE =
-  process.env.ANTIFAN_PAIRING_CONTRACT === '1'
-    ? false
-    : 'RED until the bridge-side refill patch lands (see docs/superpowers/specs/2026-09-28-test-harness-honesty-design.md §3 row I11); run with ANTIFAN_PAIRING_CONTRACT=1 to enforce';
-describe('pairing queue serves a concurrent burst inside the client budget', { skip: CONTRACT_GATE }, () => {
+describe('pairing queue serves a concurrent burst inside the client budget', () => {
   it('serves every concurrent client from a standing queue inside a bounded budget', async () => {
     await withIsolatedRoots(async () => {
       const { server } = buildServer();

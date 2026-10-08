@@ -37,6 +37,7 @@ const principleAnchors = (source: string | null, derivedFrom: string | null): st
     try {
       const parsed: unknown = JSON.parse(derivedFrom);
       if (Array.isArray(parsed)) out.push(...parsed.filter((x): x is string => typeof x === 'string' && x !== ''));
+      else if (typeof parsed === 'string') { if (parsed !== '') out.push(parsed); }
       else out.push(derivedFrom);
     } catch {
       out.push(derivedFrom);
@@ -44,6 +45,10 @@ const principleAnchors = (source: string | null, derivedFrom: string | null): st
   }
   return out;
 };
+/** The one stored shape of `derivedFrom`: the de-duplicated anchor list,
+ *  `source` included. Inserts, merges and consolidation all write this, so a
+ *  row they produced is already what the next open's consolidation computes. */
+const canonicalDerivedFrom = (anchors: string[]): string => JSON.stringify([...new Set(anchors)]);
 
 /**
  * Collapse claims that assert the same sentence, keeping the strongest row (the
@@ -243,7 +248,7 @@ export class Core {
     }
     const updates: Array<[string, string, string]> = [];
     for (const [h, k] of keep) {
-      const derivedFrom = JSON.stringify([...new Set(k.sources)]);
+      const derivedFrom = canonicalDerivedFrom(k.sources);
       if (k.row.statementHash !== h || k.row.derivedFrom !== derivedFrom) updates.push([h, derivedFrom, k.row.principleId]);
     }
     if (updates.length || drop.length) {
@@ -380,7 +385,7 @@ export class Core {
         const src = l.source ?? null;
         const df = l.derivedFrom ?? null;
         const res = this.db.prepare('INSERT OR IGNORE INTO principles(principleId,statement,source,derivedFrom,status,createdAt,statementHash) VALUES (?,?,?,?,?,?,?)')
-          .run(l.principleId ?? `prin-${uuid()}`, l.statement, src, df, l.status ?? 'OBSERVED', l.createdAt ?? now(), principleHash(l.statement));
+          .run(l.principleId ?? `prin-${uuid()}`, l.statement, src, canonicalDerivedFrom(principleAnchors(src, df)), l.status ?? 'OBSERVED', l.createdAt ?? now(), principleHash(l.statement));
         if (res.changes === 0) {
           this.mergePrincipleProvenance(l.statement, src, df);
         }
@@ -1669,7 +1674,7 @@ export class Core {
   recordPrinciple(opts: { statement: string; source?: string; derivedFrom?: string }) {
     const principleId = `prin-${uuid()}`;
     const res = this.db.prepare('INSERT OR IGNORE INTO principles(principleId,statement,source,derivedFrom,status,createdAt,statementHash) VALUES (?,?,?,?,?,?,?)')
-      .run(principleId, opts.statement, opts.source ?? null, opts.derivedFrom ?? null, 'OBSERVED', now(), principleHash(opts.statement));
+      .run(principleId, opts.statement, opts.source ?? null, canonicalDerivedFrom(principleAnchors(opts.source ?? null, opts.derivedFrom ?? null)), 'OBSERVED', now(), principleHash(opts.statement));
     if (res.changes === 0) {
       const existing = this.mergePrincipleProvenance(opts.statement, opts.source ?? null, opts.derivedFrom ?? null);
       return { principleId: existing };
@@ -1678,20 +1683,19 @@ export class Core {
   }
 
   /**
-   * Fold a repeat observation into the keeper row: append unseen provenance
-   * (source/derivedFrom strings) to derivedFrom's JSON list, preserving the
-   * scalar-or-list shape the column already tolerated. Returns the keeper id.
+   * Fold a repeat observation into the keeper row: flatten the incoming
+   * source/derivedFrom (either may already be a JSON list) and rewrite
+   * derivedFrom as the canonical anchor list. Returns the keeper id.
    */
   private mergePrincipleProvenance(statement: string, source: string | null, derivedFrom: string | null) {
     const row = this.db.prepare('SELECT principleId, source, derivedFrom FROM principles WHERE statementHash = ?').get(principleHash(statement)) as { principleId: string; source: string | null; derivedFrom: string | null } | undefined;
     if (!row) return null;
-    const incoming = [source, derivedFrom].filter((s): s is string => !!s && s !== '');
+    const incoming = principleAnchors(source, derivedFrom);
     if (incoming.length) {
-      const merged = [...new Set([...principleAnchors(row.source, row.derivedFrom), ...incoming])];
-      if (!row.source && source) {
-        this.db.prepare('UPDATE principles SET source = ?, derivedFrom = ? WHERE principleId = ?').run(source, JSON.stringify(merged.filter((s) => s !== source)), row.principleId);
-      } else {
-        this.db.prepare('UPDATE principles SET derivedFrom = ? WHERE principleId = ?').run(JSON.stringify(merged), row.principleId);
+      const nextSource = row.source || source;
+      const merged = canonicalDerivedFrom([...principleAnchors(nextSource, row.derivedFrom), ...incoming]);
+      if (merged !== row.derivedFrom || nextSource !== row.source) {
+        this.db.prepare('UPDATE principles SET source = ?, derivedFrom = ? WHERE principleId = ?').run(nextSource, merged, row.principleId);
       }
     }
     return row.principleId;

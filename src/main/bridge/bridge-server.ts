@@ -946,9 +946,11 @@ export class BridgeServer {
         }
       }
     } catch (err) {
-      // dispose() can delete the queue dir while an async write is in flight;
-      // that teardown ENOENT is not a real write failure.
-      if (!(this.isDisposed && (err as NodeJS.ErrnoException)?.code === 'ENOENT')) {
+      // dispose() deletes the queue dir while an async write is in flight; the
+      // failure then surfaces as a Node ENOENT or as the PowerShell DACL helper's
+      // "Path does not exist". Nothing reads a disposed queue, so neither is a
+      // real write failure.
+      if (!this.isDisposed) {
         throw err;
       }
     } finally {

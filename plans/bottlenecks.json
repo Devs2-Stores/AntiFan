@@ -754,7 +754,7 @@
         "negate": true
       },
       "closedBy": "Two halves. Depth: `replenishPairingQueueNow` keeps 16 standing challenges (was 3) and mints them in one batched DACL call. Race: `replenishPairingQueue` stays single-flight (no duplicate icacls/PowerShell batches), but a request arriving while a flight runs now sets `pairingReplenishRerun` and the running flight loops one more pass instead of the caller merely joining it. A flight computes its deficit at start and its files become claimable at the rename while it still awaits the final DACL batch, so a claim in that window used to leave the queue one short until another consumer asked (contract test saw 15 of 16). The predicate fires when the rerun marker is gone.",
-      "reVerifyWith": "ANTIFAN_PAIRING_CONTRACT=1 node --test --test-force-exit .compiled/test/main/bridge-pairing-queue-concurrency.test.js (3/3, including 'replenishes by depth rather than only when a consumer asks')",
+      "reVerifyWith": "node --test --test-force-exit .compiled/test/main/bridge-pairing-queue-concurrency.test.js (3/3, including 'replenishes by depth rather than only when a consumer asks'; the suite now runs ungated in test:main)",
       "lastVerifiedBy": "ak:fix --ultra run (2026-10-09): contract suite failed 'depth restored to 16 ... (saw 15)' before the rerun flag, passes after; `npm run audit` green",
       "updatedAt": "2026-10-09"
     }
