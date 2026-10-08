@@ -27,4 +27,4 @@
 - **Delivery Format:** Every delivery turn MUST provide:
   - Exact modified file paths.
   - Attached terminal execution output (build/test logs).
-  - Explicit outcome status: `VERIFIED_COMPLETE` or `BLOCKED`.
+  - Explicit outcome status: `VERIFIED_COMPLETE`, `DONE_WITH_CONCERNS` (user-sync pending only), or `BLOCKED`.

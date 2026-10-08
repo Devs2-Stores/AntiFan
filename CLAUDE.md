@@ -19,7 +19,7 @@ This repository enforces the **Triad Architecture (v1.2.0 Hardened)** specified 
      - *Multi-file Scale (2+ files)*: Perform batched pre-flight reads and coordinated edits across all mutually dependent files before triggering global verification.
   2. `Anchored Edit`: Apply surgical diffs (`edit`) strictly within inspected line ranges.
   3. `Proof-of-Work`: Execute the narrowest relevant test, compiler check (`tsc`, `cargo check`), or runtime probe.
-  4. `Binary Yield`: Deliver work strictly as `VERIFIED_COMPLETE` (with attached test/execution logs) or `BLOCKED`.
+  4. `Terminal Yield`: Deliver work strictly as `VERIFIED_COMPLETE` (with attached test/execution logs), `DONE_WITH_CONCERNS` (strictly restricted to Scope B tasks where local disk edits and pre-flight/local checks pass, but live storefront verification strictly requires user-gated operations such as theme push/sync; MUST list modified files, passed local checks, and exact user sync command), or `BLOCKED`.
 
 ## 3. Negative Invariants & Escape Hatches
 - `NEVER` mutate any file without loading its fresh content into active context via `read`.
