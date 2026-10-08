@@ -90,7 +90,7 @@ import {
 } from './semantic-ref-executor';
 import type { SemanticElementDescriptor } from './semantic-ref-types';
 import { generateCollectionNonce, validateCollectionEnvelope } from './semantic-ref-types';
-import { CapabilityError, type CapabilityErrorCode } from '../../shared/control-plane-contracts';
+import { CapabilityError, isBootProjectId, type CapabilityErrorCode } from '../../shared/control-plane-contracts';
 import { isBenchmarkEnabled, recordBenchmark } from '../benchmark/telemetry';
 import { AsyncThemeQaQueue } from '../qa/async-qa-job-queue';
 import { confineWorkspaceRoot } from '../qa/diagnostics-filter';
@@ -7931,15 +7931,18 @@ export class NativeTabHost extends EventEmitter {
   /**
    * Owner key a terminal minted from this host carries. On the 'web' hub the viewed project
    * owns its rows — `project:<activeProjectId>` — so a project terminal stays attributed to
-   * its project even though the hub window itself is `web`. With no active project the mint
-   * falls back to this window's own key: `'web'` on the hub, deliberately NOT `'unassigned'` —
-   * `'unassigned'` is the Terminal Manager's owner key, and stamping it on hub-created
-   * terminals would attribute them to a window that never asked for them. Non-web shells are
+   * its project even though the hub window itself is `web`. With no active project, or when
+   * the hub presents the boot sentinel ("Tổng hợp" — the hub's own placeholder identity, not
+   * a tenant), the mint falls back to this window's own key: `'web'` on the hub, deliberately
+   * NOT `'unassigned'` — `'unassigned'` is the Terminal Manager's owner key, and stamping it
+   * on hub-created terminals would attribute them to a window that never asked for them. A
+   * `project:<bootId>` stamp would make the control plane measure the terminal as living in
+   * a project no window can own, refusing every MCP target under it. Non-web shells are
    * unaffected: they mint under their own key exactly as before.
    */
   private terminalMintOwnerKey(): string {
     const activeId = this.activeProjectId;
-    if (this.windowOwnerKey() === WEB_OWNER_KEY && activeId) return `project:${activeId}`;
+    if (this.windowOwnerKey() === WEB_OWNER_KEY && activeId && !isBootProjectId(activeId)) return `project:${activeId}`;
     return this.windowOwnerKey();
   }
 

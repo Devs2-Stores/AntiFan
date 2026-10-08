@@ -7,7 +7,7 @@ import { EventEmitter } from 'events';
 import { performance } from 'node:perf_hooks';
 import { isBenchmarkEnabled, recordBenchmark } from '../benchmark/telemetry';
 import { StorageLocations } from '../config/storage-locations';
-import { TerminalWaitInput, TerminalWaitResult, CapabilityError } from '../../shared/control-plane-contracts';
+import { TerminalWaitInput, TerminalWaitResult, CapabilityError, isBootProjectId } from '../../shared/control-plane-contracts';
 import { TerminalDeltaResult, TerminalJournalEntry, TerminalAckPayload, TerminalSyncViewResult, TerminalSleepResult, TerminalRoleMeta } from '../../shared/contracts';
 import { ownerKey } from './window-owner';
 export function resolveScriptsDir(): string | undefined {
@@ -946,11 +946,27 @@ export class TerminalManager extends EventEmitter {
     } catch {}
   }
 
+  /**
+   * A persisted `project:<bootId>` owner key is a stamp an earlier build minted while the
+   * hub presented its own boot sentinel ("Tổng hợp"). No window owns that project, so the
+   * control plane would measure the row as a foreign-project terminal and refuse every
+   * target it names. The hub's own key is what the mint produces today; restore it as such.
+   */
+  private sanitizeRestoredOwnerKeys(sessions: unknown[]): SavedSession[] {
+    for (const item of sessions) {
+      if (!item || typeof item !== 'object') continue;
+      const row = item as { ownerKey?: unknown };
+      if (typeof row.ownerKey !== 'string' || !row.ownerKey.startsWith('project:')) continue;
+      if (isBootProjectId(row.ownerKey.slice('project:'.length))) row.ownerKey = 'web';
+    }
+    return sessions as SavedSession[];
+  }
+
   private readSavedSessions(): { activeSessionId?: string; lastCols?: number; lastRows?: number; sessions: SavedSession[] } {
     this.cleanOrphanedTempFiles();
     try {
       const value = JSON.parse(fs.readFileSync(this.statePath(), 'utf8'));
-      if (Array.isArray(value)) return { sessions: value };
+      if (Array.isArray(value)) return { sessions: this.sanitizeRestoredOwnerKeys(value) };
       if (value && Array.isArray(value.sessions)) {
         if (typeof value.lastCols === 'number' && value.lastCols >= 40) {
           this.lastCols = value.lastCols;
@@ -962,7 +978,7 @@ export class TerminalManager extends EventEmitter {
           activeSessionId: value.activeSessionId,
           lastCols: value.lastCols,
           lastRows: value.lastRows,
-          sessions: value.sessions,
+          sessions: this.sanitizeRestoredOwnerKeys(value.sessions),
         };
       }
       return { sessions: [] };

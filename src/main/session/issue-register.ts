@@ -1,4 +1,5 @@
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { StorageLocations } from '../config/storage-locations';
 import {
@@ -325,6 +326,28 @@ function mergeRecordsById<T extends { id: string }>(
   return order.map((id) => byId.get(id) as T);
 }
 
+/**
+ * Tab ids the tab-authority unit suites use as literal fixtures. No live tab id is ever
+ * minted with these names (live ids are uuid-derived), so a refusal naming one can only
+ * have come from a test run that shared the live data root.
+ */
+const FIXTURE_TAB_ID = /\btab-(?:non-existent-999|unknown-999|closed-default|ws-2|ws-created-888|new-123|other-workspace|other-project|created-456|admin-dashboard|live|\d+)\b/;
+
+/**
+ * Whether an issue row can only have come from a test fixture: the legacy
+ * `anti.agent.cursor.type` modal-overlay string, a `test.*` synthetic capability
+ * (the control-plane suites' tool names), or a refusal that names a fixture tab id.
+ */
+function isTestFixtureResidue(issue: IssueRecord): boolean {
+  if (issue.toolName === 'anti.agent.cursor.type'
+    && issue.errorMessage === 'Element obscured by modal overlay'
+    && issue.errorCode === undefined) {
+    return true;
+  }
+  if (typeof issue.toolName === 'string' && issue.toolName.startsWith('test.')) return true;
+  return typeof issue.errorMessage === 'string' && FIXTURE_TAB_ID.test(issue.errorMessage);
+}
+
 export class IssueRegister {
   private static instance: IssueRegister | null = null;
   private readonly issues: IssueRecord[] = [];
@@ -337,15 +360,32 @@ export class IssueRegister {
    */
   private verificationsCache: { key: string; records: VerificationRecord[] } | null = null;
 
+  /**
+   * Where an unconfigured run lands its registers. The pipeline lanes pin
+   * `ANTIFAN_ISSUE_REGISTER_DIR` / `ANTIFAN_VERIFICATION_REGISTER_DIR` or at least
+   * `ANTIFAN_DATA_ROOT`; an ad-hoc `node --test` run pins nothing, and before this
+   * guard its fixture refusals (`tab-non-existent-999`, `test.effect-tracker`, ...)
+   * were recorded into the live data root as real OPEN issues. Node stamps
+   * `NODE_TEST_CONTEXT` on every test child, so a test child whose data root is
+   * the live default gets a per-process tmp dir instead. A suite that pins its
+   * own `ANTIFAN_DATA_ROOT` keeps the `<root>/issues` layout it asserts on.
+   */
+  private static defaultRegisterDir(liveDir: string): string {
+    const underTestRunner = Boolean(process.env.NODE_TEST_CONTEXT || process.env.ANTIFAN_TEST_RUN);
+    const dataRootPinned = Boolean(process.env.ANTIFAN_DATA_ROOT);
+    return underTestRunner && !dataRootPinned ? path.join(os.tmpdir(), `antifan-test-registers-${process.pid}`) : liveDir;
+  }
+
   private constructor() {
     const dataRoot = StorageLocations.getDataRoot();
     const antifanDir = path.join(dataRoot, 'issues');
     try {
       fs.mkdirSync(antifanDir, { recursive: true });
     } catch {}
+    const defaultDir = IssueRegister.defaultRegisterDir(antifanDir);
     // Mirrors ANTIFAN_VERIFICATION_REGISTER_DIR below: test lanes and harness
     // runs must never write issue records into the live data root.
-    const issueDir = process.env.ANTIFAN_ISSUE_REGISTER_DIR || antifanDir;
+    const issueDir = process.env.ANTIFAN_ISSUE_REGISTER_DIR || defaultDir;
     try {
       fs.mkdirSync(issueDir, { recursive: true });
     } catch {}
@@ -354,7 +394,7 @@ export class IssueRegister {
     // smoke scripts record claims through the same singleton, and their residue
     // lands in the live register when the run shares the real data root. The
     // override isolates exactly that file while leaving Profile/artifacts live.
-    const registerDir = process.env.ANTIFAN_VERIFICATION_REGISTER_DIR || antifanDir;
+    const registerDir = process.env.ANTIFAN_VERIFICATION_REGISTER_DIR || defaultDir;
     try {
       fs.mkdirSync(registerDir, { recursive: true });
     } catch {}
@@ -807,9 +847,7 @@ export class IssueRegister {
    * ACCESS_VIOLATION / DUI70 / 0x0517a7ed dumps lack a verified fix and are
    * deliberately left untouched.
    *
-   * Signature B — test-fixture residue: rows whose errorMessage is the
-   * literal fixture string 'Element obscured by modal overlay' recorded by
-   * unit tests before register isolation existed.
+   * Signature B — test-fixture residue, see `isTestFixtureResidue`.
    */
   public autoReconcileKnownIssues(): { resolvedCrashes: number; retiredFixtures: number } {
     const crashResult = this.reconcile(
@@ -837,14 +875,10 @@ export class IssueRegister {
 
     const fixtureResult = this.reconcile(
       {
-        predicate: (issue) =>
-          issue.status === 'OPEN' &&
-          issue.toolName === 'anti.agent.cursor.type' &&
-          issue.errorMessage === 'Element obscured by modal overlay' &&
-          issue.errorCode === undefined,
+        predicate: (issue) => issue.status === 'OPEN' && isTestFixtureResidue(issue),
       },
       'test-fixture-retirement',
-      'Auto-resolved: unit-test fixture residue recorded into the live register before ANTIFAN_ISSUE_REGISTER_DIR isolation existed'
+      'Auto-resolved: unit-test fixture residue recorded into the live register before test-runner isolation existed'
     );
 
     return { resolvedCrashes: crashResult.resolvedCount, retiredFixtures: fixtureResult.resolvedCount };

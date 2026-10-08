@@ -44,7 +44,7 @@ import {
   type ProjectOpenChoice,
   type ProjectOpenDialogSpec,
 } from './project/project-open-picker';
-import { NativeTabHost, collectTabSearchInventory, activateTabSearchResult, isUnhostedTerminalWindow, purgeSavedTabsFileForProject, foldDetachedOwnerRecord, listDetachedProjectOwnerRecords, normalizeSavedTabsDocument, savedTabsFilePath, savedTabsOwnerIsDetached, type TabSearchInventoryRow, type TabSearchActivationFailure } from './browser/native-tab-host';
+import { NativeTabHost, collectTabSearchInventory, activateTabSearchResult, isUnhostedTerminalWindow, purgeSavedTabsFileForProject, foldDetachedOwnerRecord, listDetachedProjectOwnerRecords, normalizeSavedTabsDocument, savedTabsFilePath, savedTabsOwnerIsDetached, type FoldDetachedOwnerResult, type TabSearchInventoryRow, type TabSearchActivationFailure } from './browser/native-tab-host';
 import { singleInstanceLockExitCode } from './browser/single-instance-lock';
 import { closeAuxiliaryWindow } from './browser/auxiliary-close';
 import { ProjectWindowManager, type OpenIntent } from './browser/project-window-manager';
@@ -109,7 +109,7 @@ import { CockpitPort } from './tools/cockpit-port';
 import { CapabilityTransportAdapter } from './tools/capability-transport';
 import { DeviceManager } from './device/device-manager';
 import { IosDeviceAdapter } from './device/ios-device-adapter';
-import { validateControlPlaneId, makeControlPlaneId, CapabilityError, type ProjectRecord } from '../shared/control-plane-contracts';
+import { validateControlPlaneId, makeControlPlaneId, CapabilityError, DEFAULT_BOOT_PROJECT_ID, DEFAULT_BOOT_WORKSPACE_ID, isBootProjectId, type ProjectRecord } from '../shared/control-plane-contracts';
 import {
   PROJECT_WINDOW_CHANNELS,
   type ProjectOpenListCandidate,
@@ -481,8 +481,6 @@ const tabAmbient = new TabAmbientAuthority({
   journal: recordLifecycleEvent,
 });
 
-const DEFAULT_BOOT_PROJECT_ID = 'project-00000000-0000-4000-8000-000000000001';
-const DEFAULT_BOOT_WORKSPACE_ID = 'workspace-00000000-0000-4000-8000-000000000001';
 /** Identity this process booted for, recorded when the bootstrap window opens. */
 let bootProjectIdValue: string | null = null;
 /**
@@ -1886,6 +1884,10 @@ const DETACHED_RESTORE_BUDGET_MS = 500;
  * boot-id slot can authorize a window; such records are left on disk for purge.
  */
 export function detachedRestoreAdmitsProject(projectId: string): boolean {
+  // The boot sentinel is admitted into the registry as `open` on every boot, so the
+  // registry arm alone would resurrect a persisted boot-project record as a second
+  // hub window. It is never a tenant; refuse before consulting either arm.
+  if (isBootProjectId(projectId)) return false;
   try {
     if (projectRegistry.getProject(projectId).state === 'open') return true;
   } catch {
@@ -1906,6 +1908,76 @@ export interface DetachedRestoreOutcome {
 }
 
 /**
+ * Live terminals the detached daemon kept across a GUI restart may still carry the
+ * `project:<bootId>` stamp an earlier build minted while the hub showed "Tổng hợp".
+ * The daemon owns those rows, so the on-read sanitization in TerminalManager never
+ * sees them; re-home each one onto the hub's own key through the ordinary transfer
+ * seam (sync in-process, async over the daemon wire), keeping its workspace capsule.
+ * A refusal for one row (closed, disposed) is journaled and never blocks the boot.
+ */
+async function rehomeBootProjectTerminals(terminal: TerminalManager): Promise<void> {
+  let summaries: unknown[];
+  try {
+    summaries = terminal.listSessions();
+  } catch (err) {
+    recordLifecycleEvent('terminal-boot-rehome.failed', { detail: redactCredentials(String(err)) });
+    return;
+  }
+  if (!Array.isArray(summaries)) return;
+  let moved = 0;
+  let refused = 0;
+  for (const summary of summaries) {
+    if (!summary || typeof summary !== 'object' || !('id' in summary)) continue;
+    const sessionId = summary.id;
+    if (typeof sessionId !== 'string' || !sessionId) continue;
+    const current = terminal.sessionOwnerKey(sessionId);
+    if (typeof current !== 'string' || !current.startsWith('project:')) continue;
+    if (!isBootProjectId(current.slice('project:'.length))) continue;
+    try {
+      const transferred = await Promise.resolve(terminal.transferSessionOwner(sessionId, 'web', terminal.sessionCapsuleId(sessionId)));
+      if (transferred) moved += 1; else refused += 1;
+    } catch (err) {
+      refused += 1;
+      recordLifecycleEvent('terminal-boot-rehome.failed', { sessionId, detail: redactCredentials(String(err)) });
+    }
+  }
+  if (moved > 0 || refused > 0) {
+    recordLifecycleEvent('terminal-boot-rehome.done', { moved, refused });
+  }
+}
+
+/**
+ * A persisted `project:<bootId>` owner record is a zombie: the boot sentinel is the hub
+ * itself, so a record under that key only exists because an earlier build let "Tổng hợp"
+ * detach. Folding it back into `owners.web` (tabs and terminal affinities, hub copies
+ * win on duplicate ids) keeps the user's tabs and ends the detach mode on disk; the
+ * live ingest + persist right after is what stops the hub's next sync from rebuilding
+ * `owners.web` from stale memory and erasing the fold. No-op when no record exists.
+ */
+async function foldPersistedBootProjectRecord(): Promise<void> {
+  const bootIds = bootProjectIdValue && bootProjectIdValue !== DEFAULT_BOOT_PROJECT_ID
+    ? [DEFAULT_BOOT_PROJECT_ID, bootProjectIdValue]
+    : [DEFAULT_BOOT_PROJECT_ID];
+  for (const bootId of bootIds) {
+    let folded: FoldDetachedOwnerResult;
+    try {
+      folded = await foldDetachedOwnerRecord(savedTabsFilePath(), ownerKey({ kind: 'project', projectId: bootId }));
+    } catch (err) {
+      recordLifecycleEvent('detached-restore.boot-fold-failed', { projectId: bootId, detail: redactCredentials(String(err)) });
+      continue;
+    }
+    if (!folded.folded) continue;
+    const hubHost = hostForOwnerKey('web');
+    let minted = 0;
+    if (hubHost) {
+      minted = hubHost.ingestPersistedOwnerRows(folded.tabs, { terminalAffinities: folded.terminalAffinities }).minted.length;
+      hubHost.persistSync();
+    }
+    recordLifecycleEvent('detached-restore.boot-folded', { projectId: bootId, tabs: folded.tabs.length, minted });
+  }
+}
+
+/**
  * The boot leg that resurrects detached `project:<id>` shells. Runs once per
  * boot, AFTER the hub's restore — the hub owns the saved-tabs fold write
  * (synchronous inside `restoreTabs`), so enumerating marked records at this
@@ -1921,6 +1993,7 @@ export interface DetachedRestoreOutcome {
  */
 export async function restoreDetachedProjectShells(): Promise<DetachedRestoreOutcome[]> {
   const outcomes: DetachedRestoreOutcome[] = [];
+  await foldPersistedBootProjectRecord();
   let marked: string[];
   try {
     marked = listDetachedProjectOwnerRecords(savedTabsFilePath());
@@ -2056,6 +2129,9 @@ async function detachProject(payload: unknown, parent?: Electron.BrowserWindow |
     ? payload.projectId.trim()
     : '';
   if (!raw) return { status: 'FAILED', reason: 'PROJECT_UNAVAILABLE' };
+  if (isBootProjectId(raw)) {
+    return { status: 'FAILED', projectId: raw, reason: 'BOOT_PROJECT_NOT_DETACHABLE' };
+  }
   if (!isListedProjectId(raw)) {
     return { status: 'FAILED', projectId: raw, reason: 'PROJECT_UNAVAILABLE' };
   }
@@ -4002,6 +4078,7 @@ async function createWindow(): Promise<void> {
   // Canonical single TerminalManager / DaemonTerminalProxy instance shared across
   // UI IPC, Bridge, NativeTabHost, control-plane capabilities, and theme transactions.
   const terminalManager = TerminalManager.getInstance();
+  await rehomeBootProjectTerminals(terminalManager);
 
   // One `data` listener for the whole process: the router owns the
   // sessionId→host map and hands each chunk to the windows that present it,

@@ -40,6 +40,7 @@ import {
   setWindowStateManagerForTesting,
   projectRegistry as sharedProjectRegistry,
 } from '../../src/main/index';
+import { DEFAULT_BOOT_PROJECT_ID } from '../../src/shared/control-plane-contracts';
 import { ProjectWindowManager } from '../../src/main/browser/project-window-manager';
 import type { WindowStateManager } from '../../src/main/browser/window-state';
 
@@ -310,6 +311,25 @@ describe('detach lifecycle', () => {
   after(() => {
     delete process.env.ANTIFAN_USER_DATA;
     try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+  });
+
+  it('refuses to detach the boot sentinel: the hub is not a tenant and mints no window', async () => {
+    let shellsCreated = 0;
+    setDetachedShellHostFactoryForTesting((shell) => {
+      shellsCreated += 1;
+      return createHost(shell.owner) as NativeTabHost;
+    });
+    try {
+      const result = await projectWindowAuthority.detachProject(DEFAULT_BOOT_PROJECT_ID);
+      assert.deepStrictEqual(result, {
+        status: 'FAILED',
+        projectId: DEFAULT_BOOT_PROJECT_ID,
+        reason: 'BOOT_PROJECT_NOT_DETACHABLE',
+      });
+      assert.equal(shellsCreated, 0, 'no detached shell was minted for the sentinel');
+    } finally {
+      setDetachedShellHostFactoryForTesting(null);
+    }
   });
 
   it('ARM A: a live detached shell closes through the coordinator and folds strictly post-persistSync', async () => {

@@ -117,6 +117,55 @@ describe('IssueRegister env override + reconciliation', () => {
     assert.strictEqual(register.list({ status: 'OPEN' }).length, 0);
   });
 
+  test('autoReconcile retires fixture-tab-id and test.* capability residue, keeps real refusals', () => {
+    const base = { timestamp: Date.now(), timeFormatted: new Date().toISOString(), severity: 'P1', status: 'OPEN' };
+    const register = seedAndReopen([
+      { ...base, id: 'ISS-fx-1', toolName: 'antifan_set_automation_target', errorCode: 'TARGET_MISMATCH', errorMessage: "Tab ID 'tab-non-existent-999' is outside this session's authority (bound 'tab-created-456')." },
+      { ...base, id: 'ISS-fx-2', toolName: 'anti.inspect.dom', errorCode: 'TARGET_MISMATCH', errorMessage: 'Tab ID mismatch: expected tab-ws-created-888, got tab-ws-2.' },
+      { ...base, id: 'ISS-fx-3', toolName: 'test.effect-tracker', errorCode: 'EXECUTION_TIMEOUT', errorMessage: 'Operation timed out during execution' },
+      { ...base, id: 'ISS-fx-4', toolName: 'test.action', errorCode: 'POLICY_DENIED', errorMessage: 'application admission is reserved for quit' },
+      { ...base, id: 'ISS-real-1', toolName: 'browser.open-tab', errorCode: 'PROJECT_MISMATCH', errorMessage: "projectId selector 'project-c3402e12-97f0-4e8f-abfc-d5e8c70d59dc' does not match this session's authenticated project" },
+      { ...base, id: 'ISS-real-2', toolName: 'antifan_get_dom', errorCode: 'TARGET_MISMATCH', errorMessage: 'Unknown browser target: 1be6e950-7fcc-4acb-983c-36c59bc6d246.' },
+    ]);
+    const open = register.list({ status: 'OPEN' }).map((i) => i.id).sort();
+    assert.deepStrictEqual(open, ['ISS-real-1', 'ISS-real-2'], 'live refusals with uuid tab ids stay OPEN');
+    for (const id of ['ISS-fx-1', 'ISS-fx-2', 'ISS-fx-3', 'ISS-fx-4']) {
+      const row = register.getIssue(id);
+      assert.strictEqual(row?.status, 'RESOLVED', `${id} must be retired`);
+      assert.strictEqual(row?.evidenceRef, 'test-fixture-retirement');
+    }
+  });
+
+  test('a test child with nothing pinned lands registers in a tmp dir, never the live data root', () => {
+    const savedIssue = process.env.ANTIFAN_ISSUE_REGISTER_DIR;
+    const savedVerification = process.env.ANTIFAN_VERIFICATION_REGISTER_DIR;
+    const savedDataRoot = process.env.ANTIFAN_DATA_ROOT;
+    try {
+      delete process.env.ANTIFAN_ISSUE_REGISTER_DIR;
+      delete process.env.ANTIFAN_VERIFICATION_REGISTER_DIR;
+      delete process.env.ANTIFAN_DATA_ROOT;
+      StorageLocations.resetCache();
+      assert.ok(process.env.NODE_TEST_CONTEXT, 'sanity: node --test stamps every test child');
+      const liveLog = path.join(StorageLocations.getDataRoot(), 'issues', 'issue-register.jsonl');
+      const liveSizeBefore = fs.existsSync(liveLog) ? fs.statSync(liveLog).size : -1;
+      resetSingleton();
+      const register = IssueRegister.getInstance();
+      register.record({ toolName: 'test.tool', errorMessage: 'hermetic-row', severity: 'P3' });
+      const liveSizeAfter = fs.existsSync(liveLog) ? fs.statSync(liveLog).size : -1;
+      assert.strictEqual(liveSizeAfter, liveSizeBefore, 'the live issue log is untouched');
+      const tmpLog = path.join(os.tmpdir(), `antifan-test-registers-${process.pid}`, 'issue-register.jsonl');
+      assert.ok(fs.existsSync(tmpLog), 'the row landed in the per-process tmp register');
+      assert.ok(fs.readFileSync(tmpLog, 'utf8').includes('hermetic-row'));
+      fs.rmSync(path.dirname(tmpLog), { recursive: true, force: true });
+    } finally {
+      process.env.ANTIFAN_ISSUE_REGISTER_DIR = savedIssue;
+      process.env.ANTIFAN_VERIFICATION_REGISTER_DIR = savedVerification;
+      process.env.ANTIFAN_DATA_ROOT = savedDataRoot;
+      StorageLocations.resetCache();
+      resetSingleton();
+    }
+  });
+
   test('record() never serializes an undefined errorCode', () => {
     // Seed an empty file first so the assertion reads only this test's rows.
     seedAndReopen([]);

@@ -9,6 +9,28 @@ export const CONTROL_PLANE_PROTOCOL_VERSION = 1;
 export const SESSION_FORMAT_VERSION = 1;
 export * from './theme-task-context';
 
+/**
+ * The placeholder identity the hub boots under when no `ANTIFAN_PROJECT_ID` is set
+ * ("Tổng hợp"). It is a bootstrap sentinel, not a tenant: it never detaches into its
+ * own window, never persists as a detached owner, and never mints terminal-origin
+ * authority. Shared so Main, the tab host and the terminal manager agree on one value.
+ */
+export const DEFAULT_BOOT_PROJECT_ID = 'project-00000000-0000-4000-8000-000000000001';
+export const DEFAULT_BOOT_WORKSPACE_ID = 'workspace-00000000-0000-4000-8000-000000000001';
+export const DEFAULT_BOOT_PROJECT_OWNER_KEY = `project:${DEFAULT_BOOT_PROJECT_ID}`;
+
+/**
+ * Whether `projectId` names the boot sentinel: the shared placeholder, or the id this
+ * process was told to boot under via `ANTIFAN_PROJECT_ID` (Main validates that value
+ * before any window opens, so an unvalidated env string never widens the match).
+ */
+export function isBootProjectId(projectId: string | null | undefined): boolean {
+  if (typeof projectId !== 'string' || !projectId) return false;
+  if (projectId === DEFAULT_BOOT_PROJECT_ID) return true;
+  const booted = process.env.ANTIFAN_PROJECT_ID?.trim();
+  return Boolean(booted) && projectId === booted;
+}
+
 export type ControlPlaneEntity = 'project' | 'workspace' | 'chat' | 'run' | 'attempt' | 'tool' | 'artifact' | 'binding' | 'invocation' | 'event' | 'message' | 'request' | 'idempotency' | 'attachment' | 'runtime' | 'session';
 export type LifecycleState = 'open' | 'closed' | 'interrupted' | 'completed' | 'failed' | 'unknown';
 export type RunState = 'queued' | 'starting' | 'streaming' | 'waiting-tool' | 'cancelling' | 'completed' | 'failed' | 'interrupted' | 'unknown';

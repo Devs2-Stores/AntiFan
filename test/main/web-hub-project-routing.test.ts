@@ -28,6 +28,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EventEmitter } from 'node:events';
 import { TerminalManager } from '../../src/main/browser/terminal-manager';
+import { DEFAULT_BOOT_PROJECT_ID } from '../../src/shared/control-plane-contracts';
 import { ownerKey, type WindowOwner } from '../../src/main/browser/window-owner';
 import type { ShellDouble } from '../support/project-window-shell-double';
 
@@ -607,6 +608,14 @@ describe('web hub: terminal mint owner key', () => {
     assert.equal(asHost(host).resolveTerminalCreationTarget().ownerKey, WEB, 'with nothing presented the hub mints under itself, not the Terminal Manager');
     host.setActiveProject('   ');
     assert.equal(asHost(host).resolveTerminalCreationTarget().ownerKey, WEB, 'a blank active project normalizes to none');
+  });
+
+  it('mints under web, never project:<bootId>, while the hub presents the boot sentinel', () => {
+    const host = createHost({ owner: WEB_OWNER });
+    host.setActiveProject(DEFAULT_BOOT_PROJECT_ID);
+    assert.equal(asHost(host).resolveTerminalCreationTarget().ownerKey, WEB, 'the boot placeholder is the hub itself, not a tenant that can own terminal rows');
+    host.setActiveProject(PROJECT_A);
+    assert.equal(asHost(host).resolveTerminalCreationTarget().ownerKey, PROJECT_A_KEY, 'a real project still owns its mint');
   });
 
   it('mints in the presented project\'s folder after a switch, never the previous project\'s', () => {

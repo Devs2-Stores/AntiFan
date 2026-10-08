@@ -37,6 +37,7 @@ import {
   setProjectWindowManagerForTesting,
   setWindowStateManagerForTesting,
 } from '../../src/main/index';
+import { DEFAULT_BOOT_PROJECT_ID } from '../../src/shared/control-plane-contracts';
 
 // Reason: the harness needs the mutable module object (spies patch exports in
 // place), and an import-type namespace cannot name that object — `typeof import`
@@ -421,6 +422,15 @@ describe('detached boot restore', () => {
       assert.equal(detachedRestoreAdmitsProject(DEAD_PROJECT), false, 'the restore predicate never reads the boot slot');
     });
 
+    it('refuses the boot sentinel even while the registry holds it open — the hub is not a tenant', () => {
+      seedProject(DEFAULT_BOOT_PROJECT_ID, 'Tổng hợp');
+      assert.equal(sharedProjectRegistry.getProject(DEFAULT_BOOT_PROJECT_ID).state, 'open', 'sanity: the registry arm alone would admit it');
+      assert.equal(detachedRestoreAdmitsProject(DEFAULT_BOOT_PROJECT_ID), false);
+      setBootProjectIdForTesting(PROJECT_A);
+      seedProject(PROJECT_A, 'Alpha');
+      assert.equal(detachedRestoreAdmitsProject(PROJECT_A), true, 'the boot slot alone never changes admission for a real project');
+    });
+
     it('admits a project exactly one validated capsule claims, registry-absent', () => {
       // `setAffiliation` needs the registry to already know the project — useless
       // for the registry-absent row — so the claim is written the way the store
@@ -635,6 +645,29 @@ describe('detached boot restore', () => {
         hostModule.savedTabsOwnerIsDetached = originalCheck;
       }
       assert.equal(readDoc().owners[`project:${PROJECT_M}`]?.detached, true, 'the skip wrote nothing');
+    });
+
+    it('a persisted boot-sentinel record folds into web and mints no window', async () => {
+      seedProject(DEFAULT_BOOT_PROJECT_ID, 'Tổng hợp');
+      const leg = installLeg();
+      writeDoc({
+        web: { tabs: [{ id: 'w1', url: 'https://example.test/w1' }], updatedAt: 1 },
+        [`project:${DEFAULT_BOOT_PROJECT_ID}`]: {
+          detached: true,
+          tabs: [{ id: 'boot-1', url: 'https://example.test/boot-1' }],
+          updatedAt: 1,
+        },
+      });
+      const outcomes = await restoreDetachedProjectShells();
+      assert.deepEqual(outcomes, [], 'the folded record never enumerates, so it is neither restored nor refused');
+      assert.equal(leg.createdShells.size, 0, 'no zombie "Tổng hợp" window');
+      const doc = readDoc();
+      assert.equal(doc.owners[`project:${DEFAULT_BOOT_PROJECT_ID}`], undefined, 'the record left the document');
+      assert.deepEqual(
+        doc.owners.web.tabs.map((tab: AnyRecord) => tab.id).sort(),
+        ['boot-1', 'w1'],
+        'the user\'s tabs from the zombie window land in the hub',
+      );
     });
   });
 
