@@ -1,0 +1,109 @@
+{
+  "schemaVersion": 1,
+  "type": "antifan-live-theme-proof",
+  "verdict": "PASSED",
+  "productCard": {
+    "pngSignatureValid": true,
+    "pngBytes": 13406,
+    "sourceCandidate": "snippets/card-product.liquid",
+    "sourceConfidence": "HIGH",
+    "sourceCorrelated": true,
+    "matchedCssDefinitionOfDone": "STRONG PASS",
+    "matchedCssHasSourceRange": true,
+    "fileWriteSha256": "01db7911eb176136ee4ae6c0f99888999449c96d5a26b93a07e7fb1846da025c",
+    "documentGenerationAdvanced": true,
+    "responsiveWidths": [
+      320,
+      375,
+      768,
+      1024,
+      1440
+    ],
+    "targetOverflow": false,
+    "documentOverflow": false,
+    "verificationVerdict": "VERIFIED",
+    "receiptCompleted": true,
+    "p04RenderedMutations": {
+      "mutationA": {
+        "description": "Text wrap expands card height in live Chromium",
+        "baselineHeight": 507,
+        "mutatedHeight": 574,
+        "structuralDelta": 67,
+        "geometryWithinTolerance": false,
+        "expectedPolicyOutcome": "REJECTED"
+      },
+      "mutationB": {
+        "description": "Text change preserves card box geometry in live Chromium",
+        "baselineHeight": 507,
+        "mutatedHeight": 507,
+        "structuralDelta": 0,
+        "cardinalityMatch": true,
+        "geometryWithinTolerance": true,
+        "expectedPolicyOutcome": "VERIFIED"
+      },
+      "mutationC": {
+        "description": "CSS overflow: hidden clamps card height and clips descendant content",
+        "outerHeight": 380,
+        "hasScrollOverflow": true,
+        "buttonClippedOutOfView": true,
+        "outerBoxDeltaGeometry": 127,
+        "diagnosticStatus": "INCONCLUSIVE",
+        "reason": "Descendant clipping and scroll overflow observed via DOM probe, but current production structural observation path lacks descendant clipping telemetry"
+      }
+    }
+  },
+  "drawer": {
+    "interactionMode": "trusted_cdp",
+    "interactionVerdict": "DRAWER_EXPANDED",
+    "trustedClick": true,
+    "mutationRevisionAdvanced": true,
+    "drawerVisible": true,
+    "responsiveWidths": [
+      320,
+      375,
+      768,
+      1024,
+      1440
+    ],
+    "targetOverflow": false,
+    "documentOverflow": false,
+    "verificationVerdict": "VERIFIED",
+    "receiptCompleted": true,
+    "distinctReceipt": true
+  },
+  "negativeCanaries": {
+    "noOpVerdict": "REJECTED",
+    "ambiguousSourceVerdict": "REJECTED",
+    "staleAuthorityDenied": true
+  },
+  "coreTeardownCompletedAt": "2026-10-07T19:13:11.974Z",
+  "teardown": {
+    "passed": true,
+    "processBoundTempCleanup": "completed",
+    "resourceOwners": {
+      "tabs": 0,
+      "attachedViews": 0,
+      "terminalWindows": 0,
+      "terminalMetadata": 0,
+      "previewWatchers": 0,
+      "previewSubscriptions": 0,
+      "targetQueues": 0,
+      "agentTimers": 0,
+      "agentRefs": 0,
+      "networkTargets": 0,
+      "networkListeners": 0,
+      "networkInflight": 0,
+      "devtoolsAttachments": 0,
+      "devtoolsListeners": 0,
+      "devtoolsQueues": 0,
+      "devtoolsStylesheets": 0,
+      "devtoolsContexts": 0,
+      "terminalSessions": 0,
+      "runningPtys": 0,
+      "terminalDataSubscriptions": 0,
+      "terminalExitSubscriptions": 0
+    }
+  },
+  "proofChecksum": "d623d6d38d571a7128a0ce13e666ae81f5b0295f904e62fae61d6bd45964c687",
+  "completedAt": "2026-10-07T19:13:12.160Z"
+}
