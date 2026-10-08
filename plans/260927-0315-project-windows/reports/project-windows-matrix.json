@@ -232,7 +232,7 @@
             "title": "Matrix Storefront",
             "pathLabel": null,
             "tabCount": 4,
-            "activeTabId": "79103a03-59f3-42a5-aaa9-033745bf170c",
+            "activeTabId": "4c414c94-9cfd-4528-9d4d-1b298720f574",
             "allTabsResolveHere": true,
             "tabUrls": [
               "https://www.google.com/",
@@ -246,19 +246,19 @@
             "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d2",
             "windowId": 2,
             "title": "Matrix Beta",
-            "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-im85Rw\\beta",
+            "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-sXApwu\\beta",
             "tabCount": 8,
-            "activeTabId": "28699da3-1523-4974-b5df-4e2b0d7d5bc3",
+            "activeTabId": "3e7a0667-8589-4f20-ad90-16c6591d6f8e",
             "allTabsResolveHere": true,
             "tabUrls": [
               "https://www.google.com/",
               "https://www.google.com/",
-              "http://127.0.0.1:53259/beta",
+              "http://127.0.0.1:57087/beta",
               "about:blank",
-              "http://127.0.0.1:53259/child",
-              "http://127.0.0.1:53259/agent-child?owner=first",
+              "http://127.0.0.1:57087/child",
+              "http://127.0.0.1:57087/agent-child?owner=first",
               "about:blank",
-              "http://127.0.0.1:53259/beta?owner=second"
+              "http://127.0.0.1:57087/beta?owner=second"
             ]
           },
           {
@@ -266,9 +266,9 @@
             "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d3",
             "windowId": 7,
             "title": "Matrix Gamma",
-            "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-im85Rw\\gamma",
+            "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-sXApwu\\gamma",
             "tabCount": 4,
-            "activeTabId": "065d19d5-3a81-4775-8826-be21f244acd5",
+            "activeTabId": "68416f86-0685-41a5-b0e2-a078269bf7f2",
             "allTabsResolveHere": true,
             "tabUrls": [
               "https://www.google.com/",
@@ -282,14 +282,14 @@
             "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d4",
             "windowId": 8,
             "title": "Matrix Storefront",
-            "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-im85Rw\\delta",
+            "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-sXApwu\\delta",
             "tabCount": 4,
-            "activeTabId": "17d79dd9-091c-45f3-8078-c6feef0f684d",
+            "activeTabId": "dbd98833-ea6f-4326-bcb9-326cfd16de4e",
             "allTabsResolveHere": true,
             "tabUrls": [
               "https://www.google.com/",
               "https://www.google.com/",
-              "http://127.0.0.1:53259/delta",
+              "http://127.0.0.1:57087/delta",
               "about:blank"
             ]
           },
@@ -298,14 +298,14 @@
             "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d5",
             "windowId": 9,
             "title": "Matrix Epsilon",
-            "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-im85Rw\\epsilon",
+            "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-sXApwu\\epsilon",
             "tabCount": 4,
-            "activeTabId": "a1d3489b-0835-47ff-bb93-544df67c9ffd",
+            "activeTabId": "7a211678-00a0-4b8d-8af0-16ca9f6cc11a",
             "allTabsResolveHere": true,
             "tabUrls": [
               "https://www.google.com/",
-              "https://www.google.com/sorry/index?continue=https://www.google.com/&q=EhAkBUgCkV7b4IjOLGxBeU8TGNnmn9YGIinBO-J0MIw-TfPvAa9TuHrPjpua1gJGxCyeVCkQ9XLtTUBBOrLOT6CmPTICclJaAUM",
-              "http://127.0.0.1:53259/alpha",
+              "https://www.google.com/sorry/index?continue=https://www.google.com/&q=EhAkBUgCkV7b4IjOLGxBeU8TGMuFoNYGIikWranO6gZ1MFSyjxFN4xR6jMINL9lJlu92AuzTjkf8wmGMc_-_GVL4mDICclJaAUM",
+              "http://127.0.0.1:57087/alpha",
               "about:blank"
             ]
           }
@@ -321,7 +321,7 @@
           {
             "ownerKey": "project:project-00000000-0000-4000-8000-0000000000d4",
             "title": "Matrix Storefront",
-            "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-im85Rw\\delta"
+            "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-sXApwu\\delta"
           }
         ],
         "detachResults": {
@@ -346,12 +346,12 @@
             "windowId": 6,
             "projectId": "unassigned",
             "tabIds": [
-              "e2875e43-d3b4-4cf8-a8c6-9176617f286e",
-              "208144d9-fcdf-4fd0-935a-91dc410ac1d8",
-              "9961cda1-35d8-460b-8a15-16f431960274",
-              "79103a03-59f3-42a5-aaa9-033745bf170c"
+              "0438cce4-319b-4537-8f50-0a47b5596c56",
+              "4733f36b-9c0b-453d-83af-ec77233a82f8",
+              "8ab9ea79-df8d-4cc4-8bd0-d774b2e91cd5",
+              "4c414c94-9cfd-4528-9d4d-1b298720f574"
             ],
-            "activeTabId": "79103a03-59f3-42a5-aaa9-033745bf170c",
+            "activeTabId": "4c414c94-9cfd-4528-9d4d-1b298720f574",
             "visible": true,
             "focused": true
           },
@@ -360,16 +360,16 @@
             "windowId": 2,
             "projectId": "project-00000000-0000-4000-8000-0000000000d2",
             "tabIds": [
-              "28699da3-1523-4974-b5df-4e2b0d7d5bc3",
-              "e5548808-bfe7-4f04-891a-db08aced7e97",
-              "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
-              "ccf2c14a-9c25-44d8-9065-628a27ebd8ef",
-              "835323ad-2762-40cd-bacb-a532cc308807",
-              "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
-              "3490b343-feb1-41d0-9267-70c2b8de71ff",
-              "7323ce77-fc99-47b4-a5d2-457518b47ecb"
+              "3e7a0667-8589-4f20-ad90-16c6591d6f8e",
+              "96807491-1542-4488-bef2-d69611515d52",
+              "ef5a7af1-29dc-46e7-825c-ff257ef55624",
+              "98ffcce6-9e66-4b3d-be31-16537af47ca4",
+              "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566",
+              "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
+              "21588130-f3be-479a-948b-110c17cb6c16",
+              "1889c55f-5496-44c8-a787-c75400ab434a"
             ],
-            "activeTabId": "28699da3-1523-4974-b5df-4e2b0d7d5bc3",
+            "activeTabId": "3e7a0667-8589-4f20-ad90-16c6591d6f8e",
             "visible": true,
             "focused": false
           },
@@ -378,12 +378,12 @@
             "windowId": 7,
             "projectId": "project-00000000-0000-4000-8000-0000000000d3",
             "tabIds": [
-              "84f4a842-9968-49eb-b832-c248ce92265d",
-              "008166af-dfcc-4961-acee-88d0b263b376",
-              "5ce96b2d-e4e6-4a92-8ecf-916bdda5a154",
-              "065d19d5-3a81-4775-8826-be21f244acd5"
+              "687ca264-1624-468c-a5ae-af5dbd0b880d",
+              "cc7645a7-c4ee-4179-b29c-93b764dc8561",
+              "60c4db74-7eed-4f9e-987c-1d62d9fb5c72",
+              "68416f86-0685-41a5-b0e2-a078269bf7f2"
             ],
-            "activeTabId": "065d19d5-3a81-4775-8826-be21f244acd5",
+            "activeTabId": "68416f86-0685-41a5-b0e2-a078269bf7f2",
             "visible": true,
             "focused": false
           },
@@ -392,12 +392,12 @@
             "windowId": 8,
             "projectId": "project-00000000-0000-4000-8000-0000000000d4",
             "tabIds": [
-              "b63330e0-0075-4b50-9ca8-03b08b0c99d6",
-              "7f4b2ee1-6ff7-471a-9a68-022a18f70c4b",
-              "68e2ef1c-def3-4a9d-bb45-949ae822958f",
-              "17d79dd9-091c-45f3-8078-c6feef0f684d"
+              "25a41384-a71d-4cf2-b017-606873b57600",
+              "8286e483-11da-44f2-8f4d-f0d8d2ae2ea0",
+              "1de3c700-522a-4d39-8212-63170f26d94a",
+              "dbd98833-ea6f-4326-bcb9-326cfd16de4e"
             ],
-            "activeTabId": "17d79dd9-091c-45f3-8078-c6feef0f684d",
+            "activeTabId": "dbd98833-ea6f-4326-bcb9-326cfd16de4e",
             "visible": true,
             "focused": false
           },
@@ -406,41 +406,41 @@
             "windowId": 9,
             "projectId": "project-00000000-0000-4000-8000-0000000000d5",
             "tabIds": [
-              "538995d3-9a67-4582-8fed-b20f65a4f35d",
-              "4ce3bd41-75d4-430a-b42a-043370146097",
-              "303e65f9-7c89-4b98-930c-ea5210e89b9d",
-              "a1d3489b-0835-47ff-bb93-544df67c9ffd"
+              "dbb6c675-0fd2-4da2-abd1-8d9b0498b472",
+              "5f7291e5-a5e3-4184-8d43-b6828b0f4af2",
+              "23c3a3e1-077c-4a3d-a736-a4e065c57c99",
+              "7a211678-00a0-4b8d-8af0-16ca9f6cc11a"
             ],
-            "activeTabId": "a1d3489b-0835-47ff-bb93-544df67c9ffd",
+            "activeTabId": "7a211678-00a0-4b8d-8af0-16ca9f6cc11a",
             "visible": true,
             "focused": false
           }
         ],
         "tabIds": [
-          "e2875e43-d3b4-4cf8-a8c6-9176617f286e",
-          "208144d9-fcdf-4fd0-935a-91dc410ac1d8",
-          "9961cda1-35d8-460b-8a15-16f431960274",
-          "79103a03-59f3-42a5-aaa9-033745bf170c",
-          "28699da3-1523-4974-b5df-4e2b0d7d5bc3",
-          "e5548808-bfe7-4f04-891a-db08aced7e97",
-          "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
-          "ccf2c14a-9c25-44d8-9065-628a27ebd8ef",
-          "835323ad-2762-40cd-bacb-a532cc308807",
-          "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
-          "3490b343-feb1-41d0-9267-70c2b8de71ff",
-          "7323ce77-fc99-47b4-a5d2-457518b47ecb",
-          "84f4a842-9968-49eb-b832-c248ce92265d",
-          "008166af-dfcc-4961-acee-88d0b263b376",
-          "5ce96b2d-e4e6-4a92-8ecf-916bdda5a154",
-          "065d19d5-3a81-4775-8826-be21f244acd5",
-          "b63330e0-0075-4b50-9ca8-03b08b0c99d6",
-          "7f4b2ee1-6ff7-471a-9a68-022a18f70c4b",
-          "68e2ef1c-def3-4a9d-bb45-949ae822958f",
-          "17d79dd9-091c-45f3-8078-c6feef0f684d",
-          "538995d3-9a67-4582-8fed-b20f65a4f35d",
-          "4ce3bd41-75d4-430a-b42a-043370146097",
-          "303e65f9-7c89-4b98-930c-ea5210e89b9d",
-          "a1d3489b-0835-47ff-bb93-544df67c9ffd"
+          "0438cce4-319b-4537-8f50-0a47b5596c56",
+          "4733f36b-9c0b-453d-83af-ec77233a82f8",
+          "8ab9ea79-df8d-4cc4-8bd0-d774b2e91cd5",
+          "4c414c94-9cfd-4528-9d4d-1b298720f574",
+          "3e7a0667-8589-4f20-ad90-16c6591d6f8e",
+          "96807491-1542-4488-bef2-d69611515d52",
+          "ef5a7af1-29dc-46e7-825c-ff257ef55624",
+          "98ffcce6-9e66-4b3d-be31-16537af47ca4",
+          "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566",
+          "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
+          "21588130-f3be-479a-948b-110c17cb6c16",
+          "1889c55f-5496-44c8-a787-c75400ab434a",
+          "687ca264-1624-468c-a5ae-af5dbd0b880d",
+          "cc7645a7-c4ee-4179-b29c-93b764dc8561",
+          "60c4db74-7eed-4f9e-987c-1d62d9fb5c72",
+          "68416f86-0685-41a5-b0e2-a078269bf7f2",
+          "25a41384-a71d-4cf2-b017-606873b57600",
+          "8286e483-11da-44f2-8f4d-f0d8d2ae2ea0",
+          "1de3c700-522a-4d39-8212-63170f26d94a",
+          "dbd98833-ea6f-4326-bcb9-326cfd16de4e",
+          "dbb6c675-0fd2-4da2-abd1-8d9b0498b472",
+          "5f7291e5-a5e3-4184-8d43-b6828b0f4af2",
+          "23c3a3e1-077c-4a3d-a736-a4e065c57c99",
+          "7a211678-00a0-4b8d-8af0-16ca9f6cc11a"
         ],
         "projectIds": [
           "project-00000000-0000-4000-8000-0000000000d1",
@@ -495,13 +495,13 @@
         "alphaVisible": true,
         "betaVisible": true,
         "alphaTabs": [
-          "2201a517-9999-4023-a23b-5d1bd42d0e7e",
-          "d87cfed6-ea80-412e-be07-51887750ae01",
-          "fafdb809-4537-451a-8770-11fe0057efa7"
+          "afb3bd4b-ad72-4262-82bc-a1628180e4c6",
+          "216d6941-8f07-4cfb-87b2-40ad696840e8",
+          "24ff42c4-41d3-4452-b37e-dc261d8ad974"
         ],
         "betaTabs": [
-          "28699da3-1523-4974-b5df-4e2b0d7d5bc3",
-          "e5548808-bfe7-4f04-891a-db08aced7e97"
+          "3e7a0667-8589-4f20-ad90-16c6591d6f8e",
+          "96807491-1542-4488-bef2-d69611515d52"
         ],
         "restoredA": {
           "status": "FOCUSED",
@@ -515,11 +515,11 @@
             "windowId": 1,
             "projectId": "unassigned",
             "tabIds": [
-              "2201a517-9999-4023-a23b-5d1bd42d0e7e",
-              "d87cfed6-ea80-412e-be07-51887750ae01",
-              "fafdb809-4537-451a-8770-11fe0057efa7"
+              "afb3bd4b-ad72-4262-82bc-a1628180e4c6",
+              "216d6941-8f07-4cfb-87b2-40ad696840e8",
+              "24ff42c4-41d3-4452-b37e-dc261d8ad974"
             ],
-            "activeTabId": "fafdb809-4537-451a-8770-11fe0057efa7",
+            "activeTabId": "24ff42c4-41d3-4452-b37e-dc261d8ad974",
             "visible": true,
             "focused": false
           },
@@ -528,10 +528,10 @@
             "windowId": 2,
             "projectId": "project-00000000-0000-4000-8000-0000000000d2",
             "tabIds": [
-              "28699da3-1523-4974-b5df-4e2b0d7d5bc3",
-              "e5548808-bfe7-4f04-891a-db08aced7e97"
+              "3e7a0667-8589-4f20-ad90-16c6591d6f8e",
+              "96807491-1542-4488-bef2-d69611515d52"
             ],
-            "activeTabId": "e5548808-bfe7-4f04-891a-db08aced7e97",
+            "activeTabId": "96807491-1542-4488-bef2-d69611515d52",
             "visible": true,
             "focused": true
           }
@@ -641,11 +641,11 @@
             "windowId": 1,
             "projectId": "unassigned",
             "tabIds": [
-              "2201a517-9999-4023-a23b-5d1bd42d0e7e",
-              "d87cfed6-ea80-412e-be07-51887750ae01",
-              "fafdb809-4537-451a-8770-11fe0057efa7"
+              "afb3bd4b-ad72-4262-82bc-a1628180e4c6",
+              "216d6941-8f07-4cfb-87b2-40ad696840e8",
+              "24ff42c4-41d3-4452-b37e-dc261d8ad974"
             ],
-            "activeTabId": "d87cfed6-ea80-412e-be07-51887750ae01",
+            "activeTabId": "216d6941-8f07-4cfb-87b2-40ad696840e8",
             "visible": true,
             "focused": true
           },
@@ -654,10 +654,10 @@
             "windowId": 2,
             "projectId": "project-00000000-0000-4000-8000-0000000000d2",
             "tabIds": [
-              "28699da3-1523-4974-b5df-4e2b0d7d5bc3",
-              "e5548808-bfe7-4f04-891a-db08aced7e97"
+              "3e7a0667-8589-4f20-ad90-16c6591d6f8e",
+              "96807491-1542-4488-bef2-d69611515d52"
             ],
-            "activeTabId": "e5548808-bfe7-4f04-891a-db08aced7e97",
+            "activeTabId": "96807491-1542-4488-bef2-d69611515d52",
             "visible": true,
             "focused": false
           }
@@ -677,9 +677,9 @@
           "code": null,
           "message": null,
           "data": {
-            "tabId": "709e0e5e-a20a-4562-add2-1ed0f4412f4a"
+            "tabId": "b29d0f43-451d-4f54-bac8-74cbbf93a5f3"
           },
-          "replacementAuthorityRevision": "rev_f8037d76177f0673b39e72dc66d5a889"
+          "replacementAuthorityRevision": "rev_41352b5a8d983f8b444ef391ac5f7cfe"
         },
         "navigatedFact": {
           "ok": true,
@@ -690,34 +690,34 @@
             "target": {
               "projectId": "project-00000000-0000-4000-8000-0000000000d2",
               "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
-              "runtimeId": "binding-ab0c4182-ff17-4acb-a68f-dd0a41cd955f",
-              "tabId": "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
+              "runtimeId": "binding-0c341544-8c6a-43d6-84da-3818dc279e36",
+              "tabId": "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
               "browserEpoch": 1,
               "documentGeneration": 2,
-              "url": "http://127.0.0.1:53259/agent-child?step=2"
+              "url": "http://127.0.0.1:57087/agent-child?step=2"
             }
           },
-          "replacementAuthorityRevision": "rev_1daead5b90eaef1a3dd7083f37fddaaf"
+          "replacementAuthorityRevision": "rev_57c0e2c8557e2440a45d8570f55dad47"
         },
-        "childTab": "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
-        "childUrl": "http://127.0.0.1:53259/agent-child?step=2",
-        "alphaUrl": "http://127.0.0.1:53259/alpha",
+        "childTab": "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
+        "childUrl": "http://127.0.0.1:57087/agent-child?step=2",
+        "alphaUrl": "http://127.0.0.1:57087/alpha",
         "foregroundBefore": 1,
         "foregroundAfter": 1,
         "foregroundNote": "the OS foreground reading is recorded evidence only in this row: whether a real user would keep typing is row R2-HW, which needs hardware/human observation",
-        "alphaActiveTabBefore": "d87cfed6-ea80-412e-be07-51887750ae01",
-        "alphaActiveTabAfter": "d87cfed6-ea80-412e-be07-51887750ae01",
+        "alphaActiveTabBefore": "216d6941-8f07-4cfb-87b2-40ad696840e8",
+        "alphaActiveTabAfter": "216d6941-8f07-4cfb-87b2-40ad696840e8",
         "alphaTerminalBefore": {
-          "cwd": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-im85Rw\\alpha",
+          "cwd": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-sXApwu\\alpha",
           "source": "window-workspace"
         },
         "alphaTerminalAfter": {
-          "cwd": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-im85Rw\\alpha",
+          "cwd": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-sXApwu\\alpha",
           "source": "window-workspace"
         },
-        "betaActiveTabBefore": "835323ad-2762-40cd-bacb-a532cc308807",
-        "betaActiveTabAfter": "835323ad-2762-40cd-bacb-a532cc308807",
-        "betaAnchorTab": "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27"
+        "betaActiveTabBefore": "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566",
+        "betaActiveTabAfter": "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566",
+        "betaAnchorTab": "ef5a7af1-29dc-46e7-825c-ff257ef55624"
       },
       "ids": {
         "windowIds": [
@@ -726,11 +726,11 @@
             "windowId": 1,
             "projectId": "unassigned",
             "tabIds": [
-              "2201a517-9999-4023-a23b-5d1bd42d0e7e",
-              "d87cfed6-ea80-412e-be07-51887750ae01",
-              "fafdb809-4537-451a-8770-11fe0057efa7"
+              "afb3bd4b-ad72-4262-82bc-a1628180e4c6",
+              "216d6941-8f07-4cfb-87b2-40ad696840e8",
+              "24ff42c4-41d3-4452-b37e-dc261d8ad974"
             ],
-            "activeTabId": "d87cfed6-ea80-412e-be07-51887750ae01",
+            "activeTabId": "216d6941-8f07-4cfb-87b2-40ad696840e8",
             "visible": true,
             "focused": true
           },
@@ -739,22 +739,22 @@
             "windowId": 2,
             "projectId": "project-00000000-0000-4000-8000-0000000000d2",
             "tabIds": [
-              "28699da3-1523-4974-b5df-4e2b0d7d5bc3",
-              "e5548808-bfe7-4f04-891a-db08aced7e97",
-              "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
-              "ccf2c14a-9c25-44d8-9065-628a27ebd8ef",
-              "835323ad-2762-40cd-bacb-a532cc308807",
-              "709e0e5e-a20a-4562-add2-1ed0f4412f4a"
+              "3e7a0667-8589-4f20-ad90-16c6591d6f8e",
+              "96807491-1542-4488-bef2-d69611515d52",
+              "ef5a7af1-29dc-46e7-825c-ff257ef55624",
+              "98ffcce6-9e66-4b3d-be31-16537af47ca4",
+              "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566",
+              "b29d0f43-451d-4f54-bac8-74cbbf93a5f3"
             ],
-            "activeTabId": "835323ad-2762-40cd-bacb-a532cc308807",
+            "activeTabId": "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566",
             "visible": true,
             "focused": false
           }
         ],
         "tabIds": [
-          "d87cfed6-ea80-412e-be07-51887750ae01",
-          "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
-          "709e0e5e-a20a-4562-add2-1ed0f4412f4a"
+          "216d6941-8f07-4cfb-87b2-40ad696840e8",
+          "ef5a7af1-29dc-46e7-825c-ff257ef55624",
+          "b29d0f43-451d-4f54-bac8-74cbbf93a5f3"
         ],
         "projectIds": [
           "project-00000000-0000-4000-8000-0000000000d1",
@@ -765,21 +765,21 @@
           "workspace-00000000-0000-4000-8000-0000000000d2"
         ],
         "attachmentRevisionBefore": {
-          "attachmentId": "attachment-b8ef037d-e97a-4408-918c-d16cb54c0ed9",
+          "attachmentId": "attachment-2b501f15-167a-4396-9632-be0d393b5740",
           "present": true,
-          "authorityRevision": "rev_edf2d54eb7333de472ea0e69cc7959e8",
+          "authorityRevision": "rev_9c3cd5d7ead076d65e410461290ba630",
           "revisionNumber": 1,
-          "tabId": "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
+          "tabId": "ef5a7af1-29dc-46e7-825c-ff257ef55624",
           "projectId": "project-00000000-0000-4000-8000-0000000000d2",
           "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
           "state": "active"
         },
         "attachmentRevisionAfter": {
-          "attachmentId": "attachment-b8ef037d-e97a-4408-918c-d16cb54c0ed9",
+          "attachmentId": "attachment-2b501f15-167a-4396-9632-be0d393b5740",
           "present": true,
-          "authorityRevision": "rev_1daead5b90eaef1a3dd7083f37fddaaf",
+          "authorityRevision": "rev_57c0e2c8557e2440a45d8570f55dad47",
           "revisionNumber": 3,
-          "tabId": "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
+          "tabId": "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
           "projectId": "project-00000000-0000-4000-8000-0000000000d2",
           "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
           "state": "active"
@@ -809,11 +809,11 @@
             "windowId": 1,
             "projectId": "unassigned",
             "tabIds": [
-              "2201a517-9999-4023-a23b-5d1bd42d0e7e",
-              "d87cfed6-ea80-412e-be07-51887750ae01",
-              "fafdb809-4537-451a-8770-11fe0057efa7"
+              "afb3bd4b-ad72-4262-82bc-a1628180e4c6",
+              "216d6941-8f07-4cfb-87b2-40ad696840e8",
+              "24ff42c4-41d3-4452-b37e-dc261d8ad974"
             ],
-            "activeTabId": "d87cfed6-ea80-412e-be07-51887750ae01",
+            "activeTabId": "216d6941-8f07-4cfb-87b2-40ad696840e8",
             "visible": true,
             "focused": true
           },
@@ -822,14 +822,14 @@
             "windowId": 2,
             "projectId": "project-00000000-0000-4000-8000-0000000000d2",
             "tabIds": [
-              "28699da3-1523-4974-b5df-4e2b0d7d5bc3",
-              "e5548808-bfe7-4f04-891a-db08aced7e97",
-              "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
-              "ccf2c14a-9c25-44d8-9065-628a27ebd8ef",
-              "835323ad-2762-40cd-bacb-a532cc308807",
-              "709e0e5e-a20a-4562-add2-1ed0f4412f4a"
+              "3e7a0667-8589-4f20-ad90-16c6591d6f8e",
+              "96807491-1542-4488-bef2-d69611515d52",
+              "ef5a7af1-29dc-46e7-825c-ff257ef55624",
+              "98ffcce6-9e66-4b3d-be31-16537af47ca4",
+              "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566",
+              "b29d0f43-451d-4f54-bac8-74cbbf93a5f3"
             ],
-            "activeTabId": "835323ad-2762-40cd-bacb-a532cc308807",
+            "activeTabId": "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566",
             "visible": true,
             "focused": false
           }
@@ -891,11 +891,11 @@
             "windowId": 1,
             "projectId": "unassigned",
             "tabIds": [
-              "2201a517-9999-4023-a23b-5d1bd42d0e7e",
-              "d87cfed6-ea80-412e-be07-51887750ae01",
-              "fafdb809-4537-451a-8770-11fe0057efa7"
+              "afb3bd4b-ad72-4262-82bc-a1628180e4c6",
+              "216d6941-8f07-4cfb-87b2-40ad696840e8",
+              "24ff42c4-41d3-4452-b37e-dc261d8ad974"
             ],
-            "activeTabId": "d87cfed6-ea80-412e-be07-51887750ae01",
+            "activeTabId": "216d6941-8f07-4cfb-87b2-40ad696840e8",
             "visible": true,
             "focused": true
           },
@@ -904,14 +904,14 @@
             "windowId": 2,
             "projectId": "project-00000000-0000-4000-8000-0000000000d2",
             "tabIds": [
-              "28699da3-1523-4974-b5df-4e2b0d7d5bc3",
-              "e5548808-bfe7-4f04-891a-db08aced7e97",
-              "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
-              "ccf2c14a-9c25-44d8-9065-628a27ebd8ef",
-              "835323ad-2762-40cd-bacb-a532cc308807",
-              "709e0e5e-a20a-4562-add2-1ed0f4412f4a"
+              "3e7a0667-8589-4f20-ad90-16c6591d6f8e",
+              "96807491-1542-4488-bef2-d69611515d52",
+              "ef5a7af1-29dc-46e7-825c-ff257ef55624",
+              "98ffcce6-9e66-4b3d-be31-16537af47ca4",
+              "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566",
+              "b29d0f43-451d-4f54-bac8-74cbbf93a5f3"
             ],
-            "activeTabId": "835323ad-2762-40cd-bacb-a532cc308807",
+            "activeTabId": "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566",
             "visible": true,
             "focused": false
           }
@@ -939,18 +939,18 @@
         "mintedA": "terminal-5",
         "mintedA2": "terminal-6",
         "mintedB": "terminal-3",
-        "cwdA": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-im85Rw\\alpha",
-        "cwdA2": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-im85Rw\\alpha",
-        "cwdB": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-im85Rw\\beta",
-        "proxyCachedCwdBeforeA": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-im85Rw\\beta",
+        "cwdA": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-sXApwu\\alpha",
+        "cwdA2": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-sXApwu\\alpha",
+        "cwdB": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-sXApwu\\beta",
+        "proxyCachedCwdBeforeA": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-sXApwu\\beta",
         "proxyCachedCwdWasAnotherWindows": true,
-        "workspacePathA": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-im85Rw\\alpha",
-        "workspacePathB": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-im85Rw\\beta",
+        "workspacePathA": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-sXApwu\\alpha",
+        "workspacePathB": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-sXApwu\\beta",
         "workspaceFormsA": [
-          "c:\\users\\admin\\appdata\\local\\temp\\antifan-pw-matrix-im85rw\\alpha"
+          "c:\\users\\admin\\appdata\\local\\temp\\antifan-pw-matrix-sxapwu\\alpha"
         ],
         "workspaceFormsB": [
-          "c:\\users\\admin\\appdata\\local\\temp\\antifan-pw-matrix-im85rw\\beta"
+          "c:\\users\\admin\\appdata\\local\\temp\\antifan-pw-matrix-sxapwu\\beta"
         ],
         "capsuleA": "capsule-matrix-alpha",
         "capsuleA2": "capsule-matrix-alpha",
@@ -975,11 +975,11 @@
             "windowId": 1,
             "projectId": "unassigned",
             "tabIds": [
-              "2201a517-9999-4023-a23b-5d1bd42d0e7e",
-              "d87cfed6-ea80-412e-be07-51887750ae01",
-              "fafdb809-4537-451a-8770-11fe0057efa7"
+              "afb3bd4b-ad72-4262-82bc-a1628180e4c6",
+              "216d6941-8f07-4cfb-87b2-40ad696840e8",
+              "24ff42c4-41d3-4452-b37e-dc261d8ad974"
             ],
-            "activeTabId": "d87cfed6-ea80-412e-be07-51887750ae01",
+            "activeTabId": "216d6941-8f07-4cfb-87b2-40ad696840e8",
             "visible": true,
             "focused": true
           },
@@ -988,14 +988,14 @@
             "windowId": 2,
             "projectId": "project-00000000-0000-4000-8000-0000000000d2",
             "tabIds": [
-              "28699da3-1523-4974-b5df-4e2b0d7d5bc3",
-              "e5548808-bfe7-4f04-891a-db08aced7e97",
-              "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
-              "ccf2c14a-9c25-44d8-9065-628a27ebd8ef",
-              "835323ad-2762-40cd-bacb-a532cc308807",
-              "709e0e5e-a20a-4562-add2-1ed0f4412f4a"
+              "3e7a0667-8589-4f20-ad90-16c6591d6f8e",
+              "96807491-1542-4488-bef2-d69611515d52",
+              "ef5a7af1-29dc-46e7-825c-ff257ef55624",
+              "98ffcce6-9e66-4b3d-be31-16537af47ca4",
+              "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566",
+              "b29d0f43-451d-4f54-bac8-74cbbf93a5f3"
             ],
-            "activeTabId": "835323ad-2762-40cd-bacb-a532cc308807",
+            "activeTabId": "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566",
             "visible": true,
             "focused": false
           }
@@ -1037,14 +1037,14 @@
                 "target": {
                   "projectId": "project-00000000-0000-4000-8000-0000000000d2",
                   "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
-                  "runtimeId": "binding-ab0c4182-ff17-4acb-a68f-dd0a41cd955f",
-                  "tabId": "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
+                  "runtimeId": "binding-0c341544-8c6a-43d6-84da-3818dc279e36",
+                  "tabId": "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
                   "browserEpoch": 1,
                   "documentGeneration": 3,
-                  "url": "http://127.0.0.1:53259/agent-child?step=3"
+                  "url": "http://127.0.0.1:57087/agent-child?step=3"
                 }
               },
-              "replacementAuthorityRevision": "rev_0a3f478a0503092c2735707edbf91983"
+              "replacementAuthorityRevision": "rev_0c7b5f6d5ac0ce33be9217c862fe43af"
             }
           },
           {
@@ -1058,14 +1058,14 @@
                 "target": {
                   "projectId": "project-00000000-0000-4000-8000-0000000000d2",
                   "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
-                  "runtimeId": "binding-ab0c4182-ff17-4acb-a68f-dd0a41cd955f",
-                  "tabId": "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
+                  "runtimeId": "binding-0c341544-8c6a-43d6-84da-3818dc279e36",
+                  "tabId": "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
                   "browserEpoch": 1,
                   "documentGeneration": 4,
-                  "url": "http://127.0.0.1:53259/agent-child?step=4"
+                  "url": "http://127.0.0.1:57087/agent-child?step=4"
                 }
               },
-              "replacementAuthorityRevision": "rev_6e75fec9c7fdf5c528dc94ab9722c59e"
+              "replacementAuthorityRevision": "rev_ae68505d5e1c03111041ec30614f38d8"
             }
           },
           {
@@ -1073,68 +1073,68 @@
             "result": {
               "ok": false,
               "code": "TARGET_MISMATCH",
-              "message": "Tab ID mismatch: expected 709e0e5e-a20a-4562-add2-1ed0f4412f4a, got d87cfed6-ea80-412e-be07-51887750ae01. Note: In split review mode, use the bound tabId with paneId: \"mobile\" to target the mobile pane.",
+              "message": "Tab ID mismatch: expected b29d0f43-451d-4f54-bac8-74cbbf93a5f3, got 216d6941-8f07-4cfb-87b2-40ad696840e8. Note: In split review mode, use the bound tabId with paneId: \"mobile\" to target the mobile pane.",
               "data": null,
               "replacementAuthorityRevision": null
             }
           }
         ],
-        "childUrl": "http://127.0.0.1:53259/agent-child?step=4",
-        "alphaUrlBefore": "http://127.0.0.1:53259/alpha",
-        "alphaUrlAfter": "http://127.0.0.1:53259/alpha",
+        "childUrl": "http://127.0.0.1:57087/agent-child?step=4",
+        "alphaUrlBefore": "http://127.0.0.1:57087/alpha",
+        "alphaUrlAfter": "http://127.0.0.1:57087/alpha",
         "revisionBefore": {
-          "attachmentId": "attachment-b8ef037d-e97a-4408-918c-d16cb54c0ed9",
+          "attachmentId": "attachment-2b501f15-167a-4396-9632-be0d393b5740",
           "present": true,
-          "authorityRevision": "rev_1daead5b90eaef1a3dd7083f37fddaaf",
+          "authorityRevision": "rev_57c0e2c8557e2440a45d8570f55dad47",
           "revisionNumber": 3,
-          "tabId": "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
+          "tabId": "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
           "projectId": "project-00000000-0000-4000-8000-0000000000d2",
           "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
           "state": "active"
         },
         "revisionAfterWindowOps": {
-          "attachmentId": "attachment-b8ef037d-e97a-4408-918c-d16cb54c0ed9",
+          "attachmentId": "attachment-2b501f15-167a-4396-9632-be0d393b5740",
           "present": true,
-          "authorityRevision": "rev_1daead5b90eaef1a3dd7083f37fddaaf",
+          "authorityRevision": "rev_57c0e2c8557e2440a45d8570f55dad47",
           "revisionNumber": 3,
-          "tabId": "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
+          "tabId": "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
           "projectId": "project-00000000-0000-4000-8000-0000000000d2",
           "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
           "state": "active"
         },
         "revisionAfterMinimizedDispatch": {
-          "attachmentId": "attachment-b8ef037d-e97a-4408-918c-d16cb54c0ed9",
+          "attachmentId": "attachment-2b501f15-167a-4396-9632-be0d393b5740",
           "present": true,
-          "authorityRevision": "rev_0a3f478a0503092c2735707edbf91983",
+          "authorityRevision": "rev_0c7b5f6d5ac0ce33be9217c862fe43af",
           "revisionNumber": 4,
-          "tabId": "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
+          "tabId": "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
           "projectId": "project-00000000-0000-4000-8000-0000000000d2",
           "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
           "state": "active"
         },
         "revisionAfterRestore": {
-          "attachmentId": "attachment-b8ef037d-e97a-4408-918c-d16cb54c0ed9",
+          "attachmentId": "attachment-2b501f15-167a-4396-9632-be0d393b5740",
           "present": true,
-          "authorityRevision": "rev_0a3f478a0503092c2735707edbf91983",
+          "authorityRevision": "rev_0c7b5f6d5ac0ce33be9217c862fe43af",
           "revisionNumber": 4,
-          "tabId": "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
+          "tabId": "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
           "projectId": "project-00000000-0000-4000-8000-0000000000d2",
           "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
           "state": "active"
         },
         "revisionAfter": {
-          "attachmentId": "attachment-b8ef037d-e97a-4408-918c-d16cb54c0ed9",
+          "attachmentId": "attachment-2b501f15-167a-4396-9632-be0d393b5740",
           "present": true,
-          "authorityRevision": "rev_6e75fec9c7fdf5c528dc94ab9722c59e",
+          "authorityRevision": "rev_ae68505d5e1c03111041ec30614f38d8",
           "revisionNumber": 5,
-          "tabId": "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
+          "tabId": "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
           "projectId": "project-00000000-0000-4000-8000-0000000000d2",
           "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
           "state": "active"
         },
-        "betaActiveTabBefore": "835323ad-2762-40cd-bacb-a532cc308807",
-        "betaActiveTab": "835323ad-2762-40cd-bacb-a532cc308807",
-        "betaAnchorTab": "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27"
+        "betaActiveTabBefore": "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566",
+        "betaActiveTab": "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566",
+        "betaAnchorTab": "ef5a7af1-29dc-46e7-825c-ff257ef55624"
       },
       "ids": {
         "windowIds": [
@@ -1143,11 +1143,11 @@
             "windowId": 1,
             "projectId": "unassigned",
             "tabIds": [
-              "2201a517-9999-4023-a23b-5d1bd42d0e7e",
-              "d87cfed6-ea80-412e-be07-51887750ae01",
-              "fafdb809-4537-451a-8770-11fe0057efa7"
+              "afb3bd4b-ad72-4262-82bc-a1628180e4c6",
+              "216d6941-8f07-4cfb-87b2-40ad696840e8",
+              "24ff42c4-41d3-4452-b37e-dc261d8ad974"
             ],
-            "activeTabId": "d87cfed6-ea80-412e-be07-51887750ae01",
+            "activeTabId": "216d6941-8f07-4cfb-87b2-40ad696840e8",
             "visible": true,
             "focused": false
           },
@@ -1156,39 +1156,39 @@
             "windowId": 2,
             "projectId": "project-00000000-0000-4000-8000-0000000000d2",
             "tabIds": [
-              "28699da3-1523-4974-b5df-4e2b0d7d5bc3",
-              "e5548808-bfe7-4f04-891a-db08aced7e97",
-              "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
-              "ccf2c14a-9c25-44d8-9065-628a27ebd8ef",
-              "835323ad-2762-40cd-bacb-a532cc308807",
-              "709e0e5e-a20a-4562-add2-1ed0f4412f4a"
+              "3e7a0667-8589-4f20-ad90-16c6591d6f8e",
+              "96807491-1542-4488-bef2-d69611515d52",
+              "ef5a7af1-29dc-46e7-825c-ff257ef55624",
+              "98ffcce6-9e66-4b3d-be31-16537af47ca4",
+              "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566",
+              "b29d0f43-451d-4f54-bac8-74cbbf93a5f3"
             ],
-            "activeTabId": "835323ad-2762-40cd-bacb-a532cc308807",
+            "activeTabId": "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566",
             "visible": true,
             "focused": true
           }
         ],
         "tabIds": [
-          "d87cfed6-ea80-412e-be07-51887750ae01",
-          "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
-          "709e0e5e-a20a-4562-add2-1ed0f4412f4a"
+          "216d6941-8f07-4cfb-87b2-40ad696840e8",
+          "ef5a7af1-29dc-46e7-825c-ff257ef55624",
+          "b29d0f43-451d-4f54-bac8-74cbbf93a5f3"
         ],
         "attachmentRevisionBefore": {
-          "attachmentId": "attachment-b8ef037d-e97a-4408-918c-d16cb54c0ed9",
+          "attachmentId": "attachment-2b501f15-167a-4396-9632-be0d393b5740",
           "present": true,
-          "authorityRevision": "rev_1daead5b90eaef1a3dd7083f37fddaaf",
+          "authorityRevision": "rev_57c0e2c8557e2440a45d8570f55dad47",
           "revisionNumber": 3,
-          "tabId": "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
+          "tabId": "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
           "projectId": "project-00000000-0000-4000-8000-0000000000d2",
           "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
           "state": "active"
         },
         "attachmentRevisionAfter": {
-          "attachmentId": "attachment-b8ef037d-e97a-4408-918c-d16cb54c0ed9",
+          "attachmentId": "attachment-2b501f15-167a-4396-9632-be0d393b5740",
           "present": true,
-          "authorityRevision": "rev_6e75fec9c7fdf5c528dc94ab9722c59e",
+          "authorityRevision": "rev_ae68505d5e1c03111041ec30614f38d8",
           "revisionNumber": 5,
-          "tabId": "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
+          "tabId": "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
           "projectId": "project-00000000-0000-4000-8000-0000000000d2",
           "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
           "state": "active"
@@ -1206,38 +1206,38 @@
         "crossWindowRefusal": {
           "ok": false,
           "code": "TARGET_MISMATCH",
-          "message": "Tab ID mismatch: expected 709e0e5e-a20a-4562-add2-1ed0f4412f4a, got d87cfed6-ea80-412e-be07-51887750ae01. Note: In split review mode, use the bound tabId with paneId: \"mobile\" to target the mobile pane.",
+          "message": "Tab ID mismatch: expected b29d0f43-451d-4f54-bac8-74cbbf93a5f3, got 216d6941-8f07-4cfb-87b2-40ad696840e8. Note: In split review mode, use the bound tabId with paneId: \"mobile\" to target the mobile pane.",
           "data": null,
           "replacementAuthorityRevision": null
         },
         "sameWindowOtherSessionRefusal": {
           "ok": false,
           "code": "TARGET_MISMATCH",
-          "message": "Tab ID mismatch: expected 709e0e5e-a20a-4562-add2-1ed0f4412f4a, got 3490b343-feb1-41d0-9267-70c2b8de71ff. Note: In split review mode, use the bound tabId with paneId: \"mobile\" to target the mobile pane.",
+          "message": "Tab ID mismatch: expected b29d0f43-451d-4f54-bac8-74cbbf93a5f3, got 21588130-f3be-479a-948b-110c17cb6c16. Note: In split review mode, use the bound tabId with paneId: \"mobile\" to target the mobile pane.",
           "data": null,
           "replacementAuthorityRevision": null
         },
-        "alphaUrlBefore": "http://127.0.0.1:53259/alpha",
-        "alphaUrlAfter": "http://127.0.0.1:53259/alpha",
-        "alphaActiveBefore": "d87cfed6-ea80-412e-be07-51887750ae01",
-        "alphaActiveAfter": "d87cfed6-ea80-412e-be07-51887750ae01",
+        "alphaUrlBefore": "http://127.0.0.1:57087/alpha",
+        "alphaUrlAfter": "http://127.0.0.1:57087/alpha",
+        "alphaActiveBefore": "216d6941-8f07-4cfb-87b2-40ad696840e8",
+        "alphaActiveAfter": "216d6941-8f07-4cfb-87b2-40ad696840e8",
         "betaTabsBefore": [
-          "28699da3-1523-4974-b5df-4e2b0d7d5bc3",
-          "e5548808-bfe7-4f04-891a-db08aced7e97",
-          "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
-          "ccf2c14a-9c25-44d8-9065-628a27ebd8ef",
-          "835323ad-2762-40cd-bacb-a532cc308807",
-          "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
-          "3490b343-feb1-41d0-9267-70c2b8de71ff"
+          "3e7a0667-8589-4f20-ad90-16c6591d6f8e",
+          "96807491-1542-4488-bef2-d69611515d52",
+          "ef5a7af1-29dc-46e7-825c-ff257ef55624",
+          "98ffcce6-9e66-4b3d-be31-16537af47ca4",
+          "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566",
+          "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
+          "21588130-f3be-479a-948b-110c17cb6c16"
         ],
         "betaTabsAfter": [
-          "28699da3-1523-4974-b5df-4e2b0d7d5bc3",
-          "e5548808-bfe7-4f04-891a-db08aced7e97",
-          "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
-          "ccf2c14a-9c25-44d8-9065-628a27ebd8ef",
-          "835323ad-2762-40cd-bacb-a532cc308807",
-          "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
-          "3490b343-feb1-41d0-9267-70c2b8de71ff"
+          "3e7a0667-8589-4f20-ad90-16c6591d6f8e",
+          "96807491-1542-4488-bef2-d69611515d52",
+          "ef5a7af1-29dc-46e7-825c-ff257ef55624",
+          "98ffcce6-9e66-4b3d-be31-16537af47ca4",
+          "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566",
+          "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
+          "21588130-f3be-479a-948b-110c17cb6c16"
         ]
       },
       "ids": {
@@ -1247,11 +1247,11 @@
             "windowId": 1,
             "projectId": "unassigned",
             "tabIds": [
-              "2201a517-9999-4023-a23b-5d1bd42d0e7e",
-              "d87cfed6-ea80-412e-be07-51887750ae01",
-              "fafdb809-4537-451a-8770-11fe0057efa7"
+              "afb3bd4b-ad72-4262-82bc-a1628180e4c6",
+              "216d6941-8f07-4cfb-87b2-40ad696840e8",
+              "24ff42c4-41d3-4452-b37e-dc261d8ad974"
             ],
-            "activeTabId": "d87cfed6-ea80-412e-be07-51887750ae01",
+            "activeTabId": "216d6941-8f07-4cfb-87b2-40ad696840e8",
             "visible": true,
             "focused": false
           },
@@ -1260,41 +1260,41 @@
             "windowId": 2,
             "projectId": "project-00000000-0000-4000-8000-0000000000d2",
             "tabIds": [
-              "28699da3-1523-4974-b5df-4e2b0d7d5bc3",
-              "e5548808-bfe7-4f04-891a-db08aced7e97",
-              "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
-              "ccf2c14a-9c25-44d8-9065-628a27ebd8ef",
-              "835323ad-2762-40cd-bacb-a532cc308807",
-              "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
-              "3490b343-feb1-41d0-9267-70c2b8de71ff"
+              "3e7a0667-8589-4f20-ad90-16c6591d6f8e",
+              "96807491-1542-4488-bef2-d69611515d52",
+              "ef5a7af1-29dc-46e7-825c-ff257ef55624",
+              "98ffcce6-9e66-4b3d-be31-16537af47ca4",
+              "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566",
+              "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
+              "21588130-f3be-479a-948b-110c17cb6c16"
             ],
-            "activeTabId": "835323ad-2762-40cd-bacb-a532cc308807",
+            "activeTabId": "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566",
             "visible": true,
             "focused": true
           }
         ],
         "tabIds": [
-          "d87cfed6-ea80-412e-be07-51887750ae01",
-          "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
-          "3490b343-feb1-41d0-9267-70c2b8de71ff",
-          "709e0e5e-a20a-4562-add2-1ed0f4412f4a"
+          "216d6941-8f07-4cfb-87b2-40ad696840e8",
+          "ef5a7af1-29dc-46e7-825c-ff257ef55624",
+          "21588130-f3be-479a-948b-110c17cb6c16",
+          "b29d0f43-451d-4f54-bac8-74cbbf93a5f3"
         ],
         "attachmentRevisionBefore": {
-          "attachmentId": "attachment-b8ef037d-e97a-4408-918c-d16cb54c0ed9",
+          "attachmentId": "attachment-2b501f15-167a-4396-9632-be0d393b5740",
           "present": true,
-          "authorityRevision": "rev_6e75fec9c7fdf5c528dc94ab9722c59e",
+          "authorityRevision": "rev_ae68505d5e1c03111041ec30614f38d8",
           "revisionNumber": 5,
-          "tabId": "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
+          "tabId": "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
           "projectId": "project-00000000-0000-4000-8000-0000000000d2",
           "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
           "state": "active"
         },
         "attachmentRevisionAfter": {
-          "attachmentId": "attachment-b8ef037d-e97a-4408-918c-d16cb54c0ed9",
+          "attachmentId": "attachment-2b501f15-167a-4396-9632-be0d393b5740",
           "present": true,
-          "authorityRevision": "rev_6e75fec9c7fdf5c528dc94ab9722c59e",
+          "authorityRevision": "rev_ae68505d5e1c03111041ec30614f38d8",
           "revisionNumber": 5,
-          "tabId": "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
+          "tabId": "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
           "projectId": "project-00000000-0000-4000-8000-0000000000d2",
           "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
           "state": "active"
@@ -1312,8 +1312,8 @@
         "sharedProject": "project-00000000-0000-4000-8000-0000000000d2",
         "sessions": [
           {
-            "attachmentId": "attachment-b8ef037d-e97a-4408-918c-d16cb54c0ed9",
-            "tabId": "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
+            "attachmentId": "attachment-2b501f15-167a-4396-9632-be0d393b5740",
+            "tabId": "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
             "own": {
               "ok": true,
               "code": null,
@@ -1323,26 +1323,26 @@
                 "target": {
                   "projectId": "project-00000000-0000-4000-8000-0000000000d2",
                   "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
-                  "runtimeId": "binding-ab0c4182-ff17-4acb-a68f-dd0a41cd955f",
-                  "tabId": "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
+                  "runtimeId": "binding-0c341544-8c6a-43d6-84da-3818dc279e36",
+                  "tabId": "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
                   "browserEpoch": 1,
                   "documentGeneration": 5,
-                  "url": "http://127.0.0.1:53259/agent-child?owner=first"
+                  "url": "http://127.0.0.1:57087/agent-child?owner=first"
                 }
               },
-              "replacementAuthorityRevision": "rev_dfa135712a65c649d0528f96d50567b6"
+              "replacementAuthorityRevision": "rev_d0d4fd00426ecb8b2b618e4ce6bc3cc4"
             },
             "onOtherSessionTab": {
               "ok": false,
               "code": "TARGET_MISMATCH",
-              "message": "Tab ID mismatch: expected 709e0e5e-a20a-4562-add2-1ed0f4412f4a, got 7323ce77-fc99-47b4-a5d2-457518b47ecb. Note: In split review mode, use the bound tabId with paneId: \"mobile\" to target the mobile pane.",
+              "message": "Tab ID mismatch: expected b29d0f43-451d-4f54-bac8-74cbbf93a5f3, got 1889c55f-5496-44c8-a787-c75400ab434a. Note: In split review mode, use the bound tabId with paneId: \"mobile\" to target the mobile pane.",
               "data": null,
               "replacementAuthorityRevision": null
             }
           },
           {
-            "attachmentId": "attachment-b8e119c9-ede9-4e94-8f5c-d498cca754e4",
-            "tabId": "7323ce77-fc99-47b4-a5d2-457518b47ecb",
+            "attachmentId": "attachment-1e79b1a3-2319-4b08-ae03-0ba992ae49fb",
+            "tabId": "1889c55f-5496-44c8-a787-c75400ab434a",
             "own": {
               "ok": true,
               "code": null,
@@ -1352,28 +1352,28 @@
                 "target": {
                   "projectId": "project-00000000-0000-4000-8000-0000000000d2",
                   "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
-                  "runtimeId": "binding-ab0c4182-ff17-4acb-a68f-dd0a41cd955f",
-                  "tabId": "7323ce77-fc99-47b4-a5d2-457518b47ecb",
+                  "runtimeId": "binding-0c341544-8c6a-43d6-84da-3818dc279e36",
+                  "tabId": "1889c55f-5496-44c8-a787-c75400ab434a",
                   "browserEpoch": 1,
                   "documentGeneration": 2,
-                  "url": "http://127.0.0.1:53259/beta?owner=second"
+                  "url": "http://127.0.0.1:57087/beta?owner=second"
                 }
               },
-              "replacementAuthorityRevision": "rev_75b5483f4885d780a80b8df85b777d3b"
+              "replacementAuthorityRevision": "rev_c3e3a627baca2520215f9c98c4ad1282"
             },
             "onOtherSessionTab": {
               "ok": false,
               "code": "TARGET_MISMATCH",
-              "message": "Tab ID mismatch: expected 7323ce77-fc99-47b4-a5d2-457518b47ecb, got 709e0e5e-a20a-4562-add2-1ed0f4412f4a. Note: In split review mode, use the bound tabId with paneId: \"mobile\" to target the mobile pane.",
+              "message": "Tab ID mismatch: expected 1889c55f-5496-44c8-a787-c75400ab434a, got b29d0f43-451d-4f54-bac8-74cbbf93a5f3. Note: In split review mode, use the bound tabId with paneId: \"mobile\" to target the mobile pane.",
               "data": null,
               "replacementAuthorityRevision": null
             }
           }
         ],
-        "firstUrlBefore": "http://127.0.0.1:53259/agent-child?step=4",
-        "firstUrlAfter": "http://127.0.0.1:53259/agent-child?owner=first",
-        "secondUrlBefore": "http://127.0.0.1:53259/agent-child?session=two",
-        "secondUrlAfter": "http://127.0.0.1:53259/beta?owner=second"
+        "firstUrlBefore": "http://127.0.0.1:57087/agent-child?step=4",
+        "firstUrlAfter": "http://127.0.0.1:57087/agent-child?owner=first",
+        "secondUrlBefore": "http://127.0.0.1:57087/agent-child?session=two",
+        "secondUrlAfter": "http://127.0.0.1:57087/beta?owner=second"
       },
       "ids": {
         "windowIds": [
@@ -1382,23 +1382,23 @@
             "windowId": 2,
             "projectId": "project-00000000-0000-4000-8000-0000000000d2",
             "tabIds": [
-              "28699da3-1523-4974-b5df-4e2b0d7d5bc3",
-              "e5548808-bfe7-4f04-891a-db08aced7e97",
-              "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
-              "ccf2c14a-9c25-44d8-9065-628a27ebd8ef",
-              "835323ad-2762-40cd-bacb-a532cc308807",
-              "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
-              "3490b343-feb1-41d0-9267-70c2b8de71ff",
-              "7323ce77-fc99-47b4-a5d2-457518b47ecb"
+              "3e7a0667-8589-4f20-ad90-16c6591d6f8e",
+              "96807491-1542-4488-bef2-d69611515d52",
+              "ef5a7af1-29dc-46e7-825c-ff257ef55624",
+              "98ffcce6-9e66-4b3d-be31-16537af47ca4",
+              "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566",
+              "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
+              "21588130-f3be-479a-948b-110c17cb6c16",
+              "1889c55f-5496-44c8-a787-c75400ab434a"
             ],
-            "activeTabId": "835323ad-2762-40cd-bacb-a532cc308807",
+            "activeTabId": "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566",
             "visible": true,
             "focused": true
           }
         ],
         "tabIds": [
-          "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
-          "7323ce77-fc99-47b4-a5d2-457518b47ecb"
+          "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
+          "1889c55f-5496-44c8-a787-c75400ab434a"
         ],
         "projectIds": [
           "project-00000000-0000-4000-8000-0000000000d2"
@@ -1407,21 +1407,21 @@
           "workspace-00000000-0000-4000-8000-0000000000d2"
         ],
         "attachmentRevisionBefore": {
-          "attachmentId": "attachment-b8ef037d-e97a-4408-918c-d16cb54c0ed9",
+          "attachmentId": "attachment-2b501f15-167a-4396-9632-be0d393b5740",
           "present": true,
-          "authorityRevision": "rev_dfa135712a65c649d0528f96d50567b6",
+          "authorityRevision": "rev_d0d4fd00426ecb8b2b618e4ce6bc3cc4",
           "revisionNumber": 6,
-          "tabId": "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
+          "tabId": "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
           "projectId": "project-00000000-0000-4000-8000-0000000000d2",
           "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
           "state": "active"
         },
         "attachmentRevisionAfter": {
-          "attachmentId": "attachment-b8ef037d-e97a-4408-918c-d16cb54c0ed9",
+          "attachmentId": "attachment-2b501f15-167a-4396-9632-be0d393b5740",
           "present": true,
-          "authorityRevision": "rev_dfa135712a65c649d0528f96d50567b6",
+          "authorityRevision": "rev_d0d4fd00426ecb8b2b618e4ce6bc3cc4",
           "revisionNumber": 6,
-          "tabId": "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
+          "tabId": "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
           "projectId": "project-00000000-0000-4000-8000-0000000000d2",
           "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
           "state": "active"
@@ -1435,8 +1435,8 @@
       "status": "PASS",
       "observed": {
         "record": {
-          "tabId": "d87cfed6-ea80-412e-be07-51887750ae01",
-          "url": "http://127.0.0.1:53259/alpha",
+          "tabId": "216d6941-8f07-4cfb-87b2-40ad696840e8",
+          "url": "http://127.0.0.1:57087/alpha",
           "title": "Matrix Alpha Page",
           "capsuleId": "capsule-matrix-alpha",
           "partition": "persist:profile-default",
@@ -1450,8 +1450,8 @@
         },
         "windowOwnerKey": "web",
         "persistedUnderOwner": [
-          "2201a517-9999-4023-a23b-5d1bd42d0e7e",
-          "d87cfed6-ea80-412e-be07-51887750ae01"
+          "afb3bd4b-ad72-4262-82bc-a1628180e4c6",
+          "216d6941-8f07-4cfb-87b2-40ad696840e8"
         ],
         "ownersClaimingTheTab": [],
         "savedTabsVersion": 2,
@@ -1469,16 +1469,16 @@
             "windowId": 1,
             "projectId": "unassigned",
             "tabIds": [
-              "2201a517-9999-4023-a23b-5d1bd42d0e7e",
-              "d87cfed6-ea80-412e-be07-51887750ae01"
+              "afb3bd4b-ad72-4262-82bc-a1628180e4c6",
+              "216d6941-8f07-4cfb-87b2-40ad696840e8"
             ],
-            "activeTabId": "d87cfed6-ea80-412e-be07-51887750ae01",
+            "activeTabId": "216d6941-8f07-4cfb-87b2-40ad696840e8",
             "visible": true,
             "focused": true
           }
         ],
         "tabIds": [
-          "d87cfed6-ea80-412e-be07-51887750ae01"
+          "216d6941-8f07-4cfb-87b2-40ad696840e8"
         ],
         "projectIds": [
           "project-00000000-0000-4000-8000-0000000000d1"
@@ -1494,9 +1494,9 @@
       "observable": "A user tab created through a second project window's toolbar resolves to that window's host and is persisted under that window's owner record, never another window's",
       "status": "PASS",
       "observed": {
-        "toolbarTab": "ccf2c14a-9c25-44d8-9065-628a27ebd8ef",
+        "toolbarTab": "98ffcce6-9e66-4b3d-be31-16537af47ca4",
         "record": {
-          "tabId": "ccf2c14a-9c25-44d8-9065-628a27ebd8ef",
+          "tabId": "98ffcce6-9e66-4b3d-be31-16537af47ca4",
           "url": "about:blank",
           "title": "New Tab",
           "capsuleId": "capsule-matrix-beta",
@@ -1511,19 +1511,19 @@
         },
         "windowOwnerKey": "project:project-00000000-0000-4000-8000-0000000000d2",
         "persistedUnderOwner": [
-          "28699da3-1523-4974-b5df-4e2b0d7d5bc3",
-          "e5548808-bfe7-4f04-891a-db08aced7e97",
-          "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
-          "ccf2c14a-9c25-44d8-9065-628a27ebd8ef"
+          "3e7a0667-8589-4f20-ad90-16c6591d6f8e",
+          "96807491-1542-4488-bef2-d69611515d52",
+          "ef5a7af1-29dc-46e7-825c-ff257ef55624",
+          "98ffcce6-9e66-4b3d-be31-16537af47ca4"
         ],
         "ownersClaimingTheTab": [
           "project:project-00000000-0000-4000-8000-0000000000d2"
         ],
         "expectedOwnerKey": "project:project-00000000-0000-4000-8000-0000000000d2",
         "alphaOwnerRecordIds": [
-          "2201a517-9999-4023-a23b-5d1bd42d0e7e",
-          "d87cfed6-ea80-412e-be07-51887750ae01",
-          "fafdb809-4537-451a-8770-11fe0057efa7"
+          "afb3bd4b-ad72-4262-82bc-a1628180e4c6",
+          "216d6941-8f07-4cfb-87b2-40ad696840e8",
+          "24ff42c4-41d3-4452-b37e-dc261d8ad974"
         ],
         "note": "the window's saved-tabs owner record is the verified affiliation carrier; the tab must not be recorded under another project"
       },
@@ -1534,12 +1534,12 @@
             "windowId": 2,
             "projectId": "project-00000000-0000-4000-8000-0000000000d2",
             "tabIds": [
-              "28699da3-1523-4974-b5df-4e2b0d7d5bc3",
-              "e5548808-bfe7-4f04-891a-db08aced7e97",
-              "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
-              "ccf2c14a-9c25-44d8-9065-628a27ebd8ef"
+              "3e7a0667-8589-4f20-ad90-16c6591d6f8e",
+              "96807491-1542-4488-bef2-d69611515d52",
+              "ef5a7af1-29dc-46e7-825c-ff257ef55624",
+              "98ffcce6-9e66-4b3d-be31-16537af47ca4"
             ],
-            "activeTabId": "ccf2c14a-9c25-44d8-9065-628a27ebd8ef",
+            "activeTabId": "98ffcce6-9e66-4b3d-be31-16537af47ca4",
             "visible": true,
             "focused": true
           },
@@ -1548,17 +1548,17 @@
             "windowId": 1,
             "projectId": "unassigned",
             "tabIds": [
-              "2201a517-9999-4023-a23b-5d1bd42d0e7e",
-              "d87cfed6-ea80-412e-be07-51887750ae01",
-              "fafdb809-4537-451a-8770-11fe0057efa7"
+              "afb3bd4b-ad72-4262-82bc-a1628180e4c6",
+              "216d6941-8f07-4cfb-87b2-40ad696840e8",
+              "24ff42c4-41d3-4452-b37e-dc261d8ad974"
             ],
-            "activeTabId": "d87cfed6-ea80-412e-be07-51887750ae01",
+            "activeTabId": "216d6941-8f07-4cfb-87b2-40ad696840e8",
             "visible": true,
             "focused": false
           }
         ],
         "tabIds": [
-          "ccf2c14a-9c25-44d8-9065-628a27ebd8ef"
+          "98ffcce6-9e66-4b3d-be31-16537af47ca4"
         ],
         "projectIds": [
           "project-00000000-0000-4000-8000-0000000000d2"
@@ -1578,10 +1578,10 @@
           "x": 225,
           "y": 90
         },
-        "childTab": "835323ad-2762-40cd-bacb-a532cc308807",
+        "childTab": "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566",
         "record": {
-          "tabId": "835323ad-2762-40cd-bacb-a532cc308807",
-          "url": "http://127.0.0.1:53259/child",
+          "tabId": "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566",
+          "url": "http://127.0.0.1:57087/child",
           "title": "New Tab",
           "capsuleId": "capsule-matrix-beta",
           "partition": "persist:profile-default",
@@ -1596,9 +1596,9 @@
         "openerCapsuleId": "capsule-matrix-beta",
         "hostOwnerKey": "project:project-00000000-0000-4000-8000-0000000000d2",
         "siblingWindowTabIds": [
-          "2201a517-9999-4023-a23b-5d1bd42d0e7e",
-          "d87cfed6-ea80-412e-be07-51887750ae01",
-          "fafdb809-4537-451a-8770-11fe0057efa7"
+          "afb3bd4b-ad72-4262-82bc-a1628180e4c6",
+          "216d6941-8f07-4cfb-87b2-40ad696840e8",
+          "24ff42c4-41d3-4452-b37e-dc261d8ad974"
         ]
       },
       "ids": {
@@ -1608,11 +1608,11 @@
             "windowId": 1,
             "projectId": "unassigned",
             "tabIds": [
-              "2201a517-9999-4023-a23b-5d1bd42d0e7e",
-              "d87cfed6-ea80-412e-be07-51887750ae01",
-              "fafdb809-4537-451a-8770-11fe0057efa7"
+              "afb3bd4b-ad72-4262-82bc-a1628180e4c6",
+              "216d6941-8f07-4cfb-87b2-40ad696840e8",
+              "24ff42c4-41d3-4452-b37e-dc261d8ad974"
             ],
-            "activeTabId": "d87cfed6-ea80-412e-be07-51887750ae01",
+            "activeTabId": "216d6941-8f07-4cfb-87b2-40ad696840e8",
             "visible": true,
             "focused": false
           },
@@ -1621,20 +1621,20 @@
             "windowId": 2,
             "projectId": "project-00000000-0000-4000-8000-0000000000d2",
             "tabIds": [
-              "28699da3-1523-4974-b5df-4e2b0d7d5bc3",
-              "e5548808-bfe7-4f04-891a-db08aced7e97",
-              "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
-              "ccf2c14a-9c25-44d8-9065-628a27ebd8ef",
-              "835323ad-2762-40cd-bacb-a532cc308807"
+              "3e7a0667-8589-4f20-ad90-16c6591d6f8e",
+              "96807491-1542-4488-bef2-d69611515d52",
+              "ef5a7af1-29dc-46e7-825c-ff257ef55624",
+              "98ffcce6-9e66-4b3d-be31-16537af47ca4",
+              "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566"
             ],
-            "activeTabId": "835323ad-2762-40cd-bacb-a532cc308807",
+            "activeTabId": "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566",
             "visible": true,
             "focused": true
           }
         ],
         "tabIds": [
-          "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
-          "835323ad-2762-40cd-bacb-a532cc308807"
+          "ef5a7af1-29dc-46e7-825c-ff257ef55624",
+          "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566"
         ],
         "projectIds": [
           "project-00000000-0000-4000-8000-0000000000d2"
@@ -1647,10 +1647,10 @@
       "observable": "An agent-routed child created for B is owned by B's host and is presented by B",
       "status": "PASS",
       "observed": {
-        "agentChildTab": "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
+        "agentChildTab": "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
         "record": {
-          "tabId": "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
-          "url": "http://127.0.0.1:53259/agent-child?step=2",
+          "tabId": "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
+          "url": "http://127.0.0.1:57087/agent-child?step=2",
           "title": "Matrix Agent Child Page",
           "capsuleId": "capsule-matrix-beta",
           "partition": "persist:profile-default",
@@ -1663,11 +1663,11 @@
           "windowOwnerKey": "project:project-00000000-0000-4000-8000-0000000000d2"
         },
         "hostOwnerKey": "project:project-00000000-0000-4000-8000-0000000000d2",
-        "betaActiveTab": "835323ad-2762-40cd-bacb-a532cc308807"
+        "betaActiveTab": "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566"
       },
       "ids": {
         "tabIds": [
-          "709e0e5e-a20a-4562-add2-1ed0f4412f4a"
+          "b29d0f43-451d-4f54-bac8-74cbbf93a5f3"
         ],
         "projectIds": [
           "project-00000000-0000-4000-8000-0000000000d2"
@@ -1684,11 +1684,11 @@
       "status": "PASS",
       "observed": {
         "restoredTabIds": [
-          "6347192c-1fd9-4fff-9f8b-b887de43e838"
+          "f54cf26a-d1ee-4d5b-92cf-7192d830b9e6"
         ],
         "restoredRecords": [
           {
-            "tabId": "6347192c-1fd9-4fff-9f8b-b887de43e838",
+            "tabId": "f54cf26a-d1ee-4d5b-92cf-7192d830b9e6",
             "url": "https://www.google.com/",
             "title": "Google",
             "capsuleId": "capsule-matrix-alpha",
@@ -1703,7 +1703,7 @@
           }
         ],
         "persistedUnderOwner": [
-          "6347192c-1fd9-4fff-9f8b-b887de43e838"
+          "f54cf26a-d1ee-4d5b-92cf-7192d830b9e6"
         ],
         "ownersClaimingRestoredTabs": [],
         "expectedOwnerKey": "web",
@@ -1716,9 +1716,9 @@
             "windowId": 3,
             "projectId": "unassigned",
             "tabIds": [
-              "6347192c-1fd9-4fff-9f8b-b887de43e838"
+              "f54cf26a-d1ee-4d5b-92cf-7192d830b9e6"
             ],
-            "activeTabId": "6347192c-1fd9-4fff-9f8b-b887de43e838",
+            "activeTabId": "f54cf26a-d1ee-4d5b-92cf-7192d830b9e6",
             "visible": true,
             "focused": true
           },
@@ -1727,22 +1727,22 @@
             "windowId": 2,
             "projectId": "project-00000000-0000-4000-8000-0000000000d2",
             "tabIds": [
-              "28699da3-1523-4974-b5df-4e2b0d7d5bc3",
-              "e5548808-bfe7-4f04-891a-db08aced7e97",
-              "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
-              "ccf2c14a-9c25-44d8-9065-628a27ebd8ef",
-              "835323ad-2762-40cd-bacb-a532cc308807",
-              "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
-              "3490b343-feb1-41d0-9267-70c2b8de71ff",
-              "7323ce77-fc99-47b4-a5d2-457518b47ecb"
+              "3e7a0667-8589-4f20-ad90-16c6591d6f8e",
+              "96807491-1542-4488-bef2-d69611515d52",
+              "ef5a7af1-29dc-46e7-825c-ff257ef55624",
+              "98ffcce6-9e66-4b3d-be31-16537af47ca4",
+              "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566",
+              "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
+              "21588130-f3be-479a-948b-110c17cb6c16",
+              "1889c55f-5496-44c8-a787-c75400ab434a"
             ],
-            "activeTabId": "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
+            "activeTabId": "ef5a7af1-29dc-46e7-825c-ff257ef55624",
             "visible": true,
             "focused": false
           }
         ],
         "tabIds": [
-          "6347192c-1fd9-4fff-9f8b-b887de43e838"
+          "f54cf26a-d1ee-4d5b-92cf-7192d830b9e6"
         ],
         "projectIds": [
           "project-00000000-0000-4000-8000-0000000000d1"
@@ -1774,10 +1774,10 @@
             "windowId": 1,
             "projectId": "unassigned",
             "tabIds": [
-              "2201a517-9999-4023-a23b-5d1bd42d0e7e",
-              "d87cfed6-ea80-412e-be07-51887750ae01"
+              "afb3bd4b-ad72-4262-82bc-a1628180e4c6",
+              "216d6941-8f07-4cfb-87b2-40ad696840e8"
             ],
-            "activeTabId": "d87cfed6-ea80-412e-be07-51887750ae01",
+            "activeTabId": "216d6941-8f07-4cfb-87b2-40ad696840e8",
             "visible": true,
             "focused": true
           }
@@ -1795,29 +1795,29 @@
         "refusal": {
           "ok": false,
           "code": "POLICY_DENIED",
-          "message": "Cannot open a routed tab for session '60b7e9fc-1292-4b2e-8b0f-7acd7771cc27': anchor tab affiliation (project: 'project-00000000-0000-4000-8000-0000000000d2', workspace: 'workspace-00000000-0000-4000-8000-0000000000d2') conflicts with requested target (project: 'project-00000000-0000-4000-8000-000000",
+          "message": "Cannot open a routed tab for session 'ef5a7af1-29dc-46e7-825c-ff257ef55624': anchor tab affiliation (project: 'project-00000000-0000-4000-8000-0000000000d2', workspace: 'workspace-00000000-0000-4000-8000-0000000000d2') conflicts with requested target (project: 'project-00000000-0000-4000-8000-000000",
           "data": null,
           "replacementAuthorityRevision": null
         },
         "betaTabsBefore": [
-          "28699da3-1523-4974-b5df-4e2b0d7d5bc3",
-          "e5548808-bfe7-4f04-891a-db08aced7e97",
-          "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
-          "ccf2c14a-9c25-44d8-9065-628a27ebd8ef",
-          "835323ad-2762-40cd-bacb-a532cc308807",
-          "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
-          "3490b343-feb1-41d0-9267-70c2b8de71ff",
-          "7323ce77-fc99-47b4-a5d2-457518b47ecb"
+          "3e7a0667-8589-4f20-ad90-16c6591d6f8e",
+          "96807491-1542-4488-bef2-d69611515d52",
+          "ef5a7af1-29dc-46e7-825c-ff257ef55624",
+          "98ffcce6-9e66-4b3d-be31-16537af47ca4",
+          "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566",
+          "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
+          "21588130-f3be-479a-948b-110c17cb6c16",
+          "1889c55f-5496-44c8-a787-c75400ab434a"
         ],
         "betaTabsAfter": [
-          "28699da3-1523-4974-b5df-4e2b0d7d5bc3",
-          "e5548808-bfe7-4f04-891a-db08aced7e97",
-          "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
-          "ccf2c14a-9c25-44d8-9065-628a27ebd8ef",
-          "835323ad-2762-40cd-bacb-a532cc308807",
-          "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
-          "3490b343-feb1-41d0-9267-70c2b8de71ff",
-          "7323ce77-fc99-47b4-a5d2-457518b47ecb"
+          "3e7a0667-8589-4f20-ad90-16c6591d6f8e",
+          "96807491-1542-4488-bef2-d69611515d52",
+          "ef5a7af1-29dc-46e7-825c-ff257ef55624",
+          "98ffcce6-9e66-4b3d-be31-16537af47ca4",
+          "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566",
+          "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
+          "21588130-f3be-479a-948b-110c17cb6c16",
+          "1889c55f-5496-44c8-a787-c75400ab434a"
         ],
         "shellCountBefore": 2,
         "shellCountAfter": 2
@@ -1829,11 +1829,11 @@
             "windowId": 1,
             "projectId": "unassigned",
             "tabIds": [
-              "2201a517-9999-4023-a23b-5d1bd42d0e7e",
-              "d87cfed6-ea80-412e-be07-51887750ae01",
-              "fafdb809-4537-451a-8770-11fe0057efa7"
+              "afb3bd4b-ad72-4262-82bc-a1628180e4c6",
+              "216d6941-8f07-4cfb-87b2-40ad696840e8",
+              "24ff42c4-41d3-4452-b37e-dc261d8ad974"
             ],
-            "activeTabId": "d87cfed6-ea80-412e-be07-51887750ae01",
+            "activeTabId": "216d6941-8f07-4cfb-87b2-40ad696840e8",
             "visible": true,
             "focused": false
           },
@@ -1842,43 +1842,43 @@
             "windowId": 2,
             "projectId": "project-00000000-0000-4000-8000-0000000000d2",
             "tabIds": [
-              "28699da3-1523-4974-b5df-4e2b0d7d5bc3",
-              "e5548808-bfe7-4f04-891a-db08aced7e97",
-              "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
-              "ccf2c14a-9c25-44d8-9065-628a27ebd8ef",
-              "835323ad-2762-40cd-bacb-a532cc308807",
-              "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
-              "3490b343-feb1-41d0-9267-70c2b8de71ff",
-              "7323ce77-fc99-47b4-a5d2-457518b47ecb"
+              "3e7a0667-8589-4f20-ad90-16c6591d6f8e",
+              "96807491-1542-4488-bef2-d69611515d52",
+              "ef5a7af1-29dc-46e7-825c-ff257ef55624",
+              "98ffcce6-9e66-4b3d-be31-16537af47ca4",
+              "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566",
+              "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
+              "21588130-f3be-479a-948b-110c17cb6c16",
+              "1889c55f-5496-44c8-a787-c75400ab434a"
             ],
-            "activeTabId": "835323ad-2762-40cd-bacb-a532cc308807",
+            "activeTabId": "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566",
             "visible": true,
             "focused": true
           }
         ],
         "tabIds": [
-          "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27"
+          "ef5a7af1-29dc-46e7-825c-ff257ef55624"
         ],
         "projectIds": [
           "project-00000000-0000-4000-8000-0000000000d1",
           "project-00000000-0000-4000-8000-0000000000d2"
         ],
         "attachmentRevisionBefore": {
-          "attachmentId": "attachment-7b08a804-b07b-4eb4-a8e0-52d9e285839b",
+          "attachmentId": "attachment-5b4cd13e-421c-4226-ab98-6f7cc0057fab",
           "present": true,
-          "authorityRevision": "rev_d78c0e0ff10acbae006c3e9f58bc4f6f",
+          "authorityRevision": "rev_76448a5677923643ca405470e0724edd",
           "revisionNumber": 1,
-          "tabId": "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
+          "tabId": "ef5a7af1-29dc-46e7-825c-ff257ef55624",
           "projectId": "project-00000000-0000-4000-8000-0000000000d1",
           "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d1",
           "state": "active"
         },
         "attachmentRevisionAfter": {
-          "attachmentId": "attachment-7b08a804-b07b-4eb4-a8e0-52d9e285839b",
+          "attachmentId": "attachment-5b4cd13e-421c-4226-ab98-6f7cc0057fab",
           "present": true,
-          "authorityRevision": "rev_d78c0e0ff10acbae006c3e9f58bc4f6f",
+          "authorityRevision": "rev_76448a5677923643ca405470e0724edd",
           "revisionNumber": 1,
-          "tabId": "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
+          "tabId": "ef5a7af1-29dc-46e7-825c-ff257ef55624",
           "projectId": "project-00000000-0000-4000-8000-0000000000d1",
           "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d1",
           "state": "active"
@@ -1945,16 +1945,16 @@
             "windowId": 2,
             "projectId": "project-00000000-0000-4000-8000-0000000000d2",
             "tabIds": [
-              "28699da3-1523-4974-b5df-4e2b0d7d5bc3",
-              "e5548808-bfe7-4f04-891a-db08aced7e97",
-              "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
-              "ccf2c14a-9c25-44d8-9065-628a27ebd8ef",
-              "835323ad-2762-40cd-bacb-a532cc308807",
-              "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
-              "3490b343-feb1-41d0-9267-70c2b8de71ff",
-              "7323ce77-fc99-47b4-a5d2-457518b47ecb"
+              "3e7a0667-8589-4f20-ad90-16c6591d6f8e",
+              "96807491-1542-4488-bef2-d69611515d52",
+              "ef5a7af1-29dc-46e7-825c-ff257ef55624",
+              "98ffcce6-9e66-4b3d-be31-16537af47ca4",
+              "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566",
+              "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
+              "21588130-f3be-479a-948b-110c17cb6c16",
+              "1889c55f-5496-44c8-a787-c75400ab434a"
             ],
-            "activeTabId": "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
+            "activeTabId": "ef5a7af1-29dc-46e7-825c-ff257ef55624",
             "visible": true,
             "focused": false
           }
@@ -2023,8 +2023,8 @@
           },
           "splitModeBefore": false,
           "splitModeAfter": false,
-          "activeBefore": "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
-          "activeAfter": "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27"
+          "activeBefore": "ef5a7af1-29dc-46e7-825c-ff257ef55624",
+          "activeAfter": "ef5a7af1-29dc-46e7-825c-ff257ef55624"
         },
         "splitDisarmed": {
           "returned": false,
@@ -2038,11 +2038,11 @@
             "windowId": 1,
             "projectId": "unassigned",
             "tabIds": [
-              "2201a517-9999-4023-a23b-5d1bd42d0e7e",
-              "d87cfed6-ea80-412e-be07-51887750ae01",
-              "fafdb809-4537-451a-8770-11fe0057efa7"
+              "afb3bd4b-ad72-4262-82bc-a1628180e4c6",
+              "216d6941-8f07-4cfb-87b2-40ad696840e8",
+              "24ff42c4-41d3-4452-b37e-dc261d8ad974"
             ],
-            "activeTabId": "d87cfed6-ea80-412e-be07-51887750ae01",
+            "activeTabId": "216d6941-8f07-4cfb-87b2-40ad696840e8",
             "visible": true,
             "focused": false
           },
@@ -2051,23 +2051,23 @@
             "windowId": 2,
             "projectId": "project-00000000-0000-4000-8000-0000000000d2",
             "tabIds": [
-              "28699da3-1523-4974-b5df-4e2b0d7d5bc3",
-              "e5548808-bfe7-4f04-891a-db08aced7e97",
-              "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
-              "ccf2c14a-9c25-44d8-9065-628a27ebd8ef",
-              "835323ad-2762-40cd-bacb-a532cc308807",
-              "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
-              "3490b343-feb1-41d0-9267-70c2b8de71ff",
-              "7323ce77-fc99-47b4-a5d2-457518b47ecb"
+              "3e7a0667-8589-4f20-ad90-16c6591d6f8e",
+              "96807491-1542-4488-bef2-d69611515d52",
+              "ef5a7af1-29dc-46e7-825c-ff257ef55624",
+              "98ffcce6-9e66-4b3d-be31-16537af47ca4",
+              "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566",
+              "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
+              "21588130-f3be-479a-948b-110c17cb6c16",
+              "1889c55f-5496-44c8-a787-c75400ab434a"
             ],
-            "activeTabId": "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
+            "activeTabId": "ef5a7af1-29dc-46e7-825c-ff257ef55624",
             "visible": true,
             "focused": true
           }
         ],
         "tabIds": [
-          "d87cfed6-ea80-412e-be07-51887750ae01",
-          "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27"
+          "216d6941-8f07-4cfb-87b2-40ad696840e8",
+          "ef5a7af1-29dc-46e7-825c-ff257ef55624"
         ],
         "foregroundBefore": 2,
         "foregroundAfter": 2
@@ -2110,11 +2110,11 @@
             "windowId": 1,
             "projectId": "unassigned",
             "tabIds": [
-              "2201a517-9999-4023-a23b-5d1bd42d0e7e",
-              "d87cfed6-ea80-412e-be07-51887750ae01",
-              "fafdb809-4537-451a-8770-11fe0057efa7"
+              "afb3bd4b-ad72-4262-82bc-a1628180e4c6",
+              "216d6941-8f07-4cfb-87b2-40ad696840e8",
+              "24ff42c4-41d3-4452-b37e-dc261d8ad974"
             ],
-            "activeTabId": "d87cfed6-ea80-412e-be07-51887750ae01",
+            "activeTabId": "216d6941-8f07-4cfb-87b2-40ad696840e8",
             "visible": true,
             "focused": true
           },
@@ -2123,22 +2123,22 @@
             "windowId": 2,
             "projectId": "project-00000000-0000-4000-8000-0000000000d2",
             "tabIds": [
-              "28699da3-1523-4974-b5df-4e2b0d7d5bc3",
-              "e5548808-bfe7-4f04-891a-db08aced7e97",
-              "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
-              "ccf2c14a-9c25-44d8-9065-628a27ebd8ef",
-              "835323ad-2762-40cd-bacb-a532cc308807",
-              "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
-              "3490b343-feb1-41d0-9267-70c2b8de71ff",
-              "7323ce77-fc99-47b4-a5d2-457518b47ecb"
+              "3e7a0667-8589-4f20-ad90-16c6591d6f8e",
+              "96807491-1542-4488-bef2-d69611515d52",
+              "ef5a7af1-29dc-46e7-825c-ff257ef55624",
+              "98ffcce6-9e66-4b3d-be31-16537af47ca4",
+              "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566",
+              "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
+              "21588130-f3be-479a-948b-110c17cb6c16",
+              "1889c55f-5496-44c8-a787-c75400ab434a"
             ],
-            "activeTabId": "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
+            "activeTabId": "ef5a7af1-29dc-46e7-825c-ff257ef55624",
             "visible": true,
             "focused": false
           }
         ],
         "tabIds": [
-          "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27"
+          "ef5a7af1-29dc-46e7-825c-ff257ef55624"
         ],
         "foregroundBefore": 1,
         "foregroundAfter": 1
@@ -2155,18 +2155,13 @@
           "closedShell": true,
           "shellCountAfterClose": 1,
           "reservations": {
-            "reservedTabIds": [
-              "2201a517-9999-4023-a23b-5d1bd42d0e7e",
-              "d87cfed6-ea80-412e-be07-51887750ae01",
-              "fafdb809-4537-451a-8770-11fe0057efa7",
-              "9a864f0e-90aa-40cc-9c58-70ae41de80c6"
-            ],
+            "reservedTabIds": [],
             "inFlightOperations": 0,
             "applicationReserved": false,
-            "reservedCount": 4
+            "reservedCount": 0
           },
           "alphaStillPresent": false,
-          "alphaSidebarDestroyed": false
+          "alphaSidebarDestroyed": true
         },
         "target": {
           "x": 60,
@@ -2183,7 +2178,7 @@
           },
           "isMaximized": false
         },
-        "windowStateFile": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-im85Rw\\config\\window-state.json",
+        "windowStateFile": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-sXApwu\\config\\window-state.json",
         "requestClose": true,
         "closedShell": true,
         "shellCountAfterClose": 1,
@@ -2192,13 +2187,13 @@
           "projectId": "project-00000000-0000-4000-8000-0000000000d1"
         },
         "alphaTabsBefore": [
-          "2201a517-9999-4023-a23b-5d1bd42d0e7e",
-          "d87cfed6-ea80-412e-be07-51887750ae01",
-          "fafdb809-4537-451a-8770-11fe0057efa7",
-          "9a864f0e-90aa-40cc-9c58-70ae41de80c6"
+          "afb3bd4b-ad72-4262-82bc-a1628180e4c6",
+          "216d6941-8f07-4cfb-87b2-40ad696840e8",
+          "24ff42c4-41d3-4452-b37e-dc261d8ad974",
+          "0aaf0595-c0de-4a2d-9b70-2f1cf7b0e996"
         ],
         "alphaTabsAfter": [
-          "6347192c-1fd9-4fff-9f8b-b887de43e838"
+          "f54cf26a-d1ee-4d5b-92cf-7192d830b9e6"
         ],
         "restoredBounds": {
           "x": 60,
@@ -2208,7 +2203,7 @@
         },
         "restoredRecords": [
           {
-            "tabId": "6347192c-1fd9-4fff-9f8b-b887de43e838",
+            "tabId": "f54cf26a-d1ee-4d5b-92cf-7192d830b9e6",
             "url": "https://www.google.com/",
             "title": "Google",
             "capsuleId": "capsule-matrix-alpha",
@@ -2230,9 +2225,9 @@
             "windowId": 3,
             "projectId": "unassigned",
             "tabIds": [
-              "6347192c-1fd9-4fff-9f8b-b887de43e838"
+              "f54cf26a-d1ee-4d5b-92cf-7192d830b9e6"
             ],
-            "activeTabId": "6347192c-1fd9-4fff-9f8b-b887de43e838",
+            "activeTabId": "f54cf26a-d1ee-4d5b-92cf-7192d830b9e6",
             "visible": true,
             "focused": true
           },
@@ -2241,26 +2236,26 @@
             "windowId": 2,
             "projectId": "project-00000000-0000-4000-8000-0000000000d2",
             "tabIds": [
-              "28699da3-1523-4974-b5df-4e2b0d7d5bc3",
-              "e5548808-bfe7-4f04-891a-db08aced7e97",
-              "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
-              "ccf2c14a-9c25-44d8-9065-628a27ebd8ef",
-              "835323ad-2762-40cd-bacb-a532cc308807",
-              "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
-              "3490b343-feb1-41d0-9267-70c2b8de71ff",
-              "7323ce77-fc99-47b4-a5d2-457518b47ecb"
+              "3e7a0667-8589-4f20-ad90-16c6591d6f8e",
+              "96807491-1542-4488-bef2-d69611515d52",
+              "ef5a7af1-29dc-46e7-825c-ff257ef55624",
+              "98ffcce6-9e66-4b3d-be31-16537af47ca4",
+              "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566",
+              "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
+              "21588130-f3be-479a-948b-110c17cb6c16",
+              "1889c55f-5496-44c8-a787-c75400ab434a"
             ],
-            "activeTabId": "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
+            "activeTabId": "ef5a7af1-29dc-46e7-825c-ff257ef55624",
             "visible": true,
             "focused": false
           }
         ],
         "tabIds": [
-          "2201a517-9999-4023-a23b-5d1bd42d0e7e",
-          "d87cfed6-ea80-412e-be07-51887750ae01",
-          "fafdb809-4537-451a-8770-11fe0057efa7",
-          "9a864f0e-90aa-40cc-9c58-70ae41de80c6",
-          "6347192c-1fd9-4fff-9f8b-b887de43e838"
+          "afb3bd4b-ad72-4262-82bc-a1628180e4c6",
+          "216d6941-8f07-4cfb-87b2-40ad696840e8",
+          "24ff42c4-41d3-4452-b37e-dc261d8ad974",
+          "0aaf0595-c0de-4a2d-9b70-2f1cf7b0e996",
+          "f54cf26a-d1ee-4d5b-92cf-7192d830b9e6"
         ],
         "projectIds": [
           "project-00000000-0000-4000-8000-0000000000d1"
@@ -2351,27 +2346,27 @@
         "auxiliariesBefore": [],
         "auxiliariesAfter": [],
         "betaTabsBefore": [
-          "28699da3-1523-4974-b5df-4e2b0d7d5bc3",
-          "e5548808-bfe7-4f04-891a-db08aced7e97",
-          "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
-          "ccf2c14a-9c25-44d8-9065-628a27ebd8ef",
-          "835323ad-2762-40cd-bacb-a532cc308807",
-          "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
-          "3490b343-feb1-41d0-9267-70c2b8de71ff",
-          "7323ce77-fc99-47b4-a5d2-457518b47ecb"
+          "3e7a0667-8589-4f20-ad90-16c6591d6f8e",
+          "96807491-1542-4488-bef2-d69611515d52",
+          "ef5a7af1-29dc-46e7-825c-ff257ef55624",
+          "98ffcce6-9e66-4b3d-be31-16537af47ca4",
+          "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566",
+          "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
+          "21588130-f3be-479a-948b-110c17cb6c16",
+          "1889c55f-5496-44c8-a787-c75400ab434a"
         ],
         "betaTabsAfter": [
-          "28699da3-1523-4974-b5df-4e2b0d7d5bc3",
-          "e5548808-bfe7-4f04-891a-db08aced7e97",
-          "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
-          "ccf2c14a-9c25-44d8-9065-628a27ebd8ef",
-          "835323ad-2762-40cd-bacb-a532cc308807",
-          "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
-          "3490b343-feb1-41d0-9267-70c2b8de71ff",
-          "7323ce77-fc99-47b4-a5d2-457518b47ecb"
+          "3e7a0667-8589-4f20-ad90-16c6591d6f8e",
+          "96807491-1542-4488-bef2-d69611515d52",
+          "ef5a7af1-29dc-46e7-825c-ff257ef55624",
+          "98ffcce6-9e66-4b3d-be31-16537af47ca4",
+          "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566",
+          "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
+          "21588130-f3be-479a-948b-110c17cb6c16",
+          "1889c55f-5496-44c8-a787-c75400ab434a"
         ],
-        "betaActiveBefore": "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
-        "betaActiveAfter": "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
+        "betaActiveBefore": "ef5a7af1-29dc-46e7-825c-ff257ef55624",
+        "betaActiveAfter": "ef5a7af1-29dc-46e7-825c-ff257ef55624",
         "terminalBefore": [
           "terminal-1",
           "terminal-2",
@@ -2385,21 +2380,21 @@
           "terminal-3"
         ],
         "attachmentRevisionBefore": {
-          "attachmentId": "attachment-b8ef037d-e97a-4408-918c-d16cb54c0ed9",
+          "attachmentId": "attachment-2b501f15-167a-4396-9632-be0d393b5740",
           "present": true,
-          "authorityRevision": "rev_dfa135712a65c649d0528f96d50567b6",
+          "authorityRevision": "rev_d0d4fd00426ecb8b2b618e4ce6bc3cc4",
           "revisionNumber": 6,
-          "tabId": "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
+          "tabId": "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
           "projectId": "project-00000000-0000-4000-8000-0000000000d2",
           "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
           "state": "active"
         },
         "attachmentRevisionAfter": {
-          "attachmentId": "attachment-b8ef037d-e97a-4408-918c-d16cb54c0ed9",
+          "attachmentId": "attachment-2b501f15-167a-4396-9632-be0d393b5740",
           "present": true,
-          "authorityRevision": "rev_dfa135712a65c649d0528f96d50567b6",
+          "authorityRevision": "rev_d0d4fd00426ecb8b2b618e4ce6bc3cc4",
           "revisionNumber": 6,
-          "tabId": "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
+          "tabId": "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
           "projectId": "project-00000000-0000-4000-8000-0000000000d2",
           "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
           "state": "active"
@@ -2414,7 +2409,7 @@
           "phase": "closed",
           "closed": [
             {
-              "tabId": "6347192c-1fd9-4fff-9f8b-b887de43e838",
+              "tabId": "f54cf26a-d1ee-4d5b-92cf-7192d830b9e6",
               "outcome": "closed",
               "attempted": true
             }
@@ -2447,47 +2442,47 @@
             "windowId": 2,
             "projectId": "project-00000000-0000-4000-8000-0000000000d2",
             "tabIds": [
-              "28699da3-1523-4974-b5df-4e2b0d7d5bc3",
-              "e5548808-bfe7-4f04-891a-db08aced7e97",
-              "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
-              "ccf2c14a-9c25-44d8-9065-628a27ebd8ef",
-              "835323ad-2762-40cd-bacb-a532cc308807",
-              "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
-              "3490b343-feb1-41d0-9267-70c2b8de71ff",
-              "7323ce77-fc99-47b4-a5d2-457518b47ecb"
+              "3e7a0667-8589-4f20-ad90-16c6591d6f8e",
+              "96807491-1542-4488-bef2-d69611515d52",
+              "ef5a7af1-29dc-46e7-825c-ff257ef55624",
+              "98ffcce6-9e66-4b3d-be31-16537af47ca4",
+              "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566",
+              "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
+              "21588130-f3be-479a-948b-110c17cb6c16",
+              "1889c55f-5496-44c8-a787-c75400ab434a"
             ],
-            "activeTabId": "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
+            "activeTabId": "ef5a7af1-29dc-46e7-825c-ff257ef55624",
             "visible": true,
             "focused": false
           }
         ],
         "tabIds": [
-          "28699da3-1523-4974-b5df-4e2b0d7d5bc3",
-          "e5548808-bfe7-4f04-891a-db08aced7e97",
-          "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
-          "ccf2c14a-9c25-44d8-9065-628a27ebd8ef",
-          "835323ad-2762-40cd-bacb-a532cc308807",
-          "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
-          "3490b343-feb1-41d0-9267-70c2b8de71ff",
-          "7323ce77-fc99-47b4-a5d2-457518b47ecb",
-          "d87cfed6-ea80-412e-be07-51887750ae01"
+          "3e7a0667-8589-4f20-ad90-16c6591d6f8e",
+          "96807491-1542-4488-bef2-d69611515d52",
+          "ef5a7af1-29dc-46e7-825c-ff257ef55624",
+          "98ffcce6-9e66-4b3d-be31-16537af47ca4",
+          "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566",
+          "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
+          "21588130-f3be-479a-948b-110c17cb6c16",
+          "1889c55f-5496-44c8-a787-c75400ab434a",
+          "216d6941-8f07-4cfb-87b2-40ad696840e8"
         ],
         "attachmentRevisionBefore": {
-          "attachmentId": "attachment-b8ef037d-e97a-4408-918c-d16cb54c0ed9",
+          "attachmentId": "attachment-2b501f15-167a-4396-9632-be0d393b5740",
           "present": true,
-          "authorityRevision": "rev_dfa135712a65c649d0528f96d50567b6",
+          "authorityRevision": "rev_d0d4fd00426ecb8b2b618e4ce6bc3cc4",
           "revisionNumber": 6,
-          "tabId": "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
+          "tabId": "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
           "projectId": "project-00000000-0000-4000-8000-0000000000d2",
           "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
           "state": "active"
         },
         "attachmentRevisionAfter": {
-          "attachmentId": "attachment-b8ef037d-e97a-4408-918c-d16cb54c0ed9",
+          "attachmentId": "attachment-2b501f15-167a-4396-9632-be0d393b5740",
           "present": true,
-          "authorityRevision": "rev_dfa135712a65c649d0528f96d50567b6",
+          "authorityRevision": "rev_d0d4fd00426ecb8b2b618e4ce6bc3cc4",
           "revisionNumber": 6,
-          "tabId": "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
+          "tabId": "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
           "projectId": "project-00000000-0000-4000-8000-0000000000d2",
           "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
           "state": "active"
@@ -2502,14 +2497,14 @@
       "observable": "A page that vetoes its unload retains the shell with an honest partial report, names the surviving page and promises no undo",
       "status": "PASS",
       "observed": {
-        "vetoTab": "01545f87-97e6-4737-aace-ac52c7544da9",
+        "vetoTab": "7058bbd6-d028-41b7-890b-df2c084f8424",
         "gammaTabsBefore": [
-          "f76643be-89f5-40d8-972a-9aa37d8edb0a",
-          "134bb31c-42da-4f0f-b863-e943276f2f37",
-          "01545f87-97e6-4737-aace-ac52c7544da9"
+          "c2ca48af-4060-4869-b364-e734b8bc47e5",
+          "74ac9abc-5c9e-43d4-b3ce-7f5f942bf788",
+          "7058bbd6-d028-41b7-890b-df2c084f8424"
         ],
         "gammaTabsAfter": [
-          "01545f87-97e6-4737-aace-ac52c7544da9"
+          "7058bbd6-d028-41b7-890b-df2c084f8424"
         ],
         "report": {
           "attemptId": 3,
@@ -2521,19 +2516,19 @@
           "phase": "open",
           "closed": [
             {
-              "tabId": "f76643be-89f5-40d8-972a-9aa37d8edb0a",
+              "tabId": "c2ca48af-4060-4869-b364-e734b8bc47e5",
               "outcome": "closed",
               "attempted": true
             },
             {
-              "tabId": "134bb31c-42da-4f0f-b863-e943276f2f37",
+              "tabId": "74ac9abc-5c9e-43d4-b3ce-7f5f942bf788",
               "outcome": "closed",
               "attempted": true
             }
           ],
           "skipped": [
             {
-              "tabId": "01545f87-97e6-4737-aace-ac52c7544da9",
+              "tabId": "7058bbd6-d028-41b7-890b-df2c084f8424",
               "outcome": "skipped",
               "reason": "unload-veto",
               "attempted": true
@@ -2543,15 +2538,15 @@
           "refusals": [
             {
               "code": "unload-veto",
-              "detail": "Page 01545f87-97e6-4737-aace-ac52c7544da9 refused to unload",
+              "detail": "Page 7058bbd6-d028-41b7-890b-df2c084f8424 refused to unload",
               "controls": [],
-              "tabId": "01545f87-97e6-4737-aace-ac52c7544da9"
+              "tabId": "7058bbd6-d028-41b7-890b-df2c084f8424"
             }
           ],
           "haltedBy": "unload-veto",
           "surface": null,
           "survivingTabIds": [
-            "01545f87-97e6-4737-aace-ac52c7544da9"
+            "7058bbd6-d028-41b7-890b-df2c084f8424"
           ],
           "partial": true,
           "lastBrowserShellGone": false,
@@ -2573,9 +2568,9 @@
             "windowId": 5,
             "projectId": "unassigned",
             "tabIds": [
-              "01545f87-97e6-4737-aace-ac52c7544da9"
+              "7058bbd6-d028-41b7-890b-df2c084f8424"
             ],
-            "activeTabId": "01545f87-97e6-4737-aace-ac52c7544da9",
+            "activeTabId": "7058bbd6-d028-41b7-890b-df2c084f8424",
             "visible": true,
             "focused": true
           },
@@ -2584,24 +2579,24 @@
             "windowId": 2,
             "projectId": "project-00000000-0000-4000-8000-0000000000d2",
             "tabIds": [
-              "28699da3-1523-4974-b5df-4e2b0d7d5bc3",
-              "e5548808-bfe7-4f04-891a-db08aced7e97",
-              "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
-              "ccf2c14a-9c25-44d8-9065-628a27ebd8ef",
-              "835323ad-2762-40cd-bacb-a532cc308807",
-              "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
-              "3490b343-feb1-41d0-9267-70c2b8de71ff",
-              "7323ce77-fc99-47b4-a5d2-457518b47ecb"
+              "3e7a0667-8589-4f20-ad90-16c6591d6f8e",
+              "96807491-1542-4488-bef2-d69611515d52",
+              "ef5a7af1-29dc-46e7-825c-ff257ef55624",
+              "98ffcce6-9e66-4b3d-be31-16537af47ca4",
+              "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566",
+              "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
+              "21588130-f3be-479a-948b-110c17cb6c16",
+              "1889c55f-5496-44c8-a787-c75400ab434a"
             ],
-            "activeTabId": "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
+            "activeTabId": "ef5a7af1-29dc-46e7-825c-ff257ef55624",
             "visible": true,
             "focused": false
           }
         ],
         "tabIds": [
-          "f76643be-89f5-40d8-972a-9aa37d8edb0a",
-          "134bb31c-42da-4f0f-b863-e943276f2f37",
-          "01545f87-97e6-4737-aace-ac52c7544da9"
+          "c2ca48af-4060-4869-b364-e734b8bc47e5",
+          "74ac9abc-5c9e-43d4-b3ce-7f5f942bf788",
+          "7058bbd6-d028-41b7-890b-df2c084f8424"
         ],
         "foregroundBefore": 5,
         "foregroundAfter": 5
@@ -2613,7 +2608,7 @@
       "observable": "A new tab arriving during a close attempt survives, and the shell is retained",
       "status": "PASS",
       "observed": {
-        "arrivalTab": "0012781f-af3e-43bc-8870-feadc7c88724",
+        "arrivalTab": "52336461-8ec4-4278-b519-34d83b4ffb95",
         "report": {
           "attemptId": 4,
           "ownerKey": "web",
@@ -2624,34 +2619,34 @@
           "phase": "open",
           "closed": [
             {
-              "tabId": "01545f87-97e6-4737-aace-ac52c7544da9",
+              "tabId": "7058bbd6-d028-41b7-890b-df2c084f8424",
               "outcome": "closed",
               "attempted": true
             },
             {
-              "tabId": "a6314596-f406-402e-ae2e-36abf15e704b",
+              "tabId": "71cb3d60-1606-4955-927d-fd01e6fe1042",
               "outcome": "closed",
               "attempted": true
             },
             {
-              "tabId": "d30f7020-9b27-4156-bc5c-fadb0e65dcfb",
+              "tabId": "8df0790f-fb06-4698-8dcb-a27487c662e5",
               "outcome": "closed",
               "attempted": true
             },
             {
-              "tabId": "c83d956f-d92f-428c-9f53-fec17d78a565",
+              "tabId": "fee4815a-ac16-4d42-9453-5b330ab5e5f7",
               "outcome": "closed",
               "attempted": true
             },
             {
-              "tabId": "809fd0fc-172e-4e11-9490-9e0fca9baf56",
+              "tabId": "007c8e33-2d36-4d4c-8b15-c630951d2a31",
               "outcome": "closed",
               "attempted": true
             }
           ],
           "skipped": [
             {
-              "tabId": "0012781f-af3e-43bc-8870-feadc7c88724",
+              "tabId": "52336461-8ec4-4278-b519-34d83b4ffb95",
               "outcome": "skipped",
               "reason": "new-arrival",
               "attempted": false
@@ -2661,14 +2656,14 @@
           "refusals": [
             {
               "code": "new-arrival",
-              "detail": "Pages appeared while the shell was closing: 0012781f-af3e-43bc-8870-feadc7c88724",
+              "detail": "Pages appeared while the shell was closing: 52336461-8ec4-4278-b519-34d83b4ffb95",
               "controls": []
             }
           ],
           "haltedBy": "new-arrival",
           "surface": null,
           "survivingTabIds": [
-            "0012781f-af3e-43bc-8870-feadc7c88724"
+            "52336461-8ec4-4278-b519-34d83b4ffb95"
           ],
           "partial": true,
           "lastBrowserShellGone": false,
@@ -2676,7 +2671,7 @@
           "summary": "Close of web: shell retained, stopped by new-arrival (closed 5, skipped 1, failed 0); earlier closes stand and are not transactional."
         },
         "deltaTabsAfter": [
-          "0012781f-af3e-43bc-8870-feadc7c88724"
+          "52336461-8ec4-4278-b519-34d83b4ffb95"
         ],
         "reservations": {
           "reservedTabIds": [],
@@ -2692,9 +2687,9 @@
             "windowId": 5,
             "projectId": "unassigned",
             "tabIds": [
-              "0012781f-af3e-43bc-8870-feadc7c88724"
+              "52336461-8ec4-4278-b519-34d83b4ffb95"
             ],
-            "activeTabId": "0012781f-af3e-43bc-8870-feadc7c88724",
+            "activeTabId": "52336461-8ec4-4278-b519-34d83b4ffb95",
             "visible": true,
             "focused": true
           },
@@ -2703,22 +2698,22 @@
             "windowId": 2,
             "projectId": "project-00000000-0000-4000-8000-0000000000d2",
             "tabIds": [
-              "28699da3-1523-4974-b5df-4e2b0d7d5bc3",
-              "e5548808-bfe7-4f04-891a-db08aced7e97",
-              "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
-              "ccf2c14a-9c25-44d8-9065-628a27ebd8ef",
-              "835323ad-2762-40cd-bacb-a532cc308807",
-              "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
-              "3490b343-feb1-41d0-9267-70c2b8de71ff",
-              "7323ce77-fc99-47b4-a5d2-457518b47ecb"
+              "3e7a0667-8589-4f20-ad90-16c6591d6f8e",
+              "96807491-1542-4488-bef2-d69611515d52",
+              "ef5a7af1-29dc-46e7-825c-ff257ef55624",
+              "98ffcce6-9e66-4b3d-be31-16537af47ca4",
+              "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566",
+              "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
+              "21588130-f3be-479a-948b-110c17cb6c16",
+              "1889c55f-5496-44c8-a787-c75400ab434a"
             ],
-            "activeTabId": "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
+            "activeTabId": "ef5a7af1-29dc-46e7-825c-ff257ef55624",
             "visible": true,
             "focused": false
           }
         ],
         "tabIds": [
-          "0012781f-af3e-43bc-8870-feadc7c88724"
+          "52336461-8ec4-4278-b519-34d83b4ffb95"
         ],
         "foregroundBefore": 5,
         "foregroundAfter": 5
@@ -2730,12 +2725,12 @@
       "observable": "A close attempt reserves its own pages synchronously, and a binding attempted while a page is reserved is refused (TARGET_STALE) rather than bound and then destroyed",
       "status": "PASS",
       "observed": {
-        "reservedTab": "b7355838-bdb7-4911-93e9-11c300edcee6",
+        "reservedTab": "e1d6ed99-fe36-4273-a771-5867064507ec",
         "reservedDuringAttempt": {
           "reservedTabIds": [
-            "0012781f-af3e-43bc-8870-feadc7c88724",
-            "1905da58-f7d8-4b99-a1bc-5debf532c829",
-            "b7355838-bdb7-4911-93e9-11c300edcee6"
+            "52336461-8ec4-4278-b519-34d83b4ffb95",
+            "d443834a-4a4b-40cb-acb3-20adc278d63c",
+            "e1d6ed99-fe36-4273-a771-5867064507ec"
           ],
           "inFlightOperations": 0,
           "applicationReserved": false,
@@ -2755,17 +2750,17 @@
           "phase": "closed",
           "closed": [
             {
-              "tabId": "0012781f-af3e-43bc-8870-feadc7c88724",
+              "tabId": "52336461-8ec4-4278-b519-34d83b4ffb95",
               "outcome": "closed",
               "attempted": true
             },
             {
-              "tabId": "1905da58-f7d8-4b99-a1bc-5debf532c829",
+              "tabId": "d443834a-4a4b-40cb-acb3-20adc278d63c",
               "outcome": "closed",
               "attempted": true
             },
             {
-              "tabId": "b7355838-bdb7-4911-93e9-11c300edcee6",
+              "tabId": "e1d6ed99-fe36-4273-a771-5867064507ec",
               "outcome": "closed",
               "attempted": true
             }
@@ -2804,22 +2799,22 @@
             "windowId": 2,
             "projectId": "project-00000000-0000-4000-8000-0000000000d2",
             "tabIds": [
-              "28699da3-1523-4974-b5df-4e2b0d7d5bc3",
-              "e5548808-bfe7-4f04-891a-db08aced7e97",
-              "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
-              "ccf2c14a-9c25-44d8-9065-628a27ebd8ef",
-              "835323ad-2762-40cd-bacb-a532cc308807",
-              "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
-              "3490b343-feb1-41d0-9267-70c2b8de71ff",
-              "7323ce77-fc99-47b4-a5d2-457518b47ecb"
+              "3e7a0667-8589-4f20-ad90-16c6591d6f8e",
+              "96807491-1542-4488-bef2-d69611515d52",
+              "ef5a7af1-29dc-46e7-825c-ff257ef55624",
+              "98ffcce6-9e66-4b3d-be31-16537af47ca4",
+              "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566",
+              "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
+              "21588130-f3be-479a-948b-110c17cb6c16",
+              "1889c55f-5496-44c8-a787-c75400ab434a"
             ],
-            "activeTabId": "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
+            "activeTabId": "ef5a7af1-29dc-46e7-825c-ff257ef55624",
             "visible": true,
             "focused": false
           }
         ],
         "tabIds": [
-          "b7355838-bdb7-4911-93e9-11c300edcee6"
+          "e1d6ed99-fe36-4273-a771-5867064507ec"
         ],
         "attachmentRevisionAfter": null
       }
@@ -2830,8 +2825,8 @@
       "observable": "An explicit Quit with real shared work queued is refused: nothing commits, no shell closes, services keep answering and admission is released",
       "status": "PASS",
       "observed": {
-        "queuedRunId": "run-e51954bd-bc87-41bc-8f0b-f0b567b0c9a8",
-        "chatId": "chat-72ece63b-87b6-4db8-8e0a-bb20f84a683d",
+        "queuedRunId": "run-6c550adb-d961-4501-926c-4a140d981d6b",
+        "chatId": "chat-df6154e6-54b5-4939-b689-2f76b86d64f8",
         "report": {
           "attemptId": 6,
           "coalescedRequests": 0,
@@ -2853,7 +2848,7 @@
           "refusals": [
             {
               "code": "unknown-live-use",
-              "detail": "Run run-369b3759-5d7e-4b3b-b5bd-5430b4f53cc3 reports state 'unverifiable', which is not a live-use state; 1 active attachment(s) hold page 709e0e5e-a20a-4562-add2-1ed0f4412f4a: attachment-b8ef037d-e97a-4408-918c-d16cb54c0ed9; Run run-e51954bd-bc87-41bc-8f0b-f0b567b0c9a8 is queued",
+              "detail": "Run run-48b2db55-27ac-4eae-a143-beb6ca066b19 reports state 'unverifiable', which is not a live-use state; 1 active attachment(s) hold page b29d0f43-451d-4f54-bac8-74cbbf93a5f3: attachment-2b501f15-167a-4396-9632-be0d393b5740; Run run-6c550adb-d961-4501-926c-4a140d981d6b is queued",
               "controls": [
                 {
                   "id": "antifan:workflow:abort",
@@ -2883,7 +2878,7 @@
         "shellCountAfter": 6,
         "runsAfter": [
           {
-            "id": "run-e51954bd-bc87-41bc-8f0b-f0b567b0c9a8",
+            "id": "run-6c550adb-d961-4501-926c-4a140d981d6b",
             "state": "queued"
           }
         ],
@@ -2896,12 +2891,12 @@
             "windowId": 6,
             "projectId": "unassigned",
             "tabIds": [
-              "e2875e43-d3b4-4cf8-a8c6-9176617f286e",
-              "208144d9-fcdf-4fd0-935a-91dc410ac1d8",
-              "9961cda1-35d8-460b-8a15-16f431960274",
-              "79103a03-59f3-42a5-aaa9-033745bf170c"
+              "0438cce4-319b-4537-8f50-0a47b5596c56",
+              "4733f36b-9c0b-453d-83af-ec77233a82f8",
+              "8ab9ea79-df8d-4cc4-8bd0-d774b2e91cd5",
+              "4c414c94-9cfd-4528-9d4d-1b298720f574"
             ],
-            "activeTabId": "79103a03-59f3-42a5-aaa9-033745bf170c",
+            "activeTabId": "4c414c94-9cfd-4528-9d4d-1b298720f574",
             "visible": true,
             "focused": true
           },
@@ -2910,16 +2905,16 @@
             "windowId": 2,
             "projectId": "project-00000000-0000-4000-8000-0000000000d2",
             "tabIds": [
-              "28699da3-1523-4974-b5df-4e2b0d7d5bc3",
-              "e5548808-bfe7-4f04-891a-db08aced7e97",
-              "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
-              "ccf2c14a-9c25-44d8-9065-628a27ebd8ef",
-              "835323ad-2762-40cd-bacb-a532cc308807",
-              "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
-              "3490b343-feb1-41d0-9267-70c2b8de71ff",
-              "7323ce77-fc99-47b4-a5d2-457518b47ecb"
+              "3e7a0667-8589-4f20-ad90-16c6591d6f8e",
+              "96807491-1542-4488-bef2-d69611515d52",
+              "ef5a7af1-29dc-46e7-825c-ff257ef55624",
+              "98ffcce6-9e66-4b3d-be31-16537af47ca4",
+              "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566",
+              "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
+              "21588130-f3be-479a-948b-110c17cb6c16",
+              "1889c55f-5496-44c8-a787-c75400ab434a"
             ],
-            "activeTabId": "28699da3-1523-4974-b5df-4e2b0d7d5bc3",
+            "activeTabId": "3e7a0667-8589-4f20-ad90-16c6591d6f8e",
             "visible": true,
             "focused": false
           }
@@ -2931,21 +2926,21 @@
           "workspace-00000000-0000-4000-8000-0000000000d1"
         ],
         "attachmentRevisionBefore": {
-          "attachmentId": "attachment-b8ef037d-e97a-4408-918c-d16cb54c0ed9",
+          "attachmentId": "attachment-2b501f15-167a-4396-9632-be0d393b5740",
           "present": true,
-          "authorityRevision": "rev_dfa135712a65c649d0528f96d50567b6",
+          "authorityRevision": "rev_d0d4fd00426ecb8b2b618e4ce6bc3cc4",
           "revisionNumber": 6,
-          "tabId": "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
+          "tabId": "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
           "projectId": "project-00000000-0000-4000-8000-0000000000d2",
           "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
           "state": "active"
         },
         "attachmentRevisionAfter": {
-          "attachmentId": "attachment-b8ef037d-e97a-4408-918c-d16cb54c0ed9",
+          "attachmentId": "attachment-2b501f15-167a-4396-9632-be0d393b5740",
           "present": true,
-          "authorityRevision": "rev_dfa135712a65c649d0528f96d50567b6",
+          "authorityRevision": "rev_d0d4fd00426ecb8b2b618e4ce6bc3cc4",
           "revisionNumber": 6,
-          "tabId": "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
+          "tabId": "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
           "projectId": "project-00000000-0000-4000-8000-0000000000d2",
           "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
           "state": "active"
@@ -3004,6 +2999,7 @@
           "tabhost.tabClosed",
           "window-closed.siblings-live",
           "window-close.closed",
+          "heartbeat",
           "tabhost.tabClosed",
           "tabhost.tabClosed",
           "tabhost.tabClosed",
@@ -3015,10 +3011,6 @@
           "tabhost.tabClosed",
           "tabhost.tabClosed",
           "window-closed.siblings-live",
-          "window-close.closed",
-          "tabhost.tabClosed",
-          "tabhost.tabClosed",
-          "tabhost.tabClosed",
           "window-close.closed",
           "shutdown.begin",
           "shutdown.step.begin",
@@ -3048,6 +3040,10 @@
           "will-quit",
           "quit.outcome",
           "app.quit",
+          "window-close.closed",
+          "tabhost.tabClosed",
+          "tabhost.tabClosed",
+          "tabhost.tabClosed",
           "tabhost.tabClosed",
           "window-closed.last-browser-shell",
           "quit.requested",
@@ -3079,8 +3075,8 @@
         "willQuitEvents": 2,
         "settleRunErrors": [],
         "releasedAttachments": [
-          "attachment-b8ef037d-e97a-4408-918c-d16cb54c0ed9",
-          "attachment-7b08a804-b07b-4eb4-a8e0-52d9e285839b"
+          "attachment-2b501f15-167a-4396-9632-be0d393b5740",
+          "attachment-5b4cd13e-421c-4226-ab98-6f7cc0057fab"
         ],
         "refusedCloses": [],
         "busyRetries": []
@@ -3128,16 +3124,16 @@
       "observed": {
         "beforeHandle": {
           "mode": "attached",
-          "pid": 18756,
-          "port": 53260,
-          "token": "f1191d3e20bb53c2f6b620136589d8f2409e19c4ccb22906",
+          "pid": 10752,
+          "port": 57088,
+          "token": "9b2521a49f41319a2c22457d4b06a88f05818d3484d39b6f",
           "version": "22dcc456e53faf87"
         },
         "afterHandle": {
           "mode": "attached",
-          "pid": 18756,
-          "port": 53260,
-          "token": "f1191d3e20bb53c2f6b620136589d8f2409e19c4ccb22906",
+          "pid": 10752,
+          "port": 57088,
+          "token": "9b2521a49f41319a2c22457d4b06a88f05818d3484d39b6f",
           "version": "22dcc456e53faf87"
         },
         "mode": "attached",
@@ -3146,12 +3142,12 @@
         "shellCount": 0,
         "ping": {
           "pong": true,
-          "pid": 18756,
-          "hostStartPid": 18756
+          "pid": 10752,
+          "hostStartPid": 10752
         },
-        "marker": "matrix-pty-muzy6zox",
-        "sessionTail": "ovements! https://aka.ms/PSWindows\\u001b[0K\\r\\n\\u001b[0K\\r\\n\\u001b[0K\\u001b[?25hPS C:\\\\Users\\\\Admin\\\\AppData\\\\Local\\\\Temp\\\\antifan-pw-matrix-im85Rw\\\\beta>\\u001b[0K\\u001b[69G\\u001b[?25l\\rPS C:\\\\Users\\\\Admin\\\\AppData\\\\Local\\\\Temp\\\\antifan-pw-matrix-im85Rw\\\\beta> \\u001b[0;33;93me\\u001b[0m\\u001b[0K\\u001b[0;33;93mcho\\u001b[0m matrix-pty-muzy6zox\\u001b[0K\\r\\n\\u001b[0K\\u001b[?25h\",\"snapshotThroughSeq\":5}",
-        "stoppedAfterwards": "pid 18756 is gone after shutdownHost()"
+        "marker": "matrix-pty-mv00jqi0",
+        "sessionTail": "\\Users\\\\Admin\\\\AppData\\\\Local\\\\Temp\\\\antifan-pw-matrix-sXApwu\\\\beta>\\u001b[0K\\u001b[69G\\u001b[?25l\\rPS C:\\\\Users\\\\Admin\\\\AppData\\\\Local\\\\Temp\\\\antifan-pw-matrix-sXApwu\\\\beta> \\u001b[0;33;93me\\u001b[0m\\u001b[0K\\u001b[?25h\\u001b[?25l\\u001b[0;33;93mc\\u001b[0m\\u001b[0K\\u001b[?25h\\u001b[0;33;93mh\\u001b[0m\\u001b[0K\\u001b[?25l\\u001b[0;33;93mo\\u001b[0m matrix-pty-mv00jqi0\\u001b[0K\",\"snapshotThroughSeq\":9}",
+        "stoppedAfterwards": "pid 10752 is gone after shutdownHost()"
       },
       "ids": {
         "windowIds": [],
@@ -3179,21 +3175,21 @@
           ],
           "metrics": [
             {
-              "pid": 300,
+              "pid": 4284,
               "type": "Browser",
-              "workingSetKb": 259216,
+              "workingSetKb": 264568,
               "cpuPercent": 0
             },
             {
-              "pid": 17532,
+              "pid": 21024,
               "type": "GPU",
-              "workingSetKb": 239648,
+              "workingSetKb": 247192,
               "cpuPercent": 0
             },
             {
-              "pid": 3640,
+              "pid": 10192,
               "type": "Utility",
-              "workingSetKb": 135896,
+              "workingSetKb": 135180,
               "cpuPercent": 0
             }
           ],
@@ -3202,11 +3198,11 @@
         },
         "survivingPageProcessTypes": [],
         "osChildren": [
-          21568,
-          17532,
-          3640,
-          17304,
-          1676
+          22060,
+          21024,
+          10192,
+          10876,
+          21676
         ],
         "osChildrenSupported": true,
         "windows": [],
@@ -3216,11 +3212,11 @@
       },
       "ids": {
         "orphanPids": [
-          21568,
-          17532,
-          3640,
-          17304,
-          1676
+          22060,
+          21024,
+          10192,
+          10876,
+          21676
         ]
       }
     },
@@ -3231,32 +3227,32 @@
       "status": "PASS",
       "bucket": "environment",
       "observed": {
-        "hostPid": 300,
+        "hostPid": 4284,
         "recordedChildren": [
-          21568,
-          17532,
-          3640,
-          17304,
-          1676
+          22060,
+          21024,
+          10192,
+          10876,
+          21676
         ],
         "watcher": {
-          "pid": 19836,
+          "pid": 3320,
           "reportPath": "E:\\Work\\apps\\AntiFan\\plans\\260927-0315-project-windows\\reports\\project-windows-matrix-orphans.json",
           "logPath": "E:\\Work\\apps\\AntiFan\\plans\\260927-0315-project-windows\\reports\\project-windows-matrix-orphans.log",
-          "dataRootToken": "antifan-pw-matrix-im85Rw",
+          "dataRootToken": "antifan-pw-matrix-sXApwu",
           "descendantCheckSupported": true
         },
         "reportPath": "E:\\Work\\apps\\AntiFan\\plans\\260927-0315-project-windows\\reports\\project-windows-matrix-orphans.json",
         "note": "this row is BLOCKED in phase 1 by construction: nothing inside this process can observe a process that survives it",
         "hostIdentityVerified": true,
-        "watcherReportToken": "antifan-pw-matrix-im85Rw",
+        "watcherReportToken": "antifan-pw-matrix-sXApwu",
         "supported": true,
         "hostState": "gone",
         "hostGone": true,
         "survivorCheckRan": true,
         "survivingPids": [],
         "commandLineMatches": [],
-        "watcherCheckedAt": "2026-10-08T19:47:54.049Z",
+        "watcherCheckedAt": "2026-10-08T20:53:47.792Z",
         "watcherPollCount": 7,
         "watcherWindowMs": 180000,
         "ancestorQueryUnanswered": 0,
@@ -3280,15 +3276,15 @@
         "stillListed": true,
         "stillAlive": true,
         "valueAfter": "dang-go-form-state",
-        "urlAfter": "http://127.0.0.1:53259/alpha",
+        "urlAfter": "http://127.0.0.1:57087/alpha",
         "staleRetry": {
           "ok": false,
           "code": "AUTHENTICATION_DENIED",
-          "message": "Attachment attachment-acea7fb6-679b-4f18-a8aa-eb1357f1079f has been revoked",
+          "message": "Attachment attachment-239fb768-519b-460a-9692-f84b2967b9ee has been revoked",
           "data": null,
           "replacementAuthorityRevision": null
         },
-        "urlAfterRetry": "http://127.0.0.1:53259/alpha",
+        "urlAfterRetry": "http://127.0.0.1:57087/alpha",
         "otherWindowsClaimingTheTab": [],
         "alphaHostStillOwnsTheTab": true
       },
@@ -3299,11 +3295,11 @@
             "windowId": 1,
             "projectId": "unassigned",
             "tabIds": [
-              "2201a517-9999-4023-a23b-5d1bd42d0e7e",
-              "d87cfed6-ea80-412e-be07-51887750ae01",
-              "fafdb809-4537-451a-8770-11fe0057efa7"
+              "afb3bd4b-ad72-4262-82bc-a1628180e4c6",
+              "216d6941-8f07-4cfb-87b2-40ad696840e8",
+              "24ff42c4-41d3-4452-b37e-dc261d8ad974"
             ],
-            "activeTabId": "d87cfed6-ea80-412e-be07-51887750ae01",
+            "activeTabId": "216d6941-8f07-4cfb-87b2-40ad696840e8",
             "visible": true,
             "focused": true
           },
@@ -3312,39 +3308,39 @@
             "windowId": 2,
             "projectId": "project-00000000-0000-4000-8000-0000000000d2",
             "tabIds": [
-              "28699da3-1523-4974-b5df-4e2b0d7d5bc3",
-              "e5548808-bfe7-4f04-891a-db08aced7e97",
-              "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
-              "ccf2c14a-9c25-44d8-9065-628a27ebd8ef",
-              "835323ad-2762-40cd-bacb-a532cc308807",
-              "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
-              "3490b343-feb1-41d0-9267-70c2b8de71ff",
-              "7323ce77-fc99-47b4-a5d2-457518b47ecb"
+              "3e7a0667-8589-4f20-ad90-16c6591d6f8e",
+              "96807491-1542-4488-bef2-d69611515d52",
+              "ef5a7af1-29dc-46e7-825c-ff257ef55624",
+              "98ffcce6-9e66-4b3d-be31-16537af47ca4",
+              "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566",
+              "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
+              "21588130-f3be-479a-948b-110c17cb6c16",
+              "1889c55f-5496-44c8-a787-c75400ab434a"
             ],
-            "activeTabId": "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
+            "activeTabId": "ef5a7af1-29dc-46e7-825c-ff257ef55624",
             "visible": true,
             "focused": false
           }
         ],
         "tabIds": [
-          "d87cfed6-ea80-412e-be07-51887750ae01"
+          "216d6941-8f07-4cfb-87b2-40ad696840e8"
         ],
         "attachmentRevisionBefore": {
-          "attachmentId": "attachment-acea7fb6-679b-4f18-a8aa-eb1357f1079f",
+          "attachmentId": "attachment-239fb768-519b-460a-9692-f84b2967b9ee",
           "present": true,
-          "authorityRevision": "rev_7470c2be3b654a988bf2cb83eaf059c4",
+          "authorityRevision": "rev_104c23b030ce8b35fe21265ebfa2d7ab",
           "revisionNumber": 1,
-          "tabId": "d87cfed6-ea80-412e-be07-51887750ae01",
+          "tabId": "216d6941-8f07-4cfb-87b2-40ad696840e8",
           "projectId": "project-00000000-0000-4000-8000-0000000000d1",
           "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d1",
           "state": "revoked"
         },
         "attachmentRevisionAfter": {
-          "attachmentId": "attachment-acea7fb6-679b-4f18-a8aa-eb1357f1079f",
+          "attachmentId": "attachment-239fb768-519b-460a-9692-f84b2967b9ee",
           "present": true,
-          "authorityRevision": "rev_7470c2be3b654a988bf2cb83eaf059c4",
+          "authorityRevision": "rev_104c23b030ce8b35fe21265ebfa2d7ab",
           "revisionNumber": 1,
-          "tabId": "d87cfed6-ea80-412e-be07-51887750ae01",
+          "tabId": "216d6941-8f07-4cfb-87b2-40ad696840e8",
           "projectId": "project-00000000-0000-4000-8000-0000000000d1",
           "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d1",
           "state": "revoked"
@@ -3373,14 +3369,14 @@
         "typedBeforeDrop": "dang-go-form-state-transport-drop",
         "typedAfterDrop": "dang-go-form-state-transport-drop",
         "tabsBefore": [
-          "2201a517-9999-4023-a23b-5d1bd42d0e7e",
-          "d87cfed6-ea80-412e-be07-51887750ae01",
-          "fafdb809-4537-451a-8770-11fe0057efa7"
+          "afb3bd4b-ad72-4262-82bc-a1628180e4c6",
+          "216d6941-8f07-4cfb-87b2-40ad696840e8",
+          "24ff42c4-41d3-4452-b37e-dc261d8ad974"
         ],
         "tabsAfter": [
-          "2201a517-9999-4023-a23b-5d1bd42d0e7e",
-          "d87cfed6-ea80-412e-be07-51887750ae01",
-          "fafdb809-4537-451a-8770-11fe0057efa7"
+          "afb3bd4b-ad72-4262-82bc-a1628180e4c6",
+          "216d6941-8f07-4cfb-87b2-40ad696840e8",
+          "24ff42c4-41d3-4452-b37e-dc261d8ad974"
         ],
         "pageAlive": true,
         "windowStillOwnsTab": true,
@@ -3398,11 +3394,11 @@
             "windowId": 1,
             "projectId": "unassigned",
             "tabIds": [
-              "2201a517-9999-4023-a23b-5d1bd42d0e7e",
-              "d87cfed6-ea80-412e-be07-51887750ae01",
-              "fafdb809-4537-451a-8770-11fe0057efa7"
+              "afb3bd4b-ad72-4262-82bc-a1628180e4c6",
+              "216d6941-8f07-4cfb-87b2-40ad696840e8",
+              "24ff42c4-41d3-4452-b37e-dc261d8ad974"
             ],
-            "activeTabId": "d87cfed6-ea80-412e-be07-51887750ae01",
+            "activeTabId": "216d6941-8f07-4cfb-87b2-40ad696840e8",
             "visible": true,
             "focused": true
           },
@@ -3411,22 +3407,22 @@
             "windowId": 2,
             "projectId": "project-00000000-0000-4000-8000-0000000000d2",
             "tabIds": [
-              "28699da3-1523-4974-b5df-4e2b0d7d5bc3",
-              "e5548808-bfe7-4f04-891a-db08aced7e97",
-              "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
-              "ccf2c14a-9c25-44d8-9065-628a27ebd8ef",
-              "835323ad-2762-40cd-bacb-a532cc308807",
-              "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
-              "3490b343-feb1-41d0-9267-70c2b8de71ff",
-              "7323ce77-fc99-47b4-a5d2-457518b47ecb"
+              "3e7a0667-8589-4f20-ad90-16c6591d6f8e",
+              "96807491-1542-4488-bef2-d69611515d52",
+              "ef5a7af1-29dc-46e7-825c-ff257ef55624",
+              "98ffcce6-9e66-4b3d-be31-16537af47ca4",
+              "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566",
+              "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
+              "21588130-f3be-479a-948b-110c17cb6c16",
+              "1889c55f-5496-44c8-a787-c75400ab434a"
             ],
-            "activeTabId": "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
+            "activeTabId": "ef5a7af1-29dc-46e7-825c-ff257ef55624",
             "visible": true,
             "focused": false
           }
         ],
         "tabIds": [
-          "d87cfed6-ea80-412e-be07-51887750ae01"
+          "216d6941-8f07-4cfb-87b2-40ad696840e8"
         ],
         "projectIds": [
           "project-00000000-0000-4000-8000-0000000000d1"
@@ -3435,21 +3431,21 @@
           "workspace-00000000-0000-4000-8000-0000000000d1"
         ],
         "attachmentRevisionBefore": {
-          "attachmentId": "attachment-1c642444-cea9-4753-bfb1-9fac3fc77028",
+          "attachmentId": "attachment-3844a6b2-670d-4666-bc94-0399eceed1eb",
           "present": true,
-          "authorityRevision": "rev_cf9964c995ccf74c5dbcd3c82a610047",
+          "authorityRevision": "rev_71d9f7f0cf999dbc2daf4d4bc5eece5f",
           "revisionNumber": 1,
-          "tabId": "d87cfed6-ea80-412e-be07-51887750ae01",
+          "tabId": "216d6941-8f07-4cfb-87b2-40ad696840e8",
           "projectId": "project-00000000-0000-4000-8000-0000000000d1",
           "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d1",
           "state": "active"
         },
         "attachmentRevisionAfter": {
-          "attachmentId": "attachment-1c642444-cea9-4753-bfb1-9fac3fc77028",
+          "attachmentId": "attachment-3844a6b2-670d-4666-bc94-0399eceed1eb",
           "present": true,
-          "authorityRevision": "rev_cf9964c995ccf74c5dbcd3c82a610047",
+          "authorityRevision": "rev_71d9f7f0cf999dbc2daf4d4bc5eece5f",
           "revisionNumber": 1,
-          "tabId": "d87cfed6-ea80-412e-be07-51887750ae01",
+          "tabId": "216d6941-8f07-4cfb-87b2-40ad696840e8",
           "projectId": "project-00000000-0000-4000-8000-0000000000d1",
           "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d1",
           "state": "active"
@@ -3474,17 +3470,17 @@
           "persist:profile-default"
         ],
         "sessionIdentity": {
-          "d87cfed6-ea80-412e-be07-51887750ae01": {
+          "216d6941-8f07-4cfb-87b2-40ad696840e8": {
             "sameLiveSessionObject": true,
             "sessionPresent": true,
             "partitionBefore": "persist:profile-default",
             "partitionNow": "persist:profile-default",
-            "partitionNamesForSession": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-im85Rw\\Profile\\Partitions\\profile-default"
+            "partitionNamesForSession": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-sXApwu\\Profile\\Partitions\\profile-default"
           }
         },
         "betaTabRecords": [
           {
-            "tabId": "28699da3-1523-4974-b5df-4e2b0d7d5bc3",
+            "tabId": "3e7a0667-8589-4f20-ad90-16c6591d6f8e",
             "url": "https://www.google.com/",
             "title": "Google",
             "capsuleId": "capsule-matrix-beta",
@@ -3498,7 +3494,7 @@
             "windowOwnerKey": "project:project-00000000-0000-4000-8000-0000000000d2"
           },
           {
-            "tabId": "e5548808-bfe7-4f04-891a-db08aced7e97",
+            "tabId": "96807491-1542-4488-bef2-d69611515d52",
             "url": "https://www.google.com/",
             "title": "Google",
             "capsuleId": "capsule-matrix-beta",
@@ -3512,8 +3508,8 @@
             "windowOwnerKey": "project:project-00000000-0000-4000-8000-0000000000d2"
           },
           {
-            "tabId": "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
-            "url": "http://127.0.0.1:53259/beta",
+            "tabId": "ef5a7af1-29dc-46e7-825c-ff257ef55624",
+            "url": "http://127.0.0.1:57087/beta",
             "title": "Matrix Beta Page",
             "capsuleId": "capsule-matrix-beta",
             "partition": "persist:profile-default",
@@ -3526,7 +3522,7 @@
             "windowOwnerKey": "project:project-00000000-0000-4000-8000-0000000000d2"
           },
           {
-            "tabId": "ccf2c14a-9c25-44d8-9065-628a27ebd8ef",
+            "tabId": "98ffcce6-9e66-4b3d-be31-16537af47ca4",
             "url": "about:blank",
             "title": "New Tab",
             "capsuleId": "capsule-matrix-beta",
@@ -3540,8 +3536,8 @@
             "windowOwnerKey": "project:project-00000000-0000-4000-8000-0000000000d2"
           },
           {
-            "tabId": "835323ad-2762-40cd-bacb-a532cc308807",
-            "url": "http://127.0.0.1:53259/child",
+            "tabId": "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566",
+            "url": "http://127.0.0.1:57087/child",
             "title": "Matrix Child Page",
             "capsuleId": "capsule-matrix-beta",
             "partition": "persist:profile-default",
@@ -3554,8 +3550,8 @@
             "windowOwnerKey": "project:project-00000000-0000-4000-8000-0000000000d2"
           },
           {
-            "tabId": "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
-            "url": "http://127.0.0.1:53259/agent-child?owner=first",
+            "tabId": "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
+            "url": "http://127.0.0.1:57087/agent-child?owner=first",
             "title": "Matrix Agent Child Page",
             "capsuleId": "capsule-matrix-beta",
             "partition": "persist:profile-default",
@@ -3568,7 +3564,7 @@
             "windowOwnerKey": "project:project-00000000-0000-4000-8000-0000000000d2"
           },
           {
-            "tabId": "3490b343-feb1-41d0-9267-70c2b8de71ff",
+            "tabId": "21588130-f3be-479a-948b-110c17cb6c16",
             "url": "about:blank",
             "title": "New Tab",
             "capsuleId": "capsule-matrix-beta",
@@ -3582,8 +3578,8 @@
             "windowOwnerKey": "project:project-00000000-0000-4000-8000-0000000000d2"
           },
           {
-            "tabId": "7323ce77-fc99-47b4-a5d2-457518b47ecb",
-            "url": "http://127.0.0.1:53259/beta?owner=second",
+            "tabId": "1889c55f-5496-44c8-a787-c75400ab434a",
+            "url": "http://127.0.0.1:57087/beta?owner=second",
             "title": "Matrix Beta Page",
             "capsuleId": "capsule-matrix-beta",
             "partition": "persist:profile-default",
@@ -3604,11 +3600,11 @@
             "windowId": 1,
             "projectId": "unassigned",
             "tabIds": [
-              "2201a517-9999-4023-a23b-5d1bd42d0e7e",
-              "d87cfed6-ea80-412e-be07-51887750ae01",
-              "fafdb809-4537-451a-8770-11fe0057efa7"
+              "afb3bd4b-ad72-4262-82bc-a1628180e4c6",
+              "216d6941-8f07-4cfb-87b2-40ad696840e8",
+              "24ff42c4-41d3-4452-b37e-dc261d8ad974"
             ],
-            "activeTabId": "d87cfed6-ea80-412e-be07-51887750ae01",
+            "activeTabId": "216d6941-8f07-4cfb-87b2-40ad696840e8",
             "visible": true,
             "focused": true
           },
@@ -3617,22 +3613,22 @@
             "windowId": 2,
             "projectId": "project-00000000-0000-4000-8000-0000000000d2",
             "tabIds": [
-              "28699da3-1523-4974-b5df-4e2b0d7d5bc3",
-              "e5548808-bfe7-4f04-891a-db08aced7e97",
-              "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
-              "ccf2c14a-9c25-44d8-9065-628a27ebd8ef",
-              "835323ad-2762-40cd-bacb-a532cc308807",
-              "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
-              "3490b343-feb1-41d0-9267-70c2b8de71ff",
-              "7323ce77-fc99-47b4-a5d2-457518b47ecb"
+              "3e7a0667-8589-4f20-ad90-16c6591d6f8e",
+              "96807491-1542-4488-bef2-d69611515d52",
+              "ef5a7af1-29dc-46e7-825c-ff257ef55624",
+              "98ffcce6-9e66-4b3d-be31-16537af47ca4",
+              "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566",
+              "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
+              "21588130-f3be-479a-948b-110c17cb6c16",
+              "1889c55f-5496-44c8-a787-c75400ab434a"
             ],
-            "activeTabId": "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
+            "activeTabId": "ef5a7af1-29dc-46e7-825c-ff257ef55624",
             "visible": true,
             "focused": false
           }
         ],
         "tabIds": [
-          "d87cfed6-ea80-412e-be07-51887750ae01"
+          "216d6941-8f07-4cfb-87b2-40ad696840e8"
         ],
         "projectIds": [
           "project-00000000-0000-4000-8000-0000000000d1",
@@ -3676,7 +3672,7 @@
             "height": 1032
           }
         },
-        "plainTab": "9a864f0e-90aa-40cc-9c58-70ae41de80c6",
+        "plainTab": "0aaf0595-c0de-4a2d-9b70-2f1cf7b0e996",
         "native": {
           "windowId": 1,
           "contentBounds": {
@@ -3883,7 +3879,7 @@
           "overlayRows": [],
           "rowsOutsideOverlay": 0,
           "chipTitle": "Matrix Storefront",
-          "chipPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-im85Rw\\alpha",
+          "chipPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-sXApwu\\alpha",
           "activeElementId": null,
           "tabSearchDisplay": "none",
           "tabSearchInlineDisplay": "none",
@@ -3983,19 +3979,19 @@
             "windowId": 1,
             "projectId": "unassigned",
             "tabIds": [
-              "2201a517-9999-4023-a23b-5d1bd42d0e7e",
-              "d87cfed6-ea80-412e-be07-51887750ae01",
-              "fafdb809-4537-451a-8770-11fe0057efa7",
-              "9a864f0e-90aa-40cc-9c58-70ae41de80c6"
+              "afb3bd4b-ad72-4262-82bc-a1628180e4c6",
+              "216d6941-8f07-4cfb-87b2-40ad696840e8",
+              "24ff42c4-41d3-4452-b37e-dc261d8ad974",
+              "0aaf0595-c0de-4a2d-9b70-2f1cf7b0e996"
             ],
-            "activeTabId": "9a864f0e-90aa-40cc-9c58-70ae41de80c6",
+            "activeTabId": "0aaf0595-c0de-4a2d-9b70-2f1cf7b0e996",
             "visible": true,
             "focused": true
           }
         ],
         "tabIds": [
-          "9a864f0e-90aa-40cc-9c58-70ae41de80c6",
-          "d87cfed6-ea80-412e-be07-51887750ae01"
+          "0aaf0595-c0de-4a2d-9b70-2f1cf7b0e996",
+          "216d6941-8f07-4cfb-87b2-40ad696840e8"
         ],
         "foregroundBefore": 1,
         "foregroundAfter": 1
@@ -4030,7 +4026,7 @@
             "height": 1032
           }
         },
-        "plainTab": "9a864f0e-90aa-40cc-9c58-70ae41de80c6",
+        "plainTab": "0aaf0595-c0de-4a2d-9b70-2f1cf7b0e996",
         "native": {
           "windowId": 1,
           "contentBounds": {
@@ -4237,7 +4233,7 @@
           "overlayRows": [],
           "rowsOutsideOverlay": 0,
           "chipTitle": "Matrix Storefront",
-          "chipPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-im85Rw\\alpha",
+          "chipPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-sXApwu\\alpha",
           "activeElementId": "btnTabSearch",
           "tabSearchDisplay": "none",
           "tabSearchInlineDisplay": "none",
@@ -4254,18 +4250,18 @@
             "windowId": 1,
             "projectId": "unassigned",
             "tabIds": [
-              "2201a517-9999-4023-a23b-5d1bd42d0e7e",
-              "d87cfed6-ea80-412e-be07-51887750ae01",
-              "fafdb809-4537-451a-8770-11fe0057efa7",
-              "9a864f0e-90aa-40cc-9c58-70ae41de80c6"
+              "afb3bd4b-ad72-4262-82bc-a1628180e4c6",
+              "216d6941-8f07-4cfb-87b2-40ad696840e8",
+              "24ff42c4-41d3-4452-b37e-dc261d8ad974",
+              "0aaf0595-c0de-4a2d-9b70-2f1cf7b0e996"
             ],
-            "activeTabId": "9a864f0e-90aa-40cc-9c58-70ae41de80c6",
+            "activeTabId": "0aaf0595-c0de-4a2d-9b70-2f1cf7b0e996",
             "visible": true,
             "focused": true
           }
         ],
         "tabIds": [
-          "9a864f0e-90aa-40cc-9c58-70ae41de80c6"
+          "0aaf0595-c0de-4a2d-9b70-2f1cf7b0e996"
         ],
         "foregroundBefore": 1,
         "foregroundAfter": 1
@@ -4291,13 +4287,11 @@
         },
         "ownerLabels": [
           "Matrix Beta",
-          "Matrix Epsilon",
-          "Matrix Storefront"
+          "AntiFan Browser"
         ],
         "duplicateNamePaths": [
-          "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-im85Rw\\delta",
-          "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-im85Rw\\delta",
-          "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-im85Rw\\alpha"
+          "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-sXApwu\\epsilon",
+          "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-sXApwu\\delta"
         ],
         "literalQueries": {
           "title": {
@@ -4318,35 +4312,35 @@
         },
         "literalSample": [
           {
-            "tabId": "f4f5ed96-958b-408c-8b73-1f90db829bcc",
+            "tabId": "054ad65d-6018-4a68-adfc-edc2b5e1d296",
             "title": "Matrix Alpha Page",
-            "url": "http://127.0.0.1:53259/alpha",
-            "ownerLabel": "Matrix Epsilon"
+            "url": "http://127.0.0.1:57087/alpha",
+            "ownerLabel": "AntiFan Browser"
           }
         ],
         "urlLiteralSample": [
           {
-            "tabId": "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
-            "url": "http://127.0.0.1:53259/beta"
+            "tabId": "ef5a7af1-29dc-46e7-825c-ff257ef55624",
+            "url": "http://127.0.0.1:57087/beta"
           },
           {
-            "tabId": "835323ad-2762-40cd-bacb-a532cc308807",
-            "url": "http://127.0.0.1:53259/child"
+            "tabId": "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566",
+            "url": "http://127.0.0.1:57087/child"
           },
           {
-            "tabId": "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
-            "url": "http://127.0.0.1:53259/agent-child?owner=first"
+            "tabId": "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
+            "url": "http://127.0.0.1:57087/agent-child?owner=first"
           },
           {
-            "tabId": "7323ce77-fc99-47b4-a5d2-457518b47ecb",
-            "url": "http://127.0.0.1:53259/beta?owner=second"
+            "tabId": "1889c55f-5496-44c8-a787-c75400ab434a",
+            "url": "http://127.0.0.1:57087/beta?owner=second"
           },
           {
-            "tabId": "f4f5ed96-958b-408c-8b73-1f90db829bcc",
-            "url": "http://127.0.0.1:53259/alpha"
+            "tabId": "054ad65d-6018-4a68-adfc-edc2b5e1d296",
+            "url": "http://127.0.0.1:57087/alpha"
           }
         ],
-        "alphaSupplementTab": "f4f5ed96-958b-408c-8b73-1f90db829bcc",
+        "alphaSupplementTab": "054ad65d-6018-4a68-adfc-edc2b5e1d296",
         "alphaSupplementTitle": "Matrix Alpha Page"
       },
       "ids": {
@@ -4356,13 +4350,13 @@
             "windowId": 6,
             "projectId": "unassigned",
             "tabIds": [
-              "797f8fbb-bcd3-4b45-9c23-48352cb11f6d",
-              "f4f5ed96-958b-408c-8b73-1f90db829bcc",
-              "5147fcde-890a-463b-8874-8fbe08d02030",
-              "ce3b25cb-b636-4126-9d98-e0e7c2bcf9de",
-              "e2875e43-d3b4-4cf8-a8c6-9176617f286e"
+              "8982dfd5-04a6-4459-8857-3104d4fe9ec7",
+              "054ad65d-6018-4a68-adfc-edc2b5e1d296",
+              "7cf0ed5e-e7d7-440f-8ffd-9ef7ab26cabb",
+              "602aeab7-0e99-40e9-a45f-a783e917156c",
+              "0438cce4-319b-4537-8f50-0a47b5596c56"
             ],
-            "activeTabId": "e2875e43-d3b4-4cf8-a8c6-9176617f286e",
+            "activeTabId": "0438cce4-319b-4537-8f50-0a47b5596c56",
             "visible": true,
             "focused": true
           },
@@ -4371,16 +4365,16 @@
             "windowId": 2,
             "projectId": "project-00000000-0000-4000-8000-0000000000d2",
             "tabIds": [
-              "28699da3-1523-4974-b5df-4e2b0d7d5bc3",
-              "e5548808-bfe7-4f04-891a-db08aced7e97",
-              "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
-              "ccf2c14a-9c25-44d8-9065-628a27ebd8ef",
-              "835323ad-2762-40cd-bacb-a532cc308807",
-              "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
-              "3490b343-feb1-41d0-9267-70c2b8de71ff",
-              "7323ce77-fc99-47b4-a5d2-457518b47ecb"
+              "3e7a0667-8589-4f20-ad90-16c6591d6f8e",
+              "96807491-1542-4488-bef2-d69611515d52",
+              "ef5a7af1-29dc-46e7-825c-ff257ef55624",
+              "98ffcce6-9e66-4b3d-be31-16537af47ca4",
+              "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566",
+              "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
+              "21588130-f3be-479a-948b-110c17cb6c16",
+              "1889c55f-5496-44c8-a787-c75400ab434a"
             ],
-            "activeTabId": "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
+            "activeTabId": "ef5a7af1-29dc-46e7-825c-ff257ef55624",
             "visible": true,
             "focused": false
           },
@@ -4395,20 +4389,20 @@
           }
         ],
         "tabIds": [
-          "f4f5ed96-958b-408c-8b73-1f90db829bcc",
-          "28699da3-1523-4974-b5df-4e2b0d7d5bc3",
-          "e5548808-bfe7-4f04-891a-db08aced7e97",
-          "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
-          "ccf2c14a-9c25-44d8-9065-628a27ebd8ef",
-          "835323ad-2762-40cd-bacb-a532cc308807",
-          "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
-          "3490b343-feb1-41d0-9267-70c2b8de71ff",
-          "7323ce77-fc99-47b4-a5d2-457518b47ecb",
-          "797f8fbb-bcd3-4b45-9c23-48352cb11f6d",
-          "f4f5ed96-958b-408c-8b73-1f90db829bcc",
-          "5147fcde-890a-463b-8874-8fbe08d02030",
-          "ce3b25cb-b636-4126-9d98-e0e7c2bcf9de",
-          "e2875e43-d3b4-4cf8-a8c6-9176617f286e"
+          "054ad65d-6018-4a68-adfc-edc2b5e1d296",
+          "3e7a0667-8589-4f20-ad90-16c6591d6f8e",
+          "96807491-1542-4488-bef2-d69611515d52",
+          "ef5a7af1-29dc-46e7-825c-ff257ef55624",
+          "98ffcce6-9e66-4b3d-be31-16537af47ca4",
+          "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566",
+          "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
+          "21588130-f3be-479a-948b-110c17cb6c16",
+          "1889c55f-5496-44c8-a787-c75400ab434a",
+          "8982dfd5-04a6-4459-8857-3104d4fe9ec7",
+          "054ad65d-6018-4a68-adfc-edc2b5e1d296",
+          "7cf0ed5e-e7d7-440f-8ffd-9ef7ab26cabb",
+          "602aeab7-0e99-40e9-a45f-a783e917156c",
+          "0438cce4-319b-4537-8f50-0a47b5596c56"
         ]
       }
     },
@@ -4419,36 +4413,36 @@
       "status": "PASS",
       "observed": {
         "inventoryRowCount": 13,
-        "chosenTabId": "28699da3-1523-4974-b5df-4e2b0d7d5bc3",
+        "chosenTabId": "3e7a0667-8589-4f20-ad90-16c6591d6f8e",
         "chosenRow": {
-          "tabId": "28699da3-1523-4974-b5df-4e2b0d7d5bc3",
+          "tabId": "3e7a0667-8589-4f20-ad90-16c6591d6f8e",
           "ownerLabel": "Matrix Beta",
-          "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-im85Rw\\beta"
+          "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-sXApwu\\beta"
         },
         "result": {
           "status": "ACTIVATED",
-          "tabId": "28699da3-1523-4974-b5df-4e2b0d7d5bc3"
+          "tabId": "3e7a0667-8589-4f20-ad90-16c6591d6f8e"
         },
-        "betaActiveAfter": "28699da3-1523-4974-b5df-4e2b0d7d5bc3",
-        "alphaActiveBefore": "e2875e43-d3b4-4cf8-a8c6-9176617f286e",
-        "alphaActiveAfter": "e2875e43-d3b4-4cf8-a8c6-9176617f286e",
+        "betaActiveAfter": "3e7a0667-8589-4f20-ad90-16c6591d6f8e",
+        "alphaActiveBefore": "0438cce4-319b-4537-8f50-0a47b5596c56",
+        "alphaActiveAfter": "0438cce4-319b-4537-8f50-0a47b5596c56",
         "foregroundAfter": "project:project-00000000-0000-4000-8000-0000000000d2",
         "revisionBefore": {
-          "attachmentId": "attachment-b8ef037d-e97a-4408-918c-d16cb54c0ed9",
+          "attachmentId": "attachment-2b501f15-167a-4396-9632-be0d393b5740",
           "present": true,
-          "authorityRevision": "rev_dfa135712a65c649d0528f96d50567b6",
+          "authorityRevision": "rev_d0d4fd00426ecb8b2b618e4ce6bc3cc4",
           "revisionNumber": 6,
-          "tabId": "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
+          "tabId": "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
           "projectId": "project-00000000-0000-4000-8000-0000000000d2",
           "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
           "state": "active"
         },
         "revisionAfter": {
-          "attachmentId": "attachment-b8ef037d-e97a-4408-918c-d16cb54c0ed9",
+          "attachmentId": "attachment-2b501f15-167a-4396-9632-be0d393b5740",
           "present": true,
-          "authorityRevision": "rev_dfa135712a65c649d0528f96d50567b6",
+          "authorityRevision": "rev_d0d4fd00426ecb8b2b618e4ce6bc3cc4",
           "revisionNumber": 6,
-          "tabId": "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
+          "tabId": "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
           "projectId": "project-00000000-0000-4000-8000-0000000000d2",
           "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
           "state": "active"
@@ -4461,13 +4455,13 @@
             "windowId": 6,
             "projectId": "unassigned",
             "tabIds": [
-              "797f8fbb-bcd3-4b45-9c23-48352cb11f6d",
-              "f4f5ed96-958b-408c-8b73-1f90db829bcc",
-              "5147fcde-890a-463b-8874-8fbe08d02030",
-              "ce3b25cb-b636-4126-9d98-e0e7c2bcf9de",
-              "e2875e43-d3b4-4cf8-a8c6-9176617f286e"
+              "8982dfd5-04a6-4459-8857-3104d4fe9ec7",
+              "054ad65d-6018-4a68-adfc-edc2b5e1d296",
+              "7cf0ed5e-e7d7-440f-8ffd-9ef7ab26cabb",
+              "602aeab7-0e99-40e9-a45f-a783e917156c",
+              "0438cce4-319b-4537-8f50-0a47b5596c56"
             ],
-            "activeTabId": "e2875e43-d3b4-4cf8-a8c6-9176617f286e",
+            "activeTabId": "0438cce4-319b-4537-8f50-0a47b5596c56",
             "visible": true,
             "focused": false
           },
@@ -4476,39 +4470,39 @@
             "windowId": 2,
             "projectId": "project-00000000-0000-4000-8000-0000000000d2",
             "tabIds": [
-              "28699da3-1523-4974-b5df-4e2b0d7d5bc3",
-              "e5548808-bfe7-4f04-891a-db08aced7e97",
-              "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
-              "ccf2c14a-9c25-44d8-9065-628a27ebd8ef",
-              "835323ad-2762-40cd-bacb-a532cc308807",
-              "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
-              "3490b343-feb1-41d0-9267-70c2b8de71ff",
-              "7323ce77-fc99-47b4-a5d2-457518b47ecb"
+              "3e7a0667-8589-4f20-ad90-16c6591d6f8e",
+              "96807491-1542-4488-bef2-d69611515d52",
+              "ef5a7af1-29dc-46e7-825c-ff257ef55624",
+              "98ffcce6-9e66-4b3d-be31-16537af47ca4",
+              "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566",
+              "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
+              "21588130-f3be-479a-948b-110c17cb6c16",
+              "1889c55f-5496-44c8-a787-c75400ab434a"
             ],
-            "activeTabId": "28699da3-1523-4974-b5df-4e2b0d7d5bc3",
+            "activeTabId": "3e7a0667-8589-4f20-ad90-16c6591d6f8e",
             "visible": true,
             "focused": true
           }
         ],
         "tabIds": [
-          "28699da3-1523-4974-b5df-4e2b0d7d5bc3"
+          "3e7a0667-8589-4f20-ad90-16c6591d6f8e"
         ],
         "attachmentRevisionBefore": {
-          "attachmentId": "attachment-b8ef037d-e97a-4408-918c-d16cb54c0ed9",
+          "attachmentId": "attachment-2b501f15-167a-4396-9632-be0d393b5740",
           "present": true,
-          "authorityRevision": "rev_dfa135712a65c649d0528f96d50567b6",
+          "authorityRevision": "rev_d0d4fd00426ecb8b2b618e4ce6bc3cc4",
           "revisionNumber": 6,
-          "tabId": "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
+          "tabId": "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
           "projectId": "project-00000000-0000-4000-8000-0000000000d2",
           "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
           "state": "active"
         },
         "attachmentRevisionAfter": {
-          "attachmentId": "attachment-b8ef037d-e97a-4408-918c-d16cb54c0ed9",
+          "attachmentId": "attachment-2b501f15-167a-4396-9632-be0d393b5740",
           "present": true,
-          "authorityRevision": "rev_dfa135712a65c649d0528f96d50567b6",
+          "authorityRevision": "rev_d0d4fd00426ecb8b2b618e4ce6bc3cc4",
           "revisionNumber": 6,
-          "tabId": "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
+          "tabId": "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
           "projectId": "project-00000000-0000-4000-8000-0000000000d2",
           "workspaceId": "workspace-00000000-0000-4000-8000-0000000000d2",
           "state": "active"
@@ -4532,7 +4526,7 @@
         "activeTabsBefore": [
           [
             "project:project-00000000-0000-4000-8000-0000000000d2",
-            "28699da3-1523-4974-b5df-4e2b0d7d5bc3"
+            "3e7a0667-8589-4f20-ad90-16c6591d6f8e"
           ],
           [
             "unassigned",
@@ -4540,13 +4534,13 @@
           ],
           [
             "web",
-            "e2875e43-d3b4-4cf8-a8c6-9176617f286e"
+            "0438cce4-319b-4537-8f50-0a47b5596c56"
           ]
         ],
         "activeTabsAfter": [
           [
             "project:project-00000000-0000-4000-8000-0000000000d2",
-            "28699da3-1523-4974-b5df-4e2b0d7d5bc3"
+            "3e7a0667-8589-4f20-ad90-16c6591d6f8e"
           ],
           [
             "unassigned",
@@ -4554,7 +4548,7 @@
           ],
           [
             "web",
-            "e2875e43-d3b4-4cf8-a8c6-9176617f286e"
+            "0438cce4-319b-4537-8f50-0a47b5596c56"
           ]
         ],
         "foregroundBefore": 2,
@@ -4567,13 +4561,13 @@
             "windowId": 6,
             "projectId": "unassigned",
             "tabIds": [
-              "797f8fbb-bcd3-4b45-9c23-48352cb11f6d",
-              "f4f5ed96-958b-408c-8b73-1f90db829bcc",
-              "5147fcde-890a-463b-8874-8fbe08d02030",
-              "ce3b25cb-b636-4126-9d98-e0e7c2bcf9de",
-              "e2875e43-d3b4-4cf8-a8c6-9176617f286e"
+              "8982dfd5-04a6-4459-8857-3104d4fe9ec7",
+              "054ad65d-6018-4a68-adfc-edc2b5e1d296",
+              "7cf0ed5e-e7d7-440f-8ffd-9ef7ab26cabb",
+              "602aeab7-0e99-40e9-a45f-a783e917156c",
+              "0438cce4-319b-4537-8f50-0a47b5596c56"
             ],
-            "activeTabId": "e2875e43-d3b4-4cf8-a8c6-9176617f286e",
+            "activeTabId": "0438cce4-319b-4537-8f50-0a47b5596c56",
             "visible": true,
             "focused": false
           },
@@ -4582,16 +4576,16 @@
             "windowId": 2,
             "projectId": "project-00000000-0000-4000-8000-0000000000d2",
             "tabIds": [
-              "28699da3-1523-4974-b5df-4e2b0d7d5bc3",
-              "e5548808-bfe7-4f04-891a-db08aced7e97",
-              "60b7e9fc-1292-4b2e-8b0f-7acd7771cc27",
-              "ccf2c14a-9c25-44d8-9065-628a27ebd8ef",
-              "835323ad-2762-40cd-bacb-a532cc308807",
-              "709e0e5e-a20a-4562-add2-1ed0f4412f4a",
-              "3490b343-feb1-41d0-9267-70c2b8de71ff",
-              "7323ce77-fc99-47b4-a5d2-457518b47ecb"
+              "3e7a0667-8589-4f20-ad90-16c6591d6f8e",
+              "96807491-1542-4488-bef2-d69611515d52",
+              "ef5a7af1-29dc-46e7-825c-ff257ef55624",
+              "98ffcce6-9e66-4b3d-be31-16537af47ca4",
+              "eb4e8ea5-249c-4253-a8a0-d2e68ed7e566",
+              "b29d0f43-451d-4f54-bac8-74cbbf93a5f3",
+              "21588130-f3be-479a-948b-110c17cb6c16",
+              "1889c55f-5496-44c8-a787-c75400ab434a"
             ],
-            "activeTabId": "28699da3-1523-4974-b5df-4e2b0d7d5bc3",
+            "activeTabId": "3e7a0667-8589-4f20-ad90-16c6591d6f8e",
             "visible": true,
             "focused": true
           }
@@ -4605,15 +4599,15 @@
     }
   ],
   "environment": {
-    "dataRoot": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-im85Rw",
-    "profileDir": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-im85Rw\\Profile",
-    "bridgePort": 21300,
+    "dataRoot": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-sXApwu",
+    "profileDir": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-sXApwu\\Profile",
+    "bridgePort": 21284,
     "compiledRoot": "E:\\Work\\apps\\AntiFan\\.compiled",
     "rendererBundlePresent": true,
     "daemonEntryPresent": true,
     "daemonStaged": true,
     "daemonStagingError": null,
-    "lifecycleLogPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-im85Rw\\runtime\\logs\\main.log",
+    "lifecycleLogPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-sXApwu\\runtime\\logs\\main.log",
     "displays": [
       {
         "id": 2688278210,
@@ -4667,15 +4661,15 @@
   },
   "observations": {
     "environment": {
-      "dataRoot": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-im85Rw",
-      "profileDir": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-im85Rw\\Profile",
-      "bridgePort": 21300,
+      "dataRoot": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-sXApwu",
+      "profileDir": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-sXApwu\\Profile",
+      "bridgePort": 21284,
       "compiledRoot": "E:\\Work\\apps\\AntiFan\\.compiled",
       "rendererBundlePresent": true,
       "daemonEntryPresent": true,
       "daemonStaged": true,
       "daemonStagingError": null,
-      "lifecycleLogPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-im85Rw\\runtime\\logs\\main.log",
+      "lifecycleLogPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-sXApwu\\runtime\\logs\\main.log",
       "displays": [
         {
           "id": 2688278210,
@@ -4740,19 +4734,19 @@
         "hostOwnerKey": "web",
         "hostOwnerLabel": "AntiFan Browser",
         "tabIds": [
-          "2201a517-9999-4023-a23b-5d1bd42d0e7e"
+          "afb3bd4b-ad72-4262-82bc-a1628180e4c6"
         ],
-        "activeTabId": "2201a517-9999-4023-a23b-5d1bd42d0e7e",
+        "activeTabId": "afb3bd4b-ad72-4262-82bc-a1628180e4c6",
         "identity": {
           "owner": {
             "kind": "web"
           },
           "title": "Matrix Storefront",
           "activeProjectId": "project-00000000-0000-4000-8000-0000000000d1",
-          "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-im85Rw\\alpha",
-          "workspacePath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-im85Rw\\alpha"
+          "pathLabel": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-sXApwu\\alpha",
+          "workspacePath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-sXApwu\\alpha"
         },
-        "terminalCwd": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-im85Rw\\alpha",
+        "terminalCwd": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-sXApwu\\alpha",
         "terminalCwdSource": "window-workspace"
       },
       "displays": [
@@ -4811,9 +4805,9 @@
       "mode": "attached",
       "handle": {
         "mode": "attached",
-        "pid": 18756,
-        "port": 53260,
-        "token": "f1191d3e20bb53c2f6b620136589d8f2409e19c4ccb22906",
+        "pid": 10752,
+        "port": 57088,
+        "token": "9b2521a49f41319a2c22457d4b06a88f05818d3484d39b6f",
         "version": "22dcc456e53faf87"
       }
     },
@@ -4822,14 +4816,14 @@
       "after": 1
     },
     "lifecycleJournal": {
-      "source": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-im85Rw\\runtime\\logs\\main.log",
+      "source": "C:\\Users\\Admin\\AppData\\Local\\Temp\\antifan-pw-matrix-sXApwu\\runtime\\logs\\main.log",
       "copy": "E:\\Work\\apps\\AntiFan\\plans\\260927-0315-project-windows\\reports\\project-windows-matrix-journal.log"
     }
   },
   "postExitVerification": {
     "verdict": "PASS",
     "witness": "E:\\Work\\apps\\AntiFan\\plans\\260927-0315-project-windows\\reports\\project-windows-matrix-orphans.json",
-    "verifiedAt": "2026-10-08T19:48:18.565Z",
+    "verifiedAt": "2026-10-08T20:53:48.669Z",
     "survivingPids": []
   },
   "notes": [
@@ -4839,7 +4833,7 @@
     "Row R9E stays BLOCKED until the second process merges the post-exit watcher report.",
     "Row coverage: 39 declared, 39 emitted, 39 judged by this process, 0 emitted without a judge (each carries its BLOCKED reason).",
     "Exit codes: 0 all rows PASS; 1 at least one FAIL; 2 no FAIL but BLOCKED rows remain. This run: passed=35 failed=0 blocked=4.",
-    "Post-exit orphan verdict merged by a second process at 2026-10-08T19:48:18.565Z: no owned process survived the GUI exit."
+    "Post-exit orphan verdict merged by a second process at 2026-10-08T20:53:48.669Z: no owned process survived the GUI exit."
   ],
-  "at": "2026-10-08T19:47:24.849Z"
+  "at": "2026-10-08T20:53:18.946Z"
 }

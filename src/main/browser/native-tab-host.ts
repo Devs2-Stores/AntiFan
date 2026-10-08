@@ -439,8 +439,6 @@ export interface TabSearchInventoryRow {
   url: string;
   ownerKey: string;
   ownerLabel: string;
-  /** The project a 'web' hub row is stamped with; its `ownerLabel` already names that project. */
-  projectId?: string;
   /** Workspace label that distinguishes two projects with the same name. */
   projectPath?: string;
   active: boolean;
@@ -8016,8 +8014,8 @@ export class NativeTabHost extends EventEmitter {
     const label = this.windowOwnerLabel();
     const projectPath = this.resolveWindowWorkspaceRoot();
     // The 'web' hub carries tabs of every project it has presented, each stamped with its
-    // project; such a row is labelled by that project, exactly as the hub titles itself while
-    // presenting it, never by the hub's product name.
+    // project. The row keeps the hub's one product label (one presenting window, one name)
+    // and takes its path from the stamped project, so two same-name projects stay apart.
     const isHub = ownerKeyValue === WEB_OWNER_KEY;
     const descriptors = new Map<string, WebHubProjectDescriptor | undefined>();
     const rows: TabSearchInventoryRow[] = [];
@@ -8034,8 +8032,7 @@ export class NativeTabHost extends EventEmitter {
         title: tab.state.title || tab.state.url || '',
         url: tab.state.url || '',
         ownerKey: ownerKeyValue,
-        ownerLabel: stampedProject ? (descriptor?.title ?? stampedProject) : label,
-        ...(stampedProject ? { projectId: stampedProject } : {}),
+        ownerLabel: label,
         ...(rowPath ? { projectPath: rowPath } : {}),
         active: tabId === this.activeTabId,
         order,

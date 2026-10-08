@@ -49,6 +49,13 @@ if (IS_ENTRY) {
   workspaceRoot = path.join(tempRoot, 'workspace');
   app.commandLine.appendSwitch('no-sandbox');
   app.commandLine.appendSwitch('disable-gpu');
+  // The proof measures layout after viewport emulation is cleared. When another
+  // window covers this one, Windows occlusion backgrounds the renderer and it stops
+  // taking resizes: the page stays laid out at the last breakpoint's size (measured
+  // 320x568 inside a 1184x785 view), so every later geometry reading is stale.
+  app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
+  app.commandLine.appendSwitch('disable-renderer-backgrounding');
+  app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
   app.on('window-all-closed', (event) => {
     event.preventDefault();
   });

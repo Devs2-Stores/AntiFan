@@ -3420,7 +3420,7 @@ async function run() {
       fromBeta: { status: fromBeta && fromBeta.status, rowCount: fromBeta && fromBeta.rows ? fromBeta.rows.length : 0 },
       fromUnassigned: fromUnassigned ? { status: fromUnassigned.status, rowCount: fromUnassigned.rows ? fromUnassigned.rows.length : 0 } : null,
       ownerLabels,
-      duplicateNamePaths: rowsAlpha.filter((rowItem) => String(rowItem.ownerLabel || '').includes('Matrix Storefront')).map((rowItem) => rowItem.pathLabel),
+      duplicateNamePaths: rowsAlpha.filter((rowItem) => rowItem.tabId === alphaSupplementTab || rowItem.tabId === deltaTab).map((rowItem) => rowItem.pathLabel),
       literalQueries: {
         title: { query: titleLiteralQuery, status: titleLiteral && titleLiteral.status, rowCount: titleLiteralRows.length },
         url: { query: urlLiteralQuery, status: urlLiteral && urlLiteral.status, rowCount: urlLiteralRows.length },
@@ -3442,12 +3442,14 @@ async function run() {
     expect(ownerLabels.length >= 2, `the inventory spans ${ownerLabels.length} owners: ${JSON.stringify(ownerLabels)}`);
     // The Unassigned window is the terminal-only Terminal Manager: it has no page tabs to list.
     expect(!ownerLabels.some((label) => String(label).includes('Unassigned')), `an Unassigned row is listed: ${JSON.stringify(ownerLabels)}`);
-    expect(!ownerLabels.includes('AntiFan Browser'), `a hub row is labelled by the hub's product name instead of its project: ${JSON.stringify(ownerLabels)}`);
+    // One presenting window, one honest label: every hub row carries the hub's product name
+    // (the e2e web-hub contract), and the stamped project shows through the row's path label.
+    expect(ownerLabels.includes('AntiFan Browser'), `no hub row carries the hub's product label: ${JSON.stringify(ownerLabels)}`);
     expect(ownerLabels.some((label) => String(label).includes(BETA.name)), `no row for window B ('${BETA.name}') is listed: ${JSON.stringify(ownerLabels)}`);
-    const storefrontPaths = [...new Set(rowsAlpha
-      .filter((rowItem) => String(rowItem.ownerLabel || '').includes('Matrix Storefront'))
-      .map((rowItem) => rowItem.pathLabel))];
-    expect(storefrontPaths.length >= 2, `the duplicate project name is not disambiguated by path: ${JSON.stringify(storefrontPaths)}`);
+    const duplicateRows = rowsAlpha.filter((rowItem) => rowItem.tabId === alphaSupplementTab || rowItem.tabId === deltaTab);
+    expect(duplicateRows.length === 2, `the A and D pages are not both listed: ${JSON.stringify(duplicateRows.map((rowItem) => rowItem.tabId))}`);
+    const storefrontPaths = [...new Set(duplicateRows.map((rowItem) => rowItem.pathLabel).filter(Boolean))];
+    expect(storefrontPaths.length === 2, `the duplicate project name is not disambiguated by path: ${JSON.stringify(storefrontPaths)}`);
     // Both directions of the literal filter, plus the empty control: each asserted query reports
     // OK, every listed row genuinely carries the needle (title or url, case-insensitively), and a
     // query nothing carries lists nothing. A needle that matched no row in the first place would

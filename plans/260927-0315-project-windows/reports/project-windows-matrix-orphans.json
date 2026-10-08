@@ -1,6 +1,6 @@
 {
-  "hostPid": 300,
-  "dataRootToken": "antifan-pw-matrix-im85Rw",
+  "hostPid": 4284,
+  "dataRootToken": "antifan-pw-matrix-sXApwu",
   "supported": true,
   "platform": "win32",
   "hostState": "gone",
@@ -13,9 +13,9 @@
   "descendantQueriesUnanswered": 0,
   "listingQueryFailed": false,
   "windowMs": 180000,
-  "observedAfterExitMs": 21995,
+  "observedAfterExitMs": 21887,
   "survivingPids": [],
   "commandLineMatches": [],
   "pollCount": 7,
-  "checkedAt": "2026-10-08T19:47:54.049Z"
+  "checkedAt": "2026-10-08T20:53:47.792Z"
 }
