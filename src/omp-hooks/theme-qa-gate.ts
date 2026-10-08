@@ -871,25 +871,70 @@ function assistantText(message: unknown): string {
   return "";
 }
 
+/** `qaStatus: QA_X` declaration form; the single space is optional (both spellings are valid tokens). */
+const STATUS_DECLARATION_RE = /qaStatus: ?(QA_[A-Z_]+)/g;
+
+/** Fingerprints of timestamp-less declarations that already cleared a gate. */
+const consumedDeclarations = new Set<string>();
+const CONSUMED_DECLARATIONS_MAX = 64;
+
+interface DeclarationHit {
+  token: string;
+  /** Set only for messages without a usable timestamp: lets the caller retire the declaration. */
+  stamp: string | null;
+}
+
+function consumeDeclaration(hit: DeclarationHit): void {
+  if (!hit.stamp) return;
+  if (consumedDeclarations.size >= CONSUMED_DECLARATIONS_MAX) consumedDeclarations.clear();
+  consumedDeclarations.add(hit.stamp);
+}
+
+/** Newest pending-edit time: a declaration only counts if the assistant made it after that edit. */
+function latestPendingEditAt(): number {
+  let latest = 0;
+  for (const editTs of pendingEdits.values()) {
+    if (Number.isFinite(editTs) && editTs > latest) latest = editTs;
+  }
+  return latest;
+}
+
 /**
- * Token scan anchored to ASSISTANT messages only. Scanning the whole tail
+ * Declaration scan anchored to ASSISTANT messages only. Scanning the whole tail
  * (including tool results) is what let the reminder text itself clear the
  * gate, so non-objects are skipped and `role` is read only when it is a string.
  * Shared by the audited bypass tokens and the micro-lane token: both are
  * declarations the agent must make in its own voice.
+ *
+ * Three rules keep a stale or superseded declaration from clearing a newer gate:
+ * - newest assistant declaration wins: a later `qaStatus: QA_FAILED` (or any other
+ *   status that is not in `tokens`) supersedes an older bypass token in the window;
+ * - within one message the LAST declaration wins, so a status merely quoted before
+ *   the real one is ignored;
+ * - the message must postdate the newest pending edit (`notBefore`). Messages without
+ *   a finite `timestamp` cannot be dated, so each is honoured once per fingerprint.
  */
-function findTokenInMessages(messages: unknown[], tokens: readonly string[]): string | null {
+function findDeclaration(messages: unknown[], tokens: readonly string[], notBefore: number): DeclarationHit | null {
   try {
     const window = messages.slice(-BYPASS_SCAN_WINDOW);
-    for (const message of window) {
+    for (let i = window.length - 1; i >= 0; i--) {
+      const message = window[i];
       if (!message || typeof message !== "object") continue;
       const role = (message as { role?: unknown }).role;
       if (typeof role !== "string" || role !== "assistant") continue;
+      const timestamp = (message as { timestamp?: unknown }).timestamp;
+      const dated = typeof timestamp === "number" && Number.isFinite(timestamp);
+      // Timestamps are monotonic: once a message predates the edit, every older one does too.
+      if (dated && timestamp < notBefore) return null;
       const text = assistantText(message);
       if (!text) continue;
-      for (const token of tokens) {
-        if (text.includes(token)) return token;
-      }
+      let last: string | null = null;
+      for (const match of text.matchAll(STATUS_DECLARATION_RE)) last = match[0];
+      if (last === null) continue;
+      if (!tokens.includes(last)) return null;
+      const stamp = dated ? null : text;
+      if (stamp !== null && consumedDeclarations.has(stamp)) return null;
+      return { token: last, stamp };
     }
     return null;
   } catch {
@@ -897,8 +942,12 @@ function findTokenInMessages(messages: unknown[], tokens: readonly string[]): st
   }
 }
 
-function findBypassToken(messages: unknown[]): string | null {
-  return findTokenInMessages(messages, BYPASS_TOKENS);
+function findBypassDeclaration(messages: unknown[]): DeclarationHit | null {
+  return findDeclaration(messages, BYPASS_TOKENS, latestPendingEditAt());
+}
+
+function findMicroDeclaration(messages: unknown[]): DeclarationHit | null {
+  return findDeclaration(messages, MICRO_TOKENS, latestPendingEditAt());
 }
 
 // ---------------------------------------------------------------------------
@@ -1070,6 +1119,7 @@ export default function themeQaGate(pi: HookAPI): void {
   pi.on("session_start", () => {
     try {
       pendingEdits.clear();
+      consumedDeclarations.clear();
       microEdits.clear();
       pendingSettingsFindings.clear();
       churnWarnedPaths.clear();
@@ -1305,15 +1355,17 @@ function readLatestRatchetStats(workspaceRoot: string): RatchetStats | null {
       }
       const messages = event.messages;
       if (Array.isArray(messages)) {
-        const token = findBypassToken(messages);
-        if (token) {
-          bypassLog.push({ at: new Date().toISOString(), token });
+        const bypass = findBypassDeclaration(messages);
+        if (bypass) {
+          bypassLog.push({ at: new Date().toISOString(), token: bypass.token });
+          consumeDeclaration(bypass);
           pendingEdits.clear();
           microEdits.clear();
           return outMessages ? { messages: outMessages } : undefined;
         }
-        const microToken = findTokenInMessages(messages, MICRO_TOKENS);
-        if (microToken) {
+        const micro = findMicroDeclaration(messages);
+        if (micro) {
+          const microToken = micro.token;
           for (const root of [...pendingEdits.keys()]) {
             const rec = microEdits.get(root);
             if (microRecordQualifies(rec)) {
@@ -1331,6 +1383,8 @@ function readLatestRatchetStats(workspaceRoot: string): RatchetStats | null {
               token: microToken,
               micro: { accepted: false, reason: "no qualifying single-file CSS/SCSS micro edit (<=10 changed lines, no Liquid)" },
             });
+          } else {
+            consumeDeclaration(micro);
           }
           return outMessages ? { messages: outMessages } : undefined;
         }

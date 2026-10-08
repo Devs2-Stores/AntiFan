@@ -345,6 +345,87 @@ test("QA_PENDING_SYNC from an assistant clears the gate; QA_FAILED does not", ()
   assert.equal(fire(handlers, ctx, 2 * REMIND_EVERY).reminders, 0, "pending-sync declaration clears the gate");
 });
 
+test("a declaration made before the latest edit cannot clear the gate that edit armed", () => {
+  const { handlers } = loadHook();
+  const root = makeWorkspace();
+  const ctx = { cwd: root };
+  writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
+  const editedAt = Date.now();
+  const token = BYPASS_TOKENS[0];
+
+  handlers.get("context")({ messages: [{ role: "assistant", timestamp: editedAt - 5_000, content: `QA done. ${token}` }] }, ctx);
+  assert.equal(fire(handlers, ctx, REMIND_EVERY).reminders, 1, "a declaration older than the edit must not clear the gate");
+
+  handlers.get("context")({ messages: [{ role: "assistant", timestamp: editedAt + 5_000, content: `QA done. ${token}` }] }, ctx);
+  assert.equal(fire(handlers, ctx, 2 * REMIND_EVERY).reminders, 0, "a declaration made after the edit clears it");
+});
+
+test("a timestamp-less declaration clears one gate and is not reusable for the next edit", () => {
+  const { handlers } = loadHook();
+  const root = makeWorkspace();
+  const ctx = { cwd: root };
+  const declaration = { role: "assistant", content: `Local edit done. ${BYPASS_TOKENS[0]}` };
+
+  writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
+  handlers.get("context")({ messages: [declaration] }, ctx);
+  assert.equal(fire(handlers, ctx, 2 * REMIND_EVERY).reminders, 0, "first use clears the gate");
+
+  writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
+  handlers.get("context")({ messages: [declaration] }, ctx);
+  assert.equal(fire(handlers, ctx, REMIND_EVERY).reminders, 1, "the same undated declaration must not clear a later gate");
+});
+
+test("the newest assistant status wins: a later QA_FAILED supersedes an earlier pending-sync token", () => {
+  const { handlers } = loadHook();
+  const root = makeWorkspace();
+  const ctx = { cwd: root };
+  writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
+  const t = Date.now() + 1_000;
+
+  handlers.get("context")(
+    {
+      messages: [
+        { role: "assistant", timestamp: t, content: "Local edit done. qaStatus: QA_PENDING_SYNC" },
+        { role: "assistant", timestamp: t + 1_000, content: "Re-validated, still wrong. qaStatus: QA_FAILED" },
+      ],
+    },
+    ctx
+  );
+  assert.equal(fire(handlers, ctx, REMIND_EVERY).reminders, 1, "older token must not override the newer failure");
+
+  handlers.get("context")(
+    {
+      messages: [
+        { role: "assistant", timestamp: t + 2_000, content: "qaStatus: QA_FAILED" },
+        { role: "assistant", timestamp: t + 3_000, content: "Edit synced later. qaStatus: QA_PENDING_SYNC" },
+      ],
+    },
+    ctx
+  );
+  assert.equal(fire(handlers, ctx, 2 * REMIND_EVERY).reminders, 0, "the newest declaration is a bypass status and clears");
+});
+
+test("within one message the last declaration decides, so a quoted status does not clear the gate", () => {
+  const { handlers } = loadHook();
+  const root = makeWorkspace();
+  const ctx = { cwd: root };
+  writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
+
+  handlers.get("context")(
+    {
+      messages: [
+        {
+          role: "assistant",
+          timestamp: Date.now() + 1_000,
+          content: `Earlier I wrote ${BYPASS_TOKENS[0]}, but the repair round failed. qaStatus: QA_FAILED`,
+        },
+      ],
+    },
+    ctx
+  );
+  assert.equal(fire(handlers, ctx, REMIND_EVERY).reminders, 1, "a quoted bypass status followed by QA_FAILED keeps the gate armed");
+});
+
 test("TTL: a pending entry older than PENDING_TTL_MS is pruned; just inside it is not", () => {
   // Bridge-health env must not leak in: a mocked Date.now makes any real
   // bridge record look stale and suspends the gate, hiding what TTL does.
