@@ -745,16 +745,18 @@
       "group": "mcp",
       "title": "Bridge pairing queue refills only on demand and races with concurrent bursts, causing client budget exhaustion",
       "severity": "P1",
-      "status": "open",
+      "status": "closed",
       "evidence": "With `ANTIFAN_PAIRING_CONTRACT=1`, `test/main/bridge-pairing-queue-concurrency.test.ts` fails 2 of 3 contract assertions: `client budget exhausted after 6000ms (/api/pairing/challenge)` and `timed out after 6000ms waiting for: depth restored to 3 without a further consumer request (saw 2)`. The bridge mints challenges into a shallow standing queue and only replenishes via `setImmediate` or on empty cache, racing with concurrent bursts and Windows ACL latency (`applyProtectedPathsDacl`). Owning surface: `src/main/bridge/bridge-server.ts` (`replenishPairingQueueNow` / `claimPairingChallenge`).",
       "predicate": {
         "kind": "file-regex",
         "file": "src/main/bridge/bridge-server.ts",
-        "pattern": "const needed = Math\\.max\\(0, 3 - activeCount\\);"
+        "pattern": "this\\.pairingReplenishRerun = true;",
+        "negate": true
       },
-      "reVerifyWith": "ANTIFAN_PAIRING_CONTRACT=1 node --test .compiled/test/main/bridge-pairing-queue-concurrency.test.js",
-      "lastVerifiedBy": "HarnessContractSuites via ANTIFAN_PAIRING_CONTRACT=1 run (2026-09-28)",
-      "updatedAt": "2026-09-28"
+      "closedBy": "Two halves. Depth: `replenishPairingQueueNow` keeps 16 standing challenges (was 3) and mints them in one batched DACL call. Race: `replenishPairingQueue` stays single-flight (no duplicate icacls/PowerShell batches), but a request arriving while a flight runs now sets `pairingReplenishRerun` and the running flight loops one more pass instead of the caller merely joining it. A flight computes its deficit at start and its files become claimable at the rename while it still awaits the final DACL batch, so a claim in that window used to leave the queue one short until another consumer asked (contract test saw 15 of 16). The predicate fires when the rerun marker is gone.",
+      "reVerifyWith": "ANTIFAN_PAIRING_CONTRACT=1 node --test --test-force-exit .compiled/test/main/bridge-pairing-queue-concurrency.test.js (3/3, including 'replenishes by depth rather than only when a consumer asks')",
+      "lastVerifiedBy": "ak:fix --ultra run (2026-10-09): contract suite failed 'depth restored to 16 ... (saw 15)' before the rerun flag, passes after; `npm run audit` green",
+      "updatedAt": "2026-10-09"
     }
   ]
 }

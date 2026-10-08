@@ -327,6 +327,8 @@ export class BridgeServer {
   private closeAdmission?: PageCloseAdmission;
   private pairingQueueDir: string;
   private pairingReplenishInFlight: Promise<void> | null = null;
+  /** Set when a replenish is requested while one runs; the running flight then makes one more pass. */
+  private pairingReplenishRerun = false;
   private isDisposed = false;
   private readonly publishesDiscovery: boolean;
   private isDev: boolean = false;
@@ -687,12 +689,25 @@ export class BridgeServer {
   public replenishPairingQueue(): Promise<void> {
     // Concurrent callers (ctor warm-up, claim-triggered refills, the HTTP
     // challenge handler) share one in-flight replenish instead of spawning
-    // duplicate icacls/powershell batches.
-    if (!this.pairingReplenishInFlight) {
-      this.pairingReplenishInFlight = this.replenishPairingQueueNow().finally(() => {
-        this.pairingReplenishInFlight = null;
-      });
+    // duplicate icacls/powershell batches. A flight computes its deficit when it
+    // starts, and its challenge files become claimable at the rename while it
+    // still awaits the final DACL batch — so a claim landing in that window must
+    // not just join it: the flight would settle one short and nothing would
+    // refill until another consumer asked. The request is recorded instead and
+    // the running flight makes one more pass, coalescing every claim it saw.
+    if (this.pairingReplenishInFlight) {
+      this.pairingReplenishRerun = true;
+      return this.pairingReplenishInFlight;
     }
+    this.pairingReplenishInFlight = (async () => {
+      do {
+        this.pairingReplenishRerun = false;
+        await this.replenishPairingQueueNow();
+      } while (this.pairingReplenishRerun && !this.isDisposed);
+    })().finally(() => {
+      this.pairingReplenishInFlight = null;
+      this.pairingReplenishRerun = false;
+    });
     return this.pairingReplenishInFlight;
   }
 
@@ -912,8 +927,24 @@ export class BridgeServer {
         }
       }
 
-      // Verify and enforce protected DACL on all final target files in ONE batched call
-      await applyProtectedPathsDaclBridge(prepared.map((p) => p.targetPath));
+      // Verify and enforce protected DACL on all final target files in ONE batched call.
+      // A target is claimable from its rename onward, so a consumer can delete it
+      // before or during this batch. It carried the protected DACL as a temp file, so a
+      // vanished target needs no re-verify. A mid-batch deletion surfaces as a missing-file
+      // error, a stat ENOENT or a failed PowerShell repair, so the retry criterion is the
+      // evidence itself: re-batch only when the survivor set shrank during the attempt;
+      // any other failure is real. Each retry drops at least one path, so the loop is bounded.
+      let survivors = prepared.map((p) => p.targetPath).filter((t) => fs.existsSync(t));
+      for (;;) {
+        try {
+          await applyProtectedPathsDaclBridge(survivors);
+          break;
+        } catch (verifyErr) {
+          const remaining = survivors.filter((t) => fs.existsSync(t));
+          if (remaining.length === survivors.length) throw verifyErr;
+          survivors = remaining;
+        }
+      }
     } catch (err) {
       // dispose() can delete the queue dir while an async write is in flight;
       // that teardown ENOENT is not a real write failure.

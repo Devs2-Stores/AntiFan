@@ -53,6 +53,11 @@ fs.rmSync(SCRATCH_DIR, { recursive: true, force: true });
 fs.mkdirSync(SCRATCH_DIR, { recursive: true });
 process.env.ANTIFAN_CONFIG_DIR = path.join(SCRATCH_DIR, 'config');
 process.env.ANTIFAN_DATA_ROOT = SCRATCH_DIR;
+// The saved-tabs path prefers ANTIFAN_USER_DATA(_DIR) over app.getPath; the test
+// pipeline pins both to one lane-wide profile, which would route this suite's
+// writes past its mocked userData into a file every parallel suite shares.
+delete process.env.ANTIFAN_USER_DATA;
+delete process.env.ANTIFAN_USER_DATA_DIR;
 
 after(() => {
   try {
