@@ -1365,6 +1365,12 @@ const NORMALIZATION_RESTORE_BOUND_MS = 15_000;
 const STAGE_BOUND_MS = 30_000;
 const TARGET_RECOVERY_BUDGET_MS = 25_000;
 const REVERSIBLE_DOM_TXN_GLOBAL = '__antifan_compare_txn__';
+/**
+ * Per-document record of the last hydration cascade that ran to completion:
+ * the document height it walked. A window global dies with its document, so the
+ * record can never describe a page after navigation or reload.
+ */
+const HYDRATION_CASCADE_GLOBAL = '__antifan_hydration_cascade__';
 
 export type TargetRecoveryOutcome = 'command-settled' | 'drain-reset' | 'drain-failed' | 'unsupported';
 
@@ -1775,6 +1781,10 @@ class CompareBudget {
  * exceed the 15s NORMALIZATION_BOUND_MS before any capture ran. A MessageChannel
  * postMessage yield is not timer-throttled, so the dwell stays wall-clock short,
  * and a hard deadline caps the whole cascade inside the outer bound.
+ *
+ * A cascade that ran to completion is recorded on the document (see
+ * HYDRATION_CASCADE_GLOBAL); a later apply on the same document at the same
+ * height reuses it instead of walking again. A truncated walk is never recorded.
  */
 export const NORMALIZATION_SCROLL_CASCADE_BUDGET_MS = 10_000;
 const SCROLL_CASCADE_DWELL_MS = 60;
@@ -1803,6 +1813,7 @@ export function buildReversibleNormalizationApplyScript(txnId: string, cascadeBu
       do { await yieldTask(); } while (Date.now() < end && Date.now() < deadline);
     };
     let scrollCascadeComplete = true;
+    let scrollCascadeReused = false;
     try {
       // 1. Dismiss backdrop / modal / popups with inline display only.
       const popups = document.querySelectorAll('.modal, .modal-backdrop, .modal-coupon--backdrop, .fancybox-overlay, .popup-content, #fake-order-popup, #haravan-notification, .loomline-modal-backdrop, [class*="modal-backdrop"]');
@@ -1832,13 +1843,21 @@ export function buildReversibleNormalizationApplyScript(txnId: string, cascadeBu
           document.documentElement ? document.documentElement.scrollHeight : 0,
           document.body ? document.body.scrollHeight : 0
         );
-        if (scrollH > window.innerHeight) {
+        const prior = window.${HYDRATION_CASCADE_GLOBAL};
+        // Content the cascade revealed stays revealed for the life of the
+        // document, so a second walk over a document of the same height loads
+        // nothing new. A height change (infinite scroll, content the last walk
+        // appended past its end) means unvisited content: walk again.
+        if (prior && prior.scrollH === scrollH) {
+          scrollCascadeReused = true;
+        } else if (scrollH > window.innerHeight) {
           const cascadeDeadline = Date.now() + ${JSON.stringify(cascadeBudgetMs)};
           for (let y = 0; y <= scrollH; y += ${SCROLL_CASCADE_STEP_PX}) {
             if (Date.now() >= cascadeDeadline) { scrollCascadeComplete = false; break; }
             window.scrollTo({ top: y, left: 0, behavior: 'instant' });
             await dwell(${SCROLL_CASCADE_DWELL_MS}, cascadeDeadline);
           }
+          if (scrollCascadeComplete) window.${HYDRATION_CASCADE_GLOBAL} = { scrollH };
         }
         window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
         if (document.documentElement) { document.documentElement.scrollTop = 0; document.documentElement.scrollLeft = 0; }
@@ -1883,7 +1902,7 @@ export function buildReversibleNormalizationApplyScript(txnId: string, cascadeBu
     } catch {}
     try { channel.port1.close(); channel.port2.close(); } catch {}
     registry[TXN] = records;
-    return { applied: true, recorded: records.length, scrollCascadeComplete };
+    return { applied: true, recorded: records.length, scrollCascadeComplete, scrollCascadeReused };
   })()`;
 }
 

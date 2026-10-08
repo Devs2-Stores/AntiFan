@@ -53,14 +53,37 @@ function createTestPng(width: number, height: number): Buffer {
  * broke the old cascade, since a background tab's clamped timer is
  * indistinguishable from an absent one for a script that must not use it.
  */
-function runApplyScript(opts: { scrollHeight: number; innerHeight: number; cascadeBudgetMs?: number }) {
+function runApplyScript(opts: { scrollHeight: number; innerHeight: number; cascadeBudgetMs?: number; page?: TestPage; txnId?: string }) {
+  const page = opts.page ?? createPage(opts.scrollHeight, opts.innerHeight);
+  page.documentElement.scrollHeight = opts.scrollHeight;
+  page.body.scrollHeight = opts.scrollHeight;
   const scrollCalls: Array<{ top: number; left: number }> = [];
-  const documentElement = { scrollHeight: opts.scrollHeight, scrollTop: 0, scrollLeft: 0 };
-  const body = { scrollHeight: opts.scrollHeight, scrollTop: 0, scrollLeft: 0 };
+  page.onScroll = (call) => scrollCalls.push(call);
+  const script = buildReversibleNormalizationApplyScript(opts.txnId ?? 'txn-test', opts.cascadeBudgetMs);
+  return { page, scrollCalls, result: vm.runInContext(script, page.context) as Promise<{ applied: boolean; recorded: number; scrollCascadeComplete?: boolean; scrollCascadeReused?: boolean }> };
+}
+
+/** One document: its window globals persist across apply calls, as in a live tab. */
+interface TestPage {
+  documentElement: { scrollHeight: number; scrollTop: number; scrollLeft: number };
+  body: { scrollHeight: number; scrollTop: number; scrollLeft: number };
+  onScroll: (call: { top: number; left: number }) => void;
+  context: vm.Context;
+}
+
+function createPage(scrollHeight: number, innerHeight: number): TestPage {
+  const documentElement = { scrollHeight, scrollTop: 0, scrollLeft: 0 };
+  const body = { scrollHeight, scrollTop: 0, scrollLeft: 0 };
+  const page: TestPage = {
+    documentElement,
+    body,
+    onScroll: () => {},
+    context: {} as vm.Context,
+  };
   const windowObj = {
-    innerHeight: opts.innerHeight,
+    innerHeight,
     scrollTo: (arg: { top?: number; left?: number }) => {
-      scrollCalls.push({ top: arg?.top ?? 0, left: arg?.left ?? 0 });
+      page.onScroll({ top: arg?.top ?? 0, left: arg?.left ?? 0 });
     },
     scrollX: 0,
     scrollY: 0,
@@ -83,8 +106,8 @@ function runApplyScript(opts: { scrollHeight: number; innerHeight: number; casca
     // throws ReferenceError inside the cascade's try/catch and the scroll calls
     // below prove whether the cascade actually ran.
   });
-  const script = buildReversibleNormalizationApplyScript('txn-test', opts.cascadeBudgetMs);
-  return { scrollCalls, result: vm.runInContext(script, context) as Promise<{ applied: boolean; recorded: number; scrollCascadeComplete?: boolean }> };
+  page.context = context;
+  return page;
 }
 
 describe('reversible normalization apply script (B30)', () => {
@@ -117,6 +140,38 @@ describe('reversible normalization apply script (B30)', () => {
     assert.ok(elapsed < NORMALIZATION_SCROLL_CASCADE_BUDGET_MS, `truncated cascade overran its budget (${elapsed}ms)`);
     assert.ok(scrollCalls.length < 251, 'the cascade stopped at the deadline');
     assert.equal(scrollCalls[scrollCalls.length - 1]?.top, 0, 'the page still returns to the origin');
+  });
+
+  it('a completed cascade is reused by the next apply on the same document at the same height', async () => {
+    const first = runApplyScript({ scrollHeight: 8_000, innerHeight: 900, txnId: 'txn-1' });
+    const firstRes = await first.result;
+    assert.equal(firstRes.scrollCascadeReused, false);
+    assert.ok(first.scrollCalls.length >= 10, `the first apply walks the page (got ${first.scrollCalls.length} scrolls)`);
+
+    const second = runApplyScript({ scrollHeight: 8_000, innerHeight: 900, page: first.page, txnId: 'txn-2' });
+    const secondRes = await second.result;
+    assert.equal(secondRes.scrollCascadeReused, true);
+    assert.equal(secondRes.scrollCascadeComplete, true);
+    assert.deepEqual(second.scrollCalls, [{ top: 0, left: 0 }], 'only the return to origin runs on reuse');
+  });
+
+  it('a document that changed height is walked again', async () => {
+    const first = runApplyScript({ scrollHeight: 8_000, innerHeight: 900, txnId: 'txn-1' });
+    await first.result;
+    const grown = runApplyScript({ scrollHeight: 12_000, innerHeight: 900, page: first.page, txnId: 'txn-2' });
+    const res = await grown.result;
+    assert.equal(res.scrollCascadeReused, false);
+    assert.ok(grown.scrollCalls.some((c) => c.top >= 11_200), 'the walk reaches the grown tail');
+  });
+
+  it('a truncated cascade is not recorded, so the next apply walks again', async () => {
+    const first = runApplyScript({ scrollHeight: 200_000, innerHeight: 900, cascadeBudgetMs: 120, txnId: 'txn-1' });
+    const firstRes = await first.result;
+    assert.equal(firstRes.scrollCascadeComplete, false);
+    const second = runApplyScript({ scrollHeight: 200_000, innerHeight: 900, cascadeBudgetMs: 120, page: first.page, txnId: 'txn-2' });
+    const res = await second.result;
+    assert.equal(res.scrollCascadeReused, false, 'a partial walk must never stand in for a full one');
+    assert.ok(second.scrollCalls.length > 1, 'the second apply walked');
   });
 });
 
