@@ -66,11 +66,9 @@ describe('shouldHibernate policy', () => {
     assert.deepStrictEqual(d, { hibernate: false, reason: 'loading' });
   });
 
-  it('refuses offscreen and ephemeral agent-plane tabs', () => {
-    for (const flag of ['offscreen', 'ephemeral'] as const) {
-      const d = shouldHibernate(tab('tab-x', { [flag]: true }, 0), makeCtx());
-      assert.deepStrictEqual(d, { hibernate: false, reason: 'agent-plane' }, flag);
-    }
+  it('refuses ephemeral agent-plane tabs', () => {
+    const d = shouldHibernate(tab('tab-x', { ephemeral: true }, 0), makeCtx());
+    assert.deepStrictEqual(d, { hibernate: false, reason: 'agent-plane' });
   });
 
   it('refuses the automation target tab', () => {

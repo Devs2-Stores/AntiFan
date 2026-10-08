@@ -52,8 +52,7 @@ export interface CloseLiveUseAttachment {
   readonly tabId?: string;
   /**
    * Owner key of the shell that presents the bound page. It is the scope link for a binding
-   * whose tab is not one of the shell's visible members (an offscreen agent tab): closing
-   * that shell destroys the binding even though the tab id is not in the member list.
+   * whose tab is associated with the shell: closing that shell destroys the binding.
    */
   readonly ownerKey?: string;
   readonly backendId?: string;
@@ -328,8 +327,7 @@ function scopePages(request: LiveUseRequest): Set<string> {
 /**
  * Is this evidence in scope for the question? Application scope protects everything. A
  * page-scoped question is about the pages it names, and about anything presented by the
- * shell it names: an offscreen agent tab or a binding on it dies with that shell even
- * though its id is not a visible member.
+ * shell it names: an agent tab or a binding on it dies with that shell.
  */
 function evidenceInScope(
   request: LiveUseRequest,

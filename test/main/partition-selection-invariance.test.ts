@@ -130,7 +130,6 @@ type FixtureHost = {
   getAutomationTabId(): string | null;
   setAutomationTabId(tabId?: string): void;
   getDocumentGeneration(tabId?: string): number;
-  isTabOffscreen(tabId?: string): boolean;
   isTabAllowedForPrimary(primaryTabId: string, requestedTabId: string): boolean;
   isTabViewAttached(view: unknown): boolean;
 };
@@ -242,9 +241,8 @@ function makeAuthorityPort(args: {
       for (const window of args.windows) window.host.setAutomationTabId(tabId);
     },
     getDocumentGeneration: (tabId: string) => authority.hostForTabOrDegrade(tabId, 'port.getDocumentGeneration')?.getDocumentGeneration(tabId) ?? 1,
-    isTabOffscreen: (tabId?: string) => (tabId ? authority.hostForTabOrDegrade(tabId, 'port.isTabOffscreen')?.isTabOffscreen(tabId) ?? false : false),
     adoptChildTab: (boundTabId: string, childTabId: string) => authority.hostForTabOrBootstrap(boundTabId).adoptChildTabForBoundTab(boundTabId, childTabId),
-    createTab: (url?: string, activate?: boolean, options?: { capsuleId?: string; userAgentMode?: 'clean' | 'native'; ephemeral?: boolean; offscreen?: boolean; anchorTabId?: string }) => {
+    createTab: (url?: string, activate?: boolean, options?: { capsuleId?: string; userAgentMode?: 'clean' | 'native'; ephemeral?: boolean; anchorTabId?: string }) => {
       // `anchorTabId` selects the window through the same authority seam production
       // routes createTab through: an id no live host owns refuses TARGET_STALE, an
       // absent id is the only input the ambient host answers.
@@ -267,7 +265,6 @@ function makeAuthorityPort(args: {
           userAgentMode: mode,
           partition,
           ephemeral: Boolean(options?.ephemeral),
-          offscreen: Boolean(options?.offscreen),
         },
       });
       owner.host.tabOrder.push(id);

@@ -1238,7 +1238,6 @@ export interface EvidenceCaptureEnvelope {
  * human escalation decisions; never collapse them into a generic message.
  */
 export type CaptureFailureCode =
-  | 'FULLPAGE_CAPTURE_UNSUPPORTED_ON_OFFSCREEN'
   | 'FULLPAGE_CAPTURE_UNSUPPORTED_GEOMETRY'
   | 'FULLPAGE_CAPTURE_UNSUPPORTED_FORMAT'
   | 'CAPTURE_TIMEOUT'

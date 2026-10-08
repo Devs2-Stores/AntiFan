@@ -61,7 +61,6 @@ function browserHostFields(h, affiliation) {
     getActiveTabId: () => h.getActiveTabId(),
     getAutomationTabId: () => h.getAutomationTabId(),
     setAutomationTabId: (tabId) => h.setAutomationTabId(tabId && h.hasTab(tabId) ? tabId : undefined),
-    isTabOffscreen: (tabId) => (tabId ? h.isTabOffscreen(tabId) : false),
     resolveTabAffiliation: (tabId) => (h.hasTab(tabId) ? affiliation : undefined),
     createTab: (url, activate = false, options) => {
       const { anchorTabId: _anchor, ...hostOptions } = options ?? {};

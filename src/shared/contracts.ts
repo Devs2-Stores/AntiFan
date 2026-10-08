@@ -32,7 +32,6 @@ export interface AntiFanTab {
    */
   projectId?: string;
   ephemeral?: boolean;
-  offscreen?: boolean;
   /**
    * Set while the tab's WebContentsViews are destroyed to reclaim the renderer.
    * The record (id, url, title, favicon, scroll) survives; wake recreates the
@@ -1059,7 +1058,6 @@ export interface TerminalAgentAffinityInfo {
   managedTabIds: string[];
   status: 'alive' | 'closed';
   lastUrl?: string;
-  isOffscreen?: boolean;
   isEphemeral?: boolean;
   title?: string;
   url?: string;

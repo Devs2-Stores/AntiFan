@@ -10,10 +10,10 @@ import type { RenderSurfaceSnapshot } from '../../src/main/verification/visual-c
 
 // The capture lane's host surface is what tells the port whether a tab can render at all:
 // `assertRenderSurface` returns before checking anything when the host has no
-// `readRenderSurface` (`src/main/tools/browser-control-port.ts:2303`), and the refusal it
-// raises around a collapsed surface names the offscreen flag and the session tab listing
-// (`:2322,2364`). A harness that builds its own host adapter and omits those wires the gate
-// as a silent no-op, so it can only ever prove a capture on a surface it never measured.
+      // `readRenderSurface` (`src/main/tools/browser-control-port.ts`), and the refusal it
+      // raises around a collapsed surface names the session tab listing.
+      // A harness that builds its own host adapter and omits those wires the gate
+      // as a silent no-op, so it can only ever prove a capture on a surface it never measured.
 //
 // Session ownership: `anti.browser.tabs.create` adopts the tab it opens into the session
 // pool, and closing a pooled tab is what records the anchor the failover path reads. Only
@@ -95,7 +95,6 @@ interface RoutedCall {
 /** The host methods the harness factories delegate to, plus the port fields the drive reaches. */
 interface HostDouble {
   getSessionTabRecords(boundTabId?: string): unknown[];
-  isTabOffscreen(tabId?: string): boolean;
   readRenderSurface(tabId?: string, paneId?: string, timeoutMs?: number): Promise<RenderSurfaceSnapshot>;
   adoptChildTabForBoundTab(primaryOrBoundTabId: string, childTabId: string): boolean;
   getManagedTabIdsForBoundTab(primaryOrBoundTabId: string): Set<string>;
@@ -111,7 +110,6 @@ interface HostDouble {
 
 interface CaptureLaneHostFields {
   getSessionTabList(boundTabId?: string): unknown[];
-  isTabOffscreen(tabId?: string): boolean;
   readRenderSurface(tabId?: string, paneId?: string, timeoutMs?: number): Promise<RenderSurfaceSnapshot>;
 }
 
@@ -151,10 +149,6 @@ function buildHostDouble(calls: CallRecord[], surface: RenderSurfaceSnapshot): H
     getSessionTabRecords: (boundTabId?: string) => {
       record('getSessionTabRecords', [boundTabId]);
       return [{ id: TAB_ID }];
-    },
-    isTabOffscreen: (tabId?: string) => {
-      record('isTabOffscreen', [tabId]);
-      return true;
     },
     readRenderSurface: (tabId?: string, paneId?: string, timeoutMs?: number) => {
       record('readRenderSurface', [tabId, paneId, timeoutMs]);
@@ -264,8 +258,8 @@ describe('Capture-lane host adapters mirror the composition root', () => {
         `${rel}: the probe must carry the port's own bound, saw ${String(probe.args[2])}`
       );
 
-      // A tab that is alive but not composited: the refusal reads the offscreen flag and the
-      // session tab listing, so those two adapter fields are the ones the same gate names.
+      // A tab that is alive but not composited: the refusal reads the session tab listing,
+      // so that adapter field is the one the same gate names.
       const collapsedCalls: CallRecord[] = [];
       const collapsedHost = buildHostDouble(collapsedCalls, COLLAPSED_SURFACE);
       const collapsedPort = new BrowserControlPort(buildPortHost(collapsedHost, captureLaneHostFields(collapsedHost)));
@@ -275,11 +269,6 @@ describe('Capture-lane host adapters mirror the composition root', () => {
           assert.equal(errorCode(err), 'NO_RENDER_SURFACE', `${rel}: an uncomposited tab must be refused, not measured`);
           return true;
         }
-      );
-      assert.deepEqual(
-        onlyCall(collapsedCalls, 'isTabOffscreen', rel).args,
-        [TAB_ID],
-        `${rel}: the refusal must name the bound tab's offscreen state`
       );
       assert.deepEqual(
         onlyCall(collapsedCalls, 'getSessionTabRecords', rel).args,

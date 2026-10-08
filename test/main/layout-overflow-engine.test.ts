@@ -168,7 +168,7 @@ describe('LayoutOverflowEngine', () => {
     const scriptText = LayoutOverflowEngine.getBrowserScanScript('active');
     const script = new vm.Script(scriptText);
 
-    // An offscreen surface: content keeps its intrinsic width, the viewport collapses.
+    // A collapsed surface: content keeps its intrinsic width, the viewport collapses.
     // The second shape is the masked variant — the window still reports a size while
     // the documentElement content box (the compositor surface) is zero.
     const collapsedSurfaces = [

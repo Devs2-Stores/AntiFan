@@ -15,24 +15,26 @@
  * — it resolves its path lazily on first write, so the user's real main.log is never
  * appended to.
  */
-import { describe, it } from 'node:test';
+import { after, describe, it } from 'node:test';
 import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { NativeTabHost } from '../../src/main/browser/native-tab-host';
+import { lifecycleLogDrained } from '../../src/main/diagnostics/main-lifecycle-log';
 
 const RUNTIME_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-tabclosed-runtime-'));
 process.env.ANTIFAN_RUNTIME_DIR = RUNTIME_DIR;
 
-function tabClosedRows(): Array<Record<string, unknown>> {
+function tabClosedRows(sinceCount = 0): Array<Record<string, unknown>> {
   const logPath = path.join(RUNTIME_DIR, 'logs', 'main.log');
   if (!fs.existsSync(logPath)) return [];
-  return fs
+  const rows = fs
     .readFileSync(logPath, 'utf8')
     .split('\n')
     .filter((line) => line.includes('"event":"tabhost.tabClosed"'))
     .map((line) => JSON.parse(line) as Record<string, unknown>);
+  return sinceCount > 0 ? rows.slice(sinceCount) : rows;
 }
 
 /**
@@ -77,9 +79,10 @@ function createTelemetryHost(tabId: string, state: Record<string, unknown> = {})
 }
 
 describe('tabhost.tabClosed telemetry', () => {
-  it('journals source, capsule, project and urlOrigin once when closeTab removes a tab', () => {
+  it('journals source, capsule, project and urlOrigin once when closeTab removes a tab', async () => {
+    await lifecycleLogDrained();
+    const mark = tabClosedRows().length;
     const { host } = createTelemetryHost('agent-1', {
-      offscreen: true,
       ephemeral: true,
       capsuleId: 'cap-9',
       url: 'https://store.example.com/page?utm=x',
@@ -89,12 +92,12 @@ describe('tabhost.tabClosed telemetry', () => {
     // A second close on the removed record is a no-op: double-emit is impossible.
     assert.strictEqual(host.closeTab('agent-1', 'user-toolbar'), false);
 
-    const rows = tabClosedRows().filter((row) => row['tabId'] === 'agent-1');
+    await lifecycleLogDrained();
+    const rows = tabClosedRows(mark).filter((row) => row['tabId'] === 'agent-1');
     assert.strictEqual(rows.length, 1, 'one journal row per removal, no double-emit');
     const row = rows[0]!;
     assert.strictEqual(row['event'], 'tabhost.tabClosed');
     assert.strictEqual(row['source'], 'user-toolbar');
-    assert.strictEqual(row['offscreen'], true);
     assert.strictEqual(row['ephemeral'], true);
     assert.strictEqual(row['capsuleId'], 'cap-9');
     assert.strictEqual(row['projectId'], 'proj-1');
@@ -103,14 +106,24 @@ describe('tabhost.tabClosed telemetry', () => {
     assert.strictEqual(row['agentActivityAt'], 1727000001000);
   });
 
-  it('falls back to the unspecified label when no caller names a source', () => {
+  it('falls back to the unspecified label when no caller names a source', async () => {
+    await lifecycleLogDrained();
+    const mark = tabClosedRows().length;
     const { host } = createTelemetryHost('plain-1', { url: 'about:blank' });
 
     assert.strictEqual(host.closeTab('plain-1'), true);
 
-    const rows = tabClosedRows().filter((row) => row['tabId'] === 'plain-1');
+    await lifecycleLogDrained();
+    const rows = tabClosedRows(mark).filter((row) => row['tabId'] === 'plain-1');
     assert.strictEqual(rows.length, 1);
     assert.strictEqual(rows[0]!['source'], 'unspecified');
     assert.strictEqual(rows[0]!['urlOrigin'], undefined, 'non-http(s) URLs carry no origin');
   });
+});
+
+after(async () => {
+  await lifecycleLogDrained();
+  try {
+    fs.rmSync(RUNTIME_DIR, { recursive: true, force: true });
+  } catch {}
 });

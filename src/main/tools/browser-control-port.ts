@@ -121,7 +121,6 @@ export interface BrowserHostPort {
   getAutomationTabId?(): string | null;
   setAutomationTabId?(tabId?: string): void;
   noteAgentTabActivity?(tabId?: string): void;
-  isTabOffscreen?(tabId?: string): boolean;
   isTabEphemeral?(tabId?: string): boolean;
   /**
    * `capsuleId` binds the new tab to a workspace capsule at creation time, which is
@@ -129,7 +128,7 @@ export interface BrowserHostPort {
    * one: the adapter resolves the host from it, so a child is created in its
    * parent's window instead of whichever window happens to be first.
    */
-  createTab?(url?: string, activate?: boolean, options?: { capsuleId?: string; userAgentMode?: BrowserSessionUserAgentMode; ephemeral?: boolean; offscreen?: boolean; devicePresetId?: string; mobile?: boolean; anchorTabId?: string; plane?: 'user' | 'agent' }): string;
+  createTab?(url?: string, activate?: boolean, options?: { capsuleId?: string; userAgentMode?: BrowserSessionUserAgentMode; ephemeral?: boolean; devicePresetId?: string; mobile?: boolean; anchorTabId?: string; plane?: 'user' | 'agent' }): string;
   /** The capsule and project/workspace a tab was created in, or undefined when no capsule owns it. */
   resolveTabAffiliation?(tabId: string): { projectId?: string; workspaceId?: string; capsuleId?: string } | undefined;
   closeTab?(tabId: string, source?: string): boolean;
@@ -2090,7 +2089,7 @@ export class BrowserControlPort {
       };
       let rows = context.scope === 'global' ? strip : strip.filter(inScope);
       if (context.affiliatedOnly === true) rows = rows.filter(affiliatedOf);
-      // Session-owned rows the projected strip drops (ephemeral/offscreen agent
+      // Session-owned rows the projected strip drops (ephemeral agent
       // tabs) are topped up wholesale, not only the bound row: a tab this
       // session just created is already inside its authority, and the listing
       // that proves it must not wait for a rebind.
@@ -2158,7 +2157,7 @@ export class BrowserControlPort {
         { tabId }
       );
     }
-    // Session records first so an owned offscreen tab resolves even when the
+    // Session records first so an owned tab resolves even when the
     // strip cannot see it; the strip covers affiliated tabs this session does
     // not own.
     const sessionRecords = boundTabId && this.host.getSessionTabList ? this.host.getSessionTabList(boundTabId) : [];
@@ -2237,9 +2236,9 @@ export class BrowserControlPort {
     } catch {}
     try {
       // `getTabList` projects the user's tab strip and deliberately excludes the
-      // offscreen/ephemeral tabs the agent plane creates — which is exactly what a session's
+      // ephemeral tabs the agent plane creates — which is exactly what a session's
       // dedicated agent tab is (see resolveTargetTab's auto-provision branch). Consult the
-      // session-scoped record before falling back to an in-page read, or an offscreen target
+      // session-scoped record before falling back to an in-page read, or a target
       // reports no URL at all.
       const fromSession = typeof this.host.getSessionTabList === 'function' ? matchUrl(this.host.getSessionTabList(tabId)) : undefined;
       if (fromSession) return fromSession;
@@ -2533,7 +2532,7 @@ export class BrowserControlPort {
     const reportedHref = typeof materialization.href === 'string' && materialization.href.length > 0 ? materialization.href : undefined;
     if (!reportedHref) {
       // The page is the only authority on its own identity: the strip-only tab
-      // list cannot see offscreen agent tabs, and a reference whose origin is
+      // list cannot see ephemeral agent tabs, and a reference whose origin is
       // unknown cannot be compared against anything.
       throw new CapabilityError('REFERENCE_MATERIALIZATION_INCOMPLETE', `Materialization on tab '${tabId}' returned no document identity (location.href); refusing to stage a reference that cannot name its own source`, {
         tabId,
@@ -2605,12 +2604,10 @@ export class BrowserControlPort {
       const healed = await this.reapplyVerifiedGeometry(tabId, paneId, snapshot);
       if (healed) return healed;
       const known = this.verifiedTabGeometry.get(tabId);
-      const offscreen = this.host.isTabOffscreen ? this.host.isTabOffscreen(tabId) : undefined;
       throw new CapabilityError(
         'NO_RENDER_SURFACE',
         `${operation} cannot run on tab '${tabId}' pane '${paneId ?? 'desktop'}': the tab reports no laid-out surface (${snapshot.vw}x${snapshot.vh} CSS px, readyState '${snapshot.readyState}', hidden ${snapshot.hidden}, cause ${classifyRenderSurfaceCause(snapshot)})` +
           (known ? `, and re-applying its verified ${known.width}x${known.height} geometry did not restore one` : '') +
-          (offscreen === true ? '; this tab renders offscreen and is never laid out in the window' : '') +
           '. To inspect this tab, first read its live viewport with anti.browser.get_viewport on an attached tab. Note that anti.browser.set_viewport applies a persistent device-emulation override (use it only when a specific device size is genuinely required).',
         {
           tabId,
@@ -2621,7 +2618,6 @@ export class BrowserControlPort {
           readyState: snapshot.readyState,
           documentHidden: snapshot.hidden,
           cause: classifyRenderSurfaceCause(snapshot),
-          ...(offscreen !== undefined ? { offscreen } : {}),
           ...(known ? { verifiedGeometry: known } : {}),
           activationCandidates: this.activationCandidates(tabId),
         }
@@ -2671,8 +2667,7 @@ export class BrowserControlPort {
 
   /**
    * Tabs this session may activate instead of the one that just failed. Prefers
-   * the session's own records, which include the offscreen tabs the window strip
-   * never renders, so the answer is never an unexplained empty list.
+   * the session's own records, so the answer is never an unexplained empty list.
    */
   private activationCandidates(boundTabId: string): string[] {
     const sessionRecords = this.host.getSessionTabList ? this.host.getSessionTabList(boundTabId) : [];
@@ -2689,7 +2684,7 @@ export class BrowserControlPort {
    * Activation is a claim about the window's active tab: a switch that did not
    * happen is a typed refusal naming why plus the tabs this session may activate
    * instead. A silent `switched: false` is what let a caller retry a tab that can
-   * never activate — an offscreen agent-plane tab is never shown in the window.
+   * never activate.
    */
   private requireActivatedTab(targetId: string, boundTabId?: string): { switched: boolean; tabId: string } {
     if (this.host.trySwitchTab) {
@@ -2715,13 +2710,12 @@ export class BrowserControlPort {
     } else if (this.host.switchTab && this.host.switchTab(targetId, { plane: 'agent' })) {
       return { switched: true, tabId: targetId };
     }
-    const offscreen = this.host.isTabOffscreen ? this.host.isTabOffscreen(targetId) : undefined;
     const candidates = this.activationCandidates(boundTabId ?? targetId);
     throw new CapabilityError(
       'TARGET_NOT_ACTIVATABLE',
-      `Tab '${targetId}' did not become the active tab${offscreen === true ? ': it renders offscreen and is never shown in the window' : ''}.` +
+      `Tab '${targetId}' did not become the active tab.` +
         (candidates.length > 0 ? ` Activate one of: ${candidates.join(', ')}.` : ' No other tab in this session can be activated.'),
-      { tabId: targetId, ...(boundTabId ? { boundTabId } : {}), ...(offscreen !== undefined ? { offscreen } : {}), activationCandidates: candidates }
+      { tabId: targetId, ...(boundTabId ? { boundTabId } : {}), activationCandidates: candidates }
     );
   }
   /**
@@ -2938,8 +2932,6 @@ export class BrowserControlPort {
     if (surfaceStatus === undefined && observed.length === 0) {
       if (typeof this.host.hasTab === 'function' && !this.host.hasTab(tabId)) {
         surfaceStatus = 'tab is not attached';
-      } else if (typeof this.host.isTabOffscreen === 'function' && this.host.isTabOffscreen(tabId)) {
-        surfaceStatus = 'tab is offscreen with no window compositor surface';
       } else if (typeof this.host.readRenderSurface === 'function') {
         try {
           const surface = await raceWithTimeout<RenderSurfaceSnapshot | null>(
@@ -4031,7 +4023,7 @@ export class BrowserControlPort {
     return affiliation.capsuleId;
   }
 
-  openTab(options: { url?: string; activate?: boolean; ephemeral?: boolean; offscreen?: boolean; userFacing?: boolean; devicePresetId?: string; mobile?: boolean; projectId?: string } = {}, context?: { target?: BrowserTarget; authenticatedProjectId?: string }): { tabId: string } {
+  openTab(options: { url?: string; activate?: boolean; ephemeral?: boolean; userFacing?: boolean; devicePresetId?: string; mobile?: boolean; projectId?: string } = {}, context?: { target?: BrowserTarget; authenticatedProjectId?: string }): { tabId: string } {
     if (!this.host.createTab) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'createTab is not supported by host');
     const boundTabId = context?.target?.tabId;
     // The projectId selector is validated before any allocation: it may only
@@ -4058,25 +4050,21 @@ export class BrowserControlPort {
     // Phase 2: routed tab creation must be authorized by the anchor tab's own
     // verified affiliation and must never inherit the globally active capsule.
     const verifiedCapsuleId = this.verifyRoutedAnchorCapsule(boundTabId, target);
-    // Phase 2 (step 11): forward the offscreen option so dedicated agent tabs keep
-    // rendering without foregrounding the user's visible surface.
-    // When userFacing is true, tab opens directly on the visible user plane (non-ephemeral, non-offscreen, plane: 'user').
-    if (options.userFacing === true && (options.offscreen === true || options.ephemeral === true)) {
+    // When userFacing is true, tab opens directly on the visible user plane (non-ephemeral, plane: 'user').
+    if (options.userFacing === true && options.ephemeral === true) {
       throw new CapabilityError(
         'INVALID_ARGUMENT',
-        'options.userFacing=true cannot be combined with contradictory options.offscreen=true or options.ephemeral=true',
-        { userFacing: options.userFacing, offscreen: options.offscreen, ephemeral: options.ephemeral }
+        'options.userFacing=true cannot be combined with contradictory options.ephemeral=true',
+        { userFacing: options.userFacing, ephemeral: options.ephemeral }
       );
     }
     const wantsUserPlane = options.userFacing === true;
     const isEphemeral = wantsUserPlane ? false : options.ephemeral;
-    const isOffscreen = wantsUserPlane ? false : options.offscreen;
     const plane = wantsUserPlane ? ('user' as const) : ('agent' as const);
 
     const createOptions = (routed && target && target.projectId && target.workspaceId)
       ? {
           ephemeral: isEphemeral,
-          offscreen: isOffscreen,
           devicePresetId: options.devicePresetId,
           mobile: options.mobile,
           capsuleId: verifiedCapsuleId,
@@ -4085,7 +4073,6 @@ export class BrowserControlPort {
         }
       : {
           ephemeral: isEphemeral,
-          offscreen: isOffscreen,
           devicePresetId: options.devicePresetId,
           mobile: options.mobile,
           // `anchorTabId` params are validated transport-side and arrive via the
@@ -8321,7 +8308,7 @@ export class BrowserControlPort {
       if (tabExists(currentAutoTab)) {
         resolved = currentAutoTab;
       } else if (this.host.createTab) {
-        // Dual-Plane Runtime Isolation: dedicated agent tab renders offscreen so
+        // Dual-Plane Runtime Isolation: dedicated agent tab renders in the background so
         // capture never requires foregrounding/swapping the user's visible view.
         // Phase 2 (step 4): the only reachable path here is a direct/legacy caller
         // (no attachment session) — or a session whose record still lacks a provisioned
@@ -8331,7 +8318,7 @@ export class BrowserControlPort {
         // exclusively from the attachment record and fail closed). Recording the
         // provisioned id here is host-level tab bookkeeping only, so subsequent
         // direct reads reuse the same tab instead of leaking a new one per call.
-        resolved = this.host.createTab('about:blank', false, { ephemeral: true, offscreen: true });
+        resolved = this.host.createTab('about:blank', false, { plane: 'agent' });
         if (resolved && typeof this.host.setAutomationTabId === 'function') {
           this.host.setAutomationTabId(resolved);
         }

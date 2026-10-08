@@ -77,7 +77,7 @@ export interface PageCloseAdmission {
    * it will reach (`tabIds`) so a close measuring that page counts real work instead of
    * guessing from a process-wide number, and to the window that asked for it (`ownerKey`)
    * so a shell-scope close counts work on pages it does not own as member pages — an
-   * offscreen or ephemeral tab — instead of measuring that window as idle. An
+   * ephemeral or agent tab — instead of measuring that window as idle. An
    * implementation refuses admission by throwing
    * a `CapabilityError` from the shared error vocabulary; callers surface that refusal as
    * final (no retry-into-success, no silent redirect). The returned release must be safe
@@ -160,7 +160,6 @@ export class AttachmentRegistry {
   private isQuarantined = false;
   private mutationLock: Promise<void> = Promise.resolve();
   private closeAdmission?: PageCloseAdmission;
-  private disposeListener?: (info: { attachmentId: string; tabId?: string; browserTarget?: BrowserTarget }) => void;
   private uncompactedFramesCount = 0;
   private readonly suspendedTimers = new Map<string, NodeJS.Timeout>();
   public suspendedGraceMs = ATTACHMENT_SUSPENDED_GRACE_MS;
@@ -1419,17 +1418,6 @@ export class AttachmentRegistry {
     this.suspendedTimers.clear();
   }
 
-  /** Phase 2 (step 10): deterministic attachment disposal hook. The composition root
-   *  registers a callback that closes ONLY the owned agent tab + terminal (never a
-   *  user tab nor another attachment's resources). Fired on revocation and on the
-   *  expiry transition. Socket close triggers it only after the record is already
-   *  revoked/expired, so transient reconnects never reap a live session's tab. */
-  setDisposeListener(
-    listener: (info: { attachmentId: string; tabId?: string; browserTarget?: BrowserTarget }) => void
-  ): void {
-    this.disposeListener = listener;
-  }
-
   /**
    * Injects the close-admission seam (see {@link PageCloseAdmission}). Optional: with
    * nothing injected every binding path keeps its previous behaviour.
@@ -1518,10 +1506,9 @@ export class AttachmentRegistry {
   }
 
   private notifyDispose(record: ExecutionAttachmentRecord): void {
-    // Session-end quota release: the bound tab's session pool is freed here,
-    // not in the dispose listener — the listener refuses user-visible tabs,
-    // which is exactly the case that leaks. Releasing is bookkeeping only and
-    // must never break the mutation path that fired it.
+    // Session-end quota release: the bound tab's session pool is freed here.
+    // Releasing is bookkeeping only and must never break the mutation path
+    // that fired it.
     const sessionId = record?.tabId || record?.browserTarget?.tabId;
     if (sessionId && this.delegate?.releaseSessionTabPool) {
       try {
@@ -1529,16 +1516,6 @@ export class AttachmentRegistry {
       } catch (err) {
         console.warn(`[AttachmentRegistry] Failed to release session tab pool ${sessionId} on dispose:`, err);
       }
-    }
-    if (!this.disposeListener || !record) return;
-    try {
-      this.disposeListener({
-        attachmentId: record.id,
-        tabId: record.tabId || record.browserTarget?.tabId,
-        browserTarget: cloneBrowserTarget(record.browserTarget),
-      });
-    } catch {
-      // Disposal notification must never break registry mutation paths.
     }
   }
 

@@ -176,12 +176,12 @@ describe('Phase 2 Agent-Plane Authority Contract Regressions', () => {
     it('isTerminalAllowedForTab returns true only for owned terminal and false for foreign or user terminal', () => {
       const host = createMockTabHost();
       const tabA: MockTabRecord = {
-        state: { id: 'tab-agent-a', url: 'about:blank', title: 'Agent A', isLoading: false, canGoBack: false, canGoForward: false, crashed: false, zoomFactor: 1, devicePresetId: 'responsive', ephemeral: true, offscreen: true },
+        state: { id: 'tab-agent-a', url: 'about:blank', title: 'Agent A', isLoading: false, canGoBack: false, canGoForward: false, crashed: false, zoomFactor: 1, devicePresetId: 'responsive', ephemeral: true },
         focusedPane: 'desktop',
         view: { webContents: createMockWebContents() },
       };
       const tabB: MockTabRecord = {
-        state: { id: 'tab-agent-b', url: 'about:blank', title: 'Agent B', isLoading: false, canGoBack: false, canGoForward: false, crashed: false, zoomFactor: 1, devicePresetId: 'responsive', ephemeral: true, offscreen: true },
+        state: { id: 'tab-agent-b', url: 'about:blank', title: 'Agent B', isLoading: false, canGoBack: false, canGoForward: false, crashed: false, zoomFactor: 1, devicePresetId: 'responsive', ephemeral: true },
         focusedPane: 'desktop',
         view: { webContents: createMockWebContents() },
       };
@@ -348,19 +348,19 @@ describe('Phase 2 Agent-Plane Authority Contract Regressions', () => {
         view: { webContents: userWc },
       };
       const agentTab: MockTabRecord = {
-        state: { id: 'tab-agent-offscreen', url: 'https://example.com/agent', title: 'Agent Tab', isLoading: false, canGoBack: false, canGoForward: false, crashed: false, zoomFactor: 1, devicePresetId: 'responsive', ephemeral: true, offscreen: true },
+        state: { id: 'tab-agent', url: 'https://example.com/agent', title: 'Agent Tab', isLoading: false, canGoBack: false, canGoForward: false, crashed: false, zoomFactor: 1, devicePresetId: 'responsive', ephemeral: true },
         focusedPane: 'desktop',
         view: { webContents: agentWc },
       };
 
       host.tabs.set('tab-user-active', userTab);
-      host.tabs.set('tab-agent-offscreen', agentTab);
+      host.tabs.set('tab-agent', agentTab);
       host.activeTabId = 'tab-user-active';
 
       const result = await host.sendKeyboardPress({
         key: 'a',
         modifiers: ['shift'],
-        tabId: 'tab-agent-offscreen',
+        tabId: 'tab-agent',
       });
 
       assert.strictEqual(result.success, true);
@@ -459,35 +459,35 @@ describe('Phase 2 Agent-Plane Authority Contract Regressions', () => {
   });
 
   // =========================================================================
-  // 3. OFFSCREEN CAPTURE PRESERVATION CONTRACT
+  // 3. BACKGROUND CAPTURE PRESERVATION CONTRACT
   // =========================================================================
-  describe('3. Offscreen Capture Preservation', () => {
-    it('NativeTabHost.applyTabThrottling keeps backgroundThrottling disabled for offscreen agent tabs', () => {
+  describe('3. Background Capture Preservation', () => {
+    it('NativeTabHost.applyTabThrottling keeps backgroundThrottling disabled for working agent tabs', () => {
       const host = createMockTabHost();
 
       const userFgWc = createMockWebContents();
       const userBgWc = createMockWebContents();
-      const offscreenAgentWc = createMockWebContents();
+      const workingAgentWc = createMockWebContents();
 
       const userFgTab: MockTabRecord = {
-        state: { id: 'tab-user-fg', url: 'https://example.com/fg', title: 'Foreground User Tab', isLoading: false, canGoBack: false, canGoForward: false, crashed: false, zoomFactor: 1, devicePresetId: 'responsive', offscreen: false },
+        state: { id: 'tab-user-fg', url: 'https://example.com/fg', title: 'Foreground User Tab', isLoading: false, canGoBack: false, canGoForward: false, crashed: false, zoomFactor: 1, devicePresetId: 'responsive' },
         focusedPane: 'desktop',
         view: { webContents: userFgWc },
       };
       const userBgTab: MockTabRecord = {
-        state: { id: 'tab-user-bg', url: 'https://example.com/bg', title: 'Background User Tab', isLoading: false, canGoBack: false, canGoForward: false, crashed: false, zoomFactor: 1, devicePresetId: 'responsive', offscreen: false },
+        state: { id: 'tab-user-bg', url: 'https://example.com/bg', title: 'Background User Tab', isLoading: false, canGoBack: false, canGoForward: false, crashed: false, zoomFactor: 1, devicePresetId: 'responsive' },
         focusedPane: 'desktop',
         view: { webContents: userBgWc },
       };
-      const offscreenAgentTab: MockTabRecord = {
-        state: { id: 'tab-agent-offscreen', url: 'https://example.com/agent', title: 'Offscreen Agent Tab', isLoading: false, canGoBack: false, canGoForward: false, crashed: false, zoomFactor: 1, devicePresetId: 'responsive', offscreen: true, ephemeral: true },
+      const workingAgentTab: MockTabRecord = {
+        state: { id: 'tab-agent', url: 'https://example.com/agent', title: 'Working Agent Tab', isLoading: false, canGoBack: false, canGoForward: false, crashed: false, zoomFactor: 1, devicePresetId: 'responsive', ephemeral: true, aiState: 'agent_working' },
         focusedPane: 'desktop',
-        view: { webContents: offscreenAgentWc },
+        view: { webContents: workingAgentWc },
       };
 
       host.tabs.set('tab-user-fg', userFgTab);
       host.tabs.set('tab-user-bg', userBgTab);
-      host.tabs.set('tab-agent-offscreen', offscreenAgentTab);
+      host.tabs.set('tab-agent', workingAgentTab);
       host.activeTabId = 'tab-user-fg';
 
       // Run applyTabThrottling
@@ -499,15 +499,15 @@ describe('Phase 2 Agent-Plane Authority Contract Regressions', () => {
       // 2. Background user tab: throttled (true)
       assert.strictEqual(userBgWc.throttlingHistory[userBgWc.throttlingHistory.length - 1], true, 'Background user tab should have backgroundThrottling: true');
 
-      // 3. Offscreen agent tab: MUST keep backgroundThrottling disabled (false)
-      assert.strictEqual(offscreenAgentWc.throttlingHistory[offscreenAgentWc.throttlingHistory.length - 1], false, 'Offscreen agent tab must have backgroundThrottling: false');
+      // 3. Working agent tab: MUST keep backgroundThrottling disabled (false)
+      assert.strictEqual(workingAgentWc.throttlingHistory[workingAgentWc.throttlingHistory.length - 1], false, 'Working agent tab must have backgroundThrottling: false');
       assert.ok(
-        !offscreenAgentWc.throttlingHistory.includes(true),
-        'Offscreen agent tab must NEVER have backgroundThrottling set to true'
+        !workingAgentWc.throttlingHistory.includes(true),
+        'Working agent tab must NEVER have backgroundThrottling set to true'
       );
     });
 
-    it('TabDevToolsHost.captureScreenshot for offscreen agent tab captures directly without switchTab or foreground swap', async () => {
+    it('TabDevToolsHost.captureScreenshot for a background agent tab never switches or foregrounds it', async () => {
       const tabs = new Map<string, MockTabRecord>();
       let switchTabCount = 0;
       let activeTabId = 'tab-user-active';
@@ -516,13 +516,13 @@ describe('Phase 2 Agent-Plane Authority Contract Regressions', () => {
       const agentWc = createMockWebContents();
 
       tabs.set('tab-user-active', {
-        state: { id: 'tab-user-active', url: 'https://example.com/user', title: 'User Working Tab', isLoading: false, canGoBack: false, canGoForward: false, crashed: false, zoomFactor: 1, devicePresetId: 'responsive', offscreen: false },
+        state: { id: 'tab-user-active', url: 'https://example.com/user', title: 'User Working Tab', isLoading: false, canGoBack: false, canGoForward: false, crashed: false, zoomFactor: 1, devicePresetId: 'responsive' },
         focusedPane: 'desktop',
         view: { webContents: userWc },
       });
 
-      tabs.set('tab-agent-offscreen', {
-        state: { id: 'tab-agent-offscreen', url: 'https://example.com/agent', title: 'Agent Offscreen Tab', isLoading: false, canGoBack: false, canGoForward: false, crashed: false, zoomFactor: 1, devicePresetId: 'responsive', offscreen: true, ephemeral: true },
+      tabs.set('tab-agent', {
+        state: { id: 'tab-agent', url: 'https://example.com/agent', title: 'Agent Tab', isLoading: false, canGoBack: false, canGoForward: false, crashed: false, zoomFactor: 1, devicePresetId: 'responsive', ephemeral: true },
         focusedPane: 'desktop',
         view: { webContents: agentWc },
       });
@@ -540,7 +540,7 @@ describe('Phase 2 Agent-Plane Authority Contract Regressions', () => {
         createTab: () => 'tab-created',
         withTabAgentWorking: async (_tabId, action) => action(),
         switchTab: (id) => {
-          if (id === 'tab-agent-offscreen') {
+          if (id === 'tab-agent') {
             switchTabCount++;
             activeTabId = id;
           }
@@ -550,19 +550,16 @@ describe('Phase 2 Agent-Plane Authority Contract Regressions', () => {
 
       const devTools = new TabDevToolsHost(ctx);
 
-      // Capture screenshot of offscreen tab
-      const screenshotBase64 = await devTools.captureScreenshot(undefined, 'tab-agent-offscreen');
+      // Capture screenshot of agent tab
+      const screenshotBase64 = await devTools.captureScreenshot(undefined, 'tab-agent');
 
-      // Verify offscreen preservation:
+      // Verify background preservation:
       // 1. switchTab was NEVER called
-      assert.strictEqual(switchTabCount, 0, 'switchTab must NEVER be called when capturing an offscreen agent tab');
+      assert.strictEqual(switchTabCount, 0, 'switchTab must NEVER be called when capturing a background agent tab');
       // 2. Active tab remained unchanged
       assert.strictEqual(activeTabId, 'tab-user-active', 'Active tab must remain on the user tab');
-      // 3. capturePage was invoked directly on the offscreen webContents
-      assert.strictEqual(agentWc.capturePageCalls, 1, 'capturePage must be invoked directly on offscreen WebContents');
-      // 4. Returns non-empty base64 string
+      // 3. The capture still produces a raster through the background-tab path
       assert.ok(screenshotBase64.length > 0, 'Screenshot base64 payload must be non-empty');
-      assert.ok(screenshotBase64.startsWith('iVBOR'), 'Screenshot payload should be valid base64 PNG data');
     });
 
     it('TabDevToolsHost.captureScreenshot for a background user tab never foregrounds it', async () => {
@@ -574,13 +571,13 @@ describe('Phase 2 Agent-Plane Authority Contract Regressions', () => {
       const bgUserWc = createMockWebContents();
 
       tabs.set('tab-user-active', {
-        state: { id: 'tab-user-active', url: 'https://example.com/user', title: 'User Working Tab', isLoading: false, canGoBack: false, canGoForward: false, crashed: false, zoomFactor: 1, devicePresetId: 'responsive', offscreen: false },
+        state: { id: 'tab-user-active', url: 'https://example.com/user', title: 'User Working Tab', isLoading: false, canGoBack: false, canGoForward: false, crashed: false, zoomFactor: 1, devicePresetId: 'responsive' },
         focusedPane: 'desktop',
         view: { webContents: userWc },
       });
 
       tabs.set('tab-user-bg', {
-        state: { id: 'tab-user-bg', url: 'https://example.com/bg', title: 'Background User Tab', isLoading: false, canGoBack: false, canGoForward: false, crashed: false, zoomFactor: 1, devicePresetId: 'responsive', offscreen: false },
+        state: { id: 'tab-user-bg', url: 'https://example.com/bg', title: 'Background User Tab', isLoading: false, canGoBack: false, canGoForward: false, crashed: false, zoomFactor: 1, devicePresetId: 'responsive' },
         focusedPane: 'desktop',
         view: { webContents: bgUserWc },
       });
@@ -628,12 +625,11 @@ describe('Phase 2 Agent-Plane Authority Contract Regressions', () => {
       const mockHost: BrowserHostPort = {
         getTabList: () => [
           { id: 'tab-user-active', url: 'https://example.com/user', title: 'User Tab' },
-          { id: 'tab-agent-offscreen', url: 'https://example.com/agent', title: 'Agent Tab' },
+          { id: 'tab-agent', url: 'https://example.com/agent', title: 'Agent Tab' },
         ],
-        hasTab: (tabId) => tabId === 'tab-user-active' || tabId === 'tab-agent-offscreen',
+        hasTab: (tabId) => tabId === 'tab-user-active' || tabId === 'tab-agent',
         getActiveTabId: () => 'tab-user-active',
-        isTabOffscreen: (tabId) => tabId === 'tab-agent-offscreen',
-        isTabEphemeral: (tabId) => tabId === 'tab-agent-offscreen',
+        isTabEphemeral: (tabId) => tabId === 'tab-agent',
         switchTab: (tabId) => {
           switchCalls++;
           switchedTo = tabId;
@@ -656,7 +652,7 @@ describe('Phase 2 Agent-Plane Authority Contract Regressions', () => {
         projectId: 'proj-1',
         workspaceId: 'ws-1',
         runtimeId: 'rt-1',
-        tabId: 'tab-agent-offscreen',
+        tabId: 'tab-agent',
         browserEpoch: 1,
         documentGeneration: 1,
       };
@@ -675,17 +671,17 @@ describe('Phase 2 Agent-Plane Authority Contract Regressions', () => {
       assert.strictEqual(switchedTo, 'tab-user-active', 'the user-visible tab becomes the active tab');
     });
 
-    it('agent attachment may switch only to its own agent-owned (offscreen/ephemeral) tab', () => {
+    it('agent attachment may switch to its own agent-owned ephemeral tab', () => {
       const { port, readState } = createSwitchHost();
       const target: BrowserTarget = {
         projectId: 'proj-1',
         workspaceId: 'ws-1',
         runtimeId: 'rt-1',
-        tabId: 'tab-agent-offscreen',
+        tabId: 'tab-agent',
         browserEpoch: 1,
         documentGeneration: 1,
       };
-      const res = port.switchTab('tab-agent-offscreen', {
+      const res = port.switchTab('tab-agent', {
         target,
         attachmentId: 'attachment-1',
         runId: 'run-1',
@@ -696,18 +692,20 @@ describe('Phase 2 Agent-Plane Authority Contract Regressions', () => {
       assert.strictEqual(res.switched, true);
       const { switchCalls, switchedTo } = readState();
       assert.strictEqual(switchCalls, 1);
-      assert.strictEqual(switchedTo, 'tab-agent-offscreen');
+      assert.strictEqual(switchedTo, 'tab-agent');
     });
   });
 
   // =========================================================================
   // 5. ATTACHMENT DISPOSAL HOOK (STEP 10)
   // =========================================================================
-  describe('5. Attachment Disposal Hook', () => {
-    it('revokeAttachment fires the dispose listener with the owned tab id only once', async () => {
-      const registry = new AttachmentRegistry({ getHostEpoch: () => 1 });
-      const fired: Array<{ attachmentId: string; tabId?: string }> = [];
-      registry.setDisposeListener((info) => fired.push({ attachmentId: info.attachmentId, tabId: info.tabId }));
+  describe('5. Attachment Disposal Delegate', () => {
+    it('revokeAttachment notifies delegate.releaseSessionTabPool with the owned tab id only once', async () => {
+      const released: string[] = [];
+      const registry = new AttachmentRegistry({
+        getHostEpoch: () => 1,
+        releaseSessionTabPool: (id) => { released.push(id); return true; },
+      });
 
       const runId = 'run-aaaa1111-2222-3333-4444-555566667777';
       const attemptId = 'attempt-aaaa1111-2222-3333-4444-555566667777';
@@ -735,15 +733,16 @@ describe('Phase 2 Agent-Plane Authority Contract Regressions', () => {
       });
 
       await registry.revokeAttachment(launch.attachmentId);
-      assert.strictEqual(fired.length, 1, 'Dispose listener must fire exactly once on revocation');
-      assert.strictEqual(fired[0]?.attachmentId, launch.attachmentId);
-      assert.strictEqual(fired[0]?.tabId, 'tab-agent-owned');
+      assert.strictEqual(released.length, 1, 'releaseSessionTabPool must fire exactly once on revocation');
+      assert.strictEqual(released[0], 'tab-agent-owned');
     });
 
-    it('validateLiveExecution on an expired attachment fires the dispose listener', () => {
-      const registry = new AttachmentRegistry({ getHostEpoch: () => 1 }, undefined, 100);
-      const fired: Array<{ attachmentId: string; tabId?: string }> = [];
-      registry.setDisposeListener((info) => fired.push({ attachmentId: info.attachmentId, tabId: info.tabId }));
+    it('validateLiveExecution on an expired attachment notifies delegate.releaseSessionTabPool', () => {
+      const released: string[] = [];
+      const registry = new AttachmentRegistry({
+        getHostEpoch: () => 1,
+        releaseSessionTabPool: (id) => { released.push(id); return true; },
+      }, undefined, 100);
       const record = {
         id: 'attachment-aaaa1111-2222-3333-4444-555566667777',
         runId: 'run-aaaa1111-2222-3333-4444-555566667777',
@@ -763,10 +762,10 @@ describe('Phase 2 Agent-Plane Authority Contract Regressions', () => {
 
       assert.throws(
         () => registry.validateLiveExecution(record, 'rev_aaa'),
-        (err: unknown) => err instanceof CapabilityError && (err as CapabilityError).code === 'ATTACHMENT_STALE'
+        (err: unknown) => err instanceof CapabilityError && err.code === 'ATTACHMENT_STALE'
       );
-      assert.strictEqual(fired.length, 1, 'Dispose listener must fire when attachment transitions to expired');
-      assert.strictEqual(fired[0]?.tabId, 'tab-agent-owned');
+      assert.strictEqual(released.length, 1, 'releaseSessionTabPool must fire when attachment transitions to expired');
+      assert.strictEqual(released[0], 'tab-agent-owned');
     });
   });
 });

@@ -31,7 +31,7 @@ class MockTabHost extends EventEmitter {
     return this.activeTabId;
   }
   // Mirrors NativeTabHost.createTab, where activation defaults to true.
-  createTab(url = 'https://google.com', activate = true, options?: { ephemeral?: boolean; offscreen?: boolean }) {
+  createTab(url = 'https://google.com', activate = true, options?: { ephemeral?: boolean; plane?: 'agent' | 'user'; capsuleId?: string }) {
     this.lastCreateTab = { url, activate, options };
     const id = `tab-${Date.now()}`;
     this.tabs.push({ id, url, title: 'New Tab', isLoading: false, canGoBack: false, canGoForward: false, zoomFactor: 1.0 });
@@ -71,7 +71,7 @@ class MockTabHost extends EventEmitter {
     return 'base64-mock-png';
   }
   public reloadWindowCalls = 0;
-  public lastCreateTab: { url?: string; activate?: boolean; options?: { ephemeral?: boolean; offscreen?: boolean } } | null = null;
+  public lastCreateTab: { url?: string; activate?: boolean; options?: { ephemeral?: boolean; plane?: 'agent' | 'user'; capsuleId?: string } } | null = null;
   reloadWindow() {
     this.reloadWindowCalls++;
   }
@@ -119,7 +119,7 @@ describe('AntiFan Bridge Server', () => {
     server.dispose();
   });
 
-  it('opens an activated tab on the visible plane for an agent caller, and keeps inactive ones offscreen', async () => {
+  it('opens an activated tab on the visible plane for an agent caller, and keeps inactive ones as background tabs', async () => {
     const mockHost = new MockTabHost();
     const server = new BridgeServer(mockHost as unknown as NativeTabHost, 0, false);
     const port = await server.start();
@@ -143,16 +143,17 @@ describe('AntiFan Bridge Server', () => {
       assert.strictEqual(mockHost.lastCreateTab?.activate, true);
       assert.deepStrictEqual(
         mockHost.lastCreateTab?.options,
-        { ephemeral: false, offscreen: false, plane: 'agent' },
-        'a tab the caller asked to activate must exist on screen'
+        { ephemeral: false, plane: 'agent' },
+        'a tab the caller asked to activate must exist on the agent plane'
       );
 
-      const inactive = await send('open-hidden-1', { url: 'https://example.com/2', attachmentId: 'attachment-1' });
+      const inactive = await send('open-hidden-1', { url: 'https://example.com/2', ephemeral: true, attachmentId: 'attachment-1' });
       assert.strictEqual(inactive.success, true);
+      assert.strictEqual(mockHost.lastCreateTab?.activate, false);
       assert.deepStrictEqual(
         mockHost.lastCreateTab?.options,
-        { ephemeral: true, offscreen: true, plane: 'agent' },
-        'without activation an agent tab stays an isolated offscreen surface'
+        { ephemeral: true, plane: 'agent' },
+        'without activation an agent tab stays an ephemeral background tab'
       );
     } finally {
       ws.close();

@@ -232,10 +232,10 @@ describe('Terminal-to-Tab Agent Affinity Contract Tests (NativeTabHost Seam)', (
         { id: 'tab-user-a', url: 'https://user-a.test', title: 'User A' },
         { id: 'tab-user-b', url: 'https://user-b.test', title: 'User B' },
       ],
-      getManagedTabIds: () => new Set(['tab-agent-offscreen']),
+      getManagedTabIds: () => new Set(['tab-agent']),
     };
     const port = new BrowserControlPort(mockHost as any);
-    const boundTarget: BrowserTarget = { tabId: 'tab-agent-offscreen', documentGeneration: 1, projectId: 'proj-1', workspaceId: 'ws-1', runtimeId: 'rt-1', browserEpoch: 1 };
+    const boundTarget: BrowserTarget = { tabId: 'tab-agent', documentGeneration: 1, projectId: 'proj-1', workspaceId: 'ws-1', runtimeId: 'rt-1', browserEpoch: 1 };
 
     // The session owns an agent tab the visible strip cannot describe; the user's
     assert.deepStrictEqual(port.listTabs({ target: boundTarget, scope: 'session' }), []);

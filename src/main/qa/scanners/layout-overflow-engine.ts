@@ -55,8 +55,8 @@ export class LayoutOverflowEngine {
 
       const scrollWidth = Math.max(doc.scrollWidth, body ? body.scrollWidth : 0);
       const clientWidth = doc.clientWidth || window.innerWidth;
-      // The documentElement content box is the compositor-surface signal: an offscreen
-      // or unrendered tab lays out against a zero-width box, so neither it nor the
+      // The documentElement content box is the compositor-surface signal: an unrendered
+      // tab lays out against a zero-width box, so neither it nor the
       // window width masking it may anchor a delta.
       const measured = Number.isFinite(doc.clientWidth) && doc.clientWidth > 0 && Number.isFinite(scrollWidth);
       const rawDeltaX = measured ? scrollWidth - clientWidth : 0;

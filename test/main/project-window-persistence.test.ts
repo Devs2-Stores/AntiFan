@@ -54,6 +54,12 @@ fs.mkdirSync(SCRATCH_DIR, { recursive: true });
 process.env.ANTIFAN_CONFIG_DIR = path.join(SCRATCH_DIR, 'config');
 process.env.ANTIFAN_DATA_ROOT = SCRATCH_DIR;
 
+after(() => {
+  try {
+    fs.rmSync(SCRATCH_DIR, { recursive: true, force: true });
+  } catch {}
+});
+
 const UNASSIGNED = ownerKey({ kind: 'unassigned' });
 const PROJECT_A: WindowOwner = { kind: 'project', projectId: 'proj-a' };
 const PROJECT_B: WindowOwner = { kind: 'project', projectId: 'proj-b' };
@@ -603,7 +609,7 @@ describe('saved tabs: one record per owner', () => {
     freshUserData('owner-agent-tabs');
     const host = createHost({
       owner: PROJECT_A,
-      tabs: [['tab-a', {}], ['tab-agent', { ephemeral: true }], ['tab-offscreen', { offscreen: true }]],
+      tabs: [['tab-a', {}], ['tab-agent', { ephemeral: true }]],
       activeTabId: 'tab-a',
     });
     host.persistSync();
@@ -670,6 +676,157 @@ describe('saved tabs: one record per owner', () => {
     assert.equal(reads, 4, 'every landed persist merges exactly once');
     assert.equal(writes, 4);
   });
+
+  it('an async persist never renames a stale merge over a record a synchronous writer landed meanwhile', async () => {
+    // The byte write of persistTabsAsync runs off the main thread. A closing window's
+    // disposal persistSync cannot enter the write chain, so it can land between the
+    // async writer's merge read and its rename. Simulate exactly that gap: B's sync
+    // write fires while A's fs.promises.writeFile is genuinely pending.
+    freshUserData('async-vs-sync-race');
+    const hostA = createHost({ owner: PROJECT_A, tabs: [['tab-a', {}]], activeTabId: 'tab-a' });
+    const hostB = createHost({ owner: PROJECT_B, tabs: [['tab-b', {}]], activeTabId: 'tab-b' });
+
+    let merges = 0;
+    const originalMergeRead = hostA.normalizeSavedTabsFileForMerge;
+    hostA.normalizeSavedTabsFileForMerge = (...args: unknown[]) => {
+      merges += 1;
+      return originalMergeRead.apply(hostA, args as [string]);
+    };
+
+    const originalWriteFile = fs.promises.writeFile;
+    let interleaved = false;
+    fs.promises.writeFile = (async (file: fs.PathLike | fs.promises.FileHandle, data: string | Uint8Array, options?: fs.WriteFileOptions) => {
+      const isSavedTabsTemp = typeof file === 'string' && path.basename(file).startsWith('saved-tabs.json.tmp.');
+      if (isSavedTabsTemp && !interleaved) {
+        interleaved = true;
+        // Hold the write pending on a deferred promise while hostB.persistSync() lands on disk
+        const { promise, resolve } = Promise.withResolvers<void>();
+        setImmediate(() => {
+          hostB.persistSync();
+          resolve();
+        });
+        await promise;
+      }
+      return originalWriteFile(file, data, options);
+    }) as typeof fs.promises.writeFile;
+
+    try {
+      await hostA.persistTabsAsync();
+    } finally {
+      fs.promises.writeFile = originalWriteFile;
+    }
+
+    assert.equal(interleaved, true, 'fs.promises.writeFile was intercepted while genuinely pending (TA-03)');
+    assert.equal(merges, 2, 'the stale projection is discarded and merged again against the newer document');
+    const doc = readSavedTabsFile();
+    assert.deepEqual(Object.keys(doc.owners).sort(), [ownerKey(PROJECT_A), ownerKey(PROJECT_B)].sort());
+    assert.deepEqual(doc.owners[ownerKey(PROJECT_A)].tabs.map((tab: AnyRecord) => tab.id), ['tab-a']);
+    assert.deepEqual(doc.owners[ownerKey(PROJECT_B)].tabs.map((tab: AnyRecord) => tab.id), ['tab-b'], "B's synchronous record survives A's in-flight async write");
+    assert.deepEqual(
+      fs.readdirSync(userDataDir).filter((name) => name !== 'saved-tabs.json'),
+      [],
+      'the discarded temp file is removed'
+    );
+  });
+
+  it('retries renameSync on Windows EBUSY/EPERM with backoff before succeeding (TA-12a)', async () => {
+    freshUserData('async-rename-ebusy');
+    const hostA = createHost({ owner: PROJECT_A, tabs: [['tab-a', {}]], activeTabId: 'tab-a' });
+
+    let renameAttempts = 0;
+    const originalRenameSync = realFs.renameSync;
+    realFs.renameSync = ((oldPath: fs.PathLike, newPath: fs.PathLike) => {
+      const isSavedTabs = typeof newPath === 'string' && path.basename(newPath) === 'saved-tabs.json';
+      if (isSavedTabs && renameAttempts < 2) {
+        renameAttempts += 1;
+        const err = Object.assign(new Error('EBUSY: resource busy or locked, rename'), { code: 'EBUSY' });
+        throw err;
+      }
+      if (isSavedTabs) {
+        renameAttempts += 1;
+      }
+      return originalRenameSync(oldPath, newPath);
+    }) as typeof fs.renameSync;
+
+    try {
+      await hostA.persistTabsAsync();
+    } finally {
+      realFs.renameSync = originalRenameSync;
+    }
+
+    assert.equal(renameAttempts, 3, 'renameSync was retried twice upon EBUSY and succeeded on the 3rd attempt');
+    const doc = readSavedTabsFile();
+    assert.deepEqual(doc.owners[ownerKey(PROJECT_A)].tabs.map((tab: AnyRecord) => tab.id), ['tab-a']);
+    assert.deepEqual(
+      fs.readdirSync(userDataDir).filter((name) => name !== 'saved-tabs.json'),
+      [],
+      'the temp file was successfully renamed'
+    );
+  });
+
+  it('survives fs.promises.rm rejection during version conflict and completes re-merge (TA-12b)', async () => {
+    freshUserData('async-rm-reject');
+    const hostA = createHost({ owner: PROJECT_A, tabs: [['tab-a', {}]], activeTabId: 'tab-a' });
+    const hostB = createHost({ owner: PROJECT_B, tabs: [['tab-b', {}]], activeTabId: 'tab-b' });
+
+    let merges = 0;
+    const originalMergeRead = hostA.normalizeSavedTabsFileForMerge;
+    hostA.normalizeSavedTabsFileForMerge = (...args: unknown[]) => {
+      merges += 1;
+      const existing = originalMergeRead.apply(hostA, args as [string]);
+      if (merges === 1) hostB.persistSync();
+      return existing;
+    };
+
+    const originalRm = fs.promises.rm;
+    let rmAttempted = false;
+    fs.promises.rm = (async (targetPath: fs.PathLike, options?: fs.RmOptions) => {
+      const isSavedTabsTemp = typeof targetPath === 'string' && path.basename(targetPath).startsWith('saved-tabs.json.tmp.');
+      if (isSavedTabsTemp && !rmAttempted) {
+        rmAttempted = true;
+        const err = Object.assign(new Error('EPERM: operation not permitted, unlink'), { code: 'EPERM' });
+        throw err;
+      }
+      return originalRm(targetPath, options);
+    }) as typeof fs.promises.rm;
+
+    try {
+      await hostA.persistTabsAsync();
+    } finally {
+      fs.promises.rm = originalRm;
+    }
+
+    assert.equal(rmAttempted, true, 'fs.promises.rm was called during version conflict');
+    assert.equal(merges, 2, 'hostA re-merged despite fs.promises.rm rejection');
+    const doc = readSavedTabsFile();
+    assert.deepEqual(Object.keys(doc.owners).sort(), [ownerKey(PROJECT_A), ownerKey(PROJECT_B)].sort());
+    assert.deepEqual(doc.owners[ownerKey(PROJECT_A)].tabs.map((tab: AnyRecord) => tab.id), ['tab-a']);
+    assert.deepEqual(doc.owners[ownerKey(PROJECT_B)].tabs.map((tab: AnyRecord) => tab.id), ['tab-b']);
+  });
+
+  it('terminates persist loop within max iterations under perpetual version conflicts (TA-12c)', async () => {
+    freshUserData('async-bounded-loop');
+    const hostA = createHost({ owner: PROJECT_A, tabs: [['tab-a', {}]], activeTabId: 'tab-a' });
+    const hostB = createHost({ owner: PROJECT_B, tabs: [['tab-b', {}]], activeTabId: 'tab-b' });
+
+    let merges = 0;
+    const originalMergeRead = hostA.normalizeSavedTabsFileForMerge;
+    hostA.normalizeSavedTabsFileForMerge = (...args: unknown[]) => {
+      merges += 1;
+      // Land a genuinely new hostB record on every merge: persistSync skips an
+      // unchanged projection, so the record must differ each time for the write
+      // version to move and hostA's attempt to be discarded.
+      addTab(hostB, `tab-b-${merges}`);
+      hostB.persistSync();
+      return originalMergeRead.apply(hostA, args as [string]);
+    };
+
+    await hostA.persistTabsAsync();
+
+    assert.equal(merges, 5, 'the re-merge loop terminated after exactly 5 attempts');
+    assert.equal(hostA.hasPendingPersist, true, 'hasPendingPersist remains true to allow a future trigger to retry');
+    assert.equal(hostA.isPersistingTabs, false, 'isPersistingTabs flag is reset to allow next invocation');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -712,11 +869,11 @@ describe('search inventory', () => {
     assert.deepEqual(afterActivation.map((row) => row.active), [false, false, true]);
   });
 
-  it('excludes offscreen and ephemeral automation tabs from the listing', () => {
+  it('excludes ephemeral automation tabs from the listing', () => {
     freshUserData('inventory-exclusion');
     const host = createHost({
       owner: PROJECT_A,
-      tabs: [['visible'], ['agent', { ephemeral: true }], ['offscreen', { offscreen: true }]],
+      tabs: [['visible'], ['agent', { ephemeral: true }]],
       activeTabId: 'agent',
     });
 
@@ -795,7 +952,7 @@ describe('search activation', () => {
   it('never resolves by index and refuses a tab that is now an automation surface', () => {
     freshUserData('activation-index');
     const { host, switched } = hostWithSwitchRecorder([['tab-1'], ['tab-2']], PROJECT_A);
-    host.tabs.set('tab-2', { ...host.tabs.get('tab-2'), state: { ...host.tabs.get('tab-2').state, offscreen: true } });
+    host.tabs.set('tab-2', { ...host.tabs.get('tab-2'), state: { ...host.tabs.get('tab-2').state, ephemeral: true } });
 
     const unavailable = activateTabSearchResult([asHost(host)], { tabId: 'tab-2', expectedOwnerKey: ownerKey(PROJECT_A) });
     assert.deepEqual(unavailable, { ok: false, tabId: 'tab-2', reason: 'TAB_UNAVAILABLE' });

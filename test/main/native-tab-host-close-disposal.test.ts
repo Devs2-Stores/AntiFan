@@ -16,12 +16,13 @@
  * shell window is a spy double, so "no window was raised" is asserted on real calls
  * rather than on the absence of code.
  */
-import { describe, it } from 'node:test';
+import { after, describe, it } from 'node:test';
 import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { NativeTabHost } from '../../src/main/browser/native-tab-host';
+import { lifecycleLogDrained } from '../../src/main/diagnostics/main-lifecycle-log';
 import { SemanticRefRegistry } from '../../src/main/browser/semantic-ref-registry';
 import { TerminalManager } from '../../src/main/browser/terminal-manager';
 import { createShellDouble, type ShellDoubleWindow } from '../support/project-window-shell-double';
@@ -32,14 +33,15 @@ import { createShellDouble, type ShellDoubleWindow } from '../support/project-wi
 const RUNTIME_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-closedisposal-runtime-'));
 process.env.ANTIFAN_RUNTIME_DIR = RUNTIME_DIR;
 
-function tabClosedRows(): Array<Record<string, unknown>> {
+function tabClosedRows(sinceCount = 0): Array<Record<string, unknown>> {
   const logPath = path.join(RUNTIME_DIR, 'logs', 'main.log');
   if (!fs.existsSync(logPath)) return [];
-  return fs
+  const rows = fs
     .readFileSync(logPath, 'utf8')
     .split('\n')
     .filter((line) => line.includes('"event":"tabhost.tabClosed"'))
     .map((line) => JSON.parse(line) as Record<string, unknown>);
+  return sinceCount > 0 ? rows.slice(sinceCount) : rows;
 }
 
 type TestHost = any;
@@ -185,7 +187,6 @@ function createWindowSpy() {
 interface HarnessOptions {
   tabIds?: string[];
   activeTabId?: string;
-  offscreenTabIds?: string[];
   ephemeralTabIds?: string[];
   mobileViewOn?: string[];
 }
@@ -207,7 +208,6 @@ function createHarness(options: HarnessOptions = {}) {
         url: 'https://example.test/',
         title: id,
         ephemeral: options.ephemeralTabIds?.includes(id) === true,
-        offscreen: options.offscreenTabIds?.includes(id) === true,
       },
       view: { webContents: wc },
     };
@@ -467,9 +467,9 @@ describe('NativeTabHost close reservation', () => {
 });
 
 describe('NativeTabHost close telemetry', () => {
-  it('labels a close driven by an authorized attempt as close-attempt', () => {
-    // Unique tab ids keep assertions honest: earlier tests in this file already wrote
-    // tabClosed rows for 'tab-1' into the shared journal.
+  it('labels a close driven by an authorized attempt as close-attempt', async () => {
+    await lifecycleLogDrained();
+    const mark = tabClosedRows().length;
     const { host } = createHarness({ tabIds: ['tele-attempt'] });
     // The authorization the close attempt installs for its own page: the fallback
     // source is what `finalizeClosedPage` relies on for post-closePage reconciliation.
@@ -477,33 +477,37 @@ describe('NativeTabHost close telemetry', () => {
 
     assert.strictEqual(host.closeTab('tele-attempt'), true);
 
-    const rows = tabClosedRows().filter((row) => row['tabId'] === 'tele-attempt');
+    // Runtime journal rows are appended off the main thread; read after the drain.
+    await lifecycleLogDrained();
+    const rows = tabClosedRows(mark).filter((row) => row['tabId'] === 'tele-attempt');
     assert.strictEqual(rows.length, 1);
     assert.strictEqual(rows[0]!['source'], 'close-attempt');
     assert.strictEqual(rows[0]!['urlOrigin'], 'https://example.test');
   });
 
-  it('journals host-dispose once per tab when disposal bypasses closeTab', () => {
-    const { host } = createHarness({ tabIds: ['tele-dispose-1', 'tele-dispose-2'], offscreenTabIds: ['tele-dispose-2'] });
+  it('journals host-dispose once per tab when disposal bypasses closeTab', async () => {
+    await lifecycleLogDrained();
+    const mark = tabClosedRows().length;
+    const { host } = createHarness({ tabIds: ['tele-dispose-1', 'tele-dispose-2'], ephemeralTabIds: ['tele-dispose-2'] });
 
     host.dispose();
 
-    const rows = tabClosedRows().filter((row) => row['source'] === 'host-dispose');
+    await lifecycleLogDrained();
+    const rows = tabClosedRows(mark).filter((row) => row['source'] === 'host-dispose');
     const row1 = rows.find((row) => row['tabId'] === 'tele-dispose-1');
     const row2 = rows.find((row) => row['tabId'] === 'tele-dispose-2');
     assert.ok(row1, 'the visible tab removed by disposal is still attributable');
-    assert.ok(row2, 'the offscreen tab removed by disposal is still attributable');
-    assert.strictEqual(row2!['offscreen'], true);
+    assert.ok(row2, 'the ephemeral tab removed by disposal is still attributable');
+    assert.strictEqual(row2!['ephemeral'], true);
     assert.strictEqual(rows.length, 2, 'no closeTab double-emit: the dispose path emits directly');
   });
 });
 
 describe('NativeTabHost member and auxiliary inventories', () => {
-  it('keeps offscreen and ephemeral views out of the member snapshot and inside the auxiliary inventory', () => {
+  it('keeps ephemeral views out of the member snapshot and inside the auxiliary inventory', () => {
     const { host } = createHarness({
       tabIds: ['tab-1', 'tab-2', 'agent-1', 'agent-2'],
-      offscreenTabIds: ['agent-1'],
-      ephemeralTabIds: ['agent-2'],
+      ephemeralTabIds: ['agent-1', 'agent-2'],
     });
 
     assert.deepStrictEqual(host.visibleMemberTabIds(), ['tab-1', 'tab-2']);
@@ -544,7 +548,7 @@ describe('NativeTabHost surviving layout restore', () => {
     const { host, log } = createHarness({
       tabIds: ['tab-a', 'agent-1'],
       activeTabId: '',
-      offscreenTabIds: ['agent-1'],
+      ephemeralTabIds: ['agent-1'],
     });
 
     assert.strictEqual(host.restoreSurvivingLayout(['agent-1']), false, 'an auxiliary view is not a member page');
@@ -645,4 +649,11 @@ describe('NativeTabHost disposal', () => {
     }
     assert.strictEqual(host.terminalSubscriptionReleases.length, 0, 'the tracking set is emptied by disposal');
   });
+});
+
+after(async () => {
+  await lifecycleLogDrained();
+  try {
+    fs.rmSync(RUNTIME_DIR, { recursive: true, force: true });
+  } catch {}
 });

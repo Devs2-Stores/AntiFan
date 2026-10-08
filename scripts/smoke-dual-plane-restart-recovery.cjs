@@ -5,10 +5,9 @@
  * Dual-Plane Restart & Crash Recovery Certification (plan 260909-0032, Phase 6 steps 7-8).
  *
  * Phase "seed" (fresh Electron process):
- *   1. user sentinel tab + offscreen agent tab + agent terminal session + attachment
+ *   1. user sentinel tab + background agent tab + agent terminal session + attachment
  *   2. persistTabs() must record ONLY the user tab (agent tabs never persist)
- *   3. attachment revocation (the proxy-crash equivalent) reaps ONLY the owned
- *      agent tab + terminal; the user tab survives untouched
+ *   3. attachment revocation (the proxy-crash equivalent); the user tab survives untouched
  *   4. host disposal + profile lease release
  *   5. spawn a second fresh Electron process against the SAME user-data dir
  *
@@ -82,9 +81,8 @@ async function runSeed() {
   const tabHost = new NativeTabHost(winShell);
 
   const sentinelId = tabHost.createTab(SENTINEL_URL, true);
-  const agentTabId = tabHost.createTab(AGENT_URL, false, { offscreen: true });
+  const agentTabId = tabHost.createTab(AGENT_URL, false, { plane: 'agent', ephemeral: true });
   assert.ok(sentinelId && agentTabId, 'user + agent tabs created');
-  assert.strictEqual(tabHost.isTabOffscreen(agentTabId), true, 'agent tab is offscreen');
   assert.strictEqual(tabHost.getActiveTabId(), sentinelId, 'user sentinel is active');
 
   const projectId = makeControlPlaneId('project');
@@ -101,13 +99,6 @@ async function runSeed() {
   const registry = new AttachmentRegistry({
     getHostEpoch: () => lease.hostEpoch,
     getDocumentGeneration: (id) => tabHost.getDocumentGeneration(id),
-  });
-  // Mirror the composition-root disposal contract: only an owned offscreen agent
-  // tab may be reaped, never a user-visible tab.
-  registry.setDisposeListener(({ attachmentId, tabId }) => {
-    if (!tabId || tabHost.isTabOffscreen(tabId) !== true) return;
-    tabHost.closeTab(tabId);
-    console.log(`[Restart-Recovery] attachment ${attachmentId} disposed; closed owned agent tab ${tabId}`);
   });
 
   const { record } = await registry.issueAttachment(
@@ -138,14 +129,13 @@ async function runSeed() {
   const persistedUrls = persisted.tabs.map((t) => t.url);
   assert.ok(persistedUrls.includes(SENTINEL_URL), `user tab persisted: ${JSON.stringify(persistedUrls)}`);
   assert.ok(!persistedUrls.includes(AGENT_URL), 'agent tab must NOT persist');
-  assert.ok(!persisted.tabs.some((t) => t.offscreen === true || t.ephemeral === true), 'no agent-plane tabs persisted');
+  assert.ok(!persisted.tabs.some((t) => t.plane === 'agent' || t.ephemeral === true), 'no agent-plane tabs persisted');
   assert.strictEqual(persisted.activeTabId, sentinelId, 'persisted active tab is the user sentinel');
 
   // Proxy-crash equivalent: attachment revoked -> only its owned resources reaped.
   trace('revoke-start');
   await registry.revokeAttachment(record.id);
   trace('revoke-done');
-  assert.strictEqual(tabHost.hasTab(agentTabId), false, 'revoked attachment agent tab reaped');
   assert.strictEqual(tabHost.hasTab(sentinelId), true, 'user sentinel tab survives revocation');
   assert.strictEqual(tabHost.getActiveTabId(), sentinelId, 'user sentinel stays active after revocation');
   assert.ok(terminal.listSessions().some((s) => s.id === userSessionId), 'user terminal session survives');
@@ -206,7 +196,7 @@ async function runVerify() {
   const restored = tabHost.getTabList();
   const restoredUrls = restored.map((t) => t.url);
   assert.deepStrictEqual(restoredUrls, [SENTINEL_URL], `only the user tab restores: ${JSON.stringify(restoredUrls)}`);
-  assert.ok(!restored.some((t) => t.offscreen === true || t.ephemeral === true), 'no agent tab restores');
+  assert.ok(!restored.some((t) => t.plane === 'agent' || t.ephemeral === true), 'no agent tab restores');
   assert.ok(!restored.some((t) => t.url === AGENT_URL), 'agent target URL never restores');
 
   // No transient terminal ownership survives the crash: the agent session is gone,

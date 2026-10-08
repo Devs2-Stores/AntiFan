@@ -649,7 +649,7 @@ async function run() {
     // a real page rather than about:blank. A blank tab is constructed without a load, so its
     // WebContents has no renderer document and the first evaluate against it waits out the
     // whole eval ceiling instead of answering - the shipping host states that boundary itself
-    // when it materializes about:blank for offscreen agent tabs. Every later row here reads,
+    // when it materializes about:blank for agent tabs. Every later row here reads,
     // opens a popup from or captures these tabs, so they are given documents.
     expect(hubHost().activeProject() === ALPHA.projectId, 'the hub is not showing ALPHA: ' + String(hubHost().activeProject()));
     tabA1 = await toolbarHub.executeJavaScript("window.antifanToolbar.createTab('https://example.com/')", true);
@@ -1726,10 +1726,10 @@ async function run() {
       function () { return host.tabsForProject(GAMMA.projectId).indexOf(stampedTab) >= 0; },
       "the minted tab to carry GAMMA's project stamp",
     );
-    // The transfer serializes persisted-shape rows; ingest drops ephemeral/offscreen
+    // The transfer serializes persisted-shape rows; ingest drops ephemeral
     // (agent-plane) tabs by design — the detachable set is the user-plane subset.
     const stampedBefore = host.tabsForProject(GAMMA.projectId).filter(function (id) {
-      return !(host.isTabEphemeral && host.isTabEphemeral(id)) && !(host.isTabOffscreen && host.isTabOffscreen(id));
+      return !(host.isTabEphemeral && host.isTabEphemeral(id));
     });
     expect(stampedBefore.indexOf(stampedTab) >= 0, "the minted tab is not in GAMMA's stamp set");
     const hubTabCountBefore = host.getTabList().length;

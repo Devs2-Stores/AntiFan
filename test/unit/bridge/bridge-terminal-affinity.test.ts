@@ -21,10 +21,24 @@ describe('BridgeServer Terminal Affinity Resolution Live RPC Contract Tests', ()
     // A real host tracks the tabs it creates; the session-start validation reads
     // that back, so the mock must too.
     createdTabs = new Set<string>();
-    // The options a mint carries (offscreen/ephemeral/capsuleId) are the contract the
+    // The options a mint carries (plane/capsuleId) are the contract the
     // capsule-pinning cases assert on.
     createTabCalls: Array<{ url?: string; activate?: boolean; options?: Record<string, unknown> }> = [];
     boundAffinity: Array<{ terminalId: string; generation?: string | number; tabId: string }> = [];
+    closedTabs: Array<{ tabId: string; reason?: string }> = [];
+    tombstonedAffinity: string[] = [];
+    releasedTabPools: string[] = [];
+    closeTab(id: string, reason?: string) {
+      this.closedTabs.push({ tabId: id, reason });
+      this.createdTabs.delete(id);
+      return true;
+    }
+    tombstoneTerminalAgentAffinity(tabId: string) {
+      this.tombstonedAffinity.push(tabId);
+    }
+    releaseSessionTabPool(terminalId: string) {
+      this.releasedTabPools.push(terminalId);
+    }
     hasTab(id?: string | null) { return typeof id === 'string' && (this.createdTabs.has(id) || id === 'tab-alive' || id === 'tab-auto' || id === 'tab-active'); }
     getAutomationTabId() { return 'tab-auto'; }
     getActiveTabId() { return 'tab-active'; }
@@ -188,7 +202,7 @@ describe('BridgeServer Terminal Affinity Resolution Live RPC Contract Tests', ()
     const resp = await rpcCall('antifan.cli.startSession', {});
 
     assert.strictEqual(resp.success, true);
-    // Phase 2: never fall back to global automation target; provision dedicated offscreen/ephemeral tab
+    // Phase 2: never fall back to global automation target; provision dedicated background agent tab
     assert.strictEqual(lastSessionCreatedOpts?.tabId, 'tab-created');
     assert.strictEqual(resp.data?.tabId, 'tab-created');
   });
@@ -273,8 +287,7 @@ describe('BridgeServer Terminal Affinity Resolution Live RPC Contract Tests', ()
       assert.strictEqual(altHost.boundAffinity.length, 1, 'affinity must bind on the resolved host');
       assert.strictEqual(mockHost.boundAffinity.length, bindsBefore);
       assert.strictEqual(altHost.createTabCalls[0]?.options?.capsuleId, 'capsule-proj');
-      assert.strictEqual(altHost.createTabCalls[0]?.options?.offscreen, true);
-      assert.strictEqual(altHost.createTabCalls[0]?.options?.ephemeral, true);
+      assert.strictEqual(altHost.createTabCalls[0]?.options?.plane, 'agent');
     } finally {
       restoreTerminalManager();
     }
@@ -449,6 +462,30 @@ describe('BridgeServer Terminal Affinity Resolution Live RPC Contract Tests', ()
       const resp = await rpcCall('antifan.cli.startSession', { terminalSessionId: 'term-alive', terminalGeneration: 1 });
       assert.strictEqual(resp.success, false);
       assert.strictEqual(calls, 1, 'message text alone never triggers the recovery');
+    } finally {
+      restoreCp();
+    }
+  });
+
+  it('18. Rolls back minted tab and releases pool if controlPlaneRuntime.createCliSession rejects', async () => {
+    mockHost.closedTabs = [];
+    mockHost.tombstonedAffinity = [];
+    mockHost.releasedTabPools = [];
+    const restoreCp = withControlPlane({
+      createCliSession: async () => {
+        throw new Error('createCliSession failed');
+      },
+    });
+    try {
+      const resp = await rpcCall('antifan.cli.startSession', { terminalSessionId: 'term-unbound' });
+      assert.strictEqual(resp.success, false);
+      assert.match(String(resp.error), /createCliSession failed/);
+      assert.ok(
+        mockHost.closedTabs.some((c) => c.tabId === 'tab-created' && c.reason === 'agent-mint-rollback'),
+        'minted tab must be closed with agent-mint-rollback reason'
+      );
+      assert.ok(mockHost.tombstonedAffinity.includes('tab-created'), 'affinity must be tombstoned');
+      assert.ok(mockHost.releasedTabPools.includes('term-unbound'), 'tab pool must be released');
     } finally {
       restoreCp();
     }

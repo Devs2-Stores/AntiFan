@@ -468,7 +468,7 @@ describe('Webview & Extension IPC Audit Invariants', () => {
     const nativeTabHost = fs.readFileSync(path.join(root, 'src', 'main', 'browser', 'native-tab-host.ts'), 'utf8');
     assert.match(
       nativeTabHost,
-      /else if \(url !== 'about:blank' \|\| isOffscreen\) \{[\s\S]*?wc\.loadURL\(url[^)]*\)\s*\.then\(\(\) => this\.clearInitialNavigationHistory\(wc, state\)\)/,
+      /else if \(url !== 'about:blank'\) \{[\s\S]*?wc\.loadURL\(url[^)]*\)\s*\.then\(\(\) => this\.clearInitialNavigationHistory\(wc, state\)\)/,
       'ordinary new tabs must clear the implicit about:blank history only after their initial URL loads'
     );
     assert.match(
@@ -653,7 +653,7 @@ describe('Webview & Extension IPC Audit Invariants', () => {
     const nextIpcIdx = content.indexOf('channel: TERMINAL_CHANNELS.INPUT', startIdx);
     assert.ok(nextIpcIdx !== -1, 'TERMINAL_CHANNELS.INPUT boundary must exist');
     const startHandlerBlock = content.slice(startIdx, nextIpcIdx);
-    const agentGuard = /const isAgent = senderInfo && \(senderInfo\.tab\.state\.ephemeral === true \|\| senderInfo\.tab\.state\.offscreen === true \|\| senderInfo\.tabId === (?:this|host)\.automationTabId\)/.test(startHandlerBlock);
+    const agentGuard = /const isAgent = senderInfo && \(senderInfo\.tab\.state\.ephemeral === true \|\| senderInfo\.tabId === (?:this|host)\.automationTabId\)/.test(startHandlerBlock);
     assert.ok(
       agentGuard,
       'TERMINAL_CHANNELS.START binding must be guarded by explicit agent-plane sender detection'

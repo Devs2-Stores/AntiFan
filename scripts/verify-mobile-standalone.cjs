@@ -27,6 +27,7 @@ app.whenReady().then(async () => {
       sandbox: true,
     },
   });
+  try {
     // Initialize renderer process before attaching CDP
     await win.loadURL('about:blank');
 

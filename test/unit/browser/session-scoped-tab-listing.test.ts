@@ -6,14 +6,14 @@ import { registerBrowserCapabilities } from '../../../src/main/tools/browser-cap
 import { issueRuntimeLease, makeControlPlaneId } from '../../../src/shared/control-plane-contracts';
 import type { BrowserTarget } from '../../../src/shared/control-plane-contracts';
 
-const AGENT_TAB = { id: 'tab-agent-offscreen', url: 'about:blank', title: 'Agent' };
+const AGENT_TAB = { id: 'tab-agent', url: 'about:blank', title: 'Agent' };
 const USER_STRIP = [
   { id: 'tab-user-a', url: 'https://user-a.test', title: 'User A' },
   { id: 'tab-user-b', url: 'https://user-b.test', title: 'User B' },
 ];
 
 // The production host adapter (src/main/index.ts) answers a scoped listing from
-// NativeTabHost.getSessionTabRecords, whose records include the offscreen/ephemeral
+// NativeTabHost.getSessionTabRecords, whose records include the agent-plane
 // tabs the user's tab strip never renders. These cases pin both halves of the
 // contract: a session sees the tabs it owns during a scoped call, and the window
 // listing stays an explicit request.
@@ -37,7 +37,7 @@ function makeHost(options: {
 }
 
 describe('Tab listing for an attached agent session', () => {
-  it('lists the offscreen agent tab the session owns instead of an unexplained empty list', () => {
+  it('lists the agent tab the session owns instead of an unexplained empty list', () => {
     const port = new BrowserControlPort(makeHost({
       strip: [USER_STRIP[0]],
       owned: [AGENT_TAB.id],
@@ -126,10 +126,10 @@ describe('Tab listing for an attached agent session', () => {
     );
   });
 
-  it('lists every session-owned offscreen tab, not only the bound one', () => {
-    const NEW_TAB = { id: 'tab-new-offscreen', url: 'https://new.test/', title: 'New' };
+  it('lists every session-owned agent tab, not only the bound one', () => {
+    const NEW_TAB = { id: 'tab-new-agent', url: 'https://new.test/', title: 'New' };
     const port = new BrowserControlPort(makeHost({
-      // The strip omits every offscreen/ephemeral agent tab — getTabList drops
+      // The strip omits every agent-plane tab — getTabList drops
       // them by design, so they can only surface from the session record store.
       strip: USER_STRIP,
       owned: [AGENT_TAB.id, NEW_TAB.id],

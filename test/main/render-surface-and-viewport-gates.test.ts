@@ -47,16 +47,13 @@ interface HostOptions {
   adoptThrows?: Error;
    evalJs?: (script: string, tabId?: string, paneId?: string, userGesture?: boolean, timeoutMs?: number) => Promise<unknown> | unknown;
   affiliation?: (tabId: string) => { projectId?: string; workspaceId?: string; capsuleId?: string } | undefined;
-  /** Marks tab-b as an OSR (offscreen) agent tab on the host's isTabOffscreen seam. */
-  offscreen?: boolean;
 }
 
 function buildHost(opts: HostOptions) {
   const calls = { capture: 0, close: [] as string[], geometryRestores: 0, eval: 0, drains: 0 };
   const host: Partial<BrowserHostPort> & Record<string, unknown> = {
     hasTab: () => true,
-    getTabList: () => [{ id: 'tab-b', ...(opts.offscreen ? { offscreen: true } : {}) }],
-    isTabOffscreen: (tabId?: string) => (opts.offscreen === true && tabId === 'tab-b'),
+    getTabList: () => [{ id: 'tab-b' }],
     resolveTabAffiliation: (tabId: string) => {
       if (opts.affiliation) return opts.affiliation(tabId);
       return {
@@ -273,7 +270,7 @@ describe('Session-scoped tab listing and adoption', () => {
   it('lists agent-plane tabs from the session listing and flags only the bound tab', () => {
     const { host } = buildHost({
       sessionTabList: () => [
-        { id: 'tab-b', title: 'Offscreen agent tab', offscreen: true },
+        { id: 'tab-b', title: 'Agent tab', plane: 'agent' },
         { id: 'tab-child', title: 'Child' },
       ],
     });
@@ -554,42 +551,5 @@ describe('Eval execution guard ceiling', () => {
     await devTools.evalJs('1 + 1', 'tab-b', 'desktop');
     const [script = ''] = scripts;
     assert.match(script, /execBudgetMs = 15000;/, 'an unbounded caller still gets the requestAnimationFrame-freeze guard');
-  });
-});
-describe('Offscreen (OSR) agent tab layout viewport', () => {
-  it('get_viewport reports the OSR surface geometry without a window-attached view', async () => {
-    // The minted Emulation override gives an OSR tab a real layout viewport, so
-    // the probe answers with real geometry even though nothing ever attaches.
-    const { host } = buildHost({ offscreen: true, surface: { vw: 1280, vh: 710 } });
-    const port = new BrowserControlPort(host);
-    const reading = await port.getViewport({ tabId: 'tab-b' });
-    assert.strictEqual(reading.width, 1280);
-    assert.strictEqual(reading.height, 710);
-    assert.strictEqual(reading.cause, undefined, 'a measured OSR surface is not a no-surface finding');
-    assert.strictEqual(reading.probeError, undefined);
-    assert.strictEqual(reading.attached, false, 'an OSR surface is window-independent; the view is never attached');
-  });
-
-  it('set_viewport verifies against the OSR surface and resolves the requested size', async () => {
-    const { host } = buildHost({ offscreen: true, surface: { vw: 390, vh: 844 } });
-    const port = new BrowserControlPort(host);
-    const res = await port.setViewport({ width: 390, height: 844, mobile: true, tabId: 'tab-b' });
-    assert.strictEqual(res.verified, true);
-    assert.strictEqual(res.observedWidth, 390);
-    assert.strictEqual(res.observedHeight, 844);
-  });
-
-  it('a 0x0 OSR surface is still refused as NO_RENDER_SURFACE, named as an offscreen raster source', async () => {
-    const { host } = buildHost({ offscreen: true, surface: { vw: 0, vh: 0 } });
-    const port = new BrowserControlPort(host);
-    await assert.rejects(
-      () => port.screenshot(TARGET, 'run-1', 'attempt-1', 'tab-b', 'desktop'),
-      (err: unknown) => {
-        assert.ok(err instanceof CapabilityError);
-        assert.strictEqual(err.code, 'NO_RENDER_SURFACE');
-        assert.match(err.message, /offscreen/, 'the refusal must name the offscreen raster source, not imply a window attach fixes it');
-        return true;
-      }
-    );
   });
 });

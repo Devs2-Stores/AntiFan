@@ -695,7 +695,7 @@ describe('Render-surface probe geometry', () => {
 
   const makeProbeHost = (
     rendererValue: Record<string, unknown>,
-    options: { activeTabId?: string; view?: unknown; mobileView?: unknown; runWithAttachedTabView?: unknown; offscreen?: boolean } = {}
+    options: { activeTabId?: string; view?: unknown; mobileView?: unknown; runWithAttachedTabView?: unknown } = {}
   ): { host: any; methods: string[]; attachCalls: Array<{ view: unknown; isMobile?: boolean }> } => {
     const methods: string[] = [];
     const attachCalls: Array<{ view: unknown; isMobile?: boolean }> = [];
@@ -709,7 +709,7 @@ describe('Render-surface probe geometry', () => {
               focusedPane: 'desktop',
               view: options.view ?? { id: 'view-emulated' },
               mobileView: options.mobileView,
-              state: { id, offscreen: options.offscreen === true },
+              state: { id },
             }
           : undefined,
       getTabWebContents: () => ({ isDestroyed: () => false }),
@@ -767,17 +767,6 @@ describe('Render-surface probe geometry', () => {
     assert.strictEqual(attachCalls[0]?.isMobile, false);
   });
 
-  it('measures an offscreen target where it renders, without attaching it', async () => {
-    const { host, attachCalls } = makeProbeHost(rasterAlignedRendererReading, {
-      activeTabId: 'tab-active',
-      offscreen: true,
-    });
-
-    const surface = await host.readRenderSurface('tab-emulated');
-
-    assert.strictEqual(surface.vw, 1440);
-    assert.strictEqual(attachCalls.length, 0, 'An offscreen tab renders offscreen and must not enter the view tree');
-  });
 });
 
 describe('Attach-for-capture pane layout', () => {

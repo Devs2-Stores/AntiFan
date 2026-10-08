@@ -1488,8 +1488,7 @@ export class TabDevToolsHost {
     const measure = (): Promise<RenderSurfaceSnapshot> => this.probeRenderSurface(wc, timeoutMs);
     const paneView = effectivePane === 'mobile' ? (target.mobileView || target.view) : target.view;
     const isActiveTarget = targetId === this.ctx.getActiveTabId();
-    const isOffscreenTarget = target.state?.offscreen === true;
-    if (!isActiveTarget && !isOffscreenTarget && paneView && this.ctx.runWithAttachedTabView) {
+    if (!isActiveTarget && paneView && this.ctx.runWithAttachedTabView) {
       const isMobilePane = effectivePane === 'mobile' && Boolean(target.mobileView);
       return await this.ctx.runWithAttachedTabView(paneView, measure, isMobilePane);
     }
@@ -1872,11 +1871,9 @@ export class TabDevToolsHost {
     const rawQuality = typeof options?.quality === 'number' ? options.quality : 80;
     const quality = Math.max(1, Math.min(100, Math.round(rawQuality <= 1 && rawQuality > 0 ? rawQuality * 100 : rawQuality)));
     // A capture never foregrounds the target: the visible tab belongs to the user.
-    // Detached WebContentsViews have no composited offscreen surface on Windows, so a
+    // Detached WebContentsViews have no composited surface on Windows, so a
     // background target is attached in place for the raster (below) and the user's
-    // active view stays on top; offscreen agent tabs already composite offscreen
-    // (Dual-Plane) and are captured directly. No path here switches the visible tab.
-    const isOffscreenTarget = target.state?.offscreen === true;
+    // active view stays on top. No path here switches the visible tab.
     const isForeground = targetId === this.ctx.getActiveTabId();
     return this.ctx.withTabAgentWorking(targetId, async () => {
       let maskStyleInjected = false;
@@ -1914,29 +1911,18 @@ export class TabDevToolsHost {
       } catch {}
       try {
         const captureAction = async (): Promise<string> => {
-          this.assertCaptureSurfacePresent(targetId, effectivePane, targetPaneView, rect ? 'clip' : 'viewport', isOffscreenTarget);
+          this.assertCaptureSurfacePresent(targetId, effectivePane, targetPaneView, rect ? 'clip' : 'viewport');
 
           // Never Promise.race-abandon `capturePage()`. Chromium will not cancel that
           // raster: the renderer stays alive (eval/DOM) while the guest canvas paints
           // only the view's `#ffffff` background until the next navigation. Measured
           // on the Levents MCP tab: switchTab's DirectComposition recycle does not
           // restart BeginFrame once capturePage is wedged; F5 does. Share one in-flight
-          // raster (offscreen OSR has no CDP fromSurface) and otherwise use CDP.
-          if (!rect && (isForeground || isOffscreenTarget)) {
+          // raster and otherwise use CDP.
+          if (!rect && isForeground) {
             const raster = await this.captureNativeViewportRaster(wc, format, quality, 600);
             if (raster.bytes && raster.bytes.length > 0) {
               return raster.bytes.toString('base64');
-            }
-            if (isOffscreenTarget) {
-              // The OSR surface is the only raster source this target has: a CDP
-              // fromSurface retry asks the same BeginFrame source that just
-              // failed, waits out its own bound, and quarantines the target's CDP
-              // transport — the measured stall/crash class. Fail fast with the
-              // typed reason instead.
-              throw new CaptureError(
-                raster.timedOut ? 'CAPTURE_TIMEOUT' : 'NO_RENDER_SURFACE',
-                `capturePage on offscreen tab '${targetId}' ${raster.timedOut ? 'timed out' : 'returned an empty raster'}: the offscreen compositor produced no frame to copy (no CDP fallback — the same surface would burn the CDP bound)`
-              );
             }
           }
 
@@ -1945,7 +1931,7 @@ export class TabDevToolsHost {
           // sees a compositor frame without changing the visible active tab; the
           // lease is released on every path and its watchdog covers a raster that
           // abandons its dispatch.
-          const shouldRaiseForRaster = !isForeground && !isOffscreenTarget;
+          const shouldRaiseForRaster = !isForeground;
           let liftLease: CaptureLiftLease | null = null;
           if (shouldRaiseForRaster && targetPaneView && this.ctx.acquireCaptureLift) {
             liftLease = await this.ctx.acquireCaptureLift(targetPaneView, { budgetMs: 4_000 });
@@ -1959,10 +1945,10 @@ export class TabDevToolsHost {
           }
 
           // `fromSurface` is always true: Chromium's native-window snapshot path
-          // (fromSurface:false) dereferences the target's native window, which an
-          // offscreen (OSR) agent tab does not have, and that dereference kills the
+          // (fromSurface:false) dereferences the target's native window and kills the
           // browser process (measured: exception 0xC0000005 at address 0x0, dumps stop
-          // in WindowSnapshotReachedScreen -> GrabNativeWindowSnapshot).
+          // in WindowSnapshotReachedScreen -> GrabNativeWindowSnapshot) when no native
+          // window exists.
           try {
             await this.sendCdpCommand(wc, 'Page.enable', {}, 4_000);
             const cdpRes = await this.sendCdpCommand<{ data?: string }>(wc, 'Page.captureScreenshot', {
@@ -1995,7 +1981,7 @@ export class TabDevToolsHost {
           return '';
         };
 
-      if (!isForeground && !isOffscreenTarget && this.ctx.runWithAttachedTabView && targetPaneView) {
+      if (!isForeground && this.ctx.runWithAttachedTabView && targetPaneView) {
         return await this.ctx.runWithAttachedTabView(
           targetPaneView,
           async () => {
@@ -2061,13 +2047,8 @@ export class TabDevToolsHost {
     targetId: string,
     effectivePane: SplitPaneId | undefined,
     targetPaneView: Electron.WebContentsView | null | undefined,
-    mode: CaptureMode,
-    isOffscreenTarget: boolean
+    mode: CaptureMode
   ): void {
-    // An offscreen (OSR) target composites without a contentView child, so attachment
-    // says nothing about its surface. A host that cannot answer attachment is not
-    // evidence of a missing view either: both fall through to the compositor tiers.
-    if (isOffscreenTarget) return;
     if (!targetPaneView || !this.ctx.isTabViewAttached) return;
     if (this.ctx.isTabViewAttached(targetPaneView)) return;
     if (targetId === this.ctx.getActiveTabId()) {
@@ -2111,12 +2092,6 @@ export class TabDevToolsHost {
    * answering while this happens, so the probe is the only signal that
    * separates "raster is slow" from "raster can never produce a frame".
    *
-   * An offscreen (OSR) target is exempt: its rasters come from the OSR
-   * surface, whose BeginFrame source is independent of the window presenter,
-   * and no baseline ties an OSR rAF reading to raster success. Offscreen
-   * captures keep their pre-gate behavior, with the probe reading logged for
-   * diagnosis only.
-   *
    * A starved windowed target gets one bounded repair ladder — invalidate the
    * compositor state, then re-present the view — each verified by a re-probe
    * before the capture proceeds. A pane that was raised onto the capture host
@@ -2147,22 +2122,10 @@ export class TabDevToolsHost {
     targetId: string,
     effectivePane: SplitPaneId | undefined,
     mode: CaptureMode,
-    isOffscreenTarget: boolean,
     liftLease: CaptureLiftLease | null,
     rasterBoundMs?: number,
   ): Promise<CaptureLiftLease | null> {
     const liftTelemetry = { liftedMs: liftLease ? Date.now() - liftLease.liftedAtMs : undefined, lowered: liftLease?.released ?? false };
-    if (isOffscreenTarget) {
-      recordLifecycleEvent('capture.frameGate', {
-        tabId: targetId,
-        paneId: effectivePane,
-        mode,
-        engine: 'offscreen',
-        probe: await this.probeFrameLiveness(targetId, effectivePane),
-        ...liftTelemetry,
-      });
-      return liftLease;
-    }
     const initial = await this.probeFrameLiveness(targetId, effectivePane);
     if (initial !== false) return liftLease;
 
@@ -2345,7 +2308,6 @@ export class TabDevToolsHost {
         `Full-page verification capture produces PNG evidence only; jpeg was requested for tab '${targetId}'`
       );
     }
-    const isOffscreenTarget = target.state?.offscreen === true;
     if (this.isWebContentsDraining(wc)) {
       throw new CaptureError(
         'TARGET_BUSY_DRAINING',
@@ -2373,10 +2335,8 @@ export class TabDevToolsHost {
 
     // A verification capture never foregrounds the target: the visible tab belongs to
     // the user. A background target is attached in place for the raster (below) so the
-    // user's active view stays on top, and offscreen agent tabs render to an offscreen
-    // compositor surface and are captured CDP-directly (full-page on an offscreen target
-    // is rejected above, never degraded to capturePage) — no path switches the visible
-    // tab, so nothing has to be restored afterwards.
+    // user's active view stays on top. No path switches the visible tab, so nothing has
+    // to be restored afterwards.
     const isForeground = targetId === this.ctx.getActiveTabId();
 
     let captureEnvelope: VerificationCaptureEnvelope | undefined;
@@ -2390,9 +2350,9 @@ export class TabDevToolsHost {
         // Post-freeze frame-liveness reading (instrumentation only): this is the
         // first spot that can separate a tab that already arrived frame-starved
         // (tool-layer media freeze or a wedged window presenter) from one the
-        // host steps starved later. Foreground/offscreen targets only — probing a
+        // host steps starved later. Foreground targets only — probing a
         // background tab pays an attach cycle, and attach churn is a suspect.
-        if (isForeground || isOffscreenTarget) {
+        if (isForeground) {
           recordLifecycleEvent('capture.frameProbe', {
             at: 'entry',
             tabId: targetId,
@@ -2413,7 +2373,7 @@ export class TabDevToolsHost {
           );
         } catch {}
         const captureAction = async (): Promise<VerificationCaptureEnvelope> => {
-          this.assertCaptureSurfacePresent(targetId, effectivePane, targetPaneView, mode, isOffscreenTarget);
+          this.assertCaptureSurfacePresent(targetId, effectivePane, targetPaneView, mode);
           // Derive zoom and DPR directly from browser/CDP state inside agent working block (atomic with capture, non-nesting)
           const zoom = typeof wc.getZoomFactor === 'function' ? wc.getZoomFactor() : 1.0;
           // The tab's live surface is the only source of capture geometry. A
@@ -2451,10 +2411,8 @@ export class TabDevToolsHost {
           // window's presented state is the authoritative signal, with the
           // renderer's own hidden flag kept as a second witness. Viewport capture
           // still rasterizes the existing surface, so the refusal is scoped to
-          // clip/full-page. Offscreen targets keep their own path — they
-          // rasterize an offscreen surface regardless of window visibility, and
-          // full-page on them is already refused above.
-          if (mode !== 'viewport' && !isOffscreenTarget) {
+          // clip/full-page.
+          if (mode !== 'viewport') {
             const windowPresented = this.ctx.isWindowRenderable ? this.ctx.isWindowRenderable() : true;
             if (!windowPresented) {
               throw new CaptureError(
@@ -2604,11 +2562,7 @@ export class TabDevToolsHost {
           // the requested tab.
           //
           // `fromSurface` is true for every mode, not only clip/full-page. It is the
-          // compositor-surface flag, so it is the same flag that keeps an offscreen
-          // (OSR) agent tab from being snapshot through a native window it does not
-          // have — the renderer-view path dereferences that window and kills the
-          // browser process (measured: exception 0xC0000005 at address 0x0) instead of
-          // returning an error. A target without a surface yields a typed capture
+          // compositor-surface flag. A target without a surface yields a typed capture
           // error rather than a crash.
           // Re-check right before the dispatch: the refusal above runs before the
           // walk + settle gate (seconds of work), so a window hidden mid-capture
@@ -2617,30 +2571,30 @@ export class TabDevToolsHost {
           // Verification capture uses CDP Page.captureScreenshot({ fromSurface: true })
           // as the only raster engine. Native capturePage is uncancelable Mojo: a hung
           // raster used to throw at 4s and poison the WebContents so later calls never
-          // reached CDP. Background and offscreen paths already succeed on this engine;
+          // reached CDP. Background paths already succeed on this engine;
           // foreground viewport joins them. captureNativeViewportRaster remains for the
           // legacy helper, which still shares in-flight rasters and poisons on timeout.
           //
           // A viewport with no compositor frame to copy must not wait the full outer
           // bound: the probe bound names a missing surface instead of draining CDP.
-          const captureHasNoSurface = mode === 'viewport' && !isOffscreenTarget;
+          const captureHasNoSurface = mode === 'viewport';
           const cdpBoundMs = captureHasNoSurface ? Math.min(boundMs, NO_SURFACE_CAPTURE_PROBE_BOUND_MS) : boundMs;
 
-          if (!isForeground && !isOffscreenTarget && this.ctx.isTabViewAttached && targetPaneView && !this.ctx.isTabViewAttached(targetPaneView)) {
+          if (!isForeground && this.ctx.isTabViewAttached && targetPaneView && !this.ctx.isTabViewAttached(targetPaneView)) {
             throw new CaptureError(
               'NO_RENDER_SURFACE',
               `Tab '${targetId}' pane '${effectivePane}' cannot rasterize a ${mode} capture: its view is not attached to a window, so the compositor produces no surface. Present the view (attach-for-capture) before capturing.`
             );
           }
 
-          if (mode !== 'viewport' && !isOffscreenTarget && this.ctx.isWindowRenderable && !this.ctx.isWindowRenderable()) {
+          if (mode !== 'viewport' && this.ctx.isWindowRenderable && !this.ctx.isWindowRenderable()) {
             throw new CaptureError(
               'NO_RENDER_SURFACE',
               `Tab '${targetId}' pane '${effectivePane}' cannot rasterize a ${mode} capture: the window was hidden or minimized during capture setup, so the compositor produces no beyond-viewport surface. Show the window or use a viewport capture.`
             );
           }
 
-          const shouldRaiseForRaster = !isForeground && !isOffscreenTarget;
+          const shouldRaiseForRaster = !isForeground;
           let liftLease: CaptureLiftLease | null = null;
           if (shouldRaiseForRaster && targetPaneView && this.ctx.acquireCaptureLift) {
             liftLease = await this.ctx.acquireCaptureLift(targetPaneView, { budgetMs: cdpBoundMs });
@@ -2661,7 +2615,7 @@ export class TabDevToolsHost {
           // every later command waits out the drain window (both measured).
           const rasterStartedAt = Date.now();
           try {
-            liftLease = await this.ensureFramesForRaster(wc, targetId, effectivePane, mode, isOffscreenTarget, liftLease, cdpBoundMs);
+            liftLease = await this.ensureFramesForRaster(wc, targetId, effectivePane, mode, liftLease, cdpBoundMs);
             captureRes = await this.sendCdpCommand<{ data?: string }>(
               wc,
               'Page.captureScreenshot',
@@ -2689,7 +2643,7 @@ export class TabDevToolsHost {
             // evidence — the starvation refusal stands when the tier produces
             // nothing usable.
             if (err instanceof CaptureError && err.code === 'CAPTURE_FRAME_STARVATION') {
-              if (mode === 'viewport' && !isOffscreenTarget) {
+              if (mode === 'viewport') {
                 const native = await this.captureNativeViewportRaster(wc, imageFormat, options?.quality);
                 recordLifecycleEvent('capture.raster', {
                   tabId: targetId,
@@ -2732,12 +2686,12 @@ export class TabDevToolsHost {
             }
             // Instrumentation and best-effort revive: the raster burned its whole
             // bound, so record whether frames were already dead at that point (the
-            // gate may have been bypassed by an offscreen exemption or a probe that
+            // gate may have been bypassed by a probe that
             // could not run) and nudge the compositor once before the typed error
             // propagates. Background targets are skipped: probing them here pays
             // another attach cycle inside this capture's own attach scope.
             const postTimeoutProbe =
-              isForeground || isOffscreenTarget ? await this.probeFrameLiveness(targetId, effectivePane) : 'skipped-background';
+              isForeground ? await this.probeFrameLiveness(targetId, effectivePane) : 'skipped-background';
             recordLifecycleEvent('capture.raster', {
               tabId: targetId,
               paneId: effectivePane,
@@ -2809,7 +2763,7 @@ export class TabDevToolsHost {
           };
         };
 
-        if (!isForeground && !isOffscreenTarget && this.ctx.runWithAttachedTabView && targetPaneView) {
+        if (!isForeground && this.ctx.runWithAttachedTabView && targetPaneView) {
           return await this.ctx.runWithAttachedTabView(
             targetPaneView,
             async () => {
@@ -2876,7 +2830,7 @@ export class TabDevToolsHost {
     }
     // The restore and its verification run where the surface is real: inside the
     // temporary attach for a background target (above), directly for a foreground
-    // or offscreen one. A geometry-touching capture that measured no baseline has
+    // one. A geometry-touching capture that measured no baseline has
     // nothing to restore against, so it reports no transaction at all instead of
     // clamping an invented 1x1 viewport or certifying two unmeasured readings as
     // restored.
@@ -3120,8 +3074,7 @@ export class TabDevToolsHost {
       // answering - an agent bound to a background tab could not read it at all.
       const paneView = effectivePane === 'mobile' ? (target.mobileView || target.view) : target.view;
       const isActiveTarget = targetId === this.ctx.getActiveTabId();
-      const isOffscreenTarget = target.state?.offscreen === true;
-      if (!isActiveTarget && !isOffscreenTarget && paneView && this.ctx.runWithAttachedTabView) {
+      if (!isActiveTarget && paneView && this.ctx.runWithAttachedTabView) {
         const isMobilePane = effectivePane === 'mobile' && Boolean(target.mobileView);
         return await this.ctx.runWithAttachedTabView(paneView, execute, isMobilePane);
       }
@@ -3211,8 +3164,7 @@ export class TabDevToolsHost {
         const runner = async (): Promise<unknown> => {
           const paneView = effectivePane === 'mobile' ? (target.mobileView || target.view) : target.view;
           const isActiveTarget = targetId === this.ctx.getActiveTabId();
-          const isOffscreenTarget = target.state?.offscreen === true;
-          if (!isActiveTarget && !isOffscreenTarget && paneView && this.ctx.runWithAttachedTabView) {
+          if (!isActiveTarget && paneView && this.ctx.runWithAttachedTabView) {
             const isMobilePane = effectivePane === 'mobile' && Boolean(target.mobileView);
             return await this.ctx.runWithAttachedTabView(paneView, execute, isMobilePane);
           }

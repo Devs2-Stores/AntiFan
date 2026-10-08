@@ -10,7 +10,7 @@
  *   2. Interleaved browser (DOM read, input, viewport, capture) and terminal
  *      operations; each attachment sees only its own target.
  *   3. Cross-target access from A to B's tab fails closed.
- *   4. Both offscreen captures are non-empty, target-specific, and distinct.
+ *   4. Both background tab captures are non-empty, target-specific, and distinct.
  *   5. Sentinel tab: id/url/document generation/screenshot hash unchanged.
  *   6. Revoking A reaps only A; B keeps operating.
  *   7. Mismatched credential and closed target fail closed before side effects.

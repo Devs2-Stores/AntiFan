@@ -252,8 +252,9 @@ evidence that proves it.
 ### Tab listing
 
 - `anti.browser.tabs.list` defaults to the authenticated session project/workspace. Hibernated
-  records remain discoverable without waking their renderer; bound offscreen/ephemeral records
-  are included from the session pool.
+  records remain discoverable without waking their renderer; bound agent tabs are included from
+  the session pool. Agent-provisioned tabs are ordinary background tabs in the project window's
+  tab strip (never offscreen); the user can see and close them.
 - `all: true` opts into global GUI discovery. Each row carries `affiliated`; a foreign row is
   discovery only, not permission to bind or act. `affiliatedOnly: true` restricts the result again.
 - `anti.browser.tabs.get` reads one row in the same scope by `tabId`; omitting `tabId` reads the

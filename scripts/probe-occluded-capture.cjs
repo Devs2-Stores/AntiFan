@@ -2,7 +2,7 @@
  * Throwaway diagnostic probe: does CDP Page.captureScreenshot settle on a
  * WebContentsView that is attached BEHIND another full-size view (occluded)?
  * Matrix: viewport/beyondViewport, invalidate() wake kick, capturePage(),
- * on-top re-stack, offscreen WebContents.
+ * on-top re-stack.
  */
 'use strict';
 const { app, BrowserWindow, WebContentsView } = require('electron');
@@ -66,7 +66,6 @@ app.whenReady().then(async () => {
 
   const coveredView = new WebContentsView({ webPreferences: { backgroundThrottling: false } });
   const topView = new WebContentsView({ webPreferences: { backgroundThrottling: false } });
-  const offscreenView = new WebContentsView({ webPreferences: { offscreen: true, backgroundThrottling: false } });
 
   win.contentView.addChildView(coveredView, 0);
   win.contentView.addChildView(topView, 1);
@@ -75,7 +74,6 @@ app.whenReady().then(async () => {
 
   await coveredView.webContents.loadURL(PAGE);
   await topView.webContents.loadURL(PAGE);
-  await offscreenView.webContents.loadURL(PAGE);
   await new Promise((r) => setTimeout(r, 1200));
 
   results.push(await shot(topView.webContents, 'A top-view viewport fromSurface', { format: 'png', fromSurface: true, captureBeyondViewport: false }));
@@ -92,9 +90,6 @@ app.whenReady().then(async () => {
   await new Promise((r) => setTimeout(r, 250));
   results.push(await shot(coveredView.webContents, 'G covered-view viewport AFTER re-stack on top', { format: 'png', fromSurface: true, captureBeyondViewport: false }));
 
-  // Offscreen target
-  results.push(await shot(offscreenView.webContents, 'H offscreen-view viewport fromSurface', { format: 'png', fromSurface: true, captureBeyondViewport: false }));
-  results.push(await capturePageShot(offscreenView.webContents, 'I offscreen-view capturePage()'));
 
   // Window hidden: the beyond-viewport refusal is documented; confirm viewport behaviour too
   win.hide();

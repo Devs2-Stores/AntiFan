@@ -353,46 +353,6 @@ describe('Phase 5: Playwright Parity Kernel & Gap Telemetry Verification', () =>
     assert.strictEqual((telRes as any).recorded, true);
   });
 
-  it('6. Offscreen (OSR) empty raster raises a typed error and never reaches the CDP screenshot tier', async () => {
-    const { cdpCalls } = createParityHarness();
-
-    // Offscreen agent tab (Dual-Plane OSR): capturePage answering empty means the
-    // OSR surface has no live surface; the CDP fromSurface tier on OSR stalls or
-    // kills the process, so the contract is a typed error, not a fallback.
-    const mockWc = {
-      id: 202,
-      isDestroyed: () => false,
-      capturePage: async () => ({ isEmpty: () => true }),
-      debugger: {
-        isAttached: () => false,
-        attach: () => {},
-        once: () => {},
-        sendCommand: async (method: string, params: unknown) => {
-          cdpCalls.push({ method, params });
-          return { data: 'b2NjbHVkZWQtc2NyZWVuc2hvdA==' };
-        },
-      },
-    } as unknown as Electron.WebContents;
-    const devToolsHost = new (require('../../src/main/browser/tab-devtools-host').TabDevToolsHost)({
-      getTabRecord: () => ({ state: { id: 'tab-p1', offscreen: true } }),
-      getActiveTabId: () => 'tab-user',
-      getTabWebContents: () => mockWc,
-      getAllTabs: () => [][Symbol.iterator](),
-      broadcastState: () => {},
-      withTabAgentWorking: async (_tabId: string, fn: () => Promise<string>) => fn(),
-    });
-
-    await assert.rejects(
-      devToolsHost.captureScreenshot(undefined, 'tab-p1'),
-      (err: unknown) => err instanceof Error && /NO_RENDER_SURFACE|CAPTURE_TIMEOUT/.test(('code' in err && typeof err.code === 'string' ? err.code : '') + err.message),
-      'An empty OSR raster must fail with a typed capture error'
-    );
-    assert.strictEqual(
-      cdpCalls.filter((c) => c.method === 'Page.captureScreenshot').length,
-      0,
-      'No CDP screenshot may be dispatched for an offscreen target'
-    );
-  });
 
   it('7. CDP low-level command queue serializes execution and cleans up isolatedContext on detach', async () => {
     let detachCb: any;

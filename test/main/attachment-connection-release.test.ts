@@ -83,12 +83,16 @@ interface RpcResponse {
   error?: string;
 }
 
-function waitForDisposed(registry: AttachmentRegistry, attachmentId: string): Promise<{ attachmentId: string; tabId?: string; browserTarget?: BrowserTarget }> {
-  const { promise, resolve } = Promise.withResolvers<{ attachmentId: string; tabId?: string; browserTarget?: BrowserTarget }>();
-  registry.setDisposeListener((info) => {
-    if (info.attachmentId === attachmentId) resolve(info);
-  });
-  return promise;
+async function waitForDisposed(registry: AttachmentRegistry, attachmentId: string): Promise<{ attachmentId: string; tabId?: string; browserTarget?: BrowserTarget }> {
+  const deadline = Date.now() + 2000;
+  while (Date.now() < deadline) {
+    const record = registry.getRecord(attachmentId);
+    if (record && (record.state === 'revoked' || record.state === 'expired')) {
+      return { attachmentId, tabId: record.tabId, browserTarget: record.browserTarget };
+    }
+    await delay(5);
+  }
+  throw new Error(`Timeout waiting for attachment ${attachmentId} to be disposed`);
 }
 
 // Integration test delay: deliberately exercises real-timer suspended grace window against Node.js event loop
@@ -253,10 +257,7 @@ describe('bridge renewSession stamps and releases on socket close', () => {
     const { launch } = await mintAttachment(registry, 'tab-1');
     // The durable-dispose hook is the synchronous tail of the release, so awaiting it
     // observes the revocation itself rather than polling for it.
-    const disposed = Promise.withResolvers<{ attachmentId: string; tabId?: string; browserTarget?: BrowserTarget }>();
-    registry.setDisposeListener((info) => {
-      if (info.attachmentId === launch.attachmentId) disposed.resolve(info);
-    });
+    const disposed = waitForDisposed(registry, launch.attachmentId);
     const server = new BridgeServer(mockHost, 0, false, undefined, undefined, registry);
     server.setControlPlane({
       renewCliSession: async (attachmentId: string, secret: string, options?: { extensionMs?: number; ownerPid?: number; connectionId?: string }) =>
@@ -290,7 +291,7 @@ describe('bridge renewSession stamps and releases on socket close', () => {
       ws.on('close', () => closed.resolve());
       ws.close();
       await closed.promise;
-      const dispose = await disposed.promise;
+      const dispose = await disposed;
       assert.equal(dispose.attachmentId, launch.attachmentId);
       assert.equal(registry.getRecord(launch.attachmentId)?.state, 'revoked');
       assert.equal(registry.verifyConnectionToken(launch.secret), null, 'a released binding answers no more connections');

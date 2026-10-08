@@ -107,7 +107,7 @@ export function shouldHibernate(
   if (tab.id === ctx.activeTabId) return { hibernate: false, reason: 'active-tab' };
   if (state.isAudible === true) return { hibernate: false, reason: 'audible' };
   if (state.isLoading === true) return { hibernate: false, reason: 'loading' };
-  if (state.offscreen === true || state.ephemeral === true) return { hibernate: false, reason: 'agent-plane' };
+  if (state.ephemeral === true) return { hibernate: false, reason: 'agent-plane' };
   if (ctx.automationTabId && tab.id === ctx.automationTabId) {
     return { hibernate: false, reason: 'automation-target' };
   }

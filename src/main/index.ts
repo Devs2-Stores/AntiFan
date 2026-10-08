@@ -154,11 +154,11 @@ assertDeadlineChain();
 
 // Every fatal path below also writes a durable journal line. A launch from Explorer
 // or a shortcut has no attached console, so the console.* lines alone are discarded:
-// the app used to die without leaving any record of how. See
-// diagnostics/main-lifecycle-log.ts for why the appends are synchronous.
+// the app used to die without leaving any record of how. Runtime events are queued
+// and appended off-thread; only exit/crash paths flush synchronously.
 process.on('uncaughtException', (err) => {
   console.error('[antifan uncaughtException]', redactCredentials(err?.stack || String(err)));
-  recordLifecycleEvent('uncaughtException', { detail: redactCredentials(err?.stack || String(err)) });
+  recordLifecycleEvent('uncaughtException', { detail: redactCredentials(err?.stack || String(err)) }, { sync: true });
 });
 
 process.on('unhandledRejection', (reason) => {
@@ -897,8 +897,7 @@ function describeLiveWebContentsRoles(): Map<number, { role: string; url: string
       for (const pane of ['desktop', 'mobile'] as const) {
         const wc = host.getTabWebContents(tab.id, pane);
         if (!wc || wc.isDestroyed()) continue;
-        const offscreen = host.isTabOffscreen(tab.id) ? ':offscreen' : '';
-        push(wc, `tab:${tab.id.slice(0, 8)}${pane === 'mobile' ? ':mobile' : ''}${offscreen}`);
+        push(wc, `tab:${tab.id.slice(0, 8)}${pane === 'mobile' ? ':mobile' : ''}`);
       }
     }
   }
@@ -1071,7 +1070,7 @@ function closePageInOwningHost(tabId: string, force = false): Promise<PageCloseO
  *
  * They are found through the host's own surface lookup, never a window census by title:
  * a webContents a live host answers `terminalPopout` for is a terminal window that host
- * owns. Capture hosts are deliberately absent — they are non-closable offscreen windows
+ * owns. Capture hosts are deliberately absent — they are non-closable capture windows
  * whose views belong to a host, and destroying that host is what destroys them, which the
  * committed shutdown already does.
  */
@@ -1955,9 +1954,7 @@ async function rehomeBootProjectTerminals(terminal: TerminalManager): Promise<vo
  * `owners.web` from stale memory and erasing the fold. No-op when no record exists.
  */
 async function foldPersistedBootProjectRecord(): Promise<void> {
-  const bootIds = bootProjectIdValue && bootProjectIdValue !== DEFAULT_BOOT_PROJECT_ID
-    ? [DEFAULT_BOOT_PROJECT_ID, bootProjectIdValue]
-    : [DEFAULT_BOOT_PROJECT_ID];
+  const bootIds = [DEFAULT_BOOT_PROJECT_ID];
   for (const bootId of bootIds) {
     let folded: FoldDetachedOwnerResult;
     try {
@@ -4290,52 +4287,12 @@ async function createWindow(): Promise<void> {
   // pass below.
   await restoreDetachedProjectShells();
 
-  // Phase 2 (step 10): deterministic attachment disposal. When an attachment is
-  // revoked or expires, close ONLY the agent tab it owns (offscreen) and its
-  // terminal affinity — never a user-visible tab nor another attachment's
-  // resource. Agent tabs are provisioned offscreen, so isTabOffscreen is the safe
-  // discriminator: a user-visible tab is never offscreen and is never closed here.
-  // tabHost.closeTab already releases viewport locks, agent-working state,
-  // terminal affinity, session pools, and partitions for that single tab.
-  //
   // One reservation table for both seams, installed before either can serve a request:
   // the registry refuses a mint, a rebind or an adoption onto a page a close attempt has
   // reserved (a binding that arrived during unload would be destroyed with the page), and
   // the transport refuses dispatch whose admitted operation the gate could not measure.
   controlPlane.runs.attachments.setCloseAdmission(closeReservations);
   controlPlane.transport.setCloseAdmission(closeReservations);
-  controlPlane.runs.attachments.setDisposeListener(({ attachmentId, tabId }) => {
-    if (!tabId) return;
-    const host = tabAuthorities.hostForTab(tabId);
-    if (!host) return;
-    if (host.isTabOffscreen(tabId) !== true) return; // never close a user-visible tab
-    // Snapshot managed children BEFORE closing the anchor: `closeTab` prunes the
-    // anchor's pool entries, so a post-close read would return an empty set and
-    // strand every adopted child the session was driving.
-    const managedBefore = new Set(host.getManagedTabIds?.(tabId) ?? []);
-    managedBefore.delete(tabId);
-    try {
-      host.closeTab(tabId, 'attachment-dispose');
-      console.log(`[antifan] Attachment ${attachmentId} disposed; closed owned agent tab ${tabId}`);
-    } catch (err) {
-      console.warn(`[antifan] Attachment ${attachmentId} disposal: failed to close agent tab ${tabId}`, err);
-    }
-    // Pool membership is shared between attachments bound into the same terminal
-    // pool, so a child closes only when the claim guard exists AND reports it
-    // unclaimed; a host without the guard fails closed, not open.
-    const claimGuard = host.isAgentTabClaimed?.bind(host);
-    if (typeof claimGuard !== 'function') return;
-    for (const childId of managedBefore) {
-      try {
-        if (host.isTabOffscreen(childId) !== true) continue;
-        if (claimGuard(childId)) continue;
-        host.closeTab(childId, 'attachment-dispose-child');
-        console.log(`[antifan] Attachment ${attachmentId} disposed; closed unclaimed agent child tab ${childId}`);
-      } catch (err) {
-        console.warn(`[antifan] Attachment ${attachmentId} disposal: failed to close agent child tab ${childId}`, err);
-      }
-    }
-  });
   const browserPortLocal = new BrowserControlPort({
     hasTab: (tabId) => Boolean(tabId && tabAuthorities.hostForTab(tabId) !== undefined),
     resolveTargetTabId: (tabId) => {
@@ -4391,7 +4348,6 @@ async function createWindow(): Promise<void> {
         }
       }
     },
-    isTabOffscreen: (tabId) => (tabId ? hostForTabOrDegrade(tabId, 'port.isTabOffscreen')?.isTabOffscreen(tabId) ?? false : false),
     resolveTabAffiliation: measuredTabAffiliation,
     createTab: (url, activate = false, options) => {
       // `anchorTabId` selects the window; the host would not know what to do with it,
@@ -4616,8 +4572,8 @@ async function createWindow(): Promise<void> {
 
   /** Reclaims Chromium state nothing can reach, once the migration has settled. */
   const reclaimDeadStores = () => {
-    // Runs after the tab list exists so every live partition (offscreen
-    // included) vetoes its own deletion; dry-run first so the exact inventory is
+    // Runs after the tab list exists so every live partition vetoes its own
+    // deletion; dry-run first so the exact inventory is
     // journaled before a single byte is removed.
     const host = sharedServiceHostOrThrow();
     try {

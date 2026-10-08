@@ -18,6 +18,12 @@ import {
 } from '../../src/main/qa/theme-checklist-store';
 import { checklistScope, workspaceTag, type ThemeChecklistItem } from '../../src/shared/theme-checklist';
 
+import { ThemeQaWorkflow, type ThemeQaWorkflowPorts } from '../../src/main/qa/theme-qa-workflow';
+import { VisualSettleReceipt } from '../../src/main/verification/capture-settle';
+import { LayoutOverflowEngine } from '../../src/main/qa/scanners/layout-overflow-engine';
+import { LiquidErrorScanner } from '../../src/main/qa/scanners/liquid-error-scanner';
+import { BrokenAssetScanner } from '../../src/main/qa/scanners/broken-asset-scanner';
+import { ServerCrashScanner } from '../../src/main/qa/scanners/server-crash-scanner';
 describe('Theme QA MCP Capabilities', () => {
   const defaultOptions = {
     runtime: { mode: 'standalone' as const, lifecycle: 'active' as const },
@@ -47,6 +53,72 @@ describe('Theme QA MCP Capabilities', () => {
     const files = fs.readdirSync(receiptsDir).filter((name) => name.endsWith('.json'));
     assert.strictEqual(files.length, 1, `expected exactly 1 receipt in ${receiptsDir}, found ${files.length}`);
     return JSON.parse(fs.readFileSync(path.join(receiptsDir, files[0] as string), 'utf8'));
+  };
+
+  const layoutScript = LayoutOverflowEngine.getBrowserScanScript('active');
+  const liquidScript = LiquidErrorScanner.getBrowserScanScript();
+  const assetScript = BrokenAssetScanner.getBrowserScanScript();
+  const serverCrashScript = ServerCrashScanner.getBrowserScanScript();
+
+  const createMockWorkflowPorts = (overrides?: {
+    settleCapture?: (target: BrowserTarget) => Promise<VisualSettleReceipt>;
+    eval?: (target: BrowserTarget, script: string) => Promise<unknown>;
+  }): ThemeQaWorkflowPorts => {
+    let currentGen = 1;
+    const browserObj: Record<string, unknown> = {
+      dom: async () => '<html><body><main><h1>Storefront</h1></main></body></html>',
+      screenshot: async () => ({
+        artifactRef: { id: 'art-screenshot', kind: 'screenshot' },
+        envelope: {},
+      }),
+      eval: overrides?.eval ?? (async (_target: BrowserTarget, script: string) => {
+        if (script === layoutScript || script.includes('deadband = 1.0 * dpr') || script.includes('rawDeltaX')) {
+          return { viewport: { name: 'desktop', width: 1440, height: 900 }, hasOverflow: false, deltaX: 0, scrollWidth: 1440, clientWidth: 1440, culprits: [] };
+        }
+        if (script === liquidScript || script.includes('ERROR_PATTERNS')) {
+          return { hasErrors: false, errors: [], scannedElementsCount: 20 };
+        }
+        if (script === assetScript || script.includes('naturalWidth') || script.includes('img.decode')) {
+          return { hasBrokenAssets: false, brokenAssets: [], totalImagesScanned: 5, totalStylesheetsScanned: 1 };
+        }
+        if (script.includes('HS-') || script.includes('violations') || script.includes('sapo') || script.includes('haravan') || script.includes('evaluateHtml')) {
+          return { passed: true, totalViolations: 0, errorsCount: 0, warningsCount: 0, violations: [] };
+        }
+        if (script === serverCrashScript || script.includes('crash') || script.includes('ServerCrashScanner')) {
+          return { hasCrash: false, errorsCount: 0, findings: [] };
+        }
+        return {};
+      }),
+      diagnostics: () => ({ console: [], failures: [] }),
+      listTabs: () => [{ id: 'tab-1', url: 'https://store.example.com' }],
+      getDocumentGeneration: () => currentGen,
+      settleCapture: overrides?.settleCapture ?? (async () => ({
+        settleComplete: true,
+        gates: { network: true, fonts: true, images: true, dom: true },
+        timingsMs: { network: 1, fonts: 1, images: 1, dom: 1, total: 4 },
+        brokenImages: [],
+      })),
+    };
+
+    return {
+      browser: browserObj as unknown as ThemeQaWorkflowPorts['browser'],
+      artifacts: {
+        stage: (item: { kind: string; data: Buffer | string }) => ({
+          id: `art-${item.kind}`,
+          kind: item.kind,
+          bytes: typeof item.data === 'string' ? Buffer.byteLength(item.data) : item.data.length,
+          createdAt: Date.now(),
+        }),
+        readBytesById: () => ({ data: Buffer.from('<html><body><main>Clean</main></body></html>') }),
+      } as unknown as ThemeQaWorkflowPorts['artifacts'],
+      reload: async (target: BrowserTarget) => {
+        currentGen++;
+        return {
+          reloaded: true,
+          target: { ...target, documentGeneration: currentGen },
+        };
+      },
+    };
   };
 
   it('registers theme.qa_validate and theme.debug_bundle with aliases', () => {
@@ -150,6 +222,117 @@ describe('Theme QA MCP Capabilities', () => {
         assert.strictEqual(receipt.criticalCount, 2);
         assert.strictEqual(receipt.errorCode, null);
         assert.strictEqual(receipt.errorMessage, null);
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it('writes a QA_INCONCLUSIVE receipt when the workflow resolves INCONCLUSIVE with no critical finding', async () => {
+      // Degraded evidence (settle gaps, missing capability) is not a failure: the
+      // QA gate keeps itself armed on QA_FAILED only, so writing FAILED here would
+      // pin the gate on every degraded capture and loop the agent on re-validation.
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-qa-receipt-inconclusive-'));
+      try {
+        const catalogue = new CapabilityCatalogue(defaultOptions);
+        const workflow = { validate: async () => ({ summary: { passed: false, criticalCount: 0, verdict: 'INCONCLUSIVE' }, execution: 'DEGRADED' }) } as unknown as ThemeQaWorkflow;
+        registerBrowserCapabilities(catalogue, makeBoundBrowser(), workflow, () => root);
+
+        await catalogue.dispatch('theme.qa_validate', { tabId: 'tab-1', workspaceRoot: root }, makeBoundContext());
+
+        const receipt = readSoleReceipt(root);
+        assert.strictEqual(receipt.verdict, 'QA_INCONCLUSIVE');
+        assert.strictEqual(receipt.execution, 'DEGRADED', 'Receipt must mirror workflow execution status');
+        assert.strictEqual(receipt.passed, false);
+        assert.strictEqual(receipt.criticalCount, 0);
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it('serializes on-disk receipt fields from real ThemeQaWorkflow execution', async () => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-qa-receipt-real-workflow-'));
+      try {
+        const catalogue = new CapabilityCatalogue(defaultOptions);
+        const ports = createMockWorkflowPorts();
+        const workflow = new ThemeQaWorkflow(ports);
+        registerBrowserCapabilities(catalogue, makeBoundBrowser('https://store.example.com'), workflow, () => root);
+
+        await catalogue.dispatch(
+          'theme.qa_validate',
+          {
+            tabId: 'tab-1',
+            workspaceRoot: root,
+            viewports: {
+              desktop: { mismatchPercent: 0.5, passed: true },
+              tablet: { mismatchPercent: 1.0, passed: true },
+              mobile: { mismatchPercent: 1.5, passed: true },
+            },
+          },
+          makeBoundContext()
+        );
+
+        const receipt = readSoleReceipt(root);
+        assert.strictEqual(receipt.verdict, 'QA_PASSED');
+        assert.strictEqual(receipt.execution, 'COMPLETED');
+        assert.strictEqual(receipt.passed, true);
+        assert.strictEqual(receipt.criticalCount, 0);
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it('serializes on-disk receipt fields from real ThemeQaWorkflow execution with settle gaps', async () => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-qa-receipt-real-degraded-'));
+      try {
+        const catalogue = new CapabilityCatalogue(defaultOptions);
+        const ports = createMockWorkflowPorts({
+          settleCapture: async () => ({
+            settleComplete: false,
+            gates: { network: false, fonts: true, images: false, dom: true },
+            timingsMs: { network: 5000, fonts: 100, images: 5000, dom: 5, total: 5000 },
+            brokenImages: [],
+            layoutStable: true,
+          }),
+        });
+        const workflow = new ThemeQaWorkflow(ports);
+        registerBrowserCapabilities(catalogue, makeBoundBrowser('https://store.example.com'), workflow, () => root);
+
+        await catalogue.dispatch(
+          'theme.qa_validate',
+          {
+            tabId: 'tab-1',
+            workspaceRoot: root,
+            viewports: {
+              desktop: { mismatchPercent: 0.5, passed: true },
+              tablet: { mismatchPercent: 1.0, passed: true },
+              mobile: { mismatchPercent: 1.5, passed: true },
+            },
+          },
+          makeBoundContext()
+        );
+
+        const receipt = readSoleReceipt(root);
+        assert.strictEqual(receipt.verdict, 'QA_INCONCLUSIVE');
+        assert.strictEqual(receipt.execution, 'DEGRADED');
+        assert.strictEqual(receipt.passed, false);
+        assert.strictEqual(receipt.criticalCount, 0);
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it('keeps a QA_FAILED receipt when an INCONCLUSIVE run still carries critical findings', async () => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-qa-receipt-inconclusive-critical-'));
+      try {
+        const catalogue = new CapabilityCatalogue(defaultOptions);
+        const workflow = { validate: async () => ({ summary: { passed: false, criticalCount: 1, verdict: 'INCONCLUSIVE' } }) } as any;
+        registerBrowserCapabilities(catalogue, makeBoundBrowser(), workflow, () => root);
+
+        await catalogue.dispatch('theme.qa_validate', { tabId: 'tab-1', workspaceRoot: root }, makeBoundContext());
+
+        const receipt = readSoleReceipt(root);
+        assert.strictEqual(receipt.verdict, 'QA_FAILED');
+        assert.strictEqual(receipt.criticalCount, 1);
       } finally {
         fs.rmSync(root, { recursive: true, force: true });
       }
@@ -262,7 +445,7 @@ describe('Theme QA MCP Capabilities', () => {
       culprits: [],
     };
 
-    const scriptedHost = (overflowPayload: unknown, offscreenSurface = false) => {
+    const scriptedHost = (overflowPayload: unknown, collapsedSurface = false) => {
       const state = { overflowEvalCalls: 0 };
       const host: BrowserHostPort = {
         getTabList: () => [{ id: 'tab-1', url: 'https://shop.example.com/' }],
@@ -280,9 +463,8 @@ describe('Theme QA MCP Capabilities', () => {
           return {};
         },
       };
-      if (offscreenSurface) {
+      if (collapsedSurface) {
         host.readRenderSurface = async () => ({ vw: 0, vh: 0, layoutWidth: 0, layoutHeight: 0, dpr: 1, scrollX: 0, scrollY: 0, docH: 0, readyState: 'complete', hidden: false });
-        host.isTabOffscreen = () => true;
       }
       return { host, state };
     };

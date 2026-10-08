@@ -60,7 +60,7 @@ export interface CredentialVaultOptions {
   resolveEventOrigin?: (event: unknown) => string | null;
   /**
    * Main-process only: verifies that the requesting WebContents belongs to the
-   * user plane (rejecting agent-plane / offscreen / ephemeral tabs). When
+   * user plane (rejecting agent-plane / ephemeral tabs). When
    * provided, non-user-plane tabs fail closed.
    */
   isUserPlaneSender?: (event: unknown) => boolean;

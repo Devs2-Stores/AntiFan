@@ -100,7 +100,6 @@ const { NativeTabHost } = require('../.compiled/src/main/browser/native-tab-host
 function captureLaneHostFields(tabHost) {
   return {
     getSessionTabList: (boundTabId) => tabHost.getSessionTabRecords(boundTabId),
-    isTabOffscreen: (tabId) => tabHost.isTabOffscreen(tabId),
     readRenderSurface: (tabId, paneId, timeoutMs) => tabHost.readRenderSurface(tabId, paneId, timeoutMs),
   };
 }
@@ -737,12 +736,15 @@ async function runMcpLiveE2ETest() {
         singleHeaderStreaming: 'PASS',
       },
     };
+    const benchmarkFileName = process.argv.includes('--publish')
+      ? 'mcp-overhaul-benchmark.json'
+      : 'mcp-overhaul-benchmark.local.json';
     fs.writeFileSync(
-      path.join(reportsDir, 'mcp-overhaul-benchmark.json'),
+      path.join(reportsDir, benchmarkFileName),
       JSON.stringify(benchmarkData, null, 2),
       'utf8'
     );
-    console.log('[OK] Milestone 5: Benchmark metrics persisted to plans/reports/mcp-overhaul-benchmark.json');
+    console.log(`[OK] Milestone 5: Benchmark metrics persisted to plans/reports/${benchmarkFileName}`);
     // Milestone 6: Live MCP Session Tab Creation -> Screenshot -> Ref-Only Action Sequence
     console.log('[Milestone 6] Creating new tab in live MCP proxy session...');
     const createResp = await callMcp(300, 'anti.browser.tabs.create', { url: storefrontUrl });

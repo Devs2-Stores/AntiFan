@@ -144,7 +144,6 @@ import {
   migratePersistedTab,
 } from './split-review-coordinator';
 import { shouldHibernate, hibernationIdleMsForUrl, HIBERNATE_IDLE_MS, HIBERNATE_SWEEP_INTERVAL_MS, type HibernationContext } from './tab-hibernation';
-import { shouldReapAgentTab, AGENT_TAB_IDLE_MS, AGENT_TAB_REAP_SWEEP_INTERVAL_MS, type ReapingContext } from './tab-reaping';
 export interface NativeTabHostResourceStats {
   disposed: boolean;
   tabCount: number;
@@ -606,21 +605,92 @@ function readSavedTabsFile(filePath: string): Record<string, unknown> | null {
 }
 
 /**
+ * Bumped by every swap of the saved-tabs document, sync or async. An async writer
+ * snapshots it at merge time and refuses to rename when it moved: a synchronous
+ * writer (a closing window's disposal persist, which cannot enter the chain)
+ * landed a newer record in between, and the merged projection is stale.
+ */
+let savedTabsWriteVersion = 0;
+
+function savedTabsTempPath(filePath: string): string {
+  return `${filePath}.tmp.${Date.now()}.${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/**
  * The one atomic write of the saved-tabs document. Throws on failure so a caller
  * can retain what it was replacing; a partially written temp file is removed so it
  * can never be mistaken for the document.
  */
 function writeSavedTabsDocumentSync(filePath: string, document: SavedTabsDocument): void {
-  const tempPath = `${filePath}.tmp.${Date.now()}.${Math.random().toString(36).slice(2, 8)}`;
+  const tempPath = savedTabsTempPath(filePath);
   const json = JSON.stringify(document, null, 2);
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   try {
     fs.writeFileSync(tempPath, json, 'utf8');
     fs.renameSync(tempPath, filePath);
+    savedTabsWriteVersion += 1;
   } catch (err) {
     try { fs.rmSync(tempPath, { force: true }); } catch {}
     throw err;
   }
+}
+
+/**
+ * Same swap with the byte write off the main thread. The rename itself stays
+ * synchronous: it is a metadata operation, and keeping it on the main thread is
+ * what makes the version check right before it airtight - nothing synchronous
+ * can run between the check and the swap. Returns false (and leaves the document
+ * untouched) when the version moved while the bytes were being written.
+ */
+async function writeSavedTabsDocumentAsync(filePath: string, document: SavedTabsDocument, expectedVersion: number): Promise<boolean> {
+  const tempPath = savedTabsTempPath(filePath);
+  const json = JSON.stringify(document, null, 2);
+  await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
+  try {
+    await fs.promises.writeFile(tempPath, json, 'utf8');
+    if (savedTabsWriteVersion !== expectedVersion) {
+      try {
+        await fs.promises.rm(tempPath, { force: true });
+      } catch {}
+      return false;
+    }
+    const maxAttempts = 3;
+    const delaysMs = [25, 50];
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        if (savedTabsWriteVersion !== expectedVersion) {
+          try {
+            await fs.promises.rm(tempPath, { force: true });
+          } catch {}
+          return false;
+        }
+        fs.renameSync(tempPath, filePath);
+        savedTabsWriteVersion += 1;
+        return true;
+      } catch (err: unknown) {
+        const isLockError =
+          err !== null && typeof err === 'object' && 'code' in err &&
+          (err.code === 'EBUSY' || err.code === 'EPERM');
+        if (isLockError && attempt < maxAttempts - 1) {
+          const delay = delaysMs[attempt] ?? 50;
+          const { promise, resolve } = Promise.withResolvers<void>();
+          setTimeout(resolve, delay);
+          await promise;
+          continue;
+        }
+        throw err;
+      }
+    }
+    return false;
+  } catch (err) {
+    try { fs.rmSync(tempPath, { force: true }); } catch {}
+    throw err;
+  }
+}
+
+/** Current swap version; test seam for the stale-projection guard. */
+export function currentSavedTabsWriteVersion(): number {
+  return savedTabsWriteVersion;
 }
 
 /**
@@ -1042,8 +1112,7 @@ export interface NativeTabRecord {
    */
   lastActiveAt?: number;
   /** Last time an agent operation resolved this tab as its target. Distinct from
-   * `lastActiveAt` (which feeds hibernation): the agent-tab reaper uses this to
-   * tell a live-but-unclaimed automation tab from an orphan. */
+   * `lastActiveAt` (which feeds hibernation); reported in close telemetry. */
   agentActivityAt?: number;
 }
 
@@ -1528,13 +1597,6 @@ export class NativeTabHost extends EventEmitter {
    * the probe/test seam may narrow it via `setHibernationIdleMsForTesting`.
    */
   private hibernationIdleMs: number = HIBERNATE_IDLE_MS;
-  /**
-   * The 60s sweep that closes leaked offscreen agent tabs (unclaimed + idle).
-   * Same shape as the hibernation sweep: lazy, `unref`'d, cleared in `dispose`.
-   */
-  private agentTabReapSweepTimer: NodeJS.Timeout | null = null;
-  /** Idle threshold for the reap sweep; test seam may narrow it. */
-  private agentTabReapIdleMs: number = AGENT_TAB_IDLE_MS;
   /** Tabs currently being destroyed by the hibernation sweep; their `destroyed`/`close` listeners must not run `closeTab`. */
   private hibernatingTabIds = new Set<string>();
   /** Tabs whose beforeunload vetoed a sleep probe in this cycle — never re-probed. */
@@ -2118,7 +2180,6 @@ export class NativeTabHost extends EventEmitter {
     // THIS window only, so it is created here with the subscriptions and cleared
     // by dispose. The timer is unref'd — it never keeps the process alive.
     this.ensureHibernationSweep();
-    this.ensureAgentTabReapSweep();
 
     this.setupTerminalSubscriptions();
     this.setupVaultIpc();
@@ -2153,7 +2214,7 @@ export class NativeTabHost extends EventEmitter {
 
     if (this.activeTabId) {
       const tab = this.tabs.get(this.activeTabId);
-      if (tab && tab.view && !tab.state.offscreen && !tab.state.ephemeral) {
+      if (tab && tab.view && !tab.state.ephemeral) {
         if (!this.isTabViewAttached(tab.view)) {
           try { this.attachTabView(tab.view, false); } catch {}
         }
@@ -2388,7 +2449,7 @@ export class NativeTabHost extends EventEmitter {
           if (!tab) return null;
           const sender = this.getEventSenderWebContents(_event);
           const senderInfo = this.findTabByWebContents(sender);
-          const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === this.automationTabId);
+          const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tabId === this.automationTabId);
           if (isAgent && senderInfo.tabId !== tabId) {
             return null;
           }
@@ -2415,7 +2476,7 @@ export class NativeTabHost extends EventEmitter {
           if (!isTrustedSessionVaultSender(event)) {
             const sender = this.getEventSenderWebContents(event);
             const senderInfo = this.findTabByWebContents(sender);
-            const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === this.automationTabId);
+            const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tabId === this.automationTabId);
             if (!isAgent) return false;
           }
           return true;
@@ -2426,7 +2487,7 @@ export class NativeTabHost extends EventEmitter {
         ): { valid: boolean; attachmentId?: string; error?: string } => {
           const sender = this.getEventSenderWebContents(event);
           const senderInfo = this.findTabByWebContents(sender);
-          const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === this.automationTabId);
+          const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tabId === this.automationTabId);
           const options = (payload && typeof payload === 'object') ? (payload as Record<string, unknown>) : undefined;
           const attachmentId = typeof options?.attachmentId === 'string' ? options.attachmentId.trim() : undefined;
 
@@ -2466,14 +2527,13 @@ export class NativeTabHost extends EventEmitter {
       // top-frame check), never from renderer-supplied arguments.
       resolveEventOrigin: (event: unknown): string | null => resolveSenderFrameOrigin(event),
       // Only user-plane tabs may access credentials (autofill / get-for-origin).
-      // Reject agent-plane / offscreen / ephemeral tabs; fail closed otherwise.
+      // Reject agent-plane / ephemeral tabs; fail closed otherwise.
       isUserPlaneSender: (event: unknown): boolean => {
         const sender = this.getEventSenderWebContents(event);
         if (!sender) return false;
         const senderInfo = this.findTabByWebContents(sender);
         if (!senderInfo) return false;
         const isAgent = senderInfo.tab.state.ephemeral === true ||
-          senderInfo.tab.state.offscreen === true ||
           senderInfo.tabId === this.automationTabId;
         return !isAgent;
       },
@@ -3094,7 +3154,7 @@ export class NativeTabHost extends EventEmitter {
       // 3. Check local open tabs match
       host.tabOrder.forEach(id => {
         const tab = host.tabs.get(id);
-        if (tab && tab.state.ephemeral !== true && tab.state.offscreen !== true && (tab.state.title.toLowerCase().includes(lower) || tab.state.url.toLowerCase().includes(lower))) {
+        if (tab && tab.state.ephemeral !== true && (tab.state.title.toLowerCase().includes(lower) || tab.state.url.toLowerCase().includes(lower))) {
           if (!results.some(r => r.url === tab.state.url)) {
             results.push({ type: 'tab', text: tab.state.title, url: tab.state.url, tabId: id, subText: 'Chuyển sang tab' });
           }
@@ -3230,7 +3290,7 @@ export class NativeTabHost extends EventEmitter {
     run: ({ host }, event, args) => {
       const cwd = typeof args[0] === 'string' ? args[0] : undefined;
       const senderInfo = host.findTabByWebContents(event?.sender);
-      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === host.automationTabId);
+      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tabId === host.automationTabId);
       // An omitted cwd means "this window's workspace", never the process-wide last
       // directory another window's workspace switch may have left behind. An explicit cwd
       // is honoured, but provenance is not the caller's to choose: the session belongs to
@@ -3279,7 +3339,7 @@ export class NativeTabHost extends EventEmitter {
     run: ({ host }, event, args) => {
       const input = typeof args[0] === 'string' ? args[0] : '';
       const senderInfo = host.findTabByWebContents(event?.sender);
-      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === host.automationTabId);
+      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tabId === host.automationTabId);
       // A write can be what wakes a sleeping session - `resolveWritableSession` spawns its PTY -
       // so it is admitted like the mint it may become, held until the write settles.
       return host.admitThenRun(
@@ -3316,7 +3376,7 @@ export class NativeTabHost extends EventEmitter {
     run: ({ host }, event, args) => {
       const { id, input } = (args[0] || {}) as { id: string; input: string };
       const senderInfo = host.findTabByWebContents(event?.sender);
-      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === host.automationTabId);
+      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tabId === host.automationTabId);
       // The named session's own gate, read before the admission is taken: the shared manager may
       // render an agent-owned row, but typing into it would take that agent's shell out from under
       // it. This channel has no reply, so the refusal is the log line rather than a value.
@@ -3374,7 +3434,7 @@ export class NativeTabHost extends EventEmitter {
     surface: ['sidebar', 'terminalPopout'],
     run: ({ host }, event) => {
       const senderInfo = host.findTabByWebContents(event?.sender);
-      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === host.automationTabId);
+      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tabId === host.automationTabId);
       if (isAgent) {
         const ownedTerminalId = host.getOwnedTerminalSession(senderInfo.tabId);
         if (!ownedTerminalId) {
@@ -3404,7 +3464,7 @@ export class NativeTabHost extends EventEmitter {
     run: async ({ host }, event, args) => {
       const cwd = typeof args[0] === 'string' ? args[0] : undefined;
       const senderInfo = host.findTabByWebContents(event?.sender);
-      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === host.automationTabId);
+      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tabId === host.automationTabId);
       // restart replaces the terminal process — a mint — so it is admitted like the other
       // terminal RPCs and held until the awaited restart settles.
       return host.admitThenRun(
@@ -3556,7 +3616,7 @@ export class NativeTabHost extends EventEmitter {
     run: ({ host }, event, args) => {
       const { cols, rows } = (args[0] || {}) as { cols: number; rows: number };
       const senderInfo = host.findTabByWebContents(event?.sender);
-      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === host.automationTabId);
+      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tabId === host.automationTabId);
       if (isAgent) {
         const ownedTerminalId = host.getOwnedTerminalSession(senderInfo.tabId);
         if (!ownedTerminalId) {
@@ -3581,7 +3641,7 @@ export class NativeTabHost extends EventEmitter {
     run: ({ host }, event, args) => {
       const { id, cols, rows } = (args[0] || {}) as { id: string; cols: number; rows: number };
       const senderInfo = host.findTabByWebContents(event?.sender);
-      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === host.automationTabId);
+      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tabId === host.automationTabId);
       if (isAgent) {
         host.assertTerminalAccess(senderInfo.tabId, id);
       }
@@ -3596,7 +3656,7 @@ export class NativeTabHost extends EventEmitter {
       host.assertApplicationAdmitsHostWork('antifan:terminal:new-session');
       const cwd = typeof args[0] === 'string' ? args[0] : undefined;
       const senderInfo = host.findTabByWebContents(event?.sender);
-      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === host.automationTabId);
+      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tabId === host.automationTabId);
       // An explicit cwd is honoured, but provenance is not the caller's to choose: the new
       // session belongs to the capsule this window verified, never to the manager's ambient
       // one, which another window's workspace switch may have set.
@@ -3660,7 +3720,7 @@ export class NativeTabHost extends EventEmitter {
       const cols = typeof pObj?.cols === 'number' ? pObj.cols : undefined;
       const rows = typeof pObj?.rows === 'number' ? pObj.rows : undefined;
       const senderInfo = host.findTabByWebContents(event?.sender);
-      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === host.automationTabId);
+      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tabId === host.automationTabId);
       let targetParentId = parentId;
       if (isAgent) {
         if (parentId) {
@@ -3713,7 +3773,7 @@ export class NativeTabHost extends EventEmitter {
     run: ({ host }, event, args) => {
       const parentId = typeof args[0] === 'string' ? args[0] : '';
       const senderInfo = host.findTabByWebContents(event?.sender);
-      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === host.automationTabId);
+      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tabId === host.automationTabId);
       if (isAgent && parentId) {
         host.assertTerminalAccess(senderInfo.tabId, parentId);
       }
@@ -3727,7 +3787,7 @@ export class NativeTabHost extends EventEmitter {
     run: ({ host }, event, args) => {
       const { id } = (args[0] || {}) as { id: string };
       const senderInfo = host.findTabByWebContents(event?.sender);
-      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === host.automationTabId);
+      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tabId === host.automationTabId);
       if (isAgent && id) {
         host.assertTerminalAccess(senderInfo.tabId, id);
       }
@@ -3803,7 +3863,7 @@ export class NativeTabHost extends EventEmitter {
     run: ({ host }, event, args) => {
       const id = typeof args[0] === 'string' ? args[0] : '';
       const senderInfo = host.findTabByWebContents(event?.sender);
-      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === host.automationTabId);
+      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tabId === host.automationTabId);
       if (isAgent && id) {
         host.assertTerminalAccess(senderInfo.tabId, id);
       }
@@ -3825,7 +3885,7 @@ export class NativeTabHost extends EventEmitter {
     run: ({ host }, event, args) => {
       const id = typeof args[0] === 'string' ? args[0] : '';
       const senderInfo = host.findTabByWebContents(event?.sender);
-      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === host.automationTabId);
+      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tabId === host.automationTabId);
       if (isAgent && id) {
         host.assertTerminalAccess(senderInfo.tabId, id);
       }
@@ -3849,7 +3909,7 @@ export class NativeTabHost extends EventEmitter {
       const id = host.resolveTerminalChannelId(payload);
       if (!id) return { ok: false, reason: 'INVALID_PAYLOAD' };
       const senderInfo = host.findTabByWebContents(event?.sender);
-      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === host.automationTabId);
+      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tabId === host.automationTabId);
       if (isAgent) {
         host.assertTerminalAccess(senderInfo.tabId, id);
       }
@@ -3873,7 +3933,7 @@ export class NativeTabHost extends EventEmitter {
       const id = host.resolveTerminalChannelId(payload);
       if (!id) return false;
       const senderInfo = host.findTabByWebContents(event?.sender);
-      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === host.automationTabId);
+      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tabId === host.automationTabId);
       if (isAgent) {
         host.assertTerminalAccess(senderInfo.tabId, id);
       }
@@ -3911,7 +3971,7 @@ export class NativeTabHost extends EventEmitter {
         ? record.category
         : (typeof categoryArg === 'string' ? categoryArg : undefined);
       const senderInfo = host.findTabByWebContents(event?.sender);
-      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === host.automationTabId);
+      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tabId === host.automationTabId);
       if (isAgent) {
         host.assertTerminalAccess(senderInfo.tabId, id);
       }
@@ -5510,7 +5570,7 @@ export class NativeTabHost extends EventEmitter {
         _event.preventDefault();
         const userTabs = this.tabOrder.filter((id) => {
           const t = this.tabs.get(id);
-          return t && t.state.ephemeral !== true && t.state.offscreen !== true;
+          return t && t.state.ephemeral !== true;
         });
         if (userTabs.length > 1) {
           const currIdx = userTabs.indexOf(this.activeTabId);
@@ -6120,7 +6180,7 @@ export class NativeTabHost extends EventEmitter {
     // Guarded by their own fields: several tests build a host without running field
     // initializers, and a re-assert on such a host must be a no-op, not a TypeError.
     const activeTab = this.activeTabId && this.tabs ? this.tabs.get(this.activeTabId) : null;
-    if (!activeTab || !activeTab.view || !activeTab.view.webContents || activeTab.state.offscreen === true) return;
+    if (!activeTab || !activeTab.view || !activeTab.view.webContents) return;
     const wc = activeTab.view.webContents;
     if (typeof wc.isDestroyed === 'function' && wc.isDestroyed()) return;
     if (!this.isTabViewAttached(activeTab.view)) {
@@ -6180,7 +6240,7 @@ export class NativeTabHost extends EventEmitter {
     const activeTab = this.activeTabId && this.tabs ? this.tabs.get(this.activeTabId) : null;
     const view = activeTab?.view;
     const wc = view?.webContents;
-    if (!activeTab || !view || !wc || activeTab.state.offscreen === true) return false;
+    if (!activeTab || !view || !wc) return false;
     if (typeof wc.isDestroyed === 'function' && wc.isDestroyed()) return false;
     this.lastResurfaceAtMs = now;
     const wasFocused = typeof wc.isFocused === 'function' && wc.isFocused();
@@ -6265,23 +6325,6 @@ export class NativeTabHost extends EventEmitter {
 
   public async runWithAttachedTabView<T>(view: WebContentsView | null | undefined, action: () => Promise<T>, isMobile = false): Promise<T> {
     if (!view || !this.shell.window || (typeof this.shell.window.isDestroyed === 'function' && this.shell.window.isDestroyed()) || !this.shell.window.contentView) {
-      return action();
-    }
-    // An offscreen (OSR) view must never enter the window: AddChildView sets an
-    // owner the later detach does not clear, after which every window resize
-    // rewrites the OSR raster size (Electron #45864) and the tab stops rendering
-    // at the viewport it was emulated to. Keyed on the resolved tab's state, so
-    // every caller (sweepBreakpoints, background capture, setViewportSize) is
-    // covered without touching call sites. A view already inside the window is
-    // legacy breakage, not OSR operation: it takes the normal path so the release
-    // still detaches it.
-    let ownerTab: NativeTabRecord | undefined;
-    try { ownerTab = view.webContents ? this.tabByWebContents?.get(view.webContents)?.tab : undefined; } catch {}
-    if (ownerTab?.state.offscreen === true && !this.isTabViewAttached(view)) {
-      const osrWc = view.webContents;
-      if (osrWc && typeof osrWc.invalidate === 'function') {
-        try { osrWc.invalidate(); } catch {}
-      }
       return action();
     }
     if (!this.temporaryViewAttachCounts) {
@@ -6729,61 +6772,6 @@ export class NativeTabHost extends EventEmitter {
     if (availableWidth < 1 || availableHeight < 1) return;
     this.applyTabDeviceEmulation(indexed.tab, availableWidth, availableHeight, toolbarHeight);
   }
-  /**
-   * Size an offscreen (OSR) tab's render surface. The OSR RenderWidgetHostView owns
-   * its compositor, so `Emulation.setDeviceMetricsOverride` is the whole sizing
-   * mechanism: the view is never attached, and nothing else (updateLayout skips
-   * offscreen tabs, setBounds on a detached view lays nothing out) gives the
-   * document a non-zero box. Before a document commits the override defers to
-   * did-finish-load via `pendingEmulationDeferrals`, and the same deferral re-arms
-   * it after a renderer swap — the caller only has to call this once the record
-   * exists.
-   *
-   * Size resolution order: the tab's custom viewport (a setViewportSize request
-   * survives recreation), then the window's content box, then the default agent
-   * viewport 1440x900 ('laptop-1440'). The resolved size is stamped onto the
-   * record as a `custom-<w>x<h>` preset because `responsive` resolves to the
-   * clear-override branch of applyTabDeviceEmulation — which is correct on an
-   * attached pane and fatal here: an override cleared on OSR leaves the widget
-   * unsized, the BeginFrame source never ticks, and every capture burns its bound.
-   */
-  private applyOffscreenSurfaceEmulation(tab: NativeTabRecord): void {
-    if (!tab || tab.state.offscreen !== true || !tab.view) return;
-    try {
-      let width = 0;
-      let height = 0;
-      let mobile = false;
-      let deviceScaleFactor = 1;
-      const cv = tab.customViewport;
-      if (cv && Number.isFinite(cv.width) && Number.isFinite(cv.height) && cv.width > 0 && cv.height > 0) {
-        width = Math.round(cv.width);
-        height = Math.round(cv.height);
-        mobile = cv.mobile === true;
-        deviceScaleFactor = typeof cv.deviceScaleFactor === 'number' && cv.deviceScaleFactor > 0 ? cv.deviceScaleFactor : 1;
-      } else {
-        const contentBounds = this.shell.window && (typeof this.shell.window.isDestroyed !== 'function' || !this.shell.window.isDestroyed()) && typeof this.shell.window.getContentBounds === 'function'
-          ? this.shell.window.getContentBounds()
-          : undefined;
-        if (contentBounds && Number.isFinite(contentBounds.width) && Number.isFinite(contentBounds.height) && contentBounds.width >= 1 && contentBounds.height >= 1) {
-          const toolbarHeight = typeof this.getToolbarHeight === 'function' ? this.getToolbarHeight() : 0;
-          width = Math.round(this.shell.isSidebarOpen ? Math.max(400, contentBounds.width - this.shell.sidebarWidth) : contentBounds.width);
-          height = Math.max(1, Math.round(contentBounds.height - toolbarHeight));
-        } else {
-          // A mint racing window teardown still gets a real surface: the named
-          // default agent viewport ('laptop-1440'), not a 0x0 box.
-          const fallback = findDevicePreset('laptop-1440');
-          width = Math.round(fallback?.width ?? 1440);
-          height = Math.round(fallback?.height ?? 900);
-        }
-      }
-      tab.customViewport = { width, height, mobile, deviceScaleFactor };
-      tab.state.devicePresetId = `custom-${width}x${height}`;
-      this.applyTabDeviceEmulation(tab, width, height, 0);
-    } catch (err) {
-      console.error('[native-tab-host] applyOffscreenSurfaceEmulation error:', err);
-    }
-  }
-
 
   /**
    * The box the window gives a pane's view: the fluid area, or the pane's own frame in
@@ -7008,7 +6996,7 @@ export class NativeTabHost extends EventEmitter {
       .map((id) => {
         const tab = this.tabs.get(id);
         if (!tab) return undefined;
-        if (tab.state.offscreen === true || tab.state.ephemeral === true) return undefined;
+        if (tab.state.ephemeral === true) return undefined;
         const isAttached = Boolean(tab.view && this.isTabViewAttached(tab.view));
         return {
           ...tab.state,
@@ -7026,7 +7014,7 @@ export class NativeTabHost extends EventEmitter {
 
   /**
    * Session-scoped tab listing. `getTabList` projects the user's tab strip, which
-   * deliberately excludes the offscreen/ephemeral tabs the agent plane creates —
+   * deliberately excludes ephemeral tabs the agent plane creates —
    * so a session that asks what it owns must be answered from the tab map, not
    * from the strip. Anything the session owns is listed, including tabs the
    * window never showed.
@@ -7045,7 +7033,7 @@ export class NativeTabHost extends EventEmitter {
         projectId: tab.projectId,
         customViewport: tab.customViewport,
         attached: isAttached,
-        isAgentControlled: tab.state.ephemeral === true || tab.state.offscreen === true || id === this.automationTabId,
+        isAgentControlled: tab.state.ephemeral === true || id === this.automationTabId,
       } as AntiFanTab & { customViewport?: { width: number; height: number; mobile?: boolean }; attached?: boolean });
     }
     return records;
@@ -7143,7 +7131,7 @@ export class NativeTabHost extends EventEmitter {
       const remembered = this.lastActiveTabByProject?.get(projectId);
       if (remembered) {
         const tab = this.tabs.get(remembered);
-        if (tab && tab.projectId === projectId && tab.state.ephemeral !== true && tab.state.offscreen !== true) {
+        if (tab && tab.projectId === projectId && tab.state.ephemeral !== true) {
           return remembered;
         }
       }
@@ -7153,7 +7141,7 @@ export class NativeTabHost extends EventEmitter {
     for (const tabId of this.tabOrder ?? []) {
       const tab = tabId ? this.tabs.get(tabId) : undefined;
       if (!tab) continue;
-      if (tab.state.ephemeral === true || tab.state.offscreen === true) continue;
+      if (tab.state.ephemeral === true) continue;
       const stamped = typeof tab.projectId === 'string' && tab.projectId ? tab.projectId : undefined;
       if ((stamped ?? null) !== projectId) continue;
       const at = typeof tab.lastActiveAt === 'number' ? tab.lastActiveAt : 0;
@@ -7184,7 +7172,6 @@ export class NativeTabHost extends EventEmitter {
     const presentedSatisfies = Boolean(
       presented
       && presented.state.ephemeral !== true
-      && presented.state.offscreen !== true
       && (activeId === null ? presentedStamp === null : presentedStamp === activeId),
     );
     if (presentedSatisfies) {
@@ -7318,7 +7305,7 @@ export class NativeTabHost extends EventEmitter {
    * An explicit request wins (`null` deliberately mints a shared tab). Absent one, the
    * hub stamps its active project; a detached `project:<id>` window stamps the project
    * that owns it — the window's owner key IS that project's identity, since a detached
-   * host carries no `activeProjectId`. Agent surfaces (`ephemeral`/`offscreen`) and
+   * host carries no `activeProjectId`. Agent surfaces (`ephemeral`) and
    * every other owner stamp nothing.
    */
   public stampProjectIdForMint(requested: string | null | undefined, isAgentSurface: boolean): string | undefined {
@@ -7994,7 +7981,7 @@ export class NativeTabHost extends EventEmitter {
 
   /**
    * The user-visible inventory the `'antifan:tabs:search'` contract lists: this
-   * window's tabs in strip order, excluding the offscreen/ephemeral automation
+   * window's tabs in strip order, excluding ephemeral automation
    * surfaces no user can see or choose.
    */
   public listSearchInventory(): TabSearchInventoryRow[] {
@@ -8005,7 +7992,7 @@ export class NativeTabHost extends EventEmitter {
     this.tabOrder.forEach((tabId, order) => {
       const tab = this.tabs.get(tabId);
       if (!tab) return;
-      if (tab.state.ephemeral === true || tab.state.offscreen === true) return;
+      if (tab.state.ephemeral === true) return;
       rows.push({
         tabId,
         title: tab.state.title || tab.state.url || '',
@@ -8032,7 +8019,7 @@ export class NativeTabHost extends EventEmitter {
    */
   public selectSearchResultTab(tabId: string, expectedOwnerKey: string): TabSearchActivationResult {
     const tab = tabId && this.tabs ? this.tabs.get(tabId) : undefined;
-    if (!tab || tab.state.ephemeral === true || tab.state.offscreen === true) {
+    if (!tab || tab.state.ephemeral === true) {
       return { ok: false, tabId, reason: 'TAB_UNAVAILABLE' };
     }
     if (this.windowOwnerKey() !== expectedOwnerKey) {
@@ -8088,19 +8075,6 @@ export class NativeTabHost extends EventEmitter {
   public getAutomationTabId(): string | null {
     return this.automationTabId;
   }
-  /**
-   * Dual-Plane Runtime Isolation: reports whether a tab renders offscreen (i.e. a
-   * dedicated agent tab that is never attached to the user's visible view hierarchy).
-   * Capture paths use this to skip any physical `switchTab` foreground/restore dance,
-   * capturing directly from the offscreen compositor surface instead — so a screenshot
-   * or visual compare never hijacks or flickers the user's active working tab.
-   */
-  public isTabOffscreen(tabId?: string): boolean {
-    if (!tabId) return false;
-    const tab = this.tabs.get(tabId);
-    if (!tab) return false;
-    return tab.state.offscreen === true;
-  }
   public setAutomationTabId(tabId?: string): void {
     const nextTabId = tabId && this.tabs.has(tabId) ? tabId : null;
     if (nextTabId === this.automationTabId) return;
@@ -8139,11 +8113,11 @@ export class NativeTabHost extends EventEmitter {
     }
   }
   /**
-   * Every partition currently referenced by a tab, offscreen and ephemeral tabs
+   * Every partition currently referenced by a tab, ephemeral tabs
    * included, plus `'default'` when a tab runs without an explicit partition.
    * `getTabList()` deliberately projects only the user's tab strip, so a
    * lifecycle consumer (housekeeping, cleanup) that asks this question must read
-   * the tab map instead — an offscreen tab still owns its jar.
+   * the tab map instead.
    */
   public getLivePartitionNames(): string[] {
     const names = new Set<string>();
@@ -8404,7 +8378,7 @@ export class NativeTabHost extends EventEmitter {
       }
       if (id === this.activeTabId) {
         const tab = this.tabs.get(id);
-        if (tab && tab.view && !tab.state.offscreen && !tab.state.ephemeral) {
+        if (tab && tab.view && !tab.state.ephemeral) {
           if (!this.isTabViewAttached(tab.view)) {
             try { this.attachTabView(tab.view, false); } catch {}
           }
@@ -8568,7 +8542,7 @@ export class NativeTabHost extends EventEmitter {
       }
       if (id === this.activeTabId) {
         const tab = this.tabs.get(id);
-        if (tab && tab.view && !tab.state.offscreen && !tab.state.ephemeral) {
+        if (tab && tab.view && !tab.state.ephemeral) {
           if (!this.isTabViewAttached(tab.view)) {
             try { this.attachTabView(tab.view, false); } catch {}
           }
@@ -8878,7 +8852,6 @@ export class NativeTabHost extends EventEmitter {
       ephemeral?: boolean;
       isolateSession?: boolean;
       partition?: string;
-      offscreen?: boolean;
       /** Explicit terminal session that should own this tab. Omit for user-opened tabs. */
       terminalSessionId?: string;
       devicePresetId?: string;
@@ -8889,7 +8862,7 @@ export class NativeTabHost extends EventEmitter {
        * The project stamp the web hub mints the tab under. `undefined` resolves to the
        * ambient `activeProjectId`; explicit `null` mints a shared tab; a string stamps
        * that project (the window.open opener-inheritance path). Strip tabs only —
-       * ephemeral/offscreen records are never stamped.
+       * ephemeral records are never stamped.
        */
       projectId?: string | null;
     }
@@ -8943,7 +8916,6 @@ export class NativeTabHost extends EventEmitter {
 
     const userAgentMode: BrowserSessionUserAgentMode = options?.userAgentMode || 'clean';
     const isEphemeral = Boolean(options?.ephemeral);
-    const isOffscreen = Boolean(options?.offscreen);
     let partition: string;
     if (options?.partition && typeof options.partition === 'string') {
       partition = options.partition.trim();
@@ -8954,10 +8926,7 @@ export class NativeTabHost extends EventEmitter {
     }
     configureBrowserSessionPartition(partition, userAgentMode);
     const view = new WebContentsView({
-      webPreferences: getSecureWebPreferences(partition, {
-        offscreen: isOffscreen,
-        backgroundThrottling: isOffscreen ? false : undefined,
-      }),
+      webPreferences: getSecureWebPreferences(partition),
     });
     // The view's own background is the canvas for whatever the page leaves unpainted, so
     // it is the only thing that keeps captures opaque: measured with Electron 43, a
@@ -8986,7 +8955,6 @@ export class NativeTabHost extends EventEmitter {
       userAgentMode,
       partition,
       ephemeral: isEphemeral,
-      offscreen: isOffscreen,
     };
     this.setupTabWebContentsEvents(id, view, state, 'desktop');
 
@@ -8996,11 +8964,11 @@ export class NativeTabHost extends EventEmitter {
     // Mint-time stamp, strip tabs only: the 'web' hub stamps its active project, a
     // detached `project:<id>` window stamps the project that owns it (the host's owner
     // key is the project's identity there — the window has no "active project" field
-    // to read). Other shells and the offscreen/ephemeral agent surfaces stamp nothing.
+    // to read). Other shells and ephemeral agent surfaces stamp nothing.
     // An explicit request (window.open's opener) wins; `null` mints a shared tab on
     // purpose. See `stampProjectIdForMint` — keep the rule in the one method the host
     // and the tests share.
-    const mintStamp = this.stampProjectIdForMint(options?.projectId, isEphemeral || isOffscreen);
+    const mintStamp = this.stampProjectIdForMint(options?.projectId, isEphemeral);
     if (mintStamp) tabEntry.projectId = mintStamp;
     if (effectivePreset) {
       tabEntry.customViewport = {
@@ -9012,18 +8980,7 @@ export class NativeTabHost extends EventEmitter {
     }
     this.tabs.set(id, tabEntry);
     this.indexTabWebContents(id, tabEntry);
-    if (isOffscreen) {
-      // An OSR tab's render surface is the metrics override, not a view
-      // attachment: the OSR RenderWidgetHostView owns its compositor and its
-      // BeginFrame source, so Emulation.setDeviceMetricsOverride on the tab's own
-      // debugger channel lays it out and produces rasters without the view ever
-      // entering the window (spike: scripts/probe-osr-detached-emulation.cjs —
-      // detached view, non-zero layout + non-empty capturePage, window hidden or
-      // not). Before first commit the override defers to did-finish-load via
-      // pendingEmulationDeferrals, so this runs before loadURL.
-      this.applyOffscreenSurfaceEmulation(tabEntry);
-    }
-    const isAgentTab = isEphemeral || isOffscreen;
+    const isAgentTab = isEphemeral;
     if (!isAgentTab) {
       this.tabOrder.push(id);
       // Only adopt a newly created tab into a terminal session when the caller explicitly
@@ -9062,11 +9019,7 @@ export class NativeTabHost extends EventEmitter {
       state.title = `view-source:${sourceTargetUrl}`;
       state.url = url;
       this.fetchAndLoadPageSource(wc, sourceTargetUrl, state);
-    } else if (url !== 'about:blank' || isOffscreen) {
-      // An offscreen agent tab must materialize about:blank too: constructing a
-      // WebContentsView without a load leaves no renderer document to answer CDP
-      // (measured by scripts/probe-background-full-page.cjs), so the first MCP
-      // call wedges the session before capture is attempted.
+    } else if (url !== 'about:blank') {
       if (!isAllowedNavigation(url)) return '';
       let initialUa: string | undefined;
       if (effectivePreset) {
@@ -9123,7 +9076,7 @@ export class NativeTabHost extends EventEmitter {
   /**
    * The typed activation entrypoint. A refusal is reported, never silent:
    * `TARGET_MISSING` for a tab that does not exist, `TARGET_NOT_ACTIVATABLE` for
-   * offscreen and ephemeral tabs, and `ACTIVATION_DEFERRED_USER_INPUT` when an
+   * ephemeral tabs, and `ACTIVATION_DEFERRED_USER_INPUT` when an
    * agent-plane switch would move the presented pane while the user typed
    * inside the recency window — the caller retries after `retryAfterMs`
    * instead of competing. `activeTabId` is untouched on every refusal; only
@@ -9139,7 +9092,7 @@ export class NativeTabHost extends EventEmitter {
       // TARGET_MISSING attaches nothing, focuses nothing and touches no view —
       // there is nothing to restore, so it answers without reasserting.
       if (!target) return { ok: false, tabId: targetId, reason: 'TARGET_MISSING' };
-      if (target.state.offscreen === true || target.state.ephemeral === true) {
+      if (target.state.ephemeral === true) {
         // Refusing to present a pane must not also leave the window with no
         // view at all when an earlier transaction took the presented one away.
         this.reassertPresentedView();
@@ -9387,7 +9340,7 @@ export class NativeTabHost extends EventEmitter {
       try {
         if (plane === 'user' && this.activeTabId && this.tabs.has(this.activeTabId)) {
           const fallbackTab = this.tabs.get(this.activeTabId);
-          if (fallbackTab?.view && !fallbackTab.state.offscreen && !fallbackTab.state.ephemeral) {
+          if (fallbackTab?.view && !fallbackTab.state.ephemeral) {
             this.attachTabView(fallbackTab.view, false);
           }
         }
@@ -9413,13 +9366,11 @@ export class NativeTabHost extends EventEmitter {
   }
 
   /**
-   * Whether Chromium may throttle a tab's panes. Offscreen agent tabs must keep painting so
-   * capturePage always has a fresh compositor frame. Otherwise only the presented tab and a tab
+   * Whether Chromium may throttle a tab's panes. Only the presented tab and a tab
    * an agent is operating on (RT-02 in-flight exemption) run unthrottled; once the agent goes
    * idle the tab is throttled again to conserve CPU/RAM.
    */
   private backgroundThrottlingFor(id: string, tab: NativeTabRecord): boolean {
-    if (tab.state.offscreen === true) return false;
     const isAgentWorking = tab.state.aiState === 'agent_working' || (this.automationHost?.agentWorkingRefs.get(id) || 0) > 0;
     return id !== this.activeTabId && !isAgentWorking;
   }
@@ -9541,7 +9492,7 @@ export class NativeTabHost extends EventEmitter {
     // Guarded like targetOperationOwners above: partially constructed hosts
     // (Object.create without field initializers) may lack this map.
     this.ownedReloadTokens?.delete(tabId);
-    const isAgent = target.state.ephemeral === true || target.state.offscreen === true;
+    const isAgent = target.state.ephemeral === true;
     if (!isAgent && target.state.url && target.state.url !== 'about:blank') {
       this.recentlyClosedTabs.push({ url: target.state.url, title: target.state.title || 'Tab' });
       if (this.recentlyClosedTabs.length > 20) this.recentlyClosedTabs.shift();
@@ -9632,7 +9583,7 @@ export class NativeTabHost extends EventEmitter {
       const scopedProject = this.windowOwnerKey() === WEB_OWNER_KEY ? this.activeProjectId : null;
       const userTabs = this.tabOrder.filter((id) => {
         const t = this.tabs.get(id);
-        if (!t || t.state.ephemeral === true || t.state.offscreen === true) return false;
+        if (!t || t.state.ephemeral === true) return false;
         if (!scopedProject) return true;
         const stamp = typeof t.projectId === 'string' && t.projectId ? t.projectId : null;
         return stamp === null || stamp === scopedProject;
@@ -9670,7 +9621,7 @@ export class NativeTabHost extends EventEmitter {
    * `closeTab` — before the failover/refill tail can mint a replacement — and once per
    * tab inside `disposeChildViewContents`, which is the removal path that bypasses
    * `closeTab` entirely. `source` names the caller that drove the removal (toolbar,
-   * MCP, bridge, reap sweep, authorized close attempt, host dispose, ...); callers that
+   * MCP, bridge, authorized close attempt, host dispose, ...); callers that
    * pass nothing degrade to 'unspecified' rather than to silence. `urlOrigin` carries
    * the page's origin only for http(s) URLs — same privacy convention as the
    * diagnostics query-stripping; capsuleId/projectId carry the attribution.
@@ -9686,7 +9637,6 @@ export class NativeTabHost extends EventEmitter {
       tabId,
       source,
       ephemeral: target.state.ephemeral === true,
-      offscreen: target.state.offscreen === true,
       capsuleId: target.state.capsuleId,
       projectId: target.projectId,
       urlOrigin,
@@ -9997,13 +9947,13 @@ export class NativeTabHost extends EventEmitter {
 
   /**
    * The visible member-page snapshot a close attempt takes BEFORE it destroys anything:
-   * this shell's presented tabs in strip order, excluding the offscreen/ephemeral
+   * this shell's presented tabs in strip order, excluding ephemeral
    * agent-plane views that `auxiliaryViewTabIds()` reports separately.
    */
   public visibleMemberTabIds(): string[] {
     if (this.isDisposed || !this.tabs) return [];
     const isMember = (tab: NativeTabRecord | undefined): boolean =>
-      Boolean(tab && tab.state.ephemeral !== true && tab.state.offscreen !== true);
+      Boolean(tab && tab.state.ephemeral !== true);
     const members: string[] = [];
     for (const id of this.tabOrder ?? []) {
       if (members.includes(id) || !isMember(this.tabs.get(id))) continue;
@@ -10020,7 +9970,7 @@ export class NativeTabHost extends EventEmitter {
   }
 
   /**
-   * The auxiliary views this host owns: offscreen and ephemeral agent-plane tabs. They
+   * The auxiliary views this host owns: ephemeral agent-plane tabs. They
    * are deliberately outside `visibleMemberTabIds()` — no project snapshot may claim
    * them — but they hold live renderers and can carry in-flight work, so an
    * application-scope busy check must still see them.
@@ -10029,7 +9979,7 @@ export class NativeTabHost extends EventEmitter {
     if (this.isDisposed || !this.tabs) return [];
     const ids: string[] = [];
     for (const [id, tab] of this.tabs) {
-      if (tab.state.ephemeral === true || tab.state.offscreen === true) ids.push(id);
+      if (tab.state.ephemeral === true) ids.push(id);
     }
     return ids;
   }
@@ -10123,78 +10073,11 @@ export class NativeTabHost extends EventEmitter {
     return bound;
   }
 
-  /** Ensure the agent-tab reap sweep timer exists (created lazily, `unref`'d). */
-  public ensureAgentTabReapSweep(): void {
-    if (this.isDisposed || this.agentTabReapSweepTimer) return;
-    this.agentTabReapSweepTimer = setInterval(() => {
-      this.runAgentTabReapSweep().catch((err) => {
-        console.warn('[native-tab-host] agent-tab reap sweep failed:', err);
-      });
-    }, AGENT_TAB_REAP_SWEEP_INTERVAL_MS);
-    this.agentTabReapSweepTimer.unref?.();
-  }
-
-  /** Test seam: narrow the reap idle threshold without touching production policy. */
-  public setAgentTabReapIdleMsForTesting(idleMs: number): void {
-    if (typeof idleMs === 'number' && idleMs > 0) this.agentTabReapIdleMs = idleMs;
-  }
-
-  /**
-   * Tab ids claimed by live authority, recomputed per call: ACTIVE attachment
-   * records only (tabId, browserTarget.tabId, allowedTabIds, and each anchor's
-   * managed pool) plus every non-tombstoned terminal affinity's primary/managed
-   * tabs. The process-global `automationTabId` is deliberately NOT a claim —
-   * it is ambient bookkeeping, not authority. Returns `null` when the registry
-   * read fails: reaping on incomplete ownership data could close tabs a live
-   * caller still drives, so callers must skip the pass.
-   */
-  private agentTabClaimedIds(): Set<string> | null {
-    const claimed = new Set<string>();
-    const registry = this.controlPlane?.runs?.attachments;
-    if (!registry || typeof registry.getActiveRecordIds !== 'function' || typeof registry.getRecord !== 'function') return null;
-    {
-      try {
-        for (const attachmentId of registry.getActiveRecordIds()) {
-          const rec = registry.getRecord?.(attachmentId);
-          // getActiveRecordIds includes expired records kept for retention; only
-          // a live attachment claims tabs.
-          if (!rec) return null;
-          if (rec.state !== 'active') continue;
-          const anchors = [rec.tabId, rec.browserTarget?.tabId];
-          for (const anchor of anchors) {
-            if (typeof anchor === 'string' && anchor) {
-              claimed.add(anchor);
-              for (const managed of this.getManagedTabIdsForBoundTab(anchor)) claimed.add(managed);
-            }
-          }
-        }
-      } catch {
-        return null;
-      }
-    }
-    for (const entry of this.terminalAgentAffinity.values()) {
-      if (entry.closedAt !== undefined) continue;
-      if (entry.primaryTabId) claimed.add(entry.primaryTabId);
-      for (const managed of entry.managedTabIds ?? []) claimed.add(managed);
-    }
-    return claimed;
-  }
-
-  /**
-   * Whether any live authority currently claims `tabId` — used by the dispose
-   * listener to decide which managed children survive an attachment's end.
-   * A registry read failure counts as claimed (fail closed).
-   */
-  public isAgentTabClaimed(tabId: string): boolean {
-    const claimed = this.agentTabClaimedIds();
-    return claimed === null || claimed.has(tabId);
-  }
-
   /**
    * Stamp agent activity on `tabId`. Called by the three target-resolution
    * funnels (control-port resolveTargetTab, automation-host
-   * resolveAutomationTargetId, bridge resolveDirectRpcTargetTab) so a
-   * live-but-unclaimed automation tab is never mistaken for an orphan.
+   * resolveAutomationTargetId, bridge resolveDirectRpcTargetTab); surfaced in
+   * `tabhost.tabClosed` telemetry.
    */
   public noteAgentTabActivity(tabId?: string): void {
     if (!tabId) return;
@@ -10202,48 +10085,6 @@ export class NativeTabHost extends EventEmitter {
     if (tab) tab.agentActivityAt = Date.now();
   }
 
-  /**
-   * One reap pass: close every offscreen tab that no live authority claims and
-   * whose agent activity is older than the idle threshold. `closeTab` performs
-   * all teardown (nulls `automationTabId`, tombstones affinity, strips pools)
-   * so a reaped tab self-heals: the next ambient call re-mints cleanly.
-   */
-  private async runAgentTabReapSweep(): Promise<void> {
-    if (this.isDisposed) return;
-    const claimed = this.agentTabClaimedIds();
-    // Fail closed: a probe error means ownership data is incomplete; closing on a
-    // partial claim set could destroy tabs a live caller still drives.
-    if (claimed === null) return;
-    const working = new Set<string>();
-    for (const [tabId, count] of this.automationHost?.agentWorkingRefs ?? []) {
-      if (count > 0) working.add(tabId);
-    }
-    const reserved = new Set<string>();
-    for (const [id, tab] of this.tabs.entries()) {
-      if (tab.state.offscreen === true && this.isPageReservedForClose(id)) reserved.add(id);
-    }
-    const ctx: ReapingContext = {
-      claimedTabIds: claimed,
-      agentWorkingTabIds: working,
-      reservedForCloseTabIds: reserved,
-      now: Date.now(),
-      idleMs: this.agentTabReapIdleMs,
-    };
-    for (const [id, tab] of [...this.tabs.entries()]) {
-      const decision = shouldReapAgentTab(
-        { id, state: tab.state, lastActiveAt: tab.lastActiveAt, agentActivityAt: tab.agentActivityAt },
-        ctx
-      );
-      if (!decision.reap) continue;
-      recordLifecycleEvent('tabhost.agentTabReaped', {
-        tabId: id,
-        url: tab.state.url,
-        lastActiveAt: tab.lastActiveAt,
-        agentActivityAt: tab.agentActivityAt,
-      });
-      this.closeTab(id, 'agent-reap');
-    }
-  }
 
   /**
    * Tab ids with an open debugger/CDP session or open DevTools UI. The devtools
@@ -10417,14 +10258,7 @@ export class NativeTabHost extends EventEmitter {
     try { this.destroyOwnedWebContents(target.view?.webContents); } catch {}
     if (target.view?.webContents) this.tabByWebContents?.delete(target.view.webContents);
     const view = new WebContentsView({
-      // A recreated OSR tab must stay OSR: minting a windowed view for a record
-      // whose state still says offscreen would produce a view the never-attach
-      // guard refuses to lay out AND whose compositor only ticks when attached —
-      // dead either way. The mint flags are part of the record's identity.
-      webPreferences: getSecureWebPreferences(target.state.partition, {
-        offscreen: target.state.offscreen === true,
-        backgroundThrottling: target.state.offscreen === true ? false : undefined,
-      }),
+      webPreferences: getSecureWebPreferences(target.state.partition),
     });
     try { view.setBackgroundColor('#ffffff'); } catch {}
     target.state.crashed = false;
@@ -10432,16 +10266,6 @@ export class NativeTabHost extends EventEmitter {
     this.setupTabWebContentsEvents(targetId, view, target.state, 'desktop');
     this.tabByWebContents?.set(view.webContents, { tabId: targetId, tab: target });
     target.view = view;
-    if (target.state.offscreen === true) {
-      // Re-arm the surface emulation on the fresh renderer. It defers to
-      // did-finish-load when no document is committed, so about:blank records
-      // need a materialized document for the deferral to ever fire — the same
-      // reason createTab loads 'about:blank' at mint.
-      this.applyOffscreenSurfaceEmulation(target);
-      if ((!target.state.url || target.state.url === 'about:blank') && !target.state.isLoading) {
-        try { view.webContents.loadURL('about:blank').catch(() => {}); } catch {}
-      }
-    }
     return view;
   }
 
@@ -10555,14 +10379,6 @@ export class NativeTabHost extends EventEmitter {
     if (tab.state.hibernated === true || !tab.view || tab.view.webContents?.isDestroyed?.()) {
       this.ensureTabAwake(tabId);
     }
-    // A wake rebuilt the renderer on an offscreen tab: the metrics override lives
-    // on the old WebContents, so the emulation is re-armed here (and inside
-    // recreateDesktopView) rather than left to whoever next reads the surface.
-    // Direct application is safe now — wake materialized a document — and a no-op
-    // on an awake tab whose emulation already stands.
-    if (tab.state.offscreen === true) {
-      try { this.applyOffscreenSurfaceEmulation(tab); } catch {}
-    }
     const wc = this.tabs.get(tabId)?.view?.webContents;
     if (!wc || wc.isDestroyed()) return false;
     if (!tab.state.isLoading) return true;
@@ -10661,7 +10477,7 @@ export class NativeTabHost extends EventEmitter {
     const admission = this.closeAdmission;
     if (!admission || typeof admission.beginAdmittedOperation !== 'function') return () => {};
     // Attributed to the page AND to this window's owner. A page count alone is invisible to a
-    // shell question when the target is an offscreen or ephemeral tab: those are not member
+    // shell question when the target is an ephemeral tab: those are not member
     // pages, so a window close would destroy the tab mid-action and still measure as idle.
     const release = admission.beginAdmittedOperation(
       target ? [target] : undefined,
@@ -10711,7 +10527,7 @@ export class NativeTabHost extends EventEmitter {
     const toClose = this.tabOrder.filter((id) => id !== tabId);
     for (const id of toClose) {
       const tab = this.tabs.get(id);
-      if (tab && (tab.state.ephemeral === true || tab.state.offscreen === true)) continue;
+      if (tab && tab.state.ephemeral === true) continue;
       this.closeTab(id, 'user-close-other');
     }
   }
@@ -10722,7 +10538,7 @@ export class NativeTabHost extends EventEmitter {
     const toClose = this.tabOrder.slice(idx + 1);
     for (const id of toClose) {
       const tab = this.tabs.get(id);
-      if (tab && (tab.state.ephemeral === true || tab.state.offscreen === true)) continue;
+      if (tab && tab.state.ephemeral === true) continue;
       this.closeTab(id, 'user-close-right');
     }
   }
@@ -11379,9 +11195,6 @@ export class NativeTabHost extends EventEmitter {
   ): void {
     if (!tab || !tab.view) return;
     if (tab.view.webContents.isDestroyed()) return;
-    // An OSR tab's surface is the metrics override, never the view's bounds:
-    // the view is never attached, and a detached setBounds lays nothing out.
-    const isOffscreenSurface = tab.state.offscreen === true;
 
     try {
       // Case A: Split Review Mode (Desktop + Mobile Paired WebContentsViews)
@@ -11489,13 +11302,13 @@ export class NativeTabHost extends EventEmitter {
         const fitScale = Math.min(1.0, maxW / preset.width, maxH / preset.height);
         // Fitting a preset into the window is a preview affordance for the tab the user
         // is looking at. Two kinds of target must render at exactly the viewport they
-        // were asked for instead: an agent-plane tab, which renders offscreen at its own
-        // size, and any tab that is not the active one, which is measured and captured
+        // were asked for instead: an agent-plane tab, and any tab that is not the active
+        // one, which is measured and captured
         // by a caller that requested an exact CSS viewport. Measured before this rule:
         // a 1440x900 request on a background tab laid the document out at 1186 CSS px
         // (window 1186 wide) and a 390x844 request at 342, while the capture rasterized
         // the requested size — the tab reported a viewport it never had.
-        const isAgentPlane = tab.state.ephemeral === true || tab.state.offscreen === true;
+        const isAgentPlane = tab.state.ephemeral === true;
         const rendersExactly = isAgentPlane || tab.state.id !== this.activeTabId;
         const renderScale = Math.max(0.1, Math.min(5.0, rendersExactly ? userZoom : fitScale * userZoom));
         const renderedW = Math.round(preset.width * renderScale);
@@ -11543,14 +11356,12 @@ export class NativeTabHost extends EventEmitter {
         const boundsW = renderedW;
         const boundsH = renderedH;
         try {
-          if (!isOffscreenSurface) {
-            tab.view.setBounds({
-              x: targetX,
-              y: targetY,
-              width: boundsW,
-              height: boundsH,
-            });
-          }
+          tab.view.setBounds({
+            x: targetX,
+            y: targetY,
+            width: boundsW,
+            height: boundsH,
+          });
         } catch {}
       } else {
         this.applyDeviceCornerClipping(tab.view.webContents, 0);
@@ -11566,14 +11377,12 @@ export class NativeTabHost extends EventEmitter {
           }
         } catch {}
         try {
-          if (!isOffscreenSurface) {
-            tab.view.setBounds({
-              x: 0,
-              y: toolbarHeight,
-              width: availableWidth,
-              height: availableHeight,
-            });
-          }
+          tab.view.setBounds({
+            x: 0,
+            y: toolbarHeight,
+            width: availableWidth,
+            height: availableHeight,
+          });
         } catch {}
       }
     } catch (err) {
@@ -13355,7 +13164,6 @@ export class NativeTabHost extends EventEmitter {
       managedTabIds: managedArr,
       status,
       lastUrl: entry.lastUrl,
-      isOffscreen: primaryTab?.state.offscreen === true,
       isEphemeral: primaryTab?.state.ephemeral === true,
       title: primaryTab?.state.title,
       url: primaryTab?.state.url,
@@ -14226,7 +14034,7 @@ export class NativeTabHost extends EventEmitter {
     const tabList = this.tabOrder.map((id) => {
       const tab = this.tabs.get(id);
       if (!tab) return null;
-      if (tab.state.ephemeral === true || tab.state.offscreen === true) return null;
+      if (tab.state.ephemeral === true) return null;
       // projectId lives on the record, not on AntiFanTab, so the sanitize/migrate
       // whitelist never sees it: merge it onto the serialized row here and read it back
       // verbatim in restoreTabs. Optional field — absent means "minted outside a project".
@@ -14246,7 +14054,7 @@ export class NativeTabHost extends EventEmitter {
       const isAgentTabId = (id?: string) => {
         if (!id) return false;
         const t = this.tabs.get(id);
-        return t ? (t.state.ephemeral === true || t.state.offscreen === true) : false;
+        return t ? t.state.ephemeral === true : false;
       };
 
       const seenTerminals = new Set<string>();
@@ -14278,7 +14086,7 @@ export class NativeTabHost extends EventEmitter {
     let persistedActiveTabId: string | undefined = this.activeTabId;
     if (persistedActiveTabId) {
       const activeTab = this.tabs.get(persistedActiveTabId);
-      if (!activeTab || activeTab.state.ephemeral === true || activeTab.state.offscreen === true) {
+      if (!activeTab || activeTab.state.ephemeral === true) {
         persistedActiveTabId = undefined;
       }
     }
@@ -14360,7 +14168,10 @@ export class NativeTabHost extends EventEmitter {
     }
     this.isPersistingTabs = true;
     try {
+      const maxMergeAttempts = 5;
+      let mergeAttempts = 0;
       do {
+        mergeAttempts += 1;
         this.hasPendingPersist = false;
         const filePath = this.getTabsStoragePath();
         const data = this.buildPersistData();
@@ -14368,19 +14179,35 @@ export class NativeTabHost extends EventEmitter {
         if (this.persistProjectionIsUnchanged(filePath, serialized)) {
           continue;
         }
-        await enqueueSavedTabsWrite(filePath, async () => {
-          // Merge and swap in ONE uninterrupted synchronous step. The read has to see what
-          // another window wrote since this window last looked, and the rename has to happen
-          // before anyone else reads — an await between the two lets a synchronous writer (a
-          // closing window's disposal persist, which cannot enter this chain) land its newer
-          // record in the gap, and this task would then rename an older snapshot over it.
+        const swapped = await enqueueSavedTabsWrite(filePath, async () => {
+          // The read has to see what another window wrote since this window last looked.
           // `data` was captured when this task was QUEUED; if the host was disposed while it
           // waited (another write interleaved), the teardown's parked persistSync already wrote
           // the final record — writing stale captured data now would truncate it.
-          if (this.isDisposed) return;
+          if (this.isDisposed) return false;
+          // Snapshot BEFORE the read: a swap that lands while the read is in progress
+          // or during the off-thread byte write must both invalidate this merge.
+          const version = currentSavedTabsWriteVersion();
           const existing = this.normalizeSavedTabsFileForMerge(filePath);
-          this.writeSavedTabsDocumentSync(filePath, this.buildSavedTabsDocument(existing, data));
+          // The byte write happens off the main thread. A synchronous writer (a closing
+          // window's disposal persist, which cannot enter this chain) may land a newer
+          // record while it runs; the version snapshot taken with the merge detects that
+          // and the stale projection is discarded instead of renamed over the newer one.
+          return writeSavedTabsDocumentAsync(filePath, this.buildSavedTabsDocument(existing, data), version);
         });
+        if (!swapped) {
+          // Discarded: re-merge against the newer document on the next pass.
+          if (!this.isDisposed) {
+            this.hasPendingPersist = true;
+            if (mergeAttempts >= maxMergeAttempts) {
+              console.warn(
+                `[native-tab-host] Persist tabs async exceeded max merge attempts (${maxMergeAttempts}); deferring to next persist trigger`
+              );
+              break;
+            }
+          }
+          continue;
+        }
         this.notePersistedProjection(filePath, serialized);
         console.log('[native-tab-host] Persisted tabs async to:', filePath);
       } while (this.hasPendingPersist && !this.isDisposed);
@@ -14553,7 +14380,7 @@ export class NativeTabHost extends EventEmitter {
           // Identify target active tab ID from persisted session
           let targetActiveOldId = typeof record.activeTabId === 'string' ? record.activeTabId : undefined;
           if (!targetActiveOldId || !restorableTabs.some((t) => t && (t.id === targetActiveOldId || (t.state as Record<string, unknown> | undefined)?.id === targetActiveOldId))) {
-            const firstValid = restorableTabs.find((t) => t && !t.ephemeral && !t.offscreen);
+            const firstValid = restorableTabs.find((t) => t && !t.ephemeral);
             if (firstValid && typeof firstValid.id === 'string') {
               targetActiveOldId = firstValid.id;
             }
@@ -14592,7 +14419,7 @@ export class NativeTabHost extends EventEmitter {
             this.createTab(fallbackUrl || 'https://www.google.com');
           } else if (restoredActiveId && this.tabs.has(restoredActiveId)) {
             const activeCandidate = this.tabs.get(restoredActiveId);
-            if (activeCandidate && activeCandidate.state.ephemeral !== true && activeCandidate.state.offscreen !== true) {
+            if (activeCandidate && activeCandidate.state.ephemeral !== true) {
               this.switchTab(restoredActiveId, { plane: 'user' });
             } else if (this.tabOrder.length > 0) {
               this.switchTab(this.tabOrder[0]!, { plane: 'user' });
@@ -14634,8 +14461,8 @@ export class NativeTabHost extends EventEmitter {
     // Persisted entries were written from AntiFanTab states, and migratePersistedTab
     // re-validates every field it reads, so the shape assertion ends at this call.
     const migrated = migratePersistedTab(rawTab as Partial<AntiFanTab>);
-    if (rawTab.ephemeral === true || rawTab.offscreen === true) return null;
-    if (migrated.ephemeral === true || migrated.offscreen === true) return null;
+    if (rawTab.ephemeral === true) return null;
+    if (migrated.ephemeral === true) return null;
     const sourceIds: string[] = [];
     const rawId = typeof rawTab.id === 'string' ? rawTab.id : undefined;
     if (rawId) sourceIds.push(rawId);
@@ -15275,7 +15102,7 @@ export class NativeTabHost extends EventEmitter {
           };
         })()`).catch((err: unknown) => ({ error: String(err) }));
 
-        const timeoutPromise = new Promise<{ timeout: boolean }>((resolve) => setTimeout(() => resolve({ timeout: true }), 1500));
+        const timeoutPromise = new Promise<{ timeout: boolean }>((resolve) => setTimeout(() => resolve({ timeout: true }), 5000));
         const evaluation = await Promise.race([evalPromise, timeoutPromise]);
 
         results[bp.id] = {
@@ -15297,12 +15124,7 @@ export class NativeTabHost extends EventEmitter {
         // restoration the visible-tab path always used.
         try {
           await this.applyCdpDeviceEmulationState(wc, null);
-          if (tab.state.offscreen === true) {
-            // Neither restore path below reaches an OSR tab: updateLayout skips
-            // it and setDevicePreset only re-lays-out the presented pane. Its
-            // surface is the override itself — clear it and nothing re-arms it.
-            this.applyOffscreenSurfaceEmulation(tab);
-          } else if (previousPreset && previousPreset !== 'responsive') {
+          if (previousPreset && previousPreset !== 'responsive') {
             this.setDevicePreset(targetId, previousPreset);
           } else {
             this.updateLayout();
@@ -15434,20 +15256,6 @@ export class NativeTabHost extends EventEmitter {
       }
       return true;
     };
-    if (tab.state.offscreen === true) {
-      // An OSR surface is sized by the metrics override alone: it is never
-      // attached, so the window content box is not its layout basis (the
-      // VIEWPORT_NOT_APPLIED window-unmeasurable refusal does not apply) and the
-      // temporary attach this method otherwise runs is forbidden by the
-      // never-attach invariant. The requested size is already on customViewport,
-      // which applyTabDeviceEmulation renders exactly at scale 1 for the
-      // agent plane. applyForTarget still runs: it dispatches the resize events
-      // the page's listeners need and honours a requested reload.
-      this.applyTabDeviceEmulation(tab, w, h, 0);
-      const applied = await applyForTarget();
-      this.broadcastState();
-      return applied;
-    }
     if (targetId === this.activeTabId) {
       this.updateLayout();
     } else {
@@ -15713,10 +15521,6 @@ export class NativeTabHost extends EventEmitter {
     if (this.hibernationSweepTimer) {
       clearInterval(this.hibernationSweepTimer);
       this.hibernationSweepTimer = null;
-    }
-    if (this.agentTabReapSweepTimer) {
-      clearInterval(this.agentTabReapSweepTimer);
-      this.agentTabReapSweepTimer = null;
     }
     // A queued wake-and-wait must not hold a disposed host's promise open.
     this.tabReadyWaits?.clear();

@@ -20,7 +20,7 @@
  *   M4  dead-tab recovery — closing the anchor degrades dispatches closed (typed,
  *       no UNAUTHENTICATED deadlock), tabs.list still answers, and browser.open-tab
  *       re-provisions the session (Phase 1).
- *   M5  the minted anchor is offscreen; browser.screenshot returns pixels without a
+ *   M5  the minted anchor renders without a foreground switch; browser.screenshot returns pixels without a
  *       foreground switch and the journal carries no capture.raster timeout (Phase 3).
  *   M6  annotation routing — with the hub presenting B, a pick on A's tab naming
  *       sessionB writes to B's PTY only; naming sessionA is foreign-refused and
@@ -330,8 +330,8 @@ async function runRestart() {
 
 /** Leg 1 tail: cold-restart leg 2 against this run's persisted state. */
 async function runColdRestartLeg(authority, hubHost) {
-  // The persisted strip is the fixture of record: mint one ordinary (non-ephemeral,
-  // non-offscreen) page tab right before persisting so leg 2's restore check has a
+  // The persisted strip is the fixture of record: mint one ordinary (non-ephemeral)
+  // page tab right before persisting so leg 2's restore check has a
   // deterministic target independent of how many probe tabs the run above closed.
   hubHost.createTab(`http://127.0.0.1:1/restart-fixture`, true);
   try { hubHost.persistSync(); } catch {}
@@ -578,12 +578,13 @@ async function run() {
     expect(/TARGET|REFUS|FORBIDDEN|DENIED|MISMATCH|SCOPE|TAB/i.test(String(code)), `no typed refusal: ${JSON.stringify(cross.error)}`);
   });
 
-  // ---- offscreen render surface (M5) -------------------------------------------
+  // ---- background render surface (M5) -------------------------------------------
   const rasterMark = journalMark();
   const shotRes = await dispatchOnSocket(socketA, sessionAgentA, 'browser.screenshot', { format: 'png' });
   observations.screenshot = { success: shotRes.success, byteLength: shotRes.data && shotRes.data.data && shotRes.data.data.byteLength, artifactRef: shotRes.data && shotRes.data.data && shotRes.data.data.artifactRef, error: shotRes.error };
-  await check('the offscreen anchor renders without a foreground switch (M5)', () => {
-    expect(hubHost.isTabOffscreen(anchorA) === true, `isTabOffscreen(${anchorA}) was ${hubHost.isTabOffscreen(anchorA)}`);
+  await check('the background anchor renders without a foreground switch (M5)', () => {
+    expect(hubHost.hasTab(anchorA) === true, `hasTab(${anchorA}) was false`);
+    expect(hubHost.getActiveTabId() !== anchorA, `anchorA was unexpectedly active`);
     expect(shotRes.success === true, `browser.screenshot failed: ${JSON.stringify(shotRes.error)}`);
     // Bridge respond() wraps the port's payload once more: data = {data: envelope, requestId, ...}.
     // The port persists pixels to the artifact store; the wire envelope carries

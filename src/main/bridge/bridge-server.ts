@@ -736,7 +736,7 @@ export class BridgeServer {
       }
     }
 
-    const needed = Math.max(0, 3 - activeCount);
+    const needed = Math.max(0, 16 - activeCount);
     const itemsToWrite: Array<{ targetPath: string; content: string }> = [];
     for (let i = 0; i < needed; i++) {
       const pairing = this.issuePairingCode({
@@ -2583,6 +2583,11 @@ export class BridgeServer {
             respond(false, undefined, 'Control plane runtime is not available');
             break;
           }
+          // Tabs this call minted, plus the affinity it bound: a failure anywhere
+          // below closes exactly these so a refused session leaves no tab behind.
+          const mintedTabs: Array<{ id: string; host: NativeTabHost }> = [];
+          let boundAffinityTerminalId: string | undefined;
+          let boundAffinityHost: NativeTabHost | undefined;
           try {
             // Hoisted: the terminal id both steers tab selection below and stamps the
             // minted attachment's origin so the control plane scopes it to the
@@ -2645,11 +2650,6 @@ export class BridgeServer {
                 if (!tabId) {
                   const currentAutoTab = typeof sessionHost.getAutomationTabId === 'function' ? sessionHost.getAutomationTabId() : undefined;
                   if (currentAutoTab && this.hostTabExists(currentAutoTab, sessionHost)) {
-                    const isOffscreen = typeof sessionHost.isTabOffscreen === 'function' && sessionHost.isTabOffscreen(currentAutoTab);
-                    const tabList = typeof sessionHost.getTabList === 'function' ? sessionHost.getTabList() : [];
-                    const tabRecord = tabList.find((t) => t && t.id === currentAutoTab);
-                    const isAgentOffscreenOrEphemeral = Boolean(isOffscreen || tabRecord?.offscreen || tabRecord?.ephemeral);
-
                     const targetAttachmentId = typeof p.attachmentId === 'string' && p.attachmentId.trim() ? p.attachmentId.trim() : boundAttachmentId;
                     const registry = this.attachmentRegistry || this.controlPlaneRuntime?.runs?.attachments;
                     const attachmentRecord = targetAttachmentId && registry ? registry.getRecord(targetAttachmentId) : undefined;
@@ -2657,7 +2657,7 @@ export class BridgeServer {
                       attachmentRecord && (attachmentRecord.tabId === currentAutoTab || attachmentRecord.browserTarget?.tabId === currentAutoTab)
                     );
 
-                    if (isAgentOffscreenOrEphemeral && belongsToThisAttachment) {
+                    if (belongsToThisAttachment) {
                       tabId = currentAutoTab;
                       if (typeof sessionHost.bindTerminalAgentAffinity === 'function') {
                         sessionHost.bindTerminalAgentAffinity(terminalSessionId, terminalGen, currentAutoTab);
@@ -2670,13 +2670,14 @@ export class BridgeServer {
                   // The anchor is minted on the terminal's owning window and stamped with
                   // the terminal's capsule — the ambient capsule is never a substitute.
                   tabId = sessionHost.createTab('about:blank', wantsVisibleTab, {
-                    offscreen: !wantsVisibleTab,
-                    ephemeral: !wantsVisibleTab,
                     plane: wantsVisibleTab ? 'user' : 'agent',
                     ...(mintTarget?.capsuleId ? { capsuleId: mintTarget.capsuleId } : {}),
                   });
+                  mintedTabs.push({ id: tabId, host: sessionHost });
                   if (typeof sessionHost.bindTerminalAgentAffinity === 'function') {
                     sessionHost.bindTerminalAgentAffinity(terminalSessionId, terminalGen, tabId);
+                    boundAffinityTerminalId = terminalSessionId;
+                    boundAffinityHost = sessionHost;
                   }
                 }
               } else {
@@ -2685,7 +2686,7 @@ export class BridgeServer {
                 // NEVER fall back to another session's global automation target
                 // (previous reuse of getAutomationTabId() made session B latch onto
                 // session A's tab, clobbering the bound invocation). If there is no
-                // owned live tab, provision a dedicated offscreen/ephemeral agent tab
+                // owned live tab, provision a dedicated agent tab
                 // immediately (never inspect activeTabId / foreground).
                 const targetAttachmentId = typeof p.attachmentId === 'string' && p.attachmentId.trim() ? p.attachmentId.trim() : boundAttachmentId;
                 const ownTabId = this.boundTabIdFor(targetAttachmentId);
@@ -2698,11 +2699,10 @@ export class BridgeServer {
                   mintTarget = this.resolveMintTarget({ projectId: requestProjectId });
                   const mintHost = mintTarget?.host ?? this.tabHost;
                   tabId = mintHost.createTab('about:blank', wantsVisibleTab, {
-                    offscreen: !wantsVisibleTab,
-                    ephemeral: !wantsVisibleTab,
                     plane: wantsVisibleTab ? 'user' : 'agent',
                     ...(mintTarget?.capsuleId ? { capsuleId: mintTarget.capsuleId } : {}),
                   });
+                  mintedTabs.push({ id: tabId, host: mintHost });
                 }
               }
             }
@@ -2769,14 +2769,32 @@ export class BridgeServer {
                 if (typeof sessionHost.releaseSessionTabPool === 'function') {
                   sessionHost.releaseSessionTabPool(terminalSessionId);
                 }
+                const prevMintedIndex = mintedTabs.findIndex((m) => m.id === tabId);
+                if (prevMintedIndex >= 0) {
+                  const prevMinted = mintedTabs[prevMintedIndex]!;
+                  mintedTabs.splice(prevMintedIndex, 1);
+                  try {
+                    if (typeof prevMinted.host.closeTab === 'function') {
+                      prevMinted.host.closeTab(prevMinted.id, 'agent-mint-rollback');
+                    }
+                  } catch (e) {
+                    console.warn(`[antifan] Failed to close replaced minted tab ${prevMinted.id}`, e);
+                  }
+                  try {
+                    if (typeof prevMinted.host.tombstoneTerminalAgentAffinity === 'function') {
+                      prevMinted.host.tombstoneTerminalAgentAffinity(prevMinted.id);
+                    }
+                  } catch {}
+                }
                 tabId = sessionHost.createTab('about:blank', wantsVisibleTab, {
-                  offscreen: !wantsVisibleTab,
-                  ephemeral: !wantsVisibleTab,
                   plane: wantsVisibleTab ? 'user' : 'agent',
                   ...(mintTarget?.capsuleId ? { capsuleId: mintTarget.capsuleId } : {}),
                 });
+                mintedTabs.push({ id: tabId, host: sessionHost });
                 if (typeof sessionHost.bindTerminalAgentAffinity === 'function') {
                   sessionHost.bindTerminalAgentAffinity(terminalSessionId, terminalGen, tabId);
+                  boundAffinityTerminalId = terminalSessionId;
+                  boundAffinityHost = sessionHost;
                 }
                 if (!tabId || !this.hostTabExists(tabId, sessionHost)) {
                   throw new Error(`TAB_NOT_FOUND: no live agent tab is available for this session (tabId '${tabId || 'none provisioned'}')`);
@@ -2842,6 +2860,27 @@ export class BridgeServer {
               runtimePid: process.pid,
             });
           } catch (err: unknown) {
+            for (const minted of mintedTabs) {
+              try {
+                if (typeof minted.host.closeTab === 'function') {
+                  minted.host.closeTab(minted.id, 'agent-mint-rollback');
+                }
+              } catch (e) {
+                console.warn(`[antifan] startSession rollback: failed to close minted tab ${minted.id}`, e);
+              }
+              try {
+                if (typeof minted.host.tombstoneTerminalAgentAffinity === 'function') {
+                  minted.host.tombstoneTerminalAgentAffinity(minted.id);
+                }
+              } catch {}
+            }
+            if (boundAffinityTerminalId && boundAffinityHost) {
+              try {
+                if (typeof boundAffinityHost.releaseSessionTabPool === 'function') {
+                  boundAffinityHost.releaseSessionTabPool(boundAffinityTerminalId);
+                }
+              } catch {}
+            }
             const errorMsg = err instanceof Error ? err.message : String(err);
             respond(false, undefined, errorMsg);
           }
@@ -2969,15 +3008,7 @@ export class BridgeServer {
           this.assertApplicationAdmitsWork('antifan.openTab');
           const isAgentCaller = Boolean(boundAttachmentId || p.attachmentId);
           const activate = Boolean(p.activate ?? false);
-          // Asking to activate a tab means the tab must exist on screen: an
-          // offscreen/ephemeral surface cannot be focused, so activation opts the
-          // tab into the visible plane instead of silently creating a hidden one.
-          const wantsVisibleTab = p.userFacing === true || activate;
-          const isEphemeral = isAgentCaller ? (p.ephemeral !== false && !wantsVisibleTab) : Boolean(p.ephemeral);
-          // Phase 2 (step 11): agent-created tabs are dedicated offscreen surfaces so
-          // capture never foregrounds/attaches the user's visible view. Forward the
-          // offscreen option through the adapter; default offscreen for agent callers.
-          const isOffscreen = isAgentCaller ? (p.offscreen !== false && !wantsVisibleTab) : Boolean(p.offscreen);
+          const isEphemeral = Boolean(p.ephemeral === true);
           // The tab does not exist yet, so the operation is attributed to the page the caller
           // is working from: that is the page whose window owns the new tab, and the window's
           // own close is the attempt that would otherwise destroy it mid-mint.
@@ -3007,13 +3038,12 @@ export class BridgeServer {
             const mintHost = mintTarget?.host ?? this.tabHost;
             const tabId = mintHost.createTab(p.url, activate, {
               ephemeral: isEphemeral,
-              offscreen: isOffscreen,
-              ...(isAgentCaller ? { plane: 'agent' as const } : {}),
+              ...(p.userFacing === true ? { plane: 'user' as const } : isAgentCaller ? { plane: 'agent' as const } : {}),
               ...(mintTarget?.capsuleId ? { capsuleId: mintTarget.capsuleId } : {}),
             });
             // A bound session's mint must land in its session pool the same way the
             // capability path adopts (`browser-control-port.openTab`): without pool
-            // membership an ephemeral/offscreen tab is invisible to tabs.list and
+            // membership an ephemeral tab is invisible to tabs.list and
             // unreachable by session-owned reads until a rebind happens.
             if (boundTabId && typeof mintHost.adoptChildTabForBoundTab === 'function') {
               const adopted = mintHost.adoptChildTabForBoundTab(boundTabId, tabId, 'agent_spawned', boundTabId);
@@ -3717,7 +3747,7 @@ export class BridgeServer {
 
     if (typeof admission.beginAdmittedOperation !== 'function') return () => {};
     // Attributed to the page AND to its window's owner. A page count alone is invisible to a
-    // shell close when the target is an offscreen or ephemeral tab: those are not member pages
+    // shell close when the target is an ephemeral tab: those are not member pages
     // of any shell, so the window would be torn down while this operation is still in flight
     // and the close report would call it clean.
     const release = admission.beginAdmittedOperation(

@@ -739,7 +739,7 @@ describe('visualCompare canonical capture receipts (Phase 3 V-19, V-20, V-21)', 
     const evalLog: EvalLogEntry[] = [];
     const host = buildMockHost({
       evalLog,
-      captureBackendFor: (id) => (id === 'tab-a' ? 'cdp' : 'offscreen'),
+      captureBackendFor: (id) => (id === 'tab-a' ? 'cdp' : 'native'),
     });
     const port = createRoutePort(host as any);
     await assert.rejects(

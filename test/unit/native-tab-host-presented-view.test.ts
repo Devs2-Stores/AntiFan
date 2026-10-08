@@ -1,4 +1,4 @@
-import { describe, it, mock } from 'node:test';
+import { after, describe, it, mock } from 'node:test';
 import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -7,6 +7,7 @@ import { NativeTabHost, NativeTabRecord, type CaptureLiftLease } from '../../src
 import { parseBenchmarkLine } from '../../src/main/benchmark/telemetry';
 import { AntiFanTab } from '../../src/shared/contracts';
 import { createShellDouble, ShellDouble, ShellDoubleView, ShellDoubleWindow } from '../support/project-window-shell-double';
+import { lifecycleLogDrained } from '../../src/main/diagnostics/main-lifecycle-log';
 
 
 /**
@@ -25,6 +26,18 @@ import { createShellDouble, ShellDouble, ShellDoubleView, ShellDoubleWindow } fr
 const RUNTIME_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-tabhost-runtime-'));
 process.env.ANTIFAN_RUNTIME_DIR = RUNTIME_DIR;
 
+function countJournalLines(): number {
+  const logPath = path.join(RUNTIME_DIR, 'logs', 'main.log');
+  if (!fs.existsSync(logPath)) return 0;
+  return fs.readFileSync(logPath, 'utf8').split('\n').filter(Boolean).length;
+}
+
+function readJournalSince(mark: number): string {
+  const logPath = path.join(RUNTIME_DIR, 'logs', 'main.log');
+  if (!fs.existsSync(logPath)) return '';
+  const lines = fs.readFileSync(logPath, 'utf8').split('\n').filter(Boolean);
+  return lines.slice(mark).join('\n');
+}
 // Deliberately not the 1440x900 the background viewport path is known to invent, so a box
 // derived from this window can never be mistaken for a fabricated default.
 const WINDOW_CONTENT_BOX = { x: 0, y: 0, width: 1280, height: 800 };
@@ -179,9 +192,11 @@ describe('Presented view invariant', () => {
     assert.strictEqual(host.tabs.get('music').view, presented.tab.view);
   });
 
-  it('refusing to present an agent-plane tab re-attaches the presented view instead of leaving the window empty', () => {
+  it('refusing to present an agent-plane tab re-attaches the presented view instead of leaving the window empty', async () => {
+    await lifecycleLogDrained();
+    const mark = countJournalLines();
     const presented = createTestTab('tab-visible');
-    const agentTab = createTestTab('tab-agent', { offscreen: true });
+    const agentTab = createTestTab('tab-agent', { ephemeral: true });
     // The window is already empty: the state an earlier transaction in this codebase
     // used to leave behind, and the one the refusal path has to be able to recover from.
     const { host, children, emulationCalls } = createPresentedHost({
@@ -190,7 +205,7 @@ describe('Presented view invariant', () => {
       attached: [],
     });
 
-    assert.strictEqual(host.switchTab('tab-agent'), false, 'an offscreen tab must never be presented');
+    assert.strictEqual(host.switchTab('tab-agent'), false, 'an agent-plane tab must never be presented');
     assert.deepStrictEqual(children, [presented.tab.view], 'the presented tab must be back on screen after the refusal');
     assert.deepStrictEqual(
       emulationCalls,
@@ -198,7 +213,8 @@ describe('Presented view invariant', () => {
       'a view returning to a window it never had a surface in must be sized for that window'
     );
     assert.strictEqual(presented.invalidateCalls, 1, 'the view must be repainted once it is back in the window');
-    const journal = fs.readFileSync(path.join(RUNTIME_DIR, 'logs', 'main.log'), 'utf8');
+    await lifecycleLogDrained();
+    const journal = readJournalSince(mark);
     assert.ok(
       journal.includes('"event":"tabhost.presentedViewReattached"') && journal.includes('"tabId":"tab-visible"'),
       'the re-attach must be recorded in the runtime the host resolved, not appended to the live app journal'
@@ -616,7 +632,9 @@ describe('Presented view resurface after the window was out of sight', () => {
     return { recycled: () => recycled };
   }
 
-  it('regaining focus after a long absence re-presents the tab once and keeps page focus; a quick Alt+Tab does not', () => {
+  it('regaining focus after a long absence re-presents the tab once and keeps page focus; a quick Alt+Tab does not', async () => {
+    await lifecycleLogDrained();
+    const mark = countJournalLines();
     const presented = createTestTab('tab-visible');
     const { host, children } = createPresentedHost({ tabs: [presented], activeTabId: 'tab-visible', attached: [presented.tab.view] });
     Object.assign(presented.tab.view!.webContents, { isFocused: () => true });
@@ -631,14 +649,17 @@ describe('Presented view resurface after the window was out of sight', () => {
     assert.strictEqual(removals.removed(), 1, 'a long absence must drop and re-add the presented view');
     assert.deepStrictEqual(children, [presented.tab.view], 'the presented tab is back on screen after the recycle');
     assert.strictEqual(presented.focusCalls, 1, 'the page the user was typing in gets its focus back');
-    const journal = fs.readFileSync(path.join(RUNTIME_DIR, 'logs', 'main.log'), 'utf8');
+    await lifecycleLogDrained();
+    const journal = readJournalSince(mark);
     assert.match(journal, /"event":"tabhost\.presentedViewResurfaced"[^\n]*"trigger":"focus"/);
 
     host.noteWindowFocused();
     assert.strictEqual(removals.removed(), 1, 'a focus without a preceding blur re-presents nothing');
   });
 
-  it('restore followed by focus recycles once, and a minimized window is left alone', () => {
+  it('restore followed by focus recycles once, and a minimized window is left alone', async () => {
+    await lifecycleLogDrained();
+    const mark = countJournalLines();
     const presented = createTestTab('tab-visible');
     const { host, shell } = createPresentedHost({ tabs: [presented], activeTabId: 'tab-visible', attached: [presented.tab.view] });
     const removals = { removed: countRecycles(host).recycled };
@@ -652,7 +673,8 @@ describe('Presented view resurface after the window was out of sight', () => {
     host.windowBlurredAtMs = Date.now() - 60_000;
     host.noteWindowFocused();
     assert.strictEqual(removals.removed(), 1, 'the focus that trails a restore must not recycle the view a second time');
-    const journal = fs.readFileSync(path.join(RUNTIME_DIR, 'logs', 'main.log'), 'utf8');
+    await lifecycleLogDrained();
+    const journal = readJournalSince(mark);
     assert.match(journal, /"event":"tabhost\.presentedViewResurfaced"[^\n]*"trigger":"focus"[^\n]*"skipped":"deduped"/, 'the deduped trigger stays on the incident timeline');
     assert.strictEqual(presented.focusCalls, 0, 'a page that did not have focus (sidebar or toolbar did) is not handed it');
   });
@@ -712,4 +734,11 @@ describe('Background throttling never reaches a view outside the window', () => 
     assert.strictEqual(cThrottled(), true);
     assert.deepStrictEqual(children, [a.tab.view], 'the capture leaves only the presented tab in the window');
   });
+});
+
+after(async () => {
+  await lifecycleLogDrained();
+  try {
+    fs.rmSync(RUNTIME_DIR, { recursive: true, force: true });
+  } catch {}
 });

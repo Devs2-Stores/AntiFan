@@ -139,15 +139,14 @@ export class BrowserActionRegistry {
           url: { type: 'string', description: 'URL to navigate to' },
           activate: { type: 'boolean', description: 'Whether to switch to this tab visually (default: true)' },
           ephemeral: { type: 'boolean', description: 'Whether to isolate this tab in an in-memory session partition (default: false)' },
-          userFacing: { type: 'boolean', description: 'Open tab directly on the visible user plane (non-ephemeral, non-offscreen) for interactive inspection/debugging' },
+          userFacing: { type: 'boolean', description: 'Open tab directly on the visible user plane (non-ephemeral) for interactive inspection/debugging' },
         },
       },
       handler: (params: { url?: string; activate?: boolean; ephemeral?: boolean; userFacing?: boolean }, { tabHost }) => {
         const wantsUserPlane = Boolean(params?.userFacing);
         const isEphemeral = wantsUserPlane ? false : params?.ephemeral;
-        const isOffscreen = wantsUserPlane ? false : undefined;
         const plane = wantsUserPlane ? ('user' as const) : ('agent' as const);
-        const tabId = tabHost.createTab(params?.url, params?.activate ?? true, { ephemeral: isEphemeral, offscreen: isOffscreen, plane });
+        const tabId = tabHost.createTab(params?.url, params?.activate ?? true, { ephemeral: isEphemeral, plane });
         return { tabId, success: true };
       },
     });

@@ -78,7 +78,7 @@ export interface DeadStoreCleanupOptions {
   /** Directory holding the app's config state, including the stale duplicate. */
   configDir: string;
   /**
-   * Partition names currently referenced by tabs, offscreen tabs included.
+   * Partition names currently referenced by tabs, agent tabs included.
    * A partition in this list is never deleted, whatever its name.
    */
   livePartitions: Iterable<string>;

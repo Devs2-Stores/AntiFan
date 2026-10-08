@@ -46,8 +46,9 @@ describe('Priority 1: Mutation Routing & Active Tab Protection Invariants', () =
     assert.strictEqual(activeTabMutated, false, 'User active working tab must not be touched by automated write');
   });
 
-  it('2. Auto-provisions an isolated ephemeral RAM tab when host.createTab exists, protecting active working tab', async () => {
-    let createdOptions: { ephemeral?: boolean } | undefined;
+  it('2. Auto-provisions a non-activated agent-plane tab when host.createTab exists, protecting active working tab', async () => {
+    let createdOptions: { plane?: string; ephemeral?: boolean } | undefined;
+    let createdActivate: boolean | undefined;
     let createdUrl: string | undefined;
     let automationTabIdSet: string | undefined;
     let clickedTabId: string | undefined;
@@ -65,8 +66,9 @@ describe('Priority 1: Mutation Routing & Active Tab Protection Invariants', () =
       hasTab: (id) => id === 'user-active-tab' || id === automationTabIdSet,
       createTab: (url, activate, options) => {
         createdUrl = url;
+        createdActivate = activate;
         createdOptions = options;
-        const newId = 'ephemeral-auto-tab-999';
+        const newId = 'agent-auto-tab-999';
         automationTabIdSet = newId;
         return newId;
       },
@@ -81,11 +83,12 @@ describe('Priority 1: Mutation Routing & Active Tab Protection Invariants', () =
     const res = await port.agentClick({ selector: '#buy-now' }, baseTarget);
     assert.strictEqual(res.clicked, true);
 
-    // Verified: An ephemeral tab was created
+    // Verified: a background agent-plane tab was created without stealing focus
     assert.strictEqual(createdUrl, 'about:blank');
     assert.ok(createdOptions, 'createTab must receive options');
-    assert.strictEqual(createdOptions?.ephemeral, true, 'Auto-provisioned automation tab must be strictly ephemeral');
-    assert.strictEqual(clickedTabId, 'ephemeral-auto-tab-999', 'Write action must target the ephemeral tab');
+    assert.strictEqual(createdActivate, false, 'Auto-provisioned automation tab must not be activated');
+    assert.strictEqual(createdOptions?.plane, 'agent', 'Auto-provisioned automation tab must ride the agent plane');
+    assert.strictEqual(clickedTabId, 'agent-auto-tab-999', 'Write action must target the provisioned agent tab');
     assert.notStrictEqual(clickedTabId, 'user-active-tab', 'Write action must NEVER target user-active-tab');
   });
 

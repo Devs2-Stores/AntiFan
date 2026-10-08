@@ -11,7 +11,6 @@ import type { BrowserTarget } from '../../src/shared/control-plane-contracts';
 // session may activate instead — never a silent false.
 const BOUND_TAB = 'tab-bound';
 const OTHER_TAB = 'tab-other';
-const OFFSCREEN_TAB = 'tab-agent-offscreen';
 
 const TARGET: BrowserTarget = {
   projectId: 'proj-1',
@@ -58,7 +57,6 @@ function sequenceProbe(values: SurfaceSnapshot[]): () => SurfaceSnapshot {
 function makeHost(options: {
   probe: () => SurfaceSnapshot;
   applied: unknown[];
-  isTabOffscreen?: (tabId?: string) => boolean;
   switchTab?: () => boolean;
   trySwitchTab?: (tabId: string) => { ok: true; tabId: string } | { ok: false; tabId: string; reason: string; retryAfterMs?: number };
 }): BrowserHostPort {
@@ -72,7 +70,6 @@ function makeHost(options: {
       return { success: true };
     },
     evalJs: async () => ({ ok: true }),
-    isTabOffscreen: options.isTabOffscreen ?? (() => false),
     switchTab: options.switchTab ?? (() => true),
     ...(options.trySwitchTab ? { trySwitchTab: options.trySwitchTab } : {}),
   };
@@ -121,7 +118,7 @@ describe('Render surface geometry recovery', () => {
   it('refuses a zero-bounds tab with the cause it measured and the tabs it may activate', async () => {
     const applied: unknown[] = [];
     const port = new BrowserControlPort(
-      makeHost({ probe: () => zeroBounds, applied, isTabOffscreen: () => true })
+      makeHost({ probe: () => zeroBounds, applied })
     );
 
     await assert.rejects(
@@ -131,9 +128,8 @@ describe('Render surface geometry recovery', () => {
         assert.strictEqual(error.code, 'NO_RENDER_SURFACE');
         assert.strictEqual(error.details?.cause, 'zero-viewport', 'the probe measures bounds, not compositing');
         assert.strictEqual(error.details?.observedWidth, 0);
-        assert.strictEqual(error.details?.offscreen, true);
         assert.deepStrictEqual(error.details?.activationCandidates, [OTHER_TAB]);
-        assert.match(error.message, /renders offscreen/);
+        assert.match(error.message, /reports no laid-out surface/);
         return true;
       }
     );
@@ -147,19 +143,18 @@ describe('Tab activation refusals', () => {
       makeHost({
         probe: () => zeroBounds,
         applied: [],
-        isTabOffscreen: (tabId?: string) => tabId === OFFSCREEN_TAB,
         switchTab: () => false,
       })
     );
 
     assert.throws(
-      () => port.switchTab(OFFSCREEN_TAB, { target: TARGET, isAgent: true, attachmentId: 'att-1' }),
+      () => port.switchTab(BOUND_TAB, { target: TARGET, isAgent: true, attachmentId: 'att-1' }),
       (error: unknown) => {
         assert.ok(error instanceof CapabilityError);
         assert.strictEqual(error.code, 'TARGET_NOT_ACTIVATABLE');
-        assert.strictEqual(error.details?.tabId, OFFSCREEN_TAB);
-        assert.strictEqual(error.details?.offscreen, true);
-        assert.match(error.message, /never shown in the window/);
+        assert.strictEqual(error.details?.tabId, BOUND_TAB);
+        assert.deepStrictEqual(error.details?.activationCandidates, [OTHER_TAB]);
+        assert.match(error.message, /did not become the active tab/);
         return true;
       }
     );

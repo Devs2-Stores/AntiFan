@@ -56,10 +56,9 @@ const TEST_LANES = [
 // than every other lane. Its wrapper pins a throwaway data root, so the lane no longer depends on
 // whatever happens to be staged on the machine.
 //
-// The three heavy GUI/screenshot probes are wired as named opt-in lanes, explicitly documented
+// The heavy GUI/screenshot probes are wired as named opt-in lanes, explicitly documented
 // as manual-only because they require full Electron/CDP runtimes and heavy budgets:
 // - 'probe:windows-matrix': full multi-window matrix probe (>3 min)
-// - 'probe:background-full-page': background full-page screenshot worker probe (~50 s)
 // - 'probe:headless-full-page': headless CDP full-page screenshot probe (~30 s)
 const KNOWN_LANES = new Set([
   ...STATIC_LANES,
@@ -70,7 +69,6 @@ const KNOWN_LANES = new Set([
   'test:e2e',
   'test:probes',
   'probe:windows-matrix',
-  'probe:background-full-page',
   'probe:headless-full-page',
 ]);
 const NON_COMPILE_LANES = new Set(['compile', 'test:canary', ...STATIC_LANES]);
@@ -89,15 +87,33 @@ const LANE_TIMEOUT_MS = new Map([
   ['test:e2e:strict', 10 * 60_000],
   ['test:probes', 20 * 60_000],
   ['probe:windows-matrix', 15 * 60_000],
-  ['probe:background-full-page', 5 * 60_000],
   ['probe:headless-full-page', 5 * 60_000],
 ]);
 
+// Lanes that spawn Electron, PowerShell, WMI, or daemon children.
+// These are serialized at the pipeline level and restricted to --test-concurrency=1 internally
+// to prevent process-lifecycle, resource-stability, and terminal daemon collisions.
+// Fast lanes (test:fast, test:canary, test:site-clone, test:integration) remain parallel.
+export const SPAWN_HEAVY_LANES = new Set([
+  'test:main',
+  'test:e2e:strict',
+  'smoke:terminal',
+  'smoke:site-mute',
+  'smoke:media-freeze',
+  'test:terminal-transport',
+  'test:terminal-rename',
+  'test:mcp-dispatch-hub',
+  'test:toolbar-qa-hub',
+]);
+
 // Custom command overrides for lanes that do not map 1:1 to `npm run <lane>`.
+// 'test:main' is pinned to --test-concurrency=1 here so spawn-heavy child process suites
+// (process-lifecycle, resource-stability, terminal-daemon-batching, WMI/PowerShell spawners)
+// are serialized and never fight each other or saturate the CPU under parallel runner forks.
 const LANE_COMMANDS = new Map([
   ['check:rpc-surface', [process.execPath, 'scripts/probe-rpc-surface-coverage.cjs', '--static-only']],
+  ['test:main', ['node', '--test', '--test-force-exit', '--test-concurrency=1', '.compiled/test/main/**/*.test.js']],
   ['probe:windows-matrix', ['node', 'scripts/run-electron.cjs', 'scripts/probe-project-windows-matrix.cjs']],
-  ['probe:background-full-page', ['node', 'scripts/run-electron.cjs', 'scripts/probe-background-full-page.cjs']],
   ['probe:headless-full-page', ['node', 'scripts/run-electron.cjs', 'scripts/probe-headless-full-page.cjs']],
 ]);
 
@@ -170,8 +186,14 @@ function parseArgs(argv) {
  */
 export function buildLaneEnv(laneDir, parentEnv = process.env) {
   const dataDir = join(laneDir, 'data');
+  const env = { ...parentEnv };
+  for (const key of Object.keys(env)) {
+    if (key.startsWith('ANTIFAN_')) {
+      delete env[key];
+    }
+  }
   return {
-    ...parentEnv,
+    ...env,
     ANTIFAN_DATA_ROOT: dataDir,
     ANTIFAN_CONFIG_DIR: join(dataDir, 'config'),
     ANTIFAN_USER_DATA: join(laneDir, 'profile'),
@@ -248,7 +270,6 @@ Known lanes:
 Manual opt-in lanes (heavy probes; excluded from default pipeline):
   test:probes                 stages daemon bundle, spawns detached hosts (20 min budget)
   probe:windows-matrix        drives multi-window Electron matrix probe (~3-10 min)
-  probe:background-full-page  drives Electron background worker full-page screenshot probe (~50 s)
   probe:headless-full-page    drives headless Electron CDP full-page screenshot probe (~30 s)
 `);
     return 0;

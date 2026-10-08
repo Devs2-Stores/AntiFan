@@ -477,7 +477,7 @@ describe('live tab transfer', () => {
     assert.equal(detached.tabs.size, 2);
   });
 
-  it('agent-surface rows and ephemeral/offscreen rows are refused at ingest', () => {
+  it('ephemeral rows are refused at ingest', () => {
     const detached = createHost({ owner: PROJECT_A });
     detached.createTab = (url: string) => {
       const id = `minted-${detached.tabs.size + 1}`;
@@ -490,7 +490,6 @@ describe('live tab transfer', () => {
     const arrived = detached.ingestTransferredTabRows([
       { id: 'keep', url: 'https://example.test/keep' },
       { id: 'eph', url: 'https://example.test/e', ephemeral: true },
-      { id: 'off', url: 'https://example.test/o', offscreen: true },
     ]);
     assert.equal(arrived.length, 1, 'only the real tab lands');
     assert.equal(detached.tabs.get(arrived[0]!).state.url, 'https://example.test/keep');

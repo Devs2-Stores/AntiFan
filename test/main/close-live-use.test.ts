@@ -7,7 +7,7 @@
  *
  * - an unreadable owner answered as idle would close a page whose work is in flight;
  * - an out-of-scope owner answered as busy would refuse a close of an unrelated window;
- * - a binding or a run on an offscreen agent tab of the shell being closed would be missed
+ * - a binding or a run on an auxiliary agent tab of the shell being closed would be missed
  *   by a visible-page-only scope test.
  */
 
@@ -113,12 +113,12 @@ describe('close live-use evidence', () => {
     assert.equal(report.reasons?.[0]?.control?.id, CLOSE_LIVE_USE_CONTROLS.attachments.id);
   });
 
-  it('refuses a shell for a binding on an offscreen tab it owns but does not list as a member', () => {
+  it('refuses a shell for a binding on an auxiliary tab it owns but does not list as a member', () => {
     const report = collectCloseLiveUse(
       SHELL_A,
       idlePort({
         attachments: () => [
-          { attachmentId: 'attachment-agent', runId: 'run-1', tabId: 'tab-offscreen', ownerKey: 'project:a' },
+          { attachmentId: 'attachment-agent', runId: 'run-1', tabId: 'tab-auxiliary', ownerKey: 'project:a' },
         ],
       })
     );
@@ -398,10 +398,10 @@ describe('close live-use evidence', () => {
     assert.equal(unreadable.state, 'unknown');
   });
 
-  it('protects a shell whose agent affinity lives on an offscreen tab it owns', () => {
+  it('protects a shell whose agent affinity lives on an auxiliary tab it owns', () => {
     const report = collectCloseLiveUse(
       SHELL_A,
-      idlePort({ affinities: () => [{ terminalId: 'term-1', status: 'alive', tabIds: ['tab-offscreen'], ownerKey: 'project:a' }] })
+      idlePort({ affinities: () => [{ terminalId: 'term-1', status: 'alive', tabIds: ['tab-auxiliary'], ownerKey: 'project:a' }] })
     );
     assert.equal(report.state, 'busy');
   });

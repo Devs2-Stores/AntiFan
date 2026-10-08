@@ -978,7 +978,6 @@ function tabRecord(tabId) {
     splitDesktopPresetId: record.splitDesktopPresetId ?? null,
     splitMobilePresetId: record.splitMobilePresetId ?? null,
     splitFocusedPane: record.splitFocusedPane ?? null,
-    offscreen: Boolean(record.offscreen),
     ephemeral: Boolean(record.ephemeral),
     windowOwnerKey: host.windowOwnerKey(),
   };
