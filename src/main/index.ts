@@ -2761,7 +2761,9 @@ function projectLabelFor(ownerKeyValue: string): string | undefined {
 
 /** One inventory row as the renderer's contract sees it. Main asserts liveness only for rows built from live tabs. */
 function toProjectSearchRow(row: TabSearchInventoryRow): ProjectTabSearchRow {
-  const label = projectLabelFor(row.ownerKey);
+  // A hub row stamped with a project already carries that project's name; Main's record for
+  // the 'web' owner would rename it to the hub's product title.
+  const label = row.projectId ? undefined : projectLabelFor(row.ownerKey);
   return {
     tabId: row.tabId,
     title: row.title,

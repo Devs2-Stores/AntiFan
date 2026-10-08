@@ -259,6 +259,7 @@ function createHost(options: HostOptions = {}): AnyRecord {
   host.tabByWebContents = new WeakMap<object, string>();
   host.terminalWindows = new Map<number, AnyRecord>();
   host.terminalWindowMeta = new Map<number, { sessionId?: string; isPopout?: boolean }>();
+  host.windowSelectedSession = new Map<number, string>();
   host.terminalDataBatches = new Map<string, AnyRecord>();
   host.terminalDisplayedSessions = new Map<string, Set<string>>();
   host.hibernatingTabIds = new Set<string>();

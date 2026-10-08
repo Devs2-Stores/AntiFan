@@ -144,6 +144,7 @@ function buildGateHost(admission: TabHostCloseAdmission, shell: unknown): Native
   host.popoutWindow = null;
   host.terminalWindows = new Map();
   host.terminalWindowMeta = new Map();
+  host.windowSelectedSession = new Map();
   host.tabs = new Map();
   host.automationTabId = null;
   host.isDisposed = false;

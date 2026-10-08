@@ -272,6 +272,7 @@ function createHost(options: HostOptions = {}): AnyRecord {
   host.terminalAgentAffinity = new Map<string, AnyRecord>();
   host.terminalWindows = new Map<number, unknown>();
   host.terminalWindowMeta = new Map<number, { sessionId?: string; isPopout?: boolean }>();
+  host.windowSelectedSession = new Map<number, string>();
   host.terminalDisplayedSessions = new Map<string, Set<string>>();
   host.terminalDataBatches = new Map<string, unknown>();
   host.hibernatingTabIds = new Set<string>();

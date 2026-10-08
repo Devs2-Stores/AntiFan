@@ -256,6 +256,7 @@ function resetHost(): void {
   host.tabByWebContents = new WeakMap();
   host.terminalWindows = new Map();
   host.terminalWindowMeta = new Map();
+  host.windowSelectedSession = new Map();
   host.terminalDataBatches = new Map();
   host.terminalDisplayedSessions = new Map();
   if (host.terminalDataFlushTimer) clearTimeout(host.terminalDataFlushTimer);

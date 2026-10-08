@@ -439,6 +439,8 @@ export interface TabSearchInventoryRow {
   url: string;
   ownerKey: string;
   ownerLabel: string;
+  /** The project a 'web' hub row is stamped with; its `ownerLabel` already names that project. */
+  projectId?: string;
   /** Workspace label that distinguishes two projects with the same name. */
   projectPath?: string;
   active: boolean;
@@ -1505,6 +1507,13 @@ export class NativeTabHost extends EventEmitter {
    * its last answer, which is also its correct one for a deleted folder.
    */
   private folderFactsCache = new Map<string, { canonicalPath: string; folderKey: string; folderLabel: string }>();
+  /**
+   * The session each chrome surface (keyed by its WebContents id) last selected. The manager's
+   * active session is process-wide, so once another window switches, this window's own choice
+   * is the only record of which of its sessions it presents; without it the projection falls
+   * back to the first visible row and the window's typing lands in a session it never chose.
+   */
+  private readonly windowSelectedSession = new Map<number, string>();
   /** Off-screen window that hosts a background pane for one raster so MCP capture does not paint that pane over the user's tab. */
   private captureHostWindow: BrowserWindow | null = null;
   /**
@@ -3818,6 +3827,7 @@ export class NativeTabHost extends EventEmitter {
         'antifan:terminal:switch-session',
         { ownerKey: host.shellOwnerKeyForSender(event?.sender?.id) },
         () => {
+          host.rememberWindowSession(event?.sender?.id, id);
           const senderWin = (event?.sender ? BrowserWindow.fromWebContents(event.sender) : null);
           if (senderWin && host.terminalWindowMeta.has(senderWin.id)) {
             const meta = host.terminalWindowMeta.get(senderWin.id);
@@ -4110,7 +4120,10 @@ export class NativeTabHost extends EventEmitter {
       return host.admitThenRun(
         'antifan:terminal:set-active-session',
         { ownerKey: host.shellOwnerKeyForSender(event?.sender?.id) },
-        () => TerminalManager.getInstance().switchSession(sessionId)
+        () => {
+          host.rememberWindowSession(event?.sender?.id, sessionId);
+          return TerminalManager.getInstance().switchSession(sessionId);
+        }
       );
     },
   },
@@ -7574,7 +7587,9 @@ export class NativeTabHost extends EventEmitter {
     );
     const rawActive = typeof projection.activeSessionId === 'string' ? projection.activeSessionId : '';
     const wanted = includeSessionId && sessions.some((session) => session.id === includeSessionId) ? includeSessionId : undefined;
-    const activeSessionId = wanted ?? (sessions.some((session) => session.id === rawActive) ? rawActive : (sessions[0]?.id ?? ''));
+    const remembered = senderId !== undefined ? this.windowSelectedSession.get(senderId) : undefined;
+    const ownChoice = remembered && sessions.some((session) => session.id === remembered) ? remembered : undefined;
+    const activeSessionId = wanted ?? (sessions.some((session) => session.id === rawActive) ? rawActive : (ownChoice ?? sessions[0]?.id ?? ''));
     const transcriptKept = activeSessionId !== '' && activeSessionId === rawActive;
     const splitSessionId = typeof projection.splitSessionId === 'string' && sessions.some((session) => session.id === projection.splitSessionId)
       ? projection.splitSessionId
@@ -7586,6 +7601,18 @@ export class NativeTabHost extends EventEmitter {
       snapshot: transcriptKept && typeof projection.snapshot === 'string' ? projection.snapshot : '',
       snapshotThroughSeq: transcriptKept && typeof projection.snapshotThroughSeq === 'number' ? projection.snapshotThroughSeq : 0,
     };
+  }
+
+  /** Record the session a chrome surface selected; read back by `terminalStateForWindow`. */
+  public rememberWindowSession(senderId: number | undefined, sessionId: string): void {
+    if (senderId === undefined || !sessionId) return;
+    this.windowSelectedSession.delete(senderId);
+    // Bounded: WebContents ids are never reused, so a closed surface's entry is debris.
+    if (this.windowSelectedSession.size >= 64) {
+      const oldest = this.windowSelectedSession.keys().next();
+      if (!oldest.done) this.windowSelectedSession.delete(oldest.value);
+    }
+    this.windowSelectedSession.set(senderId, sessionId);
   }
 
   /**
@@ -7988,18 +8015,28 @@ export class NativeTabHost extends EventEmitter {
     const ownerKeyValue = this.windowOwnerKey();
     const label = this.windowOwnerLabel();
     const projectPath = this.resolveWindowWorkspaceRoot();
+    // The 'web' hub carries tabs of every project it has presented, each stamped with its
+    // project; such a row is labelled by that project, exactly as the hub titles itself while
+    // presenting it, never by the hub's product name.
+    const isHub = ownerKeyValue === WEB_OWNER_KEY;
+    const descriptors = new Map<string, WebHubProjectDescriptor | undefined>();
     const rows: TabSearchInventoryRow[] = [];
     this.tabOrder.forEach((tabId, order) => {
       const tab = this.tabs.get(tabId);
       if (!tab) return;
       if (tab.state.ephemeral === true) return;
+      const stampedProject = isHub && tab.projectId ? tab.projectId : undefined;
+      if (stampedProject && !descriptors.has(stampedProject)) descriptors.set(stampedProject, this.describeWebHubProject(stampedProject));
+      const descriptor = stampedProject ? descriptors.get(stampedProject) : undefined;
+      const rowPath = stampedProject ? descriptor?.pathLabel : projectPath;
       rows.push({
         tabId,
         title: tab.state.title || tab.state.url || '',
         url: tab.state.url || '',
         ownerKey: ownerKeyValue,
-        ownerLabel: label,
-        ...(projectPath ? { projectPath } : {}),
+        ownerLabel: stampedProject ? (descriptor?.title ?? stampedProject) : label,
+        ...(stampedProject ? { projectId: stampedProject } : {}),
+        ...(rowPath ? { projectPath: rowPath } : {}),
         active: tabId === this.activeTabId,
         order,
       });
