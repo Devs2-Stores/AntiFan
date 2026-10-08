@@ -8,7 +8,7 @@ import { ControlPlaneRuntime } from '../../src/main/control-plane/control-plane-
 import { makeControlPlaneId, CapabilityError, CapabilityRequestContext } from '../../src/shared/control-plane-contracts';
 import { ThemeWorkspaceContext } from '../../src/shared/theme-task-context';
 import { BrowserControlPort, BrowserHostPort } from '../../src/main/tools/browser-control-port';
-import { planToolCall, REFUSAL_CODES } from '../../src/omp-hooks/edit-guard-policy';
+import { planToolCall } from '../../src/omp-hooks/edit-guard-policy';
 import { resolveWorkspaceShape } from '../../src/omp-hooks/theme-paths';
 
 describe('Multi-Tenant Shop Isolation Proof (Task 6.3)', () => {
@@ -169,50 +169,22 @@ describe('Multi-Tenant Shop Isolation Proof (Task 6.3)', () => {
       );
       await runtime.capabilities.get('theme.transaction.rollback')!.execute({ workspaceRoot: testVyanRoot }, context);
 
-      // 5. Attempt direct native OMP write to config/settings_data.json without Direct-Edit mode.
-      //    Verify edit-guard intercepts and blocks the call with REFUSED_SETTINGS_DATA_DIRECT_WRITE.
+      // 5. A native OMP write to config/settings_data.json is no longer a policy refusal in
+      //    any mode: the edit-guard hook gates it on a scoped `hrv theme fetch` instead
+      //    (REFUSED_SETTINGS_DATA_FETCH_FAILED), so the pure policy must let it through.
       const shape = resolveWorkspaceShape(testVyanRoot);
-
-      // 5a. Standard/unset mode with native 'write' tool
-      const planWriteStandard = planToolCall({
-        mode: 'unset',
-        tool: 'write',
-        input: { path: 'config/settings_data.json', content: '{"hacked": true}' },
-        shape,
-      });
-      assert.strictEqual(planWriteStandard.decision, 'block');
-      assert.strictEqual(planWriteStandard.code, REFUSAL_CODES.SETTINGS_DATA_DIRECT_WRITE);
-      assert.ok(planWriteStandard.reason.includes('REFUSED_SETTINGS_DATA_DIRECT_WRITE'));
-
-      // 5b. Standard/unset mode with native 'edit' tool
-      const planEditStandard = planToolCall({
-        mode: 'unset',
-        tool: 'edit',
-        input: { path: 'config/settings_data.json', input: '+{"hacked": true}' },
-        shape,
-      });
-      assert.strictEqual(planEditStandard.decision, 'block');
-      assert.strictEqual(planEditStandard.code, REFUSAL_CODES.SETTINGS_DATA_DIRECT_WRITE);
-      assert.ok(planEditStandard.reason.includes('REFUSED_SETTINGS_DATA_DIRECT_WRITE'));
-
-      // 5c. Core mode also blocks settings_data.json direct write
-      const planWriteCore = planToolCall({
-        mode: 'core',
-        tool: 'write',
-        input: { path: 'config/settings_data.json', content: '{"hacked": true}' },
-        shape,
-      });
-      assert.strictEqual(planWriteCore.decision, 'block');
-      assert.strictEqual(planWriteCore.code, REFUSAL_CODES.SETTINGS_DATA_DIRECT_WRITE);
-
-      // 5d. Explicit [⚡Direct-Edit] mode permits the write
-      const planWriteDirect = planToolCall({
-        mode: 'direct',
-        tool: 'write',
-        input: { path: 'config/settings_data.json', content: '{"allowed": true}' },
-        shape,
-      });
-      assert.strictEqual(planWriteDirect.decision, 'allow');
+      // (fast additionally depends on the writable set, covered by test/unit/edit-guard.test.mjs.)
+      for (const mode of ['unset', 'core', 'direct'] as const) {
+        for (const tool of ['write', 'edit']) {
+          const plan = planToolCall({
+            mode,
+            tool,
+            input: { path: 'config/settings_data.json', content: '{"current": {}}' },
+            shape,
+          });
+          assert.strictEqual(plan.decision, 'allow', `${tool} in ${mode}`);
+        }
+      }
     } finally {
       fs.rmSync(dataRoot, { recursive: true, force: true });
       fs.rmSync(testVyanRoot, { recursive: true, force: true });

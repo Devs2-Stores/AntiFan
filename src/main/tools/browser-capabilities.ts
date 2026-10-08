@@ -385,14 +385,13 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         activate: { type: 'boolean' },
         anchorTabId: { type: 'string', description: 'Live same-project tab selecting the window for creation' },
         ephemeral: { type: 'boolean' },
-        offscreen: { type: 'boolean' },
-        userFacing: { type: 'boolean', description: 'Open tab directly on the visible user plane (non-ephemeral, non-offscreen) for interactive inspection/debugging' },
+        userFacing: { type: 'boolean', description: 'Open tab directly on the visible user plane (non-ephemeral) for interactive inspection/debugging' },
         devicePresetId: { type: 'string', description: 'Device preset ID (e.g. iphone-15, xiaomi-14)' },
         mobile: { type: 'boolean', description: 'Open directly in mobile mode with mobile User-Agent and viewport' },
         projectId: { type: 'string', description: 'Scope selector: must equal this session\'s authenticated projectId. A foreign or unbound selector is refused before allocation; it never widens authority.' },
       },
     },
-    execute: (params: { url?: string; activate?: boolean; anchorTabId?: string; ephemeral?: boolean; offscreen?: boolean; userFacing?: boolean; devicePresetId?: string; mobile?: boolean; projectId?: string }, context) => browser.openTab(params, { target: context?.browserTarget, authenticatedProjectId: context?.projectId }),
+    execute: (params: { url?: string; activate?: boolean; anchorTabId?: string; ephemeral?: boolean; userFacing?: boolean; devicePresetId?: string; mobile?: boolean; projectId?: string }, context) => browser.openTab(params, { target: context?.browserTarget, authenticatedProjectId: context?.projectId }),
   });
   catalogue.register({
     name: 'browser.close-tab',
@@ -1272,8 +1271,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     description: 'Alias for browser.open-tab',
     risk: 'write',
     policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
-    inputSchema: { type: 'object', properties: { url: { type: 'string' }, activate: { type: 'boolean' }, anchorTabId: { type: 'string', description: 'Live same-project tab selecting the window for creation' }, ephemeral: { type: 'boolean' }, offscreen: { type: 'boolean' }, userFacing: { type: 'boolean', description: 'Open tab directly on the visible user plane (non-ephemeral, non-offscreen) for interactive inspection/debugging' }, projectId: { type: 'string', description: 'Scope selector: must equal this session\'s authenticated projectId. A foreign or unbound selector is refused before allocation; it never widens authority.' } } },
-    execute: (params: { url?: string; activate?: boolean; anchorTabId?: string; ephemeral?: boolean; offscreen?: boolean; userFacing?: boolean; projectId?: string }, context) => browser.openTab(params, { target: context?.browserTarget, authenticatedProjectId: context?.projectId }),
+    inputSchema: { type: 'object', properties: { url: { type: 'string' }, activate: { type: 'boolean' }, anchorTabId: { type: 'string', description: 'Live same-project tab selecting the window for creation' }, ephemeral: { type: 'boolean' }, userFacing: { type: 'boolean', description: 'Open tab directly on the visible user plane (non-ephemeral) for interactive inspection/debugging' }, projectId: { type: 'string', description: 'Scope selector: must equal this session\'s authenticated projectId. A foreign or unbound selector is refused before allocation; it never widens authority.' } } },
+    execute: (params: { url?: string; activate?: boolean; anchorTabId?: string; ephemeral?: boolean; userFacing?: boolean; projectId?: string }, context) => browser.openTab(params, { target: context?.browserTarget, authenticatedProjectId: context?.projectId }),
   });
 
   catalogue.register({
@@ -1755,10 +1754,20 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
           receiptRecovery.succeeded = 1;
           report = await runValidate(recoveredTarget);
         }
-        const summary = (report as { summary?: { passed?: boolean; criticalCount?: number } }).summary;
+        const summary = report.summary;
         passed = summary?.passed ?? null;
         criticalCount = summary?.criticalCount ?? null;
-        receiptVerdict = summary?.passed === true && (summary?.criticalCount ?? 0) === 0 ? 'QA_PASSED' : 'QA_FAILED';
+        if (report.execution === 'DEGRADED' || report.execution === 'COMPLETED' || report.execution === 'BLOCKED') {
+          receiptExecution = report.execution;
+        }
+        // Three-valued on purpose: a DEGRADED run (settle gaps, missing evidence)
+        // is INCONCLUSIVE, not FAILED. The QA gate keeps itself armed on
+        // QA_FAILED only, so collapsing INCONCLUSIVE into FAILED would pin the
+        // gate on every degraded capture and loop the agent on re-validation.
+        // A critical finding still fails regardless of the verdict axis.
+        receiptVerdict = summary?.passed === true && (summary?.criticalCount ?? 0) === 0
+          ? 'QA_PASSED'
+          : (summary?.verdict === 'INCONCLUSIVE' && (summary?.criticalCount ?? 0) === 0 ? 'QA_INCONCLUSIVE' : 'QA_FAILED');
 
         if (confinedRoot && isHaravanThemeWorkspace(confinedRoot)) {
           try {
@@ -1837,11 +1846,31 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
                 // A settings-contract regression is a critical finding class for
                 // consumers that gate on criticalCount alone.
                 report.summary.criticalCount = Math.max(report.summary.criticalCount ?? 0, 1);
-                report.settingsRatchet = settingsRatchetPayload;
               }
+              // Publish on success too: a clean settings check must be
+              // distinguishable from one that never ran.
+              report.settingsRatchet = settingsRatchetPayload;
             }
-          } catch {
-            // Theme check failure is non-fatal for workflow execution
+          } catch (settingsErr) {
+            // The storefront verdict stands, but the caller must see that the
+            // settings contract was NOT checked instead of reading "0 findings".
+            const reason = settingsErr instanceof Error ? settingsErr.message : String(settingsErr);
+            report.settingsRatchet = null;
+            report.settleReceipt = {
+              ...(report.settleReceipt ?? ({} as NonNullable<typeof report.settleReceipt>)),
+              evidenceGaps: [
+                ...(report.settleReceipt?.evidenceGaps ?? []),
+                `Settings contract check did not run: ${reason}`,
+              ],
+            };
+            if (report.execution === 'COMPLETED') {
+              report.execution = 'DEGRADED';
+              receiptExecution = 'DEGRADED';
+            }
+            if (receiptVerdict === 'QA_PASSED') {
+              receiptVerdict = 'QA_INCONCLUSIVE';
+              report.summary.verdict = 'INCONCLUSIVE';
+            }
           }
         }
         return report;
@@ -2197,7 +2226,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     inputSchema: {
       type: 'object',
       properties: {
-        operation: { type: 'string', enum: ['apply', 'clear'], description: 'Whether to inject/replace or remove the override' },
+        operation: { type: 'string', enum: ['apply', 'clear', 'remove', 'revert'], description: 'apply injects/replaces the override; clear (synonyms: remove, revert) removes it' },
         id: { type: 'string', description: 'Unique identifier for the stylesheet element (e.g. "sticky-header-fix")' },
         css: { type: 'string', description: 'CSS rules to inject when operation is apply' },
         tabId: { type: 'string', description: 'Target tab ID' },
@@ -2205,10 +2234,10 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       },
       required: ['operation', 'id'],
     },
-    execute: async (params: { operation: 'apply' | 'clear'; id: string; css?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => {
+    execute: async (params: { operation: 'apply' | 'clear' | 'remove' | 'revert'; id: string; css?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => {
       const target = context.browserTarget as BrowserTarget;
       const styleId = `__antifan_override_${params.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
-      if (params.operation === 'clear') {
+      if (params.operation === 'clear' || params.operation === 'remove' || params.operation === 'revert') {
         const script = `(() => {
           const el = document.getElementById(${JSON.stringify(styleId)});
           if (el) { el.remove(); return { cleared: true, id: ${JSON.stringify(params.id)} }; }
@@ -2241,7 +2270,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     inputSchema: {
       type: 'object',
       properties: {
-        operation: { type: 'string', enum: ['apply', 'clear'], description: 'Whether to inject/replace or remove the override' },
+        operation: { type: 'string', enum: ['apply', 'clear', 'remove', 'revert'], description: 'apply injects/replaces the override; clear (synonyms: remove, revert) removes it' },
         id: { type: 'string', description: 'Unique identifier for the stylesheet element' },
         css: { type: 'string', description: 'CSS rules to inject when operation is apply' },
         tabId: { type: 'string', description: 'Target tab ID' },
@@ -2305,14 +2334,13 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         activate: { type: 'boolean' },
         anchorTabId: { type: 'string', description: 'Live same-project tab selecting the window for creation' },
         ephemeral: { type: 'boolean' },
-        offscreen: { type: 'boolean' },
-        userFacing: { type: 'boolean', description: 'Open tab directly on the visible user plane (non-ephemeral, non-offscreen) for interactive inspection/debugging' },
+        userFacing: { type: 'boolean', description: 'Open tab directly on the visible user plane (non-ephemeral) for interactive inspection/debugging' },
         devicePresetId: { type: 'string', description: 'Device preset ID (e.g. iphone-15, xiaomi-14)' },
         mobile: { type: 'boolean', description: 'Open directly in mobile mode with mobile User-Agent and viewport' },
         projectId: { type: 'string', description: 'Scope selector: must equal this session\'s authenticated projectId. A foreign or unbound selector is refused before allocation; it never widens authority.' },
       },
     },
-    execute: (params: { url?: string; activate?: boolean; anchorTabId?: string; ephemeral?: boolean; offscreen?: boolean; userFacing?: boolean; devicePresetId?: string; mobile?: boolean; projectId?: string }, context) => browser.openTab(params, { target: context?.browserTarget, authenticatedProjectId: context?.projectId }),
+    execute: (params: { url?: string; activate?: boolean; anchorTabId?: string; ephemeral?: boolean; userFacing?: boolean; devicePresetId?: string; mobile?: boolean; projectId?: string }, context) => browser.openTab(params, { target: context?.browserTarget, authenticatedProjectId: context?.projectId }),
   });
   catalogue.register({
     name: 'anti.browser.tabs.activate',

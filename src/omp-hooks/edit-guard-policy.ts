@@ -25,7 +25,12 @@ export const REFUSAL_CODES = {
   THEME_ROOT_UNRESOLVED: "REFUSED_THEME_ROOT_UNRESOLVED",
   FAST_MODE_TOOL: "REFUSED_FAST_MODE_TOOL",
   FAST_MODE_MCP: "REFUSED_FAST_MODE_MCP",
-  SETTINGS_DATA_DIRECT_WRITE: "REFUSED_SETTINGS_DATA_DIRECT_WRITE",
+  /**
+   * `config/settings_data.json` is writable in every mode, but only after a scoped
+   * `hrv theme fetch --only config/settings_data.json` refreshed it from the shop.
+   * The fetch runs in `edit-guard.ts`; this is the code it refuses with on failure.
+   */
+  SETTINGS_DATA_FETCH_FAILED: "REFUSED_SETTINGS_DATA_FETCH_FAILED",
   /** The wiring failed before the policy could classify the call. See `edit-guard.ts`. */
   GUARD_ERROR: "REFUSED_GUARD_ERROR",
 } as const;
@@ -108,19 +113,6 @@ export function planToolCall(params: {
     .filter((target) => !DEVICE_PATH_RE.test(target))
     .map((target) => path.resolve(shape.cwd, target));
   const isMcp = device !== null ? MCP_DEVICE_RE.test(device) : MCP_TOOL_NAME_RE.test(tool);
-  const isSettingsDataWrite =
-    WRITE_TOOLS[tool] === true &&
-    fileTargets.some((t) => /(^|[/\\])config[/\\]settings_data\.json$/i.test(t));
-  if (isSettingsDataWrite && !SCOPED_MODES.includes(mode as (typeof SCOPED_MODES)[number])) {
-    return {
-      decision: "block",
-      code: REFUSAL_CODES.SETTINGS_DATA_DIRECT_WRITE,
-      reason:
-        "REFUSED_SETTINGS_DATA_DIRECT_WRITE: Direct write/edit to config/settings_data.json is prohibited in standard mode. Use theme.transaction.write_cas with targetTabId to enforce shop isolation, or activate explicit [⚡Direct-Edit].",
-      targets: fileTargets,
-      device,
-    };
-  }
   if (!(SCOPED_MODES as readonly string[]).includes(mode)) {
     return { decision: "allow", code: "MODE_UNSET", reason: "", targets: fileTargets, device };
   }

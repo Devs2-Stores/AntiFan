@@ -31,7 +31,7 @@ const PROXY_BUILD = (() => {
 const definitions = [
   ['anti.browser.tabs.list', 'List tabs affiliated with the authenticated session project by default. Pass all: true for global GUI discovery; affiliated marks same-project entries, not a grant of action authority.', { all: { type: 'boolean', default: false, description: 'Opt in to global GUI discovery.' }, affiliatedOnly: { type: 'boolean', description: 'Restrict discovery to the authenticated project/workspace.' }, projectId: { type: 'string', description: 'Project selector; must match the authenticated session project.' } }],
   ['anti.browser.tabs.get', 'Read a single tab row in the authenticated session project scope by tabId (same row shape as tabs.list; refused for out-of-scope tabs). Omit tabId to read the bound tab.', { tabId: { type: 'string' }, projectId: { type: 'string', description: 'Project selector; must match the authenticated session project.' } }, [], [], 'tabId'],
-  ['anti.browser.tabs.create', 'Open a tab in the authenticated anchor project/window without stealing focus by default.', { url: { type: 'string' }, activate: { type: 'boolean' }, anchorTabId: { type: 'string', description: 'Live same-project tab selecting the window for creation; obtain it with tabs.list.' }, ephemeral: { type: 'boolean' }, offscreen: { type: 'boolean' }, devicePresetId: { type: 'string', description: 'Device preset ID (e.g. iphone-15, xiaomi-14)' }, mobile: { type: 'boolean', description: 'Open directly in mobile mode with mobile User-Agent and viewport' }, projectId: { type: 'string', description: 'Project selector; must match authenticated anchor scope and cannot grant foreign authority.' } }],
+  ['anti.browser.tabs.create', 'Open a tab in the authenticated anchor project/window without stealing focus by default.', { url: { type: 'string' }, activate: { type: 'boolean' }, anchorTabId: { type: 'string', description: 'Live same-project tab selecting the window for creation; obtain it with tabs.list.' }, ephemeral: { type: 'boolean' }, devicePresetId: { type: 'string', description: 'Device preset ID (e.g. iphone-15, xiaomi-14)' }, mobile: { type: 'boolean', description: 'Open directly in mobile mode with mobile User-Agent and viewport' }, projectId: { type: 'string', description: 'Project selector; must match authenticated anchor scope and cannot grant foreign authority.' } }],
   ['anti.browser.tabs.activate', 'Switch the active tab visible to the user in live AntiFan Desktop Browser GUI by tabId.', { tabId: { type: 'string' } }, ['tabId']],
   ['anti.browser.tabs.close', 'Close a tab in live AntiFan Desktop Browser GUI by tabId.', { tabId: { type: 'string' } }, ['tabId']],
   ['anti.browser.rebind_target', 'Rebind this session attachment to a live tabId after the bound tab detached or died. Use tabs.list to find a live tab, then rebind; subsequent calls target that tab.', { tabId: { type: 'string' } }, ['tabId']],
@@ -65,6 +65,9 @@ const definitions = [
   ['device.wait', "Wait on the real device: 'timeout' sleeps; 'page_loaded'/'stable' sample frames until rendering stops changing. That is a rendering heuristic, not a load or network-idle guarantee.", { type: { type: 'string', enum: ['timeout', 'page_loaded', 'stable'] }, value: { type: 'number', description: "Milliseconds for type 'timeout'" }, timeoutMs: { type: 'number' } }, ['type']],
   ['theme.qa_validate', 'Run the authoritative Theme QA verification workflow for the bound storefront tab and workspace.', { tabId: { type: 'string' }, workspaceRoot: { type: 'string' } }, [], [], 'tabId'],
   ['theme.debug_bundle', 'Return an atomic storefront diagnostic bundle with platform, Liquid, overflow, and HS findings.', { tabId: { type: 'string' } }, [], [], 'tabId'],
+  ['theme.settings_check', 'Run offline Haravan theme settings, binding, and asset reference checks (settings_schema.json / settings.html against Liquid) without requiring a browser tab.', { workspaceRoot: { type: 'string', description: 'Theme workspace root; defaults to the authoritative workspace' } }],
+  ['anti.theme.qa_validate', 'Alias of theme.qa_validate: run the authoritative Theme QA verification workflow for the bound storefront tab and workspace.', { tabId: { type: 'string' }, workspaceRoot: { type: 'string' } }, [], [], 'tabId'],
+  ['anti.theme.debug_bundle', 'Alias of theme.debug_bundle: return an atomic storefront diagnostic bundle with platform, Liquid, overflow, and HS findings.', { tabId: { type: 'string' } }, [], [], 'tabId'],
   ['theme.assert_cart', 'Inspect passive storefront cart contract telemetry without adding synthetic items.', { tabId: { type: 'string' } }, [], [], 'tabId'],
   ['theme.resolve_product', 'Auto-resolve complete storefront product variant matrix, pricing, SKU, and availability.', { handle: { type: 'string' }, tabId: { type: 'string' } }, [], [], 'tabId'],
   ['storefront.resolve_product', 'Auto-resolve complete storefront product variant matrix, pricing, SKU, and availability.', { handle: { type: 'string' }, tabId: { type: 'string' } }, [], [], 'tabId'],
@@ -76,8 +79,8 @@ const definitions = [
   ['theme.cockpit_scan', 'Navigate the bound tab to a checklist page route and run the authoritative Theme QA scan on it.', { page: { type: 'string', description: 'PAGE_DEFS page key; when omitted the tab is scanned on its current URL' }, workspaceRoot: { type: 'string', description: 'Workspace root assertion; confined to the bound tab resolved root before the QA run' }, tabId: { type: 'string' } }, [], [], 'tabId'],
   ['theme.cockpit_findings', 'Read the latest Theme QA state row (status, issueCount, report) for the bound tab.', { tabId: { type: 'string' } }, [], [], 'tabId'],
   ['theme.cockpit_report', 'Render the markdown progress report for the bound tab checklist scope (identical to the toolbar export).', { scope: { type: 'string', description: 'Checklist scope assertion; must re-derive equal to the bound tab scope or the call is refused' }, tabId: { type: 'string' } }, [], [], 'tabId'],
-  ['anti.theme.style_override', 'In-memory ephemeral CSS stylesheet override for safe theme testing without writing files to disk (bypasses CLI watchers). Example: {"operation": "apply", "id": "fix-nav", "css": "header { position: sticky; }"} then { "operation": "clear", "id": "fix-nav" }.', { operation: { type: 'string', enum: ['apply', 'clear'] }, id: { type: 'string' }, css: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, ['operation', 'id'], [], 'tabId'],
-  ['theme.style_override', 'In-memory ephemeral CSS stylesheet override for safe theme testing without writing files to disk (bypasses CLI watchers).', { operation: { type: 'string', enum: ['apply', 'clear'] }, id: { type: 'string' }, css: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, ['operation', 'id'], [], 'tabId'],
+  ['anti.theme.style_override', 'In-memory ephemeral CSS stylesheet override for safe theme testing without writing files to disk (bypasses CLI watchers). Example: {"operation": "apply", "id": "fix-nav", "css": "header { position: sticky; }"} then { "operation": "clear", "id": "fix-nav" }. "remove" and "revert" are accepted as synonyms of "clear".', { operation: { type: 'string', enum: ['apply', 'clear', 'remove', 'revert'] }, id: { type: 'string' }, css: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, ['operation', 'id'], [], 'tabId'],
+  ['theme.style_override', 'In-memory ephemeral CSS stylesheet override for safe theme testing without writing files to disk (bypasses CLI watchers). "remove" and "revert" are accepted as synonyms of "clear".', { operation: { type: 'string', enum: ['apply', 'clear', 'remove', 'revert'] }, id: { type: 'string' }, css: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, ['operation', 'id'], [], 'tabId'],
   ['anti.agent.file_upload', 'Upload local files into a file input element in live AntiFan Desktop tab without native file dialogs.', { refOrSelector: { type: 'string' }, filePaths: { type: 'array', items: { type: 'string' } }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, ['refOrSelector', 'filePaths'], [], 'tabId'],
   ['anti.agent.drop', 'Dispatch native drag and drop file transfer onto a target drop zone element in live AntiFan Desktop tab.', { refOrSelector: { type: 'string' }, filePaths: { type: 'array', items: { type: 'string' } }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, ['refOrSelector', 'filePaths'], [], 'tabId'],
   ['anti.agent.drag', 'Drag a control (price slider, range handle, drag-to-reorder row) from one element/coordinate to another with a bounded interpolated pointer gesture. A press-and-release at the destination alone does not move a slider library.', { fromRef: { type: 'string', description: 'Origin semantic ref (@e1) from a snapshot' }, fromSelector: { type: 'string', description: 'Origin CSS selector' }, fromX: { type: 'number' }, fromY: { type: 'number' }, toRef: { type: 'string', description: 'Destination semantic ref (@e1)' }, toSelector: { type: 'string', description: 'Destination CSS selector' }, toX: { type: 'number' }, toY: { type: 'number' }, steps: { type: 'number', description: 'Interpolated pointer-move steps, clamped to 4..20 (default 10)' }, force: { type: 'boolean', description: 'Skip the occlusion and animation-stability gates for a knowingly covered target' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], [], 'tabId'],
@@ -336,27 +339,26 @@ function resolveBridgeCandidates() {
   ];
 }
 
-// Disk discovery is delegated to the launcher's single candidate authority; the
-// proxy keeps no filesystem or credential-discovery logic of its own. Failover is
-// enabled only for a terminal-scoped agent session, so an unattended or
-// hand-invoked proxy stays bootstrap-only and fail-closed.
+// Disk discovery is delegated to the launcher's single candidate authority
+// (`./antifan-agent.cjs`); the proxy keeps no filesystem or credential-discovery
+// logic of its own. Failover discovery runs for EVERY proxy spawn — terminal-
+// scoped or hand-invoked from an external shell/IDE — because the bridge still
+// authenticates every candidate (challenge/response + bearer) before any
+// dispatch; the terminal env only decides affinity, not reachability. A
+// candidate whose published pid is provably dead is dropped here so a stale
+// record never costs a connect timeout. Which instance is discovered is the
+// launcher's rule: a pinned ANTIFAN_DATA_ROOT / ANTIFAN_CONFIG_DIR confines the
+// scan to that instance (harnesses and tests pin a tempdir to fail closed).
 const { resolveBridgeCandidates: discoverLocalCandidates, compareCandidates: compareBridgeCandidates } = require('./antifan-agent.cjs');
-
-function hasTerminalInstanceContext() {
-  return Boolean(
-    process.env.ANTIFAN_TERMINAL_AFFINITY_SESSION_ID ||
-    process.env.ANTIFAN_TERMINAL_PARENT_SESSION_ID ||
-    process.env.ANTIFAN_TERMINAL_SESSION_ID ||
-    process.env.ANTIFAN_BRIDGE_PID
-  );
-}
 
 function resolveFailoverCandidates() {
   const pinnedCandidates = resolveBridgeCandidates().map((c) => ({ ...c, pinned: true, provenance: 'env' }));
   const seen = new Set(pinnedCandidates.map((c) => `${c.host}:${c.port}`));
-  const discovered = hasTerminalInstanceContext()
-    ? discoverLocalCandidates().filter((c) => !seen.has(`${c.host}:${c.port}`))
-    : [];
+  const discovered = discoverLocalCandidates()
+    .filter((c) => !seen.has(`${c.host}:${c.port}`))
+    // `pidAlive === false` is the launcher's verdict that the publishing process is
+    // gone; `null` (unknown pid) stays eligible and is settled by the connect itself.
+    .filter((c) => c.pidAlive !== false);
   // Single-instance invariant: the app exits on a second process, so the bridge
   // this session already bootstrapped against is always a legitimate failover
   // candidate — reconnecting to it reuses the existing secret, no disk discovery.
@@ -581,6 +583,7 @@ const CAPABILITY_MAP = Object.freeze({
   'anti.theme.export_clean': 'browser.dump_dom',
   'anti.browser.dump_dom': 'browser.dump_dom',
   'anti.theme.qa_validate': 'theme.qa_validate',
+  'anti.theme.debug_bundle': 'theme.debug_bundle',
   'anti.browser.promote_baseline': 'browser.promote-baseline',
 });
 
@@ -1479,6 +1482,9 @@ const READ_SAFE_CAPABILITIES = Object.freeze({
   'device.wait': true,
   'theme.qa_validate': true,
   'theme.debug_bundle': true,
+  'theme.settings_check': true,
+  'anti.theme.qa_validate': true,
+  'anti.theme.debug_bundle': true,
   'theme.assert_cart': true,
   'theme.resolve_product': true,
   'storefront.resolve_product': true,
@@ -1871,12 +1877,12 @@ function rememberAutohealFailure(text) {
 // The launcher's own plane: every autoheal verdict this process reaches is
 // appended to <ANTIFAN_DATA_ROOT>/runtime/bridge-client-failures.jsonl so the
 // Manager's health surface can name WHICH terminal's agent is failing. The
-// write is scoped exactly like the rest of this file's instance context: the
-// data root arrives only when the app's TerminalManager spawned this session
-// (injected beside ANTIFAN_TERMINAL_SESSION_ID/ANTIFAN_BRIDGE_*), so a
-// hand-invoked or foreign proxy inherits nothing, writes nothing, and probes
-// no app directories — the boundary hasTerminalInstanceContext() draws for
-// discovery. The Manager reads the identical path via
+// write is scoped by instance context: the data root arrives only when the
+// app's TerminalManager spawned this session (injected beside
+// ANTIFAN_TERMINAL_SESSION_ID/ANTIFAN_BRIDGE_*), so a hand-invoked or foreign
+// proxy inherits nothing, writes nothing, and probes no app directories.
+// (Candidate discovery itself is NOT env-gated — see resolveFailoverCandidates.)
+// The Manager reads the identical path via
 // StorageLocations.getRuntimeDir() = <dataRoot>/runtime.
 const bridgeJournalPath = require('node:path');
 // Inline copy of BRIDGE_CLIENT_FAILURE_JOURNAL_MAX_BYTES in
@@ -2170,7 +2176,7 @@ async function autohealSessionOnce() {
             }));
           });
           if (Array.isArray(tabResult) && tabResult.length > 0) {
-            const attached = tabResult.find((t) => t.attached) || tabResult.find((t) => !t.offscreen) || tabResult[0];
+            const attached = tabResult.find((t) => t.attached) || tabResult[0];
             if (attached && attached.id) {
               resolvedTabId = attached.id;
             }
@@ -2616,6 +2622,12 @@ async function invoke(method, params = {}, callerRequestId) {
     const rawLimit = typeof params.limit === 'number' && params.limit > 0 ? params.limit : 32768;
     effectiveParams.limit = Math.min(rawLimit, 32768); // Bounded chunk size: <= 32 KiB per frame
   }
+  if (
+    (mapped === 'theme.style_override' || mapped === 'anti.theme.style_override' || method === 'theme.style_override' || method === 'anti.theme.style_override') &&
+    (effectiveParams.operation === 'remove' || effectiveParams.operation === 'revert')
+  ) {
+    effectiveParams.operation = 'clear';
+  }
   let everTransmitted = false;
   let lastTransmittedAttachmentId = null;
   const sendDispatch = async (currentBoot) => {
@@ -2738,8 +2750,20 @@ async function invoke(method, params = {}, callerRequestId) {
 
   let healedOnce = false;
   let retargetedOnce = false;
+  let rebindAttempted = false;
   let currentBoot = bootstrap;
   let previousFailure = null;
+  // A caller that names a tab other than the bound one is making an explicit
+  // same-project retarget request; the proxy performs it as a real
+  // browser.rebind-target call (CAS lease rotation, server-side scope check)
+  // instead of forcing the agent to issue it by hand. Nothing is widened: a tab
+  // outside the session's project still refuses (PROJECT_MISMATCH surfaces
+  // unchanged), and it never applies to the rebind/switch tools themselves.
+  const explicitRequestedTabId = ambientTargetSuppliedByCaller ? effectiveParams[ambientTargetField] : null;
+  const autoRebindEligible = Boolean(
+    explicitRequestedTabId && typeof explicitRequestedTabId === 'string'
+    && mapped !== 'browser.rebind-target' && mapped !== 'browser.switch-tab' && mapped !== 'browser.set-automation-target'
+  );
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       return await sendDispatch(currentBoot);
@@ -2750,6 +2774,20 @@ async function invoke(method, params = {}, callerRequestId) {
         recordBoundTab(liveTarget);
         effectiveParams[ambientTargetField] = liveTarget;
         injectedAmbientTabId = liveTarget;
+        identity = resolveInvocationIdentity(undefined, {});
+        continue;
+      }
+      if (
+        autoRebindEligible && !rebindAttempted && attempt < 2
+        && err && err.code === 'TARGET_MISMATCH'
+      ) {
+        rebindAttempted = true;
+        // The rebind runs through invoke so policy, ledger and bound-tab recording
+        // apply; its own refusal (PROJECT_MISMATCH, TARGET_STALE, ...) wins over
+        // the original mismatch because it names the real boundary.
+        await invoke('anti.browser.rebind_target', { tabId: explicitRequestedTabId });
+        everTransmitted = false;
+        lastTransmittedAttachmentId = null;
         identity = resolveInvocationIdentity(undefined, {});
         continue;
       }

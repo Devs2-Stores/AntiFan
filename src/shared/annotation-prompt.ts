@@ -138,11 +138,28 @@ Deliverable is a CODE SNIPPET (HTML/CSS/React/Tailwind or other requested format
 The request is not specific enough for a safe edit. Inspect and report observed evidence only, then stop at DECISION REQUIRED. Do not infer an outcome from the screenshot.`,
 };
 
+const INTENT_MODULE_TAG_AUTHORIZED = `## Intent Module - User-Armed Edit
+The user armed an explicit edit-mode tag, so authority is settled. Resolve the owning source for the captured element, apply the requested change there, and verify it. Ask one question only if the target or outcome cannot be determined from the request plus the evidence.`;
+
 const TWEAK_PROPERTY_PATTERN = /font[- ]?size|font[- ]?weight|color|background|padding|margin|border[- ]?radius|width|height|line[- ]?height|letter[- ]?spacing|spacing|alignment|position|kich thuoc|co chu/;
 const TWEAK_SCOPE_EXPAND_PATTERN = /responsive|mobile|tablet|desktop|breakpoint|viewport|all pages|toan bo|redesign|lam lai|hover|click|focus|animation|interaction|accessib|a11y|aria|keyboard|review|audit|check|kiem tra|phan tich|bug|error|broken|loi/;
 
+/**
+ * `[Direct-Edit]` / `[Super-Fast]` (any emoji prefix) typed by the user is an
+ * explicit grant of mutation authority (same vocabulary as omp-hooks/edit-mode).
+ * A brief that still parks such a request at DECISION REQUIRED contradicts the
+ * user's own arming and stalls the run.
+ */
+const EXPLICIT_EDIT_MODE_TAG_RE = /\[[^\]]*(?:direct[- ]?edit|super[- ]?fast)\]/i;
+
+export function hasExplicitEditModeTag(instruction: string): boolean {
+  return EXPLICIT_EDIT_MODE_TAG_RE.test(instruction);
+}
+
 function normalizeInstruction(instruction: string): string {
   return instruction
+    .replace(/^\s*\/queue\b/i, '')
+    .replace(new RegExp(EXPLICIT_EDIT_MODE_TAG_RE.source, 'gi'), ' ')
     .toLocaleLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '');
@@ -179,8 +196,8 @@ export function isFigmaRelated(instruction: string): boolean {
 }
 
 export function getInitialTerminalState(instruction: string, intent: TaskIntent = classifyTaskIntent(instruction)): TerminalState {
-  if (!instruction.trim() || intent === 'unknown' || intent === 'external-mutation') return 'decision-required';
-  if (intent === 'review' || intent === 'research' || intent === 'security' || intent === 'documentation' || intent === 'testing' || intent === 'extract-component') return 'ready';
+  if (!instruction.trim()) return 'decision-required';
+  if ((intent === 'unknown' || intent === 'external-mutation') && !hasExplicitEditModeTag(instruction)) return 'decision-required';
   return 'ready';
 }
 
@@ -223,7 +240,9 @@ export function buildAcceptanceCriteria(intent: TaskIntent, userInstruction: str
   if (intent === 'architecture' || intent === 'refactor' || intent === 'migration') criteria.push('Preserves, deliberate changes, risks, compatibility, and rollback are recorded.');
   if (intent === 'mcp-integration') criteria.push('Capabilities and schemas are discovered; permissions, mutation semantics, timeouts, and actionable errors are explicit.');
   if (intent === 'external-mutation') criteria.push('No mutation occurs before exact-target confirmation, dry-run/preview, credential checks, rollback, and post-action proof.');
-  if (intent === 'unknown') criteria.push('No implementation occurs until the intended outcome is clarified.');
+  if (intent === 'unknown') criteria.push(hasExplicitEditModeTag(userInstruction)
+    ? 'The requested change is applied at the owning source and verified; no clarification gate is imposed on an explicitly armed edit.'
+    : 'No implementation occurs until the intended outcome is clarified.');
   if (/mobile|responsive|viewport|breakpoint|tablet/.test(value)) criteria.push('Representative mobile (375px), tablet (768px), desktop (1280px+), and relevant boundary widths are verified.');
   if (/hover|click|open|close|focus|animation|interaction|keyboard/.test(value)) criteria.push('Relevant default, hover, focus, active, disabled, keyboard, timing, and repeated-action states are verified.');
   if (/accessib|a11y|aria|screen reader/.test(value)) criteria.push('Semantic role/name/state, keyboard operation, focus visibility, contrast, labels, and announcements are verified.');
@@ -253,8 +272,10 @@ export function buildAgentTaskHeader(userInstruction: string, terminalStateOverr
     ? 'SNIPPET-ONLY: produce the component code in the reply. Do not create, edit, or delete any file in the repository.'
     : terminalStateOverride === 'partial'
     ? 'READ-ONLY recovery: inspect and report the incomplete evidence. Do not mutate code until the missing evidence is refreshed and the task returns to READY.'
-    : intent === 'external-mutation' || intent === 'unknown'
+    : (intent === 'external-mutation' || intent === 'unknown') && !hasExplicitEditModeTag(instruction)
     ? 'NO MUTATION: remain at DECISION REQUIRED until the outcome and authority are explicit.'
+    : (intent === 'external-mutation' || intent === 'unknown')
+    ? 'MUTATION AUTHORIZED by the user\'s explicit edit-mode tag: proceed under the core contract; ask only if the target file or outcome is genuinely ambiguous.'
     : 'Gated by core contract, fresh evidence, and intent verification.';
 
   return `# Browser Element Task
@@ -282,5 +303,5 @@ ${criteria}
 ${buildSelfQaDirective(intent, instruction)}
 
 ${STANDALONE_AGENT_CONTRACT}
-${INTENT_MODULES[intent]}`;
+${(intent === 'unknown' || intent === 'external-mutation') && hasExplicitEditModeTag(instruction) ? INTENT_MODULE_TAG_AUTHORIZED : INTENT_MODULES[intent]}`;
 }

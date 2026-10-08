@@ -3,7 +3,7 @@ import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { TerminalManager } from '../../src/main/browser/terminal-manager';
+import { SessionDeliveryJournal, TerminalManager } from '../../src/main/browser/terminal-manager';
 import { CapabilityCatalogue } from '../../src/main/tools/capability-catalogue';
 import { registerTerminalCapabilities } from '../../src/main/tools/terminal-capabilities';
 import {
@@ -65,6 +65,7 @@ describe('Terminal Capabilities, Generation Tracking & Wait Lifecycle (Phase 04)
         write: (data: string) => {
           s.buffer += data;
           s.lastSeq = (s.lastSeq || 0) + 1;
+          s.deliveryJournal.append(s.sessionGeneration, s.lastSeq, data, Buffer.byteLength(data, 'utf8'));
           terminalManager.emit('data', { sessionId: id, data, seq: s.lastSeq });
         },
         resize: (newCols: number, newRows: number) => {
@@ -83,6 +84,7 @@ describe('Terminal Capabilities, Generation Tracking & Wait Lifecycle (Phase 04)
         lastSeq: 0,
         sessionGeneration: generation,
         state: 'running' as const,
+        deliveryJournal: new SessionDeliveryJournal(),
       };
       (terminalManager as any).sessions.set(id, s);
       return s;
@@ -204,6 +206,52 @@ describe('Terminal Capabilities, Generation Tracking & Wait Lifecycle (Phase 04)
     )) as TerminalWaitResult;
     assert.strictEqual(waitRes.satisfied, true);
     assert.strictEqual(waitRes.sessionGeneration, session?.sessionGeneration);
+  });
+
+  it('5b. Resolves terminal.wait with afterSeq when the matching chunk already arrived after that seq', async () => {
+    const sessionId = terminalManager.getActiveSessionId();
+    assert.ok(sessionId);
+    const session = terminalManager.getSession(sessionId);
+    assert.ok(session);
+
+    // Caller observed lastSeq, then output landed before the wait was issued:
+    // the data event for it has already fired, so only the journal can prove it.
+    const afterSeq = session.lastSeq || 0;
+    // The stub pty's write() is the only path that advances seq and the journal here.
+    assert.ok(session.pty);
+    session.pty.write('\r\nSynced » update config/settings_data.json\r\n');
+    assert.ok((session.lastSeq || 0) > afterSeq);
+
+    const waitRes = (await catalogue.dispatch(
+      'terminal.wait',
+      {
+        sessionId,
+        condition: 'output-match',
+        pattern: 'Synced » update config/settings_data\\.json',
+        afterSeq,
+        timeoutMs: 500,
+      },
+      { lease, leaseToken: lease.token, projectId, workspaceId, grant: 'read' }
+    )) as TerminalWaitResult;
+    assert.strictEqual(waitRes.satisfied, true);
+    assert.ok(waitRes.lastSeq > afterSeq);
+
+    // Output that arrived at or before afterSeq must still NOT satisfy the wait.
+    await assert.rejects(
+      () =>
+        catalogue.dispatch(
+          'terminal.wait',
+          {
+            sessionId,
+            condition: 'output-match',
+            pattern: 'Synced » update config/settings_data\\.json',
+            afterSeq: session.lastSeq,
+            timeoutMs: 120,
+          },
+          { lease, leaseToken: lease.token, projectId, workspaceId, grant: 'read' }
+        ),
+      (err: unknown) => err instanceof CapabilityError && err.code === 'WAIT_TIMEOUT'
+    );
   });
 
   it('6. Times out on unsatisfied terminal.wait and clears all listeners', async () => {

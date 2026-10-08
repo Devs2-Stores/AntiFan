@@ -720,69 +720,151 @@ test("a call the guard cannot classify is refused while scoped and passed throug
   assert.deepEqual(unscopedResult, [], "an unscoped session has nothing to enforce, so a failure is not a refusal");
 });
 
-test("hook blocks config/settings_data.json in mode === 'unset' (standard OMP session)", async () => {
-  const root = makeThemeWorkspace();
-  const hook = makeHook();
-  editGuardHook(hook.pi);
-  const ctx = hook.context(root, "sess-unset-settings");
-  await hook.emit("session_start", {}, ctx);
-  const result = await hook.emit(
-    "tool_call",
-    { toolName: "write", input: { path: "config/settings_data.json", content: "{}" } },
-    ctx,
-  );
-  assert.equal(result.length, 1, "handler must return a block response for config/settings_data.json in unset mode");
-  assert.equal(result[0].block, true);
-  assert.ok(result[0].reason.includes("REFUSED_SETTINGS_DATA_DIRECT_WRITE"));
+// ---------------------------------------------------------------------------
+// config/settings_data.json: writable in every mode, after one scoped fetch per run
+// ---------------------------------------------------------------------------
+
+const { HRV_COMMAND_ENV } = await load("edit-guard");
+const HRV_AT_LOAD = process.env[HRV_COMMAND_ENV];
+after(() => {
+  if (HRV_AT_LOAD === undefined) delete process.env[HRV_COMMAND_ENV];
+  else process.env[HRV_COMMAND_ENV] = HRV_AT_LOAD;
 });
 
-test("hook blocks config/settings_data.json in mode === 'core' (fail-closed regression)", async () => {
+/**
+ * A stand-in `hrv` that records its argv and prints the CLI's real success or
+ * failure line. The real CLI exits 0 either way, so the stub does too.
+ */
+function installHrvStub({ succeed }) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "hrv-stub-"));
+  const calls = path.join(dir, "calls.jsonl");
+  const script = path.join(dir, "hrv.mjs");
+  const line = succeed ? "✓ Tải về thành công 1 file." : "Fetch thất bại: Không tìm thấy file trên remote.";
+  fs.writeFileSync(
+    script,
+    [
+      'import { appendFileSync } from "node:fs";',
+      `appendFileSync(${JSON.stringify(calls)}, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd() }) + "\\n");`,
+      `console.log(${JSON.stringify(line)});`,
+    ].join("\n"),
+  );
+  process.env[HRV_COMMAND_ENV] = `"${process.execPath}" "${script}"`;
+  const recorded = () =>
+    fs.existsSync(calls)
+      ? fs.readFileSync(calls, "utf8").trim().split("\n").map((row) => JSON.parse(row))
+      : [];
+  return { recorded };
+}
+
+function bindShop(root) {
+  fs.writeFileSync(
+    path.join(root, ".haravan-cli_local.json"),
+    JSON.stringify({ org_id: "200001", theme_id: "1001507144", theme_name: "Stub", theme_org_id: "200001" }),
+  );
+}
+
+const SETTINGS_WRITE = { toolName: "write", input: { path: "config/settings_data.json", content: "{}" } };
+
+function readLog(root, sessionId) {
+  return fs
+    .readFileSync(path.join(root, ".antifan", "edit-guard", `${sessionId}.jsonl`), "utf8")
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line));
+}
+
+for (const [label, prompt] of [
+  ["unset", "no tag here"],
+  ["core", "[🧠Core-Context] think"],
+  ["direct", "[⚡Direct-Edit] update config"],
+  ["fast", "[🚀Super-Fast] update config"],
+]) {
+  test(`settings_data.json write in mode === '${label}' fetches once from the bound shop, then passes`, async () => {
+    const root = makeThemeWorkspace();
+    bindShop(root);
+    const stub = installHrvStub({ succeed: true });
+    const hook = makeHook();
+    editGuardHook(hook.pi);
+    const ctx = hook.context(root, `sess-settings-${label}`);
+    await hook.emit("session_start", {}, ctx);
+    await hook.emit("before_agent_start", { prompt }, ctx);
+
+    assert.deepEqual(await hook.emit("tool_call", SETTINGS_WRITE, ctx), [], "the write passes after a successful fetch");
+    assert.deepEqual(await hook.emit("tool_call", SETTINGS_WRITE, ctx), [], "a second write in the same run passes");
+    const calls = stub.recorded();
+    assert.equal(calls.length, 1, "one fetch per run, not per write");
+    assert.deepEqual(calls[0].argv, ["theme", "fetch", "1001507144", "--only", "config/settings_data.json"]);
+    assert.equal(path.resolve(calls[0].cwd).toLowerCase(), path.resolve(root).toLowerCase(), "fetch runs in the theme root");
+    assert.ok(hook.warnings.some((m) => m.includes("refreshed from shop org=200001 theme=1001507144")));
+
+    await hook.emit("before_agent_start", { prompt }, ctx);
+    await hook.emit("tool_call", SETTINGS_WRITE, ctx);
+    assert.equal(stub.recorded().length, 2, "the next run fetches again");
+
+    // Scoped modes also account the write itself; unscoped modes only record the fetch.
+    const scoped = label === "direct" || label === "fast";
+    assert.deepEqual(
+      readLog(root, `sess-settings-${label}`).map((row) => `${row.tool}:${row.code}`),
+      scoped
+        ? [
+            "hrv theme fetch:SETTINGS_DATA_FETCHED",
+            "write:ALLOWED",
+            "write:ALLOWED",
+            "hrv theme fetch:SETTINGS_DATA_FETCHED",
+            "write:ALLOWED",
+          ]
+        : ["hrv theme fetch:SETTINGS_DATA_FETCHED", "hrv theme fetch:SETTINGS_DATA_FETCHED"],
+    );
+  });
+}
+
+test("settings_data.json write is refused when the scoped fetch fails, and retried on the next call", async () => {
   const root = makeThemeWorkspace();
+  bindShop(root);
+  const stub = installHrvStub({ succeed: false });
   const hook = makeHook();
   editGuardHook(hook.pi);
-  const ctx = hook.context(root, "sess-core-settings");
+  const ctx = hook.context(root, "sess-settings-fetch-fail");
   await hook.emit("session_start", {}, ctx);
-  await hook.emit("before_agent_start", { prompt: "[🧠Core-Context] think" }, ctx);
-  const result = await hook.emit(
+  await hook.emit("before_agent_start", { prompt: "no tag here" }, ctx);
+
+  const first = await hook.emit("tool_call", SETTINGS_WRITE, ctx);
+  assert.equal(first.length, 1);
+  assert.equal(first[0].block, true);
+  assert.ok(first[0].reason.includes("REFUSED_SETTINGS_DATA_FETCH_FAILED"));
+  assert.ok(first[0].reason.includes("Không tìm thấy file trên remote"), "the CLI's own failure line is surfaced");
+  const second = await hook.emit("tool_call", SETTINGS_WRITE, ctx);
+  assert.equal(second.length, 1, "a failed fetch is not remembered as done");
+  assert.equal(stub.recorded().length, 2);
+
+  const rows = readLog(root, "sess-settings-fetch-fail");
+  assert.deepEqual(
+    rows.map((row) => `${row.decision}:${row.code}`),
+    ["block:REFUSED_SETTINGS_DATA_FETCH_FAILED", "block:REFUSED_SETTINGS_DATA_FETCH_FAILED"],
+  );
+
+  const other = await hook.emit(
     "tool_call",
-    { toolName: "write", input: { path: "config/settings_data.json", content: "{}" } },
+    { toolName: "write", input: { path: "snippets/header.liquid", content: "<p></p>" } },
     ctx,
   );
-  assert.equal(result.length, 1, "handler must return a block response for config/settings_data.json in core mode");
-  assert.equal(result[0].block, true);
-  assert.ok(result[0].reason.includes("REFUSED_SETTINGS_DATA_DIRECT_WRITE"));
+  assert.deepEqual(other, [], "only settings_data.json is gated on the fetch");
 });
 
-test("hook permits config/settings_data.json in mode === 'direct' with warning", async () => {
+test("settings_data.json write in a workspace with no bound shop passes without a fetch", async () => {
   const root = makeThemeWorkspace();
+  const stub = installHrvStub({ succeed: true });
   const hook = makeHook();
   editGuardHook(hook.pi);
-  const ctx = hook.context(root, "sess-direct-settings");
+  const ctx = hook.context(root, "sess-settings-unbound");
   await hook.emit("session_start", {}, ctx);
-  await hook.emit("before_agent_start", { prompt: "[⚡Direct-Edit] update config" }, ctx);
-  const result = await hook.emit(
-    "tool_call",
-    { toolName: "write", input: { path: "config/settings_data.json", content: "{}" } },
-    ctx,
+  assert.deepEqual(await hook.emit("tool_call", SETTINGS_WRITE, ctx), []);
+  assert.equal(stub.recorded().length, 0, "nothing to fetch from");
+  assert.ok(hook.warnings.some((m) => m.includes("writing without a remote fetch")));
+  assert.deepEqual(
+    readLog(root, "sess-settings-unbound").map((row) => row.code),
+    ["SETTINGS_DATA_UNBOUND"],
   );
-  assert.deepEqual(result, [], "handler must return undefined (allowed) in direct mode");
-  assert.ok(hook.warnings.some((m) => m.includes("[edit-guard] Modifying settings_data.json directly")));
-});
-
-test("hook permits config/settings_data.json in mode === 'fast' with warning", async () => {
-  const root = makeThemeWorkspace();
-  const hook = makeHook();
-  editGuardHook(hook.pi);
-  const ctx = hook.context(root, "sess-fast-settings");
-  await hook.emit("session_start", {}, ctx);
-  await hook.emit("before_agent_start", { prompt: "[🚀Super-Fast] update config" }, ctx);
-  const result = await hook.emit(
-    "tool_call",
-    { toolName: "write", input: { path: "config/settings_data.json", content: "{}" } },
-    ctx,
-  );
-  assert.deepEqual(result, [], "handler must return undefined (allowed) in fast mode");
-  assert.ok(hook.warnings.some((m) => m.includes("[edit-guard] Modifying settings_data.json directly")));
 });
 
 test("hook allows normal edits like snippets/header.liquid in mode === 'unset'", async () => {

@@ -1,20 +1,27 @@
 /**
- * Edit-guard hook — the user-scope enforcement half of the edit-mode contract.
+ * Edit-guard hook - the user-scope enforcement half of the edit-mode contract.
  *
  * Arms a mode from the prompt (or inherits it), and enforces per mode: `direct`
- * refuses nothing locally — its contract is Core suppression and lives in the
+ * refuses nothing locally - its contract is Core suppression and lives in the
  * bridge hook; `fast` refuses the shell, dispatch, eval, search and every
  * device call, and confines writes to the theme's writable set. Both modes
  * leave an append-only audit trail the Manager and the QA gate both read:
  * `<workspaceRoot>/.antifan/edit-guard/<ompSessionId>.jsonl`.
  *
+ * `config/settings_data.json` is writable in every mode, but the shop editor is a
+ * second writer of that file, so the first write per agent run first refreshes it
+ * with `hrv theme fetch <themeId> --only config/settings_data.json` (theme id from
+ * `.haravan-cli_local.json`). A failed fetch refuses the write; a workspace with no
+ * bound shop has no remote copy and writes without one.
+ *
  * Nothing in here throws: a hook that throws turns a policy into an outage, so
  * every handler catches and every refusal is a returned value. A `tool_call` the
- * wiring could not classify is a refusal while the session is scoped — an
+ * wiring could not classify is a refusal while the session is scoped - an
  * unclassified call has not been cleared, and clearing by failure is the one
  * outcome the guard exists to prevent.
  */
 
+import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -35,6 +42,10 @@ export const GUARD_ENTRY_TYPE = "antifan.edit-mode";
 export const LOG_DIR_PARTS = [".antifan", "edit-guard"];
 const MIRROR_DIR_PARTS = ["runtime", "edit-mode"];
 const LOG_ROTATE_BYTES = 2 * 1024 * 1024;
+const SETTINGS_DATA_RE = /(^|[/\\])config[/\\]settings_data\.json$/i;
+const SETTINGS_DATA_FETCH_TIMEOUT_MS = 90_000;
+/** Shell command prefix that runs the Haravan CLI; tests and non-PATH installs override it. */
+export const HRV_COMMAND_ENV = "ANTIFAN_HRV_COMMAND";
 
 export interface AuditRow {
   ts: string;
@@ -57,6 +68,8 @@ interface GuardSession {
   shape: WorkspaceShape;
   logPath: string;
   mirrorPath: string | null;
+  /** The run whose first settings_data write already fetched; -1 = never (run 0 is real). */
+  settingsDataFetchedRunSeq: number;
 }
 
 const sessions = new Map<string, GuardSession>();
@@ -211,6 +224,7 @@ function buildSession(ctx: unknown): GuardSession {
     shape,
     logPath,
     mirrorPath: mirrorPathFor(sessionId, env),
+    settingsDataFetchedRunSeq: -1,
   };
 }
 
@@ -255,6 +269,74 @@ function rowFor(
     terminalSessionId: typeof terminal === "string" && terminal.trim().length > 0 ? terminal.trim() : null,
     ompSessionId: session.sessionId,
   };
+}
+
+interface FetchOutcome {
+  ok: boolean;
+  detail: string;
+}
+
+/**
+ * `hrv theme fetch <themeId> --only config/settings_data.json` in the theme root.
+ * The CLI prints its failures and exits 0, so the job message is the only verdict:
+ * success is literally "Tải về thành công 1 file." (live-ops-service.ts).
+ */
+function runSettingsDataFetch(themeRoot: string, themeId: string): Promise<FetchOutcome> {
+  const { promise, resolve } = Promise.withResolvers<FetchOutcome>();
+  // One shell line (a `.cmd` shim on Windows needs the shell), so the only
+  // interpolated value must be a plain Haravan theme id.
+  if (!/^\d+$/.test(themeId)) {
+    resolve({ ok: false, detail: `theme_id '${themeId}' in .haravan-cli_local.json is not numeric` });
+    return promise;
+  }
+  const command = (process.env[HRV_COMMAND_ENV] ?? "").trim() || "hrv";
+  const commandLine = `${command} theme fetch ${themeId} --only config/settings_data.json`;
+  let output = "";
+  let settled = false;
+  let timer: NodeJS.Timeout | undefined;
+  const finish = (ok: boolean, detail: string) => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timer);
+    resolve({ ok, detail });
+  };
+  const lastLine = () => {
+    const lines = output
+      .replace(/\u001b\[[0-9;]*m/g, "")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0 && !/^\(node:\d+\)|^\(Use `node/.test(line));
+    return lines[lines.length - 1] ?? "(no output)";
+  };
+  try {
+    const child = spawn(commandLine, {
+      cwd: themeRoot,
+      shell: true,
+      windowsHide: true,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const collect = (chunk: Buffer) => {
+      if (output.length < 16_384) output += chunk.toString("utf8");
+    };
+    child.stdout?.on("data", collect);
+    child.stderr?.on("data", collect);
+    child.on("error", (err) => finish(false, describeError(err)));
+    child.on("close", (code) => {
+      if (/Tải về thành công 1 file\./.test(output)) finish(true, "Tải về thành công 1 file.");
+      else finish(false, `${lastLine()} (exit ${code ?? "null"})`);
+    });
+    timer = setTimeout(() => {
+      try {
+        child.kill();
+      } catch {
+        /* already gone */
+      }
+      finish(false, `timed out after ${SETTINGS_DATA_FETCH_TIMEOUT_MS} ms`);
+    }, SETTINGS_DATA_FETCH_TIMEOUT_MS);
+  } catch (err) {
+    finish(false, describeError(err));
+  }
+  return promise;
 }
 
 function writeMirror(session: GuardSession): void {
@@ -357,7 +439,7 @@ export default function editGuardHook(pi: GuardPi): void {
     return undefined;
   });
 
-  pi.on("tool_call", (event, ctx) => {
+  pi.on("tool_call", async (event, ctx) => {
     try {
       const session = ensureSession(ctx);
       const record = contextRecord(event);
@@ -365,34 +447,32 @@ export default function editGuardHook(pi: GuardPi): void {
       const input = contextRecord(record.input);
       const targets = extractTargetPaths(input);
 
-      const isSettingsDataWrite =
-        WRITE_TOOLS[tool.trim().toLowerCase()] === true &&
-        targets.some((t) => /(^|[/\\])config[/\\]settings_data\.json$/i.test(t));
+      const settingsDataTarget =
+        WRITE_TOOLS[tool.trim().toLowerCase()] === true
+          ? targets.find((t) => SETTINGS_DATA_RE.test(t))
+          : undefined;
 
-      if (isSettingsDataWrite) {
-        if (!(SCOPED_MODES as readonly string[]).includes(session.mode)) {
-          // Fail-closed: 'unset', 'core', or any unknown mode must never write
-          // config/settings_data.json directly. Only explicit [⚡Direct-Edit] or
-          // [🚀Super-Fast] scoped sessions may bypass (with a warning below).
-          const reason =
-            "REFUSED_SETTINGS_DATA_DIRECT_WRITE: Direct write/edit to config/settings_data.json is prohibited outside scoped modes. Use theme.transaction.write_cas with targetTabId to enforce shop isolation, or activate explicit [⚡Direct-Edit].";
-          appendRows(session, [
-            rowFor(
-              session,
-              tool,
-              targets.find((t) => /(^|[/\\])config[/\\]settings_data\.json$/i.test(t)) ?? "config/settings_data.json",
-              "block",
-              REFUSAL_CODES.SETTINGS_DATA_DIRECT_WRITE,
-            ),
-          ]);
-          warnSafely(pi, reason);
-          return { block: true, reason };
+      if (settingsDataTarget !== undefined && session.settingsDataFetchedRunSeq !== session.runSeq) {
+        // One fetch per run: the agent is the only local writer between its own
+        // calls, and a second fetch inside the run would overwrite an edit the
+        // `hrv theme dev` watcher has not pushed yet.
+        const root = session.shape.themeRoot ?? session.shape.workspaceRoot;
+        const shop = resolveShopIdentity(root);
+        if (shop === null) {
+          warnSafely(pi, `[edit-guard] ${settingsDataTarget}: no .haravan-cli_local.json under ${root}, writing without a remote fetch`);
+          appendRows(session, [rowFor(session, "hrv theme fetch", settingsDataTarget, "allow", "SETTINGS_DATA_UNBOUND")]);
+        } else {
+          const fetched = await runSettingsDataFetch(root, shop.themeId);
+          if (!fetched.ok) {
+            const reason = `${REFUSAL_CODES.SETTINGS_DATA_FETCH_FAILED}: hrv theme fetch ${shop.themeId} --only config/settings_data.json failed in ${root}: ${fetched.detail}. Fix the fetch (login, network, theme id) and retry the write.`;
+            appendRows(session, [rowFor(session, tool, settingsDataTarget, "block", REFUSAL_CODES.SETTINGS_DATA_FETCH_FAILED)]);
+            warnSafely(pi, reason);
+            return { block: true, reason };
+          }
+          appendRows(session, [rowFor(session, "hrv theme fetch", settingsDataTarget, "allow", "SETTINGS_DATA_FETCHED")]);
+          warnSafely(pi, `[edit-guard] settings_data.json refreshed from shop org=${shop.orgId} theme=${shop.themeId} before this run's first write`);
         }
-        if (session.mode === "direct" || session.mode === "fast") {
-          const root = session.shape.themeRoot ?? session.shape.workspaceRoot;
-          const shop = resolveShopIdentity(root);
-          warnSafely(pi, `[edit-guard] Modifying settings_data.json directly for shop org=${shop?.orgId} theme=${shop?.themeId}`);
-        }
+        session.settingsDataFetchedRunSeq = session.runSeq;
       }
 
       if (!(SCOPED_MODES as readonly string[]).includes(session.mode)) return undefined;

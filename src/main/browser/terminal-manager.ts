@@ -3234,7 +3234,12 @@ export class TerminalManager extends EventEmitter {
       throw new CapabilityError('SESSION_CLOSED', 'Terminal session already terminated');
     }
 
-    // Fast path for output-match when afterSeq is not specified or already reached
+    // Fast path for output-match: output that already arrived must satisfy the
+    // wait without a live event. Without afterSeq the whole tail window counts;
+    // with afterSeq only chunks past that sequence count, read from the journal
+    // so a chunk that landed between the caller's list/write and this wait is
+    // not missed (the event for it has already fired).
+    let alreadyArrivedAfterSeq = '';
     if (input.condition === 'output-match') {
       if (!input.pattern) {
         throw new CapabilityError('INVALID_ARGUMENT', 'pattern is required for output-match condition');
@@ -3252,6 +3257,20 @@ export class TerminalManager extends EventEmitter {
           lastSeq: s.lastSeq || 0,
           outputTail: safeSliceTail(s.buffer, 4096),
         };
+      }
+      if (input.afterSeq !== undefined && (s.lastSeq || 0) > input.afterSeq) {
+        const delta = s.deliveryJournal.getDelta(s.sessionGeneration, input.afterSeq + 1);
+        if (delta.status === 'OK') {
+          alreadyArrivedAfterSeq = delta.chunks.map((chunk) => chunk.data).join('');
+          if (alreadyArrivedAfterSeq.length > 0 && regex.test(alreadyArrivedAfterSeq)) {
+            return {
+              satisfied: true,
+              sessionGeneration: s.sessionGeneration,
+              lastSeq: delta.throughSeq,
+              outputTail: safeSliceTail(s.buffer, 4096),
+            };
+          }
+        }
       }
     }
 
@@ -3312,7 +3331,7 @@ export class TerminalManager extends EventEmitter {
       }, timeoutMs);
       timeoutTimer.unref?.();
 
-      let accumulatedAfterSeq = '';
+      let accumulatedAfterSeq = alreadyArrivedAfterSeq;
       const onData = (evt: { sessionId: string; data: string; seq: number }) => {
         if (settled || evt.sessionId !== input.sessionId) return;
         if (input.afterSeq !== undefined && evt.seq <= input.afterSeq) return;

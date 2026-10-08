@@ -140,4 +140,22 @@ describe('Annotation prompt self-QA directive', () => {
     assert.ok(header.includes('READ-ONLY analysis'));
     assert.ok(header.includes(SELF_QA_DIRECTIVE_READONLY));
   });
+
+  it('an explicit [Direct-Edit] tag never parks an otherwise-unclassifiable request at DECISION REQUIRED', () => {
+    const armed = '/queue [Direct-Edit] Cho phép settings_data.json';
+    const header = buildAgentTaskHeader(armed);
+    assert.ok(header.includes('Current state: READY'), header);
+    assert.ok(!header.includes('DECISION REQUIRED'), 'armed edit must not carry a clarification gate');
+    assert.ok(header.includes('MUTATION AUTHORIZED'));
+    assert.ok(header.includes('User-Armed Edit'));
+    assert.ok(!header.includes('No implementation occurs until the intended outcome is clarified.'));
+
+    const unarmed = buildAgentTaskHeader('Cho phép settings_data.json');
+    assert.ok(unarmed.includes('Current state: DECISION REQUIRED'), 'the same text without a tag keeps the gate');
+  });
+
+  it('mode tags are stripped before intent classification', () => {
+    assert.strictEqual(classifyTaskIntent('[⚡Direct-Edit] fix lỗi lệch header'), 'bug-fix');
+    assert.strictEqual(classifyTaskIntent('[Super-Fast] font-size 14px'), 'tweak');
+  });
 });
