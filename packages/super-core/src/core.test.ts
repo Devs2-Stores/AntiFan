@@ -1227,3 +1227,66 @@ test('a pack is scoped to the caller project and its identity does not collide a
   );
   core.close();
 });
+
+test('a claim cited by many anchors is returned with a bounded anchor list and its true count', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'core-evidence-cap-'));
+  const dbPath = path.join(dir, 'core.db');
+  const core = openCore(dbPath);
+  const raw = new DatabaseSync(dbPath);
+  try {
+    const nowStr = new Date().toISOString();
+    const seed = (claimId: string, rowid: number, statement: string, anchors: number) => {
+      raw.prepare(`INSERT INTO claims(claimId, unitId, statement, kind, status, extractorVersion, createdAt)
+        VALUES (?, 'u-cap', ?, 'RULE', 'OBSERVED', 'v1', ?)`).run(claimId, statement, nowStr);
+      raw.prepare('INSERT INTO claims_fts(rowid, statement, kind, unitId, claimId) VALUES (?,?,?,?,?)').run(rowid, statement, 'RULE', 'u-cap', claimId);
+      for (let i = 0; i < anchors; i++) {
+        raw.prepare("INSERT INTO evidence(id, claimId, revision, path) VALUES (?, ?, 'rev1', ?)").run(`ev-${claimId}-${i}`, claimId, `annotations/${i}.md`);
+      }
+    };
+    // One boilerplate rule cited by every annotation file, one ordinary rule.
+    seed('c-cited', 1, 'gate workflow validates tool schemas before invocation', 400);
+    seed('c-plain', 2, 'gate workflow names the owning file', 2);
+
+    const pack = core.contextPack({ task: 'gate workflow', limit: 5 });
+    const cited = pack.claims.find((c) => c.claimId === 'c-cited');
+    const plain = pack.claims.find((c) => c.claimId === 'c-plain');
+    assert.ok(cited && plain, 'both claims reach the pack');
+    assert.equal(cited.evidenceCount, 400, 'the pack reports how many anchors the claim really has');
+    assert.ok(cited.evidence.length <= 5, `inline anchors are bounded, got ${cited.evidence.length}`);
+    assert.ok(JSON.stringify(pack).length < 20_000, 'a heavily cited claim no longer inflates the pack');
+    assert.equal(plain.evidenceCount, 2);
+    assert.equal(plain.evidence.length, 2, 'a claim under the bound keeps every anchor');
+  } finally {
+    raw.close();
+    core.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('provenance folded into a principle by a repeat observation survives reopening the store', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'core-principle-reopen-'));
+  const dbPath = path.join(dir, 'core.db');
+  try {
+    const first = openCore(dbPath);
+    const { principleId } = first.recordPrinciple({ statement: 'Verify before claiming done', source: 'skills/a/SKILL.md' });
+    first.recordPrinciple({ statement: 'verify before   claiming done', source: 'skills/b/SKILL.md' });
+    first.close();
+
+    // Reopening runs consolidation; it must keep what the merge recorded.
+    const reopened = openCore(dbPath);
+    reopened.close();
+    const raw = new DatabaseSync(dbPath);
+    try {
+      const rows = raw.prepare('SELECT principleId, source, derivedFrom FROM principles').all();
+      assert.equal(rows.length, 1, 'the repeat observation stays one principle');
+      const row = rows[0];
+      assert.equal(row.principleId, principleId);
+      assert.equal(row.source, 'skills/a/SKILL.md');
+      assert.deepEqual(JSON.parse(String(row.derivedFrom)), ['skills/a/SKILL.md', 'skills/b/SKILL.md'], 'both observations keep their provenance');
+    } finally {
+      raw.close();
+    }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

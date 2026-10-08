@@ -27,6 +27,13 @@ for (const key of Object.keys(process.env)) {
   if (key.startsWith('ANTIFAN_')) delete process.env[key];
 }
 app.commandLine.appendSwitch('no-sandbox');
+// Latency must not depend on window z-order. Without these, Chromium's native
+// occlusion tracking stops frame production once another window covers the
+// harness (an unattended run behind a maximized editor), and every capture,
+// drag and QA call fails CAPTURE_FRAME_STARVATION instead of being measured.
+app.commandLine.appendSwitch('disable-background-timer-throttling');
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 if (process.argv.includes('--disable-gpu')) app.commandLine.appendSwitch('disable-gpu');
 const tempUserData = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-mcp-bench-'));
 app.setPath('userData', tempUserData);

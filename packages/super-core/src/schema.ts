@@ -154,6 +154,10 @@ CREATE TABLE IF NOT EXISTS artifacts (
 CREATE INDEX IF NOT EXISTS idx_artifacts_unit ON artifacts(unitId);
 CREATE INDEX IF NOT EXISTS idx_artifacts_path ON artifacts(absPath);
 CREATE INDEX IF NOT EXISTS idx_artifacts_policy ON artifacts(contentPolicy);
+-- Covers every disposition read: the BLOCKED/PENDING per-unit unknowns that
+-- each context pack computes, and the corpus-audit / coverage-gate histograms.
+-- Without it each was a full scan of the largest table in the store.
+CREATE INDEX IF NOT EXISTS idx_artifacts_disposition ON artifacts(disposition, unitId, reason);
 
 CREATE TABLE IF NOT EXISTS units (
   unitId TEXT PRIMARY KEY,

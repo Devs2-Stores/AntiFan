@@ -269,10 +269,14 @@ function plan(ctx) {
     { name: 'anti.agent.sequence', args: () => ({ ...t(), actions: [{ type: 'scroll', deltaY: 300 }, { type: 'hover', selector: sel.title }, { type: 'wait', waitMs: 10 }] }) },
     // theme QA (synthetic page is not a Haravan/Shopify theme: measures the detect + refusal path)
     { name: 'theme.debug_bundle', args: t, samples: 3 },
+    { name: 'anti.theme.debug_bundle', args: t, samples: 3 },
+    // Offline: reads the authoritative workspace on disk, no tab.
+    { name: 'theme.settings_check', args: () => ({}), samples: 3 },
     { name: 'theme.assert_cart', args: t },
     { name: 'theme.resolve_product', args: () => ({ ...t(), handle: sel.product }), samples: 3 },
     { name: 'storefront.resolve_product', args: () => ({ ...t(), handle: sel.product }), samples: 3 },
     { name: 'theme.qa_validate', args: t, samples: 2, timeoutMs: 180_000 },
+    { name: 'anti.theme.qa_validate', args: t, samples: 2, timeoutMs: 180_000 },
     { name: 'theme.cockpit_list', args: t },
     { name: 'theme.cockpit_findings', args: t },
     { name: 'theme.cockpit_report', args: t },

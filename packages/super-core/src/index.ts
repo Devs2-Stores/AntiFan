@@ -27,6 +27,23 @@ const normalizeStatement = (s: unknown): string => (typeof s === 'string' ? s.re
  *  column and the gate agree on identity by construction. */
 const normalizePrinciple = (s: unknown): string => (typeof s === 'string' ? s.trim().toLowerCase().replace(/\s+/g, ' ') : '');
 const principleHash = (statement: string): string => crypto.createHash('sha1').update(normalizePrinciple(statement)).digest('hex');
+/** A principle's provenance as one flat list: `source`, then `derivedFrom`,
+ *  which holds either a plain string or a JSON list (merges and
+ *  consolidation write lists). Flattening both shapes keeps a re-merge from
+ *  nesting a JSON blob inside the list. */
+const principleAnchors = (source: string | null, derivedFrom: string | null): string[] => {
+  const out: string[] = source ? [source] : [];
+  if (derivedFrom) {
+    try {
+      const parsed: unknown = JSON.parse(derivedFrom);
+      if (Array.isArray(parsed)) out.push(...parsed.filter((x): x is string => typeof x === 'string' && x !== ''));
+      else out.push(derivedFrom);
+    } catch {
+      out.push(derivedFrom);
+    }
+  }
+  return out;
+};
 
 /**
  * Collapse claims that assert the same sentence, keeping the strongest row (the
@@ -86,6 +103,12 @@ export interface RegressionCheck { kind: 'claim-status' | 'case-present' | 'quer
 // unresolved conflicts SUBTRACT, never add. Frozen before measurement.
 const RANK = { text: 0.25, evidence: 0.20, state: 0.15, platform: 0.15, namespace: 0.15, recency: 0.10, conflictPenalty: 0.10 } as const;
 const TOP_SCORE_MIN_THRESHOLD = 0.30;
+// Evidence anchors returned inline per claim. Ranking reads only
+// min(count, 3) (claimScore) and count >= 1 (qualityCount), so a cap at or
+// above 3 never changes a score; `evidenceCount` carries the true total. One
+// boilerplate claim cited by hundreds of annotation files otherwise inlines
+// every anchor — measured 736 rows / 176 KB in a single pack claim.
+const INLINE_EVIDENCE_ANCHORS = 5;
 // SQLite FTS5 bm25() returns a score <= 0 where MORE NEGATIVE is a BETTER match
 // (`ORDER BY rank` ascending puts the best first). The text component runs the
 // magnitude through q/(q+K) so it increases with match quality and saturates at
@@ -186,51 +209,55 @@ export class Core {
 
   /**
    * Backfill statementHash and collapse duplicate normalized statements.
-   * Runs after every open (cheap no-op once clean): for each duplicate group
-   * keep the earliest row that carries an anchor, preferring a row with
-   * source set; merge the discarded rows' anchors into the keeper's
-   * derivedFrom as a JSON list so per-unit provenance survives dedupe.
-   * Then create the UNIQUE index — deferred to here because it can only
-   * exist once the table is clean.
+   * Runs after every open: for each duplicate group keep the earliest row
+   * that carries an anchor; fold every row's anchors (source + derivedFrom)
+   * into the keeper's derivedFrom as a JSON list so per-unit provenance
+   * survives dedupe — including provenance a prior merge already folded in.
+   * Only rows whose hash or derivedFrom actually change are written, so a
+   * clean store opens without a write transaction. Then create the UNIQUE
+   * index — deferred to here because it can only exist once the table is clean.
    */
   private consolidatePrinciples() {
-    const rows = this.db.prepare('SELECT principleId, statement, source, derivedFrom, createdAt FROM principles ORDER BY createdAt ASC').all() as Array<{ principleId: string; statement: string; source: string | null; derivedFrom: string | null; createdAt: string }>;
-    const keep = new Map<string, { principleId: string; sources: string[]; anchored: boolean; createdAt: string }>();
+    type PrincipleRow = { principleId: string; statement: string; source: string | null; derivedFrom: string | null; statementHash: string | null };
+    const rows = this.db.prepare('SELECT principleId, statement, source, derivedFrom, statementHash FROM principles ORDER BY createdAt ASC').all() as PrincipleRow[];
+    const keep = new Map<string, { row: PrincipleRow; anchored: boolean; sources: string[] }>();
     const drop: string[] = [];
     for (const r of rows) {
       const h = principleHash(r.statement);
-      if (!h) { drop.push(r.principleId); continue; }
+      const anchors = principleAnchors(r.source, r.derivedFrom);
       const cur = keep.get(h);
-      const source = r.source ?? r.derivedFrom ?? '';
       if (!cur) {
-        keep.set(h, { principleId: r.principleId, sources: source ? [source] : [], anchored: source !== '', createdAt: r.createdAt });
+        keep.set(h, { row: r, anchored: anchors.length > 0, sources: anchors });
+        continue;
+      }
+      cur.sources.push(...anchors);
+      // Prefer an anchored keeper; earliest createdAt wins on ties (rows
+      // arrive in ascending order, so only replace when current is bare).
+      if (!cur.anchored && anchors.length > 0) {
+        drop.push(cur.row.principleId);
+        cur.row = r;
+        cur.anchored = true;
       } else {
-        if (source) cur.sources.push(source);
-        // Prefer an anchored keeper; earliest createdAt wins on ties (rows
-        // arrive in ascending order, so only replace when current is bare).
-        if (!cur.anchored && source !== '') {
-          drop.push(cur.principleId);
-          cur.principleId = r.principleId;
-          cur.anchored = true;
-        } else {
-          drop.push(r.principleId);
-        }
+        drop.push(r.principleId);
       }
     }
-    this.db.exec('BEGIN IMMEDIATE');
-    try {
-      for (const [h, k] of keep) {
-        this.db.prepare('UPDATE principles SET statementHash = ?, derivedFrom = ? WHERE principleId = ?')
-          .run(h, JSON.stringify(k.sources), k.principleId);
-      }
-      if (drop.length) {
+    const updates: Array<[string, string, string]> = [];
+    for (const [h, k] of keep) {
+      const derivedFrom = JSON.stringify([...new Set(k.sources)]);
+      if (k.row.statementHash !== h || k.row.derivedFrom !== derivedFrom) updates.push([h, derivedFrom, k.row.principleId]);
+    }
+    if (updates.length || drop.length) {
+      this.db.exec('BEGIN IMMEDIATE');
+      try {
+        const upd = this.db.prepare('UPDATE principles SET statementHash = ?, derivedFrom = ? WHERE principleId = ?');
+        for (const u of updates) upd.run(...u);
         const del = this.db.prepare('DELETE FROM principles WHERE principleId = ?');
         for (const p of drop) del.run(p);
+        this.db.exec('COMMIT');
+      } catch (err) {
+        try { this.db.exec('ROLLBACK'); } catch { /* unwound */ }
+        throw err;
       }
-      this.db.exec('COMMIT');
-    } catch (err) {
-      try { this.db.exec('ROLLBACK'); } catch { /* unwound */ }
-      throw err;
     }
     this.db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_principles_statementhash ON principles(statementHash)');
   }
@@ -656,11 +683,8 @@ export class Core {
     } else {
       rows = this.db.prepare(`SELECT * FROM claims c WHERE ${where.join(' AND ')} ORDER BY ${scopeOrder}c.createdAt DESC LIMIT ?`).all(...scopeArgs as never[], ...args as never[], fetchN) as Array<Record<string, unknown>>;
     }
-    const evStmt = this.db.prepare('SELECT * FROM evidence WHERE claimId = ?');
-    for (const r of rows) {
-      r.evidence = evStmt.all(r.claimId as string);
-      r.coverage = contentCoverage(r.statement, terms);
-    }
+    this.attachEvidence(rows);
+    for (const r of rows) r.coverage = contentCoverage(r.statement, terms);
     const scopeWhere = this.unresolvedConflictScope(opts);
     const conflictSubjects = new Set(
       (this.db.prepare(`SELECT subject FROM conflicts WHERE ${scopeWhere.where}`).all(...scopeWhere.args as never[]) as Array<{ subject: string | null }>)
@@ -679,7 +703,23 @@ export class Core {
       || (b.score - a.score)
       || (((a.rank as number | undefined) ?? 0) - ((b.rank as number | undefined) ?? 0))
       || String(a.claimId).localeCompare(String(b.claimId)));
-    return scored.slice(0, limit) as Array<Record<string, unknown> & { claimId: string; contextPlatform: string | null; namespace: CoreNamespace | null; evidence: unknown[]; score: number }>;
+    return scored.slice(0, limit) as Array<Record<string, unknown> & { claimId: string; contextPlatform: string | null; namespace: CoreNamespace | null; evidence: unknown[]; evidenceCount: number; score: number }>;
+  }
+
+  private attachEvidence(rows: Array<Record<string, unknown>>) {
+    const anchors = this.db.prepare('SELECT * FROM evidence WHERE claimId = ? ORDER BY rowid LIMIT ?');
+    const total = this.db.prepare('SELECT COUNT(*) AS n FROM evidence WHERE claimId = ?');
+    for (const r of rows) {
+      const claimId = String(r.claimId);
+      const ev = anchors.all(claimId, INLINE_EVIDENCE_ANCHORS);
+      r.evidence = ev;
+      if (ev.length < INLINE_EVIDENCE_ANCHORS) {
+        r.evidenceCount = ev.length;
+      } else {
+        const row = total.get(claimId);
+        r.evidenceCount = row && typeof row.n === 'number' ? row.n : ev.length;
+      }
+    }
   }
 
   contextPack(opts: PackOpts) {
@@ -1647,19 +1687,7 @@ export class Core {
     if (!row) return null;
     const incoming = [source, derivedFrom].filter((s): s is string => !!s && s !== '');
     if (incoming.length) {
-      // derivedFrom may hold a plain string or a JSON list (consolidation
-      // writes lists); flatten both shapes so a second merge doesn't nest
-      // a JSON blob inside the list.
-      let prior: string[] = row.source ? [row.source] : [];
-      if (row.derivedFrom) {
-        try {
-          const parsed = JSON.parse(row.derivedFrom);
-          prior.push(...(Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : [row.derivedFrom]));
-        } catch {
-          prior.push(row.derivedFrom);
-        }
-      }
-      const merged = [...new Set([...prior, ...incoming])];
+      const merged = [...new Set([...principleAnchors(row.source, row.derivedFrom), ...incoming])];
       if (!row.source && source) {
         this.db.prepare('UPDATE principles SET source = ?, derivedFrom = ? WHERE principleId = ?').run(source, JSON.stringify(merged.filter((s) => s !== source)), row.principleId);
       } else {
@@ -1833,11 +1861,10 @@ export class Core {
           .map((r) => r.subject).filter((s): s is string => s != null),
       );
       const conflictCount = (this.db.prepare(`SELECT COUNT(*) AS n FROM conflicts WHERE ${scope.where}`).get(...scope.args as never[]) as { n: number }).n;
-      const evStmt = this.db.prepare('SELECT * FROM evidence WHERE claimId = ?');
       const rows = claimIds.length
         ? (this.db.prepare(`SELECT * FROM claims WHERE claimId IN (${claimIds.map(() => '?').join(',')})`).all(...claimIds as never[]) as Array<Record<string, unknown>>)
         : [];
-      for (const r of rows) r.evidence = evStmt.all(r.claimId as string);
+      this.attachEvidence(rows);
       const targetNs = opts.platform ? 'PLATFORM_KNOWLEDGE' : this.inferQueryNamespace({ platform, task: opts.task });
       const scored = this.scoreClaims(rows, { platform, conflictSubjects, targetNamespace: targetNs });
       const ranked = [...scored].sort((a, b) => (b.score - a.score) || String(a.claimId).localeCompare(String(b.claimId)));
