@@ -124,47 +124,65 @@ async function readPathSddl(
 }
 
 /**
- * Batched SDDL read: one `icacls /save` invocation covers every path, versus
- * one process spawn per path with readPathSddl. The save file stores entries
- * as name-line / SDDL-line pairs (UTF-16); a path whose SDDL cannot be parsed
- * is simply absent from the result, and callers treat that as "needs repair"
- * — the safe direction.
+ * Batched SDDL read: one `icacls <dir>\* /save` per parent directory covers
+ * every requested child, versus one process spawn per path with readPathSddl.
+ * icacls accepts a single file argument (a second one is "Invalid parameter"),
+ * and its save file names each entry by basename only, so entries are matched
+ * within the directory that was listed - where a basename is the full identity.
+ * The save file (UTF-16) holds a name line followed by its SDDL line; a name
+ * can never contain ':' while every SDDL does. A path whose SDDL is not found
+ * is absent from the result and callers treat it as "needs repair" - the safe
+ * direction.
  */
 async function readPathsSddl(
   targetPaths: string[],
   timeoutMs: number = WINDOWS_ACL_SPAWN_TIMEOUT_MS
 ): Promise<Map<string, string>> {
   const result = new Map<string, string>();
-  if (targetPaths.length === 0) return result;
-  const savePath = path.win32.normalize(
-    path.join(os.tmpdir(), `antifan-acl-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}.txt`)
-  );
-  try {
-    const normalized = targetPaths.map((p) => path.win32.normalize(p));
-    // Armed with a bounded timeout: batched icacls can stall if any single target path
-    // is locked or inaccessible. On timeout/failure, unparsed paths are treated as
-    // needing repair (safe direction).
-    await execFileAsync('icacls.exe', [...normalized, '/save', savePath], {
-      windowsHide: true,
-      timeout: timeoutMs,
-      killSignal: 'SIGKILL',
-    });
-    const lines = fs.readFileSync(savePath, 'utf16le').split(/\r?\n/).filter((l) => l.trim().length > 0);
-    // Entries pair a bare path line with its SDDL line (contains 'D:').
-    for (let i = 0; i + 1 < lines.length; i += 2) {
-      const name = (lines[i] ?? '').trim();
-      const sddl = (lines[i + 1] ?? '').trim();
-      if (!sddl.includes('D:')) continue;
-      // Full-path equality only: a basename fallback could attribute one path's
-      // valid SDDL to a different, unprotected path — the unsafe direction.
-      const match = targetPaths.find((p) => path.win32.normalize(p).toLowerCase() === name.toLowerCase());
-      if (match) result.set(match, sddl);
+  const byDir = new Map<string, Map<string, string>>();
+  for (const p of targetPaths) {
+    const full = path.win32.normalize(p);
+    const dir = path.win32.dirname(full);
+    const base = path.win32.basename(full);
+    // A drive root has no parent listing; it falls back to a per-path read.
+    if (!base || dir === full) continue;
+    let group = byDir.get(dir);
+    if (!group) {
+      group = new Map();
+      byDir.set(dir, group);
     }
-  } catch {
-    // Fall through: callers fall back to per-path reads for missing entries.
-  } finally {
-    try { fs.unlinkSync(savePath); } catch {}
+    group.set(base.toLowerCase(), p);
   }
+  await Promise.all([...byDir].map(async ([dir, group]) => {
+    const savePath = path.win32.normalize(
+      path.join(os.tmpdir(), `antifan-acl-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}.txt`)
+    );
+    try {
+      // Armed with a bounded timeout: icacls can stall on a locked or inaccessible
+      // child. On timeout/failure the group stays unresolved (safe direction).
+      await execFileAsync('icacls.exe', [path.win32.join(dir, '*'), '/save', savePath], {
+        windowsHide: true,
+        timeout: timeoutMs,
+        killSignal: 'SIGKILL',
+      });
+      const lines = fs.readFileSync(savePath, 'utf16le').replace(/^\uFEFF/, '').split(/\r?\n/);
+      let name: string | null = null;
+      for (const line of lines) {
+        if (line.length === 0) continue;
+        if (!line.includes(':')) {
+          name = line;
+          continue;
+        }
+        const match = name === null ? undefined : group.get(name.toLowerCase());
+        if (match && line.includes('D:')) result.set(match, line.trim());
+        name = null;
+      }
+    } catch {
+      // Fall through: callers fall back to per-path reads for missing entries.
+    } finally {
+      try { fs.unlinkSync(savePath); } catch {}
+    }
+  }));
   return result;
 }
 
@@ -388,27 +406,27 @@ export async function enforceProtectedPathsDacl(
     }
   }
 
-  const needingRepair: string[] = [];
   const isDirectory = new Map<string, boolean>();
-  // One icacls spawn verifies every path; per-path reads only for entries the
-  // batched save could not resolve (parse gaps are treated as unprotected).
-  const batched = await readPathsSddl(paths, timeoutMs);
-  for (const p of paths) {
-    const isDir = fs.statSync(p).isDirectory();
-    isDirectory.set(p, isDir);
-    let sddl = batched.get(p) ?? null;
-    if (sddl === null) {
-      try {
-        sddl = await readPathSddl(p, timeoutMs);
-      } catch {
-        sddl = null;
+  for (const p of paths) isDirectory.set(p, fs.statSync(p).isDirectory());
+  // One icacls spawn per parent directory reads every path; per-path reads only
+  // for entries the batched save could not resolve (unresolved = unprotected).
+  const unprotectedAmong = async (candidates: string[]): Promise<string[]> => {
+    const batched = await readPathsSddl(candidates, timeoutMs);
+    const verdicts = await Promise.all(candidates.map(async (p) => {
+      let sddl = batched.get(p) ?? null;
+      if (sddl === null) {
+        try {
+          sddl = await readPathSddl(p, timeoutMs);
+        } catch {
+          sddl = null;
+        }
       }
-    }
-    const isProtected = sddl !== null && verifyProtectedSddl(sddl, effectiveSid, isDir ? 'directory' : 'file');
-    if (!isProtected) {
-      needingRepair.push(p);
-    }
-  }
+      return sddl !== null && verifyProtectedSddl(sddl, effectiveSid, isDirectory.get(p) ? 'directory' : 'file');
+    }));
+    return candidates.filter((_, i) => !verdicts[i]);
+  };
+
+  const needingRepair = await unprotectedAmong(paths);
   if (needingRepair.length === 0) {
     return {
       enforced: true,
@@ -416,15 +434,8 @@ export async function enforceProtectedPathsDacl(
     };
   }
 
-  const hasProtectedPath = (p: string): Promise<boolean> => isDirectory.get(p)
-    ? hasProtectedDirectoryDacl(p, effectiveSid, timeoutMs)
-    : hasProtectedFileDacl(p, effectiveSid, timeoutMs);
-
   await Promise.all(needingRepair.map((p) => grantProtectedDaclWithIcacls(p, effectiveSid, isDirectory.get(p) === true, timeoutMs)));
-  const stillOpen: string[] = [];
-  for (const p of needingRepair) {
-    if (!(await hasProtectedPath(p))) stillOpen.push(p);
-  }
+  const stillOpen = await unprotectedAmong(needingRepair);
   if (stillOpen.length === 0) {
     return {
       enforced: true,
@@ -442,10 +453,9 @@ export async function enforceProtectedPathsDacl(
     killSignal: 'SIGKILL',
   });
 
-  for (const p of stillOpen) {
-    if (!(await hasProtectedPath(p))) {
-      throw new Error(`[AntiFan Security] File DACL verification failed after repair: ${p}`);
-    }
+  const failed = await unprotectedAmong(stillOpen);
+  if (failed.length > 0) {
+    throw new Error(`[AntiFan Security] File DACL verification failed after repair: ${failed[0]}`);
   }
 
   return {
