@@ -1,9 +1,16 @@
-import { describe, it } from 'node:test';
+import { describe, it, mock } from 'node:test';
 import * as assert from 'node:assert';
 import { withEvalCeiling, evalHardCeilingMs } from '../../src/main/browser/eval-ceiling';
 import { TabDevToolsHost, TabDevToolsContext } from '../../src/main/browser/tab-devtools-host';
 import { CapabilityError } from '../../src/shared/control-plane-contracts';
 import { SplitPaneId } from '../../src/shared/contracts';
+
+/**
+ * The never-settling rows pump virtual time instead of waiting the ~3.1s ceiling out in real
+ * time: the ceiling is derived (soft + 3s), so no test budget shortens it. Each row proves the
+ * refusal is still pending one millisecond before the ceiling and lands exactly at it.
+ */
+const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
 
 describe('withEvalCeiling & TabDevToolsHost bounded eval', () => {
   // Row a: helper with work that never settles + softBudgetMs ~100 -> rejects with EVAL_HARD_TIMEOUT, terminate called once
@@ -15,10 +22,11 @@ describe('withEvalCeiling & TabDevToolsHost bounded eval', () => {
     const expectedHardBudgetMs = evalHardCeilingMs(softBudgetMs); // max(100+3000, 250) = 3100ms
     assert.strictEqual(expectedHardBudgetMs, 3100);
 
-    const t0 = Date.now();
-    await assert.rejects(
-      async () => {
-        await withEvalCeiling({
+    mock.timers.enable({ apis: ['setTimeout'] });
+    try {
+      let settled = false;
+      const pending = assert.rejects(
+        withEvalCeiling({
           wc: mockWc,
           label: 'test never settle',
           softBudgetMs,
@@ -27,19 +35,28 @@ describe('withEvalCeiling & TabDevToolsHost bounded eval', () => {
             terminateCalls++;
             terminateTarget = target;
           },
-        });
-      },
-      (err: any) => {
-        assert.ok(err instanceof CapabilityError, 'Must reject with CapabilityError');
-        assert.strictEqual(err.code, 'EVAL_HARD_TIMEOUT');
-        assert.ok(err.message.includes('test never settle did not answer within 3100ms'));
-        return true;
-      }
-    );
-    const elapsed = Date.now() - t0;
-    assert.ok(elapsed >= 3000, `Must await hard ceiling (~3100ms), actual: ${elapsed}ms`);
-    assert.strictEqual(terminateCalls, 1, 'Terminate must be called exactly once');
-    assert.strictEqual(terminateTarget, mockWc, 'Terminate must receive the target wc');
+        }).finally(() => {
+          settled = true;
+        }),
+        (err: any) => {
+          assert.ok(err instanceof CapabilityError, 'Must reject with CapabilityError');
+          assert.strictEqual(err.code, 'EVAL_HARD_TIMEOUT');
+          assert.ok(err.message.includes('test never settle did not answer within 3100ms'));
+          return true;
+        }
+      );
+      await settle();
+      mock.timers.tick(expectedHardBudgetMs - 1);
+      await settle();
+      assert.strictEqual(settled, false, 'Must await the hard ceiling (3100ms), not refuse earlier');
+      assert.strictEqual(terminateCalls, 0, 'Terminate must not run before the hard ceiling');
+      mock.timers.tick(1);
+      await pending;
+      assert.strictEqual(terminateCalls, 1, 'Terminate must be called exactly once');
+      assert.strictEqual(terminateTarget, mockWc, 'Terminate must receive the target wc');
+    } finally {
+      mock.timers.reset();
+    }
   });
 
   // Row b: helper with work that resolves / rejects
@@ -157,24 +174,34 @@ describe('withEvalCeiling & TabDevToolsHost bounded eval', () => {
 
     const host = new TabDevToolsHost(ctx);
 
-    const t0 = Date.now();
-    await assert.rejects(
-      async () => {
-        await host.getDom();
-      },
-      (err: any) => {
-        assert.ok(err instanceof CapabilityError, 'Must be a CapabilityError');
-        assert.strictEqual(err.code, 'EVAL_HARD_TIMEOUT');
-        assert.ok(err.message.includes('dom dump did not answer within 3100ms'));
-        return true;
-      }
-    );
-    const elapsed = Date.now() - t0;
-    assert.ok(elapsed >= 3000, `Must await hard ceiling (~3100ms), actual: ${elapsed}ms`);
-    assert.ok(
-      cdpCommands.some((c) => c.method === 'Runtime.terminateExecution'),
-      'Must have invoked Runtime.terminateExecution via CDP'
-    );
+    mock.timers.enable({ apis: ['setTimeout'] });
+    try {
+      let settled = false;
+      const pending = assert.rejects(
+        host.getDom().finally(() => {
+          settled = true;
+        }),
+        (err: any) => {
+          assert.ok(err instanceof CapabilityError, 'Must be a CapabilityError');
+          assert.strictEqual(err.code, 'EVAL_HARD_TIMEOUT');
+          assert.ok(err.message.includes('dom dump did not answer within 3100ms'));
+          return true;
+        }
+      );
+      await settle();
+      mock.timers.tick(3099);
+      await settle();
+      assert.strictEqual(settled, false, 'Must await the hard ceiling (3100ms), not refuse earlier');
+      mock.timers.tick(1);
+      await pending;
+      await settle();
+      assert.ok(
+        cdpCommands.some((c) => c.method === 'Runtime.terminateExecution'),
+        'Must have invoked Runtime.terminateExecution via CDP'
+      );
+    } finally {
+      mock.timers.reset();
+    }
   });
 
   // Row d: startLens with a never-settling capturePage mock returns, failure visible, no fabricated snapshot
@@ -194,12 +221,19 @@ describe('withEvalCeiling & TabDevToolsHost bounded eval', () => {
 
     const host = new TabDevToolsHost(ctx);
 
+    mock.timers.enable({ apis: ['setTimeout'] });
     try {
-      const t0 = Date.now();
+      let returned = false;
       // startLens must return cleanly rather than hanging or throwing
-      await host.startLens();
-      const elapsed = Date.now() - t0;
-      assert.ok(elapsed >= 3000, `Must await hard ceiling (~3100ms), actual: ${elapsed}ms`);
+      const pending = host.startLens().then(() => {
+        returned = true;
+      });
+      await settle();
+      mock.timers.tick(3099);
+      await settle();
+      assert.strictEqual(returned, false, 'Must await the hard ceiling (3100ms), not give up earlier');
+      mock.timers.tick(1);
+      await pending;
 
       // Failure must be visible via explicit log with typed error message
       const lensErrorLog = loggedErrors.find(
@@ -220,6 +254,7 @@ describe('withEvalCeiling & TabDevToolsHost bounded eval', () => {
       assert.strictEqual(gpuLensScript, undefined, 'GPU_LENS_SCRIPT must not be injected when capture fails');
       assert.strictEqual(host.getIsLensActive(), false, 'Lens must be reset to inactive on capture failure');
     } finally {
+      mock.timers.reset();
       console.error = origError;
     }
   });
