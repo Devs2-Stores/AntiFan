@@ -3,11 +3,14 @@ import * as assert from 'node:assert';
 import { spawn, ChildProcess } from 'node:child_process';
 import { WebSocketServer, WebSocket } from 'ws';
 import * as path from 'node:path';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
 
 describe('Phase 02: Behavioral Persistent Transport & Concurrency Integration', () => {
   let wss: WebSocketServer;
   let serverPort: number;
   let child: ChildProcess;
+  let emptyDataRoot = '';
   const scriptPath = path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs');
   const testSecret = 'secret-test-uuid-token';
   const testAttachmentId = 'binding-test-attachment';
@@ -51,6 +54,11 @@ describe('Phase 02: Behavioral Persistent Transport & Concurrency Integration', 
                 ws.send(JSON.stringify({ id: msg.id, success: true, data: returnData }));
               }
             }, Math.floor(Math.random() * 20) + 5);
+          } else if (msg.id !== undefined) {
+            // A real bridge answers every request. One that stays silent makes the
+            // proxy's autoheal wait out its renewSession and startSession timeouts
+            // (~9 s) before learning that this endpoint grants no new authority.
+            ws.send(JSON.stringify({ id: msg.id, success: false, error: `fake bridge does not serve ${msg.method}` }));
           }
         } catch {}
       });
@@ -64,6 +72,7 @@ describe('Phase 02: Behavioral Persistent Transport & Concurrency Integration', 
 
     await promise;
 
+    emptyDataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-persistent-transport-'));
     const env = {
       ...process.env,
       ANTIFAN_MCP_BOOTSTRAP: JSON.stringify({
@@ -76,14 +85,17 @@ describe('Phase 02: Behavioral Persistent Transport & Concurrency Integration', 
         workspaceId: 'workspace-test-uuid',
       }),
       ANTIFAN_HEARTBEAT_MS: '200',
+      ANTIFAN_DATA_ROOT: emptyDataRoot,
+      ANTIFAN_CONFIG_DIR: path.join(emptyDataRoot, 'config'),
     };
 
     // This suite owns exactly one bridge: the fake one above. The proxy also
-    // consults the launching environment for a pinned attachment and, when that
-    // environment carries terminal context, discovers bridges on disk — so a
-    // harness running inside a real AntiFan session would replay a dropped call
-    // onto the developer's live instance and answer it successfully. Scrub that
-    // context so an unreachable socket stays an observable transport fault.
+    // consults the launching environment for a pinned attachment, and its
+    // failover discovers bridges on disk from every spawn — so a harness running
+    // next to a real AntiFan instance would replay a dropped call onto the
+    // developer's live bridge and answer it successfully. Scrub the attachment
+    // context and pin discovery to an empty root so an unreachable socket stays
+    // an observable transport fault.
     for (const key of [
       'ANTIFAN_TERMINAL_AFFINITY_SESSION_ID',
       'ANTIFAN_TERMINAL_PARENT_SESSION_ID',
@@ -95,7 +107,6 @@ describe('Phase 02: Behavioral Persistent Transport & Concurrency Integration', 
       'ANTIFAN_OWNER_PID',
       'ANTIFAN_AUTHORITY_REVISION',
       'ANTIFAN_BOUND_TAB_ID',
-      'ANTIFAN_DATA_ROOT',
     ]) {
       delete (env as Record<string, unknown>)[key];
     }
@@ -132,6 +143,7 @@ describe('Phase 02: Behavioral Persistent Transport & Concurrency Integration', 
     try {
       wss.close();
     } catch {}
+    if (emptyDataRoot) fs.rmSync(emptyDataRoot, { recursive: true, force: true });
   });
 
   it('1. Connects persistent dispatch channel and independent heartbeat channel', async () => {
