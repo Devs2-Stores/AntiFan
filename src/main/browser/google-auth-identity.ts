@@ -1,5 +1,6 @@
 import { WebContents, Session } from 'electron';
 import * as os from 'node:os';
+import { IPHONE_USER_AGENT } from './device-presets';
 
 const GOOGLE_AUTH_HOSTS = new Set([
   'accounts.google.com',
@@ -255,12 +256,44 @@ function addNavigationClientHints(headers: Record<string, string>): void {
   headers['sec-ch-ua-platform'] = `"${metadata.platform}"`;
 }
 
+/**
+ * Google sign-in rejects Electron at the identifier step ("This browser or app may not be secure",
+ * /v3/signin/rejected) whenever the requests to accounts.google.com claim Chrome: measured with no
+ * CDP, with the per-tab CDP override with and without userAgentMetadata, and with a Firefox UA. The
+ * same tab, CDP override included and navigator.userAgent still Chrome, passes to the account's
+ * next challenge when only those requests claim Safari. Safari sends no Client Hints, so they go too.
+ * A Safari UA (an iPhone preset) is already accepted and stays as it is; other hosts keep the tab's
+ * identity.
+ */
+const SAFARI_DESKTOP_USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15';
+
+function isGoogleAuthHostUrl(rawUrl: string): boolean {
+  try {
+    return GOOGLE_AUTH_HOSTS.has(new URL(rawUrl).hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
+function presentGoogleSignInAsSafari(headers: Record<string, string>): void {
+  const key = Object.keys(headers).find((item) => item.toLowerCase() === 'user-agent');
+  const metadata = key ? chromeUserAgentMetadata(headers[key]!) : null;
+  if (!metadata) return;
+  stripClientHints(headers);
+  setUserAgentHeader(headers, metadata.mobile ? IPHONE_USER_AGENT : SAFARI_DESKTOP_USER_AGENT);
+}
+
 export function setupClientHintsOverride(sess: Session, ua?: string): void {
   const defaultUa = ua || chromeSessionUserAgent();
   const chromeHints = buildChromeClientHints(defaultUa);
 
   sess.webRequest.onBeforeSendHeaders({ urls: ['https://*/*'] }, (details, callback) => {
     const headers = details.requestHeaders;
+    if (isGoogleAuthHostUrl(details.url)) {
+      presentGoogleSignInAsSafari(headers);
+      callback({ requestHeaders: headers });
+      return;
+    }
     if (details.resourceType === 'mainFrame' || details.resourceType === 'subFrame') {
       addNavigationClientHints(headers);
     }

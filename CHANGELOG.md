@@ -17,6 +17,12 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 - Còn lại, chưa sửa: sau khi reload, `window.outerWidth`/`outerHeight` của trang báo `0` (đo trên cửa sổ hiển thị, không có CDP); Chrome thật báo kích thước cửa sổ.
 - Cần khởi động lại app để tab dùng code mới; daemon terminal không liên quan.
 
+### Sửa — Tab trình duyệt: đăng nhập Google không còn báo "Trình duyệt hoặc ứng dụng này có thể không an toàn"
+
+- Google từ chối ở bước nhập email (`accounts.google.com/v3/signin/rejected`) mỗi khi request tới `accounts.google.com` tự nhận là Chrome. Probe Electron dùng module đã biên dịch của app, đăng nhập Gmail bằng một email thật: bị từ chối khi không có CDP, với override CDP cũ, với override có `userAgentMetadata`, và khi cả trang mang UA Firefox (cách đã bỏ ở `ec7aa0b2`). Cùng tab đó, giữ nguyên override CDP và `navigator.userAgent` vẫn là Chrome, chỉ đổi header các request tới host đăng nhập sang Safari thì qua được, tới bước xác minh tiếp theo của tài khoản (passkey), 2/2 lần.
+- `setupClientHintsOverride` (`google-auth-identity.ts`) giờ gửi UA Safari macOS và bỏ mọi header `sec-ch-*` cho request tới `accounts.google.com` và `accounts.youtube.com`, vì Safari không gửi Client Hints. Tab preset Android gửi UA iPhone. Tab đã mang UA Safari (preset iPhone/iPad) giữ nguyên. Các host Google khác (Gmail, Drive, tìm kiếm) và mọi trang khác vẫn nhận UA Chrome của tab.
+- Facebook: tab đăng nhập sẵn mở `facebook.com/login/` được chuyển thẳng tới `home.php`, không có thông báo trình duyệt không hỗ trợ; không cần sửa.
+
 ### Sửa — Terminal Manager: dự án trùng tên ở các workspace khác nhau giờ phân biệt được
 
 - Trước đây ba dự án `S2 Spa` (`devs2\S2 Spa`, `devs2\Haravan\S2 Spa`, `devs2\Sapo\S2 Spa`) đều hiện `S2 SPA · S2 SPA`, vì hậu tố lấy tên thư mục của chính dự án, mà tên này trùng với tên dự án. Nay `disambiguateProjectGroupLabels` (`src/renderer/standalone.js`) chọn đoạn thư mục gần nhất phân biệt được các dự án trùng tên: `S2 SPA · devs2`, `S2 SPA · Haravan`, `S2 SPA · Sapo`. Nếu thư mục cha cũng trùng thì leo tiếp lên các cấp trên. Nếu hai dự án cùng một thư mục, hoặc không biết thư mục, thì dùng 4 ký tự cuối của id dự án (`…b039`). Tên dự án so sánh không phân biệt hoa thường. Tên lưu, tìm kiếm và đổi tên vẫn dùng tên gốc.

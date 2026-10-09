@@ -35,19 +35,45 @@ test('Chrome session user agent produces standard Chrome desktop identity', () =
   assert.doesNotMatch(chromeUa, /Firefox/);
 });
 
-type HeaderDetails = { requestHeaders: Record<string, string>; resourceType?: string };
+type HeaderDetails = { url: string; requestHeaders: Record<string, string>; resourceType?: string };
 
-function captureHintsRewrite(ua: string): (headers: Record<string, string>, resourceType?: string) => Record<string, string> {
+function captureHintsRewrite(ua: string): (headers: Record<string, string>, resourceType?: string, url?: string) => Record<string, string> {
   let listener: ((details: HeaderDetails, cb: (r: { requestHeaders: Record<string, string> }) => void) => void) | undefined;
   const webRequest = { onBeforeSendHeaders: (_filter: unknown, fn: typeof listener) => { listener = fn; } };
   // Only webRequest.onBeforeSendHeaders is touched by setupClientHintsOverride.
   setupClientHintsOverride({ webRequest } as unknown as Session, ua);
-  return (headers, resourceType = 'xhr') => {
+  return (headers, resourceType = 'xhr', url = 'https://shopee.vn/') => {
     let out: Record<string, string> = {};
-    listener!({ requestHeaders: { ...headers }, resourceType }, (r) => { out = r.requestHeaders; });
+    listener!({ url, requestHeaders: { ...headers }, resourceType }, (r) => { out = r.requestHeaders; });
     return out;
   };
 }
+
+test('Google sign-in hosts are sent a Safari identity without Client Hints; other hosts keep the tab identity', () => {
+  const desktopUa = chromeSessionUserAgent();
+  const rewrite = captureHintsRewrite(desktopUa);
+  const chromeRequest = {
+    'User-Agent': desktopUa,
+    'sec-ch-ua': '"Not;A=Brand";v="8", "Chromium";v="150"',
+    'sec-ch-ua-mobile': '?0',
+    'sec-ch-ua-platform': '"Windows"',
+  };
+
+  const signIn = rewrite(chromeRequest, 'mainFrame', 'https://accounts.google.com/v3/signin/identifier?flowName=GlifWebSignIn');
+  assert.match(signIn['User-Agent']!, /Version\/[\d.]+ Safari\/605\.1\.15$/);
+  assert.doesNotMatch(signIn['User-Agent']!, /Chrome\//);
+  assert.deepEqual(Object.keys(signIn).filter((k) => k.toLowerCase().startsWith('sec-ch-')), []);
+
+  const androidSignIn = rewrite({ 'User-Agent': ANDROID_MOBILE_USER_AGENT }, 'xhr', 'https://accounts.google.com/v3/signin/_/AccountsSignInUi/data/batchexecute');
+  assert.equal(androidSignIn['User-Agent'], IPHONE_USER_AGENT);
+
+  const iphoneSignIn = rewrite({ 'User-Agent': IPHONE_USER_AGENT }, 'mainFrame', 'https://accounts.google.com/ServiceLogin');
+  assert.deepEqual(iphoneSignIn, { 'User-Agent': IPHONE_USER_AGENT });
+
+  const gmail = rewrite(chromeRequest, 'mainFrame', 'https://mail.google.com/mail/');
+  assert.equal(gmail['User-Agent'], desktopUa);
+  assert.ok(gmail['sec-ch-ua']);
+});
 
 test('UA metadata for the session UA names the same brands the sec-ch-ua rewrite sends', () => {
   const ua = chromeSessionUserAgent();
