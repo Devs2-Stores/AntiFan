@@ -23,7 +23,10 @@ const withDeadline = <T>(promise: Promise<T>, label: string, ms = 10_000): Promi
   return Promise.race([promise, guard.promise]).finally(() => clearTimeout(timer));
 };
 
-describe('OMP MCP stdio proxy security & bootstrap fail-closed contract', () => {
+// Every case owns its proxy child, a port-0 server, its tempdirs and a copied env,
+// so the cases share nothing and their ~1 s proxy startups (MCP SDK schema build)
+// overlap instead of adding up. Bounded so the children never saturate the host.
+describe('OMP MCP stdio proxy security & bootstrap fail-closed contract', { concurrency: 4 }, () => {
   it('wires persistent heartbeat renewal to the stdio lifecycle (same-terminal MCP sessions never expire while alive)', () => {
     const scriptPath = fs.existsSync(path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs'))
       ? path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs')
