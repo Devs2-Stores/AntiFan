@@ -12,6 +12,7 @@ import {
   enforceProtectedDirectoryDacl,
   hasProtectedFileDacl,
   enforceProtectedFileDacl,
+  enforceProtectedPathsDacl,
   buildFileAclScript,
   buildDirectoryAclScript,
   verifyProtectedSddl,
@@ -275,5 +276,40 @@ test('enforceProtectedFileDacl: [Phase 6 Certification Deferred: Live Windows Ex
   } finally {
     try { fs.unlinkSync(tmpFile); } catch {}
     try { fs.unlinkSync(finalFile); } catch {}
+  }
+});
+
+test('enforceProtectedPathsDacl: protects every path of a batch and no sibling it was not given', async (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('live DACL enforcement needs Windows');
+    return;
+  }
+  const userSid = await resolveCurrentUserSid();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-batch-acl-'));
+  try {
+    // `prefixed`: a sibling shares the batch's common prefix, so a wildcard over the
+    // batch would also match it. `distinct`: the sibling shares nothing with the batch.
+    const cases = [
+      { dir: path.join(root, 'prefixed'), batch: ['.batch-a1', '.batch-a2', '.batch-a3'], sibling: '.batch-a9' },
+      { dir: path.join(root, 'distinct'), batch: ['.secret-1', '.secret-2', '.secret-3'], sibling: 'plain.json' },
+    ];
+    for (const c of cases) {
+      fs.mkdirSync(c.dir);
+      for (const name of [...c.batch, c.sibling]) fs.writeFileSync(path.join(c.dir, name), '');
+    }
+    const requested = cases.flatMap((c) => c.batch.map((name) => path.join(c.dir, name)));
+
+    const result = await enforceProtectedPathsDacl(requested, userSid);
+
+    assert.equal(result.enforced, true);
+    for (const p of requested) {
+      assert.equal(await hasProtectedFileDacl(p, userSid), true, `${p} must carry the protected DACL`);
+    }
+    for (const c of cases) {
+      const sibling = path.join(c.dir, c.sibling);
+      assert.equal(await hasProtectedFileDacl(sibling, userSid), false, `${sibling} was not requested and must keep its inherited DACL`);
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
   }
 });

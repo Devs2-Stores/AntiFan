@@ -135,13 +135,21 @@ async function readPathSddl(
  * The save file (UTF-16) holds a name line followed by its SDDL line; a name
  * can never contain ':' while every SDDL does. A path whose SDDL is not found
  * is absent from the result and callers treat it as "needs repair" - the safe
- * direction.
+ * direction. A group wildcard whose listing named only requested entries is
+ * reported in `exactGlobs`: that pattern addresses the group and nothing else.
  */
+interface PathsSddlRead {
+  sddl: Map<string, string>;
+  /** Parent directory -> its `dir\<prefix>*` pattern, when that listing held no foreign entry. */
+  exactGlobs: Map<string, string>;
+}
+
 async function readPathsSddl(
   targetPaths: string[],
   timeoutMs: number = WINDOWS_ACL_SPAWN_TIMEOUT_MS
-): Promise<Map<string, string>> {
+): Promise<PathsSddlRead> {
   const result = new Map<string, string>();
+  const exactGlobs = new Map<string, string>();
   const byDir = new Map<string, Map<string, string>>();
   for (const p of targetPaths) {
     const full = path.win32.normalize(p);
@@ -178,23 +186,26 @@ async function readPathsSddl(
       });
       const lines = fs.readFileSync(savePath, 'utf16le').replace(/^\uFEFF/, '').split(/\r?\n/);
       let name: string | null = null;
+      let listedForeign = false;
       for (const line of lines) {
         if (line.length === 0) continue;
         if (!line.includes(':')) {
           name = line;
+          if (!group.has(name.toLowerCase())) listedForeign = true;
           continue;
         }
         const match = name === null ? undefined : group.get(name.toLowerCase());
         if (match && line.includes('D:')) result.set(match, line.trim());
         name = null;
       }
+      if (rest.length > 0 && !listedForeign) exactGlobs.set(dir, pattern);
     } catch {
       // Fall through: callers fall back to per-path reads for missing entries.
     } finally {
       try { fs.unlinkSync(savePath); } catch {}
     }
   }));
-  return result;
+  return { sddl: result, exactGlobs };
 }
 
 /**
@@ -383,6 +394,42 @@ export function buildPathsAclScript(paths: string[], userSid: string): string {
   `;
 }
 
+/**
+ * Repair targets for icacls: one wildcard per directory instead of one spawn
+ * per path. A directory's `exactGlobs` pattern listed only requested entries,
+ * so when they are all of one kind the same pattern grants every one of them
+ * in a single spawn (an entry already protected is rewritten to the identical
+ * DACL). Anything else is granted by exact path. icacls re-expands the pattern
+ * at grant time, so an entry created in between under the same prefix is also
+ * narrowed to user + SYSTEM: the drift only ever restricts.
+ */
+function planIcaclsRepairs(
+  needingRepair: string[],
+  requested: string[],
+  exactGlobs: Map<string, string>,
+  isDirectory: Map<string, boolean>
+): Array<{ target: string; isDirectory: boolean }> {
+  const dirOf = (p: string): string => path.win32.dirname(path.win32.normalize(p));
+  const byDir = new Map<string, string[]>();
+  for (const p of needingRepair) {
+    const dir = dirOf(p);
+    const group = byDir.get(dir);
+    if (group) group.push(p);
+    else byDir.set(dir, [p]);
+  }
+  const plan: Array<{ target: string; isDirectory: boolean }> = [];
+  for (const [dir, group] of byDir) {
+    const glob = exactGlobs.get(dir);
+    const kinds = new Set(requested.filter((p) => dirOf(p) === dir).map((p) => isDirectory.get(p) === true));
+    if (glob !== undefined && group.length > 1 && kinds.size === 1) {
+      plan.push({ target: glob, isDirectory: kinds.has(true) });
+      continue;
+    }
+    for (const p of group) plan.push({ target: p, isDirectory: isDirectory.get(p) === true });
+  }
+  return plan;
+}
+
 export async function enforceProtectedPathsDacl(
   paths: string[],
   userSid?: string,
@@ -421,10 +468,10 @@ export async function enforceProtectedPathsDacl(
   for (const p of paths) isDirectory.set(p, fs.statSync(p).isDirectory());
   // One icacls spawn per parent directory reads every path; per-path reads only
   // for entries the batched save could not resolve (unresolved = unprotected).
-  const unprotectedAmong = async (candidates: string[]): Promise<string[]> => {
+  const unprotectedAmong = async (candidates: string[]): Promise<{ open: string[]; exactGlobs: Map<string, string> }> => {
     const batched = await readPathsSddl(candidates, timeoutMs);
     const verdicts = await Promise.all(candidates.map(async (p) => {
-      let sddl = batched.get(p) ?? null;
+      let sddl = batched.sddl.get(p) ?? null;
       if (sddl === null) {
         try {
           sddl = await readPathSddl(p, timeoutMs);
@@ -434,10 +481,10 @@ export async function enforceProtectedPathsDacl(
       }
       return sddl !== null && verifyProtectedSddl(sddl, effectiveSid, isDirectory.get(p) ? 'directory' : 'file');
     }));
-    return candidates.filter((_, i) => !verdicts[i]);
+    return { open: candidates.filter((_, i) => !verdicts[i]), exactGlobs: batched.exactGlobs };
   };
 
-  const needingRepair = await unprotectedAmong(paths);
+  const { open: needingRepair, exactGlobs } = await unprotectedAmong(paths);
   if (needingRepair.length === 0) {
     return {
       enforced: true,
@@ -445,8 +492,10 @@ export async function enforceProtectedPathsDacl(
     };
   }
 
-  await Promise.all(needingRepair.map((p) => grantProtectedDaclWithIcacls(p, effectiveSid, isDirectory.get(p) === true, timeoutMs)));
-  const stillOpen = await unprotectedAmong(needingRepair);
+  await Promise.all(planIcaclsRepairs(needingRepair, paths, exactGlobs, isDirectory).map((r) =>
+    grantProtectedDaclWithIcacls(r.target, effectiveSid, r.isDirectory, timeoutMs)
+  ));
+  const { open: stillOpen } = await unprotectedAmong(needingRepair);
   if (stillOpen.length === 0) {
     return {
       enforced: true,
@@ -464,7 +513,7 @@ export async function enforceProtectedPathsDacl(
     killSignal: 'SIGKILL',
   });
 
-  const failed = await unprotectedAmong(stillOpen);
+  const { open: failed } = await unprotectedAmong(stillOpen);
   if (failed.length > 0) {
     throw new Error(`[AntiFan Security] File DACL verification failed after repair: ${failed[0]}`);
   }
