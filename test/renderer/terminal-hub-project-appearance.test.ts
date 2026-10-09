@@ -226,4 +226,91 @@ describe('hub project appearance', () => {
     assert.strictEqual(ownerlessFolder.querySelector('[data-role="project-star"]')?.style.display, 'none', 'the star stays hidden while no project owns the section');
     assert.strictEqual(ownerlessFolder.querySelector('[data-role="project-color"]')?.style.display, 'none', 'the colour picker stays hidden while no project owns the section');
   });
+
+  describe('awake project promotion', () => {
+    const row = (id: string, project: string, state: string) => ({
+      id, name: id, state, ownerKey: `project:${project}`,
+      folderKey: `e:\\work\\${project}`, folderLabel: project, folderPath: `E:\\Work\\${project}`,
+    });
+    const shownOrder = (harness: StandaloneHarness): string[] =>
+      harness.tabsRoot.querySelectorAll('.terminal-tab-category-header[data-group-kind="project"]')
+        .map((h) => h.getAttribute('data-category') || '');
+    const storedOrder = (harness: StandaloneHarness): string[] =>
+      JSON.parse(JSON.stringify(harness.read<() => string[]>('currentProjectKeys')()));
+
+    it('draws awake sections first and drops a section back to its own slot when it sleeps', async () => {
+      const harness = await loadManagerWithProjects();
+      seed(harness, [row('a', 'p1', 'sleeping'), row('b', 'p2', 'sleeping'), row('c', 'p3', 'running')], 'c');
+      harness.renderTabs();
+      assert.deepStrictEqual(shownOrder(harness), ['project:p3', 'project:p1', 'project:p2'], 'the awake section is drawn on top');
+      assert.deepStrictEqual(storedOrder(harness), ['project:p1', 'project:p2', 'project:p3'], 'the user order is never rewritten');
+      const boundary = harness.tabsRoot.querySelector('.terminal-tab-category-header[data-category="project:p1"]');
+      assert.strictEqual(boundary?.classList.contains('is-promotion-boundary'), true, 'the first sleeping section carries the boundary rule');
+      assert.strictEqual(lastArgs(harness, 'setTerminalTabPrefs'), undefined, 'promotion persists nothing');
+
+      seed(harness, [row('a', 'p1', 'sleeping'), row('b', 'p2', 'sleeping'), row('c', 'p3', 'sleeping')], 'c');
+      harness.renderTabs();
+      assert.deepStrictEqual(shownOrder(harness), ['project:p1', 'project:p2', 'project:p3'], 'a sleeping section returns to its slot');
+      assert.strictEqual(boundary?.classList.contains('is-promotion-boundary'), false);
+    });
+
+    it('holds the drawn order while the pointer is over the sidebar and applies it on leave', async () => {
+      const harness = await loadManagerWithProjects();
+      seed(harness, [row('a', 'p1', 'sleeping'), row('b', 'p2', 'sleeping')], 'a');
+      harness.renderTabs();
+      harness.tabsRoot.dispatch('pointerenter');
+      seed(harness, [row('a', 'p1', 'sleeping'), row('b', 'p2', 'running')], 'a');
+      harness.renderTabs();
+      assert.deepStrictEqual(shownOrder(harness), ['project:p1', 'project:p2'], 'nothing moves under the cursor');
+      harness.tabsRoot.dispatch('pointerleave');
+      assert.deepStrictEqual(shownOrder(harness), ['project:p2', 'project:p1'], 'the held promotion lands once the pointer leaves');
+    });
+
+    it('promotes an awake folder section whose rows name no project', async () => {
+      const harness = await loadManagerWithProjects();
+      const ownerless = { id: 'f', name: 'f', state: 'running', ownerKey: 'agent:tab-9', folderKey: 'e:\\work\\loose', folderLabel: 'loose', folderPath: 'E:\\Work\\loose' };
+      seed(harness, [row('a', 'p1', 'sleeping'), ownerless], 'a');
+      harness.renderTabs();
+      const sections = harness.tabsRoot.querySelectorAll('.terminal-tab-category-header')
+        .map((h) => h.getAttribute('data-category') || '');
+      assert.deepStrictEqual(sections, ['folder:e:\\work\\loose', 'project:p1'], 'an unattributed awake folder is drawn above sleeping projects');
+    });
+
+    it('follows Main session broadcasts through sleep, wake, a new project and a dead shell', async () => {
+      const harness = await loadManagerWithProjects();
+      const push = (rows: unknown[]) => harness.emitSession({ sessions: rows, activeSessionId: 'a' });
+      push([row('a', 'p1', 'sleeping'), row('b', 'p2', 'running'), row('c', 'p3', 'sleeping')]);
+      assert.deepStrictEqual(shownOrder(harness), ['project:p2', 'project:p1', 'project:p3']);
+
+      push([row('a', 'p1', 'sleeping'), row('b', 'p2', 'running'), row('c', 'p3', 'running')]);
+      assert.deepStrictEqual(shownOrder(harness), ['project:p2', 'project:p3', 'project:p1'], 'waking a slept chip lifts its project');
+
+      push([row('a', 'p1', 'sleeping'), row('b', 'p2', 'sleeping'), row('c', 'p3', 'running')]);
+      assert.deepStrictEqual(shownOrder(harness), ['project:p3', 'project:p1', 'project:p2'], 'sleeping the last chip drops it back to its slot');
+
+      push([row('a', 'p1', 'sleeping'), row('b', 'p2', 'sleeping'), row('c', 'p3', 'running'), row('d', 'p4', 'running')]);
+      assert.deepStrictEqual(shownOrder(harness), ['project:p3', 'project:p4', 'project:p1', 'project:p2'], 'a new project with a starting terminal is drawn on top');
+
+      push([row('a', 'p1', 'sleeping'), row('b', 'p2', 'sleeping'), row('c', 'p3', 'running'), row('d', 'p4', 'exited')]);
+      assert.deepStrictEqual(shownOrder(harness), ['project:p3', 'project:p1', 'project:p2', 'project:p4'], 'an exited shell does not hold its project up');
+    });
+
+    it('steps Alt+Arrow within the awake block and never across its boundary', async () => {
+      const harness = await loadManagerWithProjects();
+      seed(harness, [row('a', 'p1', 'sleeping'), row('b', 'p2', 'running'), row('c', 'p3', 'running')], 'b');
+      harness.renderTabs();
+      assert.deepStrictEqual(shownOrder(harness), ['project:p2', 'project:p3', 'project:p1']);
+
+      const p3 = harness.tabsRoot.querySelector('.terminal-tab-category-header[data-category="project:p3"]');
+      assert.ok(p3);
+      p3.dispatch('keydown', { key: 'ArrowDown', altKey: true, target: p3 } as never);
+      await flush();
+      assert.strictEqual(lastArgs(harness, 'setTerminalTabPrefs'), undefined, 'a step across the boundary is refused');
+
+      p3.dispatch('keydown', { key: 'ArrowUp', altKey: true, target: p3 } as never);
+      await flush();
+      assert.deepStrictEqual(shownOrder(harness), ['project:p3', 'project:p2', 'project:p1'], 'a step inside the block moves the drawn order');
+      assert.deepStrictEqual(storedOrder(harness), ['project:p1', 'project:p3', 'project:p2'], 'and stores the same relative order');
+    });
+  });
 });

@@ -6,6 +6,13 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 
 ## [v1.3.6] - Unreleased
 
+### Mới — Terminal Manager: dự án đang thức tự lên đầu, ngủ thì về chỗ cũ
+
+- Trong sidebar Terminal Manager, mọi nhóm có ít nhất một terminal đang chạy (dự án, hoặc nhóm thư mục/capsule của terminal chưa gắn dự án) được vẽ phía trên các nhóm còn lại. Một vạch gạch đứt đánh dấu chỗ thứ tự của bạn bắt đầu lại. Đánh thức một chip đang ngủ hoặc mở terminal cho dự án mới sẽ đưa nhóm lên; khi mọi terminal của nhóm ngủ hoặc shell đã thoát (exited), nhóm về đúng vị trí cũ. "Thức" là trạng thái phiên, không phải beacon streaming, nên danh sách không nhảy theo từng lượt AI.
+- Chỉ sắp lại lúc render: `projectOrder` (`saved-tabs.json` `terminalProjectOrder`) không bị ghi. Trong mỗi khối (thức / ngủ) vẫn theo thứ tự bạn kéo.
+- Không nhảy dưới con trỏ: khi chuột đang ở trong sidebar hoặc đang kéo, thứ tự được giữ nguyên; thay đổi được áp dụng khi chuột rời sidebar, khi một lần kéo kết thúc ngoài sidebar, hoặc khi cửa sổ mất focus.
+- Kéo-thả và Alt+↑/↓ chỉ di chuyển trong cùng khối; thả hoặc bước qua ranh giới thức/ngủ bị từ chối, vì thứ tự lưu sẽ đổi mà màn hình không đổi.
+
 ### Hiệu năng — Mở nhiều project cùng lúc không còn làm terminal treo
 
 - **Daemon terminal mở shell trên worker thread** (`src/main/browser/pty-worker.ts`, `pty-worker-host.ts`; bật bằng `TerminalManager.usePtyWorker()` trong `daemon-entry.ts`). `pty.spawn` của ConPTY chạy đồng bộ 100–800 ms mỗi shell. Trước đây nó chạy trên luồng JS duy nhất của daemon, nên khi 10 cửa sổ project mở terminal cùng lúc, daemon không trả lời được lệnh nào khác: `terminalNewSession` hết hạn 15 s và cửa sổ thứ 2 trở đi báo "daemon socket closed". Probe N=10: `terminalStart` 7 s → 0.5 s, `terminalNewSession` timeout → 0.3 s, cả 10 terminal mở được. Main process trong app vẫn spawn inline như cũ. Worker chết 3 lần trong 30 s thì quay về spawn inline; khi dispose, mọi shell được kill trước rồi mới terminate worker.

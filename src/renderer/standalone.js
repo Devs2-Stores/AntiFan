@@ -778,6 +778,86 @@ const collapsedCategories = new Set();
  */
 const idleGroupKeys = new Set();
 const expandedIdleGroups = new Set();
+/**
+ * Manager-only derived ordering: a project section with at least one awake row is drawn
+ * above the sleeping ones. It is a render-time partition only — `projectOrder` and
+ * `categoryOrder` are never written — so a project that falls asleep drops back to the
+ * slot the user gave it, and a drag still writes the user's own order.
+ * "Awake" is a running shell (session state), not the activity beacon: streaming/thinking
+ * flip every few seconds, a state only on spawn, sleep, wake or exit, so the list stays put.
+ * A slept or exited tab has no process, so it never holds a section up.
+ * The promoted set is frozen while the pointer is over the sidebar or a drag is in flight,
+ * so a section never jumps out from under a click; the held change lands on pointerleave.
+ */
+let promotedProjectKeys = new Set();
+/** Project keys in the order the last manager render drew them (Alt+Arrow steps these). */
+let displayedProjectKeys = [];
+let promotionPending = false;
+let sidebarPointerInside = false;
+
+function isSidebarReorderFrozen() {
+  return sidebarPointerInside || Boolean(pointerProjectDrag) || Boolean(pointerTabDrag) || Boolean(dragSourceSessionId);
+}
+
+/** Every manager section a row can land in: a project, or the folder/capsule fallback of a
+ *  row Main cannot attribute to a project. All of them move with the awake partition. */
+function awakeProjectKeys(groups) {
+  const keys = new Set();
+  for (const g of groups) {
+    if (isDerivedGroupKey(g.key) && g.items.some((s) => s && s.state === 'running')) keys.add(g.key);
+  }
+  return keys;
+}
+
+function sameKeySet(a, b) {
+  if (a.size !== b.size) return false;
+  for (const key of a) if (!b.has(key)) return false;
+  return true;
+}
+
+/** Stable partition of the section slots in `groups` (in place): promoted sections first. */
+function promoteAwakeProjects(groups) {
+  const awake = awakeProjectKeys(groups);
+  if (isSidebarReorderFrozen()) {
+    promotionPending = !sameKeySet(awake, promotedProjectKeys);
+  } else {
+    promotedProjectKeys = awake;
+    promotionPending = false;
+  }
+  const slots = [];
+  const sections = [];
+  groups.forEach((g, i) => {
+    if (isDerivedGroupKey(g.key)) { slots.push(i); sections.push(g); }
+  });
+  const promoted = sections.filter((g) => promotedProjectKeys.has(g.key));
+  const rest = sections.filter((g) => !promotedProjectKeys.has(g.key));
+  for (const g of promoted) g.promoted = true;
+  const ordered = promoted.concat(rest);
+  slots.forEach((slot, i) => { groups[slot] = ordered[i]; });
+  // Only project sections are reorderable, so Alt+Arrow steps among those alone.
+  displayedProjectKeys = ordered.map((g) => g.key).filter((key) => isProjectGroupKey(key));
+}
+
+/** Apply a promotion change that was held while the pointer was over the sidebar. */
+function flushPendingPromotion() {
+  if (promotionPending && !isSidebarReorderFrozen()) renderTabs();
+}
+
+if (tabsEl) {
+  tabsEl.addEventListener('pointerenter', () => { sidebarPointerInside = true; });
+  tabsEl.addEventListener('pointerleave', () => {
+    sidebarPointerInside = false;
+    flushPendingPromotion();
+  });
+}
+// Alt+Tab away with the pointer still over the sidebar fires no pointerleave.
+window.addEventListener('blur', () => {
+  sidebarPointerInside = false;
+  flushPendingPromotion();
+});
+// A drag can end outside the sidebar, after which no pointerleave will fire for it.
+window.addEventListener('pointerup', () => { setTimeout(flushPendingPromotion, 0); });
+window.addEventListener('dragend', () => { setTimeout(flushPendingPromotion, 0); });
 
 function isGroupCollapsed(key) {
   if (tabSearchActive) return false;
@@ -887,6 +967,9 @@ function projectDropTarget(drag, e) {
   const hit = document.elementFromPoint(e.clientX, e.clientY);
   const header = hit && hit.closest ? hit.closest('.terminal-tab-category-header.is-project-draggable') : null;
   if (!header || header === drag.header) return null;
+  // A drop across the awake/sleeping boundary would store an order the next render undoes
+  // on screen, so the dragged section only lands among sections of its own block.
+  if (promotedProjectKeys.has(drag.key) !== promotedProjectKeys.has(header.getAttribute('data-category') || '')) return null;
   const rect = header.getBoundingClientRect();
   return { header, after: e.clientY > rect.top + rect.height / 2 };
 }
@@ -1059,14 +1142,18 @@ function moveProjectGroup(sourceKey, targetKey, after) {
   commitProjectOrder(keys);
 }
 
-/** Move one project section by `delta` slots. */
+/**
+ * Move one project section by `delta` slots of the order the user sees. A promoted
+ * section steps among promoted ones only: crossing the boundary would rewrite the
+ * stored order while the drawn order stayed the same, which reads as a dead key.
+ */
 function stepProjectGroup(key, delta) {
-  const keys = currentProjectKeys();
-  const from = keys.indexOf(key);
+  const shown = displayedProjectKeys.length ? displayedProjectKeys : currentProjectKeys();
+  const from = shown.indexOf(key);
   const to = from + delta;
-  if (from < 0 || to < 0 || to >= keys.length) return;
-  keys.splice(to, 0, keys.splice(from, 1)[0]);
-  commitProjectOrder(keys);
+  if (from < 0 || to < 0 || to >= shown.length) return;
+  if (promotedProjectKeys.has(key) !== promotedProjectKeys.has(shown[to])) return;
+  moveProjectGroup(key, shown[to], delta > 0);
 }
 
 /** Replace the colour overrides with the values main persisted or echoed back. */
@@ -6896,6 +6983,8 @@ function ensureCategoryHeader(group) {
   header.classList.toggle('is-capsule-group', group.kind === 'capsule');
   header.classList.toggle('is-folder-group', isFolderLikeGroup(group));
   header.classList.toggle('is-project-group', group.kind === 'project');
+  header.classList.toggle('is-awake-promoted', group.promoted === true);
+  header.classList.toggle('is-promotion-boundary', group.promotionBoundary === true);
   header.setAttribute('data-group-kind', group.kind === 'capsule' || group.kind === 'folder' || group.kind === 'project' ? group.kind : 'category');
   // The group's folder is stamped live because the capsule and path behind a reused header
   // can change while its key cannot: one folder, always the folder Main reports now.
@@ -6957,7 +7046,11 @@ function ensureCategoryHeader(group) {
   // storefronts with the same title apart — the workspace behind it does that.
   const staleNote = group.kind === 'project' && projectStatus.get(group.projectId) === 'STALE' ? 'thư mục dự án không còn tồn tại' : '';
   const titleHint = [group.hint, staleNote].filter(Boolean).join(' · ');
-  const reorderHint = header.classList.contains('is-project-draggable') ? 'kéo để sắp xếp (Alt+↑/↓)' : '';
+  const reorderHint = header.classList.contains('is-project-draggable')
+    ? (group.promoted === true
+      ? 'đang hoạt động: tạm đưa lên đầu, về chỗ cũ khi ngủ · kéo để sắp xếp (Alt+↑/↓)'
+      : 'kéo để sắp xếp (Alt+↑/↓)')
+    : '';
   const titleHintFull = [titleHint, reorderHint].filter(Boolean).join(' · ');
   header.title = titleHintFull ? `${collapseTitle} — ${titleHintFull}` : collapseTitle;
   return header;
@@ -7967,6 +8060,13 @@ function renderTabs() {
   for (const key of Array.from(expandedIdleGroups)) {
     if (!idleGroupKeys.has(key)) expandedIdleGroups.delete(key);
   }
+  if (isSharedManagerShell() && isSidebarLayout) {
+    promoteAwakeProjects(groups);
+  } else {
+    promotedProjectKeys = new Set();
+    displayedProjectKeys = [];
+    promotionPending = false;
+  }
   if (sleepingSessions.length > 0) {
     groups.push({
       key: SLEEPING_CATEGORY,
@@ -7984,6 +8084,12 @@ function renderTabs() {
       .filter((g) => g.items.length > 0)
     : groups;
   const visibleCount = visibleGroups.reduce((total, g) => total + g.items.length, 0);
+  // The rule under the last awake section marks where the user's own order resumes. Placed
+  // on the drawn list, so a search that hides either block never strands it.
+  if (visibleGroups.some((g) => g.promoted === true)) {
+    const firstRest = visibleGroups.find((g) => isDerivedGroupKey(g.key) && g.promoted !== true);
+    if (firstRest) firstRest.promotionBoundary = true;
+  }
 
   // Drop the wrap of every session that is gone, plus every tab the filter excludes. A
   // filtered-out wrap left in the DOM is invisible to `ordered`, so it could never be

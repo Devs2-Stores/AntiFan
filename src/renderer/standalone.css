@@ -2661,6 +2661,17 @@ body.is-project-dragging .terminal-tab-category-header {
   box-shadow: inset 0 -2px 0 #38bdf8;
 }
 
+/* Awake project sections are drawn above the sleeping ones (render-time only). A dashed
+   rule over the first sleeping section marks where the user's own order resumes; it is a
+   border, not a box-shadow, so the drop-before bar above can still paint over it. */
+.standalone.tabs-sidebar .terminal-tab-category-header.is-promotion-boundary {
+  margin-top: 8px;
+  border-top: 1px dashed rgba(148, 163, 184, 0.3);
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  padding-top: 6px;
+}
+
 
 .terminal-tab-run-badge {
   flex: 0 0 auto;
