@@ -1,18 +1,59 @@
-import { describe, it, before, after } from 'node:test';
+import { describe, it, before, after, mock } from 'node:test';
 import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { HistoryManager } from '../../src/main/browser/history-manager';
 
+/** Every debounced flush a case launched, awaitable as real file I/O. */
+interface FlushTracker {
+  started: Promise<void>[];
+  settled(): Promise<void[]>;
+  restore(): void;
+}
+
 describe('HistoryManager (Intelligent Browsing History & Frecency Search)', () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-history-test-'));
   const prevConfigDir = process.env.ANTIFAN_CONFIG_DIR;
-  // Real timer delay needed because tests verify async disk write coalescing against the filesystem and platform clock.
-  const delay = (ms: number): Promise<void> => {
-    const { promise, resolve } = Promise.withResolvers<void>();
-    setTimeout(resolve, ms);
-    return promise;
+  const { PERSIST_QUIET_MS: quietMs, PERSIST_CEILING_MS: ceilingMs } = HistoryManager as unknown as {
+    PERSIST_QUIET_MS: number;
+    PERSIST_CEILING_MS: number;
+  };
+  /**
+   * The persistence cases run the production quiet/ceiling timings on a virtual clock
+   * (`setTimeout` and `Date`), so they assert exact flush boundaries instead of sleeping
+   * through them. The flush itself is real file I/O: every flush the debounce launches is
+   * collected here so a case can await the bytes it started before reading the store.
+   */
+  const trackFlushes = (mgr: HistoryManager): FlushTracker => {
+    const inst = mgr as unknown as { persistAsync: () => Promise<void> };
+    const persistAsync = inst.persistAsync;
+    const started: Promise<void>[] = [];
+    inst.persistAsync = function (this: HistoryManager): Promise<void> {
+      const flush = persistAsync.call(this);
+      started.push(flush);
+      return flush;
+    };
+    return {
+      started,
+      settled: () => Promise.all(started),
+      restore: () => {
+        delete (inst as { persistAsync?: unknown }).persistAsync;
+      },
+    };
+  };
+  /** Cancels any real timer an earlier case armed, then hands the clock to the mock. */
+  const useVirtualClock = (mgr: HistoryManager): FlushTracker => {
+    mgr.persistSync();
+    const flushes = trackFlushes(mgr);
+    mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.now() });
+    return flushes;
+  };
+  const releaseVirtualClock = async (mgr: HistoryManager, flushes: FlushTracker): Promise<void> => {
+    await flushes.settled().catch(() => {});
+    mgr.persistSync();
+    mock.timers.reset();
+    flushes.restore();
   };
 
   before(() => {
@@ -95,161 +136,106 @@ describe('HistoryManager (Intelligent Browsing History & Frecency Search)', () =
     // stringify+writeFileSync roughly twice a second — 0.84 s of blocked main thread per minute on
     // the measured store, paid by every tab switch and RPC behind it.
     const mgr = HistoryManager.getInstance();
-    const timings = HistoryManager as unknown as { PERSIST_QUIET_MS: number; PERSIST_CEILING_MS: number };
-    const original = { quiet: timings.PERSIST_QUIET_MS, ceiling: timings.PERSIST_CEILING_MS };
-    mgr.persistSync(); // cancel any timer an earlier case armed
-    // Production is 3 s quiet / 30 s ceiling. The test drives the same rule on millisecond
-    // timings: the assertion is about the coalescing contract, not about the clock.
-    timings.PERSIST_QUIET_MS = 800;
-    timings.PERSIST_CEILING_MS = 4000;
+    const flushes = useVirtualClock(mgr);
     try {
       mgr.clearHistory();
       const file = path.join(tempDir, 'browser-history.json');
-      let mtime = fs.statSync(file).mtimeMs;
-      const writes: number[] = [];
-      const poll = setInterval(() => {
-        const current = fs.statSync(file).mtimeMs;
-        if (current !== mtime) {
-          mtime = current;
-          writes.push(Date.now());
-        }
-      }, 20);
-      try {
-        const startedAt = Date.now();
-        for (let i = 0; i < 30; i++) {
-          mgr.recordVisit(`https://example.com/churn-${i}`, `Churn ${i}`);
-          await new Promise((resolve) => setTimeout(resolve, 100));
-        }
-        const elapsedMs = Date.now() - startedAt;
-        // 3 s of churn at 10 Hz, against a 4 s ceiling: the quiet period is re-armed by every
-        // mutation and never elapses, so the number of writes is bounded by the ceiling — one —
-        // and not by the mutation rate, which is what the old 1 s timer per change produced
-        // (~3 writes here, one per second, each a full-store synchronous rewrite).
-        const ceilingBound = Math.max(1, Math.ceil(elapsedMs / timings.PERSIST_CEILING_MS));
-        assert.ok(
-          writes.length <= ceilingBound,
-          `${writes.length} writes over ${elapsedMs} ms exceeds the ceiling's bound of ${ceilingBound}`,
-        );
-        const beforeQuiescence = writes.length;
-        const deadline = Date.now() + 3000;
-        while (writes.length === beforeQuiescence && Date.now() < deadline) {
-          await new Promise((resolve) => setTimeout(resolve, 25));
-        }
-        assert.strictEqual(writes.length, beforeQuiescence + 1, 'quiescence lands exactly one flush');
-        const items = JSON.parse(fs.readFileSync(file, 'utf8'));
-        assert.strictEqual(items.length, 30, 'a flush writes the whole store, not one batch of it');
-        const flushedAt = fs.statSync(file).mtimeMs;
-        await new Promise((resolve) => setTimeout(resolve, 600));
-        assert.strictEqual(fs.statSync(file).mtimeMs, flushedAt, 'an idle store is not rewritten');
-      } finally {
-        clearInterval(poll);
+      const storedCount = (): number => JSON.parse(fs.readFileSync(file, 'utf8')).length;
+      // 10 Hz churn that runs 5 s past the ceiling. Every mutation re-arms the quiet period,
+      // which never elapses, so the only write during the churn is the one the ceiling forces —
+      // not one per change (the old 1 s timer wrote ~35 times here), and not none either.
+      const churn = (ceilingMs + 5_000) / 100;
+      for (let i = 0; i < churn; i++) {
+        mgr.recordVisit(`https://example.com/churn-${i}`, `Churn ${i}`);
+        await flushes.settled();
+        mock.timers.tick(100);
       }
+      assert.strictEqual(flushes.started.length, 1, 'sustained churn is bounded by the ceiling to exactly one write');
+      const atCeiling = ceilingMs / 100 + 1;
+      assert.strictEqual(storedCount(), atCeiling, 'the ceiling write lands the whole store as of the ceiling');
+
+      // The last mutation re-armed the quiet period 100 ms ago.
+      mock.timers.tick(quietMs - 101);
+      await flushes.settled();
+      assert.strictEqual(flushes.started.length, 1, 'no flush before the quiet period elapses');
+      mock.timers.tick(1);
+      await flushes.settled();
+      assert.strictEqual(flushes.started.length, 2, 'quiescence lands exactly one flush');
+      assert.strictEqual(storedCount(), churn, 'a flush writes the whole store, not one batch of it');
+
+      const flushedAt = fs.statSync(file).mtimeMs;
+      mock.timers.tick(ceilingMs * 2);
+      await flushes.settled();
+      assert.strictEqual(flushes.started.length, 2, 'an idle store schedules no further write');
+      assert.strictEqual(fs.statSync(file).mtimeMs, flushedAt, 'an idle store is not rewritten');
     } finally {
-      timings.PERSIST_QUIET_MS = original.quiet;
-      timings.PERSIST_CEILING_MS = original.ceiling;
-      mgr.persistSync();
+      await releaseVirtualClock(mgr, flushes);
     }
   });
 
   it('does not write to disk when title update is unchanged', async () => {
     const mgr = HistoryManager.getInstance();
-    const timings = HistoryManager as unknown as { PERSIST_QUIET_MS: number; PERSIST_CEILING_MS: number };
-    const original = { quiet: timings.PERSIST_QUIET_MS, ceiling: timings.PERSIST_CEILING_MS };
-    timings.PERSIST_QUIET_MS = 150;
-    timings.PERSIST_CEILING_MS = 2000;
-    mgr.persistSync();
+    const flushes = useVirtualClock(mgr);
     try {
       mgr.clearHistory();
       const file = path.join(tempDir, 'browser-history.json');
       mgr.recordVisit('https://example.com/item', 'Sample Title');
-
-      const deadline = Date.now() + 2000;
-      let initialMtime = 0;
-      while (Date.now() < deadline) {
-        if (fs.existsSync(file)) {
-          const content = fs.readFileSync(file, 'utf8');
-          if (content.includes('Sample Title')) {
-            initialMtime = fs.statSync(file).mtimeMs;
-            break;
-          }
-        }
-        await delay(25);
-      }
-      assert.ok(initialMtime > 0, 'initial visit must flush to disk');
+      mock.timers.tick(quietMs);
+      await flushes.settled();
+      assert.strictEqual(flushes.started.length, 1, 'the visit flushes once the quiet period elapses');
       const initialContent = fs.readFileSync(file, 'utf8');
+      assert.ok(initialContent.includes('Sample Title'), 'initial visit must flush to disk');
+      const initialMtime = fs.statSync(file).mtimeMs;
 
-      let mtime = initialMtime;
-      let extraWrites = 0;
-      const poll = setInterval(() => {
-        const current = fs.statSync(file).mtimeMs;
-        if (current !== mtime) {
-          mtime = current;
-          extraWrites++;
-        }
-      }, 20);
-
-      try {
-        for (let i = 0; i < 5; i++) {
-          mgr.updateTitle('https://example.com/item', 'Sample Title');
-          mgr.updateTitle('https://example.com/item', '  Sample Title  ');
-          await delay(25);
-        }
-
-        await delay(250);
-
-        assert.strictEqual(extraWrites, 0, 'unchanged title updates must not trigger disk writes');
-        assert.strictEqual(fs.statSync(file).mtimeMs, initialMtime, 'file mtime must not change');
-        assert.strictEqual(fs.readFileSync(file, 'utf8'), initialContent, 'file content must remain unchanged');
-      } finally {
-        clearInterval(poll);
+      for (let i = 0; i < 5; i++) {
+        mgr.updateTitle('https://example.com/item', 'Sample Title');
+        mgr.updateTitle('https://example.com/item', '  Sample Title  ');
+        mock.timers.tick(25);
       }
+      mock.timers.tick(ceilingMs + quietMs);
+      await flushes.settled();
+
+      assert.strictEqual(flushes.started.length, 1, 'unchanged title updates must not trigger disk writes');
+      assert.strictEqual(fs.statSync(file).mtimeMs, initialMtime, 'file mtime must not change');
+      assert.strictEqual(fs.readFileSync(file, 'utf8'), initialContent, 'file content must remain unchanged');
     } finally {
-      timings.PERSIST_QUIET_MS = original.quiet;
-      timings.PERSIST_CEILING_MS = original.ceiling;
-      mgr.persistSync();
+      await releaseVirtualClock(mgr, flushes);
     }
   });
 
   it('debounces a subsequent mutation after persistSync instead of flushing immediately', async () => {
     const mgr = HistoryManager.getInstance();
-    const timings = HistoryManager as unknown as { PERSIST_QUIET_MS: number; PERSIST_CEILING_MS: number };
-    const original = { quiet: timings.PERSIST_QUIET_MS, ceiling: timings.PERSIST_CEILING_MS };
-    timings.PERSIST_QUIET_MS = 150;
-    timings.PERSIST_CEILING_MS = 300;
-    mgr.persistSync();
+    const flushes = useVirtualClock(mgr);
     try {
       mgr.clearHistory();
       const file = path.join(tempDir, 'browser-history.json');
 
       mgr.recordVisit('https://example.com/initial', 'Initial Visit');
-      await delay(500);
+      mock.timers.tick(quietMs);
+      await flushes.settled();
+      // Idle past the ceiling, so a ceiling window left armed by the earlier flush would
+      // already be due when the next mutation arrives.
+      mock.timers.tick(ceilingMs);
 
       mgr.persistSync();
       const syncMtime = fs.statSync(file).mtimeMs;
       const syncContent = fs.readFileSync(file, 'utf8');
       assert.ok(syncContent.includes('Initial Visit'));
+      const flushesAtSync = flushes.started.length;
 
       mgr.recordVisit('https://example.com/after-sync', 'After Sync Visit');
+      mock.timers.tick(quietMs - 1);
+      await flushes.settled();
+      assert.strictEqual(flushes.started.length, flushesAtSync, 'mutation after persistSync must debounce rather than flush immediately');
+      assert.strictEqual(fs.statSync(file).mtimeMs, syncMtime, 'file mtime must not update before the quiet period elapses');
+      assert.strictEqual(fs.readFileSync(file, 'utf8'), syncContent, 'file content must not be updated before quiet period elapses');
 
-      await delay(40);
-      const earlyMtime = fs.statSync(file).mtimeMs;
-      const earlyContent = fs.readFileSync(file, 'utf8');
-      assert.strictEqual(earlyMtime, syncMtime, 'mutation after persistSync must debounce rather than flush immediately');
-      assert.strictEqual(earlyContent, syncContent, 'file content must not be updated before quiet period elapses');
-
-      const pollDeadline = Date.now() + 2000;
-      let debouncedMtime = fs.statSync(file).mtimeMs;
-      while (debouncedMtime === syncMtime && Date.now() < pollDeadline) {
-        await delay(25);
-        debouncedMtime = fs.statSync(file).mtimeMs;
-      }
-      const debouncedContent = fs.readFileSync(file, 'utf8');
-      assert.notStrictEqual(debouncedMtime, syncMtime, 'file mtime must update after quiet window elapses');
-      assert.ok(debouncedContent.includes('After Sync Visit'), 'file must include the debounced mutation');
+      mock.timers.tick(1);
+      await flushes.settled();
+      assert.strictEqual(flushes.started.length, flushesAtSync + 1, 'the quiet period lands exactly one flush');
+      assert.ok(fs.readFileSync(file, 'utf8').includes('After Sync Visit'), 'file must include the debounced mutation');
     } finally {
-      timings.PERSIST_QUIET_MS = original.quiet;
-      timings.PERSIST_CEILING_MS = original.ceiling;
-      mgr.persistSync();
+      await releaseVirtualClock(mgr, flushes);
     }
   });
 });
