@@ -646,4 +646,86 @@ describe('RunStateService Suite', () => {
     service.sweepSync();
     assert.strictEqual(changes, afterWrite + 1, 'heartbeat aging past staleMs must re-announce');
   });
+
+  test('11. an orphan control-dir removal that fails or is delete-pending neither emits nor retries before the cooldown', () => {
+    const backoffRunsDir = path.join(tempRoot, 'backoff-runs');
+    const orphanDir = path.join(backoffRunsDir, 'control', 'omp-held');
+    fs.mkdirSync(orphanDir, { recursive: true });
+    let now = 1_000_000;
+    const service = new RunStateService({
+      runsDir: backoffRunsDir,
+      lookupSession: () => undefined,
+      isProcessAlive: () => true,
+      clock: () => now,
+      watch: false,
+    });
+    // Windows refuses to remove a dir another process still watches; simulate
+    // that refusal through the shared builtin so the service sees EPERM.
+    const { syncBuiltinESMExports } = require('node:module');
+    const realRmSync = fs.rmSync;
+    const realExistsSync = fs.existsSync;
+    let rmAttempts = 0;
+    // Past the 60 s retry cooldown.
+    const afterCooldown = 61_000;
+    let changes = 0;
+    service.on('change', () => { changes += 1; });
+    try {
+      fs.rmSync = (target: string, opts: unknown) => {
+        if (path.resolve(target) === path.resolve(orphanDir)) {
+          rmAttempts += 1;
+          throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' });
+        }
+        return realRmSync(target, opts);
+      };
+      syncBuiltinESMExports();
+
+      service.sweepSync();
+      assert.strictEqual(rmAttempts, 1, 'the orphan removal is attempted once');
+      assert.strictEqual(changes, 1, 'only the first observation of the run-file set is announced');
+      service.sweepSync();
+      service.sweepSync();
+      assert.strictEqual(rmAttempts, 1, 'no synchronous retry inside the cooldown');
+      assert.strictEqual(changes, 1, 'a failed removal changes nothing and must not emit');
+
+      now += afterCooldown;
+      service.sweepSync();
+      assert.strictEqual(rmAttempts, 2, 'retried once the cooldown elapses');
+      assert.strictEqual(changes, 1);
+
+      // A delete-pending dir is still listed and stats as a directory, but
+      // existsSync reports it gone: removal must not even be attempted.
+      fs.existsSync = (target: string) => (
+        path.resolve(target) === path.resolve(orphanDir) ? false : realExistsSync(target)
+      );
+      syncBuiltinESMExports();
+      now += afterCooldown;
+      service.sweepSync();
+      assert.strictEqual(rmAttempts, 2, 'a delete-pending dir is skipped without a removal attempt');
+      assert.strictEqual(changes, 1, 'skipping a delete-pending dir is not a change');
+    } finally {
+      fs.rmSync = realRmSync;
+      fs.existsSync = realExistsSync;
+      syncBuiltinESMExports();
+    }
+
+    now += afterCooldown;
+    service.sweepSync();
+    assert.strictEqual(fs.existsSync(orphanDir), false, 'removal succeeds once the holder lets go');
+    assert.strictEqual(changes, 2, 'the successful removal is announced');
+  });
+
+  test('12. readChanges serves an unchanged edit-guard log from cache and re-reads it after an append', () => {
+    const ompSessionId = 'omp-cache-append';
+    const logPath = path.join(workspaceDir, '.antifan', 'edit-guard', `${ompSessionId}.jsonl`);
+    fs.writeFileSync(logPath, `${JSON.stringify({ runSeq: 1, decision: 'allow', path: 'a.liquid' })}\n`, 'utf8');
+    const service = new RunStateService({ runsDir, watch: false, clock: () => clockTime });
+
+    const first = service.readChanges(workspaceDir, ompSessionId, 1);
+    assert.deepStrictEqual(first?.files, ['a.liquid']);
+    assert.strictEqual(service.readChanges(workspaceDir, ompSessionId, 1), first, 'an unchanged log is not re-parsed');
+    fs.appendFileSync(logPath, `${JSON.stringify({ runSeq: 1, decision: 'allow', path: 'b.liquid' })}\n`, 'utf8');
+    const after = service.readChanges(workspaceDir, ompSessionId, 1);
+    assert.deepStrictEqual(after?.files, ['a.liquid', 'b.liquid'], 'an append must invalidate the cached summary');
+    assert.strictEqual(service.readChanges(workspaceDir, ompSessionId, 2)?.fileCount, 0, 'a different runSeq is not served from cache');
+  });
 });

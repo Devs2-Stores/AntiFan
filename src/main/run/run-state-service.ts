@@ -14,6 +14,10 @@ export const RUN_SWEEP_MS = 5_000;
 export const RUN_PRUNE_ENDED_MS = 24 * 60 * 60 * 1000; // 24 hours
 export const RUN_CONTROL_EXPIRED_MARGIN_MS = 60 * 60 * 1000; // 1 hour
 export const RUN_CHANGES_MAX_FILES = 24;
+// A failed removal of an orphaned control dir is retried at most this often.
+export const RUN_CONTROL_PRUNE_RETRY_MS = 60_000;
+
+type RunChanges = { files: string[]; fileCount: number; blockedCount: number };
 
 export interface TerminalRunStateFile {
   schema: 1;
@@ -123,6 +127,15 @@ export class RunStateService extends EventEmitter {
   // Parsed liveness inputs per run file, reused while the file's mtime:size stamp
   // holds, so each sweep re-derives staleness without re-reading unchanged files.
   private readonly runLivenessInputs = new Map<string, RunLivenessInputs>();
+  // Orphaned control dirs whose removal failed, skipped until the stored time:
+  // a synchronous retry blocks the main thread (~100 ms each on Windows).
+  private readonly controlPruneRetryAt = new Map<string, number>();
+  // Resolved cwd → workspace root. Only hits are cached: edit-guard creates
+  // <root>/.antifan lazily, so a miss can turn into a hit mid-run.
+  private readonly workspaceRootCache = new Map<string, string>();
+  // Parsed edit-guard change summary per (cwd, ompSessionId), reused while the
+  // log's mtime:size stamp and the requested runSeq hold.
+  private readonly changesCache = new Map<string, { stamp: string; runSeq: number; result: RunChanges }>();
 
   constructor(options: RunStateServiceOptions) {
     super();
@@ -195,17 +208,12 @@ export class RunStateService extends EventEmitter {
   }
 
   private scheduleDebouncedEmit(): void {
+    // Coalesce a burst of watch events (each atomic run-file write raises
+    // several) into one projection once the burst settles.
+    if (this.debounceTimer) clearTimeout(this.debounceTimer);
     this.debounceTimer = setTimeout(() => {
       this.debounceTimer = undefined;
-      // Snapshot BEFORE emitting: a file landing mid-emit must not be folded
-      // into the baseline without having been announced — the sweep fallback
-      // exists for exactly the watch events the OS drops.
-      const fingerprint = this.collectRunFileFingerprint();
-      this.emit('change');
-      // The emit consumed every queued watch event, so re-baseline here too —
-      // the next sweep must compare against what was last announced, or it
-      // would re-announce the same file change the watch already pushed.
-      this.lastEmittedRunFingerprint = fingerprint;
+      this.emitIfChanged(false);
     }, 100);
     if (typeof this.debounceTimer.unref === 'function') {
       this.debounceTimer.unref();
@@ -213,14 +221,22 @@ export class RunStateService extends EventEmitter {
   }
 
   public sweepSync(): void {
-    const pruned = this.pruneSync();
-    const fingerprint = this.collectRunFileFingerprint();
     // Emit only on an observable change: prune deleted something, or the set
     // of run files the card projection reads changed since the last emit.
-    if (pruned || fingerprint !== this.lastEmittedRunFingerprint) {
-      this.emit('change');
-      this.lastEmittedRunFingerprint = fingerprint;
-    }
+    this.emitIfChanged(this.pruneSync());
+  }
+
+  /**
+   * Announce the run-card projection when it may have changed. The projection
+   * rides on the event so every listener shares one getRunsSync pass.
+   */
+  private emitIfChanged(force: boolean): void {
+    // Snapshot BEFORE emitting: a file landing mid-emit must not be folded
+    // into the baseline without having been announced.
+    const fingerprint = this.collectRunFileFingerprint();
+    if (!force && fingerprint === this.lastEmittedRunFingerprint) return;
+    this.emit('change', this.getRunsSync());
+    this.lastEmittedRunFingerprint = fingerprint;
   }
 
   /**
@@ -294,6 +310,7 @@ export class RunStateService extends EventEmitter {
     }
 
     const now = this.clock();
+    const liveChangeKeys = new Set<string>();
 
     for (const entry of entries) {
       // Carve out *.brief.json and non-json entries
@@ -365,7 +382,7 @@ export class RunStateService extends EventEmitter {
 
       let changes: RunCardState['changes'] = undefined;
       if (ompSessionId && typeof runSeq === 'number') {
-        changes = this.readChanges(cwd, ompSessionId, runSeq);
+        changes = this.readChanges(cwd, ompSessionId, runSeq, liveChangeKeys);
       }
 
       cards.push({
@@ -387,6 +404,9 @@ export class RunStateService extends EventEmitter {
       });
     }
 
+    for (const key of this.changesCache.keys()) {
+      if (!liveChangeKeys.has(key)) this.changesCache.delete(key);
+    }
     return cards;
   }
 
@@ -425,24 +445,32 @@ export class RunStateService extends EventEmitter {
     cwd?: string,
     ompSessionId?: string,
     runSeq?: number,
-  ): { files: string[]; fileCount: number; blockedCount: number } | undefined {
+    liveKeys?: Set<string>,
+  ): RunChanges | undefined {
     if (!cwd || !ompSessionId || typeof runSeq !== 'number') return undefined;
 
     const workspaceRoot = this.findWorkspaceRoot(cwd);
     if (!workspaceRoot) return undefined;
 
-    const segment = safeFileSegment(ompSessionId);
-    let logPath = path.join(workspaceRoot, '.antifan', 'edit-guard', `${segment}.jsonl`);
+    const guardDir = path.join(workspaceRoot, '.antifan', 'edit-guard');
+    let logPath = path.join(guardDir, `${safeFileSegment(ompSessionId)}.jsonl`);
 
     try {
-      if (!fs.existsSync(logPath)) {
-        const rawLogPath = path.join(workspaceRoot, '.antifan', 'edit-guard', `${ompSessionId}.jsonl`);
-        if (fs.existsSync(rawLogPath)) {
-          logPath = rawLogPath;
-        } else {
-          return undefined;
-        }
+      let stat: fs.Stats;
+      try {
+        stat = fs.statSync(logPath);
+      } catch {
+        logPath = path.join(guardDir, `${ompSessionId}.jsonl`);
+        stat = fs.statSync(logPath);
       }
+
+      // The log is append-only and grows for the whole session; re-parse it
+      // only when it changed, not on every projection.
+      const key = `${cwd}\0${ompSessionId}`;
+      liveKeys?.add(key);
+      const stamp = `${logPath}:${stat.mtimeMs}:${stat.size}`;
+      const cached = this.changesCache.get(key);
+      if (cached && cached.stamp === stamp && cached.runSeq === runSeq) return cached.result;
 
       const content = fs.readFileSync(logPath, 'utf8');
       const lines = content.split(/\r?\n/);
@@ -469,23 +497,29 @@ export class RunStateService extends EventEmitter {
       }
 
       const uniqueFiles = Array.from(allowedFiles);
-      return {
+      const result: RunChanges = {
         files: uniqueFiles.slice(0, RUN_CHANGES_MAX_FILES),
         fileCount: uniqueFiles.length,
         blockedCount,
       };
+      this.changesCache.set(key, { stamp, runSeq, result });
+      return result;
     } catch {
       return undefined;
     }
   }
 
   private findWorkspaceRoot(cwd: string): string | null {
+    const resolved = path.resolve(cwd);
+    const cachedRoot = this.workspaceRootCache.get(resolved);
+    if (cachedRoot !== undefined) return cachedRoot;
     try {
-      let current = path.resolve(cwd);
+      let current = resolved;
       while (true) {
         const candidate = path.join(current, '.antifan');
         try {
           if (fs.existsSync(candidate) && fs.statSync(candidate).isDirectory()) {
+            this.workspaceRootCache.set(resolved, current);
             return current;
           }
         } catch {}
@@ -552,9 +586,9 @@ export class RunStateService extends EventEmitter {
       }
 
       if (shouldPrune) {
-        changed = true;
         try {
           fs.unlinkSync(filePath);
+          changed = true;
         } catch {}
 
         // A brief mirror is pruned with the run file of the session named in its filename
@@ -587,9 +621,9 @@ export class RunStateService extends EventEmitter {
         const sid = file.slice(0, -'.brief.json'.length);
         const session = this.options.lookupSession?.(sid);
         if (!session) {
-          changed = true;
           try {
             fs.unlinkSync(path.join(this.runsDir, file));
+            changed = true;
           } catch {}
         }
       }
@@ -602,6 +636,11 @@ export class RunStateService extends EventEmitter {
       try {
         controlEntries = fs.readdirSync(controlBaseDir);
       } catch {}
+
+      const listed = new Set(controlEntries);
+      for (const ompSid of this.controlPruneRetryAt.keys()) {
+        if (!listed.has(ompSid)) this.controlPruneRetryAt.delete(ompSid);
+      }
 
       for (const ompSid of controlEntries) {
         const ompDir = path.join(controlBaseDir, ompSid);
@@ -616,10 +655,20 @@ export class RunStateService extends EventEmitter {
 
         // Orphaned control dir: no active run file
         if (!activeOmpSessions.has(ompSid)) {
-          changed = true;
+          // Listed but not accessible = already delete-pending on Windows (a
+          // live OMP process still watches it); the OS finishes the removal
+          // when that handle closes, and another rmSync only stalls ~100 ms
+          // before EPERM.
+          if (!fs.existsSync(ompDir)) continue;
+          const retryAt = this.controlPruneRetryAt.get(ompSid);
+          if (retryAt !== undefined && now < retryAt) continue;
           try {
             fs.rmSync(ompDir, { recursive: true, force: true });
-          } catch {}
+            this.controlPruneRetryAt.delete(ompSid);
+            changed = true;
+          } catch {
+            this.controlPruneRetryAt.set(ompSid, now + RUN_CONTROL_PRUNE_RETRY_MS);
+          }
           continue;
         }
 
