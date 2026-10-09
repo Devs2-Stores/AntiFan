@@ -1,9 +1,9 @@
-import { describe, it } from 'node:test';
+import { describe, it, mock } from 'node:test';
 import * as assert from 'node:assert/strict';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { BrowserControlPort, BrowserHostPort, SESSION_TAB_LIMIT } from '../../src/main/tools/browser-control-port';
+import { BrowserControlPort, BrowserHostPort, SESSION_TAB_LIMIT, VIEWPORT_CONFIRM_BOUND_MS } from '../../src/main/tools/browser-control-port';
 import { BrowserTarget, CapabilityError } from '../../src/shared/control-plane-contracts';
 import { TabDevToolsHost, TabDevToolsContext } from '../../src/main/browser/tab-devtools-host';
 import type { NativeTabRecord } from '../../src/main/browser/native-tab-host';
@@ -223,37 +223,72 @@ describe('Render-surface precondition (no laid-out surface)', () => {
 });
 
 describe('Viewport write verification', () => {
+  /** One real event-loop turn: drains the probe's promise chain between virtual ticks. */
+  const settle = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
+
+  /**
+   * Drives setViewport's confirmation loop on virtual time. The probe cadence and
+   * the VIEWPORT_CONFIRM_BOUND_MS deadline run on mocked setTimeout/Date, so a tab
+   * that never confirms is refused at exactly the bound - not 1 ms earlier, and
+   * not after it - instead of after the 3 s of real waiting the bound stands for.
+   */
+  async function refusalAtBound(write: () => Promise<unknown>): Promise<unknown> {
+    mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 0 });
+    try {
+      const seen: { settled: boolean; err?: unknown } = { settled: false };
+      void write().then(
+        () => {
+          seen.settled = true;
+        },
+        (err: unknown) => {
+          seen.settled = true;
+          seen.err = err;
+        }
+      );
+      for (let elapsed = 0; elapsed < VIEWPORT_CONFIRM_BOUND_MS - 1; ) {
+        await settle();
+        const step = Math.min(100, VIEWPORT_CONFIRM_BOUND_MS - 1 - elapsed);
+        mock.timers.tick(step);
+        elapsed += step;
+      }
+      await settle();
+      assert.ok(!seen.settled, 'the write must keep probing until the confirmation bound');
+      mock.timers.tick(1);
+      await settle();
+      assert.ok(seen.settled, 'the verdict must land at the confirmation bound');
+      assert.ok(seen.err !== undefined, 'an unconfirmed viewport must be refused, not reported as applied');
+      return seen.err;
+    } finally {
+      mock.timers.reset();
+    }
+  }
+
   it('reports VIEWPORT_NOT_APPLIED with a classified cause when the tab never measures the requested size', async () => {
     const { host } = buildHost({
       surface: { vw: 1200, vh: 800 },
       setViewportSize: () => true,
     });
     const port = new BrowserControlPort(host);
-    await assert.rejects(
-      () => port.setViewport({ width: 1440, height: 900, tabId: 'tab-b' }),
-      (err: unknown) => {
-        assert.ok(err instanceof CapabilityError);
-        assert.strictEqual(err.code, 'VIEWPORT_NOT_APPLIED');
-        assert.deepStrictEqual(err.details as Record<string, unknown> | undefined, {
-          tabId: 'tab-b',
-          expectedWidth: 1440,
-          expectedHeight: 900,
-          observedWidth: 1200,
-          observedHeight: 800,
-          cause: 'geometry-mismatch',
-        });
-        return true;
-      }
-    );
+    const err = await refusalAtBound(() => port.setViewport({ width: 1440, height: 900, tabId: 'tab-b' }));
+    assert.ok(err instanceof CapabilityError);
+    assert.strictEqual(err.code, 'VIEWPORT_NOT_APPLIED');
+    assert.deepStrictEqual(err.details as Record<string, unknown> | undefined, {
+      tabId: 'tab-b',
+      expectedWidth: 1440,
+      expectedHeight: 900,
+      observedWidth: 1200,
+      observedHeight: 800,
+      cause: 'geometry-mismatch',
+    });
   });
 
   it('reports VIEWPORT_NOT_APPLIED (unmeasurable) when the surface cannot be read', async () => {
     const { host } = buildHost({ surfaceThrows: new Error('no surface') });
     const port = new BrowserControlPort(host);
-    await assert.rejects(
-      () => port.setViewport({ width: 1440, height: 900, tabId: 'tab-b' }),
-      (err: unknown) => (err instanceof CapabilityError ? err.code === 'VIEWPORT_NOT_APPLIED' : false)
-    );
+    const err = await refusalAtBound(() => port.setViewport({ width: 1440, height: 900, tabId: 'tab-b' }));
+    assert.ok(err instanceof CapabilityError);
+    assert.strictEqual(err.code, 'VIEWPORT_NOT_APPLIED');
+    assert.strictEqual((err.details as Record<string, unknown> | undefined)?.cause, 'unmeasurable');
   });
 
   it('reports the measured geometry and verified flag once the tab matches the request', async () => {
