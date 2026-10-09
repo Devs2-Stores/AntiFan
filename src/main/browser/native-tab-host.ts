@@ -39,7 +39,7 @@ import {
   IPHONE_USER_AGENT,
   MAC_DESKTOP_USER_AGENT,
 } from './device-presets';
-import { chromeSessionUserAgent } from './google-auth-identity';
+import { chromeSessionUserAgent, chromeUserAgentMetadata } from './google-auth-identity';
 import { configureBrowserSessionPartition, deriveCapsulePartition, unconfigureBrowserSessionPartition, type BrowserSessionUserAgentMode } from './browser-session-partition';
 import { TabDiagnosticsManager, computeOrigin, normalizeConsoleLevel } from './tab-diagnostics';
 import type { CaptureViewportTransaction, RenderSurfaceSnapshot, VerificationCaptureEnvelope } from '../verification/visual-capture';
@@ -11633,10 +11633,16 @@ export class NativeTabHost extends EventEmitter {
           const targetH = Math.round(preset.height);
           const safeScale = Number.isFinite(scale) && scale > 0 ? scale : 1;
 
+          // userAgentMetadata keeps Client Hints alive (an override without it empties
+          // navigator.userAgentData and drops sec-ch-ua*). acceptLanguage is a bare list:
+          // Chromium appends the q-values itself, and q-values passed in end up inside
+          // navigator.languages ("vi;q=0.9") and doubled in the header ("vi;q=0.9;q=0.9").
+          const userAgentMetadata = chromeUserAgentMetadata(ua);
           await devTools.sendCdpCommand(wc, 'Emulation.setUserAgentOverride', {
             userAgent: ua,
-            acceptLanguage: 'vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7',
+            acceptLanguage: 'vi-VN,vi,en-US,en',
             platform,
+            ...(userAgentMetadata ? { userAgentMetadata } : {}),
           }).catch(() => {});
 
           await devTools.sendCdpCommand(wc, 'Emulation.setDeviceMetricsOverride', {
@@ -11650,9 +11656,11 @@ export class NativeTabHost extends EventEmitter {
           }).catch(() => {});
         } else {
           await devTools.sendCdpCommand(wc, 'Emulation.clearDeviceMetricsOverride').catch(() => {});
+          const userAgentMetadata = chromeUserAgentMetadata(this.defaultUserAgent);
           await devTools.sendCdpCommand(wc, 'Emulation.setUserAgentOverride', {
             userAgent: this.defaultUserAgent,
             platform: 'Win32',
+            ...(userAgentMetadata ? { userAgentMetadata } : {}),
           }).catch(() => {});
         }
       } catch (err) {
