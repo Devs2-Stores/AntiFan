@@ -124,11 +124,14 @@ async function readPathSddl(
 }
 
 /**
- * Batched SDDL read: one `icacls <dir>\* /save` per parent directory covers
+ * Batched SDDL read: one `icacls <pattern> /save` per parent directory covers
  * every requested child, versus one process spawn per path with readPathSddl.
  * icacls accepts a single file argument (a second one is "Invalid parameter"),
  * and its save file names each entry by basename only, so entries are matched
  * within the directory that was listed - where a basename is the full identity.
+ * A lone path is read by its exact name, and a group by the longest basename
+ * prefix it shares (`dir\<prefix>*`): a bare `dir\*` would make icacls list
+ * every sibling, which in a crowded directory such as %TEMP% costs seconds.
  * The save file (UTF-16) holds a name line followed by its SDDL line; a name
  * can never contain ':' while every SDDL does. A path whose SDDL is not found
  * is absent from the result and callers treat it as "needs repair" - the safe
@@ -157,10 +160,18 @@ async function readPathsSddl(
     const savePath = path.win32.normalize(
       path.join(os.tmpdir(), `antifan-acl-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}.txt`)
     );
+    const [first = '', ...rest] = [...group.values()].map((p) => path.win32.basename(path.win32.normalize(p)));
+    let prefix = first;
+    for (const n of rest) {
+      let i = 0;
+      while (i < prefix.length && i < n.length && prefix.charAt(i).toLowerCase() === n.charAt(i).toLowerCase()) i += 1;
+      prefix = prefix.slice(0, i);
+    }
+    const pattern = path.win32.join(dir, rest.length === 0 ? first : `${prefix}*`);
     try {
       // Armed with a bounded timeout: icacls can stall on a locked or inaccessible
       // child. On timeout/failure the group stays unresolved (safe direction).
-      await execFileAsync('icacls.exe', [path.win32.join(dir, '*'), '/save', savePath], {
+      await execFileAsync('icacls.exe', [pattern, '/save', savePath], {
         windowsHide: true,
         timeout: timeoutMs,
         killSignal: 'SIGKILL',
