@@ -10,6 +10,7 @@ import { StorageLocations } from '../config/storage-locations';
 import { TerminalWaitInput, TerminalWaitResult, CapabilityError, isBootProjectId } from '../../shared/control-plane-contracts';
 import { TerminalDeltaResult, TerminalJournalEntry, TerminalAckPayload, TerminalSyncViewResult, TerminalSleepResult, TerminalRoleMeta } from '../../shared/contracts';
 import { ownerKey } from './window-owner';
+import { PtyWorkerHost } from './pty-worker-host';
 export function resolveScriptsDir(): string | undefined {
   let dir = __dirname;
   for (let i = 0; i < 6; i++) {
@@ -383,33 +384,36 @@ export class SessionRecord {
     if (this.bufferBytes <= maxBytes) return;
     this._materialized = null;
     let excess = this.bufferBytes - maxBytes;
-    while (this.chunks.length > 0 && excess > 0) {
-      const first = this.chunks[0]!;
+    // Count the whole chunks to drop and remove them in one splice: `shift()` per chunk
+    // copies the array each time once it outgrows V8's in-place left-trim (~16k chunks of
+    // small PTY reads), which made one 256KB trim cost hundreds of ms on the daemon thread.
+    let drop = 0;
+    while (drop < this.chunks.length && excess > 0) {
+      const first = this.chunks[drop]!;
       if (first.length <= excess) {
         excess -= first.length;
         this.bufferBytes -= first.length;
-        this.chunks.shift();
-      } else {
-        let cutOffset = excess;
-        while (cutOffset < first.length && (first[cutOffset]! & 0xc0) === 0x80) {
-          cutOffset++;
-        }
-        const nlIdx = first.indexOf(0x0a, cutOffset);
-        if (nlIdx !== -1 && (nlIdx - cutOffset) < 2048) {
-          cutOffset = nlIdx + 1;
-        }
-        if (cutOffset < first.length) {
-          const remaining = Buffer.from(first.subarray(cutOffset));
-          this.bufferBytes -= cutOffset;
-          this.chunks[0] = remaining;
-        } else {
-          this.bufferBytes -= first.length;
-          this.chunks.shift();
-        }
-        excess = 0;
-        break;
+        drop++;
+        continue;
       }
+      let cutOffset = excess;
+      while (cutOffset < first.length && (first[cutOffset]! & 0xc0) === 0x80) {
+        cutOffset++;
+      }
+      const nlIdx = first.indexOf(0x0a, cutOffset);
+      if (nlIdx !== -1 && (nlIdx - cutOffset) < 2048) {
+        cutOffset = nlIdx + 1;
+      }
+      if (cutOffset < first.length) {
+        this.bufferBytes -= cutOffset;
+        this.chunks[drop] = Buffer.from(first.subarray(cutOffset));
+      } else {
+        this.bufferBytes -= first.length;
+        drop++;
+      }
+      break;
     }
+    if (drop > 0) this.chunks.splice(0, drop);
   }
 }
 
@@ -640,9 +644,18 @@ export interface TerminalDiagnosticsReport {
 export function safeSliceTail(target: string | SessionRecord | Buffer[], maxBytes: number): string {
   if (!target || maxBytes <= 0) return '';
   if (typeof target === 'string') {
-    if (target.length <= maxBytes) return target;
-    const buf = Buffer.from(target, 'utf8');
-    if (buf.length <= maxBytes) return target;
+    // A UTF-16 code unit is 1-3 UTF-8 bytes, so only a string that is short
+    // even at 3 bytes per unit is known to fit without encoding it.
+    if (target.length * 3 <= maxBytes) return target;
+    // The last maxBytes + 1 code units already hold at least maxBytes bytes.
+    // Encoding only that suffix (never starting on a dangling low surrogate)
+    // yields the same byte tail as encoding the whole string - a sleeping
+    // session's ~1MB restored tail is previewed on every session-list answer.
+    let start = Math.max(0, target.length - maxBytes - 1);
+    const lead = target.charCodeAt(start);
+    if (start > 0 && lead >= 0xdc00 && lead <= 0xdfff) start++;
+    const buf = Buffer.from(start > 0 ? target.slice(start) : target, 'utf8');
+    if (start === 0 && buf.length <= maxBytes) return target;
     let cutOffset = buf.length - maxBytes;
     while (cutOffset < buf.length && (buf[cutOffset]! & 0xc0) === 0x80) {
       cutOffset++;
@@ -855,6 +868,11 @@ export class TerminalManager extends EventEmitter {
   private benchmarkChunkSeq = 0;
   private benchmarkChunkBytes = 0;
   private conptyFallbackLogged = false;
+  /**
+   * Set only by the terminal host daemon: shells start on a worker thread there, so ConPTY's
+   * synchronous startup never stalls the RPC loop every window waits on. `null` spawns inline.
+   */
+  private ptyWorkerHost: PtyWorkerHost | null = null;
   private conptyFailed = false;
   // Sessions whose transcript changed since the last confirmed disk write.
   // persistAsync/persistSync re-serialize only dirty (or field-changed) sessions
@@ -1241,6 +1259,14 @@ export class TerminalManager extends EventEmitter {
    */
   public setBridgeEndpoint(endpoint: { port: number; host: string; pid: number } | null): void {
     this.bridgeEndpoint = endpoint;
+  }
+  /**
+   * Start shells on a worker thread from now on. Called once by the terminal host daemon before it
+   * serves; the in-process manager keeps spawning inline.
+   */
+  public usePtyWorker(log?: (message: string) => void): void {
+    if (this.isDisposed || this.ptyWorkerHost) return;
+    this.ptyWorkerHost = new PtyWorkerHost(log);
   }
   public getCurrentCwd(): string { return this.currentCwd; }
   /** The immutable process-start directory; see {@link initialCwd}. */
@@ -1725,7 +1751,24 @@ export class TerminalManager extends EventEmitter {
 
     const canUseConpty = this.supportsConpty() && !this.conptyFailed;
     const spawnStart = isBenchmarkEnabled() ? performance.now() : 0;
-    if (canUseConpty) {
+    const workerChild = this.ptyWorkerHost?.spawn(shell, {
+      cols,
+      rows,
+      cwd: validCwd,
+      env: terminalEnv,
+      useConpty: canUseConpty,
+      fallbackCwd: os.homedir(),
+      onConptyFailed: (message) => {
+        if (!this.conptyFallbackLogged) {
+          this.conptyFallbackLogged = true;
+          console.warn('[antifan:terminal] ConPTY spawn failed, falling back to legacy winpty:', message);
+        }
+        this.conptyFailed = true;
+      },
+    });
+    if (workerChild) {
+      child = workerChild;
+    } else if (canUseConpty) {
       try {
         child = spawnWithCwd({ ...basePtyOptions, useConpty: true }, validCwd);
       } catch (err) {
@@ -3181,6 +3224,10 @@ export class TerminalManager extends EventEmitter {
       killPromises.push(this.safelyKillSession(s));
     }
     await Promise.allSettled(killPromises);
+    if (this.ptyWorkerHost) {
+      await this.ptyWorkerHost.dispose();
+      this.ptyWorkerHost = null;
+    }
     this.sessions.clear();
     this.sessionGenerations.clear();
     this.persistedFragments.clear();

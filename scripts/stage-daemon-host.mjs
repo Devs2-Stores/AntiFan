@@ -69,6 +69,8 @@ function specifiersIn(file) {
     /\brequire\(\s*['"]([^'"]+)['"]\s*\)/g,
     /\bfrom\s*['"]([^'"]+)['"]/g,
     /\bimport\(\s*['"]([^'"]+)['"]\s*\)/g,
+    // Worker scripts are loaded by path; their module resolves them statically so they ship too.
+    /\brequire\.resolve\(\s*['"]([^'"]+)['"]\s*\)/g,
   ];
   for (const pattern of patterns) {
     let match;

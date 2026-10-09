@@ -27,6 +27,12 @@ const fs = require('node:fs');
 const { monitorEventLoopDelay } = require('node:perf_hooks');
 
 app.commandLine.appendSwitch('no-sandbox');
+// N overlapping windows: without these, Chromium's native occlusion tracking backgrounds the
+// covered ones and the probe measures frozen renderers instead of live ones.
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
+app.commandLine.appendSwitch('disable-background-timer-throttling');
+app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
 
 const ROOT = path.resolve(__dirname, '..');
 const compiledRoot = process.env.ANTIFAN_COMPILED_ROOT
@@ -36,6 +42,8 @@ const compiledModule = (relative) => path.join(compiledRoot, 'src', 'main', rela
 const BURST_SECONDS = Math.max(5, Number(process.env.ANTIFAN_PERF_SECONDS || 90));
 const TABS_PER_PROJECT = Math.max(0, Number(process.env.ANTIFAN_PERF_TABS ?? 5));
 const N = Math.max(1, Number(process.env.ANTIFAN_PERF_N || 3));
+// Real storefront per tab (e.g. a Haravan shop) instead of a static data: page.
+const TAB_URL = process.env.ANTIFAN_PERF_TAB_URL || '';
 const LABEL = String(process.env.ANTIFAN_PERF_LABEL || 'run').replace(/[^\w.-]/g, '_');
 const reportsDir = path.join(ROOT, 'plans', '260928-1654-smooth-multi-project-terminal', 'reports');
 fs.mkdirSync(reportsDir, { recursive: true });
@@ -66,6 +74,11 @@ const PROJECTS = Array.from({ length: N }, (_, i) => {
 
 process.env.ANTIFAN_DATA_ROOT = tempRoot;
 process.env.ANTIFAN_USER_DATA = path.join(tempRoot, 'Profile');
+process.env.ANTIFAN_USER_DATA_DIR = path.join(tempRoot, 'Profile');
+// A probe launched from an AntiFan terminal inherits that app's config dir;
+// left alone, its terminal manager would load and rewrite the user's real
+// terminal-sessions.json instead of starting from an empty one.
+process.env.ANTIFAN_CONFIG_DIR = path.join(tempRoot, 'config');
 process.env.ANTIFAN_PROJECT_ID = PROJECTS[0].projectId;
 process.env.ANTIFAN_WORKSPACE_ID = PROJECTS[0].workspaceId;
 process.env.ANTIFAN_USE_TERMINAL_DAEMON = process.env.ANTIFAN_PERF_DAEMON === '1' ? '1' : '0';
@@ -137,6 +150,28 @@ WebSocketClass.prototype.emit = function countedEmit(event, data, ...rest) {
   return realEmit.call(this, event, data, ...rest);
 };
 
+// ANTIFAN_PERF_TRACE_DAEMON=1: one line per daemon RPC slower than 500 ms, with the number of
+// calls in flight when it was sent - tells a slow host apart from a flooded one.
+if (process.env.ANTIFAN_PERF_TRACE_DAEMON === '1') {
+  const { DaemonClient } = require(compiledModule('terminal-daemon/daemon-client.js'));
+  const realCall = DaemonClient.prototype.call;
+  let inFlight = 0;
+  const sent = new Map();
+  DaemonClient.prototype.call = async function tracedCall(method, ...rest) {
+    const startedAt = Date.now();
+    const pendingAtSend = inFlight++;
+    sent.set(method, (sent.get(method) || 0) + 1);
+    try {
+      return await realCall.call(this, method, ...rest);
+    } finally {
+      inFlight--;
+      const ms = Date.now() - startedAt;
+      if (ms > 500 || method === 'terminalNewSession') {
+        console.log(`[perf-probe] daemon ${method} ${ms}ms inFlightAtSend=${pendingAtSend} totals=${JSON.stringify(Object.fromEntries(sent))}`);
+      }
+    }
+  };
+}
 const mainProcess = require(compiledModule('index.js'));
 
 // Stage timing under ANTIFAN_DBG_ECHO=1: sentAt → writeTo → appendData → host dispatch.
@@ -342,58 +377,83 @@ const totalWorkingSetMb = () => round(app.getAppMetrics().reduce((sum, m) => sum
 async function run() {
   const authority = mainProcess.projectWindowAuthority;
   await app.whenReady();
-  await waitFor(() => authority.snapshot().length === 1, 'the startup project window');
+  // Boot project lives on the startup hub window; every other project gets its own window only
+  // through the user's detach (open on the hub, then detach), exactly like the matrix harness.
+  await waitFor(() => authority.snapshot().length === 1, 'the startup hub window');
   const firstKey = authority.snapshot()[0].ownerKey;
   const sidebarOf = (key) => authority.shellFor(key)?.sidebarView?.webContents ?? null;
   const sidebar0 = sidebarOf(firstKey);
-  await waitForApi(sidebar0, "typeof window.antifanStandalone === 'object' && typeof window.antifanStandalone.openProject === 'function'");
+  await waitForApi(sidebar0, "typeof window.antifanStandalone === 'object' && typeof window.antifanStandalone.detachProject === 'function'");
 
+  const keyOf = new Map([[PROJECTS[0].projectId, firstKey]]);
   const windowOpenStartedAt = Date.now();
   for (const project of PROJECTS.slice(1)) {
-    const result = await sidebar0.executeJavaScript(`window.antifanStandalone.openProject(${JSON.stringify(project.projectId)})`, true);
-    if (!result || result.status !== 'OPENED') throw new Error(`openProject(${project.name}) returned ${JSON.stringify(result)}`);
+    const opened = await sidebar0.executeJavaScript(`window.antifanStandalone.openProject(${JSON.stringify(project.projectId)})`, true);
+    if (!opened || (opened.status !== 'OPENED' && opened.status !== 'FOCUSED')) throw new Error(`openProject(${project.name}) returned ${JSON.stringify(opened)}`);
+    const detached = await sidebar0.executeJavaScript(`window.antifanStandalone.detachProject({ projectId: ${JSON.stringify(project.projectId)} })`, true);
+    if (!detached || detached.status !== 'DETACHED') throw new Error(`detachProject(${project.name}) returned ${JSON.stringify(detached)}`);
+    const entry = await waitFor(
+      () => authority.snapshot().find((e) => e.owner.kind === 'project' && e.owner.projectId === project.projectId) || false,
+      `the detached ${project.name} window`,
+    );
+    keyOf.set(project.projectId, entry.ownerKey);
   }
-  await waitFor(() => authority.snapshot().filter((e) => e.owner.kind === 'project').length === N, `${N} project windows`);
+  // Each detach clears the hub's scope, so the boot project is presented on the hub again.
+  const restored = await sidebar0.executeJavaScript(`window.antifanStandalone.openProject(${JSON.stringify(PROJECTS[0].projectId)})`, true);
+  if (!restored || (restored.status !== 'OPENED' && restored.status !== 'FOCUSED')) throw new Error(`re-presenting ${PROJECTS[0].name} returned ${JSON.stringify(restored)}`);
+  await waitFor(() => authority.hostForOwner(firstKey)?.activeProject() === PROJECTS[0].projectId, 'the hub to present the boot project');
+  await waitFor(() => authority.snapshot().length === N, `${N} windows`);
   const windowOpenMs = Date.now() - windowOpenStartedAt;
 
   // One terminal per project window, created from that window's own sidebar.
+  const createTerminal = async (project, sidebar) => {
+    const terminalStartedAt = Date.now();
+    let created;
+    try {
+      // The handler returns the id it minted. Diffing listTerminals() before/after instead can
+      // pick up a terminal another window minted meanwhile, which this sidebar never streams.
+      created = await sidebar.executeJavaScript(`window.antifanStandalone.newTerminal(${JSON.stringify(project.path)})`, true);
+    } catch (err) {
+      throw new Error(`newTerminal in ${project.name} failed after ${Date.now() - terminalStartedAt}ms: ${err && err.message ? err.message : err}`);
+    }
+    if (typeof created !== 'string' || !created) throw new Error(`newTerminal in ${project.name} returned ${JSON.stringify(created)}`);
+    // A sidebar streams only the session it presents, and opening it already auto-started one.
+    // Present the new session the way a click on its tab does.
+    await sidebar.executeJavaScript(`window.antifanStandalone.switchTerminal(${JSON.stringify(created)})`, true);
+    console.log(`[perf-probe] setup ${project.name}: terminal ${Date.now() - terminalStartedAt}ms, workingSet ${totalWorkingSetMb()}MB`);
+    return { project, sidebar, sessionId: created };
+  };
   const sessions = [];
   for (const project of PROJECTS) {
-    const entry = authority.snapshot().find((e) => e.owner.kind === 'project' && e.owner.projectId === project.projectId);
-    const shell = authority.shellFor(entry.ownerKey);
+    const shell = authority.shellFor(keyOf.get(project.projectId));
     const toolbar = shell?.toolbarView?.webContents;
     await waitForApi(toolbar, "typeof window.antifanToolbar === 'object' && typeof window.antifanToolbar.createTab === 'function'");
     // The user works with the terminal sidebar open; output is only delivered to an open one.
     if (!shell.isSidebarOpen) await toolbar.executeJavaScript('window.antifanToolbar.toggleSidebar()', true);
     await waitFor(() => shell.isSidebarOpen === true, `the sidebar of ${project.name} to open`);
     for (let t = 0; t < TABS_PER_PROJECT; t++) {
-      const page = `data:text/html,<title>${project.name} tab ${t}</title><h1>${project.name} tab ${t}</h1>${'<p>lorem ipsum</p>'.repeat(200)}`;
+      const page = TAB_URL || `data:text/html,<title>${project.name} tab ${t}</title><h1>${project.name} tab ${t}</h1>${'<p>lorem ipsum</p>'.repeat(200)}`;
       await toolbar.executeJavaScript(`window.antifanToolbar.createTab(${JSON.stringify(page)})`, true);
     }
-    const sidebar = sidebarOf(entry.ownerKey);
+    const sidebar = sidebarOf(keyOf.get(project.projectId));
     await waitForApi(sidebar, "typeof window.antifanStandalone === 'object' && typeof window.antifanStandalone.newTerminal === 'function'");
-    const before = new Set(((await sidebar.executeJavaScript('window.antifanStandalone.listTerminals()', true)) || []).map((s) => s.id || s.sessionId));
-    await sidebar.executeJavaScript(`window.antifanStandalone.newTerminal(${JSON.stringify(project.path)})`, true);
-    const created = await waitFor(async () => {
-      const rows = (await sidebar.executeJavaScript('window.antifanStandalone.listTerminals()', true)) || [];
-      const fresh = rows.map((s) => s.id || s.sessionId).filter((id) => id && !before.has(id));
-      return fresh[0] || false;
-    }, `a terminal in ${project.name}`);
-    sessions.push({ project, sidebar, sessionId: created });
+    sessions.push(await createTerminal(project, sidebar));
   }
+  // Typing goes to a shell of its own: typed into the burst session it would land in the running
+  // producer, not a prompt, and never echo. A single project gets a second terminal for it.
+  const typing = sessions.length > 1 ? sessions[1] : await createTerminal(PROJECTS[0], sessions[0].sidebar);
   await sleep(4000); // let every shell print its prompt before measuring
 
   // Count terminal-output IPC on every surface, and timestamp echo markers on the typing window.
   let dataIpc = 0;
   const markerSeenAt = new Map();
-  const typing = sessions[Math.min(1, sessions.length - 1)];
+  const markerSession = (payload) => payload?.sessionId === undefined || payload.sessionId === typing.sessionId;
   // IPC per chrome target: broadcast pruning is judged by how much output lands on surfaces
   // other than the visible one.
   const ipcByTarget = new Map();
   const labelFor = (wc) => {
     for (const s of sessions) {
-      const entry = authority.snapshot().find((e) => e.owner.kind === 'project' && e.owner.projectId === s.project.projectId);
-      const shell = entry && authority.shellFor(entry.ownerKey);
+      const shell = authority.shellFor(keyOf.get(s.project.projectId));
       if (shell?.sidebarView?.webContents === wc) return `${s.project.name}:sidebar`;
       if (shell?.toolbarView?.webContents === wc) return `${s.project.name}:toolbar`;
     }
@@ -406,7 +466,8 @@ async function run() {
       if (channel === 'antifan:terminal:data') {
         dataIpc++;
         ipcByTarget.set(target, (ipcByTarget.get(target) || 0) + 1);
-        if (wc === typing.sidebar) {
+        if (wc === typing.sidebar && process.env.ANTIFAN_DBG_ECHO === '1') console.log(`[dbg] data sess=${args[0]?.sessionId} want=${typing.sessionId} text=${JSON.stringify(String(args[0]?.data ?? '').slice(0, 160))}`);
+        if (wc === typing.sidebar && markerSession(args[0])) {
           const text = String(args[0]?.data ?? '');
           for (const match of text.matchAll(/PERFMARK(\d+)X/g)) {
             if (!markerSeenAt.has(match[1])) markerSeenAt.set(match[1], performance.now());
@@ -447,6 +508,10 @@ async function run() {
         true);
     } catch {}
   }
+  // A fresh PowerShell loads PSReadLine for seconds after its first prompt; keystrokes typed
+  // meanwhile queue up and every later echo inherits that backlog. Echo once and wait for it.
+  await sendInput(typing, 'echo PERFMARK0X\r');
+  await waitFor(() => markerSeenAt.has('0'), 'the typing shell to echo a warm-up marker', 180000);
   const startedAt = performance.now();
   if (process.env.ANTIFAN_PERF_NO_PRODUCER !== '1') await sendInput(burst, `${producer}\r`);
   const sentAt = new Map();

@@ -116,6 +116,7 @@ function main(): void {
   process.on('exit', (code) => log(`exit code=${code}`));
 
   const tm = TerminalManager.getInstance();
+  tm.usePtyWorker(log);
   if (!tm.startTerminal(startupCwd)) {
     log(`startTerminal failed for cwd=${startupCwd}`);
     process.exit(3);

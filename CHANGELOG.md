@@ -6,6 +6,14 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 
 ## [v1.3.6] - Unreleased
 
+### Hiệu năng — Mở nhiều project cùng lúc không còn làm terminal treo
+
+- **Daemon terminal mở shell trên worker thread** (`src/main/browser/pty-worker.ts`, `pty-worker-host.ts`; bật bằng `TerminalManager.usePtyWorker()` trong `daemon-entry.ts`). `pty.spawn` của ConPTY chạy đồng bộ 100–800 ms mỗi shell. Trước đây nó chạy trên luồng JS duy nhất của daemon, nên khi 10 cửa sổ project mở terminal cùng lúc, daemon không trả lời được lệnh nào khác: `terminalNewSession` hết hạn 15 s và cửa sổ thứ 2 trở đi báo "daemon socket closed". Probe N=10: `terminalStart` 7 s → 0.5 s, `terminalNewSession` timeout → 0.3 s, cả 10 terminal mở được. Main process trong app vẫn spawn inline như cũ. Worker chết 3 lần trong 30 s thì quay về spawn inline; khi dispose, mọi shell được kill trước rồi mới terminate worker.
+- `stage-daemon-host.mjs` theo dõi thêm `require.resolve('...')`, nên `pty-worker.js` được copy vào bản daemon staged.
+- **`safeSliceTail` chỉ encode phần đuôi cần lấy**: `listSessions` từng encode toàn bộ lịch sử (~0.8 MB) của mọi terminal mỗi lần liệt kê. 20 terminal: 174.6 ms → 3.5 ms. Test property mới so với định nghĩa "N byte cuối của chuỗi đã encode".
+- **`SessionRecord.trimTail` cắt bằng một lần `splice`**: transcript giữ tối đa 4 MB dưới dạng mảng chunk, mỗi chunk là một lần đọc PTY. Shell in nhiều dòng ngắn tạo ra hơn 16k chunk; lúc đó `shift()` từng chunk phải copy cả mảng (V8 không còn left-trim tại chỗ), nên một lần cắt 256 KB tốn ~160 ms trên luồng daemon và 97% CPU daemon đổ vào đây khi một terminal xả output liên tục. Đo riêng 175 lần cắt (chunk 200 byte): 28.5 s → 25 ms. Probe N=10 với 40 s output: mất mẫu echo 91/191 → 0/191, p50 269 ms → 30 ms, daemon 145 → 458 KiB/s. Test mới: hậu tố đúng/byte count/ranh giới ký tự (fuzz) và giới hạn thời gian cho 22k chunk.
+- `scripts/probe-multi-project-perf.cjs`: mở project theo mô hình hub + detach, tắt occlusion backgrounding, dùng config dir tạm (không còn ghi đè `terminal-sessions.json` thật), thêm `ANTIFAN_PERF_TRACE_DAEMON=1` để log RPC daemon chậm hơn 500 ms. Echo đo trên một terminal riêng (N=1 tạo terminal thứ hai), gõ thử một marker và đợi PowerShell khởi động xong trước khi đo, chuyển sidebar sang đúng session vừa tạo, chỉ đếm marker của session đó; `ANTIFAN_PERF_NO_PRODUCER=1` bỏ shell xả output, `ANTIFAN_DBG_ECHO=1` log dữ liệu nhận được.
+
 ### Hiệu năng — Benchmark toàn bộ MCP và tăng tốc các tool chậm nhất
 
 - **Benchmark mới**: `npm run benchmark:mcp` (harness Electron riêng `scripts/benchmark-mcp-electron.cjs`, data/config/register ghim trong thư mục tạm, không đụng app đang chạy) và `npm run benchmark:mcp:live` (chạy từ terminal AntiFan đã gán dự án) đo từng tool qua đúng đường stdio proxy → bridge → `BrowserControlPort`: cold, p50/p95, kích thước response, chạy song song x8. Kết quả ở `plans/reports/mcp-tool-latency-benchmark.json`.
