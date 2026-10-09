@@ -300,6 +300,7 @@ describe('ThemeQaWorkflow Integration with ServerCrashScanner', () => {
         browser,
         artifacts: artifactStore,
         reload: () => ({ reloaded: true, target }),
+        fsQuiescenceMs: 0,
       });
 
       const report = await workflow.validate({

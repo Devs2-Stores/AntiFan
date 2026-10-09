@@ -236,6 +236,7 @@ describe('ThemeQaRepairCoordinator 3-axis stop wiring', () => {
       browser: browserControl,
       artifacts: artifactStore,
       reload: async (target) => ({ reloaded: true, target }),
+      fsQuiescenceMs: 0,
     });
 
     catalogue = new CapabilityCatalogue({

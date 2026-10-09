@@ -118,6 +118,7 @@ describe('Theme QA MCP Capabilities', () => {
           target: { ...target, documentGeneration: currentGen },
         };
       },
+      fsQuiescenceMs: 0,
     };
   };
 

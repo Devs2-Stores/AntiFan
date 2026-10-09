@@ -51,6 +51,7 @@ describe('Async QA Generation Guard & Race-Condition Defense', () => {
             target: { ...target, documentGeneration: currentDocGen },
           };
         },
+        fsQuiescenceMs: 0,
         artifacts: {
           stage: (input: { kind: string; data: Buffer }) => {
             const id = `art-${artifactCounter++}`;

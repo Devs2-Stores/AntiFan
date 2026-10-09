@@ -176,6 +176,7 @@ describe('Theme QA Repair Capability Lifecycle & Differential Rollback via Dispa
       browser: browserControl,
       artifacts: artifactStore,
       reload: async (target) => ({ reloaded: true, target }),
+      fsQuiescenceMs: 0,
     });
 
     catalogue = new CapabilityCatalogue({

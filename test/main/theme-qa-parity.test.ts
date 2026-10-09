@@ -91,6 +91,7 @@ describe('ThemeQaWorkflow Canonical Validation & Capability Alias Delegation', (
         browser,
         artifacts: artifactStore,
         reload: (t) => browser.reload(t),
+        fsQuiescenceMs: 0,
       });
       const report = await workflow.validate({
         runId: 'run-12345678901234567890',
@@ -137,6 +138,7 @@ describe('ThemeQaWorkflow Canonical Validation & Capability Alias Delegation', (
         browser,
         artifacts: artifactStore,
         reload: (t) => browser.reload(t),
+        fsQuiescenceMs: 0,
       });
       const report = await workflow.validate({
         runId: 'run-clean',
@@ -175,6 +177,7 @@ describe('ThemeQaWorkflow Canonical Validation & Capability Alias Delegation', (
         browser: fullBrowser,
         artifacts: new ArtifactStore({ root: path.join(root, 'reports') }),
         reload: () => ({ reloaded: true, target: makeTarget() }),
+        fsQuiescenceMs: 0,
       });
       const report = await fullWorkflow.validate({
         runId: 'run-overflow',
@@ -209,6 +212,7 @@ describe('ThemeQaWorkflow Canonical Validation & Capability Alias Delegation', (
         browser,
         artifacts: new ArtifactStore({ root: path.join(root, 'reports') }),
         reload: () => ({ reloaded: true, target: makeTarget() }),
+        fsQuiescenceMs: 0,
       });
       const report = await workflow.validate({
         runId: 'run-nodiag',
@@ -251,6 +255,7 @@ describe('ThemeQaWorkflow Canonical Validation & Capability Alias Delegation', (
         browser,
         artifacts: artifactStore,
         reload: () => ({ reloaded: true, target: makeTarget() }),
+        fsQuiescenceMs: 0,
       });
       // Case 1: Default validate -> layout fails, so summary.passed is FALSE and checklist.layout is FALSE
       const defaultReport = await workflow.validate({
@@ -308,6 +313,7 @@ describe('ThemeQaWorkflow Canonical Validation & Capability Alias Delegation', (
         browser,
         artifacts: artifactStore,
         reload: (t) => browser.reload(t),
+        fsQuiescenceMs: 0,
       });
 
       const target = makeTarget();
@@ -381,6 +387,7 @@ describe('ThemeQaWorkflow Canonical Validation & Capability Alias Delegation', (
         browser,
         artifacts: artifactStore,
         reload: (t) => browser.reload(t),
+        fsQuiescenceMs: 0,
       });
 
       const target = makeTarget();

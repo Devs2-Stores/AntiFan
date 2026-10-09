@@ -169,6 +169,7 @@ describe('Theme QA Fresh Target Reliability', () => {
       browser,
       artifacts: artifactStore,
       reload: (t) => browser.reload(t),
+      fsQuiescenceMs: 0,
     });
 
     const targetGen1 = makeTarget(1);
@@ -232,6 +233,7 @@ describe('Theme QA Fresh Target Reliability', () => {
       browser,
       artifacts: artifactStore,
       reload: (t) => browser.reload(t),
+      fsQuiescenceMs: 0,
     });
 
     await assert.rejects(
@@ -288,6 +290,7 @@ describe('Theme QA Fresh Target Reliability', () => {
       browser,
       artifacts: artifactStore,
       reload: (t) => browser.reload(t),
+      fsQuiescenceMs: 0,
     });
 
     const report = await workflow.validate({
@@ -402,6 +405,7 @@ describe('Theme QA Fresh Target Reliability', () => {
         browser,
         artifacts: artifactStore,
         reload: (t) => browser.reload(t),
+        fsQuiescenceMs: 0,
       });
 
       await assert.rejects(
@@ -445,6 +449,7 @@ describe('Theme QA Fresh Target Reliability', () => {
         browser: browserOther,
         artifacts: artifactStoreOther,
         reload: (t) => browserOther.reload(t),
+        fsQuiescenceMs: 0,
       });
       await assert.rejects(
         async () => {
@@ -480,6 +485,7 @@ describe('Theme QA Fresh Target Reliability', () => {
       browser: browserNonTarget,
       artifacts: artifactStoreNonTarget,
       reload: (t) => browserNonTarget.reload(t),
+      fsQuiescenceMs: 0,
     });
 
     const report = await workflowNonTarget.validate({
@@ -499,6 +505,7 @@ describe('Theme QA Fresh Target Reliability', () => {
       browser: browserDiag,
       artifacts: artifactStoreDiag,
       reload: (t) => browserDiag.reload(t),
+      fsQuiescenceMs: 0,
     });
     await assert.rejects(
       async () => {
@@ -528,6 +535,7 @@ describe('Theme QA Fresh Target Reliability', () => {
       browser,
       artifacts: artifactStore,
       reload: (t) => browser.reload(t),
+      fsQuiescenceMs: 0,
     });
 
     const controller = new AbortController();
@@ -648,6 +656,7 @@ describe('Theme QA Fresh Target Reliability', () => {
       browser: port,
       artifacts: new ArtifactStore({ root }),
       reload: () => ({ reloaded: true, target: { ...makeTarget(1), documentGeneration: 2 } }),
+      fsQuiescenceMs: 0,
     });
 
     const report = await workflow.validate({

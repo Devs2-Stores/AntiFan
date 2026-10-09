@@ -202,7 +202,17 @@ export interface ThemeQaWorkflowPorts {
    * unchanged, it just tolerates the third-party noise.
    */
   trackerIsolation?: (target: BrowserTarget, active: boolean, paneId: 'desktop' | 'mobile') => Promise<{ active: boolean; reason?: string }>;
+  /**
+   * Pause before the QA reload so the file writes of a theme edit, and the
+   * watcher upload they trigger, land before the document is reloaded.
+   * Defaults to {@link DEFAULT_FS_QUIESCENCE_MS}. A caller with no file system
+   * behind the tab (a test double) may pass 0: the pause still yields one
+   * macrotask, so an abort raised during it is observed before the reload.
+   */
+  fsQuiescenceMs?: number;
 }
+
+export const DEFAULT_FS_QUIESCENCE_MS = 150;
 
 /**
  * Sanitize sensitive PII strings (RT-02 mitigation)
@@ -542,11 +552,13 @@ export class ThemeQaWorkflow {
       // best-effort
     }
 
-    // Stage 1: File system debounce quiescence (150ms)
+    // Stage 1: File system debounce quiescence
     if (input.signal?.aborted) {
       throw new CapabilityError('TARGET_STALE', 'Theme QA validation was aborted by document navigation');
     }
-    await new Promise((r) => setTimeout(r, 150));
+    const quiescence = Promise.withResolvers<void>();
+    setTimeout(quiescence.resolve, this.ports.fsQuiescenceMs ?? DEFAULT_FS_QUIESCENCE_MS);
+    await quiescence.promise;
     if (input.signal?.aborted) {
       throw new CapabilityError('TARGET_STALE', 'Theme QA validation was aborted by document navigation');
     }
