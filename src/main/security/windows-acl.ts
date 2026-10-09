@@ -168,6 +168,28 @@ async function readPathsSddl(
   return result;
 }
 
+/**
+ * Fast DACL repair: `icacls /inheritance:r /grant:r` drops the inherited ACEs
+ * and sets exactly the user + SYSTEM grants in one ~100 ms spawn, where the
+ * PowerShell rewrite pays 3-5 s of CLR startup per call. `/grant:r` only
+ * replaces grants for the SIDs it names, so a foreign explicit ACE (an extra
+ * allow or a deny) survives it; callers re-verify and fall back to the
+ * exact-set PowerShell rewrite for whatever is still unprotected.
+ */
+async function grantProtectedDaclWithIcacls(
+  targetPath: string,
+  userSid: string,
+  isDirectory: boolean,
+  timeoutMs: number
+): Promise<void> {
+  const rights = isDirectory ? '(OI)(CI)F' : 'F';
+  await execFileAsync(
+    'icacls.exe',
+    [path.win32.normalize(targetPath), '/inheritance:r', '/grant:r', `*${userSid}:${rights}`, `*S-1-5-18:${rights}`],
+    { windowsHide: true, timeout: timeoutMs, killSignal: 'SIGKILL' }
+  );
+}
+
 export function verifyProtectedSddl(
   sddl: string,
   userSid: string,
@@ -246,6 +268,9 @@ export async function enforceProtectedDirectoryDacl(
   }
   if (await hasProtectedDirectoryDacl(dirPath, userSid, timeoutMs)) return;
   // Fail-closed repair path: replace inherited ACLs with exactly two explicit ACEs.
+  await grantProtectedDaclWithIcacls(dirPath, userSid, true, timeoutMs);
+  if (await hasProtectedDirectoryDacl(dirPath, userSid, timeoutMs)) return;
+  // A foreign explicit ACE survived icacls: only the exact-set rewrite removes it.
   const psScript = buildDirectoryAclScript(dirPath, userSid);
   // Armed with a bounded timeout: powershell startup or SetAccessControl can hang under
   // CLR initialization issues, AV inspection, or filesystem lock contention.
@@ -364,11 +389,13 @@ export async function enforceProtectedPathsDacl(
   }
 
   const needingRepair: string[] = [];
+  const isDirectory = new Map<string, boolean>();
   // One icacls spawn verifies every path; per-path reads only for entries the
   // batched save could not resolve (parse gaps are treated as unprotected).
   const batched = await readPathsSddl(paths, timeoutMs);
   for (const p of paths) {
     const isDir = fs.statSync(p).isDirectory();
+    isDirectory.set(p, isDir);
     let sddl = batched.get(p) ?? null;
     if (sddl === null) {
       try {
@@ -389,7 +416,24 @@ export async function enforceProtectedPathsDacl(
     };
   }
 
-  const psScript = buildPathsAclScript(needingRepair, effectiveSid);
+  const hasProtectedPath = (p: string): Promise<boolean> => isDirectory.get(p)
+    ? hasProtectedDirectoryDacl(p, effectiveSid, timeoutMs)
+    : hasProtectedFileDacl(p, effectiveSid, timeoutMs);
+
+  await Promise.all(needingRepair.map((p) => grantProtectedDaclWithIcacls(p, effectiveSid, isDirectory.get(p) === true, timeoutMs)));
+  const stillOpen: string[] = [];
+  for (const p of needingRepair) {
+    if (!(await hasProtectedPath(p))) stillOpen.push(p);
+  }
+  if (stillOpen.length === 0) {
+    return {
+      enforced: true,
+      platform: 'win32',
+    };
+  }
+
+  // A foreign explicit ACE survived icacls: only the exact-set rewrite removes it.
+  const psScript = buildPathsAclScript(stillOpen, effectiveSid);
   // Armed with a bounded timeout: powershell execution must never stall callers indefinitely
   // during multi-path ACL repair.
   await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', psScript], {
@@ -398,12 +442,8 @@ export async function enforceProtectedPathsDacl(
     killSignal: 'SIGKILL',
   });
 
-  for (const p of needingRepair) {
-    const isDir = fs.statSync(p).isDirectory();
-    const isProtected = isDir
-      ? await hasProtectedDirectoryDacl(p, effectiveSid, timeoutMs)
-      : await hasProtectedFileDacl(p, effectiveSid, timeoutMs);
-    if (!isProtected) {
+  for (const p of stillOpen) {
+    if (!(await hasProtectedPath(p))) {
       throw new Error(`[AntiFan Security] File DACL verification failed after repair: ${p}`);
     }
   }
