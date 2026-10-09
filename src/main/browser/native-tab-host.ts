@@ -63,7 +63,7 @@ import { TerminalManager, DEFAULT_TERMINAL_CAPSULE_ID, workspaceTerminalProvenan
 import { checkForUpdatesAndRestart } from './app-menu';
 import { SkillScanner } from './skill-scanner';
 import { getCoreHealthService } from '../diagnostics/core-health';
-import { buildMcpToolList } from '../mcp/mcp-server';
+import { buildMcpToolList } from '../mcp/mcp-tool-list';
 import { getMcpDispatchService, mcpDispatchStoreLabel, unmeasuredBoundaryEnvelope } from '../diagnostics/mcp-dispatch-service';
 import { UnmeasuredReason } from '../diagnostics/mcp-dispatch-accounting';
 import { WindowStateManager, WindowState } from './window-state';

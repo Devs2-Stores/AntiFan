@@ -3,7 +3,8 @@ import * as assert from 'node:assert/strict';
 import { BrowserControlPort } from '../../src/main/tools/browser-control-port';
 import { CapabilityCatalogue } from '../../src/main/tools/capability-catalogue';
 import { registerBrowserCapabilities } from '../../src/main/tools/browser-capabilities';
-import { buildMcpToolList, AntiFanMcpServer } from '../../src/main/mcp/mcp-server';
+import { AntiFanMcpServer } from '../../src/main/mcp/mcp-server';
+import { buildMcpToolList } from '../../src/main/mcp/mcp-tool-list';
 import { BrowserTarget } from '../../src/shared/control-plane-contracts';
 
 // Helper to construct a minimal valid PNG buffer with given width and height
