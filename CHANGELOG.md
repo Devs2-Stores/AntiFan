@@ -6,6 +6,10 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 
 ## [v1.3.6] - Unreleased
 
+### Sửa — Terminal Manager: dự án trùng tên ở các workspace khác nhau giờ phân biệt được
+
+- Trước đây ba dự án `S2 Spa` (`devs2\S2 Spa`, `devs2\Haravan\S2 Spa`, `devs2\Sapo\S2 Spa`) đều hiện `S2 SPA · S2 SPA`, vì hậu tố lấy tên thư mục của chính dự án, mà tên này trùng với tên dự án. Nay `disambiguateProjectGroupLabels` (`src/renderer/standalone.js`) chọn đoạn thư mục gần nhất phân biệt được các dự án trùng tên: `S2 SPA · devs2`, `S2 SPA · Haravan`, `S2 SPA · Sapo`. Nếu thư mục cha cũng trùng thì leo tiếp lên các cấp trên. Nếu hai dự án cùng một thư mục, hoặc không biết thư mục, thì dùng 4 ký tự cuối của id dự án (`…b039`). Tên dự án so sánh không phân biệt hoa thường. Tên lưu, tìm kiếm và đổi tên vẫn dùng tên gốc.
+
 ### Mới — Terminal Manager: dự án đang thức tự lên đầu, ngủ thì về chỗ cũ
 
 - Trong sidebar Terminal Manager, mọi nhóm có ít nhất một terminal đang chạy (dự án, hoặc nhóm thư mục/capsule của terminal chưa gắn dự án) được vẽ phía trên các nhóm còn lại. Một vạch gạch đứt đánh dấu chỗ thứ tự của bạn bắt đầu lại. Đánh thức một chip đang ngủ hoặc mở terminal cho dự án mới sẽ đưa nhóm lên; khi mọi terminal của nhóm ngủ hoặc shell đã thoát (exited), nhóm về đúng vị trí cũ. "Thức" là trạng thái phiên, không phải beacon streaming, nên danh sách không nhảy theo từng lượt AI.

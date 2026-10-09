@@ -1608,40 +1608,68 @@ function groupSessionsByCategory(list) {
 }
 
 /**
- * Two stored projects can carry the same display name (e.g. the boot workspace and a
- * folder-open minted before the boot workspace attached: Main refuses to merge identities
- * the registry already holds, so both stay and both sections render the same heading).
- * When project sections collide on a label, each gets a short suffix — the folder parent
- * segment when the folders differ, the project id tail otherwise — so the user can tell
- * the sections apart and pick the right one to remove. `group.displayLabel` is a read-out
- * for the header only; rename, search and stored state keep the real label.
+ * Two stored projects can carry the same display name: the same storefront checked out
+ * under several folders (`devs2\S2 Spa`, `devs2\Haravan\S2 Spa`, `devs2\Sapo\S2 Spa`), or
+ * the boot workspace and a folder-open minted before it attached (Main refuses to merge
+ * identities the registry already holds, so both stay). When project sections collide on
+ * a label, each gets the nearest folder segment that no other section in the collision
+ * has at the same depth: the folder itself when its name is not already the label,
+ * otherwise the closest ancestor that tells it apart. Sections whose folders are the same
+ * (or unknown), or whose segments still clash, fall back to the project id tail.
+ * `group.displayLabel` is a read-out for the header only; rename, search and stored state
+ * keep the real label.
  */
 function disambiguateProjectGroupLabels(groups) {
   const projectGroups = groups.filter((g) => g && g.kind === 'project');
   for (const g of projectGroups) g.displayLabel = '';
+  // The sidebar paints headers upper-case, so "S2 Spa" and "S2 SPA" read as one name.
   const byLabel = new Map();
   for (const g of projectGroups) {
     const label = (g.label || '').trim();
     if (!label) continue;
-    const bucket = byLabel.get(label) || [];
+    const bucket = byLabel.get(label.toLowerCase()) || [];
     bucket.push(g);
-    byLabel.set(label, bucket);
+    byLabel.set(label.toLowerCase(), bucket);
   }
-  for (const [label, bucket] of byLabel) {
+  for (const [foldedLabel, bucket] of byLabel) {
     if (bucket.length < 2) continue;
-    const folders = new Set(bucket.map((g) => (typeof g.folderPath === 'string' ? g.folderPath : '').replace(/[\\/]+$/, '')));
-    for (const g of bucket) {
-      let suffix = '';
-      if (folders.size > 1 && typeof g.folderPath === 'string' && g.folderPath) {
-        const parts = g.folderPath.replace(/[\\/]+$/, '').split(/[\\/]+/).filter(Boolean);
-        suffix = parts[parts.length - 1] || '';
-      }
-      if (!suffix && typeof g.projectId === 'string' && g.projectId) {
-        suffix = '…' + g.projectId.slice(-4);
-      }
+    const suffixes = projectFolderSuffixes(foldedLabel, bucket);
+    bucket.forEach((g, i) => {
+      const label = g.label.trim();
+      const suffix = suffixes[i];
       g.displayLabel = suffix ? `${label} · ${suffix}` : label;
-    }
+    });
   }
+}
+
+/** One suffix per section of a same-label collision; see `disambiguateProjectGroupLabels`. */
+function projectFolderSuffixes(label, bucket) {
+  const foldedLabel = label.toLowerCase();
+  // Windows folders compare case-insensitively, so `E:\x` and `e:\X` are one folder.
+  const segments = bucket.map((g) => (typeof g.folderPath === 'string' ? g.folderPath : '')
+    .trim()
+    .split(/[\\/]+/)
+    .filter(Boolean));
+  const folded = segments.map((parts) => parts.map((part) => part.toLowerCase()));
+  const idTail = (g) => (typeof g.projectId === 'string' && g.projectId ? '…' + g.projectId.slice(-4) : '');
+  const picked = bucket.map((g, i) => {
+    const parts = segments[i];
+    for (let depth = 1; depth <= parts.length; depth += 1) {
+      const own = folded[i][parts.length - depth];
+      // A segment that repeats the label would paint "X · X".
+      if (own === foldedLabel) continue;
+      const shared = folded.some((other, j) => j !== i && other[other.length - depth] === own);
+      if (!shared) return parts[parts.length - depth];
+    }
+    return '';
+  });
+  // Segments unique at their own depth can still read the same across depths.
+  const counts = new Map();
+  for (const s of picked) if (s) counts.set(s.toLowerCase(), (counts.get(s.toLowerCase()) || 0) + 1);
+  return bucket.map((g, i) => {
+    const s = picked[i];
+    return s && counts.get(s.toLowerCase()) === 1 ? s : idTail(g);
+  });
 }
 
 /**
