@@ -4,9 +4,6 @@ const fs = require('node:fs');
 const { createRequire } = require('node:module');
 const http = require('node:http');
 const { WebSocket } = require('ws');
-const { Server } = require('@modelcontextprotocol/sdk/server/index.js');
-const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
-const { CallToolRequestSchema, ListToolsRequestSchema } = require('@modelcontextprotocol/sdk/types.js');
 
 // Hash of this script file, computed once at module load so the digest always
 // describes the bytes this process executes — never the on-disk upgrade that a
@@ -2994,9 +2991,21 @@ function startHeartbeat(bootstrap) {
 }
 
 // ─── MCP Server Initialization ───────────────────────────────────────────────
-const server = new Server({ name: 'antifan-omp', version: '1.0.0' }, { capabilities: { tools: {} } });
+// The MCP SDK costs ~0.75 s of module loading; only the stdio entry pays it.
+// Importers of this file (adapter tests, budget and health probes) use the
+// exported helpers and never start a server.
+let server = null;
 
-server.setRequestHandler(ListToolsRequestSchema, async () => {
+function createMcpServer() {
+  const { Server } = require('@modelcontextprotocol/sdk/server/index.js');
+  const { CallToolRequestSchema, ListToolsRequestSchema } = require('@modelcontextprotocol/sdk/types.js');
+  const mcpServer = new Server({ name: 'antifan-omp', version: '1.0.0' }, { capabilities: { tools: {} } });
+  mcpServer.setRequestHandler(ListToolsRequestSchema, listTools);
+  mcpServer.setRequestHandler(CallToolRequestSchema, callTool);
+  return mcpServer;
+}
+
+async function listTools() {
   const allowedCaps = resolveAllowedCapabilities();
   const forbiddenCaps = resolveForbiddenCapabilities();
   const filteredDefs = (allowedCaps || forbiddenCaps)
@@ -3014,9 +3023,9 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
     })),
   };
-});
+}
 
-server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+async function callTool(request, extra) {
   try {
     const bootstrap = getBootstrap();
     const callerRequestId = extra && (typeof extra.requestId === 'string' || typeof extra.requestId === 'number')
@@ -3111,7 +3120,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
   } catch (error) {
     return { isError: true, content: [{ type: 'text', text: error instanceof Error ? error.message : String(error) }] };
   }
-});
+}
+
 function resolveImageArtifactResponse(data, artifactPayload) {
   if (!artifactPayload || !artifactPayload.data || artifactPayload.data.length === 0) {
     return {
@@ -3172,6 +3182,8 @@ if (require.main === module) {
       process.exit(1);
     }
   }
+  const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
+  server = createMcpServer();
   server.connect(new StdioServerTransport())
     .then(() => startHeartbeat(getBootstrap()))
     .catch((error) => {
@@ -3211,7 +3223,9 @@ function shutdown() {
     entry.reject(new Error(JSON.stringify({ code: 'SHUTDOWN', message: 'MCP server shutting down' })));
   }
   pendingDispatchCalls.clear();
-  try { server.close(); } catch {}
+  if (server) {
+    try { server.close(); } catch {}
+  }
 }
 
 process.stdin.on('close', shutdown);
