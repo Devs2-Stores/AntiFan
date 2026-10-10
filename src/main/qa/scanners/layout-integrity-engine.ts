@@ -259,6 +259,25 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
     return b;
   };
   const span = (a0, a1, b0, b1) => Math.max(0, Math.min(a1, b1) - Math.max(a0, b0));
+  // The painted extent of a single-line text field's value: the browser draws it inside the
+  // field's own box, so no text node or line rect describes it.
+  const TEXT_FIELD = /^(text|email|search|tel|url|number)$/;
+  let measureCtx = null;
+  const fieldValueRect = (field) => {
+    if (field.tagName !== 'INPUT' || !TEXT_FIELD.test(field.type) || !field.value || !field.value.trim() || !inked(field)) return null;
+    const s = cs(field);
+    const fr = field.getBoundingClientRect();
+    const left = fr.left + field.clientLeft + (parseFloat(s.paddingLeft) || 0);
+    const right = fr.left + field.clientLeft + field.clientWidth - (parseFloat(s.paddingRight) || 0);
+    if (right - left < 1) return null;
+    if (!measureCtx) measureCtx = document.createElement('canvas').getContext('2d');
+    if (!measureCtx) return null;
+    measureCtx.font = s.fontStyle + ' ' + s.fontWeight + ' ' + s.fontSize + ' ' + s.fontFamily;
+    const w = Math.min(right - left, measureCtx.measureText(field.value).width);
+    const start = s.textAlign === 'right' || s.textAlign === 'end' ? right - w : s.textAlign === 'center' ? left + (right - left - w) / 2 : left;
+    const top = fr.top + field.clientTop;
+    return { left: start, right: start + w, top: top, bottom: top + field.clientHeight };
+  };
   const isScrollAxis = (v) => v === 'auto' || v === 'scroll';
   const isHiddenAxis = (v) => v === 'hidden' || v === 'clip';
   const movingBetween = (from, upto) => {
@@ -640,9 +659,14 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
     return false;
   };
   // An absolutely positioned control laid inside another control's box (wishlist heart on a
-  // product image link, badge button on a card) is a designed overlay. Boxes that cross each
-  // other's edges are stacked controls whatever their positioning.
-  const overlaysInside = (control, other, cr, or) => isAbsoluteOverlayOver(control, other) && span(cr.left, cr.right, or.left, or.right) * span(cr.top, cr.bottom, or.top, or.bottom) >= 0.9 * cr.width * cr.height;
+  // product image link, badge button on a card) is a designed overlay, unless it lies on the
+  // text a field shows (a submit button over the typed address). Boxes that cross each other's
+  // edges are stacked controls whatever their positioning.
+  const coversValue = (cr, field) => {
+    const v = fieldValueRect(field);
+    return Boolean(v) && span(cr.left, cr.right, v.left, v.right) >= 8 && span(cr.top, cr.bottom, v.top, v.bottom) >= 8;
+  };
+  const overlaysInside = (control, other, cr, or) => isAbsoluteOverlayOver(control, other) && span(cr.left, cr.right, or.left, or.right) * span(cr.top, cr.bottom, or.top, or.bottom) >= 0.9 * cr.width * cr.height && !coversValue(cr, other);
   try {
     const flowControls = controls.filter((c) => !c.layer && !unsettled(c.el));
     flowControls.sort((a, b) => a.rect.top - b.rect.top);
