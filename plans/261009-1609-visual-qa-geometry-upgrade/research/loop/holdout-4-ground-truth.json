@@ -1,0 +1,132 @@
+{
+  "y01-order-summary-flex-clip": {
+    "mobile": true,
+    "desktop": false,
+    "evidence": "mobile: container h=38px boxBottom=228, title h=88px titleBottom=278 (line 2 clipped by 50px); desktop: container h=38px, title h=22px titleBottom=212 <= boxBottom=228 (no clip)"
+  },
+  "y02-filter-chips-nowrap-overflow": {
+    "mobile": true,
+    "desktop": false,
+    "evidence": "mobile: strip w=650px, document scrollWidth=867px > clientWidth=375px (horizontal overflow); desktop: strip w=650px fits in viewport 1440px, scrollWidth=1440px == clientWidth"
+  },
+  "y03-footer-newsletter-button-overlap": {
+    "mobile": true,
+    "desktop": true,
+    "evidence": "deep-page y=20983px (>4000px); mobile: inputRight=360px, btnLeft=200px (160px overlap); desktop: y=10156px (>4000px), inputRight=1208px, btnLeft=1048px (160px overlap)"
+  },
+  "y04-blog-unbroken-code-overflow": {
+    "mobile": true,
+    "desktop": false,
+    "evidence": "deep-page y=10604px (>4000px); mobile: pre code width=743px > clientWidth=375px (doc scrollWidth=743px); desktop: y=5853px (>4000px), pre code width=820px fits in container 860px, scrollWidth=1425px == clientWidth"
+  },
+  "y05-collection-deep-card-overlap": {
+    "mobile": true,
+    "desktop": true,
+    "evidence": "deep-page card-92 y=18643px (>4000px); mobile: badge y=221-296 intersects title y=273-311 (overlap 140x23px); desktop: y=8812px (>4000px), badge y=221-296 intersects title y=252-290 (overlap 140x38px)"
+  },
+  "y06-auth-floating-label-overlap": {
+    "mobile": true,
+    "desktop": true,
+    "evidence": "mobile: input y=251-301 intersects label y=265-288 (overlap 198x23px); desktop: input y=344-394 intersects label y=358-381 (overlap 198x23px)"
+  },
+  "y07-gallery-thumbnail-occlusion": {
+    "mobile": true,
+    "desktop": true,
+    "evidence": "mobile: thumb rect y=530-610 covered by overlay y=530-610, elementFromPoint(40,570)=target-overlay-box; desktop: thumb y=530-610, elementFromPoint(160,570)=target-overlay-box"
+  },
+  "y08-sticky-filter-occlusion-mobile": {
+    "mobile": true,
+    "desktop": false,
+    "evidence": "mobile: sidebar fixed 375x667 covers product card y=178-302, elementFromPoint(187,240)=filter-item; desktop: sidebar static left=135-395 side-by-side with product left=420-1305, elementFromPoint=target-first-prod"
+  },
+  "y09-megamenu-column-clipping-desktop": {
+    "mobile": false,
+    "desktop": true,
+    "evidence": "mobile: desktop megamenu display=none (clean); desktop: col h=130px colBottom=202, link-7 y=313-330 sits 111px below column clip boundary"
+  },
+  "y10-review-star-zero-size": {
+    "mobile": true,
+    "desktop": true,
+    "evidence": "mobile: star rating button rect width=0px, height=0px (unclickable); desktop: star rating button rect width=0px, height=0px"
+  },
+  "y11-pagination-button-offscreen-mobile": {
+    "mobile": true,
+    "desktop": false,
+    "evidence": "mobile: next-page button rect left=364px, right=496px > innerWidth=375px (offscreen in overflow:hidden); desktop: button rect left=484px, right=616px <= innerWidth=1440px"
+  },
+  "y12-late-hero-image-layout-shift": {
+    "mobile": true,
+    "desktop": true,
+    "evidence": "mobile: banner height jumps from 0 to 360px after 250ms, shifting CTA to top=415px; desktop: banner height jumps from 0 to 360px, shifting CTA to top=415px"
+  },
+  "y13-floating-hotline-occludes-checkout": {
+    "mobile": true,
+    "desktop": false,
+    "evidence": "mobile: hotline widget x=303-363, y=595-655 covers right edge of full-width checkout button x=15-360, y=614-662 (hit=target-hotline-bubble); desktop: checkout button inside normal column, mobile bar hidden"
+  },
+  "y14-variant-swatches-clipping-mobile": {
+    "mobile": true,
+    "desktop": false,
+    "evidence": "mobile: container h=44px boxBottom=330, swatch chip-8 y=382-420 (row 2 clipped by 74px); desktop: container h=44px boxBottom=246, chip-8 y=202-240 fits on row 1 <= boxBottom"
+  },
+  "y15-sticky-announcement-obstruction": {
+    "mobile": true,
+    "desktop": true,
+    "evidence": "mobile: fixed announcement bottom=50 covers logo top=12-72, elementFromPoint(40,25)=target-announcement; desktop: announcement bottom=50 covers logo top=12-42, elementFromPoint(140,25)=target-announcement"
+  },
+  "y16-lookbook-negative-margin-overlap": {
+    "mobile": true,
+    "desktop": false,
+    "evidence": "mobile: button x=25-205, y=421-460 overlapped by text card x=66-254, y=115-475 (overlap 139x39px, hit=target-col-text); desktop: button x=145-325 vs text card x=640-1240 (distance 315px, no overlap)"
+  },
+  "y17-control-line-clamp-read-more": {
+    "mobile": false,
+    "desktop": false,
+    "evidence": "mobile: scrollWidth=375px <= clientWidth=375px, line-clamp text with read-more button below at y=250px; desktop: scrollWidth=1440px <= clientWidth=1440px, no overflow or clipping"
+  },
+  "y18-control-scroll-brand-chips": {
+    "mobile": false,
+    "desktop": false,
+    "evidence": "mobile: scrollWidth=375px <= clientWidth=375px, horizontal scroll container contained internally; desktop: scrollWidth=1440px <= clientWidth=1440px, no page overflow"
+  },
+  "y19-control-parked-offcanvas-menu": {
+    "mobile": false,
+    "desktop": false,
+    "evidence": "mobile: drawer parked at translateX(-100%) with visibility=hidden, scrollWidth=375px == clientWidth; desktop: scrollWidth=1440px == clientWidth, zero obstruction"
+  },
+  "y20-control-sr-only-skip-nav": {
+    "mobile": false,
+    "desktop": false,
+    "evidence": "mobile: sr-only skip link clipped 1x1px, scrollWidth=375px == clientWidth; desktop: scrollWidth=1440px == clientWidth, zero visual defect"
+  },
+  "y21-control-faq-collapsed-accordion": {
+    "mobile": false,
+    "desktop": false,
+    "evidence": "mobile: accordion panels max-height=0 overflow=hidden, scrollWidth=375px == clientWidth; desktop: scrollWidth=1440px == clientWidth, intentional accordion state"
+  },
+  "y22-control-product-badge-corner": {
+    "mobile": false,
+    "desktop": false,
+    "evidence": "mobile: badge at top=12, left=12 over empty corner of media box, text below in content; desktop: scrollWidth=1440px == clientWidth, no overlap with text/controls"
+  },
+  "y23-control-sticky-header-padded-body": {
+    "mobile": false,
+    "desktop": false,
+    "evidence": "mobile: fixed header h=64px with body padding-top=64px, hero starts at y=64px unobstructed; desktop: scrollWidth=1440px == clientWidth, clean header offset"
+  },
+  "y24-control-sticky-bottom-bar-padded-body": {
+    "mobile": false,
+    "desktop": false,
+    "evidence": "mobile: fixed bottom bar h=60px with body padding-bottom=76px, footer unobstructed; desktop: scrollWidth=1440px == clientWidth, clean bottom clearance"
+  },
+  "y25-control-decorative-backdrop-blob": {
+    "mobile": false,
+    "desktop": false,
+    "evidence": "mobile: decorative blob z-index=0 pointer-events=none behind text z-index=1, scrollWidth=375px == clientWidth; desktop: scrollWidth=1440px == clientWidth, intentional decorative layer"
+  },
+  "y26-control-closed-account-dropdown": {
+    "mobile": false,
+    "desktop": false,
+    "evidence": "mobile: dropdown display=none, scrollWidth=375px == clientWidth; desktop: dropdown display=none, scrollWidth=1440px == clientWidth, zero obstruction"
+  }
+}

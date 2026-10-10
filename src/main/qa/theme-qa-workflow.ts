@@ -79,12 +79,12 @@ export interface ThemeQaDetailedFindings {
   visualAmbiguities?: string[];
   /** Per-breakpoint finding counts keyed by CSS width ("320","375","768","1024","1440"). */
   responsive?: Record<string, {
-    documentOverflow: boolean;
-    criticalOverflow: number;
-    criticalOverlap: number;
-    criticalClipping: number;
-    criticalOcclusion: number;
-    criticalOffscreen: number;
+    documentOverflow: boolean | null;
+    criticalOverflow: number | null;
+    criticalOverlap: number | null;
+    criticalClipping: number | null;
+    criticalOcclusion: number | null;
+    criticalOffscreen: number | null;
   }>;
 }
 export interface ThemeQaSummary {
@@ -857,8 +857,9 @@ export class ThemeQaWorkflow {
     }
 
     // 6.5 Layout Integrity Engine — overlap/clipping/occlusion/offscreen/sticky
-    // + layout-shift witness on the ACTIVE viewport. Failures degrade to an
-    // evidence gap; the geometry findings themselves never block the run.
+    // + layout-shift witness on the ACTIVE viewport. A failed evaluation, a
+    // truncated scan or a detector that threw is an evidence gap (non-PASS);
+    // the geometry findings themselves never abort the run.
     let integrityResult: LayoutIntegrityResult | undefined;
     let integrityRan = false;
     try {
@@ -872,6 +873,14 @@ export class ThemeQaWorkflow {
         if (integrityResult.measured === false) {
           const reason = LayoutIntegrityEngine.readUnmeasuredReason(evalRes);
           evidenceGaps.push(`Layout integrity not measured: ${reason || 'engine reported unmeasured'}`);
+        }
+        const stats = integrityResult.stats;
+        if (stats?.truncated === true) {
+          const reasons = Array.isArray(stats.truncatedReasons) ? stats.truncatedReasons.join('; ') : '';
+          evidenceGaps.push(`Layout integrity scan truncated: ${reasons || 'no reason reported'}`);
+        }
+        if (stats && Array.isArray(stats.failedDetectors) && stats.failedDetectors.length > 0) {
+          evidenceGaps.push(`Layout integrity detectors failed: ${[...new Set(stats.failedDetectors)].join(', ')}`);
         }
       }
       // A malformed or absent payload is simply unmeasured — the overflow engine's
@@ -888,32 +897,40 @@ export class ThemeQaWorkflow {
       .map((f) => `[${f.kind}] ${f.selector ? `${f.selector} — ` : ''}${f.details}`);
 
     // Per-breakpoint responsive contract: 320/375/768/1024/1440. The
-    // multi-breakpoint sweep (runResponsiveCheck) only measures document-level
-    // horizontal overflow per width; integrity detectors run on the active
-    // viewport, so non-active widths report overflow-only counts and never
-    // claim measured overlap/occlusion evidence.
+    // multi-breakpoint sweep (runResponsiveCheck) measures document-level
+    // horizontal overflow by width. Integrity counts are null for every width
+    // other than the one the integrity scan measured; widths the sweep did not
+    // return report documentOverflow: null.
     const responsiveMap: Record<string, {
-      documentOverflow: boolean;
-      criticalOverflow: number;
-      criticalOverlap: number;
-      criticalClipping: number;
-      criticalOcclusion: number;
-      criticalOffscreen: number;
+      documentOverflow: boolean | null;
+      criticalOverflow: number | null;
+      criticalOverlap: number | null;
+      criticalClipping: number | null;
+      criticalOcclusion: number | null;
+      criticalOffscreen: number | null;
     }> = {};
     const countKind = (kind: LayoutIntegrityFinding['kind']): number =>
       integrityFindings.filter((f) => f.kind === kind && f.severity === 'critical').length;
+    const bpByWidth = new Map<number, Record<string, unknown>>();
+    if (responsiveBreakpoints && typeof responsiveBreakpoints === 'object') {
+      for (const value of Object.values(responsiveBreakpoints)) {
+        if (value && typeof value === 'object' && typeof (value as Record<string, unknown>).width === 'number') {
+          bpByWidth.set((value as Record<string, unknown>).width as number, value as Record<string, unknown>);
+        }
+      }
+    }
+    const integrityWidth = integrityResult?.measured === true ? integrityResult.viewport.width : undefined;
     for (const w of QA_RESPONSIVE_WIDTHS) {
-      const bp = responsiveBreakpoints?.[String(w)] as Record<string, unknown> | undefined;
-      const docOverflow = Boolean(bp && bp.hasHorizontalOverflow === true);
-      const activeWidth = overflowResult.viewport.width;
-      const isActive = activeWidth === w;
+      const bp = bpByWidth.get(w);
+      const docOverflow = bp ? bp.hasHorizontalOverflow === true : null;
+      const isIntegrityWidth = integrityWidth === w;
       responsiveMap[String(w)] = {
         documentOverflow: docOverflow,
-        criticalOverflow: docOverflow ? 1 : 0,
-        criticalOverlap: isActive ? countKind('overlap') : 0,
-        criticalClipping: isActive ? countKind('clipping') : 0,
-        criticalOcclusion: isActive ? countKind('occlusion') : 0,
-        criticalOffscreen: isActive ? countKind('offscreen') + countKind('zero-size') : 0,
+        criticalOverflow: docOverflow === null ? null : (docOverflow ? 1 : 0),
+        criticalOverlap: isIntegrityWidth ? countKind('overlap') : null,
+        criticalClipping: isIntegrityWidth ? countKind('clipping') : null,
+        criticalOcclusion: isIntegrityWidth ? countKind('occlusion') : null,
+        criticalOffscreen: isIntegrityWidth ? countKind('offscreen') + countKind('zero-size') : null,
       };
     }
 
@@ -1199,7 +1216,7 @@ export class ThemeQaWorkflow {
         : undefined;
     // 10. Compute authoritative checklist statuses (owned strictly by the engine).
     const checklist: ThemeQaReport['checklist'] = {
-      layout: !overflowResult.hasOverflow,
+      layout: !overflowResult.hasOverflow && integrityCriticals.length === 0,
       responsive: !overflowResult.hasOverflow,
       overflow: !overflowResult.hasOverflow,
       diagnostics: !liquidResult.hasErrors && !assetResult.hasBrokenAssets && !serverCrashResult.hasCrash && diagnosticIssues.length === 0,
@@ -1264,7 +1281,8 @@ export class ThemeQaWorkflow {
       diagnosticIssues.length > 0 ||
       // Critical geometry defects are storefront failures, not evidence gaps —
       // an occluded Add-to-Cart fails verification regardless of settle state.
-      integrityCriticals.length > 0;
+      // They belong to the `layout` check, the same key checklist.layout carries.
+      (checkParticipates('layout') && integrityCriticals.length > 0);
     const hasMissingEvidence = settleMissingCapability || mutationMissingBarrier || evidenceGaps.length > 0 || activeChecklistEntries.length === 0;
 
     let summaryVerdict: 'PASS' | 'FAIL' | 'INCONCLUSIVE' = 'PASS';

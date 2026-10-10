@@ -1,9 +1,9 @@
 /**
  * LayoutIntegrityEngine — unit test suite.
  *
- * Verifies the layout integrity scanner script generation, defensive unmeasured-reason
- * reader contract, detector syntax, and marker assertions without Node runtime leakage
- * into the in-page script string.
+ * The in-page detectors are verified in real Chromium by `npm run test:visual-qa`
+ * (fixture corpus with known defects and healthy controls). This file covers the
+ * reader contract, the unmeasured marker and viewport-name injection.
  *
  * Run with:
  *   node --test --test-force-exit test/unit/layout-integrity-engine.test.mjs
@@ -12,6 +12,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import esbuild from 'esbuild';
@@ -19,24 +20,13 @@ import * as vm from 'node:vm';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../..');
 const SOURCE_PATH = path.join(REPO_ROOT, 'src', 'main', 'qa', 'scanners', 'layout-integrity-engine.ts');
-const COMPILED_PATH = path.join(REPO_ROOT, '.compiled', 'src', 'main', 'qa', 'scanners', 'layout-integrity-engine.js');
-const TMP_PATH = path.join(REPO_ROOT, 'node_modules', '.tmp-integrity.mjs');
 
-let LayoutIntegrityEngine;
-
-// Resolve engine: load pre-compiled module if available, otherwise compile single file with esbuild
-if (fs.existsSync(COMPILED_PATH)) {
-  const mod = await import(pathToFileURL(COMPILED_PATH).href);
-  LayoutIntegrityEngine = mod.LayoutIntegrityEngine;
-} else {
-  esbuild.buildSync({
-    entryPoints: [SOURCE_PATH],
-    format: 'esm',
-    outfile: TMP_PATH,
-  });
-  const mod = await import(pathToFileURL(TMP_PATH).href);
-  LayoutIntegrityEngine = mod.LayoutIntegrityEngine;
-}
+// Always bundle src/: .compiled/ belongs to the running app and may be stale.
+const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-integrity-test-'));
+const outFile = path.join(outDir, 'layout-integrity-engine.mjs');
+esbuild.buildSync({ entryPoints: [SOURCE_PATH], bundle: true, format: 'esm', platform: 'node', outfile: outFile, logLevel: 'error' });
+const { LayoutIntegrityEngine } = await import(pathToFileURL(outFile).href);
+fs.rmSync(outDir, { recursive: true, force: true });
 
 describe('LayoutIntegrityEngine', () => {
   it('defines standard device breakpoints (mobile, tablet, desktop)', () => {
@@ -48,79 +38,6 @@ describe('LayoutIntegrityEngine', () => {
     assert.strictEqual(bps[1]?.width, 820);
     assert.strictEqual(bps[2]?.name, 'desktop');
     assert.strictEqual(bps[2]?.width, 1440);
-  });
-
-  it('generates self-contained IIFE browser scan script with viewport name binding', () => {
-    const script = LayoutIntegrityEngine.getBrowserScanScript('mobile-test');
-    assert.ok(typeof script === 'string' && script.length > 500);
-    assert.ok(script.trimStart().startsWith('(() => {'));
-    assert.ok(script.trimEnd().endsWith('})()'));
-    assert.ok(script.includes("name: 'mobile-test'"));
-  });
-
-  it('contains elementFromPoint detector references for occlusion and sticky-obstruction probes', () => {
-    const script = LayoutIntegrityEngine.getBrowserScanScript();
-    assert.ok(script.includes('document.elementFromPoint'), 'Script must include document.elementFromPoint calls');
-    assert.ok(script.includes('occlusion'), 'Script must identify occlusion kind');
-    assert.ok(script.includes('sticky-obstruction'), 'Script must identify sticky-obstruction kind');
-  });
-
-  it('contains scrollWidth > clientWidth text clipping detector', () => {
-    const script = LayoutIntegrityEngine.getBrowserScanScript();
-    assert.ok(script.includes('el.scrollWidth > el.clientWidth + 2'), 'Script must check horizontal clipping with +2 deadband');
-    assert.ok(script.includes('el.scrollHeight > el.clientHeight + 2'), 'Script must check vertical clipping with +2 deadband');
-    assert.ok(script.includes('clipping'), 'Script must identify clipping kind');
-  });
-
-  it('contains sticky and fixed position probe for header/nav obstruction', () => {
-    const script = LayoutIntegrityEngine.getBrowserScanScript();
-    assert.ok(script.includes("style.position === 'sticky' || style.position === 'fixed'"), 'Script must probe sticky and fixed elements');
-    assert.ok(script.includes('viewportHeight * 0.25'), 'Script must check top 25% viewport intersection');
-    assert.ok(script.includes('viewportWidth * 0.30'), 'Script must check width covering > 30% viewport');
-  });
-
-  it('contains layout-shift witness using PerformanceObserver and buffered entries', () => {
-    const script = LayoutIntegrityEngine.getBrowserScanScript();
-    assert.ok(script.includes('PerformanceObserver'), 'Script must query PerformanceObserver');
-    assert.ok(script.includes("'layout-shift'"), 'Script must inspect layout-shift entry types');
-    assert.ok(script.includes('clsScore > 0.1'), 'Script must check cumulative layout shift score against 0.1 threshold');
-    assert.ok(script.includes('layout-shift'), 'Script must emit layout-shift findings');
-  });
-
-  it('contains zero-size and offscreen detector for actionable controls', () => {
-    const script = LayoutIntegrityEngine.getBrowserScanScript();
-    assert.ok(script.includes('zero-size'), 'Script must identify zero-size controls');
-    assert.ok(script.includes('offscreen'), 'Script must identify offscreen controls');
-    assert.ok(script.includes('rect.width <= 0 || rect.height <= 0'), 'Script must check zero dimensions');
-  });
-
-  it('contains pairwise overlap detector with overlay suppression', () => {
-    const script = LayoutIntegrityEngine.getBrowserScanScript();
-    assert.ok(script.includes('overlap'), 'Script must identify overlap kind');
-    assert.ok(script.includes('intersectionArea'), 'Script must compute intersection area');
-    assert.ok(script.includes('(intersectionArea / minArea) > 0.6'), 'Script must check 60% overlap threshold');
-  });
-
-  it('contains measured:false unmeasuredReason marker path', () => {
-    const script = LayoutIntegrityEngine.getBrowserScanScript();
-    assert.ok(script.includes('measured: false'), 'Script must emit measured: false on unmeasured tabs');
-    assert.ok(script.includes('unmeasuredReason'), 'Script must provide unmeasuredReason');
-    assert.ok(script.includes('layout integrity scan threw:'), 'Script must guard whole-script failure');
-  });
-
-  it('contains findings capping logic at 50, prioritizing critical severity', () => {
-    const script = LayoutIntegrityEngine.getBrowserScanScript();
-    assert.ok(script.includes('findings.length > 50'), 'Script must check findings length > 50');
-    assert.ok(script.includes("f.severity === 'critical'"), 'Script must prioritize critical findings');
-    assert.ok(script.includes('.slice(0, 50)'), 'Script must slice findings at 50');
-  });
-
-  it('parses valid JavaScript syntax via new Function smoke test', () => {
-    const script = LayoutIntegrityEngine.getBrowserScanScript('desktop');
-    assert.doesNotThrow(() => {
-      // Validates IIFE syntax without executing DOM operations
-      new Function(script);
-    });
   });
 
   describe('readUnmeasuredReason', () => {
@@ -156,7 +73,7 @@ describe('LayoutIntegrityEngine', () => {
 
   describe('sandbox in-page evaluation', () => {
     it('returns measured:false when documentElement.clientWidth is 0', () => {
-      const scriptText = LayoutIntegrityEngine.getBrowserScanScript('active');
+      const scriptText = LayoutIntegrityEngine.getBrowserScanScript("a'$&b");
       const script = new vm.Script(scriptText);
       const sandbox = {
         document: {
@@ -179,47 +96,7 @@ describe('LayoutIntegrityEngine', () => {
       assert.ok(typeof result.unmeasuredReason === 'string');
       assert.ok(result.unmeasuredReason.includes('layout integrity was not measured'));
       assert.strictEqual(result.findings.length, 0);
-    });
-
-    it('returns measured:true on laid-out document with empty clean findings', () => {
-      const scriptText = LayoutIntegrityEngine.getBrowserScanScript('desktop');
-      const script = new vm.Script(scriptText);
-      const sandbox = {
-        document: {
-          documentElement: {
-            clientWidth: 1440,
-            clientHeight: 900,
-          },
-          body: {
-            clientWidth: 1440,
-            clientHeight: 900,
-          },
-          querySelectorAll: () => [],
-          elementFromPoint: () => null,
-          elementsFromPoint: () => [],
-        },
-        window: {
-          innerWidth: 1440,
-          innerHeight: 900,
-          getComputedStyle: () => ({
-            display: 'block',
-            visibility: 'visible',
-            opacity: '1',
-            pointerEvents: 'auto',
-            position: 'static',
-            zIndex: '0',
-          }),
-        },
-      };
-      vm.createContext(sandbox);
-      const result = script.runInContext(sandbox);
-
-      assert.strictEqual(result.measured, true);
-      assert.strictEqual(result.unmeasuredReason, undefined);
-      assert.strictEqual(result.viewport.name, 'desktop');
-      assert.strictEqual(result.viewport.width, 1440);
-      assert.strictEqual(result.viewport.height, 900);
-      assert.strictEqual(result.findings.length, 0);
+      assert.strictEqual(result.viewport.name, "a'$&b");
     });
   });
 });

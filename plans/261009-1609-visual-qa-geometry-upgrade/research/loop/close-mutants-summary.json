@@ -1,0 +1,140 @@
+[
+  {
+    "name": "M00_identity",
+    "exits": [
+      0,
+      0,
+      0
+    ],
+    "killed": true,
+    "failedCount": 0,
+    "failed": []
+  },
+  {
+    "name": "K_overlap_silenced",
+    "exits": [
+      1,
+      1,
+      1
+    ],
+    "killed": true,
+    "failedCount": 9,
+    "failed": [
+      "fixtures:mobile:04-text-on-text-deep",
+      "fixtures:mobile:05-text-on-text-shallow",
+      "fixtures:mobile:06-partial-overlap-30pct",
+      "fixtures:mobile:07-text-spill-collision",
+      "fixtures:mobile:25-icon-controls-stacked",
+      "holdout:mobile:h01-title-price-overlap"
+    ]
+  },
+  {
+    "name": "K_clipping_silenced",
+    "exits": [
+      1,
+      1,
+      1
+    ],
+    "killed": true,
+    "failedCount": 8,
+    "failed": [
+      "fixtures:mobile:02-overflow-masked-body",
+      "fixtures:mobile:03-overflow-masked-wrapper",
+      "fixtures:mobile:08-text-cut-by-ancestor",
+      "fixtures:mobile:43-pdp-title-cut-by-fixed-height",
+      "holdout:mobile:h02-nested-copy-clipped",
+      "holdout:mobile:h08-product-name-clipped"
+    ]
+  },
+  {
+    "name": "K_occlusion_silenced",
+    "exits": [
+      1,
+      1,
+      0
+    ],
+    "killed": true,
+    "failedCount": 4,
+    "failed": [
+      "fixtures:mobile:09-cta-occluded-in-viewport",
+      "fixtures:mobile:10-cta-occluded-below-fold",
+      "fixtures:mobile:15-image-over-text-deep",
+      "holdout:mobile:h03-nested-cta-covered"
+    ]
+  },
+  {
+    "name": "K_offscreen_silenced",
+    "exits": [
+      1,
+      1,
+      1
+    ],
+    "killed": true,
+    "failedCount": 4,
+    "failed": [
+      "fixtures:mobile:20-offscreen-cta-clipped-card",
+      "fixtures:mobile:21-offscreen-cta-html-body-overflow-x",
+      "holdout:mobile:h05-buy-button-offscreen",
+      "holdout-2:mobile:h06-offscreen-action-btn"
+    ]
+  },
+  {
+    "name": "K_zero-size_silenced",
+    "exits": [
+      1,
+      0,
+      0
+    ],
+    "killed": true,
+    "failedCount": 1,
+    "failed": [
+      "fixtures:mobile:26-zero-size-cta"
+    ]
+  },
+  {
+    "name": "K_sticky-obstruction_silenced",
+    "exits": [
+      1,
+      1,
+      1
+    ],
+    "killed": true,
+    "failedCount": 3,
+    "failed": [
+      "fixtures:mobile:11-fixed-header-covers-hero-text",
+      "holdout:mobile:h04-sticky-buy-bar-covers-copy",
+      "holdout-2:mobile:h03-sticky-obstruction-footer"
+    ]
+  },
+  {
+    "name": "K_layout-shift_silenced",
+    "exits": [
+      1,
+      0,
+      0
+    ],
+    "killed": true,
+    "failedCount": 1,
+    "failed": [
+      "fixtures:mobile:14-cls-shift"
+    ]
+  },
+  {
+    "name": "S_all_downgraded_warning",
+    "exits": [
+      1,
+      1,
+      1
+    ],
+    "killed": true,
+    "failedCount": 30,
+    "failed": [
+      "fixtures:mobile:02-overflow-masked-body",
+      "fixtures:mobile:03-overflow-masked-wrapper",
+      "fixtures:mobile:04-text-on-text-deep",
+      "fixtures:mobile:05-text-on-text-shallow",
+      "fixtures:mobile:07-text-spill-collision",
+      "fixtures:mobile:08-text-cut-by-ancestor"
+    ]
+  }
+]

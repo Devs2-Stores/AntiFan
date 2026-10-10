@@ -52,6 +52,7 @@ const TEST_LANES = [
   'test:terminal-rename',
   'test:mcp-dispatch-hub',
   'test:toolbar-qa-hub',
+  'test:visual-qa',
 ];
 // 'test:probes' stays opt-in: it stages a daemon bundle and spawns detached hosts, which is heavier
 // than every other lane. Its wrapper pins a throwaway data root, so the lane no longer depends on
@@ -72,7 +73,8 @@ const KNOWN_LANES = new Set([
   'probe:windows-matrix',
   'probe:headless-full-page',
 ]);
-const NON_COMPILE_LANES = new Set(['compile', 'test:canary', ...STATIC_LANES]);
+// 'test:visual-qa' bundles the scanners from src/ itself and needs no compiled tree.
+const NON_COMPILE_LANES = new Set(['compile', 'test:canary', 'test:visual-qa', ...STATIC_LANES]);
 const COMPILE_DEPENDENT = new Set(
   [...KNOWN_LANES].filter((lane) => !NON_COMPILE_LANES.has(lane))
 );
@@ -105,6 +107,7 @@ export const SPAWN_HEAVY_LANES = new Set([
   'test:terminal-rename',
   'test:mcp-dispatch-hub',
   'test:toolbar-qa-hub',
+  'test:visual-qa',
 ]);
 
 // Custom command overrides for lanes that do not map 1:1 to `npm run <lane>`.

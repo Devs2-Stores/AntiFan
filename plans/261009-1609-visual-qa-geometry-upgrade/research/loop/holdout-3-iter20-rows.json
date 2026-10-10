@@ -1,0 +1,318 @@
+[
+ {
+  "vp": "mobile",
+  "id": "x01-product-grid-card-overlap",
+  "status": "PASS",
+  "crit": [
+   "overlap",
+   "occlusion"
+  ],
+  "reasons": []
+ },
+ {
+  "vp": "mobile",
+  "id": "x02-cart-drawer-item-overlap",
+  "status": "PASS",
+  "crit": [
+   "overlap"
+  ],
+  "reasons": []
+ },
+ {
+  "vp": "mobile",
+  "id": "x03-promo-banner-text-clipping",
+  "status": "PASS",
+  "crit": [
+   "clipping"
+  ],
+  "reasons": []
+ },
+ {
+  "vp": "mobile",
+  "id": "x04-product-specs-clipped-fold",
+  "status": "PASS",
+  "crit": [
+   "clipping"
+  ],
+  "reasons": []
+ },
+ {
+  "vp": "mobile",
+  "id": "x05-coupon-modal-occludes-cta",
+  "status": "FAIL",
+  "crit": [],
+  "reasons": [
+   "expected one of occlusion at mobile"
+  ]
+ },
+ {
+  "vp": "mobile",
+  "id": "x06-chat-widget-covers-checkout",
+  "status": "FAIL",
+  "crit": [],
+  "reasons": [
+   "expected one of occlusion|sticky-obstruction at mobile"
+  ]
+ },
+ {
+  "vp": "mobile",
+  "id": "x07-sticky-header-covers-content",
+  "status": "PASS",
+  "crit": [
+   "sticky-obstruction",
+   "sticky-obstruction"
+  ],
+  "reasons": []
+ },
+ {
+  "vp": "mobile",
+  "id": "x08-sticky-bottom-bar-blocks-footer",
+  "status": "FAIL",
+  "crit": [],
+  "reasons": [
+   "expected one of sticky-obstruction|occlusion at mobile"
+  ]
+ },
+ {
+  "vp": "mobile",
+  "id": "x09-add-to-cart-offscreen",
+  "status": "PASS",
+  "crit": [
+   "offscreen"
+  ],
+  "reasons": []
+ },
+ {
+  "vp": "mobile",
+  "id": "x10-wide-table-horizontal-overflow",
+  "status": "PASS",
+  "crit": [],
+  "reasons": []
+ },
+ {
+  "vp": "mobile",
+  "id": "x11-zero-size-submit-button",
+  "status": "PASS",
+  "crit": [],
+  "reasons": []
+ },
+ {
+  "vp": "mobile",
+  "id": "x12-badge-overlap-variant-selector",
+  "status": "PASS",
+  "crit": [
+   "overlap",
+   "occlusion"
+  ],
+  "reasons": []
+ },
+ {
+  "vp": "mobile",
+  "id": "x13-carousel-hidden-overflow",
+  "status": "PASS",
+  "crit": [],
+  "reasons": []
+ },
+ {
+  "vp": "mobile",
+  "id": "x14-offcanvas-drawer-transform",
+  "status": "PASS",
+  "crit": [],
+  "reasons": []
+ },
+ {
+  "vp": "mobile",
+  "id": "x15-line-clamp-product-titles",
+  "status": "PASS",
+  "crit": [],
+  "reasons": []
+ },
+ {
+  "vp": "mobile",
+  "id": "x16-sticky-header-with-padding",
+  "status": "PASS",
+  "crit": [],
+  "reasons": []
+ },
+ {
+  "vp": "mobile",
+  "id": "x17-sale-badge-corner-overlay",
+  "status": "PASS",
+  "crit": [],
+  "reasons": []
+ },
+ {
+  "vp": "mobile",
+  "id": "x18-sr-only-accessible-text",
+  "status": "PASS",
+  "crit": [],
+  "reasons": []
+ },
+ {
+  "vp": "mobile",
+  "id": "x19-closed-faq-accordion",
+  "status": "PASS",
+  "crit": [],
+  "reasons": []
+ },
+ {
+  "vp": "mobile",
+  "id": "x20-horizontal-scroll-category-chips",
+  "status": "PASS",
+  "crit": [],
+  "reasons": []
+ },
+ {
+  "vp": "desktop",
+  "id": "x01-product-grid-card-overlap",
+  "status": "info",
+  "crit": [
+   "occlusion",
+   "occlusion"
+  ],
+  "reasons": []
+ },
+ {
+  "vp": "desktop",
+  "id": "x02-cart-drawer-item-overlap",
+  "status": "info",
+  "crit": [
+   "overlap"
+  ],
+  "reasons": []
+ },
+ {
+  "vp": "desktop",
+  "id": "x03-promo-banner-text-clipping",
+  "status": "info",
+  "crit": [],
+  "reasons": []
+ },
+ {
+  "vp": "desktop",
+  "id": "x04-product-specs-clipped-fold",
+  "status": "info",
+  "crit": [
+   "clipping"
+  ],
+  "reasons": []
+ },
+ {
+  "vp": "desktop",
+  "id": "x05-coupon-modal-occludes-cta",
+  "status": "info",
+  "crit": [],
+  "reasons": []
+ },
+ {
+  "vp": "desktop",
+  "id": "x06-chat-widget-covers-checkout",
+  "status": "info",
+  "crit": [],
+  "reasons": []
+ },
+ {
+  "vp": "desktop",
+  "id": "x07-sticky-header-covers-content",
+  "status": "info",
+  "crit": [
+   "sticky-obstruction",
+   "sticky-obstruction"
+  ],
+  "reasons": []
+ },
+ {
+  "vp": "desktop",
+  "id": "x08-sticky-bottom-bar-blocks-footer",
+  "status": "info",
+  "crit": [],
+  "reasons": []
+ },
+ {
+  "vp": "desktop",
+  "id": "x09-add-to-cart-offscreen",
+  "status": "info",
+  "crit": [],
+  "reasons": []
+ },
+ {
+  "vp": "desktop",
+  "id": "x10-wide-table-horizontal-overflow",
+  "status": "info",
+  "crit": [],
+  "reasons": []
+ },
+ {
+  "vp": "desktop",
+  "id": "x11-zero-size-submit-button",
+  "status": "info",
+  "crit": [],
+  "reasons": []
+ },
+ {
+  "vp": "desktop",
+  "id": "x12-badge-overlap-variant-selector",
+  "status": "info",
+  "crit": [
+   "overlap",
+   "occlusion"
+  ],
+  "reasons": []
+ },
+ {
+  "vp": "desktop",
+  "id": "x13-carousel-hidden-overflow",
+  "status": "PASS",
+  "crit": [],
+  "reasons": []
+ },
+ {
+  "vp": "desktop",
+  "id": "x14-offcanvas-drawer-transform",
+  "status": "PASS",
+  "crit": [],
+  "reasons": []
+ },
+ {
+  "vp": "desktop",
+  "id": "x15-line-clamp-product-titles",
+  "status": "PASS",
+  "crit": [],
+  "reasons": []
+ },
+ {
+  "vp": "desktop",
+  "id": "x16-sticky-header-with-padding",
+  "status": "PASS",
+  "crit": [],
+  "reasons": []
+ },
+ {
+  "vp": "desktop",
+  "id": "x17-sale-badge-corner-overlay",
+  "status": "PASS",
+  "crit": [],
+  "reasons": []
+ },
+ {
+  "vp": "desktop",
+  "id": "x18-sr-only-accessible-text",
+  "status": "PASS",
+  "crit": [],
+  "reasons": []
+ },
+ {
+  "vp": "desktop",
+  "id": "x19-closed-faq-accordion",
+  "status": "PASS",
+  "crit": [],
+  "reasons": []
+ },
+ {
+  "vp": "desktop",
+  "id": "x20-horizontal-scroll-category-chips",
+  "status": "PASS",
+  "crit": [],
+  "reasons": []
+ }
+]

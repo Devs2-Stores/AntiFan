@@ -1,39 +1,7 @@
-export interface LayoutIntegrityFinding {
-  kind: 'overlap' | 'clipping' | 'occlusion' | 'offscreen' | 'zero-size' | 'sticky-obstruction' | 'layout-shift';
-  severity: 'critical' | 'warning';
-  selector: string; // best-effort CSS path, capped 200 chars
-  details: string; // human sentence, capped 240 chars
-  rect?: { x: number; y: number; w: number; h: number };
-}
-
-export interface LayoutIntegrityStats {
-  elements: number;
-  textRuns: number;
-  controls: number;
-  sweepSteps: number;
-  truncated: boolean;
-  truncatedReasons: string[];
-  failedDetectors: string[];
-  durationMs: number;
-  cls?: number;
-  phaseMs?: Record<string, number>;
-}
-
-export interface LayoutIntegrityResult {
-  measured: boolean;
-  unmeasuredReason?: string; // REQUIRED when measured === false (same marker contract as overflow engine)
-  viewport: {
-    name?: string;
-    width: number;
-    height: number;
-  };
-  findings: LayoutIntegrityFinding[];
-  stats?: LayoutIntegrityStats; // absent when measured === false
-}
-
-// In-page scan, synchronous. String.raw keeps every character as written: the script must
-// never contain a backtick or a dollar-brace. '__VIEWPORT_NAME__' is substituted per call.
-const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
+// Reference prototype for LayoutIntegrityEngine v2 (in-page scan, synchronous).
+// Port rules: this file avoids backticks and dollar-brace so it can be pasted verbatim into a
+// String.raw template in the engine (backslashes stay as written; no doubling needed).
+(() => {
   const VIEWPORT_NAME = '__VIEWPORT_NAME__';
   const doc = document.documentElement;
   const body = document.body;
@@ -59,7 +27,7 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
   const PLATFORM_PREVIEW_CHROME = '#haravan-notification, #preview-bar-iframe';
   const IDENTITY = 'matrix(1, 0, 0, 1, 0, 0)';
 
-  const stats = { elements: 0, textRuns: 0, controls: 0, sweepSteps: 0, truncated: false, truncatedReasons: [], failedDetectors: [], durationMs: 0 };
+  const stats = { elements: 0, textRuns: 0, controls: 0, sweepSteps: 0, truncated: false, truncatedReasons: [], durationMs: 0 };
   stats.phaseMs = {};
   let tMark = t0;
   const mark = (k) => { const n = performance.now(); stats.phaseMs[k] = Math.round(n - tMark); tMark = n; };
@@ -105,10 +73,7 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
     f.details = capDetails(f.details);
     findings.push(f);
   };
-  const detectorFailed = (kind, err) => {
-    stats.failedDetectors.push(kind);
-    push({ kind: kind, severity: 'warning', selector: 'document', details: 'Detector ' + kind + ' threw: ' + (err && err.message ? err.message : String(err)) });
-  };
+  const detectorFailed = (kind, err) => push({ kind: kind, severity: 'warning', selector: 'document', details: 'Detector ' + kind + ' threw: ' + (err && err.message ? err.message : String(err)) });
 
   // ---- memoized style / ancestry helpers -------------------------------------------------
   const styleMemo = new Map();
@@ -190,36 +155,6 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
   } catch (e) {}
   const animating = memo(false, (el) => animTargets.has(el) || animating(parentOf(el)));
   const unsettled = (el) => in3d(el) || animating(el);
-  // Images that have not loaded yet (still fetching, or a lazy source not swapped in) and render
-  // collapsed: they have no size yet, so whatever is laid out from them moves when they arrive.
-  // A broken image (its src failed) is not pending: shoppers see that layout as it is.
-  const LAZY_SOURCE = /^data-(lazy-?)?(src|srcset|original)$/;
-  const pendingImages = [];
-  try {
-    const imgs = document.images;
-    for (let i = 0; i < imgs.length; i++) {
-      const img = imgs[i];
-      if (img.complete && img.naturalWidth > 0) continue;
-      if (img.getClientRects().length === 0) continue;
-      let lazy = false;
-      for (let k = 0; k < img.attributes.length && !lazy; k++) lazy = LAZY_SOURCE.test(img.attributes[k].name) && img.attributes[k].value.trim() !== '';
-      if (img.complete && !lazy && img.getAttribute('src')) continue;
-      const r = img.getBoundingClientRect();
-      if (r.width < 2 || r.height < 2) pendingImages.push(img);
-    }
-  } catch (e) {}
-  // a's place relative to b waits on a pending image in a's own branch (below the nearest
-  // ancestor shared with b), inside a or laid out before it.
-  const waitsOnImage = (a, b) => {
-    let branch = a;
-    while (branch.parentElement && !branch.parentElement.contains(b)) branch = branch.parentElement;
-    for (let i = 0; i < pendingImages.length; i++) {
-      const img = pendingImages[i];
-      if (branch.contains(img) && (a.contains(img) || (img.compareDocumentPosition(a) & Node.DOCUMENT_POSITION_FOLLOWING))) return true;
-    }
-    return false;
-  };
-  const imagePending = (a, b) => pendingImages.length > 0 && (waitsOnImage(a, b) || waitsOnImage(b, a));
   const alphaOf = memo(1, (el) => {
     const o = parseFloat(cs(el).opacity);
     return (Number.isFinite(o) ? o : 1) * alphaOf(parentOf(el));
@@ -259,46 +194,11 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
     return b;
   };
   const span = (a0, a1, b0, b1) => Math.max(0, Math.min(a1, b1) - Math.max(a0, b0));
-  // The painted extent of a single-line text field's value: the browser draws it inside the
-  // field's own box, centred in the content box, so no text node or line rect describes it.
-  const TEXT_FIELD = /^(text|email|search|tel|url|number)$/;
-  let measureCtx = null;
-  const fieldValueRect = (field) => {
-    if (field.tagName !== 'INPUT' || !TEXT_FIELD.test(field.type) || !field.value || !field.value.trim() || !inked(field)) return null;
-    const s = cs(field);
-    const fr = field.getBoundingClientRect();
-    const left = fr.left + field.clientLeft + (parseFloat(s.paddingLeft) || 0);
-    const right = fr.left + field.clientLeft + field.clientWidth - (parseFloat(s.paddingRight) || 0);
-    if (right - left < 1) return null;
-    if (!measureCtx) measureCtx = document.createElement('canvas').getContext('2d');
-    if (!measureCtx) return null;
-    measureCtx.font = s.fontStyle + ' ' + s.fontWeight + ' ' + s.fontSize + ' ' + s.fontFamily;
-    const w = Math.min(right - left, measureCtx.measureText(field.value).width);
-    const start = s.textAlign === 'right' || s.textAlign === 'end' ? right - w : s.textAlign === 'center' ? left + (right - left - w) / 2 : left;
-    const contentTop = fr.top + field.clientTop + (parseFloat(s.paddingTop) || 0);
-    const contentH = field.clientHeight - (parseFloat(s.paddingTop) || 0) - (parseFloat(s.paddingBottom) || 0);
-    const lineH = Math.min((parseFloat(s.fontSize) || 16) * 1.2, contentH > 0 ? contentH : field.clientHeight);
-    const top = (contentH > 0 ? contentTop + contentH / 2 : fr.top + field.clientTop + field.clientHeight / 2) - lineH / 2;
-    return { left: start, right: start + w, top: top, bottom: top + lineH };
-  };
   const isScrollAxis = (v) => v === 'auto' || v === 'scroll';
   const isHiddenAxis = (v) => v === 'hidden' || v === 'clip';
   const movingBetween = (from, upto) => {
     for (let e = from; e && e !== upto && e !== doc; e = e.parentElement) {
       if (isMovingStyle(cs(e)) || animTargets.has(e) || e.matches(CAROUSEL_SLIDE) || e.tagName === 'MARQUEE') return true;
-    }
-    return false;
-  };
-  // A subtree that transitions one of the matched properties (re over transition-property) is
-  // shown, hidden or slid in by script or hover: its state at this synchronous read is not settled.
-  const transitionsBetween = (from, upto, re) => {
-    for (let e = from; e && e !== upto && e !== body && e !== doc; e = parentOf(e)) {
-      const s = cs(e);
-      const props = String(s.transitionProperty || '').split(',');
-      const durs = String(s.transitionDuration || '').split(',');
-      for (let i = 0; i < props.length; i++) {
-        if (re.test(props[i].trim()) && parseFloat(durs[i % durs.length]) > 0) return true;
-      }
     }
     return false;
   };
@@ -311,24 +211,6 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
     }
     return false;
   };
-  // A title box (a heading, or a box inside one) capped to a fixed height and repeated across the
-  // page is the product-grid title clamp: the whole lines it drops below its own edge are cut on
-  // purpose. A one-off title (the product page's own name) cut the same way loses words the reader
-  // has nowhere else to read. A container that cuts a title inside it is not a title box, and a
-  // line sliced mid-way is reported separately.
-  const TITLE_BOX = 'h1, h2, h3, h4, h5, h6, [role="heading"]';
-  const repeatMemo = new Map();
-  const isRepeated = (el) => {
-    const cls = typeof el.className === 'string' ? el.className.trim().split(/\s+/).filter(Boolean) : [];
-    const sel = el.tagName.toLowerCase() + cls.map((c) => '.' + CSS.escape(c)).join('');
-    let n = repeatMemo.get(sel);
-    if (n === undefined) {
-      try { n = Array.prototype.filter.call(document.querySelectorAll(sel), painted).length; } catch (e) { n = 0; }
-      repeatMemo.set(sel, n);
-    }
-    return n >= 2;
-  };
-  const isTitleBox = (a) => Boolean(a.closest && a.closest(TITLE_BOX)) && isRepeated(a);
   const isOpaque = (el) => {
     if (alphaOf(el) < 0.5) return false;
     if (el instanceof SVGElement) return true;
@@ -372,7 +254,6 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
   if (doc.scrollHeight > doc.clientHeight + 1) scroller = 'window';
   else if (body.scrollHeight > body.clientHeight + 1 && isScrollAxis(bodyStyle.overflowY)) scroller = 'body';
   const bodyStartTop = body.scrollTop;
-  const bodyStartLeft = body.scrollLeft;
   const scrollToY = (y) => {
     if (scroller === 'body') body.scrollTo({ top: y, left: 0, behavior: 'instant' });
     else window.scrollTo({ top: y, left: 0, behavior: 'instant' });
@@ -407,7 +288,6 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
 
   // ---- 1. controls: zero-size (warning) and offscreen (critical) -------------------------
   const controls = [];
-  const SLIDE_IN = /^(all|left|right|inset|transform|translate|margin-left|margin-right|opacity|visibility)$/;
   try {
     const nodes = document.querySelectorAll(ACTIONABLE);
     for (let i = 0; i < nodes.length && i < ELEMENT_CAP; i++) {
@@ -418,38 +298,24 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
       const r = el.getBoundingClientRect();
       if (r.width <= 0 || r.height <= 0) {
         if (el.getClientRects().length === 0) continue;
-        // A link whose only content is an image still loading gets its size when it arrives.
-        if (pendingImages.some((img) => el.contains(img))) continue;
         push({ kind: 'zero-size', severity: 'warning', selector: getSelector(el), details: 'Rendered actionable control has zero size (' + Math.round(r.width) + 'x' + Math.round(r.height) + 'px)', rect: toRect(r) });
         continue;
       }
-      const outsideX = r.right <= 0 || r.left >= vw;
-      const outsideY = r.bottom <= 0;
-      if (outsideX || outsideY) {
+      const outside = r.right <= 0 || r.left >= vw || r.bottom <= 0;
+      if (outside) {
         let parked = Boolean(layerOf(el)) || movingBetween(el, null);
         if (!parked) {
-          // Scrolling brings the control in only on an axis it is outside on: a horizontal strip
-          // for a control past the side edge, a scrolled list for one above the top. A lone
-          // 'overflow-x: hidden' computes overflow-y to 'auto', so one axis says nothing of the other.
-          let reachX = !outsideX;
-          let reachY = !outsideY;
           const clips = boxClips(el);
-          for (let k = 0; k < clips.length; k++) {
+          for (let k = 0; k < clips.length && !parked; k++) {
             const s = cs(clips[k]);
-            if (isScrollAxis(s.overflowX)) reachX = true;
-            if (isScrollAxis(s.overflowY)) reachY = true;
+            if (isScrollAxis(s.overflowX) || isScrollAxis(s.overflowY)) parked = true;
           }
-          parked = reachX && reachY;
         }
         if (!parked) {
-          // An absolutely positioned ancestor parked outside the viewport (dropdown, off-canvas
-          // panel) hides the control by design. The control's own absolute offset parks it only
-          // past the leading edges (the 'left: -9999px' skip-link idiom): pushed past the right
-          // edge it is misplaced, not parked.
           for (let e = el; e && e !== body && !parked; e = e.parentElement) {
             if (cs(e).position === 'absolute') {
               const er = e.getBoundingClientRect();
-              if (er.right <= 0 || er.bottom <= 0 || (e !== el && er.left >= vw)) parked = true;
+              if (er.right <= 0 || er.left >= vw || er.bottom <= 0) parked = true;
             }
           }
         }
@@ -459,27 +325,6 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
         continue;
       }
       if (r.width >= 8 && r.height >= 8) {
-        // A control pushed past the trailing edge of a clipping box it still spans vertically, so
-        // that less than half of it is left in view, is misplaced. Cut vertically it is a collapsed
-        // panel or menu, inside a sideways scroller it is reachable, an ellipsis cuts it on purpose,
-        // and a moving, sliding-in or absolutely parked subtree (carousel, hover reveal, dropdown) is
-        // hidden by design: none of those is reported.
-        const clips = boxClips(el);
-        for (let k = 0; k < clips.length; k++) {
-          const a = clips[k];
-          const s = cs(a);
-          if (isScrollAxis(s.overflowX)) break;
-          const b = clipBox(a);
-          if (s.overflowY !== 'visible' && span(r.top, r.bottom, b.top, b.bottom) < (r.bottom - r.top) * 0.5) break;
-          if (s.overflowX === 'visible' || r.right <= b.right || b.right - Math.max(r.left, b.left) >= (r.right - r.left) * 0.5) continue;
-          let parked = movingBetween(el, a) || transitionsBetween(el, a, SLIDE_IN) || intendedTruncation(el, a);
-          for (let e = parentOf(el); e && e !== a && !parked; e = parentOf(e)) parked = cs(e).position === 'absolute';
-          if (!parked) {
-            const shown = Math.max(0, b.right - Math.max(r.left, b.left));
-            push({ kind: 'offscreen', severity: 'critical', selector: getSelector(el), details: 'Actionable control is pushed past the right edge of ' + getSelector(a) + ', which clips it (' + Math.round(shown) + ' of ' + Math.round(r.width) + 'px in view, x: ' + Math.round(r.left) + ', y: ' + Math.round(r.top) + ')', rect: toRect(r) });
-          }
-          break;
-        }
         // A control clipped away by an ancestor is hidden, not covered: it cannot stack or be occluded.
         const cvis = clippedRect(el, r);
         if (cvis) controls.push({ el: el, rect: r, vis: cvis, layer: layerOf(el) });
@@ -525,8 +370,7 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
   mark('runs');
   // ---- 3. clipped text (line box sliced or cut by a clipping ancestor) -----------------------
   const clippedOwners = new Set();
-  // owner element -> { visible: bool, below: clip that pushed a whole line past its bottom edge,
-  // belowRun: first such line, belowLines: how many }
+  // owner element -> { visible: bool, below: clip that pushed a whole line past its bottom edge }
   const ownerFate = new Map();
   for (let i = 0; i < runs.length; i++) {
     const run = runs[i];
@@ -551,7 +395,7 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
         const visW = span(r.left, r.right, b.left, b.right);
         const visH = span(r.top, r.bottom, b.top, b.bottom);
         if ((hy || sy) && visH <= r.height * 0.15) {
-          if (hy && r.top >= b.bottom - r.height * 0.15 - 1 && !movingBetween(p, a) && !in3d(p) && !intendedTruncation(p, a) && !collapsedByDesign(a) && !isTitleBox(a)) run.below = a;
+          if (hy && r.top >= b.bottom - r.height * 0.15 - 1 && !movingBetween(p, a) && !in3d(p) && !intendedTruncation(p, a) && !collapsedByDesign(a) && a !== p) run.below = a;
           hidden = true;
           break;
         }
@@ -586,14 +430,10 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
           if (vis.bottom - vis.top < 1) hidden = true;
         }
       }
-      const fate = ownerFate.get(p) || { visible: false, below: null, belowRun: null, belowLines: 0 };
+      const fate = ownerFate.get(p) || { visible: false, below: null, run: run };
       ownerFate.set(p, fate);
       if (hidden) {
-        if (run.below && (!fate.below || fate.below === run.below)) {
-          fate.below = run.below;
-          if (!fate.belowRun) fate.belowRun = run;
-          fate.belowLines++;
-        }
+        if (run.below && !fate.below) fate.below = run.below;
         continue;
       }
       fate.visible = true;
@@ -607,9 +447,8 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
       break;
     }
   }
-  // Text pushed below the bottom edge of a fixed-size box that still shows other text: the box is
-  // too short for its content, whether it hides whole elements or the last lines of one it shows
-  // (a collapsed box shows nothing and is skipped).
+  // Whole text elements pushed below the bottom edge of a fixed-size box that still shows other
+  // text: the box is too short for its content (a collapsed box shows nothing and is skipped).
   try {
     const boxShowsText = new Map();
     const shows = (box) => {
@@ -624,16 +463,13 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
     };
     const reportedBoxes = new Map();
     ownerFate.forEach((fate, p) => {
-      if (!fate.below || clippedOwners.has(p)) return;
+      if (fate.visible || !fate.below || clippedOwners.has(p)) return;
       if (!shows(fate.below)) return;
       const n = (reportedBoxes.get(fate.below) || 0) + 1;
       reportedBoxes.set(fate.below, n);
       if (n > 1) return;
       clippedOwners.add(p);
-      const lost = fate.visible
-        ? 'loses ' + fate.belowLines + ' line' + (fate.belowLines > 1 ? 's' : '') + ' below the bottom edge of ' + getSelector(fate.below)
-        : 'is entirely hidden below the bottom edge of ' + getSelector(fate.below);
-      push({ kind: 'clipping', severity: 'critical', selector: getSelector(p), details: 'Text "' + snippet(fate.belowRun.n.nodeValue) + '" ' + lost + ', which is too short for its content', rect: toRect(fate.belowRun.r) });
+      push({ kind: 'clipping', severity: 'critical', selector: getSelector(p), details: 'Text "' + snippet(fate.run.n.nodeValue) + '" is entirely hidden below the bottom edge of ' + getSelector(fate.below) + ', which is too short for its content', rect: toRect(fate.run.r) });
     });
   } catch (err) {
     detectorFailed('clipping', err);
@@ -653,17 +489,6 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
       run.layer = layerOf(run.p);
       live.push(run);
     }
-    // A text field's value is text the reader needs too: a label or caption laid on it hides what
-    // the field holds.
-    for (let i = 0; i < controls.length; i++) {
-      const c = controls[i];
-      if (!c.vis || unsettled(c.el)) continue;
-      const v = fieldValueRect(c.el);
-      if (!v) continue;
-      const vis = { left: Math.max(v.left, c.vis.left), top: Math.max(v.top, c.vis.top), right: Math.min(v.right, c.vis.right), bottom: Math.min(v.bottom, c.vis.bottom) };
-      if (vis.right - vis.left < 2 || vis.bottom - vis.top < 4) continue;
-      live.push({ n: { nodeValue: c.el.value }, p: c.el, vis: vis, layer: layerOf(c.el) });
-    }
     live.sort((a, b) => a.vis.top - b.vis.top);
     const reported = new Set();
     for (let i = 0; i < live.length; i++) {
@@ -677,7 +502,6 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
         const iy = span(a.vis.top, a.vis.bottom, b.vis.top, b.vis.bottom);
         const minH = Math.min(a.vis.bottom - a.vis.top, b.vis.bottom - b.vis.top);
         if (iy < minH * 0.5) continue;
-        if (imagePending(a.p, b.p)) continue;
         const pairKey = getSelector(a.p) + '|' + getSelector(b.p);
         if (reported.has(b.p) || reported.has(pairKey)) continue;
         reported.add(pairKey);
@@ -698,32 +522,18 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
     }
     return false;
   };
-  // An absolutely positioned control laid inside another control's box (wishlist heart on a
-  // product image link, badge button on a card) is a designed overlay, unless it lies on the
-  // text a field shows (a submit button over the typed address). Boxes that cross each other's
-  // edges are stacked controls whatever their positioning.
-  const coversValue = (cr, field) => {
-    const v = fieldValueRect(field);
-    return Boolean(v) && span(cr.left, cr.right, v.left, v.right) >= 8 && span(cr.top, cr.bottom, v.top, v.bottom) >= 8;
-  };
-  const overlaysInside = (control, other, cr, or) => isAbsoluteOverlayOver(control, other) && span(cr.left, cr.right, or.left, or.right) * span(cr.top, cr.bottom, or.top, or.bottom) >= 0.9 * cr.width * cr.height && !coversValue(cr, other);
   try {
     const flowControls = controls.filter((c) => !c.layer && !unsettled(c.el));
     flowControls.sort((a, b) => a.rect.top - b.rect.top);
-    // Each control's boxes cut to the part that survives its clipping ancestors: a link clipped
-    // away at the bottom of a collapsed block cannot be tapped there, so it stacks on nothing.
-    const fragments = (c) => {
-      const v = c.vis;
-      const raw = cs(c.el).display === 'inline' ? c.el.getClientRects() : [c.rect];
-      const out = [];
-      for (let i = 0; i < raw.length; i++) {
-        const left = Math.max(raw[i].left, v.left);
-        const right = Math.min(raw[i].right, v.right);
-        const top = Math.max(raw[i].top, v.top);
-        const bottom = Math.min(raw[i].bottom, v.bottom);
-        if (right - left >= 1 && bottom - top >= 1) out.push({ left: left, right: right, top: top, bottom: bottom, width: right - left, height: bottom - top });
+    const fragments = (el) => {
+      const d = cs(el).display;
+      if (d === 'inline') {
+        const out = [];
+        const rs = el.getClientRects();
+        for (let i = 0; i < rs.length; i++) if (rs[i].width >= 1 && rs[i].height >= 1) out.push(rs[i]);
+        return out;
       }
-      return out;
+      return [el.getBoundingClientRect()];
     };
     for (let i = 0; i < flowControls.length; i++) {
       const A = flowControls[i];
@@ -731,11 +541,9 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
         const B = flowControls[j];
         if (B.rect.top >= A.rect.bottom) break;
         if (A.el.contains(B.el) || B.el.contains(A.el)) continue;
-        if (overlaysInside(A.el, B.el, A.rect, B.rect) || overlaysInside(B.el, A.el, B.rect, A.rect)) continue;
-        // A carousel's own navigation over its slides is not a stacked pair.
-        if (Boolean(A.el.closest(CAROUSEL_SLIDE)) !== Boolean(B.el.closest(CAROUSEL_SLIDE))) continue;
-        const fa = fragments(A);
-        const fb = fragments(B);
+        if (isAbsoluteOverlayOver(A.el, B.el) || isAbsoluteOverlayOver(B.el, A.el)) continue;
+        const fa = fragments(A.el);
+        const fb = fragments(B.el);
         let best = 0;
         let bestRect = null;
         for (let x = 0; x < fa.length; x++) {
@@ -747,8 +555,7 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
             if (ratio > best) { best = ratio; bestRect = { left: Math.max(fa[x].left, fb[y].left), top: Math.max(fa[x].top, fb[y].top), right: Math.min(fa[x].right, fb[y].right), bottom: Math.min(fa[x].bottom, fb[y].bottom) }; }
           }
         }
-        // A quarter of a control lying under another is enough for taps on it to land on the wrong one.
-        if (best >= 0.25 && !imagePending(A.el, B.el)) {
+        if (best >= 0.5) {
           push({ kind: 'overlap', severity: 'critical', selector: getSelector(B.el), details: 'Actionable controls stacked: ' + getSelector(B.el) + ' covers ' + Math.round(best * 100) + '% of ' + getSelector(A.el), rect: toRect(bestRect) });
         }
       }
@@ -819,21 +626,6 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
       }
       return v;
     };
-    // Mirror of topLayer, read at the last scroll offset: a bar anchored to the bottom edge.
-    // A bar that transitions its visibility, opacity or position is a show/hide-on-scroll bar:
-    // the theme's scroll handler runs after this synchronous read, so its settled state at the
-    // end of the page is unknown here and it is never reported from this reading.
-    const SHOW_HIDE = /^(all|opacity|visibility|transform|translate|top|bottom|inset|margin-bottom|display)$/;
-    const bottomInfo = new Map();
-    const bottomLayer = (layer) => {
-      let v = bottomInfo.get(layer);
-      if (v === undefined) {
-        const r = layer.getBoundingClientRect();
-        v = r.bottom > vh * 0.75 && r.top < vh && (r.bottom - r.top) <= vh * 0.4 && (r.right - r.left) >= vw * 0.5 && !transitionsBetween(layer, null, SHOW_HIDE);
-        bottomInfo.set(layer, v);
-      }
-      return v;
-    };
     const steps = [0];
     const maxScroll = Math.max(0, pageHeight - vh);
     if (scroller) {
@@ -847,120 +639,15 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
     }
     const done = new Set();
     const reportedOwners = new Set();
-    // target index -> foreign fixed/sticky layer that last deferred it
-    const deferLayer = new Map();
-    const CLOSE_TEXT = /^(đóng|close|×|✕|✖|x|tắt|bỏ qua|để sau|skip|no thanks|không, cảm ơn)$/i;
-    // A gate the shopper answers to get in (age check, consent wall): the answer is the way out.
-    // Short answers must be the whole name; "Có hàng" is a filter option, not an answer.
-    const GATE_TEXT = /^(ok|yes|có|i agree|i accept)$|^(xác nhận|đồng ý|chấp nhận|tiếp tục|vào trang|vào cửa hàng|vào website|accept|agree|confirm|continue|enter)(?=$|[\s!.,:])|(đủ|trên)\s*(18|21)\s*tuổi|(^|\s)(18|21)\s*\+|\b(over|above)\s+(18|21)\b|\bof\s+(legal\s+)?age\b/i;
-    const dismissible = (layer) => {
-      // A toggle that controls the layer is a way out only while the shopper can reach it.
-      const toggles = layer.id ? document.querySelectorAll('[aria-controls~="' + CSS.escape(layer.id) + '"]') : [];
-      for (let i = 0; i < toggles.length; i++) {
-        const tr = toggles[i].getBoundingClientRect();
-        const cx = (tr.left + tr.right) / 2;
-        const cy = (tr.top + tr.bottom) / 2;
-        if (tr.width < 1 || tr.height < 1 || cx < 0 || cx >= vw || cy < 0 || cy >= vh) continue;
-        const hit = document.elementFromPoint(cx, cy);
-        if (hit && (hit === toggles[i] || toggles[i].contains(hit))) return true;
-      }
-      const inner = layer.querySelectorAll(ACTIONABLE);
-      for (let i = 0; i < inner.length; i++) {
-        const c = inner[i];
-        const name = (c.getAttribute('aria-label') || c.getAttribute('title') || c.textContent || '').trim();
-        if (CLOSE_TEXT.test(name) || GATE_TEXT.test(name) || /close|dismiss/i.test(String(c.className) + ' ' + c.id)) return true;
-      }
-      return false;
-    };
-    // A fixed layer painted over text in another fixed layer: the two never move against each
-    // other, so what the upper one hides there stays hidden at every scroll offset (a chat bubble
-    // on the label of a bottom checkout bar). Four pixels of the glyph line is the floor
-    // text-over-text uses. A layer spanning the viewport is a modal or drawer opened over
-    // everything on purpose, and one still animating has not reached its place yet.
-    const fixedBoxes = [];
-    const fixedOk = new Map();
-    const addFixed = (el, r) => {
-      const f = fixedLayerOf(el);
-      if (!f) return;
-      let ok = fixedOk.get(f);
-      if (ok === undefined) {
-        const fr = f.getBoundingClientRect();
-        ok = !unsettled(f) && !(fr.right - fr.left >= vw * 0.9 && fr.bottom - fr.top >= vh * 0.9);
-        fixedOk.set(f, ok);
-        if (ok) fixedBoxes.push({ layer: f, r: fr });
-      }
-      if (ok && r) fixedBoxes.push({ layer: f, r: r });
-    };
-    for (let i = 0; i < runs.length; i++) if (runs[i].vis) addFixed(runs[i].p, runs[i].vis);
-    for (let i = 0; i < controls.length; i++) addFixed(controls[i].el, controls[i].vis);
-    const frames = document.querySelectorAll('iframe');
-    for (let i = 0; i < frames.length; i++) addFixed(frames[i], frames[i].getBoundingClientRect());
-    const nested = (a, b) => a === b || a.contains(b) || b.contains(a);
-    for (let i = 0; i < runs.length && fixedBoxes.length > 1; i++) {
-      const run = runs[i];
-      const A = run.vis ? fixedLayerOf(run.p) : null;
-      if (!A || unsettled(run.p) || reportedOwners.has(run.p)) continue;
-      const cy = (run.vis.top + run.vis.bottom) / 2;
-      if (cy < 0 || cy >= vh) continue;
-      for (let b = 0; b < fixedBoxes.length; b++) {
-        const fb = fixedBoxes[b];
-        if (nested(fb.layer, A) || cy < fb.r.top || cy >= fb.r.bottom) continue;
-        const lo = Math.max(run.vis.left, fb.r.left, 0);
-        const hi = Math.min(run.vis.right, fb.r.right, vw);
-        if (hi - lo < 4) continue;
-        const step = Math.max(1, (hi - lo) / 64);
-        let px = 0;
-        let by = null;
-        for (let x = lo + step / 2; x < hi; x += step) {
-          const stack = document.elementsFromPoint(x, cy);
-          for (let k = 0; k < stack.length; k++) {
-            const e = stack[k];
-            if (e === doc || e === body || nested(e, run.p)) break;
-            if (e.closest(PLATFORM_PREVIEW_CHROME) || e.closest('dialog, [role="dialog"], [aria-modal="true"]')) continue;
-            const eLayer = fixedLayerOf(e);
-            if (!eLayer || nested(eLayer, A) || !fixedOk.get(eLayer) || !isOpaque(e)) continue;
-            px += step;
-            by = by || e;
-            break;
-          }
-        }
-        if (px < 4) continue;
-        reportedOwners.add(run.p);
-        push({ kind: 'occlusion', severity: 'critical', selector: getSelector(run.p), details: 'Text "' + snippet(run.n.nodeValue) + '" in fixed ' + getSelector(A) + ' is covered by fixed ' + getSelector(by) + ' (' + Math.round(px) + 'px of the line)', rect: toRect(run.vis) });
-        break;
-      }
-    }
     for (let s = 0; s < steps.length; s++) {
       const want = steps[s];
       const got = s === 0 ? 0 : scrollToY(want);
-      // At the end of the page content sits as high as it ever gets, so whatever a bottom bar
-      // covers here it covers at every offset (the mirror of a top bar at page load).
-      const atEnd = s === steps.length - 1 && (!scroller || Math.abs(got - maxScroll) <= 2);
       if (Math.abs(got - want) > 2) {
         stats.truncated = true;
         stats.truncatedReasons.push('page did not scroll to ' + want + ' (at ' + got + ')');
         break;
       }
       stats.sweepSteps++;
-      // Bars that can hide a band of a line here: an opaque top bar at page load, a bottom bar at
-      // the end of the page. A third of a line or control under one is unreadable or untappable
-      // even while its centre is clear.
-      const edgeBars = [];
-      if (s === 0 || atEnd) {
-        const edgeYs = [];
-        if (s === 0) edgeYs.push(1, vh * 0.1, vh * 0.2);
-        if (atEnd) edgeYs.push(vh - 1, vh * 0.9, vh * 0.8);
-        for (let a = 0; a < edgeYs.length; a++) {
-          for (let b = 1; b <= 3; b++) {
-            const stack = document.elementsFromPoint((vw * b) / 4, edgeYs[a]);
-            for (let k = 0; k < stack.length; k++) {
-              const layer = layerOf(stack[k]);
-              if (!layer || edgeBars.some((e) => e.layer === layer)) continue;
-              if ((s === 0 && topLayer(layer)) || (atEnd && bottomLayer(layer))) edgeBars.push({ layer: layer, r: layer.getBoundingClientRect() });
-            }
-          }
-        }
-      }
       for (let t = 0; t < targets.length; t++) {
         if (done.has(t)) continue;
         const tg = targets[t];
@@ -973,15 +660,14 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
         const cy = (Math.max(top, 0) + Math.min(bottom, vh)) / 2;
         if (cy < 0 || cy >= vh) continue;
         const inSlide = Boolean(tg.owner.closest(CAROUSEL_SLIDE));
-        // One paint-order probe: 'covered' (opaque same-layer box, or an opaque top bar at load /
-        // bottom bar at the end of the page), 'deferred' (only a foreign fixed/sticky layer is in
-        // the way - retry at another offset), or 'clear'.
-        const sample = (cx, y) => {
+        // One paint-order probe: 'covered' (opaque same-layer box, or opaque top bar at load),
+        // 'deferred' (only a foreign fixed/sticky layer is in the way - retry at another offset), or 'clear'.
+        const sample = (cx) => {
           // Fast path: the topmost hit is the owner (or its own subtree/ancestor) - nothing paints over it.
-          const hit = document.elementFromPoint(cx, y);
+          const hit = document.elementFromPoint(cx, cy);
           if (!hit || hit === doc || hit === body || hit === tg.owner || tg.owner.contains(hit) || hit.contains(tg.owner)) return { state: 'clear' };
-          const stack = document.elementsFromPoint(cx, y);
-          let deferredBy = null;
+          const stack = document.elementsFromPoint(cx, cy);
+          let deferredHere = false;
           for (let k = 0; k < stack.length; k++) {
             const e = stack[k];
             if (e === tg.owner || tg.owner.contains(e) || e.contains(tg.owner)) break;
@@ -990,75 +676,38 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
             if (inSlide && e.closest(CAROUSEL_SLIDE)) continue;
             const eLayer = layerOf(e);
             if (eLayer && eLayer !== tg.layer) {
-              if (s === 0 && !tg.fixed && topLayer(eLayer) && isOpaque(e)) return { state: 'covered', by: e, sticky: 'at page load' };
-              if (atEnd && !tg.fixed && bottomLayer(eLayer) && isOpaque(e)) return { state: 'covered', by: e, sticky: 'at the end of the page' };
-              deferredBy = deferredBy || eLayer;
+              if (s === 0 && !tg.fixed && topLayer(eLayer) && isOpaque(e)) return { state: 'covered', by: e, sticky: true };
+              deferredHere = true;
               continue;
             }
-            if (isOpaque(e)) return { state: 'covered', by: e, sticky: null };
+            if (isOpaque(e)) return { state: 'covered', by: e, sticky: false };
           }
-          return deferredBy ? { state: 'deferred', layer: deferredBy } : { state: 'clear' };
+          return { state: deferredHere ? 'deferred' : 'clear' };
         };
         const xAt = (f) => Math.min(vw - 1, Math.max(0, tg.vis.left + (tg.vis.right - tg.vis.left) * f));
-        const ys = [cy];
-        for (let b = 0; b < edgeBars.length && !tg.fixed; b++) {
-          const bar = edgeBars[b].r;
-          const lo = Math.max(top, bar.top);
-          const hi = Math.min(bottom, bar.bottom);
-          if (hi - lo >= (bottom - top) / 3 && span(tg.vis.left, tg.vis.right, bar.left, bar.right) > 0 && (cy < lo || cy >= hi)) ys.push((lo + hi) / 2);
-        }
-        let first = { state: 'clear' };
-        let at = cy;
-        for (let k = 0; k < ys.length; k++) {
-          const probe = sample(xAt(0.5), ys[k]);
-          if (probe.state === 'covered') { first = probe; at = ys[k]; break; }
-          if (probe.state === 'deferred') first = probe;
-        }
+        const first = sample(xAt(0.5));
         if (first.state === 'clear') { done.add(t); continue; }
-        if (first.state === 'deferred') { deferLayer.set(t, first.layer); continue; }
+        if (first.state === 'deferred') continue;
         let covered = 1;
-        const second = sample(xAt(0.2), at);
+        const second = sample(xAt(0.2));
         if (second.state === 'covered') covered++;
-        else if (sample(xAt(0.8), at).state === 'covered') covered++;
+        else if (sample(xAt(0.8)).state === 'covered') covered++;
         if (covered < 2) {
           if (second.state !== 'deferred') done.add(t);
           continue;
         }
         done.add(t);
-        if (!first.sticky && imagePending(tg.owner, first.by)) continue;
         if (!reportedOwners.has(tg.owner)) {
           reportedOwners.add(tg.owner);
           const kind = first.sticky ? 'sticky-obstruction' : 'occlusion';
-          push({ kind: kind, severity: 'critical', selector: getSelector(tg.owner), details: tg.label + ' is covered by ' + getSelector(first.by) + (first.sticky ? ' (fixed/sticky bar ' + first.sticky + ')' : '') + ' at page y=' + Math.round(at + (tg.fixed ? 0 : got)), rect: toRect({ left: tg.vis.left, top: tg.vis.top, right: tg.vis.right, bottom: tg.vis.bottom }) });
+          push({ kind: kind, severity: 'critical', selector: getSelector(tg.owner), details: tg.label + ' is covered by ' + getSelector(first.by) + (first.sticky ? ' (fixed/sticky bar at page load)' : '') + ' at page y=' + Math.round(cy + (tg.fixed ? 0 : got)), rect: toRect({ left: tg.vis.left, top: tg.vis.top, right: tg.vis.right, bottom: tg.vis.bottom }) });
         }
       }
     }
-    // A fixed layer spanning the viewport with its own opaque surface hides the page at every
-    // scroll offset: what lies under it was deferred at each step and never came clear. A modal or
-    // drawer opened on purpose offers a way out (a close control inside it, or a toggle that
-    // controls it) or dims the page through a translucent backdrop; one with neither traps the
-    // shopper.
-    const trapped = new Map();
-    deferLayer.forEach((layer, t) => {
-      if (done.has(t)) return;
-      const list = trapped.get(layer) || [];
-      list.push(targets[t]);
-      trapped.set(layer, list);
-    });
-    trapped.forEach((list, layer) => {
-      if (list.length < 2 || unsettled(layer)) return;
-      if (layer.closest(PLATFORM_PREVIEW_CHROME) || layer.closest('dialog, [role="dialog"], [aria-modal="true"]')) return;
-      const lr = layer.getBoundingClientRect();
-      if (lr.right - lr.left < vw * 0.9 || lr.bottom - lr.top < vh * 0.9) return;
-      const ls = cs(layer);
-      if (alphaOfColor(ls.backgroundColor) < 0.95 && (!ls.backgroundImage || ls.backgroundImage === 'none')) return;
-      if (dismissible(layer)) return;
-      push({ kind: 'occlusion', severity: 'critical', selector: getSelector(layer), details: 'Fixed ' + getSelector(layer) + ' spans the viewport and hides the page at every scroll offset with no close control (' + list.length + ' texts/controls never come clear, e.g. ' + list[0].label + ')', rect: toRect(lr) });
-    });
   } catch (err) {
     detectorFailed('occlusion', err);
   } finally {
-    if (scroller === 'body') body.scrollTo({ top: bodyStartTop, left: bodyStartLeft, behavior: 'instant' });
+    if (scroller === 'body') body.scrollTo({ top: bodyStartTop, left: 0, behavior: 'instant' });
     window.scrollTo({ top: startY, left: startX, behavior: 'instant' });
   }
 
@@ -1066,55 +715,19 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
   // ---- 8. layout-shift witness (buffered entries, read synchronously) ---------------------------
   try {
     let clsScore = 0;
-    // One shift that carries visible content a quarter of the viewport or more is a jump the reader
-    // sees, even on a tall viewport where the score stays small. A shift animated by a transition
-    // arrives as one small entry per frame, so the jump is each source's net travel across a burst
-    // (entries under a second apart), from its first previous box to its latest current box.
-    let maxJump = 0;
-    const travel = new Map();
     if (typeof PerformanceObserver !== 'undefined') {
       const observer = new PerformanceObserver(() => {});
       observer.observe({ type: 'layout-shift', buffered: true });
       const records = observer.takeRecords();
       observer.disconnect();
-      // hadRecentInput also marks shifts that follow a viewport resize (mobile device emulation sets
-      // one at load), so the flag excuses a shift only once the page has recorded a discrete input
-      // (click, tap, key) at or before the input the entry names.
-      let firstInputAt = -Infinity;
-      try {
-        const inputs = new PerformanceObserver(() => {});
-        inputs.observe({ type: 'first-input', buffered: true });
-        const first = inputs.takeRecords();
-        inputs.disconnect();
-        firstInputAt = first.length ? first[0].startTime : Infinity;
-      } catch (e) {}
       for (let i = 0; i < records.length; i++) {
         const entry = records[i];
-        if (!entry || typeof entry.value !== 'number') continue;
-        if (entry.hadRecentInput && !(typeof entry.lastInputTime === 'number' && entry.lastInputTime + 50 < firstInputAt)) continue;
-        clsScore += entry.value;
-        const sources = entry.sources || [];
-        for (let k = 0; k < sources.length; k++) {
-          const a = sources[k].previousRect;
-          const b = sources[k].currentRect;
-          if (!a || !b || a.width * a.height <= 0 || b.width * b.height <= 0) continue;
-          const node = sources[k].node;
-          let leg = node ? travel.get(node) : undefined;
-          if (leg && entry.startTime - leg.last <= 1000) {
-            leg.last = entry.startTime;
-          } else {
-            leg = { from: a, last: entry.startTime };
-            if (node) travel.set(node, leg);
-          }
-          maxJump = Math.max(maxJump, Math.abs(b.top - leg.from.top), Math.abs(b.left - leg.from.left));
-        }
+        if (entry && !entry.hadRecentInput && typeof entry.value === 'number') clsScore += entry.value;
       }
     }
     stats.cls = Math.round(clsScore * 1000) / 1000;
     if (clsScore > 0.1) {
       push({ kind: 'layout-shift', severity: 'warning', selector: 'document', details: 'Cumulative layout shift score ' + clsScore.toFixed(3) + ' exceeds 0.1', rect: { x: 0, y: 0, w: Math.round(vw), h: Math.round(vh) } });
-    } else if (maxJump >= vh * 0.25) {
-      push({ kind: 'layout-shift', severity: 'warning', selector: 'document', details: 'Visible content jumped ' + Math.round(maxJump) + 'px in one burst of layout shifts (score ' + clsScore.toFixed(3) + ')', rect: { x: 0, y: 0, w: Math.round(vw), h: Math.round(vh) } });
     }
   } catch (err) {
     detectorFailed('layout-shift', err);
@@ -1126,53 +739,4 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
   }
   stats.durationMs = Math.round(performance.now() - t0);
   return { measured: true, viewport: viewport, findings: out, stats: stats };
-})()`;
-
-export class LayoutIntegrityEngine {
-  /**
-   * Standard device presets for multi-breakpoint testing
-   */
-  public static readonly BREAKPOINTS = [
-    { name: 'mobile' as const, width: 393, height: 852, label: 'iPhone 16 (Mobile)' },
-    { name: 'tablet' as const, width: 820, height: 1180, label: 'iPad Air (Tablet)' },
-    { name: 'desktop' as const, width: 1440, height: 900, label: 'Standard Laptop (Desktop)' },
-  ];
-
-  /**
-   * Browser injection script that checks visual layout integrity once, synchronously, on the
-   * active viewport. Detectors, in script order:
-   * 1. controls: zero-size (warning) and offscreen (critical)
-   * 2. text runs (collected once and shared by the text detectors)
-   * 3. clipped text: a line box sliced or cut by a clipping ancestor
-   * 4. text painted over text
-   * 5. actionable controls stacked on each other
-   * 6. in-flow sibling boxes overlapping (warning only)
-   * 7. covered text / covered controls, swept over the full page (occlusion, sticky-obstruction)
-   * 8. layout-shift witness (buffered entries, read synchronously; warning)
-   *
-   * A truncated scan (element, text-run or sweep cap reached, or a page that would not scroll)
-   * is reported in `stats.truncated` / `stats.truncatedReasons`; a detector that throws is
-   * listed in `stats.failedDetectors`.
-   */
-  public static getBrowserScanScript(viewportName: string = 'active'): string {
-    return LAYOUT_INTEGRITY_SCAN.replace("'__VIEWPORT_NAME__'", () => JSON.stringify(viewportName));
-  }
-
-  /**
-   * Marker reader for every consumer of the payload. Only an explicit
-   * `measured: false` declares the surface unmeasurable, so a payload that
-   * predates the marker is never mistaken for an unmeasured one.
-   */
-  public static readUnmeasuredReason(payload: unknown): string | undefined {
-    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-      return undefined;
-    }
-    const obj = payload as Record<string, unknown>;
-    if (obj.measured !== false) {
-      return undefined;
-    }
-    return typeof obj.unmeasuredReason === 'string' && obj.unmeasuredReason.trim().length > 0
-      ? obj.unmeasuredReason
-      : 'the scanned tab reported no measurable CSS viewport';
-  }
-}
+})()

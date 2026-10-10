@@ -83,6 +83,45 @@ describe('LayoutOverflowEngine', () => {
     assert.strictEqual(firstCulprit.deltaX, 27);
   });
 
+  it('reports a measured page whose content fits (1px subpixel inside the deadband) as no overflow', () => {
+    const script = new vm.Script(LayoutOverflowEngine.getBrowserScanScript('mobile'));
+    const fittingElement = {
+      nodeType: 1,
+      tagName: 'DIV',
+      id: 'fits',
+      className: '',
+      children: [],
+      parentElement: null,
+      outerHTML: '<div id="fits"></div>',
+      getBoundingClientRect: () => ({ left: 0, right: 393, width: 393, top: 0, bottom: 40, height: 40 }),
+    };
+    const sandbox = {
+      window: {
+        innerWidth: 393,
+        devicePixelRatio: 1.0,
+        getComputedStyle: () => ({ display: 'block', visibility: 'visible', opacity: '1', overflowX: 'visible', position: 'static' }),
+      },
+      document: {
+        documentElement: {
+          scrollWidth: 394,
+          clientWidth: 393,
+          getBoundingClientRect: () => ({ left: 0, right: 393, width: 393, top: 0, bottom: 800, height: 800 }),
+        },
+        body: { scrollWidth: 394, clientWidth: 393 },
+        querySelectorAll: () => [fittingElement],
+      },
+      Set,
+      Math,
+      Array,
+      console: { log: () => {}, warn: () => {} },
+    };
+    const result = script.runInContext(vm.createContext(sandbox)) as ViewportOverflowResult;
+    assert.strictEqual(result.measured, true);
+    assert.strictEqual(result.hasOverflow, false, 'A fitting page must not be reported as overflowing');
+    assert.strictEqual(result.deltaX, 0);
+    assert.strictEqual(result.culprits.length, 0);
+  });
+
   it('detects negative leftward overflow and correctly recurses through >=50 child elements', () => {
     const scriptText = LayoutOverflowEngine.getBrowserScanScript('mobile');
     const script = new vm.Script(scriptText);

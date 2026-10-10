@@ -1,0 +1,273 @@
+{
+  "fixtures.cjs": {
+    "01-overflow-plain": {
+      "mobile": true,
+      "desktop": false,
+      "evidence": "Banner 520px fits easily within 1440px desktop viewport without causing horizontal document scrollbar."
+    },
+    "02-overflow-masked-body": {
+      "mobile": true,
+      "desktop": false,
+      "evidence": "At 1440px viewport, the 520px banner fits entirely inside the wide body without being clipped."
+    },
+    "03-overflow-masked-wrapper": {
+      "mobile": true,
+      "desktop": false,
+      "evidence": "The 520px banner fits completely within the 1440px wide wrapper without being clipped by overflow: hidden."
+    },
+    "04-text-on-text-deep": {
+      "mobile": true,
+      "desktop": true,
+      "evidence": "Price text with margin-top: -20px overlaps product title Áo thun nam basic."
+    },
+    "05-text-on-text-shallow": {
+      "mobile": true,
+      "desktop": true,
+      "evidence": "Price text with margin-top: -20px directly overlaps the heading text."
+    },
+    "06-partial-overlap-30pct": {
+      "mobile": true,
+      "desktop": true,
+      "evidence": "Block B with margin-top: -30px overlaps block A by 30% of height."
+    },
+    "07-text-spill-collision": {
+      "mobile": true,
+      "desktop": false,
+      "evidence": "At 1440px width, description text fits into a single 17px line inside the 40px container, so it does not spill over or collide with the next element."
+    },
+    "08-text-cut-by-ancestor": {
+      "mobile": true,
+      "desktop": false,
+      "evidence": "At 1440px, the title fits on one line so total card content is 148px, fitting completely within the 150px card without clipping."
+    },
+    "09-cta-occluded-in-viewport": {
+      "mobile": true,
+      "desktop": true,
+      "evidence": "Promo sticker with position: absolute and width: 100% occludes the Add to Cart button."
+    },
+    "10-cta-occluded-below-fold": {
+      "mobile": true,
+      "desktop": true,
+      "evidence": "Below-fold Add to Cart button is occluded by the absolute promo sticker overlay."
+    },
+    "11-fixed-header-covers-hero-text": {
+      "mobile": true,
+      "desktop": true,
+      "evidence": "Fixed header with height 110px and no body padding occludes the hero heading text."
+    },
+    "12-line-clamp-intended": {
+      "mobile": false,
+      "desktop": false,
+      "evidence": "Valid line-clamp on product title displays cleanly without layout defect."
+    },
+    "13a-footer-overlap-small-dom": {
+      "mobile": true,
+      "desktop": true,
+      "evidence": "Footer link .f2 with margin-top: -24px overlaps the preceding link 100%."
+    },
+    "13b-footer-overlap-large-dom": {
+      "mobile": true,
+      "desktop": true,
+      "evidence": "Footer link .f2 with margin-top: -24px overlaps the preceding link 100% in large DOM."
+    },
+    "14-cls-shift": {
+      "mobile": true,
+      "desktop": true,
+      "evidence": "Dynamically injected 400px top banner pushes main content down causing severe layout shift."
+    },
+    "15-image-over-text-deep": {
+      "mobile": true,
+      "desktop": true,
+      "evidence": "Absolute thumb overlay at top: 0 with width: 100% covers the product description text."
+    },
+    "16-slider-intended": {
+      "mobile": false,
+      "desktop": false,
+      "evidence": "Intended horizontal slider container with overflow-x: auto displays properly without layout defect."
+    },
+    "17-readmore-collapsed": {
+      "mobile": false,
+      "desktop": false,
+      "evidence": "Intended collapsible read-more block with max-height displays as expected."
+    },
+    "18-tabs-x-scroller": {
+      "mobile": false,
+      "desktop": false,
+      "evidence": "Horizontal tab strip with overflow-x: auto renders properly without page defect."
+    },
+    "19-hero-crossfade": {
+      "mobile": false,
+      "desktop": false,
+      "evidence": "Crossfading hero slides render as intended without layout defects."
+    },
+    "20-offscreen-cta-clipped-card": {
+      "mobile": true,
+      "desktop": false,
+      "evidence": "At 1440px desktop viewport, the card is wide enough (1416px) so the 500px action bar and Buy Now button fit completely inside without clipping."
+    },
+    "21-offscreen-cta-html-body-overflow-x": {
+      "mobile": true,
+      "desktop": false,
+      "evidence": "At 1440px viewport, the 500px action row fits easily within the wide screen and the Buy Now button is fully on-screen."
+    },
+    "22-scrollers-under-body-overflow-x": {
+      "mobile": false,
+      "desktop": false,
+      "evidence": "Vertical scroll and horizontal chip row are accessible via scrolling as designed."
+    },
+    "23-overflow-body-only-hidden": {
+      "mobile": true,
+      "desktop": false,
+      "evidence": "At 1440px, the 512px content width is well within the desktop viewport, eliminating horizontal document overflow."
+    },
+    "24-body-scroller-offset": {
+      "mobile": false,
+      "desktop": false,
+      "evidence": "Body scroller offset is an intended scrolling state with no layout defect."
+    },
+    "25-icon-controls-stacked": {
+      "mobile": true,
+      "desktop": true,
+      "evidence": "Icon button .b2 with margin-top: -40px stacks over button .b1 by 90%."
+    },
+    "26-zero-size-cta": {
+      "mobile": true,
+      "desktop": true,
+      "evidence": "Checkout CTA link has height: 0 with overflow: hidden rendering it invisible."
+    },
+    "27-peek-carousel-control": {
+      "mobile": false,
+      "desktop": false,
+      "evidence": "Peek carousel layout displays partial next slide as intended design."
+    },
+    "43-pdp-title-cut-by-fixed-height": {
+      "mobile": true,
+      "desktop": true,
+      "evidence": "Rendered (loop iter20, not the blind labeller): h1.product-title client 30px; mobile 375 width 351 scroll 120 = 4 lines, desktop 1440 width 420 scroll 90 = 3 lines; 1 line visible, rest hidden by overflow:hidden. Related .pro-name clamps 38px (designed)."
+    }
+  },
+  "holdout.cjs": {
+    "h01-title-price-overlap": {
+      "mobile": true,
+      "desktop": true,
+      "evidence": "Title (top: 16px, line-height: 28px) and price (top: 39px) overlap in fixed-width card."
+    },
+    "h02-nested-copy-clipped": {
+      "mobile": true,
+      "desktop": true,
+      "evidence": "Description in max-width 480px container exceeds height: 42px and is clipped by overflow: hidden."
+    },
+    "h03-nested-cta-covered": {
+      "mobile": true,
+      "desktop": true,
+      "evidence": "Floating toast overlay with z-index: 4 completely covers the color swatch buttons."
+    },
+    "h04-sticky-buy-bar-covers-copy": {
+      "mobile": true,
+      "desktop": false,
+      "evidence": "Fixed bottom buy bar overlaps the delivery information text by ~30px when scrolled to bottom. | CORRECTED 2026-10-10 by rendered geometry: at 1440x900 the 480px container fits the delivery note on one line; at max scroll its bottom is y=824 and the fixed bar starts at y=835 (0% covered). Mobile 375x667: last line 592-609 vs bar top 602 (39% covered)."
+    },
+    "h05-buy-button-offscreen": {
+      "mobile": true,
+      "desktop": true,
+      "evidence": "Button with left: 510px is pushed outside the 480px card and clipped by overflow: hidden."
+    },
+    "h06-horizontal-product-strip": {
+      "mobile": true,
+      "desktop": false,
+      "evidence": "At 1440px desktop viewport, the 535px product strip fits within the screen without causing document horizontal overflow."
+    },
+    "h07-deep-controls-overlap": {
+      "mobile": true,
+      "desktop": true,
+      "evidence": "Size buttons .size.one (left: 18px) and .size.two (left: 72px) overlap by 38px."
+    },
+    "h08-product-name-clipped": {
+      "mobile": true,
+      "desktop": true,
+      "evidence": "Product title scrollWidth (466px) exceeds container clientWidth (446px) and is clipped by overflow: hidden."
+    },
+    "h09-ellipsis-product-title": {
+      "mobile": true,
+      "desktop": false,
+      "evidence": "At 1440px desktop viewport, the 480px container fits on screen and the single-line title with ellipsis displays cleanly without page overflow."
+    },
+    "h10-closed-cart-drawer": {
+      "mobile": false,
+      "desktop": false,
+      "evidence": "Closed cart drawer with visibility: hidden is properly hidden offscreen."
+    },
+    "h11-carousel-offscreen-slides": {
+      "mobile": false,
+      "desktop": false,
+      "evidence": "Carousel slides container with overflow: hidden renders active slide properly."
+    },
+    "h12-padded-sticky-header": {
+      "mobile": false,
+      "desktop": false,
+      "evidence": "Sticky header sits above dedicated padding space without obstructing content."
+    }
+  },
+  "holdout-2.cjs": {
+    "h01-overlap-price": {
+      "mobile": true,
+      "desktop": true,
+      "evidence": "Original price and sale price share position: absolute with top: 0 and left: 0, overlapping directly."
+    },
+    "h02-clipping-btn-cart": {
+      "mobile": true,
+      "desktop": true,
+      "evidence": "Button container has height: 20px with overflow: hidden, clipping the 48px tall cart button in half."
+    },
+    "h03-sticky-obstruction-footer": {
+      "mobile": true,
+      "desktop": false,
+      "evidence": "At 1440x900 desktop viewport, the taller screen leaves a 121px gap between the bottom buttons and the sticky footer bar, removing the obstruction."
+    },
+    "h04-document-overflow-banner": {
+      "mobile": true,
+      "desktop": false,
+      "evidence": "At 1440px desktop viewport, the 480px promo banner fits easily within the screen without causing horizontal scroll."
+    },
+    "h05-occlusion-floating-widget": {
+      "mobile": true,
+      "desktop": true,
+      "evidence": "Floating promotional badge with position: absolute and z-index: 10 completely covers the confirm checkout button."
+    },
+    "h06-offscreen-action-btn": {
+      "mobile": true,
+      "desktop": false,
+      "evidence": "At 1440px desktop viewport, the 1392px wide container easily accommodates the button at left: 395px, making it fully visible."
+    },
+    "h07-clipping-deep-description": {
+      "mobile": true,
+      "desktop": true,
+      "evidence": "Container with max-width: 375px keeps text narrow so it exceeds height: 42px and is clipped by overflow: hidden."
+    },
+    "h08-overlap-nested-review": {
+      "mobile": true,
+      "desktop": true,
+      "evidence": "Author name (top: 0) and comment text (top: 2px) share position: absolute, overlapping directly."
+    },
+    "h09-control-sale-badge": {
+      "mobile": false,
+      "desktop": false,
+      "evidence": "Sale badge positioned cleanly at top-left of image box without layout defect."
+    },
+    "h10-control-multiline-clamp": {
+      "mobile": false,
+      "desktop": false,
+      "evidence": "Standard multiline clamp with ellipsis renders properly without layout defect."
+    },
+    "h11-control-horizontal-chips": {
+      "mobile": false,
+      "desktop": false,
+      "evidence": "Contained horizontal scroll chips render smoothly without page overflow."
+    },
+    "h12-control-collapsed-accordion": {
+      "mobile": false,
+      "desktop": false,
+      "evidence": "Collapsed accordion items render cleanly as intended."
+    }
+  }
+}
