@@ -507,7 +507,8 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
   mark('runs');
   // ---- 3. clipped text (line box sliced or cut by a clipping ancestor) -----------------------
   const clippedOwners = new Set();
-  // owner element -> { visible: bool, below: clip that pushed a whole line past its bottom edge }
+  // owner element -> { visible: bool, below: clip that pushed a whole line past its bottom edge,
+  // belowRun: first such line, belowLines: how many }
   const ownerFate = new Map();
   for (let i = 0; i < runs.length; i++) {
     const run = runs[i];
@@ -532,7 +533,7 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
         const visW = span(r.left, r.right, b.left, b.right);
         const visH = span(r.top, r.bottom, b.top, b.bottom);
         if ((hy || sy) && visH <= r.height * 0.15) {
-          if (hy && r.top >= b.bottom - r.height * 0.15 - 1 && !movingBetween(p, a) && !in3d(p) && !intendedTruncation(p, a) && !collapsedByDesign(a) && a !== p) run.below = a;
+          if (hy && r.top >= b.bottom - r.height * 0.15 - 1 && !movingBetween(p, a) && !in3d(p) && !intendedTruncation(p, a) && !collapsedByDesign(a)) run.below = a;
           hidden = true;
           break;
         }
@@ -567,10 +568,14 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
           if (vis.bottom - vis.top < 1) hidden = true;
         }
       }
-      const fate = ownerFate.get(p) || { visible: false, below: null, run: run };
+      const fate = ownerFate.get(p) || { visible: false, below: null, belowRun: null, belowLines: 0 };
       ownerFate.set(p, fate);
       if (hidden) {
-        if (run.below && !fate.below) fate.below = run.below;
+        if (run.below && (!fate.below || fate.below === run.below)) {
+          fate.below = run.below;
+          if (!fate.belowRun) fate.belowRun = run;
+          fate.belowLines++;
+        }
         continue;
       }
       fate.visible = true;
@@ -584,8 +589,9 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
       break;
     }
   }
-  // Whole text elements pushed below the bottom edge of a fixed-size box that still shows other
-  // text: the box is too short for its content (a collapsed box shows nothing and is skipped).
+  // Text pushed below the bottom edge of a fixed-size box that still shows other text: the box is
+  // too short for its content, whether it hides whole elements or the last lines of one it shows
+  // (a collapsed box shows nothing and is skipped).
   try {
     const boxShowsText = new Map();
     const shows = (box) => {
@@ -600,13 +606,16 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
     };
     const reportedBoxes = new Map();
     ownerFate.forEach((fate, p) => {
-      if (fate.visible || !fate.below || clippedOwners.has(p)) return;
+      if (!fate.below || clippedOwners.has(p)) return;
       if (!shows(fate.below)) return;
       const n = (reportedBoxes.get(fate.below) || 0) + 1;
       reportedBoxes.set(fate.below, n);
       if (n > 1) return;
       clippedOwners.add(p);
-      push({ kind: 'clipping', severity: 'critical', selector: getSelector(p), details: 'Text "' + snippet(fate.run.n.nodeValue) + '" is entirely hidden below the bottom edge of ' + getSelector(fate.below) + ', which is too short for its content', rect: toRect(fate.run.r) });
+      const lost = fate.visible
+        ? 'loses ' + fate.belowLines + ' line' + (fate.belowLines > 1 ? 's' : '') + ' below the bottom edge of ' + getSelector(fate.below)
+        : 'is entirely hidden below the bottom edge of ' + getSelector(fate.below);
+      push({ kind: 'clipping', severity: 'critical', selector: getSelector(p), details: 'Text "' + snippet(fate.belowRun.n.nodeValue) + '" ' + lost + ', which is too short for its content', rect: toRect(fate.belowRun.r) });
     });
   } catch (err) {
     detectorFailed('clipping', err);
