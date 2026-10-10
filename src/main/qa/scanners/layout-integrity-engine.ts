@@ -670,6 +670,17 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
       }
       return v;
     };
+    // Mirror of topLayer, read at the last scroll offset: a bar anchored to the bottom edge.
+    const bottomInfo = new Map();
+    const bottomLayer = (layer) => {
+      let v = bottomInfo.get(layer);
+      if (v === undefined) {
+        const r = layer.getBoundingClientRect();
+        v = r.bottom > vh * 0.75 && r.top < vh && (r.bottom - r.top) <= vh * 0.4 && (r.right - r.left) >= vw * 0.5;
+        bottomInfo.set(layer, v);
+      }
+      return v;
+    };
     const steps = [0];
     const maxScroll = Math.max(0, pageHeight - vh);
     if (scroller) {
@@ -686,6 +697,9 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
     for (let s = 0; s < steps.length; s++) {
       const want = steps[s];
       const got = s === 0 ? 0 : scrollToY(want);
+      // At the end of the page content sits as high as it ever gets, so whatever a bottom bar
+      // covers here it covers at every offset (the mirror of a top bar at page load).
+      const atEnd = s === steps.length - 1 && (!scroller || Math.abs(got - maxScroll) <= 2);
       if (Math.abs(got - want) > 2) {
         stats.truncated = true;
         stats.truncatedReasons.push('page did not scroll to ' + want + ' (at ' + got + ')');
@@ -704,8 +718,9 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
         const cy = (Math.max(top, 0) + Math.min(bottom, vh)) / 2;
         if (cy < 0 || cy >= vh) continue;
         const inSlide = Boolean(tg.owner.closest(CAROUSEL_SLIDE));
-        // One paint-order probe: 'covered' (opaque same-layer box, or opaque top bar at load),
-        // 'deferred' (only a foreign fixed/sticky layer is in the way - retry at another offset), or 'clear'.
+        // One paint-order probe: 'covered' (opaque same-layer box, or an opaque top bar at load /
+        // bottom bar at the end of the page), 'deferred' (only a foreign fixed/sticky layer is in
+        // the way - retry at another offset), or 'clear'.
         const sample = (cx) => {
           // Fast path: the topmost hit is the owner (or its own subtree/ancestor) - nothing paints over it.
           const hit = document.elementFromPoint(cx, cy);
@@ -720,11 +735,12 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
             if (inSlide && e.closest(CAROUSEL_SLIDE)) continue;
             const eLayer = layerOf(e);
             if (eLayer && eLayer !== tg.layer) {
-              if (s === 0 && !tg.fixed && topLayer(eLayer) && isOpaque(e)) return { state: 'covered', by: e, sticky: true };
+              if (s === 0 && !tg.fixed && topLayer(eLayer) && isOpaque(e)) return { state: 'covered', by: e, sticky: 'at page load' };
+              if (atEnd && !tg.fixed && bottomLayer(eLayer) && isOpaque(e)) return { state: 'covered', by: e, sticky: 'at the end of the page' };
               deferredHere = true;
               continue;
             }
-            if (isOpaque(e)) return { state: 'covered', by: e, sticky: false };
+            if (isOpaque(e)) return { state: 'covered', by: e, sticky: null };
           }
           return { state: deferredHere ? 'deferred' : 'clear' };
         };
@@ -744,7 +760,7 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
         if (!reportedOwners.has(tg.owner)) {
           reportedOwners.add(tg.owner);
           const kind = first.sticky ? 'sticky-obstruction' : 'occlusion';
-          push({ kind: kind, severity: 'critical', selector: getSelector(tg.owner), details: tg.label + ' is covered by ' + getSelector(first.by) + (first.sticky ? ' (fixed/sticky bar at page load)' : '') + ' at page y=' + Math.round(cy + (tg.fixed ? 0 : got)), rect: toRect({ left: tg.vis.left, top: tg.vis.top, right: tg.vis.right, bottom: tg.vis.bottom }) });
+          push({ kind: kind, severity: 'critical', selector: getSelector(tg.owner), details: tg.label + ' is covered by ' + getSelector(first.by) + (first.sticky ? ' (fixed/sticky bar ' + first.sticky + ')' : '') + ' at page y=' + Math.round(cy + (tg.fixed ? 0 : got)), rect: toRect({ left: tg.vis.left, top: tg.vis.top, right: tg.vis.right, bottom: tg.vis.bottom }) });
         }
       }
     }
