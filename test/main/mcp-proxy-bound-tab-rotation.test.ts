@@ -286,7 +286,10 @@ function toolCallFailed(response: Record<string, unknown>): boolean {
   return result.isError === true;
 }
 
-describe('MCP proxy bound-tab default follows the authority', () => {
+// Each case starts its own harness (port-0 mock bridge, tempdir data root, proxy
+// child) and keeps its scripted counters local, so the cases share nothing and
+// their ~1 s proxy startups overlap. Bounded so the children never saturate the host.
+describe('MCP proxy bound-tab default follows the authority', { concurrency: 4 }, () => {
   it('1. an opened tab becomes the default an omitted-tabId call rides', async () => {
     const harness = await startHarness((capability) =>
       capability === 'browser.open-tab' ? { tabId: CREATED_TAB_ID } : {}

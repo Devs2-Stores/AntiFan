@@ -375,7 +375,10 @@ async function startHarness(options: { delayOldClose?: boolean } = {}): Promise<
   };
 }
 
-describe('Dispatch socket teardown: the caller must learn the real cause', () => {
+// Each case starts its own harness (port-0 mock bridge, tempdir data root, proxy
+// child) and waits only on dispatch signals it owns, so the cases share nothing
+// and their ~1 s proxy startups overlap.
+describe('Dispatch socket teardown: the caller must learn the real cause', { concurrency: 4 }, () => {
   it('1. An empty close frame (bridge dispose) surfaces as closeCode 1005, never as a timeout', async () => {
     const harness = await startHarness();
     try {
