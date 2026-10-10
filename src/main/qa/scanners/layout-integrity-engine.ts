@@ -441,16 +441,11 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
         continue;
       }
       if (r.width >= 8 && r.height >= 8) {
-        // A control clipped away by an ancestor is hidden, not covered: it cannot stack or be occluded.
-        const cvis = clippedRect(el, r);
-        if (cvis) {
-          controls.push({ el: el, rect: r, vis: cvis, layer: layerOf(el) });
-          continue;
-        }
-        // Clipped away past the trailing edge of a box it still spans vertically, the control is
-        // pushed out of view (misplaced). Cut vertically it is a collapsed panel or menu, inside a
-        // sideways scroller it is reachable, and a moving, sliding-in or absolutely parked subtree
-        // (carousel, hover reveal, dropdown) is hidden by design: none of those is reported.
+        // A control pushed past the trailing edge of a clipping box it still spans vertically, so
+        // that less than half of it is left in view, is misplaced. Cut vertically it is a collapsed
+        // panel or menu, inside a sideways scroller it is reachable, an ellipsis cuts it on purpose,
+        // and a moving, sliding-in or absolutely parked subtree (carousel, hover reveal, dropdown) is
+        // hidden by design: none of those is reported.
         const clips = boxClips(el);
         for (let k = 0; k < clips.length; k++) {
           const a = clips[k];
@@ -458,14 +453,18 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
           if (isScrollAxis(s.overflowX)) break;
           const b = clipBox(a);
           if (s.overflowY !== 'visible' && span(r.top, r.bottom, b.top, b.bottom) < (r.bottom - r.top) * 0.5) break;
-          if (s.overflowX === 'visible' || r.left < b.right) continue;
-          let parked = movingBetween(el, a) || transitionsBetween(el, a, SLIDE_IN);
+          if (s.overflowX === 'visible' || r.right <= b.right || b.right - Math.max(r.left, b.left) >= (r.right - r.left) * 0.5) continue;
+          let parked = movingBetween(el, a) || transitionsBetween(el, a, SLIDE_IN) || intendedTruncation(el, a);
           for (let e = parentOf(el); e && e !== a && !parked; e = parentOf(e)) parked = cs(e).position === 'absolute';
           if (!parked) {
-            push({ kind: 'offscreen', severity: 'critical', selector: getSelector(el), details: 'Actionable control is pushed past the right edge of ' + getSelector(a) + ', which clips it out of view (x: ' + Math.round(r.left) + ', y: ' + Math.round(r.top) + ')', rect: toRect(r) });
+            const shown = Math.max(0, b.right - Math.max(r.left, b.left));
+            push({ kind: 'offscreen', severity: 'critical', selector: getSelector(el), details: 'Actionable control is pushed past the right edge of ' + getSelector(a) + ', which clips it (' + Math.round(shown) + ' of ' + Math.round(r.width) + 'px in view, x: ' + Math.round(r.left) + ', y: ' + Math.round(r.top) + ')', rect: toRect(r) });
           }
           break;
         }
+        // A control clipped away by an ancestor is hidden, not covered: it cannot stack or be occluded.
+        const cvis = clippedRect(el, r);
+        if (cvis) controls.push({ el: el, rect: r, vis: cvis, layer: layerOf(el) });
       }
     }
     stats.controls = controls.length;
