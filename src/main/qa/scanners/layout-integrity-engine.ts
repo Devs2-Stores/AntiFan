@@ -260,7 +260,7 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
   };
   const span = (a0, a1, b0, b1) => Math.max(0, Math.min(a1, b1) - Math.max(a0, b0));
   // The painted extent of a single-line text field's value: the browser draws it inside the
-  // field's own box, so no text node or line rect describes it.
+  // field's own box, centred in the content box, so no text node or line rect describes it.
   const TEXT_FIELD = /^(text|email|search|tel|url|number)$/;
   let measureCtx = null;
   const fieldValueRect = (field) => {
@@ -275,8 +275,11 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
     measureCtx.font = s.fontStyle + ' ' + s.fontWeight + ' ' + s.fontSize + ' ' + s.fontFamily;
     const w = Math.min(right - left, measureCtx.measureText(field.value).width);
     const start = s.textAlign === 'right' || s.textAlign === 'end' ? right - w : s.textAlign === 'center' ? left + (right - left - w) / 2 : left;
-    const top = fr.top + field.clientTop;
-    return { left: start, right: start + w, top: top, bottom: top + field.clientHeight };
+    const contentTop = fr.top + field.clientTop + (parseFloat(s.paddingTop) || 0);
+    const contentH = field.clientHeight - (parseFloat(s.paddingTop) || 0) - (parseFloat(s.paddingBottom) || 0);
+    const lineH = Math.min((parseFloat(s.fontSize) || 16) * 1.2, contentH > 0 ? contentH : field.clientHeight);
+    const top = (contentH > 0 ? contentTop + contentH / 2 : fr.top + field.clientTop + field.clientHeight / 2) - lineH / 2;
+    return { left: start, right: start + w, top: top, bottom: top + lineH };
   };
   const isScrollAxis = (v) => v === 'auto' || v === 'scroll';
   const isHiddenAxis = (v) => v === 'hidden' || v === 'clip';
@@ -623,6 +626,17 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
       if (unsettled(run.p)) continue;
       run.layer = layerOf(run.p);
       live.push(run);
+    }
+    // A text field's value is text the reader needs too: a label or caption laid on it hides what
+    // the field holds.
+    for (let i = 0; i < controls.length; i++) {
+      const c = controls[i];
+      if (!c.vis || unsettled(c.el)) continue;
+      const v = fieldValueRect(c.el);
+      if (!v) continue;
+      const vis = { left: Math.max(v.left, c.vis.left), top: Math.max(v.top, c.vis.top), right: Math.min(v.right, c.vis.right), bottom: Math.min(v.bottom, c.vis.bottom) };
+      if (vis.right - vis.left < 2 || vis.bottom - vis.top < 4) continue;
+      live.push({ n: { nodeValue: c.el.value }, p: c.el, vis: vis, layer: layerOf(c.el) });
     }
     live.sort((a, b) => a.vis.top - b.vis.top);
     const reported = new Set();
