@@ -467,6 +467,9 @@ function resolveForbiddenCapabilities() {
 
 async function acquireBridgeSession(candidates, boundPid, explicitTabId) {
   const errors = [];
+  // Refusals a bridge answered with. A bridge that answered is up: reporting its refusal as
+  // "offline" sends the caller to restart a desktop app that is running fine.
+  const refusals = [];
   const rawPinnedPid = parseInt(process.env.ANTIFAN_BRIDGE_PID || '', 10);
   const pinnedPid = Number.isInteger(rawPinnedPid) && rawPinnedPid > 0 ? rawPinnedPid : null;
   let foreignFallback = null;
@@ -561,12 +564,19 @@ async function acquireBridgeSession(candidates, boundPid, explicitTabId) {
       return { ws, bridgeInfo: candidate, session };
     } catch (err) {
       errors.push(`${wsUrl} (${candidate.file || candidate.source || 'endpoint'}): ${err.message}`);
+      if (err.bridgeAnswered === true) refusals.push(err);
       try { ws?.close(); } catch {}
     }
   }
   if (foreignFallback) {
     console.warn('[antifan] FOREIGN_INSTANCE_ATTACH: falling back to a live local instance because the pinned instance never answered.');
     return foreignFallback;
+  }
+  if (refusals.length > 0) {
+    const err = new Error(`AntiFan Bridge answered and refused this session:\n  - ${errors.join('\n  - ')}`);
+    err.code = 'BRIDGE_SESSION_REFUSED';
+    err.refusalCodes = refusals.map((refusal) => refusal.code);
+    throw err;
   }
   throw new Error(`All candidate endpoints failed to authenticate or connect:\n  - ${errors.join('\n  - ')}`);
 }
@@ -627,7 +637,15 @@ function rpcCall(ws, method, params = {}, timeoutMs = 10000) {
           if (msg.success) {
             resolve(msg.data);
           } else {
-            reject(new Error(msg.error || `RPC ${method} failed`));
+            // The bridge answered: this is its refusal, not an unreachable endpoint. Its
+            // messages lead with their code (`TERMINAL_SCOPE_UNRESOLVED: ...`), kept here so
+            // a caller can act on it without parsing prose.
+            const message = typeof msg.error === 'string' && msg.error ? msg.error : `RPC ${method} failed`;
+            const err = new Error(message);
+            const leading = /^([A-Z][A-Z0-9_]{2,}):/.exec(message);
+            err.code = leading ? leading[1] : 'BRIDGE_REFUSED';
+            err.bridgeAnswered = true;
+            reject(err);
           }
         }
       } catch {}
@@ -710,6 +728,11 @@ async function main() {
   try {
     bridgeAcquisition = await acquireBridgeSession(candidates, boundPid, explicitTabId);
   } catch (err) {
+    if (err.code === 'BRIDGE_SESSION_REFUSED') {
+      console.error(`BRIDGE_SESSION_REFUSED: ${err.message}`);
+      console.error('[antifan-agent] AntiFan Browser Desktop is running; the refusal above names why this session was not admitted.');
+      process.exit(1);
+    }
     console.error(`MCP_BRIDGE_OFFLINE: Failed to connect to AntiFan Bridge after bounded attempts:\n${err.message}`);
     console.error('[antifan-agent] Please verify that AntiFan Browser Desktop is running and responsive.');
     process.exit(1);

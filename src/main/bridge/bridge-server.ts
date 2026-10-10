@@ -299,6 +299,10 @@ export interface BridgeMintTargetRequest {
  * `capsuleId` absent means the mint rides the resolved window's own capsule fallback.
  * `undefined` resolution means "no owner to route by" — the bridge falls back to its
  * construction host (the unattributed, single-window behavior).
+ *
+ * The resolver is asynchronous because answering may have to bring the hub back: the
+ * hub can be closed while sibling windows keep the process running, and the claims it
+ * serves then have no live window until one is reopened.
  */
 export interface BridgeMintTargetResolution {
   host: NativeTabHost;
@@ -311,7 +315,7 @@ export interface BridgeMintTargetResolution {
   unpinnedBootProject?: boolean;
 }
 
-export type BridgeMintHostResolver = (opts: BridgeMintTargetRequest) => BridgeMintTargetResolution | undefined;
+export type BridgeMintHostResolver = (opts: BridgeMintTargetRequest) => Promise<BridgeMintTargetResolution | undefined>;
 
 export class BridgeServer {
   private static instance: BridgeServer | null = null;
@@ -2421,19 +2425,42 @@ export class BridgeServer {
     }
   }
 
+  /** Host-event relays, held so re-pointing the construction host can detach them. */
+  private readonly relayElementPicked = (element: AntiFanPickedElement): void => {
+    this.broadcastEvent('antifan:elementPicked', element);
+  };
+  private readonly relayTabsChanged = (tabs: AntiFanTab[], activeTabId: string): void => {
+    this.broadcastEvent('antifan:tabChanged', { tabs, activeTabId });
+  };
+  private readonly relayInspectToggled = (active: boolean): void => {
+    this.broadcastEvent('antifan:inspectStateChanged', { active });
+  };
+
+  private attachTabHostRelays(host: NativeTabHost): void {
+    host.on('element-picked', this.relayElementPicked);
+    host.on('tabs-changed', this.relayTabsChanged);
+    host.on('inspect-toggled', this.relayInspectToggled);
+  }
+
+  /**
+   * Re-point the construction host at a new hub. Closing the hub while sibling windows
+   * keep the process running disposes the host this bridge was built with; when the hub
+   * is opened again it gets a new host, and every unattributed answer — status, the
+   * active tab, the mint fallback, the relayed host events — must come from that one,
+   * never from the disposed host.
+   */
+  public setTabHost(host: NativeTabHost): void {
+    if (host === this.tabHost) return;
+    const previous = this.tabHost;
+    previous.off('element-picked', this.relayElementPicked);
+    previous.off('tabs-changed', this.relayTabsChanged);
+    previous.off('inspect-toggled', this.relayInspectToggled);
+    this.tabHost = host;
+    this.attachTabHostRelays(host);
+  }
+
   private wireTabHostEvents(): void {
-    this.tabHost.on('element-picked', (element: AntiFanPickedElement) => {
-      this.broadcastEvent('antifan:elementPicked', element);
-    });
-
-    this.tabHost.on('tabs-changed', (tabs: AntiFanTab[], activeTabId: string) => {
-      this.broadcastEvent('antifan:tabChanged', { tabs, activeTabId });
-    });
-
-    this.tabHost.on('inspect-toggled', (active: boolean) => {
-      this.broadcastEvent('antifan:inspectStateChanged', { active });
-    });
-
+    this.attachTabHostRelays(this.tabHost);
 
     // Wire live terminal streaming and session lifecycle to WebSocket clients
     const tm = TerminalManager.getInstance();
@@ -2635,7 +2662,7 @@ export class BridgeServer {
             // pinned capsule travel together so tab ownership, affinity, and capsule agree.
             let mintTarget: BridgeMintTargetResolution | undefined;
             if (tabId) {
-              mintTarget = this.resolveMintTarget({ boundTabId: tabId });
+              mintTarget = await this.resolveMintTarget({ boundTabId: tabId });
               const targetHost = mintTarget?.host ?? this.tabHost;
               const canonical = typeof targetHost.resolveTargetTabId === 'function'
                 ? targetHost.resolveTargetTabId(tabId)
@@ -2647,7 +2674,7 @@ export class BridgeServer {
               tabId = effective;
             } else {
               if (terminalSessionId) {
-                mintTarget = this.resolveMintTarget({ terminalSessionId });
+                mintTarget = await this.resolveMintTarget({ terminalSessionId });
                 const sessionHost = mintTarget?.host ?? this.tabHost;
                 if (typeof sessionHost.getTerminalAgentAffinity === 'function') {
                   const affinity = sessionHost.getTerminalAgentAffinity(terminalSessionId, terminalGen);
@@ -2724,12 +2751,12 @@ export class BridgeServer {
                 const targetAttachmentId = typeof p.attachmentId === 'string' && p.attachmentId.trim() ? p.attachmentId.trim() : boundAttachmentId;
                 const ownTabId = this.boundTabIdFor(targetAttachmentId);
                 if (ownTabId) {
-                  mintTarget = this.resolveMintTarget({ boundTabId: ownTabId });
+                  mintTarget = await this.resolveMintTarget({ boundTabId: ownTabId });
                   tabId = ownTabId;
                 } else {
                   // A fresh provision pins the capsule the caller's project claim resolves
                   // to — validated by the resolver, so an unknown/ambiguous claim pins nothing.
-                  mintTarget = this.resolveMintTarget({ projectId: requestProjectId });
+                  mintTarget = await this.resolveMintTarget({ projectId: requestProjectId });
                   const mintHost = mintTarget?.host ?? this.tabHost;
                   tabId = mintHost.createTab('about:blank', wantsVisibleTab, {
                     plane: wantsVisibleTab ? 'user' : 'agent',
@@ -3067,7 +3094,7 @@ export class BridgeServer {
             // The new tab belongs to the window its attributed tab belongs to and carries
             // that tab's capsule — minting on the construction host would land it (and its
             // lifecycle) in whichever window happened to boot first.
-            const mintTarget = this.resolveMintTarget({ boundTabId: targetTabId });
+            const mintTarget = await this.resolveMintTarget({ boundTabId: targetTabId });
             const mintHost = mintTarget?.host ?? this.tabHost;
             const tabId = mintHost.createTab(p.url, activate, {
               ephemeral: isEphemeral,
@@ -3921,7 +3948,7 @@ export class BridgeServer {
    * owning host, or no resolvable capsule, is a real claim with no provable scope —
    * minting anyway would put the anchor under the ambient capsule of another window.
    */
-  private resolveMintTarget(opts: BridgeMintTargetRequest): BridgeMintTargetResolution | undefined {
+  private async resolveMintTarget(opts: BridgeMintTargetRequest): Promise<BridgeMintTargetResolution | undefined> {
     const tm = TerminalManager.getInstance();
     const terminalSessionId = typeof opts.terminalSessionId === 'string' && opts.terminalSessionId.trim() ? opts.terminalSessionId.trim() : undefined;
     // 'default' is the daemon's unattributed sentinel, not a workspace stamp — a session
@@ -3933,7 +3960,7 @@ export class BridgeServer {
       : undefined;
     const parsedOwner = parseOwnerKey(ownerKey);
     const projectClaimed = parsedOwner.kind === 'project' || parsedOwner.kind === 'malformed';
-    const resolution = this.mintHostResolver?.({ ...opts, terminalSessionId });
+    const resolution = this.mintHostResolver ? await this.mintHostResolver({ ...opts, terminalSessionId }) : undefined;
     if (projectClaimed && (!resolution?.host || (!resolution.capsuleId && !resolution.unpinnedBootProject))) {
       throw new CapabilityError(
         'TERMINAL_SCOPE_UNRESOLVED',

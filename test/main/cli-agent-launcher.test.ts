@@ -722,4 +722,67 @@ describe('CLI Session and Agent Launcher Lifecycle', () => {
       stringly.wss.close();
     }
   });
+
+  it('reports a session the bridge answered and refused as a refusal, not as an offline bridge', async () => {
+    const launcherPath = path.resolve(process.cwd(), 'scripts', 'antifan-agent.cjs');
+    const { acquireBridgeSession } = require(launcherPath);
+
+    const wss = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+    await new Promise<void>((resolve) => wss.once('listening', () => resolve()));
+    const address = wss.address();
+    const port = typeof address === 'object' && address !== null ? address.port : 0;
+    wss.on('connection', (socket) => {
+      socket.on('message', (raw) => {
+        let msg: { id?: string; method?: string };
+        try { msg = JSON.parse(raw.toString()); } catch { return; }
+        if (msg.method !== 'antifan.cli.startSession') return;
+        socket.send(JSON.stringify({
+          id: msg.id,
+          success: false,
+          error: "TERMINAL_SCOPE_UNRESOLVED: Project 'p-x' is detached but owns no live window; refusing to mint an agent tab into the hub window.",
+        }));
+      });
+    });
+    // A port nothing listens on: the second candidate is genuinely unreachable.
+    const dead = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+    await new Promise<void>((resolve) => dead.once('listening', () => resolve()));
+    const deadAddress = dead.address();
+    const deadPort = typeof deadAddress === 'object' && deadAddress !== null ? deadAddress.port : 0;
+    await new Promise<void>((resolve) => dead.close(() => resolve()));
+
+    const prevPinned = process.env.ANTIFAN_BRIDGE_PID;
+    delete process.env.ANTIFAN_BRIDGE_PID;
+    try {
+      await assert.rejects(
+        acquireBridgeSession([
+          { source: 'env', file: null, port, host: '127.0.0.1', token: 'token-1', pid: process.pid, pidAlive: true, pinned: true, provenance: 'env', startedAt: 0, isDev: false },
+          { source: 'file', file: 'discovery.json', port: deadPort, host: '127.0.0.1', token: 'token-2', pid: process.pid, pidAlive: true, pinned: false, provenance: 'instance-file', startedAt: 1, isDev: false },
+        ], process.pid, undefined),
+        (err: unknown) => {
+          assert.ok(err instanceof Error);
+          const refusal = err as Error & { code?: string; refusalCodes?: string[] };
+          assert.strictEqual(refusal.code, 'BRIDGE_SESSION_REFUSED', `an answered refusal was reported as an outage: ${refusal.message}`);
+          assert.deepStrictEqual(refusal.refusalCodes, ['TERMINAL_SCOPE_UNRESOLVED']);
+          assert.match(refusal.message, /detached but owns no live window/);
+          return true;
+        }
+      );
+
+      await assert.rejects(
+        acquireBridgeSession([
+          { source: 'file', file: 'discovery.json', port: deadPort, host: '127.0.0.1', token: 'token-2', pid: process.pid, pidAlive: true, pinned: false, provenance: 'instance-file', startedAt: 1, isDev: false },
+        ], process.pid, undefined),
+        (err: unknown) => {
+          assert.ok(err instanceof Error);
+          assert.notStrictEqual((err as Error & { code?: string }).code, 'BRIDGE_SESSION_REFUSED', 'an unreachable endpoint is not a refusal');
+          assert.match(err.message, /All candidate endpoints failed/);
+          return true;
+        }
+      );
+    } finally {
+      if (prevPinned === undefined) delete process.env.ANTIFAN_BRIDGE_PID;
+      else process.env.ANTIFAN_BRIDGE_PID = prevPinned;
+      wss.close();
+    }
+  });
 });

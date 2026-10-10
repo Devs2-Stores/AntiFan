@@ -567,6 +567,19 @@ function liveShellFor(ownerKeyValue: string): ProjectWindowShell | undefined {
   return liveProjectShells().find((shell) => ownerKey(shell.owner) === ownerKeyValue);
 }
 
+/** Shells whose first-paint presentation is armed and has not run yet (at most 300 ms). */
+const shellsAwaitingFirstPaint = new WeakSet<ProjectWindowShell>();
+
+/**
+ * Whether a person can see this shell, or is about to: shown (minimized counts — it sits
+ * on the taskbar) or armed to show on its first paint. A shell created for agent work is
+ * never presented, so a hub an agent reopened stays off-screen until someone opens it.
+ */
+function shellIsOnScreen(shell: ProjectWindowShell): boolean {
+  const win = shell.window;
+  if (win.isDestroyed()) return false;
+  return win.isVisible() || win.isMinimized() || shellsAwaitingFirstPaint.has(shell);
+}
 
 /** The icon this build ships, resolved once for every window. */
 let cachedAppIconPath: string | null | undefined;
@@ -1418,8 +1431,10 @@ const closeCoordinator = new ProjectCloseCoordinator({
  * what lets the quit path notice it has no chrome left to explain itself in.
  */
 const closeRefusalPresentation: CloseRefusalPresentationPort = {
+  // Only a shell someone can see may carry the reason; a hub an agent reopened off-screen
+  // would swallow it, and a quit with nothing on screen falls through to the dialog.
   surfaces: () =>
-    liveProjectShells().map((shell) => ({
+    liveProjectShells().filter(shellIsOnScreen).map((shell) => ({
       ownerKey: ownerKey(shell.owner),
       send: (notice) =>
         safeSendWebContents(shell.toolbarView?.webContents, PROJECT_WINDOW_CHANNELS.CLOSE_REFUSED, notice),
@@ -1515,6 +1530,11 @@ function requestApplicationQuit(origin: string): void {
       });
       if (report.shutdown !== 'committed') {
         console.warn(`[antifan] ${report.summary}`, report.refusals.map((refusal) => refusal.detail).join(' '));
+        // A refused quit keeps the process, so it must also keep a window to come back to: a
+        // hub an agent reopened off-screen holds the very work that refused, and the controls
+        // that stop it live in its chrome. It is presented before the notice is delivered, so
+        // the reason lands in that chrome rather than in a dialog over an empty screen.
+        revealOffScreenShells(origin);
         // A refused quit is the user's own request being refused, and it has to be visible
         // wherever they are looking: every browser shell gets the reason. A halt with no
         // refusal (for example a failed commit) still has a summary worth showing, so the
@@ -1539,6 +1559,22 @@ function requestApplicationQuit(origin: string): void {
 }
 
 /**
+ * Present every live shell when none is on screen. Only a refused quit calls this: the user
+ * closed their last visible window, the process could not end, and an off-screen shell is the
+ * only place left that shows what is still running.
+ */
+function revealOffScreenShells(origin: string): void {
+  // The window directory presents only shells it owns; a shell it never registered has no
+  // owner record to present through.
+  const shells = projectWindows?.listShells() ?? [];
+  if (shells.length === 0 || liveProjectShells().some(shellIsOnScreen)) return;
+  for (const shell of shells) {
+    recordLifecycleEvent('quit.refused.shell-revealed', { origin, owner: ownerKey(shell.owner) });
+    void projectWindows?.ensureWindow(shell.owner, 'user');
+  }
+}
+
+/**
  * A shell the platform destroyed. Unregistering first means a message from its dying
  * renderers can never be routed again, and its host is disposed with the shell, which
  * persists that owner's tabs. Whether the process may now end is not decided here: only the
@@ -1560,11 +1596,17 @@ function handleShellClosed(shell: ProjectWindowShell): void {
     return;
   }
   const remaining = projectWindows?.browserShellCount() ?? 0;
-  if (remaining > 0) {
+  // Only a window someone can see keeps the application running. A hub an agent reopened
+  // off-screen is still a browser shell, but closing the last visible window is the user
+  // ending the session: it must not leave a process with no window to come back to.
+  if (remaining > 0 && liveProjectShells().some(shellIsOnScreen)) {
     recordLifecycleEvent('window-closed.siblings-live', { remaining, owner: ownerKey(shell.owner) });
     return;
   }
-  recordLifecycleEvent('window-closed.last-browser-shell', { owner: ownerKey(shell.owner) });
+  recordLifecycleEvent('window-closed.last-browser-shell', {
+    owner: ownerKey(shell.owner),
+    ...(remaining > 0 ? { offScreenShells: remaining } : {}),
+  });
   requestApplicationQuit('last-browser-shell-closed');
 }
 
@@ -1691,6 +1733,9 @@ async function ensureProjectWindow(
   host.restoreTabs(consumeLaunchUrlArgument());
   recordBenchmark({ surface: 'startup', name: 'tabsRestored' });
   attachSharedServices(host);
+  // The bridge answers unattributed requests from the hub's host. A hub reopened after a
+  // close is a new host, and the one the bridge was built with is disposed.
+  if (ownerKey(shell.owner) === 'web') bridgeServer?.setTabHost(host);
   return { shell, host, created: true };
 }
 
@@ -2470,10 +2515,12 @@ export interface BridgeMintResolverDeps {
   /**
    * The hub host — the default window for claims nobody detached: project-owned
    * terminals still route through it (the hub presents that project), and
-   * web/unassigned keys keep their shipped fallback. Never null: the bootstrap
-   * host is the floor, exactly as the retired code's `?? bootstrapHost` was.
+   * web/unassigned keys and unclaimed mints land on it. The hub may be closed while
+   * sibling windows keep the process running; this reopens it rather than answering
+   * with the host that window disposed. Read only on a path that lands on the hub, so
+   * a refused or elsewhere-routed mint never reopens it.
    */
-  hubHost(): NativeTabHost;
+  ensureHubHost(): Promise<NativeTabHost>;
 }
 
 /**
@@ -2494,10 +2541,12 @@ export interface BridgeMintResolverDeps {
  * - `projectId` → the validated claim mints on the live detached shell, refuses
  *   typed while detached-but-windowless, and otherwise lands on the hub pinned
  *   to the project's capsule.
- * - No claim → `undefined`; the bridge keeps its construction-host fallback.
+ * - No claim → the hub, unpinned; a closed hub is reopened off-screen first.
+ * - A `boundTabId` that is gone, with no other claim → `undefined`: reopening the
+ *   hub would only host the bridge's TAB_NOT_FOUND refusal.
  */
 export function createBridgeMintHostResolver(deps: BridgeMintResolverDeps): BridgeMintHostResolver {
-  return (opts) => {
+  return async (opts) => {
     if (opts.boundTabId) {
       const tabHost = deps.hostForTab(opts.boundTabId);
       if (tabHost) return { host: tabHost, capsuleId: tabHost.getTabCapsuleId(opts.boundTabId) };
@@ -2529,7 +2578,7 @@ export function createBridgeMintHostResolver(deps: BridgeMintResolverDeps): Brid
         // was never detached: the hub presents it there. A detached project with no
         // live shell is refused below, never re-homed.
         host = deps.hostForOwnerKey(ownerKeyValue)
-          ?? (projectClaim && !claimedDetached ? deps.hubHost() : null)
+          ?? (projectClaim && !claimedDetached ? await deps.ensureHubHost() : null)
           ?? undefined;
       }
       if (projectClaim && !host) {
@@ -2547,9 +2596,9 @@ export function createBridgeMintHostResolver(deps: BridgeMintResolverDeps): Brid
         );
       }
       if (claimedProjectId && !capsuleId && !claimedDetached && deps.isBootProject(claimedProjectId)) {
-        return { host: host ?? deps.hubHost(), capsuleId, unpinnedBootProject: true };
+        return { host: host ?? await deps.ensureHubHost(), capsuleId, unpinnedBootProject: true };
       }
-      return { host: host ?? deps.hubHost(), capsuleId };
+      return { host: host ?? await deps.ensureHubHost(), capsuleId };
     }
     if (opts.projectId) {
       // Only a validated claim may pin a capsule; unknown/ambiguous projects mint
@@ -2568,9 +2617,10 @@ export function createBridgeMintHostResolver(deps: BridgeMintResolverDeps): Brid
           { projectId: opts.projectId },
         );
       }
-      return { host: deps.hubHost(), capsuleId: assignment };
+      return { host: await deps.ensureHubHost(), capsuleId: assignment };
     }
-    return undefined;
+    if (opts.boundTabId) return undefined;
+    return { host: await deps.ensureHubHost() };
   };
 }
 
@@ -2687,6 +2737,7 @@ function presentShellOnFirstPaint(
   const placement = windowStateManager?.getValidBounds(ownerKey(shell.owner));
   let fallbackTimer: NodeJS.Timeout | null = null;
   const present = (): void => {
+    shellsAwaitingFirstPaint.delete(shell);
     if (fallbackTimer) {
       clearTimeout(fallbackTimer);
       fallbackTimer = null;
@@ -2702,8 +2753,10 @@ function presentShellOnFirstPaint(
     if (presentation === 'focused') shell.window.focus();
     onFirstPaint?.();
   };
+  shellsAwaitingFirstPaint.add(shell);
   shell.window.once('ready-to-show', present);
   shell.window.once('closed', () => {
+    shellsAwaitingFirstPaint.delete(shell);
     if (!fallbackTimer) return;
     clearTimeout(fallbackTimer);
     fallbackTimer = null;
@@ -4637,7 +4690,10 @@ async function createWindow(): Promise<void> {
         // automation tab, never the user's active foreground tab. This prevents any
         // MCP/CLI session bootstrapping without an explicit target from latching onto
         // and hijacking the user's working tab.
-        const automationTarget = host.getAutomationTarget() as
+        // The hub that answers is the live one: a hub closed while siblings kept the process
+        // running is reopened as a new host, and the boot-time one is disposed with no tabs.
+        const hubHost = hostForOwnerKey('web') ?? host;
+        const automationTarget = hubHost.getAutomationTarget() as
           | { tabId: string; url?: string; documentGeneration?: number }
           | undefined;
         const targetTabId = automationTarget?.tabId;
@@ -4659,8 +4715,8 @@ async function createWindow(): Promise<void> {
             tabId: targetTabId,
             browserEpoch: 1,
             documentGeneration:
-              typeof host.getDocumentGeneration === 'function'
-                ? host.getDocumentGeneration(targetTabId)
+              typeof hubHost.getDocumentGeneration === 'function'
+                ? hubHost.getDocumentGeneration(targetTabId)
                 : 1,
             url: automationTarget?.url,
           },
@@ -4689,7 +4745,15 @@ async function createWindow(): Promise<void> {
         || liveProjectShells().some((s) => s.owner.kind === 'project' && s.owner.projectId === projectId)
         || savedTabsOwnerIsDetached(savedTabsFilePath(), projectId),
       isBootProject: (projectId) => projectId === bootProjectIdValue,
-      hubHost: () => hostForOwnerKey('web') ?? bootstrapHost,
+      ensureHubHost: async () => {
+        const live = hostForOwnerKey('web');
+        if (live) return live;
+        // The hub was closed while sibling windows kept the process running. Agent intent
+        // reopens it without raising it; the next user open presents it.
+        const { host, created } = await ensureProjectWindow({ kind: 'web' }, 'agent');
+        if (created) recordLifecycleEvent('hub.reopened-off-screen', { reason: 'agent-mint' });
+        return host;
+      },
     }));
     // Direct-RPC tab ops (switch/close/getDOM/capture/evalJS/navigate/reload/goBack/
     // goForward) act on the window's host that owns the resolved tab — not the

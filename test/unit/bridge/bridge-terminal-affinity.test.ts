@@ -15,7 +15,7 @@ describe('BridgeServer Terminal Affinity Resolution Live RPC Contract Tests', ()
   let recordedAutomationTabId: string | null = null;
   let lastSessionCreatedOpts: any = null;
   let mockHost: MockTabHost;
-  let resolverStub: ((opts: BridgeMintTargetRequest) => BridgeMintTargetResolution | undefined) | undefined;
+  let resolverStub: ((opts: BridgeMintTargetRequest) => BridgeMintTargetResolution | undefined | Promise<BridgeMintTargetResolution | undefined>) | undefined;
 
   class MockTabHost extends EventEmitter {
     // A real host tracks the tabs it creates; the session-start validation reads
@@ -91,7 +91,7 @@ describe('BridgeServer Terminal Affinity Resolution Live RPC Contract Tests', ()
     mockHost = new MockTabHost();
     server = new BridgeServer(mockHost as unknown as NativeTabHost, 0);
     server.setControlPlane(mockControlPlane as unknown as ControlPlaneRuntime);
-    server.setMintHostResolver((opts) => resolverStub?.(opts));
+    server.setMintHostResolver(async (opts) => resolverStub?.(opts));
     port = await server.start();
     const token = server.getToken();
     ws = new WebSocket(`ws://127.0.0.1:${port}`, {
@@ -379,6 +379,56 @@ describe('BridgeServer Terminal Affinity Resolution Live RPC Contract Tests', ()
     } finally {
       restoreTerminalManager();
     }
+  });
+
+  it('13b. Awaits a resolver that has to reopen the hub before the mint can land', async () => {
+    // A hub closed while sibling windows keep the process running is reopened by the
+    // resolver, which is asynchronous. The mint must wait for the host it answers with,
+    // never fall back to the construction host the closed hub disposed.
+    installTerminalStub({}, { 'term-reopen': 'unassigned' });
+    const reopened = new MockTabHost();
+    const entered = Promise.withResolvers<void>();
+    const gate = Promise.withResolvers<void>();
+    resolverStub = async () => {
+      entered.resolve();
+      await gate.promise;
+      return { host: reopened as unknown as NativeTabHost };
+    };
+    const mintsBefore = mockHost.createTabCalls.length;
+    try {
+      const pending = rpcCall('antifan.cli.startSession', { terminalSessionId: 'term-reopen' });
+      await entered.promise;
+      assert.strictEqual(mockHost.createTabCalls.length, mintsBefore, 'the construction host minted while the resolver was still answering');
+      gate.resolve();
+      const resp = await pending;
+      assert.strictEqual(resp.success, true, String(resp.error));
+      assert.strictEqual(reopened.createTabCalls.length, 1, 'the mint did not land on the reopened hub');
+      assert.strictEqual(reopened.boundAffinity.length, 1, 'affinity must bind on the reopened hub');
+      assert.strictEqual(mockHost.createTabCalls.length, mintsBefore, 'the construction host minted the anchor');
+    } finally {
+      restoreTerminalManager();
+    }
+  });
+
+  it('13c. A re-pointed construction host answers unrouted mints and relays events; the old one is let go', async () => {
+    const reopened = new MockTabHost();
+    assert.strictEqual(reopened.listenerCount('tabs-changed'), 0);
+    server.setTabHost(reopened as unknown as NativeTabHost);
+    try {
+      assert.strictEqual(reopened.listenerCount('tabs-changed'), 1, 'the new host\'s events are not relayed');
+      assert.strictEqual(reopened.listenerCount('element-picked'), 1);
+      assert.strictEqual(reopened.listenerCount('inspect-toggled'), 1);
+      assert.strictEqual(mockHost.listenerCount('tabs-changed'), 0, 'the replaced host is still relayed');
+      const mintsBefore = mockHost.createTabCalls.length;
+      const resp = await rpcCall('antifan.cli.startSession', {});
+      assert.strictEqual(resp.success, true, String(resp.error));
+      assert.strictEqual(reopened.createTabCalls.length, 1, 'an unrouted mint did not land on the re-pointed host');
+      assert.strictEqual(mockHost.createTabCalls.length, mintsBefore, 'the replaced host minted');
+    } finally {
+      server.setTabHost(mockHost as unknown as NativeTabHost);
+    }
+    assert.strictEqual(reopened.listenerCount('tabs-changed'), 0);
+    assert.strictEqual(mockHost.listenerCount('tabs-changed'), 1);
   });
 
   // Project isolation of the terminal-origin session mint: a tab affinity that
