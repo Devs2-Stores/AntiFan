@@ -53,7 +53,7 @@ export interface ProcessRegistryOptions {
   markerFileName?: string;
   autoInstallExitHooks?: boolean;
   now?: () => number;
-  getProcessStartTime?: (pid: number) => number | null;
+  getProcessStartTime?: (pid: number) => Promise<number | null>;
   isProcessAlive?: (pid: number) => boolean;
   killProcess?: (pid: number) => Promise<boolean>;
   killProcessSync?: (pid: number) => boolean;
@@ -94,60 +94,72 @@ export function parseWmicCreationDate(str: string): number | null {
 }
 
 /**
- * Retrieve the OS-level creation timestamp of a process in epoch milliseconds.
- * Returns null if the process is dead, unreachable, or platform cannot determine.
+ * Run a short probe command and return its stdout, or null when it cannot
+ * spawn, exits non-zero or outlives `timeoutMs`.
  */
-export function getProcessCreationTime(pid: number): number | null {
+function probeCommandOutput(file: string, args: string[], timeoutMs: number): Promise<string | null> {
+  return new Promise((resolve) => {
+    let child: cp.ChildProcess;
+    try {
+      child = cp.spawn(file, args, { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'], timeout: timeoutMs });
+    } catch {
+      resolve(null);
+      return;
+    }
+    let out = '';
+    child.stdout?.setEncoding('utf8');
+    child.stdout?.on('data', (chunk: string) => { out += chunk; });
+    child.once('error', () => resolve(null));
+    child.once('close', (code) => resolve(code === 0 ? out : null));
+  });
+}
+
+/**
+ * Retrieve the OS-level creation timestamp of a process in epoch milliseconds.
+ * Resolves null if the process is dead, unreachable, or platform cannot determine.
+ * Asynchronous because the Windows probes are child processes that take from
+ * half a second (wmic) to several seconds (powershell) - never block the caller's
+ * thread on them.
+ */
+export async function getProcessCreationTime(pid: number): Promise<number | null> {
   if (!pid || pid <= 0 || !Number.isFinite(pid)) return null;
 
   if (process.platform === 'win32') {
-    // 1. Primary fast probe on Windows: wmic.exe (~30ms)
-    try {
-      const out = cp.execFileSync(
-        'wmic.exe',
-        ['process', 'where', `ProcessId=${pid}`, 'get', 'CreationDate', '/value'],
-        { encoding: 'utf8', timeout: 3000, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] }
-      );
-      const line = out.split('\r\n').find((l) => l.startsWith('CreationDate='));
-      if (line) {
-        const parts = line.split('=');
-        const val = parts[1]?.trim();
-        if (val) {
-          const parsed = parseWmicCreationDate(val);
-          if (parsed !== null) return parsed;
-        }
-      }
-    } catch {
-      // WMIC not available or process died
+    // 1. Primary probe on Windows: wmic.exe (measured 0.45-0.9 s)
+    const wmic = await probeCommandOutput(
+      'wmic.exe',
+      ['process', 'where', `ProcessId=${pid}`, 'get', 'CreationDate', '/value'],
+      3000
+    );
+    const line = wmic?.split('\r\n').find((l) => l.startsWith('CreationDate='));
+    const val = line?.split('=')[1]?.trim();
+    if (val) {
+      const parsed = parseWmicCreationDate(val);
+      if (parsed !== null) return parsed;
     }
 
-    // 2. Fallback probe: powershell.exe
-    try {
-      const out = cp.execFileSync(
-        'powershell.exe',
-        [
-          '-NoProfile',
-          '-NonInteractive',
-          '-Command',
-          `try { (Get-Process -Id ${pid} -ErrorAction Stop).StartTime.ToUniversalTime().ToString('o') } catch { '' }`,
-        ],
-        { encoding: 'utf8', timeout: 4000, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] }
-      );
-      const trimmed = out.trim();
-      if (trimmed) {
-        const ms = Date.parse(trimmed);
-        if (Number.isFinite(ms)) return ms;
-      }
-    } catch {
-      // PowerShell fallback failed
+    // 2. Fallback probe: powershell.exe (WMIC is a deprecated optional feature)
+    const ps = await probeCommandOutput(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        `try { (Get-Process -Id ${pid} -ErrorAction Stop).StartTime.ToUniversalTime().ToString('o') } catch { '' }`,
+      ],
+      4000
+    );
+    const trimmed = ps?.trim();
+    if (trimmed) {
+      const ms = Date.parse(trimmed);
+      if (Number.isFinite(ms)) return ms;
     }
-
     return null;
   }
 
   if (process.platform === 'linux') {
     try {
-      const stat = fs.statSync(`/proc/${pid}`);
+      const stat = await fs.promises.stat(`/proc/${pid}`);
       return Math.floor(stat.mtimeMs);
     } catch {
       return null;
@@ -155,19 +167,10 @@ export function getProcessCreationTime(pid: number): number | null {
   }
 
   if (process.platform === 'darwin') {
-    try {
-      const out = cp.execFileSync('ps', ['-p', String(pid), '-o', 'lstart='], {
-        encoding: 'utf8',
-        timeout: 2000,
-        stdio: ['ignore', 'pipe', 'ignore'],
-      });
-      const trimmed = out.trim();
-      if (trimmed) {
-        const ms = Date.parse(trimmed);
-        if (Number.isFinite(ms)) return ms;
-      }
-    } catch {
-      return null;
+    const trimmed = (await probeCommandOutput('ps', ['-p', String(pid), '-o', 'lstart='], 2000))?.trim();
+    if (trimmed) {
+      const ms = Date.parse(trimmed);
+      if (Number.isFinite(ms)) return ms;
     }
   }
 
@@ -288,13 +291,14 @@ export class ProcessRegistry {
   private readonly stateDir: string;
   private readonly markerFilePath: string;
   private readonly now: () => number;
-  private readonly getProcessStartTime: (pid: number) => number | null;
+  private readonly getProcessStartTime: (pid: number) => Promise<number | null>;
   private readonly isProcessAlive: (pid: number) => boolean;
   private readonly killProcess: (pid: number) => Promise<boolean>;
   private readonly killProcessSync: (pid: number) => boolean;
   private readonly logger: (event: string, fields?: Record<string, unknown>) => void;
 
   private exitHooksInstalled = false;
+  private disposed = false;
   private exitHandler: (() => void) | null = null;
   private sigintHandler: (() => void) | null = null;
   private sigtermHandler: (() => void) | null = null;
@@ -340,22 +344,19 @@ export class ProcessRegistry {
 
   /**
    * Register a newly spawned child process.
-   * Immediately records metadata and updates the disk marker.
+   * Records metadata and updates the disk marker immediately. Without a
+   * caller-supplied `osStartTime` the OS creation time is probed in the
+   * background and written to the marker when it lands; until then the orphan
+   * sweep matches the record by its `createdAt` window.
    */
   public register(options: ProcessRegistrationOptions): TrackedProcess {
-    const createdAt = this.now();
-    let osStartTime: number | null = options.osStartTime ?? null;
-    if (osStartTime === null) {
-      osStartTime = this.getProcessStartTime(options.pid);
-    }
-
     const record: TrackedProcess = {
       pid: options.pid,
       owner: options.owner,
       name: options.name,
       command: options.command,
-      createdAt,
-      osStartTime,
+      createdAt: this.now(),
+      osStartTime: options.osStartTime ?? null,
       processRef: options.processRef,
     };
 
@@ -367,10 +368,26 @@ export class ProcessRegistry {
       owner: options.owner,
       name: options.name,
       command: options.command,
-      osStartTime,
+      osStartTime: record.osStartTime,
     });
 
+    if (record.osStartTime === null) void this.recordStartTime(record);
     return record;
+  }
+
+  private async recordStartTime(record: TrackedProcess): Promise<void> {
+    let osStartTime: number | null;
+    try {
+      osStartTime = await this.getProcessStartTime(record.pid);
+    } catch {
+      return;
+    }
+    // A disposed registry must not write: a successor may own the marker file
+    // (or its state dir is gone). An untracked record has nothing to persist.
+    if (osStartTime === null || this.disposed || this.tracked.get(record.pid) !== record) return;
+    record.osStartTime = osStartTime;
+    this.persistMarkerFile();
+    this.logger('process.startTime', { pid: record.pid, owner: record.owner, osStartTime });
   }
 
   /**
@@ -508,7 +525,7 @@ export class ProcessRegistry {
       }
 
       // 2. Process is ALIVE in OS! Check for PID reuse:
-      const currentStartTime = this.getProcessStartTime(record.pid);
+      const currentStartTime = await this.getProcessStartTime(record.pid);
 
       let isOrphan = false;
       let pidReused = false;
@@ -586,6 +603,7 @@ export class ProcessRegistry {
   }
 
   public dispose(): void {
+    this.disposed = true;
     if (this.exitHooksInstalled) {
       if (this.exitHandler) process.removeListener('exit', this.exitHandler);
       if (this.sigintHandler) process.removeListener('SIGINT', this.sigintHandler);

@@ -125,6 +125,40 @@ describe('Process Lifecycle & Windows Orphan Sweep Proof', () => {
     }
   });
 
+  it('registers without waiting for the OS start-time probe, and a disposed registry never writes the late result', async () => {
+    const stateDir = path.join(tempDir, 'background-probe');
+    const probes = new Map<number, (startTime: number | null) => void>();
+    const probed = new ProcessRegistry({
+      stateDir,
+      autoInstallExitHooks: false,
+      getProcessStartTime: (pid) => new Promise((resolve) => probes.set(pid, resolve)),
+      // Fake PIDs: nothing here may reach a real process.
+      isProcessAlive: () => true,
+      killProcess: async () => true,
+      killProcessSync: () => true,
+    });
+    const markers = (r: ProcessRegistry) => r.readMarkerFile().map((m) => [m.pid, m.osStartTime]);
+    const landed = () => new Promise<void>((resolve) => setImmediate(resolve));
+
+    const record = probed.register({ pid: 101, owner: 'probe' });
+    assert.strictEqual(record.osStartTime, null, 'register must return before the probe answers');
+    assert.deepStrictEqual(markers(probed), [[101, null]]);
+
+    probes.get(101)!(1_700_000_000_000);
+    await landed();
+    assert.strictEqual(record.osStartTime, 1_700_000_000_000);
+    assert.deepStrictEqual(markers(probed), [[101, 1_700_000_000_000]], 'the landed start time must reach the marker');
+
+    probed.register({ pid: 102, owner: 'probe' });
+    probed.dispose();
+    const successor = new ProcessRegistry({ stateDir, autoInstallExitHooks: false });
+    successor.writeMarkerFile([]);
+    probes.get(102)!(1_700_000_000_500);
+    await landed();
+    assert.deepStrictEqual(markers(successor), [], 'a disposed registry must not overwrite its successor\'s marker');
+    successor.dispose();
+  });
+
   it('proves explicit kill terminates real child process and updates registry and disk', async () => {
     const child = cp.spawn(process.execPath, ['-e', 'setInterval(() => {}, 5000)'], {
       windowsHide: true,
@@ -202,7 +236,7 @@ describe('Process Lifecycle & Windows Orphan Sweep Proof', () => {
     assert.strictEqual(isProcessAlive(orphanPid), true);
 
     // 2. Query real OS start time or use Date.now
-    const osStartTime = getProcessCreationTime(orphanPid) ?? Date.now();
+    const osStartTime = (await getProcessCreationTime(orphanPid)) ?? Date.now();
 
     // 3. Write a marker file to simulate a previous application crash
     // (The previous run crashed without calling unregister or kill)
@@ -253,7 +287,7 @@ describe('Process Lifecycle & Windows Orphan Sweep Proof', () => {
     assert.strictEqual(isProcessAlive(currentPid), true);
 
     // Get current process real start time
-    const realStartTime = getProcessCreationTime(currentPid) ?? Date.now();
+    const realStartTime = (await getProcessCreationTime(currentPid)) ?? Date.now();
 
     // Craft a marker record with the same PID, but a completely different start time
     // (Simulates a PID that belonged to an old child 2 hours ago, which exited, and Windows recycled the PID)
@@ -315,7 +349,7 @@ describe('Process Lifecycle & Windows Orphan Sweep Proof', () => {
     assert.strictEqual(await killProcessTree(0), false);
     assert.strictEqual(await killProcessTree(-1), false);
     assert.strictEqual(killProcessTreeSync(0), false);
-    assert.strictEqual(getProcessCreationTime(0), null);
+    assert.strictEqual(await getProcessCreationTime(0), null);
 
     // Corrupted marker file
     const markerPath = registry.getMarkerFilePath();
