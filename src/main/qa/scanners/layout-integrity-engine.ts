@@ -834,6 +834,28 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
     }
     const done = new Set();
     const reportedOwners = new Set();
+    // target index -> foreign fixed/sticky layer that last deferred it
+    const deferLayer = new Map();
+    const CLOSE_TEXT = /^(đóng|close|×|✕|✖|x|tắt|bỏ qua|để sau|skip|no thanks|không, cảm ơn)$/i;
+    const dismissible = (layer) => {
+      // A toggle that controls the layer is a way out only while the shopper can reach it.
+      const toggles = layer.id ? document.querySelectorAll('[aria-controls~="' + CSS.escape(layer.id) + '"]') : [];
+      for (let i = 0; i < toggles.length; i++) {
+        const tr = toggles[i].getBoundingClientRect();
+        const cx = (tr.left + tr.right) / 2;
+        const cy = (tr.top + tr.bottom) / 2;
+        if (tr.width < 1 || tr.height < 1 || cx < 0 || cx >= vw || cy < 0 || cy >= vh) continue;
+        const hit = document.elementFromPoint(cx, cy);
+        if (hit && (hit === toggles[i] || toggles[i].contains(hit))) return true;
+      }
+      const inner = layer.querySelectorAll(ACTIONABLE);
+      for (let i = 0; i < inner.length; i++) {
+        const c = inner[i];
+        const name = (c.getAttribute('aria-label') || c.getAttribute('title') || c.textContent || '').trim();
+        if (CLOSE_TEXT.test(name) || /close|dismiss/i.test(String(c.className) + ' ' + c.id)) return true;
+      }
+      return false;
+    };
     // A fixed layer painted over text in another fixed layer: the two never move against each
     // other, so what the upper one hides there stays hidden at every scroll offset (a chat bubble
     // on the label of a bottom checkout bar). Four pixels of the glyph line is the floor
@@ -943,7 +965,7 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
           const hit = document.elementFromPoint(cx, y);
           if (!hit || hit === doc || hit === body || hit === tg.owner || tg.owner.contains(hit) || hit.contains(tg.owner)) return { state: 'clear' };
           const stack = document.elementsFromPoint(cx, y);
-          let deferredHere = false;
+          let deferredBy = null;
           for (let k = 0; k < stack.length; k++) {
             const e = stack[k];
             if (e === tg.owner || tg.owner.contains(e) || e.contains(tg.owner)) break;
@@ -954,12 +976,12 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
             if (eLayer && eLayer !== tg.layer) {
               if (s === 0 && !tg.fixed && topLayer(eLayer) && isOpaque(e)) return { state: 'covered', by: e, sticky: 'at page load' };
               if (atEnd && !tg.fixed && bottomLayer(eLayer) && isOpaque(e)) return { state: 'covered', by: e, sticky: 'at the end of the page' };
-              deferredHere = true;
+              deferredBy = deferredBy || eLayer;
               continue;
             }
             if (isOpaque(e)) return { state: 'covered', by: e, sticky: null };
           }
-          return { state: deferredHere ? 'deferred' : 'clear' };
+          return deferredBy ? { state: 'deferred', layer: deferredBy } : { state: 'clear' };
         };
         const xAt = (f) => Math.min(vw - 1, Math.max(0, tg.vis.left + (tg.vis.right - tg.vis.left) * f));
         const ys = [cy];
@@ -977,7 +999,7 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
           if (probe.state === 'deferred') first = probe;
         }
         if (first.state === 'clear') { done.add(t); continue; }
-        if (first.state === 'deferred') continue;
+        if (first.state === 'deferred') { deferLayer.set(t, first.layer); continue; }
         let covered = 1;
         const second = sample(xAt(0.2), at);
         if (second.state === 'covered') covered++;
@@ -995,6 +1017,28 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
         }
       }
     }
+    // A fixed layer spanning the viewport with its own opaque surface hides the page at every
+    // scroll offset: what lies under it was deferred at each step and never came clear. A modal or
+    // drawer opened on purpose offers a way out (a close control inside it, or a toggle that
+    // controls it) or dims the page through a translucent backdrop; one with neither traps the
+    // shopper.
+    const trapped = new Map();
+    deferLayer.forEach((layer, t) => {
+      if (done.has(t)) return;
+      const list = trapped.get(layer) || [];
+      list.push(targets[t]);
+      trapped.set(layer, list);
+    });
+    trapped.forEach((list, layer) => {
+      if (list.length < 2 || unsettled(layer)) return;
+      if (layer.closest(PLATFORM_PREVIEW_CHROME) || layer.closest('dialog, [role="dialog"], [aria-modal="true"]')) return;
+      const lr = layer.getBoundingClientRect();
+      if (lr.right - lr.left < vw * 0.9 || lr.bottom - lr.top < vh * 0.9) return;
+      const ls = cs(layer);
+      if (alphaOfColor(ls.backgroundColor) < 0.95 && (!ls.backgroundImage || ls.backgroundImage === 'none')) return;
+      if (dismissible(layer)) return;
+      push({ kind: 'occlusion', severity: 'critical', selector: getSelector(layer), details: 'Fixed ' + getSelector(layer) + ' spans the viewport and hides the page at every scroll offset with no close control (' + list.length + ' texts/controls never come clear, e.g. ' + list[0].label + ')', rect: toRect(lr) });
+    });
   } catch (err) {
     detectorFailed('occlusion', err);
   } finally {
