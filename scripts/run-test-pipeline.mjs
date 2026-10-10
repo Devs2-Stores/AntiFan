@@ -19,9 +19,10 @@
 import { spawn, spawnSync } from 'node:child_process';
 import process from 'node:process';
 import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { availableParallelism, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { buildLaneEnv } from './lane-env.cjs';
 
 // The static gates run before anything compiles and every lane that needs a build depends on
 // 'compile' separately. 'typecheck' belongs here: the script existed but no lane ran it, so a green
@@ -91,8 +92,8 @@ const LANE_TIMEOUT_MS = new Map([
 ]);
 
 // Lanes that spawn Electron, PowerShell, WMI, or daemon children.
-// These are serialized at the pipeline level and restricted to --test-concurrency=1 internally
-// to prevent process-lifecycle, resource-stability, and terminal daemon collisions.
+// These are serialized at the pipeline level so they never run alongside each other; inside a
+// lane, files share one data root unless the lane rebinds it per file (see 'test:main' below).
 // Fast lanes (test:fast, test:canary, test:site-clone, test:integration) remain parallel.
 export const SPAWN_HEAVY_LANES = new Set([
   'test:main',
@@ -107,12 +108,16 @@ export const SPAWN_HEAVY_LANES = new Set([
 ]);
 
 // Custom command overrides for lanes that do not map 1:1 to `npm run <lane>`.
-// 'test:main' is pinned to --test-concurrency=1 here so spawn-heavy child process suites
-// (process-lifecycle, resource-stability, terminal-daemon-batching, WMI/PowerShell spawners)
-// are serialized and never fight each other or saturate the CPU under parallel runner forks.
+// 'test:main' runs its files on half the host's threads. scripts/test-file-roots.cjs gives every
+// test file its own data, profile and register roots, so concurrent files never read each other's
+// terminal sessions, issue register or baselines; the other half of the threads stays free for
+// the PowerShell, WMI, taskkill and ConPTY children the spawn-heavy suites start.
 const LANE_COMMANDS = new Map([
   ['check:rpc-surface', [process.execPath, 'scripts/probe-rpc-surface-coverage.cjs', '--static-only']],
-  ['test:main', ['node', '--test', '--test-force-exit', '--test-concurrency=1', '.compiled/test/main/**/*.test.js']],
+  ['test:main', [
+    'node', '--require', './scripts/test-file-roots.cjs', '--test', '--test-force-exit',
+    `--test-concurrency=${Math.max(1, Math.floor(availableParallelism() / 2))}`, '.compiled/test/main/**/*.test.js',
+  ]],
   ['probe:windows-matrix', ['node', 'scripts/run-electron.cjs', 'scripts/probe-project-windows-matrix.cjs']],
   ['probe:headless-full-page', ['node', 'scripts/run-electron.cjs', 'scripts/probe-headless-full-page.cjs']],
 ]);
@@ -178,30 +183,6 @@ function parseArgs(argv) {
   }
 
   return options;
-}
-
-/**
- * Build an isolated environment for one test lane. The profile, data, config,
- * and register paths all live under laneDir, never under a developer's roots.
- */
-export function buildLaneEnv(laneDir, parentEnv = process.env) {
-  const dataDir = join(laneDir, 'data');
-  const env = { ...parentEnv };
-  for (const key of Object.keys(env)) {
-    if (key.startsWith('ANTIFAN_')) {
-      delete env[key];
-    }
-  }
-  return {
-    ...env,
-    ANTIFAN_DATA_ROOT: dataDir,
-    ANTIFAN_CONFIG_DIR: join(dataDir, 'config'),
-    ANTIFAN_USER_DATA: join(laneDir, 'profile'),
-    ANTIFAN_USER_DATA_DIR: join(laneDir, 'profile'),
-    ANTIFAN_ISSUE_REGISTER_DIR: laneDir,
-    ANTIFAN_VERIFICATION_REGISTER_DIR: laneDir,
-    ANTIFAN_FAIL_ON_LOCK_CONTENTION: '1',
-  };
 }
 
 /**

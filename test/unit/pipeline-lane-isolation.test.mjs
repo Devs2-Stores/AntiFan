@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative, sep } from 'node:path';
-import { buildLaneEnv } from '../../scripts/run-test-pipeline.mjs';
+import { buildLaneEnv } from '../../scripts/lane-env.cjs';
 
 test('pipeline lane environment isolates every persistent root from inherited paths', () => {
   const laneDir = mkdtempSync(join(tmpdir(), 'antifan-lane-env-test-'));
