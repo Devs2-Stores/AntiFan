@@ -897,6 +897,9 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
   // ---- 8. layout-shift witness (buffered entries, read synchronously) ---------------------------
   try {
     let clsScore = 0;
+    // One shift that carries visible content a quarter of the viewport or more is a jump the reader
+    // sees, even on a tall viewport where the score stays small.
+    let maxJump = 0;
     if (typeof PerformanceObserver !== 'undefined') {
       const observer = new PerformanceObserver(() => {});
       observer.observe({ type: 'layout-shift', buffered: true });
@@ -904,12 +907,22 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
       observer.disconnect();
       for (let i = 0; i < records.length; i++) {
         const entry = records[i];
-        if (entry && !entry.hadRecentInput && typeof entry.value === 'number') clsScore += entry.value;
+        if (!entry || entry.hadRecentInput || typeof entry.value !== 'number') continue;
+        clsScore += entry.value;
+        const sources = entry.sources || [];
+        for (let k = 0; k < sources.length; k++) {
+          const a = sources[k].previousRect;
+          const b = sources[k].currentRect;
+          if (!a || !b || a.width * a.height <= 0 || b.width * b.height <= 0) continue;
+          maxJump = Math.max(maxJump, Math.abs(b.top - a.top), Math.abs(b.left - a.left));
+        }
       }
     }
     stats.cls = Math.round(clsScore * 1000) / 1000;
     if (clsScore > 0.1) {
       push({ kind: 'layout-shift', severity: 'warning', selector: 'document', details: 'Cumulative layout shift score ' + clsScore.toFixed(3) + ' exceeds 0.1', rect: { x: 0, y: 0, w: Math.round(vw), h: Math.round(vh) } });
+    } else if (maxJump >= vh * 0.25) {
+      push({ kind: 'layout-shift', severity: 'warning', selector: 'document', details: 'Visible content jumped ' + Math.round(maxJump) + 'px in one layout shift (score ' + clsScore.toFixed(3) + ')', rect: { x: 0, y: 0, w: Math.round(vw), h: Math.round(vh) } });
     }
   } catch (err) {
     detectorFailed('layout-shift', err);
