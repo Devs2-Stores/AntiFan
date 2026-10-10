@@ -1183,7 +1183,7 @@ export class AttachmentRegistry {
     attachmentId: string,
     secret: string,
     options?: { extensionMs?: number; ownerPid?: number; connectionId?: string }
-  ): Promise<{ expiresAt: number }> {
+  ): Promise<{ expiresAt: number; authorityRevision?: AuthorityRevisionHandle }> {
     return await this.runWithMutationLock(async () => {
       if (this.isQuarantined) {
         throw new CapabilityError('DURABILITY_FAILED', 'Attachment registry is in quarantined failure state');
@@ -1322,7 +1322,11 @@ export class AttachmentRegistry {
         }
         conns.add(options.connectionId);
       }
-      return { expiresAt: candidateRecord.expiresAt };
+      // The renewal is the holder's one authenticated read of its own attachment, so it also
+      // reports the revision currently active for it: a rotation whose reply never reached the
+      // holder (a lost socket, or a second process sharing the attachment) otherwise leaves it
+      // resending a revision this registry refuses REVISION_STALE on every call.
+      return { expiresAt: candidateRecord.expiresAt, authorityRevision: this.activeRevisionByAttachment.get(attachmentId) };
     });
   }
 

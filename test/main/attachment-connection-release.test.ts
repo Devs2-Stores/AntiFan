@@ -302,3 +302,23 @@ describe('bridge renewSession stamps and releases on socket close', () => {
     }
   });
 });
+
+describe('renewal reports the live authority revision', () => {
+  it('answers the revision a rotation the holder never saw left active', async () => {
+    const registry = new AttachmentRegistry(undefined, undefined, 100, 50);
+    const { launch } = await mintAttachment(registry, 'tab-1');
+    // A rotation whose reply never reached the holder: it still holds the minted revision.
+    const rotated = await registry.rotateAuthorityRevision(launch.attachmentId);
+    assert.notEqual(rotated, launch.authorityRevision);
+
+    const renewed = await registry.renewAttachment(launch.attachmentId, launch.secret, { extensionMs: 3_600_000 });
+    assert.equal(renewed.authorityRevision, rotated, 'the holder learns the revision the next dispatch must carry');
+    const record = registry.getRecord(launch.attachmentId)!;
+    assert.throws(
+      () => registry.validateLiveExecution(record, launch.authorityRevision),
+      (err: unknown) => err instanceof CapabilityError && err.code === 'REVISION_STALE',
+      'the revision the holder still carries is refused for new execution'
+    );
+    assert.ok(registry.validateLiveExecution(record, renewed.authorityRevision!), 'the reported revision passes the live-execution gate');
+  });
+});

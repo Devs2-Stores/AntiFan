@@ -367,7 +367,7 @@ export class RunService {
     return { ok: true };
   }
 
-  async renewCliSession(attachmentId: string, secret: string, options?: { extensionMs?: number; ownerPid?: number; connectionId?: string }): Promise<{ expiresAt: number }> {
+  async renewCliSession(attachmentId: string, secret: string, options?: { extensionMs?: number; ownerPid?: number; connectionId?: string }): Promise<{ expiresAt: number; authorityRevision?: string }> {
     // `connectionId` travels untouched to the registry: it names the renewing transport
     // so `revokeForConnection` can release a record whose every renewing connection is
     // gone — the liveness half `ownerPid` cannot answer for a pid-less client.

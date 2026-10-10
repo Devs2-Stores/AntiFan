@@ -2013,7 +2013,7 @@ async function tryReuseLiveAttachment(candidate) {
       });
     });
 
-    await wsRequest(ws, 'antifan.cli.renewSession', {
+    const renewed = await wsRequest(ws, 'antifan.cli.renewSession', {
       attachmentId: existing.attachmentId,
       secret: existing.secret,
       ownerPid: existing.ownerPid,
@@ -2022,6 +2022,14 @@ async function tryReuseLiveAttachment(candidate) {
 
     dynamicBootstrap = { ...existing, token: existing.token || existing.secret };
     if (existing.authorityRevision) currentAuthorityRevision = existing.authorityRevision;
+    // The held revision can be one the host already rotated past: a set-target, navigate or
+    // reload whose reply never reached this process. Restoring it would resend a revision the
+    // host refuses REVISION_STALE again - on this retry and on every later call, since the
+    // attachment stays alive and reuse keeps winning over re-pairing. The renewal answer is the
+    // live revision of this same attachment (the socket is authenticated with its secret and the
+    // bridge refuses a cross-attachment renewal), so adopting it widens nothing.
+    persistAuthorityRevision(renewed && renewed.authorityRevision);
+    if (currentAuthorityRevision) dynamicBootstrap.authorityRevision = currentAuthorityRevision;
     // Wire the dispatch socket before the heartbeat, exactly as the pairing path does, so no
     // recovery path can observe an unbound dispatcher while the binding is being restored.
     const previousDispatch = dispatchWs;

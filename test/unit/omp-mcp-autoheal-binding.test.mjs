@@ -100,7 +100,6 @@ function startMockBridge(record, options = {}) {
   let staleDispatchCount = 0;
   let attachmentRotated = false;
   const executed = new Map();
-  const refused = new Set();
   server.on('upgrade', (req, socket, head) => {
     const auth = req.headers['authorization'] || '';
     const isStale = auth === 'Bearer stale-tok';
@@ -125,12 +124,15 @@ function startMockBridge(record, options = {}) {
         if (options.reuseAttachment) {
           const key = msg.params.idempotencyKey;
           const digest = JSON.stringify(msg.params.params);
-          if (options.refuseOnceWith && !refused.has(key)) {
-            refused.add(key);
+          // The host checks the revision a frame carries against the attachment's live one
+          // before any ledger claim, so a stale frame is refused unexecuted - every time it is
+          // resent with the same revision, not once per key.
+          if (options.liveRevision && msg.params.authorityRevision !== options.liveRevision) {
+            record.push({ method: 'fixture.revisionRefused', authorityRevision: msg.params.authorityRevision });
             return ws.send(JSON.stringify({
               id: msg.id, success: false,
-              error: `${options.refuseOnceWith}: authority revision stale`,
-              data: { code: options.refuseOnceWith, message: 'authority revision stale', details: { requestedRevision: 1, liveRevision: 2 } },
+              error: 'REVISION_STALE: Authority revision is inactive for new execution',
+              data: { code: 'REVISION_STALE', message: 'Authority revision is inactive for new execution' },
             }));
           }
           const previous = executed.get(key);
@@ -153,10 +155,11 @@ function startMockBridge(record, options = {}) {
         return;
       }
       if (msg.method === 'antifan.cli.renewSession') {
-        if (oldAuthority && options.reuseAttachment && msg.id === 'hb') return send({ expiresAt: Date.now() + 3_600_000 });
+        const liveRevision = options.liveRevision ? { authorityRevision: options.liveRevision } : {};
+        if (oldAuthority && options.reuseAttachment && msg.id === 'hb') return send({ expiresAt: Date.now() + 3_600_000, ...liveRevision });
         if (oldAuthority && options.reuseAttachment && !attachmentRotated) {
           record.push({ method: 'fixture.attachmentReuseSucceeded', attachmentId: msg.params.attachmentId });
-          send({ expiresAt: Date.now() + 3_600_000 });
+          send({ expiresAt: Date.now() + 3_600_000, ...liveRevision });
           if (options.rotateInsideRetry) attachmentRotated = true;
           return;
         }
@@ -455,8 +458,8 @@ test('mutation authority rotation inside retry socket establishment refuses a se
   });
 });
 
-test('transmitted mutation refused REVISION_STALE resends on same-attachment reuse, not uncertain', async () => {
-  await withRecoveryProxy({ closeAfterFirstDispatch: true, closeAfterDispatchCount: 99, reuseAttachment: true, refuseOnceWith: 'REVISION_STALE' }, async ({ record, call }) => {
+test('a REVISION_STALE refusal heals onto the same attachment\'s live revision and resends once, not uncertain', async () => {
+  await withRecoveryProxy({ closeAfterFirstDispatch: true, closeAfterDispatchCount: 99, reuseAttachment: true, liveRevision: 'rev_live' }, async ({ record, call }) => {
     const response = await call(2, 'anti.browser.navigate', { url: 'https://example.test/revision-stale' });
     assert.notEqual(response.result?.isError, true, JSON.stringify(response));
     assert.doesNotMatch(JSON.stringify(response), /EXECUTION_UNCERTAIN/);
@@ -465,6 +468,9 @@ test('transmitted mutation refused REVISION_STALE resends on same-attachment reu
     assert.equal(calls[1].params.attachmentId, calls[0].params.attachmentId);
     assert.equal(calls[1].params.idempotencyKey, calls[0].params.idempotencyKey);
     assert.deepEqual(calls[1].params.params, calls[0].params.params, 'resend stays byte-frozen for ledger join');
+    assert.notEqual(calls[0].params.authorityRevision, 'rev_live', 'the first frame carries the revision the host already rotated past');
+    assert.equal(calls[1].params.authorityRevision, 'rev_live', 'the resend carries the live revision the reuse renewal reported');
+    assert.equal(record.filter(value => value.method === 'fixture.revisionRefused').length, 1, 'the stale revision is not resent');
     assert.equal(record.filter(value => value.method === 'fixture.mutationExecuted').length, 1, 'first frame was refused before execution; join executes exactly once');
     assert.ok(record.some(value => value.method === 'fixture.attachmentReuseSucceeded'), 'autoheal must reuse the same attachment');
     assert.equal(record.filter(value => value.method === 'pairing.exchange').length, 0);

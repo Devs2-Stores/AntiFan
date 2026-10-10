@@ -774,7 +774,7 @@ export class ControlPlaneRuntime {
     attachmentId: string,
     secret: string,
     options?: { extensionMs?: number; ownerPid?: number }
-  ): Promise<{ expiresAt: number }> {
+  ): Promise<{ expiresAt: number; authorityRevision?: string }> {
     return await this.runs.renewCliSession(attachmentId, secret, options);
   }
 
