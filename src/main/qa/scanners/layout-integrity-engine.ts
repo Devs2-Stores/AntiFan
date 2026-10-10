@@ -237,6 +237,19 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
     }
     return false;
   };
+  // A subtree that transitions one of the matched properties (re over transition-property) is
+  // shown, hidden or slid in by script or hover: its state at this synchronous read is not settled.
+  const transitionsBetween = (from, upto, re) => {
+    for (let e = from; e && e !== upto && e !== body && e !== doc; e = parentOf(e)) {
+      const s = cs(e);
+      const props = String(s.transitionProperty || '').split(',');
+      const durs = String(s.transitionDuration || '').split(',');
+      for (let i = 0; i < props.length; i++) {
+        if (re.test(props[i].trim()) && parseFloat(durs[i % durs.length]) > 0) return true;
+      }
+    }
+    return false;
+  };
   const intendedTruncation = (from, upto) => {
     for (let e = from; e && e !== doc; e = e.parentElement) {
       const s = cs(e);
@@ -324,6 +337,7 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
 
   // ---- 1. controls: zero-size (warning) and offscreen (critical) -------------------------
   const controls = [];
+  const SLIDE_IN = /^(all|left|right|inset|transform|translate|margin-left|margin-right|opacity|visibility)$/;
   try {
     const nodes = document.querySelectorAll(ACTIONABLE);
     for (let i = 0; i < nodes.length && i < ELEMENT_CAP; i++) {
@@ -375,7 +389,29 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
       if (r.width >= 8 && r.height >= 8) {
         // A control clipped away by an ancestor is hidden, not covered: it cannot stack or be occluded.
         const cvis = clippedRect(el, r);
-        if (cvis) controls.push({ el: el, rect: r, vis: cvis, layer: layerOf(el) });
+        if (cvis) {
+          controls.push({ el: el, rect: r, vis: cvis, layer: layerOf(el) });
+          continue;
+        }
+        // Clipped away past the trailing edge of a box it still spans vertically, the control is
+        // pushed out of view (misplaced). Cut vertically it is a collapsed panel or menu, inside a
+        // sideways scroller it is reachable, and a moving, sliding-in or absolutely parked subtree
+        // (carousel, hover reveal, dropdown) is hidden by design: none of those is reported.
+        const clips = boxClips(el);
+        for (let k = 0; k < clips.length; k++) {
+          const a = clips[k];
+          const s = cs(a);
+          if (isScrollAxis(s.overflowX)) break;
+          const b = clipBox(a);
+          if (s.overflowY !== 'visible' && span(r.top, r.bottom, b.top, b.bottom) < (r.bottom - r.top) * 0.5) break;
+          if (s.overflowX === 'visible' || r.left < b.right) continue;
+          let parked = movingBetween(el, a) || transitionsBetween(el, a, SLIDE_IN);
+          for (let e = parentOf(el); e && e !== a && !parked; e = parentOf(e)) parked = cs(e).position === 'absolute';
+          if (!parked) {
+            push({ kind: 'offscreen', severity: 'critical', selector: getSelector(el), details: 'Actionable control is pushed past the right edge of ' + getSelector(a) + ', which clips it out of view (x: ' + Math.round(r.left) + ', y: ' + Math.round(r.top) + ')', rect: toRect(r) });
+          }
+          break;
+        }
       }
     }
     stats.controls = controls.length;
@@ -679,23 +715,12 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
     // the theme's scroll handler runs after this synchronous read, so its settled state at the
     // end of the page is unknown here and it is never reported from this reading.
     const SHOW_HIDE = /^(all|opacity|visibility|transform|translate|top|bottom|inset|margin-bottom|display)$/;
-    const togglesOnScroll = (layer) => {
-      for (let e = layer; e && e !== body && e !== doc; e = parentOf(e)) {
-        const s = cs(e);
-        const props = String(s.transitionProperty || '').split(',');
-        const durs = String(s.transitionDuration || '').split(',');
-        for (let i = 0; i < props.length; i++) {
-          if (SHOW_HIDE.test(props[i].trim()) && parseFloat(durs[i % durs.length]) > 0) return true;
-        }
-      }
-      return false;
-    };
     const bottomInfo = new Map();
     const bottomLayer = (layer) => {
       let v = bottomInfo.get(layer);
       if (v === undefined) {
         const r = layer.getBoundingClientRect();
-        v = r.bottom > vh * 0.75 && r.top < vh && (r.bottom - r.top) <= vh * 0.4 && (r.right - r.left) >= vw * 0.5 && !togglesOnScroll(layer);
+        v = r.bottom > vh * 0.75 && r.top < vh && (r.bottom - r.top) <= vh * 0.4 && (r.right - r.left) >= vw * 0.5 && !transitionsBetween(layer, null, SHOW_HIDE);
         bottomInfo.set(layer, v);
       }
       return v;
