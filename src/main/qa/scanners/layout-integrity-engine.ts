@@ -778,7 +778,12 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
         done.add(t);
         if (!reportedOwners.has(tg.owner)) {
           reportedOwners.add(tg.owner);
-          const kind = first.sticky ? 'sticky-obstruction' : 'occlusion';
+          // A control painted over by a different control is two controls stacked on each other
+          // (a tap lands on the wrong one): that is an overlap, whatever their positioning.
+          const ownControl = tg.owner.closest(ACTIONABLE);
+          const byControl = first.by.closest(ACTIONABLE);
+          const stacked = Boolean(ownControl && byControl && ownControl !== byControl && !ownControl.contains(byControl) && !byControl.contains(ownControl));
+          const kind = first.sticky ? 'sticky-obstruction' : stacked ? 'overlap' : 'occlusion';
           push({ kind: kind, severity: 'critical', selector: getSelector(tg.owner), details: tg.label + ' is covered by ' + getSelector(first.by) + (first.sticky ? ' (fixed/sticky bar ' + first.sticky + ')' : '') + ' at page y=' + Math.round(cy + (tg.fixed ? 0 : got)), rect: toRect({ left: tg.vis.left, top: tg.vis.top, right: tg.vis.right, bottom: tg.vis.bottom }) });
         }
       }
