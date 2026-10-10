@@ -908,9 +908,21 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
       observer.observe({ type: 'layout-shift', buffered: true });
       const records = observer.takeRecords();
       observer.disconnect();
+      // hadRecentInput also marks shifts that follow a viewport resize (mobile device emulation sets
+      // one at load), so the flag excuses a shift only once the page has recorded a discrete input
+      // (click, tap, key) at or before the input the entry names.
+      let firstInputAt = -Infinity;
+      try {
+        const inputs = new PerformanceObserver(() => {});
+        inputs.observe({ type: 'first-input', buffered: true });
+        const first = inputs.takeRecords();
+        inputs.disconnect();
+        firstInputAt = first.length ? first[0].startTime : Infinity;
+      } catch (e) {}
       for (let i = 0; i < records.length; i++) {
         const entry = records[i];
-        if (!entry || entry.hadRecentInput || typeof entry.value !== 'number') continue;
+        if (!entry || typeof entry.value !== 'number') continue;
+        if (entry.hadRecentInput && !(typeof entry.lastInputTime === 'number' && entry.lastInputTime + 50 < firstInputAt)) continue;
         clsScore += entry.value;
         const sources = entry.sources || [];
         for (let k = 0; k < sources.length; k++) {
