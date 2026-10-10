@@ -356,10 +356,14 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
           parked = reachX && reachY;
         }
         if (!parked) {
+          // An absolutely positioned ancestor parked outside the viewport (dropdown, off-canvas
+          // panel) hides the control by design. The control's own absolute offset parks it only
+          // past the leading edges (the 'left: -9999px' skip-link idiom): pushed past the right
+          // edge it is misplaced, not parked.
           for (let e = el; e && e !== body && !parked; e = e.parentElement) {
             if (cs(e).position === 'absolute') {
               const er = e.getBoundingClientRect();
-              if (er.right <= 0 || er.left >= vw || er.bottom <= 0) parked = true;
+              if (er.right <= 0 || er.bottom <= 0 || (e !== el && er.left >= vw)) parked = true;
             }
           }
         }
