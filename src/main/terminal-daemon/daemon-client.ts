@@ -24,6 +24,7 @@ import { HOST_METHOD, HOST_EVENT, HOST_EVENT_TO_LOCAL } from './protocol';
 import type { HostNewSessionParams, HostNewSessionResult, HostRestartParams, HostStartParams, HostStartResult, HostTransferOwnerParams } from './protocol';
 import type { BridgeRequestPayload, BridgeResponsePayload, BridgeEventPayload, TerminalAckPayload, TerminalSleepResult, TerminalRoleMeta } from '../../shared/contracts';
 import type { TerminalWaitInput, TerminalWaitResult } from '../../shared/control-plane-contracts';
+import type { DaemonSpawnResult } from './daemon-spawner';
 
 const HOST = '127.0.0.1';
 const CALL_TIMEOUT_MS = 15000;
@@ -42,6 +43,33 @@ const RECONNECT_MAX_MS = 5000;
 export interface DaemonEndpoint {
   port: number;
   token: string;
+}
+
+/** Consecutive refused connects (nothing listens on the port) before a respawn is considered. */
+export const DEFAULT_MAX_RECONNECT_ATTEMPTS = 3;
+/** Circuit breaker: respawns allowed per window; plain reconnects keep backing off past it. */
+export const MAX_DAEMON_RESPAWNS = 3;
+export const DAEMON_RESPAWN_WINDOW_MS = 10 * 60 * 1000;
+
+/** Brings up a replacement host; `ensureDaemon({ onlyIfDead: true })` in production. */
+export type DaemonRespawnFn = () => Promise<DaemonSpawnResult>;
+
+/** The transport half the proxy drives; `DaemonClient` in production. */
+export interface DaemonClientTransport {
+  connect(timeoutMs?: number): Promise<void>;
+  call<T = unknown>(method: string, params?: Record<string, unknown>, timeoutMs?: number): Promise<T>;
+  onEvent(event: string, handler: (data: unknown) => void): () => void;
+  onClose(handler: () => void): void;
+  updateEndpoint(endpoint: DaemonEndpoint): void;
+  close(): void;
+}
+
+export interface DaemonTerminalProxyOptions {
+  respawn?: DaemonRespawnFn;
+  maxReconnectAttempts?: number;
+  reconnectMinMs?: number;
+  reconnectMaxMs?: number;
+  client?: DaemonClientTransport;
 }
 
 interface PendingCall {
@@ -64,7 +92,28 @@ export class DaemonClient {
   private openPromise: Promise<void> | null = null;
   private openReject: ((err: Error) => void) | null = null;
 
-  constructor(private readonly endpoint: DaemonEndpoint) {}
+  constructor(private endpoint: DaemonEndpoint) {}
+
+  /**
+   * Point later connects at a replacement host. Only the respawn path calls this, after the old
+   * socket is already gone; a socket or handshake still held is dropped so nothing reaches the
+   * old host under the new token.
+   */
+  updateEndpoint(endpoint: DaemonEndpoint): void {
+    if (this.endpoint.port === endpoint.port && this.endpoint.token === endpoint.token) return;
+    this.endpoint = endpoint;
+    if (this.ws) {
+      const oldWs = this.ws;
+      this.ws = null;
+      try { oldWs.close(); } catch { /* ignore */ }
+    }
+    if (this.openReject) {
+      const reject = this.openReject;
+      this.openReject = null;
+      reject(new Error(`daemon endpoint replaced before handshake (${HOST}:${endpoint.port})`));
+    }
+    this.openPromise = null;
+  }
 
   /** Establish the socket and authenticate. Resolves once the upgrade succeeds. */
   connect(timeoutMs = HANDSHAKE_TIMEOUT_MS): Promise<void> {
@@ -231,9 +280,17 @@ export class DaemonClient {
  * RPC. Events are re-emitted under TerminalManager's names so existing subscribers are unchanged.
  */
 export class DaemonTerminalProxy extends EventEmitter {
-  private readonly client: DaemonClient;
-  private reconnectDelay = RECONNECT_MIN_MS;
+  private readonly client: DaemonClientTransport;
+  private readonly respawnFn?: DaemonRespawnFn;
+  private readonly maxReconnectAttempts: number;
+  private readonly reconnectMinMs: number;
+  private readonly reconnectMaxMs: number;
+  private reconnectDelay: number;
   private reconnectTimer: NodeJS.Timeout | undefined;
+  private consecutiveRefusedFailures = 0;
+  private readonly respawnAttempts: number[] = [];
+  private circuitBreakerWarned = false;
+  private reconnecting = false;
   private closed = false;
 
   private cachedSessions: Array<Record<string, unknown>> = [];
@@ -250,9 +307,14 @@ export class DaemonTerminalProxy extends EventEmitter {
     memoryEstimateBytes: 0,
   };
 
-  constructor(endpoint: DaemonEndpoint) {
+  constructor(endpoint: DaemonEndpoint, options: DaemonTerminalProxyOptions = {}) {
     super();
-    this.client = new DaemonClient(endpoint);
+    this.respawnFn = options.respawn;
+    this.maxReconnectAttempts = options.maxReconnectAttempts ?? DEFAULT_MAX_RECONNECT_ATTEMPTS;
+    this.reconnectMinMs = options.reconnectMinMs ?? RECONNECT_MIN_MS;
+    this.reconnectMaxMs = options.reconnectMaxMs ?? RECONNECT_MAX_MS;
+    this.reconnectDelay = this.reconnectMinMs;
+    this.client = options.client ?? new DaemonClient(endpoint);
     this.wireEvents();
     this.client.onClose(() => this.scheduleReconnect());
   }
@@ -307,21 +369,74 @@ export class DaemonTerminalProxy extends EventEmitter {
 
   private scheduleReconnect(): void {
     if (this.closed || this.reconnectTimer) return;
-    this.reconnectTimer = setTimeout(async () => {
+    this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = undefined;
-      if (this.closed) return;
-      try {
-        await this.connect();
-        this.reconnectDelay = RECONNECT_MIN_MS;
-        this.emit('reconnected');
-        if (this.cachedSessionState) {
-          this.emit('session', this.cachedSessionState);
-        }
-      } catch {
-        this.reconnectDelay = Math.min(this.reconnectDelay * 2, RECONNECT_MAX_MS);
-        this.scheduleReconnect();
-      }
+      if (this.closed || this.reconnecting) return;
+      this.reconnecting = true;
+      void this.attemptConnect().finally(() => { this.reconnecting = false; });
     }, this.reconnectDelay);
+  }
+
+  private async attemptConnect(): Promise<void> {
+    try {
+      await this.connect();
+      if (this.closed) return;
+      this.onReconnected();
+    } catch (err) {
+      if (this.closed) return;
+      // Only a refused connect says nothing listens on the port any more; a timeout or a failed
+      // handshake can come from a host that is alive and busy, which a respawn must never replace.
+      const refused = !!err && typeof err === 'object' && 'code' in err && err.code === 'ECONNREFUSED';
+      this.consecutiveRefusedFailures = refused ? this.consecutiveRefusedFailures + 1 : 0;
+      if (this.respawnFn && this.consecutiveRefusedFailures >= this.maxReconnectAttempts && this.respawnAllowed()) {
+        await this.respawnAndConnect(this.respawnFn);
+        return;
+      }
+      this.backOff();
+    }
+  }
+
+  private onReconnected(): void {
+    this.consecutiveRefusedFailures = 0;
+    this.reconnectDelay = this.reconnectMinMs;
+    this.emit('reconnected');
+    if (this.cachedSessionState) this.emit('session', this.cachedSessionState);
+  }
+
+  private backOff(): void {
+    this.reconnectDelay = Math.min(this.reconnectDelay * 2, this.reconnectMaxMs);
+    this.scheduleReconnect();
+  }
+
+  /** Circuit breaker: at most MAX_DAEMON_RESPAWNS respawns per window; plain reconnects keep going. */
+  private respawnAllowed(): boolean {
+    const now = Date.now();
+    while (this.respawnAttempts.length && now - this.respawnAttempts[0]! >= DAEMON_RESPAWN_WINDOW_MS) {
+      this.respawnAttempts.shift();
+    }
+    if (this.respawnAttempts.length < MAX_DAEMON_RESPAWNS) return true;
+    if (!this.circuitBreakerWarned) {
+      this.circuitBreakerWarned = true;
+      console.warn(`[daemon-proxy] Respawn circuit breaker open after ${MAX_DAEMON_RESPAWNS} attempts; continuing reconnect backoff`);
+    }
+    return false;
+  }
+
+  private async respawnAndConnect(respawn: DaemonRespawnFn): Promise<void> {
+    this.respawnAttempts.push(Date.now());
+    try {
+      const result = await respawn();
+      if (this.closed) return;
+      if (!result.handle) throw new Error(result.reason || 'daemon respawn produced no host');
+      this.client.updateEndpoint({ port: result.handle.port, token: result.handle.token });
+      await this.connect();
+      if (this.closed) return;
+      this.onReconnected();
+    } catch (err) {
+      if (this.closed) return;
+      console.warn('[daemon-proxy] Daemon respawn refused or failed; reconnect backoff continues:', err instanceof Error ? err.message : err);
+      this.backOff();
+    }
   }
 
   async connect(): Promise<void> {
@@ -338,7 +453,10 @@ export class DaemonTerminalProxy extends EventEmitter {
 
   dispose(): void {
     this.closed = true;
-    clearTimeout(this.reconnectTimer);
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = undefined;
+    }
     this.client.close();
   }
 

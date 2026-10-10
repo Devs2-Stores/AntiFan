@@ -289,16 +289,23 @@ async function probeHealth(port: number, token: string): Promise<boolean> {
  *
  * Order: re-attach → pick L1 or L2 by job membership → L3 degrade. A second spawn mechanism is only
  * attempted when the first fails to produce a healthy host, not merely when it was the "wrong" kind.
+ *
+ * `onlyIfDead` is the reconnect path's mode: a healthy recorded host is still re-attached (it may
+ * have moved port), but a recorded host whose process is alive and does not answer is left alone —
+ * replacing it would orphan every shell it still holds. Boot keeps the replace-on-silence default.
  */
-export async function ensureDaemon(opts: { cwd?: string } = {}): Promise<DaemonSpawnResult> {
+export async function ensureDaemon(opts: { cwd?: string; onlyIfDead?: boolean } = {}): Promise<DaemonSpawnResult> {
   const cwd = opts.cwd || process.cwd();
-
   /* ---- L0: re-attach to a live host ---- */
   const existing = readLiveRecord();
-  if (existing && isProcessAlive(existing.pid) && (await probeHealth(existing.port, existing.token))) {
+  const existingAlive = Boolean(existing && isProcessAlive(existing.pid));
+  if (existing && existingAlive && (await probeHealth(existing.port, existing.token))) {
     return { mode: 'attached', handle: { mode: 'attached', pid: existing.pid, port: existing.port, token: existing.token, version: existing.version } };
   }
-  if (existing) clearLiveRecord(); // stale record from a dead host
+  if (existing && existingAlive && opts.onlyIfDead) {
+    return { mode: 'in-process', reason: `respawn refused: daemon pid ${existing.pid} is alive but not answering` };
+  }
+  if (existing) clearLiveRecord(); // stale record from a dead or silent host
 
   const staged = resolveStagedEntry();
   if (!staged) {

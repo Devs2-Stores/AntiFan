@@ -4116,6 +4116,10 @@ async function createWindow(): Promise<void> {
         const proxy = new DaemonTerminalProxy({
           port: spawnResult.handle.port,
           token: spawnResult.handle.token,
+        }, {
+          // Re-attach if the recorded process is still alive; only a dead recorded PID
+          // authorizes ensureDaemon to spawn a replacement from the reconnect path.
+          respawn: () => ensureDaemon({ onlyIfDead: true }),
         });
         await proxy.connect();
         TerminalManager.setInstance(proxy as unknown as TerminalManager);
