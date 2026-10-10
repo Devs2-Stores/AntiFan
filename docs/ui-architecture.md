@@ -211,8 +211,13 @@ whose parent is gone leaves no orphan tab behind.
   and then re-stamps the row's owner key — and, when the target resolves to one
   canonical capsule, its workspace stamp with it: the one user-ordered
   reassignment of a minted owner key. Project windows cannot move another owner's
-  rows, and agent-owned rows remain read-only. The shell process and working
-  directory are preserved during the transfer.
+  rows, and agent-owned rows remain read-only while an agent still holds them: some
+  window's tab carries a live affinity to the shell, or the tab its `agent:` key
+  names is still open (`TabAuthorityDirectory.agentHoldsTerminal` in `src/main/browser/tab-authority-directory.ts`, read by
+  `assertManagerMayOperate` and stamped as `SessionSummary.agentHeld`). Once the
+  minting tab is gone the `agent:` key stays on the row but the row is operable like
+  any other (close, sleep, rename, move, type); an `agent:unbound` row is held only by
+  an affinity. The shell process and working directory are preserved during the transfer.
 - The shared manager groups rows by **folder** (`canonicalFolderKey` in
   `src/main/project/workspace-capsule.ts`; `SessionSummary.folderKey/folderLabel/folderPath`)
   and mints a shell in one folder with `antifan:terminal:new-in-folder`; a project window may
@@ -498,10 +503,22 @@ terminal daemon sessions are untouched.
 
 **One gate for the process.** An explicit Quit, the last browser shell going away and
 `window-all-closed` all run the same attempt, and duplicates coalesce into the one in flight.
+"Last" counts only shells someone can see (shown, minimized, or armed to show on first paint):
+a hub an agent mint reopened off-screen does not keep the process alive once the last visible
+window closes, and a close refusal is presented only on visible shells. When that quit is
+refused (for example an agent run is still live on the hidden hub), every managed shell is
+presented first (`quit.refused.shell-revealed` in the lifecycle log), so the refusal lands in
+the chrome that holds the work instead of leaving a process with no window on screen.
 Services are torn down only after every native closure succeeded; a late veto keeps them and
 reopens admission. The native close is prevented synchronously before any await, and a native
 close is authorized only by the single-use authorization minted for the attempt that decided it,
 so an unrelated event can never push a close through.
+
+**Hub closed, siblings open.** An agent mint that lands on the hub (unclaimed, `web`/unassigned,
+or a never-detached project claim) reopens a closed hub with agent intent: created, never
+presented, focus untouched (`hub.reopened-off-screen` in the lifecycle log). The bridge is
+re-pointed at the new hub host, because the host it was built with was disposed with the old
+window. A mint for a bound tab that is gone, or a refused claim, never reopens it.
 
 ## Screenshot Matrix
 
