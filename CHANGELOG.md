@@ -6,6 +6,27 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 
 ## [v1.3.6] - Unreleased
 
+### Sửa — Theme QA: phát hiện chữ đè chữ, chữ bị cắt, CTA bị che mà không báo lỗi giả trên theme lành
+
+- Nguyên nhân (dòng của engine cũ, file `src/main/qa/scanners/layout-integrity-engine.ts` trừ khi ghi khác):
+  1. Detector overlap bỏ qua phần tử sâu hơn 6 cấp, dừng ở 200 ứng viên và so box phần tử chứ không so dòng chữ (`:285`, `:288`, `:323-328`).
+  2. Chỉ quét 2000 phần tử đầu, không có cờ báo scan bị cắt (`:174`).
+  3. Clipping = `scrollWidth > clientWidth + 2` trên chính phần tử, không miễn line-clamp / ellipsis (`:253-254`).
+  4. Offscreen / zero-size báo drawer đang đóng và slide carousel là critical (`:176-231`).
+  5. Occlusion CTA chỉ thử tâm CTA trong viewport đầu tiên (`:355-405`).
+  6. Observer CLS bị ngắt trước khi nhận entry buffered, nên CLS luôn bằng 0 (`:505-534`).
+  7. Map theo chiều rộng tra key `"320"` trong khi host trả key `mobile-small`, nên `documentOverflow` luôn `false` (`src/main/qa/theme-qa-workflow.ts:893-905` và `src/main/browser/native-tab-host.ts:15061-15067`).
+  8. `checklist.layout` bỏ qua integrity critical dù verdict đã FAIL (`src/main/qa/theme-qa-workflow.ts:1190`).
+  9. Unit test chỉ ghim text nguồn của script; không test nào render trang thật (`test/unit/layout-integrity-engine.test.mjs:53-124`, `:184-223`).
+- **Scan mới, một lần, đồng bộ trên viewport đang active**: đo hình học từng dòng chữ (text run) thay vì box phần tử. Critical: chữ đè chữ, control xếp chồng, dòng chữ bị cắt, chữ/CTA bị che (scan cuộn qua toàn trang rồi trả lại vị trí cuộn cũ của window, và của body khi body là khung cuộn), control ngoài viewport. CLS đọc entry buffered. Pattern lành (ellipsis, line-clamp, carousel, crossfade, drawer đóng, "Xem thêm", thanh tab cuộn ngang, marquee, 3D flip, icon SVG) được miễn bằng computed style và hình học. Offscreen xét từng trục: `body{overflow-x:hidden}` (computed `overflow-y:auto`) không còn che mất nút bị đẩy ra mép phải.
+- **Scan bị cắt hoặc detector ném lỗi là evidence gap**: `stats.truncated` / `stats.failedDetectors` khiến verdict không bao giờ PASS. `findings.responsive[width]` khớp sweep 5 chiều rộng của host; số đếm integrity là `null` ở chiều rộng không đo; `checklist.layout` là `false` khi có integrity critical. Integrity critical thuộc check `layout`: caller gửi `enabledChecks.layout: false` thì chúng không làm FAIL verdict.
+- **Test trên Chromium thật**: `npm run test:visual-qa` (25 trang fixture ở 375×667 và 1440×900, lane mặc định của `run-test-pipeline.mjs`, không cần `compile`) và `npm run probe:visual-qa-live` (home, một trang sản phẩm và một collection của 4 store Haravan công khai, ở 375 và 1440: 24 lần đo). Đo được:
+  - Engine cũ trên 20 fixture: `SUMMARY pass=23 fail=17`, trong đó trang line-clamp lành bị báo 7 critical ở 375. Engine mới trên 25 fixture: `SUMMARY pass=50 fail=0`.
+  - Corpus mù do agent chưa từng thấy scan viết (8 lỗi, 4 trang lành): lần 1 chỉ bắt 4/8 và lộ lỗi offscreen ở trên. Sau khi sửa, corpus mù mới bắt 6/8 lỗi, 0/4 trang lành bị báo critical.
+  - Live, 24/24 lần đo: 0 trang có critical. Scan chậm nhất 780 ms (fixture), 649 ms (live).
+- Chưa bắt: xem mục "Layout integrity chưa bắt" trong `docs/operations.md` (5 trường hợp đo được từ hai corpus mù). Scan chỉ chạy ở viewport đang active.
+- App đang chạy chỉ dùng scan mới sau `npm run compile` và khởi động lại AntiFan.
+
 ### Sửa — Tab trình duyệt: Shopee (và các trang chống bot tương tự) không còn đẩy sang `verify/traffic/error` khi đăng nhập
 
 - Khi tab dùng preset thiết bị, `native-tab-host.ts` gửi CDP `Emulation.setUserAgentOverride` không kèm `userAgentMetadata`. Chromium khi đó tắt hẳn User-Agent Client Hints: `navigator.userAgentData.brands` rỗng, `platform` rỗng, request `fetch`/XHR không có `sec-ch-ua*`, trong khi UA vẫn là Chrome 150. Trình duyệt bị điều khiển qua CDP để lại đúng dấu hiệu này. Probe Electron dùng các module đã biên dịch của app, mở `shopee.vn/` khi chưa đăng nhập, xen kẽ hai kiểu override: override cũ bị chuyển sang `verify/traffic/error` 2/2 lần, override mới qua 2/2. Luồng affiliate sau khi đăng nhập chưa được tái hiện.

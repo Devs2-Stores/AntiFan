@@ -83,6 +83,8 @@
     "test:terminal-rename": "node scripts/run-electron.cjs test/e2e/terminal-rename-space.test.cjs",
     "test:mcp-dispatch-hub": "node scripts/run-electron.cjs test/e2e/mcp-dispatch-hub-probe.cjs",
     "test:toolbar-qa-hub": "node scripts/run-electron.cjs test/e2e/toolbar-qa-hub-empirical-probe.cjs",
+    "test:visual-qa": "node scripts/run-electron.cjs test/e2e/visual-qa-fixtures-probe.cjs",
+    "probe:visual-qa-live": "node scripts/run-electron.cjs scripts/probe-visual-qa-live-sites.cjs",
     "install:shortcut": "node scripts/install-windows-shortcut.mjs",
     "certify:dual-plane": "node scripts/smoke-dual-plane-cutover-runner.cjs",
     "smoke:device": "npm run compile && node scripts/smoke-device-surface.mjs",

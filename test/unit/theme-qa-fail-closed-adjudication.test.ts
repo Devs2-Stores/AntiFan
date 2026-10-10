@@ -8,6 +8,7 @@ import { LayoutOverflowEngine } from '../../src/main/qa/scanners/layout-overflow
 import { BrokenAssetScanner } from '../../src/main/qa/scanners/broken-asset-scanner';
 import { HsGateRules } from '../../src/main/qa/rules/hs-gate-rules';
 import { ServerCrashScanner } from '../../src/main/qa/scanners/server-crash-scanner';
+import { LayoutIntegrityEngine } from '../../src/main/qa/scanners/layout-integrity-engine';
 
 const layoutScript = LayoutOverflowEngine.getBrowserScanScript('active');
 const liquidScript = LiquidErrorScanner.getBrowserScanScript();
@@ -783,6 +784,9 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
     assert.strictEqual(report.summary.passed, false, 'Summary must fail when responsive overflow exists');
     assert.strictEqual(report.summary.verdict, 'FAIL');
     assert.strictEqual(report.summary.criticalCount >= 1, true, 'Critical count must include responsive overflow even without culprits');
+    assert.strictEqual(report.findings?.responsive?.['768']?.documentOverflow, true, 'Width 768 overflow must reach the per-width map');
+    assert.strictEqual(report.findings?.responsive?.['320']?.documentOverflow, false);
+    assert.strictEqual(report.findings?.responsive?.['768']?.criticalOverlap, null, 'Width the integrity scan did not measure must be null, not 0');
 
     const filteredReport = await workflow.validate({
       runId: 'run-overflow-filtered',
@@ -794,6 +798,102 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
     });
     assert.strictEqual(filteredReport.summary.passed, false, 'Summary must fail when responsive check is enabled and responsive overflow exists');
     assert.strictEqual(filteredReport.summary.verdict, 'FAIL');
+  });
+  it('10b. Integrity criticals clear checklist.layout', async () => {
+    const integrityScript = LayoutIntegrityEngine.getBrowserScanScript('active');
+    const base = createMockPorts();
+    const ports = createMockPorts({
+      eval: async (target, script) => script === integrityScript
+        ? { measured: true, viewport: { name: 'active', width: 1440, height: 900 }, findings: [{ kind: 'overlap', severity: 'critical', selector: 'h3', details: 'Text "a" is painted over text "b"' }] }
+        : base.browser.eval(target, script),
+    });
+    const report = await new ThemeQaWorkflow(ports).validate({
+      runId: 'run-integrity-layout',
+      attemptId: 'att-integrity-layout',
+      workspaceRoot: 'E:/Work/test-theme',
+      target: makeTarget(1),
+    });
+    assert.strictEqual(report.checklist.layout, false, 'Integrity critical must clear checklist.layout');
+    assert.strictEqual(report.summary.verdict, 'FAIL');
+    assert.strictEqual(report.findings?.responsive?.['1440']?.criticalOverlap, 1);
+    assert.strictEqual(report.findings?.responsive?.['375']?.criticalOverlap, null);
+  });
+
+  it('10c. Truncated integrity scan is an evidence gap, never PASS', async () => {
+    const integrityScript = LayoutIntegrityEngine.getBrowserScanScript('active');
+    const base = createMockPorts();
+    const ports = createMockPorts({
+      eval: async (target, script) => script === integrityScript
+        ? { measured: true, viewport: { name: 'active', width: 1440, height: 900 }, findings: [],
+            stats: { elements: 16000, textRuns: 0, controls: 0, sweepSteps: 0, truncated: true,
+              truncatedReasons: ['elements 16000 > 15000'], failedDetectors: [], durationMs: 900 } }
+        : base.browser.eval(target, script),
+    });
+    const report = await new ThemeQaWorkflow(ports).validate({
+      runId: 'run-integrity-truncated',
+      attemptId: 'att-integrity-truncated',
+      workspaceRoot: 'E:/Work/test-theme',
+      target: makeTarget(1),
+      viewports: {
+        desktop: { mismatchPercent: 0.5, passed: true },
+        tablet: { mismatchPercent: 1.0, passed: true },
+        mobile: { mismatchPercent: 1.5, passed: true },
+      },
+    });
+    assert.ok(report.findings?.evidenceGaps?.some((g) => g.includes('Layout integrity scan truncated: elements 16000 > 15000')),
+      `expected truncation gap, got ${JSON.stringify(report.findings?.evidenceGaps)}`);
+    assert.strictEqual(report.summary.verdict, 'INCONCLUSIVE');
+  });
+
+  it('10d. Failed integrity detector is an evidence gap, never PASS', async () => {
+    const integrityScript = LayoutIntegrityEngine.getBrowserScanScript('active');
+    const base = createMockPorts();
+    const ports = createMockPorts({
+      eval: async (target, script) => script === integrityScript
+        ? { measured: true, viewport: { name: 'active', width: 1440, height: 900 }, findings: [],
+            stats: { elements: 900, textRuns: 120, controls: 30, sweepSteps: 4, truncated: false,
+              truncatedReasons: [], failedDetectors: ['clipping', 'clipping', 'occlusion'], durationMs: 300 } }
+        : base.browser.eval(target, script),
+    });
+    const report = await new ThemeQaWorkflow(ports).validate({
+      runId: 'run-integrity-detector-failed',
+      attemptId: 'att-integrity-detector-failed',
+      workspaceRoot: 'E:/Work/test-theme',
+      target: makeTarget(1),
+      viewports: {
+        desktop: { mismatchPercent: 0.5, passed: true },
+        tablet: { mismatchPercent: 1.0, passed: true },
+        mobile: { mismatchPercent: 1.5, passed: true },
+      },
+    });
+    assert.ok(report.findings?.evidenceGaps?.some((g) => g.includes('Layout integrity detectors failed: clipping, occlusion')),
+      `expected detector gap, got ${JSON.stringify(report.findings?.evidenceGaps)}`);
+    assert.strictEqual(report.summary.verdict, 'INCONCLUSIVE');
+  });
+
+  it('10e. Integrity criticals do not fail a run whose caller disabled the layout check', async () => {
+    const integrityScript = LayoutIntegrityEngine.getBrowserScanScript('active');
+    const base = createMockPorts();
+    const ports = createMockPorts({
+      eval: async (target, script) => script === integrityScript
+        ? { measured: true, viewport: { name: 'active', width: 1440, height: 900 }, findings: [{ kind: 'overlap', severity: 'critical', selector: 'h3', details: 'Text "a" is painted over text "b"' }] }
+        : base.browser.eval(target, script),
+    });
+    const report = await new ThemeQaWorkflow(ports).validate({
+      runId: 'run-integrity-layout-disabled',
+      attemptId: 'att-integrity-layout-disabled',
+      workspaceRoot: 'E:/Work/test-theme',
+      target: makeTarget(1),
+      enabledChecks: { layout: false },
+      viewports: {
+        desktop: { mismatchPercent: 0.5, passed: true },
+        tablet: { mismatchPercent: 1.0, passed: true },
+        mobile: { mismatchPercent: 1.5, passed: true },
+      },
+    });
+    assert.strictEqual(report.checklist.layout, false, 'engine checklist authority still records the integrity critical');
+    assert.strictEqual(report.summary.verdict, 'PASS',
+      `layout:false must keep integrity criticals out of the verdict, gaps=${JSON.stringify(report.findings?.evidenceGaps)}`);
   });
 
   it('11. Failed requested sweep yields INCONCLUSIVE under default enabled checks (precedence for known failure)', async () => {
