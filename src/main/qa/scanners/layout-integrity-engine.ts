@@ -311,11 +311,24 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
     }
     return false;
   };
-  // A title box (a heading, or a box inside one) capped to a fixed height is the product-grid
-  // title clamp: the whole lines it drops below its own edge are cut on purpose. A container that
-  // cuts a title inside it is not a title box, and a line sliced mid-way is reported separately.
+  // A title box (a heading, or a box inside one) capped to a fixed height and repeated across the
+  // page is the product-grid title clamp: the whole lines it drops below its own edge are cut on
+  // purpose. A one-off title (the product page's own name) cut the same way loses words the reader
+  // has nowhere else to read. A container that cuts a title inside it is not a title box, and a
+  // line sliced mid-way is reported separately.
   const TITLE_BOX = 'h1, h2, h3, h4, h5, h6, [role="heading"]';
-  const isTitleBox = (a) => Boolean(a.closest && a.closest(TITLE_BOX));
+  const repeatMemo = new Map();
+  const isRepeated = (el) => {
+    const cls = typeof el.className === 'string' ? el.className.trim().split(/\s+/).filter(Boolean) : [];
+    const sel = el.tagName.toLowerCase() + cls.map((c) => '.' + CSS.escape(c)).join('');
+    let n = repeatMemo.get(sel);
+    if (n === undefined) {
+      try { n = Array.prototype.filter.call(document.querySelectorAll(sel), painted).length; } catch (e) { n = 0; }
+      repeatMemo.set(sel, n);
+    }
+    return n >= 2;
+  };
+  const isTitleBox = (a) => Boolean(a.closest && a.closest(TITLE_BOX)) && isRepeated(a);
   const isOpaque = (el) => {
     if (alphaOf(el) < 0.5) return false;
     if (el instanceof SVGElement) return true;
