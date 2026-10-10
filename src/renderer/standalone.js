@@ -1608,23 +1608,20 @@ function groupSessionsByCategory(list) {
 }
 
 /**
- * Two stored projects can carry the same display name: the same storefront checked out
- * under several folders (`devs2\S2 Spa`, `devs2\Haravan\S2 Spa`, `devs2\Sapo\S2 Spa`), or
- * the boot workspace and a folder-open minted before it attached (Main refuses to merge
- * identities the registry already holds, so both stay). When project sections collide on
- * a label, each gets the nearest folder segment that no other section in the collision
- * has at the same depth: the folder itself when its name is not already the label,
- * otherwise the closest ancestor that tells it apart. Sections whose folders are the same
- * (or unknown), or whose segments still clash, fall back to the project id tail.
+ * Project sections with the same display name (the same storefront checked out under
+ * several folders, or distinct records for one root) are disambiguated by the nearest
+ * folder segment that differs; identical or unknown folders fall back to the project id
+ * tail. A colliding folder section keeps the project label stable and gets a `thư mục`
+ * marker, plus a path segment when multiple folder sections also collide.
  * `group.displayLabel` is a read-out for the header only; rename, search and stored state
  * keep the real label.
  */
 function disambiguateProjectGroupLabels(groups) {
-  const projectGroups = groups.filter((g) => g && g.kind === 'project');
-  for (const g of projectGroups) g.displayLabel = '';
+  const candidateGroups = groups.filter((g) => g && (g.kind === 'project' || g.kind === 'folder'));
+  for (const g of candidateGroups) g.displayLabel = '';
   // The sidebar paints headers upper-case, so "S2 Spa" and "S2 SPA" read as one name.
   const byLabel = new Map();
-  for (const g of projectGroups) {
+  for (const g of candidateGroups) {
     const label = (g.label || '').trim();
     if (!label) continue;
     const bucket = byLabel.get(label.toLowerCase()) || [];
@@ -1633,12 +1630,30 @@ function disambiguateProjectGroupLabels(groups) {
   }
   for (const [foldedLabel, bucket] of byLabel) {
     if (bucket.length < 2) continue;
-    const suffixes = projectFolderSuffixes(foldedLabel, bucket);
-    bucket.forEach((g, i) => {
-      const label = g.label.trim();
-      const suffix = suffixes[i];
-      g.displayLabel = suffix ? `${label} · ${suffix}` : label;
-    });
+    const projects = bucket.filter((g) => g.kind === 'project');
+    const folders = bucket.filter((g) => g.kind === 'folder');
+    if (projects.length >= 2) {
+      const suffixes = projectFolderSuffixes(foldedLabel, projects);
+      projects.forEach((g, i) => {
+        const label = g.label.trim();
+        const suffix = suffixes[i];
+        g.displayLabel = suffix ? `${label} · ${suffix}` : label;
+      });
+    }
+    if (folders.length > 0 && (projects.length > 0 || folders.length >= 2)) {
+      if (folders.length === 1) {
+        const fg = folders[0];
+        const label = fg.label.trim();
+        fg.displayLabel = `${label} · thư mục`;
+      } else {
+        const folderSuffixes = projectFolderSuffixes(foldedLabel, folders);
+        folders.forEach((fg, i) => {
+          const label = fg.label.trim();
+          const seg = folderSuffixes[i];
+          fg.displayLabel = seg ? `${label} · thư mục · ${seg}` : `${label} · thư mục`;
+        });
+      }
+    }
   }
 }
 
@@ -4769,11 +4784,13 @@ function capsuleProjectIdOf(entry) {
 }
 
 /**
- * True when an agent, not a window, owns the session. Those rows are readable from any shell —
- * the manager included — but are never moved to another project.
+ * True when an agent, not a window, owns the session and still holds it. Those rows are readable
+ * from any shell — the manager included — but are never moved to another project. Main stamps
+ * `agentHeld: false` once no tab holds the shell any more (its agent is gone); such a row is no
+ * agent's to protect, so it gets the controls of any other row and Main's gate admits them.
  */
 function isAgentOwnedSession(session) {
-  return Boolean(session && typeof session.ownerKey === 'string' && session.ownerKey.startsWith('agent:'));
+  return Boolean(session && typeof session.ownerKey === 'string' && session.ownerKey.startsWith('agent:') && session.agentHeld !== false);
 }
 
 /** Capsule names in the order a Vietnamese reader expects, with a plain fallback for a
@@ -7265,29 +7282,29 @@ function projectIdsForFolderPath(folderPath) {
  * the header stays a name and a count. Targets are read from the header's live attributes:
  * the element is reused across renders while its group object is rebuilt.
  */
-
 function showProjectHeaderMenu(e, header) {
   e.preventDefault();
   e.stopPropagation();
   hideContextMenu();
-  let projectId = header.getAttribute('data-project-id') || '';
-  const folderPath = header.getAttribute('data-folder-path') || '';
   const capsuleKey = header.getAttribute('data-category') || '';
+  let projectId = header.getAttribute('data-project-id') || '';
+  if (!projectId && isProjectGroupKey(capsuleKey)) {
+    projectId = capsuleKey.slice(PROJECT_GROUP_PREFIX.length);
+  }
+  const folderPath = header.getAttribute('data-folder-path') || '';
   const capsuleId = isCapsuleGroupKey(capsuleKey)
     ? capsuleKey.slice(CAPSULE_GROUP_PREFIX.length)
     : (header.getAttribute('data-capsule-id') || '');
-  // A folder section carries no project id — but the stored inventory knows which
-  // project(s) own that root, so the menu can still offer the project's actions.
-  // More than one claimant is real (a root opened before the boot workspace
-  // attached): the single-target actions (star, colour, open) keep the header's own
-  // id, while remove is offered once per claimant with its stored name so the user
-  // picks the exact record.
+  // A folder section carries no project id, but the stored inventory knows which project(s)
+  // own that root, so the menu still offers the project's actions. Removing from a folder
+  // section is the dangerous one: the folder's label can match a project header beside it,
+  // and removal closes that project's terminals. So a remove row reached through the folder
+  // names the exact record — stored name and id tail, in the row and in the confirm — and is
+  // never the bare "remove project" a project's own header shows.
   const folderProjectIds = !projectId && folderPath ? projectIdsForFolderPath(folderPath) : [];
+  const removeViaFolder = !projectId && folderProjectIds.length > 0;
   if (!projectId && folderProjectIds.length === 1) projectId = folderProjectIds[0];
-  const name = (projectStoredInfo.get(projectId) || {}).name
-    || (header.querySelector('.terminal-tab-category-label') || {}).textContent
-    || projectId;
-  const starred = Boolean((projectAppearance.get(projectId) || {}).starred);
+  const starred = Boolean(projectId && (projectAppearance.get(projectId) || {}).starred);
   const items = [];
   if (folderPath && typeof api?.newTerminalInFolder === 'function') {
     items.push({ label: 'Terminal mới trong thư mục này', run: () => createTerminalInFolder(folderPath) });
@@ -7308,12 +7325,16 @@ function showProjectHeaderMenu(e, header) {
     items.push({ label: 'Mở dự án này (Web Hub)', run: () => openProjectWebHub(projectId) });
   }
   if (typeof api?.removeProject === 'function') {
-    const removable = projectId ? [projectId] : folderProjectIds;
+    const removable = removeViaFolder ? folderProjectIds : (projectId ? [projectId] : []);
     if (removable.length > 0) items.push({ divider: true });
     for (const pid of removable) {
       const stored = (projectStoredInfo.get(pid) || {}).name || pid;
-      const label = removable.length > 1 ? `Xóa dự án "${stored}" (…${pid.slice(-4)})` : 'Xóa dự án khỏi danh sách';
-      items.push({ label, danger: true, run: () => removeProjectFromMenu(pid, stored) });
+      if (removeViaFolder) {
+        const named = `${stored} (…${pid.slice(-4)})`;
+        items.push({ label: `Xóa dự án "${named}" của thư mục này`, danger: true, run: () => removeProjectFromMenu(pid, named) });
+      } else {
+        items.push({ label: 'Xóa dự án khỏi danh sách', danger: true, run: () => removeProjectFromMenu(pid, stored) });
+      }
     }
   }
   if (!items.some((item) => item.run)) return;

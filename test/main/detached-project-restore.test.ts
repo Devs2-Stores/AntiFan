@@ -196,6 +196,7 @@ function makeWiringHost(shell: ProjectWindowShell): AnyRecord {
   host.setDetachedShellProbe = () => {};
   host.setWindowWorkspaceAffiliation = () => true;
   host.setOwnerWindowPresence = () => {};
+  host.setAgentTerminalHold = () => {};
   host.setProjectAssignmentResolver = () => {};
   host.setTerminalLinkOpener = () => {};
   host.setSpaceWindowOpener = () => {};

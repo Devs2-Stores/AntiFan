@@ -168,6 +168,43 @@ describe('hub folder grouping', () => {
     assert.deepStrictEqual(lastArgs(harness, 'newTerminalInFolder'), ['E:\\Work\\x']);
   });
 
+  it('names the exact stored project a folder-group header would remove, never a bare remove', async () => {
+    const harness = await loadManagerSidebar();
+    harness.api.removeProject = async () => ({ status: 'REMOVED' });
+    harness.api.listProjects = async () => ({ candidates: [], stored: [
+      { projectId: 'project-bf04da39', name: 'SHOPIFY', workspacePath: 'E:\\Work\\Shopify' },
+    ] });
+    await harness.read<() => Promise<boolean>>('ensureProjectAppearance')();
+    seed(harness, [
+      { id: 'orphan', name: 'Orphan', state: 'running', ownerKey: 'agent:tab-dead', folderKey: 'e:\\work\\shopify', folderLabel: 'SHOPIFY', folderPath: 'E:\\Work\\Shopify' },
+    ], 'orphan');
+    harness.renderTabs();
+
+    const header = folderHeaders(harness).find((candidate) => candidate.getAttribute('data-group-kind') === 'folder');
+    assert.ok(header, 'the orphan row renders as a folder group');
+    const labels = pickHeaderMenuItem(harness, header, null);
+    const removeRows = labels.filter((label) => label.includes('Xóa dự án'));
+    assert.deepStrictEqual(removeRows, ['Xóa dự án "SHOPIFY (…da39)" của thư mục này'], 'the folder row names the stored record it reaches');
+    pickHeaderMenuItem(harness, header, 'Xóa dự án "SHOPIFY');
+    await flush();
+    // The argument object is built inside the renderer's realm; compare its value, not its prototype.
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(lastArgs(harness, 'removeProject'))), [{ projectId: 'project-bf04da39' }], 'the named record is the one removed');
+  });
+
+  it('continues to offer project removal from a project-group header', async () => {
+    const harness = await loadManagerSidebar();
+    harness.api.removeProject = async () => ({ status: 'REMOVED' });
+    seed(harness, [
+      { id: 'owned', name: 'Owned', state: 'running', ownerKey: 'project:p1', folderKey: 'e:\\work\\shopify', folderLabel: 'SHOPIFY', folderPath: 'E:\\Work\\Shopify' },
+    ], 'owned');
+    harness.renderTabs();
+
+    const header = folderHeaders(harness).find((candidate) => candidate.getAttribute('data-group-kind') === 'project');
+    assert.ok(header, 'the project row renders as a project group');
+    const labels = pickHeaderMenuItem(harness, header, null);
+    assert.ok(labels.some((label) => label.includes('Xóa dự án')), 'a project header retains project removal');
+  });
+
   it('offers Space on a docked folder header menu but not in a popout: popout-mode renderers cannot invoke a sidebar-only route', async () => {
     const row = { id: 't-1', name: 'Terminal 1', state: 'running', ownerKey: 'project:p1', folderKey: 'e:\\work\\x', folderLabel: 'x', folderPath: 'E:\\Work\\x', displayLabel: 'x · 1' };
 

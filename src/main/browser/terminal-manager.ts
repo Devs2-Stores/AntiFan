@@ -578,6 +578,14 @@ export interface SessionSummary {
    * a minted name never earned rather than a second name fighting the user's.
    */
   displayLabel?: string;
+  /**
+   * On an `agent:` row only: whether an agent still holds the shell (some tab carries a live
+   * affinity to it). `false` means the agent that minted it is gone — its tab closed or its
+   * window went away — so the row is no longer read-only to the shared manager. Projection-only,
+   * stamped by the host when the window's state is built and never persisted; the manager's
+   * write gate asks the same question again at decision time.
+   */
+  agentHeld?: boolean;
 }
 export interface TerminalManagerStats {
   sessionCount: number;

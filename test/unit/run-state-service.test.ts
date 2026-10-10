@@ -486,8 +486,9 @@ describe('RunStateService Suite', () => {
   });
 
   test('8. viewOnly for an agent-owned row', () => {
-    const sessionMap = new Map([
-      ['session-agent', { id: 'session-agent', ownerKey: 'agent:auto-builder-1' }],
+    const sessionMap = new Map<string, { id: string; ownerKey: string; agentHeld?: boolean }>([
+      ['session-agent', { id: 'session-agent', ownerKey: 'agent:auto-builder-1', agentHeld: true }],
+      ['session-agent-released', { id: 'session-agent-released', ownerKey: 'agent:closed-tab', agentHeld: false }],
       ['session-user', { id: 'session-user', ownerKey: 'user:default' }],
     ]);
 
@@ -516,6 +517,14 @@ describe('RunStateService Suite', () => {
         runSeq: 1,
         viewOnly: false,
       },
+      {
+        terminalSessionId: 'session-agent-released',
+        state: 'running',
+        stale: false,
+        mode: 'direct',
+        runSeq: 1,
+        viewOnly: true,
+      },
     ];
 
     // Receiving window is manager
@@ -524,6 +533,8 @@ describe('RunStateService Suite', () => {
     const userCardInManager = managerCards.find((c) => c.terminalSessionId === 'session-user');
     assert.strictEqual(agentCardInManager?.viewOnly, true, 'agent-owned row in manager must have viewOnly: true');
     assert.strictEqual(userCardInManager?.viewOnly, false, 'user-owned row in manager must have viewOnly: false');
+    const releasedCardInManager = managerCards.find((c) => c.terminalSessionId === 'session-agent-released');
+    assert.strictEqual(releasedCardInManager?.viewOnly, false, 'an agent row no agent holds any more is operable from the manager');
 
     // Receiving window is a project window (not manager)
     const projectCards = service.runCardsForWindow(baseRuns, 'project-window');

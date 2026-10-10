@@ -469,6 +469,10 @@ let bootstrapShell: ProjectWindowShell | null = null;
  * window happened to be created first.
  */
 const tabAuthorities = new TabAuthorityDirectory();
+/** Whether an agent still holds a terminal; see `TabAuthorityDirectory.agentHoldsTerminal`. */
+function agentHoldsTerminal(terminalId: string): boolean {
+  return tabAuthorities.agentHoldsTerminal(terminalId, TerminalManager.getInstance().sessionOwnerKey(terminalId));
+}
 /**
  * Tab→host routing with the dead-binding degrade contract: an explicit id no live
  * host owns degrades per seam (never the ambient host's answer), an absent id is the
@@ -1035,6 +1039,9 @@ function attachSharedServices(host: NativeTabHost): void {
   // through this seam — the same shape as the close reservations above — and never by opening
   // a window from the tab host.
   host.setOwnerWindowPresence((ownerKeyValue) => liveShellFor(ownerKeyValue) !== undefined);
+  // An `agent:` row is the agent's only while some tab still holds it, and the tab may sit in any
+  // window, so the answer is Main's directory-wide one rather than this host's own tabs.
+  host.setAgentTerminalHold(agentHoldsTerminal);
   host.setProjectAssignmentResolver(resolveProjectAssignment);
   host.setTerminalLinkOpener(openTerminalLinkInOwner);
   host.setSpaceWindowOpener(openSpaceWindow);
@@ -4160,8 +4167,21 @@ async function createWindow(): Promise<void> {
     // shared one terminal namespace.
     terminalAuthority: {
       allowsTab: (tabId, terminalId) => (hostForTabOrDegrade(tabId, 'terminalAuthority.allowsTab')?.isTerminalAllowedForTab(tabId, terminalId) ?? false),
-      isAgentTerminal: (terminalId) => tabAuthorities.hosts().some((h) => h.getTerminalAgentAffinity(terminalId)?.status === 'alive'),
-      bind: (terminalId, generation, tabId) => hostForTabOrBootstrap(tabId).bindTerminalAgentAffinity(terminalId, generation, tabId),
+      isAgentTerminal: (terminalId) => tabAuthorities.terminalHasLiveAgentAffinity(terminalId),
+      // A dead tab answers `false` rather than throwing, so the capability can roll the fresh PTY
+      // back; anything the bind itself throws is a real fault and reaches the capability as is.
+      bind: (terminalId, generation, tabId) =>
+        hostForTabOrDegrade(tabId, 'terminalAuthority.bind')?.bindTerminalAgentAffinity(terminalId, generation, tabId) ?? false,
+      tabAffiliation: (tabId) => {
+        const host = hostForTabOrDegrade(tabId, 'terminalAuthority.tabAffiliation');
+        if (!host || !host.hasTab(tabId)) {
+          return { live: false };
+        }
+        return {
+          live: true,
+          capsuleId: host.getTabCapsuleId(tabId),
+        };
+      },
     },
     artifactStoreOptions: resolveArtifactStoreOptionsFromEnv(),
     getAutomationTabId: () => {
@@ -4230,6 +4250,7 @@ async function createWindow(): Promise<void> {
         owner: ownerKey,
         ownerKey,
         capsuleId: terminalManager.sessionCapsuleId(session.id),
+        ...(typeof ownerKey === 'string' && ownerKey.startsWith('agent:') ? { agentHeld: agentHoldsTerminal(session.id) } : {}),
       };
     },
     listSessions: () =>

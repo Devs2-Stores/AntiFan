@@ -354,6 +354,7 @@ interface HostUnderTest {
   assertManagerMayOperate(sessionId: string, senderId?: number): true | { ok: false; reason: string; message: string };
   shellOwnerKeyForSender(senderId: number | undefined): string | undefined;
   setOwnerWindowPresence(presence: ((ownerKeyValue: string) => boolean) | null): void;
+  setAgentTerminalHold(hold: ((terminalId: string) => boolean) | null): void;
   setProjectAssignmentResolver(resolver: ((projectId: string) => TerminalProjectAssignment | undefined) | null): void;
   setTerminalLinkOpener(opener: ((ownerKey: string, url: string) => Promise<boolean> | boolean) | null): void;
 }
@@ -587,6 +588,38 @@ describe('Terminal project handover — what the manager may do with an agent ro
     // not the manager's control over the rows it was given.
     assert.equal(await harness.invoke('antifan:terminal:close-session', OTHER_ROW.id), true);
     assert.deepEqual(recording.callsFor('closeSession'), [`closeSession:${OTHER_ROW.id}`]);
+  });
+
+  it('lifts the rule once no agent holds the row: its tab is gone, so the manager operates it', async () => {
+    const { host, harness, recording } = windowFixture({ owner: MANAGER, rows: ROWS });
+    // Main's answer for a row whose minting tab closed: nothing holds the shell any more.
+    host.setAgentTerminalHold(() => false);
+
+    assert.equal(host.assertManagerMayOperate(AGENT_ROW.id), true, 'an orphaned agent row is the manager\'s to operate');
+    assert.equal(await harness.invoke('antifan:terminal:close-session', AGENT_ROW.id), true, 'so its close goes through');
+    assert.deepEqual(recording.callsFor('closeSession'), [`closeSession:${AGENT_ROW.id}`]);
+
+    // The projection tells the renderer the same thing, so it offers the controls the gate admits.
+    const projected = host.visibleTerminalSessions() as Array<{ id: string; agentHeld?: boolean }>;
+    assert.equal(projected.find((row) => row.id === AGENT_ROW.id)?.agentHeld, false);
+    assert.equal(projected.find((row) => row.id === OWN_ROW.id)?.agentHeld, undefined, 'only agent rows carry the stamp');
+  });
+
+  it('keeps the rule while an agent holds the row, asking Main at decision time', async () => {
+    const { host, harness, recording } = windowFixture({ owner: MANAGER, rows: ROWS });
+    let held = true;
+    host.setAgentTerminalHold((terminalId) => terminalId === AGENT_ROW.id && held);
+
+    const refusal = host.assertManagerMayOperate(AGENT_ROW.id);
+    assert.equal(refusal !== true && refusal.reason, 'MANAGER_AGENT_SESSION_READ_ONLY');
+    assert.equal(await harness.invoke('antifan:terminal:close-session', AGENT_ROW.id), false);
+    const projected = host.visibleTerminalSessions() as Array<{ id: string; agentHeld?: boolean }>;
+    assert.equal(projected.find((row) => row.id === AGENT_ROW.id)?.agentHeld, true);
+
+    // The hold ends between two calls: the next decision reads the new answer, not a cached one.
+    held = false;
+    assert.equal(await harness.invoke('antifan:terminal:close-session', AGENT_ROW.id), true);
+    assert.deepEqual(recording.callsFor('closeSession'), [`closeSession:${AGENT_ROW.id}`]);
   });
 
   it('refuses a bridge-style caller that names no window before any route runs', async () => {

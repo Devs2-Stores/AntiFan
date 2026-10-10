@@ -18,6 +18,7 @@ function headers(groups: Group[]): string[] {
 }
 
 const project = (label: string, folderPath: string, projectId: string): Group => ({ kind: 'project', label, folderPath, projectId });
+const folder = (label: string, folderPath: string): Group => ({ kind: 'folder', label, folderPath });
 
 describe('project section label disambiguation', () => {
   it('names each same-name storefront by the folder segment that tells it apart, at any depth', () => {
@@ -73,5 +74,26 @@ describe('project section label disambiguation', () => {
     ]);
     assert.strictEqual(new Set(shown.map((s) => s.toLowerCase())).size, shown.length, `distinct headers: ${shown.join(' | ')}`);
     for (const s of shown) assert.notStrictEqual(s.toLowerCase(), 'shop · shop');
+  });
+
+  it('distinguishes a folder group from a project group with the same label while keeping the project label stable', () => {
+    assert.deepStrictEqual(
+      headers([
+        project('SHOPIFY', 'E:\\Work\\shopify', 'bf04da39'),
+        folder('shopify', 'E:\\Work\\shopify'),
+      ]),
+      ['SHOPIFY', 'shopify · thư mục'],
+    );
+  });
+
+  it('distinguishes multiple folder groups with the same label using folder path segments', () => {
+    assert.deepStrictEqual(
+      headers([
+        project('SHOPIFY', 'E:\\Work\\shopify', 'bf04da39'),
+        folder('shopify', 'E:\\Work\\themes\\devs2\\shopify'),
+        folder('shopify', 'E:\\Work\\themes\\haravan\\shopify'),
+      ]),
+      ['SHOPIFY', 'shopify · thư mục · devs2', 'shopify · thư mục · haravan'],
+    );
   });
 });

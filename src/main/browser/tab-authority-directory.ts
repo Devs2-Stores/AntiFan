@@ -13,6 +13,7 @@
 import type { ProjectWindowShell } from './project-window-shell';
 import type { NativeTabHost } from './native-tab-host';
 import type { RoutedSender, RoutedSurface } from './ipc-router';
+import { parseOwnerKey } from '../project/project-context';
 
 /**
  * The host gains `surfaceForWebContents` in the same phase as this directory.
@@ -57,6 +58,28 @@ export class TabAuthorityDirectory {
       if (host.hasTab(tabId)) return host;
     }
     return undefined;
+  }
+
+  /** Whether some live window's tab carries a live agent affinity to a terminal — the one
+   *  membership the agent planes drive a terminal through (MCP `terminalAuthority`, the bridge's
+   *  attachment check). */
+  public terminalHasLiveAgentAffinity(terminalId: string): boolean {
+    return this.hosts().some((host) => host.getTerminalAgentAffinity(terminalId)?.status === 'alive');
+  }
+
+  /**
+   * Whether an agent still holds an `agent:` row, which is what keeps it read-only to the shared
+   * manager. Held means a live affinity, or the tab the owner key names is still open in some
+   * window: a bridge mint (`antifan.terminalNewSession`) stamps `agent:<tab>` without binding an
+   * affinity, and its agent is alive for as long as that tab is. The `agent:` stamp alone is not
+   * enough — it outlives the tab that minted it, and a row whose agent is gone would otherwise be
+   * refused to every caller for as long as its shell runs. `agent:unbound` names no tab, so only
+   * an affinity can hold it.
+   */
+  public agentHoldsTerminal(terminalId: string, ownerKey: string | undefined): boolean {
+    if (this.terminalHasLiveAgentAffinity(terminalId)) return true;
+    const owner = parseOwnerKey(ownerKey ?? '');
+    return owner.kind === 'agent' && owner.tabId !== 'unbound' && this.hostForTab(owner.tabId) !== undefined;
   }
 
   /**

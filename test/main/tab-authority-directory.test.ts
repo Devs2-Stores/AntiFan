@@ -36,11 +36,16 @@ function createFakeShell(options: {
   };
 }
 
-function createFakeHost(tabs: string[], auxiliarySurfaces?: Record<number, RoutedSurface>): NativeTabHost {
+function createFakeHost(
+  tabs: string[],
+  auxiliarySurfaces?: Record<number, RoutedSurface>,
+  affinities: Record<string, 'alive' | 'closed'> = {},
+): NativeTabHost {
   const tabSet = new Set(tabs);
   return {
     hasTab: (tabId: string) => tabSet.has(tabId),
     surfaceForWebContents: (id: number) => auxiliarySurfaces?.[id],
+    getTerminalAgentAffinity: (terminalId: string) => (affinities[terminalId] ? { status: affinities[terminalId] } : undefined),
   } as unknown as NativeTabHost;
 }
 
@@ -164,5 +169,52 @@ describe('TabAuthorityDirectory', () => {
     assert.equal(directory.resolveSender(101), undefined);
     assert.equal(directory.liveShellCount(), 0);
     assert.deepEqual(directory.hosts(), []);
+  });
+
+  describe('agentHoldsTerminal — what keeps an `agent:` row read-only to the manager', () => {
+    it('holds a bridge-minted row while the tab its owner key names is open, with no affinity bound', () => {
+      const directory = new TabAuthorityDirectory();
+      const window = createFakeShell();
+      directory.register(window.shell, createFakeHost(['tab-agent']));
+
+      assert.equal(directory.agentHoldsTerminal('terminal-1', 'agent:tab-agent'), true, 'the minting agent is alive while its tab is');
+      assert.equal(directory.terminalHasLiveAgentAffinity('terminal-1'), false, 'the MCP plane still sees no affinity');
+
+      window.setDestroyed(true);
+      assert.equal(directory.agentHoldsTerminal('terminal-1', 'agent:tab-agent'), false, 'its window gone, nothing holds the row');
+    });
+
+    it('holds a row through a live affinity on any window, even after the minting tab closed', () => {
+      const directory = new TabAuthorityDirectory();
+      directory.register(createFakeShell().shell, createFakeHost([]));
+      directory.register(createFakeShell().shell, createFakeHost(['tab-other'], undefined, { 'terminal-1': 'alive' }));
+
+      assert.equal(directory.agentHoldsTerminal('terminal-1', 'agent:tab-gone'), true);
+      assert.equal(directory.terminalHasLiveAgentAffinity('terminal-1'), true);
+    });
+
+    it('releases an orphan: minting tab gone, affinity closed', () => {
+      const directory = new TabAuthorityDirectory();
+      directory.register(createFakeShell().shell, createFakeHost(['tab-other'], undefined, { 'terminal-1': 'closed' }));
+
+      assert.equal(directory.agentHoldsTerminal('terminal-1', 'agent:tab-gone'), false);
+    });
+
+    it('holds `agent:unbound` only through an affinity, never through a tab named "unbound"', () => {
+      const directory = new TabAuthorityDirectory();
+      directory.register(createFakeShell().shell, createFakeHost(['unbound']));
+
+      assert.equal(directory.agentHoldsTerminal('terminal-1', 'agent:unbound'), false);
+      directory.register(createFakeShell().shell, createFakeHost([], undefined, { 'terminal-1': 'alive' }));
+      assert.equal(directory.agentHoldsTerminal('terminal-1', 'agent:unbound'), true);
+    });
+
+    it('never claims a project-owned or ownerless row through a tab id', () => {
+      const directory = new TabAuthorityDirectory();
+      directory.register(createFakeShell().shell, createFakeHost(['proj-a']));
+
+      assert.equal(directory.agentHoldsTerminal('terminal-1', 'project:proj-a'), false);
+      assert.equal(directory.agentHoldsTerminal('terminal-1', undefined), false);
+    });
   });
 });

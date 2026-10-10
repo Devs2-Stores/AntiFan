@@ -282,6 +282,7 @@ export class ControlPlaneRuntime {
       allowsTab: (tabId, terminalId) => host.allowsTab(tabId, terminalId),
       isAgentTerminal: (terminalId) => host.isAgentTerminal(terminalId),
       bind: (terminalId, generation, tabId) => host.bind(terminalId, generation, tabId),
+      tabAffiliation: host.tabAffiliation.bind(host),
     };
   }
   public async initialize(): Promise<void> {

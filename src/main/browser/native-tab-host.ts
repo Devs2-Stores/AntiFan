@@ -7524,6 +7524,11 @@ export class NativeTabHost extends EventEmitter {
    * from under it, so the manager reads those rows and nothing more. Reads are untouched: every
    * projection, diagnostics report and buffer stays whole for the manager.
    *
+   * The rule lasts only while an agent still holds the row (`agentTerminalHold`). The `agent:`
+   * stamp outlives the tab that minted it, and once no tab holds the shell no agent plane can
+   * drive it either, so refusing the manager too would leave a row nobody can close, move or type
+   * into. A host never given the seam keeps every `agent:` row read-only.
+   *
    * The refusal is returned, never thrown: the calling route answers in its own contract, so a
    * boolean channel resolves `false` and a fire-and-forget channel reports the code it logged
    * instead of leaving a throw in an IPC path that has nowhere to put one.
@@ -7534,6 +7539,8 @@ export class NativeTabHost extends EventEmitter {
     if (!this.isSharedTerminalManagerSender(senderId)) return true;
     const owner = this.sessionOwnerKey(id);
     if (!owner || parseOwnerKey(owner).kind !== 'agent') return true;
+    const hold = this.agentTerminalHold;
+    if (typeof hold === 'function' && !hold(id)) return true;
     return {
       ok: false,
       reason: 'MANAGER_AGENT_SESSION_READ_ONLY',
@@ -7594,7 +7601,7 @@ export class NativeTabHost extends EventEmitter {
       : undefined;
     return {
       activeSessionId,
-      sessions: this.stampFolderProjection(sessions),
+      sessions: this.stampAgentHold(this.stampFolderProjection(sessions)),
       ...(splitSessionId ? { splitSessionId } : {}),
       snapshot: transcriptKept && typeof projection.snapshot === 'string' ? projection.snapshot : '',
       snapshotThroughSeq: transcriptKept && typeof projection.snapshotThroughSeq === 'number' ? projection.snapshotThroughSeq : 0,
@@ -7659,6 +7666,19 @@ export class NativeTabHost extends EventEmitter {
       }
       return stamped;
     });
+  }
+
+  /**
+   * Stamp `agentHeld` on every `agent:` row, so the renderer offers the controls the write gate
+   * would admit for it. The stamp is a hint built with this projection and the gate re-asks at
+   * decision time, so a stamp gone stale between pushes costs a disabled item or a refused click,
+   * never a write the gate would refuse.
+   */
+  private stampAgentHold(rows: SessionSummary[]): SessionSummary[] {
+    const hold = this.agentTerminalHold;
+    return rows.map((row) => (typeof row.ownerKey === 'string' && parseOwnerKey(row.ownerKey).kind === 'agent'
+      ? { ...row, agentHeld: typeof hold === 'function' ? hold(row.id) : true }
+      : row));
   }
 
   /**
@@ -13803,6 +13823,19 @@ export class NativeTabHost extends EventEmitter {
    */
   public setOwnerWindowPresence(presence: ((ownerKey: string) => boolean) | null): void {
     this.ownerWindowPresence = typeof presence === 'function' ? presence : null;
+  }
+  /**
+   * Whether an agent still holds a terminal, as Main's tab directory answers it: some window's
+   * tab carries a live affinity to that shell, or the tab its `agent:` key names is still open
+   * (`TabAuthorityDirectory.agentHoldsTerminal`). The agent's tab may sit in any window, so this
+   * host cannot answer from its own tabs; Main injects the directory-wide answer. Unwired, the
+   * host treats every `agent:` row as held, which keeps it read-only to the manager.
+   */
+  private agentTerminalHold: ((terminalId: string) => boolean) | null = null;
+
+  /** Install (or clear) Main's agent-hold answer; see `agentTerminalHold`. */
+  public setAgentTerminalHold(hold: ((terminalId: string) => boolean) | null): void {
+    this.agentTerminalHold = typeof hold === 'function' ? hold : null;
   }
   /**
    * Main's canonical answer for one project id, or undefined when the project has no unambiguous

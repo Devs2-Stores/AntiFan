@@ -436,6 +436,7 @@ describe('Terminal Daemon Provenance & Async Seam Invariants (RC2)', () => {
       allowsTab: () => true,
       isAgentTerminal: () => false,
       bind: () => true,
+      tabAffiliation: () => ({ live: true }),
     };
 
     registerTerminalCapabilities(catalogue, asyncFacade, ownership);

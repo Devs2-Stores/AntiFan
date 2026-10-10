@@ -3,7 +3,7 @@ import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { SessionDeliveryJournal, TerminalManager } from '../../src/main/browser/terminal-manager';
+import { SessionDeliveryJournal, TerminalManager, DEFAULT_TERMINAL_CAPSULE_ID } from '../../src/main/browser/terminal-manager';
 import { CapabilityCatalogue } from '../../src/main/tools/capability-catalogue';
 import { registerTerminalCapabilities } from '../../src/main/tools/terminal-capabilities';
 import {
@@ -381,6 +381,7 @@ describe('Terminal Capabilities, Generation Tracking & Wait Lifecycle (Phase 04)
       allowsTab: (tabId: string, terminalId: string) => boundToTab[tabId] === terminalId,
       isAgentTerminal: (terminalId: string) => terminalId === mine || terminalId === foreign,
       bind: () => true,
+      tabAffiliation: () => ({ live: true }),
     };
     const scoped = new CapabilityCatalogue({
       runtime: { mode: 'standalone', lifecycle: 'active' },
@@ -490,6 +491,7 @@ describe('Terminal Capabilities, Generation Tracking & Wait Lifecycle (Phase 04)
         claims.push({ terminalId, generation, tabId });
         return true;
       },
+      tabAffiliation: () => ({ live: true }),
     };
     const scoped = new CapabilityCatalogue({
       runtime: { mode: 'standalone', lifecycle: 'active' },
@@ -561,4 +563,93 @@ describe('Terminal Capabilities, Generation Tracking & Wait Lifecycle (Phase 04)
     );
     assert.deepStrictEqual(created, ['terminal-90', 'terminal-91'], 'a refused create must leave no session behind');
   });
+  it('11. Refuses a dead bound tab before creating a PTY', async () => {
+    let creates = 0;
+    const ownership = {
+      ownerTabId: () => 'tab-dead',
+      allowsTab: () => false,
+      isAgentTerminal: () => false,
+      bind: () => true,
+      tabAffiliation: () => ({ live: false }),
+    };
+    const scoped = new CapabilityCatalogue({ runtime: { mode: 'standalone', lifecycle: 'active' }, projectId, workspaceId, runtimeId: lease.runtimeId, hostEpoch: 1, getActiveLease: () => lease });
+    const facade = {
+      createSession: async () => { creates++; return 'terminal-dead'; },
+      createSplitSession: async () => { creates++; return 'terminal-dead-split'; },
+      listSessions: () => [],
+      getActiveSessionId: () => '',
+    } as unknown as TerminalManager;
+    registerTerminalCapabilities(scoped, facade, ownership);
+    const context = { attachmentId: 'att-dead', runId: 'r', attemptId: 'a', projectId, workspaceId, backendId: 'b', hostEpoch: 1, invocationId: 'i', lease, leaseToken: lease.token, grant: 'write' as const };
+    await assert.rejects(() => scoped.dispatch('terminal.create', {}, context), (err: unknown) => err instanceof CapabilityError && err.code === 'TARGET_STALE');
+    assert.strictEqual(creates, 0);
+  });
+
+  for (const bindOutcome of ['throws', 'false'] as const) {
+    it(`12. Rolls back a created PTY when bind ${bindOutcome}`, async () => {
+      let sessionExists = false;
+      let closeCalls = 0;
+      const ownership = {
+        ownerTabId: () => 'tab-live',
+        allowsTab: () => false,
+        isAgentTerminal: () => false,
+        bind: () => {
+          if (bindOutcome === 'throws') throw new Error('stale tab');
+          return false;
+        },
+        tabAffiliation: () => ({ live: true }),
+      };
+      const scoped = new CapabilityCatalogue({ runtime: { mode: 'standalone', lifecycle: 'active' }, projectId, workspaceId, runtimeId: lease.runtimeId, hostEpoch: 1, getActiveLease: () => lease });
+      const facade = {
+        createSession: async () => { sessionExists = true; return 'terminal-rollback'; },
+        closeSession: async () => { closeCalls++; sessionExists = false; return true; },
+        getSession: () => ({ sessionGeneration: 1 }),
+        listSessions: () => sessionExists ? [{ id: 'terminal-rollback' }] : [],
+        getActiveSessionId: () => '',
+      } as unknown as TerminalManager;
+      registerTerminalCapabilities(scoped, facade, ownership);
+      const context = { attachmentId: 'att-live', runId: 'r', attemptId: 'a', projectId, workspaceId, backendId: 'b', hostEpoch: 1, invocationId: 'i', lease, leaseToken: lease.token, grant: 'write' as const };
+      // A `false` bind means the tab went away; a thrown bind is a real fault and surfaces unchanged.
+      await assert.rejects(
+        () => scoped.dispatch('terminal.create', {}, context),
+        (err: unknown) =>
+          bindOutcome === 'false'
+            ? err instanceof CapabilityError && err.code === 'TARGET_STALE'
+            : err instanceof Error && !(err instanceof CapabilityError) && err.message === 'stale tab'
+      );
+      assert.strictEqual(closeCalls, 1);
+      assert.deepStrictEqual(facade.listSessions(), []);
+    });
+  }
+
+  it('13. Uses the bound tab capsule, DEFAULT sentinel when absent, and explicit capsule when supplied', async () => {
+    const capsules: Array<string | undefined> = [];
+    let tabCapsule: string | undefined = 'tab-capsule';
+    const ownership = {
+      ownerTabId: () => 'tab-capsule',
+      allowsTab: () => false,
+      isAgentTerminal: () => false,
+      bind: () => true,
+      tabAffiliation: () => ({ live: true, capsuleId: tabCapsule }),
+    };
+    const scoped = new CapabilityCatalogue({ runtime: { mode: 'standalone', lifecycle: 'active' }, projectId, workspaceId, runtimeId: lease.runtimeId, hostEpoch: 1, getActiveLease: () => lease });
+    let nextId = 1;
+    const facade = {
+      createSession: async (_cwd?: string, capsuleId?: string) => { capsules.push(capsuleId); return `terminal-capsule-${nextId++}`; },
+      getSession: (id: string) => ({ id, sessionGeneration: 1 }),
+      listSessions: () => [],
+      getActiveSessionId: () => '',
+    } as unknown as TerminalManager;
+    registerTerminalCapabilities(scoped, facade, ownership);
+    const context = { attachmentId: 'att-capsule', runId: 'r', attemptId: 'a', projectId, workspaceId, backendId: 'b', hostEpoch: 1, invocationId: 'i', lease, leaseToken: lease.token, grant: 'write' as const };
+    await scoped.dispatch('terminal.create', {}, context);
+    assert.strictEqual(capsules[0], 'tab-capsule');
+    tabCapsule = undefined;
+    await scoped.dispatch('terminal.create', {}, context);
+    assert.strictEqual(capsules[1], DEFAULT_TERMINAL_CAPSULE_ID);
+    assert.notStrictEqual(capsules[1], undefined);
+    await scoped.dispatch('terminal.create', { capsuleId: 'explicit-capsule' }, context);
+    assert.strictEqual(capsules[2], 'explicit-capsule');
+  });
+
 });

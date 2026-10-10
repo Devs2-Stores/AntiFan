@@ -1,5 +1,5 @@
 import { CapabilityCatalogue } from './capability-catalogue';
-import { TerminalManager, agentTerminalOwnerKey } from '../browser/terminal-manager';
+import { TerminalManager, agentTerminalOwnerKey, DEFAULT_TERMINAL_CAPSULE_ID } from '../browser/terminal-manager';
 import {
   CapabilityError,
   CapabilityRequestContext,
@@ -106,6 +106,8 @@ export interface TerminalOwnershipPort {
   allowsTab(tabId: string, terminalId: string): boolean;
   isAgentTerminal(terminalId: string): boolean;
   bind(terminalId: string, generation: number | undefined, tabId: string): boolean;
+  /** Probe whether a tab is alive and what capsule it was created under. */
+  tabAffiliation(tabId: string): { live: boolean; capsuleId?: string };
 }
 
 /**
@@ -415,11 +417,12 @@ export function registerTerminalCapabilities(
   catalogue.register<
     {
       cwd?: string;
+      capsuleId?: string;
       parentId?: string;
       initialCols?: number;
       initialRows?: number;
     },
-    { sessionId: string; ownerBound?: boolean; message?: string }
+    { sessionId: string; ownerBound?: boolean }
   >({
     name: 'terminal.create',
     description: 'Create a new base or split terminal PTY session',
@@ -462,6 +465,16 @@ export function registerTerminalCapabilities(
         // new PTY in a foreign workspace and then claim that workspace's tab for it.
         assertTerminalOwnership(scope, params.parentId, 'operate');
       }
+      // A dead bound tab is refused before a shell exists: a PTY minted for it could never be bound,
+      // so it would outlive the call as an orphan nobody can reach.
+      const affiliation = scope.bound ? scope.ownership.tabAffiliation(scope.tabId) : undefined;
+      if (scope.bound && !affiliation?.live) {
+        throw new CapabilityError(
+          'TARGET_STALE',
+          `Target tab "${scope.tabId}" is not owned by any live window`,
+          { tabId: scope.tabId }
+        );
+      }
       // ASYNC/SYNC SEAM CONVENTION:
       // TerminalManager declares a synchronous contract (`createSession(cwd?, capsuleId?): string`),
       // but the daemon-backed facade installed as the process singleton (DaemonTerminalProxy)
@@ -476,10 +489,17 @@ export function registerTerminalCapabilities(
       // the invocation carries no attachment. This tool surface is only ever reached by an agent, so
       // a session minted here must never be filed under a project window's key, which would make it
       // appear in that window's sidebar and nowhere else.
+      const explicitCapsuleId =
+        typeof params.capsuleId === 'string' && params.capsuleId.trim()
+          ? params.capsuleId.trim()
+          : undefined;
+      const targetCapsuleId = scope.bound
+        ? (explicitCapsuleId ?? affiliation?.capsuleId ?? DEFAULT_TERMINAL_CAPSULE_ID)
+        : params.capsuleId;
       const agentOwnerKey = agentTerminalOwnerKey(scope.bound ? scope.tabId : undefined);
       const id = params.parentId
         ? await terminal.createSplitSession(params.parentId, params.cwd, params.initialCols, params.initialRows)
-        : await terminal.createSession(params.cwd, params.capsuleId, agentOwnerKey);
+        : await terminal.createSession(params.cwd, targetCapsuleId, agentOwnerKey);
       if (typeof id !== 'string' || !id) {
         // An empty id is a refusal, not a handle: `createSplitSession` reports an
         // unusable parent (missing, disposed, or itself a split) that way. Fabricating
@@ -498,20 +518,32 @@ export function registerTerminalCapabilities(
         return { sessionId: id, ownerBound: true };
       }
       const generation = probeTerminalLifecycle(terminal, id)?.sessionGeneration;
-      const ownerBound = scope.ownership.bind(
-        id,
-        typeof generation === 'number' ? generation : undefined,
-        scope.tabId
+      // The tab can still die between the liveness check and the bind. Either way a PTY that
+      // could not be bound is closed before the call returns: no orphan survives a failed create.
+      let ownerBound = false;
+      let bindFault: unknown;
+      try {
+        ownerBound = scope.ownership.bind(id, typeof generation === 'number' ? generation : undefined, scope.tabId);
+      } catch (err) {
+        bindFault = err;
+      }
+      if (ownerBound) return { sessionId: id, ownerBound: true };
+      try {
+        if (params.parentId && typeof terminal.closeSplitSession === 'function') {
+          await terminal.closeSplitSession(id);
+        } else {
+          await terminal.closeSession(id);
+        }
+      } catch {
+        // The bind failure below is the caller's answer; a close failure must not replace it.
+      }
+      // Only a `false` bind means the tab went away; anything thrown is a real fault and surfaces as is.
+      if (bindFault !== undefined) throw bindFault;
+      throw new CapabilityError(
+        'TARGET_STALE',
+        `Session "${id}" was created but could not be bound to tab "${scope.tabId}": target tab is not owned by any live window`,
+        { tabId: scope.tabId, sessionId: id }
       );
-      return ownerBound
-        ? { sessionId: id, ownerBound }
-        : {
-            sessionId: id,
-            ownerBound,
-            message:
-              `Session "${id}" was created but could not be bound to tab "${scope.tabId}": ` +
-              `its tab no longer exists, so this attachment does not own it and its own writes to it are refused.`,
-          };
     },
   });
 

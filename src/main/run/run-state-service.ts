@@ -49,6 +49,8 @@ export interface RunStateSessionInfo {
   ownerKey?: string;
   windowId?: string;
   capsuleId?: string;
+  /** On an `agent:` row: whether an agent still holds it. `false` lifts the manager's view-only rule. */
+  agentHeld?: boolean;
 }
 
 export interface RunStateAttachmentInfo {
@@ -367,7 +369,7 @@ export class RunStateService extends EventEmitter {
       const session = this.options.lookupSession?.(terminalSessionId);
       const capsuleId = this.options.lookupCapsule?.(terminalSessionId) ?? session?.capsuleId;
 
-      const isAgentOwned = Boolean(session?.owner?.startsWith('agent:') || session?.ownerKey?.startsWith('agent:'));
+      const isAgentOwned = Boolean(session?.owner?.startsWith('agent:') || session?.ownerKey?.startsWith('agent:')) && session?.agentHeld !== false;
       const viewOnly = isAgentOwned;
 
       let controlPlane: RunCardState['controlPlane'] = undefined;
@@ -431,7 +433,7 @@ export class RunStateService extends EventEmitter {
       })
       .map((card) => {
         const session = this.options.lookupSession?.(card.terminalSessionId);
-        const isAgentOwned = Boolean(session?.owner?.startsWith('agent:') || session?.ownerKey?.startsWith('agent:'));
+        const isAgentOwned = Boolean(session?.owner?.startsWith('agent:') || session?.ownerKey?.startsWith('agent:')) && session?.agentHeld !== false;
         const viewOnly = isManager ? isAgentOwned : false;
         if (card.viewOnly === viewOnly) return card;
         return { ...card, viewOnly };

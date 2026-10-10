@@ -239,6 +239,19 @@ describe('Renderer capsule picker — opening from the tab context menu', () => 
     });
   }
 
+  it('offers the move for an agent row no agent holds any more', async () => {
+    const harness = loadStandalone({
+      contextMenuActions: ['assign-capsule'],
+      initialState: { projectWindow: { owner: { kind: 'unassigned' }, title: 'Shell' } },
+    });
+    await flush();
+    // Main stamps `agentHeld: false` once the minting tab is gone; the row is then an ordinary one.
+    seed(harness, [{ id: 'orphan-session', name: 'Orphan', state: 'running', ownerKey: 'agent:tab-gone', agentHeld: false }], 'orphan-session');
+    harness.renderTabs();
+    harness.showContextMenu(menuEvent(), 'orphan-session');
+    assert.strictEqual(menuItem(harness, 'assign-capsule').getAttribute('aria-disabled'), 'false');
+  });
+
   it('shows what Main reported when the project inventory cannot be read', async () => {
     const { harness, popover } = await openPicker({
       rightClicked: 'c1',
