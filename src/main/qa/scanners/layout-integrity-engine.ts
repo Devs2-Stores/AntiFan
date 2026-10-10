@@ -190,6 +190,36 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
   } catch (e) {}
   const animating = memo(false, (el) => animTargets.has(el) || animating(parentOf(el)));
   const unsettled = (el) => in3d(el) || animating(el);
+  // Images that have not loaded yet (still fetching, or a lazy source not swapped in) and render
+  // collapsed: they have no size yet, so whatever is laid out from them moves when they arrive.
+  // A broken image (its src failed) is not pending: shoppers see that layout as it is.
+  const LAZY_SOURCE = /^data-(lazy-?)?(src|srcset|original)$/;
+  const pendingImages = [];
+  try {
+    const imgs = document.images;
+    for (let i = 0; i < imgs.length; i++) {
+      const img = imgs[i];
+      if (img.complete && img.naturalWidth > 0) continue;
+      if (img.getClientRects().length === 0) continue;
+      let lazy = false;
+      for (let k = 0; k < img.attributes.length && !lazy; k++) lazy = LAZY_SOURCE.test(img.attributes[k].name) && img.attributes[k].value.trim() !== '';
+      if (img.complete && !lazy && img.getAttribute('src')) continue;
+      const r = img.getBoundingClientRect();
+      if (r.width < 2 || r.height < 2) pendingImages.push(img);
+    }
+  } catch (e) {}
+  // a's place relative to b waits on a pending image in a's own branch (below the nearest
+  // ancestor shared with b), inside a or laid out before it.
+  const waitsOnImage = (a, b) => {
+    let branch = a;
+    while (branch.parentElement && !branch.parentElement.contains(b)) branch = branch.parentElement;
+    for (let i = 0; i < pendingImages.length; i++) {
+      const img = pendingImages[i];
+      if (branch.contains(img) && (a.contains(img) || (img.compareDocumentPosition(a) & Node.DOCUMENT_POSITION_FOLLOWING))) return true;
+    }
+    return false;
+  };
+  const imagePending = (a, b) => pendingImages.length > 0 && (waitsOnImage(a, b) || waitsOnImage(b, a));
   const alphaOf = memo(1, (el) => {
     const o = parseFloat(cs(el).opacity);
     return (Number.isFinite(o) ? o : 1) * alphaOf(parentOf(el));
@@ -348,6 +378,8 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
       const r = el.getBoundingClientRect();
       if (r.width <= 0 || r.height <= 0) {
         if (el.getClientRects().length === 0) continue;
+        // A link whose only content is an image still loading gets its size when it arrives.
+        if (pendingImages.some((img) => el.contains(img))) continue;
         push({ kind: 'zero-size', severity: 'warning', selector: getSelector(el), details: 'Rendered actionable control has zero size (' + Math.round(r.width) + 'x' + Math.round(r.height) + 'px)', rect: toRect(r) });
         continue;
       }
@@ -586,6 +618,7 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
         const iy = span(a.vis.top, a.vis.bottom, b.vis.top, b.vis.bottom);
         const minH = Math.min(a.vis.bottom - a.vis.top, b.vis.bottom - b.vis.top);
         if (iy < minH * 0.5) continue;
+        if (imagePending(a.p, b.p)) continue;
         const pairKey = getSelector(a.p) + '|' + getSelector(b.p);
         if (reported.has(b.p) || reported.has(pairKey)) continue;
         reported.add(pairKey);
@@ -613,15 +646,20 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
   try {
     const flowControls = controls.filter((c) => !c.layer && !unsettled(c.el));
     flowControls.sort((a, b) => a.rect.top - b.rect.top);
-    const fragments = (el) => {
-      const d = cs(el).display;
-      if (d === 'inline') {
-        const out = [];
-        const rs = el.getClientRects();
-        for (let i = 0; i < rs.length; i++) if (rs[i].width >= 1 && rs[i].height >= 1) out.push(rs[i]);
-        return out;
+    // Each control's boxes cut to the part that survives its clipping ancestors: a link clipped
+    // away at the bottom of a collapsed block cannot be tapped there, so it stacks on nothing.
+    const fragments = (c) => {
+      const v = c.vis;
+      const raw = cs(c.el).display === 'inline' ? c.el.getClientRects() : [c.rect];
+      const out = [];
+      for (let i = 0; i < raw.length; i++) {
+        const left = Math.max(raw[i].left, v.left);
+        const right = Math.min(raw[i].right, v.right);
+        const top = Math.max(raw[i].top, v.top);
+        const bottom = Math.min(raw[i].bottom, v.bottom);
+        if (right - left >= 1 && bottom - top >= 1) out.push({ left: left, right: right, top: top, bottom: bottom, width: right - left, height: bottom - top });
       }
-      return [el.getBoundingClientRect()];
+      return out;
     };
     for (let i = 0; i < flowControls.length; i++) {
       const A = flowControls[i];
@@ -632,8 +670,8 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
         if (overlaysInside(A.el, B.el, A.rect, B.rect) || overlaysInside(B.el, A.el, B.rect, A.rect)) continue;
         // A carousel's own navigation over its slides is not a stacked pair.
         if (Boolean(A.el.closest(CAROUSEL_SLIDE)) !== Boolean(B.el.closest(CAROUSEL_SLIDE))) continue;
-        const fa = fragments(A.el);
-        const fb = fragments(B.el);
+        const fa = fragments(A);
+        const fb = fragments(B);
         let best = 0;
         let bestRect = null;
         for (let x = 0; x < fa.length; x++) {
@@ -646,7 +684,7 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
           }
         }
         // A quarter of a control lying under another is enough for taps on it to land on the wrong one.
-        if (best >= 0.25) {
+        if (best >= 0.25 && !imagePending(A.el, B.el)) {
           push({ kind: 'overlap', severity: 'critical', selector: getSelector(B.el), details: 'Actionable controls stacked: ' + getSelector(B.el) + ' covers ' + Math.round(best * 100) + '% of ' + getSelector(A.el), rect: toRect(bestRect) });
         }
       }
@@ -808,6 +846,7 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
           continue;
         }
         done.add(t);
+        if (!first.sticky && imagePending(tg.owner, first.by)) continue;
         if (!reportedOwners.has(tg.owner)) {
           reportedOwners.add(tg.owner);
           const kind = first.sticky ? 'sticky-obstruction' : 'occlusion';
