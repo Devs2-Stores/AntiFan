@@ -606,6 +606,10 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
     }
     return false;
   };
+  // An absolutely positioned control laid inside another control's box (wishlist heart on a
+  // product image link, badge button on a card) is a designed overlay. Boxes that cross each
+  // other's edges are stacked controls whatever their positioning.
+  const overlaysInside = (control, other, cr, or) => isAbsoluteOverlayOver(control, other) && span(cr.left, cr.right, or.left, or.right) * span(cr.top, cr.bottom, or.top, or.bottom) >= 0.9 * cr.width * cr.height;
   try {
     const flowControls = controls.filter((c) => !c.layer && !unsettled(c.el));
     flowControls.sort((a, b) => a.rect.top - b.rect.top);
@@ -625,7 +629,9 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
         const B = flowControls[j];
         if (B.rect.top >= A.rect.bottom) break;
         if (A.el.contains(B.el) || B.el.contains(A.el)) continue;
-        if (isAbsoluteOverlayOver(A.el, B.el) || isAbsoluteOverlayOver(B.el, A.el)) continue;
+        if (overlaysInside(A.el, B.el, A.rect, B.rect) || overlaysInside(B.el, A.el, B.rect, A.rect)) continue;
+        // A carousel's own navigation over its slides is not a stacked pair.
+        if (Boolean(A.el.closest(CAROUSEL_SLIDE)) !== Boolean(B.el.closest(CAROUSEL_SLIDE))) continue;
         const fa = fragments(A.el);
         const fb = fragments(B.el);
         let best = 0;
@@ -639,7 +645,8 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
             if (ratio > best) { best = ratio; bestRect = { left: Math.max(fa[x].left, fb[y].left), top: Math.max(fa[x].top, fb[y].top), right: Math.min(fa[x].right, fb[y].right), bottom: Math.min(fa[x].bottom, fb[y].bottom) }; }
           }
         }
-        if (best >= 0.5) {
+        // A quarter of a control lying under another is enough for taps on it to land on the wrong one.
+        if (best >= 0.25) {
           push({ kind: 'overlap', severity: 'critical', selector: getSelector(B.el), details: 'Actionable controls stacked: ' + getSelector(B.el) + ' covers ' + Math.round(best * 100) + '% of ' + getSelector(A.el), rect: toRect(bestRect) });
         }
       }
