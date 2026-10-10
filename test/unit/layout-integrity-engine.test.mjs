@@ -26,6 +26,7 @@ const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-integrity-test-'))
 const outFile = path.join(outDir, 'layout-integrity-engine.mjs');
 esbuild.buildSync({ entryPoints: [SOURCE_PATH], bundle: true, format: 'esm', platform: 'node', outfile: outFile, logLevel: 'error' });
 const { LayoutIntegrityEngine } = await import(pathToFileURL(outFile).href);
+fs.rmSync(outDir, { recursive: true, force: true });
 
 describe('LayoutIntegrityEngine', () => {
   it('defines standard device breakpoints (mobile, tablet, desktop)', () => {

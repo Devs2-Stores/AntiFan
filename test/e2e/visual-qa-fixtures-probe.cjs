@@ -19,7 +19,24 @@ let currentWin;
 let currentDebugger;
 let exitCode = 2;
 
-app.setPath('userData', fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-visual-qa-userdata-')));
+const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-visual-qa-userdata-'));
+const bundleDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-visual-qa-esbuild-'));
+app.setPath('userData', userDataDir);
+// Chromium holds userData open until the browser process is gone, so no in-process delete
+// succeeds on Windows (EPERM even at will-quit). A detached reaper waits for this pid to
+// exit, then removes the run's scratch dirs; outDir stays because SUMMARY points at it.
+const REAPER = `const fs = require('node:fs');
+const [pid, ...dirs] = process.argv.slice(1);
+const alive = () => { try { process.kill(Number(pid), 0); return true; } catch (error) { return error.code === 'EPERM'; } };
+const deadline = Date.now() + 30 * 60 * 1000;
+const tick = () => {
+  if (!alive()) { for (const dir of dirs) { try { fs.rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 }); } catch {} } return; }
+  if (Date.now() < deadline) setTimeout(tick, 250);
+};
+tick();`;
+require('node:child_process').spawn(process.execPath, ['-e', REAPER, String(process.pid), userDataDir, bundleDir], {
+  detached: true, stdio: 'ignore', windowsHide: true, env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+}).unref();
 app.commandLine.appendSwitch('no-sandbox');
 app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
 app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
@@ -69,13 +86,20 @@ function inspectObject(value, label) {
   return value;
 }
 // Each entry needs a non-empty id and html, and exactly one verdict rule in expect.
+// A defect rule (kinds or documentOverflow) is asserted on expect.viewports (default mobile);
+// its other viewports are reported as info, never counted as passes. A control is asserted on
+// every viewport: no critical, no warning unless allowWarning, no document overflow unless allowOverflow.
 function loadCorpus(file) {
   const corpus = require(file);
   if (!Array.isArray(corpus) || !corpus.length) throw new Error(`Corpus ${file} must export a non-empty array`);
+  const names = viewports.map((vp) => vp.name);
   const invalid = corpus.filter((entry) => {
     const expect = entry && entry.expect;
     const rules = [expect && expect.kinds, expect && expect.control, expect && expect.documentOverflow].filter(Boolean).length;
-    return !entry || !entry.id || !entry.html || rules !== 1;
+    const scoped = expect && expect.viewports !== undefined;
+    const badScope = scoped && (expect.control || !Array.isArray(expect.viewports) || !expect.viewports.length
+      || expect.viewports.some((name) => !names.includes(name)));
+    return !entry || !entry.id || !entry.html || rules !== 1 || badScope;
   });
   if (invalid.length) throw new Error(`Corpus entries break the contract: ${invalid.map((entry) => (entry && entry.id) || '(no id)').join(', ')}`);
   return corpus;
@@ -83,7 +107,6 @@ function loadCorpus(file) {
 
 async function run() {
   fs.mkdirSync(outDir, { recursive: true });
-  const bundleDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-visual-qa-esbuild-'));
   const integrityEntry = path.join(root, 'src/main/qa/scanners/layout-integrity-engine.ts');
   const overflowEntry = path.join(root, 'src/main/qa/scanners/layout-overflow-engine.ts');
   esbuild.buildSync({
@@ -122,17 +145,20 @@ async function run() {
       const stats = integrity.stats || {};
       if (stats.truncated === true) reasons.push(`scan truncated: ${(stats.truncatedReasons || []).join('; ') || 'no reason reported'}`);
       if (Array.isArray(stats.failedDetectors) && stats.failedDetectors.length) reasons.push(`detectors failed: ${[...new Set(stats.failedDetectors)].join(', ')}`);
-      if (fixture.expect.kinds) {
-        if (vp.name === 'mobile') {
-          const caught = integrity.findings.some((finding) => fixture.expect.kinds.includes(finding.kind) && (finding.severity === 'critical' || fixture.expect.allowWarning));
-          if (!caught) reasons.push(`expected one of ${fixture.expect.kinds.join('|')} at mobile`);
-        }
-      } else if (fixture.expect.control) {
+      const expect = fixture.expect;
+      const asserted = expect.control || (expect.viewports || ['mobile']).includes(vp.name);
+      if (expect.kinds && asserted) {
+        const caught = integrity.findings.some((finding) => expect.kinds.includes(finding.kind) && (finding.severity === 'critical' || expect.allowWarning));
+        if (!caught) reasons.push(`expected one of ${expect.kinds.join('|')} at ${vp.name}`);
+      } else if (expect.documentOverflow && asserted && overflow.hasOverflow !== true) {
+        reasons.push(`expected overflow.hasOverflow === true at ${vp.name}`);
+      } else if (expect.control) {
         if (crit !== 0) reasons.push(`control has ${crit} critical finding(s)`);
-      } else if (fixture.expect.documentOverflow && vp.name === 'mobile' && overflow.hasOverflow !== true) {
-        reasons.push('expected overflow.hasOverflow === true at mobile');
+        if (warn !== 0 && !expect.allowWarning) reasons.push(`control has ${warn} warning finding(s)`);
+        if (overflow.measured !== true) reasons.push('overflow scan did not report measured=true');
+        else if (overflow.hasOverflow !== false && !expect.allowOverflow) reasons.push(`control has document overflow (deltaX=${overflow.deltaX})`);
       }
-      const status = reasons.length ? 'FAIL' : fixture.expect.kinds && vp.name === 'desktop' ? 'info' : 'PASS';
+      const status = reasons.length ? 'FAIL' : asserted ? 'PASS' : 'info';
       const row = { vp: vp.name, id: fixture.id, status, wallMs, restored, reasons, integrity, overflow };
       rows.push(row);
       console.log(`${vp.name} ${fixture.id} ${status} crit=${crit} warn=${warn} ms=${integrity.stats?.durationMs ?? '-'} wall=${wallMs} restored=${restored}`);
@@ -149,9 +175,10 @@ async function run() {
     }
   }
   const failed = rows.filter((row) => row.status === 'FAIL').map((row) => `${row.vp}:${row.id}`);
-  const passed = rows.length - failed.length;
+  const passed = rows.filter((row) => row.status === 'PASS').length;
+  const info = rows.filter((row) => row.status === 'info').length;
   fs.writeFileSync(path.join(outDir, 'results.json'), JSON.stringify(rows, null, 2), 'utf8');
-  console.log(`SUMMARY pass=${passed} fail=${failed.length} failed=${failed.join(',')} out=${outDir}`);
+  console.log(`SUMMARY pass=${passed} info=${info} fail=${failed.length} failed=${failed.join(',')} out=${outDir}`);
   exitCode = failed.length ? 1 : 0;
 }
 

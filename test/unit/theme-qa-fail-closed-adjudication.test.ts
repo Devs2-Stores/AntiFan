@@ -871,6 +871,87 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
     assert.strictEqual(report.summary.verdict, 'INCONCLUSIVE');
   });
 
+  const integrityViewports = {
+    desktop: { mismatchPercent: 0.5, passed: true },
+    tablet: { mismatchPercent: 1.0, passed: true },
+    mobile: { mismatchPercent: 1.5, passed: true },
+  };
+  const cleanIntegrityScan = { measured: true, viewport: { name: 'active', width: 1440, height: 900 }, findings: [] };
+  const textOverlapCritical = { kind: 'overlap', severity: 'critical', selector: 'h3', details: 'Text "a" is painted over text "b"' };
+  // Every integrity-adjudication test below runs the real workflow; only the
+  // integrity scan's evaluation result (or the error it throws) is substituted.
+  const validateWithIntegrityScan = async (integrity: unknown, tag: string) => {
+    const integrityScript = LayoutIntegrityEngine.getBrowserScanScript('active');
+    const base = createMockPorts();
+    const ports = createMockPorts({
+      eval: async (target, script) => {
+        if (script !== integrityScript) return base.browser.eval(target, script);
+        if (integrity instanceof Error) throw integrity;
+        return integrity;
+      },
+    });
+    return new ThemeQaWorkflow(ports).validate({
+      runId: `run-integrity-${tag}`,
+      attemptId: `att-integrity-${tag}`,
+      workspaceRoot: 'E:/Work/test-theme',
+      target: makeTarget(1),
+      viewports: integrityViewports,
+    });
+  };
+
+  it('10f. Unmeasured integrity scan is an evidence gap, never PASS', async () => {
+    const report = await validateWithIntegrityScan({
+      measured: false,
+      unmeasuredReason: 'tab has no laid-out CSS viewport',
+      viewport: { name: 'active', width: 0, height: 0 },
+      findings: [],
+    }, 'unmeasured');
+    assert.ok(report.findings?.evidenceGaps?.some((g) => g.includes('Layout integrity not measured: tab has no laid-out CSS viewport')),
+      `expected unmeasured gap, got ${JSON.stringify(report.findings?.evidenceGaps)}`);
+    assert.strictEqual(report.summary.verdict, 'INCONCLUSIVE');
+  });
+
+  it('10g. Integrity scanner evaluation failure is an evidence gap, never PASS', async () => {
+    const report = await validateWithIntegrityScan(new Error('Execution context was destroyed'), 'eval-throw');
+    assert.ok(report.findings?.evidenceGaps?.some((g) => g.includes('Layout integrity scanner evaluation failed: Execution context was destroyed')),
+      `expected evaluation-failure gap, got ${JSON.stringify(report.findings?.evidenceGaps)}`);
+    assert.strictEqual(report.summary.verdict, 'INCONCLUSIVE');
+  });
+
+  it('10h. An observed integrity critical outranks an integrity evidence gap (FAIL, not INCONCLUSIVE)', async () => {
+    const report = await validateWithIntegrityScan({
+      ...cleanIntegrityScan,
+      findings: [textOverlapCritical],
+      stats: { elements: 16000, textRuns: 0, controls: 0, sweepSteps: 0, truncated: true,
+        truncatedReasons: ['elements 16000 > 15000'], failedDetectors: [], durationMs: 900 },
+    }, 'critical-with-gap');
+    assert.ok(report.findings?.evidenceGaps?.some((g) => g.includes('Layout integrity scan truncated')),
+      `expected truncation gap alongside the critical, got ${JSON.stringify(report.findings?.evidenceGaps)}`);
+    assert.strictEqual(report.summary.verdict, 'FAIL');
+  });
+
+  it('10i. Integrity warnings are visual ambiguities, not failures', async () => {
+    const report = await validateWithIntegrityScan({
+      ...cleanIntegrityScan,
+      findings: [{ kind: 'overlap', severity: 'warning', selector: 'div.a', details: 'In-flow sibling boxes overlap 10x10px' }],
+    }, 'warning-only');
+    assert.strictEqual(report.checklist.layout, true);
+    assert.strictEqual(report.summary.verdict, 'PASS', JSON.stringify(report.findings?.evidenceGaps));
+    assert.deepStrictEqual(report.findings?.visualAmbiguities, ['[overlap] div.a — In-flow sibling boxes overlap 10x10px']);
+  });
+
+  it('10j. An integrity critical is counted and reported on every report surface that exposes issues', async () => {
+    const clean = await validateWithIntegrityScan(cleanIntegrityScan, 'clean');
+    const report = await validateWithIntegrityScan({ ...cleanIntegrityScan, findings: [textOverlapCritical] }, 'critical');
+    assert.strictEqual(report.summary.criticalCount, clean.summary.criticalCount + 1);
+    assert.strictEqual(report.summary.totalIssues, clean.summary.totalIssues + 1);
+    assert.ok(report.findings?.differential?.introducedRegressions.some((i) => i.category === 'layout_integrity' && i.details?.kind === 'overlap'),
+      `expected a layout_integrity regression, got ${JSON.stringify(report.findings?.differential?.introducedRegressions)}`);
+    assert.strictEqual(report.findings?.layoutIntegrity?.findings.length, 1);
+    assert.strictEqual(report.findings?.responsive?.['1440']?.criticalOverlap, 1);
+    assert.strictEqual(report.findings?.responsive?.['1440']?.criticalOcclusion, 0);
+  });
+
   it('10e. Integrity criticals do not fail a run whose caller disabled the layout check', async () => {
     const integrityScript = LayoutIntegrityEngine.getBrowserScanScript('active');
     const base = createMockPorts();
