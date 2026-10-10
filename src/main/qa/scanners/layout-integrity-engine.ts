@@ -311,6 +311,11 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
     }
     return false;
   };
+  // A title box (a heading, or a box inside one) capped to a fixed height is the product-grid
+  // title clamp: the whole lines it drops below its own edge are cut on purpose. A container that
+  // cuts a title inside it is not a title box, and a line sliced mid-way is reported separately.
+  const TITLE_BOX = 'h1, h2, h3, h4, h5, h6, [role="heading"]';
+  const isTitleBox = (a) => Boolean(a.closest && a.closest(TITLE_BOX));
   const isOpaque = (el) => {
     if (alphaOf(el) < 0.5) return false;
     if (el instanceof SVGElement) return true;
@@ -533,7 +538,7 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
         const visW = span(r.left, r.right, b.left, b.right);
         const visH = span(r.top, r.bottom, b.top, b.bottom);
         if ((hy || sy) && visH <= r.height * 0.15) {
-          if (hy && r.top >= b.bottom - r.height * 0.15 - 1 && !movingBetween(p, a) && !in3d(p) && !intendedTruncation(p, a) && !collapsedByDesign(a)) run.below = a;
+          if (hy && r.top >= b.bottom - r.height * 0.15 - 1 && !movingBetween(p, a) && !in3d(p) && !intendedTruncation(p, a) && !collapsedByDesign(a) && !isTitleBox(a)) run.below = a;
           hidden = true;
           break;
         }
