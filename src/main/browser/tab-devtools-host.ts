@@ -276,6 +276,41 @@ const SERIALIZE_CIRCULAR_SAFE_SOURCE = `function serializeCircularSafe(val, seen
 }`;
 
 /**
+ * Source of the in-page rejection normalizer both evaluation wrappers throw through.
+ * Electron's `executeJavaScript` rejection keeps only what a native Error or a plain
+ * object carries as its own data: a DOMException crosses as `{}` (its `name` and
+ * `message` are prototype getters), an Error subclass loses its name, and `throw null`
+ * resolves `undefined`. Rebuilding every thrown value as an Error inside the page, with
+ * the name folded into the message, is what lets the caller read the real failure.
+ * A frame's `executeJavaScript` reports the rejection's `stack` rather than its message,
+ * so the rebuilt stack carries the thrown value's own call frames, never this function's.
+ */
+const NORMALIZE_THROWN_SOURCE = `function normalizeThrown(err) {
+  try {
+    const isObj = err !== null && (typeof err === 'object' || typeof err === 'function');
+    const name = isObj && typeof err.name === 'string' ? err.name : '';
+    let message;
+    if (isObj && typeof err.message === 'string') {
+      message = err.message;
+    } else if (isObj) {
+      try { message = JSON.stringify(err); } catch { message = undefined; }
+      if (typeof message !== 'string') message = String(err);
+    } else {
+      message = String(err);
+    }
+    const text = name && name !== 'Error' ? name + ': ' + message : message;
+    const rebuilt = new Error(text);
+    const frames = isObj && typeof err.stack === 'string'
+      ? err.stack.split('\\n').filter((line) => /^\\s+at /.test(line)).join('\\n')
+      : '';
+    rebuilt.stack = frames ? text + '\\n' + frames : text;
+    return rebuilt;
+  } catch {
+    return new Error(Object.prototype.toString.call(err));
+  }
+}`;
+
+/**
  * Resolve the child frame of `wc` whose URL contains `frameUrl`.
  *
  * Identity comes from `WebFrameMain.framesInSubtree`, deliberately not from
@@ -3103,6 +3138,7 @@ export class TabDevToolsHost {
       const execute = async (): Promise<unknown> => {
         const wrapped = `(async () => {
         ${SERIALIZE_CIRCULAR_SAFE_SOURCE}
+        ${NORMALIZE_THROWN_SOURCE}
         try {
           // In-page execution budget guard
           const execBudgetMs = ${JSON.stringify(softBudgetMs)};
@@ -3114,7 +3150,7 @@ export class TabDevToolsHost {
           const result = await Promise.race([execPromise, timeoutPromise]).finally(() => clearTimeout(timer));
           return serializeCircularSafe(result);
         } catch (err) {
-          throw err;
+          throw normalizeThrown(err);
         }
       })()`;
         try {
@@ -3215,16 +3251,21 @@ export class TabDevToolsHost {
       const execute = async (): Promise<unknown> => {
         const wrapped = `(async () => {
   ${SERIALIZE_CIRCULAR_SAFE_SOURCE}
-  const execBudgetMs = ${JSON.stringify(softBudgetMs)};
-  const execPromise = (async () => (
+  ${NORMALIZE_THROWN_SOURCE}
+  try {
+    const execBudgetMs = ${JSON.stringify(softBudgetMs)};
+    const execPromise = (async () => (
 ${expression}
 ))();
-  let timer;
-  const timeoutPromise = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error('Evaluation timed out after ' + execBudgetMs + 'ms (tab visibility: ' + (typeof document !== 'undefined' && document.hidden ? 'hidden' : 'visible') + ')')), execBudgetMs);
-  });
-  const result = await Promise.race([execPromise, timeoutPromise]).finally(() => clearTimeout(timer));
-  return serializeCircularSafe(result);
+    let timer;
+    const timeoutPromise = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error('Evaluation timed out after ' + execBudgetMs + 'ms (tab visibility: ' + (typeof document !== 'undefined' && document.hidden ? 'hidden' : 'visible') + ')')), execBudgetMs);
+    });
+    const result = await Promise.race([execPromise, timeoutPromise]).finally(() => clearTimeout(timer));
+    return serializeCircularSafe(result);
+  } catch (err) {
+    throw normalizeThrown(err);
+  }
 })()`;
         try {
           return await frame.executeJavaScript(wrapped, userGesture);

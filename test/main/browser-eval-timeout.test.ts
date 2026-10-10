@@ -187,3 +187,119 @@ describe('TabDevToolsHost.evalJs in-page budget guard', () => {
     );
   });
 });
+
+describe('TabDevToolsHost evaluation failures cross the Electron boundary readable', () => {
+  // What `executeJavaScript` hands Main for an in-page rejection, as measured against the
+  // shipped Electron: a native Error arrives as a bare Error carrying only its message (an
+  // Error subclass loses its name), a DOMException as `{}` (its name and message are
+  // prototype getters), a plain object as its own data, and a thrown null RESOLVES undefined.
+  // A child frame's `executeJavaScript` reports a native Error by its `stack` instead.
+  const crossElectronBoundary = async (run: () => unknown, lane: 'page' | 'frame'): Promise<unknown> => {
+    try {
+      return await run();
+    } catch (thrown: unknown) {
+      if (thrown === null || thrown === undefined) return undefined;
+      if (thrown instanceof DOMException) throw { ...thrown };
+      if (thrown instanceof Error) throw new Error(lane === 'frame' ? String(thrown.stack) : thrown.message);
+      if (typeof thrown === 'object') throw { ...thrown };
+      throw thrown;
+    }
+  };
+  const doc = { hidden: false, visibilityState: 'visible' };
+  // eslint-disable-next-line @typescript-eslint/no-implied-eval
+  const evaluate = (code: string) => () => new Function('document', 'return ' + code)(doc);
+  const runPage = (code: string): Promise<unknown> => crossElectronBoundary(evaluate(code), 'page');
+  const runFrame = (code: string): Promise<unknown> => crossElectronBoundary(evaluate(code), 'frame');
+
+  const makeHost = (): TabDevToolsHost => {
+    const root = { url: 'https://eval.test/', frameTreeNodeId: 1, framesInSubtree: [] as unknown[], executeJavaScript: runFrame };
+    const child = { url: 'https://checkout.example/embed', frameTreeNodeId: 2, executeJavaScript: runFrame };
+    root.framesInSubtree = [root, child];
+    const wc = { isDestroyed: () => false, executeJavaScript: runPage, mainFrame: root } as unknown as Electron.WebContents;
+    const record = {
+      id: 'tab-1',
+      state: { id: 'tab-1', url: 'https://eval.test/', title: 'Eval', isLoading: false, canGoBack: false, canGoForward: false, zoomFactor: 1 },
+      focusedPane: 'desktop',
+    } as unknown as NativeTabRecord;
+    const ctx: TabDevToolsContext = {
+      getTabWebContents: () => wc,
+      getTabRecord: () => record,
+      getActiveTabId: () => 'tab-1',
+      getAllTabs: function* () {},
+      broadcastState: () => {},
+      getTabTerminalSession: () => undefined,
+      visibleTerminalSessions: () => [],
+      resolveTargetWorkspace: () => 'ws-eval',
+      resolveAnnotationWorkspace: () => 'ws-eval',
+      createTab: () => 'tab-1',
+      withTabAgentWorking: async <T>(_id: string, action: () => Promise<T>) => action(),
+    };
+    return new TabDevToolsHost(ctx);
+  };
+
+  const invalidSelector = `(() => { throw new DOMException("'#shopify-section-*' is not a valid selector.", 'SyntaxError'); })()`;
+  const readable = (pattern: RegExp) => (err: unknown) => {
+    assert.ok(err instanceof Error, `expected an Error, got ${JSON.stringify(err)}`);
+    assert.match(err.message, pattern);
+    return true;
+  };
+
+  it('a DOMException thrown in the page rejects with its name and message', async () => {
+    await assert.rejects(
+      () => makeHost().evalJs(invalidSelector, 'tab-1', 'desktop', false, 2_000),
+      readable(/SyntaxError: '#shopify-section-\*' is not a valid selector\./)
+    );
+  });
+
+  it('an Error subclass keeps the name that identifies it', async () => {
+    const expression = `(() => { class QuotaError extends Error { constructor(m) { super(m); this.name = 'QuotaError'; } } throw new QuotaError('storage full'); })()`;
+    await assert.rejects(() => makeHost().evalJs(expression, 'tab-1', 'desktop', false, 2_000), readable(/^QuotaError: storage full$/));
+  });
+
+  it('a thrown null is a failure, never a resolved undefined', async () => {
+    await assert.rejects(() => makeHost().evalJs('(() => { throw null; })()', 'tab-1', 'desktop', false, 2_000), readable(/^null$/));
+  });
+
+  it('a DOMException thrown in a child frame is reported with its name and message', async () => {
+    await assert.rejects(
+      () => makeHost().evalJsInFrame(invalidSelector, 'checkout.example', 'tab-1', 'desktop', false, 2_000),
+      (err: unknown) => {
+        assert.ok(err instanceof CapabilityError, `expected CapabilityError, got ${String(err)}`);
+        assert.strictEqual(err.code, 'EXECUTION_ERROR');
+        assert.match(err.message, /SyntaxError: '#shopify-section-\*' is not a valid selector\./);
+        assert.doesNotMatch(err.message, /\[object Object\]/);
+        return true;
+      }
+    );
+  });
+
+  it('a child frame failure points at the code that threw, never at the evaluation wrapper', async () => {
+    const expression = `(function checkoutStep() { throw new TypeError('cart is empty'); })()`;
+    await assert.rejects(
+      () => makeHost().evalJsInFrame(expression, 'checkout.example', 'tab-1', 'desktop', false, 2_000),
+      (err: unknown) => {
+        assert.ok(err instanceof CapabilityError, `expected CapabilityError, got ${String(err)}`);
+        assert.match(err.message, /evaluation failed: TypeError: cart is empty\n/);
+        assert.match(err.message, /at checkoutStep/);
+        assert.doesNotMatch(err.message, /normalizeThrown/);
+        return true;
+      }
+    );
+  });
+
+  it('a page whose policy forbids eval still answers through the CDP fallback', async () => {
+    // Chromium refuses the wrapper's indirect eval under `script-src` without 'unsafe-eval' with
+    // an EvalError; the fallback is chosen by reading that rejection's message in Main, so the
+    // normalized message must still carry the policy wording.
+    const refused = `(() => { throw new EvalError("Refused to evaluate a string as JavaScript because 'unsafe-eval' is not an allowed source of script in the following Content Security Policy directive: \\"script-src 'none'\\"."); })()`;
+    const host = makeHost();
+    const cdpCalls: string[] = [];
+    host.sendCdpCommand = (async (_wc: Electron.WebContents, method: string) => {
+      cdpCalls.push(method);
+      return { result: { value: { answeredBy: 'cdp' } } };
+    }) as typeof host.sendCdpCommand;
+    const value = await host.evalJs(refused, 'tab-1', 'desktop', false, 2_000);
+    assert.deepStrictEqual(value, { answeredBy: 'cdp' });
+    assert.deepStrictEqual(cdpCalls, ['Runtime.evaluate']);
+  });
+});
