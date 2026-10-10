@@ -795,6 +795,25 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
         break;
       }
       stats.sweepSteps++;
+      // Bars that can hide a band of a line here: an opaque top bar at page load, a bottom bar at
+      // the end of the page. A third of a line or control under one is unreadable or untappable
+      // even while its centre is clear.
+      const edgeBars = [];
+      if (s === 0 || atEnd) {
+        const edgeYs = [];
+        if (s === 0) edgeYs.push(1, vh * 0.1, vh * 0.2);
+        if (atEnd) edgeYs.push(vh - 1, vh * 0.9, vh * 0.8);
+        for (let a = 0; a < edgeYs.length; a++) {
+          for (let b = 1; b <= 3; b++) {
+            const stack = document.elementsFromPoint((vw * b) / 4, edgeYs[a]);
+            for (let k = 0; k < stack.length; k++) {
+              const layer = layerOf(stack[k]);
+              if (!layer || edgeBars.some((e) => e.layer === layer)) continue;
+              if ((s === 0 && topLayer(layer)) || (atEnd && bottomLayer(layer))) edgeBars.push({ layer: layer, r: layer.getBoundingClientRect() });
+            }
+          }
+        }
+      }
       for (let t = 0; t < targets.length; t++) {
         if (done.has(t)) continue;
         const tg = targets[t];
@@ -810,11 +829,11 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
         // One paint-order probe: 'covered' (opaque same-layer box, or an opaque top bar at load /
         // bottom bar at the end of the page), 'deferred' (only a foreign fixed/sticky layer is in
         // the way - retry at another offset), or 'clear'.
-        const sample = (cx) => {
+        const sample = (cx, y) => {
           // Fast path: the topmost hit is the owner (or its own subtree/ancestor) - nothing paints over it.
-          const hit = document.elementFromPoint(cx, cy);
+          const hit = document.elementFromPoint(cx, y);
           if (!hit || hit === doc || hit === body || hit === tg.owner || tg.owner.contains(hit) || hit.contains(tg.owner)) return { state: 'clear' };
-          const stack = document.elementsFromPoint(cx, cy);
+          const stack = document.elementsFromPoint(cx, y);
           let deferredHere = false;
           for (let k = 0; k < stack.length; k++) {
             const e = stack[k];
@@ -834,13 +853,26 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
           return { state: deferredHere ? 'deferred' : 'clear' };
         };
         const xAt = (f) => Math.min(vw - 1, Math.max(0, tg.vis.left + (tg.vis.right - tg.vis.left) * f));
-        const first = sample(xAt(0.5));
+        const ys = [cy];
+        for (let b = 0; b < edgeBars.length && !tg.fixed; b++) {
+          const bar = edgeBars[b].r;
+          const lo = Math.max(top, bar.top);
+          const hi = Math.min(bottom, bar.bottom);
+          if (hi - lo >= (bottom - top) / 3 && span(tg.vis.left, tg.vis.right, bar.left, bar.right) > 0 && (cy < lo || cy >= hi)) ys.push((lo + hi) / 2);
+        }
+        let first = { state: 'clear' };
+        let at = cy;
+        for (let k = 0; k < ys.length; k++) {
+          const probe = sample(xAt(0.5), ys[k]);
+          if (probe.state === 'covered') { first = probe; at = ys[k]; break; }
+          if (probe.state === 'deferred') first = probe;
+        }
         if (first.state === 'clear') { done.add(t); continue; }
         if (first.state === 'deferred') continue;
         let covered = 1;
-        const second = sample(xAt(0.2));
+        const second = sample(xAt(0.2), at);
         if (second.state === 'covered') covered++;
-        else if (sample(xAt(0.8)).state === 'covered') covered++;
+        else if (sample(xAt(0.8), at).state === 'covered') covered++;
         if (covered < 2) {
           if (second.state !== 'deferred') done.add(t);
           continue;
@@ -850,7 +882,7 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
         if (!reportedOwners.has(tg.owner)) {
           reportedOwners.add(tg.owner);
           const kind = first.sticky ? 'sticky-obstruction' : 'occlusion';
-          push({ kind: kind, severity: 'critical', selector: getSelector(tg.owner), details: tg.label + ' is covered by ' + getSelector(first.by) + (first.sticky ? ' (fixed/sticky bar ' + first.sticky + ')' : '') + ' at page y=' + Math.round(cy + (tg.fixed ? 0 : got)), rect: toRect({ left: tg.vis.left, top: tg.vis.top, right: tg.vis.right, bottom: tg.vis.bottom }) });
+          push({ kind: kind, severity: 'critical', selector: getSelector(tg.owner), details: tg.label + ' is covered by ' + getSelector(first.by) + (first.sticky ? ' (fixed/sticky bar ' + first.sticky + ')' : '') + ' at page y=' + Math.round(at + (tg.fixed ? 0 : got)), rect: toRect({ left: tg.vis.left, top: tg.vis.top, right: tg.vis.right, bottom: tg.vis.bottom }) });
         }
       }
     }
