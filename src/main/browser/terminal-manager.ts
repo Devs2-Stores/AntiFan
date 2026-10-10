@@ -11,6 +11,7 @@ import { TerminalWaitInput, TerminalWaitResult, CapabilityError, isBootProjectId
 import { TerminalDeltaResult, TerminalJournalEntry, TerminalAckPayload, TerminalSyncViewResult, TerminalSleepResult, TerminalRoleMeta } from '../../shared/contracts';
 import { ownerKey } from './window-owner';
 import { PtyWorkerHost } from './pty-worker-host';
+import { absorbConoutRelayErrors } from './pty-conout-relay';
 export function resolveScriptsDir(): string | undefined {
   let dir = __dirname;
   for (let i = 0; i < 6; i++) {
@@ -1786,6 +1787,8 @@ export class TerminalManager extends EventEmitter {
       };
       child = spawnWithCwd(legacyOptions, validCwd);
     }
+    // The worker-hosted proxy carries no agent, so this only arms PTYs spawned on this thread.
+    absorbConoutRelayErrors(child);
     if (isBenchmarkEnabled()) {
       recordBenchmark({ surface: 'terminal', name: 'ptySpawn', value: performance.now() - spawnStart, extra: { sessionId: id, conpty: canUseConpty && !this.conptyFailed } });
     }

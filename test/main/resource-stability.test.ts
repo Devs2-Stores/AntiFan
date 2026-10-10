@@ -363,6 +363,23 @@ describe('P1-8: Resource Stability & Eviction Bounds', () => {
       assert.strictEqual(tm.getStats().runningPtyCount, 0);
     });
 
+    it('absorbs the output-relay EPIPE a torn-down Windows shell leaves behind', { skip: process.platform !== 'win32' }, async () => {
+      // node-pty relays ConPTY output through its own Worker; a chunk in flight when the reader goes
+      // away fails with EPIPE and the Worker emits 'error'. With no listener that emit throws in this
+      // thread - the uncaught `write EPIPE` that failed the sleep/wake case above under load. The
+      // listener lives on node-pty private fields, so this also catches an upgrade that moves them.
+      const sessionId = tm.createSession(tempDir);
+      type Relay = { emit(event: 'error', err: Error): boolean };
+      const session = (tm as unknown as TerminalManagerInternals).sessions.get(sessionId) as {
+        pty?: { _agent?: { _conoutSocketWorker?: { _worker?: Relay } } };
+      };
+      const relay = session.pty?._agent?._conoutSocketWorker?._worker;
+      assert.ok(relay, 'a shell spawned on this thread must expose its node-pty output relay');
+      const epipe = Object.assign(new Error('write EPIPE'), { code: 'EPIPE' });
+      assert.doesNotThrow(() => relay.emit('error', epipe), 'the relay EPIPE must not escape as an exception');
+      await tm.closeSession(sessionId);
+    });
+
     it('dispose() terminates all active sessions, clears internal maps, and resets singleton', async () => {
       const s1 = tm.createSession(tempDir);
       const s2 = tm.createSession(tempDir);

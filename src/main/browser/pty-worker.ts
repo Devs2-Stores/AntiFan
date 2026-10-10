@@ -14,6 +14,7 @@
 import { parentPort } from 'node:worker_threads';
 import { spawn as spawnProcess } from 'node:child_process';
 import * as pty from 'node-pty';
+import { absorbConoutRelayErrors } from './pty-conout-relay';
 
 export type PtyWorkerRequest =
   | { op: 'spawn'; token: number; file: string; options: pty.IPtyForkOptions | pty.IWindowsPtyForkOptions; useConpty: boolean; fallbackCwd: string }
@@ -94,6 +95,8 @@ function handleSpawn(req: Extract<PtyWorkerRequest, { op: 'spawn' }>): void {
     return;
   }
   const token = req.token;
+  // Unhandled here, the relay's teardown EPIPE would end this thread and every shell it hosts.
+  absorbConoutRelayErrors(child);
   ptys.set(token, child);
   post({ type: 'spawned', token, pid: child.pid, conptyFailed, ...(conptyError ? { conptyError } : {}) });
   child.onData((data) => {
