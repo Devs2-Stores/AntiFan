@@ -837,6 +837,9 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
     // target index -> foreign fixed/sticky layer that last deferred it
     const deferLayer = new Map();
     const CLOSE_TEXT = /^(đóng|close|×|✕|✖|x|tắt|bỏ qua|để sau|skip|no thanks|không, cảm ơn)$/i;
+    // A gate the shopper answers to get in (age check, consent wall): the answer is the way out.
+    // Short answers must be the whole name; "Có hàng" is a filter option, not an answer.
+    const GATE_TEXT = /^(ok|yes|có|i agree|i accept)$|^(xác nhận|đồng ý|chấp nhận|tiếp tục|vào trang|vào cửa hàng|vào website|accept|agree|confirm|continue|enter)(?=$|[\s!.,:])|(đủ|trên)\s*(18|21)\s*tuổi|(^|\s)(18|21)\s*\+|\b(over|above)\s+(18|21)\b|\bof\s+(legal\s+)?age\b/i;
     const dismissible = (layer) => {
       // A toggle that controls the layer is a way out only while the shopper can reach it.
       const toggles = layer.id ? document.querySelectorAll('[aria-controls~="' + CSS.escape(layer.id) + '"]') : [];
@@ -852,7 +855,7 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
       for (let i = 0; i < inner.length; i++) {
         const c = inner[i];
         const name = (c.getAttribute('aria-label') || c.getAttribute('title') || c.textContent || '').trim();
-        if (CLOSE_TEXT.test(name) || /close|dismiss/i.test(String(c.className) + ' ' + c.id)) return true;
+        if (CLOSE_TEXT.test(name) || GATE_TEXT.test(name) || /close|dismiss/i.test(String(c.className) + ' ' + c.id)) return true;
       }
       return false;
     };
