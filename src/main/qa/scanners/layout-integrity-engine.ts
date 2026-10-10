@@ -820,6 +820,64 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
     }
     const done = new Set();
     const reportedOwners = new Set();
+    // A fixed layer painted over text in another fixed layer: the two never move against each
+    // other, so what the upper one hides there stays hidden at every scroll offset (a chat bubble
+    // on the label of a bottom checkout bar). Four pixels of the glyph line is the floor
+    // text-over-text uses. A layer spanning the viewport is a modal or drawer opened over
+    // everything on purpose, and one still animating has not reached its place yet.
+    const fixedBoxes = [];
+    const fixedOk = new Map();
+    const addFixed = (el, r) => {
+      const f = fixedLayerOf(el);
+      if (!f) return;
+      let ok = fixedOk.get(f);
+      if (ok === undefined) {
+        const fr = f.getBoundingClientRect();
+        ok = !unsettled(f) && !(fr.right - fr.left >= vw * 0.9 && fr.bottom - fr.top >= vh * 0.9);
+        fixedOk.set(f, ok);
+        if (ok) fixedBoxes.push({ layer: f, r: fr });
+      }
+      if (ok && r) fixedBoxes.push({ layer: f, r: r });
+    };
+    for (let i = 0; i < runs.length; i++) if (runs[i].vis) addFixed(runs[i].p, runs[i].vis);
+    for (let i = 0; i < controls.length; i++) addFixed(controls[i].el, controls[i].vis);
+    const frames = document.querySelectorAll('iframe');
+    for (let i = 0; i < frames.length; i++) addFixed(frames[i], frames[i].getBoundingClientRect());
+    const nested = (a, b) => a === b || a.contains(b) || b.contains(a);
+    for (let i = 0; i < runs.length && fixedBoxes.length > 1; i++) {
+      const run = runs[i];
+      const A = run.vis ? fixedLayerOf(run.p) : null;
+      if (!A || unsettled(run.p) || reportedOwners.has(run.p)) continue;
+      const cy = (run.vis.top + run.vis.bottom) / 2;
+      if (cy < 0 || cy >= vh) continue;
+      for (let b = 0; b < fixedBoxes.length; b++) {
+        const fb = fixedBoxes[b];
+        if (nested(fb.layer, A) || cy < fb.r.top || cy >= fb.r.bottom) continue;
+        const lo = Math.max(run.vis.left, fb.r.left, 0);
+        const hi = Math.min(run.vis.right, fb.r.right, vw);
+        if (hi - lo < 4) continue;
+        const step = Math.max(1, (hi - lo) / 64);
+        let px = 0;
+        let by = null;
+        for (let x = lo + step / 2; x < hi; x += step) {
+          const stack = document.elementsFromPoint(x, cy);
+          for (let k = 0; k < stack.length; k++) {
+            const e = stack[k];
+            if (e === doc || e === body || nested(e, run.p)) break;
+            if (e.closest(PLATFORM_PREVIEW_CHROME) || e.closest('dialog, [role="dialog"], [aria-modal="true"]')) continue;
+            const eLayer = fixedLayerOf(e);
+            if (!eLayer || nested(eLayer, A) || !fixedOk.get(eLayer) || !isOpaque(e)) continue;
+            px += step;
+            by = by || e;
+            break;
+          }
+        }
+        if (px < 4) continue;
+        reportedOwners.add(run.p);
+        push({ kind: 'occlusion', severity: 'critical', selector: getSelector(run.p), details: 'Text "' + snippet(run.n.nodeValue) + '" in fixed ' + getSelector(A) + ' is covered by fixed ' + getSelector(by) + ' (' + Math.round(px) + 'px of the line)', rect: toRect(run.vis) });
+        break;
+      }
+    }
     for (let s = 0; s < steps.length; s++) {
       const want = steps[s];
       const got = s === 0 ? 0 : scrollToY(want);
