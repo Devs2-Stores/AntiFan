@@ -671,12 +671,27 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
       return v;
     };
     // Mirror of topLayer, read at the last scroll offset: a bar anchored to the bottom edge.
+    // A bar that transitions its visibility, opacity or position is a show/hide-on-scroll bar:
+    // the theme's scroll handler runs after this synchronous read, so its settled state at the
+    // end of the page is unknown here and it is never reported from this reading.
+    const SHOW_HIDE = /^(all|opacity|visibility|transform|translate|top|bottom|inset|margin-bottom|display)$/;
+    const togglesOnScroll = (layer) => {
+      for (let e = layer; e && e !== body && e !== doc; e = parentOf(e)) {
+        const s = cs(e);
+        const props = String(s.transitionProperty || '').split(',');
+        const durs = String(s.transitionDuration || '').split(',');
+        for (let i = 0; i < props.length; i++) {
+          if (SHOW_HIDE.test(props[i].trim()) && parseFloat(durs[i % durs.length]) > 0) return true;
+        }
+      }
+      return false;
+    };
     const bottomInfo = new Map();
     const bottomLayer = (layer) => {
       let v = bottomInfo.get(layer);
       if (v === undefined) {
         const r = layer.getBoundingClientRect();
-        v = r.bottom > vh * 0.75 && r.top < vh && (r.bottom - r.top) <= vh * 0.4 && (r.right - r.left) >= vw * 0.5;
+        v = r.bottom > vh * 0.75 && r.top < vh && (r.bottom - r.top) <= vh * 0.4 && (r.right - r.left) >= vw * 0.5 && !togglesOnScroll(layer);
         bottomInfo.set(layer, v);
       }
       return v;
