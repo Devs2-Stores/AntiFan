@@ -19,7 +19,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import process from 'node:process';
 import { mkdtempSync, rmSync } from 'node:fs';
-import { availableParallelism, tmpdir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildLaneEnv } from './lane-env.cjs';
@@ -108,15 +108,15 @@ export const SPAWN_HEAVY_LANES = new Set([
 ]);
 
 // Custom command overrides for lanes that do not map 1:1 to `npm run <lane>`.
-// 'test:main' runs its files on half the host's threads. scripts/test-file-roots.cjs gives every
-// test file its own data, profile and register roots, so concurrent files never read each other's
-// terminal sessions, issue register or baselines; the other half of the threads stays free for
-// the PowerShell, WMI, taskkill and ConPTY children the spawn-heavy suites start.
+// 'test:main' runs its files at node's default concurrency (one fewer than the host's threads):
+// the pipeline runs one lane at a time, so nothing else competes for them.
+// scripts/test-file-roots.cjs gives every test file its own data, profile and register roots, so
+// concurrent files never read each other's terminal sessions, issue register or baselines.
 const LANE_COMMANDS = new Map([
   ['check:rpc-surface', [process.execPath, 'scripts/probe-rpc-surface-coverage.cjs', '--static-only']],
   ['test:main', [
     'node', '--require', './scripts/test-file-roots.cjs', '--test', '--test-force-exit',
-    `--test-concurrency=${Math.max(1, Math.floor(availableParallelism() / 2))}`, '.compiled/test/main/**/*.test.js',
+    '.compiled/test/main/**/*.test.js',
   ]],
   ['probe:windows-matrix', ['node', 'scripts/run-electron.cjs', 'scripts/probe-project-windows-matrix.cjs']],
   ['probe:headless-full-page', ['node', 'scripts/run-electron.cjs', 'scripts/probe-headless-full-page.cjs']],
