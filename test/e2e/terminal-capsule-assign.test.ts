@@ -952,7 +952,6 @@ async function run() {
     } finally {
       // The attachment this row minted is released here: a live session keeps a streaming run
       // alive by design, and the teardown row must not address a process that is rightly busy.
-      try { await bound.stop(); } catch (err) { console.log('  NOTE  the MCP surface did not stop: ' + messageOf(err)); }
       try { await controlPlane.endCliSession(session.run.id, session.attempt.id, 'completed'); }
       catch (err) { console.log('  NOTE  the window-less session did not end: ' + messageOf(err)); }
     }

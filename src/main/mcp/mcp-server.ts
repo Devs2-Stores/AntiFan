@@ -4,12 +4,7 @@
  */
 import { ChromeProfileSyncManager } from '../browser/chrome-profile-sync';
 import { DEVICE_PRESETS } from '../browser/device-presets';
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-  Tool,
-} from '@modelcontextprotocol/sdk/types.js';
+import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { NativeTabHost } from '../browser/native-tab-host';
 import { CapabilityTransportAdapter } from '../tools/capability-transport';
 import { CapabilityError, AuthenticatedCapabilityContext, ClientInvocationIntent, makeControlPlaneId } from '../../shared/control-plane-contracts';
@@ -25,7 +20,6 @@ export interface BoundAttachmentSession {
 }
 
 export class AntiFanMcpServer {
-  private server: Server;
   private tabHost: NativeTabHost;
   private isHighRiskAllowed: boolean;
   private readonly transport?: CapabilityTransportAdapter;
@@ -41,32 +35,6 @@ export class AntiFanMcpServer {
     this.isHighRiskAllowed = isHighRiskAllowed;
     this.transport = transport;
     this.boundSession = boundSession || this.resolveEnvBoundSession();
-    this.server = new Server(
-      {
-        name: 'antifan-browser-desktop',
-        version: '1.0.0',
-      },
-      {
-        capabilities: {
-          tools: {},
-        },
-      }
-    );
-
-    this.setupHandlers();
-  }
-
-  private setupHandlers(): void {
-    this.server.setRequestHandler(ListToolsRequestSchema, async () => {
-      return this.listTools();
-    });
-
-    this.server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
-      const callerRequestId = extra && (typeof extra.requestId === 'string' || typeof extra.requestId === 'number')
-        ? String(extra.requestId)
-        : undefined;
-      return this.callTool(request.params.name, (request.params.arguments || {}) as Record<string, unknown>, callerRequestId);
-    });
   }
 
   private resolveEnvBoundSession(): BoundAttachmentSession | undefined {
@@ -788,15 +756,6 @@ export class AntiFanMcpServer {
         }),
       }],
     };
-  }
-  public async start(): Promise<void> {
-    // In-memory MCP surface: stdio transport lifecycle removed.
-    // External MCP clients connect via Bridge WebSocket adapter (scripts/antifan-omp-mcp.cjs).
-  }
-  public async stop(): Promise<void> {
-    try {
-      await this.server.close();
-    } catch {}
   }
 }
 function isAgentCapabilityName(name: string): boolean {

@@ -1233,11 +1233,10 @@ async function run() {
       // address a hub that is rightly busy - a refusal about work this scenario created,
       // not about the behaviour those rows measure.
       for (const release of [
-        { label: 'session one', server: serverOne, session: sessionOne },
-        { label: 'session two', server: serverTwo, session: sessionTwo },
+        { label: 'session one', session: sessionOne },
+        { label: 'session two', session: sessionTwo },
       ]) {
         try {
-          await release.server.stop();
           await controlPlane.endCliSession(release.session.run.id, release.session.attempt.id, 'completed');
         } catch (err) {
           console.log('  NOTE  ' + release.label + ' could not be released: ' + messageOf(err));
