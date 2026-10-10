@@ -84,7 +84,7 @@ describe('safeSliceTailJsonBounded Algorithm Invariants & Performance', () => {
     assert.ok(cost <= budget, `Corrupt stream cost ${cost} exceeds budget ${budget}`);
   });
 
-  it('processes massive 512KB buffer in under 20ms with zero large array allocation', () => {
+  it('slices a 512KB buffer in under 5ms (best of 5) without per-character or rescanning work', () => {
     let largeLog = '';
     for (let i = 0; i < 5000; i++) {
       largeLog += `[2026-08-31T12:00:${(i % 60).toString().padStart(2, '0')}] \x1b[32mINFO\x1b[0m Event #${i}: Storefront order processed with payload hash ${i * 997}\n`;
@@ -92,11 +92,20 @@ describe('safeSliceTailJsonBounded Algorithm Invariants & Performance', () => {
     const budget = 40 * 1024; // 40KB budget
     // Warm up JIT
     safeSliceTailJsonBounded(largeLog, budget);
-    const start = performance.now();
-    const result = safeSliceTailJsonBounded(largeLog, budget);
-    const durationMs = performance.now() - start;
+    // Best of five: on a saturated lane one sample can absorb whole scheduler quanta
+    // (measured up to 40 ms for a ~0.5 ms call), never all five. The minimum separates
+    // cleanly: the shipped tail-bounded scan stays under 0.6 ms with every thread busy,
+    // while per-character JSON.stringify over the input never drops below ~19 ms and a
+    // stringify-per-line rescan takes seconds.
+    let durationMs = Infinity;
+    let result = '';
+    for (let i = 0; i < 5; i++) {
+      const start = performance.now();
+      result = safeSliceTailJsonBounded(largeLog, budget);
+      durationMs = Math.min(durationMs, performance.now() - start);
+    }
 
-    assert.ok(durationMs < 20, `Execution took ${durationMs}ms, expected < 20ms`);
+    assert.ok(durationMs < 5, `Best of 5 took ${durationMs}ms, expected < 5ms`);
     assert.ok(result.startsWith('\x1b[0m'));
     const cost = Buffer.byteLength(JSON.stringify(result), 'utf8');
     assert.ok(cost <= budget, `Result cost ${cost} exceeds budget ${budget}`);
