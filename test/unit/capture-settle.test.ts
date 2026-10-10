@@ -523,6 +523,27 @@ describe('buildPreCaptureSampleExpr (quiescence sample expressions)', () => {
     assert.strictEqual(sample.pendingImages, 0, 'Offscreen lazy image must NOT count as pending in full-page mode to prevent capture deadlock');
     assert.strictEqual(sample.imageParts.length, 2, 'Visible and offscreen lazy image must be tracked in full-page identity hash');
   });
+  it('does not count hidden empty-source images as broken but retains visible broken images', () => {
+    const hiddenStyle = { display: 'block', visibility: 'hidden', opacity: '1' };
+    const visibleStyle = { display: 'block', visibility: 'visible', opacity: '1' };
+    const hidden = {
+      complete: true, naturalWidth: 0, naturalHeight: 0, src: '', currentSrc: '',
+      getAttribute: (name: string) => name === 'src' ? '' : null,
+      offsetParent: {}, offsetWidth: 100, offsetHeight: 100, parentElement: null,
+      getBoundingClientRect: () => ({ x: 0, y: 10, width: 100, height: 100, top: 10, bottom: 110 }),
+    };
+    const visible = {
+      complete: true, naturalWidth: 0, naturalHeight: 0, src: 'https://ex.com/missing.png', currentSrc: 'https://ex.com/missing.png',
+      getAttribute: (name: string) => name === 'src' ? 'https://ex.com/missing.png' : null,
+      offsetParent: {}, offsetWidth: 100, offsetHeight: 100, parentElement: null,
+      getBoundingClientRect: () => ({ x: 0, y: 20, width: 100, height: 100, top: 20, bottom: 120 }),
+    };
+    const sample = runScriptInDom(buildPreCaptureSampleExpr(), {
+      window: { innerWidth: 1000, innerHeight: 500, scrollY: 0, getComputedStyle: (node: unknown) => node === hidden ? hiddenStyle : visibleStyle },
+      document: { readyState: 'complete', fonts: { status: 'loaded' }, documentElement: { scrollHeight: 500, scrollWidth: 1000 }, images: [hidden, visible] },
+    });
+    assert.deepStrictEqual(sample.brokenImages, ['https://ex.com/missing.png']);
+  });
 });
 });
 

@@ -2,8 +2,9 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { ArtifactRef, BrowserTarget, CapabilityError } from '../../shared/control-plane-contracts';
 import { BrowserControlPort } from '../tools/browser-control-port';
-import type { EvidenceCaptureEnvelope } from '../verification/visual-capture';
+import type { CaptureFailureCode, EvidenceCaptureEnvelope } from '../verification/visual-capture';
 import type { VisualSettleReceipt } from '../verification/capture-settle';
+import { CaptureError } from '../verification/visual-capture';
 import { ArtifactStore } from '../tools/artifact-store';
 import { PlatformDetector, PlatformDetectionResult, EcommercePlatform } from './scanners/platform-detector';
 import { LiquidErrorScanner, LiquidScanResult, LiquidErrorFinding } from './scanners/liquid-error-scanner';
@@ -56,6 +57,11 @@ export interface ThemeQaDiagnosticScreenshot {
   reason: string;
 }
 
+export interface ThemeQaEvidenceFailure {
+  code: CaptureFailureCode | 'RESOURCE_FAILURE';
+  message: string;
+}
+
 export interface ThemeQaDetailedFindings {
   platform: PlatformDetectionResult;
   liquid: LiquidScanResult;
@@ -72,6 +78,7 @@ export interface ThemeQaDetailedFindings {
   };
   differential?: ThemeQaDifferentialAttribution;
   evidenceGaps?: string[];
+  evidenceFailure?: ThemeQaEvidenceFailure;
   diagnosticScreenshot?: ThemeQaDiagnosticScreenshot;
   /** Geometry-first integrity scan: overlap/clipping/occlusion/offscreen/sticky + layout-shift witness. */
   layoutIntegrity?: LayoutIntegrityResult;
@@ -225,6 +232,38 @@ export function sanitizePii(text: string): string {
     // epoch), which would otherwise leave a bare token and break the JSON report.
     .replace(/(?<!\d)(?:\+?84|0)(?:3|5|7|8|9)[0-9]{8}(?!\d)/g, '[REDACTED_PHONE]')
     .replace(/(?:bearer\s+|token=)[a-zA-Z0-9_\-\.]{20,}/gi, '[REDACTED_TOKEN]');
+}
+const CAPTURE_EVIDENCE_FAILURE_CODES: Partial<Record<CaptureFailureCode, true>> = {
+  FULLPAGE_CAPTURE_UNSUPPORTED_GEOMETRY: true,
+  FULLPAGE_CAPTURE_UNSUPPORTED_FORMAT: true,
+  CAPTURE_TIMEOUT: true,
+  CAPTURE_FRAME_STARVATION: true,
+  CAPTURE_EMPTY_PAYLOAD: true,
+  CAPTURE_PNG_SIGNATURE_INVALID: true,
+  CAPTURE_PNG_TRUNCATED: true,
+  CAPTURE_PNG_UNDECODABLE: true,
+  CAPTURE_JPEG_SIGNATURE_INVALID: true,
+  CAPTURE_JPEG_TRUNCATED: true,
+  CAPTURE_JPEG_UNDECODABLE: true,
+  CAPTURE_SCALE_MISMATCH: true,
+  TARGET_BUSY_DRAINING: true,
+  NO_RENDER_SURFACE: true,
+  CAPTURE_VIEWPORT_NOT_RESTORED: true,
+  CAPTURE_NOT_READY: true,
+  SETTLE_PREDICATE_FAILED: true,
+  IMAGE_IDENTITY_UNSTABLE: true,
+  DOCUMENT_GENERATION_UNSETTLED: true,
+  // Route expectation errors are target-selection failures, not raster evidence gaps.
+};
+
+function captureEvidenceFailure(error: unknown): ThemeQaEvidenceFailure | undefined {
+  if (error instanceof CapabilityError && error.code === 'RESOURCE_FAILURE') {
+    return { code: 'RESOURCE_FAILURE', message: error.message };
+  }
+  if (error instanceof CaptureError && CAPTURE_EVIDENCE_FAILURE_CODES[error.code]) {
+    return { code: error.code, message: error.message };
+  }
+  return undefined;
 }
 function rethrowTargetLifecycleError(error: unknown): void {
   if (
@@ -645,16 +684,21 @@ export class ThemeQaWorkflow {
         }
       } catch (err) {
         rethrowTargetLifecycleError(err);
-        if (err instanceof CapabilityError) throw err;
-        throw new CapabilityError(
-          'SETTLE_INCOMPLETE',
-          `Theme QA settle gate failed: ${err instanceof Error ? err.message : String(err)}`
-        );
+        const failure = captureEvidenceFailure(err);
+        if (!failure) {
+          if (err instanceof CapabilityError) throw err;
+          throw new CapabilityError(
+            'SETTLE_INCOMPLETE',
+            `Theme QA settle gate failed: ${err instanceof Error ? err.message : String(err)}`
+          );
+        }
+        return { receipt, missingCapability, failure };
       }
-      return { receipt, missingCapability };
+      return { receipt, missingCapability, failure: undefined };
     });
     const settleReceipt: VisualSettleReceiptExtended | undefined = loadPhase.result.receipt;
     const settleMissingCapability = loadPhase.result.missingCapability;
+    let evidenceFailure: ThemeQaEvidenceFailure | undefined = loadPhase.result.failure;
     const isolationOutcome = loadPhase.isolation;
 
     const checkAborted = () => {
@@ -694,7 +738,21 @@ export class ThemeQaWorkflow {
     // 3. Capture evidence from fresh activeTarget
     checkAborted();
     await new Promise((r) => setImmediate(r));
-    const evidence = await this.inspect({ ...input, target: activeTarget });
+    // The screenshot is the one raster in this run; when it cannot be produced (a mobile page wider
+    // than its viewport fails the scale check) the DOM detectors still report what they observed and
+    // the missing raster becomes an evidence gap, never a thrown run with no report.
+    this.assertOwnership(activeTarget);
+    const dom = await this.ports.browser.dom(activeTarget, input.runId, input.attemptId);
+    let screenshot: EvidenceCaptureEnvelope | undefined;
+    try {
+      screenshot = await this.ports.browser.screenshot(activeTarget, input.runId, input.attemptId);
+    } catch (error) {
+      rethrowTargetLifecycleError(error);
+      const failure = captureEvidenceFailure(error);
+      if (!failure) throw error;
+      evidenceFailure ??= failure;
+    }
+    const evidence = { dom, screenshot };
     checkAborted();
     let rawHtml = '';
     if (typeof evidence.dom === 'string') {
@@ -712,6 +770,9 @@ export class ThemeQaWorkflow {
     const detectedPlatform: EcommercePlatform = platformResult.platform;
     // Separate evidence incompleteness from observed failure (do not inject into diagnosticIssues)
     const evidenceGaps: string[] = [];
+    if (evidenceFailure) {
+      evidenceGaps.push(`Evidence capture failed (${evidenceFailure.code}): ${evidenceFailure.message}`);
+    }
     if (settleMissingCapability) {
       evidenceGaps.push('Authoritative settlement capability missing (browser.settleCapture is not available on host); cannot certify authoritative PASS');
     }
@@ -1349,6 +1410,7 @@ export class ThemeQaWorkflow {
       ...(preReloadDiagnosticsObj ? { preReloadDiagnostics: preReloadDiagnosticsObj } : {}),
       ...(differential ? { differential } : {}),
       ...(evidenceGaps.length > 0 ? { evidenceGaps } : {}),
+      ...(evidenceFailure ? { evidenceFailure } : {}),
       ...(integrityResult ? { layoutIntegrity: integrityResult } : {}),
       ...(integrityAmbiguities.length > 0 ? { visualAmbiguities: integrityAmbiguities } : {}),
       responsive: responsiveMap,
@@ -1360,7 +1422,7 @@ export class ThemeQaWorkflow {
       if (item && typeof item === 'object' && typeof (item as ArtifactRef).id === 'string') artifacts.push(item as ArtifactRef);
     };
     collectRef(evidence.dom);
-    collectRef(evidence.screenshot.artifactRef);
+    if (evidence.screenshot) collectRef(evidence.screenshot.artifactRef);
     if (input.signal?.aborted) {
       throw new CapabilityError('TARGET_STALE', 'Theme QA validation was aborted by document navigation');
     }

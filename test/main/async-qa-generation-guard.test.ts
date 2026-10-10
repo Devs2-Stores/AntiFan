@@ -1,11 +1,12 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
-import { ThemeQaWorkflow } from '../../src/main/qa/theme-qa-workflow';
+import { ThemeQaWorkflow, type ThemeQaWorkflowPorts } from '../../src/main/qa/theme-qa-workflow';
+import { CaptureError } from '../../src/main/verification/visual-capture';
 import { BrowserTarget, CapabilityError } from '../../src/shared/control-plane-contracts';
 import { ControlPlaneRuntime } from '../../src/main/control-plane/control-plane-runtime';
 
 describe('Async QA Generation Guard & Race-Condition Defense', () => {
-  const createMockPorts = (initialDocGen = 1) => {
+  const createMockPorts = (initialDocGen = 1, options: { screenshotError?: Error; settleError?: Error; overflow?: boolean } = {}) => {
     let currentDocGen = initialDocGen;
     const artifactsMap = new Map<string, { kind: string; data: Buffer }>();
     let artifactCounter = 1;
@@ -16,10 +17,10 @@ describe('Async QA Generation Guard & Race-Condition Defense', () => {
       ports: {
         browser: {
           dom: async () => '<html><body><div>Test</div></body></html>',
-          screenshot: async () => 'data:image/png;base64,mock',
+          screenshot: async () => { if (options.screenshotError) throw options.screenshotError; return 'data:image/png;base64,mock'; },
           eval: async (_target: BrowserTarget, script: string) => {
             if (script.includes('LayoutOverflowEngine') || script.includes('deadband') || script.includes('rawDeltaX')) {
-              return { viewport: { name: 'desktop', width: 1440, height: 900 }, hasOverflow: false, deltaX: 0, scrollWidth: 1440, clientWidth: 1440, culprits: [] };
+              return { viewport: { name: 'desktop', width: 1440, height: 900 }, hasOverflow: Boolean(options.overflow), deltaX: options.overflow ? 120 : 0, scrollWidth: options.overflow ? 1560 : 1440, clientWidth: 1440, culprits: options.overflow ? [{ selector: '.wide-banner', deltaX: 120 }] : [] };
             }
             if (script.includes('LiquidErrorScanner')) {
               return { hasErrors: false, errors: [], scannedElementsCount: 50 };
@@ -36,12 +37,12 @@ describe('Async QA Generation Guard & Race-Condition Defense', () => {
           diagnostics: () => ({ console: [], failures: [] }),
           listTabs: () => [{ id: 'tab-guard-1', url: 'https://demo.haravan.com' }],
           getDocumentGeneration: () => currentDocGen,
-          settleCapture: async () => ({
+          settleCapture: async () => { if (options.settleError) throw options.settleError; return ({
             settleComplete: true,
             gates: { network: true, fonts: true, images: true, dom: true },
             timingsMs: { network: 0, fonts: 0, images: 0, dom: 0, total: 0 },
             brokenImages: [],
-          }),
+          }); },
         },
         reload: async (target: BrowserTarget) => {
           // Synthetic reload advances document generation to post-reload state
@@ -161,5 +162,50 @@ describe('Async QA Generation Guard & Race-Condition Defense', () => {
         return err instanceof CapabilityError && err.code === 'TARGET_STALE';
       }
     );
+  });
+  it('reports observed overflow as FAIL with the raster loss as an evidence gap when capture scale mismatches', async () => {
+    const mock = createMockPorts(1, {
+      screenshotError: new CaptureError('CAPTURE_SCALE_MISMATCH', 'mobile raster does not match CSS viewport'),
+      overflow: true,
+    });
+    const workflow = new ThemeQaWorkflow(mock.ports as unknown as ThemeQaWorkflowPorts);
+    const report = await workflow.validate({
+      runId: 'run-capture-mismatch', attemptId: 'att-capture-mismatch',
+      target: { tabId: 'tab-guard-1', browserEpoch: 1, documentGeneration: 1, projectId: 'test-proj', workspaceId: 'test-ws', runtimeId: 'test-rt', url: 'https://demo.haravan.com' },
+      workspaceRoot: 'E:/Work/test-theme',
+    });
+    assert.strictEqual(report.summary.verdict, 'FAIL', 'a missing raster must not hide overflow the DOM detectors observed');
+    assert.ok(report.findings?.evidenceGaps?.some((gap) => gap.includes('CAPTURE_SCALE_MISMATCH')));
+    assert.strictEqual(report.findings?.evidenceFailure?.code, 'CAPTURE_SCALE_MISMATCH');
+    assert.strictEqual(report.findings?.evidenceFailure?.message, 'mobile raster does not match CSS viewport');
+    assert.strictEqual(report.findings?.overflow.hasOverflow, true);
+    assert.strictEqual(report.findings?.overflow.culprits[0]?.selector, '.wide-banner');
+  });
+
+  it('downgrades to INCONCLUSIVE when capture scale mismatches and nothing failed', async () => {
+    const mock = createMockPorts(1, {
+      screenshotError: new CaptureError('CAPTURE_SCALE_MISMATCH', 'mobile raster does not match CSS viewport'),
+    });
+    const workflow = new ThemeQaWorkflow(mock.ports as unknown as ThemeQaWorkflowPorts);
+    const report = await workflow.validate({
+      runId: 'run-capture-mismatch-clean', attemptId: 'att-capture-mismatch-clean',
+      target: { tabId: 'tab-guard-1', browserEpoch: 1, documentGeneration: 1, projectId: 'test-proj', workspaceId: 'test-ws', runtimeId: 'test-rt', url: 'https://demo.haravan.com' },
+      workspaceRoot: 'E:/Work/test-theme',
+    });
+    assert.strictEqual(report.summary.verdict, 'INCONCLUSIVE', 'no raster means PASS cannot be certified');
+    assert.strictEqual(report.findings?.evidenceFailure?.code, 'CAPTURE_SCALE_MISMATCH');
+  });
+
+  it('returns an inconclusive report instead of throwing on RESOURCE_FAILURE during settle', async () => {
+    const mock = createMockPorts(1, { settleError: new CapabilityError('RESOURCE_FAILURE', 'Detected broken image: https://demo.haravan.com/missing.png') });
+    const workflow = new ThemeQaWorkflow(mock.ports as unknown as ThemeQaWorkflowPorts);
+    const report = await workflow.validate({
+      runId: 'run-resource-failure', attemptId: 'att-resource-failure',
+      target: { tabId: 'tab-guard-1', browserEpoch: 1, documentGeneration: 1, projectId: 'test-proj', workspaceId: 'test-ws', runtimeId: 'test-rt', url: 'https://demo.haravan.com' },
+      workspaceRoot: 'E:/Work/test-theme',
+    });
+    assert.strictEqual(report.summary.verdict, 'INCONCLUSIVE');
+    assert.strictEqual(report.findings?.evidenceFailure?.code, 'RESOURCE_FAILURE');
+    assert.match(report.findings?.evidenceFailure?.message ?? '', /missing\.png/);
   });
 });

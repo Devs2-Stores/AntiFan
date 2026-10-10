@@ -608,6 +608,15 @@ export function buildPreCaptureSampleExpr(options: { fullPage?: boolean } = {}):
     if (bottom < 0 || top > vh || right < 0 || left > vw) return true;`}
     return false;
   };
+  const isNotPainted = (img) => {
+    let node = img;
+    while (node && node !== document.documentElement) {
+      const style = window.getComputedStyle ? window.getComputedStyle(node) : null;
+      if (style && (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0)) return true;
+      node = node.parentElement;
+    }
+    return false;
+  };
   // A 1-2 px image is a tracking beacon, not page content: it is re-issued by ad
   // scripts on its own schedule and its state says nothing about whether the
   // raster is stable. Measured witnesses on real pages were a 1x1 data:gif on
@@ -662,7 +671,7 @@ export function buildPreCaptureSampleExpr(options: { fullPage?: boolean } = {}):
   // A srcless lazy img also reads complete && naturalWidth === 0; it is unmaterialized,
   // not failed — keep it out of the broken list so the counts stay separable and the
   // reason text can name each class.
-  const brokenImages = imgs.filter(i => i.complete && i.naturalWidth === 0 && !isCannotLoad(i) && !isTrackingBeacon(i) && !isSrclessLazy(i)).map(i => (i.currentSrc || i.src || '').slice(0, 150));
+  const brokenImages = imgs.filter(i => i.complete && i.naturalWidth === 0 && !isCannotLoad(i) && !isTrackingBeacon(i) && !isNotPainted(i) && !isSrclessLazy(i)).map(i => (i.currentSrc || i.src || '').slice(0, 150));
 
   const hash32 = (s) => {
     let h = 0x811c9dc5;
