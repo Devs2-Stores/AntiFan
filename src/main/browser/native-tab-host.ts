@@ -15109,7 +15109,7 @@ export class NativeTabHost extends EventEmitter {
 
         await new Promise((resolve) => setTimeout(resolve, 60));
 
-        const evalPromise = wc.executeJavaScript(`(() => {
+        const measureScript = `(() => {
           const docEl = document.documentElement;
           const body = document.body;
           const scrollW = Math.max(docEl ? docEl.scrollWidth : 0, body ? body.scrollWidth : 0);
@@ -15153,6 +15153,8 @@ export class NativeTabHost extends EventEmitter {
             clientWidth: clientW,
             scrollHeight: scrollH,
             clientHeight: clientH,
+            innerWidth: window.innerWidth,
+            screenWidth: window.screen ? window.screen.width : null,
             documentOverflowX,
             hasHorizontalOverflow: documentOverflowX,
             targetOverflowX: targetData ? Boolean(targetData.targetOverflowX) : false,
@@ -15160,17 +15162,44 @@ export class NativeTabHost extends EventEmitter {
             hasViewportMeta: Boolean(viewportMeta),
             viewportContent: viewportMeta ? viewportMeta.getAttribute('content') : null,
           };
-        })()`).catch((err: unknown) => ({ error: String(err) }));
+        })()`;
 
-        const timeoutPromise = new Promise<{ timeout: boolean }>((resolve) => setTimeout(() => resolve({ timeout: true }), 5000));
-        const evaluation = await Promise.race([evalPromise, timeoutPromise]);
+        // The metrics override lands asynchronously: a mobile switch also swaps the UA
+        // and re-resolves the viewport meta, and a reading taken before that relayout
+        // describes the previous size. Poll until the document reports the emulated
+        // width; a width that never takes effect is reported unmeasured, never as
+        // "no overflow".
+        const appliedDeadline = Date.now() + 2500;
+        let evaluation: Record<string, unknown> = {};
+        let emulationApplied = false;
+        for (;;) {
+          const evalPromise = wc.executeJavaScript(measureScript).catch((err: unknown) => ({ error: String(err) }));
+          const evalTimeout = Promise.withResolvers<{ timeout: boolean }>();
+          const evalTimer = setTimeout(() => evalTimeout.resolve({ timeout: true }), 5000);
+          const raced = await Promise.race([evalPromise, evalTimeout.promise]);
+          clearTimeout(evalTimer);
+          evaluation = typeof raced === 'object' && raced !== null ? raced as Record<string, unknown> : {};
+          if (evaluation.error !== undefined || evaluation.timeout === true) break;
+          const innerW = evaluation.innerWidth;
+          const fixedWidthMeta = bp.mobile && !/width\s*=\s*device-width/i.test(String(evaluation.viewportContent || ''));
+          emulationApplied = typeof innerW === 'number' && (
+            Math.abs(innerW - bp.width) <= 1
+            || (fixedWidthMeta && evaluation.screenWidth === bp.width)
+          );
+          if (emulationApplied || Date.now() >= appliedDeadline) break;
+          const pause = Promise.withResolvers<void>();
+          setTimeout(pause.resolve, 100);
+          await pause.promise;
+        }
 
         results[bp.id] = {
           name: bp.name,
           width: bp.width,
           height: bp.height,
           mobile: bp.mobile,
-          ...(typeof evaluation === 'object' && evaluation !== null ? evaluation : {}),
+          ...evaluation,
+          emulationApplied,
+          ...(emulationApplied ? {} : { documentOverflowX: null, hasHorizontalOverflow: null, targetOverflowX: null }),
         };
       }
     };

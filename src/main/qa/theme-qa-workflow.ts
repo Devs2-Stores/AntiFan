@@ -954,9 +954,12 @@ export class ThemeQaWorkflow {
           } else {
             const bpEntries = Object.entries(breakpoints);
             let hasMalformedBreakpoint = false;
+            const unmeasuredWidths: unknown[] = [];
             const failing: Record<string, unknown>[] = [];
             for (const [, bp] of bpEntries) {
-              if (!bp || typeof bp !== 'object' || typeof (bp as Record<string, unknown>).hasHorizontalOverflow !== 'boolean') {
+              if (bp && typeof bp === 'object' && (bp as Record<string, unknown>).emulationApplied === false) {
+                unmeasuredWidths.push((bp as Record<string, unknown>).width);
+              } else if (!bp || typeof bp !== 'object' || typeof (bp as Record<string, unknown>).hasHorizontalOverflow !== 'boolean') {
                 hasMalformedBreakpoint = true;
               } else {
                 const bpObj = bp as Record<string, unknown>;
@@ -964,6 +967,9 @@ export class ThemeQaWorkflow {
                   failing.push(bpObj);
                 }
               }
+            }
+            if (unmeasuredWidths.length > 0 && input.multiBreakpoint === true) {
+              evidenceGaps.push(`Responsive multi-breakpoint sweep could not apply the emulated viewport at width(s) ${unmeasuredWidths.join(', ')}`);
             }
             if (hasMalformedBreakpoint && input.multiBreakpoint === true) {
               evidenceGaps.push('Responsive multi-breakpoint sweep contained malformed or incomplete breakpoint measurements');
@@ -1035,7 +1041,7 @@ export class ThemeQaWorkflow {
     const integrityWidth = integrityResult?.measured === true ? integrityResult.viewport.width : undefined;
     for (const w of QA_RESPONSIVE_WIDTHS) {
       const bp = bpByWidth.get(w);
-      const docOverflow = bp ? bp.hasHorizontalOverflow === true : null;
+      const docOverflow = bp && typeof bp.hasHorizontalOverflow === 'boolean' ? bp.hasHorizontalOverflow : null;
       const isIntegrityWidth = integrityWidth === w;
       responsiveMap[String(w)] = {
         documentOverflow: docOverflow,

@@ -799,6 +799,33 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
     assert.strictEqual(filteredReport.summary.passed, false, 'Summary must fail when responsive check is enabled and responsive overflow exists');
     assert.strictEqual(filteredReport.summary.verdict, 'FAIL');
   });
+  it('10a. A width whose emulation never applied is unmeasured, never a clean pass', async () => {
+    const ports = createMockPorts({
+      responsiveCheck: async () => ({
+        ok: true,
+        breakpoints: {
+          'mobile-small': { width: 320, height: 568, mobile: true, emulationApplied: false, clientWidth: 1425, hasHorizontalOverflow: null },
+          'mobile-standard': { width: 375, height: 667, mobile: true, emulationApplied: true, hasHorizontalOverflow: false },
+          'tablet-portrait': { width: 768, height: 1024, mobile: false, emulationApplied: true, hasHorizontalOverflow: false },
+          'tablet-landscape': { width: 1024, height: 768, mobile: false, emulationApplied: true, hasHorizontalOverflow: false },
+          'desktop-laptop': { width: 1440, height: 900, mobile: false, emulationApplied: true, hasHorizontalOverflow: false },
+        },
+      }),
+    });
+    const report = await new ThemeQaWorkflow(ports).validate({
+      runId: 'run-unmeasured-width',
+      attemptId: 'att-unmeasured-width',
+      workspaceRoot: 'E:/Work/test-theme',
+      target: makeTarget(1),
+      multiBreakpoint: true,
+    });
+
+    assert.strictEqual(report.findings?.responsive?.['320']?.documentOverflow, null, 'An unapplied emulation must not read as "no overflow"');
+    assert.strictEqual(report.findings?.responsive?.['375']?.documentOverflow, false);
+    assert.ok(report.findings?.evidenceGaps?.some((gap: string) => gap.includes('320')), 'The unmeasured width must be named in the evidence gaps');
+    assert.notStrictEqual(report.summary.verdict, 'PASS');
+  });
+
   it('10b. Integrity criticals clear checklist.layout', async () => {
     const integrityScript = LayoutIntegrityEngine.getBrowserScanScript('active');
     const base = createMockPorts();

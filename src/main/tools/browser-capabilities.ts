@@ -2910,17 +2910,21 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         : {};
       const bpEntries = Object.values(breakpoints);
 
-      const hasDocOverflow = bpEntries.some((b) => Boolean(b.documentOverflowX || b.hasHorizontalOverflow));
-      const hasTargetOverflow = bpEntries.some((b) => Boolean(b.targetOverflowX));
+      const hasDocOverflow = bpEntries.some((b) => b.documentOverflowX === true || b.hasHorizontalOverflow === true);
+      const hasTargetOverflow = bpEntries.some((b) => b.targetOverflowX === true);
+      const allMeasured = isOk
+        && bpEntries.length >= 5
+        && bpEntries.every((b) => b.emulationApplied !== false
+          && (typeof b.documentOverflowX === 'boolean' || typeof b.hasHorizontalOverflow === 'boolean'));
 
       return createThemeEvidenceEnvelope({
         success: isOk,
-        evidenceQuality: isOk ? 'HIGH' : 'LOW',
+        evidenceQuality: allMeasured ? 'HIGH' : 'LOW',
         data: rawRes,
         signals: {
           hasDocOverflow,
           hasTargetOverflow,
-          allBreakpointsTested: bpEntries.length >= 5,
+          allBreakpointsTested: allMeasured,
         },
       });
     },

@@ -1016,11 +1016,16 @@ describe('Responsive sweep surface', () => {
   const BREAKPOINT_IDS = ['mobile-small', 'mobile-standard', 'tablet-portrait', 'tablet-landscape', 'desktop-laptop'];
   const BREAKPOINT_WIDTHS = [320, 375, 768, 1024, 1440];
 
-  function createSweepHarness(): SweepHarness {
+  function createSweepHarness(options: { staleReadsPerEmulation?: number } = {}): SweepHarness {
+    const staleReadsPerEmulation = options.staleReadsPerEmulation ?? 0;
     const children: unknown[] = [];
     const emulationCalls: EmulationCall[] = [];
     const attachedDuringReadings: boolean[] = [];
     let liveEmulation: EmulatedBox | null = null;
+    // The box the document last laid out at: a reading taken before the override's
+    // relayout lands still describes this one, which is what a real tab does.
+    let laidOut: EmulatedBox = { width: WINDOW_BOX.width, height: WINDOW_BOX.height - TOOLBAR_HEIGHT };
+    let staleReadsLeft = 0;
     let disableCount = 0;
     let updateLayoutCount = 0;
     let childrenDuringFirstReading: unknown[] = [];
@@ -1048,6 +1053,7 @@ describe('Responsive sweep surface', () => {
             if (method === 'Emulation.setDeviceMetricsOverride') {
               const box = { width: Number(params.width) || 0, height: Number(params.height) || 0 };
               liveEmulation = box;
+              staleReadsLeft = staleReadsPerEmulation;
               emulationCalls.push({ width: box.width, height: box.height, attached: children.includes(view) });
             } else if (method === 'Emulation.clearDeviceMetricsOverride') {
               disableCount += 1;
@@ -1056,8 +1062,12 @@ describe('Responsive sweep surface', () => {
           },
         },
         executeJavaScript: async (_script: string) => {
-          const clientWidth = liveEmulation ? liveEmulation.width : 0;
-          const clientHeight = liveEmulation ? liveEmulation.height : 0;
+          const current = liveEmulation ?? { width: 0, height: 0 };
+          const box = staleReadsLeft > 0 ? laidOut : current;
+          if (staleReadsLeft > 0) staleReadsLeft -= 1;
+          else laidOut = current;
+          const clientWidth = box.width;
+          const clientHeight = box.height;
           const scrollWidth = Math.max(PAGE_CONTENT_WIDTH, clientWidth);
           const documentOverflowX = scrollWidth > clientWidth + 1;
           attachedDuringReadings.push(children.includes(view));
@@ -1069,6 +1079,8 @@ describe('Responsive sweep surface', () => {
             clientWidth,
             scrollHeight: clientHeight,
             clientHeight,
+            innerWidth: clientWidth,
+            screenWidth: clientWidth,
             documentOverflowX,
             hasHorizontalOverflow: documentOverflowX,
             targetOverflowX: false,
@@ -1227,5 +1239,28 @@ describe('Responsive sweep surface', () => {
     // path, and releasing the temporary attach re-asserts the presented view — that second
     // layout is what puts the user's active tab back in the window.
     assert.strictEqual(harness.updateLayoutCount(), 2, 'The sweep teardown and the attach release must each restore the layout');
+  });
+
+  it('waits for the emulated relayout instead of reading the previous viewport size', async () => {
+    const harness = createSweepHarness({ staleReadsPerEmulation: 2 });
+    const host = harness.host;
+    const backgroundTab = createTestTabRecord('tab-bg');
+    backgroundTab.view = harness.view as unknown as NativeTabRecord['view'];
+    const activeTab = createTestTabRecord('tab-active');
+    activeTab.view = harness.activeView as unknown as NativeTabRecord['view'];
+    host.tabs.set('tab-active', activeTab);
+    host.tabs.set('tab-bg', backgroundTab);
+    host.tabByWebContents.set(harness.view.webContents, { tabId: 'tab-bg', tab: backgroundTab });
+
+    const payload = await host.runResponsiveCheck({ tabId: 'tab-bg' });
+    const readings = payload.breakpoints as Record<string, BreakpointReading & { emulationApplied?: boolean }>;
+
+    for (let index = 0; index < BREAKPOINT_IDS.length; index += 1) {
+      const id = BREAKPOINT_IDS[index]!;
+      const width = BREAKPOINT_WIDTHS[index]!;
+      assert.strictEqual(readings[id]?.clientWidth, width, `${id}: a reading taken before the relayout describes the previous size`);
+      assert.strictEqual(readings[id]?.emulationApplied, true, `${id}: the emulation landed`);
+    }
+    assert.strictEqual(readings['mobile-small']?.hasHorizontalOverflow, true, 'The 330px page overflows 320 once the relayout lands');
   });
 });
