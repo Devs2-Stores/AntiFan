@@ -821,12 +821,22 @@ export type ReadFilePreviewReason =
 export type ReadFilePreviewResult =
   | {
       ok: true;
+      kind: 'text';
       filePath: string;
       fileName: string;
       content: string;
       size: number;
       lineCount: number;
       isTruncated: boolean;
+    }
+  | {
+      ok: true;
+      kind: 'image';
+      filePath: string;
+      fileName: string;
+      mimeType: string;
+      dataUrl: string;
+      size: number;
     }
   | {
       ok: false;

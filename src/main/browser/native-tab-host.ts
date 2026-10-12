@@ -61,6 +61,7 @@ import { HaravanUploader } from './haravan-uploader';
 import type { ActionSequenceParams, ActionSequenceResult } from './tab-automation-host';
 import { TerminalManager, DEFAULT_TERMINAL_CAPSULE_ID, workspaceTerminalProvenance, selectAnnotationTargets, selectAnnotationPickerRows, type SessionSummary, type TerminalDiagnosticsReport, type TerminalManagerStats, type TerminalSessionStateProjection } from './terminal-manager';
 import { writeFullPageCapture } from './full-page-capture-file';
+import { normalizePreviewPath, readFilePreview } from './file-preview-reader';
 import { checkForUpdatesAndRestart } from './app-menu';
 import { SkillScanner } from './skill-scanner';
 import { getCoreHealthService } from '../diagnostics/core-health';
@@ -3546,17 +3547,7 @@ export class NativeTabHost extends EventEmitter {
         };
       }
 
-      let targetPath = rawPath;
-      if ((targetPath.startsWith('"') && targetPath.endsWith('"')) ||
-          (targetPath.startsWith("'") && targetPath.endsWith("'")) ||
-          (targetPath.startsWith('`') && targetPath.endsWith('`'))) {
-        targetPath = targetPath.slice(1, -1).trim();
-      }
-      targetPath = targetPath.replace(/[,\.;\)]+$/, '');
-      const lineColMatch = /:(\d+)(?::\d+)?$/.exec(targetPath);
-      if (lineColMatch) {
-        targetPath = targetPath.slice(0, lineColMatch.index).trim();
-      }
+      let targetPath = normalizePreviewPath(rawPath);
 
       if (!path.isAbsolute(targetPath)) {
         let baseCwd = '';
@@ -3572,59 +3563,7 @@ export class NativeTabHost extends EventEmitter {
         }
         targetPath = baseCwd ? path.resolve(baseCwd, targetPath) : path.resolve(targetPath);
       }
-
-      const fileName = path.basename(targetPath);
-      try {
-        if (!fs.existsSync(targetPath)) {
-          return { ok: false, filePath: targetPath, fileName, reason: 'NOT_FOUND', message: `File không tồn tại: ${targetPath}` };
-        }
-        const stat = fs.statSync(targetPath);
-        if (stat.isDirectory()) {
-          return { ok: false, filePath: targetPath, fileName, reason: 'IS_DIRECTORY', message: `Đường dẫn là thư mục, không phải file: ${targetPath}`, size: stat.size };
-        }
-        const MAX_READ_BYTES = 512 * 1024;
-        const MAX_ALLOW_SIZE = 10 * 1024 * 1024;
-        if (stat.size > MAX_ALLOW_SIZE) {
-          return { ok: false, filePath: targetPath, fileName, reason: 'TOO_LARGE', message: `File quá lớn (${(stat.size / (1024 * 1024)).toFixed(1)} MB), hãy mở bằng VS Code`, size: stat.size };
-        }
-
-        const fd = fs.openSync(targetPath, 'r');
-        try {
-          const bytesToRead = Math.min(stat.size, MAX_READ_BYTES);
-          const buffer = Buffer.alloc(bytesToRead);
-          fs.readSync(fd, buffer, 0, bytesToRead, 0);
-
-          const checkLen = Math.min(buffer.length, 4096);
-          for (let i = 0; i < checkLen; i++) {
-            if (buffer[i] === 0) {
-              return { ok: false, filePath: targetPath, fileName, reason: 'BINARY_FILE', message: 'File nhị phân (binary/image), không thể xem dạng text', size: stat.size };
-            }
-          }
-
-          const content = buffer.toString('utf8');
-          const isTruncated = stat.size > MAX_READ_BYTES;
-          const lineCount = content.split('\n').length;
-          return {
-            ok: true,
-            filePath: targetPath,
-            fileName,
-            content,
-            size: stat.size,
-            lineCount,
-            isTruncated,
-          };
-        } finally {
-          fs.closeSync(fd);
-        }
-      } catch (err) {
-        return {
-          ok: false,
-          filePath: targetPath,
-          fileName,
-          reason: 'READ_ERROR',
-          message: err instanceof Error ? err.message : String(err),
-        };
-      }
+      return readFilePreview(targetPath);
     },
   },
   {

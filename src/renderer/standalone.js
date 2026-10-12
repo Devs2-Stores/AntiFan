@@ -3074,6 +3074,15 @@ function getFileMeta(fileName) {
     case 'zsh':
     case 'ps1':
       return { icon: '💻', color: '#4ade80', label: 'Shell' };
+    case 'png':
+    case 'jpg':
+    case 'jpeg':
+    case 'gif':
+    case 'webp':
+    case 'avif':
+    case 'bmp':
+    case 'ico':
+      return { icon: '🖼️', color: '#c084fc', label: 'Image' };
     case 'svg':
       return { icon: '🖼️', color: '#c084fc', label: 'SVG' };
     default:
@@ -3224,6 +3233,9 @@ function ensureFileQuickLookModal() {
           <div class="file-quick-look-gutter" id="fileQuickLookGutter"></div>
           <div class="file-quick-look-code" id="fileQuickLookCode"><code id="fileQuickLookCodeInner"></code></div>
         </div>
+        <div class="file-quick-look-image-wrap" id="fileQuickLookImageWrap" title="Click: vừa khung / kích thước thật">
+          <img class="file-quick-look-image" id="fileQuickLookImage" alt="" />
+        </div>
       </div>
       <div class="file-quick-look-footer" id="fileQuickLookFooter">
         <span id="fileQuickLookFooterInfo">📍 Bấm Esc để đóng • Click số dòng để copy path:line</span>
@@ -3254,6 +3266,109 @@ function ensureFileQuickLookModal() {
   });
 
   return modal;
+}
+
+function formatQuickLookSize(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function copyQuickLookImage(imageEl) {
+  const canvas = document.createElement('canvas');
+  canvas.width = imageEl.naturalWidth;
+  canvas.height = imageEl.naturalHeight;
+  const ctx = canvas.getContext('2d');
+  if (!ctx || !canvas.width || !canvas.height) return Promise.reject(new Error('IMAGE_NOT_DECODED'));
+  ctx.drawImage(imageEl, 0, 0);
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        reject(new Error('PNG_ENCODE_FAILED'));
+        return;
+      }
+      navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]).then(resolve, reject);
+    }, 'image/png');
+  });
+}
+
+function renderQuickLookImage(modal, result, sessionId) {
+  const contentEl = modal.querySelector('#fileQuickLookContent');
+  const imageWrapEl = modal.querySelector('#fileQuickLookImageWrap');
+  const imageEl = modal.querySelector('#fileQuickLookImage');
+  const codeEl = modal.querySelector('#fileQuickLookCode');
+  const metaEl = modal.querySelector('#fileQuickLookMeta');
+  const targetBadgeEl = modal.querySelector('#fileQuickLookTargetBadge');
+  const footerInfoEl = modal.querySelector('#fileQuickLookFooterInfo');
+  const copyBtn = modal.querySelector('#btnFileQuickLookCopy');
+  const insertPromptBtn = modal.querySelector('#btnFileQuickLookInsertPrompt');
+  const vsCodeBtn = modal.querySelector('#btnFileQuickLookVSCode');
+  const formatLabel = (result.fileName.split('.').pop() || '').toUpperCase();
+  const sizeStr = formatQuickLookSize(result.size);
+
+  if (metaEl) metaEl.textContent = `${formatLabel} • ${sizeStr}`;
+  if (targetBadgeEl) targetBadgeEl.style.display = 'none';
+  if (footerInfoEl) {
+    footerInfoEl.className = '';
+    footerInfoEl.textContent = '🖼️ Click ảnh: vừa khung ↔ kích thước thật • Phím I chèn Prompt • Phím V mở VS Code • Esc để đóng';
+  }
+  if (codeEl) codeEl.innerHTML = '';
+  if (contentEl) {
+    contentEl.classList.add('file-quick-look-content--image');
+    contentEl.scrollTop = 0;
+    contentEl.scrollLeft = 0;
+  }
+
+  if (imageEl) {
+    imageEl.dataset.filePath = result.filePath;
+    imageEl.onload = () => {
+      if (imageEl.dataset.filePath !== result.filePath) return;
+      if (metaEl) metaEl.textContent = `${formatLabel} • ${imageEl.naturalWidth}×${imageEl.naturalHeight} px • ${sizeStr}`;
+    };
+    imageEl.onerror = () => {
+      if (imageEl.dataset.filePath !== result.filePath) return;
+      contentEl?.classList.remove('file-quick-look-content--image');
+      if (metaEl) metaEl.textContent = 'Lỗi';
+      if (codeEl) codeEl.innerHTML = '<div style="padding:16px;color:#ef4444;">Không giải mã được ảnh này. Bấm VS Code để mở bằng trình khác.</div>';
+    };
+    imageEl.alt = result.fileName;
+    imageEl.src = result.dataUrl;
+  }
+  if (imageWrapEl) {
+    imageWrapEl.onclick = () => imageWrapEl.classList.toggle('is-actual-size');
+  }
+
+  if (copyBtn) {
+    copyBtn.onclick = (e) => {
+      e.stopPropagation();
+      if (!imageEl) return;
+      copyQuickLookImage(imageEl).then(
+        () => showQuickLookToast(modal, '✓ Đã sao chép ảnh vào clipboard!'),
+        () => {
+          writeClipboard(result.filePath);
+          showQuickLookToast(modal, '✓ Không chép được ảnh, đã chép đường dẫn file');
+        }
+      );
+    };
+  }
+
+  if (insertPromptBtn) {
+    insertPromptBtn.onclick = (e) => {
+      e.stopPropagation();
+      const targetSessionId = typeof sessionId === 'function' ? sessionId() : (sessionId || activeId);
+      const refText = `@${result.filePath} `;
+      if (targetSessionId) sendTerminalInputFor(targetSessionId, refText);
+      writeClipboard(refText.trim());
+      showQuickLookToast(modal, `✓ Đã chèn @${result.fileName} vào Prompt!`);
+    };
+  }
+
+  if (vsCodeBtn) {
+    vsCodeBtn.onclick = (e) => {
+      e.stopPropagation();
+      api?.openInVSCode?.(result.filePath);
+    };
+  }
 }
 
 async function openFileQuickLook(rawPath, sessionId) {
@@ -3297,6 +3412,13 @@ async function openFileQuickLook(rawPath, sessionId) {
   }
   if (codeEl) codeEl.innerHTML = '<div style="padding:12px;color:#94a3b8;">Đang tải nội dung file...</div>';
   if (gutterEl) gutterEl.innerHTML = '';
+  modal.querySelector('#fileQuickLookContent')?.classList.remove('file-quick-look-content--image');
+  modal.querySelector('#fileQuickLookImageWrap')?.classList.remove('is-actual-size');
+  const previousImageEl = modal.querySelector('#fileQuickLookImage');
+  if (previousImageEl) {
+    previousImageEl.removeAttribute('src');
+    previousImageEl.dataset.filePath = '';
+  }
   if (footerInfoEl) {
     footerInfoEl.className = '';
     footerInfoEl.textContent = targetLine
@@ -3357,6 +3479,10 @@ async function openFileQuickLook(rawPath, sessionId) {
         pathBadgeEl.textContent = result.filePath;
         pathBadgeEl.title = 'Bấm để sao chép đường dẫn: ' + result.filePath;
         pathBadgeEl.setAttribute('data-full-path', result.filePath);
+      }
+      if (result.kind === 'image') {
+        renderQuickLookImage(modal, result, sessionId);
+        return;
       }
       const sizeStr = result.size < 1024 ? `${result.size} B` : `${(result.size / 1024).toFixed(1)} KB`;
       if (metaEl) metaEl.textContent = `${meta.label} • ${result.lineCount} dòng • ${sizeStr}`;
@@ -3524,7 +3650,7 @@ const VALID_FILE_EXTENSIONS = {
   html: true, htm: true, liquid: true, bwt: true,
   md: true, markdown: true, txt: true, rtf: true,
   yaml: true, yml: true, toml: true, ini: true, conf: true, config: true,
-  svg: true, png: true, jpg: true, jpeg: true, webp: true, gif: true, ico: true, avif: true,
+  svg: true, png: true, jpg: true, jpeg: true, webp: true, gif: true, ico: true, avif: true, bmp: true,
   sh: true, bash: true, zsh: true, ps1: true, bat: true, cmd: true,
   py: true, rs: true, go: true, c: true, cpp: true, h: true, hpp: true, cs: true, java: true, kt: true, swift: true, rb: true, php: true,
   lock: true, log: true, sql: true, csv: true, tsv: true, xml: true, vue: true, svelte: true, astro: true,

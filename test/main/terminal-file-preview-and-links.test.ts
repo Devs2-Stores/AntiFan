@@ -3,7 +3,8 @@ import * as assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { TERMINAL_CHANNELS, type ReadFilePreviewResult } from '../../src/shared/contracts';
+import { TERMINAL_CHANNELS } from '../../src/shared/contracts';
+import { normalizePreviewPath, readFilePreview } from '../../src/main/browser/file-preview-reader';
 
 const ROOT = path.resolve(__dirname, '../../..');
 
@@ -151,113 +152,66 @@ describe('Terminal File Quick-Look & Link Provider Contracts', () => {
     assert.strictEqual(testIsValid('package.json'), true);
   });
 
-  it('verifies native-tab-host readFilePreview handler logic for text, binary, not-found, and directories', async () => {
-    // Replicate handler logic directly to verify file reading invariants against real files
-    const { readFilePreviewDirect } = (() => {
-      // Replicate the exact handler logic to verify invariants against file system
-      return {
-        readFilePreviewDirect: (rawPath: string, sessionId?: string): ReadFilePreviewResult => {
-          if (!rawPath) {
-            return { ok: false, filePath: '', fileName: '', reason: 'INVALID_PAYLOAD', message: 'Đường dẫn file không hợp lệ' };
-          }
-          let targetPath = rawPath;
-          if ((targetPath.startsWith('"') && targetPath.endsWith('"')) ||
-              (targetPath.startsWith("'") && targetPath.endsWith("'")) ||
-              (targetPath.startsWith('`') && targetPath.endsWith('`'))) {
-            targetPath = targetPath.slice(1, -1).trim();
-          }
-          targetPath = targetPath.replace(/[,\.;\)]+$/, '');
-          const lineColMatch = /:(\d+)(?::\d+)?$/.exec(targetPath);
-          if (lineColMatch) {
-            targetPath = targetPath.slice(0, lineColMatch.index).trim();
-          }
+  it('normalizePreviewPath strips quotes, trailing punctuation and :line:col suffixes', () => {
+    assert.strictEqual(normalizePreviewPath(`${sampleFilePath}:2:5`), sampleFilePath);
+    assert.strictEqual(normalizePreviewPath(`${sampleFilePath}:12`), sampleFilePath);
+    assert.strictEqual(normalizePreviewPath(`"${sampleFilePath}"`), sampleFilePath);
+    assert.strictEqual(normalizePreviewPath(`\`${sampleFilePath}\``), sampleFilePath);
+    assert.strictEqual(normalizePreviewPath(`${sampleFilePath}),`), sampleFilePath);
+  });
 
-          const fileName = path.basename(targetPath);
-          if (!fs.existsSync(targetPath)) {
-            return { ok: false, filePath: targetPath, fileName, reason: 'NOT_FOUND', message: `File không tồn tại: ${targetPath}` };
-          }
-          const stat = fs.statSync(targetPath);
-          if (stat.isDirectory()) {
-            return { ok: false, filePath: targetPath, fileName, reason: 'IS_DIRECTORY', message: `Đường dẫn là thư mục, không phải file: ${targetPath}`, size: stat.size };
-          }
-          const MAX_READ_BYTES = 512 * 1024;
-          const MAX_ALLOW_SIZE = 10 * 1024 * 1024;
-          if (stat.size > MAX_ALLOW_SIZE) {
-            return { ok: false, filePath: targetPath, fileName, reason: 'TOO_LARGE', message: 'File quá lớn', size: stat.size };
-          }
+  it('readFilePreview returns text, image, binary, not-found and directory results from real files', () => {
+    const textRes = readFilePreview(sampleFilePath);
+    assert.ok(textRes.ok && textRes.kind === 'text');
+    assert.strictEqual(textRes.content, sampleContent);
+    assert.strictEqual(textRes.lineCount, 4);
+    assert.strictEqual(textRes.fileName, 'sample-script.js');
+    assert.strictEqual(textRes.isTruncated, false);
 
-          const fd = fs.openSync(targetPath, 'r');
-          try {
-            const bytesToRead = Math.min(stat.size, MAX_READ_BYTES);
-            const buffer = Buffer.alloc(bytesToRead);
-            fs.readSync(fd, buffer, 0, bytesToRead, 0);
+    const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d]);
+    const pngPath = path.join(tempDir, 'capture.png');
+    fs.writeFileSync(pngPath, pngBytes);
+    const pngRes = readFilePreview(pngPath);
+    assert.ok(pngRes.ok && pngRes.kind === 'image');
+    assert.strictEqual(pngRes.mimeType, 'image/png');
+    assert.strictEqual(pngRes.dataUrl, `data:image/png;base64,${pngBytes.toString('base64')}`);
+    assert.strictEqual(pngRes.size, pngBytes.length);
+    assert.strictEqual(pngRes.fileName, 'capture.png');
 
-            const checkLen = Math.min(buffer.length, 4096);
-            for (let i = 0; i < checkLen; i++) {
-              if (buffer[i] === 0) {
-                return { ok: false, filePath: targetPath, fileName, reason: 'BINARY_FILE', message: 'File nhị phân', size: stat.size };
-              }
-            }
+    const upperJpgPath = path.join(tempDir, 'PHOTO.JPG');
+    fs.writeFileSync(upperJpgPath, Buffer.from([0xff, 0xd8, 0xff, 0x00]));
+    const jpgRes = readFilePreview(upperJpgPath);
+    assert.ok(jpgRes.ok && jpgRes.kind === 'image');
+    assert.strictEqual(jpgRes.mimeType, 'image/jpeg');
 
-            const content = buffer.toString('utf8');
-            const isTruncated = stat.size > MAX_READ_BYTES;
-            const lineCount = content.split('\n').length;
-            return { ok: true, filePath: targetPath, fileName, content, size: stat.size, lineCount, isTruncated };
-          } finally {
-            fs.closeSync(fd);
-          }
-        },
-      };
-    })();
+    const mislabeledPath = path.join(tempDir, 'renamed.jpg');
+    fs.writeFileSync(mislabeledPath, pngBytes);
+    const mislabeledRes = readFilePreview(mislabeledPath);
+    assert.ok(mislabeledRes.ok && mislabeledRes.kind === 'image');
+    assert.strictEqual(mislabeledRes.mimeType, 'image/png');
 
-    // 1. Reading an existing valid text file
-    const textRes = readFilePreviewDirect(sampleFilePath);
-    assert.strictEqual(textRes.ok, true);
-    if (textRes.ok) {
-      assert.strictEqual(textRes.content, sampleContent);
-      assert.strictEqual(textRes.lineCount, 4);
-      assert.strictEqual(textRes.fileName, 'sample-script.js');
-      assert.strictEqual(textRes.isTruncated, false);
-    }
+    const fakePngPath = path.join(tempDir, 'notes.png');
+    fs.writeFileSync(fakePngPath, 'not really an image\n', 'utf8');
+    const fakePngRes = readFilePreview(fakePngPath);
+    assert.ok(fakePngRes.ok && fakePngRes.kind === 'text');
+    assert.strictEqual(fakePngRes.content, 'not really an image\n');
 
-    // 2. Reading with line and column suffixes
-    const lineSuffixRes = readFilePreviewDirect(`${sampleFilePath}:2:5`);
-    assert.strictEqual(lineSuffixRes.ok, true);
-    if (lineSuffixRes.ok) {
-      assert.strictEqual(lineSuffixRes.content, sampleContent);
-    }
+    const svgPath = path.join(tempDir, 'icon.svg');
+    fs.writeFileSync(svgPath, '<svg xmlns="http://www.w3.org/2000/svg"></svg>', 'utf8');
+    const svgRes = readFilePreview(svgPath);
+    assert.ok(svgRes.ok && svgRes.kind === 'text');
 
-    // 3. Reading with quotes
-    const quotedRes = readFilePreviewDirect(`"${sampleFilePath}"`);
-    assert.strictEqual(quotedRes.ok, true);
+    const binRes = readFilePreview(binaryFilePath);
+    assert.ok(!binRes.ok);
+    assert.strictEqual(binRes.reason, 'BINARY_FILE');
 
-    // 4. Non-existent file
-    const notFoundRes = readFilePreviewDirect(path.join(tempDir, 'does-not-exist.js'));
-    assert.strictEqual(notFoundRes.ok, false);
-    if (!notFoundRes.ok) {
-      assert.strictEqual(notFoundRes.reason, 'NOT_FOUND');
-    }
+    const notFoundRes = readFilePreview(path.join(tempDir, 'does-not-exist.png'));
+    assert.ok(!notFoundRes.ok);
+    assert.strictEqual(notFoundRes.reason, 'NOT_FOUND');
 
-    // 5. Directory path
-    const dirRes = readFilePreviewDirect(tempDir);
-    assert.strictEqual(dirRes.ok, false);
-    if (!dirRes.ok) {
-      assert.strictEqual(dirRes.reason, 'IS_DIRECTORY');
-    }
-
-    // 6. Binary file
-    const binRes = readFilePreviewDirect(binaryFilePath);
-    assert.strictEqual(binRes.ok, false);
-    if (!binRes.ok) {
-      assert.strictEqual(binRes.reason, 'BINARY_FILE');
-    }
-
-    // 7. Invalid empty payload
-    const emptyRes = readFilePreviewDirect('');
-    assert.strictEqual(emptyRes.ok, false);
-    if (!emptyRes.ok) {
-      assert.strictEqual(emptyRes.reason, 'INVALID_PAYLOAD');
-    }
+    const dirRes = readFilePreview(tempDir);
+    assert.ok(!dirRes.ok);
+    assert.strictEqual(dirRes.reason, 'IS_DIRECTORY');
   });
 
   it('verifies openInVSCode logic correctly strips line:col, resolves relative path, and generates -r -g arguments', () => {

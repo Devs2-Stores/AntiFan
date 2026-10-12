@@ -3166,6 +3166,44 @@ body.is-project-dragging .terminal-tab-category-header {
   min-width: fit-content;
 }
 
+.file-quick-look-image-wrap {
+  display: none;
+  width: 100%;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 16px;
+  box-sizing: border-box;
+  background-image: repeating-conic-gradient(#1e293b 0% 25%, #0f172a 0% 50%);
+  background-size: 20px 20px;
+  cursor: zoom-in;
+}
+
+.file-quick-look-content--image .file-quick-look-code-wrap {
+  display: none;
+}
+
+.file-quick-look-content--image .file-quick-look-image-wrap {
+  display: flex;
+}
+
+.file-quick-look-image {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+}
+
+.file-quick-look-image-wrap.is-actual-size {
+  width: max-content;
+  min-width: 100%;
+  justify-content: flex-start;
+  cursor: zoom-out;
+}
+
+.file-quick-look-image-wrap.is-actual-size .file-quick-look-image {
+  max-width: none;
+}
+
 .file-quick-look-gutter {
   padding: 10px 0;
   background: rgba(2, 6, 23, 0.95);
