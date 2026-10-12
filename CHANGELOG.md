@@ -6,6 +6,14 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 
 ## [v1.3.6] - Unreleased
 
+### Thêm — Nút "Chụp Full Page" trên toolbar và Terminal Quick-Look xem ảnh
+
+- Nút `btnFullPageCapture` chụp full page tab đang mở (CDP, `fullPage: true`), ghi PNG vào `<workspace của tab>/.antifan/snapshots/fullpage_<YYYYMMDD-HHmmss>_<host-path>.png` (không có workspace thì `<runtime>/snapshots/`), chép đường dẫn vào clipboard, toast có nút "Mở thư mục". File nằm ngoài `artifacts/` nên retention cleaner không xoá; trùng tên lấy hậu tố `-N`, không ghi đè.
+- `TOOLBAR_CHANNELS.CAPTURE_FULL_PAGE` trả `CaptureFullPageResult` thay vì envelope base64. Kênh mới `REVEAL_FULL_PAGE_CAPTURE` chỉ mở file do session hiện tại ghi.
+- Quick-Look trong terminal mở được ảnh raster (đuôi `png`, `jpg`/`jpeg`, `gif`, `webp`, `avif`, `bmp`, `ico`, tối đa 25 MB) qua nhánh `ReadFilePreviewResult` `kind: 'image'`; mime lấy từ magic bytes, file có đuôi ảnh nhưng nội dung là text vẫn mở dạng text, SVG vẫn xem dạng source. Click ảnh chuyển vừa khung ↔ kích thước thật.
+- Logic đọc file chuyển sang `src/main/browser/file-preview-reader.ts`; test gọi module thật thay vì bản sao logic.
+- Kiểm chứng trên instance Electron cô lập: bấm nút → PNG 1344×3600 trong `<workspace>/.antifan/snapshots` → mở qua Quick-Look → mở lại file text, 16/16 check. Instance mới sinh bị Windows native occlusion đánh dấu `document.hidden`, guard `background-hidden` có sẵn từ chối full page; probe chỉ pass sau khi tắt `CalculateNativeWinOcclusion`. Hành vi khi người dùng bấm nút trên cửa sổ đang hiện chưa đo trực tiếp.
+
 ### Sửa — Đóng Hub khi cửa sổ project khác còn mở không còn làm MCP agent "not connected"
 
 - Nguyên nhân: đóng Hub (`web`) khi cửa sổ khác còn mở là trạng thái được hỗ trợ (`window-closed.siblings-live`), nhưng `NativeTabHost` của Hub bị dispose. Resolver mint dùng `hostForOwnerKey('web') ?? bootstrapHost`, tức chính host đã dispose, và `BridgeServer.tabHost` (construction host, chỉ gán một lần) cũng là host đó. `createTab` trên host đã dispose trả `''`, nên `antifan.cli.startSession` từ chối với `TAB_NOT_FOUND ... 'none provisioned'`; launcher in mọi lỗi thành `MCP_BRIDGE_OFFLINE` + "verify Desktop is running" dù bridge vẫn trả lời. OMP hiển thị "MCP server not connected" (main.log 10-10: `window-close.closed owner:"web"` lúc 14:25:37, lỗi MCP đầu tiên 14:26).
