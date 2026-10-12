@@ -1897,6 +1897,7 @@ export class NativeTabHost extends EventEmitter {
         applyTabThrottling: () => this.applyTabThrottling(),
         tabDevToolsHost: this.getDevToolsHost(),
         resolveTargetWorkspace: (targetSessionId, tabUrl) => this.resolveTabStrictWorkspace(targetSessionId, tabUrl),
+        resolveAnchorWorkspace: () => this.resolveWindowWorkspaceRoot(),
         getTabTerminalSession: (tabId) => this.getTabTerminalSession(tabId),
         sendKeyboardPress: (params) => this.sendKeyboardPress(params),
         withAgentInput: (action) => this.withAgentInput(action),
@@ -13577,10 +13578,10 @@ export class NativeTabHost extends EventEmitter {
     return this.getDevToolsHost().evalJsInFrame(expression, frameUrl, tabId, paneId, userGesture, timeoutMs);
   }
 
-  public async uploadFileInput(params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: SplitPaneId }): Promise<{ success: boolean; uploadedCount: number; reason?: string }> {
+  public async uploadFileInput(params: { refOrSelector: string; filePaths: string[]; workspaceRoot?: string; tabId?: string; paneId?: SplitPaneId }): Promise<{ success: boolean; uploadedCount: number; reason?: string }> {
     const release = this.admitAgentAction('uploadFileInput', params.tabId);
     try {
-      return await this.getAutomationHost().uploadFileInput(params.refOrSelector, params.filePaths, params.tabId, params.paneId);
+      return await this.getAutomationHost().uploadFileInput(params.refOrSelector, params.filePaths, params.tabId, params.paneId, params.workspaceRoot);
     } finally {
       release();
     }

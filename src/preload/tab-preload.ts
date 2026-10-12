@@ -391,7 +391,7 @@ window.addEventListener(
 
 // 7. Authoritative Client-Side DOM Mutation Tracker for Verification Freshness
 (() => {
-  let mutationDebounceTimer: any = null;
+  let mutationDebounceTimer: NodeJS.Timeout | null = null;
   const notifyMutation = () => {
     if (mutationDebounceTimer) return;
     mutationDebounceTimer = setTimeout(() => {
@@ -402,8 +402,39 @@ window.addEventListener(
     }, 150);
   };
 
+  // Carousels and progress bars rewrite these every frame; counting them kept the
+  // document generation climbing so every ref went TARGET_STALE. Any other inline
+  // property (display, visibility, opacity, size...) still invalidates freshness.
+  const VOLATILE_STYLE_PROPERTY = /^(?:--|transform$|translate$|rotate$|scale$|transition|animation|will-change$)/;
+  const styleDeclarations = (text: string | null): Map<string, string> => {
+    const declarations = new Map<string, string>();
+    if (!text) return declarations;
+    for (const part of text.split(';')) {
+      const colon = part.indexOf(':');
+      if (colon <= 0) continue;
+      declarations.set(part.slice(0, colon).trim().toLowerCase(), part.slice(colon + 1).trim());
+    }
+    return declarations;
+  };
+  const isVolatileStyleChange = (mutation: MutationRecord): boolean => {
+    const target = mutation.target as Element;
+    const before = styleDeclarations(mutation.oldValue);
+    const after = styleDeclarations(typeof target.getAttribute === 'function' ? target.getAttribute('style') : null);
+    for (const property of new Set([...before.keys(), ...after.keys()])) {
+      if (before.get(property) !== after.get(property) && !VOLATILE_STYLE_PROPERTY.test(property)) return false;
+    }
+    return true;
+  };
+
   try {
-    const observer = new MutationObserver(() => notifyMutation());
+    const observer = new MutationObserver((mutations) => {
+      const hasMeaningfulMutation = mutations.some(
+        (m) => m.type !== 'attributes' || m.attributeName !== 'style' || !isVolatileStyleChange(m)
+      );
+      if (hasMeaningfulMutation) {
+        notifyMutation();
+      }
+    });
     // `document` is the only valid target at document start: this preload runs before the parser
     // has created `documentElement`, and `observe(null)` throws while the `catch` below swallows
     // it — which silently disabled this report in every page. A Document target with `subtree`
@@ -412,6 +443,7 @@ window.addEventListener(
       childList: true,
       subtree: true,
       attributes: true,
+      attributeOldValue: true,
       attributeFilter: ['class', 'style', 'open', 'aria-expanded', 'aria-hidden'],
     });
   } catch {}

@@ -6,7 +6,7 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-
+import { CapabilityError } from '../../shared/control-plane-contracts';
 export const DEFAULT_WORKSPACE_ROOTS = [
   path.join('e:\\Work', 'customizes'),
   path.join('e:\\Work', 'themes'),
@@ -84,4 +84,47 @@ export function resolveWorkspaceFromUrl(tabUrl?: string, roots: string[] = DEFAU
     }
   } catch {}
   return null;
+}
+
+/**
+ * Validate that an explicit caller-supplied workspaceRoot resides within the
+ * session's authorized project roots (DEFAULT_WORKSPACE_ROOTS) and exists on disk.
+ * Prevents arbitrary filesystem path traversal/escape while allowing external tabs
+ * (e.g. partners.haravan.com) to target an authorized project directory.
+ */
+export function validateAuthorizedWorkspaceRoot(
+  candidateRoot: string,
+  authorizedRoots: string[] = DEFAULT_WORKSPACE_ROOTS
+): string {
+  if (typeof candidateRoot !== 'string' || !candidateRoot.trim()) {
+    throw new CapabilityError('INVALID_ARGUMENT', 'workspaceRoot must be a non-empty string');
+  }
+  const resolved = path.resolve(candidateRoot.trim());
+  if (!fs.existsSync(resolved)) {
+    throw new CapabilityError('WORKSPACE_UNBOUND', `Workspace root does not exist on disk: ${candidateRoot}`);
+  }
+  const realCandidate = fs.realpathSync(resolved);
+  const candStat = fs.statSync(realCandidate);
+  if (!candStat.isDirectory()) {
+    throw new CapabilityError('INVALID_ARGUMENT', `Workspace root is not a directory: ${candidateRoot}`);
+  }
+
+  const isAuthorized = authorizedRoots.some((allowed) => {
+    if (!fs.existsSync(allowed)) return false;
+    const realAllowed = fs.realpathSync(path.resolve(allowed));
+    const rel = path.relative(realAllowed, realCandidate);
+    return (
+      rel === '' ||
+      (!rel.startsWith('..') && !path.isAbsolute(rel) && !(process.platform === 'win32' && /^[a-zA-Z]:/.test(rel)))
+    );
+  });
+
+  if (!isAuthorized) {
+    throw new CapabilityError(
+      'OUTSIDE_WORKSPACE',
+      `Access denied: workspaceRoot "${candidateRoot}" is not within authorized project roots`
+    );
+  }
+
+  return path.normalize(realCandidate);
 }

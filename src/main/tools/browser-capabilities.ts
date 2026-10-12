@@ -745,7 +745,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
 
   catalogue.register({
     name: 'browser.agent-hover',
-    description: 'Hover an element, ref (@e1), or coordinate using agent cursor',
+    description: 'Hover an element, ref (@e1), or coordinate using agent cursor. Returns executionTier and verified hoverActive.',
     risk: 'write',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
@@ -867,13 +867,22 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       properties: {
         refOrSelector: { type: 'string', description: 'CSS selector or @ref of target file input' },
         filePaths: { type: 'array', items: { type: 'string' }, description: 'Array of local file paths' },
+        workspaceRoot: { type: 'string', description: 'Explicit workspace root directory validated against authorized project roots' },
         tabId: { type: 'string' },
         paneId: { type: 'string', enum: ['desktop', 'mobile'] },
       },
       required: ['refOrSelector', 'filePaths'],
     },
-    execute: (params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
-      browser.uploadFileInput(params, context.browserTarget, context.signal),
+    execute: (params: { refOrSelector: string; filePaths: string[]; workspaceRoot?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => {
+      let wsRoot = params.workspaceRoot;
+      if (!wsRoot && context?.projectId && context?.workspaceId) {
+        try {
+          const ws = catalogue.resolveAuthoritativeWorkspace(context.projectId, context.workspaceId);
+          if (ws?.rootPath) wsRoot = ws.rootPath;
+        } catch {}
+      }
+      return browser.uploadFileInput({ ...params, workspaceRoot: wsRoot }, context.browserTarget, context.signal);
+    },
   });
 
   catalogue.register({
@@ -1066,8 +1075,17 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
-    inputSchema: { type: 'object', properties: { refOrSelector: { type: 'string' }, filePaths: { type: 'array', items: { type: 'string' } }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, required: ['refOrSelector', 'filePaths'] },
-    execute: (params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.uploadFileInput(params, context.browserTarget, context.signal),
+    inputSchema: { type: 'object', properties: { refOrSelector: { type: 'string' }, filePaths: { type: 'array', items: { type: 'string' } }, workspaceRoot: { type: 'string', description: 'Explicit workspace root directory validated against authorized project roots' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, required: ['refOrSelector', 'filePaths'] },
+    execute: (params: { refOrSelector: string; filePaths: string[]; workspaceRoot?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => {
+      let wsRoot = params.workspaceRoot;
+      if (!wsRoot && context?.projectId && context?.workspaceId) {
+        try {
+          const ws = catalogue.resolveAuthoritativeWorkspace(context.projectId, context.workspaceId);
+          if (ws?.rootPath) wsRoot = ws.rootPath;
+        } catch {}
+      }
+      return browser.uploadFileInput({ ...params, workspaceRoot: wsRoot }, context.browserTarget, context.signal);
+    },
   });
 
   catalogue.register({
@@ -1086,8 +1104,17 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
-    inputSchema: { type: 'object', properties: { refOrSelector: { type: 'string' }, filePaths: { type: 'array', items: { type: 'string' } }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, required: ['refOrSelector', 'filePaths'] },
-    execute: (params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.uploadFileInput(params, context.browserTarget, context.signal),
+    inputSchema: { type: 'object', properties: { refOrSelector: { type: 'string' }, filePaths: { type: 'array', items: { type: 'string' } }, workspaceRoot: { type: 'string', description: 'Explicit workspace root directory validated against authorized project roots' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, required: ['refOrSelector', 'filePaths'] },
+    execute: (params: { refOrSelector: string; filePaths: string[]; workspaceRoot?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => {
+      let wsRoot = params.workspaceRoot;
+      if (!wsRoot && context?.projectId && context?.workspaceId) {
+        try {
+          const ws = catalogue.resolveAuthoritativeWorkspace(context.projectId, context.workspaceId);
+          if (ws?.rootPath) wsRoot = ws.rootPath;
+        } catch {}
+      }
+      return browser.uploadFileInput({ ...params, workspaceRoot: wsRoot }, context.browserTarget, context.signal);
+    },
   });
 
   catalogue.register({
@@ -1491,7 +1518,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
 
   catalogue.register({
     name: 'antifan_agent_hover',
-    description: 'Alias for browser.agent-hover',
+    description: 'Alias for browser.agent-hover: returns executionTier and verified hoverActive',
     risk: 'write',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
@@ -1631,7 +1658,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         workspaceRoot: { type: 'string', description: 'Workspace root path. Confines the QA receipt directory (.antifan/qa-receipts/) and matches the QA Binding workspaceRoot emitted in the annotation markdown' },
         annotationId: { type: 'string', description: 'Annotation ID this QA run verifies (from the annotation markdown). Recorded on the workspace receipt so consuming-runtime gates can match evidence to the task' },
         expectedUrl: { type: 'string', description: 'Expected route URL of the bound tab (annotation Page URL). Fail-closed: mismatch throws the route-gate code (URL_HOST_MISMATCH/URL_THEME_MISMATCH/URL_PATH_MISMATCH) instead of silently QA-ing the wrong page or theme' },
-        multiBreakpoint: { type: 'boolean' },
+        multiBreakpoint: { type: 'boolean', description: 'Enable multi-breakpoint responsive testing (320, 375, 768, 1024, 1440). Defaults to true inside workflow; pass false to opt out.' },
         viewports: {
           type: 'object',
           properties: {
@@ -2232,30 +2259,43 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         tabId: { type: 'string', description: 'Target tab ID' },
         paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Target pane ID in split review mode' },
       },
-      required: ['operation', 'id'],
+      required: ['operation'],
     },
-    execute: async (params: { operation: 'apply' | 'clear' | 'remove' | 'revert'; id: string; css?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => {
+    execute: async (params: { operation: 'apply' | 'clear' | 'remove' | 'revert'; id?: string; css?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => {
       const target = context.browserTarget as BrowserTarget;
-      const styleId = `__antifan_override_${params.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
-      if (params.operation === 'clear' || params.operation === 'remove' || params.operation === 'revert') {
+      if (params.operation === 'apply') {
+        if (!params.id || typeof params.id !== 'string' || !params.id.trim()) {
+          throw new CapabilityError('INVALID_ARGUMENT', 'id is required when operation is "apply"');
+        }
+        const styleId = `__antifan_override_${params.id.trim().replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+        const cssContent = params.css || '';
         const script = `(() => {
-          const el = document.getElementById(${JSON.stringify(styleId)});
-          if (el) { el.remove(); return { cleared: true, id: ${JSON.stringify(params.id)} }; }
-          return { cleared: false, id: ${JSON.stringify(params.id)}, message: 'Override element not found' };
+          let el = document.getElementById(${JSON.stringify(styleId)});
+          if (!el) {
+            el = document.createElement('style');
+            el.id = ${JSON.stringify(styleId)};
+            el.setAttribute('data-antifan-override', 'true');
+            (document.head || document.documentElement).appendChild(el);
+          }
+          el.textContent = ${JSON.stringify(cssContent)};
+          return { applied: true, id: ${JSON.stringify(params.id)}, byteLength: ${cssContent.length} };
         })()`;
         return browser.eval(target, script, params.tabId, params.paneId);
       }
-      const cssContent = params.css || '';
+      if (!params.id || !params.id.trim()) {
+        const script = `(() => {
+          const elements = document.querySelectorAll('style[data-antifan-override="true"], style[id^="__antifan_override_"]');
+          const count = elements.length;
+          elements.forEach(el => el.remove());
+          return { cleared: true, clearedCount: count };
+        })()`;
+        return browser.eval(target, script, params.tabId, params.paneId);
+      }
+      const styleId = `__antifan_override_${params.id.trim().replace(/[^a-zA-Z0-9_-]/g, '_')}`;
       const script = `(() => {
-        let el = document.getElementById(${JSON.stringify(styleId)});
-        if (!el) {
-          el = document.createElement('style');
-          el.id = ${JSON.stringify(styleId)};
-          el.setAttribute('data-antifan-override', 'true');
-          (document.head || document.documentElement).appendChild(el);
-        }
-        el.textContent = ${JSON.stringify(cssContent)};
-        return { applied: true, id: ${JSON.stringify(params.id)}, byteLength: ${cssContent.length} };
+        const el = document.getElementById(${JSON.stringify(styleId)});
+        if (el) { el.remove(); return { cleared: true, id: ${JSON.stringify(params.id)} }; }
+        return { cleared: false, id: ${JSON.stringify(params.id)}, message: 'Override element not found' };
       })()`;
       return browser.eval(target, script, params.tabId, params.paneId);
     },
@@ -2276,9 +2316,9 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         tabId: { type: 'string', description: 'Target tab ID' },
         paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Target pane ID in split review mode' },
       },
-      required: ['operation', 'id'],
+      required: ['operation'],
     },
-    execute: (params: Record<string, unknown>, context) => catalogue.get('theme.style_override')!.execute(params as any, context),
+    execute: (params: Record<string, unknown>, context) => catalogue.get('theme.style_override')!.execute(params as { operation: 'apply' | 'clear' | 'remove' | 'revert'; id?: string; css?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context),
   });
 
   // 3. anti.* aliases for unified client / bridge execution
@@ -2520,7 +2560,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
 
   catalogue.register({
     name: 'anti.agent.cursor.hover',
-    description: 'Alias for browser.agent-hover',
+    description: 'Alias for browser.agent-hover: returns executionTier and verified hoverActive',
     risk: 'write',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),

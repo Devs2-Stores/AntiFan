@@ -494,8 +494,29 @@ export class BrowserActionRegistry {
         },
       },
       handler: async (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, { tabHost }) => {
-        const hovered = await tabHost.agentHover(params);
-        return { hovered, success: hovered };
+        let res: { success: boolean; data?: unknown; reason?: string };
+        if (typeof tabHost.dispatchAgentAction === 'function') {
+          res = await tabHost.dispatchAgentAction('hover', params);
+        } else {
+          const hovered = await tabHost.agentHover(params);
+          res = { success: hovered, data: { executionTier: 'cdp_trusted', hoverActive: hovered } };
+        }
+        const data = (res.data && typeof res.data === 'object' ? res.data : {}) as Record<string, unknown>;
+        const executionTier: 'cdp_trusted' | 'isolated_synthetic' =
+          data.executionTier === 'isolated_synthetic' ? 'isolated_synthetic' : 'cdp_trusted';
+        const hoverActive =
+          typeof data.hoverActive === 'boolean'
+            ? data.hoverActive
+            : (executionTier === 'cdp_trusted' && res.success);
+        const isSyntheticInactive = executionTier === 'isolated_synthetic' && !hoverActive;
+        const hovered = isSyntheticInactive ? false : (res.success && hoverActive);
+        return {
+          hovered,
+          success: hovered,
+          executionTier,
+          hoverActive,
+          ...(isSyntheticInactive ? { hint: 'Synthetic hover dispatched events but CSS :hover is inactive. Use anti.trace.interaction for trusted CDP hover.' } : {}),
+        };
       },
     });
 

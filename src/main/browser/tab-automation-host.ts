@@ -26,6 +26,7 @@ import { generateCollectionNonce, validateCollectionEnvelope } from './semantic-
 import type { NativeTabRecord } from './native-tab-host';
 import type { TabDevToolsHost } from './tab-devtools-host';
 import { withEvalCeiling } from './eval-ceiling';
+import { validateAuthorizedWorkspaceRoot } from './workspace-resolver';
 
 /**
  * Isolated-world pre-flight refusals that must NOT be retried through the
@@ -138,6 +139,7 @@ export interface TabAutomationContext {
    */
   agentEvalSoftBudgetMs?: number;
   resolveTargetWorkspace?: (targetSessionId?: string, tabUrl?: string) => string;
+  resolveAnchorWorkspace?: () => string;
   getTabTerminalSession?: (tabId: string) => string | undefined;
   sendKeyboardPress?: (params: { key: string; modifiers?: string[]; tabId?: string }) => Promise<{ success: boolean; key: string; modifiers: string[] }>;
   /**
@@ -790,7 +792,8 @@ export class TabAutomationHost {
     wc: Electron.WebContents,
     focusScript?: string,
     x?: number,
-    y?: number
+    y?: number,
+    targetSelector?: string
   ): Promise<{ success: boolean; data?: unknown; reason?: string; fallbackNeeded?: boolean; executionTier?: 'cdp_trusted' | 'isolated_synthetic' }> {
     let hoverX = x;
     let hoverY = y;
@@ -859,10 +862,25 @@ export class TabAutomationHost {
           x: hoverX,
           y: hoverY,
         });
+        let hoverActive = false;
+        try {
+          const verifyScript = `(() => {
+            try {
+              const el = document.elementFromPoint(${hoverX}, ${hoverY});
+              if (el && (el.matches(':hover') || (el.closest && el.closest(':hover')))) return true;
+              ${targetSelector ? `const t = document.querySelector(${JSON.stringify(targetSelector)}); if (t && t.matches(':hover')) return true;` : ''}
+              return false;
+            } catch { return false; }
+          })()`;
+          const activeRes = await this.executeInIsolatedWorld(wc, verifyScript);
+          hoverActive = Boolean(activeRes);
+        } catch {
+          hoverActive = false;
+        }
         return {
           success: true,
           executionTier: 'cdp_trusted',
-          data: { ok: true, executed: true, tier: 'cdp_trusted', executionTier: 'cdp_trusted', x: hoverX, y: hoverY, rect },
+          data: { ok: true, executed: true, tier: 'cdp_trusted', executionTier: 'cdp_trusted', hoverActive, x: hoverX, y: hoverY, rect },
         };
       } catch (cdpErr) {
         console.warn(`[tab-automation-host] CDP Input.dispatchMouseEvent (mouseMoved) failed, using fallback: ${cdpErr instanceof Error ? cdpErr.message : String(cdpErr)}`);
@@ -992,7 +1010,7 @@ export class TabAutomationHost {
                 documentUrl: curUrl,
                 nonce: descriptor.nonce,
               });
-              const trustedRes = await this.executeTrustedHover(wc, focusScript, params.x, params.y);
+              const trustedRes = await this.executeTrustedHover(wc, focusScript, params.x, params.y, params.selector);
               if (trustedRes.success) {
                 if (this.ctx.getSemanticDocumentGeneration(targetId, effectivePane) !== curGen || wc.isDestroyed()) {
                   return { success: false, reason: 'Document navigated during action execution' };
@@ -1049,7 +1067,19 @@ export class TabAutomationHost {
             if (!res.ok) {
               return { success: false, reason: res.error, data: { ...res, executionTier: 'isolated_synthetic' } };
             }
-
+            if (action === 'hover' || action === 'move') {
+              const hoverActive = Boolean('hoverActive' in res && res.hoverActive);
+              return {
+                success: res.executed,
+                data: {
+                  ...res,
+                  executionTier: 'isolated_synthetic',
+                  hoverActive,
+                  ...(!hoverActive ? { hint: 'Synthetic hover dispatched events but CSS :hover is inactive. Use anti.trace.interaction for trusted CDP hover.' } : {}),
+                },
+                ...(!hoverActive ? { reason: 'Synthetic hover dispatched events but CSS :hover is inactive. Use anti.trace.interaction for trusted CDP hover.' } : {}),
+              };
+            }
             return { success: res.executed, data: { ...res, executionTier: 'isolated_synthetic' } };
           } catch (err: unknown) {
             const reason = err instanceof Error ? err.message : String(err);
@@ -1147,7 +1177,7 @@ export class TabAutomationHost {
               nonce: generateCollectionNonce(),
             }) : undefined;
             const curGen = this.ctx.getSemanticDocumentGeneration(targetId, effectivePane);
-            const trustedRes = await this.executeTrustedHover(wc, focusScript, params.x, params.y);
+            const trustedRes = await this.executeTrustedHover(wc, focusScript, params.x, params.y, params.selector);
             if (trustedRes.success) {
               if (this.ctx.getSemanticDocumentGeneration(targetId, effectivePane) !== curGen || wc.isDestroyed()) {
                 return { success: false, reason: 'Document navigated during action execution' };
@@ -1201,6 +1231,19 @@ export class TabAutomationHost {
           const res = validateActionResponse(rawRes);
           if (!res.ok) {
             return { success: false, reason: res.error, data: { ...res, executionTier: 'isolated_synthetic' } };
+          }
+          if (action === 'hover' || action === 'move') {
+            const hoverActive = Boolean('hoverActive' in res && res.hoverActive);
+            return {
+              success: res.executed,
+              data: {
+                ...res,
+                executionTier: 'isolated_synthetic',
+                hoverActive,
+                ...(!hoverActive ? { hint: 'Synthetic hover dispatched events but CSS :hover is inactive. Use anti.trace.interaction for trusted CDP hover.' } : {}),
+              },
+              ...(!hoverActive ? { reason: 'Synthetic hover dispatched events but CSS :hover is inactive. Use anti.trace.interaction for trusted CDP hover.' } : {}),
+            };
           }
           return { success: res.executed, data: { ...res, executionTier: 'isolated_synthetic' } };
         } catch (err: unknown) {
@@ -1756,11 +1799,19 @@ export class TabAutomationHost {
   }
 
   public async uploadFileInput(
-    refOrSelector: string,
-    filePaths: string[],
-    tabId?: string,
-    paneId?: SplitPaneId
+    refOrSelectorOrOptions: string | { refOrSelector: string; filePaths: string[]; workspaceRoot?: string; tabId?: string; paneId?: SplitPaneId },
+    filePathsParam?: string[],
+    tabIdParam?: string,
+    paneIdParam?: SplitPaneId,
+    workspaceRootParam?: string
   ): Promise<{ success: boolean; uploadedCount: number; reason?: string }> {
+    const isOptionsObj = typeof refOrSelectorOrOptions === 'object' && refOrSelectorOrOptions !== null;
+    const refOrSelector = isOptionsObj ? refOrSelectorOrOptions.refOrSelector : refOrSelectorOrOptions;
+    const filePaths = isOptionsObj ? refOrSelectorOrOptions.filePaths : filePathsParam;
+    const tabId = isOptionsObj ? refOrSelectorOrOptions.tabId : tabIdParam;
+    const paneId = isOptionsObj ? refOrSelectorOrOptions.paneId : paneIdParam;
+    const explicitWorkspaceRoot = isOptionsObj ? refOrSelectorOrOptions.workspaceRoot : workspaceRootParam;
+
     const targetId = this.resolveAutomationTargetId(tabId, 'uploadFileInput');
     const target = this.ctx.getTabRecord(targetId);
     if (!target) return { success: false, uploadedCount: 0, reason: 'Target tab not found' };
@@ -1769,13 +1820,24 @@ export class TabAutomationHost {
       return { success: false, uploadedCount: 0, reason: 'filePaths array is required and must not be empty' };
     }
 
-    const targetSessionId = this.ctx.getTabTerminalSession?.(targetId);
-    const curTabUrl = target.state?.url || '';
-    const targetWorkspace = this.ctx.resolveTargetWorkspace?.(targetSessionId, curTabUrl) || '';
+    let targetWorkspace = '';
+    if (explicitWorkspaceRoot && typeof explicitWorkspaceRoot === 'string' && explicitWorkspaceRoot.trim()) {
+      targetWorkspace = validateAuthorizedWorkspaceRoot(explicitWorkspaceRoot.trim());
+    } else {
+      const targetSessionId = this.ctx.getTabTerminalSession?.(targetId);
+      const curTabUrl = target.state?.url || '';
+      targetWorkspace = this.ctx.resolveTargetWorkspace?.(targetSessionId, curTabUrl) || '';
+      if (!targetWorkspace && this.ctx.resolveAnchorWorkspace) {
+        const anchorWs = this.ctx.resolveAnchorWorkspace();
+        if (anchorWs && fs.existsSync(anchorWs)) {
+          targetWorkspace = path.normalize(anchorWs);
+        }
+      }
+    }
+
     if (!targetWorkspace) {
       throw new CapabilityError('WORKSPACE_UNBOUND', 'No authoritative workspace bound to target tab session');
     }
-
     const resolvedPaths = filePaths.map((p) => validatePathConfinement(p, targetWorkspace));
     const splitHasLiveMobile = Boolean(target.state.splitMode && target.mobileView && !target.mobileView.webContents.isDestroyed());
     const effectivePane: SplitPaneId = paneId || (splitHasLiveMobile ? (target.focusedPane || target.state.splitFocusedPane || 'desktop') : 'desktop');
@@ -1937,7 +1999,13 @@ export class TabAutomationHost {
 
     const targetSessionId = this.ctx.getTabTerminalSession?.(targetId);
     const curTabUrl = target.state?.url || '';
-    const targetWorkspace = this.ctx.resolveTargetWorkspace?.(targetSessionId, curTabUrl) || '';
+    let targetWorkspace = this.ctx.resolveTargetWorkspace?.(targetSessionId, curTabUrl) || '';
+    if (!targetWorkspace && this.ctx.resolveAnchorWorkspace) {
+      const anchorWs = this.ctx.resolveAnchorWorkspace();
+      if (anchorWs && fs.existsSync(anchorWs)) {
+        targetWorkspace = path.normalize(anchorWs);
+      }
+    }
     if (!targetWorkspace) {
       throw new CapabilityError('WORKSPACE_UNBOUND', 'No authoritative workspace bound to target tab session');
     }

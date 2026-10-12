@@ -1070,14 +1070,16 @@ export function buildIsolatedExecutorScript(request: RendererActionRequest): str
           targetElement.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true, view: window }));
           targetElement.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, view: window }));
           targetElement.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, view: window }));
-          return { ok: true, executed: true, executionTier: 'isolated_synthetic', rect: computedRect };
+          const hoverActive = Boolean(targetElement.matches && targetElement.matches(':hover'));
+          return { ok: true, executed: true, executionTier: 'isolated_synthetic', hoverActive, rect: computedRect };
         } else if (typeof req.x === 'number' && typeof req.y === 'number') {
           const elAtPoint = document.elementFromPoint ? document.elementFromPoint(req.x, req.y) : null;
           if (elAtPoint) {
             elAtPoint.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true, clientX: req.x, clientY: req.y, view: window }));
             elAtPoint.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, clientX: req.x, clientY: req.y, view: window }));
           }
-          return { ok: true, executed: true, executionTier: 'isolated_synthetic' };
+          const hoverActive = Boolean(elAtPoint && elAtPoint.matches && elAtPoint.matches(':hover'));
+          return { ok: true, executed: true, executionTier: 'isolated_synthetic', hoverActive };
         }
       } else if (req.action === 'scroll') {
         if (targetElement && typeof targetElement.scrollBy === 'function') {

@@ -118,6 +118,7 @@ export type RendererActionResponse =
       executed: boolean;
       rect?: ElementGlobalRect;
       executionTier?: 'cdp_trusted' | 'isolated_synthetic';
+      hoverActive?: boolean;
       metadata?: Record<string, unknown>;
     }
   | {
@@ -125,6 +126,7 @@ export type RendererActionResponse =
       error: string;
       code?: CapabilityErrorCode;
       executionTier?: 'cdp_trusted' | 'isolated_synthetic';
+      hoverActive?: boolean;
       metadata?: Record<string, unknown>;
     };
 
@@ -477,6 +479,7 @@ export function validateActionResponse(response: unknown): RendererActionRespons
       executed: res.executed,
       rect: validatedRect,
       executionTier: res.executionTier === 'cdp_trusted' || res.executionTier === 'isolated_synthetic' ? res.executionTier : undefined,
+      hoverActive: typeof res.hoverActive === 'boolean' ? res.hoverActive : undefined,
       metadata: res.metadata && typeof res.metadata === 'object' ? (res.metadata as Record<string, unknown>) : undefined,
     };
   }

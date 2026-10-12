@@ -185,7 +185,7 @@ export interface BrowserHostPort {
   bumpDocumentGeneration?(tabId?: string): number;
   getMutationRevision?(tabId?: string): number;
   bumpMutationRevision?(tabId?: string): number;
-  uploadFileInput?(params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<{ success: boolean; uploadedCount: number; reason?: string }>;
+  uploadFileInput?(params: { refOrSelector: string; filePaths: string[]; workspaceRoot?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<{ success: boolean; uploadedCount: number; reason?: string }>;
   dropFiles?(params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<{ success: boolean; droppedCount: number; reason?: string }>;
   /**
    * Bounded interpolated pointer drag for slider/range controls. A press and
@@ -4447,19 +4447,24 @@ export class BrowserControlPort {
     params: Record<string, unknown>,
     tabId: string,
     fallback?: () => Promise<boolean>
-  ): Promise<{ success: boolean }> {
+  ): Promise<{ success: boolean; data?: unknown; executionTier?: 'cdp_trusted' | 'isolated_synthetic'; hoverActive?: boolean; reason?: string }> {
     if (!this.host.dispatchAgentAction) {
       if (!fallback) throw new CapabilityError('CAPABILITY_NOT_FOUND', `Agent action '${action}' is not supported by host`);
-      return { success: await fallback() };
+      const fallbackSuccess = await fallback();
+      return { success: fallbackSuccess, executionTier: 'cdp_trusted', hoverActive: fallbackSuccess };
     }
 
     const res = await this.host.dispatchAgentAction(action, params);
-    if (res?.success) return { success: true };
-
     const data = res?.data && typeof res.data === 'object' ? (res.data as Record<string, unknown>) : undefined;
+    const executionTier: 'cdp_trusted' | 'isolated_synthetic' =
+      data?.executionTier === 'isolated_synthetic' ? 'isolated_synthetic' : 'cdp_trusted';
+    const hoverActive =
+      typeof data?.hoverActive === 'boolean'
+        ? data.hoverActive
+        : (executionTier === 'cdp_trusted' && Boolean(res?.success));
+    if (res?.success) return { success: true, data: res.data, executionTier, hoverActive };
+
     const dataCode = data && typeof data.code === 'string' ? data.code : undefined;
-    // Some hosts surface the failure code at top level rather than inside data —
-    // coalesce both shapes so the wire code is never silently dropped.
     const topCode =
       res && typeof res === 'object' && 'code' in res && typeof res.code === 'string'
         ? res.code
@@ -4470,15 +4475,10 @@ export class BrowserControlPort {
       throw new CapabilityError('TARGET_OBSCURED', res?.reason || 'Action target is covered by another element', { ...metadata, tabId });
     }
     if (code) {
-      // Preserve the structured failure code instead of collapsing it to a
-      // bare {success:false} — transport classification and issue telemetry
-      // rely on machine-stable error codes. Host-forged codes are minted
-      // inside this codebase; the wire type is CapabilityErrorCode, only the
-      // data payload arrives untyped as string.
       const capabilityCode = code as CapabilityError['code'];
       throw new CapabilityError(capabilityCode, res?.reason || `Agent action '${action}' failed`, { ...metadata, tabId });
     }
-    return { success: false };
+    return { success: false, data: res?.data, executionTier, hoverActive, reason: res?.reason };
   }
 
   async agentMove(args: { selector?: string; ref?: string; x?: number; y?: number; label?: string; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ moved: boolean }> {
@@ -4549,13 +4549,39 @@ export class BrowserControlPort {
       return { scrolled };
     }, { tabId, signal });
   }
-  async agentHover(args: { selector?: string; ref?: string; x?: number; y?: number; label?: string; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ hovered: boolean }> {
+  async agentHover(
+    args: { selector?: string; ref?: string; x?: number; y?: number; label?: string; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' },
+    target?: BrowserTarget,
+    signal?: AbortSignal
+  ): Promise<{
+    hovered: boolean;
+    success: boolean;
+    executionTier: 'cdp_trusted' | 'isolated_synthetic';
+    hoverActive: boolean;
+    hint?: string;
+  }> {
     if (!this.host.agentHover && !this.host.dispatchAgentAction) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentHover is not supported by host');
     const tabId = this.resolveTargetTab(target, args.tabId, 'write', args as Record<string, unknown>);
     return this.viewportGate.withLock(async () => {
       this.revalidateTargetInsideLock(target, tabId);
       const outcome = await this.runAgentAction('hover', { ...args, tabId }, tabId, () => this.host.agentHover!({ ...args, tabId }));
-      return { hovered: outcome.success };
+      const executionTier: 'cdp_trusted' | 'isolated_synthetic' =
+        outcome.executionTier || (outcome.success ? 'cdp_trusted' : 'isolated_synthetic');
+      const hoverActive =
+        typeof outcome.hoverActive === 'boolean'
+          ? outcome.hoverActive
+          : (executionTier === 'cdp_trusted' && outcome.success);
+      const isSyntheticInactive = executionTier === 'isolated_synthetic' && !hoverActive;
+      const hovered = isSyntheticInactive ? false : (outcome.success && hoverActive);
+      return {
+        hovered,
+        success: hovered,
+        executionTier,
+        hoverActive,
+        ...(isSyntheticInactive
+          ? { hint: 'Synthetic hover dispatched events but CSS :hover is inactive. Use anti.trace.interaction for trusted CDP hover.' }
+          : {}),
+      };
     }, { tabId, signal });
   }
 
@@ -4601,7 +4627,7 @@ export class BrowserControlPort {
     }, { tabId: effectiveTabId, signal });
   }
 
-  async uploadFileInput(params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ success: boolean; uploadedCount: number; reason?: string }> {
+  async uploadFileInput(params: { refOrSelector: string; filePaths: string[]; workspaceRoot?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ success: boolean; uploadedCount: number; reason?: string }> {
     if (!this.host.uploadFileInput) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'uploadFileInput is not supported by host');
     const effectiveTabId = this.resolveTargetTab(target, params.tabId, 'write', params as Record<string, unknown>);
     return this.viewportGate.withLock(async () => {
