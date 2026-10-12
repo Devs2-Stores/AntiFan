@@ -16,6 +16,14 @@ const PROXY_BUILD = (() => {
   }
 })();
 
+const QA_VALIDATE_PROPERTIES = {
+  tabId: { type: 'string' },
+  workspaceRoot: { type: 'string' },
+  expectedUrl: { type: 'string', description: 'Expected route URL of the bound tab; a host/theme/path mismatch fails closed instead of QA-ing the wrong page' },
+  annotationId: { type: 'string', description: 'Annotation ID this run verifies; recorded on the workspace receipt' },
+  multiBreakpoint: { type: 'boolean', description: 'Sweep 320/375/768/1024/1440 (default on). true makes unmeasured widths an evidence gap (INCONCLUSIVE); false opts out' },
+};
+
 // Definition row shape: [name, description, properties, required?, oneOf?,
 // ambientTargetField?]. The sixth element names the advertised field that
 // selects the tab the capability acts on; when it is present, an omitted value
@@ -60,10 +68,10 @@ const definitions = [
   ['device.swipe', 'Swipe on the device panel with a native gesture; momentum scrolling is produced by the device and nothing is emulated.', { x1: { type: 'number' }, y1: { type: 'number' }, x2: { type: 'number' }, y2: { type: 'number' }, durationMs: { type: 'number' } }, ['x1', 'y1', 'x2', 'y2']],
   ['device.type', 'Type text through the native keyboard into the currently focused field (tap the input first; WebDriverAgent types into the active element).', { text: { type: 'string' } }, ['text']],
   ['device.wait', "Wait on the real device: 'timeout' sleeps; 'page_loaded'/'stable' sample frames until rendering stops changing. That is a rendering heuristic, not a load or network-idle guarantee.", { type: { type: 'string', enum: ['timeout', 'page_loaded', 'stable'] }, value: { type: 'number', description: "Milliseconds for type 'timeout'" }, timeoutMs: { type: 'number' } }, ['type']],
-  ['theme.qa_validate', 'Run the authoritative Theme QA verification workflow for the bound storefront tab and workspace.', { tabId: { type: 'string' }, workspaceRoot: { type: 'string' } }, [], [], 'tabId'],
+  ['theme.qa_validate', 'Run the authoritative Theme QA verification workflow for the bound storefront tab and workspace.', QA_VALIDATE_PROPERTIES, [], [], 'tabId'],
   ['theme.debug_bundle', 'Return an atomic storefront diagnostic bundle with platform, Liquid, overflow, and HS findings.', { tabId: { type: 'string' } }, [], [], 'tabId'],
   ['theme.settings_check', 'Run offline Haravan theme settings, binding, and asset reference checks (settings_schema.json / settings.html against Liquid) without requiring a browser tab.', { workspaceRoot: { type: 'string', description: 'Theme workspace root; defaults to the authoritative workspace' } }],
-  ['anti.theme.qa_validate', 'Alias of theme.qa_validate: run the authoritative Theme QA verification workflow for the bound storefront tab and workspace.', { tabId: { type: 'string' }, workspaceRoot: { type: 'string' } }, [], [], 'tabId'],
+  ['anti.theme.qa_validate', 'Alias of theme.qa_validate: run the authoritative Theme QA verification workflow for the bound storefront tab and workspace.', QA_VALIDATE_PROPERTIES, [], [], 'tabId'],
   ['anti.theme.debug_bundle', 'Alias of theme.debug_bundle: return an atomic storefront diagnostic bundle with platform, Liquid, overflow, and HS findings.', { tabId: { type: 'string' } }, [], [], 'tabId'],
   ['theme.assert_cart', 'Inspect passive storefront cart contract telemetry without adding synthetic items.', { tabId: { type: 'string' } }, [], [], 'tabId'],
   ['theme.resolve_product', 'Auto-resolve complete storefront product variant matrix, pricing, SKU, and availability.', { handle: { type: 'string' }, tabId: { type: 'string' } }, [], [], 'tabId'],
