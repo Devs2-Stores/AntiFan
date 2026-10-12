@@ -14,13 +14,14 @@ import { LayoutOverflowEngine, ViewportOverflowResult } from './scanners/layout-
 import { LayoutIntegrityEngine, type LayoutIntegrityResult, type LayoutIntegrityFinding } from './scanners/layout-integrity-engine';
 import type { QaVerification, QaExecution, QaRecovery } from './qa-state';
 import { HsGateRules, HsEvaluationResult, HsRuleViolation } from './rules/hs-gate-rules';
-import { classifyDiagnostics, extractCorrelatableAssetFailures, DiagnosticsInput, DiagnosticIssue } from './diagnostics-filter';
+import { classifyDiagnostics, extractCorrelatableAssetFailures, extractDocumentHttpStatus, DiagnosticsInput, DiagnosticIssue } from './diagnostics-filter';
+import { DomSemanticsScanner, type DomSemanticsScanResult } from './scanners/dom-semantics-scanner';
 import { formatInflightNote } from '../browser/first-party-network-tracker';
 import type { ThemeTransactionRegistry } from './theme-transaction-registry';
 import type { TerminalSyncCursor, SyncSettleResult } from './haravan-sync-barrier';
 export interface ThemeQaChecklist {
   layout: boolean;
-  responsive: boolean;
+  responsive: boolean | 'UNMEASURED';
   overflow: boolean;
   /**
    * Present only when a caller supplies a real interaction probe result. This
@@ -93,6 +94,8 @@ export interface ThemeQaDetailedFindings {
     criticalOcclusion: number | null;
     criticalOffscreen: number | null;
   }>;
+  documentStatus?: number;
+  domSemantics?: DomSemanticsScanResult;
 }
 export interface ThemeQaSummary {
   passed: boolean;
@@ -100,6 +103,8 @@ export interface ThemeQaSummary {
   criticalCount: number;
   verdict?: 'PASS' | 'FAIL' | 'INCONCLUSIVE';
   domUnstable?: boolean;
+  responsive?: boolean | 'UNMEASURED';
+  documentStatus?: number;
 }
 export interface QaMatrixDimension {
   score: number | null;
@@ -647,6 +652,40 @@ export class ThemeQaWorkflow {
             // Best effort freeze before settle barrier
           }
         }
+        const pauseSlidersScript = `(() => {
+          try {
+            window.__antifanPausedSliders = window.__antifanPausedSliders || [];
+            document.querySelectorAll('.swiper, .swiper-container, [class*="swiper"]').forEach((el) => {
+              const sw = el.swiper;
+              if (sw && sw.autoplay && typeof sw.autoplay.stop === 'function') {
+                if (sw.autoplay.running) {
+                  try {
+                    sw.autoplay.stop();
+                    window.__antifanPausedSliders.push({ type: 'swiper', swiper: sw });
+                  } catch {}
+                }
+              }
+            });
+            if (typeof window.jQuery === 'function') {
+              window.jQuery('.slick-slider, [class*="slick"]').each(function() {
+                try {
+                  const $el = window.jQuery(this);
+                  if (typeof $el.slick === 'function') {
+                    $el.slick('slickPause');
+                    window.__antifanPausedSliders.push({ type: 'slick', el: this });
+                  }
+                } catch {}
+              });
+            }
+          } catch {}
+        })()`;
+        if (typeof this.ports.browser.eval === 'function') {
+          try {
+            await this.ports.browser.eval(activeTarget, pauseSlidersScript);
+          } catch {
+            // Best effort pause autoplay sliders
+          }
+        }
         if (typeof this.ports.browser.settleCapture === 'function') {
           receipt = await this.ports.browser.settleCapture(activeTarget, 'desktop', undefined, { signal: input.signal });
           if (!receipt || !receipt.settleComplete) {
@@ -858,62 +897,73 @@ export class ThemeQaWorkflow {
     }
     // Captured for the per-width responsive map; stays undefined when the
     // multi-breakpoint sweep did not run or returned no breakpoint payload.
+    const runMultiBreakpoint = input.multiBreakpoint !== false;
     let responsiveBreakpoints: Record<string, unknown> | undefined;
-    if (input.multiBreakpoint) {
-      try {
-        const responsive = await this.ports.browser.responsiveCheck(activeTarget.tabId);
-        const isOk = !responsive || typeof responsive !== 'object' || (responsive as Record<string, unknown>).ok !== false;
-        const breakpoints = responsive && typeof responsive === 'object' ? (responsive as Record<string, unknown>).breakpoints : undefined;
-        responsiveBreakpoints = breakpoints && typeof breakpoints === 'object' ? breakpoints as Record<string, unknown> : undefined;
-        if (!isOk) {
-          const errMsg = (responsive as Record<string, unknown>).error;
-          evidenceGaps.push(`Responsive multi-breakpoint sweep failed: ${typeof errMsg === 'string' ? errMsg : 'host returned ok: false'}`);
-        } else if (!breakpoints || typeof breakpoints !== 'object' || Object.keys(breakpoints).length === 0) {
-          evidenceGaps.push('Responsive multi-breakpoint sweep returned no breakpoint measurements');
-        } else {
-          const bpEntries = Object.entries(breakpoints);
-          let hasMalformedBreakpoint = false;
-          const failing: Record<string, unknown>[] = [];
-          for (const [, bp] of bpEntries) {
-            if (!bp || typeof bp !== 'object' || typeof (bp as Record<string, unknown>).hasHorizontalOverflow !== 'boolean') {
-              hasMalformedBreakpoint = true;
-            } else {
-              const bpObj = bp as Record<string, unknown>;
-              if (bpObj.hasHorizontalOverflow === true) {
-                failing.push(bpObj);
+    if (runMultiBreakpoint) {
+      if (typeof this.ports.browser.responsiveCheck === 'function') {
+        try {
+          const responsive = await this.ports.browser.responsiveCheck(activeTarget.tabId);
+          const isOk = !responsive || typeof responsive !== 'object' || (responsive as Record<string, unknown>).ok !== false;
+          const breakpoints = responsive && typeof responsive === 'object' ? (responsive as Record<string, unknown>).breakpoints : undefined;
+          responsiveBreakpoints = breakpoints && typeof breakpoints === 'object' ? breakpoints as Record<string, unknown> : undefined;
+          if (!isOk) {
+            const errMsg = (responsive as Record<string, unknown>).error;
+            if (input.multiBreakpoint === true) {
+              evidenceGaps.push(`Responsive multi-breakpoint sweep failed: ${typeof errMsg === 'string' ? errMsg : 'host returned ok: false'}`);
+            }
+          } else if (!breakpoints || typeof breakpoints !== 'object' || Object.keys(breakpoints).length === 0) {
+            if (input.multiBreakpoint === true) {
+              evidenceGaps.push('Responsive multi-breakpoint sweep returned no breakpoint measurements');
+            }
+          } else {
+            const bpEntries = Object.entries(breakpoints);
+            let hasMalformedBreakpoint = false;
+            const failing: Record<string, unknown>[] = [];
+            for (const [, bp] of bpEntries) {
+              if (!bp || typeof bp !== 'object' || typeof (bp as Record<string, unknown>).hasHorizontalOverflow !== 'boolean') {
+                hasMalformedBreakpoint = true;
+              } else {
+                const bpObj = bp as Record<string, unknown>;
+                if (bpObj.hasHorizontalOverflow === true) {
+                  failing.push(bpObj);
+                }
               }
             }
+            if (hasMalformedBreakpoint && input.multiBreakpoint === true) {
+              evidenceGaps.push('Responsive multi-breakpoint sweep contained malformed or incomplete breakpoint measurements');
+            }
+            if (failing.length > 0) {
+              const first = failing[0];
+              if (!first) throw new Error('Responsive overflow result missing');
+              const vpWidth = typeof first.width === 'number' ? first.width : overflowResult.viewport.width;
+              const isMobile = Boolean(first.mobile) || vpWidth < 768;
+              const isTablet = !isMobile && vpWidth <= 1024;
+              const vpName: 'mobile' | 'tablet' | 'desktop' = isMobile ? 'mobile' : isTablet ? 'tablet' : 'desktop';
+              overflowResult = {
+                ...overflowResult,
+                viewport: {
+                  name: vpName,
+                  width: vpWidth,
+                  height: typeof first.height === 'number' ? first.height : overflowResult.viewport.height,
+                },
+                measured: true,
+                hasOverflow: true,
+                deltaX: typeof first.scrollWidth === 'number' && typeof first.clientWidth === 'number' ? Math.max(0, first.scrollWidth - first.clientWidth) : overflowResult.deltaX,
+                scrollWidth: typeof first.scrollWidth === 'number' ? first.scrollWidth : overflowResult.scrollWidth,
+                clientWidth: typeof first.clientWidth === 'number' ? first.clientWidth : overflowResult.clientWidth,
+              };
+              // The sweep measured this viewport, so the placeholder's reason is stale.
+              delete overflowResult.unmeasuredReason;
+            }
           }
-          if (hasMalformedBreakpoint) {
-            evidenceGaps.push('Responsive multi-breakpoint sweep contained malformed or incomplete breakpoint measurements');
-          }
-          if (failing.length > 0) {
-            const first = failing[0];
-            if (!first) throw new Error('Responsive overflow result missing');
-            const vpWidth = typeof first.width === 'number' ? first.width : overflowResult.viewport.width;
-            const isMobile = Boolean(first.mobile) || vpWidth < 768;
-            const isTablet = !isMobile && vpWidth <= 1024;
-            const vpName: 'mobile' | 'tablet' | 'desktop' = isMobile ? 'mobile' : isTablet ? 'tablet' : 'desktop';
-            overflowResult = {
-              ...overflowResult,
-              viewport: {
-                name: vpName,
-                width: vpWidth,
-                height: typeof first.height === 'number' ? first.height : overflowResult.viewport.height,
-              },
-              measured: true,
-              hasOverflow: true,
-              deltaX: typeof first.scrollWidth === 'number' && typeof first.clientWidth === 'number' ? Math.max(0, first.scrollWidth - first.clientWidth) : overflowResult.deltaX,
-              scrollWidth: typeof first.scrollWidth === 'number' ? first.scrollWidth : overflowResult.scrollWidth,
-              clientWidth: typeof first.clientWidth === 'number' ? first.clientWidth : overflowResult.clientWidth,
-            };
-            // The sweep measured this viewport, so the placeholder's reason is stale.
-            delete overflowResult.unmeasuredReason;
+        } catch (error) {
+          rethrowTargetLifecycleError(error);
+          if (input.multiBreakpoint === true) {
+            evidenceGaps.push(`Responsive multi-breakpoint sweep failed or unsupported: ${error instanceof Error ? error.message : String(error)}`);
           }
         }
-      } catch (error) {
-        rethrowTargetLifecycleError(error);
-        evidenceGaps.push(`Responsive multi-breakpoint sweep failed or unsupported: ${error instanceof Error ? error.message : String(error)}`);
+      } else if (input.multiBreakpoint === true) {
+        evidenceGaps.push('Responsive multi-breakpoint sweep unsupported: responsiveCheck capability missing on browser port');
       }
     }
 
@@ -1003,6 +1053,7 @@ export class ThemeQaWorkflow {
       totalStylesheetsScanned: 0,
     };
     let assetScanRan = false;
+    let documentStatus: number | undefined;
     await new Promise((r) => setImmediate(r));
     try {
       checkAborted();
@@ -1016,6 +1067,7 @@ export class ThemeQaWorkflow {
       if (diagnostics && Array.isArray(diagnostics.failures) && diagnostics.failures.length > 0) {
         const mappedFailures = extractCorrelatableAssetFailures(diagnostics.failures, contextUrl);
         assetResult = BrokenAssetScanner.correlateWithNetworkFailures(assetResult, mappedFailures);
+        documentStatus = extractDocumentHttpStatus(diagnostics.failures, contextUrl);
       }
     } catch (error) {
       rethrowTargetLifecycleError(error);
@@ -1083,6 +1135,52 @@ export class ThemeQaWorkflow {
     }
     if (!serverCrashScanRan && !rawHtml) {
       evidenceGaps.push('Server crash scanner could not execute: browser eval failed and no HTML source was available; cannot certify server status');
+    }
+
+    // 9.6 DOM Semantics Scanner (SEO, a11y, heading hierarchy, meta tags, JSON-LD)
+    let domSemanticsResult: DomSemanticsScanResult | undefined;
+    let domSemanticsRan = false;
+    await new Promise((r) => setImmediate(r));
+    if (typeof this.ports.browser.eval === 'function') {
+      try {
+        checkAborted();
+        const evalRes = await this.ports.browser.eval(activeTarget, DomSemanticsScanner.getBrowserScanScript());
+        checkAborted();
+        if (evalRes && typeof evalRes === 'object' && 'summary' in evalRes) {
+          domSemanticsResult = evalRes as DomSemanticsScanResult;
+          domSemanticsRan = true;
+        }
+      } catch (error) {
+        rethrowTargetLifecycleError(error);
+      }
+    }
+
+    // Restore paused sliders and unfreeze media after in-page scanning has finished
+    if (typeof this.ports.browser.eval === 'function') {
+      try {
+        const resumeSlidersScript = `(() => {
+          try {
+            if (Array.isArray(window.__antifanPausedSliders)) {
+              window.__antifanPausedSliders.forEach((item) => {
+                try {
+                  if (item.type === 'swiper' && item.swiper?.autoplay && typeof item.swiper.autoplay.start === 'function') {
+                    item.swiper.autoplay.start();
+                  } else if (item.type === 'slick' && typeof window.jQuery === 'function' && item.el) {
+                    window.jQuery(item.el).slick('slickPlay');
+                  }
+                } catch {}
+              });
+              delete window.__antifanPausedSliders;
+            }
+          } catch {}
+        })()`;
+        await this.ports.browser.eval(activeTarget, resumeSlidersScript);
+      } catch {}
+    }
+    if (typeof this.ports.browser.freezeMedia === 'function') {
+      try {
+        await this.ports.browser.freezeMedia(activeTarget, { freeze: false, normalizeSliders: false });
+      } catch {}
     }
 
     // 9.5. Compute Canonical Differential Attribution across all diagnostics & scanner findings
@@ -1276,9 +1374,18 @@ export class ThemeQaWorkflow {
           }
         : undefined;
     // 10. Compute authoritative checklist statuses (owned strictly by the engine).
+    const measuredResponsiveCount = Array.from(bpByWidth.values()).filter(
+      (bp) => typeof bp.hasHorizontalOverflow === 'boolean'
+    ).length;
+    const hasResponsiveOverflow = Array.from(bpByWidth.values()).some(
+      (bp) => bp.hasHorizontalOverflow === true
+    );
+    const responsiveChecklistStatus: boolean | 'UNMEASURED' =
+      measuredResponsiveCount === 0 ? 'UNMEASURED' : (!hasResponsiveOverflow && !overflowResult.hasOverflow);
+
     const checklist: ThemeQaReport['checklist'] = {
       layout: !overflowResult.hasOverflow && integrityCriticals.length === 0,
-      responsive: !overflowResult.hasOverflow,
+      responsive: responsiveChecklistStatus,
       overflow: !overflowResult.hasOverflow,
       diagnostics: !liquidResult.hasErrors && !assetResult.hasBrokenAssets && !serverCrashResult.hasCrash && diagnosticIssues.length === 0,
       liquidClean: !liquidResult.hasErrors,
@@ -1291,7 +1398,7 @@ export class ThemeQaWorkflow {
     // `undefined` into this list would read as a definite failure.
     const activeChecklistEntries: boolean[] = [];
     const enabled = input.enabledChecks;
-    const pushMeasured = (value: boolean | undefined): void => {
+    const pushMeasured = (value: boolean | 'UNMEASURED' | undefined): void => {
       if (typeof value === 'boolean') activeChecklistEntries.push(value);
     };
     // A caller that explicitly enables a check this workflow cannot measure has a
@@ -1299,7 +1406,12 @@ export class ThemeQaWorkflow {
     const explicitlyRequestedUnmeasured: string[] = [];
     if (enabled) {
       if (enabled.layout !== false) pushMeasured(checklist.layout);
-      if (enabled.responsive !== false) pushMeasured(checklist.responsive);
+      if (enabled.responsive !== false) {
+        pushMeasured(checklist.responsive);
+        if (enabled.responsive === true && typeof checklist.responsive !== 'boolean') {
+          explicitlyRequestedUnmeasured.push('responsive');
+        }
+      }
       if (enabled.overflow !== false) pushMeasured(checklist.overflow);
       if (enabled.interactions !== false) {
         pushMeasured(checklist.interactions);
@@ -1333,9 +1445,13 @@ export class ThemeQaWorkflow {
     // Observed defects verdict only for checks the caller kept enabled; `enabledChecks` remains a
     // verdict filter, while engine checklist authority is preserved separately in `checklist`.
     const checkParticipates = (key: keyof ThemeQaChecklist): boolean => !enabled || enabled[key] !== false;
+    if (input.multiBreakpoint === true && checkParticipates('responsive') && responsiveChecklistStatus === 'UNMEASURED') {
+      evidenceGaps.push('Responsive viewports unmeasured: multiBreakpoint sweep was not run or returned no viewports; cannot certify responsive pass');
+    }
     const hasObservedFailure =
       (checkParticipates('liquidClean') && liquidResult.hasErrors) ||
       ((checkParticipates('layout') || checkParticipates('responsive') || checkParticipates('overflow')) && overflowResult.hasOverflow) ||
+      (checkParticipates('responsive') && hasResponsiveOverflow) ||
       (checkParticipates('assetsValid') && assetResult.hasBrokenAssets) ||
       (checkParticipates('hsCompliant') && hsResult.errorsCount > 0) ||
       serverCrashResult.hasCrash ||
@@ -1365,6 +1481,8 @@ export class ThemeQaWorkflow {
       totalIssues,
       criticalCount: hsResult.errorsCount + liquidResult.errors.length + serverCrashResult.errorsCount + diagnosticIssues.length + overflowIssueCount + assetResult.brokenAssets.length + integrityCriticals.length,
       ...(settleReceipt?.domUnstable ? { domUnstable: true } : {}),
+      ...(checklist.responsive !== undefined ? { responsive: checklist.responsive } : {}),
+      ...(documentStatus !== undefined ? { documentStatus } : {}),
     };
 
     // Resilient axes: verification is the storefront verdict; execution is
@@ -1379,6 +1497,8 @@ export class ThemeQaWorkflow {
       hsScanRan,
       true, // diagnostics classification always runs on whatever payload exists
       integrityRan && integrityResult?.measured === true,
+      measuredResponsiveCount > 0,
+      domSemanticsRan && domSemanticsResult?.measured === true,
     ];
     const evidenceCoverage = measuredDims.filter(Boolean).length / measuredDims.length;
 
@@ -1407,6 +1527,8 @@ export class ThemeQaWorkflow {
       serverCrash: serverCrashResult,
       diagnosticIssues,
       diagnosticWarnings,
+      ...(documentStatus !== undefined ? { documentStatus } : {}),
+      ...(domSemanticsResult ? { domSemantics: domSemanticsResult } : {}),
       ...(preReloadDiagnosticsObj ? { preReloadDiagnostics: preReloadDiagnosticsObj } : {}),
       ...(differential ? { differential } : {}),
       ...(evidenceGaps.length > 0 ? { evidenceGaps } : {}),
@@ -1559,8 +1681,16 @@ export class ThemeQaWorkflow {
     // The layout overflow check and the Haravan HTML scan measure other things, so they
     // must not be dressed up as those dimensions: an unmeasured dimension stays null
     // instead of receiving an invented grade.
-    const domSemanticsScore: number | null = null;
-    const domSemanticsDetails = 'DOM semantics unmeasured (this workflow runs no semantic-tree scanner)';
+    let domSemanticsScore: number | null = null;
+    let domSemanticsDetails = 'DOM semantics unmeasured (this workflow runs no semantic-tree scanner)';
+    if (findings?.domSemantics?.measured === true) {
+      domSemanticsScore = findings.domSemantics.score;
+      const s = findings.domSemantics.summary;
+      const jsonLdInfo = s.jsonLdInvalidCount > 0
+        ? `${s.jsonLdInvalidCount} invalid block(s)`
+        : `${s.jsonLdBlocksCount} block(s)${s.jsonLdTypes.length > 0 ? ` [@type: ${s.jsonLdTypes.join(', ')}]` : ''}`;
+      domSemanticsDetails = `Score ${domSemanticsScore}/100: H1: ${s.h1Count}, Alt gaps: ${s.imgMissingAltCount}, Name gaps: ${s.controlsMissingNameCount}, Unlabeled: ${s.formControlsMissingLabelCount}, Dup IDs: ${s.duplicateIdCount}, JSON-LD: ${jsonLdInfo}`;
+    }
 
     const cssModularityScore: number | null = null;
     const cssModularityDetails = 'CSS modularity unmeasured (this workflow runs no stylesheet-modularity scanner)';

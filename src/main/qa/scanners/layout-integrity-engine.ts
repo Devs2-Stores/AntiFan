@@ -155,6 +155,18 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
     if ((s.clipPath && s.clipPath !== 'none') || (s.clip && s.clip !== 'auto')) return true;
     return clipPathed(parentOf(el));
   });
+  // sr-only / visually-hidden / 1px-clip patterns (screen-reader accessibility elements)
+  const isSrOnly = memo(false, (el) => {
+    if (!el || el === doc || el === body) return false;
+    if (el.closest && el.closest('.sr-only, .visually-hidden, .screen-reader-text, .visuallyhidden, [class*="sr-only"], [class*="visually-hidden"]')) return true;
+    const s = cs(el);
+    const w = parseFloat(s.width) || 0;
+    const h = parseFloat(s.height) || 0;
+    if (w <= 1 && h <= 1 && (s.overflow === 'hidden' || s.overflowX === 'hidden' || s.overflowY === 'hidden')) {
+      return true;
+    }
+    return isSrOnly(parentOf(el));
+  });
 
   const hasRealTransform = (s) => s.transform !== 'none' && s.transform !== IDENTITY;
   const isRotatedOr3d = (s) => {
@@ -414,7 +426,7 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
       const el = nodes[i];
       if (el.closest('svg') || el.closest(PLATFORM_PREVIEW_CHROME)) continue;
       if (!painted(el)) continue;
-      if (el.getAttribute('aria-hidden') === 'true' || el.closest('[aria-hidden="true"]')) continue;
+      if (el.getAttribute('aria-hidden') === 'true' || el.closest('[aria-hidden="true"]') || isSrOnly(el)) continue;
       const r = el.getBoundingClientRect();
       if (r.width <= 0 || r.height <= 0) {
         if (el.getClientRects().length === 0) continue;
@@ -482,7 +494,7 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
         }
         // A control clipped away by an ancestor is hidden, not covered: it cannot stack or be occluded.
         const cvis = clippedRect(el, r);
-        if (cvis) controls.push({ el: el, rect: r, vis: cvis, layer: layerOf(el) });
+        if (cvis && !isSrOnly(el)) controls.push({ el: el, rect: r, vis: cvis, layer: layerOf(el) });
       }
     }
     stats.controls = controls.length;
@@ -502,7 +514,7 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
       const p = n.parentElement;
       if (!p || p.closest('script, style, noscript, template, svg, select, option, textarea')) continue;
       if (p.closest(PLATFORM_PREVIEW_CHROME)) continue;
-      if (!painted(p) || !inked(p) || clipPathed(p)) continue;
+      if (!painted(p) || !inked(p) || clipPathed(p) || isSrOnly(p)) continue;
       range.selectNodeContents(n);
       const rects = range.getClientRects();
       for (let i = 0; i < rects.length; i++) {
@@ -598,7 +610,7 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
       }
       fate.visible = true;
       run.vis = vis;
-      if (defect && !clippedOwners.has(p)) {
+      if (defect && !clippedOwners.has(p) && !isSrOnly(p)) {
         clippedOwners.add(p);
         push({ kind: 'clipping', severity: 'critical', selector: getSelector(p), details: 'Text "' + snippet(run.n.nodeValue) + '" ' + defect.detail + (defect.by ? ' by ' + getSelector(defect.by) : ''), rect: toRect(r) });
       }
@@ -624,7 +636,7 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
     };
     const reportedBoxes = new Map();
     ownerFate.forEach((fate, p) => {
-      if (!fate.below || clippedOwners.has(p)) return;
+      if (!fate.below || clippedOwners.has(p) || isSrOnly(p)) return;
       if (!shows(fate.below)) return;
       const n = (reportedBoxes.get(fate.below) || 0) + 1;
       reportedBoxes.set(fate.below, n);
@@ -677,7 +689,7 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
         const iy = span(a.vis.top, a.vis.bottom, b.vis.top, b.vis.bottom);
         const minH = Math.min(a.vis.bottom - a.vis.top, b.vis.bottom - b.vis.top);
         if (iy < minH * 0.5) continue;
-        if (imagePending(a.p, b.p)) continue;
+        if (imagePending(a.p, b.p) || isSrOnly(a.p) || isSrOnly(b.p)) continue;
         const pairKey = getSelector(a.p) + '|' + getSelector(b.p);
         if (reported.has(b.p) || reported.has(pairKey)) continue;
         reported.add(pairKey);
@@ -708,7 +720,7 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
   };
   const overlaysInside = (control, other, cr, or) => isAbsoluteOverlayOver(control, other) && span(cr.left, cr.right, or.left, or.right) * span(cr.top, cr.bottom, or.top, or.bottom) >= 0.9 * cr.width * cr.height && !coversValue(cr, other);
   try {
-    const flowControls = controls.filter((c) => !c.layer && !unsettled(c.el));
+    const flowControls = controls.filter((c) => !c.layer && !unsettled(c.el) && !isSrOnly(c.el));
     flowControls.sort((a, b) => a.rect.top - b.rect.top);
     // Each control's boxes cut to the part that survives its clipping ancestors: a link clipped
     // away at the bottom of a collapsed block cannot be tapped there, so it stacks on nothing.
@@ -772,7 +784,7 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
         const s = cs(k);
         if (s.position !== 'static' && s.position !== 'relative') continue;
         if (s.float !== 'none' || s.display === 'inline' || s.display === 'contents' || s.display === 'none' || s.display.indexOf('table') === 0) continue;
-        if (hasRealTransform(s) || !painted(k)) continue;
+        if (hasRealTransform(s) || !painted(k) || isSrOnly(k)) continue;
         const r = k.getBoundingClientRect();
         if (r.width < 8 || r.height < 8) continue;
         kids.push({ k: k, r: r });

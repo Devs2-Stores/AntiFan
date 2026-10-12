@@ -1081,12 +1081,29 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
       workspaceRoot: 'E:/Work/test-theme',
       target: makeTarget(1),
     });
-
     assert.strictEqual(report.summary.passed, true);
     assert.strictEqual(report.summary.verdict, 'PASS');
     assert.strictEqual(report.findings?.evidenceGaps, undefined, 'No evidence gaps when sweep is not requested');
   });
 
+  it('13b. Explicit multiBreakpoint: false opts out of sweep and marks responsive UNMEASURED', async () => {
+    const ports = createMockPorts();
+    const workflow = new ThemeQaWorkflow(ports);
+
+    const report = await workflow.validate({
+      runId: 'run-sweep-opted-out',
+      attemptId: 'att-sweep-opted-out',
+      workspaceRoot: 'E:/Work/test-theme',
+      target: makeTarget(1),
+      multiBreakpoint: false,
+    });
+
+    assert.strictEqual(report.checklist.responsive, 'UNMEASURED');
+    assert.strictEqual(report.summary.responsive, 'UNMEASURED');
+    assert.strictEqual(report.summary.passed, true);
+    assert.strictEqual(report.summary.verdict, 'PASS');
+    assert.strictEqual(report.findings?.evidenceGaps, undefined);
+  });
   it('14. Layout overflow scanner evaluation failure or non-object yields INCONCLUSIVE', async () => {
     // Subcase A: eval throws error
     const portsCrash = createMockPorts({

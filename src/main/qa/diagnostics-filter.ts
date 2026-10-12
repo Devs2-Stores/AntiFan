@@ -248,6 +248,45 @@ export interface CorrelatableFailure {
 }
 
 /**
+ * Check if a candidate failure URL matches the main-frame document URL.
+ * Compares normalized origin and pathname (ignoring query/trailing slashes).
+ */
+export function isSameDocumentUrl(rawUrl: string, contextUrl: string): boolean {
+  if (!rawUrl || !contextUrl) return false;
+  if (rawUrl === contextUrl) return true;
+  try {
+    const rawParsed = new URL(rawUrl);
+    const ctxParsed = new URL(contextUrl);
+    if (rawParsed.origin.toLowerCase() !== ctxParsed.origin.toLowerCase()) return false;
+    const rawPath = rawParsed.pathname.replace(/\/+$/, '') || '/';
+    const ctxPath = ctxParsed.pathname.replace(/\/+$/, '') || '/';
+    return rawPath === ctxPath;
+  } catch {
+    const strip = (s: string) => (s.split('#')[0] ?? '').split('?')[0]?.replace(/\/+$/, '').toLowerCase() ?? '';
+    return strip(rawUrl) === strip(contextUrl);
+  }
+}
+
+/**
+ * Extract HTTP status code for the main document URL from recorded failures.
+ */
+export function extractDocumentHttpStatus(
+  failures: unknown[] | undefined,
+  contextUrl: string
+): number | undefined {
+  if (!Array.isArray(failures) || failures.length === 0) return undefined;
+  for (const f of failures) {
+    if (!f || typeof f !== 'object') continue;
+    const rec = f as Record<string, unknown>;
+    const rawUrl = typeof rec.validatedURL === 'string' && rec.validatedURL ? rec.validatedURL : typeof rec.url === 'string' ? rec.url : '';
+    if (rec.isMainFrame === true || isSameDocumentUrl(rawUrl, contextUrl)) {
+      const status = typeof rec.status === 'number' ? rec.status : undefined;
+      if (typeof status === 'number' && status > 0) return status;
+    }
+  }
+  return undefined;
+}
+/**
  * Filter first-party/theme-asset network failures for BrokenAssetScanner correlation.
  * Rejects ERR_ABORTED (-3) and third-party failures.
  */
@@ -267,6 +306,10 @@ export function extractCorrelatableAssetFailures(
       const rawUrl = typeof f.validatedURL === 'string' && f.validatedURL ? f.validatedURL : typeof f.url === 'string' ? f.url : '';
       if (!rawUrl) return false;
 
+      // Document's own URL response (status >= 400) is the page HTTP status, not a broken subresource asset
+      if (f.isMainFrame === true || isSameDocumentUrl(rawUrl, contextUrl)) {
+        return false;
+      }
       if (typeof f.isFirstParty === 'boolean') {
         const origin = normalizeHostname(typeof f.origin === 'string' && f.origin ? f.origin : computeOrigin(rawUrl, contextUrl).origin);
         if (f.isFirstParty) return true;
