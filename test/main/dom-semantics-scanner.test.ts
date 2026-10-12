@@ -26,6 +26,11 @@ const PAGE = `<!doctype html><html lang="vi"><head><title>Lux</title>
 <img src="a.png"><img src="b.png" alt="Chai vang">
 <label for='q"x'>Email</label><input id='q"x' type="email">
 <input id="bare" type="text">
+<textarea id="g-recaptcha-response" style="display: none;"></textarea>
+<div hidden><input id="in-hidden-parent" type="text"></div>
+<input id="invisible" type="text" style="visibility: hidden">
+<button type="button"></button>
+<button type="button" style="display:none"></button>
 </body></html>`;
 
 describe('DomSemanticsScanner browser script', () => {
@@ -40,8 +45,9 @@ describe('DomSemanticsScanner browser script', () => {
     assert.strictEqual(injected.measured, true);
     assert.strictEqual(injected.summary.h1Count, 2);
     assert.strictEqual(injected.summary.imgMissingAltCount, 1);
-    assert.strictEqual(injected.summary.formControlsMissingLabelCount, 1, 'only #bare is unlabeled; the quoted id resolves its label');
-    for (const key of ['h1Count', 'imgMissingAltCount', 'formControlsMissingLabelCount', 'duplicateIdCount', 'jsonLdInvalidCount'] as const) {
+    assert.strictEqual(injected.summary.formControlsMissingLabelCount, 1, 'only #bare is unlabeled; the quoted id resolves its label and unrendered controls are not in the accessibility tree');
+    assert.strictEqual(injected.summary.controlsMissingNameCount, 1, 'the display:none button is not in the accessibility tree');
+    for (const key of ['h1Count', 'imgMissingAltCount', 'controlsMissingNameCount', 'formControlsMissingLabelCount', 'duplicateIdCount', 'jsonLdInvalidCount'] as const) {
       assert.strictEqual(injected.summary[key], direct.summary[key], `${key} must match evaluateDom`);
     }
   });

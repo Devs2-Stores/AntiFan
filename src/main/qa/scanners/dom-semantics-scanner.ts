@@ -87,6 +87,19 @@ export class DomSemanticsScanner {
         }
       };
 
+      const isNotRendered = (el) => {
+        try {
+          const view = el.ownerDocument && el.ownerDocument.defaultView;
+          for (let node = el; node && node.nodeType === 1; node = node.parentElement) {
+            if (node.hasAttribute('hidden')) return true;
+            if (view && view.getComputedStyle(node).display === 'none') return true;
+          }
+          return Boolean(view && view.getComputedStyle(el).visibility === 'hidden');
+        } catch {
+          return false;
+        }
+      };
+
       // 1. Heading hierarchy (h1 count + level skips)
       const h1s = Array.from(document.querySelectorAll('h1'));
       const h1Count = h1s.length;
@@ -152,7 +165,7 @@ export class DomSemanticsScanner {
       const interactiveEls = Array.from(document.querySelectorAll('button, a[href], [role="button"], [role="link"], input[type="button"], input[type="submit"]'));
       let missingNameCount = 0;
       for (const el of interactiveEls) {
-        if (isAriaHidden(el)) continue;
+        if (isAriaHidden(el) || isNotRendered(el)) continue;
         let accessibleName = (el.getAttribute('aria-label') || '').trim();
         if (!accessibleName && el.getAttribute('aria-labelledby')) {
           const labelledId = el.getAttribute('aria-labelledby');
@@ -194,7 +207,7 @@ export class DomSemanticsScanner {
       const formControls = Array.from(document.querySelectorAll('input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="reset"]):not([type="image"]), select, textarea'));
       let missingLabelCount = 0;
       for (const fc of formControls) {
-        if (isAriaHidden(fc)) continue;
+        if (isAriaHidden(fc) || isNotRendered(fc)) continue;
         const hasAria = Boolean(fc.getAttribute('aria-label') || fc.getAttribute('aria-labelledby'));
         const hasWrappedLabel = Boolean(fc.closest && fc.closest('label'));
         let hasExplicitLabel = false;
@@ -444,6 +457,19 @@ export class DomSemanticsScanner {
       }
     };
 
+    const isNotRendered = (el: Element): boolean => {
+      try {
+        const view = el.ownerDocument.defaultView;
+        for (let node: Element | null = el; node; node = node.parentElement) {
+          if (node.hasAttribute('hidden')) return true;
+          if (view && view.getComputedStyle(node).display === 'none') return true;
+        }
+        return Boolean(view && view.getComputedStyle(el).visibility === 'hidden');
+      } catch {
+        return false;
+      }
+    };
+
     // 1. Heading hierarchy
     const h1s = Array.from(doc.querySelectorAll('h1'));
     const h1Count = h1s.length;
@@ -509,7 +535,7 @@ export class DomSemanticsScanner {
     const interactiveEls = Array.from(doc.querySelectorAll('button, a[href], [role="button"], [role="link"], input[type="button"], input[type="submit"]'));
     let missingNameCount = 0;
     for (const el of interactiveEls) {
-      if (isAriaHidden(el)) continue;
+      if (isAriaHidden(el) || isNotRendered(el)) continue;
       let accessibleName = (el.getAttribute('aria-label') || '').trim();
       if (!accessibleName && el.getAttribute('aria-labelledby')) {
         const labelledId = el.getAttribute('aria-labelledby');
@@ -551,7 +577,7 @@ export class DomSemanticsScanner {
     const formControls = Array.from(doc.querySelectorAll('input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="reset"]):not([type="image"]), select, textarea'));
     let missingLabelCount = 0;
     for (const fc of formControls) {
-      if (isAriaHidden(fc)) continue;
+      if (isAriaHidden(fc) || isNotRendered(fc)) continue;
       const hasAria = Boolean(fc.getAttribute('aria-label') || fc.getAttribute('aria-labelledby'));
       const hasWrappedLabel = Boolean(fc.closest?.('label'));
       let hasExplicitLabel = false;
