@@ -18,7 +18,7 @@ import { StorageLocations } from '../config/storage-locations';
 import { parseOwnerKey } from '../project/project-context';
 import { openSpace, createConfirmationStore, type SpaceOpenDeps } from '../project/space-open';
 import { buildSpaceTemplate, writeSpaceManifestExclusive, antifanDirUnignoredInGit } from '../project/space-manifest';
-import type { SpaceInitResult, ReadFilePreviewResult } from '../../shared/contracts';
+import type { SpaceInitResult, ReadFilePreviewResult, CaptureFullPageResult } from '../../shared/contracts';
 import { AntiFanTab, SplitPaneId, AntiFanPickedElement, TOOLBAR_CHANNELS, SIDEBAR_CHANNELS, TERMINAL_CHANNELS, FRAME_BACKDROP_CHANNELS, PROJECT_WINDOW_CHANNELS, TerminalAckPayload, TerminalDataPayload, TerminalNewInFolderResult, SpaceOpenResult, TerminalTabLayout, TerminalTabPrefs, TERMINAL_TAB_LAYOUT_DEFAULT_WIDTH, clampTerminalTabSidebarWidth, TERMINAL_CATEGORY_COLORS_MAX, TERMINAL_CATEGORY_COLOR_PATTERN, ToolbarPhoneStatus, TerminalAgentAffinityInfo, ProjectWindowIdentity, BRIDGE_CHANNELS, RunCardState, RunControlOp, RunControlReason, RunControlResult, CapsuleBrief, CapsuleBriefResult, CapsuleBriefReason } from '../../shared/contracts';
 import { buildBridgeHealthReport, subscribeBridgeHealth } from '../bridge/bridge-health';
 import { RunStateService } from '../run/run-state-service';
@@ -60,6 +60,7 @@ import { LocalCredentialVault, resolveSenderFrameOrigin } from './local-credenti
 import { HaravanUploader } from './haravan-uploader';
 import type { ActionSequenceParams, ActionSequenceResult } from './tab-automation-host';
 import { TerminalManager, DEFAULT_TERMINAL_CAPSULE_ID, workspaceTerminalProvenance, selectAnnotationTargets, selectAnnotationPickerRows, type SessionSummary, type TerminalDiagnosticsReport, type TerminalManagerStats, type TerminalSessionStateProjection } from './terminal-manager';
+import { writeFullPageCapture } from './full-page-capture-file';
 import { checkForUpdatesAndRestart } from './app-menu';
 import { SkillScanner } from './skill-scanner';
 import { getCoreHealthService } from '../diagnostics/core-health';
@@ -2939,7 +2940,16 @@ export class NativeTabHost extends EventEmitter {
   {
     channel: TOOLBAR_CHANNELS.CAPTURE_FULL_PAGE,
     surface: 'toolbar',
-    run: ({ host }) => host.captureScreenshot(undefined, undefined, undefined, { fullPage: true }),
+    run: async ({ host }) => {
+      const result = await host.captureFullPageToFile();
+      if (result.ok) clipboard.writeText(result.filePath);
+      return result;
+    },
+  },
+  {
+    channel: TOOLBAR_CHANNELS.REVEAL_FULL_PAGE_CAPTURE,
+    surface: 'toolbar',
+    run: ({ host }, event, args) => host.revealFullPageCapture(typeof args[0] === 'string' ? args[0] : ''),
   },
   {
     channel: TOOLBAR_CHANNELS.CAPTURE_VIEWPORT,
@@ -13486,6 +13496,41 @@ export class NativeTabHost extends EventEmitter {
     }
     return '';
   }
+
+  /** Only files written by captureFullPageToFile may be revealed: the renderer supplies the path. */
+  private readonly fullPageCaptureFiles = new Set<string>();
+
+  public async captureFullPageToFile(tabId?: string): Promise<CaptureFullPageResult> {
+    const targetTabId = this.resolveTargetTabId(tabId || this.activeTabId);
+    const tab = targetTabId ? this.tabs.get(targetTabId) : undefined;
+    if (!targetTabId || !tab) {
+      return { ok: false, code: 'NO_ACTIVE_TAB', message: 'Không có tab nào để chụp' };
+    }
+    try {
+      const envelope = await this.captureVerificationScreenshot(undefined, targetTabId, undefined, { format: 'png', fullPage: true });
+      const workspacePath = this.resolveTabWorkspace(targetTabId);
+      const dir = workspacePath
+        ? path.join(workspacePath, '.antifan', 'snapshots')
+        : path.join(StorageLocations.getRuntimeDir(), 'snapshots');
+      const written = writeFullPageCapture({ base64Png: envelope.data, dir, pageUrl: tab.state.url });
+      this.fullPageCaptureFiles.add(written.filePath);
+      return { ok: true, ...written, width: envelope.rasterSize.width, height: envelope.rasterSize.height, workspacePath };
+    } catch (err) {
+      const code = (err as { code?: unknown } | null)?.code;
+      return {
+        ok: false,
+        code: typeof code === 'string' && code ? code : 'CAPTURE_FAILED',
+        message: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
+
+  public revealFullPageCapture(filePath: string): boolean {
+    if (!this.fullPageCaptureFiles.has(filePath) || !fs.existsSync(filePath)) return false;
+    shell.showItemInFolder(filePath);
+    return true;
+  }
+
   /**
    * Stage the clipboard image for a terminal paste. The renderer sends the returned
    * path to the shell as text, so the file lands inside the session's own workspace

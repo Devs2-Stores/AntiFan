@@ -12,6 +12,7 @@
 // instead. Types are imported (erased at emit); values arrive via the ambient
 // declaration below.
 import type { ThemeChecklistItem, ThemePageDef } from '../shared/theme-checklist';
+import type { CaptureFullPageResult } from '../shared/contracts';
 
 /** Value surface of `src/shared/theme-checklist.ts` consumed by this renderer. */
 interface ThemeChecklistSharedApi {
@@ -182,7 +183,8 @@ interface AntiFanToolbarApi {
   setDevicePreset: (presetId: string, tabId?: string) => Promise<boolean>;
   setZoom: (zoom: number, tabId?: string) => Promise<boolean>;
   toggleMute: (tabId?: string) => Promise<boolean>;
-  captureFullPage: () => Promise<string>;
+  captureFullPage: () => Promise<CaptureFullPageResult>;
+  revealFullPageCapture: (filePath: string) => Promise<boolean>;
   captureViewport: () => Promise<string>;
   openExternal: (url?: string) => Promise<boolean>;
   openInVSCode: () => Promise<{ ok: boolean; error?: string; workspacePath?: string }>;
@@ -327,10 +329,11 @@ function syncOverlayState(): void {
 }
 
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
-function showToolbarToast(message: string, duration = 2500) {
+function showToolbarToast(message: string, duration = 2500, interactive = false) {
   const toast = document.getElementById('toolbarToast');
   if (!toast) return;
   toast.innerHTML = message;
+  toast.classList.toggle('toolbar-toast--interactive', interactive);
   toast.style.display = 'flex';
   // Toast renders below the strip (top:76px) — it needs the view expanded or it
   // paints over toolbar buttons inside the 74px clip.
@@ -4664,6 +4667,39 @@ document.getElementById('menuItemScreenshot')?.addEventListener('click', (e) => 
   }).catch(() => {
     showToolbarToast('⚠️ Chụp màn hình thất bại');
   });
+});
+
+const btnFullPageCapture = document.getElementById('btnFullPageCapture') as HTMLButtonElement | null;
+btnFullPageCapture?.addEventListener('click', async () => {
+  if (btnFullPageCapture.disabled) return;
+  btnFullPageCapture.disabled = true;
+  showToolbarToast('Đang chụp full page...', 120000);
+  try {
+    const result = await getApi()?.captureFullPage();
+    if (!result) {
+      showToolbarToast('Chụp full page thất bại');
+      return;
+    }
+    if (!result.ok) {
+      showToolbarToast(`Chụp full page thất bại: ${escapeHtml(result.message)}`, 6000);
+      return;
+    }
+    const safePath = escapeHtml(result.filePath);
+    showToolbarToast(
+      `<span>Đã lưu ${result.width}×${result.height}, đã chép đường dẫn:</span>` +
+      `<span class="toolbar-toast__path" title="${safePath}">${safePath}</span>` +
+      '<button type="button" class="toolbar-toast__action" id="toastRevealFullPage">Mở thư mục</button>',
+      10000,
+      true,
+    );
+    document.getElementById('toastRevealFullPage')?.addEventListener('click', () => {
+      void getApi()?.revealFullPageCapture(result.filePath);
+    });
+  } catch (err) {
+    showToolbarToast(`Chụp full page thất bại: ${escapeHtml(err instanceof Error ? err.message : String(err))}`, 6000);
+  } finally {
+    btnFullPageCapture.disabled = false;
+  }
 });
 
 document.getElementById('menuItemOpenSystemBrowser')?.addEventListener('click', (e) => {

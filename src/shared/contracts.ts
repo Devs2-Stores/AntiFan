@@ -339,6 +339,7 @@ export const TOOLBAR_CHANNELS = {
   SET_ZOOM: 'antifan:toolbar:set-zoom',
   TOGGLE_MUTE: 'antifan:toolbar:toggle-mute',
   CAPTURE_FULL_PAGE: 'antifan:toolbar:capture-full-page',
+  REVEAL_FULL_PAGE_CAPTURE: 'antifan:toolbar:reveal-full-page-capture',
   CAPTURE_VIEWPORT: 'antifan:toolbar:capture-viewport',
   OPEN_EXTERNAL: 'antifan:toolbar:open-external',
   OPEN_IN_VSCODE: 'antifan:toolbar:open-in-vscode',
@@ -834,6 +835,22 @@ export type ReadFilePreviewResult =
       reason: ReadFilePreviewReason;
       message: string;
       size?: number;
+    };
+
+export type CaptureFullPageResult =
+  | {
+      ok: true;
+      filePath: string;
+      fileName: string;
+      size: number;
+      width: number;
+      height: number;
+      workspacePath: string;
+    }
+  | {
+      ok: false;
+      code: string;
+      message: string;
     };
 
 /**
