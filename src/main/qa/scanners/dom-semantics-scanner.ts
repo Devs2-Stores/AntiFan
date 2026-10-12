@@ -199,7 +199,7 @@ export class DomSemanticsScanner {
         const hasWrappedLabel = Boolean(fc.closest && fc.closest('label'));
         let hasExplicitLabel = false;
         if (fc.id) {
-          const escapedId = typeof CSS !== 'undefined' && typeof CSS.escape === 'function' ? CSS.escape(fc.id) : fc.id.replace(/["\\]/g, '\\$&');
+          const escapedId = typeof CSS !== 'undefined' && typeof CSS.escape === 'function' ? CSS.escape(fc.id) : fc.id.replace(/["\\\\]/g, '\\\\$&');
           hasExplicitLabel = Boolean(document.querySelector('label[for="' + escapedId + '"]'));
         }
         const hasTitle = Boolean(fc.getAttribute('title'));
