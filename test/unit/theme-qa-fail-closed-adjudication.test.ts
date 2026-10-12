@@ -819,6 +819,40 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
     assert.strictEqual(report.findings?.responsive?.['375']?.criticalOverlap, null);
   });
 
+  it('10b2. The default sweep cannot inflate the active-viewport layout-shift witness', async () => {
+    const integrityScript = LayoutIntegrityEngine.getBrowserScanScript('active');
+    const base = createMockPorts();
+    let resized = false;
+    const ports = createMockPorts({
+      responsiveCheck: async () => {
+        resized = true;
+        return {
+          ok: true,
+          breakpoints: {
+            'mobile-small': { width: 320, height: 568, mobile: true, hasHorizontalOverflow: false },
+            'desktop-laptop': { width: 1440, height: 900, mobile: false, hasHorizontalOverflow: false },
+          },
+        };
+      },
+      eval: async (target, script) => {
+        if (script !== integrityScript) return base.browser.eval(target, script);
+        const findings = resized
+          ? [{ kind: 'layout-shift', severity: 'warning', selector: 'document', details: 'Cumulative layout shift score 3.156 exceeds 0.1' }]
+          : [];
+        return { measured: true, viewport: { name: 'active', width: 1440, height: 900 }, findings, stats: { cls: resized ? 3.156 : 0 } };
+      },
+    });
+    const report = await new ThemeQaWorkflow(ports).validate({
+      runId: 'run-sweep-cls',
+      attemptId: 'att-sweep-cls',
+      workspaceRoot: 'E:/Work/test-theme',
+      target: makeTarget(1),
+    });
+    assert.strictEqual(resized, true, 'default run must still sweep');
+    assert.strictEqual(report.findings?.layoutIntegrity?.stats?.cls, 0, 'witness must read the page before any emulated resize');
+    assert.strictEqual(report.findings?.visualAmbiguities, undefined);
+  });
+
   it('10c. Truncated integrity scan is an evidence gap, never PASS', async () => {
     const integrityScript = LayoutIntegrityEngine.getBrowserScanScript('active');
     const base = createMockPorts();

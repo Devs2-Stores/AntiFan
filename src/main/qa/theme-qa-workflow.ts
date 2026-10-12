@@ -895,6 +895,42 @@ export class ThemeQaWorkflow {
       rethrowTargetLifecycleError(error);
       evidenceGaps.push(`Layout overflow scanner evaluation failed: ${error instanceof Error ? error.message : String(error)}`);
     }
+    // 6.5 Layout Integrity Engine — overlap/clipping/occlusion/offscreen/sticky
+    // + layout-shift witness on the ACTIVE viewport. A failed evaluation, a
+    // truncated scan or a detector that threw is an evidence gap (non-PASS);
+    // the geometry findings themselves never abort the run. It must run before the
+    // multi-breakpoint sweep: every emulated resize leaves hadRecentInput layout
+    // shifts in the buffer, which the witness would sum into a false CLS.
+    let integrityResult: LayoutIntegrityResult | undefined;
+    let integrityRan = false;
+    try {
+      checkAborted();
+      const evalRes = await this.ports.browser.eval(activeTarget, LayoutIntegrityEngine.getBrowserScanScript('active'));
+      checkAborted();
+      const rec = evalRes && typeof evalRes === 'object' ? (evalRes as Record<string, unknown>) : undefined;
+      if (rec && Array.isArray(rec.findings)) {
+        integrityResult = evalRes as LayoutIntegrityResult;
+        integrityRan = true;
+        if (integrityResult.measured === false) {
+          const reason = LayoutIntegrityEngine.readUnmeasuredReason(evalRes);
+          evidenceGaps.push(`Layout integrity not measured: ${reason || 'engine reported unmeasured'}`);
+        }
+        const stats = integrityResult.stats;
+        if (stats?.truncated === true) {
+          const reasons = Array.isArray(stats.truncatedReasons) ? stats.truncatedReasons.join('; ') : '';
+          evidenceGaps.push(`Layout integrity scan truncated: ${reasons || 'no reason reported'}`);
+        }
+        if (stats && Array.isArray(stats.failedDetectors) && stats.failedDetectors.length > 0) {
+          evidenceGaps.push(`Layout integrity detectors failed: ${[...new Set(stats.failedDetectors)].join(', ')}`);
+        }
+      }
+      // A malformed or absent payload is simply unmeasured — the overflow engine's
+      // marker contract requires an explicit `measured:false` to declare a gap, so
+      // stale hosts and harness stubs don't fabricate missing evidence.
+    } catch (error) {
+      rethrowTargetLifecycleError(error);
+      evidenceGaps.push(`Layout integrity scanner evaluation failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
     // Captured for the per-width responsive map; stays undefined when the
     // multi-breakpoint sweep did not run or returned no breakpoint payload.
     const runMultiBreakpoint = input.multiBreakpoint !== false;
@@ -967,40 +1003,6 @@ export class ThemeQaWorkflow {
       }
     }
 
-    // 6.5 Layout Integrity Engine — overlap/clipping/occlusion/offscreen/sticky
-    // + layout-shift witness on the ACTIVE viewport. A failed evaluation, a
-    // truncated scan or a detector that threw is an evidence gap (non-PASS);
-    // the geometry findings themselves never abort the run.
-    let integrityResult: LayoutIntegrityResult | undefined;
-    let integrityRan = false;
-    try {
-      checkAborted();
-      const evalRes = await this.ports.browser.eval(activeTarget, LayoutIntegrityEngine.getBrowserScanScript('active'));
-      checkAborted();
-      const rec = evalRes && typeof evalRes === 'object' ? (evalRes as Record<string, unknown>) : undefined;
-      if (rec && Array.isArray(rec.findings)) {
-        integrityResult = evalRes as LayoutIntegrityResult;
-        integrityRan = true;
-        if (integrityResult.measured === false) {
-          const reason = LayoutIntegrityEngine.readUnmeasuredReason(evalRes);
-          evidenceGaps.push(`Layout integrity not measured: ${reason || 'engine reported unmeasured'}`);
-        }
-        const stats = integrityResult.stats;
-        if (stats?.truncated === true) {
-          const reasons = Array.isArray(stats.truncatedReasons) ? stats.truncatedReasons.join('; ') : '';
-          evidenceGaps.push(`Layout integrity scan truncated: ${reasons || 'no reason reported'}`);
-        }
-        if (stats && Array.isArray(stats.failedDetectors) && stats.failedDetectors.length > 0) {
-          evidenceGaps.push(`Layout integrity detectors failed: ${[...new Set(stats.failedDetectors)].join(', ')}`);
-        }
-      }
-      // A malformed or absent payload is simply unmeasured — the overflow engine's
-      // marker contract requires an explicit `measured:false` to declare a gap, so
-      // stale hosts and harness stubs don't fabricate missing evidence.
-    } catch (error) {
-      rethrowTargetLifecycleError(error);
-      evidenceGaps.push(`Layout integrity scanner evaluation failed: ${error instanceof Error ? error.message : String(error)}`);
-    }
     const integrityFindings: LayoutIntegrityFinding[] = integrityResult && Array.isArray(integrityResult.findings) ? integrityResult.findings : [];
     const integrityCriticals = integrityFindings.filter((f) => f.severity === 'critical');
     const integrityAmbiguities = integrityFindings
@@ -1152,6 +1154,7 @@ export class ThemeQaWorkflow {
         }
       } catch (error) {
         rethrowTargetLifecycleError(error);
+        evidenceGaps.push(`DOM semantics scanner evaluation failed: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
 
