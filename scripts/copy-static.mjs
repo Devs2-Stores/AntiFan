@@ -83,14 +83,19 @@ for (const jsFile of jsFiles) {
       try {
         const original = fs.readFileSync(dst, 'utf8');
         const prelude = jsFile === 'toolbar.js' ? themeChecklistPrelude : '';
-        if (!original.startsWith('var exports = exports || {};')) {
-          fs.writeFileSync(dst, 'var exports = exports || {};\n' + prelude + original, 'utf8');
-        } else if (prelude && !original.includes('window.ThemeChecklistShared = module.exports;')) {
-          // Already-guarded emit from before this rule existed: splice the
-          // prelude in directly under the guard line.
-          const guard = 'var exports = exports || {};\n';
-          fs.writeFileSync(dst, guard + prelude + original.slice(guard.length), 'utf8');
+        const guard = 'var exports = exports || {};\n';
+        const preludeStart = '(function() {\nvar module = { exports: {} };\n';
+        const preludeEnd = 'window.ThemeChecklistShared = module.exports;\n})();\n';
+        // An incremental tsc build leaves toolbar.js untouched when only the shared module
+        // changed, so a prelude already spliced in is stale and must be replaced, not kept.
+        let body = original.startsWith(guard) ? original.slice(guard.length) : original;
+        if (body.startsWith(preludeStart)) {
+          const end = body.indexOf(preludeEnd);
+          if (end === -1) throw new Error(`copy-static: unterminated theme-checklist prelude in ${dst}`);
+          body = body.slice(end + preludeEnd.length);
         }
+        const next = guard + prelude + body;
+        if (next !== original) fs.writeFileSync(dst, next, 'utf8');
         break;
       } catch (err) {
         // Giving up silently ships a renderer file without its exports fallback.
