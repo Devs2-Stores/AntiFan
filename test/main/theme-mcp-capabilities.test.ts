@@ -16,7 +16,7 @@ import {
   setScopeCas,
   isProvisionalChecklistScope,
 } from '../../src/main/qa/theme-checklist-store';
-import { checklistScope, workspaceTag, type ThemeChecklistItem } from '../../src/shared/theme-checklist';
+import { checklistScope, workspaceTag, DEFAULT_THEME_CHECKLIST, type ThemeChecklistItem } from '../../src/shared/theme-checklist';
 
 import { ThemeQaWorkflow, type ThemeQaWorkflowPorts } from '../../src/main/qa/theme-qa-workflow';
 import { VisualSettleReceipt } from '../../src/main/verification/capture-settle';
@@ -621,7 +621,7 @@ describe('Theme QA MCP Capabilities', () => {
         const before = await catalogue.dispatch('theme.cockpit_list', {}, makeBoundContext()) as CockpitListResult;
         assert.strictEqual(before.scope, scope);
         assert.strictEqual(before.isProvisional, false);
-        assert.strictEqual(before.total, 44);
+        assert.strictEqual(before.total, DEFAULT_THEME_CHECKLIST.length);
         assert.strictEqual(before.items.find((it) => it.id === 'hom-01')?.done, false);
 
         const marked = await catalogue.dispatch('theme.cockpit_mark', { itemId: 'hom-01', done: true, note: 'verified' }, writeContext()) as CockpitMarkResult;

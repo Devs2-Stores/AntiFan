@@ -57,7 +57,7 @@ const RENDERER_DIR = (() => {
 })();
 
 const PAGE_KEYS = ['home', 'collection', 'product', 'cart', 'blog', 'account', 'pages', 'qa-gate'] as const;
-const CHECKLIST_ITEMS = 44;
+const CHECKLIST_ITEMS = DEFAULT_THEME_CHECKLIST.length;
 const CHECKLIST_STORAGE_PREFIX = 'antifan_theme_checklist_state_v3';
 const DEFAULT_ORIGIN = 'http://shop-a.local';
 const DEFAULT_WORKSPACE = 'E:\\Work\\themes\\shop-a';

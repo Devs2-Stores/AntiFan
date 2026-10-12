@@ -75,7 +75,7 @@ function isInvalidArgument(err: unknown): boolean {
 }
 
 describe('scope round-trip', () => {
-  it('seeds the 44-item default checklist on an empty root, then persists a mark', () => {
+  it('seeds the default checklist on an empty root, then persists a mark', () => {
     const root = makeRoot();
     const file = checklistFilePath(root);
     assert.strictEqual(file, path.join(root, THEME_CHECKLIST_DIRNAME, THEME_CHECKLIST_FILENAME));
@@ -84,7 +84,6 @@ describe('scope round-trip', () => {
     assert.strictEqual(snap.existed, false);
     assert.strictEqual(snap.migrated, false);
     assert.strictEqual(snap.updatedAt, 0);
-    assert.strictEqual(snap.items.length, 44);
     assert.strictEqual(snap.items.length, DEFAULT_THEME_CHECKLIST.length);
     assert.deepStrictEqual(snap.items, defaultChecklistItems());
     // Reading a scope must not persist anything.
@@ -546,7 +545,8 @@ describe('tmp debris sweeping', () => {
 describe('default checklist copies', () => {
   it('returns fresh item objects that never alias DEFAULT_THEME_CHECKLIST', () => {
     const items = defaultChecklistItems();
-    assert.strictEqual(items.length, 44);
+    const defaultCount = DEFAULT_THEME_CHECKLIST.length;
+    assert.strictEqual(items.length, defaultCount);
     assert.notStrictEqual(items, DEFAULT_THEME_CHECKLIST);
 
     const first = items[0];
@@ -560,7 +560,7 @@ describe('default checklist copies', () => {
     first.note = 'leak check';
     items.push(minimalItem('extra'));
 
-    assert.strictEqual(DEFAULT_THEME_CHECKLIST.length, 44);
+    assert.strictEqual(DEFAULT_THEME_CHECKLIST.length, defaultCount);
     assert.strictEqual(defaultFirst.done, false);
     assert.strictEqual(defaultFirst.name, originalName);
     assert.strictEqual(defaultFirst.note, undefined);
@@ -569,6 +569,6 @@ describe('default checklist copies', () => {
     const secondFirst = second[0];
     assert.ok(secondFirst);
     assert.strictEqual(secondFirst.done, false);
-    assert.strictEqual(second.length, 44);
+    assert.strictEqual(second.length, defaultCount);
   });
 });

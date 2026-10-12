@@ -46,7 +46,7 @@ export interface ThemePageDef {
 /**
  * A route scan loads one page at one viewport, so it cannot certify mobile
  * behaviour or the dynamic storefront mechanics (drawer, AJAX cart, sticky bars).
- * Every completion claim carries this, so a 44/44 checklist never reads as more
+ * Every completion claim carries this, so a fully ticked checklist never reads as more
  * than it is.
  */
 export const QA_GATE_DISCLAIMER =
@@ -151,6 +151,7 @@ export const DEFAULT_THEME_CHECKLIST: ThemeChecklistItem[] = [
   { id: 'hom-06', code: 'HOM-06', name: 'Banner Quảng Cáo Đôi / Video', desc: 'Banner phụ 2 bên hoặc video tự động phát (muted)', qaPoint: 'Video có playsinline trên mobile, banner không lệch chiều cao', page: 'home', pathHint: '/', done: false },
   { id: 'hom-07', code: 'HOM-07', name: 'Tin Tức Mới Nhất (Blog Carousel)', desc: 'Lưới 3-4 bài viết mới nhất, tiêu đề, ngày đăng, tóm tắt', qaPoint: 'Tiêu đề dài tự cắt dòng line-clamp, thẻ tin đều nhau', page: 'home', pathHint: '/', done: false },
   { id: 'hom-08', code: 'HOM-08', name: 'Chân Trang (Footer) & Newsletter', desc: 'Cột thông tin shop, chính sách, form đăng ký email, BCT', qaPoint: 'Form email validate chuẩn AJAX, 375px không vỡ footer', page: 'home', pathHint: '/', done: false },
+  { id: 'hom-09', code: 'HOM-09', name: 'Menu Mobile Đa Cấp (Cấp 2-3)', desc: 'Drawer menu mobile: nút Quay lại, tiêu đề submenu, link cấp 3', qaPoint: 'Ở 320-412px tiêu đề submenu và nút Quay lại không xuống dòng, link cấp 3 có padding không dính mép trái', page: 'home', pathHint: '/', done: false },
 
   // 2. TRANG DANH MỤC (COLLECTION)
   { id: 'col-01', code: 'COL-01', name: 'Banner Đầu Trang & Breadcrumb', desc: 'Thanh điều hướng Trang chủ > Danh mục, ảnh cover danh mục', qaPoint: 'Breadcrumb có cấu trúc schema, không lặp tiêu đề', page: 'collection', pathHint: '/collections/all', done: false },
@@ -159,6 +160,7 @@ export const DEFAULT_THEME_CHECKLIST: ThemeChecklistItem[] = [
   { id: 'col-04', code: 'COL-04', name: 'Lưới Sản Phẩm Đều Khung (Grid)', desc: 'Hiển thị 2 cột (mobile), 3-4 cột (desktop), nút mua thẳng hàng', qaPoint: 'Thẻ sản phẩm cao bằng nhau, nút mua không bị thụt thò', page: 'collection', pathHint: '/collections/all', done: false },
   { id: 'col-05', code: 'COL-05', name: 'Phân Trang & Nút Xem Thêm', desc: 'Phân trang 1, 2, 3... hoặc nút Xem thêm / Cuộn vô tận', qaPoint: 'Trang cuối cùng không lặp sản phẩm, cuộn mượt không giật', page: 'collection', pathHint: '/collections/all', done: false },
   { id: 'col-06', code: 'COL-06', name: 'Trạng Thái Bộ Lọc Trống (Empty Filter)', desc: 'Thông báo "Không tìm thấy sản phẩm" + nút Xóa bộ lọc', qaPoint: 'Bấm Xóa bộ lọc khôi phục lại danh mục bình thường', page: 'collection', pathHint: '/collections/all', done: false },
+  { id: 'col-07', code: 'COL-07', name: 'Link Tag & Thương Hiệu Trong Menu', desc: 'Link tag dùng /collections/all/<tag>, thương hiệu dùng /collections/vendors?q=', qaPoint: 'Mở từng link: lưới có đúng sản phẩm, không ra 0 kết quả hay đếm phồng', page: 'collection', pathHint: '/collections/all', done: false },
 
   // 3. TRANG CHI TIẾT SẢN PHẨM (PRODUCT / PDP)
   { id: 'pdp-01', code: 'PDP-01', name: 'Thư Viện Ảnh & Phóng To (Gallery & Zoom)', desc: 'Slider ảnh to + thumbnail nhỏ, zoom hover, lightbox', qaPoint: 'Đổi màu swatch thì ảnh to tự nhảy sang đúng màu tương ứng', page: 'product', done: false },
@@ -169,6 +171,7 @@ export const DEFAULT_THEME_CHECKLIST: ThemeChecklistItem[] = [
   { id: 'pdp-06', code: 'PDP-06', name: 'Thanh Mua Hàng Dính Đáy (Sticky ATC)', desc: 'Thanh dính đáy màn hình khi cuộn qua nút mua chính', qaPoint: 'Hiển thị mượt mà trên mobile & desktop, không che nội dung', page: 'product', done: false },
   { id: 'pdp-07', code: 'PDP-07', name: 'Tabs Chi Tiết Mô Tả & Thông Số', desc: 'Tab Mô tả chi tiết, Thông số kỹ thuật, Chính sách đổi trả', qaPoint: 'Bảng biểu không gây tràn ngang (overflow) trên mobile 375px', page: 'product', done: false },
   { id: 'pdp-08', code: 'PDP-08', name: 'Sản Phẩm Gợi Ý / Cùng Chuyên Mục', desc: 'Lưới sản phẩm liên quan hoặc sản phẩm vừa xem', qaPoint: 'Không gợi ý trùng chính sản phẩm đang xem', page: 'product', done: false },
+  { id: 'pdp-09', code: 'PDP-09', name: 'Nút Thao Tác Trên Ảnh Sản Phẩm (Cảm Ứng)', desc: 'Nút giỏ, yêu thích, xem nhanh, so sánh trên thẻ và ảnh sản phẩm', qaPoint: 'Trên thiết bị cảm ứng (hover: none) các nút không che ảnh sản phẩm', page: 'product', done: false },
 
   // 4. TRANG GIỎ HÀNG (CART)
   { id: 'crt-01', code: 'CRT-01', name: 'Mini Cart Drawer Trượt Phải (AJAX)', desc: 'Ngăn kéo giỏ hàng trượt từ phải sang khi thêm sản phẩm', qaPoint: 'Mở/đóng mượt mà, bấm backdrop mờ tự đóng', page: 'cart', pathHint: '/cart', done: false },
@@ -176,6 +179,7 @@ export const DEFAULT_THEME_CHECKLIST: ThemeChecklistItem[] = [
   { id: 'crt-03', code: 'CRT-03', name: 'Ghi Chú Đơn Hàng & Mã Khuyến Mãi', desc: 'Khung nhập ghi chú gửi shop, nhập voucher giảm giá', qaPoint: 'Ghi chú lưu đúng vào thuộc tính note của đơn hàng', page: 'cart', pathHint: '/cart', done: false },
   { id: 'crt-04', code: 'CRT-04', name: 'Nút Tiến Hành Thanh Toán (Checkout)', desc: 'Nút nổi bật chuyển khách sang trang thanh toán bảo mật', qaPoint: 'Không bị disabled khi giỏ hàng có sản phẩm hợp lệ', page: 'cart', pathHint: '/cart', done: false },
   { id: 'crt-05', code: 'CRT-05', name: 'Trạng Thái Giỏ Hàng Trống (Empty Cart)', desc: 'Icon giỏ rỗng + câu thông báo + nút Tiếp tục mua sắm', qaPoint: 'Xóa hết món chuyển ngay sang Empty Cart không sót bảng cũ', page: 'cart', pathHint: '/cart', done: false },
+  { id: 'crt-06', code: 'CRT-06', name: 'Thanh Miễn Phí Vận Chuyển (Freeship)', desc: 'Thanh tiến độ freeship trong cart drawer và trang giỏ', qaPoint: 'Cập nhật ngay sau thêm/xoá sản phẩm, số tiền VNĐ không bị nhân hoặc chia 100', page: 'cart', pathHint: '/cart', done: false },
 
   // 5. TRANG BÀI VIẾT & BLOG (BLOG)
   { id: 'blg-01', code: 'BLG-01', name: 'Danh Sách Bài Viết (Blog Listing)', desc: 'Lưới bài viết, ảnh cover, tiêu đề, ngày đăng, phân trang', qaPoint: 'Ảnh bài viết đồng bộ tỷ lệ, không bị méo lệch khung', page: 'blog', pathHint: '/blogs/news', done: false },
@@ -216,6 +220,14 @@ export const DEFAULT_THEME_CHECKLIST: ThemeChecklistItem[] = [
     pathHint: '/',
     done: false,
   },
+  { id: 'qag-05', code: 'QAG-05', name: 'Không Sót Thương Hiệu Theme Base', desc: 'Quét tên, slug, email, URL ảnh của shop cũ trong code, settings_data và ZIP export', qaPoint: 'npm run residue:scan -- --brand <base> ra 0 finding (không phân biệt hoa thường, quét cả ZIP)', page: 'qa-gate', pathHint: '/', done: false },
+  { id: 'qag-06', code: 'QAG-06', name: 'Cú Pháp Liquid Đúng Nền Tảng', desc: 'Haravan: include thay render, không schema trong section, img_url thay image_url, không continue', qaPoint: 'npm run lint:haravan không còn blocker (hit nào giữ lại phải có bằng chứng render live), không trang nào lỗi Liquid/500', page: 'qa-gate', pathHint: '/', done: false },
+  { id: 'qag-07', code: 'QAG-07', name: 'Responsive Đo Thật 5 Mốc 320-1440', desc: 'theme.qa_validate với multiBreakpoint: true và anti.inspect.responsive_matrix', qaPoint: 'summary.responsive không phải UNMEASURED, 320/375/768/1024/1440 không tràn ngang', page: 'qa-gate', pathHint: '/', done: false },
+  { id: 'qag-08', code: 'QAG-08', name: 'Tiếng Việt Không Bị Cắt Dấu', desc: 'Tiêu đề serif/display, giá tiền, nút, menu', qaPoint: 'Line-height tiêu đề tối thiểu 1.18, dấu tiếng Việt không bị cắt ở dòng đầu/cuối', page: 'qa-gate', pathHint: '/', done: false },
+  { id: 'qag-09', code: 'QAG-09', name: 'Bẫy Focus Modal, Drawer & Cổng Tuổi', desc: 'Cart drawer, menu mobile, tìm kiếm, xem nhanh, cổng xác nhận 18+', qaPoint: 'Mở: focus vào trong, Tab không thoát ra nền (inert). Đóng hoặc ESC: focus trả về nút mở', page: 'qa-gate', pathHint: '/', done: false },
+  { id: 'qag-10', code: 'QAG-10', name: 'SEO & A11y Cơ Bản', desc: 'Một H1, heading không nhảy cấp, alt, label, accessible name, canonical, OG, JSON-LD, html lang', qaPoint: 'summary.domSemantics không critical, aria-label và placeholder viết tiếng Việt', page: 'qa-gate', pathHint: '/', done: false },
+  { id: 'qag-11', code: 'QAG-11', name: 'Hover & Motion Đo Thật', desc: 'Hover thẻ, nút, menu; reveal khi cuộn; slider', qaPoint: 'Hover đo bằng anti.trace.interaction (CDP thật, :hover bật), CLS dưới 0.1 khi cuộn từ đầu trang', page: 'qa-gate', pathHint: '/', done: false },
+  { id: 'qag-12', code: 'QAG-12', name: 'Đồng Bộ Giá Trị Customizer', desc: 'Nội dung merchant thấy lấy từ settings, không fallback cứng, không entity thô (&bull;)', qaPoint: 'Sửa trong Customizer hiện đúng ngoài storefront; chưa lên live thì ghi QA_PENDING_SYNC, không tự sửa settings_data.json', page: 'qa-gate', pathHint: '/', done: false },
 ];
 
 /**

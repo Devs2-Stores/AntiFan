@@ -6,6 +6,16 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 
 ## [v1.3.6] - Unreleased
 
+### Sửa & Nâng cấp — Bộ Theme QA Automation Stack cho Haravan Next Stack Build
+
+- `theme.qa_validate`: Mặc định chạy sweep 5 viewport chuẩn (320, 375, 768, 1024, 1440) khi host có `responsiveCheck` (`multiBreakpoint: false` để opt-out). Khi không đo được viewport nào, `checklist.responsive` và `summary.responsive` báo `UNMEASURED` thay vì `true`; chỉ khi caller truyền tường minh `multiBreakpoint: true` thì thiếu đo mới thêm evidence gap và verdict thành `INCONCLUSIVE`.
+- Tab preload: khi chỉ thuộc tính inline `style` đổi và mọi thuộc tính thay đổi đều thuộc nhóm ghi mỗi frame (`--*`, `transform`, `translate`, `rotate`, `scale`, `transition*`, `animation*`, `will-change`), mutation revision không tăng, nên carousel/progress không còn gây `TARGET_STALE` liên tục. Đổi `display`, `visibility`, `opacity`, kích thước hay bất kỳ thuộc tính nào khác trong `style`, cùng childList và `class`/`open`/`aria-expanded`/`aria-hidden`, vẫn invalidate như cũ.
+- Route 404: Request chính của document (status >= 400) được tách khỏi `BrokenAssetScanner` và đưa vào `documentStatus`, cho phép route 404 có chủ đích PASS khi tài nguyên con (CSS/JS/ảnh) nguyên vẹn.
+- Settle & Chống rung lắc: Tự động đóng băng media/CSS animation qua `anti.media.freeze` và tạm dừng autoplay carousels (Swiper/Slick) trước khi đo settle/chụp ảnh, khôi phục sau khi xong để tránh lỗi `domUnstable` INCONCLUSIVE do slider chạy nền.
+- DOM Semantics & SEO/A11y: Tích hợp `DomSemanticsScanner` kiểm tra số lượng H1, nhảy cấp heading, ảnh thiếu alt (loại trừ `aria-hidden`/`role="presentation"`), button/link thiếu accessible name, input thiếu label, trùng lặp ID, lang, meta description, canonical, OpenGraph, cú pháp JSON-LD (lỗi cú pháp là critical) và touch target < 24px trên mobile.
+- Layout Integrity: Bỏ qua các phần tử `.sr-only`, `.visually-hidden` và clip 1px khỏi bộ quét clipping/offscreen, loại bỏ cảnh báo giả.
+- Theme QA Cockpit: checklist mặc định tăng 44 → 56 mục (home 9, collection 7, product 9, cart 6, blog 4, account 4, pages 5, qa-gate 12), thêm 12 mục từ lỗi gặp thật ở Lux Wine: menu mobile cấp 2-3 (`HOM-09`), link tag/thương hiệu trong menu (`COL-07`), nút thao tác trên ảnh sản phẩm khi cảm ứng (`PDP-09`), thanh freeship (`CRT-06`), tàn dư thương hiệu theme base, cú pháp Liquid đúng nền tảng, responsive đo thật 5 mốc, tiếng Việt không cắt dấu, bẫy focus modal/drawer/cổng tuổi, SEO & a11y cơ bản, hover/motion đo thật, đồng bộ giá trị Customizer (`QAG-05`…`QAG-12`). Badge toolbar và test đếm theo `DEFAULT_THEME_CHECKLIST.length`, không ghim cứng 44.
+
 ### Thêm — Nút "Chụp Full Page" trên toolbar và Terminal Quick-Look xem ảnh
 
 - Nút `btnFullPageCapture` chụp full page tab đang mở (CDP, `fullPage: true`), ghi PNG vào `<workspace của tab>/.antifan/snapshots/fullpage_<YYYYMMDD-HHmmss>_<host-path>.png` (không có workspace thì `<runtime>/snapshots/`), chép đường dẫn vào clipboard, toast có nút "Mở thư mục". File nằm ngoài `artifacts/` nên retention cleaner không xoá; trùng tên lấy hậu tố `-N`, không ghi đè.
