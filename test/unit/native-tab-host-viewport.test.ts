@@ -1016,8 +1016,9 @@ describe('Responsive sweep surface', () => {
   const BREAKPOINT_IDS = ['mobile-small', 'mobile-standard', 'tablet-portrait', 'tablet-landscape', 'desktop-laptop'];
   const BREAKPOINT_WIDTHS = [320, 375, 768, 1024, 1440];
 
-  function createSweepHarness(options: { staleReadsPerEmulation?: number } = {}): SweepHarness {
+  function createSweepHarness(options: { staleReadsPerEmulation?: number; ignoreFirstOverrideAt?: number[] } = {}): SweepHarness {
     const staleReadsPerEmulation = options.staleReadsPerEmulation ?? 0;
+    const ignoreOnce = new Set(options.ignoreFirstOverrideAt ?? []);
     const children: unknown[] = [];
     const emulationCalls: EmulationCall[] = [];
     const attachedDuringReadings: boolean[] = [];
@@ -1052,9 +1053,10 @@ describe('Responsive sweep surface', () => {
           sendCommand: async (method: string, params: Record<string, unknown>) => {
             if (method === 'Emulation.setDeviceMetricsOverride') {
               const box = { width: Number(params.width) || 0, height: Number(params.height) || 0 };
+              emulationCalls.push({ width: box.width, height: box.height, attached: children.includes(view) });
+              if (ignoreOnce.delete(box.width)) return;
               liveEmulation = box;
               staleReadsLeft = staleReadsPerEmulation;
-              emulationCalls.push({ width: box.width, height: box.height, attached: children.includes(view) });
             } else if (method === 'Emulation.clearDeviceMetricsOverride') {
               disableCount += 1;
               liveEmulation = null;
@@ -1262,5 +1264,25 @@ describe('Responsive sweep surface', () => {
       assert.strictEqual(readings[id]?.emulationApplied, true, `${id}: the emulation landed`);
     }
     assert.strictEqual(readings['mobile-small']?.hasHorizontalOverflow, true, 'The 330px page overflows 320 once the relayout lands');
+  });
+
+  it('sends an override that never took effect once more instead of reporting the window size', async () => {
+    const harness = createSweepHarness({ ignoreFirstOverrideAt: [320] });
+    const host = harness.host;
+    const backgroundTab = createTestTabRecord('tab-bg');
+    backgroundTab.view = harness.view as unknown as NativeTabRecord['view'];
+    const activeTab = createTestTabRecord('tab-active');
+    activeTab.view = harness.activeView as unknown as NativeTabRecord['view'];
+    host.tabs.set('tab-active', activeTab);
+    host.tabs.set('tab-bg', backgroundTab);
+    host.tabByWebContents.set(harness.view.webContents, { tabId: 'tab-bg', tab: backgroundTab });
+
+    const payload = await host.runResponsiveCheck({ tabId: 'tab-bg' });
+    const readings = payload.breakpoints as Record<string, BreakpointReading & { emulationApplied?: boolean }>;
+
+    assert.deepStrictEqual(harness.emulationCalls.map((call) => call.width), [320, 320, 375, 768, 1024, 1440], 'Only the dropped width is sent again');
+    assert.strictEqual(readings['mobile-small']?.emulationApplied, true);
+    assert.strictEqual(readings['mobile-small']?.clientWidth, 320);
+    assert.strictEqual(readings['mobile-small']?.hasHorizontalOverflow, true, 'The 330px page overflows 320 once the re-sent override lands');
   });
 });

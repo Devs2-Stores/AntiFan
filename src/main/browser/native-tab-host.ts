@@ -15096,7 +15096,7 @@ export class NativeTabHost extends EventEmitter {
     // ever becoming the visible one.
     const sweepBreakpoints = async (): Promise<void> => {
       for (const bp of testBreakpoints) {
-        await this.applyCdpDeviceEmulationState(wc, {
+        const sweepPreset: DevicePreset = {
           id: `sweep-${bp.id}`,
           name: bp.name,
           width: bp.width,
@@ -15104,8 +15104,8 @@ export class NativeTabHost extends EventEmitter {
           deviceScaleFactor: bp.deviceScaleFactor || (bp.mobile ? 2 : 1),
           mobile: bp.mobile,
           category: bp.mobile ? 'mobile' : 'desktop',
-        }, 1);
-
+        };
+        await this.applyCdpDeviceEmulationState(wc, sweepPreset, 1);
 
         await new Promise((resolve) => setTimeout(resolve, 60));
 
@@ -15167,9 +15167,12 @@ export class NativeTabHost extends EventEmitter {
         // The metrics override lands asynchronously: a mobile switch also swaps the UA
         // and re-resolves the viewport meta, and a reading taken before that relayout
         // describes the previous size. Poll until the document reports the emulated
-        // width; a width that never takes effect is reported unmeasured, never as
+        // width. An override that has not taken effect after a second is sent once more;
+        // a width that still never takes effect is reported unmeasured, never as
         // "no overflow".
-        const appliedDeadline = Date.now() + 2500;
+        const resendAt = Date.now() + 1200;
+        const appliedDeadline = Date.now() + 3000;
+        let resent = false;
         let evaluation: Record<string, unknown> = {};
         let emulationApplied = false;
         for (;;) {
@@ -15187,6 +15190,10 @@ export class NativeTabHost extends EventEmitter {
             || (fixedWidthMeta && evaluation.screenWidth === bp.width)
           );
           if (emulationApplied || Date.now() >= appliedDeadline) break;
+          if (!resent && Date.now() >= resendAt) {
+            resent = true;
+            await this.applyCdpDeviceEmulationState(wc, sweepPreset, 1);
+          }
           const pause = Promise.withResolvers<void>();
           setTimeout(pause.resolve, 100);
           await pause.promise;
