@@ -34,17 +34,17 @@ export function validateDataRootPath(inputPath: string): string {
 }
 
 export class StorageLocations {
-  private static cachedDataRoot: string | null = null;
+  private static cachedDefaultDataRoot: string | null = null;
 
-  public static getDataRoot(customRoot?: string): string {
-    if (customRoot) {
-      return validateDataRootPath(customRoot);
-    }
-    if (process.env.ANTIFAN_DATA_ROOT) {
-      return validateDataRootPath(process.env.ANTIFAN_DATA_ROOT);
-    }
-    if (this.cachedDataRoot) {
-      return this.cachedDataRoot;
+  /**
+   * Resolves the canonical live default data root without consulting
+   * environment variable overrides (ANTIFAN_DATA_ROOT). Reusable by
+   * session isolation and test guards to detect when an inherited
+   * ANTIFAN_DATA_ROOT matches the live installation default.
+   */
+  public static resolveDefaultDataRoot(): string {
+    if (this.cachedDefaultDataRoot) {
+      return this.cachedDefaultDataRoot;
     }
 
     // Check candidate root directories on Drive E: and other drives
@@ -63,8 +63,8 @@ export class StorageLocations {
           const testFile = path.join(candidate, `.probe-${process.pid}-${Date.now()}`);
           fs.writeFileSync(testFile, 'ok', 'utf8');
           fs.unlinkSync(testFile);
-          this.cachedDataRoot = path.resolve(candidate);
-          return this.cachedDataRoot;
+          this.cachedDefaultDataRoot = path.resolve(candidate);
+          return this.cachedDefaultDataRoot;
         } catch {
           // Candidate not writable, proceed to next
         }
@@ -76,12 +76,22 @@ export class StorageLocations {
     const antiFanData = path.join(appData, 'AntiFan', 'data');
     const legacyData = path.join(appData, 'antifan-browser-desktop', 'data');
     const fallback = fs.existsSync(legacyData) && !fs.existsSync(antiFanData) ? legacyData : antiFanData;
-    this.cachedDataRoot = path.resolve(fallback);
-    return this.cachedDataRoot;
+    this.cachedDefaultDataRoot = path.resolve(fallback);
+    return this.cachedDefaultDataRoot;
+  }
+
+  public static getDataRoot(customRoot?: string): string {
+    if (customRoot) {
+      return validateDataRootPath(customRoot);
+    }
+    if (process.env.ANTIFAN_DATA_ROOT) {
+      return validateDataRootPath(process.env.ANTIFAN_DATA_ROOT);
+    }
+    return this.resolveDefaultDataRoot();
   }
 
   public static resetCache(): void {
-    this.cachedDataRoot = null;
+    this.cachedDefaultDataRoot = null;
   }
 
   public static getProfileDir(customRoot?: string): string {

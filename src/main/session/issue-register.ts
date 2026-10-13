@@ -373,6 +373,28 @@ export function isTestFixtureResidue(issue: IssueRecord): boolean {
   return false;
 }
 
+/**
+ * Normalizes an error message for deduplication by masking dynamic IDs:
+ * - UUIDs (e.g. 01a134a4-c1fc-748b-809c-5d4bfbcfabb9)
+ * - Tab IDs with `tab-` prefix (e.g. tab-1, tab-non-existent-999)
+ * - Hex tab IDs and hashes (e.g. 'e88c9e5b', "ff12606e")
+ * - Dynamic generation, epoch, and revision numbers
+ * - Entity-prefixed IDs (project-..., session-..., tx-...)
+ */
+export function normalizeErrorMessageForDedupe(errorMessage: string): string {
+  if (!errorMessage || typeof errorMessage !== 'string') return '';
+  return errorMessage
+    .replace(/\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b/g, '<UUID>')
+    .replace(/\btab-[0-9a-zA-Z_-]+\b/g, '<TAB_ID>')
+    .replace(/\b(?:project|session|attachment|run|tx|client)-[0-9a-zA-Z_-]+\b/g, '<ENTITY_ID>')
+    .replace(/(\b(?:document\s*generation|documentGeneration|generation|gen|epoch|revision)\b\s*[\(=:\s]\s*)\d+\b/gi, '$1<NUM>')
+    .replace(/(\b(?:compared to (?:session settled|live) (?:document )?generation\b\s*[\(=:\s]\s*))\d+\b/gi, '$1<NUM>')
+    .replace(/(\b(?:expected|got|active|requested)\s*[:=]?\s*)\d+\b/gi, '$1<NUM>')
+    .replace(/['"][0-9a-fA-F]{6,64}['"]/g, "'<HEX>'")
+    .replace(/\b(?=[0-9a-fA-F]{8,64}\b)[0-9a-fA-F]*\d[0-9a-fA-F]*\b/gi, '<HEX>')
+    .trim();
+}
+
 export class IssueRegister {
   private static instance: IssueRegister | null = null;
   private readonly issues: IssueRecord[] = [];
@@ -388,29 +410,54 @@ export class IssueRegister {
    * source — see `rewriteVerificationsFile`.
    */
   private verificationsCache: { key: string; records: VerificationRecord[] } | null = null;
+  /** Drops the singleton so the next `getInstance()` re-resolves its directories. Tests only. */
+  public static resetInstanceForTests(): void {
+    IssueRegister.instance = null;
+  }
 
   /**
-   * Where an unconfigured run lands its registers. The pipeline lanes pin
-   * `ANTIFAN_ISSUE_REGISTER_DIR` / `ANTIFAN_VERIFICATION_REGISTER_DIR` or at least
-   * `ANTIFAN_DATA_ROOT`; an ad-hoc `node --test` run pins nothing, and before this
-   * guard its fixture refusals (`tab-non-existent-999`, `test.effect-tracker`, ...)
-   * were recorded into the live data root as real OPEN issues. Node stamps
-   * `NODE_TEST_CONTEXT` on every test child, so a test child whose data root is
-   * the live default gets a per-process tmp dir instead. A suite that pins its
-   * own `ANTIFAN_DATA_ROOT` keeps the `<root>/issues` layout it asserts on.
+   * Where an unconfigured run lands its registers. An ad-hoc `node --test` run
+   * pins nothing, and its fixture refusals (`tab-non-existent-999`,
+   * `test.effect-tracker`, ...) used to be recorded into the live data root as
+   * real OPEN issues. Node stamps `NODE_TEST_CONTEXT` on every test child, so a
+   * test child gets a per-process tmp dir instead. `ANTIFAN_DATA_ROOT` alone does
+   * not opt out: every AntiFan terminal exports it pointing at the live root, so
+   * `npm run test:*` typed there inherits it. Only a suite that pins its own
+   * scratch root (anything but the live default) keeps the `<root>/issues` layout
+   * it asserts on. Explicit `ANTIFAN_ISSUE_REGISTER_DIR` /
+   * `ANTIFAN_VERIFICATION_REGISTER_DIR` still win in the constructor.
    */
   private static defaultRegisterDir(liveDir: string): string {
     const underTestRunner = Boolean(process.env.NODE_TEST_CONTEXT || process.env.ANTIFAN_TEST_RUN);
-    const dataRootPinned = Boolean(process.env.ANTIFAN_DATA_ROOT);
-    return underTestRunner && !dataRootPinned ? path.join(os.tmpdir(), `antifan-test-registers-${process.pid}`) : liveDir;
+    if (!underTestRunner) {
+      return liveDir;
+    }
+
+    const pinnedDataRoot = process.env.ANTIFAN_DATA_ROOT?.trim();
+    if (pinnedDataRoot) {
+      try {
+        const liveDefault = StorageLocations.resolveDefaultDataRoot();
+        const normPinned = process.platform === 'win32'
+          ? path.resolve(pinnedDataRoot).toLowerCase()
+          : path.resolve(pinnedDataRoot);
+        const normDefault = process.platform === 'win32'
+          ? path.resolve(liveDefault).toLowerCase()
+          : path.resolve(liveDefault);
+
+        if (normPinned !== normDefault) {
+          return liveDir;
+        }
+      } catch {
+        // Safe fallback on resolution error: redirect to tmp under test runner
+      }
+    }
+
+    return path.join(os.tmpdir(), `antifan-test-registers-${process.pid}`);
   }
 
   private constructor() {
     const dataRoot = StorageLocations.getDataRoot();
     const antifanDir = path.join(dataRoot, 'issues');
-    try {
-      fs.mkdirSync(antifanDir, { recursive: true });
-    } catch {}
     const defaultDir = IssueRegister.defaultRegisterDir(antifanDir);
     // Mirrors ANTIFAN_VERIFICATION_REGISTER_DIR below: test lanes and harness
     // runs must never write issue records into the live data root.
@@ -623,17 +670,28 @@ export class IssueRegister {
     this.readIssuesForMutation();
     const now = Date.now();
 
-    // Deduplicate identical toolName + errorMessage on record
+    // Deduplicate on toolName + status + errorMessage; messages that differ only
+    // by dynamic ids (tab/session UUIDs, generations) are the same issue.
     const targetStatus = issue.status || 'OPEN';
-    const existing = this.issues.find(
+    let existing = this.issues.find(
       (i) => i.toolName === issue.toolName && i.errorMessage === issue.errorMessage && i.status === targetStatus
-    ) || (targetStatus === 'OPEN' ? this.issues.find(
-      (i) => i.toolName === issue.toolName && i.errorMessage === issue.errorMessage && i.status === 'OPEN'
-    ) : undefined);
+    );
+
+    if (!existing) {
+      const normalizedIncoming = normalizeErrorMessageForDedupe(issue.errorMessage || '');
+      if (normalizedIncoming) {
+        existing = this.issues.find((i) => {
+          if (i.toolName !== issue.toolName || i.status !== targetStatus) return false;
+          if (i.errorCode && issue.errorCode && i.errorCode !== issue.errorCode) return false;
+          return normalizeErrorMessageForDedupe(i.errorMessage || '') === normalizedIncoming;
+        });
+      }
+    }
 
     if (existing) {
       existing.timestamp = now;
       existing.timeFormatted = new Date(now).toISOString();
+      if (typeof issue.errorMessage === 'string') existing.errorMessage = issue.errorMessage;
       if (issue.severity) existing.severity = issue.severity;
       if (issue.errorCode) existing.errorCode = issue.errorCode;
       if (issue.targetUrl) existing.targetUrl = issue.targetUrl;
