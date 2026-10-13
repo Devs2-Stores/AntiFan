@@ -238,6 +238,7 @@ export const DEFAULT_THEME_CHECKLIST: ThemeChecklistItem[] = [
   { id: 'qag-15', code: 'QAG-15', name: 'Focus Bàn Phím Nhìn Thấy', desc: 'Tab qua link, nút, input, swatch trên mọi trang', qaPoint: 'Luôn thấy chỉ báo focus; outline: none chỉ hợp lệ khi cùng rule có box-shadow hoặc border thay thế', page: 'qa-gate', pathHint: '/', done: false },
   { id: 'qag-16', code: 'QAG-16', name: 'Gói Bàn Giao Không Lộ Bí Mật', desc: 'Quét assets/ và ZIP: token, API key, manifest có OSSAccessKeyId, đường dẫn máy local', qaPoint: '0 hit; assets/ public trên CDN nên file nhạy cảm phải xoá khỏi theme, không chỉ khỏi ZIP', page: 'qa-gate', pathHint: '/', done: false },
   { id: 'qag-17', code: 'QAG-17', name: 'Đo Trên Bản Đã Đồng Bộ', desc: 'Asset trong DOM thuộc /themes/<shop>/<theme_id>/ của theme đang sửa (?themeid=)', qaPoint: 'Sửa trên disk chưa sync lên theme thì ghi QA_PENDING_SYNC, không tick; không tự chạy lệnh haravan', page: 'qa-gate', pathHint: '/', done: false },
+  { id: 'qag-18', code: 'QAG-18', name: 'Handle Trong Settings Resolve Thật', desc: 'Mọi setting page/collection/blog/link_list trong settings_schema.json: lấy handle đang lưu trong settings_data.json rồi mở trên storefront', qaPoint: '/pages/<handle> trả 200 và có nội dung, collection có sản phẩm, blog có bài, menu có link; handle rỗng hoặc 404 làm theme ẩn khối im lặng nên phải ghi rõ chủ đích hay thiếu. Thiếu page thì tạo trong Admin, không sửa code', page: 'qa-gate', pathHint: '/', done: false },
 ];
 
 /**
