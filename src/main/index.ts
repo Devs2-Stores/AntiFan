@@ -320,6 +320,9 @@ app.commandLine.appendSwitch('media-cache-size', String(MEDIA_CACHE_BYTES));  //
 app.commandLine.appendSwitch('disable-gpu-memory-buffer-video-frames');
 app.commandLine.appendSwitch('enable-features', 'PasswordManager,Autofill,SmoothScrolling,ParallelDownloading,BackForwardCache,AsyncImageDecoding');
 app.commandLine.appendSwitch('disable-blink-features', 'AutomationControlled');
+// Invariant: a covered window must keep producing compositor frames so background capture works.
+app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 const CHROME_USER_AGENT = chromeSessionUserAgent();
 app.userAgentFallback = CHROME_USER_AGENT;
 
