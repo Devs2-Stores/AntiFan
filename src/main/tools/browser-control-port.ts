@@ -4731,7 +4731,7 @@ export class BrowserControlPort {
       });
     }
   }
-  async setViewport(options: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; tabId?: string; reload?: boolean; zoomFactor?: number }, target?: BrowserTarget): Promise<{ success: boolean; width: number; height: number; mobile?: boolean; presetId: string; reloaded?: boolean; observedWidth?: number; observedHeight?: number; verified?: boolean; zoomFactor: number | null; zoomApplied: boolean }> {
+  async setViewport(options: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; tabId?: string; reload?: boolean; zoomFactor?: number }, target?: BrowserTarget): Promise<{ success: boolean; width: number; height: number; mobile?: boolean; presetId: string; reloaded?: boolean; observedWidth?: number; observedHeight?: number; verified?: boolean; zoomFactor: number | null; zoomApplied: boolean; layoutOverflowWidth?: number; layoutOverflowHeight?: number }> {
     if (!this.host.setViewportSize) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'setViewportSize is not supported by host');
     if (typeof options.width !== 'number' || options.width <= 0 || typeof options.height !== 'number' || options.height <= 0) {
       throw new CapabilityError('INVALID_ARGUMENT', 'width and height must be positive numbers');
@@ -4789,27 +4789,70 @@ export class BrowserControlPort {
     // outlive the confirmation budget. There is no unverified success path: a
     // host that cannot answer the geometry probe fails like any other tab.
     const deadline = Date.now() + VIEWPORT_CONFIRM_BOUND_MS;
-    const mismatched = (m: { vw: number; vh: number }): boolean => Math.abs(m.vw - options.width) > 1 || Math.abs(m.vh - options.height) > 1;
-    const probe = async (): Promise<{ vw: number; vh: number } | null> => {
+    const isMobile = options.mobile ?? (options.width < 768);
+    type ObservedMeasurement = {
+      vw: number;
+      vh: number;
+      visualViewportWidth?: number;
+      visualViewportHeight?: number;
+      screenWidth?: number;
+      screenHeight?: number;
+    };
+    const mismatched = (m: ObservedMeasurement): boolean => {
+      if (m.vw < 1 || m.vh < 1) return true;
+      const vwMatch = Math.abs(m.vw - options.width) <= 1 && Math.abs(m.vh - options.height) <= 1;
+      if (vwMatch) return false;
+      if (isMobile) {
+        const vvMatch = (m.visualViewportWidth ?? 0) >= 1 && (m.visualViewportHeight ?? 0) >= 1 &&
+          Math.abs((m.visualViewportWidth ?? 0) - options.width) <= 1 &&
+          Math.abs((m.visualViewportHeight ?? 0) - options.height) <= 1;
+        if (vvMatch) return false;
+        const screenMatch = (m.screenWidth ?? 0) >= 1 && (m.screenHeight ?? 0) >= 1 &&
+          Math.abs((m.screenWidth ?? 0) - options.width) <= 1 &&
+          Math.abs((m.screenHeight ?? 0) - options.height) <= 1;
+        if (screenMatch) return false;
+      }
+      return true;
+    };
+    const probe = async (): Promise<ObservedMeasurement | null> => {
       const remaining = Math.max(1, deadline - Date.now());
       return raceWithTimeout(
-        (async (): Promise<{ vw: number; vh: number } | null> => {
+        (async (): Promise<ObservedMeasurement | null> => {
           if (typeof this.host.readRenderSurface === 'function') {
             const surface = await this.host.readRenderSurface(effectiveTabId, undefined, remaining);
-            if (surface && Number.isFinite(surface.vw) && Number.isFinite(surface.vh)) return { vw: surface.vw, vh: surface.vh };
+            if (surface && Number.isFinite(surface.vw) && Number.isFinite(surface.vh)) {
+              return {
+                vw: surface.vw,
+                vh: surface.vh,
+                visualViewportWidth: surface.visualViewportWidth,
+                visualViewportHeight: surface.visualViewportHeight,
+                screenWidth: surface.screenWidth,
+                screenHeight: surface.screenHeight,
+              };
+            }
           }
           if (typeof this.host.evalJs !== 'function') return null;
           // Layout-anchored only: a device-emulated tab reports a widget size in
           // window.innerWidth/innerHeight that is not the viewport it laid out.
-          const metrics = (await this.host.evalJs('({ innerWidth: (document.documentElement && document.documentElement.clientWidth) || 0, innerHeight: (document.documentElement && document.documentElement.clientHeight) || 0 })', effectiveTabId)) as { innerWidth?: number; innerHeight?: number } | null;
+          const metrics = (await this.host.evalJs(
+            '({ innerWidth: (document.documentElement && document.documentElement.clientWidth) || 0, innerHeight: (document.documentElement && document.documentElement.clientHeight) || 0, visualViewportWidth: (window.visualViewport && Math.round(window.visualViewport.width * (window.visualViewport.scale || 1))) || 0, visualViewportHeight: (window.visualViewport && Math.round(window.visualViewport.height * (window.visualViewport.scale || 1))) || 0, screenWidth: (window.screen && Math.round(window.screen.width)) || 0, screenHeight: (window.screen && Math.round(window.screen.height)) || 0 })',
+            effectiveTabId
+          )) as { innerWidth?: number; innerHeight?: number; visualViewportWidth?: number; visualViewportHeight?: number; screenWidth?: number; screenHeight?: number } | null;
           if (!metrics || typeof metrics.innerWidth !== 'number' || typeof metrics.innerHeight !== 'number') return null;
-          return { vw: metrics.innerWidth, vh: metrics.innerHeight };
+          return {
+            vw: metrics.innerWidth,
+            vh: metrics.innerHeight,
+            visualViewportWidth: typeof metrics.visualViewportWidth === 'number' ? metrics.visualViewportWidth : undefined,
+            visualViewportHeight: typeof metrics.visualViewportHeight === 'number' ? metrics.visualViewportHeight : undefined,
+            screenWidth: typeof metrics.screenWidth === 'number' ? metrics.screenWidth : undefined,
+            screenHeight: typeof metrics.screenHeight === 'number' ? metrics.screenHeight : undefined,
+          };
         })().catch(() => null),
         remaining,
         () => null
       );
     };
-    let observed: { vw: number; vh: number } | null = null;
+    let observed: ObservedMeasurement | null = null;
     for (;;) {
       const attempt = await probe();
       if (attempt) observed = attempt;
@@ -4837,15 +4880,23 @@ export class BrowserControlPort {
         cause: observed.vw < 1 || observed.vh < 1 ? 'zero-viewport' : 'geometry-mismatch',
       });
     }
-    if (observed) this.verifiedTabGeometry.set(effectiveTabId, { width: observed.vw, height: observed.vh, mobile: options.mobile ?? (options.width < 768) });
+    if (observed) this.verifiedTabGeometry.set(effectiveTabId, { width: options.width, height: options.height, mobile: isMobile });
+    // A mobile page wider than its viewport lays out at its scroll width, so the
+    // emulation was confirmed through visualViewport/screen instead: report the
+    // confirmed viewport, and the layout size separately so the overflow stays visible.
+    const layoutMatched = Math.abs(observed.vw - options.width) <= 1 && Math.abs(observed.vh - options.height) <= 1;
     return {
       success: ok,
       width: options.width,
       height: options.height,
-      mobile: options.mobile ?? (options.width < 768),
+      mobile: isMobile,
       presetId: `custom-${options.width}x${options.height}`,
       ...(options.reload !== undefined ? { reloaded } : {}),
-      ...(observed ? { observedWidth: observed.vw, observedHeight: observed.vh } : {}),
+      ...(layoutMatched
+        ? { observedWidth: observed.vw, observedHeight: observed.vh }
+        : { observedWidth: options.width, observedHeight: options.height }),
+      ...(!layoutMatched && observed.vw > options.width + 1 ? { layoutOverflowWidth: observed.vw } : {}),
+      ...(!layoutMatched && observed.vh > options.height + 1 ? { layoutOverflowHeight: observed.vh } : {}),
       verified: Boolean(observed),
       // The zoom this call put in effect, echoed so a caller can detect a
       // mismatch. `null` means the host cannot apply zoom, so the scale the

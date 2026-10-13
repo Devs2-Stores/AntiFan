@@ -15,6 +15,7 @@ import {
   coherencePairReceipt,
   maskEntryReceipt,
   materializeRasterMasks,
+  provenViewportCssSize,
   rasterMatchesCss,
   resolveCaptureMode,
   transformMaskBoxToRaster,
@@ -957,5 +958,29 @@ describe('rasterMatchesCss (scale gate)', () => {
     assert.strictEqual(rasterMatchesCss({ width: 2400, height: 1600 }, { width: 1200, height: 800 }, 2, 0), false);
     assert.strictEqual(rasterMatchesCss({ width: NaN, height: 1600 }, { width: 1200, height: 800 }, 2, 1), false);
     assert.strictEqual(rasterMatchesCss({ width: 2400, height: 1600 }, { width: 0, height: 800 }, 2, 1), false);
+  });
+});
+
+describe('provenViewportCssSize (viewport raster geometry)', () => {
+  // Measured live: a 546px-wide element on a 390x844 mobile emulation at dpr 3.
+  const overflowing = { vw: 546, vh: 1182, visualViewportWidth: 390, visualViewportHeight: 844 };
+
+  it('declares the visual viewport when an overflowing mobile layout rasterizes the device', () => {
+    assert.deepStrictEqual(provenViewportCssSize({ width: 1170, height: 2532 }, overflowing, 3, 1), { width: 390, height: 844 });
+  });
+
+  it('keeps the layout reading whenever the raster matches it', () => {
+    const desktop = { vw: 1440, vh: 900, visualViewportWidth: 1425, visualViewportHeight: 900 };
+    assert.deepStrictEqual(provenViewportCssSize({ width: 1440, height: 900 }, desktop, 1, 1), { width: 1440, height: 900 });
+  });
+
+  it('refuses a visual viewport larger than the layout viewport', () => {
+    const inverted = { vw: 390, vh: 844, visualViewportWidth: 546, visualViewportHeight: 1182 };
+    assert.strictEqual(provenViewportCssSize({ width: 1638, height: 3546 }, inverted, 3, 1), null);
+  });
+
+  it('returns null when the raster matches neither reading or the visual viewport is unmeasured', () => {
+    assert.strictEqual(provenViewportCssSize({ width: 1000, height: 2000 }, overflowing, 3, 1), null);
+    assert.strictEqual(provenViewportCssSize({ width: 1170, height: 2532 }, { vw: 546, vh: 1182 }, 3, 1), null);
   });
 });

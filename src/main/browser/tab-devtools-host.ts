@@ -28,6 +28,7 @@ import {
   RENDER_SURFACE_PROBE_BOUND_MS,
   RENDER_SURFACE_PROBE_EXPRESSION,
   classifyRenderSurfaceCause,
+  provenViewportCssSize,
   rasterMatchesCss,
   resolveCaptureMode,
   validateJpegBuffer,
@@ -1564,6 +1565,10 @@ export class TabDevToolsHost {
       vh: Math.max(0, finite(renderer.vh)),
       ...(renderer.layoutWidth !== undefined ? { layoutWidth: Math.max(0, finite(renderer.layoutWidth)) } : {}),
       ...(renderer.layoutHeight !== undefined ? { layoutHeight: Math.max(0, finite(renderer.layoutHeight)) } : {}),
+      ...(renderer.visualViewportWidth !== undefined ? { visualViewportWidth: Math.max(0, finite(renderer.visualViewportWidth)) } : {}),
+      ...(renderer.visualViewportHeight !== undefined ? { visualViewportHeight: Math.max(0, finite(renderer.visualViewportHeight)) } : {}),
+      ...(renderer.screenWidth !== undefined ? { screenWidth: Math.max(0, finite(renderer.screenWidth)) } : {}),
+      ...(renderer.screenHeight !== undefined ? { screenHeight: Math.max(0, finite(renderer.screenHeight)) } : {}),
       dpr: Number(renderer.dpr) || 1,
       scrollX: Number(renderer.scrollX) || 0,
       scrollY: Number(renderer.scrollY) || 0,
@@ -2465,7 +2470,7 @@ export class TabDevToolsHost {
             }
           }
           const dpr = surface.dpr;
-          const cssViewport = { width: surface.vw, height: surface.vh };
+          let cssViewport = { width: surface.vw, height: surface.vh };
           // Refuse an impossible full-page request before spending the walk and the
           // settle gate on it. The document is measured again after the walk — lazily
           // mounted content can push a legal page past the ceiling, and that later
@@ -2692,7 +2697,10 @@ export class TabDevToolsHost {
                 if (native.bytes && native.uniform !== true) {
                   const fallbackImage = imageFormat === 'jpeg' ? validateJpegBuffer(native.bytes) : validatePngBuffer(native.bytes);
                   const fallbackRaster = { width: fallbackImage.width, height: fallbackImage.height };
-                  if (fallbackImage.ok && rasterMatchesCss(fallbackRaster, cssCaptureSize, dpr, zoom)) {
+                  const fallbackCss = fallbackImage.ok ? provenViewportCssSize(fallbackRaster, surface, dpr, zoom) : null;
+                  if (fallbackCss) {
+                    cssViewport = fallbackCss;
+                    cssCaptureSize = fallbackCss;
                     return {
                       data: native.bytes.toString('base64'),
                       backend: 'native-fallback',
@@ -2769,6 +2777,15 @@ export class TabDevToolsHost {
             );
           }
           const rasterSize = { width: image.width, height: image.height };
+          // A viewport raster proves which reading of the surface it covers: an overflowing
+          // mobile-emulated page lays out wider than the device it rasterizes.
+          if (mode === 'viewport') {
+            const provenCss = provenViewportCssSize(rasterSize, surface, dpr, zoom);
+            if (provenCss) {
+              cssViewport = provenCss;
+              cssCaptureSize = provenCss;
+            }
+          }
           if (!rasterMatchesCss(rasterSize, cssCaptureSize, dpr, zoom)) {
             throw new CaptureError(
               'CAPTURE_SCALE_MISMATCH',

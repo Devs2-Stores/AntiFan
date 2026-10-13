@@ -715,6 +715,11 @@ export interface RenderSurfaceSnapshot {
   /** Scrollbar-excluded content box of the same reading, for diagnosis. */
   layoutWidth?: number;
   layoutHeight?: number;
+  /** Visual viewport in widget CSS px (`width × scale`): the device region a viewport raster covers. */
+  visualViewportWidth?: number;
+  visualViewportHeight?: number;
+  screenWidth?: number;
+  screenHeight?: number;
   dpr: number;
   scrollX: number;
   scrollY: number;
@@ -740,6 +745,10 @@ export const RENDER_SURFACE_PROBE_EXPRESSION =
   'vh: layoutH > 0 ? (positive(window.innerHeight) || layoutH) : 0, ' +
   'layoutWidth: layoutW, layoutHeight: layoutH, ' +
   'windowWidth: positive(window.innerWidth), windowHeight: positive(window.innerHeight), ' +
+  'visualViewportWidth: vv ? positive(vv.width * (vv.scale || 1)) : 0, ' +
+  'visualViewportHeight: vv ? positive(vv.height * (vv.scale || 1)) : 0, ' +
+  'screenWidth: window.screen ? positive(window.screen.width) : 0, ' +
+  'screenHeight: window.screen ? positive(window.screen.height) : 0, ' +
   'dpr: window.devicePixelRatio || 1, ' +
   'scrollX: window.scrollX || 0, scrollY: window.scrollY || 0, ' +
   'docH: Math.max(doc ? doc.scrollHeight : 0, document.body ? document.body.scrollHeight : 0), ' +
@@ -1567,6 +1576,28 @@ export function rasterMatchesCss(
   // CDP Page.captureScreenshot in viewport mode or standard desktop backings produces 1x CSS raster (zoom-scaled)
   const matches1x = Math.abs(raster.width - css.width * zoom) <= 1 && Math.abs(raster.height - css.height * zoom) <= 1;
   return matches1x;
+}
+
+/**
+ * Pure. The CSS region a viewport raster really covers, proven against the raster itself.
+ * A mobile-emulated page wider than its device grows the layout viewport past the screen
+ * (`innerWidth` 546 on a 390 device) while the raster stays the device's visual viewport
+ * (390x844 CSS at dpr 3 = 1170x2532). The layout reading wins when it matches; otherwise
+ * the visual viewport of the same reading is accepted only when it is the smaller region
+ * and the raster matches it. Null when the raster matches neither.
+ */
+export function provenViewportCssSize(
+  raster: { width: number; height: number },
+  surface: Pick<RenderSurfaceSnapshot, 'vw' | 'vh' | 'visualViewportWidth' | 'visualViewportHeight'>,
+  dpr: number,
+  zoom: number
+): { width: number; height: number } | null {
+  const layout = { width: surface.vw, height: surface.vh };
+  if (rasterMatchesCss(raster, layout, dpr, zoom)) return layout;
+  const visual = { width: surface.visualViewportWidth ?? 0, height: surface.visualViewportHeight ?? 0 };
+  if (visual.width < 1 || visual.height < 1) return null;
+  if (visual.width > layout.width || visual.height > layout.height) return null;
+  return rasterMatchesCss(raster, visual, dpr, zoom) ? visual : null;
 }
 
 /**

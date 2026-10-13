@@ -368,6 +368,181 @@ describe('Phase 1: Viewport Emulation & CDP Matched Styles Gateway', () => {
     assert.strictEqual(res.reloaded, true);
   });
 
+  it('set_viewport confirms successfully on mobile emulation when page content horizontally overflows the viewport', async () => {
+    const mockHost: BrowserHostPort = {
+      navigate: () => true,
+      reload: () => true,
+      getDom: async () => '<html></html>',
+      captureScreenshot: async () => 'data:image/png;base64,mock',
+      getTabList: () => [{ id: 'tab-1' }],
+      evalJs: async () => null,
+      readRenderSurface: async () => ({
+        vw: 578,
+        vh: 1251,
+        layoutWidth: 390,
+        layoutHeight: 844,
+        visualViewportWidth: 390,
+        visualViewportHeight: 844,
+        screenWidth: 390,
+        screenHeight: 844,
+        dpr: 3,
+        scrollX: 0,
+        scrollY: 0,
+        docH: 2500,
+        readyState: 'complete',
+        hidden: false,
+      }),
+      setViewportSize: async () => ({ success: true }),
+    };
+    const port = new BrowserControlPort(mockHost);
+    const res = await port.setViewport({ width: 390, height: 844, mobile: true, tabId: 'tab-1' });
+    assert.strictEqual(res.success, true);
+    assert.strictEqual(res.verified, true);
+    assert.strictEqual(res.observedWidth, 390);
+    assert.strictEqual(res.observedHeight, 844);
+    assert.strictEqual(res.layoutOverflowWidth, 578);
+    assert.strictEqual(res.layoutOverflowHeight, 1251);
+
+    type PortWithGeometry = {
+      verifiedTabGeometry: Map<string, { width: number; height: number; mobile?: boolean }>;
+    };
+    const portWithGeometry: PortWithGeometry = port as unknown as PortWithGeometry;
+    const internalGeometry = portWithGeometry.verifiedTabGeometry;
+    assert.deepStrictEqual(internalGeometry.get('tab-1'), { width: 390, height: 844, mobile: true });
+
+    const mockHostScreenOnly: BrowserHostPort = {
+      navigate: () => true,
+      reload: () => true,
+      getDom: async () => '<html></html>',
+      captureScreenshot: async () => 'data:image/png;base64,mock',
+      getTabList: () => [{ id: 'tab-1' }],
+      evalJs: async () => null,
+      readRenderSurface: async () => ({
+        vw: 578,
+        vh: 1251,
+        screenWidth: 390,
+        screenHeight: 844,
+        dpr: 3,
+        scrollX: 0,
+        scrollY: 0,
+        docH: 2500,
+        readyState: 'complete',
+        hidden: false,
+      }),
+      setViewportSize: async () => ({ success: true }),
+    };
+    const portScreenOnly = new BrowserControlPort(mockHostScreenOnly);
+    const resScreen = await portScreenOnly.setViewport({ width: 390, height: 844, mobile: true, tabId: 'tab-1' });
+    assert.strictEqual(resScreen.success, true);
+    assert.strictEqual(resScreen.verified, true);
+    assert.strictEqual(resScreen.observedWidth, 390);
+    assert.strictEqual(resScreen.observedHeight, 844);
+  });
+
+  it('set_viewport continues to reject with VIEWPORT_NOT_APPLIED when surface is unmeasurable or screen metrics do not match request', async () => {
+    const mockMismatchedMobile: BrowserHostPort = {
+      navigate: () => true,
+      reload: () => true,
+      getDom: async () => '<html></html>',
+      captureScreenshot: async () => 'data:image/png;base64,mock',
+      getTabList: () => [{ id: 'tab-1' }],
+      evalJs: async () => null,
+      readRenderSurface: async () => ({
+        vw: 578,
+        vh: 1251,
+        visualViewportWidth: 1024,
+        visualViewportHeight: 768,
+        screenWidth: 1024,
+        screenHeight: 768,
+        dpr: 1,
+        scrollX: 0,
+        scrollY: 0,
+        docH: 2500,
+        readyState: 'complete',
+        hidden: false,
+      }),
+      setViewportSize: async () => ({ success: true }),
+    };
+    const portMismatched = new BrowserControlPort(mockMismatchedMobile);
+    await assert.rejects(
+      () => portMismatched.setViewport({ width: 390, height: 844, mobile: true, tabId: 'tab-1' }),
+      (err: unknown) => {
+        assert.ok(err instanceof CapabilityError);
+        assert.strictEqual(err.code, 'VIEWPORT_NOT_APPLIED');
+        assert.strictEqual(err.details?.cause, 'geometry-mismatch');
+        return true;
+      }
+    );
+
+    const mockZeroSurface: BrowserHostPort = {
+      navigate: () => true,
+      reload: () => true,
+      getDom: async () => '<html></html>',
+      captureScreenshot: async () => 'data:image/png;base64,mock',
+      getTabList: () => [{ id: 'tab-1' }],
+      evalJs: async () => null,
+      readRenderSurface: async () => ({
+        vw: 0,
+        vh: 0,
+        visualViewportWidth: 390,
+        visualViewportHeight: 844,
+        screenWidth: 390,
+        screenHeight: 844,
+        dpr: 1,
+        scrollX: 0,
+        scrollY: 0,
+        docH: 0,
+        readyState: 'complete',
+        hidden: false,
+      }),
+      setViewportSize: async () => ({ success: true }),
+    };
+    const portZero = new BrowserControlPort(mockZeroSurface);
+    await assert.rejects(
+      () => portZero.setViewport({ width: 390, height: 844, mobile: true, tabId: 'tab-1' }),
+      (err: unknown) => {
+        assert.ok(err instanceof CapabilityError);
+        assert.strictEqual(err.code, 'VIEWPORT_NOT_APPLIED');
+        assert.strictEqual(err.details?.cause, 'zero-viewport');
+        return true;
+      }
+    );
+
+    const mockDesktopMismatched: BrowserHostPort = {
+      navigate: () => true,
+      reload: () => true,
+      getDom: async () => '<html></html>',
+      captureScreenshot: async () => 'data:image/png;base64,mock',
+      getTabList: () => [{ id: 'tab-1' }],
+      evalJs: async () => null,
+      readRenderSurface: async () => ({
+        vw: 1920,
+        vh: 1080,
+        visualViewportWidth: 1440,
+        visualViewportHeight: 900,
+        screenWidth: 1440,
+        screenHeight: 900,
+        dpr: 1,
+        scrollX: 0,
+        scrollY: 0,
+        docH: 1080,
+        readyState: 'complete',
+        hidden: false,
+      }),
+      setViewportSize: async () => ({ success: true }),
+    };
+    const portDesktop = new BrowserControlPort(mockDesktopMismatched);
+    await assert.rejects(
+      () => portDesktop.setViewport({ width: 1440, height: 900, mobile: false, tabId: 'tab-1' }),
+      (err: unknown) => {
+        assert.ok(err instanceof CapabilityError);
+        assert.strictEqual(err.code, 'VIEWPORT_NOT_APPLIED');
+        assert.strictEqual(err.details?.cause, 'geometry-mismatch');
+        return true;
+      }
+    );
+  });
+
   it('rejects failed viewport reloads as stale targets and propagates reload exceptions', async () => {
     const host = createTestHost();
     const tab = createTestTabRecord('tab-1');
