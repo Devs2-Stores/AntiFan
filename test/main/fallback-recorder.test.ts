@@ -11,6 +11,7 @@ import {
   getTelemetryLogPath,
   type FallbackTelemetryPayload,
 } from '../../src/main/telemetry/fallback-recorder';
+import { StorageLocations } from '../../src/main/config/storage-locations';
 
 let dir: string;
 let gaps: string;
@@ -195,5 +196,76 @@ describe('fallback telemetry records a complete payload faithfully', () => {
     recordFallbackTelemetry({ primaryTool: 'a', fallbackTool: 'b', fallbackResult: 'SUCCESS' }, dir);
     recordFallbackTelemetry({ primaryTool: 'c', fallbackTool: 'd', fallbackResult: 'FAILED' }, dir);
     assert.deepEqual(readRecords().map((r) => r.primaryTool), ['a', 'c']);
+  });
+});
+
+describe('fallback telemetry directory routing', () => {
+  let scratchDataRoot: string;
+  let originalDataRoot: string | undefined;
+
+  beforeEach(() => {
+    scratchDataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-scratch-telemetry-'));
+    originalDataRoot = process.env.ANTIFAN_DATA_ROOT;
+    process.env.ANTIFAN_DATA_ROOT = scratchDataRoot;
+    StorageLocations.resetCache();
+  });
+
+  afterEach(() => {
+    if (originalDataRoot === undefined) {
+      delete process.env.ANTIFAN_DATA_ROOT;
+    } else {
+      process.env.ANTIFAN_DATA_ROOT = originalDataRoot;
+    }
+    StorageLocations.resetCache();
+    fs.rmSync(scratchDataRoot, { recursive: true, force: true });
+  });
+
+  it('recordFallbackTelemetry routes to data root telemetry directory when workspace root is empty string or omitted', () => {
+    const resEmpty = recordFallbackTelemetry(
+      { primaryTool: 'anti.inspect.dom', fallbackTool: 'playwright', fallbackResult: 'SUCCESS' },
+      ''
+    );
+    assert.strictEqual(resEmpty.recorded, true);
+    const expectedPath = path.join(scratchDataRoot, 'telemetry', 'gaps.jsonl');
+    assert.strictEqual(resEmpty.path, expectedPath);
+    assert.ok(fs.existsSync(expectedPath), 'gaps.jsonl must exist under scratch data root');
+
+    const resOmitted = recordFallbackTelemetry({
+      primaryTool: 'anti.inspect.dom',
+      fallbackTool: 'playwright',
+      fallbackResult: 'SUCCESS',
+    });
+    assert.strictEqual(resOmitted.recorded, true);
+    assert.strictEqual(resOmitted.path, expectedPath);
+
+    const resWhitespace = recordFallbackTelemetry(
+      { primaryTool: 'anti.agent.cursor.click', fallbackTool: 'playwright', fallbackResult: 'FAILED' },
+      '   '
+    );
+    assert.strictEqual(resWhitespace.recorded, true);
+    assert.strictEqual(resWhitespace.path, expectedPath);
+  });
+
+  it('getTelemetryLogPath defaults to data root telemetry path when baseDir is empty, undefined or whitespace', () => {
+    const expectedPath = path.join(scratchDataRoot, 'telemetry', 'gaps.jsonl');
+    assert.strictEqual(getTelemetryLogPath(), expectedPath);
+    assert.strictEqual(getTelemetryLogPath(''), expectedPath);
+    assert.strictEqual(getTelemetryLogPath('   '), expectedPath);
+  });
+
+  it('getTelemetryLogPath targets <baseDir>/.antifan/telemetry/gaps.jsonl when a valid non-empty workspace root is supplied', () => {
+    const customWorkspace = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-ws-'));
+    try {
+      const expectedCustomPath = path.join(customWorkspace, '.antifan', 'telemetry', 'gaps.jsonl');
+      assert.strictEqual(getTelemetryLogPath(customWorkspace), expectedCustomPath);
+      const res = recordFallbackTelemetry(
+        { primaryTool: 'anti.inspect.dom', fallbackTool: 'playwright', fallbackResult: 'SUCCESS' },
+        customWorkspace
+      );
+      assert.strictEqual(res.path, expectedCustomPath);
+      assert.ok(fs.existsSync(expectedCustomPath));
+    } finally {
+      fs.rmSync(customWorkspace, { recursive: true, force: true });
+    }
   });
 });

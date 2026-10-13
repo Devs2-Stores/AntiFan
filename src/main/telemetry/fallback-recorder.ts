@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { CapabilityError } from '../../shared/control-plane-contracts';
+import { StorageLocations } from '../config/storage-locations';
 
 export interface FallbackTelemetryPayload {
   sessionId?: string;
@@ -119,13 +120,17 @@ export function sanitizeTelemetryPayload(payload: FallbackTelemetryPayload): San
   };
 }
 
-export function getTelemetryLogPath(baseDir = process.cwd()): string {
-  return path.join(baseDir, '.antifan', 'telemetry', 'gaps.jsonl');
+export function getTelemetryLogPath(baseDir?: string): string {
+  const trimmed = typeof baseDir === 'string' ? baseDir.trim() : '';
+  if (!trimmed) {
+    return path.join(StorageLocations.getDataRoot(), 'telemetry', 'gaps.jsonl');
+  }
+  return path.join(trimmed, '.antifan', 'telemetry', 'gaps.jsonl');
 }
 
 export function recordFallbackTelemetry(
   payload: FallbackTelemetryPayload,
-  baseDir = process.cwd()
+  baseDir?: string
 ): { recorded: boolean; path: string; record: SanitizedTelemetryRecord } {
   // Refused before any filesystem work: nothing is created, rotated or appended for a
   // payload that does not actually describe a fallback event.
