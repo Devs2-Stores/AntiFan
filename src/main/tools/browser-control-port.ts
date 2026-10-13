@@ -96,6 +96,18 @@ export interface ResponsiveBreakpointOption {
   deviceScaleFactor?: number;
 }
 
+export interface ResponsiveCheckParams {
+  tabId?: string;
+  selector?: string;
+  customBreakpoints?: ResponsiveBreakpointOption[];
+  /**
+   * Script the host evaluates once per breakpoint after the emulated width took effect; the result
+   * comes back as `integrity` on that breakpoint. Trusted in-process callers only: never forward
+   * it from MCP input, it runs in the page.
+   */
+  perWidthScript?: string;
+}
+
 interface ObservationIdentity {
   browserEpoch: number;
   documentGeneration: number;
@@ -160,7 +172,7 @@ export interface BrowserHostPort {
   /** Evaluate inside a child frame (cross-origin iframe) selected by URL substring. */
   evalJsInFrame?(expression: string, frameUrl: string, tabId?: string, paneId?: 'desktop' | 'mobile', userGesture?: boolean, timeoutMs?: number): Promise<unknown>;
   getDiagnostics?(tabId?: string, level?: number | string): { console: unknown[]; failures: unknown[] };
-  runResponsiveCheck?(params?: { tabId?: string; selector?: string; customBreakpoints?: ResponsiveBreakpointOption[] } | string): Promise<Record<string, unknown>>;
+  runResponsiveCheck?(params?: ResponsiveCheckParams | string): Promise<Record<string, unknown>>;
   agentTrajectory?(params: { steps: Array<Record<string, unknown>>; speed?: 'fast' | 'natural' | 'slow'; smoothScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<Record<string, unknown>>;
   dispatchAgentAction?(action: 'click' | 'type' | 'move' | 'hover' | 'scroll' | 'highlight' | 'clear' | 'trajectory', params: Record<string, unknown>): Promise<{ success: boolean; data?: unknown; reason?: string }>;
   agentMove?(args: { selector?: string; ref?: string; x?: number; y?: number; label?: string; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<boolean>;
@@ -4414,7 +4426,7 @@ export class BrowserControlPort {
     return this.host.getDiagnostics(tabId, level);
   }
 
-  async responsiveCheck(params?: { tabId?: string; selector?: string; customBreakpoints?: ResponsiveBreakpointOption[] } | string, target?: BrowserTarget): Promise<Record<string, unknown>> {
+  async responsiveCheck(params?: ResponsiveCheckParams | string, target?: BrowserTarget): Promise<Record<string, unknown>> {
     if (!this.host.runResponsiveCheck) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'runResponsiveCheck is not supported by host');
     const opts = typeof params === 'string' ? { tabId: params } : (params || {});
     const effectiveTabId = this.resolveTargetTab(target, opts.tabId);

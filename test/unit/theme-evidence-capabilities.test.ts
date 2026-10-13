@@ -241,6 +241,7 @@ describe('Phase 3: Theme Evidence Capabilities', () => {
       getDocumentGeneration: () => 1,
     });
 
+    let hostResponsiveParams: unknown;
     const mockHost: BrowserHostPort = {
       navigate: () => true,
       reload: () => true,
@@ -263,17 +264,20 @@ describe('Phase 3: Theme Evidence Capabilities', () => {
           },
         ],
       }),
-      runResponsiveCheck: async () => ({
-        ok: true,
-        tabId: 'tab-1',
-        breakpoints: {
-          'mobile-small': { width: 320, documentOverflowX: false, targetOverflowX: false },
-          'mobile-standard': { width: 375, documentOverflowX: false, targetOverflowX: false },
-          'tablet-portrait': { width: 768, documentOverflowX: false, targetOverflowX: false },
-          'tablet-landscape': { width: 1024, documentOverflowX: false, targetOverflowX: false },
-          'desktop-laptop': { width: 1440, documentOverflowX: false, targetOverflowX: false },
-        },
-      }),
+      runResponsiveCheck: async (params) => {
+        hostResponsiveParams = params;
+        return {
+          ok: true,
+          tabId: 'tab-1',
+          breakpoints: {
+            'mobile-small': { width: 320, documentOverflowX: false, targetOverflowX: false },
+            'mobile-standard': { width: 375, documentOverflowX: false, targetOverflowX: false },
+            'tablet-portrait': { width: 768, documentOverflowX: false, targetOverflowX: false },
+            'tablet-landscape': { width: 1024, documentOverflowX: false, targetOverflowX: false },
+            'desktop-laptop': { width: 1440, documentOverflowX: false, targetOverflowX: false },
+          },
+        };
+      },
     };
 
     const port = new BrowserControlPort(mockHost);
@@ -313,7 +317,7 @@ describe('Phase 3: Theme Evidence Capabilities', () => {
     // 3. Dispatch responsive_matrix
     const matrixRes = await catalogue.dispatch(
       'anti.inspect.responsive_matrix',
-      { selector: '.product-card', tabId: 'tab-1' },
+      { selector: '.product-card', tabId: 'tab-1', perWidthScript: 'window.__injected = true' },
       { lease, leaseToken: lease.token, projectId, workspaceId, browserTarget: target }
     );
     assert.ok(isThemeEvidenceEnvelope(matrixRes));
@@ -321,6 +325,8 @@ describe('Phase 3: Theme Evidence Capabilities', () => {
     assert.strictEqual(matrixRes.signals.hasDocOverflow, false);
     assert.strictEqual(matrixRes.signals.hasTargetOverflow, false);
     assert.strictEqual(matrixRes.signals.allBreakpointsTested, true);
+    // The per-width script runs in the page: it is an in-process option, never caller input.
+    assert.ok(hostResponsiveParams && typeof hostResponsiveParams === 'object' && !('perWidthScript' in hostResponsiveParams));
   });
 
   it('verifies theme.debug_bundle synchronizes target.tabId with params.tabId', async () => {

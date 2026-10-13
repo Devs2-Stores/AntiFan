@@ -6,6 +6,11 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 
 ## [v1.3.6] - Unreleased
 
+### Thêm — Layout Integrity đo khoảng cách sát mép (`spacing`) và đếm integrity theo từng chiều rộng
+
+- Layout Integrity: thêm kind `spacing` (chỉ warning, tối đa 10 finding mỗi scan) với hai luật `edge-text` và `edge-control`: chữ hoặc control dính sát mép viewport, mép `dialog` đang mở hoặc mép box cắt chứa nó (ngưỡng 2–3 px). Miễn trừ nút đóng, thanh full-bleed, control trong box cắt (tiêu đề line-clamp), căn giữa, carousel và nội dung đang chuyển động. Có 3 fixture mới (2 lỗi, 1 control) trong `test/fixtures/visual-qa`; fixture 28 được thêm `padding:0 12px` cho thanh điều hướng đáy vì chữ của nó thật sự dính mép trái màn hình.
+- `theme.qa_validate`: `findings.responsive[width]` giờ có số đếm overlap/clipping/occlusion/offscreen và `spacingWarnings` ở cả 5 chiều rộng, lấy từ scan chạy ngay tại chiều rộng đó (trước đây chỉ chiều rộng trùng viewport active có số, còn lại `null`). Critical ở chiều rộng khác chưa tính vào verdict. `runResponsiveCheck` nhận `perWidthScript` (nội bộ; `anti.inspect.responsive_matrix` không chuyển nó từ input MCP).
+
 ### Sửa & Nâng cấp — Bộ Theme QA Automation Stack cho Haravan Next Stack Build
 
 - `theme.qa_validate`: Mặc định chạy sweep 5 viewport chuẩn (320, 375, 768, 1024, 1440) khi host có `responsiveCheck` (`multiBreakpoint: false` để opt-out). Khi không đo được viewport nào, `checklist.responsive` và `summary.responsive` báo `UNMEASURED` thay vì `true`; chỉ khi caller truyền tường minh `multiBreakpoint: true` thì thiếu đo mới thêm evidence gap và verdict thành `INCONCLUSIVE`.
@@ -21,6 +26,7 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 - Layout Integrity: Bỏ qua các phần tử `.sr-only`, `.visually-hidden` và clip 1px khỏi bộ quét clipping/offscreen, loại bỏ cảnh báo giả.
 - Theme QA Cockpit: checklist mặc định tăng 44 → 56 mục (home 9, collection 7, product 9, cart 6, blog 4, account 4, pages 5, qa-gate 12), thêm 12 mục từ lỗi gặp thật ở Lux Wine: menu mobile cấp 2-3 (`HOM-09`), link tag/thương hiệu trong menu (`COL-07`), nút thao tác trên ảnh sản phẩm khi cảm ứng (`PDP-09`), thanh freeship (`CRT-06`), tàn dư thương hiệu theme base, cú pháp Liquid đúng nền tảng, responsive đo thật 5 mốc, tiếng Việt không cắt dấu, bẫy focus modal/drawer/cổng tuổi, SEO & a11y cơ bản, hover/motion đo thật, đồng bộ giá trị Customizer (`QAG-05`…`QAG-12`). Badge toolbar và test đếm theo `DEFAULT_THEME_CHECKLIST.length`, không ghim cứng 44.
 - Theme QA Cockpit: checklist mặc định tăng 56 → 66 mục (home 10, collection 8, product 9, cart 7, blog 4, account 4, pages 7, qa-gate 17), thêm 10 mục từ lỗi gặp thật ở S2 Spa: ảnh LCP hero và cấu hình slider (`HOM-10`), lọc trong danh mục đúng phạm vi (`COL-08`), badge số lượng giỏ đồng bộ (`CRT-07`), form liên hệ/đặt lịch gửi đủ dữ liệu (`SYS-06`), canonical & breadcrumb mọi route (`SYS-07`), header dải laptop 1200-1399, phần tử cố định đáy không va chạm, focus bàn phím nhìn thấy, gói bàn giao không lộ bí mật, đo trên bản đã đồng bộ (`QAG-13`…`QAG-17`). Scope đã lưu giữ danh sách cũ; mục mới xuất hiện ở scope mới hoặc sau "Đặt lại mặc định".
+- Theme QA Cockpit: checklist mặc định tăng 66 → 67 mục (qa-gate 18), thêm `QAG-18` "Handle Trong Settings Resolve Thật" từ lỗi Lux Wine: setting `page`/`collection`/`blog`/`link_list` lưu handle chưa có trên store (`wishlist_page`, trang hướng dẫn size, menu danh mục) làm theme ẩn khối im lặng trong khi scan vẫn PASS. Mục kiểm tay; `theme.settings_check` chưa probe live handle.
 - Build: `scripts/copy-static.mjs` thay prelude checklist đã inline trong `toolbar.js` mỗi lần build. Trước đây tsc `incremental` không emit lại `toolbar.js` khi chỉ `src/shared/theme-checklist.ts` đổi, script thấy prelude cũ đã có nên giữ nguyên, toolbar vẫn hiện checklist cũ (56 mục) dù main process đã seed 66.
 
 ### Thêm — Nút "Chụp Full Page" trên toolbar và Terminal Quick-Look xem ảnh

@@ -989,7 +989,7 @@ describe('Responsive sweep surface', () => {
     applyCdpTouchEmulation: (wc: unknown, enabled: boolean) => Promise<void>;
     setSafeUserAgent: (wc: unknown, ua: string) => void;
     updateLayout: () => void;
-    runResponsiveCheck: (params?: { tabId?: string; selector?: string }) => Promise<Record<string, unknown>>;
+    runResponsiveCheck: (params?: { tabId?: string; selector?: string; perWidthScript?: string }) => Promise<Record<string, unknown>>;
   }
 
   interface SweepHarness {
@@ -1003,6 +1003,7 @@ describe('Responsive sweep surface', () => {
     liveEmulation: () => EmulatedBox | null;
     disableCount: () => number;
     updateLayoutCount: () => number;
+    perWidthReads: number[];
   }
 
   // Deliberately not the 1440x900 the background viewport path once invented, so a box
@@ -1015,6 +1016,7 @@ describe('Responsive sweep surface', () => {
   const PAGE_CONTENT_WIDTH = 330;
   const BREAKPOINT_IDS = ['mobile-small', 'mobile-standard', 'tablet-portrait', 'tablet-landscape', 'desktop-laptop'];
   const BREAKPOINT_WIDTHS = [320, 375, 768, 1024, 1440];
+  const PER_WIDTH_SCRIPT = 'per-width-probe';
 
   function createSweepHarness(options: { staleReadsPerEmulation?: number; ignoreFirstOverrideAt?: number[] } = {}): SweepHarness {
     const staleReadsPerEmulation = options.staleReadsPerEmulation ?? 0;
@@ -1030,6 +1032,8 @@ describe('Responsive sweep surface', () => {
     let disableCount = 0;
     let updateLayoutCount = 0;
     let childrenDuringFirstReading: unknown[] = [];
+    // The width the document had when each per-width script ran.
+    const perWidthReads: number[] = [];
 
     // The reading is the document's own answer, so the stub computes it the way the page
     // script does: against whatever emulation the tab actually carries at that moment.
@@ -1063,7 +1067,12 @@ describe('Responsive sweep surface', () => {
             }
           },
         },
-        executeJavaScript: async (_script: string) => {
+        executeJavaScript: async (script: string) => {
+          if (script === PER_WIDTH_SCRIPT) {
+            const widthSeen = liveEmulation?.width ?? 0;
+            perWidthReads.push(widthSeen);
+            return { measured: true, widthSeen, findings: [] };
+          }
           const current = liveEmulation ?? { width: 0, height: 0 };
           const box = staleReadsLeft > 0 ? laidOut : current;
           if (staleReadsLeft > 0) staleReadsLeft -= 1;
@@ -1170,6 +1179,7 @@ describe('Responsive sweep surface', () => {
       liveEmulation: () => liveEmulation,
       disableCount: () => disableCount,
       updateLayoutCount: () => updateLayoutCount,
+      perWidthReads,
     };
   }
 
@@ -1284,5 +1294,32 @@ describe('Responsive sweep surface', () => {
     assert.strictEqual(readings['mobile-small']?.emulationApplied, true);
     assert.strictEqual(readings['mobile-small']?.clientWidth, 320);
     assert.strictEqual(readings['mobile-small']?.hasHorizontalOverflow, true, 'The 330px page overflows 320 once the re-sent override lands');
+  });
+
+  it('runs the per-width script at each confirmed width and returns its reading on that breakpoint only', async () => {
+    const harness = createSweepHarness({ staleReadsPerEmulation: 1 });
+    const host = harness.host;
+    const backgroundTab = createTestTabRecord('tab-bg');
+    backgroundTab.view = harness.view as unknown as NativeTabRecord['view'];
+    const activeTab = createTestTabRecord('tab-active');
+    activeTab.view = harness.activeView as unknown as NativeTabRecord['view'];
+    host.tabs.set('tab-active', activeTab);
+    host.tabs.set('tab-bg', backgroundTab);
+    host.tabByWebContents.set(harness.view.webContents, { tabId: 'tab-bg', tab: backgroundTab });
+
+    const withScript = await host.runResponsiveCheck({ tabId: 'tab-bg', perWidthScript: PER_WIDTH_SCRIPT });
+    const readings = withScript.breakpoints as Record<string, { width: number; integrity?: { widthSeen: number } }>;
+
+    assert.deepStrictEqual(harness.perWidthReads, BREAKPOINT_WIDTHS, 'The script must run once per width, after the emulated layout landed');
+    for (let index = 0; index < BREAKPOINT_IDS.length; index += 1) {
+      assert.strictEqual(readings[BREAKPOINT_IDS[index]!]?.integrity?.widthSeen, BREAKPOINT_WIDTHS[index], `${BREAKPOINT_IDS[index]}: the reading belongs to its own width`);
+    }
+
+    const plain = await host.runResponsiveCheck({ tabId: 'tab-bg' });
+    const plainReadings = plain.breakpoints as Record<string, Record<string, unknown>>;
+    assert.strictEqual(harness.perWidthReads.length, 5, 'A sweep without the option must not evaluate anything extra');
+    for (const id of BREAKPOINT_IDS) {
+      assert.ok(!('integrity' in plainReadings[id]!), `${id}: no integrity key without the option`);
+    }
   });
 });

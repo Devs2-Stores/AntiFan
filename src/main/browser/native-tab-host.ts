@@ -15060,6 +15060,12 @@ export class NativeTabHost extends EventEmitter {
     tabId?: string;
     selector?: string;
     customBreakpoints?: Array<{ id: string; name: string; width: number; height: number; mobile: boolean; deviceScaleFactor?: number }>;
+    /**
+     * Script evaluated once per breakpoint, after the emulated width has taken effect. Its result is
+     * returned as `integrity` on that breakpoint. Internal callers only: it is never exposed through
+     * the MCP capability catalogue.
+     */
+    perWidthScript?: string;
   } | string): Promise<Record<string, unknown>> {
     const opts = typeof params === 'string' ? { tabId: params } : (params || {});
     const targetId = opts.tabId || this.activeTabId;
@@ -15199,6 +15205,21 @@ export class NativeTabHost extends EventEmitter {
           await pause.promise;
         }
 
+        // The per-width script reads the layout only at a width the document confirmed: a reading
+        // at an unapplied width would describe the previous size. A throw or a timeout is reported
+        // as an unmeasured reading, never as a clean one.
+        let integrity: unknown;
+        if (emulationApplied && opts.perWidthScript) {
+          const scriptPromise = wc.executeJavaScript(opts.perWidthScript).catch((err: unknown) => ({ measured: false, unmeasuredReason: `per-width script failed: ${String(err)}` }));
+          const scriptTimeout = Promise.withResolvers<'timeout'>();
+          const scriptTimer = setTimeout(() => scriptTimeout.resolve('timeout'), 5000);
+          const scriptRaced = await Promise.race([scriptPromise, scriptTimeout.promise]);
+          clearTimeout(scriptTimer);
+          integrity = scriptRaced === 'timeout'
+            ? { measured: false, unmeasuredReason: 'per-width script timed out after 5000ms' }
+            : scriptRaced;
+        }
+
         results[bp.id] = {
           name: bp.name,
           width: bp.width,
@@ -15207,6 +15228,7 @@ export class NativeTabHost extends EventEmitter {
           ...evaluation,
           emulationApplied,
           ...(emulationApplied ? {} : { documentOverflowX: null, hasHorizontalOverflow: null, targetOverflowX: null }),
+          ...(integrity !== undefined ? { integrity } : {}),
         };
       }
     };

@@ -1386,4 +1386,59 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
       'the reason must be recorded as an evidence gap'
     );
   });
+
+  it('18. Per-width integrity from the sweep fills the responsive map; an unmeasured width stays null and is reported', async () => {
+    let sweepArg: unknown;
+    const widths: Array<[string, number]> = [['a', 320], ['b', 375], ['c', 768], ['d', 1024], ['e', 1440]];
+    const ports = createMockPorts({
+      responsiveCheck: async (arg: unknown) => {
+        sweepArg = arg;
+        const breakpoints: Record<string, unknown> = {};
+        for (const [id, width] of widths) {
+          const integrity = width === 375
+            ? {
+              measured: true,
+              viewport: { name: 'sweep', width, height: 667 },
+              findings: [
+                { kind: 'overlap', severity: 'critical', selector: 'div.a', details: 'x' },
+                { kind: 'spacing', severity: 'warning', ruleId: 'edge-text', selector: 'p.b', details: 'y' },
+                { kind: 'spacing', severity: 'warning', ruleId: 'edge-text', selector: 'p.c', details: 'z' },
+              ],
+            }
+            : width === 1440
+              ? { measured: false, unmeasuredReason: 'per-width script timed out after 5000ms' }
+              : undefined;
+          breakpoints[id] = {
+            width,
+            height: 800,
+            mobile: width < 768,
+            emulationApplied: true,
+            hasHorizontalOverflow: false,
+            ...(integrity ? { integrity } : {}),
+          };
+        }
+        return { ok: true, breakpoints };
+      },
+    });
+    const report = await new ThemeQaWorkflow(ports).validate({
+      runId: 'run-per-width-integrity',
+      attemptId: 'att-per-width-integrity',
+      workspaceRoot: 'E:/Work/test-theme',
+      target: makeTarget(1),
+      multiBreakpoint: true,
+    });
+
+    assert.ok(sweepArg && typeof sweepArg === 'object' && 'perWidthScript' in sweepArg, 'sweep must request a per-width integrity reading');
+    const script = String(sweepArg.perWidthScript);
+    assert.ok(!script.includes('__SKIP_LAYOUT_SHIFT__') && !script.includes('__VIEWPORT_NAME__'), 'placeholders must be substituted');
+    assert.ok(script.includes('"true" === \'true\''), 'a resized scan must skip the layout-shift witness');
+
+    const responsive = report.findings?.responsive;
+    assert.ok(responsive, 'responsive map present');
+    assert.strictEqual(responsive['375']?.criticalOverlap, 1);
+    assert.strictEqual(responsive['375']?.spacingWarnings, 2);
+    assert.strictEqual(responsive['768']?.criticalOverlap, null, 'a width without a reading stays unmeasured');
+    assert.strictEqual(responsive['1440']?.spacingWarnings, null, 'an unmeasured reading never reads as zero findings');
+    assert.ok(report.findings?.evidenceGaps?.some((g) => g.includes('Responsive layout integrity not measured at width(s) 1440')));
+  });
 });

@@ -2902,7 +2902,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       },
     },
     execute: async (params: { selector?: string; tabId?: string }, context) => {
-      const rawRes = await browser.responsiveCheck(params, context.browserTarget as BrowserTarget);
+      // Only the declared inputs go through: `perWidthScript` runs in the page and is not a caller option.
+      const rawRes = await browser.responsiveCheck({ selector: params.selector, tabId: params.tabId }, context.browserTarget as BrowserTarget);
       const typedRaw = (rawRes && typeof rawRes === 'object') ? (rawRes as Record<string, unknown>) : {};
       const isOk = typedRaw.ok !== false;
       const breakpoints = (typedRaw.breakpoints && typeof typedRaw.breakpoints === 'object')

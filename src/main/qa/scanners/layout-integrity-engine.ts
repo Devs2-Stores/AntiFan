@@ -1,5 +1,6 @@
 export interface LayoutIntegrityFinding {
-  kind: 'overlap' | 'clipping' | 'occlusion' | 'offscreen' | 'zero-size' | 'sticky-obstruction' | 'layout-shift';
+  kind: 'overlap' | 'clipping' | 'occlusion' | 'offscreen' | 'zero-size' | 'sticky-obstruction' | 'layout-shift' | 'spacing';
+  ruleId?: string; // present on 'spacing' findings: which clearance rule fired
   severity: 'critical' | 'warning';
   selector: string; // best-effort CSS path, capped 200 chars
   details: string; // human sentence, capped 240 chars
@@ -14,6 +15,8 @@ export interface LayoutIntegrityStats {
   truncated: boolean;
   truncatedReasons: string[];
   failedDetectors: string[];
+  spacingMeasured?: number; // text runs and controls the edge-clearance rules actually evaluated
+  spacingFlagged?: number; // edge-clearance findings before the per-kind cap
   durationMs: number;
   cls?: number;
   phaseMs?: Record<string, number>;
@@ -31,8 +34,14 @@ export interface LayoutIntegrityResult {
   stats?: LayoutIntegrityStats; // absent when measured === false
 }
 
+export interface LayoutIntegrityScanOptions {
+  /** Omit the layout-shift witness (a scan taken after an emulated resize). */
+  skipLayoutShift?: boolean;
+}
+
 // In-page scan, synchronous. String.raw keeps every character as written: the script must
-// never contain a backtick or a dollar-brace. '__VIEWPORT_NAME__' is substituted per call.
+// never contain a backtick or a dollar-brace. '__VIEWPORT_NAME__' and '__SKIP_LAYOUT_SHIFT__' are
+// substituted per call.
 const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
   const VIEWPORT_NAME = '__VIEWPORT_NAME__';
   const doc = document.documentElement;
@@ -54,6 +63,9 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
   const RUN_CAP = 12000;
   const SWEEP_CAP = 60;
   const WARNING_CAP_PER_KIND = 10;
+  // Responsive sweeps read geometry at every width; resizing leaves layout-shift entries of its own
+  // in the buffer, so the witness only runs on the one scan taken at the page's own width.
+  const SKIP_LAYOUT_SHIFT = '__SKIP_LAYOUT_SHIFT__' === 'true';
   const ACTIONABLE = 'a[href], button, [role="button"], input:not([type="hidden"]), select, textarea, [data-action]';
   const CAROUSEL_SLIDE = '.swiper-slide, .swiper-wrapper, .slick-slide, .slick-track, .splide__slide, .flickity-slider, .glide__slide, .owl-item, [aria-roledescription="slide"], [aria-roledescription="carousel"]';
   const PLATFORM_PREVIEW_CHROME = '#haravan-notification, #preview-bar-iframe';
@@ -535,6 +547,119 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
   }
 
   mark('runs');
+  // ---- 3a. edge clearance (warning only) ------------------------------------------------------
+  // Text and controls pressed against the edge that bounds them: the viewport, an open dialog, or
+  // the padding box of a clipping ancestor. Left and right edges only: the page is read at scroll
+  // offset 0, so a vertical gap to the viewport says nothing, and a clamped title or a one-line pill
+  // fills its box top to bottom by design. Text is measured on the edge its alignment starts from
+  // (centred and justified lines are not) against the viewport, an open dialog or a clipping box.
+  // Controls are measured against the viewport and an open dialog only: a link that fills the
+  // clipping box around it (a clamped title, a chip row) is that box sizing to its link. A gap of 0
+  // against a clipping box is the box being as wide as its own text, and a control flush with its
+  // bound is a full-bleed bar, so both start counting at half a pixel. Findings are warnings: the
+  // thresholds are not calibrated against enough storefronts to fail a verdict.
+  try {
+    const DIALOG = 'dialog, [role="dialog"], [aria-modal="true"]';
+    const CLOSE_LABEL = /^(x|\u00d7|\u2715|\u2716|close|dismiss|đóng|thoát|bỏ qua)$/i;
+    const CLOSE_CLASS = /(^|[\s_-])close($|[\s_-])/i;
+    const T_TEXT = vw <= 480 ? 3 : 2;
+    const T_CONTROL = 3;
+    const viewportRight = Math.min(vw, doc.clientWidth);
+    const edgeMemo = new Map();
+    // The box that bounds el along x: the nearest clipping ancestor, the dialog when it is nearer,
+    // else the viewport. null when that ancestor scrolls sideways (its edge moves with the scroll).
+    const edgeBoxOf = (el, ownClip) => {
+      let hit = edgeMemo.get(el);
+      if (hit !== undefined) return hit;
+      let clip = null;
+      const clips = ownClip ? contentClips(el) : boxClips(el);
+      for (let k = 0; k < clips.length; k++) {
+        const a = clips[k];
+        if (a === body || a === doc || cs(a).overflowX === 'visible') continue;
+        clip = a;
+        break;
+      }
+      const dlg = el.closest(DIALOG);
+      if (dlg && (!clip || clip.contains(dlg))) {
+        const b = clipBox(dlg);
+        hit = { left: b.left, right: b.right, kind: 'dialog', by: dlg };
+      } else if (clip) {
+        if (clip.scrollWidth > clip.clientWidth + 1 && isScrollAxis(cs(clip).overflowX)) {
+          hit = null;
+        } else {
+          const b = clipBox(clip);
+          hit = { left: b.left, right: b.right, kind: 'box', by: clip };
+        }
+      } else {
+        hit = { left: 0, right: viewportRight, kind: 'viewport', by: null };
+      }
+      edgeMemo.set(el, hit);
+      return hit;
+    };
+    const closeControl = (el) => {
+      const label = (el.getAttribute('aria-label') || el.getAttribute('title') || el.textContent || '').trim();
+      return CLOSE_LABEL.test(label) || el.matches('[data-dismiss], [data-bs-dismiss]') || CLOSE_CLASS.test(typeof el.className === 'string' ? el.className : '');
+    };
+    let measured = 0;
+    let flagged = 0;
+    const flagEdge = (el, ruleId, subject, side, gap, min, box, r) => {
+      flagged++;
+      push({
+        kind: 'spacing',
+        severity: 'warning',
+        ruleId: ruleId,
+        selector: getSelector(el),
+        details: subject + ' sits ' + (Math.round(gap * 10) / 10) + 'px from the ' + side + ' edge of ' + (box.kind === 'viewport' ? 'the viewport' : getSelector(box.by)) + ' (' + ruleId + ', minimum ' + min + 'px)',
+        rect: toRect(r)
+      });
+    };
+    const flaggedOwners = new Set();
+    for (let i = 0; i < runs.length; i++) {
+      const run = runs[i];
+      const p = run.p;
+      if (flaggedOwners.has(p)) continue;
+      const r = run.r;
+      if (r.right <= 0 || r.left >= vw) continue;
+      const ps = cs(p);
+      const rtl = ps.direction === 'rtl';
+      let side = null;
+      if (ps.textAlign === 'left') side = 'left';
+      else if (ps.textAlign === 'right') side = 'right';
+      else if (ps.textAlign === 'start') side = rtl ? 'right' : 'left';
+      else if (ps.textAlign === 'end') side = rtl ? 'left' : 'right';
+      if (!side) continue;
+      if (unsettled(p) || movingBetween(p, null) || p.closest(CAROUSEL_SLIDE) || alphaOf(p) < 0.3) continue;
+      const box = edgeBoxOf(p, true);
+      if (!box) continue;
+      measured++;
+      const gap = side === 'left' ? r.left - box.left : box.right - r.right;
+      if (gap < (box.kind === 'box' ? 0.5 : 0) || gap >= T_TEXT) continue;
+      flaggedOwners.add(p);
+      flagEdge(p, 'edge-text', 'Text "' + snippet(run.n.nodeValue) + '"', side, gap, T_TEXT, box, r);
+    }
+    for (let i = 0; i < controls.length; i++) {
+      const c = controls[i];
+      const el = c.el;
+      const r = c.rect;
+      if (r.right <= 0 || r.left >= vw) continue;
+      if (unsettled(el) || movingBetween(el, null) || el.closest(CAROUSEL_SLIDE) || alphaOf(el) < 0.3 || closeControl(el)) continue;
+      const box = edgeBoxOf(el, false);
+      if (!box || box.kind === 'box') continue;
+      measured++;
+      const gapLeft = r.left - box.left;
+      const gapRight = box.right - r.right;
+      const tightLeft = gapLeft >= 0.5 && gapLeft < T_CONTROL;
+      const tightRight = gapRight >= 0.5 && gapRight < T_CONTROL;
+      if (!tightLeft && !tightRight) continue;
+      const side = tightLeft && (!tightRight || gapLeft <= gapRight) ? 'left' : 'right';
+      flagEdge(el, 'edge-control', 'Control "' + snippet(el.getAttribute('aria-label') || el.textContent || el.tagName.toLowerCase()) + '"', side, side === 'left' ? gapLeft : gapRight, T_CONTROL, box, r);
+    }
+    stats.spacingMeasured = measured;
+    stats.spacingFlagged = flagged;
+  } catch (err) {
+    detectorFailed('spacing', err);
+  }
+  mark('spacing');
   // ---- 3. clipped text (line box sliced or cut by a clipping ancestor) -----------------------
   const clippedOwners = new Set();
   // owner element -> { visible: bool, below: clip that pushed a whole line past its bottom edge,
@@ -1084,7 +1209,7 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
     // (entries under a second apart), from its first previous box to its latest current box.
     let maxJump = 0;
     const travel = new Map();
-    if (typeof PerformanceObserver !== 'undefined') {
+    if (!SKIP_LAYOUT_SHIFT && typeof PerformanceObserver !== 'undefined') {
       const observer = new PerformanceObserver(() => {});
       observer.observe({ type: 'layout-shift', buffered: true });
       const records = observer.takeRecords();
@@ -1122,7 +1247,7 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
         }
       }
     }
-    stats.cls = Math.round(clsScore * 1000) / 1000;
+    if (!SKIP_LAYOUT_SHIFT) stats.cls = Math.round(clsScore * 1000) / 1000;
     if (clsScore > 0.1) {
       push({ kind: 'layout-shift', severity: 'warning', selector: 'document', details: 'Cumulative layout shift score ' + clsScore.toFixed(3) + ' exceeds 0.1', rect: { x: 0, y: 0, w: Math.round(vw), h: Math.round(vh) } });
     } else if (maxJump >= vh * 0.25) {
@@ -1155,6 +1280,8 @@ export class LayoutIntegrityEngine {
    * active viewport. Detectors, in script order:
    * 1. controls: zero-size (warning) and offscreen (critical)
    * 2. text runs (collected once and shared by the text detectors)
+   * 2a. edge clearance: text and controls pressed against the viewport, an open dialog or a
+   *     clipping box (spacing, warning)
    * 3. clipped text: a line box sliced or cut by a clipping ancestor
    * 4. text painted over text
    * 5. actionable controls stacked on each other
@@ -1165,9 +1292,14 @@ export class LayoutIntegrityEngine {
    * A truncated scan (element, text-run or sweep cap reached, or a page that would not scroll)
    * is reported in `stats.truncated` / `stats.truncatedReasons`; a detector that throws is
    * listed in `stats.failedDetectors`.
+   *
+   * `options.skipLayoutShift` drops detector 8: a scan taken after an emulated resize would sum the
+   * resize's own layout-shift entries into a false CLS.
    */
-  public static getBrowserScanScript(viewportName: string = 'active'): string {
-    return LAYOUT_INTEGRITY_SCAN.replace("'__VIEWPORT_NAME__'", () => JSON.stringify(viewportName));
+  public static getBrowserScanScript(viewportName: string = 'active', options: LayoutIntegrityScanOptions = {}): string {
+    return LAYOUT_INTEGRITY_SCAN
+      .replace("'__VIEWPORT_NAME__'", () => JSON.stringify(viewportName))
+      .replace("'__SKIP_LAYOUT_SHIFT__'", () => JSON.stringify(options.skipLayoutShift === true ? 'true' : 'false'));
   }
 
   /**

@@ -98,5 +98,16 @@ describe('LayoutIntegrityEngine', () => {
       assert.strictEqual(result.findings.length, 0);
       assert.strictEqual(result.viewport.name, "a'$&b");
     });
+
+    it('substitutes the layout-shift switch from the scan options and leaves no placeholder behind', () => {
+      const withShift = LayoutIntegrityEngine.getBrowserScanScript('active');
+      const withoutShift = LayoutIntegrityEngine.getBrowserScanScript('sweep', { skipLayoutShift: true });
+      for (const text of [withShift, withoutShift]) {
+        assert.ok(!text.includes('__SKIP_LAYOUT_SHIFT__') && !text.includes('__VIEWPORT_NAME__'));
+        new vm.Script(text); // still parses
+      }
+      assert.ok(withShift.includes('const SKIP_LAYOUT_SHIFT = "false" === \'true\''));
+      assert.ok(withoutShift.includes('const SKIP_LAYOUT_SHIFT = "true" === \'true\''));
+    });
   });
 });

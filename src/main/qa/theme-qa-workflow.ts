@@ -93,6 +93,8 @@ export interface ThemeQaDetailedFindings {
     criticalClipping: number | null;
     criticalOcclusion: number | null;
     criticalOffscreen: number | null;
+    /** Edge-clearance warnings at this width (never critical); null when the width was not scanned. */
+    spacingWarnings: number | null;
   }>;
   documentStatus?: number;
   domSemantics?: DomSemanticsScanResult;
@@ -938,7 +940,12 @@ export class ThemeQaWorkflow {
     if (runMultiBreakpoint) {
       if (typeof this.ports.browser.responsiveCheck === 'function') {
         try {
-          const responsive = await this.ports.browser.responsiveCheck(activeTarget.tabId);
+          // Each width also gets the integrity scan, read after the emulated width took effect. The
+          // layout-shift witness is left out: a resize records shifts of its own.
+          const responsive = await this.ports.browser.responsiveCheck({
+            tabId: activeTarget.tabId,
+            perWidthScript: LayoutIntegrityEngine.getBrowserScanScript('sweep', { skipLayoutShift: true }),
+          });
           const isOk = !responsive || typeof responsive !== 'object' || (responsive as Record<string, unknown>).ok !== false;
           const breakpoints = responsive && typeof responsive === 'object' ? (responsive as Record<string, unknown>).breakpoints : undefined;
           responsiveBreakpoints = breakpoints && typeof breakpoints === 'object' ? breakpoints as Record<string, unknown> : undefined;
@@ -1020,16 +1027,9 @@ export class ThemeQaWorkflow {
     // horizontal overflow by width. Integrity counts are null for every width
     // other than the one the integrity scan measured; widths the sweep did not
     // return report documentOverflow: null.
-    const responsiveMap: Record<string, {
-      documentOverflow: boolean | null;
-      criticalOverflow: number | null;
-      criticalOverlap: number | null;
-      criticalClipping: number | null;
-      criticalOcclusion: number | null;
-      criticalOffscreen: number | null;
-    }> = {};
-    const countKind = (kind: LayoutIntegrityFinding['kind']): number =>
-      integrityFindings.filter((f) => f.kind === kind && f.severity === 'critical').length;
+    const responsiveMap: NonNullable<ThemeQaDetailedFindings['responsive']> = {};
+    const countKind = (findings: LayoutIntegrityFinding[], kind: LayoutIntegrityFinding['kind'], severity: LayoutIntegrityFinding['severity']): number =>
+      findings.filter((f) => f.kind === kind && f.severity === severity).length;
     const bpByWidth = new Map<number, Record<string, unknown>>();
     if (responsiveBreakpoints && typeof responsiveBreakpoints === 'object') {
       for (const value of Object.values(responsiveBreakpoints)) {
@@ -1039,18 +1039,34 @@ export class ThemeQaWorkflow {
       }
     }
     const integrityWidth = integrityResult?.measured === true ? integrityResult.viewport.width : undefined;
+    const unmeasuredIntegrityWidths: number[] = [];
     for (const w of QA_RESPONSIVE_WIDTHS) {
       const bp = bpByWidth.get(w);
       const docOverflow = bp && typeof bp.hasHorizontalOverflow === 'boolean' ? bp.hasHorizontalOverflow : null;
-      const isIntegrityWidth = integrityWidth === w;
+      // The reading taken at this width by the sweep wins; the active-viewport scan only stands in
+      // for the width it was taken at when the sweep carried no usable reading.
+      let atWidth: LayoutIntegrityFinding[] | null = null;
+      const sweepIntegrity = bp ? bp.integrity : undefined;
+      if (sweepIntegrity && typeof sweepIntegrity === 'object' && 'measured' in sweepIntegrity) {
+        if (sweepIntegrity.measured === true && 'findings' in sweepIntegrity && Array.isArray(sweepIntegrity.findings)) {
+          atWidth = sweepIntegrity.findings.filter((f: unknown): f is LayoutIntegrityFinding => !!f && typeof f === 'object' && 'kind' in f && 'severity' in f);
+        } else {
+          unmeasuredIntegrityWidths.push(w);
+        }
+      }
+      if (atWidth === null && integrityWidth === w) atWidth = integrityFindings;
       responsiveMap[String(w)] = {
         documentOverflow: docOverflow,
         criticalOverflow: docOverflow === null ? null : (docOverflow ? 1 : 0),
-        criticalOverlap: isIntegrityWidth ? countKind('overlap') : null,
-        criticalClipping: isIntegrityWidth ? countKind('clipping') : null,
-        criticalOcclusion: isIntegrityWidth ? countKind('occlusion') : null,
-        criticalOffscreen: isIntegrityWidth ? countKind('offscreen') + countKind('zero-size') : null,
+        criticalOverlap: atWidth ? countKind(atWidth, 'overlap', 'critical') : null,
+        criticalClipping: atWidth ? countKind(atWidth, 'clipping', 'critical') : null,
+        criticalOcclusion: atWidth ? countKind(atWidth, 'occlusion', 'critical') : null,
+        criticalOffscreen: atWidth ? countKind(atWidth, 'offscreen', 'critical') + countKind(atWidth, 'zero-size', 'critical') : null,
+        spacingWarnings: atWidth ? countKind(atWidth, 'spacing', 'warning') : null,
       };
+    }
+    if (unmeasuredIntegrityWidths.length > 0 && input.multiBreakpoint === true) {
+      evidenceGaps.push(`Responsive layout integrity not measured at width(s) ${unmeasuredIntegrityWidths.join(', ')}`);
     }
 
     // 7. Broken Asset Telemetry (DOM + CDP Network Correlation)
