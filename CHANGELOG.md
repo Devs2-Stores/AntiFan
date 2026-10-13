@@ -6,6 +6,19 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 
 ## [v1.3.6] - Unreleased
 
+### Sửa — Dữ liệu lỗi sạch, Theme QA không tự hủy, thao tác agent local bớt bị chặn
+
+- Issue Register: khi chạy dưới test runner (`NODE_TEST_CONTEXT`/`ANTIFAN_TEST_RUN`) mà `ANTIFAN_DATA_ROOT` trỏ đúng data root thật (biến này được truyền vào mọi terminal của AntiFan), register giờ ghi vào thư mục tạm theo tiến trình thay vì `<data-root>/issues`. Trước đây `npm test` chạy trong terminal AntiFan ghi fixture vào register thật (khoảng 62% dòng 12–13/10 là rác test). `ANTIFAN_ISSUE_REGISTER_DIR`/`ANTIFAN_VERIFICATION_REGISTER_DIR` tường minh vẫn được tôn trọng.
+- Issue Register: dedupe lỗi OPEN cùng tool, cùng mã lỗi sau khi che các ID động (UUID, `tab-…`, `project-…`/`session-…`, generation/epoch, hex). Trước đây mỗi tab ID mới tạo một dòng OPEN mới.
+- `theme.cockpit_scan` và nút QA trên toolbar: reload do chính Theme QA phát ra giờ mang `ownedReloadToken` qua composite host, nên không còn tự hủy với lỗi "Theme QA was aborted by document navigation" (S2 Rog Bike: 5/5 lần scan thất bại).
+- `anti.browser.set_viewport` (mobile): trang tràn ngang được xác nhận qua `visualViewport`/`screen` và báo `layoutOverflowWidth`/`layoutOverflowHeight` thay vì ném `VIEWPORT_NOT_APPLIED`. Visual viewport được đo theo không gian widget (`width × scale`).
+- Chụp viewport trên trang mobile tràn ngang: raster (vd. 1170×2532 ở dpr 3) được đối chiếu với visual viewport khi không khớp layout viewport (`innerWidth` 546), nên không còn `CAPTURE_SCALE_MISMATCH`; `cssViewport` trong receipt là vùng raster thật sự phủ.
+- Chụp màn hình khi cửa sổ AntiFan bị che: tắt `CalculateNativeWinOcclusion` và `disable-backgrounding-occluded-windows` để compositor không ngừng tạo frame (`CAPTURE_FRAME_STARVATION`). Không tắt backgrounding của renderer, nên throttling tab nền vẫn giữ.
+- Hook `theme-qa-gate`: không còn nối chuỗi nhắc vào kết quả tool có cấu trúc (MCP AntiFan, `write` tới `xd://…`, kết quả parse được JSON), vốn làm `JSON.parse` báo "Extra data". Thông báo bridge suspended/recovered chuyển sang context message. Repo AntiFan Desktop không còn bị nhận nhầm là theme workspace.
+- Terminal PTY: xoá `ANTIFAN_TERMINAL_HOST_TOKEN`, `ANTIFAN_TERMINAL_HOST_VERSION`, `ELECTRON_RUN_AS_NODE`, `CI`, `CLAUDECODE` khỏi env của shell con. Giữ `ANTIFAN_DATA_ROOT`/`ANTIFAN_CONFIG_DIR` cho proxy MCP.
+- Proxy OMP: thêm `anti.inspect.console`; screenshot trả metadata artifact (đường dẫn file) trước phần image và hỗ trợ `inline: false` để không tải base64.
+- Authority: tab mới mở theo session ưu tiên cửa sổ của project đã xác thực; `TARGET_MISMATCH` của anchor tab kèm `failoverTabId` khi có. Upload/drop file chấp nhận file nằm ngoài workspace (tab vẫn phải gắn workspace). Telemetry fallback không có workspace root ghi vào `<data-root>/telemetry/gaps.jsonl`.
+
 ### Thêm — Layout Integrity đo khoảng cách sát mép (`spacing`) và đếm integrity theo từng chiều rộng
 
 - Layout Integrity: thêm kind `spacing` (chỉ warning, tối đa 10 finding mỗi scan) với hai luật `edge-text` và `edge-control`: chữ hoặc control dính sát mép viewport, mép `dialog` đang mở hoặc mép box cắt chứa nó (ngưỡng 2–3 px). Miễn trừ nút đóng, thanh full-bleed, control trong box cắt (tiêu đề line-clamp), căn giữa, carousel và nội dung đang chuyển động. Có 3 fixture mới (2 lỗi, 1 control) trong `test/fixtures/visual-qa`; fixture 28 được thêm `padding:0 12px` cho thanh điều hướng đáy vì chữ của nó thật sự dính mép trái màn hình.
