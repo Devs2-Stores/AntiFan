@@ -117,17 +117,37 @@ describe('TabAutomationHost: Upload & Drag-Drop Automation Security & CDP Parity
     );
   });
 
-  it('2. Rejects outside-workspace file paths with OUTSIDE_WORKSPACE (traversal security)', async () => {
-    const { host } = createHarness({ workspaceRoot: tmpRoot });
+  it('2. Accepts existing regular files outside the workspace root; rejects directories and non-existent files with INVALID_ARGUMENT', async () => {
+    const { host, cdpCommandsSent } = createHarness({ workspaceRoot: tmpRoot });
 
+    const uploadRes = await host.uploadFileInput('input[type="file"]', [outsideFile]);
+    assert.strictEqual(uploadRes.success, true);
+    assert.strictEqual(uploadRes.uploadedCount, 1);
+    const setFilesCmd = cdpCommandsSent.find((c) => c.method === 'DOM.setFileInputFiles');
+    assert.ok(setFilesCmd, 'Must issue DOM.setFileInputFiles CDP command for outside file');
+    assert.deepStrictEqual(setFilesCmd.params, {
+      files: [fs.realpathSync(outsideFile)],
+      backendNodeId: 9901,
+    });
+
+    const dropRes = await host.dropFiles('.valid-drop-zone', [outsideFile]);
+    assert.strictEqual(dropRes.success, true);
+    assert.strictEqual(dropRes.droppedCount, 1);
+
+    const subDir = path.join(tmpRoot, 'sub');
     await assert.rejects(
-      async () => host.uploadFileInput('input[type="file"]', [outsideFile]),
-      (err: unknown) => err instanceof CapabilityError && err.code === 'OUTSIDE_WORKSPACE'
+      async () => host.uploadFileInput('input[type="file"]', [subDir]),
+      (err: unknown) => err instanceof CapabilityError && err.code === 'INVALID_ARGUMENT'
+    );
+    await assert.rejects(
+      async () => host.dropFiles('#drop-area', [subDir]),
+      (err: unknown) => err instanceof CapabilityError && err.code === 'INVALID_ARGUMENT'
     );
 
+    const missingOutsideFile = path.join(os.tmpdir(), 'missing-outside-file.txt');
     await assert.rejects(
-      async () => host.dropFiles('#drop-area', [outsideFile]),
-      (err: unknown) => err instanceof CapabilityError && err.code === 'OUTSIDE_WORKSPACE'
+      async () => host.uploadFileInput('input[type="file"]', [missingOutsideFile]),
+      (err: unknown) => err instanceof CapabilityError && err.code === 'INVALID_ARGUMENT'
     );
   });
 

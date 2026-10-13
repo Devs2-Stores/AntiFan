@@ -151,7 +151,13 @@ export interface TabAutomationContext {
   navigateAndWait?: (tabId: string, inputUrl: string, timeoutMs?: number) => Promise<boolean>;
 }
 
-function validatePathConfinement(rawFilePath: string, rawWorkspaceRoot: string): string {
+/**
+ * Resolves one upload file to its real path. The tab must still be bound to an
+ * existing workspace, but the file itself may live anywhere on this machine: the
+ * agent driving a local AntiFan already has the same filesystem reach, so confining
+ * uploads to the workspace only forced copies into the theme tree.
+ */
+function resolveUploadFilePath(rawFilePath: string, rawWorkspaceRoot: string): string {
   if (typeof rawFilePath !== 'string' || !rawFilePath.trim()) {
     throw new CapabilityError('INVALID_ARGUMENT', 'File path must be a non-empty string');
   }
@@ -169,23 +175,12 @@ function validatePathConfinement(rawFilePath: string, rawWorkspaceRoot: string):
     throw new CapabilityError('WORKSPACE_UNBOUND', `Authoritative workspace root does not exist on disk: ${rawWorkspaceRoot}`);
   }
 
-  const realFile = fs.realpathSync(absPath);
-  const realRoot = fs.realpathSync(absRoot);
-
-  const rel = path.relative(realRoot, realFile);
-  const isEscaped =
-    rel.startsWith('..') ||
-    path.isAbsolute(rel) ||
-    (process.platform === 'win32' && /^[a-zA-Z]:/.test(rel));
-
-  if (isEscaped) {
-    throw new CapabilityError(
-      'OUTSIDE_WORKSPACE',
-      `Access denied: File path "${rawFilePath}" escapes authoritative workspace root "${rawWorkspaceRoot}"`
-    );
+  const stat = fs.statSync(absPath);
+  if (!stat.isFile()) {
+    throw new CapabilityError('INVALID_ARGUMENT', `Path is not a regular file: ${rawFilePath}`);
   }
 
-  return realFile;
+  return fs.realpathSync(absPath);
 }
 
 /**
@@ -1838,7 +1833,7 @@ export class TabAutomationHost {
     if (!targetWorkspace) {
       throw new CapabilityError('WORKSPACE_UNBOUND', 'No authoritative workspace bound to target tab session');
     }
-    const resolvedPaths = filePaths.map((p) => validatePathConfinement(p, targetWorkspace));
+    const resolvedPaths = filePaths.map((p) => resolveUploadFilePath(p, targetWorkspace));
     const splitHasLiveMobile = Boolean(target.state.splitMode && target.mobileView && !target.mobileView.webContents.isDestroyed());
     const effectivePane: SplitPaneId = paneId || (splitHasLiveMobile ? (target.focusedPane || target.state.splitFocusedPane || 'desktop') : 'desktop');
     const wc = this.ctx.getTabWebContents(targetId, effectivePane);
@@ -2010,7 +2005,7 @@ export class TabAutomationHost {
       throw new CapabilityError('WORKSPACE_UNBOUND', 'No authoritative workspace bound to target tab session');
     }
 
-    const resolvedPaths = filePaths.map((p) => validatePathConfinement(p, targetWorkspace));
+    const resolvedPaths = filePaths.map((p) => resolveUploadFilePath(p, targetWorkspace));
     const splitHasLiveMobile = Boolean(target.state.splitMode && target.mobileView && !target.mobileView.webContents.isDestroyed());
     const effectivePane: SplitPaneId = paneId || (splitHasLiveMobile ? (target.focusedPane || target.state.splitFocusedPane || 'desktop') : 'desktop');
     const wc = this.ctx.getTabWebContents(targetId, effectivePane);
