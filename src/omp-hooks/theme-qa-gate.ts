@@ -226,6 +226,7 @@ let toolResultCounter = 0;
 /** One-shot MCP-first injection per session, reset on session_start. */
 let mcpFirstInjected = false;
 let bridgeOutageKey: string | null = null;
+let bridgeRecoveredCode: string | null = null;
 
 function isPidAlive(pid: number): boolean {
   if (typeof pid !== "number" || !Number.isInteger(pid) || pid <= 0) return false;
@@ -418,9 +419,31 @@ function toRootRelative(root: string, absPath: string): string | null {
   }
 }
 
+const ANTIFAN_PKG_NAME = "antifan-browser-desktop";
+
+/**
+ * The AntiFan Desktop repo carries `.antifan/` dev artifacts and a `src/main/config/`
+ * tree, so it looks like a theme workspace to every heuristic below. It is not one.
+ */
+function isAntiFanRepo(dir: string): boolean {
+  for (let i = 0; i < 6; i++) {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8")) as { name?: unknown };
+      if (pkg.name === ANTIFAN_PKG_NAME) return true;
+    } catch {
+      /* no or unreadable package.json at this level */
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return false;
+}
+
 /** Theme chat cwd: `.antifan/`, a `templates/` dir, or a path under `/customizes/`. */
-function isThemeCwd(cwd: string | undefined): boolean {
+export function isThemeCwd(cwd: string | undefined): boolean {
   if (!cwd) return false;
+  if (isAntiFanRepo(cwd)) return false;
   try {
     if (fs.existsSync(path.join(cwd, ".antifan"))) return true;
     if (fs.existsSync(path.join(cwd, "templates"))) return true;
@@ -783,6 +806,18 @@ function contentHasMarker(content: unknown, marker: string): boolean {
   return contentText(content).includes(marker);
 }
 
+/** Whether a tool result is structured data a caller will parse: appended text would corrupt it. */
+function parsesAsJson(content: unknown): boolean {
+  const text = (Array.isArray(content) ? contentText(content) : partText(content)).trim();
+  if (!/^[[{]/.test(text) || !/[\]}]$/.test(text)) return false;
+  try {
+    JSON.parse(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Append reminder/hint chunks to a tool result, preserving every content shape
  * the host may hand us (array of parts, plain string, anything else).
@@ -1128,6 +1163,7 @@ export default function themeQaGate(pi: HookAPI): void {
       toolResultCounter = 0;
       mcpFirstInjected = false;
       bridgeOutageKey = null;
+      bridgeRecoveredCode = null;
       scopedSessionStates.clear();
     } catch {
       /* never throw out of a handler */
@@ -1160,7 +1196,7 @@ export default function themeQaGate(pi: HookAPI): void {
       for (const target of targets) {
         const absTarget = toAbsolutePath(target, cwd);
         const root = findAnnotationWorkspace(absTarget, cwd);
-        if (!root) continue;
+        if (!root || isAntiFanRepo(root)) continue;
         const rel = toRootRelative(root, absTarget);
         if (!rel || !THEME_PATH_RE.test(rel)) continue;
         if (!pendingEdits.has(root)) {
@@ -1189,51 +1225,55 @@ export default function themeQaGate(pi: HookAPI): void {
         return undefined;
       }
       pruneExpired();
-      const chunks: string[] = drainChurnHints();
+
+      const resultTool = String(event.toolName ?? event.name ?? "").toLowerCase();
+      const isAntifanTool = ANTIFAN_TOOL_RE.test(resultTool);
       const evidence = bridgeOutageEvidence(
         event.content,
         Date.now(),
-        ANTIFAN_TOOL_RE.test(String(event.toolName ?? event.name ?? ""))
+        isAntifanTool
       );
       if (evidence.down) {
         if (bridgeOutageKey !== evidence.key) {
           bridgeOutageKey = evidence.key;
           bypassLog.push({ at: new Date().toISOString(), token: "QA_GATE_SUSPENDED", code: evidence.code });
           pi.appendEntry?.("antifan-bridge-suspension", { key: evidence.key, code: evidence.code, at: Date.now() });
-          chunks.push(
-            `\n\n${BRIDGE_MARKER} QA gate suspended: bridge down (${evidence.code}) — declare the QA_UNAVAILABLE status explicitly when closing work; reminders resume when bridge health recovers.`
-          );
         }
-        if (chunks.length === 0) return undefined;
-        return appendChunks(event.content, chunks);
+        return undefined;
       }
 
       if (bridgeOutageKey !== null) {
         const prevKey = bridgeOutageKey;
         bridgeOutageKey = null;
         const resumeCode = evidence.code || "listening";
+        bridgeRecoveredCode = resumeCode;
         pi.appendEntry?.("antifan-bridge-resumed", { key: prevKey, code: resumeCode, at: Date.now() });
-        chunks.push(`\n\n${BRIDGE_MARKER} bridge recovered (${resumeCode}) — QA gate reminders resumed`);
       }
 
-      if (!mcpFirstInjected && isThemeCwd(ctx?.cwd) && !contentHasMarker(event.content, MCP_FIRST_MARKER)) {
-        mcpFirstInjected = true;
-        chunks.push(MCP_FIRST_TEXT);
+      // Reconcile on EVERY result, structured ones included: the receipt written
+      // by theme.qa_validate arrives on an MCP result and must clear the gate promptly.
+      if (pendingEdits.size > 0) reconcileReceipts();
+
+      // Structured results stay byte-identical: AntiFan MCP calls (tool name, or a
+      // write/read whose target is an `xd://` device path) and any result whose text
+      // parses as JSON. Callers parse these (eval `tool.write` joins the parts), so an
+      // appended notice turns valid JSON into "Extra data". Gate notices travel through
+      // the `context` handler instead.
+      const targets = extractTargetPaths(event.input);
+      const hasXdTarget = targets.some((t) => t.toLowerCase().startsWith("xd://") || DEVICE_PATH_RE.test(t));
+      if (isAntifanTool || hasXdTarget || parsesAsJson(event.content)) {
+        return undefined;
       }
-      if (pendingEdits.size > 0) {
-        // Reconcile on EVERY result: a receipt written by theme.qa_validate (not
-        // itself a write-class tool) must clear the gate promptly.
-        reconcileReceipts();
-        // …but the reminder only lands on a mutation-class result. A reminder on
-        // every pending read/grep/bash output spammed ~50 results per turn once
-        // armed; the reminder belongs on the result of a write/edit, right where
-        // the unverified surface grows.
-        const resultTool = String(event.toolName ?? event.name ?? "").toLowerCase();
-        if (pendingEdits.size > 0 && WRITE_TOOLS.has(resultTool) && !contentHasMarker(event.content, GATE_MARKER)) {
-          toolResultCounter += 1;
-          if ((toolResultCounter - 1) % REMIND_EVERY === 0) {
-            chunks.push(reminderText());
-          }
+
+      const chunks: string[] = drainChurnHints();
+
+      // The reminder only lands on a mutation-class result. A reminder on every
+      // pending read/grep/bash output spammed ~50 results per turn once armed; it
+      // belongs on the result of a write/edit, right where the unverified surface grows.
+      if (pendingEdits.size > 0 && WRITE_TOOLS.has(resultTool) && !contentHasMarker(event.content, GATE_MARKER)) {
+        toolResultCounter += 1;
+        if ((toolResultCounter - 1) % REMIND_EVERY === 0) {
+          chunks.push(reminderText());
         }
       }
       if (chunks.length === 0) return undefined;
@@ -1343,13 +1383,75 @@ function readLatestRatchetStats(workspaceRoot: string): RatchetStats | null {
       }
 
       pruneExpired();
-      const evidence = bridgeOutageEvidence();
-      let outMessages: unknown[] | undefined;
-      if (!evidence.down && bridgeOutageKey === null && !mcpFirstInjected && isThemeCwd(ctx?.cwd)) {
-        mcpFirstInjected = true;
-        const existing = Array.isArray(event.messages) ? event.messages : [];
-        outMessages = [...existing, mcpFirstMessage()];
+      // An outage observed on an AntiFan MCP result (marker lane) happened while the
+      // record may still read listening, so the record alone cannot clear it here.
+      const recordEvidence = bridgeOutageEvidence();
+      const heldMarker =
+        bridgeOutageKey !== null && (OBSERVED_FAILURE_MARKERS as readonly string[]).includes(bridgeOutageKey)
+          ? bridgeOutageKey
+          : null;
+      const evidence: OutageEvidence =
+        !recordEvidence.down && heldMarker !== null ? { down: true, code: heldMarker, key: heldMarker } : recordEvidence;
+
+      if (evidence.down) {
+        if (bridgeOutageKey !== evidence.key) {
+          bridgeOutageKey = evidence.key;
+          bypassLog.push({ at: new Date().toISOString(), token: "QA_GATE_SUSPENDED", code: evidence.code });
+          pi.appendEntry?.("antifan-bridge-suspension", { key: evidence.key, code: evidence.code, at: Date.now() });
+        }
+      } else if (bridgeOutageKey !== null) {
+        const prevKey = bridgeOutageKey;
+        bridgeOutageKey = null;
+        const resumeCode = evidence.code || "listening";
+        bridgeRecoveredCode = resumeCode;
+        pi.appendEntry?.("antifan-bridge-resumed", { key: prevKey, code: resumeCode, at: Date.now() });
       }
+
+      let outMessages: unknown[] | undefined;
+      const existing = Array.isArray(event.messages) ? event.messages : [];
+
+      if (evidence.down) {
+        const hasSuspendedNotice = existing.some(
+          (m) =>
+            m &&
+            typeof m === "object" &&
+            (m as Record<string, unknown>).customType === "theme-qa-gate" &&
+            ((m as Record<string, unknown>).details as Record<string, unknown> | undefined)?.kind === "bridge-suspended"
+        );
+        if (!hasSuspendedNotice) {
+          outMessages = [
+            ...existing,
+            {
+              role: "custom",
+              customType: "theme-qa-gate",
+              content: `${BRIDGE_MARKER} QA gate suspended: bridge down (${evidence.code}) — declare the QA_UNAVAILABLE status explicitly when closing work; reminders resume when bridge health recovers.`,
+              display: true,
+              attribution: "agent",
+              details: { kind: "bridge-suspended", code: evidence.code },
+            },
+          ];
+        }
+      } else {
+        if (bridgeRecoveredCode !== null) {
+          outMessages = [
+            ...existing,
+            {
+              role: "custom",
+              customType: "theme-qa-gate",
+              content: `${BRIDGE_MARKER} bridge recovered (${bridgeRecoveredCode}) — QA gate reminders resumed`,
+              display: true,
+              attribution: "agent",
+              details: { kind: "bridge-recovered", code: bridgeRecoveredCode },
+            },
+          ];
+          bridgeRecoveredCode = null;
+        }
+        if (bridgeOutageKey === null && !mcpFirstInjected && isThemeCwd(ctx?.cwd)) {
+          mcpFirstInjected = true;
+          outMessages = [...(outMessages ?? existing), mcpFirstMessage()];
+        }
+      }
+
       if (pendingEdits.size === 0) {
         return outMessages ? { messages: outMessages } : undefined;
       }

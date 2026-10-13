@@ -239,7 +239,7 @@ test("content shapes are preserved and a marked result is never double-appended"
   assert.ok(Array.isArray(arrayRes.content), "array content stays an array");
   assert.equal(arrayRes.content.length, 2, "appended chunks land as one extra text part");
   assert.equal(count(resText(arrayRes), GATE_REMINDER_SENTINEL), 1);
-  assert.equal(count(resText(arrayRes), MCP_FIRST_SENTINEL), 1, "first result also carries MCP-first");
+  assert.equal(count(resText(arrayRes), MCP_FIRST_SENTINEL), 0, "tool result does not carry MCP-first");
 
   const objectShape = loadHook();
   const rootB = makeWorkspace();
@@ -256,7 +256,7 @@ test("an already-marked tool result is skipped for both string and array content
   const ctx = { cwd: root };
   writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
   const first = result(handlers, ctx, "ok");
-  assert.equal(count(resText(first), GATE_REMINDER_SENTINEL), 1, "drain MCP-first + first reminder");
+  assert.equal(count(resText(first), GATE_REMINDER_SENTINEL), 1, "first reminder");
 
   const markedString = result(handlers, ctx, "previous note\n[theme-qa-gate] QA GATE PENDING — stale copy");
   assert.equal(markedString, undefined, "string content already carrying the marker is untouched");
@@ -827,29 +827,28 @@ test("micro lane fail-closed: block-syntax and REM edits cannot be cleared by mi
   assert.equal(fire(handlers, ctx, REMIND_EVERY).reminders, 1, "micro token must not clear whole-file REM");
 });
 
-test("first tool_result in a theme cwd injects MCP-first once, even without a write", () => {
+test("tool_result does not inject MCP-first directive (moved to context)", () => {
   const { handlers } = loadHook();
   const root = makeWorkspace();
   const ctx = { cwd: root };
   const first = resText(result(handlers, ctx, "glob output"));
-  assert.equal(count(first, MCP_FIRST_SENTINEL), 1, "first result carries MCP-first");
-  assert.ok(first.includes("anti.browser.tabs.list"), "names the bind tool");
-  assert.ok(first.includes("anti.inspect.dom"), "names inspect");
-  assert.ok(first.includes("anti.screenshot.viewport"), "names screenshot");
-  assert.ok(first.includes("theme.qa_validate"), "names qa_validate");
+  assert.equal(count(first, MCP_FIRST_SENTINEL), 0, "tool result does not carry MCP-first");
   assert.equal(count(first, GATE_REMINDER_SENTINEL), 0, "no write => no QA reminder");
 
-  const second = result(handlers, ctx, "another glob");
-  assert.equal(second, undefined, "second result is not injected again");
+  const out = handlers.get("context")({ messages: [] }, ctx);
+  assert.ok(out && Array.isArray(out.messages), "context carries MCP-first");
+  assert.ok(out.messages.some((m) => String(m.content).includes(MCP_FIRST_SENTINEL)));
 });
 
-test("session_start re-enables MCP-first injection", () => {
+test("session_start re-enables MCP-first injection in context", () => {
   const { handlers } = loadHook();
   const root = makeWorkspace();
   const ctx = { cwd: root };
-  assert.equal(count(resText(result(handlers, ctx, "a")), MCP_FIRST_SENTINEL), 1);
+  const out1 = handlers.get("context")({ messages: [] }, ctx);
+  assert.ok(out1 && out1.messages.some((m) => String(m.content).includes(MCP_FIRST_SENTINEL)));
   handlers.get("session_start")();
-  assert.equal(count(resText(result(handlers, ctx, "b")), MCP_FIRST_SENTINEL), 1, "reset re-injects");
+  const out2 = handlers.get("context")({ messages: [] }, ctx);
+  assert.ok(out2 && out2.messages.some((m) => String(m.content).includes(MCP_FIRST_SENTINEL)), "reset re-injects in context");
 });
 
 test("context injects one MCP-first message in a theme cwd", () => {
@@ -1145,7 +1144,9 @@ test("scoped mode: the branch latch silences the gate until a Core entry reopens
   branch.push(modeEntry("core"));
   const reopened = resText(result(handlers, ctx, "after core"));
   assert.equal(count(reopened, GATE_REMINDER_SENTINEL), 1, "the gate asks for QA again");
-  assert.equal(count(reopened, MCP_FIRST_SENTINEL), 1, "and MCP-first injection resumes");
+  assert.equal(count(reopened, MCP_FIRST_SENTINEL), 0, "tool result does not carry MCP-first");
+  const ctxReopened = handlers.get("context")({ messages: [] }, ctx);
+  assert.ok(ctxReopened && ctxReopened.messages.some((m) => String(m.content).includes(MCP_FIRST_SENTINEL)), "context carries MCP-first");
   // The context handler reads messages again too: an assistant declaration clears
   // the pending edit, which the scoped early return would never have reached.
   handlers.get("context")({ messages: [{ role: "assistant", content: BYPASS_TOKENS[0] }] }, ctx);
@@ -1181,12 +1182,10 @@ test("unset and core modes keep today's reminder behaviour and stay quiet at tur
     withEditMode(mode, () => {
       writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
       const first = resText(result(handlers, ctx, "output 1"));
-      assert.equal(
-        count(first, GATE_REMINDER_SENTINEL),
-        1,
-        `${label} reminds on an unmarked result`
-      );
-      assert.equal(count(first, MCP_FIRST_SENTINEL), 1, `${label} still injects MCP-first`);
+      assert.equal(count(first, GATE_REMINDER_SENTINEL), 1, `${label} reminds on an unmarked result`);
+      assert.equal(count(first, MCP_FIRST_SENTINEL), 0, `${label} does not inject MCP-first in tool result`);
+      const ctxOut = handlers.get("context")({ messages: [] }, ctx);
+      assert.ok(ctxOut && ctxOut.messages.some((m) => String(m.content).includes(MCP_FIRST_SENTINEL)), `${label} injects MCP-first in context`);
       assert.equal(
         result(handlers, ctx, `output 2\n[theme-qa-gate] QA GATE PENDING — stale copy`),
         undefined,
@@ -1270,15 +1269,17 @@ test("suspension: stale/dead bridge record => one suspension notice and no secon
 
     const res1 = result(handlers, ctx, "read result 1");
     const text1 = resText(res1);
-    assert.ok(text1.includes("[theme-qa-gate:bridge] QA gate suspended: bridge down (HEALTH_STALE)"), "first result carries suspension notice");
+    assert.ok(!text1.includes("[theme-qa-gate:bridge]"), "tool result does not carry bridge notice");
     assert.ok(!text1.includes(GATE_REMINDER_SENTINEL), "pending edits reminder is suppressed while suspended");
     assert.equal(entries.length, 1, "exactly one bridge entry on down edge");
     assert.equal(entries[0].customType, "antifan-bridge-suspension");
     assert.equal(entries[0].data.code, "HEALTH_STALE");
     assert.equal(entries[0].data.key, `${process.pid}:HEALTH_STALE`);
+    const ctx1 = handlers.get("context")({ messages: [] }, ctx);
+    assert.ok(ctx1 && ctx1.messages.some((m) => m.details?.kind === "bridge-suspended" && m.details?.code === "HEALTH_STALE"), "context carries bridge suspension notice");
 
     // Next 16 results (the Phukienmaymoc 17-tool_result scenario) must produce ZERO reminders and ZERO duplicate suspension notices
-    let suspensionCount = 1;
+    let suspensionCount = 0;
     let reminderCount = 0;
     for (let i = 2; i <= 17; i++) {
       const resI = result(handlers, ctx, `read result ${i}`);
@@ -1286,7 +1287,7 @@ test("suspension: stale/dead bridge record => one suspension notice and no secon
       if (textI.includes("[theme-qa-gate:bridge]")) suspensionCount++;
       if (textI.includes(GATE_REMINDER_SENTINEL)) reminderCount++;
     }
-    assert.equal(suspensionCount, 1, "exactly one suspension notice across all 17 tool results");
+    assert.equal(suspensionCount, 0, "zero suspension notices in tool results across all 17 results");
     assert.equal(reminderCount, 0, "zero reminders across all 17 tool results during outage");
     assert.equal(entries.length, 1, "no duplicate entries on subsequent tool results");
 
@@ -1300,7 +1301,9 @@ test("suspension: stale/dead bridge record => one suspension notice and no secon
     );
     const deadRes1 = result(handlers, ctx, "read 1");
     const deadText1 = resText(deadRes1);
-    assert.ok(deadText1.includes("[theme-qa-gate:bridge] QA gate suspended: bridge down (HEALTH_PID_DEAD)"), "dead pid produces HEALTH_PID_DEAD suspension");
+    assert.ok(!deadText1.includes("[theme-qa-gate:bridge]"), "tool result does not carry bridge notice");
+    const ctxDead = handlers.get("context")({ messages: [] }, ctx);
+    assert.ok(ctxDead && ctxDead.messages.some((m) => m.details?.kind === "bridge-suspended" && m.details?.code === "HEALTH_PID_DEAD"), "dead pid produces HEALTH_PID_DEAD in context");
     const deadRes2 = result(handlers, ctx, "read 2");
     assert.equal(deadRes2, undefined, "second tool_result during dead pid outage is completely silent");
   } finally {
@@ -1338,12 +1341,14 @@ test("suspension: observed-marker lane suspends while record reads listening and
     // Tool result from an AntiFan MCP tool carries launcher failure marker
     const res1 = result(handlers, ctx, "Error: MCP_BRIDGE_OFFLINE: connection refused to 127.0.0.1:20129", "mcp__antifan_browser_theme_qa_validate");
     const text1 = resText(res1);
-    assert.ok(text1.includes("[theme-qa-gate:bridge] QA gate suspended: bridge down (MCP_BRIDGE_OFFLINE)"), "observed lane suspends even though record says listening");
+    assert.ok(!text1.includes("[theme-qa-gate:bridge]"), "observed MCP error result does not carry bridge notice");
     assert.ok(!text1.includes(GATE_REMINDER_SENTINEL), "reminder is suppressed");
     assert.equal(entries.length, 1);
     assert.equal(entries[0].customType, "antifan-bridge-suspension");
     assert.equal(entries[0].data.code, "MCP_BRIDGE_OFFLINE");
     assert.equal(entries[0].data.key, "MCP_BRIDGE_OFFLINE");
+    const ctxObs = handlers.get("context")({ messages: [] }, ctx);
+    assert.ok(ctxObs && ctxObs.messages.some((m) => m.details?.kind === "bridge-suspended" && m.details?.code === "MCP_BRIDGE_OFFLINE"), "context carries MCP_BRIDGE_OFFLINE notice");
 
     // Second result with same marker does not duplicate notice
     const res2 = result(handlers, ctx, "MCP_BRIDGE_OFFLINE repeated", "mcp__antifan_browser_theme_qa_validate");
@@ -1356,7 +1361,9 @@ test("suspension: observed-marker lane suspends while record reads listening and
     writeCall(handlers, ctx, "sections/header.liquid");
     const resNoRec = result(handlers, ctx, "Connection to bridge failed: BRIDGE_UNREACHABLE", "mcp__antifan_browser_anti_browser_navigate");
     const textNoRec = resText(resNoRec);
-    assert.ok(textNoRec.includes("[theme-qa-gate:bridge] QA gate suspended: bridge down (BRIDGE_UNREACHABLE)"), "observed lane suspends with no record on disk");
+    assert.ok(!textNoRec.includes("[theme-qa-gate:bridge]"), "tool result does not carry bridge notice");
+    const ctxNoRec = handlers.get("context")({ messages: [] }, ctx);
+    assert.ok(ctxNoRec && ctxNoRec.messages.some((m) => m.details?.kind === "bridge-suspended" && m.details?.code === "BRIDGE_UNREACHABLE"), "context carries BRIDGE_UNREACHABLE notice");
   } finally {
     if (prevDataRoot !== undefined) process.env.ANTIFAN_DATA_ROOT = prevDataRoot;
     else delete process.env.ANTIFAN_DATA_ROOT;
@@ -1442,8 +1449,10 @@ test("suspension: resume emits exactly one notice and restores pending-edits rem
 
     // 1. Outage edge
     const res1 = result(handlers, ctx, "read 1");
-    assert.ok(resText(res1).includes("[theme-qa-gate:bridge] QA gate suspended: bridge down (LISTEN_FAILED)"));
+    assert.ok(!resText(res1).includes("[theme-qa-gate:bridge]"));
     assert.ok(!resText(res1).includes(GATE_REMINDER_SENTINEL));
+    const ctx1 = handlers.get("context")({ messages: [] }, ctx);
+    assert.ok(ctx1 && ctx1.messages.some((m) => m.details?.kind === "bridge-suspended" && m.details?.code === "LISTEN_FAILED"));
 
     // 2. Silence during outage
     const res2 = result(handlers, ctx, "read 2");
@@ -1458,14 +1467,18 @@ test("suspension: resume emits exactly one notice and restores pending-edits rem
 
     const res3 = result(handlers, ctx, "read 3");
     const text3 = resText(res3);
-    assert.ok(text3.includes("[theme-qa-gate:bridge] bridge recovered (listening) — QA gate reminders resumed"), "recovery notice emitted");
+    assert.ok(!text3.includes("[theme-qa-gate:bridge]"), "tool result does not carry bridge notice");
     assert.ok(text3.includes(GATE_REMINDER_SENTINEL), "pending edits reminder restored on recovery");
     const resumeEntries = entries.filter((e) => e.customType === "antifan-bridge-resumed");
     assert.equal(resumeEntries.length, 1, "exactly one resumed entry");
     assert.equal(resumeEntries[0].data.code, "listening");
     assert.equal(resumeEntries[0].data.key, `${process.pid}:LISTEN_FAILED`);
+    const ctx3 = handlers.get("context")({ messages: [] }, ctx);
+    assert.ok(ctx3 && ctx3.messages.some((m) => m.details?.kind === "bridge-recovered" && m.details?.code === "listening"), "context carries bridge recovered notice");
 
-    // 4. Next results: recovery notice must NOT repeat; the reminder returns on cadence
+    // 4. Next results: recovery notice must NOT repeat in context or tool results; reminder continues on cadence
+    const ctx4 = handlers.get("context")({ messages: [] }, ctx);
+    assert.ok(!ctx4 || !ctx4.messages.some((m) => m.details?.kind === "bridge-recovered"), "one-shot recovered notice does not repeat in context");
     const res4 = result(handlers, ctx, "read 4");
     const text4 = resText(res4);
     assert.ok(!text4.includes("bridge recovered"), "recovery notice does not repeat");
@@ -2065,5 +2078,150 @@ test("scoped mode: dirty turn with settings ratchet stats emits single-line coun
       debtCount: 3,
     });
   });
+});
+
+test("tool_result hook does not append string reminder chunks to structured JSON tool outputs", () => {
+  const { handlers } = loadHook();
+  const root = makeWorkspace();
+  const ctx = { cwd: root };
+  writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
+
+  // 1. Tool result containing a valid JSON object string
+  const jsonContent = JSON.stringify({ tabs: [{ tabId: "t1", url: "https://example.com" }] });
+  const jsonRes = handlers.get("tool_result")({ toolName: "write", content: jsonContent }, ctx);
+  assert.equal(jsonRes, undefined, "JSON tool result is untouched by the hook");
+
+  // 2. Tool result containing an array of text parts with JSON
+  const jsonArrayContent = [{ type: "text", text: JSON.stringify({ ok: true, count: 42 }) }];
+  const jsonArrayRes = handlers.get("tool_result")({ toolName: "write", content: jsonArrayContent }, ctx);
+  assert.equal(jsonArrayRes, undefined, "JSON array tool result is untouched");
+
+  // 3. Genuine file edit result is NOT JSON, so it receives the reminder at existing cadence
+  const patchInput = `[${path.join(root, "sections", "hero.liquid")}#TAG]\n@@\n+<div>test</div>`;
+  handlers.get("tool_call")({ toolName: "edit", input: { input: patchInput } }, ctx);
+  const editRes1 = handlers.get("tool_result")(
+    { toolName: "edit", input: { input: patchInput }, content: "Successfully applied patch" },
+    ctx
+  );
+  assert.ok(resText(editRes1).includes(GATE_REMINDER_SENTINEL), "genuine file edit result gets reminder");
+
+  // Intermediate edit results: REMIND_EVERY - 1 silent results sit between reminders
+  for (let i = 2; i <= REMIND_EVERY; i++) {
+    const editResI = handlers.get("tool_result")(
+      { toolName: "edit", input: { input: patchInput }, content: `Edit result ${i}` },
+      ctx
+    );
+    assert.ok(!resText(editResI).includes(GATE_REMINDER_SENTINEL), `intermediate result ${i} is silent`);
+  }
+  const editResN = handlers.get("tool_result")(
+    { toolName: "edit", input: { input: patchInput }, content: "Edit result N" },
+    ctx
+  );
+  assert.ok(resText(editResN).includes(GATE_REMINDER_SENTINEL), "reminder fires again on cadence");
+});
+
+test("tool_result hook does not append text to xd:// MCP write results even with pending edits and bridge outage", () => {
+  const scratchDataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "antifan-data-"));
+  const configDir = path.join(scratchDataRoot, "config");
+  fs.mkdirSync(configDir, { recursive: true });
+  scratchDirs.push(scratchDataRoot);
+
+  const prevDataRoot = process.env.ANTIFAN_DATA_ROOT;
+  const prevConfigDir = process.env.ANTIFAN_CONFIG_DIR;
+  process.env.ANTIFAN_DATA_ROOT = scratchDataRoot;
+  process.env.ANTIFAN_CONFIG_DIR = configDir;
+
+  try {
+    fs.writeFileSync(
+      path.join(configDir, "bridge.json"),
+      JSON.stringify({ pid: process.pid, health: "down", lastFailure: { code: "TEST_OUTAGE" }, updatedAt: Date.now(), heartbeatMs: 5000 }),
+      "utf8"
+    );
+
+    const { handlers } = loadHook();
+    const root = makeWorkspace();
+    const ctx = { cwd: root };
+    writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
+
+    const mcpDeviceResult = JSON.stringify({ tabs: [{ id: "tab-123" }] });
+    const res = handlers.get("tool_result")(
+      {
+        toolName: "write",
+        input: { path: "xd://mcp__antifan_browser_anti_browser_tabs_list" },
+        content: mcpDeviceResult,
+      },
+      ctx
+    );
+
+    assert.equal(res, undefined, "xd:// MCP write result is completely unmodified");
+    // Verify JSON parse validity without "Extra data" error
+    const parsed = JSON.parse(mcpDeviceResult);
+    assert.equal(parsed.tabs[0].id, "tab-123");
+  } finally {
+    if (prevDataRoot !== undefined) process.env.ANTIFAN_DATA_ROOT = prevDataRoot;
+    else delete process.env.ANTIFAN_DATA_ROOT;
+    if (prevConfigDir !== undefined) process.env.ANTIFAN_CONFIG_DIR = prevConfigDir;
+    else delete process.env.ANTIFAN_CONFIG_DIR;
+  }
+});
+
+test("isThemeCwd returns false when cwd is the AntiFan desktop repository", () => {
+  const { mod, handlers } = loadHook();
+  assert.equal(typeof mod.isThemeCwd, "function", "hook must export isThemeCwd");
+
+  const antifanRepo = fs.mkdtempSync(path.join(os.tmpdir(), "antifan-repo-"));
+  scratchDirs.push(antifanRepo);
+  fs.mkdirSync(path.join(antifanRepo, ".antifan"), { recursive: true });
+  fs.writeFileSync(
+    path.join(antifanRepo, "package.json"),
+    JSON.stringify({ name: "antifan-browser-desktop", version: "1.3.6" }),
+    "utf8"
+  );
+
+  assert.equal(mod.isThemeCwd(antifanRepo), false, "AntiFan repo with package.json is NOT a theme");
+
+  // Subdirectory inside AntiFan repo
+  const subDir = path.join(antifanRepo, "src", "main");
+  fs.mkdirSync(subDir, { recursive: true });
+  assert.equal(mod.isThemeCwd(subDir), false, "Subdirectory inside AntiFan repo is NOT a theme");
+
+  // Repo with src/main/index.ts
+  fs.writeFileSync(path.join(subDir, "index.ts"), "export const a = 1;", "utf8");
+  assert.equal(mod.isThemeCwd(antifanRepo), false, "AntiFan repo with src/main/index.ts is NOT a theme");
+
+  // Real theme workspace: has .antifan, templates, or /customizes/ without AntiFan package name
+  const realTheme = fs.mkdtempSync(path.join(os.tmpdir(), "real-theme-"));
+  scratchDirs.push(realTheme);
+  fs.mkdirSync(path.join(realTheme, ".antifan"), { recursive: true });
+  fs.writeFileSync(
+    path.join(realTheme, "package.json"),
+    JSON.stringify({ name: "my-storefront-theme", version: "1.0.0" }),
+    "utf8"
+  );
+  assert.equal(mod.isThemeCwd(realTheme), true, "Real theme cwd is recognized as theme");
+
+  // Context in AntiFan repo does not inject MCP-first directive
+  const ctx = { cwd: antifanRepo };
+  const ctxOut = handlers.get("context")({ messages: [{ role: "user", content: "fix code" }] }, ctx);
+  assert.equal(ctxOut, undefined, "AntiFan repo cwd receives no MCP-first directive in context");
+});
+
+test("edits to the AntiFan desktop repository never arm the QA gate, even under src/main/config/", () => {
+  const { handlers } = loadHook();
+  // An annotation-bound workspace that is the AntiFan repo itself: `config/` matches the theme path pattern.
+  const repo = makeWorkspace();
+  fs.writeFileSync(path.join(repo, "package.json"), JSON.stringify({ name: "antifan-browser-desktop" }), "utf8");
+  const ctx = { cwd: repo };
+
+  writeCall(handlers, ctx, path.join(repo, "src", "main", "config", "storage-locations.ts"), "edit");
+  const res = handlers.get("tool_result")({ toolName: "edit", input: { path: "src/main/config/storage-locations.ts" }, content: "Applied" }, ctx);
+  assert.ok(!resText(res).includes(GATE_REMINDER_SENTINEL), "an AntiFan source edit is not a theme edit");
+
+  // The same workspace without the AntiFan package name still arms on a real theme path.
+  const theme = makeWorkspace();
+  const themeCtx = { cwd: theme };
+  writeCall(handlers, themeCtx, path.join(theme, "config", "settings_schema.json"), "edit");
+  const themeRes = handlers.get("tool_result")({ toolName: "edit", input: { path: "config/settings_schema.json" }, content: "Applied" }, themeCtx);
+  assert.ok(resText(themeRes).includes(GATE_REMINDER_SENTINEL), "a theme config edit still arms the gate");
 });
 
