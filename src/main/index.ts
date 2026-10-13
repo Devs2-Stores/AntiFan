@@ -772,8 +772,8 @@ async function openTerminalLinkInOwner(ownerKeyValue: string, url: string): Prom
  * The host a shared service acts on when the call names neither a tab nor a sender —
  * see TabAmbientAuthority.ambientHostOrThrow; refusals are typed TARGET_REQUIRED.
  */
-function ambientHostOrThrow(): NativeTabHost {
-  return tabAmbient.ambientHostOrThrow();
+function ambientHostOrThrow(projectId?: string): NativeTabHost {
+  return tabAmbient.ambientHostOrThrow(projectId);
 }
 
 /**
@@ -808,16 +808,16 @@ function sharedServiceHostOrThrow(): NativeTabHost {
  * A tab no live window owns refuses TARGET_STALE rather than falling back to the
  * ambient host; only a call carrying no tab id consults it.
  */
-function hostForTabOrBootstrap(tabId: string | undefined): NativeTabHost {
-  return tabAmbient.hostForTabOrBootstrap(tabId);
+function hostForTabOrBootstrap(tabId: string | undefined, projectId?: string): NativeTabHost {
+  return tabAmbient.hostForTabOrBootstrap(tabId, projectId);
 }
 /**
  * The host for a read/recovery seam, or undefined when the named tab is dead — see
  * TabAmbientAuthority.hostForTabOrDegrade. Callers degrade to the value a live host
  * returns for an unknown id.
  */
-function hostForTabOrDegrade(tabId: string | undefined, seam: string): NativeTabHost | undefined {
-  return tabAmbient.hostForTabOrDegrade(tabId, seam);
+function hostForTabOrDegrade(tabId: string | undefined, seam: string, projectId?: string): NativeTabHost | undefined {
+  return tabAmbient.hostForTabOrDegrade(tabId, seam, projectId);
 }
 let bridgeServer: BridgeServer | null = null;
 let windowStateManager: WindowStateManager | null = null;
@@ -4431,10 +4431,10 @@ async function createWindow(): Promise<void> {
     },
     resolveTabAffiliation: measuredTabAffiliation,
     createTab: (url, activate = false, options) => {
-      // `anchorTabId` selects the window; the host would not know what to do with it,
-      // so it is consumed here and never forwarded.
-      const { anchorTabId, ...hostOptions } = options ?? {};
-      return hostForTabOrBootstrap(anchorTabId).createTab(url, activate, hostOptions);
+      // `anchorTabId` and `projectId` select the window; the host would not know what to do with them,
+      // so they are consumed here and never forwarded.
+      const { anchorTabId, projectId, ...hostOptions } = options ?? {};
+      return hostForTabOrBootstrap(anchorTabId, projectId).createTab(url, activate, hostOptions);
     },
     closeTab: (tabId, source) => hostForTabOrBootstrap(tabId).closeTab(tabId, source),
     switchTab: (tabId, opts) => hostForTabOrBootstrap(tabId).switchTab(tabId, opts),

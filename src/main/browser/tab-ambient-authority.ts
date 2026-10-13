@@ -26,7 +26,7 @@ import type { WorkspaceCapsule } from '../project/workspace-capsule';
 export type MeasuredTabAffiliation = { projectId?: string; workspaceId?: string; capsuleId?: string } | undefined;
 export interface TabAmbientAuthorityDeps {
   /** The live window→host directory — the same instance index.ts registers shells into. */
-  directory: Pick<TabAuthorityDirectory, 'hosts' | 'hostForTab'>;
+  directory: Pick<TabAuthorityDirectory, 'hosts' | 'hostForTab' | 'hostForProject'>;
   /** The capsule ledger the affiliation read consults; undefined when no store exists. */
   capsules?: () => ReadonlyArray<Pick<WorkspaceCapsule, 'id' | 'projectId' | 'workspaceId'>>;
   /** Lifecycle journal sink; degrades are recorded under `tabhost.boundTabDegraded`. */
@@ -42,13 +42,18 @@ export class TabAmbientAuthority {
   /**
    * The host a shared service acts on when the call names neither a tab nor a sender.
    *
-   * There is no ambient "current window": the automation-target owner is the one
-   * window an unbound agent authority is already pinned to (see the bridge's runtime
-   * binding), and a single-window process is unambiguous by construction. Anything
-   * else refuses with `TARGET_REQUIRED`, so a request can never land in whichever
-   * window was created first — and never degrades to `UNAUTHENTICATED` in flight.
+   * There is no ambient "current window". The authenticated project's own window
+   * wins first: a session scoped to project B must never open its tab in project A's
+   * window just because A holds an automation target. Otherwise the automation-target
+   * owner is the one window an unbound agent authority is already pinned to (see the
+   * bridge's runtime binding), and a single-window process is unambiguous by
+   * construction. Anything else refuses with `TARGET_REQUIRED`, so a request can never
+   * land in whichever window was created first — and never degrades to
+   * `UNAUTHENTICATED` in flight.
    */
-  ambientHostOrThrow(): NativeTabHost {
+  ambientHostOrThrow(projectId?: string): NativeTabHost {
+    const projectHost = projectId ? this.deps.directory.hostForProject(projectId) : undefined;
+    if (projectHost) return projectHost;
     const hosts = this.deps.directory.hosts();
     const automationHost = hosts.find((host) => host.getAutomationTabId() != null);
     if (automationHost) return automationHost;
@@ -59,7 +64,7 @@ export class TabAmbientAuthority {
     throw new CapabilityError(
       'TARGET_REQUIRED',
       `${hosts.length} project windows are live and this request names no window, tab or sender`,
-      { liveHosts: hosts.length }
+      { liveHosts: hosts.length, ...(projectId ? { projectId } : {}) }
     );
   }
 
@@ -71,14 +76,14 @@ export class TabAmbientAuthority {
    * tab — falling through to the ambient host would let a stale binding silently
    * act on another window's tab. Only an absent id consults the ambient host.
    */
-  hostForTabOrBootstrap(tabId: string | undefined): NativeTabHost {
+  hostForTabOrBootstrap(tabId: string | undefined, projectId?: string): NativeTabHost {
     if (tabId) {
       const owner = this.deps.directory.hostForTab(tabId);
       if (owner) return owner;
       this.noteUnowned(tabId, 'bootstrap-refusal');
       throw new CapabilityError('TARGET_STALE', `Target tab '${tabId}' is not owned by any live window`, { tabId });
     }
-    return this.ambientHostOrThrow();
+    return this.ambientHostOrThrow(projectId);
   }
 
   /**
@@ -89,14 +94,14 @@ export class TabAmbientAuthority {
    * gate and `rebind_target` keep working for sessions whose bound tab is gone.
    * An absent id still consults the ambient host and may refuse `TARGET_REQUIRED`.
    */
-  hostForTabOrDegrade(tabId: string | undefined, seam: string): NativeTabHost | undefined {
+  hostForTabOrDegrade(tabId: string | undefined, seam: string, projectId?: string): NativeTabHost | undefined {
     if (tabId) {
       const owner = this.deps.directory.hostForTab(tabId);
       if (owner) return owner;
       this.noteUnowned(tabId, seam);
       return undefined;
     }
-    return this.ambientHostOrThrow();
+    return this.ambientHostOrThrow(projectId);
   }
 
   /**

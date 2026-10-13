@@ -140,7 +140,7 @@ export interface BrowserHostPort {
    * one: the adapter resolves the host from it, so a child is created in its
    * parent's window instead of whichever window happens to be first.
    */
-  createTab?(url?: string, activate?: boolean, options?: { capsuleId?: string; userAgentMode?: BrowserSessionUserAgentMode; ephemeral?: boolean; devicePresetId?: string; mobile?: boolean; anchorTabId?: string; plane?: 'user' | 'agent' }): string;
+  createTab?(url?: string, activate?: boolean, options?: { capsuleId?: string; userAgentMode?: BrowserSessionUserAgentMode; ephemeral?: boolean; devicePresetId?: string; mobile?: boolean; anchorTabId?: string; plane?: 'user' | 'agent'; projectId?: string }): string;
   /** The capsule and project/workspace a tab was created in, or undefined when no capsule owns it. */
   resolveTabAffiliation?(tabId: string): { projectId?: string; workspaceId?: string; capsuleId?: string } | undefined;
   closeTab?(tabId: string, source?: string): boolean;
@@ -4110,6 +4110,7 @@ export class BrowserControlPort {
           // bound target on the routed branch; the unrouted branch must not
           // forward a raw caller-supplied anchor past authority checks.
           plane,
+          projectId: context?.authenticatedProjectId,
         };
     const tabId = this.host.createTab(options.url || 'about:blank', options.activate ?? false, createOptions);
     if (boundTabId && this.host.adoptChildTab) {

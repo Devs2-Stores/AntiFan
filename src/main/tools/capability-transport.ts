@@ -703,6 +703,7 @@ export class CapabilityTransportAdapter {
             throw new CapabilityError(
               'TARGET_MISMATCH',
               `Tab ID '${resolvedRequested}' is outside this session's authority (bound '${authorityTabId}'). Rebind only to session-managed or same-project tabs.`,
+              failoverId ? { candidateTabIds: [failoverId], failoverTabId: failoverId } : undefined
             );
           }
         }
@@ -721,7 +722,12 @@ export class CapabilityTransportAdapter {
           projectId: authContext.projectId,
           workspaceId: authContext.workspaceId,
         })) {
-          throw new CapabilityError('TARGET_MISMATCH', `Anchor tab '${anchorTabId}' is outside this attachment's authority`);
+          const failoverId = authorityTabId ? this.catalogue.resolveFailoverTabId(authorityTabId) : undefined;
+          throw new CapabilityError(
+            'TARGET_MISMATCH',
+            `Anchor tab '${anchorTabId}' is outside this attachment's authority`,
+            failoverId ? { candidateTabIds: [failoverId], failoverTabId: failoverId } : undefined
+          );
         }
         authContext.browserTarget = {
           projectId: authContext.projectId,

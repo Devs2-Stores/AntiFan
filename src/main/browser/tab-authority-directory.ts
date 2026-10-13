@@ -59,6 +59,18 @@ export class TabAuthorityDirectory {
     }
     return undefined;
   }
+  /** The host for a project window, or undefined when no live window owns that project. */
+  public hostForProject(projectId: string): NativeTabHost | undefined {
+    if (!projectId) return undefined;
+    for (const [shell, host] of this.hostsByShell) {
+      if (shell.window.isDestroyed()) continue;
+      if (shell.owner?.kind === 'project' && shell.owner.projectId === projectId) {
+        return host;
+      }
+    }
+    return undefined;
+  }
+
 
   /** Whether some live window's tab carries a live agent affinity to a terminal — the one
    *  membership the agent planes drive a terminal through (MCP `terminalAuthority`, the bridge's

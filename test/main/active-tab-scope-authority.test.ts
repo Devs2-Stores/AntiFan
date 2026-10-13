@@ -25,6 +25,9 @@ import type { BrowserTarget, RuntimeLease } from '../../src/shared/control-plane
 import type { NativeTabHost } from '../../src/main/browser/native-tab-host';
 import type { buildApplicationMenu } from '../../src/main/browser/app-menu';
 import type { TabContextMenuBuilder } from '../../src/main/browser/tab-context-menu';
+import { TabAuthorityDirectory } from '../../src/main/browser/tab-authority-directory';
+import { TabAmbientAuthority } from '../../src/main/browser/tab-ambient-authority';
+import type { ProjectWindowShell } from '../../src/main/browser/project-window-shell';
 
 // ---------------------------------------------------------------------------
 // Host doubles
@@ -753,6 +756,84 @@ describe('Zero-argument active-tab authority', () => {
       findItem(items, '🔄 Reload').click?.();
 
       assert.deepStrictEqual(delegate.reloads, ['tab-presented'], 'an un-migrated host keeps its previous behaviour');
+    });
+  });
+
+  describe('TabAmbientAuthority: project-scoped ambient resolution', () => {
+    it('ambientHostOrThrow resolves host for authenticated project when multiple project windows are open', () => {
+      const directory = new TabAuthorityDirectory();
+      const shellA = {
+        owner: { kind: 'project', projectId: 'project-a' },
+        window: { isDestroyed: () => false },
+      } as unknown as ProjectWindowShell;
+      const shellB = {
+        owner: { kind: 'project', projectId: 'project-b' },
+        window: { isDestroyed: () => false },
+      } as unknown as ProjectWindowShell;
+      const hostA = asHost(new RecordingTabHost());
+      const hostB = asHost(new RecordingTabHost());
+      directory.register(shellA, hostA);
+      directory.register(shellB, hostB);
+
+      const authority = new TabAmbientAuthority({ directory });
+
+      // Without projectId, multiple windows reject with TARGET_REQUIRED
+      assert.throws(
+        () => authority.ambientHostOrThrow(),
+        (err: unknown) => err instanceof CapabilityError && err.code === 'TARGET_REQUIRED'
+      );
+
+      // With authenticated projectId matching a live window, resolves that project's host
+      assert.strictEqual(authority.ambientHostOrThrow('project-b'), hostB);
+      assert.strictEqual(authority.ambientHostOrThrow('project-a'), hostA);
+      assert.strictEqual(authority.hostForTabOrBootstrap(undefined, 'project-b'), hostB);
+    });
+
+    it('still throws TARGET_REQUIRED when projectId matches no window', () => {
+      const directory = new TabAuthorityDirectory();
+      const shellA = {
+        owner: { kind: 'project', projectId: 'project-a' },
+        window: { isDestroyed: () => false },
+      } as unknown as ProjectWindowShell;
+      const shellB = {
+        owner: { kind: 'project', projectId: 'project-b' },
+        window: { isDestroyed: () => false },
+      } as unknown as ProjectWindowShell;
+      directory.register(shellA, asHost(new RecordingTabHost()));
+      directory.register(shellB, asHost(new RecordingTabHost()));
+
+      const authority = new TabAmbientAuthority({ directory });
+
+      assert.throws(
+        () => authority.ambientHostOrThrow('project-unknown'),
+        (err: unknown) => err instanceof CapabilityError && err.code === 'TARGET_REQUIRED'
+      );
+      assert.throws(
+        () => authority.hostForTabOrBootstrap(undefined, 'project-unknown'),
+        (err: unknown) => err instanceof CapabilityError && err.code === 'TARGET_REQUIRED'
+      );
+    });
+
+    it('hostForTabOrBootstrap retains TARGET_STALE semantics when explicit dead tabId is provided', () => {
+      const directory = new TabAuthorityDirectory();
+      const shellA = {
+        owner: { kind: 'project', projectId: 'project-a' },
+        window: { isDestroyed: () => false },
+      } as unknown as ProjectWindowShell;
+      const shellB = {
+        owner: { kind: 'project', projectId: 'project-b' },
+        window: { isDestroyed: () => false },
+      } as unknown as ProjectWindowShell;
+      directory.register(shellA, asHost(new RecordingTabHost()));
+      directory.register(shellB, asHost(new RecordingTabHost()));
+
+      const authority = new TabAmbientAuthority({ directory });
+
+      // Even if projectId is provided, an explicit dead tabId must throw TARGET_STALE, never ambient-bind
+      assert.throws(
+        () => authority.hostForTabOrBootstrap('tab-dead', 'project-a'),
+        (err: unknown) => err instanceof CapabilityError && err.code === 'TARGET_STALE'
+      );
     });
   });
 });

@@ -7,7 +7,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { TabAuthorityDirectory } from '../../src/main/browser/tab-authority-directory';
-import type { ProjectWindowShell, ChromeSurface } from '../../src/main/browser/project-window-shell';
+import type { ProjectWindowShell, ChromeSurface, WindowOwner } from '../../src/main/browser/project-window-shell';
 import type { NativeTabHost } from '../../src/main/browser/native-tab-host';
 import type { RoutedSurface } from '../../src/main/browser/ipc-router';
 
@@ -19,9 +19,11 @@ interface FakeShellControl {
 function createFakeShell(options: {
   destroyed?: boolean;
   surfaces?: Record<number, ChromeSurface>;
+  owner?: WindowOwner;
 } = {}): FakeShellControl {
   let isDestroyed = options.destroyed ?? false;
   const shell = {
+    owner: options.owner,
     window: {
       isDestroyed: () => isDestroyed,
     },
@@ -215,6 +217,36 @@ describe('TabAuthorityDirectory', () => {
 
       assert.equal(directory.agentHoldsTerminal('terminal-1', 'project:proj-a'), false);
       assert.equal(directory.agentHoldsTerminal('terminal-1', undefined), false);
+    });
+  });
+
+  describe('hostForProject', () => {
+    it('returns the host matching the shell project owner and undefined otherwise', () => {
+      const directory = new TabAuthorityDirectory();
+      const shellA = createFakeShell({ owner: { kind: 'project', projectId: 'project-a' } }).shell;
+      const shellB = createFakeShell({ owner: { kind: 'project', projectId: 'project-b' } }).shell;
+      const hostA = createFakeHost(['tab-1']);
+      const hostB = createFakeHost(['tab-2']);
+
+      directory.register(shellA, hostA);
+      directory.register(shellB, hostB);
+
+      assert.equal(directory.hostForProject('project-a'), hostA);
+      assert.equal(directory.hostForProject('project-b'), hostB);
+      assert.equal(directory.hostForProject('project-unknown'), undefined);
+      assert.equal(directory.hostForProject(''), undefined);
+    });
+
+    it('skips a destroyed project window', () => {
+      const directory = new TabAuthorityDirectory();
+      const controlA = createFakeShell({ owner: { kind: 'project', projectId: 'project-a' } });
+      const hostA = createFakeHost(['tab-1']);
+
+      directory.register(controlA.shell, hostA);
+      assert.equal(directory.hostForProject('project-a'), hostA);
+
+      controlA.setDestroyed(true);
+      assert.equal(directory.hostForProject('project-a'), undefined);
     });
   });
 });
