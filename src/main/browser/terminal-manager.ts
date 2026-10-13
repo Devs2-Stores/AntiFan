@@ -38,6 +38,63 @@ export const BACKPRESSURE_HIGH_WATERMARK_BYTES = 256 * 1024; // 256 KiB
 export const BACKPRESSURE_LOW_WATERMARK_BYTES = 64 * 1024;  // 64 KiB
 export const BACKPRESSURE_MAX_PENDING_BYTES = 1024 * 1024;   // 1 MiB ring buffer
 
+export const PTY_SCRUBBED_ENV_VARS = [
+  'ANTIFAN_TERMINAL_HOST_TOKEN',
+  'ANTIFAN_TERMINAL_HOST_VERSION',
+  'ELECTRON_RUN_AS_NODE',
+  'CI',
+  'CLAUDECODE',
+] as const;
+
+export interface TerminalEnvOptions {
+  baseEnv?: NodeJS.ProcessEnv;
+  envPath: string;
+  configDir?: string;
+  dataRoot?: string;
+  bridgeEndpoint?: { port: number; host: string; pid: number } | null;
+  id: string;
+  generation: number;
+  affinitySessionId: string;
+  affinityGeneration: string;
+  parentSessionId?: string;
+}
+
+export function buildTerminalEnv(options: TerminalEnvOptions): Record<string, string> {
+  const env: Record<string, string> = {};
+  const base = options.baseEnv || process.env;
+  for (const [key, value] of Object.entries(base)) {
+    if (value !== undefined) {
+      env[key] = value;
+    }
+  }
+
+  for (const scrubKey of PTY_SCRUBBED_ENV_VARS) {
+    delete env[scrubKey];
+  }
+
+  env.PATH = options.envPath;
+  env.TERM = 'xterm-256color';
+  env.FORCE_COLOR = '1';
+  env.ANTIFAN_CONFIG_DIR = options.configDir || process.env.ANTIFAN_CONFIG_DIR || StorageLocations.getConfigDir();
+  env.ANTIFAN_DATA_ROOT = options.dataRoot || process.env.ANTIFAN_DATA_ROOT || StorageLocations.getDataRoot();
+
+  if (options.bridgeEndpoint) {
+    env.ANTIFAN_BRIDGE_PORT = String(options.bridgeEndpoint.port);
+    env.ANTIFAN_BRIDGE_HOST = options.bridgeEndpoint.host;
+    env.ANTIFAN_BRIDGE_PID = String(options.bridgeEndpoint.pid);
+  }
+
+  env.ANTIFAN_TERMINAL_SESSION_ID = options.id;
+  env.ANTIFAN_TERMINAL_GENERATION = String(options.generation);
+  env.ANTIFAN_TERMINAL_AFFINITY_SESSION_ID = options.affinitySessionId;
+  env.ANTIFAN_TERMINAL_AFFINITY_GENERATION = options.affinityGeneration;
+  if (options.parentSessionId) {
+    env.ANTIFAN_TERMINAL_PARENT_SESSION_ID = options.parentSessionId;
+  }
+
+  return env;
+}
+
 /** What a terminal is for. `sync` is a theme watcher: its process tree must stay alive. */
 export type SpaceTerminalRole = 'agent' | 'sync' | 'shell';
 /** `never` refuses sleep; `manual` is today's behaviour (the user may sleep it). */
@@ -1722,28 +1779,16 @@ export class TerminalManager extends EventEmitter {
     this.sessionGenerations.set(id, generation);
     const affinitySessionId = parentSessionId || id;
     const affinityGeneration = String(parentGeneration !== undefined ? parentGeneration : generation);
-    const terminalEnv: Record<string, string> = {
-      ...process.env,
-      PATH: envPath,
-      TERM: 'xterm-256color',
-      FORCE_COLOR: '1',
-      ANTIFAN_CONFIG_DIR: process.env.ANTIFAN_CONFIG_DIR || StorageLocations.getConfigDir(),
-      ANTIFAN_DATA_ROOT: process.env.ANTIFAN_DATA_ROOT || StorageLocations.getDataRoot(),
-      // Endpoint metadata only (never a token): the owning instance tells its own
-      // terminals which bridge they belong to.
-      ...(this.bridgeEndpoint
-        ? {
-            ANTIFAN_BRIDGE_PORT: String(this.bridgeEndpoint.port),
-            ANTIFAN_BRIDGE_HOST: this.bridgeEndpoint.host,
-            ANTIFAN_BRIDGE_PID: String(this.bridgeEndpoint.pid),
-          }
-        : {}),
-      ANTIFAN_TERMINAL_SESSION_ID: id,
-      ANTIFAN_TERMINAL_GENERATION: String(generation),
-      ANTIFAN_TERMINAL_AFFINITY_SESSION_ID: affinitySessionId,
-      ANTIFAN_TERMINAL_AFFINITY_GENERATION: affinityGeneration,
-      ...(parentSessionId ? { ANTIFAN_TERMINAL_PARENT_SESSION_ID: parentSessionId } : {}),
-    };
+    const terminalEnv = buildTerminalEnv({
+      baseEnv: process.env,
+      envPath,
+      bridgeEndpoint: this.bridgeEndpoint,
+      id,
+      generation,
+      affinitySessionId,
+      affinityGeneration,
+      parentSessionId,
+    });
     const basePtyOptions: pty.IBasePtyForkOptions = {
       cols,
       rows,
