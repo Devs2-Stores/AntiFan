@@ -4442,7 +4442,8 @@ async function createWindow(): Promise<void> {
     // a genuine NAVIGATION_* miss serializes as TARGET_STALE (the retired blanket
     // code) because the composite itself keeps no record map.
     getLastNavigationFailure: (tabId) => hostForTabOrBootstrap(tabId).getLastNavigationFailure(tabId),
-    reload: (tabId: string) => hostForTabOrBootstrap(tabId).reloadAndWait(tabId),
+    reload: (tabId: string, options?: { ownedReloadToken?: string }) => hostForTabOrBootstrap(tabId).reloadAndWait(tabId, undefined, options),
+    reloadAndWait: (tabId: string, timeoutMs?: number, options?: { ownedReloadToken?: string }) => hostForTabOrBootstrap(tabId).reloadAndWait(tabId, timeoutMs, options),
     getTabDebugger: (tabId: string) => {
       const wc = hostForTabOrBootstrap(tabId).getTabWebContents(tabId, 'desktop');
       return wc && !wc.isDestroyed() ? wc.debugger : undefined;
