@@ -44,8 +44,9 @@ const definitions = [
   ['anti.browser.navigate', 'Navigate active or background tab in live AntiFan Desktop Browser GUI.', { url: { type: 'string' }, tabId: { type: 'string' } }, ['url'], [], 'tabId'],
   ['anti.browser.reload', 'Reload active or background tab in live AntiFan Desktop Browser GUI.', { tabId: { type: 'string' } }, [], [], 'tabId'],
   ['anti.inspect.dom', 'Read DOM elements and computed attributes from AntiFan Desktop tab (supports desktop and mobile split panes). Operates directly against background tab.', { selector: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], [], 'tabId'],
-  ['anti.screenshot.viewport', 'Capture high-fidelity viewport screenshot from live AntiFan Desktop GUI (supports desktop and mobile split panes, format: jpeg/png). Viewport-only: full_page:true is rejected; use anti.screenshot.full_page for entire document height.', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, format: { type: 'string', enum: ['jpeg', 'png'] }, quality: { type: 'number' } }, [], [], 'tabId'],
-  ['anti.screenshot.full_page', 'Capture canonical PNG full-page evidence (entire document scroll height) and stage it under the evidence lease. materializeDataSrc:true swaps lazy data-src/data-srcset into live sources first (for loaders that only swap on user interaction; otherwise such images fail imagesSettled with CAPTURE_NOT_READY).', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, format: { type: 'string', enum: ['png'] }, quality: { type: 'number' }, leaseToken: { type: 'string' }, expectedUrl: { type: 'string' }, materializeDataSrc: { type: 'boolean' } }, [], [], 'tabId'],
+  ['anti.inspect.console', 'Get tab console messages and failed requests from the bound or specified tab.', { tabId: { type: 'string' }, level: { type: 'number' } }, [], [], 'tabId'],
+  ['anti.screenshot.viewport', 'Capture high-fidelity viewport screenshot from live AntiFan Desktop GUI (supports desktop and mobile split panes, format: jpeg/png). Viewport-only: full_page:true is rejected; use anti.screenshot.full_page for entire document height.', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, format: { type: 'string', enum: ['jpeg', 'png'] }, quality: { type: 'number' }, inline: { type: 'boolean', description: 'When false, returns only artifact metadata and file path without base64 image data' } }, [], [], 'tabId'],
+  ['anti.screenshot.full_page', 'Capture canonical PNG full-page evidence (entire document scroll height) and stage it under the evidence lease. materializeDataSrc:true swaps lazy data-src/data-srcset into live sources first (for loaders that only swap on user interaction; otherwise such images fail imagesSettled with CAPTURE_NOT_READY).', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, format: { type: 'string', enum: ['png'] }, quality: { type: 'number' }, leaseToken: { type: 'string' }, expectedUrl: { type: 'string' }, materializeDataSrc: { type: 'boolean' }, inline: { type: 'boolean', description: 'When false, returns only artifact metadata and file path without base64 image data' } }, [], [], 'tabId'],
   ['anti.reference.capture', 'Capture a reference from a live page: materialize lazily-mounted content, settle, then stage the settled DOM (and optionally a screenshot) so later measurements describe the page a comparator actually rasterizes.', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, selector: { type: 'string' }, screenshot: { type: 'boolean' }, format: { type: 'string', enum: ['png', 'jpeg'] }, quality: { type: 'number' }, materializeDataSrc: { type: 'boolean', description: 'Also materialize images that carry only lazy data-src/data-srcset attributes (default false: counted as unmaterialized)' } }, [], [], 'tabId'],
   ['anti.browser.set_viewport', 'Set the bound tab viewport dimensions and device emulation, verified against the size the tab actually measures.', { width: { type: 'number' }, height: { type: 'number' }, mobile: { type: 'boolean' }, deviceScaleFactor: { type: 'number' }, tabId: { type: 'string' }, reload: { type: 'boolean' } }, ['width', 'height'], [], 'tabId'],
   ['anti.browser.get_viewport', 'Get the bound tab viewport dimensions, DPR, device preset, and layout surface state without applying overrides.', { tabId: { type: 'string' } }, [], [], 'tabId'],
@@ -563,6 +564,7 @@ const CAPABILITY_MAP = Object.freeze({
   'anti.browser.navigate': 'browser.navigate',
   'anti.browser.reload': 'browser.reload',
   'anti.inspect.dom': 'browser.dom',
+  'anti.inspect.console': 'browser.diagnostics',
   'anti.browser.set_viewport': 'browser.set-viewport',
   'anti.browser.get_viewport': 'browser.get-viewport',
   'anti.agent.cursor.click': 'browser.agent-click',
@@ -1477,6 +1479,7 @@ const READ_SAFE_CAPABILITIES = Object.freeze({
   'anti.browser.tabs.list': true,
   'anti.browser.tabs.get': true,
   'anti.inspect.dom': true,
+  'anti.inspect.console': true,
   'anti.screenshot.viewport': true,
   'anti.screenshot.full_page': true,
   'anti.reference.capture': true,
@@ -3079,8 +3082,36 @@ async function callTool(request, extra) {
       const isImage = isScreenshotCapability ||
         (typeof ref.mime === 'string' && ref.mime.startsWith('image/'));
       if (isImage) {
+        const wantsInline = request.params?.arguments?.inline !== false;
+        const artifactPath = ref.path || (data && typeof data === 'object' ? data.path : undefined);
+        const byteSize = typeof ref.byteLength === 'number'
+          ? ref.byteLength
+          : (typeof ref.bytes === 'number' ? ref.bytes : (typeof data?.byteLength === 'number' ? data.byteLength : undefined));
+        const sha = ref.sha256 || (data && typeof data === 'object' ? data.sha256 : undefined);
+        const mimeType = (typeof ref.mime === 'string' && ref.mime) || (data && typeof data === 'object' && typeof data.mime === 'string' ? data.mime : 'image/png');
+        const metadata = {
+          _type: 'ArtifactRef',
+          id: ref.id,
+          ...(artifactPath ? { path: artifactPath } : {}),
+          ...(byteSize !== undefined ? { byteLength: byteSize } : {}),
+          ...(sha ? { sha256: sha } : {}),
+          mime: mimeType,
+        };
+        const metadataText = JSON.stringify(metadata, null, 2);
+
+        if (!wantsInline) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: metadataText,
+              },
+            ],
+          };
+        }
+
         const artifactPayload = await fetchArtifactBinary(bootstrap, ref.id);
-        return resolveImageArtifactResponse(ref, artifactPayload);
+        return resolveImageArtifactResponse(ref, artifactPayload, metadataText);
       }
 
       // If text artifact exceeds 64 KiB, return ArtifactRef metadata to prevent stdio pipe saturation
@@ -3138,7 +3169,7 @@ async function callTool(request, extra) {
   }
 }
 
-function resolveImageArtifactResponse(data, artifactPayload) {
+function resolveImageArtifactResponse(data, artifactPayload, metadataText) {
   if (!artifactPayload || !artifactPayload.data || artifactPayload.data.length === 0) {
     return {
       isError: true,
@@ -3157,15 +3188,19 @@ function resolveImageArtifactResponse(data, artifactPayload) {
     : artifactPayload.data.startsWith('UklGR')
     ? 'image/webp'
     : (artifactPayload.mimeType || (data && data.mime) || 'image/png');
-  return {
-    content: [
-      {
-        type: 'image',
-        data: artifactPayload.data,
-        mimeType: detectedMime,
-      },
-    ],
-  };
+  const content = [];
+  if (metadataText) {
+    content.push({
+      type: 'text',
+      text: metadataText,
+    });
+  }
+  content.push({
+    type: 'image',
+    data: artifactPayload.data,
+    mimeType: detectedMime,
+  });
+  return { content };
 }
 
 if (require.main === module) {

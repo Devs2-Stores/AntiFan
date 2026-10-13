@@ -295,7 +295,8 @@ describe('Phase 04: E2E Industrial Overhaul & Storefront Latency Benchmarks', ()
     const resp = await sendMcpToolCall(1, 'anti.screenshot.viewport', {});
     assert.strictEqual(resp.error, undefined);
     assert.strictEqual(resp.result?.isError, undefined);
-    const content = resp.result?.content?.[0];
+    // The image part follows the artifact metadata text part.
+    const content = resp.result?.content?.find((part: { type?: string }) => part.type === 'image');
     assert.ok(content, 'Must return content array');
     assert.strictEqual(content.type, 'image', 'Must return standard MCP Image type');
     assert.strictEqual(content.mimeType, 'image/png');
@@ -369,7 +370,7 @@ describe('Phase 04: E2E Industrial Overhaul & Storefront Latency Benchmarks', ()
     const screenshotResp = await sendMcpToolCall(8, 'anti.screenshot.viewport', { tabId: createdTabId });
     assert.strictEqual(screenshotResp.error, undefined);
     assert.strictEqual(screenshotResp.result?.isError, undefined);
-    assert.strictEqual(screenshotResp.result?.content?.[0]?.type, 'image');
+    assert.ok(screenshotResp.result?.content?.some((part: { type?: string }) => part.type === 'image'), 'screenshot must carry an image part');
     // 3. Execute ref-only cursor typing on the created tab in the same session
     const typeResp = await sendMcpToolCall(9, 'anti.agent.cursor.type', { ref: '@e1', text: 'order now', tabId: createdTabId });
     assert.strictEqual(typeResp.error, undefined);

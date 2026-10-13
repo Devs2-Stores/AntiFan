@@ -1566,6 +1566,15 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
   });
 
   catalogue.register({
+    name: 'anti.inspect.console',
+    description: 'Alias for browser.diagnostics: returns tab console messages and failed requests',
+    risk: 'read',
+    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: false, lane: 'unbounded' }),
+    inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, level: { type: 'number' } } },
+    execute: (params: { tabId?: string; level?: number | string }) => browser.diagnostics(params.tabId, params.level),
+  });
+
+  catalogue.register({
     name: 'antifan_network_failures',
     description: 'Alias for browser.diagnostics',
     risk: 'read',
@@ -2481,8 +2490,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       timeoutMs: VIEWPORT_CAPTURE_EXECUTION_BUDGET_MS + VIEWPORT_CAPTURE_CANCELLATION_ACK_MS,
       cancellationAckTimeoutMs: VIEWPORT_CAPTURE_CANCELLATION_ACK_MS,
     }),
-    inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, format: { type: 'string', enum: ['png', 'jpeg'] }, quality: { type: 'number' }, fullPage: { type: 'boolean', description: 'Rejected: anti.screenshot.viewport is viewport-only; use anti.screenshot.full_page' } } },
-    execute: async (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean }, context) => {
+    inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, format: { type: 'string', enum: ['png', 'jpeg'] }, quality: { type: 'number' }, fullPage: { type: 'boolean', description: 'Rejected: anti.screenshot.viewport is viewport-only; use anti.screenshot.full_page' }, inline: { type: 'boolean', description: 'When false, returns only artifact metadata and file path without base64 image data' } } },
+    execute: async (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean; inline?: boolean }, context) => {
       assertViewportOnlyScreenshot('anti.screenshot.viewport', params.fullPage);
       return browser.screenshot(context.browserTarget as BrowserTarget, context.runId || 'run-unbound', context.attemptId || 'attempt-unbound', params.tabId, params.paneId, { format: params.format || 'jpeg', quality: params.quality ?? 85, fullPage: false });
     },
@@ -2511,9 +2520,10 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         leaseToken: { type: 'string', description: 'Evidence-run artifact lease token from artifact.preflight; required while the run holds an exclusive lease' },
         expectedUrl: { type: 'string', description: 'Expected route URL for route identity gate assertion' },
         materializeDataSrc: { type: 'boolean', description: 'Swap lazy data-src/data-srcset into live sources before capture, for loaders that only swap on user interaction (default false: such images fail the imagesSettled gate with CAPTURE_NOT_READY)' },
+        inline: { type: 'boolean', description: 'When false, returns only artifact metadata and file path without base64 image data' },
       },
     },
-    execute: async (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; format?: 'png' | 'jpeg'; quality?: number; leaseToken?: string; expectedUrl?: string; materializeDataSrc?: boolean }, context) => {
+    execute: async (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; format?: 'png' | 'jpeg'; quality?: number; leaseToken?: string; expectedUrl?: string; materializeDataSrc?: boolean; inline?: boolean }, context) => {
       if (params.format === 'jpeg') {
         throw new CapabilityError('INVALID_ARGUMENT', 'anti.screenshot.full_page stages PNG evidence only; jpeg is not supported');
       }

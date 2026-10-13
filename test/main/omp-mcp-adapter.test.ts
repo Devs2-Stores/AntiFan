@@ -4,8 +4,25 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as net from 'node:net';
+import * as http from 'node:http';
 import { spawn } from 'node:child_process';
 import { WebSocketServer } from 'ws';
+
+interface AdapterRpcResponse {
+  id: number;
+  result?: {
+    isError?: boolean;
+    content?: Array<{ type: string; text?: string; data?: string; mimeType?: string }>;
+    tools?: Array<{
+      name: string;
+      description: string;
+      inputSchema?: {
+        properties?: Record<string, { type?: string; enum?: string[]; leaseToken?: unknown; expectedUrl?: unknown; inline?: unknown; tabId?: unknown; level?: unknown }>;
+      };
+    }>;
+  };
+  error?: unknown;
+}
 import {
   BRIDGE_CLIENT_FAILURE_JOURNAL_MAX_BYTES,
   bridgeClientFailuresPath,
@@ -684,6 +701,11 @@ describe('OMP MCP stdio proxy security & bootstrap fail-closed contract', { conc
       assert.deepEqual(schema('anti.screenshot.full_page').properties.format.enum, ['png']);
       assert.ok(schema('anti.screenshot.full_page').properties.leaseToken);
       assert.ok(schema('anti.screenshot.full_page').properties.expectedUrl);
+      assert.ok(schema('anti.screenshot.full_page').properties.inline);
+      assert.ok(schema('anti.screenshot.viewport').properties.inline);
+      assert.ok(schema('anti.inspect.console'));
+      assert.ok(schema('anti.inspect.console').properties.tabId);
+      assert.ok(schema('anti.inspect.console').properties.level);
       assert.ok(schema('anti.verification.record_claim').properties.category.enum.includes('VISUAL'));
       assert.equal(schema('anti.verification.list').properties.category, undefined);
       assert.ok(schema('anti.verification.list').properties.tabId);
@@ -1269,6 +1291,362 @@ describe('OMP MCP stdio proxy security & bootstrap fail-closed contract', { conc
     );
     assert.strictEqual(currentPath.includes('undefined'), false, 'Must not request undefined artifact ID');
       assert.strictEqual(res.result?.content?.[0]?.text, 'nested-text-hello');
+    } finally {
+      child.kill();
+      await new Promise<void>((resolve) => wss.close(() => httpServer.close(() => resolve())));
+    }
+  });
+  it('OMP proxy advertises anti.inspect.console and correctly dispatches to tab diagnostics', async () => {
+    const scriptPath = fs.existsSync(path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs'))
+      ? path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs')
+      : path.resolve(__dirname, '../../scripts/antifan-omp-mcp.cjs');
+
+    const wss = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+    await new Promise<void>((resolve) => wss.once('listening', () => resolve()));
+    const port = (wss.address() as net.AddressInfo).port;
+
+    const dispatched: Array<{ name: string; params: Record<string, unknown> | undefined }> = [];
+    wss.on('connection', (ws) => {
+      ws.on('message', (raw) => {
+        try {
+          const msg = JSON.parse(raw.toString()) as { id: number; method: string; params: { name: string; params?: Record<string, unknown> } };
+          if (msg.method === 'antifan.capability.dispatch') {
+            dispatched.push({ name: msg.params.name, params: msg.params.params });
+            ws.send(JSON.stringify({
+              id: msg.id,
+              success: true,
+              data: {
+                data: {
+                  console: [
+                    { level: 3, message: 'Uncaught TypeError: test error', line: 12, origin: 'example.com' },
+                  ],
+                  failures: [
+                    { errorCode: -105, errorDescription: 'ERR_NAME_NOT_RESOLVED', validatedURL: 'https://example.com/fail.png' },
+                  ],
+                },
+              },
+            }));
+          }
+        } catch {}
+      });
+    });
+
+    const bootstrap = {
+      port,
+      secret: 'secret-console-test',
+      attachmentId: 'att-console-test',
+      authorityRevision: 'rev-console-1',
+    };
+
+    const child = spawn(process.execPath, [scriptPath], {
+      env: { ...process.env, ANTIFAN_MCP_BOOTSTRAP: JSON.stringify(bootstrap) },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    const sendJsonRpc = (msg: unknown) => child.stdin.write(JSON.stringify(msg) + '\n');
+    let buffer = '';
+    const pending = new Map<number, (value: AdapterRpcResponse) => void>();
+    child.stdout.on('data', (chunk: Buffer) => {
+      buffer += chunk.toString();
+      let newline: number;
+      while ((newline = buffer.indexOf('\n')) >= 0) {
+        const line = buffer.slice(0, newline);
+        buffer = buffer.slice(newline + 1);
+        if (!line.trim()) continue;
+        try {
+          const response = JSON.parse(line) as AdapterRpcResponse;
+          pending.get(response.id)?.(response);
+          pending.delete(response.id);
+        } catch {}
+      }
+    });
+
+    const request = (id: number, method: string, params: Record<string, unknown>): Promise<AdapterRpcResponse> => {
+      const response = new Promise<AdapterRpcResponse>((resolve) => pending.set(id, resolve));
+      sendJsonRpc({ jsonrpc: '2.0', id, method, params });
+      return withDeadline(response, `console test response id=${id}`);
+    };
+
+    try {
+      await request(1, 'initialize', {
+        protocolVersion: '2024-11-05',
+        capabilities: {},
+        clientInfo: { name: 'test', version: '1.0' },
+      });
+
+      const listed = await request(2, 'tools/list', {});
+      const consoleTool = listed.result?.tools?.find((t) => t.name === 'anti.inspect.console');
+      assert.ok(consoleTool, 'anti.inspect.console must be listed in tools/list');
+      assert.ok(consoleTool.description.includes('console'), 'description must mention console');
+      assert.strictEqual(consoleTool.inputSchema?.properties?.tabId?.type, 'string');
+      assert.strictEqual(consoleTool.inputSchema?.properties?.level?.type, 'number');
+
+      const callRes = await request(3, 'tools/call', {
+        name: 'anti.inspect.console',
+        arguments: { tabId: 'tab-console-42', level: 2 },
+      });
+      assert.strictEqual(callRes.result?.isError, undefined);
+      assert.strictEqual(dispatched.length, 1);
+      const [call] = dispatched;
+      assert.ok(call);
+      assert.strictEqual(call.name, 'browser.diagnostics', 'Proxy must dispatch browser.diagnostics');
+      assert.strictEqual(call.params?.tabId, 'tab-console-42');
+      assert.strictEqual(call.params?.level, 2);
+
+      const text = callRes.result?.content?.[0]?.text;
+      assert.ok(text, 'Call result must contain text content');
+      const parsedPayload = JSON.parse(text) as { console: Array<{ message: string }>; failures: Array<{ errorCode: number }> };
+      assert.strictEqual(parsedPayload.console.length, 1);
+      assert.strictEqual(parsedPayload.console[0]?.message, 'Uncaught TypeError: test error');
+      assert.strictEqual(parsedPayload.failures.length, 1);
+      assert.strictEqual(parsedPayload.failures[0]?.errorCode, -105);
+    } finally {
+      child.kill();
+      await new Promise<void>((resolve) => wss.close(() => resolve()));
+    }
+  });
+
+  it('screenshot capability includes on-disk artifact path in response metadata alongside image data by default', async () => {
+    const scriptPath = fs.existsSync(path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs'))
+      ? path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs')
+      : path.resolve(__dirname, '../../scripts/antifan-omp-mcp.cjs');
+
+    const fakePngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+    let artifactRequested = false;
+    const httpServer = http.createServer((req, res) => {
+      if (req.url?.includes('artifact-screenshot-default-test')) {
+        artifactRequested = true;
+        res.writeHead(200, { 'Content-Type': 'image/png', 'x-artifact-total-bytes': '68' });
+        res.end(Buffer.from(fakePngBase64, 'base64'));
+      } else {
+        res.writeHead(404);
+        res.end();
+      }
+    });
+
+    const wss = new WebSocketServer({ server: httpServer });
+    wss.on('connection', (ws) => {
+      ws.on('message', (raw) => {
+        try {
+          const msg = JSON.parse(raw.toString()) as { id: number; method: string };
+          if (msg.method === 'antifan.capability.dispatch') {
+            ws.send(JSON.stringify({
+              id: msg.id,
+              success: true,
+              data: {
+                data: {
+                  ok: true,
+                  artifactRef: {
+                    id: 'artifact-screenshot-default-test',
+                    path: 'E:/Work/.antifan-data/artifacts/artifact-screenshot-default-test.artifact',
+                    byteLength: 68,
+                    sha256: 'fake-png-sha256',
+                    mime: 'image/png',
+                  },
+                },
+              },
+            }));
+          }
+        } catch {}
+      });
+    });
+
+    await new Promise<void>((resolve) => httpServer.listen(0, '127.0.0.1', () => resolve()));
+    const port = (httpServer.address() as net.AddressInfo).port;
+
+    const bootstrap = {
+      port,
+      secret: 'secret-screenshot-default',
+      attachmentId: 'att-screenshot-default',
+      authorityRevision: 'rev-screen-1',
+    };
+
+    const child = spawn(process.execPath, [scriptPath], {
+      env: { ...process.env, ANTIFAN_MCP_BOOTSTRAP: JSON.stringify(bootstrap) },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    const sendJsonRpc = (msg: unknown) => child.stdin.write(JSON.stringify(msg) + '\n');
+    let buffer = '';
+    const pending = new Map<number, (value: AdapterRpcResponse) => void>();
+    child.stdout.on('data', (chunk: Buffer) => {
+      buffer += chunk.toString();
+      let newline: number;
+      while ((newline = buffer.indexOf('\n')) >= 0) {
+        const line = buffer.slice(0, newline);
+        buffer = buffer.slice(newline + 1);
+        if (!line.trim()) continue;
+        try {
+          const response = JSON.parse(line) as AdapterRpcResponse;
+          pending.get(response.id)?.(response);
+          pending.delete(response.id);
+        } catch {}
+      }
+    });
+
+    const request = (id: number, method: string, params: Record<string, unknown>): Promise<AdapterRpcResponse> => {
+      const response = new Promise<AdapterRpcResponse>((resolve) => pending.set(id, resolve));
+      sendJsonRpc({ jsonrpc: '2.0', id, method, params });
+      return withDeadline(response, `screenshot default response id=${id}`);
+    };
+
+    try {
+      await request(1, 'initialize', {
+        protocolVersion: '2024-11-05',
+        capabilities: {},
+        clientInfo: { name: 'test', version: '1.0' },
+      });
+
+      const callRes = await request(2, 'tools/call', {
+        name: 'anti.screenshot.viewport',
+        arguments: { tabId: 'tab-1' },
+      });
+
+      assert.strictEqual(callRes.result?.isError, undefined);
+      assert.strictEqual(artifactRequested, true, 'Default screenshot call must fetch image binary');
+
+      const content = callRes.result?.content;
+      assert.ok(content, 'Response must have content');
+      assert.strictEqual(content.length, 2, 'Default screenshot response must contain both metadata text part and image part');
+
+      const [metaPart, imagePart] = content;
+      assert.ok(metaPart && imagePart);
+      // Part 0: metadata text
+      assert.strictEqual(metaPart.type, 'text');
+      const text = metaPart.text;
+      assert.ok(text, 'Metadata part must have text');
+      const metadata = JSON.parse(text) as { _type: string; id: string; path?: string; byteLength: number; sha256: string; mime: string };
+      assert.strictEqual(metadata._type, 'ArtifactRef');
+      assert.strictEqual(metadata.id, 'artifact-screenshot-default-test');
+      assert.strictEqual(metadata.path, 'E:/Work/.antifan-data/artifacts/artifact-screenshot-default-test.artifact');
+      assert.strictEqual(metadata.byteLength, 68);
+      assert.strictEqual(metadata.sha256, 'fake-png-sha256');
+      assert.strictEqual(metadata.mime, 'image/png');
+
+      // Part 1: image
+      assert.strictEqual(imagePart.type, 'image');
+      assert.strictEqual(imagePart.mimeType, 'image/png');
+      assert.strictEqual(imagePart.data, fakePngBase64);
+    } finally {
+      child.kill();
+      await new Promise<void>((resolve) => wss.close(() => httpServer.close(() => resolve())));
+    }
+  });
+
+  it('screenshot capability with inline:false returns artifact metadata and file path without transferring base64 payload', async () => {
+    const scriptPath = fs.existsSync(path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs'))
+      ? path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs')
+      : path.resolve(__dirname, '../../scripts/antifan-omp-mcp.cjs');
+
+    let artifactRequested = false;
+    const httpServer = http.createServer((req, res) => {
+      if (req.url?.includes('artifact-screenshot-noinline-test')) {
+        artifactRequested = true;
+        res.writeHead(200, { 'Content-Type': 'image/png' });
+        res.end('should-not-be-fetched');
+      } else {
+        res.writeHead(404);
+        res.end();
+      }
+    });
+
+    const wss = new WebSocketServer({ server: httpServer });
+    wss.on('connection', (ws) => {
+      ws.on('message', (raw) => {
+        try {
+          const msg = JSON.parse(raw.toString()) as { id: number; method: string };
+          if (msg.method === 'antifan.capability.dispatch') {
+            ws.send(JSON.stringify({
+              id: msg.id,
+              success: true,
+              data: {
+                data: {
+                  ok: true,
+                  artifactRef: {
+                    id: 'artifact-screenshot-noinline-test',
+                    path: 'E:/Work/.antifan-data/artifacts/artifact-screenshot-noinline-test.artifact',
+                    byteLength: 500000,
+                    sha256: 'noinline-sha256',
+                    mime: 'image/png',
+                  },
+                },
+              },
+            }));
+          }
+        } catch {}
+      });
+    });
+
+    await new Promise<void>((resolve) => httpServer.listen(0, '127.0.0.1', () => resolve()));
+    const port = (httpServer.address() as net.AddressInfo).port;
+
+    const bootstrap = {
+      port,
+      secret: 'secret-screenshot-noinline',
+      attachmentId: 'att-screenshot-noinline',
+      authorityRevision: 'rev-screen-noinline-1',
+    };
+
+    const child = spawn(process.execPath, [scriptPath], {
+      env: { ...process.env, ANTIFAN_MCP_BOOTSTRAP: JSON.stringify(bootstrap) },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    const sendJsonRpc = (msg: unknown) => child.stdin.write(JSON.stringify(msg) + '\n');
+    let buffer = '';
+    const pending = new Map<number, (value: AdapterRpcResponse) => void>();
+    child.stdout.on('data', (chunk: Buffer) => {
+      buffer += chunk.toString();
+      let newline: number;
+      while ((newline = buffer.indexOf('\n')) >= 0) {
+        const line = buffer.slice(0, newline);
+        buffer = buffer.slice(newline + 1);
+        if (!line.trim()) continue;
+        try {
+          const response = JSON.parse(line) as AdapterRpcResponse;
+          pending.get(response.id)?.(response);
+          pending.delete(response.id);
+        } catch {}
+      }
+    });
+
+    const request = (id: number, method: string, params: Record<string, unknown>): Promise<AdapterRpcResponse> => {
+      const response = new Promise<AdapterRpcResponse>((resolve) => pending.set(id, resolve));
+      sendJsonRpc({ jsonrpc: '2.0', id, method, params });
+      return withDeadline(response, `screenshot noinline response id=${id}`);
+    };
+
+    try {
+      await request(1, 'initialize', {
+        protocolVersion: '2024-11-05',
+        capabilities: {},
+        clientInfo: { name: 'test', version: '1.0' },
+      });
+
+      const callRes = await request(2, 'tools/call', {
+        name: 'anti.screenshot.viewport',
+        arguments: { tabId: 'tab-1', inline: false },
+      });
+
+      assert.strictEqual(callRes.result?.isError, undefined);
+      assert.strictEqual(artifactRequested, false, 'inline:false must NOT fetch image binary over HTTP');
+
+      const content = callRes.result?.content;
+      assert.ok(content, 'Response must have content');
+      assert.strictEqual(content.length, 1, 'inline:false must return only metadata text part');
+      const [metaPart] = content;
+      assert.ok(metaPart);
+      assert.strictEqual(metaPart.type, 'text');
+
+      const text = metaPart.text;
+      assert.ok(text, 'Metadata part must have text');
+      const metadata = JSON.parse(text) as { _type: string; id: string; path?: string; byteLength: number; sha256: string; mime: string };
+      assert.strictEqual(metadata._type, 'ArtifactRef');
+      assert.strictEqual(metadata.id, 'artifact-screenshot-noinline-test');
+      assert.strictEqual(metadata.path, 'E:/Work/.antifan-data/artifacts/artifact-screenshot-noinline-test.artifact');
+      assert.strictEqual(metadata.byteLength, 500000);
+      assert.strictEqual(metadata.sha256, 'noinline-sha256');
+      assert.strictEqual(metadata.mime, 'image/png');
     } finally {
       child.kill();
       await new Promise<void>((resolve) => wss.close(() => httpServer.close(() => resolve())));
