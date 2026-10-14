@@ -1380,6 +1380,32 @@ describe('OMP MCP stdio proxy security & bootstrap fail-closed contract', { conc
       assert.ok(consoleTool.description.includes('console'), 'description must mention console');
       assert.strictEqual(consoleTool.inputSchema?.properties?.tabId?.type, 'string');
       assert.strictEqual(consoleTool.inputSchema?.properties?.level?.type, 'number');
+      const expectedAdvertised = [
+        'anti.sheet.extract',
+        'anti.inspect.layout',
+        'anti.inspect.font',
+        'browser.set-device-preset',
+        'browser.list-device-presets',
+        'theme.transaction.begin',
+        'theme.transaction.write_cas',
+        'theme.transaction.await_sync_and_reload',
+        'theme.transaction.settle',
+        'theme.transaction.rollback',
+        'theme.transaction.resolve_hold',
+      ];
+      for (const toolName of expectedAdvertised) {
+        const found = listed.result?.tools?.find((t) => t.name === toolName);
+        assert.ok(found, `${toolName} must be listed in tools/list`);
+      }
+      assert.strictEqual(
+        listed.result?.tools?.some((t) => t.name === 'anti.theme.preview_css'),
+        false,
+        'anti.theme.preview_css alias must not be advertised'
+      );
+      const responsiveMatrixTool = listed.result?.tools?.find((t) => t.name === 'anti.inspect.responsive_matrix');
+      assert.strictEqual(responsiveMatrixTool?.inputSchema?.properties?.customBreakpoints?.type, 'array');
+      const cockpitScanTool = listed.result?.tools?.find((t) => t.name === 'theme.cockpit_scan');
+      assert.strictEqual(cockpitScanTool?.inputSchema?.properties?.url?.type, 'string');
 
       const callRes = await request(3, 'tools/call', {
         name: 'anti.inspect.console',

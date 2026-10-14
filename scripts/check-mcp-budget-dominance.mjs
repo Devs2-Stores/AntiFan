@@ -350,9 +350,10 @@ if (CapabilityCatalogue && BrowserControlPort && makeControlPlaneId && problems.
   // be advertised: an unadvertised registration is unreachable through this
   // surface. `core.*` additionally requires a CORE_DISPATCH entry, because the
   // proxy implements those in-process — a dispatch entry with no registration
-  // is a phantom. `terminal.*` joins the rule because the namespace was
-  // registered and wired while the surface advertised zero of its lines.
-  const COMPLETENESS_NAMESPACES = Object.freeze(['core.', 'terminal.']);
+  // is a phantom. `terminal.*` and `theme.transaction.*` join the rule because
+  // both namespaces were registered and wired while the surface advertised
+  // zero of their lines.
+  const COMPLETENESS_NAMESPACES = Object.freeze(['core.', 'terminal.', 'theme.transaction.']);
   for (const entry of catalogue.listAll()) {
     if (!COMPLETENESS_NAMESPACES.some((prefix) => entry.name.startsWith(prefix))) continue;
     if (!advertisedResolved.has(entry.name)) {
