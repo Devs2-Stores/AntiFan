@@ -1616,11 +1616,37 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
         const parentLayout = extractParentLayout(el);
         const siblingSemantics = extractSiblingSemantics(el);
 
+        const pickedAttributes = {};
+        try {
+          const rawNames = typeof el.getAttributeNames === 'function'
+            ? el.getAttributeNames()
+            : (el.attributes && (typeof el.attributes[Symbol.iterator] === 'function' || Array.isArray(el.attributes)))
+              ? Array.from(el.attributes).map((a) => (typeof a === 'string' ? a : (a && a.name) || ''))
+              : (el.attributes ? Object.keys(el.attributes) : []);
+          for (const rawName of rawNames) {
+            if (Object.keys(pickedAttributes).length >= 20) break;
+            if (!rawName || typeof rawName !== 'string') continue;
+            const name = rawName.toLowerCase();
+            if (name !== 'id' && name !== 'class' && !name.startsWith('data-')) continue;
+            const val = el.getAttribute ? el.getAttribute(rawName) : (el.attributes ? el.attributes[rawName] : null);
+            if (val !== null && val !== undefined) {
+              pickedAttributes[name] = String(val).slice(0, 200);
+            }
+          }
+          if (!pickedAttributes.id && el.id && Object.keys(pickedAttributes).length < 20) {
+            pickedAttributes.id = String(el.id).slice(0, 200);
+          }
+          if (!pickedAttributes.class && el.classList && el.classList.length > 0 && Object.keys(pickedAttributes).length < 20) {
+            pickedAttributes.class = Array.from(el.classList).join(' ').slice(0, 200);
+          }
+        } catch {}
+
         const pickedItem = {
           tag: (el.tagName || 'div').toLowerCase(),
           tagName: (el.tagName || 'div').toLowerCase(),
           id: el.id || undefined,
           classes: Array.from(el.classList || []),
+          attributes: pickedAttributes,
           textSnippet: (el.textContent || '').trim().slice(0, 120),
           textContent: (el.textContent || '').trim().slice(0, 1500),
           xpath: getXPath(el),

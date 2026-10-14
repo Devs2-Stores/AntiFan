@@ -11,7 +11,7 @@ import {
   resolveRobustElementIdentityTS,
   extractSourceHintsTS,
 } from '../../src/main/browser/element-picker';
-import { AnnotationManager } from '../../src/main/bridge/annotation-manager';
+import { AnnotationManager, type AnnotationPayload } from '../../src/main/bridge/annotation-manager';
 import { SUPER_FAST_TAG_RE } from '../../src/omp-hooks/edit-mode';
 
 interface JsdomLike {
@@ -937,6 +937,248 @@ describe('Element Picker Resolution & Artifact Upgrades', () => {
     try {
       fs.rmSync(tempDir, { recursive: true, force: true });
     } catch {}
+  });
+
+  it('maps Liquid and Sapo .bwt owners into Source Ownership when the browser sends no sourceHints', async () => {
+    const manager = AnnotationManager.getInstance();
+    const writeTheme = (files: Record<string, string>): string => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-test-owner-'));
+      for (const [rel, body] of Object.entries(files)) {
+        fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+        fs.writeFileSync(path.join(root, rel), body, 'utf8');
+      }
+      return root;
+    };
+    const payloadFor = (workspaceDir: string, url: string) => ({
+      workspaceDir,
+      url,
+      selector: 'span.price-sale',
+      tagName: 'span',
+      dimensions: '96 x 20 px',
+      userComment: 'đổi màu giá sale sang đỏ',
+      attributes: { class: 'price-sale' },
+    });
+
+    const haravan = writeTheme({
+      'config/settings.html': '<table></table>',
+      'layout/theme.liquid': '<html><body>{{ content_for_layout }}</body></html>',
+      'templates/product.liquid': '<div>\n{% include \'product-price\' %}\n</div>',
+      'snippets/product-price.liquid': '<div class="price-box">\n  <span class="price-sale">{{ product.price | money }}</span>\n</div>',
+      // Identical markup in a backup copy ties on score and sorts before snippets/.
+      'snippets/badge.liquid': '<span class="badge-hot">Hot</span>',
+      'backups/snippets/badge.liquid': '<span class="badge-hot">Hot</span>',
+      // Two live snippets with identical markup: the mapper cannot pick an owner.
+      'snippets/tag-new.liquid': '<span class="tag-new">New</span>',
+      'snippets/tag-new-alt.liquid': '<span class="tag-new">New</span>',
+    });
+    const sapo = writeTheme({
+      'templates/product.bwt': '<div>\n{% include \'product-price\' %}\n</div>',
+      'snippets/product-price.bwt': '<p>\n<span class="price-sale">{{ product.price | money }}</span>\n</p>',
+    });
+    // Liquid markup that matches, but in a workspace with no theme dirs: walking it would
+    // mean walking the whole root, and the storefront URL alone must not trigger that.
+    const plain = writeTheme({
+      'src/index.html': '<span class="price-sale"></span>',
+      'vendor/price.liquid': '<span class="price-sale">{{ product.price | money }}</span>',
+    });
+    try {
+      const hrv = await manager.processAnnotationPayload(payloadFor(haravan, 'https://shop.myharavan.com/products/a'));
+      assert.strictEqual(hrv.ok, true);
+      assert.ok(hrv.markdownContent.includes('## 📍 Source Ownership & AST Code Locators'), hrv.markdownContent);
+      assert.ok(hrv.markdownContent.includes('Detected Framework: **haravan**'));
+      assert.ok(hrv.markdownContent.includes('- Suggested Source File: `snippets/product-price.liquid`'), 'the snippet holding the class owns the element, not its includer');
+      assert.ok(hrv.markdownContent.includes('- Suggested Line: `2`'), 'the line is in the owning file, not the include site');
+
+      const badge = await manager.processAnnotationPayload({
+        ...payloadFor(haravan, 'https://shop.myharavan.com/products/a'),
+        selector: 'span.badge-hot',
+        attributes: { class: 'badge-hot' },
+      });
+      assert.ok(badge.markdownContent.includes('- Suggested Source File: `snippets/badge.liquid`'), 'a backup copy outside the theme dirs never owns the element');
+
+      const tied = await manager.processAnnotationPayload({
+        ...payloadFor(haravan, 'https://shop.myharavan.com/products/a'),
+        selector: 'span.tag-new',
+        attributes: { class: 'tag-new' },
+      });
+      assert.ok(tied.markdownContent.includes('## 📍 Source Ownership & AST Code Locators'), tied.markdownContent);
+      assert.ok(!tied.markdownContent.includes('- Suggested Source File:'), 'a tie never promotes the alphabetically first candidate');
+      assert.ok(tied.markdownContent.includes('- No single owner file'), tied.markdownContent);
+      assert.ok(tied.markdownContent.includes('snippets/tag-new-alt.liquid') && tied.markdownContent.includes('snippets/tag-new.liquid'), 'both tied candidates are listed');
+
+      const bwt = await manager.processAnnotationPayload(payloadFor(sapo, 'https://shop.mysapo.net/products/a'));
+      assert.strictEqual(bwt.ok, true);
+      assert.ok(bwt.markdownContent.includes('Detected Framework: **sapo**'), bwt.markdownContent);
+      assert.ok(bwt.markdownContent.includes('- Suggested Source File: `snippets/product-price.bwt`'), 'Sapo .bwt templates are mapped too');
+
+      const none = await manager.processAnnotationPayload(payloadFor(plain, 'https://shop.myharavan.com/products/a'));
+      assert.strictEqual(none.ok, true);
+      assert.ok(!none.markdownContent.includes('## 📍 Source Ownership'), 'a workspace with no theme dirs is never walked');
+    } finally {
+      for (const dir of [haravan, sapo, plain]) fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('maps real picker payloads inside Liquid sections, captures element attributes, and withholds suggestedFile on tag-only evidence', async () => {
+    const { JSDOM } = loadJsdom();
+    const dom = new JSDOM(
+      '<!doctype html><html><body><section id="shopify-section-hero" data-section-type="hero"><span class="price-sale" data-price-tier="vip">199.000₫</span><aside class="flex">Sidebar</aside></section></body></html>',
+      {
+        runScripts: 'outside-only',
+        url: 'https://shop.myharavan.com/products/a',
+      },
+    );
+    const win = dom.window as JsdomLike['window'];
+    const doc: Document = win.document;
+    // Send is disabled without a deliverable terminal, so the pick would never publish;
+    // jsdom has no CSS.escape, which the picker's selector builder needs to build the full payload.
+    Object.assign(win, {
+      __antifanTerminalContext: {
+        sessions: [{ id: 's-1', name: 'Terminal 1', cwd: 'E:\\Work' }],
+        selectedSessionId: 's-1',
+      },
+      CSS: { escape: (value: string) => String(value).replace(/[^\w-]/g, (ch) => `\\${ch}`) },
+    });
+    const priceSpan = doc.querySelector('span.price-sale') as HTMLElement;
+    const asideEl = doc.querySelector('aside.flex') as HTMLElement;
+    assert.ok(priceSpan && asideEl);
+    Object.defineProperty(priceSpan, 'getBoundingClientRect', {
+      value: function rectPrice() {
+        return { x: 10, y: 10, width: 96, height: 20, top: 10, right: 106, bottom: 30, left: 10 };
+      },
+    });
+    Object.defineProperty(asideEl, 'getBoundingClientRect', {
+      value: function rectAside() {
+        return { x: 10, y: 40, width: 120, height: 40, top: 40, right: 130, bottom: 80, left: 10 };
+      },
+    });
+
+    const waiters: Array<(pick: AnnotationPayload) => void> = [];
+    win.addEventListener('antifan-pick-event', (ev) => {
+      const detail = ev instanceof win.CustomEvent ? (ev.detail as AnnotationPayload) : {};
+      const waiter = waiters.shift();
+      if (waiter) waiter(detail);
+    });
+
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-test-section-picker-'));
+    try {
+      const files: Record<string, string> = {
+        'config/settings.html': '<table></table>',
+        'layout/theme.liquid': '<html><body>{{ content_for_layout }}</body></html>',
+        'templates/product.liquid': "<div>\n{% include 'product-price' %}\n{% include 'sidebar-note' %}\n</div>",
+        'snippets/product-price.liquid': '<div class="price-box">\n  <span class="price-sale" data-price-tier="vip">{{ product.price | money }}</span>\n</div>',
+        'snippets/sidebar-note.liquid': '<aside class="flex">{{ product.vendor }}</aside>',
+      };
+      for (const [rel, body] of Object.entries(files)) {
+        fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+        fs.writeFileSync(path.join(root, rel), body, 'utf8');
+      }
+
+      win.eval(ELEMENT_PICKER_SCRIPT);
+      priceSpan.dispatchEvent(new win.MouseEvent('click', { bubbles: true, cancelable: true }));
+      const modal = doc.getElementById('antifan-comment-modal');
+      assert.ok(modal, 'clicking span inside section must open comment modal');
+      const textarea = modal.querySelector('textarea') as HTMLTextAreaElement;
+      textarea.value = '/queue [⚡Direct-Edit] đổi màu giá sale';
+      const pickSpanDeferred = Promise.withResolvers<AnnotationPayload>();
+      waiters.push(pickSpanDeferred.resolve);
+      (modal.querySelector('#btnModalSend') as HTMLElement).click();
+      const pickedSpan = await pickSpanDeferred.promise;
+
+      const browserHints = pickedSpan.sourceHints as {
+        framework?: string;
+        suggestedFile?: string;
+        signals?: Array<{ type?: string; value?: string }>;
+      } | undefined;
+      assert.ok(browserHints, 'picker attaches sourceHints for elements inside #shopify-section-hero');
+      assert.strictEqual(browserHints.framework, 'liquid');
+      assert.strictEqual(browserHints.suggestedFile, undefined);
+      assert.ok(
+        Array.isArray(browserHints.signals)
+        && browserHints.signals.some((s) => s.type === 'liquid-section' && s.value === 'shopify-section-hero'),
+      );
+      // The pick is built in the jsdom realm; spread it into this realm before deep-equal.
+      assert.deepStrictEqual({ ...pickedSpan.attributes }, {
+        class: 'price-sale',
+        'data-price-tier': 'vip',
+      });
+
+      const manager = AnnotationManager.getInstance();
+      const mappedSpan = await manager.processAnnotationPayload({
+        ...pickedSpan,
+        workspaceDir: root,
+        url: 'https://shop.myharavan.com/products/a',
+      });
+      assert.strictEqual(mappedSpan.ok, true);
+      assert.ok(mappedSpan.markdownContent.includes('## 📍 Source Ownership & AST Code Locators'), mappedSpan.markdownContent);
+      assert.ok(
+        mappedSpan.markdownContent.includes('- Suggested Source File: `snippets/product-price.liquid`'),
+        'ThemeSourceMapper must run even when browser sourceHints carry liquid-section signals',
+      );
+      assert.ok(mappedSpan.markdownContent.includes('- Suggested Line: `2`'));
+      assert.ok(
+        mappedSpan.markdownContent.includes('"value": "shopify-section-hero"'),
+        'browser liquid-section signals stay visible in Source Ownership output',
+      );
+
+      // Data-attribute-only match (no distinctive class on payload, only data-price-tier from pickedItem.attributes)
+      const dataAttrOnly = await manager.processAnnotationPayload({
+        ...pickedSpan,
+        classes: [],
+        attributes: { 'data-price-tier': 'vip' },
+        workspaceDir: root,
+        url: 'https://shop.myharavan.com/products/a',
+      });
+      assert.strictEqual(dataAttrOnly.ok, true);
+      assert.ok(
+        dataAttrOnly.markdownContent.includes('- Suggested Source File: `snippets/product-price.liquid`'),
+        'data-* attributes from pickedItem must reach ThemeSourceMapper and qualify as direct evidence',
+      );
+
+      // Tag + render_edge + utility-class-only match: candidate stays listed in signals, but no Suggested Source File is promoted
+      win.eval(ELEMENT_PICKER_SCRIPT);
+      asideEl.dispatchEvent(new win.MouseEvent('click', { bubbles: true, cancelable: true }));
+      const modal2 = doc.getElementById('antifan-comment-modal');
+      assert.ok(modal2);
+      (modal2.querySelector('textarea') as HTMLTextAreaElement).value = '/queue [⚡Direct-Edit] kiểm tra sidebar';
+      const pickAsideDeferred = Promise.withResolvers<AnnotationPayload>();
+      waiters.push(pickAsideDeferred.resolve);
+      (modal2.querySelector('#btnModalSend') as HTMLElement).click();
+      const pickedAside = await pickAsideDeferred.promise;
+
+      const tagOnly = await manager.processAnnotationPayload({
+        ...pickedAside,
+        workspaceDir: root,
+        url: 'https://shop.myharavan.com/products/a',
+      });
+      assert.strictEqual(tagOnly.ok, true);
+      assert.ok(tagOnly.markdownContent.includes('## 📍 Source Ownership & AST Code Locators'), tagOnly.markdownContent);
+      assert.ok(tagOnly.markdownContent.includes('snippets/sidebar-note.liquid'), 'tag/render_edge candidate stays listed in signals');
+      assert.ok(
+        !tagOnly.markdownContent.includes('- Suggested Source File:'),
+        'candidate scored only by tag name and render_edge must not be promoted to Suggested Source File',
+      );
+
+      // Browser hints that explicitly name a file keep winning over the workspace mapper
+      const explicitBrowserFile = await manager.processAnnotationPayload({
+        ...pickedSpan,
+        sourceHints: {
+          framework: 'astro',
+          confidence: 'high',
+          suggestedFile: 'src/components/HeroPrice.astro',
+          suggestedLine: 14,
+          signals: [{ type: 'build-attribute', name: 'data-astro-source-file', value: 'src/components/HeroPrice.astro', confidence: 'high' }],
+        },
+        workspaceDir: root,
+        url: 'https://shop.myharavan.com/products/a',
+      });
+      assert.strictEqual(explicitBrowserFile.ok, true);
+      assert.ok(explicitBrowserFile.markdownContent.includes('- Suggested Source File: `src/components/HeroPrice.astro`'));
+    } finally {
+      win.__antifanPickerCleanup?.();
+      win.close();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it('ELEMENT_PICKER_SCRIPT executes cleanly without reference errors', () => {

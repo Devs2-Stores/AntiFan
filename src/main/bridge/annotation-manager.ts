@@ -11,8 +11,10 @@ import {
   buildEvidenceEnvelope,
   classifyTaskIntent,
   getInitialTerminalState,
+  isSuperFastMode,
 } from '../../shared/annotation-prompt';
 import { PlatformDetector } from '../qa/scanners/platform-detector';
+import { ThemeSourceMapper, themeSourceDirs } from '../browser/theme-source-mapper';
 
 export const ACTIVE_CSS_PROPERTIES: Record<string, true> = {
   display: true,
@@ -56,6 +58,25 @@ export const ACTIVE_CSS_PROPERTIES: Record<string, true> = {
   cursor: true,
   'pointer-events': true,
   visibility: true,
+};
+
+const COMMON_UTILITY_CLASSES: Record<string, true> = {
+  flex: true,
+  grid: true,
+  hidden: true,
+  block: true,
+  inline: true,
+  'inline-block': true,
+  relative: true,
+  absolute: true,
+  fixed: true,
+  'w-full': true,
+  'h-full': true,
+  container: true,
+  wrapper: true,
+  active: true,
+  open: true,
+  show: true,
 };
 
 export interface AnnotationPayload {
@@ -110,7 +131,7 @@ function buildRecommendedSkillsSection(platform: string, userComment: string, ac
   // with SUPER_FAST_TAG_RE in src/omp-hooks/edit-mode.ts. It outranks both other
   // heuristics: Fast already edits theme files directly, so it never routes the
   // performance skill and never renders a second mode directive.
-  const isFast = actionChip === 'fast' || /\[🚀?\s*super[- ]?fast\]/i.test(userComment);
+  const isFast = isSuperFastMode(userComment, actionChip);
   const isDirect = actionChip === 'direct' || /\[⚡?\s*direct[- ]?edit\]/i.test(userComment) || /sửa trực tiếp|không tra core|skip core|tắt core/i.test(userComment);
   const isSpeed = actionChip === 'speed' || /\[🚀?\s*pagespeed\]/i.test(userComment) || /pagespeed|tối ưu speed|tối ưu tốc độ|cwv|lcp|cls/i.test(userComment);
   const showDirectDirective = isDirect && !isFast;
@@ -224,6 +245,8 @@ export class AnnotationManager {
         }
       });
 
+      const actionChip = typeof payload.actionChip === 'string' ? payload.actionChip : undefined;
+
       // 4. Build Evidence Envelope
       const evidenceEnvelope = buildEvidenceEnvelope({
         annotationId,
@@ -232,7 +255,7 @@ export class AnnotationManager {
         captureMethod: 'snapdom_canvas',
         selectionType: 'element',
         evidenceStatus: 'complete',
-        terminalState: getInitialTerminalState(userComment, classifyTaskIntent(userComment)),
+        terminalState: getInitialTerminalState(userComment, classifyTaskIntent(userComment), actionChip),
       });
 
       // 5. Build Markdown Content
@@ -308,15 +331,94 @@ ${payload.parentLayout.display?.includes('flex') ? `- Flex Properties: \`flex-di
 ${payload.parentLayout.display?.includes('grid') ? `- Grid Properties: \`grid-template-columns: ${payload.parentLayout.gridTemplateColumns || 'none'}\`${payload.parentLayout.gap ? `, \`gap: ${payload.parentLayout.gap}\`` : ''}` : ''}
 ` : '';
 
-      const sourceHintsSection = payload.sourceHints && (payload.sourceHints.signals?.length || payload.sourceHints.framework !== 'unknown') ? `## 📍 Source Ownership & AST Code Locators
-> High-confidence signals mapping this DOM element to codebase templates.
+      const detectedPlatform = PlatformDetector.detect(payload.workspaceDir, payload.url, payload.outerHTML).platform;
+      // Browser-supplied file/component hints (React/Vue/Astro dev builds) win.
+      // Storefront Liquid sections attach `liquid-section` signals with no file owner,
+      // so still run the workspace mapper when neither suggestedFile nor suggestedComponent
+      // is present and the workspace has theme source directories.
+      const browserHints: Record<string, unknown> | undefined =
+        payload.sourceHints && (payload.sourceHints.signals?.length || payload.sourceHints.framework !== 'unknown')
+          ? payload.sourceHints
+          : undefined;
+      let sourceHints: Record<string, unknown> | undefined = browserHints;
+      const hasBrowserOwner = Boolean(browserHints?.suggestedFile || browserHints?.suggestedComponent);
+      if (!hasBrowserOwner && payload.workspaceDir && themeSourceDirs(payload.workspaceDir).length > 0) {
+        try {
+          const classes = new Set<string>(Array.isArray(payload.classes) ? payload.classes.filter((c): c is string => typeof c === 'string') : []);
+          if (typeof payload.attributes?.class === 'string') {
+            for (const token of payload.attributes.class.split(/\s+/)) if (token) classes.add(token);
+          }
+          const distinctiveClasses = [...classes].filter(
+            (token) => /^[A-Za-z0-9_-]{3,}$/.test(token) && !COMMON_UTILITY_CLASSES[token.toLowerCase()],
+          );
+          // Same attribute set as anti.theme.resolve_element: data-*, id, class.
+          const attributes: Record<string, string> = {};
+          for (const [key, value] of Object.entries(payload.attributes ?? {})) {
+            if (value === null || value === undefined) continue;
+            if (key.startsWith('data-') || key === 'id') attributes[key] = String(value);
+          }
+          if (typeof payload.id === 'string' && payload.id.trim() && !attributes.id) {
+            attributes.id = payload.id.trim();
+          }
+          if (distinctiveClasses.length > 0) {
+            attributes.class = distinctiveClasses.join(' ');
+          }
+          const mapped = ThemeSourceMapper.mapElementToSource(payload.workspaceDir, {
+            tagName: payload.tagName,
+            classes: [...classes],
+            attributes,
+            commentHints: [],
+          });
+          const candidates = mapped.success ? mapped.data?.candidates ?? [] : [];
+          // The mapper withholds a primary when the top candidates tie; only promote a
+          // candidate to suggestedFile when backed by direct markup or data-attribute evidence.
+          const rawPrimary = mapped.data?.primaryCandidate;
+          const primary =
+            rawPrimary && (rawPrimary.signals.markupClassMatch || rawPrimary.signals.dataAttributeMatch)
+              ? rawPrimary
+              : undefined;
+          // render_edge / section_lineage lines point into the parent file, not the candidate.
+          if (candidates.length > 0) {
+            const browserSignals = Array.isArray(browserHints?.signals) ? browserHints.signals : [];
+            const primaryLine = primary?.evidence.find((e) => !e.parentFile)?.line ?? 1;
+            // A top candidate matched only by tag name or render edges is not an owner: say so
+            // instead of repeating the mapper's pick.
+            const weakPrimary = Boolean(rawPrimary) && !primary;
+            sourceHints = {
+              framework: detectedPlatform !== 'unknown' ? detectedPlatform : (browserHints?.framework || detectedPlatform),
+              confidence: (primary?.confidence ?? 'LOW').toLowerCase(),
+              ambiguous: mapped.data?.ambiguous === true || weakPrimary,
+              selectionReason: weakPrimary
+                ? 'candidates match only by tag name or render edges; no class or data-attribute evidence names an owner file'
+                : mapped.data?.selectionReason,
+              ...(primary ? { suggestedFile: primary.file, suggestedLine: primaryLine } : {}),
+              signals: [
+                ...candidates.slice(0, 3).map((c) => ({
+                  file: c.file,
+                  line: c.evidence.find((e) => !e.parentFile)?.line ?? 1,
+                  score: c.score,
+                  confidence: c.confidence,
+                  correlated: c.correlated,
+                })),
+                ...browserSignals,
+              ],
+            };
+          }
+        } catch {
+          // The section is a hint; a mapper failure must never block annotation delivery.
+        }
+      }
 
-- Detected Framework: **${payload.sourceHints.framework || 'unknown'}** (Confidence: \`${payload.sourceHints.confidence || 'low'}\`)
-${payload.sourceHints.suggestedFile ? `- Suggested Source File: \`${payload.sourceHints.suggestedFile}\`` : ''}
-${payload.sourceHints.suggestedLine ? `- Suggested Line: \`${payload.sourceHints.suggestedLine}\`` : ''}
-${payload.sourceHints.suggestedComponent ? `- Suggested Component: \`${payload.sourceHints.suggestedComponent}\`` : ''}
+      const sourceHintsSection = sourceHints ? `## 📍 Source Ownership & AST Code Locators
+> ${typeof sourceHints.selectionReason === 'string' ? `Workspace mapper: ${sourceHints.selectionReason}` : 'High-confidence signals mapping this DOM element to codebase templates.'}
+
+- Detected Framework: **${sourceHints.framework || 'unknown'}** (Confidence: \`${sourceHints.confidence || 'low'}\`)
+${sourceHints.ambiguous ? '- No single owner file: inspect the candidates listed under `signals`.' : ''}
+${sourceHints.suggestedFile ? `- Suggested Source File: \`${sourceHints.suggestedFile}\`` : ''}
+${sourceHints.suggestedLine ? `- Suggested Line: \`${sourceHints.suggestedLine}\`` : ''}
+${sourceHints.suggestedComponent ? `- Suggested Component: \`${sourceHints.suggestedComponent}\`` : ''}
 \`\`\`json
-${JSON.stringify(payload.sourceHints, null, 2)}
+${JSON.stringify(sourceHints, null, 2)}
 \`\`\`
 ` : '';
 
@@ -356,9 +458,9 @@ ${stylesList.map(([key, value]) => `${safe(key, 100)}: ${safe(value, 500)};`).jo
         : '';
 
       const detailedFileContent = `${evidenceEnvelope}
-${buildAgentTaskHeader(userComment)}
+${buildAgentTaskHeader(userComment, undefined, actionChip)}
 
-${buildRecommendedSkillsSection(PlatformDetector.detect(payload.workspaceDir, payload.url, payload.outerHTML).platform, userComment, typeof payload.actionChip === 'string' ? payload.actionChip : undefined)}
+${buildRecommendedSkillsSection(detectedPlatform, userComment, actionChip)}
 
 ## Captured element evidence [Visual Mode: Element SnapDOM Capture]
 - Annotation ID: ${annotationId}

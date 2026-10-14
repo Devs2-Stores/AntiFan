@@ -90,6 +90,21 @@ export function isAuthoritativeSourceCandidate(result?: SourceMappingResult): bo
     && new Set(primary.evidence.map((item) => item.kind)).size >= 2;
 }
 
+const THEME_SOURCE_DIRS = ['layout', 'templates', 'sections', 'snippets', 'blocks'];
+
+/** Theme source directories present under `root` (absolute paths, fixed order). */
+export function themeSourceDirs(root: string): string[] {
+  return THEME_SOURCE_DIRS
+    .map((dir) => path.join(root, dir))
+    .filter((dir) => {
+      try {
+        return fs.statSync(dir).isDirectory();
+      } catch {
+        return false;
+      }
+    });
+}
+
 export class ThemeSourceMapper {
   private static readonly MAX_FILES = 2_000;
   private static readonly MAX_CANDIDATES = 100;
@@ -144,7 +159,7 @@ export class ThemeSourceMapper {
     const candidates: CandidateTemplate[] = [];
     for (const document of documents) {
       const fileType = this.inferFileType(document.relativePath);
-      const baseName = path.posix.basename(document.relativePath, '.liquid');
+      const baseName = path.posix.basename(document.relativePath).replace(/\.(?:liquid|bwt)$/i, '');
       const evidence: SourceEvidenceLocator[] = [];
       const pushEvidence = (locator: SourceEvidenceLocator): void => {
         if (evidence.length < this.MAX_EVIDENCE_PER_CANDIDATE) evidence.push(locator);
@@ -322,7 +337,18 @@ export class ThemeSourceMapper {
   }
 
   private static readLiquidDocuments(root: string): LiquidDocument[] {
-    const paths = this.collectLiquidFiles(root).sort((left, right) => left.localeCompare(right));
+    // A theme root owns its markup in these directories. Walking the whole root also reads
+    // backup copies (`backups/`, `scratch/…/snippets/`) whose identical markup ties with, and
+    // then outranks by path order, the live file. Fall back to the full walk only for a
+    // workspace that has none of them.
+    const themeDirs = themeSourceDirs(root);
+    const collected: string[] = [];
+    if (themeDirs.length > 0) {
+      for (const dir of themeDirs) this.collectLiquidFiles(dir, collected);
+    } else {
+      this.collectLiquidFiles(root, collected);
+    }
+    const paths = collected.sort((left, right) => left.localeCompare(right));
     const documents: LiquidDocument[] = [];
     for (const absolutePath of paths) {
       try {
@@ -346,7 +372,7 @@ export class ThemeSourceMapper {
         for (const match of line.matchAll(/\{%-?\s*(?:render|include)\s+['"]([^'"]+)['"]/g)) {
           const rawName = match[1];
           if (!rawName) continue;
-          const snippetName = rawName.replace(/\\/g, '/').replace(/^snippets\//, '').replace(/\.liquid$/, '');
+          const snippetName = rawName.replace(/\\/g, '/').replace(/^snippets\//, '').replace(/\.(?:liquid|bwt)$/i, '');
           edges.push({ snippetName, parentFile: document.relativePath, line: index + 1 });
         }
       }
@@ -373,7 +399,7 @@ export class ThemeSourceMapper {
         const fullPath = path.join(dir, entry.name);
         if (entry.isDirectory()) {
           if (!entry.name.startsWith('.') && entry.name !== 'node_modules') this.collectLiquidFiles(fullPath, results);
-        } else if (entry.isFile() && entry.name.endsWith('.liquid')) {
+        } else if (entry.isFile() && /\.(?:liquid|bwt)$/i.test(entry.name)) {
           results.push(fullPath);
         }
       }

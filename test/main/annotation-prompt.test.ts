@@ -5,7 +5,10 @@ import {
   buildAgentTaskHeader,
   buildSelfQaDirective,
   classifyTaskIntent,
+  getInitialTerminalState,
+  hasExplicitEditModeTag,
   SELF_QA_DIRECTIVE,
+  SELF_QA_DIRECTIVE_FAST,
   SELF_QA_DIRECTIVE_READONLY,
 } from '../../src/shared/annotation-prompt';
 
@@ -157,5 +160,49 @@ describe('Annotation prompt self-QA directive', () => {
   it('mode tags are stripped before intent classification', () => {
     assert.strictEqual(classifyTaskIntent('[⚡Direct-Edit] fix lỗi lệch header'), 'bug-fix');
     assert.strictEqual(classifyTaskIntent('[Super-Fast] font-size 14px'), 'tweak');
+  });
+
+  it('Super-Fast replaces the mandatory 8-step QA directive with the no-round-trip variant', () => {
+    const tagged = buildAgentTaskHeader('[🚀Super-Fast] sửa lề nút cart 12px');
+    assert.ok(tagged.includes(SELF_QA_DIRECTIVE_FAST), 'the typed tag arms the fast directive');
+    assert.ok(!tagged.includes(SELF_QA_DIRECTIVE), 'a fast brief must not demand theme.qa_validate rounds');
+
+    const chip = buildAgentTaskHeader('sửa lề nút cart 12px', undefined, 'fast');
+    assert.ok(chip.includes(SELF_QA_DIRECTIVE_FAST), 'the Element Picker chip arms it without a typed tag');
+
+    const direct = buildAgentTaskHeader('[⚡Direct-Edit] sửa lề nút cart 12px');
+    assert.ok(direct.includes(SELF_QA_DIRECTIVE), 'Direct-Edit keeps the mandatory QA directive');
+    assert.ok(!direct.includes(SELF_QA_DIRECTIVE_FAST));
+  });
+
+  it('treats fast and direct actionChips as explicit edit-mode authorization even when intent is unknown and instruction has no tag', () => {
+    const untaggedUnknown = 'Đổi chữ sang Mua ngay';
+    assert.strictEqual(classifyTaskIntent(untaggedUnknown), 'unknown');
+    assert.strictEqual(hasExplicitEditModeTag(untaggedUnknown), false);
+    assert.strictEqual(hasExplicitEditModeTag(untaggedUnknown, 'fast'), true);
+    assert.strictEqual(hasExplicitEditModeTag(untaggedUnknown, 'direct'), true);
+    assert.strictEqual(getInitialTerminalState(untaggedUnknown, 'unknown'), 'decision-required');
+    assert.strictEqual(getInitialTerminalState(untaggedUnknown, 'unknown', 'fast'), 'ready');
+    assert.strictEqual(getInitialTerminalState(untaggedUnknown, 'unknown', 'direct'), 'ready');
+
+    const fastHeader = buildAgentTaskHeader(untaggedUnknown, undefined, 'fast');
+    assert.ok(fastHeader.includes('Current state: READY'), fastHeader);
+    assert.ok(!fastHeader.includes('DECISION REQUIRED'));
+    assert.ok(!fastHeader.includes('NO MUTATION'));
+    assert.ok(!fastHeader.includes('Do not modify files yet'));
+    assert.ok(!fastHeader.includes('No implementation occurs until the intended outcome is clarified.'));
+    assert.ok(fastHeader.includes('MUTATION AUTHORIZED'));
+    assert.ok(fastHeader.includes('User-Armed Edit'));
+    assert.ok(fastHeader.includes(SELF_QA_DIRECTIVE_FAST));
+
+    const directHeader = buildAgentTaskHeader(untaggedUnknown, undefined, 'direct');
+    assert.ok(directHeader.includes('Current state: READY'), directHeader);
+    assert.ok(!directHeader.includes('DECISION REQUIRED'));
+    assert.ok(!directHeader.includes('NO MUTATION'));
+    assert.ok(!directHeader.includes('Do not modify files yet'));
+    assert.ok(!directHeader.includes('No implementation occurs until the intended outcome is clarified.'));
+    assert.ok(directHeader.includes('MUTATION AUTHORIZED'));
+    assert.ok(directHeader.includes('User-Armed Edit'));
+    assert.ok(directHeader.includes(SELF_QA_DIRECTIVE));
   });
 });

@@ -89,7 +89,17 @@ CẤM bịa kết quả QA: không tự gán summary.passed hay criticalCount n�
 export const SELF_QA_DIRECTIVE_READONLY = `## Self-QA (READ-ONLY — bằng chứng hiện trạng)
 Nếu tool \`theme.qa_validate\` có sẵn (MCP AntiFan), dùng nó để cung cấp bằng chứng hiện trạng — truyền \`tabId\`/\`workspaceRoot\`/\`expectedUrl\` từ dòng "QA Binding" của annotation. Không bắt buộc — task này không sửa file.`;
 
-export function buildSelfQaDirective(intent: TaskIntent, userInstruction: string = ''): string {
+/**
+ * Self-QA variant cho Super-Fast: chế độ này hứa "không QA round-trip" và edit-guard
+ * chặn mọi lệnh MCP/shell, nên directive 8 bước ở trên vừa mâu thuẫn vừa không chạy được.
+ */
+export const SELF_QA_DIRECTIVE_FAST = `## Self-QA (Super-Fast — không chạy vòng QA qua MCP)
+Chế độ \`[🚀Super-Fast]\` đang bật: sửa trực tiếp đúng file theme được chỉ định. KHÔNG gọi \`theme.qa_validate\`, KHÔNG chụp màn hình, KHÔNG chạy vòng lặp trình duyệt MCP (edit-guard chặn các lệnh đó ở chế độ này). Hook \`theme-qa-gate\` không đòi receipt QA ở chế độ này; cuối lượt chỉ báo các file đã sửa. Người dùng tự kiểm tra trực quan hoặc chạy QA ở một lượt thường sau đó.`;
+
+export function buildSelfQaDirective(intent: TaskIntent, userInstruction: string = '', actionChip?: string): string {
+  if (isSuperFastMode(userInstruction, actionChip)) {
+    return SELF_QA_DIRECTIVE_FAST;
+  }
   if (intent === 'testing' && /fix|sua|repair|chinh|doi|cap nhat|update|thay|xoa|them|tao|build|implement|chua|khong|ko|sai|hong|lech|in dam|mau sac/i.test(normalizeInstruction(userInstruction))) {
     return SELF_QA_DIRECTIVE;
   }
@@ -152,8 +162,19 @@ const TWEAK_SCOPE_EXPAND_PATTERN = /responsive|mobile|tablet|desktop|breakpoint|
  */
 const EXPLICIT_EDIT_MODE_TAG_RE = /\[[^\]]*(?:direct[- ]?edit|super[- ]?fast)\]/i;
 
-export function hasExplicitEditModeTag(instruction: string): boolean {
-  return EXPLICIT_EDIT_MODE_TAG_RE.test(instruction);
+export function hasExplicitEditModeTag(instruction: string, actionChip?: string): boolean {
+  return actionChip === 'fast' || actionChip === 'direct' || EXPLICIT_EDIT_MODE_TAG_RE.test(instruction);
+}
+
+/**
+ * Same pattern as SUPER_FAST_TAG_RE in src/omp-hooks/edit-mode.ts, which is what
+ * actually arms the fast mode in edit-guard; the prompt must agree with it.
+ */
+const SUPER_FAST_TAG_RE = /\[[^\]]*super[- ]?fast\]/i;
+
+/** Super-Fast is armed by the Element Picker chip or by the tag typed in the instruction. */
+export function isSuperFastMode(instruction: string = '', actionChip?: string): boolean {
+  return actionChip === 'fast' || SUPER_FAST_TAG_RE.test(instruction);
 }
 
 function normalizeInstruction(instruction: string): string {
@@ -195,9 +216,13 @@ export function isFigmaRelated(instruction: string): boolean {
   return /figma/i.test(instruction);
 }
 
-export function getInitialTerminalState(instruction: string, intent: TaskIntent = classifyTaskIntent(instruction)): TerminalState {
+export function getInitialTerminalState(
+  instruction: string,
+  intent: TaskIntent = classifyTaskIntent(instruction),
+  actionChip?: string,
+): TerminalState {
   if (!instruction.trim()) return 'decision-required';
-  if ((intent === 'unknown' || intent === 'external-mutation') && !hasExplicitEditModeTag(instruction)) return 'decision-required';
+  if ((intent === 'unknown' || intent === 'external-mutation') && !hasExplicitEditModeTag(instruction, actionChip)) return 'decision-required';
   return 'ready';
 }
 
@@ -217,7 +242,7 @@ export function buildEvidenceEnvelope(envelope: AnnotationEvidenceEnvelope): str
   return `---\n${Object.entries(fields).map(([key, value]) => `${key}: ${JSON.stringify(value)}`).join('\n')}\n---`;
 }
 
-export function buildAcceptanceCriteria(intent: TaskIntent, userInstruction: string = ''): string[] {
+export function buildAcceptanceCriteria(intent: TaskIntent, userInstruction: string = '', actionChip?: string): string[] {
   const value = normalizeInstruction(userInstruction);
   const criteria = [
     'Outcome, scope, non-goals, and criteria explicit before editing.',
@@ -240,7 +265,7 @@ export function buildAcceptanceCriteria(intent: TaskIntent, userInstruction: str
   if (intent === 'architecture' || intent === 'refactor' || intent === 'migration') criteria.push('Preserves, deliberate changes, risks, compatibility, and rollback are recorded.');
   if (intent === 'mcp-integration') criteria.push('Capabilities and schemas are discovered; permissions, mutation semantics, timeouts, and actionable errors are explicit.');
   if (intent === 'external-mutation') criteria.push('No mutation occurs before exact-target confirmation, dry-run/preview, credential checks, rollback, and post-action proof.');
-  if (intent === 'unknown') criteria.push(hasExplicitEditModeTag(userInstruction)
+  if (intent === 'unknown') criteria.push(hasExplicitEditModeTag(userInstruction, actionChip)
     ? 'The requested change is applied at the owning source and verified; no clarification gate is imposed on an explicitly armed edit.'
     : 'No implementation occurs until the intended outcome is clarified.');
   if (/mobile|responsive|viewport|breakpoint|tablet/.test(value)) criteria.push('Representative mobile (375px), tablet (768px), desktop (1280px+), and relevant boundary widths are verified.');
@@ -251,12 +276,13 @@ export function buildAcceptanceCriteria(intent: TaskIntent, userInstruction: str
   return criteria;
 }
 
-export function buildAgentTaskHeader(userInstruction: string, terminalStateOverride?: TerminalState): string {
+export function buildAgentTaskHeader(userInstruction: string, terminalStateOverride?: TerminalState, actionChip?: string): string {
   const instruction = userInstruction.trim();
   const intent = classifyTaskIntent(instruction);
-  const terminalState = (terminalStateOverride || getInitialTerminalState(instruction, intent)).toUpperCase().replace('-', ' ');
+  const isArmedEdit = hasExplicitEditModeTag(instruction, actionChip);
+  const terminalState = (terminalStateOverride || getInitialTerminalState(instruction, intent, actionChip)).toUpperCase().replace('-', ' ');
   const displayInstruction = instruction || '(No user instruction supplied. Inspect and report only; do not modify code.)';
-  const criteria = buildAcceptanceCriteria(intent, instruction).map((item) => `- [ ] ${item}`).join('\n');
+  const criteria = buildAcceptanceCriteria(intent, instruction, actionChip).map((item) => `- [ ] ${item}`).join('\n');
   const figmaDirective = isFigmaRelated(instruction)
     ? `> IMPORTANT: Figma is part of this request. Analyze the supplied Figma source and record verified tokens, dimensions, and layout constraints before editing. If it is unavailable, use BLOCKED and do not guess.\n\n`
     : '';
@@ -272,7 +298,7 @@ export function buildAgentTaskHeader(userInstruction: string, terminalStateOverr
     ? 'SNIPPET-ONLY: produce the component code in the reply. Do not create, edit, or delete any file in the repository.'
     : terminalStateOverride === 'partial'
     ? 'READ-ONLY recovery: inspect and report the incomplete evidence. Do not mutate code until the missing evidence is refreshed and the task returns to READY.'
-    : (intent === 'external-mutation' || intent === 'unknown') && !hasExplicitEditModeTag(instruction)
+    : (intent === 'external-mutation' || intent === 'unknown') && !isArmedEdit
     ? 'NO MUTATION: remain at DECISION REQUIRED until the outcome and authority are explicit.'
     : (intent === 'external-mutation' || intent === 'unknown')
     ? 'MUTATION AUTHORIZED by the user\'s explicit edit-mode tag: proceed under the core contract; ask only if the target file or outcome is genuinely ambiguous.'
@@ -300,8 +326,8 @@ ${criteria}
 - **PRESERVES**: Existing behavior outside request boundary.
 - **DELIBERATELY CHANGES**: Only targeted code and properties.
 - **RISKS & SIDE EFFECTS**: Check regression paths and constraints before committing.
-${buildSelfQaDirective(intent, instruction)}
+${buildSelfQaDirective(intent, instruction, actionChip)}
 
 ${STANDALONE_AGENT_CONTRACT}
-${(intent === 'unknown' || intent === 'external-mutation') && hasExplicitEditModeTag(instruction) ? INTENT_MODULE_TAG_AUTHORIZED : INTENT_MODULES[intent]}`;
+${(intent === 'unknown' || intent === 'external-mutation') && isArmedEdit ? INTENT_MODULE_TAG_AUTHORIZED : INTENT_MODULES[intent]}`;
 }
