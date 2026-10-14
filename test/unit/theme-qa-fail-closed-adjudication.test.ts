@@ -1440,5 +1440,144 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
     assert.strictEqual(responsive['768']?.criticalOverlap, null, 'a width without a reading stays unmeasured');
     assert.strictEqual(responsive['1440']?.spacingWarnings, null, 'an unmeasured reading never reads as zero findings');
     assert.ok(report.findings?.evidenceGaps?.some((g) => g.includes('Responsive layout integrity not measured at width(s) 1440')));
+    assert.strictEqual(report.checklist.layout, false, 'critical geometry defect at a swept breakpoint fails checklist.layout');
+    assert.strictEqual(report.summary.verdict, 'FAIL', 'observed critical defect at 375px takes precedence over unmeasured 1440px gap');
+    assert.ok(report.summary.criticalCount >= 1, 'per-width critical finding is counted in summary.criticalCount');
+    assert.ok(
+      report.findings?.differential?.introducedRegressions.some((i) => i.signature.startsWith('layout_integrity@375:overlap:div.a:')),
+      'per-width critical finding carries width-scoped layout_integrity@375 signature in differential items'
+    );
+  });
+
+  it('19. Active-viewport critical and matching sweep critical at the same width are deduplicated, and truncated sweep widths record an evidence gap', async () => {
+    const integrityScript = LayoutIntegrityEngine.getBrowserScanScript('active');
+    const base = createMockPorts();
+    const ports = createMockPorts({
+      eval: async (target, script) => script === integrityScript
+        ? {
+          measured: true,
+          viewport: { name: 'active', width: 1440, height: 900 },
+          findings: [
+            { kind: 'overlap', severity: 'critical', selector: 'div.hero', details: 'Text overlap on hero' },
+          ],
+          stats: { elements: 20, textRuns: 10, controls: 4, sweepSteps: 1, truncated: false, truncatedReasons: [], failedDetectors: [], durationMs: 5 },
+        }
+        : base.browser.eval(target, script),
+      responsiveCheck: async () => ({
+        ok: true,
+        breakpoints: {
+          desktop: {
+            width: 1440,
+            height: 900,
+            mobile: false,
+            emulationApplied: true,
+            hasHorizontalOverflow: false,
+            integrity: {
+              measured: true,
+              viewport: { name: 'sweep', width: 1440, height: 900 },
+              findings: [
+                { kind: 'overlap', severity: 'critical', selector: 'div.hero', details: 'Text overlap on hero' },
+              ],
+              stats: { elements: 20, textRuns: 10, controls: 4, sweepSteps: 1, truncated: false, truncatedReasons: [], failedDetectors: [], durationMs: 5 },
+            },
+          },
+          mobile: {
+            width: 375,
+            height: 667,
+            mobile: true,
+            emulationApplied: true,
+            hasHorizontalOverflow: false,
+            integrity: {
+              measured: true,
+              viewport: { name: 'sweep', width: 375, height: 667 },
+              findings: [],
+              stats: { elements: 5000, textRuns: 100, controls: 20, sweepSteps: 1, truncated: true, truncatedReasons: ['elements 5000 > 4000'], failedDetectors: [], durationMs: 25 },
+            },
+          },
+        },
+      }),
+    });
+    const report = await new ThemeQaWorkflow(ports).validate({
+      runId: 'run-dedupe-sweep',
+      attemptId: 'att-dedupe-sweep',
+      workspaceRoot: 'E:/Work/test-theme',
+      target: makeTarget(1),
+      multiBreakpoint: true,
+    });
+
+    const layoutItems = report.findings?.differential?.introducedRegressions.filter((i) => i.category === 'layout_integrity') ?? [];
+    assert.strictEqual(layoutItems.length, 1, 'same-width critical finding from active scan and sweep must not be double-counted');
+    assert.ok(
+      report.findings?.evidenceGaps?.some((g) => g.includes('Responsive layout integrity truncated or detector failed at width(s) 375')),
+      'truncated sweep width must record an evidence gap'
+    );
+  });
+
+  it('20. Legacy baselineFindings reconstruction deduplicates only key-matched criticals at the active width and retains unmatched sweep criticals', async () => {
+    const ports = createMockPorts();
+    const seed = await new ThemeQaWorkflow(ports).validate({
+      runId: 'run-seed',
+      attemptId: 'att-seed',
+      workspaceRoot: 'E:/Work/test-theme',
+      target: makeTarget(1),
+    });
+    const report = await new ThemeQaWorkflow(ports).validate({
+      runId: 'run-legacy-baseline-dedupe',
+      attemptId: 'att-legacy-baseline-dedupe',
+      workspaceRoot: 'E:/Work/test-theme',
+      target: makeTarget(1),
+      baselineFindings: {
+        ...seed.findings!,
+        differential: undefined,
+        layoutIntegrity: {
+          measured: true,
+          viewport: { name: 'active', width: 1440, height: 900 },
+          findings: [
+            { kind: 'overlap', severity: 'critical', selector: 'div.hero', details: 'Text overlap on hero' },
+          ],
+          stats: { elements: 20, textRuns: 10, controls: 4, sweepSteps: 1, truncated: false, truncatedReasons: [], failedDetectors: [], durationMs: 5 },
+        },
+        responsive: {
+          '1440': {
+            documentOverflow: false,
+            criticalOverflow: 0,
+            criticalOverlap: 1,
+            criticalClipping: 1,
+            criticalOcclusion: 0,
+            criticalOffscreen: 0,
+            spacingWarnings: 0,
+            findings: [
+              { kind: 'overlap', severity: 'critical', selector: 'div.hero', details: 'Text overlap on hero' },
+              { kind: 'clipping', severity: 'critical', selector: 'h1.title', details: 'Clipped only in sweep' },
+            ],
+          },
+          '375': {
+            documentOverflow: false,
+            criticalOverflow: 0,
+            criticalOverlap: 0,
+            criticalClipping: 0,
+            criticalOcclusion: 1,
+            criticalOffscreen: 0,
+            spacingWarnings: 0,
+            findings: [
+              { kind: 'occlusion', severity: 'critical', selector: 'button.buy', details: 'Covered at mobile' },
+            ],
+          },
+        },
+      },
+    });
+
+    const preSigs = (report.findings?.differential?.resolvedIssues ?? [])
+      .filter((i) => i.category === 'layout_integrity')
+      .map((i) => i.signature);
+    assert.deepStrictEqual(
+      preSigs,
+      [
+        'layout_integrity:overlap:div.hero:Text overlap on hero',
+        'layout_integrity@375:occlusion:button.buy:Covered at mobile',
+        'layout_integrity@1440:clipping:h1.title:Clipped only in sweep',
+      ],
+      'matching active-width critical is deduplicated while unmatched active-width and other-width sweep criticals are preserved'
+    );
   });
 });

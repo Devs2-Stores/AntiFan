@@ -95,6 +95,8 @@ export interface ThemeQaDetailedFindings {
     criticalOffscreen: number | null;
     /** Edge-clearance warnings at this width (never critical); null when the width was not scanned. */
     spacingWarnings: number | null;
+    /** Detailed integrity findings captured at this width when non-empty. */
+    findings?: LayoutIntegrityFinding[];
   }>;
   documentStatus?: number;
   domSemantics?: DomSemanticsScanResult;
@@ -1038,8 +1040,14 @@ export class ThemeQaWorkflow {
         }
       }
     }
-    const integrityWidth = integrityResult?.measured === true ? integrityResult.viewport.width : undefined;
+    const integrityWidth = integrityResult?.measured === true ? integrityResult.viewport?.width : undefined;
+    const activeCriticalKeys = new Set<string>();
+    for (const f of integrityCriticals) {
+      activeCriticalKeys.add(`${f.kind}:${f.selector || ''}:${f.details.slice(0, 80)}`);
+    }
+    const sweepIntegrityCriticals: Array<{ width: number; finding: LayoutIntegrityFinding }> = [];
     const unmeasuredIntegrityWidths: number[] = [];
+    const truncatedOrFailedIntegrityWidths: number[] = [];
     for (const w of QA_RESPONSIVE_WIDTHS) {
       const bp = bpByWidth.get(w);
       const docOverflow = bp && typeof bp.hasHorizontalOverflow === 'boolean' ? bp.hasHorizontalOverflow : null;
@@ -1049,7 +1057,23 @@ export class ThemeQaWorkflow {
       const sweepIntegrity = bp ? bp.integrity : undefined;
       if (sweepIntegrity && typeof sweepIntegrity === 'object' && 'measured' in sweepIntegrity) {
         if (sweepIntegrity.measured === true && 'findings' in sweepIntegrity && Array.isArray(sweepIntegrity.findings)) {
-          atWidth = sweepIntegrity.findings.filter((f: unknown): f is LayoutIntegrityFinding => !!f && typeof f === 'object' && 'kind' in f && 'severity' in f);
+          const validFindings = sweepIntegrity.findings.filter((f: unknown): f is LayoutIntegrityFinding => !!f && typeof f === 'object' && 'kind' in f && 'severity' in f);
+          atWidth = validFindings;
+          const sStats = 'stats' in sweepIntegrity && sweepIntegrity.stats && typeof sweepIntegrity.stats === 'object'
+            ? (sweepIntegrity.stats as LayoutIntegrityResult['stats'])
+            : undefined;
+          if (sStats?.truncated === true || (Array.isArray(sStats?.failedDetectors) && sStats.failedDetectors.length > 0)) {
+            truncatedOrFailedIntegrityWidths.push(w);
+          }
+          for (const f of validFindings) {
+            if (f.severity === 'critical') {
+              const key = `${f.kind}:${f.selector || ''}:${f.details.slice(0, 80)}`;
+              if (w === integrityWidth && activeCriticalKeys.has(key)) continue;
+              sweepIntegrityCriticals.push({ width: w, finding: f });
+            } else if (f.severity === 'warning' && w !== integrityWidth) {
+              integrityAmbiguities.push(`[${f.kind}@${w}] ${f.selector ? `${f.selector} — ` : ''}${f.details}`);
+            }
+          }
         } else {
           unmeasuredIntegrityWidths.push(w);
         }
@@ -1063,10 +1087,14 @@ export class ThemeQaWorkflow {
         criticalOcclusion: atWidth ? countKind(atWidth, 'occlusion', 'critical') : null,
         criticalOffscreen: atWidth ? countKind(atWidth, 'offscreen', 'critical') + countKind(atWidth, 'zero-size', 'critical') : null,
         spacingWarnings: atWidth ? countKind(atWidth, 'spacing', 'warning') : null,
+        ...(atWidth && atWidth.length > 0 ? { findings: atWidth } : {}),
       };
     }
     if (unmeasuredIntegrityWidths.length > 0 && input.multiBreakpoint === true) {
       evidenceGaps.push(`Responsive layout integrity not measured at width(s) ${unmeasuredIntegrityWidths.join(', ')}`);
+    }
+    if (truncatedOrFailedIntegrityWidths.length > 0 && input.multiBreakpoint === true) {
+      evidenceGaps.push(`Responsive layout integrity truncated or detector failed at width(s) ${truncatedOrFailedIntegrityWidths.join(', ')}`);
     }
 
     // 7. Broken Asset Telemetry (DOM + CDP Network Correlation)
@@ -1282,6 +1310,40 @@ export class ThemeQaWorkflow {
               }))
           );
         }
+        const bfActiveWidth = bf.layoutIntegrity?.measured === true ? bf.layoutIntegrity.viewport?.width : undefined;
+        const bfActiveCriticalKeys = new Set<string>();
+        if (bf.layoutIntegrity?.findings) {
+          for (const f of bf.layoutIntegrity.findings) {
+            if (f.severity !== 'critical') continue;
+            bfActiveCriticalKeys.add(`${f.kind}:${f.selector || ''}:${f.details.slice(0, 80)}`);
+            preItems.push({
+              category: 'layout_integrity',
+              signature: `layout_integrity:${f.kind}:${f.selector || ''}:${f.details.slice(0, 80)}`,
+              severity: 'critical',
+              message: `Layout integrity ${f.kind}: ${f.details}`,
+              details: { kind: f.kind, selector: f.selector, rect: f.rect },
+            });
+          }
+        }
+        if (bf.responsive) {
+          for (const [wKey, rEntry] of Object.entries(bf.responsive)) {
+            if (rEntry?.findings) {
+              const wNum = Number(wKey);
+              for (const f of rEntry.findings) {
+                if (f.severity !== 'critical') continue;
+                const key = `${f.kind}:${f.selector || ''}:${f.details.slice(0, 80)}`;
+                if (wNum === bfActiveWidth && bfActiveCriticalKeys.has(key)) continue;
+                preItems.push({
+                  category: 'layout_integrity',
+                  signature: `layout_integrity@${wKey}:${f.kind}:${f.selector || ''}:${f.details.slice(0, 80)}`,
+                  severity: 'critical',
+                  message: `Layout integrity ${f.kind} (${wKey}px): ${f.details}`,
+                  details: { kind: f.kind, width: wNum, selector: f.selector, rect: f.rect },
+                });
+              }
+            }
+          }
+        }
       }
     } else {
       preItems.push(
@@ -1367,6 +1429,13 @@ export class ThemeQaWorkflow {
         message: `Layout integrity ${f.kind}: ${f.details}`,
         details: { kind: f.kind, selector: f.selector, rect: f.rect },
       })),
+      ...sweepIntegrityCriticals.map(({ width, finding: f }): ThemeQaIssueItem => ({
+        category: 'layout_integrity',
+        signature: `layout_integrity@${width}:${f.kind}:${f.selector || ''}:${f.details.slice(0, 80)}`,
+        severity: 'critical',
+        message: `Layout integrity ${f.kind} (${width}px): ${f.details}`,
+        details: { kind: f.kind, width, selector: f.selector, rect: f.rect },
+      })),
     ];
 
     for (const cur of currentItems) {
@@ -1409,7 +1478,7 @@ export class ThemeQaWorkflow {
       measuredResponsiveCount === 0 ? 'UNMEASURED' : (!hasResponsiveOverflow && !overflowResult.hasOverflow);
 
     const checklist: ThemeQaReport['checklist'] = {
-      layout: !overflowResult.hasOverflow && integrityCriticals.length === 0,
+      layout: !overflowResult.hasOverflow && integrityCriticals.length === 0 && sweepIntegrityCriticals.length === 0,
       responsive: responsiveChecklistStatus,
       overflow: !overflowResult.hasOverflow,
       diagnostics: !liquidResult.hasErrors && !assetResult.hasBrokenAssets && !serverCrashResult.hasCrash && diagnosticIssues.length === 0,
@@ -1466,7 +1535,8 @@ export class ThemeQaWorkflow {
       serverCrashResult.errorsCount +
       diagnosticIssues.length +
       diagnosticWarnings.length +
-      integrityFindings.length;
+      integrityFindings.length +
+      sweepIntegrityCriticals.length;
     // Observed defects verdict only for checks the caller kept enabled; `enabledChecks` remains a
     // verdict filter, while engine checklist authority is preserved separately in `checklist`.
     const checkParticipates = (key: keyof ThemeQaChecklist): boolean => !enabled || enabled[key] !== false;
@@ -1484,7 +1554,7 @@ export class ThemeQaWorkflow {
       // Critical geometry defects are storefront failures, not evidence gaps —
       // an occluded Add-to-Cart fails verification regardless of settle state.
       // They belong to the `layout` check, the same key checklist.layout carries.
-      (checkParticipates('layout') && integrityCriticals.length > 0);
+      (checkParticipates('layout') && (integrityCriticals.length > 0 || sweepIntegrityCriticals.length > 0));
     const hasMissingEvidence = settleMissingCapability || mutationMissingBarrier || evidenceGaps.length > 0 || activeChecklistEntries.length === 0;
 
     let summaryVerdict: 'PASS' | 'FAIL' | 'INCONCLUSIVE' = 'PASS';
@@ -1504,7 +1574,7 @@ export class ThemeQaWorkflow {
       passed: summaryVerdict === 'PASS',
       verdict: summaryVerdict,
       totalIssues,
-      criticalCount: hsResult.errorsCount + liquidResult.errors.length + serverCrashResult.errorsCount + diagnosticIssues.length + overflowIssueCount + assetResult.brokenAssets.length + integrityCriticals.length,
+      criticalCount: hsResult.errorsCount + liquidResult.errors.length + serverCrashResult.errorsCount + diagnosticIssues.length + overflowIssueCount + assetResult.brokenAssets.length + integrityCriticals.length + sweepIntegrityCriticals.length,
       ...(settleReceipt?.domUnstable ? { domUnstable: true } : {}),
       ...(checklist.responsive !== undefined ? { responsive: checklist.responsive } : {}),
       ...(documentStatus !== undefined ? { documentStatus } : {}),

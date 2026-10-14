@@ -3,6 +3,8 @@ export interface LayoutIntegrityFinding {
   ruleId?: string; // present on 'spacing' findings: which clearance rule fired
   severity: 'critical' | 'warning';
   selector: string; // best-effort CSS path, capped 200 chars
+  relatedSelector?: string; // optional peer selector for sibling-gap findings
+  actualPx?: number; // optional measured distance/width in CSS px
   details: string; // human sentence, capped 240 chars
   rect?: { x: number; y: number; w: number; h: number };
 }
@@ -111,8 +113,9 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
   const toRect = (r) => ({ x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.right - r.left), h: Math.round(r.bottom - r.top) });
   const push = (f) => {
     if (f.severity === 'warning') {
-      warningCount[f.kind] = (warningCount[f.kind] || 0) + 1;
-      if (warningCount[f.kind] > WARNING_CAP_PER_KIND) return;
+      const capKey = f.ruleId ? f.kind + ':' + f.ruleId : f.kind;
+      warningCount[capKey] = (warningCount[capKey] || 0) + 1;
+      if (warningCount[capKey] > WARNING_CAP_PER_KIND) return;
     }
     f.details = capDetails(f.details);
     findings.push(f);
@@ -172,9 +175,9 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
     if (!el || el === doc || el === body) return false;
     if (el.closest && el.closest('.sr-only, .visually-hidden, .screen-reader-text, .visuallyhidden, [class*="sr-only"], [class*="visually-hidden"]')) return true;
     const s = cs(el);
-    const w = parseFloat(s.width) || 0;
-    const h = parseFloat(s.height) || 0;
-    if (w <= 1 && h <= 1 && (s.overflow === 'hidden' || s.overflowX === 'hidden' || s.overflowY === 'hidden')) {
+    const w = parseFloat(s.width);
+    const h = parseFloat(s.height);
+    if (w > 0 && w <= 1 && h > 0 && h <= 1 && (s.overflow === 'hidden' || s.overflowX === 'hidden' || s.overflowY === 'hidden')) {
       return true;
     }
     return isSrOnly(parentOf(el));
@@ -190,7 +193,6 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
     }
     return s.backfaceVisibility === 'hidden' || s.transformStyle === 'preserve-3d';
   };
-  const isMovingStyle = (s) => hasRealTransform(s) || (s.animationName && s.animationName !== 'none' && String(s.animationIterationCount).indexOf('infinite') !== -1);
   const establishesContainingBlock = (s) => s.transform !== 'none' || s.filter !== 'none' || s.perspective !== 'none' || /paint|layout|strict|content/.test(s.contain || '') || /transform|filter/.test(s.willChange || '');
 
   // Nearest fixed/sticky ancestor-or-self (a "layer" floats over flow content by design).
@@ -204,15 +206,31 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
   const in3d = memo(false, (el) => isRotatedOr3d(cs(el)) || in3d(parentOf(el)));
   // Subtrees with a running animation or transition (crossfading slides, pulsing badges) are
   // caught mid-motion: their geometry and opacity describe a frame, not the settled layout.
+  const GEOM_KEYFRAME = /^(transform|translate|rotate|scale|offset|left|right|top|bottom|inset|width|height|margin|padding|opacity|clip|visibility)/i;
+  const animatesGeometry = (a) => {
+    try {
+      if (!a.effect || typeof a.effect.getKeyframes !== 'function') return true;
+      const kfs = a.effect.getKeyframes();
+      for (let k = 0; k < kfs.length; k++) {
+        const keys = Object.keys(kfs[k]);
+        for (let j = 0; j < keys.length; j++) {
+          if (GEOM_KEYFRAME.test(keys[j])) return true;
+        }
+      }
+      return false;
+    } catch (e) {
+      return true;
+    }
+  };
   const animTargets = new Set();
   try {
     const anims = typeof document.getAnimations === 'function' ? document.getAnimations() : [];
     for (let i = 0; i < anims.length; i++) {
       const a = anims[i];
-      if (a.playState === 'running' && a.effect && a.effect.target) animTargets.add(a.effect.target);
+      if (a.playState === 'running' && a.effect && a.effect.target && animatesGeometry(a)) animTargets.add(a.effect.target);
     }
   } catch (e) {}
-  const animating = memo(false, (el) => animTargets.has(el) || animating(parentOf(el)));
+  const animating = memo(false, (el) => ((el !== body && el !== doc) && animTargets.has(el)) || animating(parentOf(el)));
   const unsettled = (el) => in3d(el) || animating(el);
   // Images that have not loaded yet (still fetching, or a lazy source not swapped in) and render
   // collapsed: they have no size yet, so whatever is laid out from them moves when they arrive.
@@ -308,8 +326,11 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
   const isScrollAxis = (v) => v === 'auto' || v === 'scroll';
   const isHiddenAxis = (v) => v === 'hidden' || v === 'clip';
   const movingBetween = (from, upto) => {
-    for (let e = from; e && e !== upto && e !== doc; e = e.parentElement) {
-      if (isMovingStyle(cs(e)) || animTargets.has(e) || e.matches(CAROUSEL_SLIDE) || e.tagName === 'MARQUEE') return true;
+    for (let e = from; e && e !== upto && e !== body && e !== doc; e = e.parentElement) {
+      const s = cs(e);
+      const infAnim = Boolean(s.animationName && s.animationName !== 'none' && s.animationPlayState !== 'paused' && String(s.animationIterationCount).indexOf('infinite') !== -1);
+      if (infAnim || animTargets.has(e) || e.matches(CAROUSEL_SLIDE) || e.tagName === 'MARQUEE') return true;
+      if (hasRealTransform(s) && transitionsBetween(e, e.parentElement, /^(all|transform|translate|left|right|top|bottom|inset|margin|opacity|visibility)$/i)) return true;
     }
     return false;
   };
@@ -364,10 +385,13 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
   // A height-capped box followed by a disclosure control ("Xem thêm", aria-expanded, or an
   // aria-controls owner) clips its content on purpose: the cut line is a collapsed read-more.
   const DISCLOSURE_TEXT = /(xem|đọc) (thêm|tiếp|tất cả)|mở rộng|hiển thị thêm|read more|show more|see more|view more|expand/i;
-  const isDisclosure = (el) => el.hasAttribute('aria-expanded') || (el.textContent.length <= 40 && DISCLOSURE_TEXT.test(el.textContent));
+  const isDisclosure = (el) => {
+    if (el.hasAttribute('aria-expanded')) return true;
+    const label = (el.getAttribute('aria-label') || el.getAttribute('title') || el.textContent || '').trim();
+    return label.length <= 40 && DISCLOSURE_TEXT.test(label);
+  };
   let controlledIds = null;
-  const collapsedByDesign = memo(false, (a) => {
-    if (a.scrollHeight <= a.clientHeight + 1) return false;
+  const hasDisclosureControl = memo(false, (a) => {
     if (a.id) {
       if (!controlledIds) {
         controlledIds = new Set();
@@ -376,6 +400,8 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
       }
       if (controlledIds.has(a.id)) return true;
     }
+    const ownInner = a.querySelectorAll(ACTIONABLE);
+    for (let i = 0; i < ownInner.length && i < 8; i++) if (isDisclosure(ownInner[i])) return true;
     let up = a;
     for (let d = 0; d < 2 && up && up !== body; d++, up = up.parentElement) {
       let sib = up.nextElementSibling;
@@ -387,6 +413,21 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
     }
     return false;
   });
+  const collapsedByDesign = memo(false, (a) => a.scrollHeight > a.clientHeight + 1 && hasDisclosureControl(a));
+  const isCollapsedCurtain = (owner, textOrControlEl) => {
+    if (!owner || !textOrControlEl || owner === body || owner === doc) return false;
+    for (let p = owner.parentElement; p && p !== body && p !== doc; p = p.parentElement) {
+      const ps = cs(p);
+      const isReadMoreBox = collapsedByDesign(p) || (isHiddenAxis(ps.overflowY) && ps.maxHeight && ps.maxHeight !== 'none' && hasDisclosureControl(p));
+      if (isReadMoreBox && p.contains(textOrControlEl)) {
+        for (let cur = owner; cur && cur !== p; cur = cur.parentElement) {
+          const pos = cs(cur).position;
+          if (pos === 'absolute' || pos === 'sticky') return true;
+        }
+      }
+    }
+    return false;
+  };
 
   // ---- page scroller ----------------------------------------------------------------------
   const startX = window.scrollX;
@@ -543,7 +584,7 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
     }
     stats.textRuns = runs.length;
   } catch (err) {
-    detectorFailed('clipping', err);
+    detectorFailed('text-runs', err);
   }
 
   mark('runs');
@@ -654,6 +695,114 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
       const side = tightLeft && (!tightRight || gapLeft <= gapRight) ? 'left' : 'right';
       flagEdge(el, 'edge-control', 'Control "' + snippet(el.getAttribute('aria-label') || el.textContent || el.tagName.toLowerCase()) + '"', side, side === 'left' ? gapLeft : gapRight, T_CONTROL, box, r);
     }
+    // ---- 3b. sibling-gap & wrap-quality (warning only, ruleId-isolated) -------------------------
+    const firstTextRect = (el, pickBottom) => {
+      let best = null;
+      for (let rIdx = 0; rIdx < runs.length; rIdx++) {
+        const rn = runs[rIdx];
+        if (!el.contains(rn.p)) continue;
+        if (!best || (pickBottom ? rn.r.bottom > best.bottom : rn.r.top < best.top)) best = rn.r;
+      }
+      return best;
+    };
+    const META_HEADING_HINT = /title|name|heading|meta|sku|code|brand|vendor|price|status|stock|rating|review|badge|tag/i;
+    const seenGapPairs = new Set();
+    for (let i = 0; i < elementLimit; i++) {
+      const parent = allElements[i];
+      if (parent.children.length < 2 || parent.closest('svg, head, nav, table, ul, ol, dl') || parent.closest(CAROUSEL_SLIDE)) continue;
+      const ps = cs(parent);
+      if (ps.display === 'none' || ps.display === 'contents' || !painted(parent)) continue;
+      const ch = parent.children;
+      for (let a = 0; a < ch.length - 1; a++) {
+        const elA = ch[a];
+        const elB = ch[a + 1];
+        const sA = cs(elA);
+        const sB = cs(elB);
+        if ((sA.position !== 'static' && sA.position !== 'relative') || (sB.position !== 'static' && sB.position !== 'relative')) continue;
+        if (!painted(elA) || !painted(elB) || isSrOnly(elA) || isSrOnly(elB)) continue;
+        const rA = elA.getBoundingClientRect();
+        const rB = elB.getBoundingClientRect();
+        if (rA.width < 16 || rA.height < 10 || rB.width < 16 || rB.height < 10) continue;
+        if (rA.bottom <= 0 || rB.top >= vh || rA.right <= 0 || rB.left >= vw) continue;
+        const xOverlap = span(rA.left, rA.right, rB.left, rB.right);
+        if (xOverlap < Math.min(rA.width, rB.width) * 0.5) continue;
+        const isHeadingPair = Boolean(elA.matches(TITLE_BOX) || elB.matches(TITLE_BOX) || elA.querySelector(TITLE_BOX) || elB.querySelector(TITLE_BOX));
+        const hintStr = String(elA.className || '') + ' ' + String(elB.className || '');
+        if (!isHeadingPair && !META_HEADING_HINT.test(hintStr)) continue;
+        const padBetween = (parseFloat(sA.paddingBottom) || 0) + (parseFloat(sB.paddingTop) || 0);
+        const borderBetween = (parseFloat(sA.borderBottomWidth) || 0) + (parseFloat(sB.borderTopWidth) || 0);
+        if (padBetween >= 2 || borderBetween >= 1) continue;
+        if (alphaOfColor(sA.backgroundColor) >= 0.1 || alphaOfColor(sB.backgroundColor) >= 0.1) continue;
+        const boxGapY = rB.top - rA.bottom;
+        if (boxGapY < -2 || boxGapY > 2) continue;
+        const tA = firstTextRect(elA, true);
+        const tB = firstTextRect(elB, false);
+        if (!tA || !tB) continue;
+        const inkGapY = tB.top - tA.bottom;
+        measured++;
+        if (inkGapY >= -6 && inkGapY < 2) {
+          const selA = getSelector(elA);
+          const selB = getSelector(elB);
+          const key = selA + '|' + selB;
+          if (!seenGapPairs.has(key)) {
+            seenGapPairs.add(key);
+            flagged++;
+            const gapVal = Math.max(0, Math.round(boxGapY * 10) / 10);
+            push({
+              kind: 'spacing',
+              ruleId: 'sibling-gap',
+              severity: 'warning',
+              selector: selB,
+              relatedSelector: selA,
+              actualPx: gapVal,
+              details: 'Sibling blocks ' + selA + ' and ' + selB + ' have ' + gapVal + 'px vertical box gap (' + Math.round(inkGapY * 10) / 10 + 'px glyph clearance)',
+              rect: toRect(rB),
+            });
+          }
+        }
+      }
+    }
+    const runsByOwner = new Map();
+    for (let i = 0; i < runs.length; i++) {
+      const rn = runs[i];
+      let arr = runsByOwner.get(rn.p);
+      if (!arr) { arr = []; runsByOwner.set(rn.p, arr); }
+      arr.push(rn);
+    }
+    runsByOwner.forEach((ownerRuns, owner) => {
+      if (owner.closest('svg, head, code, pre') || isSrOnly(owner) || unsettled(owner)) return;
+      const os = cs(owner);
+      if (os.whiteSpace === 'nowrap' || os.whiteSpace === 'pre' || intendedTruncation(owner, owner.parentElement)) return;
+      const text = (owner.textContent || '').replace(/\s+/g, ' ').trim();
+      if (text.length < 4 || text.length > 36 || ownerRuns.length < 2) return;
+      const or = owner.getBoundingClientRect();
+      if (or.bottom <= 0 || or.top >= vh || or.right <= 0 || or.left >= vw) return;
+      const fs = parseFloat(os.fontSize) || 14;
+      const parent = owner.parentElement;
+      const pDisp = parent ? cs(parent).display : '';
+      const inFlexOrGrid = pDisp.indexOf('flex') !== -1 || pDisp.indexOf('grid') !== -1 || os.display === 'inline-block' || os.display === 'inline-flex';
+      if (!inFlexOrGrid) return;
+      measured++;
+      const narrowSqueeze = ownerRuns.length >= 3 && or.width > 0 && or.width < fs * 3.4;
+      const lastR = ownerRuns[ownerRuns.length - 1].r;
+      const firstR = ownerRuns[0].r;
+      const lastWords = snippet(ownerRuns[ownerRuns.length - 1].n.nodeValue);
+      const pWidth = parent ? parent.clientWidth : 0;
+      const orphanInRow = ownerRuns.length >= 2 && text.length <= 26 && pWidth > or.width * 1.8 && or.width < fs * 5.2 && (lastR.right - lastR.left) < (firstR.right - firstR.left) * 0.38 && (lastR.right - lastR.left) < fs * 2.2;
+      if (narrowSqueeze || orphanInRow) {
+        flagged++;
+        const wPx = Math.round(or.width);
+        push({
+          kind: 'spacing',
+          ruleId: 'wrap-quality',
+          severity: 'warning',
+          selector: getSelector(owner),
+          actualPx: wPx,
+          details: 'Text "' + snippet(text) + '" in ' + getSelector(owner) + ' wraps into ' + ownerRuns.length + ' cramped lines inside ' + wPx + 'px width (tail: "' + lastWords + '")',
+          rect: toRect(or),
+        });
+      }
+    });
     stats.spacingMeasured = measured;
     stats.spacingFlagged = flagged;
   } catch (err) {
@@ -814,7 +963,7 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
         const iy = span(a.vis.top, a.vis.bottom, b.vis.top, b.vis.bottom);
         const minH = Math.min(a.vis.bottom - a.vis.top, b.vis.bottom - b.vis.top);
         if (iy < minH * 0.5) continue;
-        if (imagePending(a.p, b.p) || isSrOnly(a.p) || isSrOnly(b.p)) continue;
+        if (imagePending(a.p, b.p) || isSrOnly(a.p) || isSrOnly(b.p) || isCollapsedCurtain(a.p, b.p) || isCollapsedCurtain(b.p, a.p)) continue;
         const pairKey = getSelector(a.p) + '|' + getSelector(b.p);
         if (reported.has(b.p) || reported.has(pairKey)) continue;
         reported.add(pairKey);
@@ -868,7 +1017,7 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
         const B = flowControls[j];
         if (B.rect.top >= A.rect.bottom) break;
         if (A.el.contains(B.el) || B.el.contains(A.el)) continue;
-        if (overlaysInside(A.el, B.el, A.rect, B.rect) || overlaysInside(B.el, A.el, B.rect, A.rect)) continue;
+        if (overlaysInside(A.el, B.el, A.rect, B.rect) || overlaysInside(B.el, A.el, B.rect, A.rect) || isCollapsedCurtain(A.el, B.el) || isCollapsedCurtain(B.el, A.el)) continue;
         // A carousel's own navigation over its slides is not a stacked pair.
         if (Boolean(A.el.closest(CAROUSEL_SLIDE)) !== Boolean(B.el.closest(CAROUSEL_SLIDE))) continue;
         const fa = fragments(A);
@@ -973,8 +1122,8 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
     };
     const steps = [0];
     const maxScroll = Math.max(0, pageHeight - vh);
+    const stride = Math.max(1, Math.floor(vh * 0.8));
     if (scroller) {
-      const stride = Math.max(1, Math.floor(vh * 0.8));
       for (let y = stride; y < maxScroll + stride; y += stride) steps.push(Math.min(y, maxScroll));
     }
     if (steps.length > SWEEP_CAP) {
@@ -1032,6 +1181,8 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
     for (let i = 0; i < controls.length; i++) addFixed(controls[i].el, controls[i].vis);
     const frames = document.querySelectorAll('iframe');
     for (let i = 0; i < frames.length; i++) addFixed(frames[i], frames[i].getBoundingClientRect());
+    const DIALOG_SEL = 'dialog, [role="dialog"], [aria-modal="true"]';
+    const SLIDE_ITEM = '.swiper-slide, .slick-slide, .splide__slide, .glide__slide, .owl-item, [aria-roledescription="slide"]';
     const nested = (a, b) => a === b || a.contains(b) || b.contains(a);
     for (let i = 0; i < runs.length && fixedBoxes.length > 1; i++) {
       const run = runs[i];
@@ -1039,6 +1190,7 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
       if (!A || unsettled(run.p) || reportedOwners.has(run.p)) continue;
       const cy = (run.vis.top + run.vis.bottom) / 2;
       if (cy < 0 || cy >= vh) continue;
+      const runDlg = run.p.closest(DIALOG_SEL);
       for (let b = 0; b < fixedBoxes.length; b++) {
         const fb = fixedBoxes[b];
         if (nested(fb.layer, A) || cy < fb.r.top || cy >= fb.r.bottom) continue;
@@ -1053,7 +1205,9 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
           for (let k = 0; k < stack.length; k++) {
             const e = stack[k];
             if (e === doc || e === body || nested(e, run.p)) break;
-            if (e.closest(PLATFORM_PREVIEW_CHROME) || e.closest('dialog, [role="dialog"], [aria-modal="true"]')) continue;
+            if (e.closest(PLATFORM_PREVIEW_CHROME)) continue;
+            const eDlg = e.closest(DIALOG_SEL);
+            if (eDlg && eDlg !== runDlg) continue;
             const eLayer = fixedLayerOf(e);
             if (!eLayer || nested(eLayer, A) || !fixedOk.get(eLayer) || !isOpaque(e)) continue;
             px += step;
@@ -1064,6 +1218,45 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
         if (px < 4) continue;
         reportedOwners.add(run.p);
         push({ kind: 'occlusion', severity: 'critical', selector: getSelector(run.p), details: 'Text "' + snippet(run.n.nodeValue) + '" in fixed ' + getSelector(A) + ' is covered by fixed ' + getSelector(by) + ' (' + Math.round(px) + 'px of the line)', rect: toRect(run.vis) });
+        break;
+      }
+    }
+    for (let i = 0; i < controls.length && fixedBoxes.length > 1; i++) {
+      const c = controls[i];
+      const A = c.vis ? fixedLayerOf(c.el) : null;
+      if (!A || unsettled(c.el) || reportedOwners.has(c.el)) continue;
+      const cx = (c.vis.left + c.vis.right) / 2;
+      const cy = (c.vis.top + c.vis.bottom) / 2;
+      if (cx < 0 || cx >= vw || cy < 0 || cy >= vh) continue;
+      const cDlg = c.el.closest(DIALOG_SEL);
+      for (let b = 0; b < fixedBoxes.length; b++) {
+        const fb = fixedBoxes[b];
+        if (nested(fb.layer, A)) continue;
+        const ix = span(c.vis.left, c.vis.right, fb.r.left, fb.r.right);
+        const iy = span(c.vis.top, c.vis.bottom, fb.r.top, fb.r.bottom);
+        if (ix < 4 || iy < 4) continue;
+        const sampleX = Math.max(0, Math.min(vw - 1, (Math.max(c.vis.left, fb.r.left) + Math.min(c.vis.right, fb.r.right)) / 2));
+        const sampleY = Math.max(0, Math.min(vh - 1, (Math.max(c.vis.top, fb.r.top) + Math.min(c.vis.bottom, fb.r.bottom)) / 2));
+        const stack = document.elementsFromPoint(sampleX, sampleY);
+        let by = null;
+        for (let k = 0; k < stack.length; k++) {
+          const e = stack[k];
+          if (e === doc || e === body || nested(e, c.el)) break;
+          if (e.closest(PLATFORM_PREVIEW_CHROME)) continue;
+          const eDlg = e.closest(DIALOG_SEL);
+          if (eDlg && eDlg !== cDlg) continue;
+          const eLayer = fixedLayerOf(e);
+          if (!eLayer || nested(eLayer, A) || !fixedOk.get(eLayer) || !isOpaque(e)) continue;
+          by = e;
+          break;
+        }
+        if (!by) continue;
+        const cArea = (c.vis.right - c.vis.left) * (c.vis.bottom - c.vis.top);
+        const fbArea = (fb.r.right - fb.r.left) * (fb.r.bottom - fb.r.top);
+        const minArea = Math.max(1, Math.min(cArea, fbArea));
+        if ((ix * iy) / minArea < 0.25 && (sampleX !== cx || sampleY !== cy)) continue;
+        reportedOwners.add(c.el);
+        push({ kind: 'occlusion', severity: 'critical', selector: getSelector(c.el), details: 'Control ' + getSelector(c.el) + ' in fixed ' + getSelector(A) + ' is covered by fixed ' + getSelector(by), rect: toRect(c.vis) });
         break;
       }
     }
@@ -1104,12 +1297,21 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
         if (tg.fixed && s > 0) { done.add(t); continue; }
         const top = tg.fixed ? tg.vis.top : tg.vis.top - got;
         const bottom = tg.fixed ? tg.vis.bottom : tg.vis.bottom - got;
+        if (bottom <= 0 || top >= vh) continue;
         if (top < 0 || bottom > vh) {
-          if (bottom - top <= vh) continue;
+          if (bottom - top <= vh - stride) continue;
+          const visNow = Math.min(bottom, vh) - Math.max(top, 0);
+          if (visNow < 16 && bottom - top >= 16) continue;
+          if (s + 1 < steps.length) {
+            const nextGot = steps[s + 1];
+            const visNext = Math.min(tg.vis.bottom - nextGot, vh) - Math.max(tg.vis.top - nextGot, 0);
+            if (visNext > visNow) continue;
+          }
         }
         const cy = (Math.max(top, 0) + Math.min(bottom, vh)) / 2;
         if (cy < 0 || cy >= vh) continue;
-        const inSlide = Boolean(tg.owner.closest(CAROUSEL_SLIDE));
+        const tgDlg = tg.owner.closest(DIALOG_SEL);
+        const tgSlide = tg.owner.closest(SLIDE_ITEM);
         // One paint-order probe: 'covered' (opaque same-layer box, or an opaque top bar at load /
         // bottom bar at the end of the page), 'deferred' (only a foreign fixed/sticky layer is in
         // the way - retry at another offset), or 'clear'.
@@ -1123,8 +1325,12 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
             const e = stack[k];
             if (e === tg.owner || tg.owner.contains(e) || e.contains(tg.owner)) break;
             if (e === doc || e === body) break;
-            if (e.closest(PLATFORM_PREVIEW_CHROME) || e.closest('dialog, [role="dialog"], [aria-modal="true"]')) continue;
-            if (inSlide && e.closest(CAROUSEL_SLIDE)) continue;
+            if (e.closest(PLATFORM_PREVIEW_CHROME)) continue;
+            const eDlg = e.closest(DIALOG_SEL);
+            if (eDlg && eDlg !== tgDlg) continue;
+            const eSlide = e.closest(SLIDE_ITEM);
+            if (tgSlide && eSlide && tgSlide !== eSlide) continue;
+            if (isCollapsedCurtain(e, tg.owner)) continue;
             const eLayer = layerOf(e);
             if (eLayer && eLayer !== tg.layer) {
               if (s === 0 && !tg.fixed && topLayer(eLayer) && isOpaque(e)) return { state: 'covered', by: e, sticky: 'at page load' };

@@ -99,7 +99,8 @@ function loadCorpus(file) {
     const scoped = expect && expect.viewports !== undefined;
     const badScope = scoped && (expect.control || !Array.isArray(expect.viewports) || !expect.viewports.length
       || expect.viewports.some((name) => !names.includes(name)));
-    return !entry || !entry.id || !entry.html || rules !== 1 || badScope;
+    const badRuleIds = expect && expect.ruleIds !== undefined && (!Array.isArray(expect.ruleIds) || !expect.ruleIds.length || !expect.kinds);
+    return !entry || !entry.id || !entry.html || rules !== 1 || badScope || badRuleIds;
   });
   if (invalid.length) throw new Error(`Corpus entries break the contract: ${invalid.map((entry) => (entry && entry.id) || '(no id)').join(', ')}`);
   return corpus;
@@ -148,8 +149,15 @@ async function run() {
       const expect = fixture.expect;
       const asserted = expect.control || (expect.viewports || ['mobile']).includes(vp.name);
       if (expect.kinds && asserted) {
-        const caught = integrity.findings.some((finding) => expect.kinds.includes(finding.kind) && (finding.severity === 'critical' || expect.allowWarning));
-        if (!caught) reasons.push(`expected one of ${expect.kinds.join('|')} at ${vp.name}`);
+        const caught = integrity.findings.some((finding) =>
+          expect.kinds.includes(finding.kind)
+          && (!Array.isArray(expect.ruleIds) || expect.ruleIds.includes(finding.ruleId))
+          && (finding.severity === 'critical' || expect.allowWarning)
+        );
+        if (!caught) {
+          const ruleLabel = Array.isArray(expect.ruleIds) ? ` (ruleIds: ${expect.ruleIds.join('|')})` : '';
+          reasons.push(`expected one of ${expect.kinds.join('|')}${ruleLabel} at ${vp.name}`);
+        }
       } else if (expect.documentOverflow && asserted && overflow.hasOverflow !== true) {
         reasons.push(`expected overflow.hasOverflow === true at ${vp.name}`);
       } else if (expect.control) {

@@ -109,5 +109,17 @@ describe('LayoutIntegrityEngine', () => {
       assert.ok(withShift.includes('const SKIP_LAYOUT_SHIFT = "false" === \'true\''));
       assert.ok(withoutShift.includes('const SKIP_LAYOUT_SHIFT = "true" === \'true\''));
     });
+
+    it('isolates warning caps by ruleId so edge-text warnings do not silence sibling-gap or wrap-quality warnings', () => {
+      const scriptText = LayoutIntegrityEngine.getBrowserScanScript('active');
+      assert.ok(
+        scriptText.includes("const capKey = f.ruleId ? f.kind + ':' + f.ruleId : f.kind;"),
+        'warning cap must key by kind:ruleId when ruleId is present'
+      );
+      assert.ok(
+        scriptText.includes("ruleId: 'sibling-gap'") && scriptText.includes("ruleId: 'wrap-quality'"),
+        'browser scan script must include sibling-gap and wrap-quality rules'
+      );
+    });
   });
 });

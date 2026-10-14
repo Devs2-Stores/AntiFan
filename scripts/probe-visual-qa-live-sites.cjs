@@ -116,7 +116,8 @@ async function measurePage(engine, id, url, vp, discover) {
     row.url = wc.getURL() || url;
     if (discover) found = await wc.executeJavaScript(DISCOVER);
     let payload;
-    const before = await wc.executeJavaScript('[window.scrollX, window.scrollY]');
+    const SCROLL_STATE = '[window.scrollX, window.scrollY, document.body.scrollLeft, document.body.scrollTop]';
+    const before = await wc.executeJavaScript(SCROLL_STATE);
     const started = Date.now();
     try {
       payload = await wc.executeJavaScript(engine.getBrowserScanScript(vp.name));
@@ -125,8 +126,8 @@ async function measurePage(engine, id, url, vp, discover) {
       return { row, found };
     }
     row.wallMs = Date.now() - started;
-    const after = await wc.executeJavaScript('[window.scrollX, window.scrollY]');
-    row.restored = before[0] === after[0] && Math.abs(before[1] - after[1]) <= 1;
+    const after = await wc.executeJavaScript(SCROLL_STATE);
+    row.restored = before[0] === after[0] && before.every((value, i) => Math.abs(value - after[i]) <= 1);
     if (!payload || typeof payload !== 'object' || payload.measured !== true) {
       row.unmeasuredReason = `scan payload not measured: ${(payload && payload.unmeasuredReason) || 'no measured:true payload'}`;
       return { row, found };
