@@ -120,7 +120,7 @@ export type TerminalHostAuthority = Omit<TerminalOwnershipPort, 'ownerTabId'>;
  * The terminal plane a caller may touch: unbound (lease-bound internal call, no attachment) or the
  * attachment's own tab.
  */
-type TerminalCallerScope =
+export type TerminalCallerScope =
   | { bound: false }
   | { bound: true; attachmentId: string; tabId: string; ownership: TerminalOwnershipPort };
 
@@ -140,7 +140,7 @@ function callingAttachmentId(
  * and guessing would re-open the cross-project write this gate exists to stop — so an unattributable
  * caller is refused instead of allowed unverified.
  */
-function resolveTerminalCallerScope(
+export function resolveTerminalCallerScope(
   ownership: TerminalOwnershipPort | undefined,
   context?: CapabilityRequestContext | AuthenticatedCapabilityContext
 ): TerminalCallerScope {
@@ -170,7 +170,7 @@ function resolveTerminalCallerScope(
  * user plane — reading what the user types is a legitimate read-only capability — while still
  * refusing another attachment's private agent terminal.
  */
-function assertTerminalOwnership(
+export function assertTerminalOwnership(
   scope: TerminalCallerScope,
   terminalId: string,
   mode: 'operate' | 'observe'
@@ -185,7 +185,7 @@ function assertTerminalOwnership(
     'TERMINAL_FORBIDDEN',
     `Terminal "${terminalId}" is ${plane} and is not owned by tab "${tabId}" of attachment "${scope.attachmentId}": ` +
       (mode === 'operate'
-        ? 'create a session of your own with terminal.create and operate that one'
+        ? 'observe user terminals such as hrv/shopify theme dev with terminal.wait or terminal.list; run one-off commands with your host shell tool; do not write to a terminal you do not own'
         : 'wait on your own sessions, or on user-plane terminals no agent owns')
   );
 }

@@ -248,12 +248,26 @@ export class ControlPlaneRuntime {
       { projectId: options.projectId, workspaceId: options.workspaceId, runtimeId: this.leaseState.runtimeId },
       this.files,
       this.terminal,
-      options.browserControlPort
+      options.browserControlPort,
+      (owner) => {
+        try {
+          return this.workspaces.get(owner.workspaceId, owner.projectId).state === 'attached';
+        } catch {
+          return false;
+        }
+      }
     );
+    const terminalOwnership = this.composeTerminalOwnership(options.terminalAuthority);
     registerFileCapabilities(this.capabilities, this.files, () => this.getWorkspaceRoot(), this.themeTransactions);
-    registerThemeTransactionCapabilities(this.capabilities, this.themeTransactions, () => this.getWorkspaceRoot());
+    registerThemeTransactionCapabilities(
+      this.capabilities,
+      this.themeTransactions,
+      () => this.getWorkspaceRoot(),
+      undefined,
+      terminalOwnership
+    );
     registerArtifactCapabilities(this.capabilities, this.artifacts);
-    registerTerminalCapabilities(this.capabilities, this.terminal, this.composeTerminalOwnership(options.terminalAuthority));
+    registerTerminalCapabilities(this.capabilities, this.terminal, terminalOwnership);
     registerCoreCapabilities(this.capabilities, createLazyCorePort());
     this.workflowRegistry = new WorkflowRegistry(path.join(options.dataRoot, 'workflows'));
     this.workflowEngine = new WorkflowEngine({

@@ -5,45 +5,58 @@ import { CapabilityError, CapabilityRequestContext, AuthenticatedCapabilityConte
 import { ThemeTransactionRegistry } from '../qa/theme-transaction-registry';
 
 
+/**
+ * Root of the workspace the caller's tenancy (projectId + workspaceId) is
+ * attached to. Fails closed with WORKSPACE_UNBOUND when the request carries no
+ * tenancy or the workspace has no root; the boot runtime root is used only by
+ * catalogues without a workspace registry, never for a registered tenant.
+ */
+export function resolveTenantWorkspaceRoot(
+  catalogue: CapabilityCatalogue,
+  context: CapabilityRequestContext | AuthenticatedCapabilityContext | undefined,
+  getAuthoritativeWorkspaceRoot?: () => string
+): string {
+  if (!context || !context.projectId || !context.workspaceId) {
+    throw new CapabilityError(
+      'WORKSPACE_UNBOUND',
+      'Operation rejected: Request lacks authoritative projectId/workspaceId context tenancy binding.'
+    );
+  }
+  let ws: { rootPath?: string } | undefined;
+  try {
+    ws = catalogue.resolveAuthoritativeWorkspace(context.projectId, context.workspaceId);
+    if (ws?.rootPath && typeof ws.rootPath === 'string' && ws.rootPath.trim().length > 0) {
+      return ws.rootPath;
+    }
+  } catch (err) {
+    if (err instanceof CapabilityError) {
+      throw err;
+    }
+    throw new CapabilityError(
+      'WORKSPACE_UNBOUND',
+      `Authoritative workspace ${context.workspaceId} could not be resolved: ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
+
+  // Fail closed on unresolved tenant when a workspace registry exists.
+  // Never fall back to global host/runtime workspace root for registered multi-tenant catalogues.
+  if (!catalogue.hasWorkspaceRegistry() && getAuthoritativeWorkspaceRoot) {
+    const fallbackRoot = getAuthoritativeWorkspaceRoot();
+    if (fallbackRoot && typeof fallbackRoot === 'string' && fallbackRoot.trim().length > 0) {
+      return fallbackRoot;
+    }
+  }
+  throw new CapabilityError('WORKSPACE_UNBOUND', `Authoritative workspace ${context.workspaceId} has no resolved root path`);
+}
+
 export function registerFileCapabilities(
   catalogue: CapabilityCatalogue,
   files: WorkspaceFilePort,
   getAuthoritativeWorkspaceRoot?: () => string,
   transactionRegistry?: ThemeTransactionRegistry
 ): void {
-  const resolveRoot = (context?: CapabilityRequestContext | AuthenticatedCapabilityContext): string => {
-    if (!context || !context.projectId || !context.workspaceId) {
-      throw new CapabilityError(
-        'WORKSPACE_UNBOUND',
-        'Operation rejected: Request lacks authoritative projectId/workspaceId context tenancy binding.'
-      );
-    }
-    let ws: { rootPath?: string } | undefined;
-    try {
-      ws = catalogue.resolveAuthoritativeWorkspace(context.projectId, context.workspaceId);
-      if (ws?.rootPath && typeof ws.rootPath === 'string' && ws.rootPath.trim().length > 0) {
-        return ws.rootPath;
-      }
-    } catch (err) {
-      if (err instanceof CapabilityError) {
-        throw err;
-      }
-      throw new CapabilityError(
-        'WORKSPACE_UNBOUND',
-        `Authoritative workspace ${context.workspaceId} could not be resolved: ${err instanceof Error ? err.message : String(err)}`
-      );
-    }
-
-    // Fail closed on unresolved tenant when a workspace registry exists.
-    // Never fall back to global host/runtime workspace root for registered multi-tenant catalogues.
-    if (!catalogue.hasWorkspaceRegistry() && getAuthoritativeWorkspaceRoot) {
-      const fallbackRoot = getAuthoritativeWorkspaceRoot();
-      if (fallbackRoot && typeof fallbackRoot === 'string' && fallbackRoot.trim().length > 0) {
-        return fallbackRoot;
-      }
-    }
-    throw new CapabilityError('WORKSPACE_UNBOUND', `Authoritative workspace ${context.workspaceId} has no resolved root path`);
-  };
+  const resolveRoot = (context?: CapabilityRequestContext | AuthenticatedCapabilityContext): string =>
+    resolveTenantWorkspaceRoot(catalogue, context, getAuthoritativeWorkspaceRoot);
   catalogue.register({
     name: 'file.read',
     description: 'Read a file relative to authoritative workspace root with boundary enforcement',
@@ -118,11 +131,20 @@ export function registerFileCapabilities(
       if (transactionRegistry) {
         const canonical = canonicalizeWorkspaceRoot(root);
         if (transactionRegistry.isLocked(canonical)) {
-          const active = transactionRegistry.getActiveSession(canonical);
+          const active = transactionRegistry.getLockingSession(canonical);
+          const visibleSessionId = transactionRegistry.getVisibleLockingSessionId(canonical, {
+            projectId: context?.projectId,
+            workspaceId: context?.workspaceId,
+          });
+          const holder = active
+            ? visibleSessionId
+              ? `active ThemeMutationSession "${visibleSessionId}"`
+              : 'an active ThemeMutationSession of another project'
+            : 'active ThemeMutationSession "in-flight"';
           throw new CapabilityError(
             'TRANSACTION_CONFLICT',
-            `Workspace "${canonical}" is locked by active ThemeMutationSession "${active?.sessionId || 'in-flight'}". Direct file.write calls are rejected while a transaction is active. Mutations must be executed through theme transaction capabilities.`,
-            { workspaceRoot: canonical, activeSessionId: active?.sessionId }
+            `Workspace "${canonical}" is locked by ${holder}. Direct file.write calls are rejected while a transaction is active. Mutations must be executed through theme transaction capabilities.`,
+            { workspaceRoot: canonical, ...(visibleSessionId ? { activeSessionId: visibleSessionId } : {}) }
           );
         }
       }

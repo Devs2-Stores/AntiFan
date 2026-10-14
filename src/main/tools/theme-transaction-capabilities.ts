@@ -7,12 +7,21 @@ import {
   CapabilityRequestContext,
   AuthenticatedCapabilityContext,
   BrowserTarget,
+  assertWorkspaceContained,
   canonicalizeWorkspaceRoot,
 } from '../../shared/control-plane-contracts';
 import { ThemeTransactionRegistry, RuntimeTenancyIdentity } from '../qa/theme-transaction-registry';
-import { ThemeWorkspaceContext } from '../../shared/theme-task-context';
+import { ThemeWorkspaceContext, assertValidThemeWorkspaceContext } from '../../shared/theme-task-context';
+import { resolveTenantWorkspaceRoot } from './file-capabilities';
 import { BrowserControlPort } from './browser-control-port';
 import { ShopIdentity, resolveWorkspaceShop, probeTabShopIdentity } from '../qa/shop-identity';
+import { PlatformDetector } from '../qa/scanners/platform-detector';
+import { isHaravanThemeWorkspace } from './cockpit-capabilities';
+import {
+  type TerminalOwnershipPort,
+  resolveTerminalCallerScope,
+  assertTerminalOwnership,
+} from './terminal-capabilities';
 
 export { ShopIdentity, probeTabShopIdentity } from '../qa/shop-identity';
 function resolveRepoRoot(): string {
@@ -32,40 +41,61 @@ export function registerThemeTransactionCapabilities(
   catalogue: CapabilityCatalogue,
   transactionRegistry: ThemeTransactionRegistry,
   getAuthoritativeWorkspaceRoot?: () => string,
-  getBrowserControlPort?: BrowserControlPort | (() => BrowserControlPort | undefined)
+  getBrowserControlPort?: BrowserControlPort | (() => BrowserControlPort | undefined),
+  terminalOwnership?: TerminalOwnershipPort
 ): void {
+  /** Attached root of the caller's own workspace (projectId + workspaceId). */
+  const resolveCallerRoot = (context?: CapabilityRequestContext | AuthenticatedCapabilityContext): string => {
+    try {
+      return canonicalizeWorkspaceRoot(resolveTenantWorkspaceRoot(catalogue, context, getAuthoritativeWorkspaceRoot));
+    } catch (err) {
+      if (err instanceof CapabilityError && (err.code === 'PROJECT_MISMATCH' || err.code === 'WORKSPACE_MISMATCH')) {
+        throw new CapabilityError('WORKSPACE_UNBOUND', `Project tenancy mismatch: ${err.message}`);
+      }
+      throw err;
+    }
+  };
+
+  /**
+   * Root a transaction operates on: the caller's workspace root, or a directory
+   * inside it named by `providedRoot`. Both sides go through realpath, so a
+   * junction inside the workspace cannot carry a transaction outside it, and
+   * one project can never lock, write or roll back another project's files.
+   */
   const resolveRoot = (
-    providedRoot?: string,
+    providedRoot: string | undefined,
     context?: CapabilityRequestContext | AuthenticatedCapabilityContext
   ): string => {
-    if (providedRoot && typeof providedRoot === 'string' && providedRoot.trim()) {
-      return canonicalizeWorkspaceRoot(providedRoot);
+    const callerRoot = resolveCallerRoot(context);
+    if (!providedRoot || typeof providedRoot !== 'string' || !providedRoot.trim()) return callerRoot;
+    const candidate = canonicalizeWorkspaceRoot(path.resolve(callerRoot, providedRoot.trim()));
+    try {
+      return assertWorkspaceContained(callerRoot, candidate, true);
+    } catch (err) {
+      if (err instanceof CapabilityError && err.code === 'OUTSIDE_WORKSPACE') {
+        throw new CapabilityError(
+          'OUTSIDE_WORKSPACE',
+          `workspaceRoot "${providedRoot}" is outside the caller's workspace "${callerRoot}"; a theme transaction may only run inside the workspace of the session that calls it`,
+          { workspaceRoot: providedRoot, callerRoot }
+        );
+      }
+      throw err;
     }
-    if (getAuthoritativeWorkspaceRoot) {
-      const root = getAuthoritativeWorkspaceRoot();
-      if (root) return canonicalizeWorkspaceRoot(root);
-    }
-    if (context && context.projectId && context.workspaceId) {
-      try {
-        const ws = catalogue.resolveAuthoritativeWorkspace(context.projectId, context.workspaceId);
-        if (ws?.rootPath) return canonicalizeWorkspaceRoot(ws.rootPath);
-      } catch {}
-    }
-    throw new CapabilityError(
-      'WORKSPACE_UNBOUND',
-      'Cannot resolve workspaceRoot for theme transaction capability. Provide workspaceRoot explicitly or bind workspace tenancy.'
-    );
   };
 
   const extractTenancy = (
     context?: CapabilityRequestContext | AuthenticatedCapabilityContext
-  ): Partial<RuntimeTenancyIdentity> | undefined => {
-    if (!context) return undefined;
-    const runtimeId = 'lease' in context ? context.lease?.runtimeId : undefined;
+  ): RuntimeTenancyIdentity => {
+    if (!context || !context.projectId || !context.workspaceId) {
+      throw new CapabilityError(
+        'WORKSPACE_UNBOUND',
+        'Theme transaction requests must carry projectId and workspaceId tenancy.'
+      );
+    }
     return {
       projectId: context.projectId,
       workspaceId: context.workspaceId,
-      runtimeId,
+      runtimeId: ('lease' in context ? context.lease?.runtimeId : undefined) ?? '',
     };
   };
 
@@ -126,9 +156,13 @@ export function registerThemeTransactionCapabilities(
         throw new CapabilityError('INVALID_ARGUMENT', 'Parameter "context" is required for theme.transaction.begin');
       }
       try {
+        assertValidThemeWorkspaceContext(params.context);
         const callerTenancy = extractTenancy(context);
+        // The session snapshots and writes through this root, so it must be the
+        // confined realpath, never the caller's raw string.
+        const root = resolveRoot(params.context.workspaceRoot, context);
         return await transactionRegistry.begin(
-          params.context,
+          { ...params.context, workspaceRoot: root },
           callerTenancy,
           {
             policy: params.policy,
@@ -187,6 +221,8 @@ export function registerThemeTransactionCapabilities(
         throw new CapabilityError('INVALID_ARGUMENT', 'Parameters "relativePath" and "content" are required for theme.transaction.write_cas');
       }
       const root = resolveRoot(params.workspaceRoot, context);
+      const callerTenancy = extractTenancy(context);
+      const session = transactionRegistry.assertSessionOwner(root, callerTenancy);
       const normalizedRelative = path.posix.normalize(params.relativePath.replace(/\\/g, '/')).replace(/^\.?\//, '').replace(/^\/+/, '').toLowerCase();
       // Security invariant: the shop-identity gate must classify the file the
       // write actually resolves to, not the caller's string. Resolve inside the
@@ -196,7 +232,6 @@ export function registerThemeTransactionCapabilities(
       const isSettingsDataPath = normalizedRelative === 'config/settings_data.json' || resolvedRelative === 'config/settings_data.json';
 
       if (isSettingsDataPath) {
-        const session = transactionRegistry.getActiveSession(root);
         const isHaravan =
           session?.context?.platform === 'haravan' ||
           fs.existsSync(path.join(root, '.haravan-cli_local.json')) ||
@@ -229,11 +264,10 @@ export function registerThemeTransactionCapabilities(
             );
           }
 
-          const callerTenancy = extractTenancy(context);
           const baseTarget: Partial<BrowserTarget> = {
-            projectId: callerTenancy?.projectId,
-            workspaceId: callerTenancy?.workspaceId,
-            runtimeId: callerTenancy?.runtimeId,
+            projectId: callerTenancy.projectId,
+            workspaceId: callerTenancy.workspaceId,
+            runtimeId: callerTenancy.runtimeId,
             tabId: targetTabId,
             browserEpoch: 1,
             documentGeneration: 1,
@@ -255,13 +289,104 @@ export function registerThemeTransactionCapabilities(
         }
       }
 
-      const callerTenancy = extractTenancy(context);
       return await transactionRegistry.writeCAS(
         root,
         {
           relativePath: params.relativePath,
           content: params.content,
           expectedSha256: params.expectedSha256,
+        },
+        callerTenancy
+      );
+    },
+  });
+
+  catalogue.register({
+    name: 'theme.transaction.await_sync_and_reload',
+    description:
+      'Await Haravan theme dev watcher upload acknowledgment and reload the bound tab so the transaction reaches state settled (required before settle("VERIFIED")). Obtain cursor BEFORE theme.transaction.write_cas by calling terminal.list and reading the hrv theme dev session id (sessionId), sessionGeneration, and snapshotThroughSeq (baselineSeq).',
+    risk: 'write',
+    requiresBrowserTarget: true,
+    policy: {
+      effect: 'idempotent-write',
+      risk: 'write',
+      requiresBrowserTarget: true,
+      schedulerLane: 'viewport-gate',
+      duplicateMode: 'in-process-join',
+      recordedVisibility: 'tenant-scoped',
+      receiptReadPermission: 'write',
+      timeoutMs: 30_000,
+      retentionPolicy: 'run-durable',
+      ownerCancellationBehavior: 'drain-and-persist',
+      subscriberDisconnectBehavior: 'detach-and-continue',
+      cancellationAckTimeoutMs: 5_000,
+      policyVersion: 1,
+    },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workspaceRoot: { type: 'string', description: 'Workspace root path' },
+        cursor: {
+          type: 'object',
+          description:
+            'Pre-mutation terminal sync cursor from terminal.list (sessionId = id, sessionGeneration, baselineSeq = snapshotThroughSeq)',
+          properties: {
+            sessionId: { type: 'string' },
+            sessionGeneration: { type: 'number' },
+            baselineSeq: { type: 'number' },
+          },
+          required: ['sessionId', 'sessionGeneration', 'baselineSeq'],
+        },
+        pattern: { type: 'string', description: 'Optional upload acknowledgment regex override' },
+        timeoutMs: { type: 'number', description: 'Optional sync wait timeout in ms (default 15000)' },
+        tabId: { type: 'string', description: 'Optional target tab ID' },
+      },
+      required: ['cursor'],
+    },
+    execute: async (
+      params: {
+        workspaceRoot?: string;
+        cursor: {
+          sessionId: string;
+          sessionGeneration: number;
+          baselineSeq: number;
+        };
+        pattern?: string;
+        timeoutMs?: number;
+        tabId?: string;
+      },
+      context?: CapabilityRequestContext | AuthenticatedCapabilityContext
+    ) => {
+      if (!params || !params.cursor) {
+        throw new CapabilityError(
+          'INVALID_ARGUMENT',
+          'Parameter "cursor" is required for theme.transaction.await_sync_and_reload'
+        );
+      }
+      if (!context || !context.browserTarget || !context.browserTarget.tabId) {
+        throw new CapabilityError(
+          'TARGET_REQUIRED',
+          'theme.transaction.await_sync_and_reload requires a bound browser target'
+        );
+      }
+      const root = resolveRoot(params.workspaceRoot, context);
+      const callerTenancy = extractTenancy(context);
+      assertTerminalOwnership(
+        resolveTerminalCallerScope(terminalOwnership, context),
+        params.cursor.sessionId,
+        'observe'
+      );
+      const target: BrowserTarget =
+        typeof params.tabId === 'string' && params.tabId.trim()
+          ? { ...context.browserTarget, tabId: params.tabId.trim() }
+          : context.browserTarget;
+      return await transactionRegistry.awaitSyncAndReload(
+        root,
+        target,
+        {
+          cursor: params.cursor,
+          pattern: params.pattern,
+          timeoutMs: params.timeoutMs,
         },
         callerTenancy
       );
@@ -426,23 +551,59 @@ export function registerThemeTransactionCapabilities(
       params?: { workspaceRoot?: string },
       context?: CapabilityRequestContext | AuthenticatedCapabilityContext
     ) => {
-      const root = resolveRoot(params?.workspaceRoot, context);
+      // Read-only offline check: any named theme directory may be inspected;
+      // a relative workspaceRoot resolves against the caller's workspace (never
+      // process.cwd() or the boot runtime's).
+      const callerRoot = resolveCallerRoot(context);
+      const providedRoot = typeof params?.workspaceRoot === 'string' ? params.workspaceRoot.trim() : '';
+      const root = providedRoot
+        ? canonicalizeWorkspaceRoot(path.resolve(callerRoot, providedRoot))
+        : callerRoot;
       const repoRoot = resolveRepoRoot();
       const themeChecksPath = path.join(repoRoot, 'scripts', 'lib', 'theme-checks.mjs');
       // Dynamic import: scripts/lib/theme-checks.mjs is an uncompiled pure-ESM CLI module outside TypeScript rootDir.
       const themeChecksModule = await import(pathToFileURL(themeChecksPath).href);
       const {
         checkHaravanLiquidContracts,
+        validateThemeSchemas,
         checkSettingsBinding,
         checkAssetReferences,
       } = themeChecksModule;
 
-      const haravanContracts = checkHaravanLiquidContracts(root, { platform: 'haravan' });
+      const isHaravan = isHaravanThemeWorkspace(root);
+      const detectedPlatform = isHaravan
+        ? 'haravan'
+        : PlatformDetector.detectFromWorkspace(root).platform;
+      const haravanContracts = isHaravan
+        ? checkHaravanLiquidContracts(root, { platform: 'haravan' })
+        : { ok: true, failures: [] };
+      const schemaValidation = typeof validateThemeSchemas === 'function'
+        ? validateThemeSchemas(root, {
+            platform: detectedPlatform !== 'unknown' ? detectedPlatform : null,
+            schemaRequired: fs.existsSync(path.join(root, 'config', 'settings_schema.json')),
+          })
+        : null;
       const settingsBinding = checkSettingsBinding(root);
       const assets = checkAssetReferences(root);
 
+      const contractFailures: Array<{ rule: string; file?: string }> = haravanContracts?.failures || [];
+      const schemaFailures = (schemaValidation?.failures || [])
+        .filter(
+          (f: { rule: string; path?: string }) =>
+            !contractFailures.some(
+              (cf) => cf.rule === f.rule && cf.file === (f.path || 'config/settings_schema.json')
+            )
+        )
+        .map((f: { rule: string; path?: string; detail: string }) => ({
+          rule: f.rule,
+          file: f.path || 'config/settings_schema.json',
+          line: 1,
+          message: f.detail,
+          detail: f.detail,
+        }));
       const failures = [
         ...(haravanContracts?.failures || []),
+        ...schemaFailures,
         ...(settingsBinding?.failures || []),
         ...(assets?.localMissing?.map((m: { ref: string; files?: string[] }) => ({
           rule: 'LOCAL_ASSET_MISSING',
@@ -457,6 +618,7 @@ export function registerThemeTransactionCapabilities(
       if (settingsBinding && !settingsBinding.ok) refusals.push({ check: 'settings-binding', failures: settingsBinding.failures.length });
       if (assets && !assets.ok) refusals.push({ check: 'assets', failures: assets.localMissing.length });
       if (haravanContracts && !haravanContracts.ok) refusals.push({ check: 'haravan-contracts', failures: haravanContracts.failures.length });
+      if (schemaFailures.length > 0) refusals.push({ check: 'theme-schemas', failures: schemaFailures.length });
 
       const ok = failures.length === 0;
 
@@ -468,6 +630,7 @@ export function registerThemeTransactionCapabilities(
         settingsBinding,
         assets,
         haravanContracts,
+        ...(schemaValidation ? { schemaValidation } : {}),
       };
     },
   });

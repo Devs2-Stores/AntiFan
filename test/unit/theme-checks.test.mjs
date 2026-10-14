@@ -145,6 +145,20 @@ test('validateThemeSchemas names an invalid schema block, a missing one and an u
   assert.equal(result.schemaFiles[0].ok, true, 'the settings schema itself is valid in this fixture');
 });
 
+test('validateThemeSchemas accepts a schema-less section on Shopify but still names broken schema blocks', () => {
+  const result = validateThemeSchemas(fixtureTheme('theme-broken'), { platform: 'shopify' });
+  assert.deepEqual(
+    result.failures.map((failure) => ({ rule: failure.rule, path: failure.path })),
+    [
+      { rule: 'SECTION_SCHEMA_JSON_INVALID', path: 'sections/bad-schema.html' },
+      { rule: 'SECTION_SCHEMA_UNTERMINATED', path: 'sections/truncated.html' },
+    ],
+    'Section Rendering API sections carry no schema; a present-but-broken block is still a failure',
+  );
+  const promo = result.sections.find((section) => section.path === 'sections/promo.html');
+  assert.deepEqual(promo, { path: 'sections/promo.html', ok: true, error: null });
+});
+
 test('validateThemeSchemas refuses a theme with no settings_schema.json', () => {
   const result = validateThemeSchemas(fixtureTheme('theme-noschema'));
   assert.equal(result.ok, false);
@@ -224,6 +238,9 @@ test('checkSettingsBinding names an undeclared read and reports a declared-but-u
   assert.deepEqual(result.dead, [{ id: 'dead_setting' }]);
   assert.deepEqual(rulesOf(result), ['SETTING_UNDECLARED']);
   assert.equal(result.failures[0].id, 'undeclared_setting');
+  assert.equal(result.failures[0].file, 'layout/theme.liquid');
+  assert.deepEqual(result.failures[0].files, ['layout/theme.liquid']);
+  assert.equal(result.failures[0].message, result.failures[0].detail);
   assert.match(result.failures[0].detail, /settings\.undeclared_setting is read in layout\/theme\.liquid/);
 });
 
@@ -590,6 +607,104 @@ test('HARAVAN_SETTING_UNRESOLVED flags keys present in settings_data.json but mi
     const unresolved = result.failures.filter((f) => f.rule === 'HARAVAN_SETTING_UNRESOLVED');
     assert.equal(unresolved.length, 1);
     assert.equal(unresolved[0].id, 'orphan_key');
+    assert.match(unresolved[0].message, /config\/settings_schema\.json or config\/settings\.html/);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('HARAVAN_SETTINGS_DATA_INVALID flags corrupt or non-object config/settings_data.json', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'theme-settings-data-invalid-'));
+  try {
+    fs.mkdirSync(path.join(tempDir, 'config'), { recursive: true });
+    fs.mkdirSync(path.join(tempDir, 'snippets'), { recursive: true });
+    fs.writeFileSync(
+      path.join(tempDir, 'config', 'settings.html'),
+      '<fieldset><input type="text" name="declared_key" value="ok" /></fieldset>',
+      'utf8',
+    );
+    fs.writeFileSync(path.join(tempDir, 'config', 'settings_data.json'), '{ invalid json', 'utf8');
+    fs.writeFileSync(path.join(tempDir, 'snippets', 'test.liquid'), '{{ settings.declared_key }}', 'utf8');
+
+    const corruptResult = checkHaravanLiquidContracts(tempDir);
+    assert.equal(corruptResult.ok, false);
+    const corruptFailures = corruptResult.failures.filter((f) => f.rule === 'HARAVAN_SETTINGS_DATA_INVALID');
+    assert.equal(corruptFailures.length, 1);
+    assert.equal(corruptFailures[0].file, 'config/settings_data.json');
+    assert.equal(corruptFailures[0].line, 1);
+
+    fs.writeFileSync(path.join(tempDir, 'config', 'settings_data.json'), '["not-an-object"]', 'utf8');
+    const arrayResult = checkHaravanLiquidContracts(tempDir);
+    assert.equal(arrayResult.ok, false);
+    assert.equal(arrayResult.failures.filter((f) => f.rule === 'HARAVAN_SETTINGS_DATA_INVALID').length, 1);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('Sapo .bwt templates and snippets are scanned for settings bindings, assets, and schema-less sections', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'theme-sapo-bwt-'));
+  try {
+    fs.mkdirSync(path.join(tempDir, 'config'), { recursive: true });
+    fs.mkdirSync(path.join(tempDir, 'layout'), { recursive: true });
+    fs.mkdirSync(path.join(tempDir, 'sections'), { recursive: true });
+    fs.mkdirSync(path.join(tempDir, 'snippets'), { recursive: true });
+    fs.mkdirSync(path.join(tempDir, 'assets'), { recursive: true });
+
+    fs.writeFileSync(
+      path.join(tempDir, 'config', 'settings_schema.json'),
+      JSON.stringify([
+        {
+          name: 'General',
+          settings: [{ type: 'text', id: 'declared_title' }],
+        },
+      ]),
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(tempDir, 'layout', 'theme.bwt'),
+      "{{ 'main.scss.css' | asset_url }} {{ 'missing.js' | asset_url }} {{ settings.declared_title }} {{ settings.missing_banner_text }}",
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(tempDir, 'snippets', 'card.bwt'),
+      '<div class="card">{{ settings.missing_banner_text }}</div>',
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(tempDir, 'sections', 'section_hero.bwt'),
+      '<section class="hero">{{ settings.declared_title }}</section>',
+      'utf8',
+    );
+    fs.writeFileSync(path.join(tempDir, 'assets', 'main.scss.bwt'), 'body { margin: 0; }', 'utf8');
+
+    const schemaResult = validateThemeSchemas(tempDir);
+    assert.equal(schemaResult.ok, true, 'a .bwt section without {% schema %} must not fail schema validation');
+    assert.deepEqual(schemaResult.sections, [{ path: 'sections/section_hero.bwt', ok: true, error: null }]);
+    assert.deepEqual(schemaResult.failures, []);
+
+    const sapoSchemaResult = validateThemeSchemas(tempDir, { platform: 'sapo' });
+    assert.equal(sapoSchemaResult.ok, true);
+    assert.deepEqual(sapoSchemaResult.failures, []);
+
+    const bindingResult = checkSettingsBinding(tempDir);
+    assert.equal(bindingResult.ok, false);
+    assert.deepEqual(bindingResult.undeclared, [
+      { id: 'missing_banner_text', files: ['layout/theme.bwt', 'snippets/card.bwt'] },
+    ]);
+    assert.deepEqual(bindingResult.dead, []);
+    assert.equal(bindingResult.failures.length, 1);
+    assert.equal(bindingResult.failures[0].rule, 'SETTING_UNDECLARED');
+    assert.equal(bindingResult.failures[0].id, 'missing_banner_text');
+    assert.equal(bindingResult.failures[0].file, 'layout/theme.bwt');
+    assert.deepEqual(bindingResult.failures[0].files, ['layout/theme.bwt', 'snippets/card.bwt']);
+    assert.equal(bindingResult.failures[0].message, bindingResult.failures[0].detail);
+    assert.match(bindingResult.failures[0].message, /layout\/theme\.bwt, snippets\/card\.bwt/);
+
+    const assetResult = checkAssetReferences(tempDir);
+    assert.equal(assetResult.ok, false);
+    assert.deepEqual(assetResult.localMissing, [{ ref: 'missing.js', files: ['layout/theme.bwt'] }]);
+    assert.equal(assetResult.counts.localPresent, 1, 'main.scss.css resolves to assets/main.scss.bwt');
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }

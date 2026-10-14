@@ -60,8 +60,8 @@ const UNRENDERED_MARKERS = [
 /** Directories that hold Liquid source: layout, templates, sections, snippets. */
 const SOURCE_DIRECTORIES = ['layout', 'templates', 'sections', 'snippets'];
 
-/** Parseable Liquid source: sections, templates, layout and snippets alike. */
-const SOURCE_EXTENSIONS = new Set(['.liquid', '.html']);
+/** Parseable Liquid/BWT source: sections, templates, layout and snippets alike. */
+const SOURCE_EXTENSIONS = new Set(['.liquid', '.html', '.bwt']);
 
 const SETTINGS_SCHEMA_RELATIVE_PATH = 'config/settings_schema.json';
 
@@ -305,6 +305,18 @@ export function validateThemeSchemas(themeDir, options = {}) {
 
     const block = extractSectionSchemaBlock(source);
     if (!block.found) {
+      // Shopify renders schema-less sections through the Section Rendering API and the
+      // `{% section %}` tag (Dawn's predictive-search, pickup-availability); only the
+      // theme editor needs a schema, so absence is not a defect there. Sapo (.bwt)
+      // sections do not use {% schema %} blocks at all.
+      if (
+        platform === 'shopify' ||
+        platform === 'sapo' ||
+        path.extname(absolutePath).toLowerCase() === '.bwt'
+      ) {
+        sections.push({ path: relativePath, ok: true, error: null });
+        continue;
+      }
       sections.push({ path: relativePath, ok: false, error: 'no {% schema %} block' });
       failures.push({ rule: 'SECTION_SCHEMA_MISSING', path: relativePath, detail: 'section declares no {% schema %} block' });
       continue;
@@ -385,6 +397,20 @@ export function checkHaravanLiquidContracts(themeDir, options = {}) {
 
   const hasSettingsHtml = fs.existsSync(settingsHtmlPath);
   const hasSettingsSchema = fs.existsSync(settingsSchemaPath);
+
+  const settingsDataSource = readFileIfPresent(settingsDataPath);
+  if (settingsDataSource !== null) {
+    const parsedData = parseJsonDocument(settingsDataSource);
+    if (!parsedData.ok || !isPlainObject(parsedData.value)) {
+      failures.push({
+        rule: 'HARAVAN_SETTINGS_DATA_INVALID',
+        file: 'config/settings_data.json',
+        line: 1,
+        message: 'config/settings_data.json is not a valid JSON object',
+        detail: parsedData.error || 'root value must be a JSON object',
+      });
+    }
+  }
 
   if (settingsMode === 'legacy') {
     if (!hasSettingsHtml) {
@@ -670,7 +696,7 @@ export function checkHaravanLiquidContracts(themeDir, options = {}) {
               id: settingId,
               file: relativePath,
               line: lineNum,
-              message: `setting 'settings.${settingId}' is read but unresolved in config/settings_data.json`,
+              message: `setting 'settings.${settingId}' is read but unresolved in config/settings_schema.json or config/settings.html`,
               detail: `Unresolved setting id '${settingId}' (${relativePath}:${lineNum})`,
             });
           }
@@ -871,10 +897,14 @@ export function checkSettingsBinding(themeDir) {
     if (declared.has(id)) continue;
     const files = [...reads.get(id)].sort(compareStrings);
     undeclared.push({ id, files });
+    const detail = `settings.${id} is read in ${files.join(', ')} but is declared in neither ${SETTINGS_SCHEMA_RELATIVE_PATH} nor the control names of ${SETTINGS_FORM_RELATIVE_PATH}`;
     failures.push({
       rule: 'SETTING_UNDECLARED',
       id,
-      detail: `settings.${id} is read in ${files.join(', ')} but is declared in neither ${SETTINGS_SCHEMA_RELATIVE_PATH} nor the control names of ${SETTINGS_FORM_RELATIVE_PATH}`,
+      file: files[0],
+      files,
+      message: detail,
+      detail,
     });
   }
 
@@ -1214,9 +1244,9 @@ function localAssetExists(themeDir, ref) {
  * by `assets/color_font.scss.liquid`. Both spellings appear in real themes.
  */
 function compiledAssetAliases(name) {
-  const aliases = [`${name}.liquid`];
+  const aliases = [`${name}.liquid`, `${name}.bwt`];
   const stem = name.replace(/\.[^./\\]+$/, '');
-  if (stem !== name) aliases.push(`${stem}.liquid`);
+  if (stem !== name) aliases.push(`${stem}.liquid`, `${stem}.bwt`);
   return aliases;
 }
 

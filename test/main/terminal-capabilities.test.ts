@@ -424,12 +424,18 @@ describe('Terminal Capabilities, Generation Tracking & Wait Lifecycle (Phase 04)
       );
       assert.strictEqual(writes.length, 1, 'a refused write must never reach the PTY');
 
-      // The user plane is readable but not drivable by an agent attachment.
+      // The user plane is readable but not drivable by an agent attachment, and must not goad the agent into calling terminal.create.
       await assert.rejects(
         () => scoped.dispatch('terminal.write', { sessionId: userPlane, input: 'echo USER\r\n' }, contextOf('att-mine')),
-        (err: unknown) => err instanceof CapabilityError && err.code === 'TERMINAL_FORBIDDEN'
+        (err: unknown) => {
+          assert.ok(err instanceof CapabilityError);
+          assert.strictEqual(err.code, 'TERMINAL_FORBIDDEN');
+          assert.match(err.message, /terminal\.wait/);
+          assert.match(err.message, /terminal\.list/);
+          assert.doesNotMatch(err.message, /terminal\.create/);
+          return true;
+        }
       );
-
       const userSession = terminalManager.getSession(userPlane);
       assert.ok(userSession);
       userSession.buffer += '\r\nUSER_PLANE_MARKER\r\n';
