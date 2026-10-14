@@ -987,6 +987,26 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
     modal.setAttribute('aria-modal', 'true');
     // Compact on phones (92vw), scales with viewport on large screens (cap 420px).
     modal.style.cssText = 'position:fixed;z-index:2147483647;inset:auto;box-sizing:border-box;background:rgba(11,17,27,0.96);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);color:#e2e8f0;border:1px solid rgba(56,189,248,0.28);border-radius:12px;padding:12px 14px;box-shadow:0 20px 48px rgba(0,0,0,0.7),0 0 0 1px rgba(255,255,255,0.06),0 0 24px rgba(14,165,233,0.12);width:min(94vw,420px);max-height:calc(100vh - 20px);overflow:hidden;margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:12px;display:flex;flex-direction:column;gap:8px;';
+    // Page CSS such as button{background:#fff !important} beats non-important inline styles, and
+    // the modal mutates many inline properties at runtime (chip colors, top/left, display). So
+    // every inline declaration inside the modal is re-asserted as !important after each mutation
+    // pass; setting a property through element.style later simply replaces it and is hardened again.
+    const hardenInline = (root) => {
+      const els = [root].concat(Array.from(root.querySelectorAll('*')));
+      const STYLESHEET_OWNED = /^(background|border|box-shadow|color)/;
+      els.forEach((node) => {
+        const st = node.style;
+        if (!st) return;
+        // Close/Copy/Send get their look (and :hover) from the stylesheet; an inline !important
+        // would outrank those :hover rules.
+        const owned = node.id === 'btnModalClose' || node.id === 'btnModalCopy' || node.id === 'btnModalSend';
+        for (let i = 0; i < st.length; i++) {
+          const prop = st[i];
+          if (owned && STYLESHEET_OWNED.test(prop)) continue;
+          if (st.getPropertyPriority(prop) !== 'important') st.setProperty(prop, st.getPropertyValue(prop), 'important');
+        }
+      });
+    };
 
     const r = el.getBoundingClientRect();
     const targetParent = document.body || document.documentElement;
@@ -1153,6 +1173,7 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
         }
       });
       coreTickInput.checked = mode === 'core';
+      hardenInline(modal);
     };
     const stripManagedTags = () => {
       let body = textarea.value.replace(/^(\\s*\\/queue\\b\\s*)+/gi, '');
@@ -1233,8 +1254,9 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
       previewContainer.style.display = 'flex';
       attachedImages.forEach((img, idx) => {
         const item = document.createElement('div');
+        item.className = 'antifan-preview-item';
         item.style.cssText = 'position:relative;width:46px;height:46px;border-radius:4px;border:1px solid #38bdf8;overflow:hidden;background:#0f172a;flex-shrink:0;';
-        item.innerHTML = '<img src="' + img.dataUrl + '" style="width:100%;height:100%;object-fit:cover;" title="' + (img.name || 'Ảnh') + '" /><button type="button" style="position:absolute;top:1px;right:1px;background:rgba(0,0,0,0.7);color:#ef4444;border:none;border-radius:50%;width:14px;height:14px;font:bold 9px sans-serif;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;">✕</button>';
+        item.innerHTML = '<img src="' + img.dataUrl + '" style="width:100%;height:100%;object-fit:cover;" title="' + (img.name || 'Ảnh') + '" /><button type="button" class="antifan-preview-del" style="position:absolute;top:1px;right:1px;background:rgba(0,0,0,0.7);color:#ef4444;border:none;border-radius:50%;width:14px;height:14px;font:bold 9px sans-serif;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;">✕</button>';
         const delBtn = item.querySelector('button');
         if (delBtn) {
           delBtn.onclick = (e) => {
@@ -1269,6 +1291,26 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
     footer.innerHTML = '<span style="font-size:10px;color:#64748b;display:flex;align-items:center;gap:3px;" title="Dán ảnh trực tiếp từ clipboard"><span>📎</span><span>Dán ảnh (Ctrl+V)</span></span><div style="display:flex;align-items:center;gap:6px;"><button id="btnModalCopy" type="button" style="background:rgba(15,23,42,0.85);border:1px solid rgba(255,255,255,0.1);color:#cbd5e1;border-radius:6px;padding:5px 11px;font-size:11px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:4px;transition:all 0.15s ease;" title="Copy prompt đầy đủ (kèm annotation + ảnh) và không gửi vào terminal">📋 Copy Prompt</button><button id="btnModalSend" type="button" style="background:linear-gradient(135deg,#0284c7 0%,#0369a1 100%);border:1px solid rgba(56,189,248,0.5);color:#ffffff;border-radius:6px;padding:5px 14px;font-size:11px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:4px;box-shadow:0 2px 8px rgba(2,132,199,0.35);transition:all 0.15s ease;" title="Gửi và thực thi ngay">Gửi ↑</button></div>';
     const modalStyle = document.createElement('style');
     modalStyle.textContent = '#' + MODAL_ID + ',#' + MODAL_ID + ' *{box-sizing:border-box !important;text-shadow:none !important;letter-spacing:normal !important;text-transform:none !important;}#' + MODAL_ID + ' div{margin:0 !important;padding:0 !important;border:none !important;background:transparent !important;min-height:0 !important;height:auto !important;}#' + MODAL_ID + ' .antifan-modal-header{display:flex !important;flex-direction:row !important;align-items:center !important;justify-content:space-between !important;gap:8px !important;padding-bottom:8px !important;border-bottom:1px solid rgba(255,255,255,0.08) !important;width:100% !important;box-sizing:border-box !important;}#' + MODAL_ID + ' .antifan-modal-title-wrap{display:flex !important;flex-direction:row !important;align-items:center !important;gap:6px !important;min-width:0 !important;flex:1 1 auto !important;}#' + MODAL_ID + ' .antifan-selector-badge{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace !important;font-size:11.5px !important;font-weight:600 !important;color:#38bdf8 !important;overflow:hidden !important;text-overflow:ellipsis !important;white-space:nowrap !important;min-width:0 !important;flex:1 1 auto !important;line-height:1.3 !important;}#' + MODAL_ID + ' #btnModalClose{background:rgba(255,255,255,0.05) !important;border:1px solid rgba(255,255,255,0.1) !important;color:#94a3b8 !important;font-size:11px !important;cursor:pointer !important;padding:2px 7px !important;display:inline-flex !important;flex-direction:row !important;align-items:center !important;gap:4px !important;border-radius:4px !important;transition:all 0.15s ease !important;flex-shrink:0 !important;}#' + MODAL_ID + ' #btnModalClose:hover{background:rgba(239,68,68,0.18) !important;border-color:rgba(239,68,68,0.35) !important;color:#f87171 !important;}#' + MODAL_ID + ' .antifan-term-row{display:flex !important;flex-direction:row !important;align-items:center !important;justify-content:space-between !important;gap:6px !important;background:rgba(15,23,42,0.6) !important;border:1px solid rgba(255,255,255,0.07) !important;border-radius:7px !important;padding:4px 8px !important;font-size:11px !important;box-sizing:border-box !important;width:100% !important;}#' + MODAL_ID + ' #antifanChipRow{display:flex !important;flex-direction:row !important;align-items:center !important;gap:6px !important;padding:1px 0 !important;width:100% !important;box-sizing:border-box !important;}#' + MODAL_ID + ' #antifanChipRow button{flex:1 1 0 !important;display:inline-flex !important;flex-direction:row !important;align-items:center !important;justify-content:center !important;gap:4px !important;border-radius:7px !important;padding:5px 8px !important;font-size:11px !important;cursor:pointer !important;white-space:nowrap !important;transition:all 0.18s ease !important;text-align:center !important;box-sizing:border-box !important;min-width:0 !important;}#' + MODAL_ID + ' textarea{width:100% !important;min-height:62px !important;max-height:180px !important;background:rgba(2,6,23,0.85) !important;border:1px solid rgba(56,189,248,0.22) !important;border-radius:7px !important;color:#f8fafc !important;padding:8px 10px !important;font-size:12px !important;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif !important;outline:none !important;resize:none !important;box-sizing:border-box !important;line-height:1.45 !important;overflow-y:auto !important;transition:border-color 0.15s ease,box-shadow 0.15s ease !important;scrollbar-width:thin !important;}#' + MODAL_ID + ' textarea:focus{border-color:#38bdf8 !important;box-shadow:0 0 0 2px rgba(56,189,248,0.2) !important;}#' + MODAL_ID + ' .antifan-modal-footer{display:flex !important;flex-direction:row !important;align-items:center !important;justify-content:space-between !important;gap:8px !important;padding-top:2px !important;width:100% !important;box-sizing:border-box !important;}#' + MODAL_ID + ' button{text-transform:none !important;letter-spacing:normal !important;margin:0 !important;line-height:1.3 !important;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif !important;}#' + MODAL_ID + ' select{margin:0 !important;line-height:1.3 !important;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif !important;}#' + MODAL_ID + ' #btnModalCopy:hover{background:rgba(30,41,59,0.9) !important;color:#f8fafc !important;}#' + MODAL_ID + ' #btnModalSend:hover{filter:brightness(1.1) !important;box-shadow:0 4px 14px rgba(2,132,199,0.5) !important;}';
+    // Page-CSS isolation for the pieces the inline cssText cannot defend: the dialog root, the
+    // "Gửi tới" select and its option/optgroup popup. A storefront rule like
+    // select{color:#000;background:#fff !important} or dialog{...} otherwise wins over the
+    // inline declarations above. Properties that scripts mutate inline (top/left, border-color,
+    // display, background/color of chips, opacity) are intentionally absent here: an !important
+    // rule would freeze them.
+    modalStyle.textContent += '#' + MODAL_ID + '{position:fixed !important;z-index:2147483647 !important;display:flex !important;flex-direction:column !important;gap:8px !important;box-sizing:border-box !important;margin:0 !important;padding:12px 14px !important;width:min(94vw,420px) !important;min-width:0 !important;max-width:none !important;max-height:calc(100vh - 20px) !important;overflow:hidden !important;background:rgba(11,17,27,0.96) !important;color:#e2e8f0 !important;color-scheme:dark !important;border-radius:12px !important;transform:none !important;filter:none !important;opacity:1 !important;visibility:visible !important;font:12px/1.3 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif !important;text-align:left !important;}'
+      + '#' + MODAL_ID + ' select{flex:1 1 0 !important;min-width:0 !important;width:auto !important;max-width:100% !important;height:auto !important;min-height:0 !important;box-sizing:border-box !important;color-scheme:dark !important;background-color:rgba(2,6,23,0.9) !important;color:#38bdf8 !important;border:1px solid rgba(56,189,248,0.25) !important;border-radius:5px !important;padding:3px 6px !important;font-size:11px !important;font-weight:500 !important;text-overflow:ellipsis !important;}'
+      + '#' + MODAL_ID + ' option,#' + MODAL_ID + ' optgroup{background-color:#0f172a !important;color:#e2e8f0 !important;font-style:normal !important;}'
+      + '#' + MODAL_ID + ' optgroup{color:#94a3b8 !important;font-weight:600 !important;}'
+      + '#' + MODAL_ID + ' option:disabled{color:#64748b !important;}'
+      + '#' + MODAL_ID + ' button{width:auto !important;min-width:0 !important;min-height:0 !important;height:auto !important;max-width:none !important;}'
+      + '#' + MODAL_ID + ' textarea{display:block !important;margin:0 !important;}'
+      + '#' + MODAL_ID + ' *{font-family:inherit !important;}'
+      + '#' + MODAL_ID + ' #btnModalCopy{background:rgba(15,23,42,0.85) !important;color:#cbd5e1 !important;border:1px solid rgba(255,255,255,0.1) !important;}'
+      + '#' + MODAL_ID + ' #btnModalSend{background:linear-gradient(135deg,#0284c7 0%,#0369a1 100%) !important;color:#ffffff !important;border:1px solid rgba(56,189,248,0.5) !important;box-shadow:0 2px 8px rgba(2,132,199,0.35) !important;}'
+      // The blanket div/button resets above would otherwise flatten the attachment thumbnail
+      // (border, background, height) and resize its 14px delete button.
+      + '#' + MODAL_ID + ' .antifan-preview-item{width:46px !important;height:46px !important;border:1px solid #38bdf8 !important;background:#0f172a !important;border-radius:4px !important;}'
+      + '#' + MODAL_ID + ' .antifan-preview-del{width:14px !important;height:14px !important;min-width:14px !important;min-height:14px !important;padding:0 !important;}';
     modal.appendChild(modalStyle);
     modal.appendChild(header);
     modal.appendChild(termRow);
@@ -1316,6 +1358,7 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
 
       modal.style.top = top + 'px';
       modal.style.left = left + 'px';
+      hardenInline(modal);
     };
 
     repositionModal();
