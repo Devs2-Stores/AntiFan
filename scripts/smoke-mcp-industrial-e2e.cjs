@@ -505,8 +505,9 @@ async function runMcpLiveE2ETest() {
     }
     assert.equal(screenshotResp.error, undefined);
     assert.equal(screenshotResp.result.isError, undefined);
-    const imageContent = screenshotResp.result.content[0];
-    assert.equal(imageContent.type, 'image', 'Must return standard MCP image type');
+    // The proxy leads with an ArtifactRef metadata text block; the raster is the image block.
+    const imageContent = screenshotResp.result.content.find((c) => c.type === 'image');
+    assert.equal(imageContent?.type, 'image', 'Must return standard MCP image type');
     assert.equal(imageContent.mimeType, 'image/png');
     assert.ok(typeof imageContent.data === 'string' && imageContent.data.length > 500, 'Must contain authentic PNG bytes');
     const pngBytes = Buffer.from(imageContent.data, 'base64');
@@ -805,10 +806,11 @@ async function runMcpLiveE2ETest() {
         );
       }
     } else {
-      assert.equal(captureContent?.type, 'image', 'A non-refused capture must carry an image payload');
+      const imageBlock = newScreenshotResp.result?.content?.find((c) => c.type === 'image');
+      assert.equal(imageBlock?.type, 'image', 'A non-refused capture must carry an image payload');
       assert.ok(
-        (captureContent?.data || '').length > 1000,
-        `A non-refused capture must carry real frames, not a fabricated empty raster (got ${(captureContent?.data || '').length} base64 bytes)`
+        (imageBlock?.data || '').length > 1000,
+        `A non-refused capture must carry real frames, not a fabricated empty raster (got ${(imageBlock?.data || '').length} base64 bytes)`
       );
     }
     // The unmeasurable-surface refusal is deterministic through the split-view pane: this tab has

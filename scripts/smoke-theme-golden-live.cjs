@@ -487,8 +487,10 @@ async function run() {
     });
 
     const screenshot = await tool('anti.screenshot.viewport', { tabId, format: 'png' });
-    assert.equal(screenshot.result?.content?.[0]?.type, 'image');
-    const png = Buffer.from(screenshot.result.content[0].data, 'base64');
+    // The proxy leads with an ArtifactRef metadata text block; the raster is the image block.
+    const imageBlock = screenshot.result?.content?.find((c) => c.type === 'image');
+    assert.equal(imageBlock?.type, 'image');
+    const png = Buffer.from(imageBlock.data, 'base64');
     assert.deepEqual([...png.subarray(0, 8)], [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
     transportWarnings = captureTransportWarnings();
 

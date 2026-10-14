@@ -15,7 +15,8 @@
  * Exercises all 5 Core Transport Gates:
  * 1. GATE-B: Sequence Gap Healing (drops chunk 2..9 in transit, journal provides delta, settles at 10)
  * 2. GATE-C1: Continuous Background Streaming (50 chunks streamed, 0 lost)
- * 3. GATE-C2 & GATE-J: Delta Expiry & Honest Degradation (eviction in journal -> DELTA_EXPIRED -> banner -> resync)
+ * 3. GATE-C2 & GATE-J: Delta Expiry & Honest Degradation (eviction in journal -> DELTA_EXPIRED -> automatic resync
+ *    while the 3-per-30s budget lasts -> banner once it is spent -> manual resync)
  * 4. GATE-I: Bootstrap Recovery on Attach (real tm.syncTerminalView pulls missing chunks)
  * 5. Coalesced ACK Protocol (real tm.getSubscribers() records lastAckedSeq, no IPC flood)
  *
@@ -273,49 +274,71 @@ app.whenReady().then(async () => {
     // 3. GATE-C2 & GATE-J: Delta Expiry via Natural Journal Eviction
     // =======================================================
     console.log('[E2E Certification] Testing GATE-C2 & GATE-J: Delta Expiry & Degradation...');
-    // Real SessionDeliveryJournal has MAX_CHUNKS = 4096.
-    // We add 4200 chunks so that seq 61 is completely evicted from the journal!
-    for (let i = 61; i <= 4200; i++) {
-      feedAndStoreChunk(`Eviction burst ${i}\r\n`);
-    }
-
-    // Now deliver chunk 4201 to the renderer (which is currently at lastRenderedSeq = 60).
-    // The renderer attempts to fetch delta starting at 61.
-    // The real SessionDeliveryJournal naturally returns DELTA_EXPIRED!
-    const chunk4201 = feedAndStoreChunk('Chunk after 4100 evictions\r\n');
-    deliverChunk(chunk4201);
-
-    let degraded = false;
-    for (let attempts = 0; attempts < 40; attempts++) {
-      await new Promise((r) => setTimeout(r, 50));
+    const readView = async () => {
       const health = await win.webContents.executeJavaScript('window.__antifanTerminalHealth()');
-      const v = health.views.find((x) => x.sessionId === sessionId);
-      if (v && v.health === 'DEGRADED') {
-        degraded = true;
-        break;
+      return health.views.find((x) => x.sessionId === sessionId);
+    };
+    const waitForView = async (predicate, timeoutMs) => {
+      const deadline = Date.now() + timeoutMs;
+      let view = await readView();
+      while (!(view && predicate(view)) && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 25));
+        view = await readView();
       }
-    }
-    assert.ok(degraded, 'GATE-C2/J: Renderer must enter DEGRADED state on natural DELTA_EXPIRED');
+      return view;
+    };
+    const bannerPresent = () => win.webContents.executeJavaScript(
+      `Boolean(document.querySelector('.terminal-degraded-banner'))`
+    );
+    // Real SessionDeliveryJournal has MAX_CHUNKS = 4096. Storing 4140 chunks the renderer never
+    // receives evicts its next expected seq, so delivering only the newest one makes the real
+    // journal answer the renderer's delta request with DELTA_EXPIRED.
+    const evictAndDeliver = (label) => {
+      let newest = null;
+      for (let i = 1; i <= 4140; i++) newest = feedAndStoreChunk(`${label} ${i}\r\n`);
+      deliverChunk(newest);
+    };
+    const healedAfter = (degradedBefore) => (v) =>
+      v.degradedCount > degradedBefore && v.health === 'SYNCED' && v.lastRenderedSeq === realSession.lastSeq;
 
-    // Verify degraded warning banner in DOM
-    const bannerPresent = await win.webContents.executeJavaScript(`
-      Boolean(document.querySelector('.terminal-degraded-banner'))
-    `);
-    assert.ok(bannerPresent, 'GATE-C2/J: Warning banner must be visible in DOM');
+    // GATE-C2: an expired delta is recorded as a degraded episode, and the automatic resync
+    // rebuilds the pane from the full buffer without asking the user.
+    const degradedBeforeC2 = (await readView())?.degradedCount || 0;
+    evictAndDeliver('Eviction burst');
+    const autoHealed = await waitForView(healedAfter(degradedBeforeC2), 3000);
+    assert.ok(autoHealed?.degradedCount > degradedBeforeC2, 'GATE-C2: natural DELTA_EXPIRED must be recorded as a degraded episode');
+    assert.strictEqual(autoHealed?.health, 'SYNCED', 'GATE-C2: the automatic resync must restore SYNCED from the full buffer');
+    assert.strictEqual(autoHealed?.lastRenderedSeq, realSession.lastSeq, 'GATE-C2: lastRenderedSeq must match the full buffer sequence');
+    assert.strictEqual(await bannerPresent(), false, 'GATE-C2: no banner while the automatic resync budget remains');
+
+    // GATE-J: two more episodes spend the budget (3 automatic resyncs per 30 s); the fourth
+    // must stay DEGRADED behind the banner until the user resyncs.
+    for (const episode of [2, 3]) {
+      const degradedBefore = (await readView())?.degradedCount || 0;
+      evictAndDeliver(`Eviction burst ${episode}`);
+      const healed = await waitForView(healedAfter(degradedBefore), 3000);
+      assert.strictEqual(healed?.lastRenderedSeq, realSession.lastSeq, `GATE-J: automatic resync ${episode} of 3 must heal the pane`);
+    }
+    const degradedBeforeJ = (await readView())?.degradedCount || 0;
+    evictAndDeliver('Eviction burst past budget');
+    const stuck = await waitForView((v) => v.degradedCount > degradedBeforeJ && v.health === 'DEGRADED', 3000);
+    assert.strictEqual(stuck?.health, 'DEGRADED', 'GATE-J: past the automatic budget the pane must stay DEGRADED');
+    assert.ok(await bannerPresent(), 'GATE-J: Warning banner must be visible in DOM once the budget is spent');
 
     // Click Resync button in banner to verify recovery via fullBuffer
     await win.webContents.executeJavaScript(`
       document.querySelector('.terminal-degraded-banner button')?.click();
     `);
-    await new Promise((r) => setTimeout(r, 300));
-
-    const healthRecovered = await win.webContents.executeJavaScript('window.__antifanTerminalHealth()');
-    const viewRecovered = healthRecovered.views.find((x) => x.sessionId === sessionId);
+    const viewRecovered = await waitForView(
+      (v) => v.health === 'SYNCED' && v.lastRenderedSeq === realSession.lastSeq,
+      3000
+    );
     assert.strictEqual(viewRecovered?.health, 'SYNCED', 'GATE-C2/J: Clicking resync must restore SYNCED state');
     assert.strictEqual(viewRecovered?.lastRenderedSeq, realSession.lastSeq, 'GATE-C2/J: lastRenderedSeq must match full buffer sequence');
-    testResults.gates['GATE-C2'] = { status: 'PASS', honestDegradationEnforced: true };
+    assert.strictEqual(await bannerPresent(), false, 'GATE-J: a successful manual resync removes the banner');
+    testResults.gates['GATE-C2'] = { status: 'PASS', honestDegradationEnforced: true, automaticResyncs: 3 };
     testResults.gates['GATE-J'] = { status: 'PASS', bannerRecoveryVerified: true };
-    console.log('[E2E Certification] ✔ GATE-C2 & GATE-J PASS (Honest degradation & user recovery verified)');
+    console.log('[E2E Certification] ✔ GATE-C2 & GATE-J PASS (automatic resync, budgeted banner and user recovery verified)');
 
     // =======================================================
     // 4. GATE-I: Bootstrap Recovery on Attach
