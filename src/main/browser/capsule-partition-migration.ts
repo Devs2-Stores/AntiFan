@@ -80,7 +80,7 @@ export const CAPSULE_FLUSH_BOUND_MS = 10_000;
  * partition. Kept pure (and used by the Electron wrapper) so the domain
  * normalization / url derivation rules are unit-testable.
  */
-export function buildCookieSetDetails(c: CapsuleMigrationCookie): {
+export interface CookieSetDetails {
   url: string;
   name: string;
   value: string;
@@ -90,7 +90,9 @@ export function buildCookieSetDetails(c: CapsuleMigrationCookie): {
   httpOnly: boolean;
   expirationDate?: number;
   sameSite?: 'unspecified' | 'no_restriction' | 'lax' | 'strict';
-} {
+}
+
+export function buildCookieSetDetails(c: CapsuleMigrationCookie): CookieSetDetails {
   const domain = String(c.domain || '').replace(/^\./, '');
   return {
     url: `${c.secure ? 'https://' : 'http://'}${domain}${c.path || '/'}`,

@@ -1,6 +1,9 @@
 import { session, Session } from 'electron';
 import { setupClientHintsOverride } from './google-auth-identity';
 import { armCookieDurability } from './cookie-durability';
+import { armCookieEvictionLog } from './cookie-eviction-log';
+import { armStorefrontPasswordCookieGuard } from './storefront-password-cookie-guard';
+import { recordLifecycleEvent } from '../diagnostics/main-lifecycle-log';
 export type BrowserSessionUserAgentMode = 'clean' | 'native';
 
 const configuredPartitions = new Set<string>();
@@ -129,6 +132,8 @@ export function configureBrowserSessionPartition(
     // disposable by definition and the default session is Electron-managed.
     if (partition.startsWith('persist:')) {
       armCookieDurability(sess);
+      armCookieEvictionLog(sess, partition, (batch) => recordLifecycleEvent('cookies.evicted', { ...batch }));
+      armStorefrontPasswordCookieGuard(sess, partition, (record) => recordLifecycleEvent('cookies.storefrontGuard', { ...record }));
     }
   }
 
