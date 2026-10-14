@@ -302,6 +302,25 @@ test('findSimilar applies platform policy to all six collections', () => {
   core.close();
 });
 
+test('findSimilar reaches anti-patterns and workarounds from a multi-word task', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'core-similar-'));
+  const core = openCore(path.join(dir, 'core.db'));
+  core.recordAntiPattern({
+    name: 'haravan-cart-add-js-items-array',
+    whatNotToDo: 'Gửi payload {items:[...]} tới /cart/add.js để thêm nhiều variant.',
+    symptoms: 'Combo báo lỗi; Haravan trả 404 "The product not found."',
+    affectedPlatform: 'haravan',
+  });
+  core.recordAntiPattern({ name: 'haravan-unrelated-header-logo', symptoms: 'Logo header nhảy layout', affectedPlatform: 'haravan' });
+  core.recordWorkaround({ problem: 'Thuộc tính hidden bị display flex ghi đè', platform: 'haravan' });
+  const cart = core.findSimilar({ task: 'Haravan /cart/add.js add multiple variants items array combo returns product not found', platform: 'haravan' });
+  assert.deepEqual(cart.antiPatterns.map((r) => r.name), ['haravan-cart-add-js-items-array'], 'multi-word task finds the anti-pattern and skips the unrelated one');
+  const hidden = core.findSimilar({ task: 'thuoc tinh hidden bi display ghi de', platform: 'haravan' });
+  assert.equal(hidden.workarounds.length, 1, 'diacritic-free query matches Vietnamese workaround text');
+  assert.equal(core.findSimilar({ task: '', platform: 'haravan' }).antiPatterns.length, 0, 'an empty task does not match everything');
+  core.close();
+});
+
 test('content policy holds on findSimilar, not only query', () => {
   const dir = fixtureReports();
   const dbPath = path.join(dir, 'core.db');

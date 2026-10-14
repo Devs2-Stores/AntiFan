@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { DDL, MIGRATIONS, SCHEMA_VERSION, PLATFORM_BACKFILL_SQL, POST_SCHEMA_SQL, NAMESPACE_BACKFILL_SQL, CORE_NAMESPACES, CoreNamespace, KNOWN_PLATFORMS } from './schema.js';
-import { buildFtsTerms, contentCoverage, ftsExpression } from './terms.js';
+import { buildFtsTerms, contentCoverage, foldTerm, ftsExpression } from './terms.js';
 export { CORE_NAMESPACES, CoreNamespace };
 
 const id = (s: string) => crypto.createHash('sha1').update(s).digest('hex').slice(0, 20);
@@ -155,6 +155,7 @@ function pageArgs(page: ListPage | undefined, defaultLimit = LIST_DEFAULT_LIMIT)
  * keeps the time-relative decay/temporal signals from going stale.
  */
 const HEALTH_CACHE_MS = 10_000;
+const SIMILAR_CANDIDATE_POOL = 5000;
 /**
  * Reuses the last result while the caller's key is unchanged and younger than
  * `ttlMs`; any key change recomputes. One slot: callers key on store state.
@@ -1195,9 +1196,9 @@ export class Core {
     const limit = Math.max(1, Math.min(opts.limit ?? 10, 50));
     // Same term hygiene as query(): a function word must not be what makes a
     // case, decision, or claim "similar" to the task.
-    const terms = buildFtsTerms(opts.task).map((t) => `"${t.replace(/"/g, '""')}"*`);
+    const contentTerms = buildFtsTerms(opts.task);
+    const terms = contentTerms.map((t) => `"${t.replace(/"/g, '""')}"*`);
     const orQ = terms.join(' OR ');
-    const like = `%${opts.task}%`;
     const claimArgs: unknown[] = [];
     const claimPred = this.platformPredicate('c.contextPlatform', opts, claimArgs);
     const policyPred = this.eligibleContentPredicate('c');
@@ -1210,27 +1211,42 @@ export class Core {
     const casePred = this.platformPredicate('platform', opts, caseArgs);
     const caseNsPred = opts.namespace ? 'AND namespace = ?' : '';
     if (opts.namespace) caseArgs.push(opts.namespace);
-    const cases = this.db.prepare(`SELECT * FROM cases WHERE (task LIKE ? OR context LIKE ?) AND ${casePred} ${caseNsPred} ORDER BY createdAt DESC LIMIT ?`)
-      .all(like, like, ...caseArgs as never[], limit);
+    const cases = this.similarRows('cases', ['task', 'context'], opts.task, contentTerms, `${casePred} ${caseNsPred}`, caseArgs, limit);
     const decArgs: unknown[] = [];
     const decPred = this.platformPredicate('platform', opts, decArgs);
     const decNsPred = opts.namespace ? 'AND namespace = ?' : '';
     if (opts.namespace) decArgs.push(opts.namespace);
-    const decisions = this.db.prepare(`SELECT * FROM decisions WHERE (statement LIKE ? OR context LIKE ? OR chosen LIKE ?) AND ${decPred} ${decNsPred} ORDER BY createdAt DESC LIMIT ?`)
-      .all(like, like, like, ...decArgs as never[], limit);
+    const decisions = this.similarRows('decisions', ['statement', 'context', 'chosen'], opts.task, contentTerms, `${decPred} ${decNsPred}`, decArgs, limit);
     const apArgs: unknown[] = [];
     const apPred = this.platformPredicate('affectedPlatform', opts, apArgs);
-    const antiPatterns = this.db.prepare(`SELECT * FROM anti_patterns WHERE (name LIKE ? OR symptoms LIKE ?) AND ${apPred} ORDER BY createdAt DESC LIMIT ?`)
-      .all(like, like, ...apArgs as never[], limit);
+    const antiPatterns = this.similarRows('anti_patterns', ['name', 'whatNotToDo', 'symptoms'], opts.task, contentTerms, apPred, apArgs, limit);
     const waArgs: unknown[] = [];
     const waPred = this.platformPredicate('platform', opts, waArgs);
-    const workarounds = this.db.prepare(`SELECT * FROM workarounds WHERE (problem LIKE ? OR condition LIKE ?) AND ${waPred} ORDER BY createdAt DESC LIMIT ?`)
-      .all(like, like, ...waArgs as never[], limit);
+    const workarounds = this.similarRows('workarounds', ['problem', 'condition', 'solution'], opts.task, contentTerms, waPred, waArgs, limit);
     const fpArgs: unknown[] = [];
     const fpPred = this.platformPredicate('platform', opts, fpArgs);
-    const fixPatterns = this.db.prepare(`SELECT * FROM fix_patterns WHERE (before LIKE ? OR after LIKE ? OR lesson LIKE ?) AND ${fpPred} ORDER BY createdAt DESC LIMIT ?`)
-      .all(like, like, like, ...fpArgs as never[], limit);
+    const fixPatterns = this.similarRows('fix_patterns', ['before', 'after', 'lesson'], opts.task, contentTerms, fpPred, fpArgs, limit);
     return { claims, cases, decisions, antiPatterns, workarounds, fixPatterns };
+  }
+
+  // Matching the whole request as one LIKE substring returned nothing for any
+  // multi-word task. Scoring runs on folded text because SQLite LIKE does not
+  // fold Vietnamese diacritics.
+  private similarRows(table: string, columns: string[], task: string, terms: string[], where: string, args: unknown[], limit: number): Array<Record<string, unknown>> {
+    const pool = (this.db.prepare(`SELECT * FROM ${table} WHERE ${where} ORDER BY createdAt DESC LIMIT ?`)
+      .all(...args as never[], SIMILAR_CANDIDATE_POOL) as Array<Record<string, unknown>>)
+      .map((row, order) => ({ row, order, text: columns.map((c) => row[c]).filter((v) => typeof v === 'string').join('\n') }));
+    if (terms.length === 0) {
+      const needle = foldTerm((task ?? '').trim());
+      return needle ? pool.filter((s) => foldTerm(s.text).includes(needle)).slice(0, limit).map((s) => s.row) : [];
+    }
+    const required = terms.length >= 3 ? 2 : 1;
+    return pool
+      .map((s) => ({ ...s, hit: contentCoverage(s.text, terms) }))
+      .filter((s) => s.hit >= required)
+      .sort((a, b) => b.hit - a.hit || a.order - b.order)
+      .slice(0, limit)
+      .map((s) => s.row);
   }
 
   // ---- v4: Uncertainty Engine (§37) ------------------------------------------
