@@ -2558,6 +2558,36 @@ function chunkEndSeq(entry) {
 // manual resync) after this many unanswered retries within one gap episode.
 const MAX_GAP_RECOVERY_TRIES = 25;
 
+// A degraded pane drops every live chunk (processIncomingChunk early-returns on
+// DEGRADED), so leaving recovery to a manual "Resync View" click shows the user a
+// frozen/blank terminal with a scary banner while the process is healthy. The
+// authoritative recovery (full snapshot) is the same one the button runs, so run it
+// automatically. The budget keeps a pathological stream (journal evicting faster than
+// a snapshot can land) from looping: past it the banner stays up for a manual retry.
+const AUTO_RESYNC_WINDOW_MS = 30000;
+const AUTO_RESYNC_MAX_PER_WINDOW = 3;
+
+function degradePane(viewState, sessionId) {
+  viewState.syncState = 'DEGRADED';
+  viewState.degradedCount = (viewState.degradedCount || 0) + 1;
+  const now = Date.now();
+  const recent = (viewState.autoResyncTimes || []).filter((t) => now - t < AUTO_RESYNC_WINDOW_MS);
+  if (recent.length >= AUTO_RESYNC_MAX_PER_WINDOW) {
+    viewState.autoResyncTimes = recent;
+    showDegradedBanner(viewState, sessionId);
+    return;
+  }
+  recent.push(now);
+  viewState.autoResyncTimes = recent;
+  void forceResyncPane(viewState, sessionId).then(() => {
+    // forceResyncPane leaves DEGRADED untouched on an empty/failed fetch; a newer
+    // hydration (activeHydratingEpoch set) owns the state and clears the banner itself.
+    if (viewState.syncState === 'DEGRADED' && viewState.activeHydratingEpoch === null) {
+      showDegradedBanner(viewState, sessionId);
+    }
+  });
+}
+
 async function handleSequenceGap(viewState, chunk, isSplit) {
   // gapRetries is reset only by a completed recovery (READY) or a generation
   // change below — resetting on each new gapped chunk would let a busy stream
@@ -2570,10 +2600,8 @@ async function handleSequenceGap(viewState, chunk, isSplit) {
     currentQueueBytes + chunkBytes > MAX_RECOVERY_QUEUE_BYTES ||
     viewState.liveQueue.length >= MAX_RECOVERY_QUEUE_CHUNKS
   ) {
-    viewState.syncState = 'DEGRADED';
-    viewState.degradedCount = (viewState.degradedCount || 0) + 1;
     viewState.liveQueue = [];
-    showDegradedBanner(viewState, viewState.id || (isSplit ? splitId : activeId));
+    degradePane(viewState, viewState.id || (isSplit ? splitId : activeId));
     return;
   }
 
@@ -2625,10 +2653,8 @@ async function handleSequenceGap(viewState, chunk, isSplit) {
     }
 
     if (deltaResult.status === 'DELTA_EXPIRED') {
-      viewState.syncState = 'DEGRADED';
-      viewState.degradedCount = (viewState.degradedCount || 0) + 1;
       viewState.liveQueue = [];
-      showDegradedBanner(viewState, targetSessionId);
+      degradePane(viewState, targetSessionId);
       return;
     }
 
@@ -2678,9 +2704,7 @@ async function handleSequenceGap(viewState, chunk, isSplit) {
         if (viewState.gapRetries > MAX_GAP_RECOVERY_TRIES) {
           // Bounded failure, not a silent stall: mark the pane degraded with
           // its queue intact so an authoritative resync still owns recovery.
-          viewState.syncState = 'DEGRADED';
-          viewState.degradedCount = (viewState.degradedCount || 0) + 1;
-          showDegradedBanner(viewState, viewState.id || (isSplit ? splitId : activeId));
+          degradePane(viewState, viewState.id || (isSplit ? splitId : activeId));
           return;
         }
         const scheduledEpoch = viewState.hydrationEpoch;
@@ -2722,9 +2746,7 @@ async function syncPaneWithBackend(item, sessionId) {
       item.syncState = 'READY';
       hideDegradedBanner(item);
     } else if (res.status === 'DELTA_EXPIRED') {
-      item.syncState = 'DEGRADED';
-      item.degradedCount = (item.degradedCount || 0) + 1;
-      showDegradedBanner(item, sessionId);
+      degradePane(item, sessionId);
     } else if (res.status === 'GENERATION_CHANGED') {
       item.sessionGeneration = res.currentGeneration;
       item.lastRenderedSeq = 0;
@@ -2796,8 +2818,7 @@ async function atomicHydratePane(item, sessionId, providedSnapshot, providedSeq)
       // pane's buffer, lastRenderedSeq and liveQueue intact — every queued chunk
       // is still owed to the reader and the next authoritative sync reconciles
       // it. A reset here would burn history on a few hundred preview characters.
-      item.syncState = 'DEGRADED';
-      showDegradedBanner(item, sessionId);
+      degradePane(item, sessionId);
       return;
     }
     try {
@@ -2852,6 +2873,12 @@ async function atomicHydratePane(item, sessionId, providedSnapshot, providedSeq)
       await flushRun();
     }
 
+    // The snapshot plus the drained queue is authoritative state. Leaving a prior DEGRADED
+    // in place would make processIncomingChunk drop every later chunk with no banner.
+    item.syncState = 'READY';
+    item.gapRetries = 0;
+    hideDegradedBanner(item);
+
     if (item.isUserScrolledUp) {
       // Rehydration resets the buffer and rewrites the snapshot, which lands the viewport on the
       // live edge; the reader's line was recorded when the pane lost focus, so put it back.
@@ -2883,7 +2910,7 @@ async function atomicHydrateSplitPane(splitSessionId, providedSnapshot, provided
       // scrollback. Keep buffer, lastRenderedSeq and liveQueue for the next
       // authoritative sync; the pane stays readable instead of collapsing to
       // a few preview lines.
-      splitSessionState.syncState = 'DEGRADED';
+      degradePane(splitSessionState, splitSessionId);
       return;
     }
 
@@ -2938,6 +2965,11 @@ async function atomicHydrateSplitPane(splitSessionId, providedSnapshot, provided
       }
       await flushRun();
     }
+
+    // Same as the main pane: a completed authoritative hydrate ends any degraded episode.
+    splitSessionState.syncState = 'READY';
+    splitSessionState.gapRetries = 0;
+    hideDegradedBanner(splitSessionState);
 
     if (!splitTerm || splitSessionState.hydrationEpoch !== currentEpoch) return;
     if (!isSplitUserScrolledUp && viewportAtBottom(splitTerm)) {
@@ -4016,8 +4048,10 @@ function getOrCreateTerminalPane(sessionId, snapshot, snapshotSeq = 0, isAuthori
 
   rawTerminalPool.set(sessionId, item);
   if (isActive) setPaneWebgl(item, true);
-  atomicHydratePane(item, sessionId, snapshot, snapshotSeq);
-  syncPaneWithBackend(item, sessionId);
+  // Sync only after the hydrate settles: run concurrently, the sync request carries the
+  // pre-hydrate cursor (lastRenderedSeq 0), is answered DELTA_EXPIRED on a long session and
+  // would burn the auto-resync budget on every freshly created pane.
+  void atomicHydratePane(item, sessionId, snapshot, snapshotSeq).then(() => syncPaneWithBackend(item, sessionId));
   return item;
 }
 

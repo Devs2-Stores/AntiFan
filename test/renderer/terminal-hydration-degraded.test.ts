@@ -146,6 +146,32 @@ describe('degraded hydration keeps scrollback', () => {
     assert.strictEqual(item.lastRenderedSeq, 42);
   });
 
+  it('an authoritative hydrate ends a DEGRADED episode, so later live chunks render instead of being dropped', async () => {
+    const harness = await loadManager();
+    const atomicHydratePane = harness.read<HydrateFn>('atomicHydratePane');
+    const processChunk = harness.processIncomingChunk as unknown as (
+      viewState: PaneViewState,
+      chunk: { seq: number; generation: number; data: string },
+      isSplit: boolean,
+    ) => Promise<void>;
+
+    const item = makePane();
+    item.syncState = 'DEGRADED';
+    harness.api.getFullBuffer = async () => ({ buffer: 'full transcript content', snapshotThroughSeq: 42 });
+
+    await atomicHydratePane(item, 'test-s1');
+
+    const afterHydrate: string = item.syncState;
+    assert.strictEqual(afterHydrate, 'READY', 'a completed authoritative hydrate must leave DEGRADED');
+
+    await processChunk(item, { seq: 43, generation: 0, data: 'live-after-hydrate' }, false);
+    assert.ok(
+      item.term.writes.some((w) => w.includes('live-after-hydrate')),
+      'the next contiguous live chunk is rendered, not silently dropped',
+    );
+    assert.strictEqual(item.lastRenderedSeq, 43);
+  });
+
   it('bounds the gap-retry loop: a permanently failing delta fetch degrades with its queue intact', async () => {
     const harness = await loadManager();
     const handleSequenceGap = harness.read<GapFn>('handleSequenceGap');
@@ -200,10 +226,9 @@ describe('degraded hydration keeps scrollback', () => {
     assert.strictEqual(viewState.syncState, 'READY');
   });
 
-  it('recovers fully on the next authoritative resync after a degraded gap', async () => {
+  it('recovers on its own from the authoritative snapshot after a degraded gap', async () => {
     const harness = await loadManager();
     const handleSequenceGap = harness.read<GapFn>('handleSequenceGap');
-    const forceResyncPane = harness.read<ResyncFn>('forceResyncPane');
 
     const viewState = makePane();
     viewState.term.buffer = { active: CONTENTFUL_BUFFER };
@@ -221,21 +246,55 @@ describe('degraded hydration keeps scrollback', () => {
 
     try {
       await handleSequenceGap(viewState, { seq: 5, generation: 1, data: 'x' }, false);
-      for (let i = 0; i < 30 && viewState.syncState !== 'DEGRADED'; i += 1) {
+      for (let i = 0; i < 30 && viewState.degradedCount === 0; i += 1) {
         await handleSequenceGap(viewState, null, false);
       }
-      const degradedState = viewState.syncState;
-      assert.ok(degradedState === 'DEGRADED');
-      assert.ok(viewState.paneEl.querySelector('.terminal-degraded-banner'), 'the degraded banner is visible while the pane is degraded');
-
-      await forceResyncPane(viewState, 'test-s1');
+      assert.ok(viewState.degradedCount >= 1, 'the retry bound degrades the pane');
+      await flush();
 
       assert.strictEqual(viewState.term.resetCount, 1);
       assert.ok(viewState.term.writes.some((w) => w.includes('recovered transcript')));
       assert.strictEqual(viewState.lastRenderedSeq, 30);
       const readyState = viewState.syncState;
-      assert.ok(readyState === 'READY');
+      assert.ok(readyState === 'READY', 'the pane heals without a manual Resync View');
       assert.strictEqual(viewState.liveQueue.length, 0);
+      assert.strictEqual(viewState.paneEl.querySelector('.terminal-degraded-banner'), null, 'no banner after a successful automatic resync');
+    } finally {
+      harness.assign("setTimeout = globalThis.__origSetTimeout;");
+    }
+  });
+
+  it('keeps the banner while the snapshot is unavailable, and a manual resync clears it', async () => {
+    const harness = await loadManager();
+    const handleSequenceGap = harness.read<GapFn>('handleSequenceGap');
+    const forceResyncPane = harness.read<ResyncFn>('forceResyncPane');
+
+    const viewState = makePane();
+    viewState.term.buffer = { active: CONTENTFUL_BUFFER };
+
+    harness.api.getTerminalDelta = async () => {
+      throw new Error('refused');
+    };
+    harness.api.getFullBuffer = async () => {
+      throw new Error('snapshot refused');
+    };
+    harness.assign("globalThis.__origSetTimeout = setTimeout; setTimeout = (fn) => 0;");
+
+    try {
+      await handleSequenceGap(viewState, { seq: 5, generation: 1, data: 'x' }, false);
+      for (let i = 0; i < 30 && viewState.degradedCount === 0; i += 1) {
+        await handleSequenceGap(viewState, null, false);
+      }
+      await flush();
+      const degradedState = viewState.syncState;
+      assert.ok(degradedState === 'DEGRADED');
+      assert.ok(viewState.paneEl.querySelector('.terminal-degraded-banner'), 'the banner stays up when the automatic resync cannot fetch a snapshot');
+
+      harness.api.getFullBuffer = async () => ({ buffer: 'recovered transcript', snapshotThroughSeq: 30 });
+      await forceResyncPane(viewState, 'test-s1');
+
+      const readyState = viewState.syncState;
+      assert.ok(readyState === 'READY');
       assert.strictEqual(viewState.paneEl.querySelector('.terminal-degraded-banner'), null, 'a successful resync removes the degraded banner');
     } finally {
       harness.assign("setTimeout = globalThis.__origSetTimeout;");

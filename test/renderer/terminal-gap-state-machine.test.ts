@@ -9,6 +9,7 @@
  * The bounds are read back from the loaded script (`MAX_RECOVERY_QUEUE_BYTES`,
  * `MAX_RECOVERY_QUEUE_CHUNKS`), so a bound change in the renderer cannot silently pass.
  */
+import { setImmediate as tick } from 'node:timers/promises';
 import { describe, it, before, beforeEach } from 'node:test';
 import * as assert from 'node:assert';
 import { loadStandalone, createViewState, deltaChunks, FakeElement, FakeTerm, type StandaloneHarness, type Chunk, type DeltaResult } from './standalone-harness';
@@ -180,15 +181,59 @@ describe('Phase T1.B: Renderer Gap State Machine & Bounded liveQueue', () => {
     assert.strictEqual(viewState.liveQueue.length, 0);
     assert.strictEqual(viewState.term.writes.length, 0, 'a degraded pane renders nothing');
     assert.strictEqual(deltaFetches, 0, 'an oversized chunk must not trigger a delta fetch');
+    // The pane first tries the authoritative snapshot on its own; the harness bridge answers
+    // null, so that attempt fails and only then does the banner surface.
+    await tick();
     assert.strictEqual(
       viewState.paneEl.querySelectorAll('.terminal-degraded-banner').length,
       1,
-      'the pane must surface exactly one degraded banner',
+      'the pane must surface exactly one degraded banner once the automatic resync fails',
     );
 
     await processChunk(viewState, { seq: 151, generation: 1, data: 'later' }, false);
     assert.strictEqual(viewState.liveQueue.length, 0);
     assert.strictEqual(viewState.term.writes.length, 0);
+  });
+
+  it('recovers a degraded pane on its own from the authoritative snapshot, without a banner', async () => {
+    const viewState = view({ lastRenderedSeq: 100 });
+    harness.api.getFullBuffer = async () => ({ buffer: 'full transcript', snapshotThroughSeq: 400 });
+    harness.api.getTerminalDelta = async () => ({ status: 'DELTA_EXPIRED' });
+
+    await processChunk(viewState, { seq: 150, generation: 1, data: 'gap' }, false);
+    await tick();
+
+    assert.strictEqual(viewState.syncState, 'READY');
+    assert.strictEqual(viewState.degradedCount, 1);
+    assert.strictEqual(viewState.term.resetCount, 1);
+    assert.ok(viewState.term.writes.some((w) => w.includes('full transcript')));
+    assert.strictEqual(viewState.lastRenderedSeq, 400);
+    assert.strictEqual(viewState.paneEl.querySelectorAll('.terminal-degraded-banner').length, 0);
+
+    harness.api.getFullBuffer = async () => null;
+  });
+
+  it('stops auto-resyncing after the budget and leaves the banner for a manual retry', async () => {
+    const viewState = view({ lastRenderedSeq: 100 });
+    let snapshotFetches = 0;
+    harness.api.getFullBuffer = async () => {
+      snapshotFetches += 1;
+      return null;
+    };
+    harness.api.getTerminalDelta = async () => ({ status: 'DELTA_EXPIRED' });
+
+    for (let i = 0; i < 5; i += 1) {
+      viewState.lastRenderedSeq = 100;
+      viewState.syncState = 'READY';
+      await processChunk(viewState, { seq: 150 + i, generation: 1, data: 'gap' }, false);
+      await tick();
+    }
+
+    assert.strictEqual(snapshotFetches, harness.autoResyncBudget, 'automatic snapshots are capped per window');
+    assert.strictEqual(viewState.syncState, 'DEGRADED');
+    assert.strictEqual(viewState.paneEl.querySelectorAll('.terminal-degraded-banner').length, 1);
+
+    harness.api.getFullBuffer = async () => null;
   });
 
   it('drains the buffer when no delta is available instead of degrading', async () => {

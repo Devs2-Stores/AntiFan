@@ -582,6 +582,7 @@ export interface StandaloneHarness {
   showContextMenu: (event: KeyEventLike & { clientX: number; clientY: number }, sessionId: string) => void;
   maxQueueBytes: number;
   maxQueueChunks: number;
+  autoResyncBudget: number;
   /** Search the whole stubbed document, like `document.querySelectorAll`. */
   queryAll(selector: string): FakeElement[];
   /** Push a session broadcast through the renderer's `onTerminalSession` listener. */
@@ -997,6 +998,7 @@ export function loadStandalone(options: {
     showContextMenu: read<StandaloneHarness['showContextMenu']>('showContextMenu'),
     maxQueueBytes: read<number>('MAX_RECOVERY_QUEUE_BYTES'),
     maxQueueChunks: read<number>('MAX_RECOVERY_QUEUE_CHUNKS'),
+    autoResyncBudget: read<number>('AUTO_RESYNC_MAX_PER_WINDOW'),
     queryAll: (selector: string) => [...standaloneElement.querySelectorAll(selector), ...documentStub.body.querySelectorAll(selector)],
     emitSession: (state: unknown) => {
       for (const listener of [...terminalSessionListeners]) listener(state);
