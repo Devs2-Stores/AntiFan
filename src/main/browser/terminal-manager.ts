@@ -75,8 +75,9 @@ export function buildTerminalEnv(options: TerminalEnvOptions): Record<string, st
   env.PATH = options.envPath;
   env.TERM = 'xterm-256color';
   env.FORCE_COLOR = '1';
-  env.ANTIFAN_CONFIG_DIR = options.configDir || process.env.ANTIFAN_CONFIG_DIR || StorageLocations.getConfigDir();
-  env.ANTIFAN_DATA_ROOT = options.dataRoot || process.env.ANTIFAN_DATA_ROOT || StorageLocations.getDataRoot();
+  // From the environment being built, not this process's: the caller's baseEnv is the one the PTY inherits.
+  env.ANTIFAN_CONFIG_DIR = options.configDir || base.ANTIFAN_CONFIG_DIR || StorageLocations.getConfigDir();
+  env.ANTIFAN_DATA_ROOT = options.dataRoot || base.ANTIFAN_DATA_ROOT || StorageLocations.getDataRoot();
 
   if (options.bridgeEndpoint) {
     env.ANTIFAN_BRIDGE_PORT = String(options.bridgeEndpoint.port);
