@@ -35,7 +35,14 @@ import {
   type EditMode,
   type EditModeTrigger,
 } from "./edit-mode";
-import { extractTargetPaths, planToolCall, REFUSAL_CODES, WRITE_TOOLS } from "./edit-guard-policy";
+import {
+  DEVICE_PATH_RE,
+  extractTargetPaths,
+  planToolCall,
+  READ_TOOLS,
+  REFUSAL_CODES,
+  WRITE_TOOLS,
+} from "./edit-guard-policy";
 import { resolveShopIdentity, resolveWorkspaceShape, type WorkspaceShape } from "./theme-paths";
 
 export const GUARD_ENTRY_TYPE = "antifan.edit-mode";
@@ -70,6 +77,10 @@ interface GuardSession {
   mirrorPath: string | null;
   /** The run whose first settings_data write already fetched; -1 = never (run 0 is real). */
   settingsDataFetchedRunSeq: number;
+  /** Set when a pre-write fetch changed `config/settings_data.json`; cleared once a read tool inspects that path. */
+  settingsDataRereadRequired: boolean;
+  /** Latest backup path saved when a pre-write fetch overwrote local `config/settings_data.json`, if any. */
+  settingsDataBackupPath: string | null;
 }
 
 const sessions = new Map<string, GuardSession>();
@@ -225,6 +236,8 @@ function buildSession(ctx: unknown): GuardSession {
     logPath,
     mirrorPath: mirrorPathFor(sessionId, env),
     settingsDataFetchedRunSeq: -1,
+    settingsDataRereadRequired: false,
+    settingsDataBackupPath: null,
   };
 }
 
@@ -339,6 +352,40 @@ function runSettingsDataFetch(themeRoot: string, themeId: string): Promise<Fetch
   return promise;
 }
 
+function isSettingsDataPath(rawPath: string, cwd: string): boolean {
+  if (DEVICE_PATH_RE.test(rawPath)) return false;
+  const cleaned = rawPath.replace(/:(?:raw(?::[\d,+\-]+)?|[\d,+\-]+(?::raw)?)$/i, "");
+  return SETTINGS_DATA_RE.test(cleaned) || SETTINGS_DATA_RE.test(path.resolve(cwd, cleaned));
+}
+
+function hasSettingsDataChanged(beforeBytes: Buffer | null, afterBytes: Buffer | null): boolean {
+  if (beforeBytes === null && afterBytes === null) return false;
+  if (beforeBytes === null || afterBytes === null) return true;
+  const beforeText = beforeBytes.toString("utf8").replace(/^\uFEFF/, "").replace(/\r\n/g, "\n");
+  const afterText = afterBytes.toString("utf8").replace(/^\uFEFF/, "").replace(/\r\n/g, "\n");
+  if (beforeText === afterText) return false;
+  try {
+    const beforeJson = JSON.stringify(JSON.parse(beforeText));
+    const afterJson = JSON.stringify(JSON.parse(afterText));
+    return beforeJson !== afterJson;
+  } catch {
+    return true;
+  }
+}
+
+function saveSettingsDataBackup(root: string, beforeBytes: Buffer): string | null {
+  try {
+    const dir = path.join(root, ...LOG_DIR_PARTS);
+    fs.mkdirSync(dir, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const backupPath = path.join(dir, `settings_data.${stamp}.bak.json`);
+    fs.writeFileSync(backupPath, beforeBytes);
+    return backupPath;
+  } catch {
+    return null;
+  }
+}
+
 function writeMirror(session: GuardSession): void {
   const target = session.mirrorPath;
   if (target === null) return;
@@ -447,10 +494,43 @@ export default function editGuardHook(pi: GuardPi): void {
       const input = contextRecord(record.input);
       const targets = extractTargetPaths(input);
 
-      const settingsDataTarget =
-        WRITE_TOOLS[tool.trim().toLowerCase()] === true
-          ? targets.find((t) => SETTINGS_DATA_RE.test(t))
+      const normalizedTool = tool.trim().toLowerCase();
+      const isScoped = (SCOPED_MODES as readonly string[]).includes(session.mode);
+      const plan = isScoped ? planToolCall({ mode: session.mode, tool, input, shape: session.shape }) : null;
+      if (plan !== null && plan.decision === "block") {
+        appendRows(session, [rowFor(session, tool, plan.targets[0] ?? plan.device ?? "", "block", plan.code)]);
+        // The warning is a report, not the refusal: a logger that throws must not turn this
+        // into a guard error (or into a pass-through).
+        warnSafely(pi, plan.reason);
+        return { block: true, reason: plan.reason };
+      }
+
+      const settingsDataReadTarget =
+        READ_TOOLS[normalizedTool] === true
+          ? targets.find((t) => isSettingsDataPath(t, session.shape.cwd))
           : undefined;
+      if (settingsDataReadTarget !== undefined) {
+        session.settingsDataRereadRequired = false;
+        session.settingsDataBackupPath = null;
+      }
+
+      const settingsDataTarget =
+        WRITE_TOOLS[normalizedTool] === true
+          ? targets.find((t) => isSettingsDataPath(t, session.shape.cwd))
+          : undefined;
+
+      if (settingsDataTarget !== undefined && session.settingsDataRereadRequired) {
+        const root = session.shape.themeRoot ?? session.shape.workspaceRoot;
+        const shop = resolveShopIdentity(root);
+        const shopLabel = shop ? ` org=${shop.orgId} theme=${shop.themeId}` : "";
+        const backupNote = session.settingsDataBackupPath
+          ? ` Pre-fetch local bytes were saved to ${session.settingsDataBackupPath} so any unpushed edits can be merged.`
+          : "";
+        const reason = `${REFUSAL_CODES.SETTINGS_DATA_CHANGED_ON_SHOP}: config/settings_data.json changed on shop${shopLabel} during pre-write fetch and has not been re-read.${backupNote} Re-read config/settings_data.json to incorporate the merchant's changes, then retry the write.`;
+        appendRows(session, [rowFor(session, tool, settingsDataTarget, "block", REFUSAL_CODES.SETTINGS_DATA_CHANGED_ON_SHOP)]);
+        warnSafely(pi, reason);
+        return { block: true, reason };
+      }
 
       if (settingsDataTarget !== undefined && session.settingsDataFetchedRunSeq !== session.runSeq) {
         // One fetch per run: the agent is the only local writer between its own
@@ -462,6 +542,8 @@ export default function editGuardHook(pi: GuardPi): void {
           warnSafely(pi, `[edit-guard] ${settingsDataTarget}: no .haravan-cli_local.json under ${root}, writing without a remote fetch`);
           appendRows(session, [rowFor(session, "hrv theme fetch", settingsDataTarget, "allow", "SETTINGS_DATA_UNBOUND")]);
         } else {
+          const settingsAbs = path.join(root, "config", "settings_data.json");
+          const beforeBytes = fs.existsSync(settingsAbs) ? fs.readFileSync(settingsAbs) : null;
           const fetched = await runSettingsDataFetch(root, shop.themeId);
           if (!fetched.ok) {
             const reason = `${REFUSAL_CODES.SETTINGS_DATA_FETCH_FAILED}: hrv theme fetch ${shop.themeId} --only config/settings_data.json failed in ${root}: ${fetched.detail}. Fix the fetch (login, network, theme id) and retry the write.`;
@@ -471,20 +553,27 @@ export default function editGuardHook(pi: GuardPi): void {
           }
           appendRows(session, [rowFor(session, "hrv theme fetch", settingsDataTarget, "allow", "SETTINGS_DATA_FETCHED")]);
           warnSafely(pi, `[edit-guard] settings_data.json refreshed from shop org=${shop.orgId} theme=${shop.themeId} before this run's first write`);
+          session.settingsDataFetchedRunSeq = session.runSeq;
+          const afterBytes = fs.existsSync(settingsAbs) ? fs.readFileSync(settingsAbs) : null;
+          const diskChanged = hasSettingsDataChanged(beforeBytes, afterBytes);
+          if (diskChanged) {
+            const backupPath = beforeBytes !== null ? saveSettingsDataBackup(root, beforeBytes) : null;
+            session.settingsDataRereadRequired = true;
+            session.settingsDataBackupPath = backupPath;
+            const backupNote = backupPath
+              ? ` Pre-fetch local bytes were saved to ${backupPath} so any unpushed edits can be merged.`
+              : "";
+            const reason = `${REFUSAL_CODES.SETTINGS_DATA_CHANGED_ON_SHOP}: config/settings_data.json changed on shop org=${shop.orgId} theme=${shop.themeId} during pre-write fetch.${backupNote} Re-read config/settings_data.json to incorporate the merchant's changes, then retry the write.`;
+            appendRows(session, [rowFor(session, tool, settingsDataTarget, "block", REFUSAL_CODES.SETTINGS_DATA_CHANGED_ON_SHOP)]);
+            warnSafely(pi, reason);
+            return { block: true, reason };
+          }
         }
         session.settingsDataFetchedRunSeq = session.runSeq;
       }
 
-      if (!(SCOPED_MODES as readonly string[]).includes(session.mode)) return undefined;
-      const plan = planToolCall({ mode: session.mode, tool, input, shape: session.shape });
-      if (plan.decision === "block") {
-        appendRows(session, [rowFor(session, tool, plan.targets[0] ?? plan.device ?? "", "block", plan.code)]);
-        // The warning is a report, not the refusal: a logger that throws must not turn this
-        // into a guard error (or into a pass-through).
-        warnSafely(pi, plan.reason);
-        return { block: true, reason: plan.reason };
-      }
-      if (WRITE_TOOLS[tool.trim().toLowerCase()] === true) {
+      if (plan === null) return undefined;
+      if (WRITE_TOOLS[normalizedTool] === true) {
         // Only file-changing calls become rows. A read that names a path is not a change,
         // and the row count is read back as "N file(s) changed" by `turn_end` and by the
         // Manager run card, so an inspection path must never enter it.

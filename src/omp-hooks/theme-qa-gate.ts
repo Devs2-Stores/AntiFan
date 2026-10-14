@@ -627,6 +627,7 @@ function scopedSkipText(mode: EditMode, changedFiles: number | null): string {
 interface ScopedSessionState {
   lastEmittedSeq: number | null;
   dirty: boolean;
+  editTs: number;
 }
 const scopedSessionStates = new Map<string, ScopedSessionState>();
 /** Newest receipt timestamp in one qa-receipts dir (0 when absent/empty/unreadable). */
@@ -1124,15 +1125,22 @@ function reminderText(): string {
   }
 
   if (allFindings.length > 0) {
-    const formatted = allFindings
+    const shown = allFindings.slice(0, 5);
+    const formatted = shown
       .map((f) => {
         const loc = f.line ? `${f.file}:${f.line}` : f.file;
         const idPart = f.id ? ` (${f.id})` : "";
         const idVal = f.id ?? "";
-        return `${GATE_MARKER} QA GATE PENDING — Settings regression detected: ${f.rule} at ${loc}${idPart}. Fix: replace with '${idVal}' | asset_url.`;
+        const fixHint =
+          f.rule === "HARAVAN_SETTINGS_UPLOAD_READ"
+            ? `Fix: replace with '${idVal}' | asset_url.`
+            : f.message
+              ? `Detail: ${f.message}`
+              : "Fix: declare or resolve the setting in config/settings_schema.json or config/settings.html.";
+        return `${GATE_MARKER} QA GATE PENDING — Settings regression detected: ${f.rule} at ${loc}${idPart}. ${fixHint}`;
       })
       .join("\n");
-    return `\n\n${formatted}\nRun theme.qa_validate with tabId + workspaceRoot once resolved.`;
+    return `\n\n${formatted}\n(${allFindings.length} new finding(s); showing ${shown.length}.) Run theme.qa_validate with tabId + workspaceRoot once resolved.`;
   }
 
   const roots = [...pendingEdits.keys()].join(", ");
@@ -1178,10 +1186,14 @@ export default function themeQaGate(pi: HookAPI): void {
       const isWrite = WRITE_TOOLS.has(toolName) && !isDeviceOnly;
       const sessionKey = sessionIdOf(ctx) || (ctx?.cwd ?? process.cwd());
       const st = scopedSessionStates.get(sessionKey);
+      const now = Date.now();
       if (st) {
-        if (isWrite) st.dirty = true;
+        if (isWrite) {
+          st.dirty = true;
+          st.editTs = now;
+        }
       } else {
-        scopedSessionStates.set(sessionKey, { lastEmittedSeq: null, dirty: isWrite });
+        scopedSessionStates.set(sessionKey, { lastEmittedSeq: null, dirty: isWrite, editTs: isWrite ? now : 0 });
       }
       if (!isWrite) return;
       if (targets.length === 0) return;
@@ -1286,16 +1298,30 @@ export default function themeQaGate(pi: HookAPI): void {
 interface RatchetStats {
   newCount: number;
   debtCount: number;
+  findings?: HookSettingsFinding[];
 }
 
-function readLatestRatchetStats(workspaceRoot: string): RatchetStats | null {
+function readLatestRatchetStats(workspaceRoot: string, minReceiptTime = 0): RatchetStats | null {
   try {
     const rec = latestReceiptRecord(workspaceRoot);
-    if (rec?.receipt?.settingsRatchet && typeof rec.receipt.settingsRatchet === "object") {
-      const sr = rec.receipt.settingsRatchet as { newFailures?: number; legacyDebt?: number };
+    if (
+      rec &&
+      rec.time >= minReceiptTime &&
+      rec.receipt?.settingsRatchet &&
+      typeof rec.receipt.settingsRatchet === "object"
+    ) {
+      const sr = rec.receipt.settingsRatchet as {
+        newFailures?: number;
+        legacyDebt?: number;
+        findings?: HookSettingsFinding[];
+      };
+      const newCount = typeof sr.newFailures === "number" ? sr.newFailures : 0;
+      const debtCount = typeof sr.legacyDebt === "number" ? sr.legacyDebt : 0;
+      const findings = newCount > 0 && Array.isArray(sr.findings) ? sr.findings.slice(0, 5) : [];
       return {
-        newCount: typeof sr.newFailures === "number" ? sr.newFailures : 0,
-        debtCount: typeof sr.legacyDebt === "number" ? sr.legacyDebt : 0,
+        newCount,
+        debtCount,
+        ...(findings.length > 0 ? { findings } : {}),
       };
     }
 
@@ -1334,6 +1360,7 @@ function readLatestRatchetStats(workspaceRoot: string): RatchetStats | null {
       const summary = auditRunSummary(shape.workspaceRoot, sid);
       const st = scopedSessionStates.get(sessionKey);
       const wasDirty = Boolean(st && st.dirty);
+      const lastEditTs = st?.editTs ?? 0;
 
       // Deduplication guard against ping-pong infinite loop:
       // 1) If this runSeq has already been emitted for this session, skip:
@@ -1349,16 +1376,28 @@ function readLatestRatchetStats(workspaceRoot: string): RatchetStats | null {
       scopedSessionStates.set(sessionKey, {
         lastEmittedSeq: summary.maxSeq,
         dirty: false,
+        editTs: lastEditTs,
       });
       if (wasDirty) {
-        const stats = readLatestRatchetStats(shape.workspaceRoot);
+        const stats = readLatestRatchetStats(shape.workspaceRoot, lastEditTs);
         if (stats) {
+          const modeLabel = MODE_LABELS[mode];
+          const hasFindings = stats.newCount > 0 && Array.isArray(stats.findings) && stats.findings.length > 0;
+          const findingSuffix = hasFindings
+            ? `: ${stats.findings!.map((f) => `${f.rule} at ${f.line ? `${f.file}:${f.line}` : f.file}${f.id ? ` (${f.id})` : ""}`).join("; ")}`
+            : "";
           pi.sendMessage?.({
             customType: "theme-qa-gate",
-            content: `[theme-qa-gate:scoped] Settings check: ${stats.newCount} new finding(s), ${stats.debtCount} legacy debt items. (Direct-Edit non-blocking)`,
+            content: `[theme-qa-gate:scoped] Settings check: ${stats.newCount} new finding(s), ${stats.debtCount} legacy debt items. (${modeLabel} non-blocking)${findingSuffix}`,
             display: true,
             attribution: "agent",
-            details: { kind: "settings-ratchet-scoped", mode, newCount: stats.newCount, debtCount: stats.debtCount },
+            details: {
+              kind: "settings-ratchet-scoped",
+              mode,
+              newCount: stats.newCount,
+              debtCount: stats.debtCount,
+              ...(hasFindings ? { findings: stats.findings } : {}),
+            },
           });
           return;
         }
@@ -1463,6 +1502,7 @@ function readLatestRatchetStats(workspaceRoot: string): RatchetStats | null {
           consumeDeclaration(bypass);
           pendingEdits.clear();
           microEdits.clear();
+          pendingSettingsFindings.clear();
           return outMessages ? { messages: outMessages } : undefined;
         }
         const micro = findMicroDeclaration(messages);

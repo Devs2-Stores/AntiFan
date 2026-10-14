@@ -735,15 +735,25 @@ after(() => {
  * A stand-in `hrv` that records its argv and prints the CLI's real success or
  * failure line. The real CLI exits 0 either way, so the stub does too.
  */
-function installHrvStub({ succeed }) {
+function installHrvStub({ succeed, fetchedContent } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "hrv-stub-"));
   const calls = path.join(dir, "calls.jsonl");
   const script = path.join(dir, "hrv.mjs");
   const line = succeed ? "✓ Tải về thành công 1 file." : "Fetch thất bại: Không tìm thấy file trên remote.";
+  const writeStep =
+    typeof fetchedContent === "string"
+      ? [
+          'import { mkdirSync, writeFileSync } from "node:fs";',
+          'import * as path from "node:path";',
+          'mkdirSync(path.join(process.cwd(), "config"), { recursive: true });',
+          `writeFileSync(path.join(process.cwd(), "config", "settings_data.json"), ${JSON.stringify(fetchedContent)}, "utf8");`,
+        ]
+      : [];
   fs.writeFileSync(
     script,
     [
       'import { appendFileSync } from "node:fs";',
+      ...writeStep,
       `appendFileSync(${JSON.stringify(calls)}, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd() }) + "\\n");`,
       `console.log(${JSON.stringify(line)});`,
     ].join("\n"),
@@ -753,7 +763,7 @@ function installHrvStub({ succeed }) {
     fs.existsSync(calls)
       ? fs.readFileSync(calls, "utf8").trim().split("\n").map((row) => JSON.parse(row))
       : [];
-  return { recorded };
+  return { dir, recorded };
 }
 
 function bindShop(root) {
@@ -764,6 +774,7 @@ function bindShop(root) {
 }
 
 const SETTINGS_WRITE = { toolName: "write", input: { path: "config/settings_data.json", content: "{}" } };
+const SETTINGS_READ = { toolName: "read", input: { path: "config/settings_data.json" } };
 
 function readLog(root, sessionId) {
   return fs
@@ -867,16 +878,177 @@ test("settings_data.json write in a workspace with no bound shop passes without 
   );
 });
 
+test("settings_data.json write is blocked with REFUSED_SETTINGS_DATA_CHANGED_ON_SHOP when pre-write fetch changes disk bytes, refuses retry without read, then passes after read", async () => {
+  const root = makeThemeWorkspace();
+  bindShop(root);
+  const settingsPath = path.join(root, "config", "settings_data.json");
+  const initialLocal = '{"current":{"color":"#000000"}}';
+  fs.writeFileSync(settingsPath, initialLocal, "utf8");
+  const merchantFetched = '{"current":{"color":"#ffffff","merchant_banner":true}}';
+  const stub = installHrvStub({ succeed: true, fetchedContent: merchantFetched });
+  try {
+    const hook = makeHook();
+    editGuardHook(hook.pi);
+    const ctx = hook.context(root, "sess-settings-changed-on-shop");
+    await hook.emit("session_start", {}, ctx);
+    await hook.emit("before_agent_start", { prompt: "[⚡Direct-Edit] update config" }, ctx);
+
+    const first = await hook.emit("tool_call", SETTINGS_WRITE, ctx);
+    assert.equal(first.length, 1, "first write must be blocked when fetch modified settings_data.json");
+    assert.equal(first[0].block, true);
+    assert.ok(first[0].reason.startsWith("REFUSED_SETTINGS_DATA_CHANGED_ON_SHOP:"));
+    assert.ok(first[0].reason.includes("org=200001 theme=1001507144"));
+    assert.equal(fs.readFileSync(settingsPath, "utf8"), merchantFetched, "fetched merchant bytes remain on disk");
+
+    const retryWithoutRead = await hook.emit("tool_call", SETTINGS_WRITE, ctx);
+    assert.equal(retryWithoutRead.length, 1, "retry without reading settings_data.json must be refused");
+    assert.equal(retryWithoutRead[0].block, true);
+    assert.ok(retryWithoutRead[0].reason.startsWith("REFUSED_SETTINGS_DATA_CHANGED_ON_SHOP:"));
+    assert.equal(stub.recorded().length, 1, "retry refusal does not run a second fetch");
+
+    // Reading an unrelated file does not satisfy the re-read requirement.
+    await hook.emit("tool_call", { toolName: "read", input: { path: "snippets/header.liquid" } }, ctx);
+    const retryAfterOtherRead = await hook.emit("tool_call", SETTINGS_WRITE, ctx);
+    assert.equal(retryAfterOtherRead.length, 1, "reading an unrelated file must not clear the settings_data re-read gate");
+    assert.equal(retryAfterOtherRead[0].block, true);
+
+    // Reading config/settings_data.json clears the flag and allows the next write.
+    assert.deepEqual(await hook.emit("tool_call", SETTINGS_READ, ctx), []);
+    const afterRead = await hook.emit("tool_call", SETTINGS_WRITE, ctx);
+    assert.deepEqual(afterRead, [], "write passes after re-reading config/settings_data.json");
+    assert.equal(stub.recorded().length, 1, "only one fetch ran across the run");
+
+    const rows = readLog(root, "sess-settings-changed-on-shop");
+    assert.deepEqual(
+      rows.map((row) => `${row.tool}:${row.decision}:${row.code}`),
+      [
+        "hrv theme fetch:allow:SETTINGS_DATA_FETCHED",
+        "write:block:REFUSED_SETTINGS_DATA_CHANGED_ON_SHOP",
+        "write:block:REFUSED_SETTINGS_DATA_CHANGED_ON_SHOP",
+        "write:block:REFUSED_SETTINGS_DATA_CHANGED_ON_SHOP",
+        "write:allow:ALLOWED",
+      ],
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(stub.dir, { recursive: true, force: true });
+  }
+});
+
+test("settings_data.json pre-write fetch backs up pre-fetch bytes under .antifan/edit-guard and names the backup path in the refusal reason", async () => {
+  const root = makeThemeWorkspace();
+  bindShop(root);
+  const settingsPath = path.join(root, "config", "settings_data.json");
+  const unpushedLocalBytes = '{"current":{"color":"#123456","unpushed_local":true}}\n';
+  fs.writeFileSync(settingsPath, unpushedLocalBytes, "utf8");
+  const shopRemoteBytes = '{"current":{"color":"#ffffff","shop_saved":true}}\n';
+  const stub = installHrvStub({ succeed: true, fetchedContent: shopRemoteBytes });
+  try {
+    const hook = makeHook();
+    editGuardHook(hook.pi);
+    const ctx = hook.context(root, "sess-settings-backup");
+    await hook.emit("session_start", {}, ctx);
+    await hook.emit("before_agent_start", { prompt: "[⚡Direct-Edit] update config" }, ctx);
+
+    const refused = await hook.emit("tool_call", SETTINGS_WRITE, ctx);
+    assert.equal(refused.length, 1);
+    assert.equal(refused[0].block, true);
+
+    const guardDir = path.join(root, ".antifan", "edit-guard");
+    const backups = fs.readdirSync(guardDir).filter((name) => name.startsWith("settings_data.") && name.endsWith(".bak.json"));
+    assert.equal(backups.length, 1, "exactly one timestamped backup file is created when disk changed");
+    const backupPath = path.join(guardDir, backups[0]);
+    assert.ok(refused[0].reason.includes(backupPath), "refusal reason names the backup file path");
+    assert.equal(fs.readFileSync(backupPath, "utf8"), unpushedLocalBytes, "backup preserves the exact pre-fetch local bytes");
+
+    // Re-reading with an OMP line-range selector also clears the re-read flag.
+    assert.deepEqual(
+      await hook.emit("tool_call", { toolName: "read", input: { path: "config/settings_data.json:1-50" } }, ctx),
+      [],
+    );
+    assert.deepEqual(await hook.emit("tool_call", SETTINGS_WRITE, ctx), []);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(stub.dir, { recursive: true, force: true });
+  }
+});
+
+test("settings_data.json write is not refused when pre-write fetch only changes BOM, CRLF line endings or JSON formatting", async () => {
+  const root = makeThemeWorkspace();
+  bindShop(root);
+  const settingsPath = path.join(root, "config", "settings_data.json");
+  const prettyCrlfBom = '\uFEFF{\r\n  "current": {\r\n    "color": "#000000",\r\n    "items": [\r\n      1,\r\n      2\r\n    ]\r\n  }\r\n}\r\n';
+  fs.writeFileSync(settingsPath, prettyCrlfBom, "utf8");
+  const compactLf = '{"current":{"color":"#000000","items":[1,2]}}\n';
+  const stub = installHrvStub({ succeed: true, fetchedContent: compactLf });
+  try {
+    const hook = makeHook();
+    editGuardHook(hook.pi);
+    const ctx = hook.context(root, "sess-settings-crlf-format");
+    await hook.emit("session_start", {}, ctx);
+    await hook.emit("before_agent_start", { prompt: "[⚡Direct-Edit] update config" }, ctx);
+
+    const result = await hook.emit("tool_call", SETTINGS_WRITE, ctx);
+    assert.deepEqual(result, [], "formatting, BOM and CRLF-only differences must not block the write");
+    assert.equal(stub.recorded().length, 1);
+
+    const guardDir = path.join(root, ".antifan", "edit-guard");
+    const backups = fs.readdirSync(guardDir).filter((name) => name.endsWith(".bak.json"));
+    assert.deepEqual(backups, [], "no backup file is written when normalized content did not change");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(stub.dir, { recursive: true, force: true });
+  }
+});
+
+test("settings_data.json write is blocked with REFUSED_SETTINGS_DATA_CHANGED_ON_SHOP when file was absent locally and created by pre-write fetch", async () => {
+  const root = makeThemeWorkspace();
+  bindShop(root);
+  const settingsPath = path.join(root, "config", "settings_data.json");
+  assert.equal(fs.existsSync(settingsPath), false, "file is initially absent before fetch");
+  const fetchedJson = '{"current":{"newly_created":true}}';
+  const stub = installHrvStub({ succeed: true, fetchedContent: fetchedJson });
+  try {
+    const hook = makeHook();
+    editGuardHook(hook.pi);
+    const ctx = hook.context(root, "sess-settings-created-on-fetch");
+    await hook.emit("session_start", {}, ctx);
+    await hook.emit("before_agent_start", { prompt: "no tag here" }, ctx);
+
+    const first = await hook.emit("tool_call", SETTINGS_WRITE, ctx);
+    assert.equal(first.length, 1, "blind write must be blocked when fetch created settings_data.json");
+    assert.equal(first[0].block, true);
+    assert.ok(first[0].reason.includes("REFUSED_SETTINGS_DATA_CHANGED_ON_SHOP"));
+    assert.equal(fs.readFileSync(settingsPath, "utf8"), fetchedJson);
+
+    const retryWithoutRead = await hook.emit("tool_call", SETTINGS_WRITE, ctx);
+    assert.equal(retryWithoutRead.length, 1, "write remains blocked until the newly fetched file is read");
+    assert.equal(retryWithoutRead[0].block, true);
+
+    assert.deepEqual(await hook.emit("tool_call", SETTINGS_READ, ctx), []);
+    const second = await hook.emit("tool_call", SETTINGS_WRITE, ctx);
+    assert.deepEqual(second, [], "write in the same run passes after reading the fetched file");
+    assert.equal(stub.recorded().length, 1);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(stub.dir, { recursive: true, force: true });
+  }
+});
+
 test("hook allows normal edits like snippets/header.liquid in mode === 'unset'", async () => {
   const root = makeThemeWorkspace();
-  const hook = makeHook();
-  editGuardHook(hook.pi);
-  const ctx = hook.context(root, "sess-unset-header");
-  await hook.emit("session_start", {}, ctx);
-  const result = await hook.emit(
-    "tool_call",
-    { toolName: "write", input: { path: "snippets/header.liquid", content: "<p>header</p>" } },
-    ctx,
-  );
-  assert.deepEqual(result, [], "normal theme edits must return undefined (allowed) in unset mode");
+  try {
+    const hook = makeHook();
+    editGuardHook(hook.pi);
+    const ctx = hook.context(root, "sess-unset-header");
+    await hook.emit("session_start", {}, ctx);
+    const result = await hook.emit(
+      "tool_call",
+      { toolName: "write", input: { path: "snippets/header.liquid", content: "<p>header</p>" } },
+      ctx,
+    );
+    assert.deepEqual(result, [], "normal theme edits must return undefined (allowed) in unset mode");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });

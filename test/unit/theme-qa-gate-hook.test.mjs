@@ -1616,11 +1616,12 @@ test("a receipt one level under the bound root clears the ancestor's pending edi
   const ctx = { cwd: root };
 
   writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
-  fs.writeFileSync(
-    path.join(childReceipts, "r1.json"),
-    JSON.stringify({ createdAt: new Date().toISOString() }),
-    "utf8"
-  );
+  const nestedReceipt = path.join(childReceipts, "r1.json");
+  fs.writeFileSync(nestedReceipt, JSON.stringify({ createdAt: new Date().toISOString() }), "utf8");
+  // NTFS can stamp a file written right after the edit a few ms BEFORE the
+  // hook's Date.now() edit time; pin the mtime after the edit so the receipt is fresh.
+  const nestedFresh = new Date(Date.now() + 5_000);
+  fs.utimesSync(nestedReceipt, nestedFresh, nestedFresh);
 
   // Reconcile runs on every result — even read-class — so the nested receipt clears it
   // (this first result also drains the one-shot MCP-first chunk, which is fine).
@@ -1841,8 +1842,9 @@ test("theme-qa-gate keeps pendingEdits armed and formats reminder when receipt h
 
   // Emitting a receipt with QA_FAILED and settingsRatchet regressions
   const receiptsDir = path.join(root, ".antifan", "qa-receipts");
+  const failedReceipt = path.join(receiptsDir, "r-failed.json");
   fs.writeFileSync(
-    path.join(receiptsDir, "r-failed.json"),
+    failedReceipt,
     JSON.stringify({
       verdict: "QA_FAILED",
       createdAt: new Date().toISOString(),
@@ -1857,6 +1859,10 @@ test("theme-qa-gate keeps pendingEdits armed and formats reminder when receipt h
     }),
     "utf8"
   );
+  // The gate orders receipts by mtime and needs mtime >= the edit time; NTFS can
+  // stamp a just-written file earlier than Date.now(), so pin strictly increasing mtimes.
+  const failedAt = new Date(Date.now() + 5_000);
+  fs.utimesSync(failedReceipt, failedAt, failedAt);
 
   // Reconcile runs on tool result, gate must REMAIN armed
   const writeRes = resText(result(handlers, ctx, "write ok", "write"));
@@ -1871,8 +1877,9 @@ test("theme-qa-gate keeps pendingEdits armed and formats reminder when receipt h
   );
 
   // Now emit a passing receipt
+  const passedReceipt = path.join(receiptsDir, "r-passed.json");
   fs.writeFileSync(
-    path.join(receiptsDir, "r-passed.json"),
+    passedReceipt,
     JSON.stringify({
       verdict: "QA_PASSED",
       createdAt: new Date(Date.now() + 1000).toISOString(),
@@ -1885,6 +1892,8 @@ test("theme-qa-gate keeps pendingEdits armed and formats reminder when receipt h
     }),
     "utf8"
   );
+  const passedAt = new Date(failedAt.getTime() + 5_000);
+  fs.utimesSync(passedReceipt, passedAt, passedAt);
 
   // Next tool result reconciles and clears the gate — assert on a write-class
   // result since read-class results never emit the reminder even when armed.
@@ -2049,75 +2058,358 @@ test("scoped mode: dirty turn with settings ratchet stats emits single-line coun
   const { handlers, sent } = loadHook();
   const root = makeWorkspace();
   const ctx = { cwd: root };
-
-  fs.writeFileSync(
-    path.join(root, ".antifan", "settings-baseline.json"),
-    JSON.stringify({
-      reviewed: false,
-      bootstrappedAt: new Date().toISOString(),
-      counts: { "HARAVAN_SETTINGS_UPLOAD_READ::logo.png::snippets/header.liquid": 3 },
-      totalFindings: 3,
-    }),
-    "utf8"
-  );
-
-  withEditMode("direct", () => {
-    writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
-    handlers.get("turn_end")({ type: "turn_end" }, ctx);
-
-    assert.equal(sent.length, 1, "turn_end sends exactly one line in scoped mode");
-    assert.equal(
-       sent[0].content,
-      "[theme-qa-gate:scoped] Settings check: 0 new finding(s), 3 legacy debt items. (Direct-Edit non-blocking)"
+  try {
+    fs.writeFileSync(
+      path.join(root, ".antifan", "settings-baseline.json"),
+      JSON.stringify({
+        reviewed: false,
+        bootstrappedAt: new Date().toISOString(),
+        counts: { "HARAVAN_SETTINGS_UPLOAD_READ::logo.png::snippets/header.liquid": 3 },
+        totalFindings: 3,
+      }),
+      "utf8"
     );
-    assert.equal(sent[0].customType, "theme-qa-gate");
-    assert.deepEqual(sent[0].details, {
-      kind: "settings-ratchet-scoped",
-      mode: "direct",
-      newCount: 0,
-      debtCount: 3,
+
+    withEditMode("direct", () => {
+      writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
+      handlers.get("turn_end")({ type: "turn_end" }, ctx);
+
+      assert.equal(sent.length, 1, "turn_end sends exactly one line in scoped mode");
+      assert.equal(
+        sent[0].content,
+        "[theme-qa-gate:scoped] Settings check: 0 new finding(s), 3 legacy debt items. (Direct-Edit non-blocking)"
+      );
+      assert.equal(sent[0].customType, "theme-qa-gate");
+      assert.deepEqual(sent[0].details, {
+        kind: "settings-ratchet-scoped",
+        mode: "direct",
+        newCount: 0,
+        debtCount: 3,
+      });
     });
-  });
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("scoped mode turn_end and reminderText surface non-upload settings findings without asset_url hint", () => {
+  const { handlers, sent } = loadHook();
+  const root = makeWorkspace();
+  const ctx = { cwd: root };
+  try {
+    const receiptsDir = path.join(root, ".antifan", "qa-receipts");
+    fs.mkdirSync(receiptsDir, { recursive: true });
+    const findings = [
+      {
+        rule: "SETTING_UNDECLARED",
+        id: "hero_cta",
+        file: "sections/hero.liquid",
+        line: 12,
+        message: "setting 'hero_cta' is read in Liquid but not declared in settings_schema.json",
+      },
+    ];
+
+    // 1. Unscoped reminderText formatting for non-upload rule
+    writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
+    const receiptPath = path.join(receiptsDir, "r-undeclared.json");
+    fs.writeFileSync(
+      receiptPath,
+      JSON.stringify({
+        verdict: "QA_FAILED",
+        createdAt: new Date(Date.now() + 500).toISOString(),
+        settingsRatchet: {
+          ok: false,
+          newFailures: 1,
+          legacyDebt: 2,
+          findings,
+        },
+      }),
+      "utf8"
+    );
+    const future = new Date(Date.now() + 5_000);
+    fs.utimesSync(receiptPath, future, future);
+    const writeRes = resText(result(handlers, ctx, "write ok", "write"));
+    assert.ok(
+      writeRes.includes("Settings regression detected: SETTING_UNDECLARED at sections/hero.liquid:12 (hero_cta)"),
+      "reminder formats rule, file:line and id"
+    );
+    assert.ok(
+      writeRes.includes("setting 'hero_cta' is read in Liquid"),
+      "reminder includes the finding's own message"
+    );
+    assert.ok(
+      !writeRes.includes("asset_url"),
+      "reminder for a non-upload rule must not tell the agent to use asset_url"
+    );
+
+    // 2. Scoped turn_end includes RULE at file:line (id) and attaches findings to details
+    withEditMode("direct", () => {
+      writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
+      handlers.get("turn_end")({ type: "turn_end" }, ctx);
+
+      assert.equal(sent.length, 1);
+      assert.equal(
+        sent[0].content,
+        "[theme-qa-gate:scoped] Settings check: 1 new finding(s), 2 legacy debt items. (Direct-Edit non-blocking): SETTING_UNDECLARED at sections/hero.liquid:12 (hero_cta)"
+      );
+      assert.deepEqual(sent[0].details, {
+        kind: "settings-ratchet-scoped",
+        mode: "direct",
+        newCount: 1,
+        debtCount: 2,
+        findings,
+      });
+    });
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("scoped mode turn_end caps surfaced settings findings at 5 and reminderText falls back when message is absent", () => {
+  const { handlers, sent } = loadHook();
+  const root = makeWorkspace();
+  const ctx = { cwd: root };
+  try {
+    const receiptsDir = path.join(root, ".antifan", "qa-receipts");
+
+    const sevenFindings = Array.from({ length: 7 }, (_, i) => ({
+      rule: "HARAVAN_SETTING_UNRESOLVED",
+      id: `key_${i + 1}`,
+      file: "snippets/card.liquid",
+      line: i + 1,
+    }));
+
+    writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
+    const receiptPath = path.join(receiptsDir, "r-many.json");
+    fs.writeFileSync(
+      receiptPath,
+      JSON.stringify({
+        verdict: "QA_FAILED",
+        createdAt: new Date(Date.now() + 500).toISOString(),
+        settingsRatchet: {
+          ok: false,
+          newFailures: 7,
+          legacyDebt: 0,
+          findings: sevenFindings,
+        },
+      }),
+      "utf8"
+    );
+    const future = new Date(Date.now() + 5_000);
+    fs.utimesSync(receiptPath, future, future);
+
+    const writeRes = resText(result(handlers, ctx, "write ok", "write"));
+    assert.ok(
+      writeRes.includes("config/settings_schema.json or config/settings.html"),
+      "fallback hint points at settings_schema.json or settings.html when finding message is absent"
+    );
+    assert.ok(!writeRes.includes("asset_url"));
+    assert.ok(writeRes.includes("7 new finding(s)"), "reminderText reports total finding count");
+    assert.ok(writeRes.includes("(key_5)"), "reminderText includes 5th finding");
+    assert.ok(!writeRes.includes("(key_6)"), "reminderText caps listed findings at 5");
+
+    withEditMode("direct", () => {
+      writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
+      handlers.get("turn_end")({ type: "turn_end" }, ctx);
+
+      assert.equal(sent.length, 1);
+      assert.equal(sent[0].details.findings.length, 5, "findings attached to turn_end details are capped at 5");
+      assert.ok(sent[0].content.includes("(key_5)"), "5th finding is included");
+      assert.ok(!sent[0].content.includes("(key_6)"), "6th finding is omitted");
+    });
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("bypass declaration clears cached settings findings so subsequent edits do not surface stale regressions", () => {
+  const { handlers } = loadHook();
+  const root = makeWorkspace();
+  const ctx = { cwd: root };
+  try {
+    const receiptsDir = path.join(root, ".antifan", "qa-receipts");
+    writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
+
+    const receiptPath = path.join(receiptsDir, "r-stale-bypass.json");
+    fs.writeFileSync(
+      receiptPath,
+      JSON.stringify({
+        verdict: "QA_FAILED",
+        createdAt: new Date(Date.now() + 500).toISOString(),
+        settingsRatchet: {
+          ok: false,
+          newFailures: 1,
+          legacyDebt: 0,
+          findings: [
+            {
+              rule: "SETTING_UNDECLARED",
+              id: "stale_bypass_key",
+              file: "sections/hero.liquid",
+              line: 10,
+            },
+          ],
+        },
+      }),
+      "utf8"
+    );
+    const firstReceiptAt = new Date(Date.now() + 1_000);
+    fs.utimesSync(receiptPath, firstReceiptAt, firstReceiptAt);
+
+    const writeRes1 = resText(result(handlers, ctx, "write ok 1", "write"));
+    assert.ok(writeRes1.includes("(stale_bypass_key)"), "initial failure caches and surfaces the settings finding");
+
+    // Clear the gate via an assistant bypass declaration.
+    handlers.get("context")(
+      { messages: [{ role: "assistant", content: `Local edit complete. ${BYPASS_TOKENS[4]}` }] },
+      ctx
+    );
+
+    // Backdate the receipt so the next edit is strictly newer than the old receipt.
+    const past = new Date(Date.now() - 10_000);
+    fs.utimesSync(receiptPath, past, past);
+
+    writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
+    const writeRes2 = resText(result(handlers, ctx, "write ok 2", "write"));
+    assert.ok(writeRes2.includes(GATE_REMINDER_SENTINEL), "new edit re-arms the gate");
+    assert.ok(
+      !writeRes2.includes("stale_bypass_key"),
+      "bypass must clear cached settings findings so the next edit does not repeat stale findings"
+    );
+    assert.ok(!writeRes2.includes("Settings regression detected"));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("scoped mode turn_end ignores receipts older than the current turn's edit and uses the active mode label", () => {
+  const { handlers, sent } = loadHook();
+  const root = makeWorkspace();
+  const ctx = { cwd: root };
+  try {
+    const receiptsDir = path.join(root, ".antifan", "qa-receipts");
+    const receiptPath = path.join(receiptsDir, "r-older-turn.json");
+    fs.writeFileSync(
+      receiptPath,
+      JSON.stringify({
+        verdict: "QA_FAILED",
+        createdAt: new Date(Date.now() - 10_000).toISOString(),
+        settingsRatchet: {
+          ok: false,
+          newFailures: 1,
+          legacyDebt: 2,
+          findings: [
+            {
+              rule: "SETTING_UNDECLARED",
+              id: "stale_turn_cta",
+              file: "sections/hero.liquid",
+              line: 12,
+            },
+          ],
+        },
+      }),
+      "utf8"
+    );
+    const past = new Date(Date.now() - 10_000);
+    fs.utimesSync(receiptPath, past, past);
+
+    // 1. Without a baseline file, a receipt older than this turn's edit is ignored and turn_end falls back to the skip line.
+    withEditMode("direct", () => {
+      writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
+      handlers.get("turn_end")({ type: "turn_end" }, ctx);
+
+      assert.equal(sent.length, 1);
+      assert.ok(sent[0].content.includes(EDIT_GUARD_MARKER), "stale receipt without baseline emits skip line");
+      assert.ok(!sent[0].content.includes("stale_turn_cta"), "stale receipt finding must not be reported");
+    });
+
+    // 2. With a baseline file and fast mode, the stale receipt is ignored in favor of baseline debt and the label is Super-Fast.
+    fs.writeFileSync(
+      path.join(root, ".antifan", "settings-baseline.json"),
+      JSON.stringify({
+        reviewed: false,
+        bootstrappedAt: new Date().toISOString(),
+        counts: { "HARAVAN_SETTINGS_UPLOAD_READ::logo.png::snippets/header.liquid": 4 },
+        totalFindings: 4,
+      }),
+      "utf8"
+    );
+    withEditMode("fast", () => {
+      writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
+      handlers.get("turn_end")({ type: "turn_end" }, ctx);
+
+      assert.equal(sent.length, 2);
+      assert.equal(
+        sent[1].content,
+        "[theme-qa-gate:scoped] Settings check: 0 new finding(s), 4 legacy debt items. (Super-Fast non-blocking)"
+      );
+      assert.deepEqual(sent[1].details, {
+        kind: "settings-ratchet-scoped",
+        mode: "fast",
+        newCount: 0,
+        debtCount: 4,
+      });
+    });
+
+    // 3. A receipt newer than the edit in fast mode surfaces its findings with the Super-Fast label.
+    const future = new Date(Date.now() + 5_000);
+    fs.utimesSync(receiptPath, future, future);
+    withEditMode("fast", () => {
+      writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
+      handlers.get("turn_end")({ type: "turn_end" }, ctx);
+
+      assert.equal(sent.length, 3);
+      assert.equal(
+        sent[2].content,
+        "[theme-qa-gate:scoped] Settings check: 1 new finding(s), 2 legacy debt items. (Super-Fast non-blocking): SETTING_UNDECLARED at sections/hero.liquid:12 (stale_turn_cta)"
+      );
+    });
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("tool_result hook does not append string reminder chunks to structured JSON tool outputs", () => {
   const { handlers } = loadHook();
   const root = makeWorkspace();
   const ctx = { cwd: root };
-  writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
+  try {
+    writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
 
-  // 1. Tool result containing a valid JSON object string
-  const jsonContent = JSON.stringify({ tabs: [{ tabId: "t1", url: "https://example.com" }] });
-  const jsonRes = handlers.get("tool_result")({ toolName: "write", content: jsonContent }, ctx);
-  assert.equal(jsonRes, undefined, "JSON tool result is untouched by the hook");
+    // 1. Tool result containing a valid JSON object string
+    const jsonContent = JSON.stringify({ tabs: [{ tabId: "t1", url: "https://example.com" }] });
+    const jsonRes = handlers.get("tool_result")({ toolName: "write", content: jsonContent }, ctx);
+    assert.equal(jsonRes, undefined, "JSON tool result is untouched by the hook");
 
-  // 2. Tool result containing an array of text parts with JSON
-  const jsonArrayContent = [{ type: "text", text: JSON.stringify({ ok: true, count: 42 }) }];
-  const jsonArrayRes = handlers.get("tool_result")({ toolName: "write", content: jsonArrayContent }, ctx);
-  assert.equal(jsonArrayRes, undefined, "JSON array tool result is untouched");
+    // 2. Tool result containing an array of text parts with JSON
+    const jsonArrayContent = [{ type: "text", text: JSON.stringify({ ok: true, count: 42 }) }];
+    const jsonArrayRes = handlers.get("tool_result")({ toolName: "write", content: jsonArrayContent }, ctx);
+    assert.equal(jsonArrayRes, undefined, "JSON array tool result is untouched");
 
-  // 3. Genuine file edit result is NOT JSON, so it receives the reminder at existing cadence
-  const patchInput = `[${path.join(root, "sections", "hero.liquid")}#TAG]\n@@\n+<div>test</div>`;
-  handlers.get("tool_call")({ toolName: "edit", input: { input: patchInput } }, ctx);
-  const editRes1 = handlers.get("tool_result")(
-    { toolName: "edit", input: { input: patchInput }, content: "Successfully applied patch" },
-    ctx
-  );
-  assert.ok(resText(editRes1).includes(GATE_REMINDER_SENTINEL), "genuine file edit result gets reminder");
-
-  // Intermediate edit results: REMIND_EVERY - 1 silent results sit between reminders
-  for (let i = 2; i <= REMIND_EVERY; i++) {
-    const editResI = handlers.get("tool_result")(
-      { toolName: "edit", input: { input: patchInput }, content: `Edit result ${i}` },
+    // 3. Genuine file edit result is NOT JSON, so it receives the reminder at existing cadence
+    const patchInput = `[${path.join(root, "sections", "hero.liquid")}#TAG]\n@@\n+<div>test</div>`;
+    handlers.get("tool_call")({ toolName: "edit", input: { input: patchInput } }, ctx);
+    const editRes1 = handlers.get("tool_result")(
+      { toolName: "edit", input: { input: patchInput }, content: "Successfully applied patch" },
       ctx
     );
-    assert.ok(!resText(editResI).includes(GATE_REMINDER_SENTINEL), `intermediate result ${i} is silent`);
+    assert.ok(resText(editRes1).includes(GATE_REMINDER_SENTINEL), "genuine file edit result gets reminder");
+
+    // Intermediate edit results: REMIND_EVERY - 1 silent results sit between reminders
+    for (let i = 2; i <= REMIND_EVERY; i++) {
+      const editResI = handlers.get("tool_result")(
+        { toolName: "edit", input: { input: patchInput }, content: `Edit result ${i}` },
+        ctx
+      );
+      assert.ok(!resText(editResI).includes(GATE_REMINDER_SENTINEL), `intermediate result ${i} is silent`);
+    }
+    const editResN = handlers.get("tool_result")(
+      { toolName: "edit", input: { input: patchInput }, content: "Edit result N" },
+      ctx
+    );
+    assert.ok(resText(editResN).includes(GATE_REMINDER_SENTINEL), "reminder fires again on cadence");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
   }
-  const editResN = handlers.get("tool_result")(
-    { toolName: "edit", input: { input: patchInput }, content: "Edit result N" },
-    ctx
-  );
-  assert.ok(resText(editResN).includes(GATE_REMINDER_SENTINEL), "reminder fires again on cadence");
 });
 
 test("tool_result hook does not append text to xd:// MCP write results even with pending edits and bridge outage", () => {
@@ -2131,6 +2423,8 @@ test("tool_result hook does not append text to xd:// MCP write results even with
   process.env.ANTIFAN_DATA_ROOT = scratchDataRoot;
   process.env.ANTIFAN_CONFIG_DIR = configDir;
 
+  const { handlers } = loadHook();
+  const root = makeWorkspace();
   try {
     fs.writeFileSync(
       path.join(configDir, "bridge.json"),
@@ -2138,8 +2432,6 @@ test("tool_result hook does not append text to xd:// MCP write results even with
       "utf8"
     );
 
-    const { handlers } = loadHook();
-    const root = makeWorkspace();
     const ctx = { cwd: root };
     writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
 
@@ -2162,6 +2454,8 @@ test("tool_result hook does not append text to xd:// MCP write results even with
     else delete process.env.ANTIFAN_DATA_ROOT;
     if (prevConfigDir !== undefined) process.env.ANTIFAN_CONFIG_DIR = prevConfigDir;
     else delete process.env.ANTIFAN_CONFIG_DIR;
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(scratchDataRoot, { recursive: true, force: true });
   }
 });
 
@@ -2171,57 +2465,67 @@ test("isThemeCwd returns false when cwd is the AntiFan desktop repository", () =
 
   const antifanRepo = fs.mkdtempSync(path.join(os.tmpdir(), "antifan-repo-"));
   scratchDirs.push(antifanRepo);
-  fs.mkdirSync(path.join(antifanRepo, ".antifan"), { recursive: true });
-  fs.writeFileSync(
-    path.join(antifanRepo, "package.json"),
-    JSON.stringify({ name: "antifan-browser-desktop", version: "1.3.6" }),
-    "utf8"
-  );
-
-  assert.equal(mod.isThemeCwd(antifanRepo), false, "AntiFan repo with package.json is NOT a theme");
-
-  // Subdirectory inside AntiFan repo
-  const subDir = path.join(antifanRepo, "src", "main");
-  fs.mkdirSync(subDir, { recursive: true });
-  assert.equal(mod.isThemeCwd(subDir), false, "Subdirectory inside AntiFan repo is NOT a theme");
-
-  // Repo with src/main/index.ts
-  fs.writeFileSync(path.join(subDir, "index.ts"), "export const a = 1;", "utf8");
-  assert.equal(mod.isThemeCwd(antifanRepo), false, "AntiFan repo with src/main/index.ts is NOT a theme");
-
-  // Real theme workspace: has .antifan, templates, or /customizes/ without AntiFan package name
   const realTheme = fs.mkdtempSync(path.join(os.tmpdir(), "real-theme-"));
   scratchDirs.push(realTheme);
-  fs.mkdirSync(path.join(realTheme, ".antifan"), { recursive: true });
-  fs.writeFileSync(
-    path.join(realTheme, "package.json"),
-    JSON.stringify({ name: "my-storefront-theme", version: "1.0.0" }),
-    "utf8"
-  );
-  assert.equal(mod.isThemeCwd(realTheme), true, "Real theme cwd is recognized as theme");
+  try {
+    fs.mkdirSync(path.join(antifanRepo, ".antifan"), { recursive: true });
+    fs.writeFileSync(
+      path.join(antifanRepo, "package.json"),
+      JSON.stringify({ name: "antifan-browser-desktop", version: "1.3.6" }),
+      "utf8"
+    );
 
-  // Context in AntiFan repo does not inject MCP-first directive
-  const ctx = { cwd: antifanRepo };
-  const ctxOut = handlers.get("context")({ messages: [{ role: "user", content: "fix code" }] }, ctx);
-  assert.equal(ctxOut, undefined, "AntiFan repo cwd receives no MCP-first directive in context");
+    assert.equal(mod.isThemeCwd(antifanRepo), false, "AntiFan repo with package.json is NOT a theme");
+
+    // Subdirectory inside AntiFan repo
+    const subDir = path.join(antifanRepo, "src", "main");
+    fs.mkdirSync(subDir, { recursive: true });
+    assert.equal(mod.isThemeCwd(subDir), false, "Subdirectory inside AntiFan repo is NOT a theme");
+
+    // Repo with src/main/index.ts
+    fs.writeFileSync(path.join(subDir, "index.ts"), "export const a = 1;", "utf8");
+    assert.equal(mod.isThemeCwd(antifanRepo), false, "AntiFan repo with src/main/index.ts is NOT a theme");
+
+    // Real theme workspace: has .antifan, templates, or /customizes/ without AntiFan package name
+    fs.mkdirSync(path.join(realTheme, ".antifan"), { recursive: true });
+    fs.writeFileSync(
+      path.join(realTheme, "package.json"),
+      JSON.stringify({ name: "my-storefront-theme", version: "1.0.0" }),
+      "utf8"
+    );
+    assert.equal(mod.isThemeCwd(realTheme), true, "Real theme cwd is recognized as theme");
+
+    // Context in AntiFan repo does not inject MCP-first directive
+    const ctx = { cwd: antifanRepo };
+    const ctxOut = handlers.get("context")({ messages: [{ role: "user", content: "fix code" }] }, ctx);
+    assert.equal(ctxOut, undefined, "AntiFan repo cwd receives no MCP-first directive in context");
+  } finally {
+    fs.rmSync(antifanRepo, { recursive: true, force: true });
+    fs.rmSync(realTheme, { recursive: true, force: true });
+  }
 });
 
 test("edits to the AntiFan desktop repository never arm the QA gate, even under src/main/config/", () => {
   const { handlers } = loadHook();
   // An annotation-bound workspace that is the AntiFan repo itself: `config/` matches the theme path pattern.
   const repo = makeWorkspace();
-  fs.writeFileSync(path.join(repo, "package.json"), JSON.stringify({ name: "antifan-browser-desktop" }), "utf8");
-  const ctx = { cwd: repo };
-
-  writeCall(handlers, ctx, path.join(repo, "src", "main", "config", "storage-locations.ts"), "edit");
-  const res = handlers.get("tool_result")({ toolName: "edit", input: { path: "src/main/config/storage-locations.ts" }, content: "Applied" }, ctx);
-  assert.ok(!resText(res).includes(GATE_REMINDER_SENTINEL), "an AntiFan source edit is not a theme edit");
-
-  // The same workspace without the AntiFan package name still arms on a real theme path.
   const theme = makeWorkspace();
-  const themeCtx = { cwd: theme };
-  writeCall(handlers, themeCtx, path.join(theme, "config", "settings_schema.json"), "edit");
-  const themeRes = handlers.get("tool_result")({ toolName: "edit", input: { path: "config/settings_schema.json" }, content: "Applied" }, themeCtx);
-  assert.ok(resText(themeRes).includes(GATE_REMINDER_SENTINEL), "a theme config edit still arms the gate");
+  try {
+    fs.writeFileSync(path.join(repo, "package.json"), JSON.stringify({ name: "antifan-browser-desktop" }), "utf8");
+    const ctx = { cwd: repo };
+
+    writeCall(handlers, ctx, path.join(repo, "src", "main", "config", "storage-locations.ts"), "edit");
+    const res = handlers.get("tool_result")({ toolName: "edit", input: { path: "src/main/config/storage-locations.ts" }, content: "Applied" }, ctx);
+    assert.ok(!resText(res).includes(GATE_REMINDER_SENTINEL), "an AntiFan source edit is not a theme edit");
+
+    // The same workspace without the AntiFan package name still arms on a real theme path.
+    const themeCtx = { cwd: theme };
+    writeCall(handlers, themeCtx, path.join(theme, "config", "settings_schema.json"), "edit");
+    const themeRes = handlers.get("tool_result")({ toolName: "edit", input: { path: "config/settings_schema.json" }, content: "Applied" }, themeCtx);
+    assert.ok(resText(themeRes).includes(GATE_REMINDER_SENTINEL), "a theme config edit still arms the gate");
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+    fs.rmSync(theme, { recursive: true, force: true });
+  }
 });
 

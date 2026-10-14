@@ -31,6 +31,7 @@ export const REFUSAL_CODES = {
    * The fetch runs in `edit-guard.ts`; this is the code it refuses with on failure.
    */
   SETTINGS_DATA_FETCH_FAILED: "REFUSED_SETTINGS_DATA_FETCH_FAILED",
+  SETTINGS_DATA_CHANGED_ON_SHOP: "REFUSED_SETTINGS_DATA_CHANGED_ON_SHOP",
   /** The wiring failed before the policy could classify the call. See `edit-guard.ts`. */
   GUARD_ERROR: "REFUSED_GUARD_ERROR",
 } as const;
@@ -47,6 +48,14 @@ export const WRITE_TOOLS: Record<string, true> = {
   create_file: true,
   delete_file: true,
   append: true,
+};
+
+/** Tools whose target is a file on disk and that read without mutating. */
+export const READ_TOOLS: Record<string, true> = {
+  read: true,
+  read_file: true,
+  "file.read": true,
+  view: true,
 };
 
 /** Super-Fast is file-only: no dispatch, no eval, no shell, no network. */
