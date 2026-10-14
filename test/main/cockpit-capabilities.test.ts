@@ -19,9 +19,10 @@ import {
   setScopeCas,
   isProvisionalChecklistScope,
 } from '../../src/main/qa/theme-checklist-store';
-import type {
-  CapabilityRequestContext,
-  BrowserTarget,
+import {
+  CapabilityError,
+  type CapabilityRequestContext,
+  type BrowserTarget,
 } from '../../src/shared/control-plane-contracts';
 
 const defaultOptions = {
@@ -84,13 +85,21 @@ function makeCockpitTestFixture(options?: { isLegacy?: boolean; isHaravan?: bool
     }
   }
 
+  const navigations: Array<{ tabId: string; url: string }> = [];
+  const qaCalls: Array<{ tabId: string; workspaceRoot: string | undefined }> = [];
   const qaState: CockpitQaState = { status: 'pass', issueCount: 0, updatedAt: 1 };
   const host: CockpitHostPort = {
     hasTab: (tabId) => tabId === 'tab-1',
     getTabUrl: (tabId) => (tabId === 'tab-1' ? 'https://shop.example.com/' : ''),
     resolveTabWorkspaceRoot: () => root,
-    navigateAndWait: async () => true,
-    runThemeQa: async () => ({ ok: true, report: { summary: { passed: true } } }),
+    navigateAndWait: async (tabId, url) => {
+      navigations.push({ tabId, url });
+      return true;
+    },
+    runThemeQa: async (tabId, qaOpts) => {
+      qaCalls.push({ tabId, workspaceRoot: qaOpts?.workspaceRoot });
+      return { ok: true, report: { summary: { passed: true } } };
+    },
     getThemeQaState: () => qaState,
     checklistLoad: (_tabId, input) => {
       const snap = getScope(input.workspaceRoot, input.scope);
@@ -133,7 +142,7 @@ function makeCockpitTestFixture(options?: { isLegacy?: boolean; isHaravan?: bool
   registerCockpitCapabilities(catalogue, cockpit, browserStub);
   const scope = checklistScope('https://shop.example.com', workspaceTag(root));
 
-  return { catalogue, cockpit, root, scope };
+  return { catalogue, cockpit, root, scope, navigations, qaCalls };
 }
 
 describe('cockpit-capabilities (Phase 5)', () => {
@@ -227,6 +236,99 @@ describe('cockpit-capabilities (Phase 5)', () => {
       };
 
       assert.deepStrictEqual(report1.settingsSummary, report2.settingsSummary, 'consecutive report calls must yield identical settingsSummary');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('theme.cockpit_scan scans explicit same-origin PDP path on product page and refuses cross-origin, non-PDP, or omitted url off-PDP', async () => {
+    const { catalogue, root, navigations, qaCalls } = makeCockpitTestFixture({ isLegacy: false });
+    try {
+      // Omitted url while bound tab is on / -> ROUTE_UNRESOLVED
+      await assert.rejects(
+        () => catalogue.dispatch('theme.cockpit_scan', { page: 'product' }, makeBoundContext()),
+        (err: unknown) => err instanceof CapabilityError && err.code === 'ROUTE_UNRESOLVED'
+      );
+      assert.strictEqual(navigations.length, 0);
+
+      // Cross-origin url -> ROUTE_UNRESOLVED
+      await assert.rejects(
+        () =>
+          catalogue.dispatch(
+            'theme.cockpit_scan',
+            { page: 'product', url: 'https://evil.example.com/products/demo-item' },
+            makeBoundContext()
+          ),
+        (err: unknown) => err instanceof CapabilityError && err.code === 'ROUTE_UNRESOLVED'
+      );
+      assert.strictEqual(navigations.length, 0);
+
+      // Non-PDP path on product page -> ROUTE_UNRESOLVED
+      await assert.rejects(
+        () =>
+          catalogue.dispatch(
+            'theme.cockpit_scan',
+            { page: 'product', url: '/collections/all' },
+            makeBoundContext()
+          ),
+        (err: unknown) => err instanceof CapabilityError && err.code === 'ROUTE_UNRESOLVED'
+      );
+      assert.strictEqual(navigations.length, 0);
+
+      // Explicit same-origin PDP path -> navigates and runs QA
+      const scanRes = (await catalogue.dispatch(
+        'theme.cockpit_scan',
+        { page: 'product', url: '/products/demo-item' },
+        makeBoundContext()
+      )) as { ok: boolean };
+      assert.strictEqual(scanRes.ok, true);
+      assert.deepStrictEqual(navigations, [
+        { tabId: 'tab-1', url: 'https://shop.example.com/products/demo-item' },
+      ]);
+      assert.strictEqual(qaCalls.length, 1);
+      assert.strictEqual(qaCalls[0]?.tabId, 'tab-1');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('theme.cockpit_scan honors explicit url when page is omitted and refuses cross-origin url', async () => {
+    const { catalogue, root, navigations, qaCalls } = makeCockpitTestFixture({ isLegacy: false });
+    try {
+      await assert.rejects(
+        () =>
+          catalogue.dispatch(
+            'theme.cockpit_scan',
+            { url: 'https://evil.example.com/products/demo-item' },
+            makeBoundContext()
+          ),
+        (err: unknown) => err instanceof CapabilityError && err.code === 'ROUTE_UNRESOLVED'
+      );
+      assert.strictEqual(navigations.length, 0);
+      assert.strictEqual(qaCalls.length, 0);
+
+      const pdpRes = (await catalogue.dispatch(
+        'theme.cockpit_scan',
+        { url: '/products/demo-item' },
+        makeBoundContext()
+      )) as { ok: boolean };
+      assert.strictEqual(pdpRes.ok, true);
+      assert.deepStrictEqual(navigations, [
+        { tabId: 'tab-1', url: 'https://shop.example.com/products/demo-item' },
+      ]);
+      assert.strictEqual(qaCalls.length, 1);
+
+      const customRes = (await catalogue.dispatch(
+        'theme.cockpit_scan',
+        { url: '/pages/custom-landing' },
+        makeBoundContext()
+      )) as { ok: boolean };
+      assert.strictEqual(customRes.ok, true);
+      assert.deepStrictEqual(navigations, [
+        { tabId: 'tab-1', url: 'https://shop.example.com/products/demo-item' },
+        { tabId: 'tab-1', url: 'https://shop.example.com/pages/custom-landing' },
+      ]);
+      assert.strictEqual(qaCalls.length, 2);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }

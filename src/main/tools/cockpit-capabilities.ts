@@ -69,7 +69,7 @@ export interface CockpitSettingsSummary {
   topViolations: SettingsFinding[];
 }
 
-function isHaravanThemeWorkspace(workspaceRoot: string): boolean {
+export function isHaravanThemeWorkspace(workspaceRoot: string): boolean {
   if (!workspaceRoot || !fs.existsSync(workspaceRoot)) return false;
   if (fs.existsSync(path.join(workspaceRoot, '.haravan-cli_local.json'))) return true;
   if (fs.existsSync(path.join(workspaceRoot, 'config', 'settings.html'))) return true;
@@ -253,10 +253,27 @@ function resolveBoundScope(
  * Mirrors the toolbar's `resolveChecklistRoute`: fixed `pageDef.path` resolves
  * against the bound tab's origin; `handle-required` pages (product) reuse the
  * bound tab's current URL only when it is a live `/products/<handle>` — a scan
- * route is never fabricated for a page the storefront cannot serve.
+ * route is never fabricated for a page the storefront cannot serve. When an
+ * explicit `url` is supplied, it resolves against `origin`, must stay on the
+ * same origin, and for `handle-required` pages must match `PRODUCT_PAGE_PATH`.
  */
-function resolveScanRoute(page: string, boundUrl: string, origin: string): string | null {
-  const pageDef = PAGE_DEFS[page];
+function resolveScanRoute(page: string, boundUrl: string, origin: string, explicitUrl?: string): string | null {
+  const pageDef = page ? PAGE_DEFS[page] : undefined;
+  if (typeof explicitUrl === 'string' && explicitUrl.trim()) {
+    if (page && !pageDef) return null;
+    if (!origin) return null;
+    try {
+      const baseOrigin = new URL(origin).origin;
+      const candidate = new URL(explicitUrl.trim(), baseOrigin);
+      if (candidate.origin !== baseOrigin) return null;
+      if (pageDef?.routeKind === 'handle-required' && !PRODUCT_PAGE_PATH.test(candidate.pathname)) {
+        return null;
+      }
+      return candidate.href;
+    } catch {
+      return null;
+    }
+  }
   if (!pageDef) return null;
   if (pageDef.routeKind === 'handle-required') {
     if (!boundUrl) return null;
@@ -458,24 +475,41 @@ export function registerCockpitCapabilities(
       type: 'object',
       properties: {
         page: { type: 'string', description: 'PAGE_DEFS page key; when omitted the tab is scanned on its current URL' },
+        url: { type: 'string', description: 'Optional explicit same-origin URL or /products/<handle> path to scan' },
         workspaceRoot: { type: 'string', description: 'Workspace root assertion; confined to the bound tab resolved root before the QA run' },
         tabId: { type: 'string' },
       },
     },
-    execute: async (params: { page?: string; workspaceRoot?: string; tabId?: string }, context) => {
+    execute: async (params: { page?: string; url?: string; workspaceRoot?: string; tabId?: string }, context) => {
       const identity = resolveBoundScope(cockpit, params, context, 'theme.cockpit_scan');
       const boundUrl = await browser.getLiveTabUrl(identity.tabId).catch(() => '');
       const page = typeof params.page === 'string' ? params.page.trim() : '';
-      if (page) {
-        const pageDef = PAGE_DEFS[page];
-        if (!pageDef) {
+      const explicitUrl = typeof params.url === 'string' ? params.url.trim() : '';
+      if (page || explicitUrl) {
+        if (page && !PAGE_DEFS[page]) {
           throw new CapabilityError('INVALID_ARGUMENT', `theme.cockpit_scan page '${page}' is not a known page; expected one of ${Object.keys(PAGE_DEFS).join(', ')}`);
         }
-        const route = resolveScanRoute(page, boundUrl, identity.origin);
+        let resolvedPage = page;
+        if (!resolvedPage && explicitUrl && identity.origin) {
+          try {
+            const candidate = new URL(explicitUrl, new URL(identity.origin).origin);
+            if (PRODUCT_PAGE_PATH.test(candidate.pathname)) {
+              resolvedPage = 'product';
+            } else {
+              const matched = Object.entries(PAGE_DEFS).find(
+                ([, def]) => def.routeKind !== 'handle-required' && def.path === candidate.pathname
+              );
+              if (matched) resolvedPage = matched[0];
+            }
+          } catch {}
+        }
+        const pageDef = resolvedPage ? PAGE_DEFS[resolvedPage] : undefined;
+        const pageLabel = resolvedPage || 'custom';
+        const route = resolveScanRoute(resolvedPage, boundUrl, identity.origin, explicitUrl || undefined);
         if (!route) {
           throw new CapabilityError(
             'ROUTE_UNRESOLVED',
-            `theme.cockpit_scan cannot resolve a route for page '${page}' on '${identity.origin || 'unbound'}'${pageDef.routeKind === 'handle-required' ? '; open a live /products/<handle> page on the bound tab first' : ''}`
+            `theme.cockpit_scan cannot resolve a route for page '${pageLabel}' on '${identity.origin || 'unbound'}'${pageDef?.routeKind === 'handle-required' ? '; open a live /products/<handle> page on the bound tab first' : ''}`
           );
         }
         // Already on the resolved route: the QA run reloads itself, so a

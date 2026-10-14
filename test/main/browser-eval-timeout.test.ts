@@ -136,6 +136,7 @@ describe('TabDevToolsHost.evalJs in-page budget guard', () => {
         const msg = err instanceof Error ? err.message : String(err);
         assert.ok(msg.includes('Evaluation timed out after'), `expected timeout message, got: ${msg}`);
         assert.ok(msg.includes('tab visibility: visible'), `expected visible suffix, got: ${msg}`);
+        assert.ok(msg.includes('[new Promise(()=>{})]'), `expected expression preview suffix, got: ${msg}`);
         return true;
       }
     );
@@ -150,6 +151,7 @@ describe('TabDevToolsHost.evalJs in-page budget guard', () => {
       (err: unknown) => {
         const msg = err instanceof Error ? err.message : String(err);
         assert.ok(msg.includes('tab visibility: hidden'), `expected hidden suffix, got: ${msg}`);
+        assert.ok(msg.includes('[new Promise(()=>{})]'), `expected expression preview suffix, got: ${msg}`);
         return true;
       }
     );
@@ -301,5 +303,81 @@ describe('TabDevToolsHost evaluation failures cross the Electron boundary readab
     const value = await host.evalJs(refused, 'tab-1', 'desktop', false, 2_000);
     assert.deepStrictEqual(value, { answeredBy: 'cdp' });
     assert.deepStrictEqual(cdpCalls, ['Runtime.evaluate']);
+  });
+
+  it('an in-page Event rejection surfaces Event(type) and target instead of empty {}', async () => {
+    await assert.rejects(
+      () => makeHost().evalJs(`Promise.reject(new Event('error'))`, 'tab-1', 'desktop', false, 2_000),
+      (err: unknown) => {
+        assert.ok(err instanceof Error, `expected Error, got ${String(err)}`);
+        assert.match(err.message, /Event\(error\)/);
+        assert.doesNotMatch(err.message, /^\{\}$/);
+        return true;
+      }
+    );
+
+    const eventWithTarget = `(() => {
+      const ev = new Event('error');
+      Object.defineProperty(ev, 'target', { value: { tagName: 'IMG', src: 'https://cdn.example/missing.png' } });
+      return Promise.reject(ev);
+    })()`;
+    await assert.rejects(
+      () => makeHost().evalJs(eventWithTarget, 'tab-1', 'desktop', false, 2_000),
+      readable(/Event\(error\) on <img https:\/\/cdn\.example\/missing\.png>/)
+    );
+  });
+
+  it('an ErrorEvent with a message preserves its message alongside the Event(type) prefix', async () => {
+    const errorEventWithTarget = `(() => {
+      class ErrorEvent extends Event {
+        constructor(type, init) {
+          super(type);
+          this.message = (init && init.message) || '';
+        }
+      }
+      const ev = new ErrorEvent('error', { message: 'Uncaught ReferenceError: x is not defined' });
+      Object.defineProperty(ev, 'target', { value: { tagName: 'SCRIPT', src: 'https://cdn.example/app.js' } });
+      return Promise.reject(ev);
+    })()`;
+    await assert.rejects(
+      () => makeHost().evalJs(errorEventWithTarget, 'tab-1', 'desktop', false, 2_000),
+      readable(/^Event\(error\) on <script https:\/\/cdn\.example\/app\.js>: Uncaught ReferenceError: x is not defined$/)
+    );
+  });
+
+  it('a non-Event object carrying a .type property is not mislabelled as Event(...)', async () => {
+    const plainWithType = `Promise.reject({ type: 'cors', status: 502 })`;
+    await assert.rejects(
+      () => makeHost().evalJs(plainWithType, 'tab-1', 'desktop', false, 2_000),
+      (err: unknown) => {
+        assert.ok(err instanceof Error, `expected Error, got ${String(err)}`);
+        assert.doesNotMatch(err.message, /Event\(/);
+        assert.match(err.message, /"type":"cors"/);
+        return true;
+      }
+    );
+
+    const blobWithType = `Promise.reject(new Blob(['x'], { type: 'image/png' }))`;
+    await assert.rejects(
+      () => makeHost().evalJs(blobWithType, 'tab-1', 'desktop', false, 2_000),
+      (err: unknown) => {
+        assert.ok(err instanceof Error, `expected Error, got ${String(err)}`);
+        assert.doesNotMatch(err.message, /Event\(/);
+        assert.match(err.message, /Blob: \[object Blob\]/);
+        return true;
+      }
+    );
+  });
+
+  it('a child frame evaluation timeout carries the expression preview', async () => {
+    await assert.rejects(
+      () => makeHost().evalJsInFrame('new Promise(()=>{})', 'checkout.example', 'tab-1', 'desktop', false, 80),
+      (err: unknown) => {
+        assert.ok(err instanceof CapabilityError, `expected CapabilityError, got ${String(err)}`);
+        assert.strictEqual(err.code, 'EXECUTION_ERROR');
+        assert.ok(err.message.includes('Evaluation timed out after 80ms (tab visibility: visible) [new Promise(()=>{})]'), `expected timeout with expression preview, got: ${err.message}`);
+        return true;
+      }
+    );
   });
 });

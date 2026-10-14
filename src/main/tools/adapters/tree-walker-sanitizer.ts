@@ -153,7 +153,14 @@ export function buildTreeWalkerSanitizerScript(options: TreeWalkerSanitizerOptio
         }
       }
 
-      if (isFullDoc) {
+      const hasCloneParityMarkers = Boolean(
+        isFullDoc &&
+          clone.querySelector &&
+          clone.querySelector(
+            '#category-navigation__sub, .category-navigation__sub, .category-navigation__block, .category-navigation__list, .category-navigation__main, .category-navigation__header'
+          )
+      );
+      if (hasCloneParityMarkers) {
         if (!clone.querySelector('#antifan-clone-parity')) {
           const head = clone.querySelector('head') || clone;
           const parityStyle = document.createElement('style');

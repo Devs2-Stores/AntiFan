@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { BrowserTarget, CapabilityRequestContext, AuthenticatedCapabilityContext, CapabilityError, CapabilityEffectPolicyInput, CapabilityRisk, ReceiptBinding, digestText } from '../../shared/control-plane-contracts';
-import { BrowserControlPort, BrowserWaitParams, VISUAL_COMPARE_EXECUTION_BUDGET_MS, VISUAL_COMPARE_CANCELLATION_ACK_MS, FULL_PAGE_CAPTURE_EXECUTION_BUDGET_MS, FULL_PAGE_CAPTURE_CANCELLATION_ACK_MS, VIEWPORT_CAPTURE_EXECUTION_BUDGET_MS, VIEWPORT_CAPTURE_CANCELLATION_ACK_MS, REFERENCE_CAPTURE_EXECUTION_BUDGET_MS, REFERENCE_CAPTURE_CANCELLATION_ACK_MS, BROWSER_WAIT_INVOCATION_BUDGET_MS, BROWSER_EVAL_INVOCATION_BUDGET_MS } from './browser-control-port';
+import { BrowserControlPort, BrowserWaitParams, ResponsiveBreakpointOption, VISUAL_COMPARE_EXECUTION_BUDGET_MS, VISUAL_COMPARE_CANCELLATION_ACK_MS, FULL_PAGE_CAPTURE_EXECUTION_BUDGET_MS, FULL_PAGE_CAPTURE_CANCELLATION_ACK_MS, VIEWPORT_CAPTURE_EXECUTION_BUDGET_MS, VIEWPORT_CAPTURE_CANCELLATION_ACK_MS, REFERENCE_CAPTURE_EXECUTION_BUDGET_MS, REFERENCE_CAPTURE_CANCELLATION_ACK_MS, BROWSER_WAIT_INVOCATION_BUDGET_MS, BROWSER_EVAL_INVOCATION_BUDGET_MS } from './browser-control-port';
 import { CapabilityCatalogue } from './capability-catalogue';
 import { PlatformDetector } from '../qa/scanners/platform-detector';
 import { loadOrBootstrapBaseline, evaluateSettingsRatchet, type SettingsFinding } from '../qa/settings-ratchet';
@@ -2909,22 +2909,107 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       properties: {
         selector: { type: 'string', description: 'Optional CSS selector of the component to measure across breakpoints' },
         tabId: { type: 'string', description: 'Optional target tab ID' },
+        customBreakpoints: {
+          type: 'array',
+          items: { type: 'object' },
+          description: 'Optional custom breakpoints ({ id, name, width, height, mobile, deviceScaleFactor })',
+        },
       },
     },
-    execute: async (params: { selector?: string; tabId?: string }, context) => {
+    execute: async (
+      params: {
+        selector?: string;
+        tabId?: string;
+        customBreakpoints?: Array<{
+          id?: string;
+          name?: string;
+          width?: number;
+          height?: number;
+          mobile?: boolean;
+          deviceScaleFactor?: number;
+        }>;
+      },
+      context
+    ) => {
+      let normalizedCustomBreakpoints: ResponsiveBreakpointOption[] | undefined;
+      if (Array.isArray(params.customBreakpoints) && params.customBreakpoints.length > 0) {
+        const seenIds: Record<string, true> = Object.create(null);
+        normalizedCustomBreakpoints = params.customBreakpoints.map((bp, idx) => {
+          if (
+            !bp ||
+            typeof bp !== 'object' ||
+            typeof bp.width !== 'number' ||
+            !Number.isFinite(bp.width) ||
+            bp.width < 240 ||
+            bp.width > 3840
+          ) {
+            const badWidth = bp && typeof bp === 'object' && 'width' in bp ? String(bp.width) : 'undefined';
+            throw new CapabilityError(
+              'INVALID_ARGUMENT',
+              `customBreakpoints width ${badWidth} is out of range; expected a finite width between 240 and 3840`
+            );
+          }
+          const width = Math.round(bp.width);
+          const height =
+            typeof bp.height === 'number' && Number.isFinite(bp.height) && bp.height >= 240 && bp.height <= 3840
+              ? Math.round(bp.height)
+              : width < 768
+                ? 667
+                : width < 1024
+                  ? 1024
+                  : width < 1440
+                    ? 768
+                    : 900;
+          const mobile = typeof bp.mobile === 'boolean' ? bp.mobile : width < 768;
+          const deviceScaleFactor =
+            typeof bp.deviceScaleFactor === 'number' && Number.isFinite(bp.deviceScaleFactor) && bp.deviceScaleFactor > 0
+              ? bp.deviceScaleFactor
+              : width <= 1024
+                ? 2
+                : 1;
+          const baseId = typeof bp.id === 'string' && bp.id.trim().length > 0 ? bp.id.trim() : `bp-${width}`;
+          const modeTag = mobile ? 'mobile' : 'desktop';
+          let id = baseId;
+          if (seenIds[id]) {
+            id = `${baseId}-${modeTag}`;
+          }
+          let suffix = idx + 1;
+          while (seenIds[id]) {
+            id = `${baseId}-${modeTag}-${suffix}`;
+            suffix += 1;
+          }
+          seenIds[id] = true;
+          return {
+            id,
+            name: typeof bp.name === 'string' && bp.name.trim().length > 0 ? bp.name.trim() : `${width}px`,
+            width,
+            height,
+            mobile,
+            deviceScaleFactor,
+          };
+        });
+      }
       // Only the declared inputs go through: `perWidthScript` runs in the page and is not a caller option.
-      const rawRes = await browser.responsiveCheck({ selector: params.selector, tabId: params.tabId }, context.browserTarget as BrowserTarget);
+      const rawRes = await browser.responsiveCheck(
+        {
+          selector: params.selector,
+          tabId: params.tabId,
+          ...(normalizedCustomBreakpoints ? { customBreakpoints: normalizedCustomBreakpoints } : {}),
+        },
+        context.browserTarget as BrowserTarget
+      );
       const typedRaw = (rawRes && typeof rawRes === 'object') ? (rawRes as Record<string, unknown>) : {};
       const isOk = typedRaw.ok !== false;
       const breakpoints = (typedRaw.breakpoints && typeof typedRaw.breakpoints === 'object')
         ? (typedRaw.breakpoints as Record<string, Record<string, unknown>>)
         : {};
       const bpEntries = Object.values(breakpoints);
+      const expectedCount = normalizedCustomBreakpoints ? normalizedCustomBreakpoints.length : 5;
 
       const hasDocOverflow = bpEntries.some((b) => b.documentOverflowX === true || b.hasHorizontalOverflow === true);
       const hasTargetOverflow = bpEntries.some((b) => b.targetOverflowX === true);
       const allMeasured = isOk
-        && bpEntries.length >= 5
+        && bpEntries.length >= expectedCount
         && bpEntries.every((b) => b.emulationApplied !== false
           && (typeof b.documentOverflowX === 'boolean' || typeof b.hasHorizontalOverflow === 'boolean'));
 
@@ -3501,41 +3586,55 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
           const explicitGid = ${JSON.stringify(params.gid || '')};
           const matchGid = explicitGid || (url.match(/[#&]gid=([0-9]+)/) || [])[1] || '0';
 
-          const gvizUrl = '/spreadsheets/d/' + sheetId + '/gviz/tq?tqx=out:csv&gid=' + matchGid;
+          // headers=0: without it GViz guesses a header block and joins the first
+          // rows' cells into one header row, so row N no longer means sheet row N.
+          const gvizUrl = '/spreadsheets/d/' + sheetId + '/gviz/tq?tqx=out:csv&headers=0&gid=' + matchGid;
           const res = await fetch(gvizUrl, { credentials: 'include' });
           if (!res.ok) return { success: false, status: res.status, error: 'GViz request returned HTTP ' + res.status };
           const csv = await res.text();
 
-          function parseCsvRow(line) {
-            const cells = [];
+          function parseCsvRecords(text) {
+            const rows = [];
+            let row = [];
             let cur = '';
             let inQuotes = false;
-            for (let i = 0; i < line.length; i++) {
-              const c = line[i];
+            for (let i = 0; i < text.length; i++) {
+              const c = text[i];
               if (c === '"') {
-                if (inQuotes && line[i+1] === '"') { cur += '"'; i++; }
+                if (inQuotes && text[i + 1] === '"') { cur += '"'; i++; }
                 else { inQuotes = !inQuotes; }
               } else if (c === ',' && !inQuotes) {
-                cells.push(cur.trim());
+                row.push(cur.trim());
                 cur = '';
+              } else if ((c === '\\r' || c === '\\n') && !inQuotes) {
+                if (c === '\\r' && text[i + 1] === '\\n') i++;
+                row.push(cur.trim());
+                cur = '';
+                // Blank rows inside the data stay: records[N - 1] is sheet row N.
+                rows.push(row);
+                row = [];
               } else {
                 cur += c;
               }
             }
-            cells.push(cur.trim());
-            return cells;
+            if (cur.length > 0 || row.length > 0) {
+              row.push(cur.trim());
+              rows.push(row);
+            }
+            while (rows.length > 0 && !rows[rows.length - 1].some((cell) => cell.length > 0)) rows.pop();
+            return rows;
           }
 
-          const lines = csv.split(/\\r?\\n/).filter(l => l.trim().length > 0);
-          const headers = lines[0] ? parseCsvRow(lines[0]) : [];
+          const records = parseCsvRecords(csv);
+          const headers = records[0] || [];
 
           if (${JSON.stringify(targetRow)}) {
             const rowIdx = ${JSON.stringify(targetRow)} - 1;
-            if (lines.length <= rowIdx) {
-              return { success: false, error: 'Row ' + ${JSON.stringify(targetRow)} + ' exceeds total rows (' + lines.length + ')' };
+            if (records.length <= rowIdx) {
+              return { success: false, error: 'Row ' + ${JSON.stringify(targetRow)} + ' exceeds total rows (' + records.length + ')' };
             }
-            const rawRow = lines[rowIdx];
-            const cells = parseCsvRow(rawRow);
+            const cells = records[rowIdx];
+            const rawRow = cells.join(' | ');
             const mapped = {};
             headers.forEach((h, idx) => {
               mapped[h || ('col_' + (idx + 1))] = cells[idx] || '';
@@ -3545,7 +3644,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
               sheetId,
               gid: matchGid,
               targetRow: ${JSON.stringify(targetRow)},
-              totalRows: lines.length,
+              totalRows: records.length,
               headers,
               data: mapped,
               raw: rawRow
@@ -3556,9 +3655,9 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
             success: true,
             sheetId,
             gid: matchGid,
-            totalRows: lines.length,
+            totalRows: records.length,
             headers,
-            rowsCount: lines.length
+            rowsCount: records.length
           };
         } catch (err) {
           return { success: false, error: err.message };

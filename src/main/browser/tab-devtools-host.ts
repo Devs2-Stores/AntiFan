@@ -299,7 +299,30 @@ const NORMALIZE_THROWN_SOURCE = `function normalizeThrown(err) {
     } else {
       message = String(err);
     }
-    const text = name && name !== 'Error' ? name + ': ' + message : message;
+    if (isObj && ((typeof Event !== 'undefined' && err instanceof Event) || message === '{}' || message === '[]' || message === '')) {
+      if (typeof Event !== 'undefined' && err instanceof Event && typeof err.type === 'string' && err.type.length > 0) {
+        const target = err.target;
+        const tag = target && typeof target.tagName === 'string' && target.tagName.length > 0
+          ? String(target.tagName).toLowerCase()
+          : '';
+        const ref = target && (typeof target.src === 'string' && target.src.length > 0
+          ? target.src
+          : (typeof target.href === 'string' && target.href.length > 0 ? target.href : ''));
+        const targetDesc = tag ? ' on <' + tag + (ref ? ' ' + ref : '') + '>' : '';
+        const eventLabel = 'Event(' + err.type + ')' + targetDesc;
+        message = typeof err.message === 'string' && err.message.length > 0
+          ? eventLabel + ': ' + err.message
+          : eventLabel;
+      } else if (!name && (message === '{}' || message === '[]' || message === '')) {
+        const ctorName = err.constructor && typeof err.constructor.name === 'string' &&
+          err.constructor.name !== 'Object' && err.constructor.name !== 'Error'
+          ? err.constructor.name
+          : '';
+        const str = String(err);
+        message = ctorName ? ctorName + ': ' + str : str;
+      }
+    }
+    const text = name && name !== 'Error' ? (message ? name + ': ' + message : name) : message;
     const rebuilt = new Error(text);
     const frames = isObj && typeof err.stack === 'string'
       ? err.stack.split('\\n').filter((line) => /^\\s+at /.test(line)).join('\\n')
@@ -3159,10 +3182,11 @@ export class TabDevToolsHost {
         try {
           // In-page execution budget guard
           const execBudgetMs = ${JSON.stringify(softBudgetMs)};
+          const exprPreview = ${JSON.stringify(expression.replace(/\s+/g, ' ').trim().slice(0, 80))};
           const execPromise = (async () => (0, eval)(${JSON.stringify(expression)}))();
           let timer;
           const timeoutPromise = new Promise((_, reject) => {
-            timer = setTimeout(() => reject(new Error('Evaluation timed out after ' + execBudgetMs + 'ms (tab visibility: ' + (typeof document !== 'undefined' && document.hidden ? 'hidden' : 'visible') + ')')), execBudgetMs);
+            timer = setTimeout(() => reject(new Error('Evaluation timed out after ' + execBudgetMs + 'ms (tab visibility: ' + (typeof document !== 'undefined' && document.hidden ? 'hidden' : 'visible') + ')' + (exprPreview ? ' [' + exprPreview + ']' : ''))), execBudgetMs);
           });
           const result = await Promise.race([execPromise, timeoutPromise]).finally(() => clearTimeout(timer));
           return serializeCircularSafe(result);
@@ -3271,12 +3295,13 @@ export class TabDevToolsHost {
   ${NORMALIZE_THROWN_SOURCE}
   try {
     const execBudgetMs = ${JSON.stringify(softBudgetMs)};
+    const exprPreview = ${JSON.stringify(expression.replace(/\s+/g, ' ').trim().slice(0, 80))};
     const execPromise = (async () => (
 ${expression}
 ))();
     let timer;
     const timeoutPromise = new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error('Evaluation timed out after ' + execBudgetMs + 'ms (tab visibility: ' + (typeof document !== 'undefined' && document.hidden ? 'hidden' : 'visible') + ')')), execBudgetMs);
+      timer = setTimeout(() => reject(new Error('Evaluation timed out after ' + execBudgetMs + 'ms (tab visibility: ' + (typeof document !== 'undefined' && document.hidden ? 'hidden' : 'visible') + ')' + (exprPreview ? ' [' + exprPreview + ']' : ''))), execBudgetMs);
     });
     const result = await Promise.race([execPromise, timeoutPromise]).finally(() => clearTimeout(timer));
     return serializeCircularSafe(result);

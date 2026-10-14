@@ -190,6 +190,42 @@ describe('Preview Protocol & Watcher Suite', () => {
       assert.strictEqual(pool.getActiveWatcherCount(), 0);
       unsubC(); // Unsub after clear is safe no-op
     });
+
+    it('ignores file changes under specs/ while dispatching workspace file updates', (t) => {
+      t.mock.timers.enable({ apis: ['setTimeout'] });
+      const pool = new PreviewWatcherPool();
+      const events: PreviewChangeEvent[] = [];
+
+      assert.strictEqual(PreviewWatcherPool.isIgnoredPath('specs/qa-matrix.json'), true);
+      assert.strictEqual(PreviewWatcherPool.isIgnoredPath('specs\\qa-matrix-mobile.json'), true);
+      assert.strictEqual(PreviewWatcherPool.isIgnoredPath('/specs/qa-matrix.json'), true);
+      assert.strictEqual(PreviewWatcherPool.isIgnoredPath('style.css'), false);
+      assert.strictEqual(PreviewWatcherPool.isIgnoredPath('sections/specs-banner.liquid'), false);
+
+      const unsub = pool.retain('cap-specs-ignore', tmpDir, (event) => {
+        events.push(event);
+      });
+
+      try {
+        const watchers = Reflect.get(pool, 'watchers');
+        assert.ok(watchers instanceof Map, 'watchers map must exist on pool');
+        const entry = watchers.get('cap-specs-ignore');
+        assert.ok(entry && typeof entry === 'object' && 'watcher' in entry && entry.watcher);
+        const watcher = entry.watcher as fs.FSWatcher;
+
+        watcher.emit('change', 'change', 'specs/qa-matrix.json');
+        watcher.emit('change', 'change', 'specs\\qa-matrix-mobile.json');
+        t.mock.timers.tick(200);
+        assert.strictEqual(events.length, 0, 'writes under specs/ must not trigger preview reload events');
+
+        watcher.emit('change', 'change', 'style.css');
+        t.mock.timers.tick(200);
+        assert.strictEqual(events.length, 1, 'non-ignored CSS changes must still emit css-swap');
+        assert.strictEqual(events[0]?.type, 'css-swap');
+      } finally {
+        unsub();
+      }
+    });
   });
 
   describe('NativeTabHost preview lifecycle & IPC integration', () => {

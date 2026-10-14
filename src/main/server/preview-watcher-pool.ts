@@ -20,6 +20,7 @@ const IGNORED_DIR_PATTERNS = [
   /^[/\\]?node_modules([/\\]|$)/i,
   /^[/\\]?\.git([/\\]|$)/i,
   /^[/\\]?\.antifan([/\\]|$)/i,
+  /^[/\\]?specs([/\\]|$)/i,
   /^[/\\]?dist([/\\]|$)/i,
   /^[/\\]?build([/\\]|$)/i,
   /^[/\\]?\.cache([/\\]|$)/i,
@@ -34,6 +35,15 @@ const IGNORED_DIR_PATTERNS = [
 export class PreviewWatcherPool {
   private watchers = new Map<string, WatcherEntry>();
 
+  public static isIgnoredPath(filename: string): boolean {
+    const normalized = filename.replace(/\\/g, '/');
+    for (const pattern of IGNORED_DIR_PATTERNS) {
+      if (pattern.test(normalized) || pattern.test('/' + normalized)) {
+        return true;
+      }
+    }
+    return false;
+  }
   public retain(
     capsuleId: string,
     workspacePath: string,
@@ -78,13 +88,11 @@ export class PreviewWatcherPool {
             if (!filename) return;
 
             // Filter out ignored paths
-            const normalized = filename.replace(/\\/g, '/');
-            for (const pattern of IGNORED_DIR_PATTERNS) {
-              if (pattern.test(normalized) || pattern.test('/' + normalized)) {
-                return;
-              }
+            if (PreviewWatcherPool.isIgnoredPath(filename)) {
+              return;
             }
 
+            const normalized = filename.replace(/\\/g, '/');
             entryRef.pendingFiles.add(normalized);
 
             if (entryRef.debounceTimer) clearTimeout(entryRef.debounceTimer);

@@ -6,7 +6,8 @@ import * as path from 'node:path';
 import { CapabilityCatalogue } from '../../src/main/tools/capability-catalogue';
 import { registerBrowserCapabilities } from '../../src/main/tools/browser-capabilities';
 import { BrowserControlPort, BrowserHostPort } from '../../src/main/tools/browser-control-port';
-import { issueRuntimeLease, makeControlPlaneId, BrowserTarget } from '../../src/shared/control-plane-contracts';
+import * as vm from 'node:vm';
+import { issueRuntimeLease, makeControlPlaneId, BrowserTarget, CapabilityError } from '../../src/shared/control-plane-contracts';
 import { ThemeEvidenceEnvelope, isThemeEvidenceEnvelope } from '../../src/main/tools/theme-evidence-envelope';
 import { ThemeSourceMapper, isAuthoritativeSourceCandidate } from '../../src/main/browser/theme-source-mapper';
 import { CssCascadeAnalyzer, RawCdpMatchedStylesPayload } from '../../src/main/browser/css-cascade-analyzer';
@@ -475,5 +476,353 @@ describe('Phase 3: Theme Evidence Capabilities', () => {
     assert.strictEqual(capturedRect.y, 200);
     assert.strictEqual(capturedRect.width, 300);
     assert.strictEqual(capturedRect.height, 400);
+  });
+
+  it('anti.sheet.extract parses RFC-4180 multi-line quoted cells and escaped quotes without shifting rows', async () => {
+    const projectId = makeControlPlaneId('project');
+    const workspaceId = makeControlPlaneId('workspace');
+    const lease = issueRuntimeLease(projectId, workspaceId, 30_000, 1);
+    const catalogue = new CapabilityCatalogue({
+      runtime: { mode: 'standalone', lifecycle: 'active' },
+      projectId,
+      workspaceId,
+      runtimeId: lease.runtimeId,
+      hostEpoch: 1,
+      resolveTabId: (id) => (id === 'tab-sheet' ? 'tab-sheet' : undefined),
+      isTabAllowed: () => true,
+      getDocumentGeneration: () => 1,
+    });
+
+    const csvPayload = [
+      'ID,Feedback,Stage',
+      '1,"Header gap on desktop\nSecond line of feedback\r\nThird line with ""quoted"" note",Open',
+      '2,"Simple single line",Done',
+      '',
+      '   ',
+    ].join('\r\n');
+
+    const mockHost: BrowserHostPort = {
+      navigate: () => true,
+      reload: () => true,
+      getDom: async () => '<html></html>',
+      captureScreenshot: async () => 'data:image/png;base64,mock',
+      getTabList: () => [{ id: 'tab-sheet' }],
+      hasTab: (id) => id === 'tab-sheet',
+      evalJs: async (expr) => {
+        const sandbox = {
+          window: {
+            location: {
+              href: 'https://docs.google.com/spreadsheets/d/1AbCdEfGhIjKlMnOp/edit#gid=0',
+            },
+          },
+          fetch: async () => ({
+            ok: true,
+            status: 200,
+            text: async () => csvPayload,
+          }),
+        };
+        // executeJavaScript returns a serialized copy; mirror that so vm-realm arrays compare structurally.
+        return JSON.parse(JSON.stringify(await vm.runInNewContext(expr, sandbox)));
+      },
+    };
+
+    const port = new BrowserControlPort(mockHost);
+    registerBrowserCapabilities(catalogue, port, undefined, () => fixtureThemeRoot);
+
+    const target: BrowserTarget = {
+      tabId: 'tab-sheet',
+      browserEpoch: 1,
+      documentGeneration: 1,
+      runtimeId: lease.runtimeId,
+      projectId,
+      workspaceId,
+    };
+
+    const row2Res = (await catalogue.dispatch(
+      'anti.sheet.extract',
+      { tabId: 'tab-sheet', row: 2, gid: '77' },
+      { lease, leaseToken: lease.token, projectId, workspaceId, browserTarget: target }
+    )) as {
+      success: boolean;
+      gid: string;
+      targetRow: number;
+      totalRows: number;
+      headers: string[];
+      data: Record<string, string>;
+    };
+
+    assert.strictEqual(row2Res.success, true);
+    assert.strictEqual(row2Res.gid, '77');
+    assert.strictEqual(row2Res.targetRow, 2);
+    assert.strictEqual(row2Res.totalRows, 3);
+    assert.deepStrictEqual(row2Res.headers, ['ID', 'Feedback', 'Stage']);
+    assert.strictEqual(
+      row2Res.data.Feedback,
+      'Header gap on desktop\nSecond line of feedback\r\nThird line with "quoted" note'
+    );
+    assert.strictEqual(row2Res.data.Stage, 'Open');
+
+    const row3Res = (await catalogue.dispatch(
+      'anti.sheet.extract',
+      { tabId: 'tab-sheet', row: 3 },
+      { lease, leaseToken: lease.token, projectId, workspaceId, browserTarget: target }
+    )) as {
+      success: boolean;
+      totalRows: number;
+      data: Record<string, string>;
+    };
+    assert.strictEqual(row3Res.success, true);
+    assert.strictEqual(row3Res.totalRows, 3);
+    assert.strictEqual(row3Res.data.ID, '2');
+    assert.strictEqual(row3Res.data.Feedback, 'Simple single line');
+    assert.strictEqual(row3Res.data.Stage, 'Done');
+  });
+
+  it('anti.sheet.extract maps row N to sheet row N: no GViz header guessing, blank rows kept', async () => {
+    const projectId = makeControlPlaneId('project');
+    const workspaceId = makeControlPlaneId('workspace');
+    const lease = issueRuntimeLease(projectId, workspaceId, 30_000, 1);
+    const catalogue = new CapabilityCatalogue({
+      runtime: { mode: 'standalone', lifecycle: 'active' },
+      projectId,
+      workspaceId,
+      runtimeId: lease.runtimeId,
+      hostEpoch: 1,
+      resolveTabId: (id) => (id === 'tab-sheet' ? 'tab-sheet' : undefined),
+      isTabAllowed: () => true,
+      getDocumentGeneration: () => 1,
+    });
+
+    // Sheet rows 1-4; row 3 is blank inside the data.
+    const sheetGrid = ['ID,Feedback,Stage', '1,Header gap,Open', ',,', '3,"Footer\nwraps",Fixed', ''].join('\r\n');
+    // What GViz answers without headers=0 on a feedback sheet: it guesses a header
+    // block and joins those rows' cells into one header row.
+    const guessedHeaderCsv = ['"ID 1","Feedback Header gap","Stage Open"', '"3","Footer\nwraps","Fixed"'].join('\n');
+    const mockHost: BrowserHostPort = {
+      navigate: () => true,
+      reload: () => true,
+      getDom: async () => '<html></html>',
+      captureScreenshot: async () => 'data:image/png;base64,mock',
+      getTabList: () => [{ id: 'tab-sheet' }],
+      hasTab: (id) => id === 'tab-sheet',
+      evalJs: async (expr) => {
+        const sandbox = {
+          window: { location: { href: 'https://docs.google.com/spreadsheets/d/1AbCdEfGhIjKlMnOp/edit#gid=0' } },
+          fetch: async (url: string) => ({
+            ok: true,
+            status: 200,
+            text: async () => (/[?&]headers=0(?:&|$)/.test(url) ? sheetGrid : guessedHeaderCsv),
+          }),
+        };
+        return JSON.parse(JSON.stringify(await vm.runInNewContext(expr, sandbox)));
+      },
+    };
+    const port = new BrowserControlPort(mockHost);
+    registerBrowserCapabilities(catalogue, port, undefined, () => fixtureThemeRoot);
+    const target: BrowserTarget = {
+      tabId: 'tab-sheet',
+      browserEpoch: 1,
+      documentGeneration: 1,
+      runtimeId: lease.runtimeId,
+      projectId,
+      workspaceId,
+    };
+    const extract = async (row: number) =>
+      (await catalogue.dispatch(
+        'anti.sheet.extract',
+        { tabId: 'tab-sheet', row },
+        { lease, leaseToken: lease.token, projectId, workspaceId, browserTarget: target }
+      )) as { success: boolean; totalRows: number; headers: string[]; data: Record<string, string> };
+
+    const row4 = await extract(4);
+    assert.strictEqual(row4.success, true);
+    assert.deepStrictEqual(row4.headers, ['ID', 'Feedback', 'Stage']);
+    assert.strictEqual(row4.totalRows, 4);
+    assert.deepStrictEqual(row4.data, { ID: '3', Feedback: 'Footer\nwraps', Stage: 'Fixed' });
+
+    const row3 = await extract(3);
+    assert.strictEqual(row3.success, true);
+    assert.deepStrictEqual(row3.data, { ID: '', Feedback: '', Stage: '' });
+  });
+
+  it('anti.inspect.responsive_matrix normalizes and forwards customBreakpoints and computes allMeasured against custom count', async () => {
+    const projectId = makeControlPlaneId('project');
+    const workspaceId = makeControlPlaneId('workspace');
+    const lease = issueRuntimeLease(projectId, workspaceId, 30_000, 1);
+    const catalogue = new CapabilityCatalogue({
+      runtime: { mode: 'standalone', lifecycle: 'active' },
+      projectId,
+      workspaceId,
+      runtimeId: lease.runtimeId,
+      hostEpoch: 1,
+      resolveTabId: (id) => (id === 'tab-1' ? 'tab-1' : undefined),
+      isTabAllowed: () => true,
+      getDocumentGeneration: () => 1,
+    });
+
+    let forwardedParams: Record<string, unknown> | undefined;
+    const mockHost: BrowserHostPort = {
+      navigate: () => true,
+      reload: () => true,
+      getDom: async () => '<html></html>',
+      captureScreenshot: async () => 'data:image/png;base64,mock',
+      getTabList: () => [{ id: 'tab-1' }],
+      evalJs: async () => ({}),
+      runResponsiveCheck: async (params) => {
+        forwardedParams = typeof params === 'object' && params ? (params as Record<string, unknown>) : undefined;
+        return {
+          ok: true,
+          tabId: 'tab-1',
+          breakpoints: {
+            'bp-390': { width: 390, documentOverflowX: false, targetOverflowX: false },
+            'desktop-wide': { width: 1280, documentOverflowX: false, targetOverflowX: true },
+          },
+        };
+      },
+    };
+
+    const port = new BrowserControlPort(mockHost);
+    registerBrowserCapabilities(catalogue, port, undefined, () => fixtureThemeRoot);
+
+    const target: BrowserTarget = {
+      tabId: 'tab-1',
+      browserEpoch: 1,
+      documentGeneration: 1,
+      runtimeId: lease.runtimeId,
+      projectId,
+      workspaceId,
+    };
+
+    const res = await catalogue.dispatch(
+      'anti.inspect.responsive_matrix',
+      {
+        selector: '.hero-banner',
+        tabId: 'tab-1',
+        customBreakpoints: [
+          { width: 390 },
+          { id: 'desktop-wide', name: 'Desktop 1280', width: 1280, height: 800, mobile: false, deviceScaleFactor: 1 },
+        ],
+      },
+      { lease, leaseToken: lease.token, projectId, workspaceId, browserTarget: target }
+    );
+
+    assert.ok(isThemeEvidenceEnvelope(res));
+    assert.strictEqual(res.evidenceQuality, 'HIGH');
+    assert.strictEqual(res.signals.allBreakpointsTested, true);
+    assert.strictEqual(res.signals.hasDocOverflow, false);
+    assert.strictEqual(res.signals.hasTargetOverflow, true);
+    assert.deepStrictEqual(forwardedParams?.customBreakpoints, [
+      { id: 'bp-390', name: '390px', width: 390, height: 667, mobile: true, deviceScaleFactor: 2 },
+      { id: 'desktop-wide', name: 'Desktop 1280', width: 1280, height: 800, mobile: false, deviceScaleFactor: 1 },
+    ]);
+
+    await assert.rejects(
+      async () => {
+        await catalogue.dispatch(
+          'anti.inspect.responsive_matrix',
+          {
+            tabId: 'tab-1',
+            customBreakpoints: [{ width: 120 }, { width: 5000 }],
+          },
+          { lease, leaseToken: lease.token, projectId, workspaceId, browserTarget: target }
+        );
+      },
+      (err: unknown) => err instanceof CapabilityError && err.code === 'INVALID_ARGUMENT'
+    );
+  });
+
+  it('anti.inspect.responsive_matrix assigns distinct ids to duplicate-width customBreakpoints and refuses out-of-range widths', async () => {
+    const projectId = makeControlPlaneId('project');
+    const workspaceId = makeControlPlaneId('workspace');
+    const lease = issueRuntimeLease(projectId, workspaceId, 30_000, 1);
+    const catalogue = new CapabilityCatalogue({
+      runtime: { mode: 'standalone', lifecycle: 'active' },
+      projectId,
+      workspaceId,
+      runtimeId: lease.runtimeId,
+      hostEpoch: 1,
+      resolveTabId: (id) => (id === 'tab-1' ? 'tab-1' : undefined),
+      isTabAllowed: () => true,
+      getDocumentGeneration: () => 1,
+    });
+
+    let forwardedBreakpoints: Array<{ id: string; width: number; mobile: boolean }> = [];
+    const mockHost: BrowserHostPort = {
+      navigate: () => true,
+      reload: () => true,
+      getDom: async () => '<html></html>',
+      captureScreenshot: async () => 'data:image/png;base64,mock',
+      getTabList: () => [{ id: 'tab-1' }],
+      evalJs: async () => ({}),
+      runResponsiveCheck: async (params) => {
+        const opts = (typeof params === 'object' && params ? params : {}) as {
+          customBreakpoints?: Array<{ id: string; width: number; mobile: boolean }>;
+        };
+        forwardedBreakpoints = opts.customBreakpoints ?? [];
+        const breakpoints: Record<string, unknown> = {};
+        for (const bp of forwardedBreakpoints) {
+          breakpoints[bp.id] = {
+            width: bp.width,
+            mobile: bp.mobile,
+            documentOverflowX: false,
+            targetOverflowX: false,
+          };
+        }
+        return {
+          ok: true,
+          tabId: 'tab-1',
+          breakpoints,
+        };
+      },
+    };
+
+    const port = new BrowserControlPort(mockHost);
+    registerBrowserCapabilities(catalogue, port, undefined, () => fixtureThemeRoot);
+
+    const target: BrowserTarget = {
+      tabId: 'tab-1',
+      browserEpoch: 1,
+      documentGeneration: 1,
+      runtimeId: lease.runtimeId,
+      projectId,
+      workspaceId,
+    };
+
+    const res = await catalogue.dispatch(
+      'anti.inspect.responsive_matrix',
+      {
+        tabId: 'tab-1',
+        customBreakpoints: [
+          { width: 1024, mobile: true },
+          { width: 1024, mobile: false },
+        ],
+      },
+      { lease, leaseToken: lease.token, projectId, workspaceId, browserTarget: target }
+    );
+
+    assert.ok(isThemeEvidenceEnvelope(res));
+    assert.strictEqual(res.evidenceQuality, 'HIGH');
+    assert.strictEqual(res.signals.allBreakpointsTested, true);
+    assert.strictEqual(forwardedBreakpoints.length, 2);
+    assert.notStrictEqual(forwardedBreakpoints[0]?.id, forwardedBreakpoints[1]?.id);
+    assert.strictEqual(forwardedBreakpoints[0]?.id, 'bp-1024');
+    assert.strictEqual(forwardedBreakpoints[1]?.id, 'bp-1024-desktop');
+
+    await assert.rejects(
+      async () => {
+        await catalogue.dispatch(
+          'anti.inspect.responsive_matrix',
+          {
+            tabId: 'tab-1',
+            customBreakpoints: [{ width: 390 }, { width: 120 }],
+          },
+          { lease, leaseToken: lease.token, projectId, workspaceId, browserTarget: target }
+        );
+      },
+      (err: unknown) =>
+        err instanceof CapabilityError &&
+        err.code === 'INVALID_ARGUMENT' &&
+        err.message.includes('120')
+    );
   });
 });

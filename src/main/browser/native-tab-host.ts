@@ -15220,7 +15220,14 @@ export class NativeTabHost extends EventEmitter {
             : scriptRaced;
         }
 
-        results[bp.id] = {
+        let resultKey = bp.id;
+        if (Object.prototype.hasOwnProperty.call(results, resultKey)) {
+          const modeKey = `${bp.id}-${bp.mobile ? 'mobile' : 'desktop'}`;
+          resultKey = Object.prototype.hasOwnProperty.call(results, modeKey)
+            ? `${modeKey}-${Object.keys(results).length + 1}`
+            : modeKey;
+        }
+        results[resultKey] = {
           name: bp.name,
           width: bp.width,
           height: bp.height,
