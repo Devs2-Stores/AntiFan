@@ -4517,7 +4517,9 @@ async function createWindow(): Promise<void> {
       : hostForTabOrBootstrap(tabId).endTrackerIsolation(tabId, paneId).then((receipt) => (receipt.released
         ? { active: false, reason: receipt.reason }
         : { active: true, reason: receipt.reason }))),
-    agentSnapshot: (tabId, paneId) => hostForTabOrBootstrap(tabId).agentSnapshot(tabId, paneId),
+    // Forward every filter the port contract declares: dropping selector/viewportOnly here
+    // silently turned a scoped snapshot into a whole-document one.
+    agentSnapshot: (tabId, paneId, selector, viewportOnly) => hostForTabOrBootstrap(tabId).agentSnapshot(tabId, paneId, selector, viewportOnly),
     agentFind: (params) => {
       const host = hostForTabOrBootstrap(params.tabId);
       return host.agentFind(params);
@@ -4581,6 +4583,8 @@ async function createWindow(): Promise<void> {
       const host = hostForTabOrBootstrap(params.tabId);
       return host.getMatchedStylesForNode(params);
     },
+    resolveSemanticRefDescriptor: (tabId, paneId, ref) => hostForTabOrBootstrap(tabId).resolveSemanticRefDescriptor(tabId, paneId, ref),
+    withPaintingSurface: (tabId, paneId, action) => hostForTabOrBootstrap(tabId).withPaintingSurface(tabId, paneId, action),
   }, controlPlane.artifacts);
   // Published for windows opened later: `attachSharedServices` hands this same port's
   // viewport gate to every host it builds, so a new window is never left ungated.

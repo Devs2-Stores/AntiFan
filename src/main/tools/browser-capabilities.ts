@@ -1668,6 +1668,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         annotationId: { type: 'string', description: 'Annotation ID this QA run verifies (from the annotation markdown). Recorded on the workspace receipt so consuming-runtime gates can match evidence to the task' },
         expectedUrl: { type: 'string', description: 'Expected route URL of the bound tab (annotation Page URL). Fail-closed: mismatch throws the route-gate code (URL_HOST_MISMATCH/URL_THEME_MISMATCH/URL_PATH_MISMATCH) instead of silently QA-ing the wrong page or theme' },
         multiBreakpoint: { type: 'boolean', description: 'Enable multi-breakpoint responsive testing (320, 375, 768, 1024, 1440). Defaults to true inside workflow; pass false to opt out.' },
+        profile: { type: 'string', enum: ['audit', 'build-strict'], description: 'audit (default) reports visual-quality findings without affecting the verdict; build-strict (new builds) fails on contrast below WCAG AA, sub-24px tap targets, invisible click blockers and floating widgets over controls' },
         viewports: {
           type: 'object',
           properties: {
@@ -1685,6 +1686,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         expectedUrl?: string;
         workspaceRoot?: string;
         multiBreakpoint?: boolean;
+        profile?: 'audit' | 'build-strict';
         viewports?: {
           // `passed` is the caller structural verdict; the QA matrix ANDs it with the pixel threshold, so only downgrades are possible.
           desktop?: { mismatchPercent: number; passed: boolean };
@@ -1724,6 +1726,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         multiBreakpoint: params.multiBreakpoint,
         viewports: params.viewports,
         target: t,
+        ...(params.profile === 'build-strict' ? { profile: 'build-strict' as const } : {}),
         // Mirror real wrapper recovery into the report — never hard-code zero
         // after a failover rebind succeeded.
         recovery: receiptRecovery,
@@ -2839,13 +2842,49 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       let classes: string[] = [];
       const attributes: Record<string, string> = {};
       const commentHints: string[] = [];
+      const rawRef = typeof params.ref === 'string' ? params.ref.trim() : '';
+      const rawSelector = typeof params.selector === 'string' ? params.selector.trim() : '';
+      if (!rawRef && !rawSelector) {
+        throw new CapabilityError('INVALID_ARGUMENT', 'anti.theme.resolve_element needs a selector or a snapshot ref (@eN) naming the element to map');
+      }
+      const normalizedRef = rawRef ? (rawRef.startsWith('@') ? rawRef : `@${rawRef}`) : '';
+      // Snapshots mint refs as "@e" + an integer; anything else would be spliced into an
+      // attribute selector and could match an unrelated element.
+      if (normalizedRef && !/^@e\d+$/.test(normalizedRef)) {
+        throw new CapabilityError('INVALID_ARGUMENT', `ref "${rawRef}" is not a snapshot ref (expected @eN, e.g. @e12)`);
+      }
+      // anti.inspect.snapshot keeps refs in the semantic registry (traversal path + fingerprint),
+      // not on the DOM, so the page script walks the descriptor's path. The registry's
+      // REF_STALE / REF_NOT_FOUND propagate; a host without a registry falls back to refs
+      // stamped as data-antifan-ref="@eN" by the legacy snapshot.
+      const descriptor = normalizedRef
+        ? browser.semanticRefDescriptor(context.browserTarget as BrowserTarget, normalizedRef, params?.tabId, params?.paneId)
+        : null;
 
+      let elementMissing = false;
       try {
-        const sel = params.selector ? JSON.stringify(params.selector) : 'null';
         const inspectScript = `(() => {
           let el = null;
-          const s = ${sel};
-          if (s) {
+          const ref = ${JSON.stringify(normalizedRef)};
+          const s = ${JSON.stringify(rawSelector)};
+          const desc = ${JSON.stringify(descriptor ? { path: descriptor.path, tag: descriptor.fingerprint?.tag || null, id: descriptor.fingerprint?.id || descriptor.id || null } : null)};
+          if (desc) {
+            let current = document;
+            for (const step of Array.isArray(desc.path) ? desc.path : []) {
+              if (!current || !step || typeof step !== 'object') { current = null; break; }
+              if (step.kind === 'dom') current = (current.children && current.children[step.index]) || (step.id && current.getElementById ? current.getElementById(step.id) : null);
+              else if (step.kind === 'shadow') current = current.shadowRoot || null;
+              else if (step.kind === 'iframe') { try { current = current.contentDocument || null; } catch { current = null; } }
+              else current = null;
+            }
+            if (current && current.nodeType === 1) el = current;
+            if (!el && desc.id) el = document.getElementById(desc.id);
+            // The path is positional: a re-rendered page can shift it onto another element.
+            if (el && desc.tag && el.tagName.toLowerCase() !== String(desc.tag).toLowerCase()) el = null;
+          } else if (ref) {
+            try { el = document.querySelector('[data-antifan-ref="' + ref + '"]'); } catch {}
+          }
+          if (!el && s) {
             try { el = document.querySelector(s); } catch {}
           }
           if (!el) return null;
@@ -2860,12 +2899,20 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
           return { classes: cls, attributes: attrs, tagName: el.tagName.toLowerCase() };
         })()`;
         const raw = await browser.eval(context.browserTarget as BrowserTarget, inspectScript, params?.tabId, params?.paneId);
-        if (raw && typeof raw === 'object') {
+        if (raw === null) {
+          elementMissing = true;
+        } else if (raw && typeof raw === 'object') {
           const typedRaw = raw as { classes?: string[]; attributes?: Record<string, string> };
           if (Array.isArray(typedRaw.classes)) classes = typedRaw.classes;
           if (typedRaw.attributes) Object.assign(attributes, typedRaw.attributes);
         }
       } catch {}
+      // A definitive miss must not degrade into a confident-looking mapping built from no evidence.
+      if (elementMissing) {
+        throw normalizedRef
+          ? new CapabilityError('REF_NOT_FOUND', `No live element matches ref ${normalizedRef}${rawSelector ? ` and selector "${rawSelector}" matched nothing` : ''}; take a fresh anti.inspect.snapshot`)
+          : new CapabilityError('SELECTOR_NOT_FOUND', `Selector "${rawSelector}" matched no element on the bound tab`);
+      }
 
       return ThemeSourceMapper.mapElementToSource(root, {
         classes,
@@ -3415,6 +3462,94 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     },
     execute: (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; allowDegradedSurface?: boolean }, context) =>
       browser.pageInventory(context.browserTarget as BrowserTarget, params, params?.tabId, params?.paneId),
+  });
+  catalogue.register({
+    name: 'anti.layout.compare_candidates',
+    description: 'Compare 1-5 CSS candidates for one section beside the current design (baseline) at up to 3 widths, sequentially in the bound tab: apply CSS in memory, settle, capture the section, measure, remove. Returns per-width section captures and one contact sheet per width (columns left-to-right: baseline, then candidates in order; colour bar per column), deterministic breaks that disqualify (page overflow, section spill, clipped text, overlapping text) and penalties (contrast, tap targets, type-scale sprawl, misaligned edges, off-grid gaps), a ranking and a recommendation. Nothing is written to theme files; the stylesheet is removed and the viewport restored on every exit path.',
+    risk: 'write',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate', timeoutMs: 120_000 }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tabId: { type: 'string' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+        scopeSelector: { type: 'string', description: 'CSS selector of the section being redesigned' },
+        candidates: {
+          type: 'array',
+          description: '1-5 candidates; css is injected after the theme stylesheets, so it overrides them',
+          items: {
+            type: 'object',
+            properties: { id: { type: 'string' }, label: { type: 'string' }, css: { type: 'string' } },
+            required: ['id', 'css'],
+          },
+        },
+        breakpoints: { type: 'array', items: { type: 'number' }, description: 'CSS widths, at most 3 (default [375, 1440])' },
+        settleMs: { type: 'number', description: 'Wait after applying each candidate (default 350, 100-2000)' },
+        includeBaseline: { type: 'boolean', description: 'Include the current design as the first column (default true)' },
+      },
+      required: ['scopeSelector', 'candidates'],
+    },
+    execute: (params: Record<string, unknown>, context) =>
+      browser.compareCandidates(
+        context.browserTarget as BrowserTarget,
+        params as unknown as Parameters<BrowserControlPort['compareCandidates']>[1],
+        { runId: context.runId || 'run-unbound', attemptId: context.attemptId || 'attempt-unbound', signal: context.signal }
+      ),
+  });
+  catalogue.register({
+    name: 'anti.qa.state_matrix',
+    description: 'Drive overlays (cart/menu/filter drawers, modals, quickview, dropdowns, mega menus) through OPEN -> MEASURE -> CLOSE with trusted CDP input. Open: visible, opacity >= 0.95, pointer-events, minimum size, inside viewport, not clipped/occluded, no content spill, scroll lock + focus inside + close control (dialogs), plus contrast/tap grading inside the panel. Close: Escape, close control and backdrop each from a fresh open, then scroll lock released and focus returned. Safe mode always on: anchor navigation and form submits are blocked; add-to-cart/submit/checkout/foreign-origin controls are never triggers. Auto-discovers triggers or takes explicit {selector, panelSelector?, closeSelector?, kind?}.',
+    risk: 'write',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate', timeoutMs: 120_000 }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tabId: { type: 'string' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+        triggers: {
+          type: 'array',
+          description: 'Explicit overlays to exercise; omit to auto-discover from aria-controls / aria-haspopup / data-*-open / data-action="open-*"',
+          items: {
+            type: 'object',
+            properties: {
+              selector: { type: 'string' },
+              panelSelector: { type: 'string' },
+              closeSelector: { type: 'string' },
+              kind: { type: 'string', enum: ['drawer', 'modal', 'dropdown', 'megamenu'] },
+            },
+            required: ['selector'],
+          },
+        },
+        maxTriggers: { type: 'number', description: 'Overlays to exercise (default 8, max 12)' },
+        settleMs: { type: 'number', description: 'Wait after each open/close input (default 450, 100-2000)' },
+        closeMethods: { type: 'array', items: { type: 'string', enum: ['escape', 'close-button', 'backdrop'] } },
+        gradeVisualQuality: { type: 'boolean', description: 'Grade contrast and tap targets inside each open panel (default true)' },
+      },
+    },
+    execute: (params: Record<string, unknown>, context) =>
+      browser.stateMatrix(context.browserTarget as BrowserTarget, params as Parameters<BrowserControlPort['stateMatrix']>[1], context.signal),
+  });
+  catalogue.register({
+    name: 'anti.qa.visual_quality',
+    description: 'Measure WCAG AA text contrast (text over images/gradients reported as indeterminate), mobile tap targets (<44px recommended, <24px WCAG 2.2 minimum; inline links exempt) and floating widgets or transparent fixed layers covering text/controls at page top and page end. Findings are warnings with selector, rect and measured values; scroll position is restored.',
+    risk: 'read',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tabId: { type: 'string' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+        mobile: { type: 'boolean', description: 'Force mobile tap-target rules on/off (default: viewport width <= 767px)' },
+        skipPageEnd: { type: 'boolean', description: 'Check floating widgets only at the current scroll position, so the scan never scrolls' },
+        scopeSelector: { type: 'string', description: 'Grade contrast and tap targets inside this subtree only (e.g. an open drawer)' },
+        allowDegradedSurface: { type: 'boolean', description: 'Run even when the tab reports a 0x0 surface (diagnostic escape hatch)' },
+      },
+    },
+    execute: (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; mobile?: boolean; skipPageEnd?: boolean; scopeSelector?: string; allowDegradedSurface?: boolean }, context) =>
+      browser.visualQuality(context.browserTarget as BrowserTarget, params),
   });
   catalogue.register({
     name: 'browser.page-inventory',

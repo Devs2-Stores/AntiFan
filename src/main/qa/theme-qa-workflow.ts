@@ -16,6 +16,7 @@ import type { QaVerification, QaExecution, QaRecovery } from './qa-state';
 import { HsGateRules, HsEvaluationResult, HsRuleViolation } from './rules/hs-gate-rules';
 import { classifyDiagnostics, extractCorrelatableAssetFailures, extractDocumentHttpStatus, DiagnosticsInput, DiagnosticIssue } from './diagnostics-filter';
 import { DomSemanticsScanner, type DomSemanticsScanResult } from './scanners/dom-semantics-scanner';
+import { VisualQualityScanner, type VisualQualityScanResult, type VisualQualityFinding } from './scanners/visual-quality-scanner';
 import { formatInflightNote } from '../browser/first-party-network-tracker';
 import type { ThemeTransactionRegistry } from './theme-transaction-registry';
 import type { TerminalSyncCursor, SyncSettleResult } from './haravan-sync-barrier';
@@ -100,6 +101,8 @@ export interface ThemeQaDetailedFindings {
   }>;
   documentStatus?: number;
   domSemantics?: DomSemanticsScanResult;
+  /** Contrast, tap-target and floating-widget measurements (see visual-quality-scanner.ts). */
+  visualQuality?: VisualQualityScanResult;
 }
 export interface ThemeQaSummary {
   passed: boolean;
@@ -109,6 +112,14 @@ export interface ThemeQaSummary {
   domUnstable?: boolean;
   responsive?: boolean | 'UNMEASURED';
   documentStatus?: number;
+  /**
+   * What `verdict` certifies. STRUCTURAL: the measured structural checks passed while the
+   * 8-dimension matrix still has unmeasured dimensions or viewports, so PASS is not a visual,
+   * interaction or performance certification. CERTIFIED: the matrix itself passed.
+   */
+  certification?: 'STRUCTURAL' | 'CERTIFIED';
+  /** The QA matrix verdict mirrored next to the structural verdict so neither is read alone. */
+  matrixVerdict?: 'PASS' | 'FAIL' | 'INCONCLUSIVE';
 }
 export interface QaMatrixDimension {
   score: number | null;
@@ -459,6 +470,13 @@ export class ThemeQaWorkflow {
      * TARGET_STALE). The workflow performs no retries itself — it mirrors the
      * caller's real counts so the report never hard-codes zero. */
     recovery?: { attempted: number; succeeded: number };
+    /**
+     * audit (default): visual-quality findings are reported, never verdict-bearing.
+     * build-strict (opt-in, for new builds): contrast below AA, sub-24px tap targets, invisible
+     * click blockers and floating widgets over controls fail the run, and an unmeasured
+     * visual-quality scan is an evidence gap.
+     */
+    profile?: 'audit' | 'build-strict';
   }): Promise<ThemeQaReport> {
     if (input.signal?.aborted) {
       throw new CapabilityError('TARGET_STALE', 'Theme QA validation was aborted by document navigation');
@@ -1208,6 +1226,37 @@ export class ThemeQaWorkflow {
       }
     }
 
+    // 9.7 Visual quality (contrast, tap targets, floating widgets). Reported in every profile;
+    // only build-strict lets it carry the verdict, so audit runs keep their existing contract.
+    const strictProfile = input.profile === 'build-strict';
+    let visualQualityResult: VisualQualityScanResult | undefined;
+    await new Promise((r) => setImmediate(r));
+    if (typeof this.ports.browser.eval === 'function') {
+      try {
+        checkAborted();
+        const evalRes = await this.ports.browser.eval(activeTarget, VisualQualityScanner.getBrowserScanScript());
+        checkAborted();
+        visualQualityResult = VisualQualityScanner.normalize(evalRes);
+      } catch (error) {
+        rethrowTargetLifecycleError(error);
+        visualQualityResult = VisualQualityScanner.normalize({ error: `VISUAL_QUALITY_EVAL_FAILED: ${error instanceof Error ? error.message : String(error)}` });
+      }
+    }
+    if (strictProfile && visualQualityResult?.measured !== true) {
+      evidenceGaps.push(`Visual quality not measured under build-strict: ${visualQualityResult?.error || 'scanner unavailable'}`);
+    }
+    if (strictProfile && visualQualityResult?.measured === true && visualQualityResult.mobile !== true) {
+      // Tap targets are graded at mobile widths only; a desktop-width run cannot vouch for them.
+      evidenceGaps.push(`Tap targets not graded under build-strict: this run measured ${visualQualityResult.viewport.width}px; validate a mobile viewport (<= 767px) to certify them`);
+    }
+    const strictVisualFailures: VisualQualityFinding[] = strictProfile && visualQualityResult?.measured === true
+      ? visualQualityResult.findings.filter((f) =>
+          f.ruleId === 'contrast-low' ||
+          f.ruleId === 'tap-target-tiny' ||
+          f.ruleId === 'invisible-click-blocker' ||
+          (f.ruleId === 'floating-widget-overlap' && f.measured?.coveredIsControl === true))
+      : [];
+
     // Restore paused sliders and unfreeze media after in-page scanning has finished
     if (typeof this.ports.browser.eval === 'function') {
       try {
@@ -1536,7 +1585,8 @@ export class ThemeQaWorkflow {
       diagnosticIssues.length +
       diagnosticWarnings.length +
       integrityFindings.length +
-      sweepIntegrityCriticals.length;
+      sweepIntegrityCriticals.length +
+      strictVisualFailures.length;
     // Observed defects verdict only for checks the caller kept enabled; `enabledChecks` remains a
     // verdict filter, while engine checklist authority is preserved separately in `checklist`.
     const checkParticipates = (key: keyof ThemeQaChecklist): boolean => !enabled || enabled[key] !== false;
@@ -1554,7 +1604,9 @@ export class ThemeQaWorkflow {
       // Critical geometry defects are storefront failures, not evidence gaps —
       // an occluded Add-to-Cart fails verification regardless of settle state.
       // They belong to the `layout` check, the same key checklist.layout carries.
-      (checkParticipates('layout') && (integrityCriticals.length > 0 || sweepIntegrityCriticals.length > 0));
+      (checkParticipates('layout') && (integrityCriticals.length > 0 || sweepIntegrityCriticals.length > 0)) ||
+      // Opt-in only: under the default audit profile this list is always empty.
+      strictVisualFailures.length > 0;
     const hasMissingEvidence = settleMissingCapability || mutationMissingBarrier || evidenceGaps.length > 0 || activeChecklistEntries.length === 0;
 
     let summaryVerdict: 'PASS' | 'FAIL' | 'INCONCLUSIVE' = 'PASS';
@@ -1574,7 +1626,7 @@ export class ThemeQaWorkflow {
       passed: summaryVerdict === 'PASS',
       verdict: summaryVerdict,
       totalIssues,
-      criticalCount: hsResult.errorsCount + liquidResult.errors.length + serverCrashResult.errorsCount + diagnosticIssues.length + overflowIssueCount + assetResult.brokenAssets.length + integrityCriticals.length + sweepIntegrityCriticals.length,
+      criticalCount: hsResult.errorsCount + liquidResult.errors.length + serverCrashResult.errorsCount + diagnosticIssues.length + overflowIssueCount + assetResult.brokenAssets.length + integrityCriticals.length + sweepIntegrityCriticals.length + strictVisualFailures.length,
       ...(settleReceipt?.domUnstable ? { domUnstable: true } : {}),
       ...(checklist.responsive !== undefined ? { responsive: checklist.responsive } : {}),
       ...(documentStatus !== undefined ? { documentStatus } : {}),
@@ -1624,6 +1676,7 @@ export class ThemeQaWorkflow {
       diagnosticWarnings,
       ...(documentStatus !== undefined ? { documentStatus } : {}),
       ...(domSemanticsResult ? { domSemantics: domSemanticsResult } : {}),
+      ...(visualQualityResult ? { visualQuality: visualQualityResult } : {}),
       ...(preReloadDiagnosticsObj ? { preReloadDiagnostics: preReloadDiagnosticsObj } : {}),
       ...(differential ? { differential } : {}),
       ...(evidenceGaps.length > 0 ? { evidenceGaps } : {}),
@@ -1643,6 +1696,12 @@ export class ThemeQaWorkflow {
     if (input.signal?.aborted) {
       throw new CapabilityError('TARGET_STALE', 'Theme QA validation was aborted by document navigation');
     }
+    const qaMatrix = ThemeQaWorkflow.computeQaMatrix(summary, checklist, findings, input.viewports, settleReceipt);
+    // Additive labels only: the structural verdict keeps its contract, but a PASS that the matrix
+    // could not certify (unmeasured visual/interaction/CWV dimensions) now says so in place. Set
+    // before the report is serialized so the staged report carries the same labels.
+    summary.matrixVerdict = qaMatrix.verdict;
+    summary.certification = qaMatrix.verdict === 'PASS' ? 'CERTIFIED' : 'STRUCTURAL';
     // 11. Generate PII-sanitized report JSON (RT-02 mitigation)
     const reportDataRaw = JSON.stringify(
       {
@@ -1679,8 +1738,6 @@ export class ThemeQaWorkflow {
         retentionPolicy: 'run-durable',
       })
     );
-
-    const qaMatrix = ThemeQaWorkflow.computeQaMatrix(summary, checklist, findings, input.viewports, settleReceipt);
 
     if (input.workspaceRoot) {
       try {

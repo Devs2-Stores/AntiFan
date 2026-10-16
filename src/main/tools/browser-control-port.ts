@@ -81,6 +81,10 @@ import type { BrowserSessionUserAgentMode } from '../browser/browser-session-par
 import type { AntiFanTab } from '../../shared/contracts';
 import { DEADLINES } from '../../shared/deadline-chain';
 import { injectedScriptStore } from '../browser/scripts/injected-script-store.js';
+import { VisualQualityScanner, type VisualQualityScanResult } from '../qa/scanners/visual-quality-scanner.js';
+import { runStateMatrix, type StateMatrixOptions, type StateMatrixResult } from '../qa/state-matrix.js';
+import { normalizeCandidateOptions, runLayoutCandidates, type LayoutCandidatesOptions, type LayoutCandidatesResult } from '../qa/layout-candidates.js';
+import { composeContactSheetFromPngs } from '../verification/png-contact-sheet.js';
 import type { PageCloseAdmission } from '../run/attachment-registry';
 
 function isTabRecord(item: unknown): item is AntiFanTab {
@@ -225,6 +229,10 @@ export interface BrowserHostPort {
   inspectRegion?(params: { x?: number; y?: number; width?: number; height?: number; selector?: string; ref?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<Record<string, unknown>>;
   inspectFont?(params: { selector?: string; ref?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<Record<string, unknown>>;
   getMatchedStylesForNode?(params: { nodeId?: number; selector?: string; ref?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<Record<string, unknown> | null>;
+  /** Registry descriptor (traversal path + fingerprint) of a snapshot ref on the tab's current document. */
+  resolveSemanticRefDescriptor?(tabId: string, paneId: 'desktop' | 'mobile' | undefined, ref: string): { path: unknown[]; fingerprint?: { tag?: string; id?: string } ; id?: string } | null;
+  /** Hold the pane attached and unthrottled (producing frames) while `action` runs. */
+  withPaintingSurface?<T>(tabId: string, paneId: 'desktop' | 'mobile' | undefined, action: () => Promise<T>): Promise<T>;
   getNetworkTracker?(): {
     isAttached: (tabId: string, paneId?: string) => boolean;
     awaitQuiescence: (tabId: string, paneId?: string, options?: NetworkTrackerOptions, signal?: AbortSignal) => Promise<{ settled: boolean; durationMs: number; timedOut: boolean }>;
@@ -325,6 +333,43 @@ function delayWithSignal(ms: number, signal: AbortSignal): Promise<void> {
   };
   signal.addEventListener('abort', onAbort, { once: true });
   return promise;
+}
+
+/**
+ * Agent-facing tab rows drop inline `data:` favicons: they are pixels, not tab facts, and a
+ * full strip of them pushed `tabs.list all:true` past MCP output ceilings. Remote favicon
+ * URLs stay; the renderer keeps reading the untouched host rows.
+ */
+function withoutInlineFavicon<T extends { favicon?: unknown }>(row: T): T {
+  if (typeof row.favicon === 'string' && row.favicon.startsWith('data:')) {
+    const { favicon: _inlineFavicon, ...rest } = row;
+    return rest as T;
+  }
+  return row;
+}
+
+/**
+ * Response shaping for before/after style probes. The custom-property map is inherited from
+ * :root and is normally identical on both sides, so it is reported once (on `beforeStyles`) and
+ * the after side carries only the properties that changed. Evaluation keeps the full objects.
+ */
+export function compactStylePairForResponse(
+  beforeStyles: Record<string, unknown>,
+  afterStyles: Record<string, unknown>
+): { beforeStyles: Record<string, unknown>; afterStyles: Record<string, unknown> } {
+  const beforeVars = beforeStyles?.cssVariables;
+  const afterVars = afterStyles?.cssVariables;
+  if (!beforeVars || !afterVars || typeof beforeVars !== 'object' || typeof afterVars !== 'object') {
+    return { beforeStyles, afterStyles };
+  }
+  const b = beforeVars as Record<string, unknown>;
+  const a = afterVars as Record<string, unknown>;
+  const cssVariablesDelta: Record<string, unknown> = {};
+  for (const key of new Set([...Object.keys(b), ...Object.keys(a)])) {
+    if (b[key] !== a[key]) cssVariablesDelta[key] = key in a ? a[key] : null;
+  }
+  const { cssVariables: _unchangedCopy, ...afterRest } = afterStyles;
+  return { beforeStyles, afterStyles: { ...afterRest, cssVariablesDelta } };
 }
 
 function buildActionabilityCheckScript(selector?: string, ref?: string): string {
@@ -2129,7 +2174,7 @@ export class BrowserControlPort {
         rows = rows.concat(sessionRecords.filter(isTabRecord).filter((tab) => !listed.has(tab.id)));
       }
       return rows.map((tab) => ({
-        ...tab,
+        ...withoutInlineFavicon(tab),
         affiliated: affiliatedOf(tab),
         isBoundTab: tab.id === boundTabId,
         isPrimaryTab: tab.id === boundTabId,
@@ -2140,7 +2185,7 @@ export class BrowserControlPort {
     // invite operations this session is not allowed to perform. Callers that want
     // the whole window ask for it explicitly (all: true).
     return records.filter(isTabRecord).map((tab) => ({
-      ...tab,
+      ...withoutInlineFavicon(tab),
       affiliated: affiliatedOf(tab),
       isBoundTab: tab.id === boundTabId,
       isPrimaryTab: tab.id === boundTabId,
@@ -2198,7 +2243,7 @@ export class BrowserControlPort {
       throw new CapabilityError('TARGET_STALE', `Tab '${tabId}' exists but no tab record is available for it`);
     }
     return {
-      ...tab,
+      ...withoutInlineFavicon(tab),
       affiliated: true,
       isBoundTab: tab.id === boundTabId,
       isPrimaryTab: tab.id === boundTabId,
@@ -5092,6 +5137,22 @@ export class BrowserControlPort {
     });
   }
 
+  /**
+   * Where a snapshot ref points: the registry descriptor a page script walks to reach the element.
+   * Null when the host keeps no registry (the caller then falls back to stamped refs); the
+   * registry's REF_STALE / REF_NOT_FOUND propagate.
+   */
+  semanticRefDescriptor(
+    target: BrowserTarget,
+    ref: string,
+    explicitTabId?: string,
+    paneId?: 'desktop' | 'mobile'
+  ): { path: unknown[]; fingerprint?: { tag?: string; id?: string }; id?: string } | null {
+    if (typeof this.host.resolveSemanticRefDescriptor !== 'function') return null;
+    const tabId = this.resolveTargetTab(target, explicitTabId);
+    return this.host.resolveSemanticRefDescriptor(tabId, paneId, ref);
+  }
+
   async inspectLayout(
     target: BrowserTarget,
     params: { selector?: string; selectors?: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' } = {},
@@ -5114,6 +5175,24 @@ export class BrowserControlPort {
           height: window.innerHeight,
           scrollX: window.scrollX,
           scrollY: window.scrollY
+        };
+        const visibleStateOf = (node, r) => {
+          let effectiveOpacity = 1;
+          let cur = node;
+          while (cur && cur.nodeType === 1) {
+            const o = parseFloat(window.getComputedStyle(cur).opacity);
+            if (!isNaN(o)) effectiveOpacity *= o;
+            cur = cur.parentElement;
+          }
+          const rendered = typeof node.checkVisibility === 'function'
+            ? node.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })
+            : (r.width > 0 && r.height > 0);
+          const inViewport = r.width > 0 && r.height > 0 && r.right > 0 && r.bottom > 0 && r.left < vp.width && r.top < vp.height;
+          return {
+            rendered: Boolean(rendered) && r.width > 0 && r.height > 0,
+            effectiveOpacity: Math.round(effectiveOpacity * 1000) / 1000,
+            inViewport
+          };
         };
         const targets = ${JSON.stringify(selectors)};
         const results = {};
@@ -5152,8 +5231,21 @@ export class BrowserControlPort {
                 position: cs.position,
                 zIndex: cs.zIndex,
                 gap: cs.gap || undefined,
-                overflow: cs.overflow
-              }
+                overflow: cs.overflow,
+                visibility: cs.visibility,
+                opacity: cs.opacity,
+                pointerEvents: cs.pointerEvents,
+                transform: cs.transform === 'none' ? undefined : cs.transform,
+                flexDirection: cs.display.includes('flex') ? cs.flexDirection : undefined,
+                flexWrap: cs.display.includes('flex') ? cs.flexWrap : undefined,
+                justifyContent: /flex|grid/.test(cs.display) ? cs.justifyContent : undefined,
+                alignItems: /flex|grid/.test(cs.display) ? cs.alignItems : undefined,
+                gridTemplateColumns: cs.display.includes('grid') ? cs.gridTemplateColumns : undefined,
+                gridTemplateRows: cs.display.includes('grid') ? cs.gridTemplateRows : undefined
+              },
+              // A rect alone cannot say whether a closed drawer is still painted: transform,
+              // opacity and visibility can hide a box that keeps its in-viewport rect.
+              visibleState: visibleStateOf(node, r)
             };
           });
         }
@@ -5907,8 +5999,7 @@ export class BrowserControlPort {
           attribution: mutationAttribution,
           observationIntegrity,
         },
-        beforeStyles,
-        afterStyles,
+        ...compactStylePairForResponse(beforeStyles, afterStyles),
         motion: motionTrace,
       };
     }, { tabId, timeoutMs: 15_000, signal });
@@ -7996,6 +8087,187 @@ export class BrowserControlPort {
       };
     });
   }
+  /**
+   * Contrast (WCAG AA), mobile tap-target and floating-widget measurements for the live page.
+   * Read-only toward the document: the scan scrolls to the page end for the floating-widget
+   * pass and restores the original scroll position before it returns.
+   */
+  async visualQuality(
+    target: BrowserTarget,
+    params: { tabId?: string; paneId?: 'desktop' | 'mobile'; mobile?: boolean; skipPageEnd?: boolean; scopeSelector?: string; allowDegradedSurface?: boolean } = {}
+  ): Promise<VisualQualityScanResult> {
+    const tabId = this.resolveTargetTab(target, params.tabId);
+    const effectivePane = params.paneId || 'desktop';
+    // Same gate as page_inventory: an unrendered surface reads every rect as 0, which would
+    // look like a clean page.
+    await this.assertRenderSurface(tabId, effectivePane, 'anti.qa.visual_quality', params.allowDegradedSurface === true);
+    const script = VisualQualityScanner.getBrowserScanScript({
+      mobile: params.mobile,
+      skipPageEnd: params.skipPageEnd,
+      scopeSelector: params.scopeSelector,
+    });
+    return this.passivePool.execute(tabId, async () => VisualQualityScanner.normalize(await this.host.evalJs(script, tabId, effectivePane)));
+  }
+
+  /**
+   * Drive overlays (drawers, modals, dropdowns, mega menus) through open/measure/close with
+   * trusted input. Every input goes through `sequence` (CDP-dispatched, actionability-checked,
+   * viewport-gated per action); measurements are passive page evaluations.
+   */
+  async stateMatrix(
+    target: BrowserTarget,
+    params: StateMatrixOptions & { tabId?: string; paneId?: 'desktop' | 'mobile' } = {},
+    signal?: AbortSignal
+  ): Promise<StateMatrixResult> {
+    if (!this.host.executeActionSequence) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'executeActionSequence is not supported by host');
+    const tabId = this.resolveTargetTab(target, params.tabId, 'write', params as Record<string, unknown>);
+    const paneId = params.paneId || 'desktop';
+    await this.assertRenderSurface(tabId, paneId, 'anti.qa.state_matrix', false);
+    const act = async (action: Record<string, unknown>): Promise<{ ok: boolean; error?: string }> => {
+      try {
+        const res = (await this.sequence({ actions: [action], tabId, paneId, stopOnError: true }, target, signal)) as
+          { success?: boolean; error?: string; results?: Array<{ success?: boolean; error?: string }> } | undefined;
+        const step = res?.results?.[0];
+        const ok = Boolean(res?.success) && step?.success !== false;
+        return ok ? { ok } : { ok, error: step?.error || res?.error || 'action failed' };
+      } catch (err) {
+        if (signal?.aborted) throw err;
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    };
+    const run = () => runStateMatrix({
+      evalJs: (script) => this.host.evalJs(script, tabId, paneId),
+      click: (selector) => act({ type: 'click', selector }),
+      clickAt: (x, y) => act({ type: 'click', x, y }),
+      hover: (selector) => act({ type: 'hover', selector }),
+      hoverAt: (x, y) => act({ type: 'hover', x, y }),
+      pressKey: (key) => act({ type: 'pressKey', key }),
+      wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    }, params);
+    // Open/close transitions only advance on a pane that produces frames; a background agent
+    // tab would leave every drawer at its closed transform and report it as never opened.
+    return typeof this.host.withPaintingSurface === 'function' ? this.host.withPaintingSurface(tabId, paneId, run) : run();
+  }
+
+  /**
+   * Render up to five CSS candidates for one section beside the current design at up to three
+   * widths, sequentially in this tab, and return per-width captures, deterministic metrics, a
+   * ranking and per-width contact sheets. The candidate stylesheet is removed and the viewport
+   * restored on every exit path; media stays frozen for the whole run so columns are comparable.
+   */
+  async compareCandidates(
+    target: BrowserTarget,
+    params: LayoutCandidatesOptions & { tabId?: string; paneId?: 'desktop' | 'mobile' },
+    run: { runId: string; attemptId: string; signal?: AbortSignal }
+  ): Promise<LayoutCandidatesResult> {
+    if (typeof this.host.captureVerificationScreenshot !== 'function') {
+      throw new CapabilityError('CAPABILITY_NOT_FOUND', "Host does not implement required 'captureVerificationScreenshot' canonical CDP interface");
+    }
+    // Refuse malformed input before the page is touched (no freeze, no viewport change).
+    try {
+      normalizeCandidateOptions(params);
+    } catch (err) {
+      throw new CapabilityError('INVALID_ARGUMENT', err instanceof Error ? err.message : String(err));
+    }
+    const tabId = this.resolveTargetTab(target, params.tabId, 'write', params as unknown as Record<string, unknown>);
+    const paneId = params.paneId || 'desktop';
+    await this.assertRenderSurface(tabId, paneId, 'anti.layout.compare_candidates', false);
+    // Every width change rewrites the tab's emulation, so the run only starts when it can put the
+    // tab back exactly: preset or custom size, device scale and the preview zoom it was at.
+    const restorePoint = this.viewportRestorePoint(tabId);
+    if (!restorePoint) {
+      throw new CapabilityError('TARGET_STALE', `compare_candidates cannot read the viewport of tab ${tabId} to restore it afterwards`);
+    }
+    const freeze = await this.acquireMediaFreeze(target, tabId, paneId);
+    try {
+      return await runLayoutCandidates({
+        evalJs: (script) => this.host.evalJs(script, tabId, paneId),
+        setViewportWidth: async (width) => {
+          await this.setViewport({ width, height: width <= 767 ? 812 : 900, mobile: width <= 767, tabId }, target);
+          // The injected freeze self-expires after 60s; re-arming it at every width keeps a long
+          // run frozen for every column and also pauses media the new layout just started.
+          if (freeze) {
+            await raceWithTimeout(
+              this.freezeMedia(target, { freeze: true, normalizeSliders: true }, tabId, paneId).then(() => true, () => false),
+              MEDIA_FREEZE_BOUND_MS,
+              () => false
+            );
+          }
+        },
+        captureClip: async (rect) => {
+          const envelope = await this.host.captureVerificationScreenshot!(rect, tabId, paneId, { format: 'png', fullPage: false, timeoutMs: 20_000 });
+          return envelope && envelope.data ? Buffer.from(envelope.data, 'base64') : null;
+        },
+        stagePng: async (png) => this.artifacts
+          ? this.stageArtifact({ kind: 'screenshot', mime: 'image/png', data: png, runId: run.runId, attemptId: run.attemptId, projectId: target.projectId, workspaceId: target.workspaceId, maxBytes: 8 * 1024 * 1024, overflowMode: 'reject' })
+          : { inlineBytes: png.length },
+        // Six DPR-2 captures are hundreds of MB raw: compose off the event loop's critical path.
+        composeSheet: async (pngs) => {
+          const sheet = await composeContactSheetFromPngs(pngs, { maxWidth: 4096, maxHeight: 4096 });
+          return sheet ? { png: sheet.png, downscale: sheet.factor } : null;
+        },
+        restoreViewport: () => this.restoreViewportPoint(restorePoint, tabId, target),
+        wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+        throwIfCancelled: () => {
+          if (run.signal?.aborted) throw abortError('compare_candidates was cancelled');
+        },
+      }, params);
+    } finally {
+      if (freeze) await freeze.release();
+    }
+  }
+
+  /** The tab's emulation as the host records it: preset, custom size with its device scale, zoom. */
+  private viewportRestorePoint(tabId: string): {
+    presetId: string;
+    customViewport: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number } | null;
+    zoomFactor: number;
+  } | null {
+    const sessionRecords = this.host.getSessionTabList ? this.host.getSessionTabList(tabId) : [];
+    const records = sessionRecords.length > 0 ? sessionRecords : (this.host.getTabList ? this.host.getTabList() : []);
+    const tab = (records || []).find((t: unknown) => isTabRecord(t) && t.id === tabId) as
+      (AntiFanTab & { customViewport?: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number }; zoomFactor?: number }) | undefined;
+    if (!tab) return null;
+    const custom = tab.customViewport && tab.customViewport.width > 0 && tab.customViewport.height > 0 ? { ...tab.customViewport } : null;
+    const zoom = typeof tab.zoomFactor === 'number' && Number.isFinite(tab.zoomFactor) && tab.zoomFactor > 0 ? tab.zoomFactor : 1;
+    return { presetId: tab.devicePresetId || 'responsive', customViewport: custom, zoomFactor: zoom };
+  }
+
+  /**
+   * Put a tab back to a recorded restore point without reloading it: the document was laid out
+   * under that emulation before the run, so a reload would only discard page state. Returns
+   * false (never throws) when the host refused part of it, so the run's result still returns.
+   */
+  private async restoreViewportPoint(
+    point: NonNullable<ReturnType<BrowserControlPort['viewportRestorePoint']>>,
+    tabId: string,
+    target: BrowserTarget
+  ): Promise<boolean> {
+    try {
+      const zoomFactor = Math.min(5, Math.max(0.25, point.zoomFactor));
+      // A named preset is restored as that preset (a tab minted from one also carries its size
+      // as a custom viewport); only a custom-WxH tab is restored by size.
+      if (point.customViewport && point.presetId.startsWith('custom-')) {
+        const dpr = point.customViewport.deviceScaleFactor;
+        await this.setViewport({
+          width: point.customViewport.width,
+          height: point.customViewport.height,
+          ...(point.customViewport.mobile !== undefined ? { mobile: point.customViewport.mobile } : {}),
+          ...(typeof dpr === 'number' && Number.isFinite(dpr) && dpr > 0 ? { deviceScaleFactor: dpr } : {}),
+          zoomFactor,
+          tabId,
+        }, target);
+        return true;
+      }
+      this.setDevicePreset({ presetId: point.presetId, tabId, reload: false }, target);
+      if (typeof this.host.setZoom === 'function') this.host.setZoom(tabId, zoomFactor);
+      return true;
+    } catch (err) {
+      console.warn(`[browser-port] compare_candidates could not restore the viewport of tab ${tabId}: ${err instanceof Error ? err.message : String(err)}`);
+      return false;
+    }
+  }
+
   async pageInventory(
     target: BrowserTarget,
     params: { tabId?: string; paneId?: 'desktop' | 'mobile'; allowDegradedSurface?: boolean } = {},

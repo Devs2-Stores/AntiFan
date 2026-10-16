@@ -37,7 +37,12 @@ import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const COMPILED = path.join(ROOT, '.compiled', 'src');
+// Same override copy-static.mjs and the Electron probes honor, so the gate can judge an
+// isolated build tree (`tsc --outDir <dir>`) without touching the launch bundle.
+const COMPILED = path.join(
+  process.env.ANTIFAN_COMPILED_ROOT ? path.resolve(process.env.ANTIFAN_COMPILED_ROOT) : path.join(ROOT, '.compiled'),
+  'src',
+);
 const PROXY_PATH = (() => {
   const idx = process.argv.indexOf('--proxy');
   if (idx !== -1 && process.argv[idx + 1]) return path.resolve(process.argv[idx + 1]);

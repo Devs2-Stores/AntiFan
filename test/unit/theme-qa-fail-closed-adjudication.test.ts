@@ -119,6 +119,100 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
     assert.strictEqual(report.qaMatrix?.passed, true);
     assert.strictEqual(report.qaMatrix?.verdict, 'PASS');
     assert.strictEqual(report.settleReceipt?.settleComplete, true);
+    assert.strictEqual(report.summary.certification, 'CERTIFIED');
+    assert.strictEqual(report.summary.matrixVerdict, 'PASS');
+  });
+
+  describe('visual-quality profile', () => {
+    const scannerMarker = "ruleId: 'contrast-low'";
+    const visualResult = (findings: Array<Record<string, unknown>>, mobile = false) => ({
+      measured: true,
+      viewport: mobile ? { width: 390, height: 844 } : { width: 1440, height: 900 },
+      mobile,
+      findings,
+      stats: { textElementsChecked: 10, contrastIndeterminate: 0, controlsChecked: 0, floatingWidgets: 0, scrollPositions: 2, durationMs: 3, truncated: false, truncatedReasons: [] },
+    });
+    const contrastFinding = { ruleId: 'contrast-low', severity: 'warning', selector: 'p.note', details: 'contrast 2.9:1', measured: { ratio: 2.9, required: 4.5 } };
+    const smallTapFinding = { ruleId: 'tap-target-small', severity: 'warning', selector: 'button.dot', details: '40x40', measured: { width: 40, height: 40 } };
+    const portsWithVisual = (result: unknown) => {
+      const baseEval = (createMockPorts().browser as unknown as { eval: (t: BrowserTarget, s: string) => Promise<unknown> }).eval;
+      return createMockPorts({ eval: async (t, s) => (s.includes(scannerMarker) ? result : baseEval(t, s)) });
+    };
+    const run = (ports: ThemeQaWorkflowPorts, profile?: 'audit' | 'build-strict') => new ThemeQaWorkflow(ports).validate({
+      runId: 'run-vq',
+      attemptId: 'att-vq',
+      workspaceRoot: 'E:/Work/test-theme',
+      target: makeTarget(1),
+      ...(profile ? { profile } : {}),
+    });
+
+    it('audit (default) reports visual-quality findings without touching the verdict', async () => {
+      const report = await run(portsWithVisual(visualResult([contrastFinding])));
+      assert.strictEqual(report.summary.verdict, 'PASS');
+      assert.strictEqual(report.findings?.visualQuality?.findings.length, 1);
+      assert.strictEqual(report.summary.criticalCount, 0);
+    });
+
+    it('build-strict fails on contrast below AA and counts it as a critical', async () => {
+      const report = await run(portsWithVisual(visualResult([contrastFinding])), 'build-strict');
+      assert.strictEqual(report.summary.verdict, 'FAIL');
+      assert.strictEqual(report.summary.criticalCount, 1);
+    });
+
+    it('build-strict keeps recommended-size tap warnings advisory', async () => {
+      // Tap targets are only graded by a mobile-width scan.
+      const report = await run(portsWithVisual(visualResult([smallTapFinding], true)), 'build-strict');
+      assert.strictEqual(report.summary.verdict, 'PASS');
+      assert.ok(!(report.findings?.evidenceGaps || []).some((gap) => gap.includes('Tap targets not graded')));
+    });
+
+    it('build-strict does not vouch for tap targets from a desktop-width scan', async () => {
+      const report = await run(portsWithVisual(visualResult([])), 'build-strict');
+      assert.strictEqual(report.summary.verdict, 'INCONCLUSIVE');
+      assert.ok((report.findings?.evidenceGaps || []).some((gap) => gap.includes('Tap targets not graded') && gap.includes('1440px')));
+    });
+
+    it('stages a report that carries the certification labels', async () => {
+      const staged: Array<{ kind?: string; data?: unknown }> = [];
+      const ports = portsWithVisual(visualResult([], true));
+      const stage = ports.artifacts.stage.bind(ports.artifacts);
+      ports.artifacts.stage = ((req: { kind?: string; data?: unknown }) => { staged.push(req); return stage(req as never); }) as typeof ports.artifacts.stage;
+      const report = await run(ports, 'build-strict');
+      const json = staged.find((s) => s.kind === 'report');
+      assert.ok(json && typeof json.data === 'string');
+      const parsed = JSON.parse(json.data as string) as { summary: { certification?: string; matrixVerdict?: string } };
+      assert.strictEqual(parsed.summary.certification, report.summary.certification);
+      assert.strictEqual(parsed.summary.matrixVerdict, report.summary.matrixVerdict);
+      assert.ok(parsed.summary.certification === 'CERTIFIED' || parsed.summary.certification === 'STRUCTURAL');
+    });
+
+    it('build-strict treats an unmeasured visual-quality scan as an evidence gap', async () => {
+      const report = await run(portsWithVisual({ measured: false, error: 'SCOPE_NOT_FOUND' }), 'build-strict');
+      assert.strictEqual(report.summary.verdict, 'INCONCLUSIVE');
+      assert.ok((report.findings?.evidenceGaps || []).some((gap) => gap.includes('Visual quality not measured')));
+    });
+
+    it('audit ignores an unmeasured visual-quality scan', async () => {
+      const report = await run(portsWithVisual({ measured: false, error: 'SCOPE_NOT_FOUND' }));
+      assert.strictEqual(report.summary.verdict, 'PASS');
+    });
+  });
+
+  it('1b. A structural PASS the matrix cannot certify is labelled STRUCTURAL, verdict unchanged', async () => {
+    const ports = createMockPorts();
+    const workflow = new ThemeQaWorkflow(ports);
+
+    const report = await workflow.validate({
+      runId: 'run-structural',
+      attemptId: 'att-structural',
+      workspaceRoot: 'E:/Work/test-theme',
+      target: makeTarget(1),
+    });
+
+    assert.strictEqual(report.summary.verdict, 'PASS', 'the structural verdict contract is unchanged');
+    assert.notStrictEqual(report.qaMatrix?.verdict, 'PASS', 'no viewport evidence: the matrix cannot certify');
+    assert.strictEqual(report.summary.matrixVerdict, report.qaMatrix?.verdict);
+    assert.strictEqual(report.summary.certification, 'STRUCTURAL');
   });
 
   it('2. Missing authoritative settle capability prevents false PASS certification (fails closed)', async () => {

@@ -734,6 +734,28 @@ describe('Background throttling never reaches a view outside the window', () => 
     assert.strictEqual(cThrottled(), true);
     assert.deepStrictEqual(children, [a.tab.view], 'the capture leaves only the presented tab in the window');
   });
+
+  it('a throttling pass during a held interaction leaves the held pane painting', async () => {
+    // Every agent action that starts or ends runs this pass; an interaction that holds a
+    // background pane across several clicks must keep producing frames between them.
+    const a = createTestTab('a');
+    const c = createTestTab('c');
+    const { host, children } = createPresentedHost({ tabs: [a, c], activeTabId: 'a', attached: [a.tab.view] });
+    delete host.applyTabThrottling;
+    host.layOutDetachedView = () => {};
+    const log: string[] = [];
+    recordThrottling(a, children, log, false);
+    const cThrottled = recordThrottling(c, children, log, true);
+
+    let duringHold: boolean | undefined;
+    await host.runWithAttachedTabView(c.tab.view, async () => {
+      host.applyTabThrottling();
+      duringHold = cThrottled();
+    });
+    assert.strictEqual(duringHold, false, 'the held pane stays unthrottled through the pass');
+    assert.strictEqual(cThrottled(), true, 'released, it is throttled again');
+    assert.deepStrictEqual(log, ['c:false:attached', 'c:true:attached'], 'the pass itself never re-throttled the held pane');
+  });
 });
 
 after(async () => {

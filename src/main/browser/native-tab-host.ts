@@ -9376,7 +9376,11 @@ export class NativeTabHost extends EventEmitter {
    */
   private backgroundThrottlingFor(id: string, tab: NativeTabRecord): boolean {
     const isAgentWorking = tab.state.aiState === 'agent_working' || (this.automationHost?.agentWorkingRefs.get(id) || 0) > 0;
-    return id !== this.activeTabId && !isAgentWorking;
+    // A pane held by runWithAttachedTabView is mid-measurement. This pass runs whenever an
+    // agent action starts or ends, so without the exemption the end of one click inside a held
+    // interaction re-throttled the pane and froze the transition the next read was waiting on.
+    const held = this.isTemporarilyAttachedView(tab.view) || this.isTemporarilyAttachedView(tab.mobileView);
+    return id !== this.activeTabId && !isAgentWorking && !held;
   }
 
   private readBackgroundThrottling(wc: Electron.WebContents): boolean | undefined {
@@ -11903,6 +11907,42 @@ export class NativeTabHost extends EventEmitter {
       selector,
       descriptor,
     });
+  }
+
+  /**
+   * The registry descriptor (traversal path + fingerprint) a snapshot ref names on the tab's
+   * current document. Snapshot refs live in the registry, not on the DOM, so a page script can
+   * only find the element by walking this path. Throws the registry's REF_STALE / REF_NOT_FOUND
+   * so the caller can say why a ref no longer resolves; null when the tab has no live surface.
+   */
+  public resolveSemanticRefDescriptor(tabId: string | undefined, paneId: SplitPaneId | undefined, ref: string): SemanticElementDescriptor | null {
+    const targetId = tabId || this.activeTabId;
+    const effectivePane: SplitPaneId = paneId || 'desktop';
+    const wc = this.getTabWebContents(targetId, effectivePane);
+    if (!wc || wc.isDestroyed() || !this.semanticRefRegistry) return null;
+    const normRef = ref.trim().startsWith('@') ? ref.trim() : `@${ref.trim()}`;
+    return this.semanticRefRegistry.resolveRef({
+      tabId: targetId,
+      paneId: effectivePane,
+      browserEpoch: this.browserEpoch,
+      documentGeneration: this.getSemanticDocumentGeneration(targetId, effectivePane),
+      documentUrl: wc.getURL(),
+    }, normRef);
+  }
+
+  /**
+   * Run a multi-step interaction with the tab's pane attached and unthrottled for its whole
+   * duration. A background agent tab produces almost no frames (measured: 3 rAF per 500ms and a
+   * CSS transition held at currentTime 0), so a drawer opened there never slides in and any
+   * open/close measurement reads its start state. Captures attach per call; an interaction
+   * that spans many input and evaluation round trips needs the surface held across all of them.
+   */
+  public async withPaintingSurface<T>(tabId: string | undefined, paneId: SplitPaneId | undefined, action: () => Promise<T>): Promise<T> {
+    const tab = this.tabs.get(tabId || this.activeTabId);
+    const isMobile = paneId === 'mobile';
+    const view = isMobile ? tab?.mobileView : tab?.view;
+    if (!tab || !view) return action();
+    return this.runWithAttachedTabView(view, action, isMobile);
   }
 
   public toggleInspect(): boolean {
