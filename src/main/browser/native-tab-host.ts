@@ -80,7 +80,7 @@ import { OAuthPopupManager } from './oauth-popup-manager';
 import { SemanticRefRegistry, makeTargetKey } from './semantic-ref-registry';
 import { settleWithinBound } from './target-operation-chain';
 import { TabAutomationHost } from './tab-automation-host';
-import { TabDevToolsHost, type TabDevToolsStats } from './tab-devtools-host';
+import { TabDevToolsHost, deviceMetricsOverrideParams, type TabDevToolsStats } from './tab-devtools-host';
 import { TerminalOutputRouter } from './terminal-output-router';
 import { isTrackerBlockedUrl, isTrackerIsolationConsoleNoise } from './tracker-isolation';
 import type { TrackerIsolationReceipt } from './tracker-isolation';
@@ -11666,7 +11666,9 @@ export class NativeTabHost extends EventEmitter {
             ...(userAgentMetadata ? { userAgentMetadata } : {}),
           }).catch(() => {});
 
-          await devTools.sendCdpCommand(wc, 'Emulation.setDeviceMetricsOverride', {
+          // The pane's bounds own the surface size (`applyTabDeviceEmulation` sizes the
+          // view to the drawn box); the override only lays the page out.
+          await devTools.sendCdpCommand(wc, 'Emulation.setDeviceMetricsOverride', deviceMetricsOverrideParams({
             width: targetW,
             height: targetH,
             deviceScaleFactor: dpr,
@@ -11674,7 +11676,7 @@ export class NativeTabHost extends EventEmitter {
             screenWidth: targetW,
             screenHeight: targetH,
             scale: safeScale,
-          }).catch(() => {});
+          })).catch(() => {});
         } else {
           await devTools.sendCdpCommand(wc, 'Emulation.clearDeviceMetricsOverride').catch(() => {});
           const userAgentMetadata = chromeUserAgentMetadata(this.defaultUserAgent);
