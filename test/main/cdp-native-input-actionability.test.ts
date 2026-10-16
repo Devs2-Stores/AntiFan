@@ -67,6 +67,9 @@ describe('Phase 03: Pure CSS-Pixel CDP Input & Actionability Gate', () => {
       }
 
       focus() {}
+      matches(selector: string) {
+        return selector === ':hover';
+      }
 
       dispatchEvent(event: any) {
         return true;
@@ -132,6 +135,7 @@ describe('Phase 03: Pure CSS-Pixel CDP Input & Actionability Gate', () => {
         body,
         location: { href: currentUrl },
         querySelector: (sel: string) => documentElement.querySelector(sel),
+        elementFromPoint: () => documentElement.querySelector('#add-to-cart-button'),
       },
       navigator: { maxTouchPoints },
       Element: MockElement,

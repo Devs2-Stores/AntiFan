@@ -833,6 +833,9 @@ export class TabAutomationHost {
       }
     }
 
+    const pointX: number = hoverX;
+    const pointY: number = hoverY;
+
     const dispatch = async (): Promise<{ success: boolean; data?: unknown; reason?: string; fallbackNeeded?: boolean; executionTier?: 'cdp_trusted' | 'isolated_synthetic' }> => {
       let focusEmulationEnabled = false;
       try {
@@ -852,30 +855,83 @@ export class TabAutomationHost {
           } catch {}
         })()`).catch(() => {});
 
-        await this.sendCdpInputCommand(wc, 'Input.dispatchMouseEvent', {
-          type: 'mouseMoved',
-          x: hoverX,
-          y: hoverY,
-        });
-        let hoverActive = false;
-        try {
-          const verifyScript = `(() => {
+        const moveTo = (px: number, py: number) =>
+          this.sendCdpInputCommand(wc, 'Input.dispatchMouseEvent', { type: 'mouseMoved', x: px, y: py });
+        // true/false is a measured :hover reading; null means the reading itself failed.
+        const readHover = async (px: number, py: number): Promise<boolean | null> => {
+          try {
+            const verifyScript = `(() => {
+              try {
+                const el = document.elementFromPoint(${px}, ${py});
+                if (el && (el.matches(':hover') || (el.closest && el.closest(':hover')))) return true;
+                ${targetSelector ? `const t = document.querySelector(${JSON.stringify(targetSelector)}); if (t && t.matches(':hover')) return true;` : ''}
+                return false;
+              } catch { return false; }
+            })()`;
+            return Boolean(await this.executeInIsolatedWorld(wc, verifyScript));
+          } catch {
+            return null;
+          }
+        };
+        await moveTo(pointX, pointY);
+        let hoverActive = await readHover(pointX, pointY);
+        let landedX = pointX;
+        let landedY = pointY;
+        let recovery: string | undefined;
+        if (hoverActive === false) {
+          // A single move can land before the page has laid out the target, or on a point the
+          // page only treats as hovered after the pointer travels into it. Bring the target into
+          // view, then approach its centre from a corner so the page sees an entering pointer.
+          let centerX = pointX;
+          let centerY = pointY;
+          let halfW = rect ? Math.max(1, rect.width / 2) : 12;
+          let halfH = rect ? Math.max(1, rect.height / 2) : 12;
+          if (targetSelector) {
             try {
-              const el = document.elementFromPoint(${hoverX}, ${hoverY});
-              if (el && (el.matches(':hover') || (el.closest && el.closest(':hover')))) return true;
-              ${targetSelector ? `const t = document.querySelector(${JSON.stringify(targetSelector)}); if (t && t.matches(':hover')) return true;` : ''}
-              return false;
-            } catch { return false; }
-          })()`;
-          const activeRes = await this.executeInIsolatedWorld(wc, verifyScript);
-          hoverActive = Boolean(activeRes);
-        } catch {
-          hoverActive = false;
+              const moved = await this.executeInIsolatedWorld(wc, `(() => {
+                try {
+                  const t = document.querySelector(${JSON.stringify(targetSelector)});
+                  if (!t) return null;
+                  t.scrollIntoView({ block: 'center', inline: 'center' });
+                  const r = t.getBoundingClientRect();
+                  return { x: r.left + r.width / 2, y: r.top + r.height / 2, w: r.width, h: r.height };
+                } catch { return null; }
+              })()`) as { x: number; y: number; w: number; h: number } | null;
+              if (moved && Number.isFinite(moved.x) && Number.isFinite(moved.y)) {
+                centerX = moved.x;
+                centerY = moved.y;
+                halfW = Math.max(1, moved.w / 2);
+                halfH = Math.max(1, moved.h / 2);
+              }
+            } catch {}
+          }
+          const corner = { x: Math.max(0, centerX - halfW + 1), y: Math.max(0, centerY - halfH + 1) };
+          const mid = { x: (corner.x + centerX) / 2, y: (corner.y + centerY) / 2 };
+          for (const step of [corner, mid, { x: centerX, y: centerY }]) {
+            await moveTo(step.x, step.y);
+            const gate = Promise.withResolvers<void>();
+            setTimeout(() => gate.resolve(), 30);
+            await gate.promise;
+          }
+          landedX = centerX;
+          landedY = centerY;
+          hoverActive = await readHover(centerX, centerY);
+          recovery = 'scroll-into-view-and-approach';
+          if (hoverActive === false) {
+            const reason = `HOVER_NOT_ACTIVE: CSS :hover is still inactive at (${Math.round(centerX)}, ${Math.round(centerY)}) after real mouse movement, scroll into view and a 3-step approach${targetSelector ? ` on '${targetSelector}'` : ''}; the element may be covered, pointer-events:none, or drive its menu from a different element`;
+            return {
+              success: false,
+              fallbackNeeded: false,
+              executionTier: 'cdp_trusted',
+              reason,
+              data: { ok: false, code: 'HOVER_NOT_ACTIVE', error: reason, tier: 'cdp_trusted', executionTier: 'cdp_trusted', hoverActive: false, x: centerX, y: centerY, rect, recovery },
+            };
+          }
         }
         return {
           success: true,
           executionTier: 'cdp_trusted',
-          data: { ok: true, executed: true, tier: 'cdp_trusted', executionTier: 'cdp_trusted', hoverActive, x: hoverX, y: hoverY, rect },
+          data: { ok: true, executed: true, tier: 'cdp_trusted', executionTier: 'cdp_trusted', hoverActive: hoverActive === true, x: landedX, y: landedY, rect, ...(recovery ? { recovery } : {}) },
         };
       } catch (cdpErr) {
         console.warn(`[tab-automation-host] CDP Input.dispatchMouseEvent (mouseMoved) failed, using fallback: ${cdpErr instanceof Error ? cdpErr.message : String(cdpErr)}`);

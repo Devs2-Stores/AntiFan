@@ -542,6 +542,8 @@ export interface PreCaptureQuiescenceResult {
     rotatedImages: number;
     /** Predicates satisfied by tolerance rather than by an exact reading. */
     toleratedPredicates: string[];
+    /** True when a fonts-only refusal was re-sampled once after waiting on document.fonts.ready. */
+    fontsRetried?: boolean;
   };
 }
 
@@ -765,11 +767,42 @@ export function buildPreCaptureSampleExpr(options: { fullPage?: boolean } = {}):
 
 export const PRE_CAPTURE_SAMPLE_EXPR = buildPreCaptureSampleExpr({ fullPage: false });
 
+/** How long a fonts-only refusal waits (while actively awaiting document.fonts.ready) before its single re-sample. */
+export const FONTS_RETRY_WAIT_MS = 1500;
+
+/**
+ * Quiescence gate with one bounded retry for the one predicate a wait can clear without any
+ * page change: fonts. A web font still downloading reads `status: 'loading'` and flips to
+ * `loaded` by itself, so refusing on the first reading turned a slow font CDN into a failed
+ * capture. The retry runs only when fonts were the sole failing predicate; any other refusal,
+ * or a second fonts failure, is returned as measured.
+ */
 export async function evaluatePreCaptureQuiescence(
   evalHost: EvalHost,
   tabId: string,
   paneId: 'desktop' | 'mobile' = 'desktop',
-  options: { dwellMs?: number; signal?: AbortSignal; fullPage?: boolean } = {}
+  options: { dwellMs?: number; signal?: AbortSignal; fullPage?: boolean; fontsRetryWaitMs?: number } = {}
+): Promise<PreCaptureQuiescenceResult> {
+  const first = await evaluatePreCaptureQuiescenceOnce(evalHost, tabId, paneId, options);
+  const p = first.predicates;
+  const onlyFontsFailed =
+    !first.ready &&
+    first.failingPredicate === 'fontsSettled' &&
+    p.documentGenerationSettled && p.viewportStable && p.imagesSettled && p.imageIdentityStable && p.layoutStable;
+  const retryWaitMs = options.fontsRetryWaitMs ?? FONTS_RETRY_WAIT_MS;
+  if (!onlyFontsFailed || retryWaitMs <= 0 || options.signal?.aborted) return first;
+  try {
+    await evalHost.evalJs(buildFontSettleScript(retryWaitMs), tabId, paneId);
+  } catch {}
+  const second = await evaluatePreCaptureQuiescenceOnce(evalHost, tabId, paneId, options);
+  return { ...second, measurements: { ...second.measurements, fontsRetried: true } };
+}
+
+async function evaluatePreCaptureQuiescenceOnce(
+  evalHost: EvalHost,
+  tabId: string,
+  paneId: 'desktop' | 'mobile',
+  options: { dwellMs?: number; signal?: AbortSignal; fullPage?: boolean }
 ): Promise<PreCaptureQuiescenceResult> {
   const t0 = Date.now();
   const dwellMs = options.dwellMs ?? 250;
