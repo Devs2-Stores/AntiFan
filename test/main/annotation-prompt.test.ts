@@ -80,6 +80,34 @@ describe('Annotation prompt self-QA directive', () => {
     assert.ok(header.includes('annotationId'));
   });
 
+  it('directive documents QA_STRUCTURAL_ONLY and when a STRUCTURAL receipt is not enough', () => {
+    assert.ok(SELF_QA_DIRECTIVE.includes('qaStatus: QA_STRUCTURAL_ONLY'));
+    assert.ok(SELF_QA_DIRECTIVE.includes('certification: CERTIFIED'));
+    assert.ok(SELF_QA_DIRECTIVE.includes('certification: STRUCTURAL'));
+    assert.ok(SELF_QA_DIRECTIVE.includes('anti.visual.promote_baseline'));
+    assert.ok(SELF_QA_DIRECTIVE.includes('viewports'));
+    assert.ok(SELF_QA_DIRECTIVE.includes('ignoreSelectors'));
+    const closing = SELF_QA_DIRECTIVE.split('\n').find((line) => line.startsWith('MỌI đường kết thúc'));
+    assert.ok(closing?.includes('`QA_STRUCTURAL_ONLY`'), 'the terminal token list names QA_STRUCTURAL_ONLY');
+  });
+
+  it('directive requires theme.qa_validate on the annotation Page URL for non-micro edits', () => {
+    const rule = SELF_QA_DIRECTIVE.split('\n').find((line) => line.startsWith('10. DIRECT-EDIT'));
+    assert.ok(rule, 'rule 10 exists');
+    assert.ok(rule.includes('theme.qa_validate'));
+    assert.ok(rule.includes('expectedUrl'));
+    assert.ok(rule.includes('Page URL'));
+    assert.ok(rule.includes('micro-CSS'));
+  });
+
+  it('"storefront QA skipped" is only allowed together with QA_PENDING_SYNC or QA_UNAVAILABLE', () => {
+    const mentions = SELF_QA_DIRECTIVE.split('\n').filter((line) => line.includes('storefront QA skipped'));
+    assert.strictEqual(mentions.length, 1);
+    assert.ok(mentions[0]?.includes('qaStatus: QA_PENDING_SYNC'));
+    assert.ok(mentions[0]?.includes('qaStatus: QA_UNAVAILABLE'));
+    assert.ok(buildAgentTaskHeader('[⚡Direct-Edit] sửa lề nút cart 12px').includes(mentions[0] ?? 'missing'));
+  });
+
   it('directive re-probes CAPABILITY_NOT_FOUND once instead of inheriting absence', () => {
     const header = buildAgentTaskHeader('fix lỗi lệch header trên mobile');
     assert.ok(header.includes('re-probe'));

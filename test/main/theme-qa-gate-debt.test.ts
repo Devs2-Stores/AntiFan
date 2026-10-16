@@ -114,6 +114,7 @@ const passingReceipt = (root: string): Record<string, unknown> => ({
   passed: true,
   execution: 'COMPLETED',
   errorCode: null,
+  certification: 'CERTIFIED',
 });
 
 function seedDebt(root: string, since: number, files: string[]): void {
@@ -275,8 +276,46 @@ describe('only a complete passing receipt newer than since clears the debt', () 
     assert.ok(!fs.existsSync(debtPath(root)));
   });
 
+  const annotationId = 'annotation_1792003171976';
+  const scopedPass = (root: string): Record<string, unknown> => ({
+    ...passingReceipt(root),
+    certification: 'STRUCTURAL',
+    scope: 'annotation',
+    annotationId,
+    scopedCriticalCount: 0,
+  });
+  const seedAnnotation = (root: string, mtimeMs: number) => {
+    const file = path.join(root, '.antifan', 'annotations', 'element_1792003171976.md');
+    fs.writeFileSync(file, `---\nannotation_id: "${annotationId}"\n---\n`, 'utf8');
+    fs.utimesSync(file, mtimeMs / 1000, mtimeMs / 1000);
+  };
+
+  it('an annotation-scoped pass for an annotation older than since deletes the file', () => {
+    const root = makeRoot();
+    seedAnnotation(root, since - 60_000);
+    const settle = open(root);
+    writeReceipt(root, 'scoped.json', scopedPass(root), since + 30_000);
+    settle();
+    assert.ok(!fs.existsSync(debtPath(root)));
+  });
+
+  it('an annotation-scoped pass for an annotation written after since keeps the file', () => {
+    const root = makeRoot();
+    seedAnnotation(root, since + 10_000);
+    const settle = open(root);
+    writeReceipt(root, 'scoped.json', scopedPass(root), since + 30_000);
+    settle();
+    assert.ok(fs.existsSync(debtPath(root)));
+  });
+
   const refused: Array<[string, (root: string) => Record<string, unknown>, number]> = [
     ['older than since', passingReceipt, since - 30_000],
+    ['STRUCTURAL certification', (root) => ({ ...passingReceipt(root), certification: 'STRUCTURAL' }), since + 30_000],
+    ['without a certification field', (root) => {
+      const legacy = passingReceipt(root);
+      delete legacy.certification;
+      return legacy;
+    }, since + 30_000],
     ['QA_FAILED', (root) => ({ ...passingReceipt(root), verdict: 'QA_FAILED', passed: false }), since + 30_000],
     ['QA_INCONCLUSIVE', (root) => ({ ...passingReceipt(root), verdict: 'QA_INCONCLUSIVE', passed: null }), since + 30_000],
     ['degraded execution', (root) => ({ ...passingReceipt(root), execution: 'DEGRADED' }), since + 30_000],

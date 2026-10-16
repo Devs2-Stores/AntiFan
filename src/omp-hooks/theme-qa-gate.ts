@@ -48,8 +48,8 @@
  * receipt leaves `<workspaceRoot>/.antifan/qa-debt.json` ({ root, since, files[] },
  * the format `RESTYLE_MASTER_KIT/lib/receipt-audit.js` reads). It is written at
  * scoped `turn_end`, carried into the next session by `session_start`, named in
- * the reminder, and deleted when a complete passing receipt newer (file mtime)
- * than `since` exists. Only that receipt clears it; a declared status does not.
+ * the reminder, and deleted when a complete CERTIFIED (or annotation-scoped) receipt newer
+ * (file mtime) than `since` exists. Only that receipt clears it; a declared status does not.
  */
 
 import * as fs from "node:fs";
@@ -171,9 +171,9 @@ const EDIT_GUARD_MARKER = "[edit-guard]";
 const EDIT_GUARD_LOG_PARTS = [".antifan", "edit-guard"];
 const MCP_FIRST_TEXT =
   `\n\n${MCP_FIRST_MARKER} Live theme workspace. Visual claims need AntiFan MCP this turn — do not wait to be asked.\n` +
-  `1. anti.browser.tabs.list. Bind the storefront tab (anti.browser.rebind_target on TARGET_MISMATCH). Navigate to the page in the user's screenshot or URL.\n` +
-  `2. anti.inspect.dom on the named selector, then anti.screenshot.viewport. Do not read xd:// docs first; write JSON to the xd://mcp__antifan_browser_* path.\n` +
-  `3. After a theme file edit: inspect + screenshot again, then theme.qa_validate with that tabId. Never call theme.qa_validate against Google or a blank tab (a 60s timeout is not a check).\n` +
+  `1. anti.browser.tabs.list; bind the storefront tab (anti.browser.rebind_target on TARGET_MISMATCH) and navigate to the page in the user's screenshot or URL.\n` +
+  `2. anti.inspect.dom on the named selector, then anti.screenshot.viewport. Write JSON straight to the xd://mcp__antifan_browser_* path; skip the docs.\n` +
+  `3. After a theme file edit: inspect + screenshot again, then theme.qa_validate with that tabId. Thresholds default automatically; pass viewports for per-width baselines (CERTIFIED needs them). Never call it against Google or a blank tab.\n` +
   `Liquid/grep is not proof the storefront changed.`;
 
 /** Soft churn advisory threshold: a full rewrite of an already-large file. */
@@ -239,16 +239,23 @@ function snapshotAnnotations(root: string): Map<string, number> {
   return out;
 }
 
-/** Whether the receipt's annotation was on disk, unchanged, before the edit that armed the gate. */
-function annotationPredatesEdit(root: string, annotationId: unknown): boolean {
+/**
+ * Whether the annotation named by `annotationId` is on disk in `files` and `accepts` its mtime
+ * (matched by file name or by the id appearing in the file).
+ */
+function annotationMatches(
+  files: Iterable<[string, number]>,
+  annotationId: unknown,
+  accepts: (currentMtime: number, seenMtime: number) => boolean,
+): boolean {
   if (typeof annotationId !== "string" || !annotationId.trim()) return false;
   const id = annotationId.trim();
   const digits = id.startsWith("annotation_") ? id.slice("annotation_".length) : null;
-  for (const [file, mtimeAtArm] of annotationsAtArm.get(root) ?? []) {
+  for (const [file, seenMtime] of files) {
     const name = path.basename(file);
     let names = name === `${id}.md` || (digits !== null && name === `element_${digits}.md`);
     try {
-      if (fs.statSync(file).mtimeMs !== mtimeAtArm) continue;
+      if (!accepts(fs.statSync(file).mtimeMs, seenMtime)) continue;
       if (!names) names = fs.readFileSync(file, "utf8").includes(id);
     } catch {
       continue;
@@ -257,6 +264,12 @@ function annotationPredatesEdit(root: string, annotationId: unknown): boolean {
   }
   return false;
 }
+
+/** Whether the receipt's annotation was on disk, unchanged, before the edit that armed the gate. */
+function annotationPredatesEdit(root: string, annotationId: unknown): boolean {
+  return annotationMatches(annotationsAtArm.get(root) ?? [], annotationId, (current, seen) => current === seen);
+}
+
 interface HookSettingsFinding {
   rule: string;
   id?: string;
@@ -267,12 +280,15 @@ interface HookSettingsFinding {
 }
 /** workspaceRoot -> settings regression findings from the latest receipt. */
 const pendingSettingsFindings = new Map<string, HookSettingsFinding[]>();
+/** workspaceRoot -> `certificationReasons` of the latest complete STRUCTURAL pass that left the gate armed. */
+const structuralNotes = new Map<string, string[]>();
 /** Bypass / micro declarations, kept for auditability. */
 const bypassLog: Array<{
   at: string;
   token: string;
   code?: string;
   micro?: { root?: string; accepted?: boolean; path?: string; changedLines?: number; reason?: string };
+  structural?: { root: string; accepted: boolean; reason?: string };
 }> = [];
 /** Micro-edit lane record: what the hook OBSERVED for the edit that armed the gate. */
 interface MicroEditRecord {
@@ -289,10 +305,12 @@ const microEdits = new Map<string, MicroEditRecord>();
 const churnWarnedPaths = new Set<string>();
 const pendingChurnHints = new Map<string, string>();
 let toolResultCounter = 0;
-/** One open QA debt: theme files edited with no passing receipt newer than `since`. */
+/** One open QA debt: theme files edited with no clearing receipt newer than `since`. */
 interface QaDebt {
   since: number;
   files: Set<string>;
+  /** `structural-only`: closed by a declared STRUCTURAL pass; only a CERTIFIED receipt settles it. */
+  kind?: "structural-only";
 }
 /** workspaceRoot -> debt opened by a scoped (Direct-Edit/Super-Fast) edit or carried from disk. */
 const openDebts = new Map<string, QaDebt>();
@@ -813,6 +831,8 @@ const scopedSessionStates = new Map<string, ScopedSessionState>();
 /** Newest receipt timestamp in one qa-receipts dir (0 when absent/empty/unreadable). */
 interface ReceiptRecord {
   time: number;
+  /** Directory whose `.antifan/qa-receipts` held this receipt. */
+  workspaceDir: string;
   receipt: Record<string, unknown>;
 }
 
@@ -824,6 +844,7 @@ interface ReceiptRecord {
  * timestamp could otherwise mask a newer corrupt receipt.
  */
 function latestReceiptRecordInDir(dir: string): ReceiptRecord | null {
+  const workspaceDir = path.dirname(path.dirname(dir));
   let newestMtime = 0;
   let newestPaths: string[] = [];
   try {
@@ -848,8 +869,7 @@ function latestReceiptRecordInDir(dir: string): ReceiptRecord | null {
   if (newestPaths.length === 0 || newestMtime === 0) return null;
   // Corrupt wins ties deterministically: scan the winner set; a parse failure
   // returns a receipt stamped QA_UNREADABLE so the gate stays armed regardless
-  // of readdir order. Valid JSON lacking a verdict keeps legacy semantics
-  // (clears) — only unreadable or explicitly-failed receipts block clearing.
+  // of readdir order. A receipt without a verdict never clears the gate either.
   let firstParsed: Record<string, unknown> | null = null;
   let sawCorrupt = false;
   for (const p of newestPaths) {
@@ -866,8 +886,8 @@ function latestReceiptRecordInDir(dir: string): ReceiptRecord | null {
       sawCorrupt = true;
     }
   }
-  if (sawCorrupt || !firstParsed) return { time: newestMtime, receipt: { verdict: "QA_UNREADABLE" } };
-  return { time: newestMtime, receipt: firstParsed };
+  if (sawCorrupt || !firstParsed) return { time: newestMtime, workspaceDir, receipt: { verdict: "QA_UNREADABLE" } };
+  return { time: newestMtime, workspaceDir, receipt: firstParsed };
 }
 
 /** Newest receipt record for a workspaceRoot (probing direct and 1 level down). */
@@ -917,12 +937,21 @@ function normalizeRootKey(value: unknown): string | null {
   return value.trim().replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
 }
 
-/** A receipt that can clear debt: a completed, passing run for exactly this root (kit `isComplete`). */
-function isCompletePassReceipt(receipt: Record<string, unknown>, root: string): boolean {
+function receiptRootMatches(receipt: Record<string, unknown>, root: string, workspaceDir?: string): boolean {
+  const key = normalizeRootKey(receipt.workspaceRoot);
+  if (key === null) return false;
+  return key === normalizeRootKey(root) || (workspaceDir !== undefined && key === normalizeRootKey(workspaceDir));
+}
+
+/**
+ * A complete, passing run for this root (kit `isComplete`). `workspaceDir` is the directory that
+ * holds the receipt: a receipt one level under the bound root names that project, not the root.
+ */
+function isCompletePassReceipt(receipt: Record<string, unknown>, root: string, workspaceDir?: string): boolean {
   if (receipt.verdict !== "QA_PASSED" || receipt.passed !== true) return false;
   if (receipt.execution !== "COMPLETED" || receipt.errorCode !== null) return false;
   if (receipt.workspaceRootRedirected === true) return false;
-  if (normalizeRootKey(receipt.workspaceRoot) !== normalizeRootKey(root)) return false;
+  if (!receiptRootMatches(receipt, root, workspaceDir)) return false;
   const coverage = receipt.coverage as { measured?: unknown; expected?: unknown } | undefined;
   if (
     coverage &&
@@ -936,8 +965,20 @@ function isCompletePassReceipt(receipt: Record<string, unknown>, root: string): 
   return true;
 }
 
-/** Whether a complete passing receipt is strictly newer (file mtime) than `since`. */
-function passingReceiptAfter(root: string, since: number): boolean {
+/** A complete STRUCTURAL pass that carries no settings regression and no auth redirect. */
+function isCompleteStructuralReceipt(receipt: Record<string, unknown>, root: string, workspaceDir?: string): boolean {
+  if (receipt.certification !== "STRUCTURAL") return false;
+  if (!isCompletePassReceipt(receipt, root, workspaceDir)) return false;
+  const ratchet = receipt.settingsRatchet as { ok?: unknown } | undefined;
+  return receipt.authRedirect !== true && !(ratchet && ratchet.ok === false);
+}
+
+/**
+ * Whether a complete passing receipt strictly newer (file mtime) than `since` settles the debt.
+ * `certified` accepts only CERTIFIED (structural-only debt); `scoped` also accepts an
+ * annotation-scoped pass whose annotation was already on disk at `since`.
+ */
+function passingReceiptAfter(root: string, since: number, mode: "scoped" | "certified"): boolean {
   let names: string[];
   try {
     names = fs.readdirSync(path.join(root, RECEIPT_DIR));
@@ -950,9 +991,18 @@ function passingReceiptAfter(root: string, since: number): boolean {
     try {
       if (fs.statSync(file).mtimeMs <= since) continue;
       const raw = JSON.parse(fs.readFileSync(file, "utf8")) as unknown;
-      if (raw && typeof raw === "object" && !Array.isArray(raw) && isCompletePassReceipt(raw as Record<string, unknown>, root)) {
-        return true;
-      }
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+      const receipt = raw as Record<string, unknown>;
+      const settles =
+        mode === "certified"
+          ? receipt.certification === "CERTIFIED" && isCompletePassReceipt(receipt, root, root)
+          : receiptClearsGate(receipt, root, {
+              workspaceDir: root,
+              // Debt has no arm snapshot: the annotation must not have been written after `since`.
+              annotationPredates: (id) =>
+                annotationMatches(snapshotAnnotations(root), id, (current) => current <= since),
+            });
+      if (settles) return true;
     } catch {
       /* an unreadable or in-flight receipt is not a pass */
     }
@@ -966,12 +1016,13 @@ function readDebtFile(root: string): QaDebt | null {
       root?: unknown;
       since?: unknown;
       files?: unknown;
+      kind?: unknown;
     };
     if (normalizeRootKey(parsed.root) !== normalizeRootKey(root)) return null;
     const since = typeof parsed.since === "number" ? parsed.since : Date.parse(String(parsed.since));
     const files = Array.isArray(parsed.files) ? parsed.files.filter((f): f is string => typeof f === "string") : [];
     if (!Number.isFinite(since) || files.length === 0) return null;
-    return { since, files: new Set(files) };
+    return { since, files: new Set(files), ...(parsed.kind === "structural-only" ? { kind: "structural-only" as const } : {}) };
   } catch {
     return null;
   }
@@ -982,7 +1033,12 @@ function writeDebtFile(root: string, debt: QaDebt): { ok: true } | { ok: false; 
   const tmp = `${file}.${process.pid}.tmp`;
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    const body = { root: root.replace(/\\/g, "/"), since: debt.since, files: [...debt.files].sort() };
+    const body = {
+      root: root.replace(/\\/g, "/"),
+      since: debt.since,
+      files: [...debt.files].sort(),
+      ...(debt.kind ? { kind: debt.kind } : {}),
+    };
     fs.writeFileSync(tmp, `${JSON.stringify(body, null, 2)}\n`, "utf8");
     fs.renameSync(tmp, file);
     return { ok: true };
@@ -1000,7 +1056,7 @@ function writeDebtFile(root: string, debt: QaDebt): { ok: true } | { ok: false; 
 /** Drop every debt a newer complete passing receipt covers, deleting its file. */
 function settleDebts(): void {
   for (const [root, debt] of [...openDebts]) {
-    if (!passingReceiptAfter(root, debt.since)) continue;
+    if (!passingReceiptAfter(root, debt.since, debt.kind === "structural-only" ? "certified" : "scoped")) continue;
     try {
       fs.rmSync(path.join(root, DEBT_FILE), { force: true });
     } catch {
@@ -1039,6 +1095,20 @@ function noteScopedEdit(root: string, rel: string): void {
   dirtyDebtRoots.add(root);
 }
 
+/** A declared structural-only close leaves debt that only a CERTIFIED receipt newer than the edit removes. */
+function noteStructuralOnlyDebt(root: string, since: number, edited: Set<string> | undefined): void {
+  const files = edited && edited.size > 0 ? [...edited] : ["(theme files)"];
+  const debt = openDebts.get(root);
+  if (debt) {
+    for (const file of files) debt.files.add(file);
+    debt.since = Math.min(debt.since, since);
+    debt.kind = "structural-only";
+  } else {
+    openDebts.set(root, { since, files: new Set(files), kind: "structural-only" });
+  }
+  dirtyDebtRoots.add(root);
+}
+
 /** Persist scoped-edit debt; a write failure is reported to the session once, never swallowed. */
 function flushDebts(pi: HookAPI): void {
   settleDebts();
@@ -1050,6 +1120,7 @@ function flushDebts(pi: HookAPI): void {
     if (onDisk) {
       for (const file of onDisk.files) debt.files.add(file);
       debt.since = Math.min(debt.since, onDisk.since);
+      if (onDisk.kind === "structural-only") debt.kind = "structural-only";
     }
     const written = writeDebtFile(root, debt);
     if (written.ok) continue;
@@ -1072,9 +1143,30 @@ function debtReminder(): string {
   const parts = [...openDebts].map(([root, debt]) => {
     const files = [...debt.files];
     const shown = files.slice(0, 3).join(", ");
-    return `${root}: ${files.length} file(s) since ${new Date(debt.since).toISOString()} (${shown}${files.length > 3 ? ", ..." : ""})`;
+    const tag = debt.kind === "structural-only" ? " [structural-only]" : "";
+    return `${root}: ${files.length} file(s) since ${new Date(debt.since).toISOString()} (${shown}${files.length > 3 ? ", ..." : ""})${tag}`;
   });
-  return ` Open QA debt (.antifan/qa-debt.json) until a passing receipt lands: ${parts.join("; ")}.`;
+  return ` Open QA debt (.antifan/qa-debt.json) until a CERTIFIED receipt lands: ${parts.join("; ")}.`;
+}
+
+/**
+ * The one rule that clears a pending edit or a debt: a complete, root-matching passing receipt
+ * that is CERTIFIED, or a pass scoped to an annotation that predates the edit. A STRUCTURAL
+ * pass, a receipt without `certification`, and a receipt without a verdict never clear.
+ */
+function receiptClearsGate(
+  receipt: Record<string, unknown>,
+  root: string,
+  ctx: { workspaceDir?: string; annotationPredates: (annotationId: unknown) => boolean },
+): boolean {
+  if (!isCompletePassReceipt(receipt, root, ctx.workspaceDir)) return false;
+  if (receipt.certification === "CERTIFIED") return true;
+  if (receipt.scope !== "annotation") return false;
+  return (
+    receipt.authRedirect !== true &&
+    receipt.scopedCriticalCount === 0 &&
+    ctx.annotationPredates(receipt.annotationId)
+  );
 }
 
 /** Drop pending entries that a fresh receipt now covers, preserving armed status on settings regressions. */
@@ -1083,6 +1175,7 @@ function reconcileReceipts(): void {
     const rec = latestReceiptRecord(root);
     if (rec && rec.time >= editTs) {
       const receipt = rec.receipt;
+      structuralNotes.delete(root);
       const settingsRatchet = receipt.settingsRatchet as {
         ok?: boolean;
         findings?: HookSettingsFinding[];
@@ -1110,10 +1203,7 @@ function reconcileReceipts(): void {
         );
       const isFailVerdict = verdict === "QA_FAILED" || verdict === "FAIL";
       const isInconclusiveVerdict = verdict === "QA_INCONCLUSIVE" || verdict === "INCONCLUSIVE";
-      const isPassVerdict =
-        verdict === "QA_PASSED" ||
-        verdict === "PASS" ||
-        (verdict === undefined && receipt.passed !== false);
+      const isPassVerdict = verdict === "QA_PASSED" || verdict === "PASS";
       // A scoped count is only evidence when the run completed: a DEGRADED execution means
       // some scanner did not report, so "0 scoped criticals" may just be missing findings.
       const executionCompleted = receipt.execution === "COMPLETED";
@@ -1125,6 +1215,13 @@ function reconcileReceipts(): void {
         scopedCriticalCount === 0 &&
         executionCompleted &&
         !hasSettingsRegression;
+      const clears =
+        scopedGatePassed ||
+        (isPassVerdict &&
+          receiptClearsGate(receipt, root, {
+            workspaceDir: rec.workspaceDir,
+            annotationPredates: (id) => annotationPredatesEdit(root, id),
+          }));
 
       if (verdict === "QA_UNREADABLE" || isInconclusiveVerdict) {
         // Corrupt/in-flight receipt or inconclusive/evidence-gap receipt
@@ -1134,23 +1231,26 @@ function reconcileReceipts(): void {
           const findings = Array.isArray(settingsRatchet.findings) ? settingsRatchet.findings : [];
           pendingSettingsFindings.set(root, findings);
         }
-      } else if ((isFailVerdict && !scopedGatePassed) || (!isPassVerdict && !scopedGatePassed)) {
-        // DO NOT clear pendingEdits.delete(root). Keep gate armed for ANY failed
-        // receipt — including non-Haravan and visual-only failures that carry no
-        // settingsRatchet at all — unless an annotation-scoped FAIL check proved 0
-        // scoped critical defects (including 0 page-level/selector-less criticals).
+      } else if (!clears) {
+        // Keep the gate armed for ANY receipt that is not a certified or annotation-scoped
+        // pass: failures (including visual-only ones with no settingsRatchet), a STRUCTURAL
+        // pass, and receipts carrying no verdict or no certification.
         if (hasSettingsRegression && settingsRatchet) {
           const findings = Array.isArray(settingsRatchet.findings) ? settingsRatchet.findings : [];
           pendingSettingsFindings.set(root, findings);
         } else {
           pendingSettingsFindings.delete(root);
         }
+        if (isPassVerdict && isCompleteStructuralReceipt(receipt, root, rec.workspaceDir)) {
+          const reasons = Array.isArray(receipt.certificationReasons)
+            ? receipt.certificationReasons.filter((r): r is string => typeof r === "string" && r.trim().length > 0)
+            : [];
+          structuralNotes.set(root, reasons);
+        }
       } else if (hasSettingsRegression && settingsRatchet) {
         const findings = Array.isArray(settingsRatchet.findings) ? settingsRatchet.findings : [];
         pendingSettingsFindings.set(root, findings);
       } else {
-        // QA_PASSED, legacy pass receipt (verdict undefined), or scoped annotation
-        // pass on a QA_FAILED verdict (scopedCriticalCount === 0, no settings regression): clear.
         clearPending(root);
       }
     }
@@ -1370,6 +1470,9 @@ function findBypassDeclaration(messages: unknown[]): DeclarationHit | null {
   return findDeclaration(messages, BYPASS_TOKENS, latestPendingEditAt());
 }
 
+/** Declared structural-only close: honoured only against a complete STRUCTURAL receipt (see the context handler). */
+const STRUCTURAL_TOKENS = ["qaStatus: QA_STRUCTURAL_ONLY", "qaStatus:QA_STRUCTURAL_ONLY"];
+
 function findMicroDeclaration(messages: unknown[]): DeclarationHit | null {
   return findDeclaration(messages, MICRO_TOKENS, latestPendingEditAt());
 }
@@ -1494,6 +1597,7 @@ function clearPending(root: string): void {
   annotationsAtArm.delete(root);
   microEdits.delete(root);
   pendingSettingsFindings.delete(root);
+  structuralNotes.delete(root);
 }
 
 /**
@@ -1534,15 +1638,25 @@ function reminderText(): string {
   }
 
   const roots = [...pendingEdits.keys()].join(", ");
+  const structural = [...pendingEdits.keys()]
+    .map((root) => structuralNotes.get(root))
+    .filter((note): note is string[] => Array.isArray(note));
+  const structuralLine =
+    structural.length > 0
+      ? `STRUCTURAL PASS, not CERTIFIED: ${[...new Set(structural.flat())].join("; ") || "no per-viewport baseline diff"}. ` +
+        `Promote baselines (anti.visual.promote_baseline per width) and rerun theme.qa_validate, or declare QA_STRUCTURAL_ONLY (debt stays until CERTIFIED). `
+      : "";
   return (
-    `\n\n${GATE_MARKER} QA GATE PENDING — theme file(s) under ${roots} edited without a fresh AntiFan QA receipt. ` +
-    `Run theme.qa_validate (tabId + workspaceRoot; expectedUrl and annotationId optional) so a receipt lands in .antifan/qa-receipts/. ` +
-    `If impossible, declare one SELF_QA_DIRECTIVE terminal status in your own message, with the original error code: ` +
+    `\n\n${GATE_MARKER} QA GATE PENDING — theme file(s) under ${roots} edited without a CERTIFIED AntiFan QA receipt. ` +
+    structuralLine +
+    `Run theme.qa_validate (tabId + workspaceRoot; expectedUrl, annotationId optional). Thresholds default automatically; ` +
+    `pass viewports for per-width baselines and ignoreSelectors for live countdowns. ` +
+    `If impossible, declare one SELF_QA_DIRECTIVE status in your own message with the original error code: ` +
     `QA_UNAVAILABLE (capability missing or auth failed), ` +
     `QA_INCONCLUSIVE (environment failure such as CAPTURE_FRAME_STARVATION or TARGET_STALE, after one retry), ` +
-    `QA_PENDING_SYNC (user must sync the theme; list the edited files), ` +
-    `QA_MICRO_STATIC (single plain assets/ CSS file, <=10 changed lines, no Liquid; name file, selector, line count). ` +
-    `QA_FAILED does not clear the gate. QA_PASSED without a receipt is a contract violation.` +
+    `QA_PENDING_SYNC (user must sync the theme; list files), ` +
+    `QA_MICRO_STATIC (one plain assets/ CSS file, <=10 changed lines, no Liquid). ` +
+    `QA_FAILED does not clear the gate. QA_PASSED without a CERTIFIED receipt is a contract violation.` +
     debtReminder()
   );
 }
@@ -1555,6 +1669,7 @@ export default function themeQaGate(pi: HookAPI): void {
       consumedDeclarations.clear();
       microEdits.clear();
       pendingSettingsFindings.clear();
+      structuralNotes.clear();
       churnWarnedPaths.clear();
       pendingChurnHints.clear();
       sessionModes.clear();
@@ -1921,6 +2036,39 @@ function readLatestRatchetStats(workspaceRoot: string, minReceiptTime = 0): Ratc
           annotationsAtArm.clear();
           microEdits.clear();
           pendingSettingsFindings.clear();
+          structuralNotes.clear();
+          return outMessages ? { messages: outMessages } : undefined;
+        }
+        const structural = findDeclaration(messages, STRUCTURAL_TOKENS, latestPendingEditAt());
+        if (structural) {
+          const rejected: string[] = [];
+          for (const [root, editTs] of [...pendingEdits]) {
+            const rec = latestReceiptRecord(root);
+            if (!rec || rec.time < editTs || !isCompleteStructuralReceipt(rec.receipt, root, rec.workspaceDir)) {
+              rejected.push(root);
+              continue;
+            }
+            noteStructuralOnlyDebt(root, editTs, microEdits.get(root)?.paths);
+            bypassLog.push({
+              at: new Date().toISOString(),
+              token: structural.token,
+              structural: { root, accepted: true },
+            });
+            clearPending(root);
+          }
+          for (const root of rejected) {
+            bypassLog.push({
+              at: new Date().toISOString(),
+              token: structural.token,
+              structural: {
+                root,
+                accepted: false,
+                reason: "no complete STRUCTURAL receipt newer than the edit for this root",
+              },
+            });
+          }
+          flushDebts(pi);
+          if (rejected.length === 0) consumeDeclaration(structural);
           return outMessages ? { messages: outMessages } : undefined;
         }
         const micro = findMicroDeclaration(messages);
