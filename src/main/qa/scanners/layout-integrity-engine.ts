@@ -1556,7 +1556,8 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
     checkFixedStickyLayerCollisions('');
     // Fixed and stuck bars (header, announcement, bottom nav, cookie strip) share the viewport with
     // the content. When together they take more than 40% of its height the page has no room left to
-    // read; a short landscape phone viewport is where this shows first.
+    // read; a short landscape phone viewport is where this shows first. A sticky column narrower than
+    // the viewport (gallery, product info) is content that stays in view, not chrome.
     {
       const bars = [];
       let chromePx = 0;
@@ -1566,7 +1567,7 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
         const lr = l.getBoundingClientRect();
         if (lr.width < vw * 0.5 || lr.height < 8 || lr.bottom <= 0 || lr.top >= vh) continue;
         if (lr.width >= vw * 0.9 && lr.height >= vh * 0.9) continue;
-        if (releasedSticky(l, lr)) continue;
+        if (releasedSticky(l, lr) || (cs(l).position === 'sticky' && lr.width < vw * 0.9)) continue;
         if (bars.some((b) => b.layer.contains(l) || l.contains(b.layer))) continue;
         bars.push({ layer: l, r: lr });
         chromePx += Math.min(lr.bottom, vh) - Math.max(lr.top, 0);
