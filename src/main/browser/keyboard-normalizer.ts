@@ -185,3 +185,76 @@ export function buildKeyboardInputEvents(rawKey: string, rawModifiers?: string[]
 
   return events;
 }
+
+export interface CdpKeyEventParams {
+  type: 'keyDown' | 'rawKeyDown' | 'keyUp';
+  key: string;
+  code: string;
+  windowsVirtualKeyCode: number;
+  modifiers: number;
+  text?: string;
+}
+
+/** DOM `key`, `code` and Windows virtual key code for each Electron key code the map emits. */
+const CDP_NAMED_KEYS: Record<string, { key: string; code: string; vk: number }> = {
+  Return: { key: 'Enter', code: 'Enter', vk: 13 },
+  Escape: { key: 'Escape', code: 'Escape', vk: 27 },
+  Tab: { key: 'Tab', code: 'Tab', vk: 9 },
+  Backspace: { key: 'Backspace', code: 'Backspace', vk: 8 },
+  Delete: { key: 'Delete', code: 'Delete', vk: 46 },
+  Insert: { key: 'Insert', code: 'Insert', vk: 45 },
+  Home: { key: 'Home', code: 'Home', vk: 36 },
+  End: { key: 'End', code: 'End', vk: 35 },
+  PageUp: { key: 'PageUp', code: 'PageUp', vk: 33 },
+  PageDown: { key: 'PageDown', code: 'PageDown', vk: 34 },
+  Up: { key: 'ArrowUp', code: 'ArrowUp', vk: 38 },
+  Down: { key: 'ArrowDown', code: 'ArrowDown', vk: 40 },
+  Left: { key: 'ArrowLeft', code: 'ArrowLeft', vk: 37 },
+  Right: { key: 'ArrowRight', code: 'ArrowRight', vk: 39 },
+  Space: { key: ' ', code: 'Space', vk: 32 },
+  '+': { key: '+', code: 'Equal', vk: 187 },
+};
+
+const CDP_MODIFIER_BITS: Record<ElectronModifier, number> = { alt: 1, control: 2, meta: 4, shift: 8 };
+
+/**
+ * The same key press as `buildKeyboardInputEvents`, as CDP `Input.dispatchKeyEvent` params. CDP
+ * input reaches the page whether or not the window has OS focus; `webContents.sendInputEvent`
+ * keyboard events are dropped while the window is unfocused.
+ */
+export function buildCdpKeyEvents(rawKey: string, rawModifiers?: string[]): CdpKeyEventParams[] {
+  const parsed = parseKeyCombo(rawKey);
+  const keyInfo = normalizeKey(parsed.key);
+  const allModifiers = Array.from(new Set([...parsed.modifiers, ...normalizeModifiers(rawModifiers)]));
+  const modifiers = allModifiers.reduce((bits, m) => bits | CDP_MODIFIER_BITS[m], 0);
+  let key: string;
+  let code: string;
+  let vk: number;
+  const named = CDP_NAMED_KEYS[keyInfo.keyCode];
+  if (named) {
+    ({ key, code, vk } = named);
+  } else if (/^F([1-9]|1[0-2])$/.test(keyInfo.keyCode)) {
+    key = keyInfo.keyCode;
+    code = keyInfo.keyCode;
+    vk = 111 + Number(keyInfo.keyCode.slice(1));
+  } else {
+    key = keyInfo.keyCode;
+    const upper = key.toUpperCase();
+    if (/^[A-Z]$/.test(upper)) {
+      code = 'Key' + upper;
+      vk = upper.charCodeAt(0);
+    } else if (/^[0-9]$/.test(key)) {
+      code = 'Digit' + key;
+      vk = key.charCodeAt(0);
+    } else {
+      code = '';
+      vk = 0;
+    }
+  }
+  const isShortcut = allModifiers.includes('control') || allModifiers.includes('meta');
+  const text = keyInfo.isPrintable && !isShortcut ? keyInfo.text || key : undefined;
+  const down: CdpKeyEventParams = text !== undefined
+    ? { type: 'keyDown', key, code, windowsVirtualKeyCode: vk, modifiers, text }
+    : { type: 'rawKeyDown', key, code, windowsVirtualKeyCode: vk, modifiers };
+  return [down, { type: 'keyUp', key, code, windowsVirtualKeyCode: vk, modifiers }];
+}

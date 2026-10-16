@@ -4,6 +4,7 @@ import {
   normalizeKey,
   normalizeModifiers,
   buildKeyboardInputEvents,
+  buildCdpKeyEvents,
 } from '../../src/main/browser/keyboard-normalizer';
 import { BrowserControlPort, BrowserHostPort } from '../../src/main/tools/browser-control-port';
 import { CapabilityCatalogue } from '../../src/main/tools/capability-catalogue';
@@ -129,6 +130,24 @@ describe('Keyboard Normalizer & Browser Native Keyboard Press', () => {
       assert.strictEqual(events[0]?.keyCode, 'Return');
       assert.strictEqual(events[1]?.type, 'keyUp');
       assert.strictEqual(events[1]?.keyCode, 'Return');
+    });
+  });
+
+  describe('buildCdpKeyEvents', () => {
+    it('maps named keys to DOM key, code and virtual key code with no text', () => {
+      assert.deepStrictEqual(buildCdpKeyEvents('ArrowDown'), [
+        { type: 'rawKeyDown', key: 'ArrowDown', code: 'ArrowDown', windowsVirtualKeyCode: 40, modifiers: 0 },
+        { type: 'keyUp', key: 'ArrowDown', code: 'ArrowDown', windowsVirtualKeyCode: 40, modifiers: 0 },
+      ]);
+    });
+
+    it('sends text for a printable key and none for a shortcut, with the modifier bitmask', () => {
+      const typed = buildCdpKeyEvents('a');
+      assert.deepStrictEqual(typed[0], { type: 'keyDown', key: 'a', code: 'KeyA', windowsVirtualKeyCode: 65, modifiers: 0, text: 'a' });
+      const shortcut = buildCdpKeyEvents('Ctrl+Shift+k');
+      assert.deepStrictEqual(shortcut[0], { type: 'rawKeyDown', key: 'k', code: 'KeyK', windowsVirtualKeyCode: 75, modifiers: 10 });
+      assert.strictEqual(buildCdpKeyEvents('F5')[0]?.windowsVirtualKeyCode, 116);
+      assert.deepStrictEqual(buildCdpKeyEvents('Space')[0], { type: 'keyDown', key: ' ', code: 'Space', windowsVirtualKeyCode: 32, modifiers: 0, text: ' ' });
     });
   });
 

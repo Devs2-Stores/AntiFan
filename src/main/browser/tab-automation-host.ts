@@ -27,6 +27,7 @@ import type { NativeTabRecord } from './native-tab-host';
 import type { TabDevToolsHost } from './tab-devtools-host';
 import { withEvalCeiling } from './eval-ceiling';
 import { validateAuthorizedWorkspaceRoot } from './workspace-resolver';
+import { buildCdpKeyEvents } from './keyboard-normalizer';
 
 /**
  * Isolated-world pre-flight refusals that must NOT be retried through the
@@ -912,7 +913,7 @@ export class TabAutomationHost {
                 try {
                   const t = document.querySelector(${JSON.stringify(targetSelector)});
                   if (!t) return null;
-                  t.scrollIntoView({ block: 'center', inline: 'center' });
+                  t.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
                   const r = t.getBoundingClientRect();
                   return { x: r.left + r.width / 2, y: r.top + r.height / 2, w: r.width, h: r.height };
                 } catch { return null; }
@@ -1532,14 +1533,24 @@ export class TabAutomationHost {
             if (!action.key) {
               stepSuccess = false;
               stepError = 'Missing key for pressKey action';
-            } else if (this.ctx.sendKeyboardPress) {
-              const pressRes = await this.ctx.sendKeyboardPress({ key: action.key, modifiers: action.modifiers, tabId: targetId });
-              stepSuccess = pressRes.success;
             } else {
-              wc.sendInputEvent({ type: 'keyDown', keyCode: action.key });
-              wc.sendInputEvent({ type: 'char', keyCode: action.key });
-              wc.sendInputEvent({ type: 'keyUp', keyCode: action.key });
-              stepSuccess = true;
+              // CDP first: Electron sendInputEvent keyboard events never reach a page whose window
+              // lacks OS focus, which is the normal state of a background agent tab.
+              let cdpError: string | undefined;
+              try {
+                for (const evt of buildCdpKeyEvents(action.key, action.modifiers)) {
+                  await this.sendCdpInputCommand(wc, 'Input.dispatchKeyEvent', evt as unknown as Record<string, unknown>);
+                }
+                stepSuccess = true;
+              } catch (err) {
+                cdpError = err instanceof Error ? err.message : String(err);
+              }
+              if (!stepSuccess && this.ctx.sendKeyboardPress) {
+                const pressRes = await this.ctx.sendKeyboardPress({ key: action.key, modifiers: action.modifiers, tabId: targetId });
+                stepSuccess = pressRes.success;
+              } else if (!stepSuccess) {
+                stepError = `pressKey failed: ${cdpError}`;
+              }
             }
             break;
           }

@@ -231,6 +231,28 @@ describe('Phase 03: Pure CSS-Pixel CDP Input & Actionability Gate', () => {
     assert.strictEqual(result.code, 'ELEMENT_DISABLED');
   });
 
+  it('3b. Refuses a click whose target stays below the viewport after scrolling (scroll-locked page)', async () => {
+    const { context, body, MockElement } = createMockDomContext();
+    (context as any).window.innerWidth = 375;
+    (context as any).window.innerHeight = 667;
+    (context as any).document.elementFromPoint = () => null;
+
+    const quickview = new MockElement('BUTTON', 'quickview');
+    quickview.rect = { x: 122, y: 1138, width: 28, height: 28 };
+    quickview.scrollIntoView = () => {};
+    body.appendChild(quickview);
+
+    const script = buildIsolatedExecutorScript({
+      action: 'focus',
+      selector: '#quickview',
+      documentUrl: 'https://storefront-test.com/products/jacket',
+      nonce: 'test-nonce',
+    });
+    const result = await vm.runInContext(script, context);
+    assert.strictEqual(result.ok, false, 'an off-viewport point must not be reported as delivered');
+    assert.strictEqual(result.code, 'ELEMENT_OUT_OF_VIEWPORT');
+  });
+
   it('4. Rejects pre-execution navigation mismatch with REF_DOCUMENT_MUTATED', async () => {
     const { context, body, MockElement } = createMockDomContext('', 'https://storefront-test.com/cart');
 
@@ -389,6 +411,34 @@ describe('Phase 03: Pure CSS-Pixel CDP Input & Actionability Gate', () => {
     for (const ev of mouseEvents) {
       assert.strictEqual(ev.params?.x, 70);
       assert.strictEqual(ev.params?.y, 85);
+    }
+  });
+
+  it('5k. A sequence pressKey reaches the page through CDP, not focus-bound sendInputEvent', async () => {
+    cdpSentCommands = [];
+    isDebuggerAttached = false;
+    debuggerAttachThrows = false;
+    emulatedMaxTouchPoints = 0;
+    rejectedCdpCommand = null;
+    const focusBound: string[] = [];
+    (mockTabContext as any).sendKeyboardPress = async (p: { key: string }) => { focusBound.push(p.key); return { success: true, key: p.key, modifiers: [] }; };
+    try {
+      const res = await automationHost.executeActionSequence({ actions: [{ type: 'pressKey', key: 'Escape' }], tabId: 'tab-test-01' } as any);
+      assert.strictEqual(res.success, true, JSON.stringify(res));
+      const keys = cdpSentCommands.filter((c) => c.method === 'Input.dispatchKeyEvent').map((c) => c.params);
+      assert.deepStrictEqual(keys.map((k) => [k.type, k.key, k.code, k.windowsVirtualKeyCode]), [
+        ['rawKeyDown', 'Escape', 'Escape', 27],
+        ['keyUp', 'Escape', 'Escape', 27],
+      ]);
+      assert.deepStrictEqual(focusBound, []);
+
+      cdpSentCommands = [];
+      rejectedCdpCommand = { method: 'Input.dispatchKeyEvent', type: 'rawKeyDown' };
+      const fallback = await automationHost.executeActionSequence({ actions: [{ type: 'pressKey', key: 'Escape' }], tabId: 'tab-test-01' } as any);
+      assert.strictEqual(fallback.success, true, JSON.stringify(fallback));
+      assert.deepStrictEqual(focusBound, ['Escape'], 'a failed CDP dispatch falls back to the host keyboard press');
+    } finally {
+      delete (mockTabContext as any).sendKeyboardPress;
     }
   });
 
