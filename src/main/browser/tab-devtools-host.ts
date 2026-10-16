@@ -176,6 +176,23 @@ function hasMeasuredSurface(snapshot: RenderSurfaceSnapshot | undefined): snapsh
 }
 
 /**
+ * Params for every `Emulation.setDeviceMetricsOverride` this app sends. Without
+ * `dontSetVisibleSize`, Chromium also resizes the tab's render widget to the emulated
+ * size, remembers the size it found on the first override of an emulation session,
+ * and `clearDeviceMetricsOverride` puts that remembered size back whenever the widget
+ * is still at the last emulated one (WebContentsImpl::SetDeviceEmulationSize /
+ * ClearDeviceEmulationSize). The pane view's bounds are the only size authority here,
+ * and they reach the widget only when they change: measured on a background agent tab
+ * after a [375, 1440] sweep, a queued 1440 override landed after the restore had put
+ * the pane back to 1344x765, the clear then put back the 375x812 the session began at,
+ * and every later layout re-applied the same 1344x765 bounds, so the page stayed laid
+ * out at 375x812. Emulation changes how the page is laid out, never the surface size.
+ */
+export function deviceMetricsOverrideParams<T extends { width: number; height: number }>(metrics: T): T & { dontSetVisibleSize: true } {
+  return { ...metrics, dontSetVisibleSize: true };
+}
+
+/**
  * A native raster whose every pixel is identical is the blank canvas a wedged
  * presenter hands back: the last composited content is gone and capturePage
  * snapshots the empty backing instead. Returns undefined when the image cannot
@@ -1941,12 +1958,12 @@ export class TabDevToolsHost {
     const wc = this.ctx.getTabWebContents(targetId, paneId || target.focusedPane);
     if (!wc || wc.isDestroyed()) throw new Error(`WebContents unavailable for tab: ${targetId}`);
 
-    await this.sendCdpCommand(wc, 'Emulation.setDeviceMetricsOverride', {
+    await this.sendCdpCommand(wc, 'Emulation.setDeviceMetricsOverride', deviceMetricsOverrideParams({
       width: Math.max(1, Math.round(metrics.width)),
       height: Math.max(1, Math.round(metrics.height)),
       deviceScaleFactor: metrics.deviceScaleFactor || 1,
       mobile: Boolean(metrics.mobile),
-    });
+    }));
 
     try {
       return await action();
@@ -3135,6 +3152,14 @@ export class TabDevToolsHost {
    *
    * A draining transport cannot carry the restore commands, so the transaction is
    * reported as deferred for the caller to reapply after the drain.
+   *
+   * A restore whose own command drove the transport into draining is the one case
+   * this caller finishes itself: the capture is still holding the surface the
+   * baseline was read from, so it drains the target and re-applies once there. Every
+   * capture consumer then gets a proven restore or a plain failure (which throws
+   * CAPTURE_VIEWPORT_NOT_RESTORED and sends the port through its drain-and-reapply
+   * recovery), never a deferred transaction that consumers which only read the bytes
+   * would accept with the geometry still unproven.
    */
   private async restoreCapturedGeometry(
     wc: Electron.WebContents,
@@ -3154,14 +3179,29 @@ export class TabDevToolsHost {
     }
     const target = this.ctx.getTabRecord(tabId);
     if (!target) return undefined;
-    return await this.applyGeometryRestore({
-      wc,
-      targetId: tabId,
-      effectivePane: pane,
-      targetPaneView: pane === 'mobile' ? target.mobileView || target.view : target.view,
-      customViewport: target.customViewport,
-      before,
-    });
+    const restore = (): Promise<CaptureViewportTransaction> =>
+      this.applyGeometryRestore({
+        wc,
+        targetId: tabId,
+        effectivePane: pane,
+        targetPaneView: pane === 'mobile' ? target.mobileView || target.view : target.view,
+        customViewport: target.customViewport,
+        before,
+      });
+    const first = await restore();
+    if (!first.deferred) return first;
+    // Default bound: the transport's own draining quarantine, after which it resets
+    // the debugger session for the next command anyway.
+    const drain = await this.drainTarget(tabId, pane);
+    const second = drain.ok ? await restore() : undefined;
+    const attempts = first.attempts + (second?.attempts ?? 0);
+    if (second?.restored) return { ...second, attempts };
+    return {
+      before: first.before,
+      after: second?.after ?? first.after,
+      restored: false,
+      attempts,
+    };
   }
 
   /**
@@ -3200,22 +3240,22 @@ export class TabDevToolsHost {
       try {
         if (attempt === 1) {
           if (args.customViewport && args.customViewport.width > 0 && args.customViewport.height > 0) {
-            await this.sendCdpCommand(args.wc, 'Emulation.setDeviceMetricsOverride', {
+            await this.sendCdpCommand(args.wc, 'Emulation.setDeviceMetricsOverride', deviceMetricsOverrideParams({
               width: Math.max(1, Math.round(args.customViewport.width)),
               height: Math.max(1, Math.round(args.customViewport.height)),
               deviceScaleFactor: args.before.dpr || 1,
               mobile: false,
-            });
+            }));
           } else {
             await this.sendCdpCommand(args.wc, 'Emulation.clearDeviceMetricsOverride');
           }
         } else {
-          await this.sendCdpCommand(args.wc, 'Emulation.setDeviceMetricsOverride', {
+          await this.sendCdpCommand(args.wc, 'Emulation.setDeviceMetricsOverride', deviceMetricsOverrideParams({
             width: Math.max(1, Math.round(before.width)),
             height: Math.max(1, Math.round(before.height)),
             deviceScaleFactor: args.before.dpr || 1,
             mobile: false,
-          });
+          }));
         }
         const isAttached = (this.ctx.isTabViewAttached && this.ctx.isTabViewAttached(args.targetPaneView)) || args.targetId === this.ctx.getActiveTabId();
         if (args.customViewport && args.customViewport.width > 0 && args.customViewport.height > 0) {
@@ -3257,6 +3297,24 @@ export class TabDevToolsHost {
       } catch {
         // A failed restore attempt is retried once with the measured geometry;
         // the verification below decides the outcome.
+      }
+      // A restore command that outlives its bound leaves the transport draining, and
+      // the transport then refuses every later command - this attempt's re-measure and
+      // the whole forced attempt - with TARGET_BUSY_DRAINING until the stuck command
+      // settles. Measured after a ~13000 CSS px full-page raster on a background agent
+      // tab: the scrollTo outlived its 3s bound while the renderer was still busy, the
+      // re-measure was refused, and the forced attempt failed the same way, so the
+      // capture reported a viewport it never got to read. That geometry is unproven,
+      // not unrestorable: the transaction is deferred for the caller to drain and
+      // re-apply, and nothing here counts as restored.
+      if (this.isWebContentsDraining(args.wc)) {
+        return {
+          before,
+          after: after ? { width: after.vw, height: after.vh, scrollX: after.scrollX, scrollY: after.scrollY } : null,
+          restored: false,
+          attempts,
+          deferred: true,
+        };
       }
     }
     return {

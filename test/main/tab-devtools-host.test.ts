@@ -473,11 +473,13 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
     assert.ok(cmd0);
     assert.ok(cmd1);
     assert.strictEqual(cmd0.method, 'Emulation.setDeviceMetricsOverride');
+    // The override lays the page out; the pane's bounds keep owning the surface size.
     assert.deepStrictEqual(cmd0.params, {
       width: 768,
       height: 1024,
       deviceScaleFactor: 1,
       mobile: true,
+      dontSetVisibleSize: true,
     });
     assert.strictEqual(cmd1.method, 'Emulation.clearDeviceMetricsOverride');
   });
@@ -1500,6 +1502,158 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
       (c) => c.method === 'Emulation.clearDeviceMetricsOverride' || c.method === 'Emulation.setDeviceMetricsOverride'
     );
     assert.deepStrictEqual(geometryWrites, [], 'A capture that never measured a surface must not write replacement geometry for it');
+  });
+
+  /**
+   * A background tab whose CDP traffic runs through the real transport (queue, bounds,
+   * draining quarantine, drain) into a scripted debugger. The tab is presented only
+   * inside the attach-for-capture helper, where the render-surface probe reads 4x3 at
+   * dpr 2 (0x0 outside, as a detached view reads). The restore's own scrollTo answers
+   * through `restoreScroll` under a short bound, so a stuck one drains the transport the
+   * way the 3s bound did after a ~13000 CSS px full-page raster.
+   */
+  function drainingRestoreHarness(opts: { restoreScroll: (call: number) => Promise<unknown>; onDrain?: () => void }) {
+    const { ctx, tabs, mockWc } = createMockContext();
+    ctx.createTab('https://example.com/tall');
+    let attachDepth = 0;
+    ctx.runWithAttachedTabView = async <T>(_view: unknown, action: () => Promise<T>): Promise<T> => {
+      attachDepth += 1;
+      try {
+        return await action();
+      } finally {
+        attachDepth -= 1;
+      }
+    };
+    ctx.isTabViewAttached = () => attachDepth > 0;
+    const isRestoreScroll = (params: unknown): boolean =>
+      Boolean(params && typeof params === 'object' && 'expression' in params && String(params.expression).startsWith('window.scrollTo({ left:'));
+    const dispatched: string[] = [];
+    let restoreScrolls = 0;
+    let debuggerAttached = false;
+    const cdpWc = {
+      ...mockWc,
+      id: 907,
+      on: () => {},
+      removeListener: () => {},
+      debugger: {
+        isAttached: () => debuggerAttached,
+        attach: () => { debuggerAttached = true; },
+        detach: () => { debuggerAttached = false; },
+        once: () => {},
+        on: () => {},
+        removeListener: () => {},
+        sendCommand: (method: string, params?: { expression?: unknown }) => {
+          if (method === 'Runtime.evaluate' && isRestoreScroll(params)) {
+            dispatched.push('restore-scroll');
+            restoreScrolls += 1;
+            return opts.restoreScroll(restoreScrolls);
+          }
+          if (method === 'Runtime.evaluate' && String(params?.expression ?? '').includes('devicePixelRatio')) {
+            dispatched.push('probe');
+            return Promise.resolve({
+              result: { value: attachDepth > 0 ? { dpr: 2, vw: 4, vh: 3, readyState: 'complete' } : { dpr: 2, vw: 0, vh: 0, readyState: 'complete' } },
+            });
+          }
+          dispatched.push(method);
+          if (method === 'Page.captureScreenshot') return Promise.resolve({ data: makePng(8, 6).toString('base64') });
+          if (method === 'Runtime.evaluate') return Promise.resolve({ result: { value: undefined } });
+          return Promise.resolve({});
+        },
+      },
+    } as unknown as Electron.WebContents;
+    ctx.getTabWebContents = () => cdpWc;
+    tabs.get('tab-2')!.view.webContents = cdpWc as unknown as MockTabRecord['view']['webContents'];
+
+    const devTools = new TabDevToolsHost(ctx);
+    const internals = devTools as unknown as {
+      sendCdpCommand: (wc: Electron.WebContents, method: string, params?: Record<string, unknown>, timeoutMs?: number) => Promise<unknown>;
+      drainTarget: (tabId: string, paneId?: SplitPaneId, timeoutMs?: number) => Promise<{ ok: boolean; drained: boolean; resetPerformed: boolean; elapsedMs: number }>;
+    };
+    const send = devTools.sendCdpCommand.bind(devTools);
+    internals.sendCdpCommand = (wc, method, params, timeoutMs) => send(wc, method, params, isRestoreScroll(params) ? 20 : timeoutMs);
+    const drainedWhilePresented: boolean[] = [];
+    const drain = devTools.drainTarget.bind(devTools);
+    internals.drainTarget = (tabId, paneId, timeoutMs) => {
+      drainedWhilePresented.push(attachDepth > 0);
+      opts.onDrain?.();
+      return drain(tabId, paneId, timeoutMs);
+    };
+    /** Geometry traffic the restore sent after the raster: what reached the renderer, in order. */
+    const restoreTraffic = (): string[] =>
+      dispatched
+        .slice(dispatched.lastIndexOf('Page.captureScreenshot') + 1)
+        .filter((m) => m === 'restore-scroll' || m === 'probe' || m === 'Emulation.clearDeviceMetricsOverride' || m === 'Emulation.setDeviceMetricsOverride');
+    return { devTools, dispatched, drainedWhilePresented, restoreTraffic };
+  }
+
+  it('28b. a restore whose own scrollTo outlives its bound is deferred for a drain, never certified', async () => {
+    const stuck = Promise.withResolvers<unknown>();
+    const { devTools, dispatched } = drainingRestoreHarness({ restoreScroll: () => stuck.promise });
+
+    const transaction = await devTools.reapplyTabGeometry('tab-2', 'desktop', { width: 1344, height: 765, scrollX: 0, scrollY: 0 });
+    assert.strictEqual(transaction.deferred, true, 'a restore its own command left draining must be handed back for a drain');
+    assert.strictEqual(transaction.restored, false, 'a viewport nobody re-measured is never restored');
+    assert.strictEqual(transaction.after, null, 'the refused re-measure is no reading');
+    assert.strictEqual(transaction.attempts, 1, 'the forced attempt cannot cross a draining transport');
+    assert.deepStrictEqual(
+      dispatched,
+      ['Emulation.clearDeviceMetricsOverride', 'restore-scroll'],
+      'nothing after the stuck scrollTo - re-measure or forced override - reached the renderer'
+    );
+    assert.strictEqual(devTools.getStats().drainingTargetCount, 1);
+
+    stuck.resolve({ result: { value: undefined } });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.strictEqual(devTools.getStats().drainingTargetCount, 0);
+  });
+
+  it('28c. a capture whose restore drains the transport drains it and re-applies on the surface it measured', async () => {
+    const stuck = Promise.withResolvers<unknown>();
+    const { devTools, drainedWhilePresented, restoreTraffic } = drainingRestoreHarness({
+      restoreScroll: (call) => (call === 1 ? stuck.promise : Promise.resolve({ result: { value: undefined } })),
+      // The renderer finishes the work the scrollTo was stuck behind while the drain waits on it.
+      onDrain: () => stuck.resolve({ result: { value: undefined } }),
+    });
+
+    const envelope = await devTools.captureVerificationScreenshot({ x: 0, y: 0, width: 4, height: 3 }, 'tab-2', 'desktop');
+    const transaction = envelope.viewportTransaction;
+    assert.ok(transaction, 'a clip capture must report the geometry transaction it ran');
+    assert.strictEqual(transaction.restored, true);
+    assert.notStrictEqual(transaction.deferred, true, 'a restore finished after the drain is no longer deferred');
+    assert.deepStrictEqual(transaction.before, { width: 4, height: 3, scrollX: 0, scrollY: 0 });
+    assert.deepStrictEqual(transaction.after, { width: 4, height: 3, scrollX: 0, scrollY: 0 });
+    assert.strictEqual(transaction.attempts, 2, 'the stuck pass and the re-apply');
+    assert.deepStrictEqual(drainedWhilePresented, [true], 'drained once, while the surface the baseline was read from was still presented');
+    assert.deepStrictEqual(
+      restoreTraffic(),
+      ['Emulation.clearDeviceMetricsOverride', 'restore-scroll', 'Emulation.clearDeviceMetricsOverride', 'restore-scroll', 'probe'],
+      'the stuck pass reached the renderer up to its scrollTo, the re-apply is what proved the restore'
+    );
+    assert.strictEqual(devTools.getStats().drainingTargetCount, 0);
+  });
+
+  it('28d. a re-apply that drains the transport again fails the capture instead of handing back a deferred restore', async () => {
+    const first = Promise.withResolvers<unknown>();
+    const second = Promise.withResolvers<unknown>();
+    const { devTools, drainedWhilePresented } = drainingRestoreHarness({
+      restoreScroll: (call) => (call === 1 ? first.promise : second.promise),
+      onDrain: () => first.resolve({ result: { value: undefined } }),
+    });
+
+    // A consumer that only reads the bytes would accept a deferred transaction with the
+    // geometry unproven; a plain failure throws, and the port's recovery owns the rest.
+    await assert.rejects(
+      () => devTools.captureVerificationScreenshot({ x: 0, y: 0, width: 4, height: 3 }, 'tab-2', 'desktop'),
+      (err: unknown) =>
+        err instanceof CaptureError &&
+        err.code === 'CAPTURE_VIEWPORT_NOT_RESTORED' &&
+        /unmeasurable size after 2 restore attempts \(expected 4x3\)/.test(err.message)
+    );
+    assert.deepStrictEqual(drainedWhilePresented, [true], 'the capture drains once; a second drain is the recovery\'s job');
+
+    second.resolve({ result: { value: undefined } });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.strictEqual(devTools.getStats().drainingTargetCount, 0);
   });
 
   it('29. a target whose view is outside the window fails fast with NO_RENDER_SURFACE and never waits on the compositor', async () => {
