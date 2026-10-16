@@ -1,7 +1,7 @@
 ---
 title: "QA Cockpit ↔ MCP Bridge (main-owned checklist store)"
 description: "Move the Theme Studio checklist out of toolbar localStorage into a main-owned JSON store and expose it to external agents as theme.cockpit_* MCP capabilities with live toolbar repaint."
-status: pending
+status: in-progress
 priority: P1
 effort: 12h
 branch: wip/260930-0945-multi-window
@@ -64,10 +64,10 @@ flowchart LR
 
 | # | Phase | Status | Effort |
 |---|-------|--------|--------|
-| 1 | [Main-owned checklist store + CockpitPort + IPC channels + runThemeQa(tabId) rework](./phase-01-checklist-store.md) | Pending | 4.5h |
-| 2 | [Eight `theme.cockpit_*` capabilities + proxy definitions + parity-gate stub](./phase-02-cockpit-capabilities.md) | Pending | 3h |
-| 3 | [Toolbar IPC cutover + live repaint + escaping + generation guards + migration](./phase-03-toolbar-cutover.md) | Pending | 3h |
-| 4 | [End-to-end verification](./phase-04-verification.md) | Pending | 1.5h |
+| 1 | [Main-owned checklist store + CockpitPort + IPC channels + runThemeQa(tabId) rework](./phase-01-checklist-store.md) | Implemented (reports/phase-04-status.md) | 4.5h |
+| 2 | [Eight `theme.cockpit_*` capabilities + proxy definitions + parity-gate stub](./phase-02-cockpit-capabilities.md) | Implemented (reports/phase-04-status.md) | 3h |
+| 3 | [Toolbar IPC cutover + live repaint + escaping + generation guards + migration](./phase-03-toolbar-cutover.md) | Implemented (reports/phase-04-status.md) | 3h |
+| 4 | [End-to-end verification](./phase-04-verification.md) | In progress: automated gates green, live E2E pending (reports/phase-04-status.md) | 1.5h |
 
 Dependencies are strictly sequential: P2 needs the P1 store + port + `runThemeQa(tabId)`; P3 needs the P1 channels/routes; P4 exercises P1–P3.
 
