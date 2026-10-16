@@ -46,7 +46,7 @@ export function makeProbeDeps(
     async click(selector) {
       try {
         const res = await browser.agentClick({ selector, tabId, paneId }, target, signal);
-        return res.clicked ? { ok: true } : { ok: false, error: `click on '${selector}' was not delivered` };
+        return res.clicked ? { ok: true } : { ok: false, error: `click on '${selector}' was not delivered${res.reason ? `: ${res.reason}` : ''}` };
       } catch (err) {
         return { ok: false, error: errorText(err) };
       }

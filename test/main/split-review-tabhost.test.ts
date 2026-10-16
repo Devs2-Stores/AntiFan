@@ -185,6 +185,21 @@ describe('NativeTabHost Split Review Integration', () => {
     assert.strictEqual(state.isMuted, false);
   });
 
+  it('counts only main-frame cross-document navigations as a new document for actions', () => {
+    const { host, desktopWc, state } = createTestHost();
+    const tab = host.tabs.get(state.id);
+    privateHost.setupTabWebContentsEvents.call(host, state.id, tab.view, state, 'desktop');
+    const start = host.getCrossDocumentGeneration(state.id, 'desktop');
+
+    desktopWc.emit('did-start-navigation', {}, 'https://example.com/products/a?variant=2', true, true);
+    assert.strictEqual(host.getCrossDocumentGeneration(state.id, 'desktop'), start, 'history.replaceState keeps the document');
+    desktopWc.emit('did-start-navigation', {}, 'https://widget.example.net/frame', false, false);
+    assert.strictEqual(host.getCrossDocumentGeneration(state.id, 'desktop'), start, 'an iframe load keeps the main document');
+
+    desktopWc.emit('did-start-navigation', {}, 'https://example.com/pages/about', false, true);
+    assert.strictEqual(host.getCrossDocumentGeneration(state.id, 'desktop'), start + 1, 'a cross-document navigation replaces it');
+  });
+
   it('never records the isolation window\'s own blocked resources as page defects', () => {
     // Both channels matter. The failure channel carries the blocked URL; the
     // console channel reports the *document* as the source of

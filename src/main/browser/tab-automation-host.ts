@@ -124,6 +124,8 @@ export interface TabAutomationContext {
   getActiveTabId: () => string;
   getBrowserEpoch: () => number;
   getSemanticDocumentGeneration: (tabId: string, paneId?: string) => number;
+  /** Main-frame cross-document navigations only; absent on partial contexts, where callers fall back to the semantic generation. */
+  getCrossDocumentGeneration?: (tabId: string, paneId?: string) => number;
   getLegacyDocumentGeneration?: (tabId: string) => number;
   semanticRefRegistry: SemanticRefRegistry;
   runTargetOperation: <T>(tabId: string, paneId: SplitPaneId | undefined, operation: () => Promise<T>) => Promise<T>;
@@ -132,6 +134,8 @@ export interface TabAutomationContext {
   getAllTabs: () => IterableIterator<[string, NativeTabRecord]>;
   applyTabThrottling?: () => void;
   tabDevToolsHost?: TabDevToolsHost;
+  /** Device-metrics override scale of a webContents; CSS coordinates are multiplied by it before CDP input. */
+  getInputScale?: (wc: Electron.WebContents) => number;
   /**
    * Overrides the agent-side eval soft budget (and therefore the derived hard ceiling). Production
    * leaves it unset; a test sets it so it can prove a silent renderer is refused without waiting
@@ -488,6 +492,7 @@ export class TabAutomationHost {
     params: Record<string, unknown>,
     timeoutMs = 10_000
   ): Promise<unknown> {
+    params = this.toInputSpace(wc, method, params);
     if (this.ctx.tabDevToolsHost) {
       return this.ctx.tabDevToolsHost.sendCdpCommand(wc, method, params, timeoutMs);
     }
@@ -505,6 +510,23 @@ export class TabAutomationHost {
     } finally {
       if (timer) clearTimeout(timer);
     }
+  }
+
+  private toInputSpace(wc: Electron.WebContents, method: string, params: Record<string, unknown>): Record<string, unknown> {
+    const scale = this.ctx.getInputScale?.(wc) ?? 1;
+    if (!(scale > 0) || scale === 1) return params;
+    if (method === 'Input.dispatchMouseEvent' && typeof params.x === 'number' && typeof params.y === 'number') {
+      return { ...params, x: params.x * scale, y: params.y * scale };
+    }
+    if (method === 'Input.dispatchTouchEvent' && Array.isArray(params.touchPoints)) {
+      return {
+        ...params,
+        touchPoints: params.touchPoints.map((p: Record<string, unknown>) =>
+          typeof p.x === 'number' && typeof p.y === 'number' ? { ...p, x: p.x * scale, y: p.y * scale } : p
+        ),
+      };
+    }
+    return params;
   }
 
   private async executeTrustedType(
@@ -1000,6 +1022,7 @@ export class TabAutomationHost {
 
           const curEpoch = this.ctx.getBrowserEpoch();
           const curGen = this.ctx.getSemanticDocumentGeneration(targetId, effectivePane);
+          const curDocGen = this.documentGenerationOf(targetId, effectivePane);
           const curUrl = wc.getURL();
 
           let descriptor: SemanticElementDescriptor;
@@ -1041,7 +1064,7 @@ export class TabAutomationHost {
               });
               const trustedRes = await this.executeTrustedClick(wc, focusScript, params.x, params.y, params.presetId);
               if (trustedRes.success) {
-                if (this.ctx.getSemanticDocumentGeneration(targetId, effectivePane) !== curGen || wc.isDestroyed()) {
+                if (this.documentGenerationOf(targetId, effectivePane) !== curDocGen || wc.isDestroyed()) {
                   return { success: false, reason: 'Document navigated during action execution' };
                 }
                 return trustedRes;
@@ -1067,7 +1090,7 @@ export class TabAutomationHost {
               });
               const trustedRes = await this.executeTrustedHover(wc, focusScript, params.x, params.y, params.selector);
               if (trustedRes.success) {
-                if (this.ctx.getSemanticDocumentGeneration(targetId, effectivePane) !== curGen || wc.isDestroyed()) {
+                if (this.documentGenerationOf(targetId, effectivePane) !== curDocGen || wc.isDestroyed()) {
                   return { success: false, reason: 'Document navigated during action execution' };
                 }
                 return trustedRes;
@@ -1088,7 +1111,7 @@ export class TabAutomationHost {
                 nonce: descriptor.nonce,
               });
               const trustedRes = await this.executeTrustedType(wc, focusScript, params.text, params.clear);
-              if (this.ctx.getSemanticDocumentGeneration(targetId, effectivePane) !== curGen || wc.isDestroyed()) {
+              if (this.documentGenerationOf(targetId, effectivePane) !== curDocGen || wc.isDestroyed()) {
                 return { success: false, reason: 'Document navigated during action execution' };
               }
               return trustedRes;
@@ -1115,7 +1138,7 @@ export class TabAutomationHost {
             const rawRes = await this.executeInIsolatedWorld(wc, script);
             const res = validateActionResponse(rawRes);
 
-            if (this.ctx.getSemanticDocumentGeneration(targetId, effectivePane) !== curGen || wc.isDestroyed()) {
+            if (this.documentGenerationOf(targetId, effectivePane) !== curDocGen || wc.isDestroyed()) {
               return { success: false, reason: 'Document navigated during action execution' };
             }
 
@@ -1205,10 +1228,10 @@ export class TabAutomationHost {
               documentUrl: wc.getURL(),
               nonce: generateCollectionNonce(),
             }) : undefined;
-            const curGen = this.ctx.getSemanticDocumentGeneration(targetId, effectivePane);
+            const curGen = this.documentGenerationOf(targetId, effectivePane);
             const trustedRes = await this.executeTrustedClick(wc, focusScript, params.x, params.y, params.presetId);
             if (trustedRes.success) {
-              if (this.ctx.getSemanticDocumentGeneration(targetId, effectivePane) !== curGen || wc.isDestroyed()) {
+              if (this.documentGenerationOf(targetId, effectivePane) !== curGen || wc.isDestroyed()) {
                 return { success: false, reason: 'Document navigated during action execution' };
               }
               return trustedRes;
@@ -1232,10 +1255,10 @@ export class TabAutomationHost {
               presetId: params.presetId,
               nonce: generateCollectionNonce(),
             }) : undefined;
-            const curGen = this.ctx.getSemanticDocumentGeneration(targetId, effectivePane);
+            const curGen = this.documentGenerationOf(targetId, effectivePane);
             const trustedRes = await this.executeTrustedHover(wc, focusScript, params.x, params.y, params.selector);
             if (trustedRes.success) {
-              if (this.ctx.getSemanticDocumentGeneration(targetId, effectivePane) !== curGen || wc.isDestroyed()) {
+              if (this.documentGenerationOf(targetId, effectivePane) !== curGen || wc.isDestroyed()) {
                 return { success: false, reason: 'Document navigated during action execution' };
               }
               return trustedRes;
@@ -1258,9 +1281,9 @@ export class TabAutomationHost {
               documentUrl: wc.getURL(),
               nonce: generateCollectionNonce(),
             });
-            const curGen = this.ctx.getSemanticDocumentGeneration(targetId, effectivePane);
+            const curGen = this.documentGenerationOf(targetId, effectivePane);
             const trustedRes = await this.executeTrustedType(wc, focusScript, params.text, params.clear);
-            if (this.ctx.getSemanticDocumentGeneration(targetId, effectivePane) !== curGen || wc.isDestroyed()) {
+            if (this.documentGenerationOf(targetId, effectivePane) !== curGen || wc.isDestroyed()) {
               return { success: false, reason: 'Document navigated during action execution' };
             }
             return trustedRes;
@@ -1312,6 +1335,16 @@ export class TabAutomationHost {
         }
       });
     });
+  }
+
+  /**
+   * Generation an action checks after it ran. A click that calls history.replaceState (a variant swatch
+   * writing ?variant=) stays in the same document and must still count as delivered.
+   */
+  private documentGenerationOf(tabId: string, paneId: SplitPaneId): number {
+    return this.ctx.getCrossDocumentGeneration
+      ? this.ctx.getCrossDocumentGeneration(tabId, paneId)
+      : this.ctx.getSemanticDocumentGeneration(tabId, paneId);
   }
 
   public async agentClick(params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; trusted?: boolean; force?: boolean; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {

@@ -369,6 +369,63 @@ describe('Phase 03: Pure CSS-Pixel CDP Input & Actionability Gate', () => {
     assert.strictEqual(mouseReleased?.params?.buttons, 0);
   });
 
+  it('5s. Sends CSS coordinates times the emulation scale on a pane drawn smaller than its viewport', async () => {
+    cdpSentCommands = [];
+    isDebuggerAttached = false;
+    debuggerAttachThrows = false;
+    emulatedMaxTouchPoints = 0;
+    rejectedCdpCommand = null;
+    const scaledHost = new TabAutomationHost({
+      ...(mockTabContext as unknown as Record<string, unknown>),
+      getInputScale: () => 0.5,
+    } as unknown as TabAutomationContext);
+
+    const result = await scaledHost.dispatchAgentAction('click', { selector: '#add-to-cart-button', trusted: true });
+
+    assert.strictEqual(result.success, true, result.reason);
+    assert.strictEqual((result.data as any)?.x, 140, 'the reported point stays in CSS pixels');
+    const mouseEvents = cdpSentCommands.filter((c) => c.method === 'Input.dispatchMouseEvent');
+    assert.ok(mouseEvents.length >= 3);
+    for (const ev of mouseEvents) {
+      assert.strictEqual(ev.params?.x, 70);
+      assert.strictEqual(ev.params?.y, 85);
+    }
+  });
+
+  it('5a. Counts a trusted click as delivered when it only rewrites the URL in the same document', async () => {
+    cdpSentCommands = [];
+    isDebuggerAttached = false;
+    debuggerAttachThrows = false;
+    emulatedMaxTouchPoints = 0;
+    rejectedCdpCommand = null;
+    let semanticGen = 1;
+    let crossDocGen = 1;
+    let navigateOnRelease: 'same-document' | 'cross-document' = 'same-document';
+    const host = new TabAutomationHost({
+      ...mockTabContext,
+      getSemanticDocumentGeneration: () => semanticGen,
+      getCrossDocumentGeneration: () => crossDocGen,
+      tabDevToolsHost: {
+        sendCdpCommand: async (_wc: unknown, method: string, params: { type?: string } | undefined) => {
+          cdpSentCommands.push({ method, params });
+          if (method === 'Input.dispatchMouseEvent' && params?.type === 'mouseReleased') {
+            semanticGen += 1;
+            if (navigateOnRelease === 'cross-document') crossDocGen += 1;
+          }
+          return {};
+        },
+      },
+    } as unknown as TabAutomationContext);
+
+    const sameDoc = await host.dispatchAgentAction('click', { selector: '#add-to-cart-button', trusted: true });
+    assert.strictEqual(sameDoc.success, true, sameDoc.reason);
+
+    navigateOnRelease = 'cross-document';
+    const crossDoc = await host.dispatchAgentAction('click', { selector: '#add-to-cart-button', trusted: true });
+    assert.strictEqual(crossDoc.success, false);
+    assert.match(crossDoc.reason || '', /navigated/i);
+  });
+
   it('5b. Dispatches focused CDP mouse events and preserves touch inputType on touch-capable viewports', async () => {
     cdpSentCommands = [];
     isDebuggerAttached = true;

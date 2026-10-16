@@ -4753,7 +4753,7 @@ export class BrowserControlPort {
     }, { tabId, signal });
   }
 
-  async agentClick(args: { selector?: string; ref?: string; x?: number; y?: number; label?: string; trusted?: boolean; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ clicked: boolean }> {
+  async agentClick(args: { selector?: string; ref?: string; x?: number; y?: number; label?: string; trusted?: boolean; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ clicked: boolean; reason?: string }> {
     if (!this.host.agentClick && !this.host.dispatchAgentAction) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentClick is not supported by host');
     const tabId = this.resolveTargetTab(target, args.tabId, 'write', args as Record<string, unknown>);
     return this.viewportGate.withLock(async () => {
@@ -4762,7 +4762,7 @@ export class BrowserControlPort {
       if (outcome.success) {
         this.bumpMutationRevision(tabId);
       }
-      return { clicked: outcome.success };
+      return outcome.success || !outcome.reason ? { clicked: outcome.success } : { clicked: false, reason: outcome.reason };
     }, { tabId, signal });
   }
 

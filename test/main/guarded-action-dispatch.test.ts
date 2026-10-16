@@ -385,8 +385,9 @@ describe('Phase 3: Unified Guarded Agent Action Routing (World 1004 Isolated Exe
     const ref = snap.refs[0]!;
 
     desktopWc.mainFrame.executeJavaScriptInIsolatedWorld = async (): Promise<any> => {
-      // Simulate navigation mid-action
+      // Simulate a cross-document navigation mid-action
       host.setSemanticDocumentGeneration('tab-1', 'desktop', curGen + 1);
+      host.setCrossDocumentGeneration('tab-1', 'desktop', host.getCrossDocumentGeneration('tab-1', 'desktop') + 1);
       return { ok: true, executed: true, rect: { x: 10, y: 10, width: 100, height: 30, centerX: 60, centerY: 25 } };
     };
 

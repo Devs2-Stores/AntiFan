@@ -1635,6 +1635,7 @@ export class NativeTabHost extends EventEmitter {
   private asyncQaQueue = new AsyncThemeQaQueue();
   public readonly semanticRefRegistry = new SemanticRefRegistry();
   private semanticDocumentGenerations = new Map<string, number>();
+  private crossDocumentGenerations = new Map<string, number>();
   private targetOperationQueues = new Map<string, Promise<void>>();
 
   /**
@@ -1892,6 +1893,7 @@ export class NativeTabHost extends EventEmitter {
         getActiveTabId: () => this.activeTabId,
         getBrowserEpoch: () => this.browserEpoch,
         getSemanticDocumentGeneration: (tabId, paneId) => (this.getSemanticDocumentGeneration ? this.getSemanticDocumentGeneration(tabId, paneId) : 0),
+        getCrossDocumentGeneration: (tabId, paneId) => (this.getCrossDocumentGeneration ? this.getCrossDocumentGeneration(tabId, paneId) : 0),
         getLegacyDocumentGeneration: (tabId) => (this.getDocumentGeneration ? this.getDocumentGeneration(tabId) : (this.documentGenerations?.get(tabId) || 0)),
         semanticRefRegistry: this.semanticRefRegistry,
         runTargetOperation: (tabId, paneId, op) => this.runTargetOperation(tabId, paneId, op),
@@ -1900,6 +1902,7 @@ export class NativeTabHost extends EventEmitter {
         getAllTabs: () => this.tabs ? this.tabs.entries() : [][Symbol.iterator](),
         applyTabThrottling: () => this.applyTabThrottling(),
         tabDevToolsHost: this.getDevToolsHost(),
+        getInputScale: (wc) => this.getInputScale(wc),
         resolveTargetWorkspace: (targetSessionId, tabUrl) => this.resolveTabStrictWorkspace(targetSessionId, tabUrl),
         resolveAnchorWorkspace: () => this.resolveWindowWorkspaceRoot(),
         getTabTerminalSession: (tabId) => this.getTabTerminalSession(tabId),
@@ -1979,6 +1982,16 @@ export class NativeTabHost extends EventEmitter {
   public setSemanticDocumentGeneration(tabId: string, paneId: string | undefined, gen: number): void {
     const key = makeTargetKey(tabId, paneId);
     this.semanticDocumentGenerations.set(key, gen);
+  }
+
+  /** Counts main-frame cross-document navigations only; history.replaceState, hash changes and iframe loads leave it alone. */
+  public getCrossDocumentGeneration(tabId: string, paneId?: string): number {
+    return this.crossDocumentGenerations?.get(makeTargetKey(tabId, paneId)) || 1;
+  }
+
+  public setCrossDocumentGeneration(tabId: string, paneId: string | undefined, gen: number): void {
+    if (!this.crossDocumentGenerations) this.crossDocumentGenerations = new Map();
+    this.crossDocumentGenerations.set(makeTargetKey(tabId, paneId), gen);
   }
 
   public async runTargetOperation<T>(tabId: string, paneId: string | undefined, operation: () => Promise<T>): Promise<T> {
@@ -8440,6 +8453,7 @@ export class NativeTabHost extends EventEmitter {
       const semanticKey = makeTargetKey(id, paneId);
       if (!this.semanticDocumentGenerations) this.semanticDocumentGenerations = new Map();
       this.semanticDocumentGenerations.set(semanticKey, (this.semanticDocumentGenerations.get(semanticKey) || 1) + 1);
+      if (isMainFrame && !isInPlace) this.setCrossDocumentGeneration(id, paneId, this.getCrossDocumentGeneration(id, paneId) + 1);
       this.semanticRefRegistry?.invalidateTarget(id, paneId);
       const currentTab = this.tabs.get(id);
       if (isMainFrame && !isInPlace && currentTab) {
@@ -9484,6 +9498,12 @@ export class NativeTabHost extends EventEmitter {
       const prefix = `${String(tabId).trim()}:`;
       for (const key of Array.from(this.semanticDocumentGenerations.keys())) {
         if (key.startsWith(prefix)) this.semanticDocumentGenerations.delete(key);
+      }
+    }
+    if (this.crossDocumentGenerations) {
+      const prefix = `${String(tabId).trim()}:`;
+      for (const key of Array.from(this.crossDocumentGenerations.keys())) {
+        if (key.startsWith(prefix)) this.crossDocumentGenerations.delete(key);
       }
     }
     if (this.targetOperationQueues) {
@@ -11636,6 +11656,17 @@ export class NativeTabHost extends EventEmitter {
    */
   /** Per-webContents tail of emulation applications, so they reach CDP in call order. */
   private emulationChains?: WeakMap<Electron.WebContents, Promise<void>>;
+  /** Scale of the device-metrics override last sent to each webContents (absent = no override). */
+  private emulationInputScales?: WeakMap<Electron.WebContents, number>;
+
+  /**
+   * CDP Input coordinates for an emulated pane land in the shrunk widget, not in the page:
+   * on a 1024 px viewport drawn at 0.923 a click sent at CSS x=659 reached the page at 714.
+   * Callers multiply CSS coordinates by this scale before dispatching input.
+   */
+  public getInputScale(wc: Electron.WebContents): number {
+    return this.emulationInputScales?.get(wc) ?? 1;
+  }
 
   /**
    * Apply (or clear, with no preset) the device emulation of one webContents. Each application
@@ -11741,8 +11772,10 @@ export class NativeTabHost extends EventEmitter {
             screenHeight: targetH,
             scale: safeScale,
           })).catch(() => {});
+          (this.emulationInputScales ??= new WeakMap()).set(wc, safeScale);
         } else {
           await devTools.sendCdpCommand(wc, 'Emulation.clearDeviceMetricsOverride').catch(() => {});
+          this.emulationInputScales?.delete(wc);
           const userAgentMetadata = chromeUserAgentMetadata(this.defaultUserAgent);
           await devTools.sendCdpCommand(wc, 'Emulation.setUserAgentOverride', {
             userAgent: this.defaultUserAgent,
@@ -15935,6 +15968,7 @@ export class NativeTabHost extends EventEmitter {
     // never fully constructed, and dispose must not be the thing that throws there.
     this.targetOperationOwners?.clear();
     this.semanticDocumentGenerations?.clear();
+    this.crossDocumentGenerations?.clear();
     this.sessionTabPools?.clear();
     // Chrome surfaces belong to the shell and are torn down by it; tab and
     // auxiliary webContents above stay this host's responsibility.
