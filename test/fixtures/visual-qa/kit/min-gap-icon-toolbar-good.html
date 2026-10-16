@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>min-gap icon toolbar good</title>
+<style>
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0;font:16px/1.5 Arial,sans-serif;color:#111;background:#fff}
+.bar{display:flex;align-items:center;justify-content:space-between;padding:12px 24px;border-bottom:1px solid #ddd}
+.actions{display:flex;gap:4px}
+.icon-btn{display:flex;align-items:center;justify-content:center;width:44px;height:44px;padding:0;border:0;background:transparent;color:#111;cursor:pointer}
+.icon-btn svg{width:20px;height:20px}
+</style>
+</head>
+<body>
+<header class="bar">
+<a href="/">Sky</a>
+<div class="actions">
+<button class="icon-btn" type="button" aria-label="Tìm kiếm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg></button>
+<button class="icon-btn" type="button" aria-label="Tài khoản"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg></button>
+<a class="icon-btn" href="/wishlist" aria-label="Yêu thích"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-8-5-8-11a5 5 0 0 1 8-3 5 5 0 0 1 8 3c0 6-8 11-8 11z"/></svg></a>
+<button class="icon-btn" type="button" aria-label="Giỏ hàng"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 7h14l-1 13H6z"/><path d="M9 7a3 3 0 0 1 6 0"/></svg></button>
+</div>
+</header>
+<main style="padding:24px"><h1>Trang chủ</h1><p>Nội dung.</p></main>
+</body>
+</html>

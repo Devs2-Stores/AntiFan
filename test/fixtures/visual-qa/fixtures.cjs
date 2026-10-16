@@ -91,4 +91,5 @@ addEventListener('load',()=>setTimeout(()=>{const d=document.createElement('div'
   { id: '68-interactive-siblings-with-gap-control', defect: 'KHÔNG lỗi: hai nút liền kề cách nhau 12px (false-positive control)', html: kit('min-gap-good'), expect: { control: true } },
   { id: '69-fixed-bars-take-most-of-a-short-viewport', defect: 'Header cố định 210px và thanh điều hướng đáy 150px chiếm 54% chiều cao màn hình 667: không còn chỗ đọc nội dung', html: kit('fixed-chrome-ratio-bad'), expect: { kinds: ['sticky-obstruction'], ruleIds: ['fixed-chrome-ratio'], viewports: ['mobile'], allowWarning: false } },
   { id: '70-slim-fixed-bars-control', defect: 'KHÔNG lỗi: header 56px và thanh điều hướng đáy 56px chỉ chiếm 17% chiều cao, nội dung có padding tương ứng (false-positive control)', html: kit('fixed-chrome-ratio-good'), expect: { control: true } },
+  { id: '71-icon-toolbar-unboxed-buttons-control', defect: 'KHÔNG lỗi: 4 nút icon 44px không nền/viền cách nhau 4px, icon 20px cách nhau ~28px (false-positive control)', html: kit('min-gap-icon-toolbar-good'), expect: { control: true } },
 ];

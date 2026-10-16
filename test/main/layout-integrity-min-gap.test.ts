@@ -50,6 +50,16 @@ test('min-gap: two buttons 2px apart are flagged, 12px apart are not (Electron p
   assert.match(good.output, /SUMMARY pass=2 info=0 fail=0/);
 });
 
+test('min-gap: unboxed 44px icon buttons 4px apart are measured by their icons and pass (Electron probe)', (t) => {
+  const run = probeFixture('71-icon-toolbar-unboxed-buttons-control');
+  if (run.skipped) {
+    t.skip(run.skipped);
+    return;
+  }
+  assert.equal(run.status, 0, run.output.slice(-1500));
+  assert.match(run.output, /SUMMARY pass=2 info=0 fail=0/);
+});
+
 test('fixed-chrome-ratio: bars taking 54% of a 667px viewport are critical, 17% is not (Electron probe)', (t) => {
   const bad = probeFixture('69-fixed-bars-take-most-of-a-short-viewport');
   if (bad.skipped) {
