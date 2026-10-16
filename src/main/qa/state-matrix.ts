@@ -420,7 +420,15 @@ export function buildPrepareScript(index: number, recordRest = true): string {
   ${PAGE_HELPERS}
   const t = document.querySelector('${smTriggerSelector(index)}');
   if (!t) return { ok: false, reason: 'TRIGGER_GONE' };
-  t.scrollIntoView({ block: 'center', inline: 'nearest' });
+  // The platform preview bar (Haravan ?themeid=) is shown to the merchant only; a shopper never
+  // sees it, so it must not cover a bottom dock the run clicks.
+  if (!document.getElementById('__antifan_sm_preview_chrome__')) {
+    const st = document.createElement('style');
+    st.id = '__antifan_sm_preview_chrome__';
+    st.textContent = PREVIEW_CHROME + ' { display: none !important; pointer-events: none !important; }';
+    (document.head || document.documentElement).appendChild(st);
+  }
+  t.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
   // Layers already open before the click (a notification popup, a sticky widget) can never be
   // the panel this trigger opens; mark them so the open measurement skips them.
   document.querySelectorAll('[' + PREOPEN + ']').forEach((n) => n.removeAttribute(PREOPEN));
@@ -587,6 +595,9 @@ export function buildMeasureOpenScript(index: number, kind: StateMatrixKind, clo
   let box = panel;
   if (r.width >= vw * 0.9 && r.height >= vh * 0.9) {
     let inner = panel.querySelector('.modal-dialog, .modal-content, [role="document"], [class*="__dialog"], [class*="-dialog"], [class*="__content"], [class*="__inner"], [class*="__panel"]');
+    // The match can be a part inside the card (".sky-account-modal__panel" is a tab pane inside an
+    // unnamed ".sky-modal-card"): the dialog box is the wrapper's child that holds it.
+    while (inner && inner.parentElement && inner.parentElement !== panel) inner = inner.parentElement;
     if (!inner) {
       // Unnamed card (".sky-modal-card" beside a backdrop button): the painted child that does not
       // cover the viewport and is not the scrim.
@@ -814,6 +825,7 @@ export function buildCleanupScript(): string {
     window.scrollTo(g.scrollX, g.scrollY);
     delete window.__antifanStateMatrixGuard;
   }
+  document.getElementById('__antifan_sm_preview_chrome__')?.remove();
   delete window.__antifanStateMatrixRest;
   return { ok: true };
 })()`;

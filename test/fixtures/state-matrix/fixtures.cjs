@@ -79,6 +79,16 @@ function overlayPage(opts = {}) {
 module.exports = [
   { id: 'drawer-healthy', html: overlayPage(), expect: { triggers: 1, status: { 0: 'PASS' }, measured: true } },
   {
+    // Mirrors S2 Sky Fashion under ?themeid=: the Haravan preview bar (#haravan-notification with
+    // ul.preview-cta) sits over the bottom mobile dock. A shopper never sees that bar, so the dock
+    // trigger must still be driven.
+    id: 'dock-under-platform-preview-bar',
+    html: overlayPage()
+      .replace('</style>', '.cart-toggle{position:fixed;left:0;right:0;bottom:0;width:100%;height:56px;z-index:50}</style>')
+      .replace('<script>', '<div id="haravan-notification" style="position:fixed;left:0;right:0;bottom:0;height:64px;z-index:999;background:#222"><ul class="preview-cta" style="margin:0;height:100%"><li><a href="#publish" style="color:#fff">Xuất bản</a></li></ul></div>\n<script>'),
+    expect: { triggers: 1, status: { 0: 'PASS' }, measured: true, noCodes: { 0: ['TRIGGER_NOT_ACTIONABLE'] } },
+  },
+  {
     // The slide takes 600ms, longer than the 250ms settle the lane passes: the run must wait for
     // the transition instead of measuring the drawer mid-slide (half off-screen).
     id: 'drawer-slow-slide-is-measured-where-it-lands',
@@ -245,7 +255,8 @@ nav ul{list-style:none;margin:0;padding:0;display:flex;gap:16px}
   },
   {
     // Mirrors S2 Sky Fashion: the dialog wrapper is named ".sky-modal-overlay" and holds a backdrop
-    // button, the card and an absolutely positioned close button.
+    // button, an unnamed card and an absolutely positioned close button; the card holds an unpadded
+    // tab pane named "__panel".
     id: 'dialog-wrapper-named-overlay',
     html: `<!doctype html><html lang="vi"><head><meta charset="utf-8"><style>${BASE_CSS}
 .modal-overlay{position:fixed;inset:0;z-index:80;display:flex;align-items:center;justify-content:center;transform:none;width:auto;max-width:none;min-height:0;padding:0;background:transparent;box-shadow:none}
@@ -255,7 +266,7 @@ nav ul{list-style:none;margin:0;padding:0;display:flex;gap:16px}
 .modal-close{position:absolute;top:8px;right:8px;width:36px;height:36px;border:1px solid #333;background:#fff;color:#111;font:inherit}
 </style></head><body>
 <header><strong>Shop</strong><button class="btn header__action" type="button" data-action="open-account-modal" aria-label="Tài khoản">Tài khoản</button></header><main style="min-height:1200px"><p>Nội dung.</p></main>
-<div id="account-modal" class="modal-overlay hidden" role="dialog" aria-modal="true"><button class="modal-backdrop" type="button" aria-label="Đóng hộp thoại" data-action="close-modal"></button><div class="modal-card"><button class="modal-close" type="button" aria-label="Đóng">×</button><h2 style="margin:0 0 12px">Đăng nhập</h2><p>Email và mật khẩu.</p></div></div>
+<div id="account-modal" class="modal-overlay hidden" role="dialog" aria-modal="true"><button class="modal-backdrop" type="button" aria-label="Đóng hộp thoại" data-action="close-modal"></button><div class="modal-card"><button class="modal-close" type="button" aria-label="Đóng">×</button><h2 style="margin:0 0 12px">Đăng nhập</h2><div class="account-modal__panel"><p style="margin:0">Email và mật khẩu.</p></div></div></div>
 <script>
   const btn = document.querySelector('[data-action="open-account-modal"]');
   const modal = document.getElementById('account-modal');

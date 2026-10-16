@@ -357,7 +357,12 @@ export function buildIsolatedExecutorScript(request: RendererActionRequest): str
           points.push({ x: rect.x + rect.width / 2, y: rect.y + insetY });
           points.push({ x: rect.x + rect.width / 2, y: rect.y + rect.height - insetY });
         }
-        return points;
+        const vw = window.innerWidth || (document.documentElement && document.documentElement.clientWidth) || 0;
+        const vh = window.innerHeight || (document.documentElement && document.documentElement.clientHeight) || 0;
+        if (!(vw > 0 && vh > 0)) return points;
+        // A point off the viewport has no hit-test answer, which must not read as "the target owns
+        // it": input sent there lands on nothing (or the root) while the action reports success.
+        return points.filter((p) => p.x >= 0 && p.y >= 0 && p.x < vw && p.y < vh);
       }
 
       function readValueSignature(el) {
@@ -484,7 +489,9 @@ export function buildIsolatedExecutorScript(request: RendererActionRequest): str
         // Scrolling is opt-out: a caller taking before/after measurements (the
         // drag engine) must not have the page move between them.
         if (req.scrollIntoView !== false && typeof targetElement.scrollIntoView === 'function') {
-          targetElement.scrollIntoView({ block: 'center', inline: 'center' });
+          // A theme's scroll-behavior: smooth would animate this scroll, and the rect read on the
+          // next line would still describe the pre-scroll position.
+          targetElement.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
         }
 
         const style = window.getComputedStyle ? window.getComputedStyle(targetElement) : targetElement.style || {};
@@ -626,6 +633,13 @@ export function buildIsolatedExecutorScript(request: RendererActionRequest): str
         const inputBearing = req.action === 'focus' || req.action === 'click' || req.action === 'type' || req.action === 'hover' || req.action === 'move';
         if (inputBearing && !req.force) {
           const deliveredAt = { x: computedRect.centerX, y: computedRect.centerY };
+          if (samplePoints(computedRect).length === 0) {
+            return {
+              ok: false,
+              error: 'Element is outside the viewport after scrolling it into view (rect ' + Math.round(computedRect.x) + ',' + Math.round(computedRect.y) + ' ' + Math.round(computedRect.width) + 'x' + Math.round(computedRect.height) + ' in a ' + (window.innerWidth || 0) + 'x' + (window.innerHeight || 0) + ' viewport); the page may still be scroll-locked',
+              code: 'ELEMENT_OUT_OF_VIEWPORT'
+            };
+          }
           let obstruction = null;
           for (const candidate of samplePoints(computedRect)) {
             const receiver = resolveInputReceiver(candidate.x, candidate.y);
