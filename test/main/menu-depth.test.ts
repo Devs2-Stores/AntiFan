@@ -52,8 +52,10 @@ function makeDeps(dom: { window: { document: Document; eval(code: string): unkno
       if (!el) return { ok: false, error: 'not found' };
       if (el.hasAttribute('data-af-menu-opener')) {
         (doc.querySelector('.mobile-menu') as HTMLElement).style.display = 'block';
+      } else if (el.hasAttribute('data-af-menu-closer')) {
+        (doc.querySelector('.mobile-menu') as HTMLElement).style.display = 'none';
       } else if (el.hasAttribute('data-af-menu-toggle')) {
-        revealChildLists(el.parentElement as Element);
+        revealChildLists(el.closest('li') as Element);
       } else {
         revealChildLists(el);
       }
@@ -122,6 +124,41 @@ describe('menu depth probe', () => {
     assert.equal(res.data.maxDepth, 3);
     assert.equal(res.data.mobileMaxDepth, 3);
     assert.equal(res.data.level3Visible, true);
+    assert.equal(res.passed, true);
+  });
+
+  it('clicks level toggles nested in a row wrapper and closes the drawer it opened', async () => {
+    const dom = load(`<!doctype html><body>
+      <header><button class="hamburger" aria-label="Mở menu">☰</button></header>
+      <div class="mobile-menu" style="display:none">
+        <button class="mobile-menu__close" aria-label="Đóng menu">×</button>
+        <ul class="mobile-menu__list">
+          <li><div class="mobile-menu__row"><a href="/collections/nu">Nữ</a><button class="mobile-menu__toggle" aria-expanded="false">+</button></div>
+            <ul style="display:none">
+              <li><div class="mobile-menu__row"><a href="/collections/ao-nu">Áo</a><button class="mobile-menu__toggle" aria-expanded="false">+</button></div>
+                <ul style="display:none"><li><a href="/collections/ao-thun-nu">Áo thun</a></li></ul>
+              </li>
+            </ul>
+          </li>
+          <li><div class="mobile-menu__row"><a href="/collections/sale">Khuyến mãi</a></div></li>
+        </ul>
+      </div></body>`);
+    const drawer = dom.window.document.querySelector('.mobile-menu') as HTMLElement;
+    const res = await runMenuDepth(makeDeps(dom), { mobile: true, expectedMaxDepth: 3 });
+    assert.equal(res.data.mobileMaxDepth, 3, JSON.stringify(res.findings));
+    assert.equal(res.findings.some((f) => f.ruleId === 'menu-interaction-failed'), false);
+    assert.equal(res.passed, true);
+    assert.equal(drawer.style.display, 'none', 'the drawer the probe opened is closed again');
+  });
+
+  it('measures a desktop menu whose column is hidden on mobile by a hide-mobile utility class', async () => {
+    const html = fs
+      .readFileSync(path.join(FIXTURES, 'menu-3level.html'), 'utf8')
+      .replace('<nav class="main-nav" aria-label="Menu chính">', '<div class="header__nav-col hide-mobile hide-tablet"><nav class="megamenu" role="navigation">')
+      .replace('</nav>', '</nav></div>');
+    const res = await runMenuDepth(makeDeps(load(html)));
+    assert.equal(res.measured, true);
+    assert.equal(res.data.maxDepth, 3);
     assert.equal(res.passed, true);
   });
 

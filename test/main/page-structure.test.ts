@@ -19,8 +19,9 @@ const FIXTURES = path.resolve(process.cwd(), 'test/fixtures/probes');
 const VIEWPORT_HEIGHT = 667;
 
 // jsdom lays nothing out: elements marked data-h stack vertically in document order, nested ones share the top.
-function loadFixture(name: string) {
-  const html = fs.readFileSync(path.join(FIXTURES, name), 'utf8');
+function loadFixture(name: string, edit?: (html: string) => string) {
+  const raw = fs.readFileSync(path.join(FIXTURES, name), 'utf8');
+  const html = edit ? edit(raw) : raw;
   const dom = new JSDOM(html, { url: 'https://shop.example.com/', runScripts: 'outside-only', pretendToBeVisual: true });
   const win = dom.window;
   const doc = win.document as Document;
@@ -116,6 +117,19 @@ describe('page structure probe', () => {
     const finding = res.findings.find((f) => f.ruleId === 'home-hero-first');
     assert.ok(finding, JSON.stringify(res.findings));
     assert.equal(finding.measured?.heroIndex, 1);
+  });
+
+  it('finds the page footer when a hidden cart drawer footer comes after it', async () => {
+    const res = await runPageStructure(
+      depsFor(
+        loadFixture('home-good.html', (html) =>
+          html.replace('</body>', '<aside class="cart-modal"><footer class="cart-modal__footer">Thanh toán</footer></aside>\n</body>')
+        )
+      )
+    );
+    assert.equal(res.data.order.at(-1), 'footer');
+    assert.ok(!res.findings.some((f) => f.ruleId === 'home-footer-last'), JSON.stringify(res.findings));
+    assert.equal(res.passed, true);
   });
 
   it('applies rule overrides and an explicit viewport height', async () => {

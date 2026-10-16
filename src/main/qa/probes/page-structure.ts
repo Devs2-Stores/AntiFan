@@ -48,7 +48,10 @@ const PAGE_STRUCTURE_RUNTIME = String.raw`function () {
     if (inner.length === 1 && inner[0].children.length > 1) scope = inner[0]; else break;
   }
   var picked = kids(scope).filter(function (el) { return !isChrome(el); });
-  var footers = Array.prototype.filter.call(document.querySelectorAll('footer, [data-section-type*="footer"], .site-footer'), function (f) {
+  var footerNodes = Array.prototype.slice.call(document.querySelectorAll('footer, [data-section-type*="footer"], .site-footer'));
+  var footers = footerNodes.filter(function (f) {
+    if (!(f.getBoundingClientRect().height > 0)) return false;
+    if (footerNodes.some(function (o) { return o !== f && o.contains(f); })) return false;
     return !picked.some(function (el) { return el === f || el.contains(f); });
   });
   if (footers.length) picked.push(footers[footers.length - 1]);

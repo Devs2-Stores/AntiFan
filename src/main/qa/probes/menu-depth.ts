@@ -7,7 +7,7 @@ export interface MenuDepthData {
   mobileMaxDepth?: number;
 }
 
-export type MenuOp = 'discover' | 'visible' | 'find-opener' | 'cleanup';
+export type MenuOp = 'discover' | 'visible' | 'find-opener' | 'find-closer' | 'cleanup';
 
 interface MenuItemRecord {
   path: string;
@@ -38,10 +38,12 @@ const MENU_RUNTIME = String.raw`function (op, mobile) {
   var ITEM = 'li, [role="menuitem"]';
   var LIST = 'ul, ol, [role="menu"], [role="menubar"]';
   var MOBILE_RE = /mobile|drawer|offcanvas|off-canvas|sidemenu|side-menu|slide-?menu|hamburger/i;
+  var HIDES_ON_MOBILE_RE = /^(hide|hidden|no|not|desktop)[-_]?(on[-_])?mobile$|^mobile[-_](hide|hidden|none)$/i;
   var DESKTOP_ROOTS = ['nav.main-nav', '.main-nav', '.site-nav', '#site-nav', '[data-menu="desktop"]', 'header nav', 'nav[aria-label]', 'nav', '[role="navigation"]'];
   var MOBILE_ROOTS = ['[class*="mobile-menu"]', '[class*="mobile-nav"]', '#mobile-menu', '[class*="drawer"] nav', '[class*="drawer"]', '[class*="offcanvas"]', '[class*="off-canvas"]', '[data-mobile-menu]', '[role="dialog"] nav'];
   var OPENERS = ['button[aria-label*="menu"]', 'button[aria-label*="Menu"]', '[aria-label*="menu"][role="button"]', '[aria-label*="Menu"][role="button"]', '.hamburger', '.menu-toggle', '.menu-icon', '.nav-toggle', '.mobile-menu-toggle', '[data-action*="menu"]', 'button[aria-controls*="menu"]', '[class*="burger"]', '[class*="menu-toggle"]', '[class*="menu-btn"]'];
   var TOGGLE_SEL = 'button, summary, [class*="arrow"], [class*="toggle"], [class*="caret"], [class*="expand"], [class*="chevron"], [aria-expanded]';
+  var CLOSERS = '[data-action*="close"], button[aria-label*="close" i], button[aria-label*="đóng" i], [class*="__close"], [class*="-close"], .close';
 
   function isVisible(el) {
     for (var n = el; n && n.nodeType === 1; n = n.parentElement) {
@@ -55,7 +57,10 @@ const MENU_RUNTIME = String.raw`function (op, mobile) {
   function clsOf(n) { return typeof n.className === 'string' ? n.className : ''; }
   function mobileish(el) {
     for (var n = el; n && n !== document.body; n = n.parentElement) {
-      if (MOBILE_RE.test((n.id || '') + ' ' + clsOf(n))) return true;
+      var tokens = ((n.id || '') + ' ' + clsOf(n)).split(/\s+/);
+      for (var t = 0; t < tokens.length; t += 1) {
+        if (MOBILE_RE.test(tokens[t]) && !HIDES_ON_MOBILE_RE.test(tokens[t])) return true;
+      }
     }
     return false;
   }
@@ -91,8 +96,8 @@ const MENU_RUNTIME = String.raw`function (op, mobile) {
     return out;
   }
   function clear() {
-    Array.prototype.forEach.call(document.querySelectorAll('[data-af-menu], [data-af-menu-toggle], [data-af-menu-opener]'), function (el) {
-      el.removeAttribute('data-af-menu'); el.removeAttribute('data-af-menu-toggle'); el.removeAttribute('data-af-menu-opener');
+    Array.prototype.forEach.call(document.querySelectorAll('[data-af-menu], [data-af-menu-toggle], [data-af-menu-opener], [data-af-menu-closer]'), function (el) {
+      el.removeAttribute('data-af-menu'); el.removeAttribute('data-af-menu-toggle'); el.removeAttribute('data-af-menu-opener'); el.removeAttribute('data-af-menu-closer');
     });
   }
 
@@ -126,6 +131,21 @@ const MENU_RUNTIME = String.raw`function (op, mobile) {
     return { ok: true, alreadyOpen: false, selector: null };
   }
 
+  if (op === 'find-closer') {
+    for (var m = 0; m < MOBILE_ROOTS.length; m += 1) {
+      var rootsM = document.querySelectorAll(MOBILE_ROOTS[m]);
+      for (var q = 0; q < rootsM.length; q += 1) {
+        var closer = Array.prototype.find.call(rootsM[q].querySelectorAll(CLOSERS), isVisible);
+        if (closer) { closer.setAttribute('data-af-menu-closer', '1'); return { selector: '[data-af-menu-closer="1"]' }; }
+      }
+    }
+    for (var o = 0; o < OPENERS.length; o += 1) {
+      var expanded = Array.prototype.find.call(document.querySelectorAll(OPENERS[o]), function (b) { return b.getAttribute('aria-expanded') === 'true' && isVisible(b); });
+      if (expanded) { expanded.setAttribute('data-af-menu-closer', '1'); return { selector: '[data-af-menu-closer="1"]' }; }
+    }
+    return { selector: null };
+  }
+
   clear();
   var roots = candidates();
   var top = null;
@@ -138,7 +158,7 @@ const MENU_RUNTIME = String.raw`function (op, mobile) {
     var subs = [];
     childLists(item).forEach(function (l) { directItems(l).forEach(function (s) { subs.push(s); }); });
     var lab = labelEl(item);
-    var toggle = Array.prototype.find.call(item.children, function (c) { return c.matches(TOGGLE_SEL) && !c.matches(LIST) && !c.querySelector(LIST); });
+    var toggle = Array.prototype.find.call(item.querySelectorAll(TOGGLE_SEL), function (c) { return itemOf(c) === item && !c.matches(LIST) && !c.querySelector(LIST); });
     if (!toggle && lab !== item && lab.hasAttribute('aria-expanded')) toggle = lab;
     item.setAttribute('data-af-menu', path);
     if (toggle && subs.length) toggle.setAttribute('data-af-menu-toggle', path);
@@ -167,13 +187,16 @@ export async function runMenuDepth(
   const mobile = p.mobile === true;
   const empty: MenuDepthData = { maxDepth: 0, perLevelCounts: [], level3Visible: false };
   const findings: ProbeFinding[] = [];
+  let openedDrawer = false;
 
   try {
     if (mobile) {
       const opener = (await deps.evalJs(buildMenuScript('find-opener', { mobile }))) as { selector: string | null } | undefined;
       if (opener?.selector) {
         const clicked = await deps.click(opener.selector);
-        if (!clicked.ok) {
+        if (clicked.ok) {
+          openedDrawer = true;
+        } else {
           findings.push({ ruleId: 'menu-interaction-failed', severity: 'info', message: `Could not click the menu opener: ${clicked.error ?? 'unknown'}.` });
         }
         await deps.wait(300);
@@ -255,6 +278,13 @@ export async function runMenuDepth(
   } catch (err) {
     return { measured: false, passed: null, findings, data: empty, error: err instanceof Error ? err.message : String(err) };
   } finally {
+    if (openedDrawer) {
+      const closer = (await deps.evalJs(buildMenuScript('find-closer', { mobile })).catch(() => undefined)) as { selector: string | null } | undefined;
+      if (closer?.selector) {
+        await deps.click(closer.selector).catch(() => undefined);
+        await deps.wait(300);
+      }
+    }
     await deps.evalJs(buildMenuScript('cleanup', { mobile })).catch(() => undefined);
   }
 }
