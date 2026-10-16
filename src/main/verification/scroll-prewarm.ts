@@ -33,6 +33,13 @@ export interface ScrollPrewarmOptions {
   appendGraceMs?: number;
   /** Ceiling on the post-walk image decode wait. */
   imageDecodeBudgetMs?: number;
+  /**
+   * Ceiling on waiting for the page to process the return to the top. The page
+   * reacts to a scroll in its `scroll` event, which Chrome dispatches only at the
+   * next rendering step, and an agent tab can go hundreds of milliseconds
+   * without one.
+   */
+  returnSettleBudgetMs?: number;
 }
 
 export interface ScrollPrewarmReceipt {
@@ -56,6 +63,7 @@ export const SCROLL_PREWARM_DEFAULTS = {
   settleMs: 40,
   appendGraceMs: 500,
   imageDecodeBudgetMs: 2_000,
+  returnSettleBudgetMs: 1_500,
 } as const;
 
 /**
@@ -75,6 +83,7 @@ export function buildStaircasePrewarmScript(options?: ScrollPrewarmOptions): str
   // window deterministic for the virtual-clock tests.
   const graceTicks = Math.max(1, Math.ceil(appendGraceMs / settleMs));
   const imageDecodeBudgetMs = Math.max(100, Math.round(options?.imageDecodeBudgetMs ?? SCROLL_PREWARM_DEFAULTS.imageDecodeBudgetMs));
+  const returnSettleBudgetMs = Math.max(120, Math.round(options?.returnSettleBudgetMs ?? SCROLL_PREWARM_DEFAULTS.returnSettleBudgetMs));
   const growthAnomalyRatio = 0.3;
   const strikesToStop = 2;
 
@@ -86,6 +95,7 @@ export function buildStaircasePrewarmScript(options?: ScrollPrewarmOptions): str
     const SETTLE_MS = ${settleMs};
     const GRACE_TICKS = ${appendGraceMs > 0 ? graceTicks : 0};
     const IMAGE_DECODE_BUDGET_MS = ${imageDecodeBudgetMs};
+    const RETURN_SETTLE_BUDGET_MS = ${returnSettleBudgetMs};
     const GROWTH_ANOMALY_RATIO = ${growthAnomalyRatio};
     const STRIKES_TO_STOP = ${strikesToStop};
 
@@ -106,7 +116,21 @@ export function buildStaircasePrewarmScript(options?: ScrollPrewarmOptions): str
     // of the height it had BEFORE that append. Testing the requested offset
     // instead reports COMPLETE on the first step while most of the document is
     // still unmaterialized — the exact failure this walk exists to prevent.
-    const atBottom = () => (window.scrollY || window.pageYOffset || 0) + viewportHeight >= readHeight() - 2;
+    const readScrollY = () => window.scrollY || window.pageYOffset || 0;
+    const atBottom = () => readScrollY() + viewportHeight >= readHeight() - 2;
+    // Every scroll here is instant. The positional form follows the page's CSS
+    // \`scroll-behavior\`, and on a theme that sets \`smooth\` each call only starts an
+    // animation that advances when the tab produces frames — an agent tab often
+    // produces none during the walk. Measured on f1genz-an-vat: all 20 steps ran
+    // from scrollY 0 (the walk never saw the bottom and stopped on MAX_SCROLL_STEPS),
+    // then the leftover animation scrolled the page to 3201 inside the settle
+    // gate's window, the sticky header compacted 16px, and the gate refused a
+    // document the capture itself was moving. Reports whether the offset moved.
+    const scrollToY = (top) => {
+      const before = readScrollY();
+      window.scrollTo({ left: 0, top: top, behavior: 'instant' });
+      return readScrollY() !== before;
+    };
     const startHeight = readHeight();
     let steps = 0;
     let stoppedReason = 'COMPLETE';
@@ -121,7 +145,7 @@ export function buildStaircasePrewarmScript(options?: ScrollPrewarmOptions): str
       }
       const stride = Math.max(200, Math.round(viewportHeight * STEP_RATIO));
       const scrollTarget = Math.min(heightBefore, (index + 1) * stride);
-      window.scrollTo(0, scrollTarget);
+      scrollToY(scrollTarget);
       steps = index + 1;
       await wait(SETTLE_MS);
 
@@ -213,7 +237,7 @@ export function buildStaircasePrewarmScript(options?: ScrollPrewarmOptions): str
 
     let returnedToTop = false;
     try {
-      window.scrollTo(0, 0);
+      const returnMoved = scrollToY(0);
       const settleGate = Promise.withResolvers();
       let settled = false;
       const settle = () => {
@@ -222,12 +246,35 @@ export function buildStaircasePrewarmScript(options?: ScrollPrewarmOptions): str
           settleGate.resolve(null);
         }
       };
-      if (typeof requestAnimationFrame === 'function') {
-        requestAnimationFrame(() => requestAnimationFrame(settle));
+      const settleAfterFrame = () => {
+        if (typeof requestAnimationFrame === 'function') {
+          requestAnimationFrame(() => requestAnimationFrame(settle));
+        }
+        setTimeout(settle, 120);
+      };
+      // The page reacts to the walk in its scroll handlers, and Chrome dispatches
+      // the scroll event only at the next rendering step — which an agent tab can
+      // put off past any fixed settle. Until that event runs, the page still shows
+      // the state of a scroll it already left: measured on f1genz-an-vat, the
+      // sticky header kept its compact scrolled height (16px shorter) for 173ms
+      // after the return (715ms on another run), the walk had already handed over,
+      // and the settle gate's first reading caught the header expanding back. So a
+      // return that moved the offset is over only when its scroll event has run.
+      if (returnMoved && typeof window.addEventListener === 'function') {
+        const onScroll = () => {
+          window.removeEventListener('scroll', onScroll);
+          settleAfterFrame();
+        };
+        window.addEventListener('scroll', onScroll, { passive: true });
+        setTimeout(() => {
+          window.removeEventListener('scroll', onScroll);
+          settle();
+        }, RETURN_SETTLE_BUDGET_MS);
+      } else {
+        settleAfterFrame();
       }
-      setTimeout(settle, 120);
       await settleGate.promise;
-      returnedToTop = (window.scrollY || window.pageYOffset || 0) <= 2;
+      returnedToTop = readScrollY() <= 2;
     } catch {}
 
     return {
