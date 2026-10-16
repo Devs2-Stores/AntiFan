@@ -14,7 +14,7 @@ import { ArtifactStore, type ArtifactStoreOptions, type ArtifactStoreStats } fro
 import { CapabilityCatalogue } from '../tools/capability-catalogue';
 import { CapabilityTransportAdapter } from '../tools/capability-transport';
 import { BrowserControlPort } from '../tools/browser-control-port';
-import type { CockpitPort } from '../tools/cockpit-port';
+import type { CockpitPort, CockpitThemeQaOptions } from '../tools/cockpit-port';
 import { registerBrowserCapabilities } from '../tools/browser-capabilities';
 import { registerDeviceCapabilities } from '../tools/device-capabilities';
 import type { DeviceControlPort, DeviceRegistryPort } from '../device/device-control-port';
@@ -408,13 +408,16 @@ export class ControlPlaneRuntime {
   getDeviceManager(): DeviceRegistryPort | null {
     return this.deviceManager;
   }
-  async validateThemeQa(target: BrowserTarget, options: { runId?: string; attemptId?: string; workspaceRoot?: string; multiBreakpoint?: boolean; signal?: AbortSignal } = {}): Promise<ThemeQaReport> {
+  async validateThemeQa(target: BrowserTarget, options: CockpitThemeQaOptions & { runId?: string; attemptId?: string; signal?: AbortSignal } = {}): Promise<ThemeQaReport> {
     if (!this.themeQaWorkflow) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'Browser control is not registered');
     return this.themeQaWorkflow.validate({
       runId: options.runId || `run-theme-qa-${Date.now()}`,
       attemptId: options.attemptId || `attempt-theme-qa-${Date.now()}`,
       workspaceRoot: options.workspaceRoot || this.getWorkspaceRoot(),
       multiBreakpoint: options.multiBreakpoint,
+      profile: options.profile,
+      thresholds: options.thresholds,
+      viewports: options.viewports,
       signal: options.signal,
       target,
     });

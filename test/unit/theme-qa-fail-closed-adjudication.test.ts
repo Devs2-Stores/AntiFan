@@ -103,6 +103,7 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
     const workflow = new ThemeQaWorkflow(ports);
 
     const report = await workflow.validate({
+      profile: 'audit',
       runId: 'run-ro',
       attemptId: 'att-ro',
       workspaceRoot: 'E:/Work/test-theme',
@@ -134,11 +135,33 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
     });
     const contrastFinding = { ruleId: 'contrast-low', severity: 'warning', selector: 'p.note', details: 'contrast 2.9:1', measured: { ratio: 2.9, required: 4.5 } };
     const smallTapFinding = { ruleId: 'tap-target-small', severity: 'warning', selector: 'button.dot', details: '40x40', measured: { width: 40, height: 40 } };
+    const cleanImageFrame = {
+      measured: true,
+      viewport: { width: 390, height: 844 },
+      findings: [],
+      stats: { imagesChecked: 5, imagesPending: 0, durationMs: 1, truncated: false, truncatedReasons: [], measuredRules: ['image-crop', 'image-low-res'], unmeasuredRules: [] },
+    };
+    const cleanStateMatrix = {
+      measured: true,
+      safeMode: true,
+      viewport: { width: 390, height: 844 },
+      triggers: [],
+      summary: { total: 0, passed: 0, warned: 0, failed: 0, notRun: 0, criticalCount: 0 },
+      skippedTriggers: [],
+      durationMs: 1,
+    };
+    // Under build-strict the image-frame scan and the state matrix are required evidence, so these
+    // ports answer both and leave the visual-quality result as the only variable.
     const portsWithVisual = (result: unknown) => {
       const baseEval = (createMockPorts().browser as unknown as { eval: (t: BrowserTarget, s: string) => Promise<unknown> }).eval;
-      return createMockPorts({ eval: async (t, s) => (s.includes(scannerMarker) ? result : baseEval(t, s)) });
+      const ports = createMockPorts({
+        eval: async (t, s) => (s.includes('image-low-res') ? cleanImageFrame : s.includes(scannerMarker) ? result : baseEval(t, s)),
+      });
+      (ports.browser as unknown as Record<string, unknown>).stateMatrix = async () => cleanStateMatrix;
+      return ports;
     };
     const run = (ports: ThemeQaWorkflowPorts, profile?: 'audit' | 'build-strict') => new ThemeQaWorkflow(ports).validate({
+      profile: 'audit',
       runId: 'run-vq',
       attemptId: 'att-vq',
       workspaceRoot: 'E:/Work/test-theme',
@@ -161,7 +184,17 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
 
     it('build-strict keeps recommended-size tap warnings advisory', async () => {
       // Tap targets are only graded by a mobile-width scan.
-      const report = await run(portsWithVisual(visualResult([smallTapFinding], true)), 'build-strict');
+      const report = await new ThemeQaWorkflow(portsWithVisual(visualResult([smallTapFinding], true))).validate({
+        runId: 'run-vq',
+        attemptId: 'att-vq',
+        workspaceRoot: 'E:/Work/test-theme',
+        target: makeTarget(1),
+        profile: 'build-strict',
+        coverageFloor: 0,
+        // This test pins how one mobile-width scan grades tap targets; the sweep is covered elsewhere.
+        multiBreakpoint: false,
+        thresholds: { minTextPx: 12, minControlPx: 44, minTapHitPx: 24, tapSpacingCirclePx: 24 },
+      });
       assert.strictEqual(report.summary.verdict, 'PASS');
       assert.ok(!(report.findings?.evidenceGaps || []).some((gap) => gap.includes('Tap targets not graded')));
     });
@@ -203,6 +236,7 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
     const workflow = new ThemeQaWorkflow(ports);
 
     const report = await workflow.validate({
+      profile: 'audit',
       runId: 'run-structural',
       attemptId: 'att-structural',
       workspaceRoot: 'E:/Work/test-theme',
@@ -220,6 +254,7 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
     const workflow = new ThemeQaWorkflow(ports);
 
     const report = await workflow.validate({
+      profile: 'audit',
       runId: 'run-no-settle',
       attemptId: 'att-no-settle',
       workspaceRoot: 'E:/Work/test-theme',
@@ -256,6 +291,7 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
     await assert.rejects(
       async () => {
         await workflow.validate({
+          profile: 'audit',
           runId: 'run-incomplete-settle',
           attemptId: 'att-incomplete-settle',
           workspaceRoot: 'E:/Work/test-theme',
@@ -287,6 +323,7 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
     const workflow = new ThemeQaWorkflow(ports);
 
     const report = await workflow.validate({
+      profile: 'audit',
       runId: 'run-soft-settle',
       attemptId: 'att-soft-settle',
       workspaceRoot: 'E:/Work/test-theme',
@@ -321,6 +358,7 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
     await assert.rejects(
       async () => {
         await workflow.validate({
+          profile: 'audit',
           runId: 'run-unstable-layout',
           attemptId: 'att-unstable-layout',
           workspaceRoot: 'E:/Work/test-theme',
@@ -366,6 +404,7 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
     const workflow = new ThemeQaWorkflow(ports);
 
     const report = await workflow.validate({
+      profile: 'audit',
       runId: 'run-settle-gap-with-defect',
       attemptId: 'att-settle-gap-with-defect',
       workspaceRoot: 'E:/Work/test-theme',
@@ -398,6 +437,7 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
     const workflow = new ThemeQaWorkflow(ports);
 
     const report = await workflow.validate({
+      profile: 'audit',
       runId: 'run-dom-unstable-settle',
       attemptId: 'att-dom-unstable-settle',
       workspaceRoot: 'E:/Work/test-theme',
@@ -422,6 +462,7 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
     const workflow = new ThemeQaWorkflow(ports);
 
     const report = await workflow.validate({
+      profile: 'audit',
       runId: 'run-mutation-missing-barrier',
       attemptId: 'att-mutation-missing-barrier',
       workspaceRoot: 'E:/Work/test-theme',
@@ -451,6 +492,7 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
     const workflow = new ThemeQaWorkflow(ports);
 
     const report = await workflow.validate({
+      profile: 'audit',
       runId: 'run-receipt-alone',
       attemptId: 'att-receipt-alone',
       workspaceRoot: 'E:/Work/test-theme',
@@ -484,6 +526,7 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
     const workflow = new ThemeQaWorkflow(ports);
 
     const report = await workflow.validate({
+      profile: 'audit',
       runId: 'run-invalid-receipt',
       attemptId: 'att-invalid-receipt',
       workspaceRoot: 'E:/Work/test-theme',
@@ -522,6 +565,7 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
     // real reason — not as a structurally "malformed" receipt — while still failing
     // CLOSED (passed:false / INCONCLUSIVE).
     const report = await workflow.validate({
+      profile: 'audit',
       runId: 'run-sleeping-receipt',
       attemptId: 'att-sleeping-receipt',
       workspaceRoot: 'E:/Work/test-theme',
@@ -567,6 +611,7 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
     const workflow = new ThemeQaWorkflow(ports);
 
     const report = await workflow.validate({
+      profile: 'audit',
       runId: 'run-pre-mutation-ack',
       attemptId: 'att-pre-mutation-ack',
       workspaceRoot: 'E:/Work/test-theme',
@@ -601,6 +646,7 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
     const workflow = new ThemeQaWorkflow(ports);
 
     const report = await workflow.validate({
+      profile: 'audit',
       runId: 'run-wrong-session',
       attemptId: 'att-wrong-session',
       workspaceRoot: 'E:/Work/test-theme',
@@ -635,6 +681,7 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
     const workflow = new ThemeQaWorkflow(ports);
 
     const report = await workflow.validate({
+      profile: 'audit',
       runId: 'run-stale-docgen',
       attemptId: 'att-stale-docgen',
       workspaceRoot: 'E:/Work/test-theme',
@@ -680,6 +727,7 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
     });
 
     const report = await workflow.validate({
+      profile: 'audit',
       runId: 'run-bypass-attempt',
       attemptId: 'att-bypass-attempt',
       workspaceRoot: 'E:/Work/test-theme',
@@ -715,6 +763,7 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
     const workflow = new ThemeQaWorkflow(ports);
 
     const report = await workflow.validate({
+      profile: 'audit',
       runId: 'run-mutation-synced',
       attemptId: 'att-mutation-synced',
       workspaceRoot: 'E:/Work/test-theme',
@@ -748,6 +797,7 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
     const workflow = new ThemeQaWorkflow(ports);
 
     const report = await workflow.validate({
+      profile: 'audit',
       runId: 'run-omitted-vp',
       attemptId: 'att-omitted-vp',
       workspaceRoot: 'E:/Work/test-theme',
@@ -770,6 +820,7 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
     const workflow = new ThemeQaWorkflow(ports);
 
     const report = await workflow.validate({
+      profile: 'audit',
       runId: 'run-invalid-vp',
       attemptId: 'att-invalid-vp',
       workspaceRoot: 'E:/Work/test-theme',
@@ -796,6 +847,7 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
     const workflow = new ThemeQaWorkflow(ports);
 
     const report = await workflow.validate({
+      profile: 'audit',
       runId: 'run-partial-vp',
       attemptId: 'att-partial-vp',
       workspaceRoot: 'E:/Work/test-theme',
@@ -862,6 +914,7 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
     const workflow = new ThemeQaWorkflow(ports);
 
     const report = await workflow.validate({
+      profile: 'audit',
       runId: 'run-overflow-no-culprits',
       attemptId: 'att-overflow-no-culprits',
       workspaceRoot: 'E:/Work/test-theme',
@@ -883,6 +936,7 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
     assert.strictEqual(report.findings?.responsive?.['768']?.criticalOverlap, null, 'Width the integrity scan did not measure must be null, not 0');
 
     const filteredReport = await workflow.validate({
+      profile: 'audit',
       runId: 'run-overflow-filtered',
       attemptId: 'att-overflow-filtered',
       workspaceRoot: 'E:/Work/test-theme',
@@ -907,6 +961,7 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
       }),
     });
     const report = await new ThemeQaWorkflow(ports).validate({
+      profile: 'audit',
       runId: 'run-unmeasured-width',
       attemptId: 'att-unmeasured-width',
       workspaceRoot: 'E:/Work/test-theme',
@@ -929,6 +984,7 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
         : base.browser.eval(target, script),
     });
     const report = await new ThemeQaWorkflow(ports).validate({
+      profile: 'audit',
       runId: 'run-integrity-layout',
       attemptId: 'att-integrity-layout',
       workspaceRoot: 'E:/Work/test-theme',
@@ -964,6 +1020,7 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
       },
     });
     const report = await new ThemeQaWorkflow(ports).validate({
+      profile: 'audit',
       runId: 'run-sweep-cls',
       attemptId: 'att-sweep-cls',
       workspaceRoot: 'E:/Work/test-theme',
@@ -985,6 +1042,7 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
         : base.browser.eval(target, script),
     });
     const report = await new ThemeQaWorkflow(ports).validate({
+      profile: 'audit',
       runId: 'run-integrity-truncated',
       attemptId: 'att-integrity-truncated',
       workspaceRoot: 'E:/Work/test-theme',
@@ -1011,6 +1069,7 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
         : base.browser.eval(target, script),
     });
     const report = await new ThemeQaWorkflow(ports).validate({
+      profile: 'audit',
       runId: 'run-integrity-detector-failed',
       attemptId: 'att-integrity-detector-failed',
       workspaceRoot: 'E:/Work/test-theme',
@@ -1046,6 +1105,7 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
       },
     });
     return new ThemeQaWorkflow(ports).validate({
+      profile: 'audit',
       runId: `run-integrity-${tag}`,
       attemptId: `att-integrity-${tag}`,
       workspaceRoot: 'E:/Work/test-theme',
@@ -1116,6 +1176,7 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
         : base.browser.eval(target, script),
     });
     const report = await new ThemeQaWorkflow(ports).validate({
+      profile: 'audit',
       runId: 'run-integrity-layout-disabled',
       attemptId: 'att-integrity-layout-disabled',
       workspaceRoot: 'E:/Work/test-theme',
@@ -1142,6 +1203,7 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
 
     // Subcase A: Clean scans but requested sweep failed -> INCONCLUSIVE
     const report = await workflow.validate({
+      profile: 'audit',
       runId: 'run-failed-sweep',
       attemptId: 'att-failed-sweep',
       workspaceRoot: 'E:/Work/test-theme',
@@ -1173,6 +1235,7 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
     });
     const workflowWithFailure = new ThemeQaWorkflow(portsWithFailure);
     const failReport = await workflowWithFailure.validate({
+      profile: 'audit',
       runId: 'run-failed-sweep-with-liquid',
       attemptId: 'att-failed-sweep-with-liquid',
       workspaceRoot: 'E:/Work/test-theme',
@@ -1190,6 +1253,7 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
     });
     const workflowEmpty = new ThemeQaWorkflow(portsEmpty);
     const reportEmpty = await workflowEmpty.validate({
+      profile: 'audit',
       runId: 'run-empty-sweep',
       attemptId: 'att-empty-sweep',
       workspaceRoot: 'E:/Work/test-theme',
@@ -1213,6 +1277,7 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
     });
     const workflowMalformed = new ThemeQaWorkflow(portsMalformed);
     const reportMalformed = await workflowMalformed.validate({
+      profile: 'audit',
       runId: 'run-malformed-sweep',
       attemptId: 'att-malformed-sweep',
       workspaceRoot: 'E:/Work/test-theme',
@@ -1231,6 +1296,7 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
     const workflow = new ThemeQaWorkflow(ports);
 
     const report = await workflow.validate({
+      profile: 'audit',
       runId: 'run-no-sweep-requested',
       attemptId: 'att-no-sweep-requested',
       workspaceRoot: 'E:/Work/test-theme',
@@ -1246,6 +1312,7 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
     const workflow = new ThemeQaWorkflow(ports);
 
     const report = await workflow.validate({
+      profile: 'audit',
       runId: 'run-sweep-opted-out',
       attemptId: 'att-sweep-opted-out',
       workspaceRoot: 'E:/Work/test-theme',
@@ -1274,6 +1341,7 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
     });
     const workflowCrash = new ThemeQaWorkflow(portsCrash);
     const reportCrash = await workflowCrash.validate({
+      profile: 'audit',
       runId: 'run-layout-eval-crash',
       attemptId: 'att-layout-eval-crash',
       workspaceRoot: 'E:/Work/test-theme',
@@ -1299,6 +1367,7 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
     });
     const workflowNonObject = new ThemeQaWorkflow(portsNonObject);
     const reportNonObject = await workflowNonObject.validate({
+      profile: 'audit',
       runId: 'run-layout-eval-nonobj',
       attemptId: 'att-layout-eval-nonobj',
       workspaceRoot: 'E:/Work/test-theme',
@@ -1340,6 +1409,7 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
       });
       const workflowMalformed = new ThemeQaWorkflow(portsMalformed);
       const reportMalformed = await workflowMalformed.validate({
+        profile: 'audit',
         runId: `run-layout-eval-malformed-${i}`,
         attemptId: `att-layout-eval-malformed-${i}`,
         workspaceRoot: 'E:/Work/test-theme',
@@ -1387,6 +1457,7 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
       });
       const workflow = new ThemeQaWorkflow(ports);
       const report = await workflow.validate({
+        profile: 'audit',
         runId: `run-layout-unmeasured-${index}`,
         attemptId: `att-layout-unmeasured-${index}`,
         workspaceRoot: 'E:/Work/test-theme',
@@ -1419,6 +1490,7 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
       },
     });
     const realReport = await new ThemeQaWorkflow(realPorts).validate({
+      profile: 'audit',
       runId: 'run-layout-measured',
       attemptId: 'att-layout-measured',
       workspaceRoot: 'E:/Work/test-theme',
@@ -1442,6 +1514,7 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
     const workflow = new ThemeQaWorkflow(ports);
 
     const report = await workflow.validate({
+      profile: 'audit',
       runId: 'run-interactions-unmeasured',
       attemptId: 'att-interactions-unmeasured',
       workspaceRoot: 'E:/Work/test-theme',
@@ -1465,6 +1538,7 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
     const workflow = new ThemeQaWorkflow(ports);
 
     const report = await workflow.validate({
+      profile: 'audit',
       runId: 'run-interactions-requested',
       attemptId: 'att-interactions-requested',
       workspaceRoot: 'E:/Work/test-theme',
@@ -1515,6 +1589,7 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
       },
     });
     const report = await new ThemeQaWorkflow(ports).validate({
+      profile: 'audit',
       runId: 'run-per-width-integrity',
       attemptId: 'att-per-width-integrity',
       workspaceRoot: 'E:/Work/test-theme',
@@ -1592,6 +1667,7 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
       }),
     });
     const report = await new ThemeQaWorkflow(ports).validate({
+      profile: 'audit',
       runId: 'run-dedupe-sweep',
       attemptId: 'att-dedupe-sweep',
       workspaceRoot: 'E:/Work/test-theme',
@@ -1610,12 +1686,14 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
   it('20. Legacy baselineFindings reconstruction deduplicates only key-matched criticals at the active width and retains unmatched sweep criticals', async () => {
     const ports = createMockPorts();
     const seed = await new ThemeQaWorkflow(ports).validate({
+      profile: 'audit',
       runId: 'run-seed',
       attemptId: 'att-seed',
       workspaceRoot: 'E:/Work/test-theme',
       target: makeTarget(1),
     });
     const report = await new ThemeQaWorkflow(ports).validate({
+      profile: 'audit',
       runId: 'run-legacy-baseline-dedupe',
       attemptId: 'att-legacy-baseline-dedupe',
       workspaceRoot: 'E:/Work/test-theme',

@@ -75,14 +75,15 @@ export const SELF_QA_DIRECTIVE = `## Self-QA bắt buộc sau khi sửa (AntiFan
 SAU KHI SỬA file theme, PHẢI tự kiểm chứng trên AntiFan MCP theo đúng thứ tự — mỗi task tự probe lại tool, KHÔNG kế thừa kết luận "tool không có" từ task trước:
 1. MỞ TAB XEM THẬT: navigate/reload tab tới Page URL (ưu tiên \`tabId\` trong "QA Binding"), rồi \`anti.inspect.dom\` + \`anti.inspect.styles\` đúng Element Selector xác nhận DOM live đã phản ánh edit. Chưa phản ánh vì storefront chỉ đổi sau khi user đồng bộ theme (agent KHÔNG BAO GIỜ tự push) → \`qaStatus: QA_PENDING_SYNC\` kèm danh sách file đã sửa + các kiểm tra local đã qua + lệnh đồng bộ user cần chạy; kết thúc bằng DONE_WITH_CONCERNS (code local đã xong, chờ đồng bộ), KHÔNG báo pass/fail và KHÔNG dùng BLOCKED.
 2. Chụp bằng chứng: \`anti.screenshot.viewport\` (hoặc \`anti.screenshot.full_page\`) vùng đã sửa.
-3. GỌI \`theme.qa_validate\` với \`tabId\` + \`workspaceRoot\` + \`expectedUrl\` + \`annotationId\` từ "QA Binding"; chỉ báo hoàn tất khi \`summary.passed === true\` và \`criticalCount === 0\`. Receipt ghi vào \`.antifan/qa-receipts/\` làm bằng chứng gate.
+3. GỌI \`theme.qa_validate\` với \`tabId\` + \`workspaceRoot\` + \`expectedUrl\` + \`annotationId\` từ "QA Binding"; chỉ báo hoàn tất khi \`summary.passed === true\` và \`criticalCount === 0\`. Ngưỡng tự áp; đếm ngược/live → \`ignoreSelectors\`. Receipt ghi vào \`.antifan/qa-receipts/\`. Gate chỉ đóng với \`certification: CERTIFIED\` (\`anti.visual.promote_baseline\` mỗi width, chạy lại với \`viewports\`) hoặc pass phạm vi annotation; \`certification: STRUCTURAL\` chưa đủ → promote baseline hoặc khai \`qaStatus: QA_STRUCTURAL_ONLY\` sau receipt STRUCTURAL đầy đủ (nợ QA còn tới khi CERTIFIED).
 4. Fail → tự sửa tiếp NGAY trong lượt này, tối đa 2 vòng; sau mỗi vòng lặp lại bước 1-3.
 5. \`CAPABILITY_NOT_FOUND\` → re-probe ĐÚNG 1 lần (capability có thể vừa đăng ký sau restart); vẫn không có → \`qaStatus: QA_UNAVAILABLE\` kèm mã lỗi gốc. Lỗi auth (\`ATTACHMENT_REQUIRED\`, \`ATTACHMENT_INVALID\`, \`MCP_CONTEXT_REQUIRED\`, \`UNAUTHENTICATED\`) → terminal ngay, \`qaStatus: QA_UNAVAILABLE\`.
 6. Lỗi môi trường (\`SETTLE_INCOMPLETE\`, \`CAPTURE_NOT_READY\`, \`CAPTURE_FRAME_STARVATION\`, \`CAPTURE_TIMEOUT\`, \`TARGET_BUSY_DRAINING\`) → reload/re-probe rồi retry ĐÚNG 1 lần; vẫn lỗi → \`qaStatus: QA_INCONCLUSIVE\` kèm mã lỗi gốc + gate detail (network/fonts/images/dom).
-7. \`TARGET_REQUIRED\`/\`TARGET_MISMATCH\`/\`TARGET_STALE\`/\`URL_*_MISMATCH\` → \`anti.browser.rebind_target\` với \`tabId\` rồi retry 1 lần; vẫn mismatch → navigate tab đang bind tới Page URL rồi chạy lại bước 1-3; vẫn lỗi sau vòng đó → \`qaStatus: QA_INCONCLUSIVE\` kèm mã lỗi gốc.
-8. Hết 2 vòng vẫn fail → \`qaStatus: QA_FAILED\`, báo fail trung thực kèm criticalIssues, nhờ dev xác nhận hướng xử lý — KHÔNG báo hoàn tất. \`QA_FAILED\` KHÔNG đóng gate \`theme-qa-gate\` (gate chỉ đóng bằng receipt mới hoặc QA_UNAVAILABLE / QA_INCONCLUSIVE / QA_PENDING_SYNC / QA_MICRO_STATIC).
-9. LÀN MICRO-EDIT (Pure-CSS): Sửa đúng 1 file CSS leaf trong \`assets/\` (\`*.css\`, \`*.scss\` — file có thể mang Liquid không bao giờ an toàn cho làn tĩnh), tổng dòng thay đổi (thêm + xoá/thay thế) ≤ 10 và KHÔNG chứa thẻ Liquid (\`{{\`/\`{%\`), agent được đóng gate tĩnh bằng \`qaStatus: QA_MICRO_STATIC\` kèm path + selector + số dòng thay đổi. Hook \`theme-qa-gate\` đối soát khai báo với edit quan sát được; vi phạm (nhiều file, sai path, >10 dòng, có Liquid, edit không đo được) ép chạy toàn bộ pipeline (bước 1-8).
-MỌI đường kết thúc PHẢI khai báo đúng một token \`qaStatus\`: \`QA_PASSED\` | \`QA_FAILED\` | \`QA_INCONCLUSIVE\` | \`QA_UNAVAILABLE\` | \`QA_PENDING_SYNC\` | \`QA_MICRO_STATIC (lane 9)\`. Báo "done" mà không có \`qaStatus\` là vi phạm contract.
+7. \`TARGET_REQUIRED\`/\`TARGET_MISMATCH\`/\`TARGET_STALE\`/\`URL_*_MISMATCH\` → \`anti.browser.rebind_target\` với \`tabId\` rồi retry 1 lần; vẫn mismatch → navigate tab đang bind tới Page URL, chạy lại bước 1-3; vẫn lỗi → \`qaStatus: QA_INCONCLUSIVE\` kèm mã lỗi gốc.
+8. Hết 2 vòng vẫn fail → \`qaStatus: QA_FAILED\`, báo fail trung thực kèm criticalIssues, nhờ dev xác nhận — KHÔNG báo hoàn tất. \`QA_FAILED\` KHÔNG đóng gate \`theme-qa-gate\`.
+9. LÀN MICRO-EDIT (Pure-CSS): sửa đúng 1 file CSS leaf trong \`assets/\` (\`*.css\`, \`*.scss\`; file có thể mang Liquid không bao giờ đủ điều kiện), tổng dòng thay đổi (thêm + xoá/thay thế) ≤ 10 và KHÔNG có thẻ Liquid (\`{{\`/\`{%\`) → đóng gate tĩnh bằng \`qaStatus: QA_MICRO_STATIC\` kèm path + selector + số dòng. Hook đối soát với edit quan sát được; vi phạm (nhiều file, >10 dòng, có Liquid, edit không đo được) ép chạy toàn bộ pipeline (bước 1-8).
+10. DIRECT-EDIT: edit không thuộc micro-CSS mà annotation có Page URL → chạy \`theme.qa_validate\` với \`expectedUrl\` = Page URL đó. "storefront QA skipped" chỉ đi kèm \`qaStatus: QA_PENDING_SYNC\` hoặc \`qaStatus: QA_UNAVAILABLE\`.
+MỌI đường kết thúc PHẢI khai báo đúng một token \`qaStatus\`: \`QA_PASSED\` | \`QA_FAILED\` | \`QA_INCONCLUSIVE\` | \`QA_UNAVAILABLE\` | \`QA_PENDING_SYNC\` | \`QA_MICRO_STATIC\` | \`QA_STRUCTURAL_ONLY\`. Thiếu \`qaStatus\` là vi phạm contract.
 CẤM bịa kết quả QA: không tự gán summary.passed hay criticalCount nếu chưa gọi được tool.`;
 
 /** Self-QA variant cho READ-ONLY intents — bằng chứng hiện trạng, không bắt buộc. */
@@ -96,12 +97,26 @@ Nếu tool \`theme.qa_validate\` có sẵn (MCP AntiFan), dùng nó để cung c
 export const SELF_QA_DIRECTIVE_FAST = `## Self-QA (Super-Fast — không chạy vòng QA qua MCP)
 Chế độ \`[🚀Super-Fast]\` đang bật: sửa trực tiếp đúng file theme được chỉ định. KHÔNG gọi \`theme.qa_validate\`, KHÔNG chụp màn hình, KHÔNG chạy vòng lặp trình duyệt MCP (edit-guard chặn các lệnh đó ở chế độ này). Hook \`theme-qa-gate\` không đòi receipt QA ở chế độ này; cuối lượt chỉ báo các file đã sửa. Người dùng tự kiểm tra trực quan hoặc chạy QA ở một lượt thường sau đó.`;
 
+const FIX_VERB_INTENTS: readonly TaskIntent[] = ['review', 'research', 'security', 'documentation'];
+const FIX_VERB_RE = /\b(?:fix(?:es|ing|ed)?|repair|patch|implement|chinh sua|sua loi|sua lai|sua giup|sua cho|sua ngay)\b/;
+
+/**
+ * Review/research/security/documentation requests are analysis-only until the user also asks for a
+ * fix: the directive and the execution permission must agree, so both read this one predicate.
+ */
+export function isReadOnlyAnalysis(intent: TaskIntent, userInstruction: string = ''): boolean {
+  return FIX_VERB_INTENTS.includes(intent) && !FIX_VERB_RE.test(normalizeInstruction(userInstruction));
+}
+
 export function buildSelfQaDirective(intent: TaskIntent, userInstruction: string = '', actionChip?: string): string {
   if (isSuperFastMode(userInstruction, actionChip)) {
     return SELF_QA_DIRECTIVE_FAST;
   }
   if (intent === 'testing' && /fix|sua|repair|chinh|doi|cap nhat|update|thay|xoa|them|tao|build|implement|chua|khong|ko|sai|hong|lech|in dam|mau sac/i.test(normalizeInstruction(userInstruction))) {
     return SELF_QA_DIRECTIVE;
+  }
+  if (FIX_VERB_INTENTS.includes(intent)) {
+    return isReadOnlyAnalysis(intent, userInstruction) ? SELF_QA_DIRECTIVE_READONLY : SELF_QA_DIRECTIVE;
   }
   return SELF_QA_READONLY_INTENTS[intent] ? SELF_QA_DIRECTIVE_READONLY : SELF_QA_DIRECTIVE;
 }
@@ -292,7 +307,7 @@ export function buildAgentTaskHeader(userInstruction: string, terminalStateOverr
     ? '- No repository file edits. No refactoring the owning theme. The only deliverable is the code snippet.'
     : '- Unrequested adjacent fixes, speculative improvements, unrelated refactors, and silent public-contract changes.';
   const hasMutationRequest = /fix|sua|repair|chinh|doi|cap nhat|update|thay|xoa|them|tao|build|implement|chua|khong|ko|sai|hong|lech|in dam|mau sac/i.test(normalizeInstruction(instruction));
-  const executionPermission = (['review', 'research', 'security', 'documentation'].includes(intent) || (intent === 'testing' && !hasMutationRequest))
+  const executionPermission = (isReadOnlyAnalysis(intent, instruction) || (intent === 'testing' && !hasMutationRequest))
     ? 'READ-ONLY analysis: READY means the analysis workflow may begin; it does not authorize code mutation unless the user explicitly requests implementation.'
     : intent === 'extract-component'
     ? 'SNIPPET-ONLY: produce the component code in the reply. Do not create, edit, or delete any file in the repository.'

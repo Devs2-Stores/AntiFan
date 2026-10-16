@@ -304,6 +304,7 @@ describe('ThemeQaWorkflow Integration with ServerCrashScanner', () => {
       });
 
       const report = await workflow.validate({
+        profile: 'audit',
         runId: 'run-crash-test',
         attemptId: 'attempt-crash-test',
         workspaceRoot: root,

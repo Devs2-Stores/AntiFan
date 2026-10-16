@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>timed-popup-occluder good</title>
+<style>
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0;font:16px/1.5 Arial,sans-serif;color:#111;background:#fff}
+.btn{display:inline-block;border:1px solid #111;background:#fff;color:#111;font:16px/1.5 Arial,sans-serif;padding:0 20px;cursor:pointer}
+.toast{position:fixed;right:16px;bottom:16px;width:280px;background:#fff;border:1px solid #111;padding:8px 8px 8px 16px;display:none;align-items:center;gap:8px;z-index:50}
+.toast.is-open{display:flex}
+.toast__close{width:44px;height:44px;border:0;background:transparent;font-size:16px;cursor:pointer}
+</style>
+</head>
+<body>
+<main style="padding:24px;max-width:480px">
+<h1>Collection</h1>
+<p>Page content stays clear of the notification.</p>
+<button class="btn" type="button" style="height:44px">Shop now</button>
+</main>
+<div class="toast" id="toast" role="dialog" aria-label="Notification"><span>Free shipping today</span><button class="toast__close" type="button" aria-label="Đóng">✕</button></div>
+<script>setTimeout(function(){document.getElementById('toast').classList.add('is-open')},150)</script>
+</body>
+</html>

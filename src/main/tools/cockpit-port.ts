@@ -26,6 +26,16 @@ import type {
   ChecklistMutationOp,
   ChecklistMutationResult,
 } from '../qa/theme-checklist-store';
+import type { ThemeQaWorkflow } from '../qa/theme-qa-workflow';
+
+/**
+ * What a cockpit-driven scan may steer: the workflow's own grading inputs, forwarded untouched so a
+ * tool call, a cockpit scan and a toolbar scan grade under the same rules. Absent fields take the
+ * workflow's defaults.
+ */
+export type CockpitThemeQaOptions = Pick<Parameters<ThemeQaWorkflow['validate']>[0], 'profile' | 'thresholds' | 'viewports' | 'multiBreakpoint'> & {
+  workspaceRoot?: string;
+};
 
 /** The QA state row a host keeps per tab (mirrors NativeTabHost's record). */
 export interface CockpitQaState {
@@ -85,7 +95,7 @@ export interface CockpitHostPort {
   /** The tab's resolved workspace root (`''` when unresolvable). */
   resolveTabWorkspaceRoot(tabId: string, tabUrl?: string): string;
   navigateAndWait(tabId: string, url: string, timeoutMs?: number): Promise<boolean>;
-  runThemeQa(tabId: string, options?: { workspaceRoot?: string }): Promise<{ ok: boolean; report?: unknown; error?: string }>;
+  runThemeQa(tabId: string, options?: CockpitThemeQaOptions): Promise<{ ok: boolean; report?: unknown; error?: string }>;
   getThemeQaState(tabId: string): CockpitQaState;
   checklistLoad(tabId: string, input: { scope: string; workspaceRoot: string }): CockpitChecklistLoadResult;
   checklistMutate(tabId: string, input: { scope: string; workspaceRoot: string; op: ChecklistMutationOp }): CockpitChecklistMutateResult;
@@ -153,7 +163,7 @@ export class CockpitPort {
     return this.host.navigateAndWait(cleanId, url, timeoutMs);
   }
 
-  public runThemeQa(tabId: string, options?: { workspaceRoot?: string }): Promise<{ ok: boolean; report?: unknown; error?: string }> {
+  public runThemeQa(tabId: string, options?: CockpitThemeQaOptions): Promise<{ ok: boolean; report?: unknown; error?: string }> {
     const cleanId = typeof tabId === 'string' ? tabId.trim() : '';
     if (!cleanId || !this.host.hasTab(cleanId)) {
       throw new CapabilityError('TARGET_REQUIRED', `runThemeQa requires a live bound tab; "${cleanId}" owns no window`);

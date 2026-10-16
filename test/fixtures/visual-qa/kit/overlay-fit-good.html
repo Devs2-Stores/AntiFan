@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>overlay-fit good</title>
+<style>
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0;font:16px/1.5 Arial,sans-serif;color:#111;background:#fff}
+.btn{display:inline-block;border:1px solid #111;background:#fff;color:#111;font:16px/1.5 Arial,sans-serif;padding:0 20px;cursor:pointer}
+.panel{position:fixed;top:20px;left:10px;right:10px;background:#fff;border:1px solid #111;padding:16px;z-index:30;display:none}
+.panel.is-open{display:block}
+.panel__close{width:44px;height:44px;border:0;background:#eee;font-size:16px;cursor:pointer}
+.backdrop{position:fixed;inset:0;border:0;background:rgba(0,0,0,.4);z-index:29;display:none;cursor:pointer}
+.backdrop.is-open{display:block}
+.panel{max-height:calc(100vh - 40px);overflow:auto}
+</style>
+</head>
+<body>
+<main style="padding:24px"><h1>Menu</h1><button class="btn" type="button" data-action="open-panel" style="height:44px">Open panel</button></main>
+<div class="panel" id="panel" role="dialog" aria-label="Panel"><h2>Panel</h2><p>Content bounded to the viewport.</p><button class="panel__close" type="button" data-action="close-panel" aria-label="Close">✕</button></div>
+<script>
+var panel=document.getElementById('panel');var backdrop=document.getElementById('backdrop');
+function setOpen(open){panel.classList.toggle('is-open',open);if(backdrop)backdrop.classList.toggle('is-open',open)}
+document.addEventListener('click',function(e){var a=e.target.closest('[data-action]');if(!a)return;var v=a.getAttribute('data-action');if(v==='open-panel')setOpen(true);if(v==='close-panel')setOpen(false)});
+</script>

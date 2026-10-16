@@ -174,6 +174,7 @@ describe('Theme QA Fresh Target Reliability', () => {
 
     const targetGen1 = makeTarget(1);
     const validatePromise = workflow.validate({
+      profile: 'audit',
       runId: 'run-12345678901234567890',
       attemptId: 'attempt-12345678901234567890',
       workspaceRoot: root,
@@ -239,6 +240,7 @@ describe('Theme QA Fresh Target Reliability', () => {
     await assert.rejects(
       async () => {
         await workflow.validate({
+          profile: 'audit',
           runId: 'run-12345678901234567890',
           attemptId: 'attempt-12345678901234567890',
           workspaceRoot: root,
@@ -294,6 +296,7 @@ describe('Theme QA Fresh Target Reliability', () => {
     });
 
     const report = await workflow.validate({
+      profile: 'audit',
       runId: 'run-12345678901234567890',
       attemptId: 'attempt-12345678901234567890',
       workspaceRoot: root,
@@ -411,6 +414,7 @@ describe('Theme QA Fresh Target Reliability', () => {
       await assert.rejects(
         async () => {
           await workflow.validate({
+            profile: 'audit',
             runId: 'run-12345678901234567890',
             attemptId: 'attempt-12345678901234567890',
             workspaceRoot: root,
@@ -454,6 +458,7 @@ describe('Theme QA Fresh Target Reliability', () => {
       await assert.rejects(
         async () => {
           await workflowOther.validate({
+            profile: 'audit',
             runId: 'run-12345678901234567890',
             attemptId: 'attempt-12345678901234567890',
             workspaceRoot: root,
@@ -489,6 +494,7 @@ describe('Theme QA Fresh Target Reliability', () => {
     });
 
     const report = await workflowNonTarget.validate({
+      profile: 'audit',
       runId: 'run-12345678901234567890',
       attemptId: 'attempt-12345678901234567890',
       workspaceRoot: root,
@@ -510,6 +516,7 @@ describe('Theme QA Fresh Target Reliability', () => {
     await assert.rejects(
       async () => {
         await workflowDiag.validate({
+          profile: 'audit',
           runId: 'run-12345678901234567890',
           attemptId: 'attempt-12345678901234567890',
           workspaceRoot: root,
@@ -544,6 +551,7 @@ describe('Theme QA Fresh Target Reliability', () => {
     await assert.rejects(
       async () => {
         await workflow.validate({
+          profile: 'audit',
           runId: 'run-12345678901234567890',
           attemptId: 'attempt-12345678901234567890',
           workspaceRoot: root,
@@ -660,6 +668,7 @@ describe('Theme QA Fresh Target Reliability', () => {
     });
 
     const report = await workflow.validate({
+      profile: 'audit',
       runId: 'run-12345678901234567890',
       attemptId: 'attempt-12345678901234567890',
       workspaceRoot: root,

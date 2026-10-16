@@ -15,6 +15,22 @@
  *  - invisible-click-blocker: the same geometry, but the fixed layer paints nothing where it
  *                             sits on top (transparent wrapper box): the content looks clickable
  *                             yet the click lands on the invisible layer.
+ *  - font-below-min:          rendered text under thresholds.minTextPx.
+ *  - control-height-band:     on mobile widths, a control whose hit height sits between
+ *                             thresholds.minTapHitPx and thresholds.minControlPx; on every width,
+ *                             same-role siblings in one parent with different heights.
+ *  - wrapped-label:           a button/tab label that breaks onto more than one line.
+ *  - icon-stroke-mismatch:    outline icons whose rendered stroke differs from the page's modal
+ *                             stroke width.
+ *  - overlay-fit:             an open fixed dialog/popup panel that extends past the viewport.
+ *  - title-scale:             at <= 768px, h1-h4 outside thresholds.titleScale for their level; without
+ *                             that range, same-level headings of different sections differing by more
+ *                             than 2px.
+ *  - input-height-band:       inputs/selects of one form differing in height by more than
+ *                             thresholds.inputHeightBandPx (default 4).
+ * The registry rules above read ONLY from `options.thresholds`; without it they are not run and are
+ * reported in stats.unmeasuredRules. A control whose ::before/::after pseudo-element enlarges its
+ * hit area is graded on that hit area (WCAG 2.5.8 spacing exception).
  *
  * Visually hidden text (sr-only clip patterns) and boxes parked off-canvas (closed drawers,
  * skip links above the document) are not graded: no visitor sees or taps them.
@@ -24,12 +40,33 @@
  * restores the original scroll position before returning.
  */
 
-export type VisualQualityRuleId =
-  | 'contrast-low'
-  | 'tap-target-small'
-  | 'tap-target-tiny'
-  | 'floating-widget-overlap'
-  | 'invisible-click-blocker';
+export const VISUAL_QUALITY_RULE_IDS = [
+  'contrast-low',
+  'tap-target-small',
+  'tap-target-tiny',
+  'floating-widget-overlap',
+  'invisible-click-blocker',
+  'font-below-min',
+  'control-height-band',
+  'wrapped-label',
+  'icon-stroke-mismatch',
+  'overlay-fit',
+  'title-scale',
+  'input-height-band',
+] as const;
+
+export type VisualQualityRuleId = (typeof VISUAL_QUALITY_RULE_IDS)[number];
+
+export interface VisualQualityThresholds {
+  minTextPx: number;
+  minControlPx: number;
+  minTapHitPx: number;
+  tapSpacingCirclePx: number;
+  /** Allowed rendered font-size range [min, max] in px per heading level at <= 768px. */
+  titleScale?: Record<'h1' | 'h2' | 'h3' | 'h4', [number, number]>;
+  /** Largest allowed height difference in px between the inputs of one form (default 4). */
+  inputHeightBandPx?: number;
+}
 
 export interface VisualQualityFinding {
   ruleId: VisualQualityRuleId;
@@ -51,10 +88,16 @@ export interface VisualQualityStats {
   durationMs: number;
   truncated: boolean;
   truncatedReasons: string[];
+  /** Rule ids evaluated in this scan. */
+  measuredRules: string[];
+  /** Rule ids that were not evaluated (missing thresholds, desktop width, skipped pass). */
+  unmeasuredRules: string[];
 }
 
 export interface VisualQualityScanResult {
   measured: boolean;
+  /** Set when the touch-width rules were read from a responsive-sweep width because the tab itself is wider than 767px. */
+  mobileSweepWidth?: number;
   viewport: { width: number; height: number };
   mobile: boolean;
   findings: VisualQualityFinding[];
@@ -71,6 +114,8 @@ export interface VisualQualityScanOptions {
   skipFloating?: boolean;
   /** Restrict contrast and tap-target checks to this subtree. */
   scopeSelector?: string;
+  /** Registry thresholds; the rules that read them only run when this is supplied. */
+  thresholds?: VisualQualityThresholds;
 }
 
 export const VISUAL_QUALITY_LIMITS = Object.freeze({
@@ -85,7 +130,47 @@ export const VISUAL_QUALITY_LIMITS = Object.freeze({
   floatingMaxViewportShare: 0.15,
   floatingMaxWidthShare: 0.7,
   overlapMinPx: 4,
+  iconMaxPx: 64,
+  iconMinPx: 8,
+  iconStrokeTolerancePx: 0.3,
+  heightMismatchTolerancePx: 1,
+  viewportFitTolerancePx: 1,
 });
+
+const THRESHOLD_KEYS = ['minTextPx', 'minControlPx', 'minTapHitPx', 'tapSpacingCirclePx'] as const;
+
+function normalizeThresholds(value: VisualQualityThresholds | undefined): VisualQualityThresholds | null {
+  if (value === undefined) return null;
+  const out = {} as Record<string, number>;
+  for (const key of THRESHOLD_KEYS) {
+    const v = (value as unknown as Record<string, unknown> | null)?.[key];
+    if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0) {
+      throw new Error('visual-quality thresholds.' + key + ' must be a positive number (got ' + JSON.stringify(v) + ')');
+    }
+    out[key] = v;
+  }
+  const optionalScale = (value as unknown as Record<string, unknown> | null)?.titleScale;
+  if (optionalScale !== undefined) {
+    const scale = optionalScale as Record<string, unknown> | null;
+    const normalized: Record<string, [number, number]> = {};
+    for (const level of ['h1', 'h2', 'h3', 'h4']) {
+      const range = scale ? scale[level] : undefined;
+      if (!Array.isArray(range) || range.length !== 2 || !range.every((n) => typeof n === 'number' && Number.isFinite(n) && n > 0) || (range[0] as number) > (range[1] as number)) {
+        throw new Error('visual-quality thresholds.titleScale.' + level + ' must be [min, max] positive numbers (got ' + JSON.stringify(range) + ')');
+      }
+      normalized[level] = [range[0] as number, range[1] as number];
+    }
+    out.titleScale = normalized as unknown as number;
+  }
+  const band = (value as unknown as Record<string, unknown> | null)?.inputHeightBandPx;
+  if (band !== undefined) {
+    if (typeof band !== 'number' || !Number.isFinite(band) || band <= 0) {
+      throw new Error('visual-quality thresholds.inputHeightBandPx must be a positive number (got ' + JSON.stringify(band) + ')');
+    }
+    out.inputHeightBandPx = band;
+  }
+  return out as unknown as VisualQualityThresholds;
+}
 
 export class VisualQualityScanner {
   public static getBrowserScanScript(options: VisualQualityScanOptions = {}): string {
@@ -94,11 +179,14 @@ export class VisualQualityScanner {
       skipPageEnd: options.skipPageEnd === true,
       skipFloating: options.skipFloating === true,
       scopeSelector: typeof options.scopeSelector === 'string' && options.scopeSelector.trim() ? options.scopeSelector.trim() : null,
+      thresholds: normalizeThresholds(options.thresholds),
     });
     const limits = JSON.stringify(VISUAL_QUALITY_LIMITS);
+    const allRules = JSON.stringify(VISUAL_QUALITY_RULE_IDS);
     return `(() => {
   const OPTS = ${opts};
   const L = ${limits};
+  const ALL_RULES = ${allRules};
   const started = Date.now();
   const vw = window.innerWidth;
   const vh = window.innerHeight;
@@ -107,6 +195,13 @@ export class VisualQualityScanner {
   const counts = {};
   const truncatedReasons = [];
   const stats = { textElementsChecked: 0, contrastIndeterminate: 0, controlsChecked: 0, floatingWidgets: 0, scrollPositions: 0 };
+  const TH = OPTS.thresholds;
+  const measuredRules = ['contrast-low'];
+  function markMeasured(id) { if (!measuredRules.includes(id)) measuredRules.push(id); }
+  if (TH) ['font-below-min', 'control-height-band', 'wrapped-label', 'icon-stroke-mismatch', 'overlay-fit', 'title-scale', 'input-height-band'].forEach(markMeasured);
+  function rulesReport() {
+    return { measuredRules: measuredRules.slice(), unmeasuredRules: ALL_RULES.filter((id) => !measuredRules.includes(id)) };
+  }
   const PREVIEW_CHROME = '#preview-bar-iframe, [id*="preview-bar"], .preview-bar, ul.preview-cta, #haravan-notification, .hrv-admin-bar, #admin-bar-iframe, #PBarNextFrameWrapper, [data-antifan-override]';
 
   function isPreviewChrome(el) {
@@ -283,7 +378,7 @@ export class VisualQualityScanner {
     try { return document.querySelector(OPTS.scopeSelector) || null; } catch (e) { return null; }
   })();
   if (!scope) {
-    return { measured: false, viewport: { width: vw, height: vh }, mobile: mobile, findings: [], stats: Object.assign(stats, { durationMs: Date.now() - started, truncated: false, truncatedReasons: [] }), error: 'SCOPE_NOT_FOUND' };
+    return { measured: false, viewport: { width: vw, height: vh }, mobile: mobile, findings: [], stats: Object.assign(stats, { durationMs: Date.now() - started, truncated: false, truncatedReasons: [] }, rulesReport()), error: 'SCOPE_NOT_FOUND' };
   }
 
   // ---- contrast ----
@@ -307,6 +402,21 @@ export class VisualQualityScanner {
     if (op < 0.05) continue;
     stats.textElementsChecked++;
     const cs = getComputedStyle(el);
+    if (TH) {
+      const fontPx = parseFloat(cs.fontSize);
+      if (fontPx < TH.minTextPx) {
+        const fsel = selectorOf(el);
+        const fontRounded = Math.round(fontPx * 100) / 100;
+        push({
+          ruleId: 'font-below-min',
+          severity: 'warning',
+          selector: fsel,
+          details: 'Text "' + textNode.nodeValue.trim().slice(0, 48) + '" in ' + fsel + ' is ' + fontRounded + 'px, below the ' + TH.minTextPx + 'px minimum',
+          rect: rectOf(r),
+          measured: { fontSizePx: fontRounded, minimumPx: TH.minTextPx },
+        }, 'font|' + fsel + '|' + fontRounded);
+      }
+    }
     // The painted glyph colour: -webkit-text-fill-color wins over color (it computes to
     // currentcolor when unset).
     const fg = parseColor(cs.webkitTextFillColor || cs.color);
@@ -335,9 +445,50 @@ export class VisualQualityScanner {
     }
   }
 
-  // ---- tap targets (mobile widths only) ----
-  if (mobile) {
-    const CONTROL = 'a[href], button, input:not([type="hidden"]), select, textarea, summary, [role="button"], [role="link"], [role="checkbox"], [role="radio"], [role="switch"], [role="tab"], [role="menuitem"]';
+  // ---- controls: tap targets (mobile widths) and registry control rules ----
+  function unionRect(rects) {
+    let left = Infinity; let top = Infinity; let right = -Infinity; let bottom = -Infinity;
+    for (const q of rects) { left = Math.min(left, q.left); top = Math.min(top, q.top); right = Math.max(right, q.right); bottom = Math.max(bottom, q.bottom); }
+    return { left: left, top: top, right: right, bottom: bottom, width: right - left, height: bottom - top };
+  }
+  function containingBlockOrigin(el, pseudoCs) {
+    if (pseudoCs.position === 'fixed') return { left: 0, top: 0 };
+    for (let node = el; node && node !== document.documentElement; node = node.parentElement) {
+      if (getComputedStyle(node).position !== 'static') {
+        const nr = node.getBoundingClientRect();
+        return { left: nr.left + node.clientLeft, top: nr.top + node.clientTop };
+      }
+    }
+    const root = document.documentElement.getBoundingClientRect();
+    return { left: root.left, top: root.top };
+  }
+  // Absolutely positioned ::before/::after boxes are part of the control's hit area: a click on
+  // them lands on the control.
+  function pseudoRects(el) {
+    const out = [];
+    for (const name of ['::before', '::after']) {
+      const pcs = getComputedStyle(el, name);
+      if (!pcs.content || pcs.content === 'none' || pcs.content === 'normal' || pcs.display === 'none') continue;
+      if (pcs.position !== 'absolute' && pcs.position !== 'fixed') continue;
+      const pw = parseFloat(pcs.width); const ph = parseFloat(pcs.height);
+      const pl = parseFloat(pcs.left); const pt = parseFloat(pcs.top);
+      if (!(pw > 0) || !(ph > 0) || !isFinite(pl) || !isFinite(pt)) continue;
+      const origin = containingBlockOrigin(el, pcs);
+      const left = origin.left + pl + (parseFloat(pcs.marginLeft) || 0);
+      const top = origin.top + pt + (parseFloat(pcs.marginTop) || 0);
+      out.push({ left: left, top: top, right: left + pw, bottom: top + ph, width: pw, height: ph });
+    }
+    return out;
+  }
+  function rectsOverlap(a, b) { return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top; }
+  function circleHitsRect(cx, cy, radius, q) {
+    const dx = Math.max(q.left - cx, 0, cx - q.right);
+    const dy = Math.max(q.top - cy, 0, cy - q.bottom);
+    return dx * dx + dy * dy < radius * radius;
+  }
+  const CONTROL = 'a[href], button, input:not([type="hidden"]), select, textarea, summary, [role="button"], [role="link"], [role="checkbox"], [role="radio"], [role="switch"], [role="tab"], [role="menuitem"]';
+  const items = [];
+  if (mobile || TH) {
     const controls = scope.querySelectorAll(CONTROL);
     for (let i = 0; i < controls.length; i++) {
       if (i >= L.maxControls) { truncatedReasons.push('tap-target scan capped at ' + L.maxControls + ' controls'); break; }
@@ -357,20 +508,311 @@ export class VisualQualityScanner {
         if (blockText > ownText + 10) continue;
       }
       stats.controlsChecked++;
-      const w = Math.round(r.width * 10) / 10;
-      const h = Math.round(r.height * 10) / 10;
+      const extra = pseudoRects(el);
+      items.push({ el: el, box: r, hit: extra.length ? unionRect([r].concat(extra)) : r, extended: extra.length > 0 });
+    }
+  }
+  const radius = L.tapMinimumPx / 2;
+  // WCAG 2.5.8 spacing exception for a pseudo-element hit area: the minimum-size circle centred
+  // on the target may not meet another target's hit area or circle.
+  const crowdedBy = (t) => {
+    const cx = (t.hit.left + t.hit.right) / 2;
+    const cy = (t.hit.top + t.hit.bottom) / 2;
+    for (const o of items) {
+      if (o === t || o.el.contains(t.el) || t.el.contains(o.el)) continue;
+      if (rectsOverlap(t.hit, o.hit) || circleHitsRect(cx, cy, radius, o.hit)) return o;
+      if (Math.min(o.hit.width, o.hit.height) < L.tapRecommendedPx) {
+        const dist = Math.hypot((o.hit.left + o.hit.right) / 2 - cx, (o.hit.top + o.hit.bottom) / 2 - cy);
+        if (dist < L.tapMinimumPx) return o;
+      }
+    }
+    return null;
+  };
+  if (mobile) {
+    markMeasured('tap-target-small');
+    markMeasured('tap-target-tiny');
+    for (const it of items) {
+      const g = it.hit;
+      const w = Math.round(g.width * 10) / 10;
+      const h = Math.round(g.height * 10) / 10;
       const minSide = Math.min(w, h);
       if (minSide >= L.tapRecommendedPx) continue;
       const tiny = minSide < L.tapMinimumPx;
-      const sel = selectorOf(el);
+      let crowdedNote = '';
+      if (it.extended && !tiny) {
+        const other = crowdedBy(it);
+        if (!other) continue;
+        crowdedNote = '; its ' + L.tapMinimumPx + 'px spacing circle meets ' + selectorOf(other.el);
+      }
+      const sel = selectorOf(it.el);
       push({
         ruleId: tiny ? 'tap-target-tiny' : 'tap-target-small',
         severity: 'warning',
         selector: sel,
-        details: (tiny ? 'Tap target below the WCAG 2.2 24px minimum: ' : 'Tap target below the 44px recommended size: ') + sel + ' is ' + w + 'x' + h + 'px',
-        rect: rectOf(r),
-        measured: { width: w, height: h, minimumPx: tiny ? L.tapMinimumPx : L.tapRecommendedPx },
+        details: (tiny ? 'Tap target below the WCAG 2.2 24px minimum: ' : 'Tap target below the 44px recommended size: ') + sel + ' is ' + w + 'x' + h + 'px' + (it.extended ? ' (including its pseudo-element hit area)' : '') + crowdedNote,
+        rect: rectOf(g),
+        measured: { width: w, height: h, minimumPx: tiny ? L.tapMinimumPx : L.tapRecommendedPx, pseudoHitArea: it.extended },
       }, 'tap|' + sel + '|' + Math.round(w) + 'x' + Math.round(h));
+    }
+  }
+
+  if (TH) {
+    // ---- control-height-band ----
+    if (mobile) {
+      for (const it of items) {
+        const h = it.hit.height;
+        if (h >= TH.minTapHitPx && h < TH.minControlPx && !(it.extended && !crowdedBy(it))) {
+          const sel = selectorOf(it.el);
+          const hr = Math.round(h * 10) / 10;
+          push({
+            ruleId: 'control-height-band',
+            severity: 'warning',
+            selector: sel,
+            details: 'Control ' + sel + ' hit height ' + hr + 'px is under the ' + TH.minControlPx + 'px control height at ' + vw + 'px viewport',
+            rect: rectOf(it.hit),
+            measured: { heightPx: hr, minimumPx: TH.minControlPx, floorPx: TH.minTapHitPx },
+          }, 'band|' + sel + '|' + Math.round(h));
+        }
+      }
+    }
+    const groups = new Map();
+    for (const it of items) {
+      const tag = it.el.tagName;
+      const role = it.el.getAttribute('role');
+      const buttonLike = tag === 'BUTTON' || tag === 'INPUT' || tag === 'SELECT' || role === 'button' || role === 'tab' || (tag === 'A' && getComputedStyle(it.el).display !== 'inline');
+      const first = (typeof it.el.className === 'string' ? it.el.className : '').split(/\\s+/).filter(Boolean)[0];
+      if (!buttonLike || !first || !it.el.parentElement) continue;
+      const key = it.el.parentElement;
+      const perParent = groups.get(key) || new Map();
+      const gkey = tag + '.' + first;
+      const list = perParent.get(gkey) || [];
+      list.push(it);
+      perParent.set(gkey, list);
+      groups.set(key, perParent);
+    }
+    groups.forEach((perParent) => perParent.forEach((list) => {
+      if (list.length < 2) return;
+      const tallest = Math.max.apply(null, list.map((x) => x.box.height));
+      for (const x of list) {
+        if (tallest - x.box.height > L.heightMismatchTolerancePx) {
+          const sel = selectorOf(x.el);
+          const own = Math.round(x.box.height * 10) / 10;
+          const peer = Math.round(tallest * 10) / 10;
+          push({
+            ruleId: 'control-height-band',
+            severity: 'warning',
+            selector: sel,
+            details: 'Control ' + sel + ' is ' + own + 'px tall but a same-role sibling is ' + peer + 'px',
+            rect: rectOf(x.box),
+            measured: { heightPx: own, siblingHeightPx: peer },
+          }, 'band-sibling|' + sel + '|' + Math.round(x.box.height) + '|' + Math.round(tallest));
+        }
+      }
+    }));
+
+    // ---- wrapped-label ----
+    const LABEL = 'button, [role="button"], [role="tab"], a[class*="btn"], a[class*="button"], a[class*="tab"]';
+    const labels = scope.querySelectorAll(LABEL);
+    const labelRange = document.createRange();
+    for (let i = 0; i < labels.length && i < L.maxControls; i++) {
+      const el = labels[i];
+      if (isPreviewChrome(el) || hiddenFromAt(el)) continue;
+      const r = el.getBoundingClientRect();
+      if (!rendered(el, r) || visuallyHidden(el, r) || offCanvas(r)) continue;
+      const ws = getComputedStyle(el).whiteSpace;
+      if (ws === 'nowrap' || ws === 'pre') continue;
+      const tw = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      let worst = 1;
+      let node;
+      while ((node = tw.nextNode())) {
+        if (!/\\S/.test(node.nodeValue)) continue;
+        labelRange.selectNodeContents(node);
+        const tops = [];
+        for (const q of labelRange.getClientRects()) {
+          if (q.height <= 0 || q.width <= 0) continue;
+          if (!tops.some((t) => Math.abs(t - q.top) < q.height / 2)) tops.push(q.top);
+        }
+        worst = Math.max(worst, tops.length);
+      }
+      if (worst > 1) {
+        const sel = selectorOf(el);
+        const label = (el.textContent || '').trim().slice(0, 40);
+        push({
+          ruleId: 'wrapped-label',
+          severity: 'warning',
+          selector: sel,
+          details: 'Label "' + label + '" of ' + sel + ' wraps onto ' + worst + ' lines',
+          rect: rectOf(r),
+          measured: { lines: worst, widthPx: Math.round(r.width) },
+        }, 'wrap|' + sel + '|' + worst);
+      }
+    }
+
+    // ---- icon-stroke-mismatch ----
+    const icons = [];
+    const svgs = scope.querySelectorAll('svg');
+    for (let i = 0; i < svgs.length && i < L.maxControls; i++) {
+      const svg = svgs[i];
+      if (isPreviewChrome(svg)) continue;
+      const sr = svg.getBoundingClientRect();
+      if (!rendered(svg, sr)) continue;
+      const vb = svg.viewBox && svg.viewBox.baseVal;
+      if (!vb || !vb.width || sr.width > L.iconMaxPx || sr.width < L.iconMinPx) continue;
+      let strokeWidth = null;
+      const shapes = svg.querySelectorAll('path, circle, line, polyline, polygon, rect, ellipse');
+      for (const shape of shapes) {
+        const scs = getComputedStyle(shape);
+        if (scs.stroke === 'none' || scs.stroke === 'transparent') continue;
+        const fillColor = parseColor(scs.fill);
+        if (scs.fill !== 'none' && (!fillColor || fillColor.a > 0.02)) continue;
+        const sw = parseFloat(scs.strokeWidth);
+        if (!(sw > 0)) continue;
+        strokeWidth = sw;
+        break;
+      }
+      if (strokeWidth === null) continue;
+      icons.push({ el: svg, rect: sr, rendered: strokeWidth * (sr.width / vb.width) });
+    }
+    if (icons.length >= 2) {
+      const tally = new Map();
+      for (const ic of icons) {
+        const k = Math.round(ic.rendered * 4) / 4;
+        tally.set(k, (tally.get(k) || 0) + 1);
+      }
+      let modal = null;
+      tally.forEach((count, k) => { if (modal === null || count > tally.get(modal)) modal = k; });
+      for (const ic of icons) {
+        if (Math.abs(ic.rendered - modal) > L.iconStrokeTolerancePx) {
+          const sel = selectorOf(ic.el.closest('a, button') || ic.el);
+          const own = Math.round(ic.rendered * 100) / 100;
+          push({
+            ruleId: 'icon-stroke-mismatch',
+            severity: 'warning',
+            selector: sel,
+            details: 'Outline icon in ' + sel + ' renders a ' + own + 'px stroke; the page icon stroke is ' + modal + 'px',
+            rect: rectOf(ic.rect),
+            measured: { renderedStrokePx: own, modalStrokePx: modal },
+          }, 'icon|' + sel + '|' + own);
+        }
+      }
+    }
+
+    // ---- overlay-fit: an open fixed panel must fit the viewport ----
+    const POPUP_NAME = /modal|popup|popnoti|dialog|lightbox|newsletter|toast|snackbar|cookie|consent/i;
+    const panels = [];
+    const everything = scope.getElementsByTagName('*');
+    for (let i = 0; i < everything.length && i < 8000; i++) {
+      const el = everything[i];
+      if (getComputedStyle(el).position !== 'fixed' || isPreviewChrome(el)) continue;
+      const role = el.getAttribute('role');
+      const named = POPUP_NAME.test(el.tagName + ' ' + (el.id || '') + ' ' + (typeof el.className === 'string' ? el.className : ''));
+      const semantic = role === 'dialog' || role === 'alertdialog' || el.getAttribute('aria-modal') === 'true' || (el.tagName === 'DIALOG' && el.open);
+      if (!semantic && !named) continue;
+      const pr = el.getBoundingClientRect();
+      if (!rendered(el, pr) || pr.right <= 0 || pr.bottom <= 0 || pr.left >= vw || pr.top >= vh) continue;
+      if (!(el.textContent || '').trim() && !el.querySelector('img, svg, button, a, input, select, textarea')) continue;
+      panels.push({ el: el, rect: pr });
+    }
+    for (const p of panels) {
+      if (panels.some((o) => o !== p && o.el.contains(p.el))) continue;
+      const pr = p.rect;
+      const tol = L.viewportFitTolerancePx;
+      if (pr.top < -tol || pr.left < -tol || pr.bottom > vh + tol || pr.right > vw + tol) {
+        const sel = selectorOf(p.el);
+        push({
+          ruleId: 'overlay-fit',
+          severity: 'warning',
+          selector: sel,
+          details: 'Open panel ' + sel + ' is ' + Math.round(pr.width) + 'x' + Math.round(pr.height) + 'px at (' + Math.round(pr.left) + ', ' + Math.round(pr.top) + ') and extends past the ' + vw + 'x' + vh + ' viewport',
+          rect: rectOf(pr),
+          measured: { width: Math.round(pr.width), height: Math.round(pr.height), left: Math.round(pr.left), top: Math.round(pr.top), viewportWidth: vw, viewportHeight: vh },
+        }, 'fit|' + sel + '|' + Math.round(pr.height));
+      }
+    }
+
+    // ---- title-scale: heading sizes at touch widths ----
+    if (vw <= 768) {
+      const headingRows = [];
+      for (const h of scope.querySelectorAll('h1, h2, h3, h4')) {
+        if (isPreviewChrome(h) || hiddenFromAt(h)) continue;
+        const hr = h.getBoundingClientRect();
+        if (!rendered(h, hr) || visuallyHidden(h, hr) || offCanvas(hr) || !(h.textContent || '').trim()) continue;
+        const px = parseFloat(getComputedStyle(h).fontSize);
+        if (!(px > 0)) continue;
+        const section = h.closest('section, [data-section-type], [id^="shopify-section"], [id^="section-"], .section');
+        headingRows.push({ el: h, level: h.tagName.toLowerCase(), px: px, rect: hr, section: section });
+      }
+      if (TH.titleScale) {
+        for (const row of headingRows) {
+          const range = TH.titleScale[row.level];
+          if (!range || (row.px >= range[0] - 0.01 && row.px <= range[1] + 0.01)) continue;
+          const hsel = selectorOf(row.el);
+          const own = Math.round(row.px * 10) / 10;
+          push({
+            ruleId: 'title-scale',
+            severity: 'warning',
+            selector: hsel,
+            details: row.level.toUpperCase() + ' ' + hsel + ' is ' + own + 'px, outside the ' + range[0] + '-' + range[1] + 'px title scale at ' + vw + 'px viewport',
+            rect: rectOf(row.rect),
+            measured: { level: row.level, fontSizePx: own, minPx: range[0], maxPx: range[1] },
+          }, 'title|' + hsel + '|' + own);
+        }
+      } else {
+        for (const level of ['h1', 'h2', 'h3', 'h4']) {
+          const rows = headingRows.filter((r) => r.level === level);
+          const bySection = new Map();
+          for (const r of rows) if (!bySection.has(r.section)) bySection.set(r.section, r);
+          if (bySection.size < 2) continue;
+          const sizes = Array.from(bySection.values()).map((r) => r.px);
+          if (Math.max.apply(null, sizes) - Math.min.apply(null, sizes) <= 2) continue;
+          const tally = new Map();
+          for (const s of sizes) { const k = Math.round(s * 2) / 2; tally.set(k, (tally.get(k) || 0) + 1); }
+          let modal = null;
+          tally.forEach((count, k) => { if (modal === null || count > tally.get(modal) || (count === tally.get(modal) && k > modal)) modal = k; });
+          for (const r of bySection.values()) {
+            if (Math.abs(r.px - modal) <= 2) continue;
+            const hsel = selectorOf(r.el);
+            const own = Math.round(r.px * 10) / 10;
+            push({
+              ruleId: 'title-scale',
+              severity: 'warning',
+              selector: hsel,
+              details: level.toUpperCase() + ' ' + hsel + ' is ' + own + 'px while the same-level headings of other sections use ' + modal + 'px',
+              rect: rectOf(r.rect),
+              measured: { level: level, fontSizePx: own, modalPx: modal },
+            }, 'title|' + hsel + '|' + own);
+          }
+        }
+      }
+    }
+
+    // ---- input-height-band: fields of one form share one height ----
+    const bandPx = TH.inputHeightBandPx || 4;
+    const FIELD = 'input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="image"]):not([type="file"]):not([type="range"]):not([type="color"]), select';
+    for (const form of scope.querySelectorAll('form')) {
+      if (isPreviewChrome(form)) continue;
+      const fields = [];
+      for (const f of form.querySelectorAll(FIELD)) {
+        if (hiddenFromAt(f) || f.disabled) continue;
+        const fr = f.getBoundingClientRect();
+        if (!rendered(f, fr) || visuallyHidden(f, fr) || offCanvas(fr)) continue;
+        fields.push({ el: f, rect: fr });
+      }
+      if (fields.length < 2) continue;
+      const tallest = Math.max.apply(null, fields.map((f) => f.rect.height));
+      for (const f of fields) {
+        if (tallest - f.rect.height <= bandPx) continue;
+        const fsel = selectorOf(f.el);
+        const own = Math.round(f.rect.height * 10) / 10;
+        push({
+          ruleId: 'input-height-band',
+          severity: 'warning',
+          selector: fsel,
+          details: 'Field ' + fsel + ' is ' + own + 'px tall but another field of the same form is ' + Math.round(tallest * 10) / 10 + 'px (allowed difference ' + bandPx + 'px)',
+          rect: rectOf(f.rect),
+          measured: { heightPx: own, tallestPx: Math.round(tallest * 10) / 10, bandPx: bandPx },
+        }, 'input-band|' + fsel + '|' + Math.round(f.rect.height) + '|' + Math.round(tallest));
+      }
     }
   }
 
@@ -435,6 +877,7 @@ export class VisualQualityScanner {
     html.style.scrollBehavior = 'auto';
     const maxY = Math.max(0, (document.scrollingElement || html).scrollHeight - vh);
     const positions = OPTS.skipFloating ? [] : OPTS.skipPageEnd ? [startY] : maxY < 8 ? [0] : [0, maxY];
+    if (positions.length) { markMeasured('floating-widget-overlap'); markMeasured('invisible-click-blocker'); }
     const whereOf = (y) => (y === 0 ? 'page top' : y >= maxY ? 'page end' : 'scroll position ' + Math.round(y));
     const positionOf = (y) => (y === 0 ? 'top' : y >= maxY ? 'end' : 'current');
     for (const y of positions) {
@@ -473,7 +916,7 @@ export class VisualQualityScanner {
     viewport: { width: vw, height: vh },
     mobile: mobile,
     findings: findings,
-    stats: Object.assign(stats, { durationMs: Date.now() - started, truncated: truncatedReasons.length > 0, truncatedReasons: truncatedReasons }),
+    stats: Object.assign(stats, { durationMs: Date.now() - started, truncated: truncatedReasons.length > 0, truncatedReasons: truncatedReasons }, rulesReport()),
   };
 })()`;
   }
@@ -485,13 +928,14 @@ export class VisualQualityScanner {
       viewport: { width: 0, height: 0 },
       mobile: false,
       findings: [],
-      stats: { textElementsChecked: 0, contrastIndeterminate: 0, controlsChecked: 0, floatingWidgets: 0, scrollPositions: 0, durationMs: 0, truncated: false, truncatedReasons: [] },
+      stats: { textElementsChecked: 0, contrastIndeterminate: 0, controlsChecked: 0, floatingWidgets: 0, scrollPositions: 0, durationMs: 0, truncated: false, truncatedReasons: [], measuredRules: [], unmeasuredRules: [] },
     };
     if (!raw || typeof raw !== 'object') return { ...empty, error: 'SCAN_RETURNED_NO_OBJECT' };
     const r = raw as Partial<VisualQualityScanResult>;
     if (r.measured !== true || !Array.isArray(r.findings) || !r.stats) {
       return { ...empty, ...(typeof r.error === 'string' ? { error: r.error } : { error: 'SCAN_SHAPE_INVALID' }) };
     }
-    return r as VisualQualityScanResult;
+    const stats = r.stats as VisualQualityStats;
+    return { ...(r as VisualQualityScanResult), stats: { ...stats, measuredRules: stats.measuredRules ?? [], unmeasuredRules: stats.unmeasuredRules ?? [] } };
   }
 }

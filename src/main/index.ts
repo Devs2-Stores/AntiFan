@@ -4601,6 +4601,13 @@ async function createWindow(): Promise<void> {
     holdPageNavigation: (tabId, paneId) => hostForTabOrBootstrap(tabId).holdPageNavigation(tabId, paneId),
     settleTabEmulation: (tabId) => hostForTabOrBootstrap(tabId).settleTabEmulation(tabId),
     resolveTabWorkspace: (tabId, tabUrl) => hostForTabOrBootstrap(tabId).resolveTabWorkspace(tabId, tabUrl),
+    getProjectStorefrontOrigin: (scope) => {
+      for (const host of tabAuthorities.hosts()) {
+        const origin = host.getProjectStorefrontOrigin(scope);
+        if (origin) return origin;
+      }
+      return undefined;
+    },
   }, controlPlane.artifacts);
   // Published for windows opened later: `attachSharedServices` hands this same port's
   // viewport gate to every host it builds, so a new window is never left ungated.

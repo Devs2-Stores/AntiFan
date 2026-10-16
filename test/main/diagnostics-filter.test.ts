@@ -360,3 +360,78 @@ describe('extractCorrelatableAssetFailures — first-party asset network failure
     assert.deepStrictEqual(extractCorrelatableAssetFailures([null, undefined, 'not an object', {}], contextUrl), []);
   });
 });
+
+import { confineWorkspaceRootStrict } from '../../src/main/qa/diagnostics-filter';
+
+describe('confineWorkspaceRootStrict — a refused root is reported, never silent', () => {
+  const defaultRoot = process.platform === 'win32' ? 'E:\\theme' : '/work/theme';
+  const outside = process.platform === 'win32' ? 'C:\\other' : '/elsewhere/other';
+
+  it('flags a candidate outside the default root as redirected', () => {
+    const result = confineWorkspaceRootStrict(outside, defaultRoot);
+    assert.strictEqual(result.redirected, true);
+    assert.strictEqual(result.root, defaultRoot);
+    assert.strictEqual(result.requested, outside);
+  });
+
+  it('flags a forward-slash spelling of an outside root as redirected (win32 drive paths)', { skip: process.platform !== 'win32' }, () => {
+    const result = confineWorkspaceRootStrict('C:/other', 'E:/theme');
+    assert.strictEqual(result.redirected, true);
+    assert.strictEqual(result.requested, 'C:/other');
+  });
+
+  it('does not flag the default root itself, a child of it, or an omitted candidate', () => {
+    assert.strictEqual(confineWorkspaceRootStrict(defaultRoot, defaultRoot).redirected, false);
+    assert.strictEqual(confineWorkspaceRootStrict(`${defaultRoot}${process.platform === 'win32' ? '\\' : '/'}sections`, defaultRoot).redirected, false);
+    assert.strictEqual(confineWorkspaceRootStrict(undefined, defaultRoot).redirected, false);
+    assert.strictEqual(confineWorkspaceRootStrict('   ', defaultRoot).redirected, false);
+  });
+
+  it('flags traversal that escapes the default root', () => {
+    const traversal = `${defaultRoot}${process.platform === 'win32' ? '\\' : '/'}..${process.platform === 'win32' ? '\\' : '/'}other`;
+    assert.strictEqual(confineWorkspaceRootStrict(traversal, defaultRoot).redirected, true);
+  });
+
+  it('never flags when there is no authoritative root to confine against', () => {
+    const result = confineWorkspaceRootStrict(outside, '');
+    assert.strictEqual(result.redirected, false);
+    assert.strictEqual(result.root, outside);
+  });
+});
+
+describe('classifyDiagnostics - report-only CSP violations from embedded frames', () => {
+  const cspEntry = (message: string) => ({ level: 3, message, source: 'https://store.example.com/cart', origin: 'store.example.com', isFirstParty: true });
+
+  it('keeps a report-only frame-ancestors violation naming a third-party frame out of the critical list', () => {
+    const result = classifyDiagnostics(
+      { console: [cspEntry("Framing 'https://www.google.com/' violates the following report-only Content Security Policy directive: \"frame-ancestors 'self'\". The violation has been logged, but no action was taken.")] },
+      'https://store.example.com/cart'
+    );
+    assert.strictEqual(result.criticalIssues.length, 0);
+    assert.strictEqual(result.warnings.length, 1);
+  });
+
+  it('keeps a report-only violation of any host out of the critical list', () => {
+    const result = classifyDiagnostics(
+      { console: [cspEntry("Refused to load the script 'https://store.example.com/theme.js' because it violates the following report-only Content Security Policy directive: \"script-src 'none'\".")] },
+      'https://store.example.com/cart'
+    );
+    assert.strictEqual(result.criticalIssues.length, 0);
+  });
+
+  it('still fails an enforced first-party CSP block', () => {
+    const result = classifyDiagnostics(
+      { console: [cspEntry("Refused to load the script 'https://store.example.com/theme.js' because it violates the following Content Security Policy directive: \"script-src 'none'\".")] },
+      'https://store.example.com/cart'
+    );
+    assert.strictEqual(result.criticalIssues.length, 1);
+  });
+
+  it('treats an enforced framing refusal of a third-party frame as a warning', () => {
+    const result = classifyDiagnostics(
+      { console: [cspEntry("Framing 'https://www.google.com/' violates the following Content Security Policy directive: \"frame-ancestors 'self'\". The request has been blocked.")] },
+      'https://store.example.com/cart'
+    );
+    assert.strictEqual(result.criticalIssues.length, 0);
+  });
+});

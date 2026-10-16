@@ -84,6 +84,7 @@ describe('Async QA Generation Guard & Race-Condition Defense', () => {
     };
 
     const report = await workflow.validate({
+      profile: 'audit',
       runId: 'run-guard-1',
       attemptId: 'att-guard-1',
       target,
@@ -119,6 +120,7 @@ describe('Async QA Generation Guard & Race-Condition Defense', () => {
     await assert.rejects(
       async () => {
         await workflow.validate({
+          profile: 'audit',
           runId: 'run-guard-2',
           attemptId: 'att-guard-2',
           target,
@@ -151,6 +153,7 @@ describe('Async QA Generation Guard & Race-Condition Defense', () => {
     await assert.rejects(
       async () => {
         await workflow.validate({
+          profile: 'audit',
           runId: 'run-guard-3',
           attemptId: 'att-guard-3',
           target,
@@ -170,6 +173,7 @@ describe('Async QA Generation Guard & Race-Condition Defense', () => {
     });
     const workflow = new ThemeQaWorkflow(mock.ports as unknown as ThemeQaWorkflowPorts);
     const report = await workflow.validate({
+      profile: 'audit',
       runId: 'run-capture-mismatch', attemptId: 'att-capture-mismatch',
       target: { tabId: 'tab-guard-1', browserEpoch: 1, documentGeneration: 1, projectId: 'test-proj', workspaceId: 'test-ws', runtimeId: 'test-rt', url: 'https://demo.haravan.com' },
       workspaceRoot: 'E:/Work/test-theme',
@@ -188,6 +192,7 @@ describe('Async QA Generation Guard & Race-Condition Defense', () => {
     });
     const workflow = new ThemeQaWorkflow(mock.ports as unknown as ThemeQaWorkflowPorts);
     const report = await workflow.validate({
+      profile: 'audit',
       runId: 'run-capture-mismatch-clean', attemptId: 'att-capture-mismatch-clean',
       target: { tabId: 'tab-guard-1', browserEpoch: 1, documentGeneration: 1, projectId: 'test-proj', workspaceId: 'test-ws', runtimeId: 'test-rt', url: 'https://demo.haravan.com' },
       workspaceRoot: 'E:/Work/test-theme',
@@ -200,6 +205,7 @@ describe('Async QA Generation Guard & Race-Condition Defense', () => {
     const mock = createMockPorts(1, { settleError: new CapabilityError('RESOURCE_FAILURE', 'Detected broken image: https://demo.haravan.com/missing.png') });
     const workflow = new ThemeQaWorkflow(mock.ports as unknown as ThemeQaWorkflowPorts);
     const report = await workflow.validate({
+      profile: 'audit',
       runId: 'run-resource-failure', attemptId: 'att-resource-failure',
       target: { tabId: 'tab-guard-1', browserEpoch: 1, documentGeneration: 1, projectId: 'test-proj', workspaceId: 'test-ws', runtimeId: 'test-rt', url: 'https://demo.haravan.com' },
       workspaceRoot: 'E:/Work/test-theme',

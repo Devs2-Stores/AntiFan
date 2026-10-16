@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>sticky-released-occluder good</title>
+<style>
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0;font:16px/1.5 Arial,sans-serif;color:#111;background:#fff}
+.btn{display:inline-block;border:1px solid #111;background:#fff;color:#111;font:16px/1.5 Arial,sans-serif;padding:0 20px;cursor:pointer}
+.hdr{position:fixed;top:0;left:0;right:0;height:109px;background:#fff;border-bottom:1px solid #ccc;z-index:20;display:flex;align-items:center;padding:0 24px}
+.spacer{height:109px}
+.row{display:flex;height:780px}
+.gallery{flex:0 0 685px;align-self:flex-start;display:flex;align-items:flex-end;background:#eee;padding:16px}
+.fill{height:1400px}
+.gallery{position:sticky;top:132px;height:657px}
+</style>
+</head>
+<body>
+<header class="hdr"><span>Header</span></header>
+<div class="spacer"></div>
+<div class="row"><div class="gallery"><span>Gallery released after the row ended</span></div><div style="padding:24px"><p>Details column</p></div></div>
+<div class="fill"></div>
+</body>
+</html>

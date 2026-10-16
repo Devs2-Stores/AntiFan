@@ -183,7 +183,7 @@ const THIRD_PARTY_CSP_HOSTS = ['google.com', 'gstatic.com', 'recaptcha.net', 'fa
  * eval, which is the page's own code).
  */
 export function cspBlockedHost(message: string): string {
-  const match = /Refused to [^']*'([^']+)'/i.exec(message);
+  const match = /(?:Refused to [^']*|Framing )'([^']+)'/i.exec(message);
   return match ? normalizeHostname(hostnameOf(match[1]!)) : '';
 }
 
@@ -219,7 +219,7 @@ export function classifyDiagnostics(
 
     // The blocked URL decides, not the policy text: a directive that allows google.com still
     // names it when it blocks the theme's own script.
-    const isReportOnlyOrThirdPartyCsp = /\[Report Only\]/i.test(message) || isThirdPartyCspBlock(message);
+    const isReportOnlyOrThirdPartyCsp = /\[Report Only\]|report-only Content Security Policy/i.test(message) || isThirdPartyCspBlock(message);
     const issue: DiagnosticIssue = { kind: 'console', origin, message };
     if (!isReportOnlyOrThirdPartyCsp && (originInfo.isFirstParty || isThemeAssetHost(origin, assetHosts))) {
       criticalIssues.push(issue);
@@ -388,4 +388,30 @@ export function confineWorkspaceRoot(candidate: string | undefined, defaultRoot:
   const sep = process.platform === 'win32' ? '\\' : '/';
   const inside = normalizedCandidate === root || normalizedCandidate.startsWith(`${root}${sep}`);
   return inside ? resolvedCandidate : defaultRoot;
+}
+
+export interface StrictWorkspaceRoot {
+  /** Root to use: the confined candidate, or `defaultRoot` when the candidate was refused. */
+  root: string;
+  /** The caller-supplied value, '' when none was given. */
+  requested: string;
+  /** True only when a non-empty candidate was replaced by `defaultRoot`. */
+  redirected: boolean;
+}
+
+/**
+ * Same confinement as {@link confineWorkspaceRoot}, but reports whether a caller-supplied root
+ * was swapped for `defaultRoot`. Callers that write evidence into the resolved root must refuse
+ * a redirected run: a receipt filed under a root the caller never named misattributes the proof.
+ */
+export function confineWorkspaceRootStrict(candidate: string | undefined, defaultRoot: string): StrictWorkspaceRoot {
+  const requested = typeof candidate === 'string' ? candidate : '';
+  const root = confineWorkspaceRoot(candidate, defaultRoot);
+  if (!String(defaultRoot || '').trim() || !requested.trim()) return { root, requested, redirected: false };
+  const key = (value: string): string => {
+    const resolved = resolve(value);
+    return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+  };
+  const redirected = key(root) === key(defaultRoot) && key(requested) !== key(defaultRoot);
+  return { root, requested, redirected };
 }

@@ -22,8 +22,20 @@ const QA_VALIDATE_PROPERTIES = {
   expectedUrl: { type: 'string', description: 'Expected route URL of the bound tab; a host/theme/path mismatch fails closed instead of QA-ing the wrong page' },
   annotationId: { type: 'string', description: 'Annotation ID this run verifies; recorded on the workspace receipt' },
   multiBreakpoint: { type: 'boolean', description: 'Sweep 320/375/768/1024/1440 (default on). true makes unmeasured widths an evidence gap (INCONCLUSIVE); false opts out' },
-  profile: { type: 'string', enum: ['audit', 'build-strict'], description: 'audit (default): findings.visualQuality (contrast, tap targets, floating widgets) is reported but never fails the run. build-strict (new theme builds): contrast below WCAG AA, sub-24px tap targets, invisible click blockers and floating widgets over controls FAIL the run' },
+  profile: { type: 'string', enum: ['audit', 'build-strict'], description: 'build-strict (default): contrast below WCAG AA, sub-24px tap targets, invisible click blockers, floating widgets over controls and the contract-threshold registry rules FAIL the run, and unmeasured scans are evidence gaps. audit: findings.visualQuality is reported but never fails the run' },
+  thresholds: { type: 'object', description: 'Contract thresholds the registry rules grade against (kit registry/thresholds.json shape). Optional: omitted, the workspace contract typeScale and then the built-in defaults (12/44/24/24) apply and the receipt records thresholdsSource', properties: { minTextPx: { type: 'number' }, minControlPx: { type: 'number' }, minTapHitPx: { type: 'number' }, tapSpacingCirclePx: { type: 'number' }, titleScale: { type: 'object', description: 'Allowed [min,max] px per heading level (h1..h4)' }, inputHeightBandPx: { type: 'number', description: 'Maximum height spread between inputs of one form (default 4)' } } },
+  coverageFloor: { type: 'number', description: 'Minimum measured/expected scan-family share (0..1). Below it a green run is QA_INCONCLUSIVE. Defaults to 1 under build-strict, 0 under audit' },
+  waivers: { type: 'array', description: 'Accepted visual-quality rule exceptions; each needs a rule id and a reason and is echoed on the report and receipt', items: { type: 'object', properties: { rule: { type: 'string' }, reason: { type: 'string' } }, required: ['rule', 'reason'] } },
+  ignoreSelectors: { type: 'array', items: { type: 'string' }, description: 'Selectors whose subtree mutations are excluded from the DOM-quiet settle predicate (for example a live countdown). Echoed on the receipt' },
+  settle: { type: 'object', description: 'Per-call settle barrier overrides', properties: { scopeSelector: { type: 'string' }, ignoreSelectors: { type: 'array', items: { type: 'string' } }, networkTimeoutMs: { type: 'number' }, fontsTimeoutMs: { type: 'number' }, imagesTimeoutMs: { type: 'number' }, domTimeoutMs: { type: 'number' }, totalTimeoutMs: { type: 'number' } } },
+  expectedStatus: { type: 'number', description: 'HTTP status the contract screen declares for this route (for example 404 on a not-found screen). A document returning exactly that status is not reported as ROUTE_404; echoed on the receipt' },
+  viewports: { type: 'object', description: 'Baseline comparison results per viewport ({desktop|tablet|mobile: {mismatchPercent, passed}}). All three are required for summary.certification CERTIFIED; without them the pass is STRUCTURAL', properties: { desktop: { type: 'object', properties: { mismatchPercent: { type: 'number' }, passed: { type: 'boolean' } } }, tablet: { type: 'object', properties: { mismatchPercent: { type: 'number' }, passed: { type: 'boolean' } } }, mobile: { type: 'object', properties: { mismatchPercent: { type: 'number' }, passed: { type: 'boolean' } } } } },
+  allowNonTheme: { type: 'boolean', description: 'Accept a workspaceRoot without theme markers (layout/theme.liquid, config/settings_schema.json, config/settings.html) for a plain-folder run; otherwise such a root is refused with WORKSPACE_NOT_THEME and no receipt is written' },
 };
+
+const SWEEP_VIEWPORTS_PROPERTY = { type: 'array', maxItems: 5, description: 'Extra viewport sizes appended to the standard widths, for example landscape phone {w:667,h:375}, laptop {w:1366,h:600}, short phone {w:375,h:350}. At most 5 entries; w and h are integers between 200 and 3000 CSS px', items: { type: 'object', properties: { w: { type: 'number' }, h: { type: 'number' } }, required: ['w', 'h'] } };
+
+const PROBE_TAB_PROPERTIES = { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } };
 
 // Definition row shape: [name, description, properties, required?, oneOf?,
 // ambientTargetField?]. The fifth element is either a oneOf list of required
@@ -55,7 +67,7 @@ const definitions = [
   ['anti.inspect.dom', 'Read DOM elements and computed attributes from AntiFan Desktop tab (supports desktop and mobile split panes). Operates directly against background tab.', { selector: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], [], 'tabId'],
   ['anti.inspect.console', 'Get tab console messages and failed requests from the bound or specified tab.', { tabId: { type: 'string' }, level: { type: 'number' } }, [], [], 'tabId'],
   ['anti.screenshot.viewport', 'Capture high-fidelity viewport screenshot from live AntiFan Desktop GUI (supports desktop and mobile split panes, format: jpeg/png). Viewport-only: full_page:true is rejected; use anti.screenshot.full_page for entire document height.', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, format: { type: 'string', enum: ['jpeg', 'png'] }, quality: { type: 'number' }, inline: { type: 'boolean', description: 'When false, returns only artifact metadata and file path without base64 image data' } }, [], [], 'tabId'],
-  ['anti.screenshot.full_page', 'Capture canonical PNG full-page evidence (entire document scroll height) and stage it under the evidence lease. materializeDataSrc:true swaps lazy data-src/data-srcset into live sources first (for loaders that only swap on user interaction; otherwise such images fail imagesSettled with CAPTURE_NOT_READY).', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, format: { type: 'string', enum: ['png'] }, quality: { type: 'number' }, leaseToken: { type: 'string' }, expectedUrl: { type: 'string' }, materializeDataSrc: { type: 'boolean' }, inline: { type: 'boolean', description: 'When false, returns only artifact metadata and file path without base64 image data' } }, [], [], 'tabId'],
+  ['anti.screenshot.full_page', 'Capture full-page evidence (entire document scroll height) and stage it under the evidence lease. png (default) is validated as PNG bytes; jpeg stages a smaller file for very tall pages. A page taller than the single-capture limit is captured in tiles and stitched. materializeDataSrc:true swaps lazy data-src/data-srcset into live sources first (for loaders that only swap on user interaction; otherwise such images fail imagesSettled with CAPTURE_NOT_READY).', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, format: { type: 'string', enum: ['png', 'jpeg'] }, quality: { type: 'number', description: 'JPEG quality 1-100 (default 85); ignored for png' }, leaseToken: { type: 'string' }, expectedUrl: { type: 'string' }, materializeDataSrc: { type: 'boolean' }, inline: { type: 'boolean', description: 'When false, returns only artifact metadata and file path without base64 image data' } }, [], [], 'tabId'],
   ['anti.reference.capture', 'Capture a reference from a live page: materialize lazily-mounted content, settle, then stage the settled DOM (and optionally a screenshot) so later measurements describe the page a comparator actually rasterizes.', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, selector: { type: 'string' }, screenshot: { type: 'boolean' }, format: { type: 'string', enum: ['png', 'jpeg'] }, quality: { type: 'number' }, materializeDataSrc: { type: 'boolean', description: 'Also materialize images that carry only lazy data-src/data-srcset attributes (default false: counted as unmaterialized)' } }, [], [], 'tabId'],
   ['anti.browser.set_viewport', 'Set the bound tab viewport dimensions and device emulation, verified against the size the tab actually measures.', { width: { type: 'number' }, height: { type: 'number' }, mobile: { type: 'boolean' }, deviceScaleFactor: { type: 'number' }, tabId: { type: 'string' }, reload: { type: 'boolean' } }, ['width', 'height'], [], 'tabId'],
   ['anti.browser.get_viewport', 'Get the bound tab viewport dimensions, DPR, device preset, and layout surface state without applying overrides.', { tabId: { type: 'string' } }, [], [], 'tabId'],
@@ -91,7 +103,7 @@ const definitions = [
   ['theme.cockpit_mark_page', 'Mark every checklist item on one page done or undone on the bound tab scope; unknown pages are refused.', { page: { type: 'string', description: 'A PAGE_DEFS key (home, collection, product, cart, blog, account, pages, qa-gate) or a page already present in the loaded scope' }, done: { type: 'boolean' }, scope: { type: 'string', description: 'Checklist scope assertion; must re-derive equal to the bound tab scope or the call is refused' }, tabId: { type: 'string' } }, ['page', 'done'], [], 'tabId'],
   ['theme.cockpit_add_item', 'Append one checklist item to the bound tab scope; a caller-supplied itemId makes a retried add a no-op.', { itemId: { type: 'string', description: 'Caller-chosen item id; re-adding the same id is a replay no-op' }, code: { type: 'string' }, name: { type: 'string' }, desc: { type: 'string' }, qaPoint: { type: 'string' }, page: { type: 'string', description: "Page key (default 'home'); must match the checklist page pattern" }, pathHint: { type: 'string', description: "Storefront route hint; defaults to the page's declared path" }, scope: { type: 'string', description: 'Checklist scope assertion; must re-derive equal to the bound tab scope or the call is refused' }, tabId: { type: 'string' } }, ['name'], [], 'tabId'],
   ['theme.cockpit_remove_item', 'Remove one checklist item from the bound tab scope; removing an absent id is a no-op.', { itemId: { type: 'string' }, scope: { type: 'string', description: 'Checklist scope assertion; must re-derive equal to the bound tab scope or the call is refused' }, tabId: { type: 'string' } }, ['itemId'], [], 'tabId'],
-  ['theme.cockpit_scan', 'Navigate the bound tab to a checklist page route and run the authoritative Theme QA scan on it.', { page: { type: 'string', description: 'PAGE_DEFS page key; when omitted the tab is scanned on its current URL' }, url: { type: 'string', description: 'Optional explicit same-origin URL or /products/<handle> path to scan' }, workspaceRoot: { type: 'string', description: 'Workspace root assertion; confined to the bound tab resolved root before the QA run' }, tabId: { type: 'string' } }, [], [], 'tabId'],
+  ['theme.cockpit_scan', 'Navigate the bound tab to a checklist page route, run the authoritative Theme QA scan on it, then run the page probes for that route (home: page_structure + menu_depth; product: variant_image_probe + pdp_contract; collection: menu_depth) and tick the checklist items those measurements decide; items the user changed during the scan are left alone.', { page: { type: 'string', description: 'PAGE_DEFS page key; when omitted the tab is scanned on its current URL' }, url: { type: 'string', description: 'Optional explicit same-origin URL or /products/<handle> path to scan' }, workspaceRoot: { type: 'string', description: 'Workspace root assertion; a root outside the bound tab workspace is refused with WORKSPACE_MISMATCH and a root without theme markers with WORKSPACE_NOT_THEME' }, allowNonTheme: { type: 'boolean', description: 'Accept a workspace root without theme markers' }, tabId: { type: 'string' }, profile: QA_VALIDATE_PROPERTIES.profile, thresholds: QA_VALIDATE_PROPERTIES.thresholds, viewports: QA_VALIDATE_PROPERTIES.viewports, multiBreakpoint: QA_VALIDATE_PROPERTIES.multiBreakpoint, pick: { type: 'string', enum: ['max-variants', 'long-title', 'sold-out', 'no-image'], description: 'With page=product and no url: crawl /collections/all and scan the product that best matches this strategy instead of the first product link' } }, [], [], 'tabId'],
   ['theme.cockpit_findings', 'Read the latest Theme QA state row (status, issueCount, report) for the bound tab.', { tabId: { type: 'string' } }, [], [], 'tabId'],
   ['theme.cockpit_report', 'Render the markdown progress report for the bound tab checklist scope (identical to the toolbar export).', { scope: { type: 'string', description: 'Checklist scope assertion; must re-derive equal to the bound tab scope or the call is refused' }, tabId: { type: 'string' } }, [], [], 'tabId'],
   ['anti.theme.style_override', 'In-memory ephemeral CSS stylesheet override for safe theme testing without writing files to disk (bypasses CLI watchers). Example: {"operation": "apply", "id": "fix-nav", "css": "header { position: sticky; }"} then { "operation": "clear", "id": "fix-nav" }. "remove" and "revert" are accepted as synonyms of "clear". id is required for apply; clear without id removes every AntiFan override on the tab.', { operation: { type: 'string', enum: ['apply', 'clear', 'remove', 'revert'] }, id: { type: 'string' }, css: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, ['operation'], [], 'tabId'],
@@ -111,8 +123,14 @@ const definitions = [
   ['anti.visual.promote_baseline', 'Alias for browser.promote-baseline: canonically capture and promote the current tab to an authoritative visual baseline reference.', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, fullPage: { type: 'boolean', description: 'Capture the entire document as the promoted baseline.' }, clipRect: { type: 'object', properties: { x: { type: 'number' }, y: { type: 'number' }, width: { type: 'number' }, height: { type: 'number' } } }, materializeDataSrc: { type: 'boolean', description: 'Swap data-src/data-srcset into live sources before capture (opt-in; mutates the page)' } }, [], [], 'tabId'],
   ['anti.media.freeze', 'Freeze or unfreeze dynamic media (videos, audios, CSS animations) in tab to enable deterministic visual comparisons. Native requestAnimationFrame scheduling is left untouched, so RAF-driven motion requires the settle barrier instead.', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, freeze: { type: 'boolean', description: 'True to freeze media and pause animations; false to resume' } }, [], [], 'tabId'],
   ['anti.layout.compare_candidates', 'Compare 1-5 CSS candidates for one section beside the current design at up to 3 widths in one call (sequential, same tab, same data). Returns per-width section captures, one contact sheet per width (columns left-to-right: baseline then candidates in order, colour bar per column), breaks that disqualify (page overflow, section spill, clipped or overlapping text), penalties (contrast, tap targets, type-scale sprawl, misaligned edges, off-grid gaps), ranking and recommendation. Judge taste from the contact sheets; nothing is written to theme files.', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, scopeSelector: { type: 'string' }, candidates: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, label: { type: 'string' }, css: { type: 'string' } }, required: ['id', 'css'] } }, breakpoints: { type: 'array', items: { type: 'number' } }, settleMs: { type: 'number' }, includeBaseline: { type: 'boolean' } }, ['scopeSelector', 'candidates'], [], 'tabId'],
-  ['anti.qa.state_matrix', 'Drive overlays (cart/menu/filter drawers, modals, quickview, dropdowns, mega menus) through OPEN -> MEASURE -> CLOSE with trusted input and report per-overlay failures: OVERLAY_NOT_OPENED, OVERLAY_TOO_SMALL, OVERLAY_OFFSCREEN, OVERLAY_CLIPPED, OVERLAY_TRANSPARENT, OVERLAY_OCCLUDED, CONTENT_OVERFLOWS_PANEL, CLOSE_ESCAPE_FAILED, CLOSE_CONTROL_MISSING, CLOSE_BUTTON_FAILED, BODY_NOT_RESTORED (critical for drawers/modals) and SCROLL_NOT_LOCKED, FOCUS_NOT_MOVED, FOCUS_NOT_RETURNED, CLOSE_BACKDROP_FAILED (warnings), plus contrast/tap findings inside each open panel. Safe mode always on (no navigation, no submits, never add-to-cart/checkout). Omit triggers to auto-discover.', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, triggers: { type: 'array', items: { type: 'object', properties: { selector: { type: 'string' }, panelSelector: { type: 'string' }, closeSelector: { type: 'string' }, kind: { type: 'string', enum: ['drawer', 'modal', 'dropdown', 'megamenu'] } }, required: ['selector'] } }, maxTriggers: { type: 'number' }, settleMs: { type: 'number' }, closeMethods: { type: 'array', items: { type: 'string', enum: ['escape', 'close-button', 'backdrop'] } }, gradeVisualQuality: { type: 'boolean' } }, [], [], 'tabId'],
+  ['anti.qa.state_matrix', 'Drive overlays (cart/menu/filter drawers, modals, quickview, dropdowns, mega menus) through OPEN -> MEASURE -> CLOSE with trusted input and report per-overlay failures: OVERLAY_NOT_OPENED, OVERLAY_TOO_SMALL, OVERLAY_OFFSCREEN, OVERLAY_CLIPPED, OVERLAY_TRANSPARENT, OVERLAY_OCCLUDED, CONTENT_OVERFLOWS_PANEL, CLOSE_ESCAPE_FAILED, CLOSE_CONTROL_MISSING, CLOSE_BUTTON_FAILED, BODY_NOT_RESTORED (critical for drawers/modals) and SCROLL_NOT_LOCKED, FOCUS_NOT_MOVED, FOCUS_NOT_RETURNED, CLOSE_BACKDROP_FAILED (warnings), plus contrast/tap findings inside each open panel. Safe mode always on (no navigation, no submits, never add-to-cart/checkout). Omit triggers to auto-discover; autoPopulate:\'pdp\' also opens size-guide / quick-view / share / review openers.', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, triggers: { type: 'array', items: { type: 'object', properties: { selector: { type: 'string' }, panelSelector: { type: 'string' }, closeSelector: { type: 'string' }, kind: { type: 'string', enum: ['drawer', 'modal', 'dropdown', 'megamenu'] } }, required: ['selector'] } }, maxTriggers: { type: 'number' }, settleMs: { type: 'number' }, closeMethods: { type: 'array', items: { type: 'string', enum: ['escape', 'close-button', 'backdrop'] } }, gradeVisualQuality: { type: 'boolean' }, autoPopulate: { type: 'string', enum: ['pdp'], description: 'pdp: also open size-guide / quick-view / share / review openers when auto-discovering' } }, [], [], 'tabId'],
   ['anti.qa.visual_quality', 'Measure WCAG AA text contrast (text over images/gradients is indeterminate, never a violation), mobile tap targets (<44px recommended, <24px WCAG 2.2 minimum; inline links exempt) and floating widgets or transparent fixed layers covering text/controls at page top and page end. Use scopeSelector to grade an open drawer or modal. Findings are warnings; theme.qa_validate profile build-strict turns the serious ones into failures.', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, mobile: { type: 'boolean' }, skipPageEnd: { type: 'boolean', description: 'Check floating widgets only at the current scroll position, so the scan never scrolls' }, scopeSelector: { type: 'string' }, allowDegradedSurface: { type: 'boolean', description: 'Run even when the tab reports a 0x0 surface (diagnostic escape hatch)' } }, [], [], 'tabId'],
+  ['anti.qa.variant_image_probe', 'On a product page click each option value (never add-to-cart or checkout) and compare the gallery image after the click with the variant featured_image from /products/<handle>.js. Findings: swatch-no-image-switch and variant-missing-featured-image (critical), option-values-excess (info). Clicks real controls, so the page state changes.', { ...PROBE_TAB_PROPERTIES, maxValues: { type: 'number', description: 'Option values to click (default 12, max 40)' }, productHandle: { type: 'string', description: 'Product handle when it cannot be read from the page URL' } }, [], [], 'tabId'],
+  ['anti.qa.pdp_contract', 'Check that a product page carries its contract elements: size-guide opener (when a size option exists), variant selector, quantity, add-to-cart, buy-now, price, compare-at, SKU, availability, breadcrumb and related products. Reports measured:false on a non-product route.', { ...PROBE_TAB_PROPERTIES }, [], [], 'tabId'],
+  ['anti.qa.menu_depth', 'Hover or click the header menu (desktop) or open the drawer (mobile) and report how many levels render and are visible. expectedMaxDepth (from the admin navigation tree) above the rendered depth raises menu-level-not-rendered. Hovers real controls, so transient page state changes.', { ...PROBE_TAB_PROPERTIES, expectedMaxDepth: { type: 'number', description: 'Levels the navigation tree defines (1-6)' }, mobile: { type: 'boolean', description: 'Probe the mobile drawer instead of the desktop menu' } }, [], [], 'tabId'],
+  ['anti.qa.page_structure', 'Classify the page sections (hero, category rail, product rail, banner, USP, testimonial, blog, newsletter, brands, footer) and grade the home structure rules: 6-10 sections, hero first, newsletter/brands after the first product rail, at most two consecutive banners, no repeated role back to back, footer last.', { ...PROBE_TAB_PROPERTIES, rules: { type: 'object', description: 'Overrides for the built-in home structure rules (merged over the defaults)' }, viewportHeight: { type: 'number', description: 'Viewport height in px for the page-height and first-product-rail rules (default: measured)' } }, [], [], 'tabId'],
+  ['anti.qa.pick_product', 'Crawl product links from /collections/all and return the handles that best exercise a risky layout: max-variants, long-title, sold-out or no-image. Use the first handle as the product page for the PDP probes.', { ...PROBE_TAB_PROPERTIES, strategy: { type: 'string', enum: ['max-variants', 'long-title', 'sold-out', 'no-image'] }, sampleLimit: { type: 'number', description: 'Products to inspect (default 40, max 200)' } }, ['strategy'], [], 'tabId'],
+  ['theme.package_check', 'Offline dry run of a theme package before upload: required entries, residue and forbidden brand words, secret patterns, asset reference existence, settings schema shape and, with formBefore/formAfter, a Partners form diff (price changes, Notes without diacritics). Lists a zip without extracting it. Reads only inside the bound workspace.', { workspaceRoot: { type: 'string', description: 'Theme root; must equal or sit inside the bound workspace' }, zipPath: { type: 'string', description: 'Workspace-relative path of the exported zip to list and scan' }, expectedBrand: { type: 'string', description: 'Brand name the package must carry' }, forbiddenWords: { type: 'array', items: { type: 'string' }, description: 'Words (base-theme brand, client names) that must not appear' }, formBefore: { type: 'object', description: 'Partners form values before the edit (field -> value)' }, formAfter: { type: 'object', description: 'Partners form values after the edit (field -> value)' }, allowNonTheme: { type: 'boolean', description: 'Accept a workspace root without theme markers' } }],
   ['anti.inspect.page_inventory', 'Scan entire physical page structure from y=0 to scrollHeight, returning list of all sections, coordinates, heights, and layout groups (chống sót header/footer/newsletter).', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], [], 'tabId'],
   ['anti.inspect.style_diff', 'Compare computed CSS styles and box-model metrics between elements on two tabs (or two selectors).', { selector: { type: 'string', description: 'CSS selector of target element on tab 1' }, comparisonSelector: { type: 'string', description: 'CSS selector on tab 2 (defaults to selector)' }, tabId: { type: 'string' }, comparisonTabId: { type: 'string' }, properties: { type: 'array', items: { type: 'string' }, description: 'CSS properties to compare' } }, ['selector'], [], 'tabId'],
   ['anti.spec.validate_gate', 'Validate HTML Specification against target page to certify HTML_SPEC_READY status before theme compilation.', { specTabId: { type: 'string' }, targetTabId: { type: 'string' }, tolerance: { type: 'number' } }, ['specTabId']],
@@ -126,9 +144,9 @@ const definitions = [
   ['file.write', 'Write a file relative to the authoritative workspace root with boundary enforcement.', { path: { type: 'string' }, content: { type: 'string' } }, ['path', 'content']],
   ['anti.theme.resolve_element', 'Map a live DOM element to bounded, correlated local theme source candidates.', { selector: { type: 'string' }, ref: { type: 'string' }, workspaceRoot: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], [], 'tabId'],
   ['anti.inspect.matched_styles', 'Inspect live CDP matched CSS and classify active versus overridden declarations.', { nodeId: { type: 'number' }, selector: { type: 'string' }, ref: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, stylesheetUrlMap: { type: 'object' } }, [], [], 'tabId'],
-  ['anti.inspect.responsive_matrix', 'Probe document and target overflow at the five standard responsive widths (or customBreakpoints).', { selector: { type: 'string' }, tabId: { type: 'string' }, customBreakpoints: { type: 'array', items: { type: 'object' } } }, [], [], 'tabId'],
-  ['anti.theme.await_cdn_sync', 'Poll the storefront copy of one static asset (CSS/JS, not .liquid) until its SHA-256 matches the local workspace file, then optionally reload the bound tab. Reads only inside the bound workspace; lastError says why a poll did not match.', { assetPath: { type: 'string', description: 'Workspace-relative or filename asset path (e.g. assets/theme.css or theme.css)' }, workspaceRoot: { type: 'string' }, timeoutMs: { type: 'number', description: 'Polling timeout in milliseconds (default 15000, max 25000)' }, pollIntervalMs: { type: 'number' }, reloadOnMatch: { type: 'boolean' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, ['assetPath'], [], 'tabId'],
-  ['anti.qa.batch_matrix', 'Sequentially navigate and sweep up to 20 routes of the bound storefront (same origin only) across responsive breakpoints in the bound tab, then return the tab to its starting page. A route with an unmeasured width reports passed: null.', { routes: { type: 'array', items: { type: 'string' }, description: 'Storefront URLs or paths to scan sequentially in the bound tab' }, breakpoints: { type: 'array', items: { type: 'number' }, description: 'Viewport widths in CSS px (default [320, 375, 768, 1024, 1440])' }, tabId: { type: 'string' } }, ['routes'], [], 'tabId'],
+  ['anti.inspect.responsive_matrix', 'Probe document and target overflow at the five standard responsive widths (or customBreakpoints). viewports appends extra {w,h} sizes (landscape phone, short laptop) to the standard widths.', { selector: { type: 'string' }, tabId: { type: 'string' }, customBreakpoints: { type: 'array', items: { type: 'object' } }, viewports: SWEEP_VIEWPORTS_PROPERTY }, [], [], 'tabId'],
+  ['anti.theme.await_cdn_sync', 'Poll the storefront copy of one static asset until its SHA-256 matches the local workspace file, then optionally reload the bound tab. A .liquid file is never served as-is: pass expectContains / expectNotContains and the compiled asset (the name without .liquid) is polled until every expected string is present and every forbidden string is absent. Reads only inside the bound workspace; lastError says why a poll did not match.', { assetPath: { type: 'string', description: 'Workspace-relative or filename asset path (e.g. assets/theme.css or theme.css)' }, workspaceRoot: { type: 'string' }, allowNonTheme: { type: 'boolean', description: 'Accept a workspace root without theme markers' }, timeoutMs: { type: 'number', description: 'Polling timeout in milliseconds (default 15000, max 25000)' }, pollIntervalMs: { type: 'number' }, reloadOnMatch: { type: 'boolean' }, expectContains: { type: 'array', items: { type: 'string' }, description: 'Strings that must all appear in the served asset; required for .liquid assets, optional hash-match refinement otherwise' }, expectNotContains: { type: 'array', items: { type: 'string' }, description: 'Strings that must all be absent from the served asset' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, ['assetPath'], [], 'tabId'],
+  ['anti.qa.batch_matrix', 'Sequentially navigate and sweep up to 20 routes of the bound storefront (same origin only) across responsive breakpoints in the bound tab, then return the tab to its starting page. A route with an unmeasured width reports passed: null. When routes x widths exceed the per-call budget, whole routes run in order and the result lists the rest in remainingRoutes: call again with exactly those routes.', { routes: { type: 'array', items: { type: 'string' }, description: 'Storefront URLs or paths to scan sequentially in the bound tab' }, breakpoints: { type: 'array', items: { type: 'number' }, description: 'Viewport widths in CSS px (default [320, 375, 768, 1024, 1440])' }, viewports: SWEEP_VIEWPORTS_PROPERTY, tabId: { type: 'string' } }, ['routes'], [], 'tabId'],
   ['anti.verification.record_claim', 'Record a live verification claim as UNVERIFIED with explicit proof obligations.', { claim: { type: 'string' }, category: { type: 'string', enum: ['INTERACTION', 'LAYOUT', 'RESPONSIVE', 'CUSTOM', 'VISUAL'] }, actor: { type: 'string', enum: ['agent', 'user'] }, tabId: { type: 'string' }, selector: { type: 'string' }, expectedHeight: { type: 'number' }, expectedSections: { type: 'number' }, tolerance: { type: 'number' }, proofObligations: { type: 'array', maxItems: 50, items: { type: 'object', properties: { id: { type: 'string' }, metric: { type: 'string', description: 'Obligation metric identifier (required)' }, tolerance: { type: 'number' }, critical: { type: 'boolean' }, expected: {} }, required: ['metric'] } }, linkedIssueId: { type: 'string' } }, ['claim', 'tabId', 'category']],
   ['anti.verification.verify_claim', 'Evaluate a recorded claim against fresh live browser evidence and persist an authoritative receipt.', { claimId: { type: 'string' }, witnessObservation: { type: 'string' }, semanticFailureObservation: { type: 'string' } }, ['claimId']],
   ['anti.theme.export_clean', 'Materialize, sanitize (Livewire/SSR blobs and unhydrated modals stripped), and export clean static theme HTML directly to workspace file. materializeDataSrc:true also swaps lazy data-src/data-srcset into live sources during the walk.', { outputPath: { type: 'string' }, selector: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, clean: { type: 'boolean', default: true }, materialize: { type: 'boolean', default: true }, materializeDataSrc: { type: 'boolean' } }, ['outputPath'], [], 'tabId'],
@@ -1529,6 +1547,10 @@ const READ_SAFE_CAPABILITIES = Object.freeze({
   'anti.inspect.region': true,
   'anti.visual.compare': true,
   'anti.qa.visual_quality': true,
+  'anti.qa.pdp_contract': true,
+  'anti.qa.page_structure': true,
+  'anti.qa.pick_product': true,
+  'theme.package_check': true,
   'anti.inspect.page_inventory': true,
   'anti.inspect.style_diff': true,
   'anti.spec.validate_gate': true,
@@ -2518,6 +2540,116 @@ function retargetableAmbientTabId(err, injectedAmbientTabId, ambientTargetField)
   return live;
 }
 
+// The first catalogue miss for an advertised tool asks the app which names it registered (the
+// `catalogue.digest` answer) and reports every advertised-but-unregistered tool once, instead of
+// leaving the session to discover them one failed call at a time. The probe is event-driven on
+// purpose: a probe on every tools/list would add a dispatch to every session, healthy or not.
+// An app that predates the digest is reported once as stale; a session filter that forbids it, or no
+// live bridge, leave the probe silent and the per-call hint still covers those.
+const CATALOGUE_MISS_MESSAGE = /^(?:Unknown capability:|Capability '[^']*' not found in catalogue)/;
+
+/**
+ * An app that predates `catalogue.digest` answers the probe with a catalogue miss for the digest
+ * itself. That is the clearest evidence the running build is older than this proxy, so it is reported
+ * instead of being swallowed with the other probe failures.
+ */
+function isDigestUnsupported(err) {
+  if (!err || err.code !== 'CAPABILITY_NOT_FOUND') return false;
+  const text = String(err.message || '');
+  return text.includes('catalogue.digest') && /Unknown capability:|not found in catalogue/.test(text);
+}
+
+function createStaleAppReporter(write) {
+  let reported = false;
+  return (err) => {
+    if (reported || !isDigestUnsupported(err)) return false;
+    reported = true;
+    write('[AntiFan MCP] The running AntiFan Desktop build does not answer catalogue.digest, so it is older than this proxy and cannot list which advertised tools it registers. Calls to tools added since fail with CAPABILITY_NOT_FOUND until you restart AntiFan Desktop to load the current build.');
+    return true;
+  };
+}
+
+const reportStaleApp = createStaleAppReporter((line) => process.stderr.write(`${line}\n`));
+
+const AUTO_BIND_REFUSALS = new Set(['TARGET_REQUIRED', 'TARGET_MISMATCH']);
+
+/** The single live tab the app offers to rebind to when the bound one is gone; empty when it names none. */
+function autoBindCandidateOf(err) {
+  if (!err || !AUTO_BIND_REFUSALS.has(err.code)) return '';
+  let details = err.details && typeof err.details === 'object' ? err.details : null;
+  if (!details || typeof details.autoBindCandidate !== 'string') {
+    try {
+      const diagnostic = JSON.parse(err.message);
+      details = diagnostic && diagnostic.details && typeof diagnostic.details === 'object' ? diagnostic.details : null;
+    } catch {
+      details = null;
+    }
+  }
+  return details && typeof details.autoBindCandidate === 'string' ? details.autoBindCandidate.trim() : '';
+}
+
+/**
+ * Rewrites a catalogue miss for a tool this proxy advertises into the restart remedy. The code stays
+ * CAPABILITY_NOT_FOUND (fallback rules key on it). A host-level gap ("... is not supported by host")
+ * carries neither the typed marker nor a catalogue text, so it keeps its own message.
+ */
+function annotateCatalogueMiss(err, method, mapped) {
+  if (!err || err.code !== 'CAPABILITY_NOT_FOUND' || !definitions.some(([defName]) => defName === method)) return false;
+  try {
+    const diagnostic = JSON.parse(err.message);
+    const typedMiss = Boolean(diagnostic.details && diagnostic.details.catalogueMiss === true);
+    if (!typedMiss && !CATALOGUE_MISS_MESSAGE.test(String(diagnostic.message || ''))) return false;
+    if (diagnostic.details && diagnostic.details.bridgePredatesProxy === true) return true;
+    diagnostic.message = `${diagnostic.message || 'Capability not found'} — '${method}' is advertised by this MCP proxy but the running AntiFan Desktop build does not register '${mapped}' yet; restart AntiFan Desktop to load it.`;
+    diagnostic.details = { ...diagnostic.details, bridgePredatesProxy: true, capability: method, routedTo: mapped };
+    err.message = JSON.stringify(diagnostic);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Advertised tool names whose bridge name the running app does not register; core.* is served in-process. */
+function catalogueSkew(registeredNames) {
+  const registered = new Set(registeredNames);
+  const missing = [];
+  for (const [name] of definitions) {
+    const mapped = CAPABILITY_MAP[name] || name;
+    if (mapped.startsWith('core.') || registered.has(mapped)) continue;
+    if (!missing.includes(name)) missing.push(name);
+  }
+  return missing;
+}
+
+function createCatalogueSkewReporter(write) {
+  let reported = false;
+  return (missing) => {
+    if (reported || !Array.isArray(missing) || missing.length === 0) return false;
+    reported = true;
+    const shown = missing.slice(0, 12).join(', ');
+    const rest = missing.length > 12 ? ` and ${missing.length - 12} more` : '';
+    write(`[AntiFan MCP] This proxy advertises ${missing.length} tool(s) the running AntiFan Desktop build does not register: ${shown}${rest}. Calls to them fail with CAPABILITY_NOT_FOUND until you restart AntiFan Desktop to load the current build.`);
+    return true;
+  };
+}
+
+const reportCatalogueSkew = createCatalogueSkewReporter((line) => process.stderr.write(`${line}\n`));
+let catalogueProbeStarted = false;
+
+async function probeCatalogueOnce() {
+  if (catalogueProbeStarted) return;
+  const boot = getBootstrap();
+  if (!boot || !boot.secret) return;
+  catalogueProbeStarted = true;
+  try {
+    const answer = await invoke('catalogue.digest', {});
+    const payload = answer && Array.isArray(answer.names) ? answer : answer && answer.data;
+    if (payload && Array.isArray(payload.names)) reportCatalogueSkew(catalogueSkew(payload.names));
+  } catch (err) {
+    reportStaleApp(err);
+  }
+}
+
 async function invoke(method, params = {}, callerRequestId) {
   const allowedCaps = resolveAllowedCapabilities();
   const forbiddenCaps = resolveForbiddenCapabilities();
@@ -2837,6 +2969,22 @@ async function invoke(method, params = {}, callerRequestId) {
         identity = resolveInvocationIdentity(undefined, {});
         continue;
       }
+      const autoBindCandidate = autoBindCandidateOf(err);
+      if (
+        autoBindCandidate && !rebindAttempted && attempt < 2
+        && mapped !== 'browser.rebind-target' && mapped !== 'browser.switch-tab' && mapped !== 'browser.set-automation-target'
+      ) {
+        rebindAttempted = true;
+        await invoke('anti.browser.rebind_target', { tabId: autoBindCandidate });
+        if (ambientTargetField && !ambientTargetSuppliedByCaller) {
+          effectiveParams[ambientTargetField] = autoBindCandidate;
+          injectedAmbientTabId = autoBindCandidate;
+        }
+        everTransmitted = false;
+        lastTransmittedAttachmentId = null;
+        identity = resolveInvocationIdentity(undefined, {});
+        continue;
+      }
       if (!isRetryableTransportError(err) || healedOnce || attempt === 2) {
         if (previousFailure) {
           try {
@@ -2845,21 +2993,7 @@ async function invoke(method, params = {}, callerRequestId) {
             err.message = JSON.stringify(diagnostic);
           } catch {}
         }
-        // This script is read fresh by every new session, while the running app keeps the
-        // catalogue it booted with: an advertised tool the bridge does not know means the app
-        // predates this proxy. The code stays CAPABILITY_NOT_FOUND (fallback rules key on it);
-        // the message names the real remedy instead of implying the tool does not exist.
-        if (err && err.code === 'CAPABILITY_NOT_FOUND' && definitions.some(([defName]) => defName === method)) {
-          try {
-            const diagnostic = JSON.parse(err.message);
-            // CAPABILITY_NOT_FOUND is also raised for host-level gaps ("... is not supported by
-            // host"); only the catalogue's own unknown-name refusal means the app predates us.
-            if (!/^Unknown capability:/.test(String(diagnostic.message || ''))) throw new Error('not a catalogue miss');
-            diagnostic.message = `${diagnostic.message || 'Capability not found'} — '${method}' is advertised by this MCP proxy but the running AntiFan Desktop build does not register '${mapped}' yet; restart AntiFan Desktop to load it.`;
-            diagnostic.details = { ...diagnostic.details, bridgePredatesProxy: true, capability: method, routedTo: mapped };
-            err.message = JSON.stringify(diagnostic);
-          } catch {}
-        }
+        if (annotateCatalogueMiss(err, method, mapped)) void probeCatalogueOnce();
         throw err;
       }
       healedOnce = true;
@@ -3298,6 +3432,11 @@ module.exports = {
   fetchArtifactBinary,
   definitions,
   CAPABILITY_MAP,
+  annotateCatalogueMiss,
+  catalogueSkew,
+  createCatalogueSkewReporter,
+  createStaleAppReporter,
+  autoBindCandidateOf,
   CORE_DISPATCH,
   invoke,
   invokeCore,

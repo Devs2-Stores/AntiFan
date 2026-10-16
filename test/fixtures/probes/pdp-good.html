@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Áo sơ mi Oxford</title>
+<meta property="og:type" content="product">
+</head>
+<body>
+<header><nav><a href="/">Trang chủ</a></nav></header>
+<main>
+  <nav class="breadcrumb" aria-label="Breadcrumb"><a href="/">Trang chủ</a> / <a href="/collections/all">Áo</a> / <span>Áo sơ mi Oxford</span></nav>
+
+  <div class="product-gallery">
+    <div class="swiper-wrapper">
+      <div class="swiper-slide swiper-slide-active" data-key="ao-do"><img src="//cdn.example/products/ao-do_1024x1024.jpg?v=1" alt="Đỏ"></div>
+      <div class="swiper-slide" data-key="ao-xanh"><img src="//cdn.example/products/ao-xanh_1024x1024.jpg?v=1" alt="Xanh"></div>
+      <div class="swiper-slide" data-key="ao-den"><img src="//cdn.example/products/ao-den_1024x1024.jpg?v=1" alt="Đen"></div>
+    </div>
+    <div class="product-thumbs">
+      <img src="//cdn.example/products/ao-xanh_100x100.jpg" alt="">
+      <img src="//cdn.example/products/ao-do_100x100.jpg" alt="">
+    </div>
+  </div>
+
+  <div class="product-info">
+    <h1>Áo sơ mi Oxford</h1>
+    <div class="price"><span class="price-current">450.000₫</span> <del class="price-compare">550.000₫</del></div>
+    <p class="sku">SKU: SM-001</p>
+    <p class="availability">Tình trạng: Còn hàng</p>
+
+    <form action="/cart/add" method="post">
+      <input type="hidden" name="id" value="101">
+
+      <div class="swatch" data-option-position="1">
+        <div class="header">Màu sắc</div>
+        <input type="radio" id="sw-do" name="option-1" value="Đỏ" checked><label for="sw-do" data-value="Đỏ">Đỏ</label>
+        <input type="radio" id="sw-xanh" name="option-1" value="Xanh"><label for="sw-xanh" data-value="Xanh">Xanh</label>
+        <input type="radio" id="sw-den" name="option-1" value="Đen"><label for="sw-den" data-value="Đen">Đen</label>
+      </div>
+
+      <div class="selector-wrapper" data-option-position="2">
+        <label for="size-select">Kích thước</label>
+        <select id="size-select" name="option-2">
+          <option value="S">S</option>
+          <option value="M">M</option>
+        </select>
+        <a href="#size-guide" class="size-guide-trigger">Bảng hướng dẫn chọn size</a>
+      </div>
+
+      <div class="quantity"><input type="number" name="quantity" value="1" min="1"></div>
+      <button type="submit" name="add" class="add-to-cart">Thêm vào giỏ hàng</button>
+      <button type="button" class="buy-now">Mua ngay</button>
+    </form>
+  </div>
+
+  <section class="related-products">
+    <h2>Sản phẩm liên quan</h2>
+    <a href="/products/ao-khac">Áo khác</a>
+  </section>
+</main>
+
+<script type="application/json" data-product-json>
+{"id":1,"handle":"ao-so-mi","title":"Áo sơ mi Oxford","options":["Màu sắc","Kích thước"],"images":["//cdn.example/products/ao-do_master.jpg"],
+ "variants":[
+  {"id":101,"option1":"Đỏ","option2":"S","sku":"SM-001-DO-S","available":true,"price":450000,"compare_at_price":550000,"featured_image":{"src":"//cdn.example/products/ao-do_master.jpg"}},
+  {"id":102,"option1":"Đỏ","option2":"M","sku":"SM-001-DO-M","available":true,"price":450000,"compare_at_price":550000,"featured_image":{"src":"//cdn.example/products/ao-do_master.jpg"}},
+  {"id":103,"option1":"Xanh","option2":"S","sku":"SM-001-XA-S","available":true,"price":450000,"compare_at_price":550000,"featured_image":{"src":"//cdn.example/products/ao-xanh_master.jpg"}},
+  {"id":104,"option1":"Xanh","option2":"M","sku":"SM-001-XA-M","available":true,"price":450000,"compare_at_price":550000,"featured_image":{"src":"//cdn.example/products/ao-xanh_master.jpg"}},
+  {"id":105,"option1":"Đen","option2":"S","sku":"SM-001-DE-S","available":true,"price":450000,"compare_at_price":550000,"featured_image":{"src":"//cdn.example/products/ao-den_master.jpg"}},
+  {"id":106,"option1":"Đen","option2":"M","sku":"SM-001-DE-M","available":true,"price":450000,"compare_at_price":550000,"featured_image":{"src":"//cdn.example/products/ao-den_master.jpg"}}
+ ]}
+</script>
+<script>
+(function () {
+  var product = JSON.parse(document.querySelector('[data-product-json]').textContent);
+  var slides = [].slice.call(document.querySelectorAll('.swiper-slide'));
+  function update() {
+    var colour = document.querySelector('input[name="option-1"]:checked').value;
+    var size = document.querySelector('select[name="option-2"]').value;
+    var variant = product.variants.filter(function (v) { return v.option1 === colour && v.option2 === size; })[0];
+    if (!variant) return;
+    document.querySelector('input[name="id"]').value = variant.id;
+    history.replaceState(null, '', '?variant=' + variant.id);
+    if (!variant.featured_image) return;
+    var key = variant.featured_image.src.split('/').pop().replace('_master.jpg', '');
+    slides.forEach(function (s) { s.classList.toggle('swiper-slide-active', s.getAttribute('data-key') === key); });
+  }
+  document.addEventListener('change', update);
+})();
+</script>
+</body>
+</html>

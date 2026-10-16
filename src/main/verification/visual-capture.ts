@@ -1128,6 +1128,12 @@ export interface VerificationCaptureEnvelope {
   rasterSize: { width: number; height: number };
   captureMode: CaptureMode;
   timestamp: number;
+  /** Encoding of `data`. Differs from the requested format only when `fallbackReason` says why. */
+  format?: 'png' | 'jpeg';
+  /** Why the delivered encoding is not the requested one (PNG over the artifact ceiling re-encoded, or no JPEG encoder). */
+  fallbackReason?: string;
+  /** Present when the page was rasterized in vertical tiles and composed into `data`. */
+  tiles?: { count: number; stitched: true };
   /** Layout-viewport movement caused by the capture and whether it was restored. */
   viewportTransaction?: CaptureViewportTransaction;
   expectedUrl?: string | null;
@@ -1171,6 +1177,9 @@ export interface VerificationCaptureReceipt {
   rasterSize: { width: number; height: number };
   captureMode: CaptureMode;
   timestamp: number;
+  format?: 'png' | 'jpeg';
+  fallbackReason?: string;
+  tiles?: { count: number; stitched: true };
   /**
    * The capture policy identity that produced this receipt. Absent reads as
    * unversioned — recorded before the identity existed — and compare refuses to
@@ -1215,6 +1224,9 @@ export function verificationCaptureReceipt(env: VerificationCaptureEnvelope): Ve
     rasterSize: { width: env.rasterSize.width, height: env.rasterSize.height },
     captureMode: env.captureMode,
     timestamp: env.timestamp,
+    ...(env.format ? { format: env.format } : {}),
+    ...(env.fallbackReason ? { fallbackReason: env.fallbackReason } : {}),
+    ...(env.tiles ? { tiles: env.tiles } : {}),
     capturePolicy: CAPTURE_RECEIPT_POLICY_IDENTITY,
     ...(env.viewportTransaction ? { viewportTransaction: env.viewportTransaction } : {}),
     expectedUrl: env.expectedUrl ?? null,

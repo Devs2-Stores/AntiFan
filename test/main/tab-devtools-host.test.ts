@@ -1090,7 +1090,7 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
     assert.deepStrictEqual('clip' in params ? params.clip : undefined, { x: 0, y: 0, width: 800, height: 2400, scale: 1 });
   });
 
-  it('18. full-page geometry above the 16384 CSS-pixel ceiling is rejected with zero capture calls', async () => {
+  it('18. full-page geometry beyond the stitched-pixel budget is rejected with zero capture calls', async () => {
     const { ctx } = createMockContext();
     const devTools = new TabDevToolsHost(ctx);
 
@@ -1106,7 +1106,7 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
           return { result: { value: { dpr: 1, vw: 1200, vh: 800 } } };
         }
         if (expression.includes('scrollHeight')) {
-          return { result: { value: 20000 } };
+          return { result: { value: 200000 } };
         }
       }
       return {};

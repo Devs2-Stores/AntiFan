@@ -80,6 +80,34 @@ describe('Annotation prompt self-QA directive', () => {
     assert.ok(header.includes('annotationId'));
   });
 
+  it('directive documents QA_STRUCTURAL_ONLY and when a STRUCTURAL receipt is not enough', () => {
+    assert.ok(SELF_QA_DIRECTIVE.includes('qaStatus: QA_STRUCTURAL_ONLY'));
+    assert.ok(SELF_QA_DIRECTIVE.includes('certification: CERTIFIED'));
+    assert.ok(SELF_QA_DIRECTIVE.includes('certification: STRUCTURAL'));
+    assert.ok(SELF_QA_DIRECTIVE.includes('anti.visual.promote_baseline'));
+    assert.ok(SELF_QA_DIRECTIVE.includes('viewports'));
+    assert.ok(SELF_QA_DIRECTIVE.includes('ignoreSelectors'));
+    const closing = SELF_QA_DIRECTIVE.split('\n').find((line) => line.startsWith('MỌI đường kết thúc'));
+    assert.ok(closing?.includes('`QA_STRUCTURAL_ONLY`'), 'the terminal token list names QA_STRUCTURAL_ONLY');
+  });
+
+  it('directive requires theme.qa_validate on the annotation Page URL for non-micro edits', () => {
+    const rule = SELF_QA_DIRECTIVE.split('\n').find((line) => line.startsWith('10. DIRECT-EDIT'));
+    assert.ok(rule, 'rule 10 exists');
+    assert.ok(rule.includes('theme.qa_validate'));
+    assert.ok(rule.includes('expectedUrl'));
+    assert.ok(rule.includes('Page URL'));
+    assert.ok(rule.includes('micro-CSS'));
+  });
+
+  it('"storefront QA skipped" is only allowed together with QA_PENDING_SYNC or QA_UNAVAILABLE', () => {
+    const mentions = SELF_QA_DIRECTIVE.split('\n').filter((line) => line.includes('storefront QA skipped'));
+    assert.strictEqual(mentions.length, 1);
+    assert.ok(mentions[0]?.includes('qaStatus: QA_PENDING_SYNC'));
+    assert.ok(mentions[0]?.includes('qaStatus: QA_UNAVAILABLE'));
+    assert.ok(buildAgentTaskHeader('[⚡Direct-Edit] sửa lề nút cart 12px').includes(mentions[0] ?? 'missing'));
+  });
+
   it('directive re-probes CAPABILITY_NOT_FOUND once instead of inheriting absence', () => {
     const header = buildAgentTaskHeader('fix lỗi lệch header trên mobile');
     assert.ok(header.includes('re-probe'));
@@ -204,5 +232,58 @@ describe('Annotation prompt self-QA directive', () => {
     assert.ok(directHeader.includes('MUTATION AUTHORIZED'));
     assert.ok(directHeader.includes('User-Armed Edit'));
     assert.ok(directHeader.includes(SELF_QA_DIRECTIVE));
+  });
+});
+
+import { isReadOnlyAnalysis } from '../../src/shared/annotation-prompt';
+
+describe('Annotation prompt read-only gating', () => {
+  const READ_ONLY_TEXT = 'READ-ONLY analysis';
+
+  it('a security request that also asks for a fix is not READ-ONLY and carries the full self-QA directive', () => {
+    const instruction = 'audit the XSS in the header menu and fix it';
+    const intent = classifyTaskIntent(instruction);
+    assert.strictEqual(intent, 'security');
+    assert.strictEqual(isReadOnlyAnalysis(intent, instruction), false);
+    assert.strictEqual(buildSelfQaDirective(intent, instruction), SELF_QA_DIRECTIVE);
+    const header = buildAgentTaskHeader(instruction);
+    assert.ok(!header.includes(READ_ONLY_TEXT), header);
+    assert.ok(header.includes('Gated by core contract, fresh evidence, and intent verification.'));
+    assert.ok(header.includes(SELF_QA_DIRECTIVE));
+  });
+
+  it('a documentation request that also asks for a fix is not READ-ONLY', () => {
+    const instruction = 'update the README guide and fix the broken install link';
+    const intent = classifyTaskIntent(instruction);
+    assert.strictEqual(intent, 'documentation');
+    assert.strictEqual(isReadOnlyAnalysis(intent, instruction), false);
+    assert.strictEqual(buildSelfQaDirective(intent, instruction), SELF_QA_DIRECTIVE);
+    assert.ok(!buildAgentTaskHeader(instruction).includes(READ_ONLY_TEXT));
+  });
+
+  it('review and research with a fix verb are not READ-ONLY (patch, implement, Vietnamese sua loi)', () => {
+    assert.strictEqual(isReadOnlyAnalysis('review', 'review the header and patch the overflow'), false);
+    assert.strictEqual(isReadOnlyAnalysis('research', 'research the cache layer and implement the winner'), false);
+    assert.strictEqual(isReadOnlyAnalysis('review', 'xem lai header roi sua loi tran ngang'), false);
+    assert.strictEqual(buildSelfQaDirective('review', 'review the header and patch the overflow'), SELF_QA_DIRECTIVE);
+    assert.strictEqual(buildSelfQaDirective('research', 'research the cache layer and implement the winner'), SELF_QA_DIRECTIVE);
+  });
+
+  it('analysis-only requests stay READ-ONLY, including words that merely contain "fix"', () => {
+    const pure = 'audit prefix handling and the suffix parser for security';
+    const intent = classifyTaskIntent(pure);
+    assert.strictEqual(intent, 'security');
+    assert.strictEqual(isReadOnlyAnalysis(intent, pure), true);
+    assert.strictEqual(buildSelfQaDirective(intent, pure), SELF_QA_DIRECTIVE_READONLY);
+    assert.ok(buildAgentTaskHeader(pure).includes(READ_ONLY_TEXT));
+
+    assert.strictEqual(isReadOnlyAnalysis('review', 'review the header spacing'), true);
+    assert.strictEqual(isReadOnlyAnalysis('documentation', ''), true);
+    assert.strictEqual(buildSelfQaDirective('documentation'), SELF_QA_DIRECTIVE_READONLY);
+  });
+
+  it('other intents are never classified as read-only analysis', () => {
+    assert.strictEqual(isReadOnlyAnalysis('bug-fix', 'fix the header'), false);
+    assert.strictEqual(isReadOnlyAnalysis('testing', 'run the tests'), false);
   });
 });

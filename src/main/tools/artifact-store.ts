@@ -6,6 +6,8 @@ import { recordBenchmark } from '../benchmark/telemetry';
 import { ArtifactRef, CapabilityError, ArtifactReadResult, CapabilityRequestContext, AuthenticatedCapabilityContext } from '../../shared/control-plane-contracts';
 import { ArtifactRetentionCleaner, RetentionSweepOptions, RetentionSweepResult } from './artifact-retention-cleaner';
 export const DEFAULT_MAX_ARTIFACT_BYTES = 8 * 1024 * 1024;
+/** Per-call ceiling for a full-page screenshot, which routinely exceeds the default artifact size. */
+export const FULL_PAGE_ARTIFACT_MAX_BYTES = 64 * 1024 * 1024;
 export const DEFAULT_EVIDENCE_LEASE_TTL_MS = 15 * 60 * 1000;
 
 /** Exclusive ownership of one evidence run's artifact capacity, minted by {@link ArtifactStore.preflight}. */
@@ -236,6 +238,18 @@ export class ArtifactStore {
   }
 
   /**
+   * Per-artifact byte ceiling for one stage call. Without `maxBytes` it is the store/lease default.
+   * An explicit `maxBytes` is the caller's own ceiling for this artifact, so it may sit above the
+   * default (a full-page screenshot), but never above what the run budget can hold.
+   */
+  private resolveArtifactMax(lease: EvidenceRunLease | undefined, maxBytes: number | undefined): number {
+    const artifactCeiling = lease ? Math.min(lease.maxArtifactBytes, this.maxArtifactBytes) : this.maxArtifactBytes;
+    if (maxBytes === undefined) return artifactCeiling;
+    const runCeiling = lease ? Math.min(lease.maxRunBytes, this.maxRunBytes) : this.maxRunBytes;
+    return Math.min(maxBytes, runCeiling);
+  }
+
+  /**
    * Lease gate for {@link stage}. Returns the live lease, or undefined when the run is unleased.
    * A token for a lease that is gone is rejected (fail closed) instead of silently staging unleased.
    */
@@ -349,8 +363,7 @@ export class ArtifactStore {
     }
     const stageStartMs = performance.now();
     const raw = Buffer.isBuffer(input.data) ? input.data : Buffer.from(input.data, 'utf8');
-    const artifactCeiling = lease ? Math.min(lease.maxArtifactBytes, this.maxArtifactBytes) : this.maxArtifactBytes;
-    const max = Math.min(input.maxBytes ?? artifactCeiling, artifactCeiling);
+    const max = this.resolveArtifactMax(lease, input.maxBytes);
     if (overflowMode === 'reject' && raw.byteLength > max) {
       throw new CapabilityError('ARTIFACT_TOO_LARGE', `Artifact payload of ${raw.byteLength} bytes exceeds the ${max} byte ceiling for run '${runId}'`, { runId, requestedBytes: raw.byteLength, maxArtifactBytes: max });
     }
@@ -481,8 +494,7 @@ export class ArtifactStore {
     }
     const stageStartMs = performance.now();
     const raw = Buffer.isBuffer(input.data) ? input.data : Buffer.from(input.data, 'utf8');
-    const artifactCeiling = lease ? Math.min(lease.maxArtifactBytes, this.maxArtifactBytes) : this.maxArtifactBytes;
-    const max = Math.min(input.maxBytes ?? artifactCeiling, artifactCeiling);
+    const max = this.resolveArtifactMax(lease, input.maxBytes);
     if (overflowMode === 'reject' && raw.byteLength > max) {
       throw new CapabilityError('ARTIFACT_TOO_LARGE', `Artifact payload of ${raw.byteLength} bytes exceeds the ${max} byte ceiling for run '${runId}'`, { runId, requestedBytes: raw.byteLength, maxArtifactBytes: max });
     }

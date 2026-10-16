@@ -85,6 +85,10 @@ import { LayoutIntegrityEngine } from '../qa/scanners/layout-integrity-engine.js
 import { VisualQualityScanner, type VisualQualityScanResult } from '../qa/scanners/visual-quality-scanner.js';
 import { runStateMatrix, type StateMatrixOptions, type StateMatrixResult } from '../qa/state-matrix.js';
 import { normalizeCandidateOptions, runLayoutCandidates, type LayoutCandidatesOptions, type LayoutCandidatesResult } from '../qa/layout-candidates.js';
+import { requestedViewportWidth, viewportWidthMismatch } from '../browser/viewport-request.js';
+import { resolveSweepBreakpoints, viewportsToBreakpoints } from '../browser/sweep-viewports.js';
+import { pickAutoBindCandidate, storefrontHostMatches } from './tab-binding.js';
+import { FULL_PAGE_ARTIFACT_MAX_BYTES } from './artifact-store.js';
 import { composeContactSheetFromPngs } from '../verification/png-contact-sheet.js';
 import type { PageCloseAdmission } from '../run/attachment-registry';
 function isTabRecord(item: unknown): item is AntiFanTab {
@@ -104,6 +108,8 @@ export interface ResponsiveCheckParams {
   tabId?: string;
   selector?: string;
   customBreakpoints?: ResponsiveBreakpointOption[];
+  /** Extra `{ w, h }` viewports measured after the standard (or custom) breakpoints; at most five, 200-3000 px each. */
+  viewports?: Array<{ w: number; h: number }>;
   /**
    * Script the host evaluates once per breakpoint after the emulated width took effect; the result
    * comes back as `integrity` on that breakpoint. Trusted in-process callers only: never forward
@@ -162,7 +168,7 @@ export interface BrowserHostPort {
   reloadAndWait?(tabId: string, timeoutMs?: number, options?: { ownedReloadToken?: string }): Promise<boolean>;
   getDom(selector?: string, tabId?: string, paneId?: 'desktop' | 'mobile'): Promise<string>;
   captureScreenshot(rect?: unknown, tabId?: string, paneId?: 'desktop' | 'mobile', options?: { format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean }): Promise<string>;
-  captureVerificationScreenshot?(rect?: unknown, tabId?: string, paneId?: 'desktop' | 'mobile', options?: { format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean; timeoutMs?: number }): Promise<VerificationCaptureEnvelope>;
+  captureVerificationScreenshot?(rect?: unknown, tabId?: string, paneId?: 'desktop' | 'mobile', options?: { format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean; timeoutMs?: number; maxBytes?: number }): Promise<VerificationCaptureEnvelope>;
   /** Session-owned tab records, including agent-plane tabs the strip never shows. */
   getSessionTabList?(boundTabId: string): unknown[];
   /** True while the target holds a timed-out in-flight CDP command. */
@@ -238,6 +244,8 @@ export interface BrowserHostPort {
   holdPageNavigation?(tabId: string, paneId: 'desktop' | 'mobile' | undefined): { release(): string[] };
   /** Apply the tab's current preset/viewport (attached when it is a background tab) and wait for it to land. */
   settleTabEmulation?(tabId: string): Promise<void>;
+  /** Origin of the storefront the tab's project is built against (capsule brief); undefined when unknown or ambiguous. */
+  getProjectStorefrontOrigin?(scope: { projectId?: string; workspaceId?: string; boundTabId?: string }): string | undefined;
   getNetworkTracker?(): {
     isAttached: (tabId: string, paneId?: string) => boolean;
     awaitQuiescence: (tabId: string, paneId?: string, options?: NetworkTrackerOptions, signal?: AbortSignal) => Promise<{ settled: boolean; durationMs: number; timedOut: boolean }>;
@@ -449,6 +457,47 @@ export function batchRouteVerdict(
   }
   if (entries.length < expectedWidths) unmeasured.push(`${expectedWidths - entries.length} width(s) missing from the sweep`);
   return { passed: failed ? false : unmeasured.length ? null : true, unmeasured };
+}
+
+/** A caller `viewports` list is validated against the same rules the host sweep applies, so a bad one is refused before any tab is touched. */
+function assertSweepViewports(viewports: unknown): void {
+  try {
+    viewportsToBreakpoints(viewports);
+  } catch (err) {
+    throw new CapabilityError('INVALID_ARGUMENT', err instanceof Error ? err.message : String(err));
+  }
+}
+
+const CDN_EXPECTATION_MAX_ENTRIES = 20;
+const CDN_EXPECTATION_MAX_CHARS = 512;
+
+function normalizeCdnExpectations(value: unknown, name: string): string[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value) || value.length > CDN_EXPECTATION_MAX_ENTRIES) {
+    throw new CapabilityError('INVALID_ARGUMENT', `${name} must be an array of at most ${CDN_EXPECTATION_MAX_ENTRIES} strings`);
+  }
+  return value.map((entry, index) => {
+    if (typeof entry !== 'string' || entry.length === 0 || entry.length > CDN_EXPECTATION_MAX_CHARS) {
+      throw new CapabilityError('INVALID_ARGUMENT', `${name}[${index}] must be a non-empty string of at most ${CDN_EXPECTATION_MAX_CHARS} characters`);
+    }
+    return entry;
+  });
+}
+
+/** Wall-clock share of one batch_matrix call a sweep may spend; the capability policy timeout sits above it. */
+export const BATCH_MATRIX_BUDGET_MS = 180_000;
+const BATCH_CELL_COST_MS = 2_500;
+const BATCH_ROUTE_NAV_COST_MS = 5_000;
+/** A width whose emulation did not land is measured again this many times before its cell reads unmeasured. */
+const BATCH_EMULATION_RETRIES = 2;
+
+/**
+ * How many whole routes one batch_matrix call can sweep inside its budget: a route costs one
+ * navigation plus one sweep cell per width. Never fewer than one, so a single route always runs.
+ */
+export function batchRoutesWithinBudget(routeCount: number, widthCount: number, budgetMs: number): number {
+  const perRoute = BATCH_ROUTE_NAV_COST_MS + Math.max(1, widthCount) * BATCH_CELL_COST_MS;
+  return Math.min(routeCount, Math.max(1, Math.floor(budgetMs / perRoute)));
 }
 
 function buildActionabilityCheckScript(selector?: string, ref?: string, locator: RefLocator = null): string {
@@ -2206,6 +2255,8 @@ export class BrowserControlPort {
       const aff = this.host.resolveTabAffiliation(tab.id);
       return aff?.projectId === scopeProjectId && aff?.workspaceId === scopeWorkspaceId;
     };
+    // Rows are marked, not filtered: the caller still sees every tab and learns which ones are the storefront.
+    const storefrontOrigin = this.host.getProjectStorefrontOrigin?.({ projectId: scopeProjectId, workspaceId: scopeWorkspaceId, boundTabId });
     if (context.scope !== 'session') {
       // Default 'project' scope: a bound session sees the tabs that measure into
       // its own attachment scope (projectId + workspaceId), plus every tab this
@@ -2243,6 +2294,7 @@ export class BrowserControlPort {
       return rows.map((tab) => ({
         ...withoutInlineFavicon(tab),
         affiliated: affiliatedOf(tab),
+        ...(storefrontHostMatches(tab.url, storefrontOrigin) ? { storefrontMatch: true } : {}),
         isBoundTab: tab.id === boundTabId,
         isPrimaryTab: tab.id === boundTabId,
       }));
@@ -2254,9 +2306,44 @@ export class BrowserControlPort {
     return records.filter(isTabRecord).map((tab) => ({
       ...withoutInlineFavicon(tab),
       affiliated: affiliatedOf(tab),
+      ...(storefrontHostMatches(tab.url, storefrontOrigin) ? { storefrontMatch: true } : {}),
       isBoundTab: tab.id === boundTabId,
       isPrimaryTab: tab.id === boundTabId,
     }));
+  }
+
+  /** `listTabs` plus the tab a session that lost its bound tab can rebind to without asking (see {@link resolveAutoBindCandidate}). */
+  listTabsWithBinding(context: Parameters<BrowserControlPort['listTabs']>[0]): { tabs: unknown[]; autoBindCandidate?: string } {
+    const tabs = this.listTabs(context);
+    const autoBindCandidate = this.resolveAutoBindCandidate(context);
+    return { tabs, ...(autoBindCandidate ? { autoBindCandidate } : {}) };
+  }
+
+  /**
+   * The single in-scope tab on the project's storefront host, named only while the session's bound
+   * tab is gone. No match, several matches, an unknown storefront or a live bound tab answer undefined:
+   * the caller then rebinds explicitly instead of landing on a guess.
+   */
+  resolveAutoBindCandidate(context: Parameters<BrowserControlPort['listTabs']>[0]): string | undefined {
+    const boundTabId = context.target?.tabId?.trim();
+    const boundAlive = Boolean(boundTabId) && (this.host.hasTab
+      ? this.host.hasTab(boundTabId)
+      : (this.host.getTabList() || []).some((tab) => isTabRecord(tab) && tab.id === boundTabId));
+    if (boundAlive || !this.host.getProjectStorefrontOrigin) return undefined;
+    let rows: unknown[];
+    try {
+      rows = this.listTabs({ ...context, scope: 'project', affiliatedOnly: false });
+    } catch {
+      return undefined;
+    }
+    return pickAutoBindCandidate(
+      rows.filter(isTabRecord).map((row) => {
+        const storefrontMatch = 'storefrontMatch' in row && row.storefrontMatch === true;
+        const affiliated = 'affiliated' in row && row.affiliated === true;
+        return { id: row.id, storefrontMatch: storefrontMatch && affiliated };
+      }),
+      false
+    );
   }
 
   /**
@@ -3249,7 +3336,7 @@ export class BrowserControlPort {
     attemptId: string,
     explicitTabId?: string,
     paneId?: 'desktop' | 'mobile',
-    options?: { leaseToken?: string; signal?: AbortSignal; timeoutMs?: number; expectedUrl?: string | null; materializeDataSrc?: boolean }
+    options?: { leaseToken?: string; signal?: AbortSignal; timeoutMs?: number; expectedUrl?: string | null; materializeDataSrc?: boolean; format?: 'png' | 'jpeg'; quality?: number }
   ): Promise<Record<string, unknown>> {
     if (typeof this.host.captureVerificationScreenshot !== 'function') {
       throw new CapabilityError('CAPABILITY_NOT_FOUND', "Host does not implement required 'captureVerificationScreenshot' canonical CDP interface");
@@ -3290,7 +3377,7 @@ export class BrowserControlPort {
                 );
               }
             }
-            return await this.captureFullPageEnvelope({ target, tabId, effectivePane, runId, attemptId, budget, leaseToken: options?.leaseToken, expectedUrl: options?.expectedUrl });
+            return await this.captureFullPageEnvelope({ target, tabId, effectivePane, runId, attemptId, budget, leaseToken: options?.leaseToken, expectedUrl: options?.expectedUrl, format: options?.format, quality: options?.quality });
           } catch (err) {
             if (isViewportRestoreFailure(err)) {
               // The capture left the layout viewport where it could not prove it
@@ -3434,8 +3521,11 @@ export class BrowserControlPort {
     budget: CompareBudget;
     leaseToken?: string;
     expectedUrl?: string | null;
+    format?: 'png' | 'jpeg';
+    quality?: number;
   }): Promise<Record<string, unknown>> {
     const { target, tabId, effectivePane, runId, attemptId, budget, leaseToken, expectedUrl } = args;
+    const format = args.format === 'jpeg' ? 'jpeg' : 'png';
     const observedUrl = await this.getLiveTabUrl(tabId);
     const redirectChain = this.getTabRedirectChain(tabId);
     const routeCheck = checkRouteIdentity(expectedUrl, observedUrl, redirectChain);
@@ -3457,8 +3547,10 @@ export class BrowserControlPort {
         'Page.captureScreenshot(full-page)',
         () =>
           this.host.captureVerificationScreenshot!(undefined, tabId, effectivePane, {
-            format: 'png',
+            format,
+            quality: args.quality,
             fullPage: true,
+            maxBytes: FULL_PAGE_ARTIFACT_MAX_BYTES,
             timeoutMs: bound,
           }),
         bound + 3_000
@@ -3516,6 +3608,8 @@ export class BrowserControlPort {
     if (bytes.length === 0) {
       throw new CapabilityError('TARGET_STALE', `Failed to decode non-empty full-page screenshot buffer on tab '${tabId}'`);
     }
+    // The host may deliver JPEG (requested, or PNG over the ceiling): the staged type is the delivered encoding.
+    const mime = envelope.format === 'jpeg' ? 'image/jpeg' : 'image/png';
     const receipt = verificationCaptureReceipt(envelope);
     const sha256 = crypto.createHash('sha256').update(bytes).digest('hex');
     const artifactRef = this.artifacts
@@ -3524,19 +3618,19 @@ export class BrowserControlPort {
           async () =>
             this.artifacts!.stage({
               kind: 'screenshot',
-              mime: 'image/png',
+              mime,
               data: bytes,
               runId,
               attemptId,
               projectId: target.projectId,
               workspaceId: target.workspaceId,
-              maxBytes: 32 * 1024 * 1024,
+              maxBytes: FULL_PAGE_ARTIFACT_MAX_BYTES,
               leaseToken,
               overflowMode: 'reject',
             }),
           STAGE_BOUND_MS
         )
-      : limit(envelope.data, 32 * 1024 * 1024);
+      : limit(envelope.data, FULL_PAGE_ARTIFACT_MAX_BYTES);
     return {
       ok: true,
       artifactRef,
@@ -4332,7 +4426,7 @@ export class BrowserControlPort {
       if (!liveBoundId) {
         // Binding is stale: claiming a listed tab would be the hijack this gate
         // exists to stop, so recovery must go through the explicit rebind path.
-        throw new CapabilityError('TARGET_STALE', `Bound tab '${boundId.trim()}' no longer exists. Rebind via anti.browser.rebind_target.`, { canRebind: true });
+        throw new CapabilityError('TARGET_STALE', `Bound tab '${boundId.trim()}' no longer exists. Rebind via anti.browser.rebind_target.`, { boundTabId: boundId.trim(), canRebind: true, recovery: 'anti.browser.rebind_target' });
       }
       const allowed = this.host.isTabAllowed ? this.host.isTabAllowed(liveBoundId.trim(), cleanId) : false;
       if (!allowed) {
@@ -4363,6 +4457,13 @@ export class BrowserControlPort {
   }
   rebindTarget(options: { tabId?: string } = {}, target?: BrowserTarget): { success: boolean; tabId: string; documentGeneration: number; browserEpoch: number; url?: string; title?: string } {
     let effectiveTabId = options.tabId && typeof options.tabId === 'string' ? options.tabId.trim() : (target?.tabId ? target.tabId.trim() : '');
+    if (effectiveTabId === 'auto') {
+      const candidate = this.resolveAutoBindCandidate({ target });
+      if (!candidate) {
+        throw new CapabilityError('TARGET_REQUIRED', 'Cannot auto-bind: the bound tab is still live, or no single tab on this project\'s storefront host exists. List tabs with anti.browser.tabs.list and pass the tabId to rebind to.');
+      }
+      effectiveTabId = candidate;
+    }
     if (this.host.getTabList) {
       const tabs = (this.host.getTabList() || []).filter(isTabRecord);
       if (!effectiveTabId) {
@@ -4577,6 +4678,7 @@ export class BrowserControlPort {
   async responsiveCheck(params?: ResponsiveCheckParams | string, target?: BrowserTarget): Promise<Record<string, unknown>> {
     if (!this.host.runResponsiveCheck) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'runResponsiveCheck is not supported by host');
     const opts = typeof params === 'string' ? { tabId: params } : (params || {});
+    if ((opts as ResponsiveCheckParams).viewports !== undefined) assertSweepViewports((opts as ResponsiveCheckParams).viewports);
     const effectiveTabId = this.resolveTargetTab(target, opts.tabId);
     return this.host.runResponsiveCheck({ ...opts, tabId: effectiveTabId });
   }
@@ -5063,6 +5165,12 @@ export class BrowserControlPort {
     width: number;
     height: number;
     dpr: number;
+    /** CSS width the host asked this tab's layout for, or null when the tab is fluid (no emulation requested). */
+    requestedWidth: number | null;
+    /** CSS width the live layout actually reports (0 when the tab has no laid-out surface). */
+    observedWidth: number;
+    /** The request and the live layout disagree by more than a couple of pixels. */
+    mismatch: boolean;
     attached: boolean;
     active: boolean;
     cause?: string;
@@ -5078,6 +5186,7 @@ export class BrowserControlPort {
     const isAttached = Boolean(tab?.attached ?? isActive);
     const presetId = tab?.devicePresetId ?? undefined;
     const customViewport = tab?.customViewport ?? null;
+    const requestedWidth = requestedViewportWidth(tab);
 
     let surface: RenderSurfaceSnapshot | undefined;
     // A probe that threw is not the same finding as a tab with no surface: the
@@ -5103,6 +5212,9 @@ export class BrowserControlPort {
         width: surface.vw,
         height: surface.vh,
         dpr: surface.dpr || 1,
+        requestedWidth,
+        observedWidth: surface.vw,
+        mismatch: viewportWidthMismatch(requestedWidth, surface.vw),
         attached: isAttached,
         active: isActive,
       };
@@ -5116,6 +5228,9 @@ export class BrowserControlPort {
       width: 0,
       height: 0,
       dpr: surface?.dpr || 1,
+      requestedWidth,
+      observedWidth: 0,
+      mismatch: false,
       attached: isAttached,
       active: isActive,
       cause: cause || 'The tab has no attached laid-out surface',
@@ -6400,6 +6515,9 @@ export class BrowserControlPort {
       networkTracker,
       requireNetworkTracker: options.requireNetworkTracker,
       signal: options.signal,
+      scopeSelector: options.scopeSelector,
+      ignoreSelectors: options.ignoreSelectors,
+      enableMediaFreeze: options.enableMediaFreeze,
     });
     const receipt = await CaptureSettleGate.evaluate(predicates, options);
     CaptureSettleGate.assertResources(receipt);
@@ -8739,6 +8857,15 @@ export class BrowserControlPort {
       checklist,
     };
   }
+
+  private boundTabGoneError(boundTabId: string, target?: BrowserTarget): CapabilityError {
+    const autoBindCandidate = this.resolveAutoBindCandidate({ target });
+    return new CapabilityError(
+      'TARGET_STALE',
+      `Bound tab '${boundTabId}' no longer exists. Rebind the session to a live tab (anti.browser.rebind_target; list tabs with anti.browser.tabs.list), then retry.${autoBindCandidate ? ` Tab '${autoBindCandidate}' is the only one on this project's storefront host: anti.browser.rebind_target with tabId 'auto' binds to it.` : ''}`,
+      { boundTabId, canRebind: true, recovery: 'anti.browser.rebind_target', ...(autoBindCandidate ? { autoBindCandidate } : {}) }
+    );
+  }
   private resolveTargetTab(target?: BrowserTarget, explicitTabId?: string, operationType: 'read' | 'lifecycle' | 'write' = 'read', params?: Record<string, unknown>): string {
     if (target) {
       assertTarget(target, true);
@@ -8812,7 +8939,7 @@ export class BrowserControlPort {
           if (failoverTab && tabExists(failoverTab)) {
             candidate = failoverTab;
           } else {
-            throw new CapabilityError('TARGET_STALE', `Target tab no longer exists: ${explicitTabId}`);
+            throw this.boundTabGoneError(boundId, target);
           }
         } else {
           throw new CapabilityError('CAPABILITY_NOT_FOUND', `Unknown tab ID: ${explicitTabId}`);
@@ -8839,7 +8966,7 @@ export class BrowserControlPort {
         if (failoverTab && tabExists(failoverTab)) {
           resolved = failoverTab;
         } else {
-          throw new CapabilityError('TARGET_STALE', `Target tab no longer exists: ${target.tabId}`);
+          throw this.boundTabGoneError(target.tabId, target);
         }
       } else {
         resolved = target.tabId;
@@ -8936,8 +9063,10 @@ export class BrowserControlPort {
   /**
    * Poll the storefront's copy of one static asset until its bytes match the local workspace file,
    * then optionally reload the tab. The local file is read only from inside the bound workspace
-   * (no `..`, size-capped); `.liquid` sources are refused because the CDN serves their compiled
-   * output, which can never match the source bytes.
+   * (no `..`, size-capped). A `.liquid` source cannot match by bytes (the CDN serves its compiled
+   * output), so it is accepted only with `expectContains` / `expectNotContains`: the compiled asset
+   * (same name without `.liquid`) is polled until every required string is present and every
+   * forbidden one absent. On a plain asset the expectations are checked in addition to the hash.
    */
   public async awaitCdnSync(
     target: BrowserTarget,
@@ -8949,50 +9078,62 @@ export class BrowserControlPort {
       reloadOnMatch?: boolean;
       tabId?: string;
       paneId?: 'desktop' | 'mobile';
+      expectContains?: string[];
+      expectNotContains?: string[];
     }
   ): Promise<Record<string, unknown>> {
     if (!params || typeof params.assetPath !== 'string' || !params.assetPath.trim()) {
       throw new CapabilityError('INVALID_ARGUMENT', 'assetPath is required');
     }
-    const tabId = this.resolveTargetTab(target, params.tabId, 'write');
+    const expectContains = normalizeCdnExpectations(params.expectContains, 'expectContains');
+    const expectNotContains = normalizeCdnExpectations(params.expectNotContains, 'expectNotContains');
+    // Only the reload moves the tab; a CDN hash poll on its own reads the page and the file, so the
+    // document generation fence applies exactly when the call will reload.
+    const tabId = this.resolveTargetTab(target, params.tabId, params.reloadOnMatch === false ? 'read' : 'write');
     const paneId = params.paneId || 'desktop';
     const rawAsset = params.assetPath.trim().replace(/\\/g, '/').replace(/^\/+/, '');
-    if (/\.liquid$/i.test(rawAsset)) {
-      throw new CapabilityError('INVALID_ARGUMENT', `${params.assetPath} is a Liquid source: the CDN serves its compiled output, which never matches the source bytes. Reload and run theme.qa_validate instead.`);
+    const isLiquidSource = /\.liquid$/i.test(rawAsset);
+    if (isLiquidSource && expectContains.length === 0 && expectNotContains.length === 0) {
+      throw new CapabilityError('INVALID_ARGUMENT', `${params.assetPath} is a Liquid source: the CDN serves its compiled output, which never matches the source bytes. Pass expectContains / expectNotContains with strings the compiled asset must (or must not) contain, or wait for the whole theme upload with the kit's sync:wait (npm run sync:wait) and run theme.qa_validate after a reload.`);
     }
-    const fileName = path.posix.basename(rawAsset);
-    const relCandidates = rawAsset.startsWith('assets/') ? [rawAsset] : [`assets/${rawAsset}`, rawAsset];
-    const root = (params.workspaceRoot && params.workspaceRoot.trim())
-      || (this.host.resolveTabWorkspace ? this.host.resolveTabWorkspace(tabId) : '');
-    if (!root) {
-      throw new CapabilityError('WORKSPACE_UNBOUND', 'await_cdn_sync needs a bound theme workspace to read the local asset from');
-    }
-    const realRoot = path.resolve(root);
-    let localBytes: Buffer | undefined;
-    let resolvedRel = relCandidates[0]!;
-    for (const rel of relCandidates) {
-      const abs = path.resolve(realRoot, rel);
-      const relToRoot = path.relative(realRoot, abs);
-      // Never read outside the workspace: "assets/../../.env" resolves past the root.
-      if (!relToRoot || relToRoot.startsWith('..') || path.isAbsolute(relToRoot)) continue;
-      try {
-        const stat = await fs.stat(abs);
-        if (!stat.isFile()) continue;
-        if (stat.size > AWAIT_CDN_SYNC_MAX_ASSET_BYTES) {
-          throw new CapabilityError('INVALID_ARGUMENT', `${rel} is ${stat.size} bytes; await_cdn_sync compares assets up to ${AWAIT_CDN_SYNC_MAX_ASSET_BYTES} bytes`);
-        }
-        localBytes = await fs.readFile(abs);
-        resolvedRel = rel;
-        break;
-      } catch (err) {
-        if (err instanceof CapabilityError) throw err;
+    const fileName = path.posix.basename(isLiquidSource ? rawAsset.replace(/\.liquid$/i, '') : rawAsset);
+    let localSha256: string | undefined;
+    let localNorm = '';
+    let resolvedRel = rawAsset;
+    if (!isLiquidSource) {
+      const relCandidates = rawAsset.startsWith('assets/') ? [rawAsset] : [`assets/${rawAsset}`, rawAsset];
+      const root = (params.workspaceRoot && params.workspaceRoot.trim())
+        || (this.host.resolveTabWorkspace ? this.host.resolveTabWorkspace(tabId) : '');
+      if (!root) {
+        throw new CapabilityError('WORKSPACE_UNBOUND', 'await_cdn_sync needs a bound theme workspace to read the local asset from');
       }
+      const realRoot = path.resolve(root);
+      let localBytes: Buffer | undefined;
+      resolvedRel = relCandidates[0]!;
+      for (const rel of relCandidates) {
+        const abs = path.resolve(realRoot, rel);
+        const relToRoot = path.relative(realRoot, abs);
+        // Never read outside the workspace: "assets/../../.env" resolves past the root.
+        if (!relToRoot || relToRoot.startsWith('..') || path.isAbsolute(relToRoot)) continue;
+        try {
+          const stat = await fs.stat(abs);
+          if (!stat.isFile()) continue;
+          if (stat.size > AWAIT_CDN_SYNC_MAX_ASSET_BYTES) {
+            throw new CapabilityError('INVALID_ARGUMENT', `${rel} is ${stat.size} bytes; await_cdn_sync compares assets up to ${AWAIT_CDN_SYNC_MAX_ASSET_BYTES} bytes`);
+          }
+          localBytes = await fs.readFile(abs);
+          resolvedRel = rel;
+          break;
+        } catch (err) {
+          if (err instanceof CapabilityError) throw err;
+        }
+      }
+      if (!localBytes) {
+        throw new CapabilityError('INVALID_ARGUMENT', `Local asset not found in the bound workspace: ${params.assetPath}`);
+      }
+      localSha256 = crypto.createHash('sha256').update(localBytes).digest('hex');
+      localNorm = localBytes.toString('utf8').replace(/\r\n/g, '\n').trim();
     }
-    if (!localBytes) {
-      throw new CapabilityError('INVALID_ARGUMENT', `Local asset not found in the bound workspace: ${params.assetPath}`);
-    }
-    const localSha256 = crypto.createHash('sha256').update(localBytes).digest('hex');
-    const localNorm = localBytes.toString('utf8').replace(/\r\n/g, '\n').trim();
     const maxWaitMs = Math.min(Math.max(params.timeoutMs ?? 15_000, 200), 25_000);
     const pollMs = Math.min(Math.max(params.pollIntervalMs ?? 500, 50), 5_000);
     const startTime = Date.now();
@@ -9000,6 +9141,7 @@ export class BrowserControlPort {
     let lastCdnSha256: string | null = null;
     let lastError: string | null = null;
     let assetUrl: string | null = null;
+    let unmet: { missing: string[]; forbidden: string[] } | null = null;
     while (Date.now() - startTime <= maxWaitMs) {
       attempts += 1;
       if (typeof this.host.evalJs === 'function') {
@@ -9035,7 +9177,11 @@ export class BrowserControlPort {
             const cdnSha256 = crypto.createHash('sha256').update(Buffer.from(probe.text, 'utf8')).digest('hex');
             lastCdnSha256 = cdnSha256;
             const remoteNorm = probe.text.replace(/\r\n/g, '\n').trim();
-            if (cdnSha256 === localSha256 || remoteNorm === localNorm) {
+            const contentMatches = localSha256 === undefined || cdnSha256 === localSha256 || remoteNorm === localNorm;
+            const missing = expectContains.filter((needle) => !probe.text!.includes(needle));
+            const forbidden = expectNotContains.filter((needle) => probe.text!.includes(needle));
+            unmet = missing.length > 0 || forbidden.length > 0 ? { missing, forbidden } : null;
+            if (contentMatches && !unmet) {
               const shouldReload = params.reloadOnMatch !== false;
               if (shouldReload) {
                 await this.reload(target, tabId);
@@ -9045,8 +9191,9 @@ export class BrowserControlPort {
                 synced: true,
                 assetPath: resolvedRel,
                 assetUrl,
-                localSha256,
+                ...(localSha256 ? { localSha256 } : {}),
                 cdnSha256,
+                ...(isLiquidSource ? { compiledAsset: fileName } : {}),
                 attempts,
                 durationMs: Date.now() - startTime,
                 reloaded: shouldReload,
@@ -9067,8 +9214,10 @@ export class BrowserControlPort {
       synced: false,
       assetPath: resolvedRel,
       assetUrl,
-      localSha256,
+      ...(localSha256 ? { localSha256 } : {}),
       cdnSha256: lastCdnSha256,
+      ...(isLiquidSource ? { compiledAsset: fileName } : {}),
+      ...(unmet ? { unmetExpectations: unmet } : {}),
       attempts,
       durationMs: Date.now() - startTime,
       reloaded: false,
@@ -9080,14 +9229,22 @@ export class BrowserControlPort {
    * Sweep several routes of the bound storefront across breakpoints in one tab. Routes stay on the
    * tab's own origin; a breakpoint the sweep could not measure leaves the route unverified
    * (passed: null) instead of passing it; the tab goes back to the page it started on.
+   *
+   * A call sweeps only as many whole routes as its wall-clock budget covers (a route costs one
+   * navigation plus one sweep cell per width); the routes left over come back as `remainingRoutes`
+   * for a follow-up call, never as half-measured entries. A width whose emulation did not land is
+   * measured again (bounded) before it reads unmeasured.
    */
   public async runBatchMatrix(
     target: BrowserTarget,
     params: {
       routes: string[];
       breakpoints?: number[];
+      /** Extra `{ w, h }` viewports swept after the width breakpoints. */
+      viewports?: Array<{ w: number; h: number }>;
       tabId?: string;
-    }
+    },
+    options?: { signal?: AbortSignal; budgetMs?: number }
   ): Promise<Record<string, unknown>> {
     if (!params || !Array.isArray(params.routes) || params.routes.length === 0) {
       throw new CapabilityError('INVALID_ARGUMENT', 'routes must be a non-empty array of URLs or paths');
@@ -9095,11 +9252,12 @@ export class BrowserControlPort {
     if (params.routes.length > 20) {
       throw new CapabilityError('INVALID_ARGUMENT', 'routes cannot exceed 20 items per batch_matrix call');
     }
+    if (params.viewports !== undefined) assertSweepViewports(params.viewports);
     const tabId = this.resolveTargetTab(target, params.tabId, 'write');
     const rawBps = Array.isArray(params.breakpoints) && params.breakpoints.length > 0
       ? params.breakpoints
       : [320, 375, 768, 1024, 1440];
-    const customBreakpoints: ResponsiveBreakpointOption[] = rawBps.map((w) => {
+    const widthBreakpoints: ResponsiveBreakpointOption[] = rawBps.map((w) => {
       if (typeof w !== 'number' || !Number.isFinite(w) || w < 240 || w > 3840) {
         throw new CapabilityError('INVALID_ARGUMENT', `Invalid breakpoint width ${String(w)} (must be 240..3840)`);
       }
@@ -9113,6 +9271,7 @@ export class BrowserControlPort {
         deviceScaleFactor: width < 768 ? 2 : 1,
       };
     });
+    const customBreakpoints: ResponsiveBreakpointOption[] = resolveSweepBreakpoints(widthBreakpoints, params.viewports);
     const initialUrl = await this.getLiveTabUrl(tabId).catch(() => '');
     let baseOrigin = '';
     try {
@@ -9148,30 +9307,53 @@ export class BrowserControlPort {
       }
       return { route: trimmed, url: url.href };
     });
+    const budgetMs = options?.budgetMs ?? BATCH_MATRIX_BUDGET_MS;
+    const routesThisCall = batchRoutesWithinBudget(resolved.length, customBreakpoints.length, budgetMs);
+    const startedAt = Date.now();
+    const perWidthScript = LayoutIntegrityEngine.getBrowserScanScript('sweep', { skipLayoutShift: true });
+    const readBreakpoints = (sweep: Record<string, unknown> | undefined): Record<string, Record<string, unknown>> =>
+      sweep && typeof sweep.breakpoints === 'object' && sweep.breakpoints !== null
+        ? (sweep.breakpoints as Record<string, Record<string, unknown>>)
+        : {};
     const routeResults: Array<Record<string, unknown>> = [];
     let failedRouteCount = 0;
     let unmeasuredRouteCount = 0;
     try {
-      for (const { route, url } of resolved) {
+      for (const { route, url } of resolved.slice(0, routesThisCall)) {
+        if (options?.signal?.aborted) {
+          throw Object.assign(
+            new Error(`batch_matrix stopped before '${route}': the invocation was aborted after ${routeResults.length} of ${resolved.length} routes`),
+            { name: 'AbortError', code: 'ABORTED' }
+          );
+        }
+        if (routeResults.length > 0) {
+          const elapsed = Date.now() - startedAt;
+          const nextRouteMs = Math.max(elapsed / routeResults.length, BATCH_ROUTE_NAV_COST_MS + customBreakpoints.length * BATCH_CELL_COST_MS);
+          if (elapsed + nextRouteMs > budgetMs) break;
+        }
         const currentUrl = await this.getLiveTabUrl(tabId).catch(() => '');
         if (url !== currentUrl) {
           await this.navigate(target, url, tabId);
         }
-        const sweep = await this.responsiveCheck(
-          {
-            tabId,
-            customBreakpoints,
-            perWidthScript: LayoutIntegrityEngine.getBrowserScanScript('sweep', { skipLayoutShift: true }),
-          },
-          target
-        );
-        const bpMap = sweep && typeof sweep.breakpoints === 'object' && sweep.breakpoints !== null
-          ? (sweep.breakpoints as Record<string, Record<string, unknown>>)
-          : {};
+        const bpMap = readBreakpoints(await this.responsiveCheck({ tabId, customBreakpoints, perWidthScript }, target));
+        let retries = 0;
+        while (retries < BATCH_EMULATION_RETRIES) {
+          const notApplied = customBreakpoints.filter((bp) => bpMap[bp.id]?.emulationApplied === false);
+          if (notApplied.length === 0) break;
+          retries += 1;
+          Object.assign(bpMap, readBreakpoints(await this.responsiveCheck({ tabId, customBreakpoints: notApplied, perWidthScript }, target)));
+        }
         const verdict = batchRouteVerdict(bpMap, customBreakpoints.length);
         if (verdict.passed === false) failedRouteCount += 1;
         else if (verdict.passed === null) unmeasuredRouteCount += 1;
-        routeResults.push({ route, url, passed: verdict.passed, ...(verdict.unmeasured.length ? { unmeasured: verdict.unmeasured } : {}), breakpoints: bpMap });
+        routeResults.push({
+          route,
+          url,
+          passed: verdict.passed,
+          ...(verdict.unmeasured.length ? { unmeasured: verdict.unmeasured } : {}),
+          ...(retries > 0 ? { emulationRetries: retries } : {}),
+          breakpoints: bpMap,
+        });
       }
     } finally {
       // Leave the tab where the caller had it.
@@ -9180,14 +9362,19 @@ export class BrowserControlPort {
         await this.navigate(target, initialUrl, tabId).catch(() => undefined);
       }
     }
+    const remainingRoutes = resolved.slice(routeResults.length).map((entry) => entry.route);
     return {
       ok: true,
-      passed: failedRouteCount > 0 ? false : unmeasuredRouteCount > 0 ? null : true,
+      // Routes not yet swept leave the batch unverified: a green partial run is not a green batch.
+      passed: failedRouteCount > 0 ? false : (unmeasuredRouteCount > 0 || remainingRoutes.length > 0) ? null : true,
       tabId,
       // The settled generation of the page the tab is back on: the transport moves the session's
       // authority onto it, as it does after navigate, so the next write call is not stale.
       documentGeneration: this.host.getDocumentGeneration ? this.host.getDocumentGeneration(tabId) : undefined,
+      routesRequested: resolved.length,
       routesScanned: routeResults.length,
+      partial: remainingRoutes.length > 0,
+      ...(remainingRoutes.length > 0 ? { remainingRoutes } : {}),
       breakpoints: customBreakpoints.map((b) => b.width),
       failedRouteCount,
       unmeasuredRouteCount,

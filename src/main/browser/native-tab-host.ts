@@ -95,7 +95,11 @@ import { generateCollectionNonce, validateCollectionEnvelope } from './semantic-
 import { CapabilityError, isBootProjectId, type CapabilityErrorCode } from '../../shared/control-plane-contracts';
 import { isBenchmarkEnabled, recordBenchmark } from '../benchmark/telemetry';
 import { AsyncThemeQaQueue } from '../qa/async-qa-job-queue';
-import { confineWorkspaceRoot } from '../qa/diagnostics-filter';
+import { confineWorkspaceRoot, confineWorkspaceRootStrict } from '../qa/diagnostics-filter';
+import { assessWorkspaceRoot } from '../qa/workspace-markers';
+import type { CockpitThemeQaOptions } from '../tools/cockpit-port';
+import { requestedViewportWidth } from './viewport-request';
+import { resolveSweepBreakpoints } from './sweep-viewports';
 import {
   applyChecklistMutation,
   defaultChecklistItems,
@@ -8643,6 +8647,7 @@ export class NativeTabHost extends EventEmitter {
         : navUrl;
       const cleanUrl = cleanRestoredUrl(chosenUrl);
       this.applySiteMute(wc, state, paneId, cleanUrl);
+      void this.reassertEmulationOnCommit(id);
 
       if (typeof httpResponseCode === 'number' && httpResponseCode >= 400) {
         const origin = computeOrigin(cleanUrl, currentUrl);
@@ -10633,6 +10638,7 @@ export class NativeTabHost extends EventEmitter {
     }
     const loadOk = await waiter.promise;
     if (!loadOk) return false;
+    await this.reassertEmulationOnCommit(tabId);
     return true;
   }
   public reload(tabId: string, options?: { ownedReloadToken?: string }): boolean {
@@ -10736,6 +10742,7 @@ export class NativeTabHost extends EventEmitter {
       isSplit ? this.networkTracker.awaitQuiescence(tabId, 'mobile', quiet) : Promise.resolve(),
     ]);
 
+    await this.reassertEmulationOnCommit(tabId);
     return true;
   }
   public getNetworkTracker(): FirstPartyNetworkTracker {
@@ -11398,6 +11405,63 @@ export class NativeTabHost extends EventEmitter {
       console.error('[native-tab-host] applyTabDeviceEmulation error:', err);
     }
   }
+  /** Tabs mid-sweep: the sweep owns their emulation, so a navigation commit must not put the stored request back. */
+  private readonly sweepingEmulationTabs = new Set<string>();
+
+  /**
+   * Put the tab's stored viewport request back after a navigation commit and wait until it reaches
+   * CDP. A cross-process navigation or a reload can come up with the renderer's default layout while the
+   * host still records the requested size; callers that measure right after the load would then grade
+   * a width nobody asked for. A tab with no request (fluid responsive) has nothing to put back.
+   */
+  private async reassertEmulationOnCommit(tabId: string): Promise<void> {
+    const tab = this.tabs.get(tabId);
+    const wc = tab?.view?.webContents;
+    if (!tab || !wc || wc.isDestroyed() || this.sweepingEmulationTabs?.has(tabId)) return;
+    if (requestedViewportWidth({ ...tab.state, customViewport: tab.customViewport }) === null) return;
+    // Best effort: a navigation that landed must not fail because the emulation could not be put back.
+    try {
+      this.applyTabDeviceEmulationForTab(tabId);
+      await (this.emulationChains?.get(wc) ?? Promise.resolve()).catch(() => undefined);
+    } catch (err) {
+      console.warn(`[native-tab-host] could not re-apply viewport emulation for ${tabId} after commit:`, err instanceof Error ? err.message : err);
+    }
+  }
+
+  /**
+   * The root a QA-bearing surface may file evidence under. A caller root outside the tab's workspace
+   * or a root that is not a theme (no theme markers, or empty) is refused with the reason, and the
+   * caller writes no receipt; an unresolvable tab workspace stays '' (provisional, memory-only).
+   */
+  public guardQaWorkspaceRoot(candidate: string | undefined, resolvedRoot: string): {
+    root: string;
+    refusal?: { code: 'WORKSPACE_MISMATCH' | 'WORKSPACE_NOT_THEME'; message: string };
+  } {
+    if (!resolvedRoot) return { root: '' };
+    const strict = confineWorkspaceRootStrict(candidate, resolvedRoot);
+    if (strict.redirected) {
+      return {
+        root: '',
+        refusal: {
+          code: 'WORKSPACE_MISMATCH',
+          message: `Requested workspaceRoot '${strict.requested}' is outside the tab's workspace '${strict.root}'; no QA ran and no receipt was written`,
+        },
+      };
+    }
+    const assessment = assessWorkspaceRoot(strict.root);
+    if (!assessment.ok) {
+      const hint = assessment.suggestion ? ` Did you mean '${assessment.suggestion}'?` : '';
+      return {
+        root: '',
+        refusal: {
+          code: 'WORKSPACE_NOT_THEME',
+          message: `${assessment.reason ?? `'${strict.root}' is not a theme workspace`}${hint} No QA ran and no receipt was written`,
+        },
+      };
+    }
+    return { root: strict.root };
+  }
+
   /**
    * Apply the tab's current preset or custom viewport and wait until its CDP commands have landed.
    * A background tab is emulated inside a temporary in-place attach, as setViewportSize does: its
@@ -12908,6 +12972,40 @@ export class NativeTabHost extends EventEmitter {
     return undefined;
   }
 
+  /**
+   * Origin of the storefront the tab's project is built against, from the capsule brief. The bound
+   * tab's own capsule wins; otherwise the project's capsules must agree on one origin, so an
+   * ambiguous project answers undefined instead of a guess.
+   */
+  public getProjectStorefrontOrigin(scope: { projectId?: string; workspaceId?: string; boundTabId?: string }): string | undefined {
+    if (!this.capsuleManager) return undefined;
+    const originOf = (capsule: { brief?: { storefrontUrl?: string } }): string | undefined => {
+      const raw = capsule.brief?.storefrontUrl;
+      if (!raw) return undefined;
+      try {
+        return new URL(raw).origin;
+      } catch {
+        return undefined;
+      }
+    };
+    const capsules = this.capsuleManager.list();
+    const boundCapsuleId = scope.boundTabId ? this.getTabCapsuleId(scope.boundTabId)?.toLowerCase() : undefined;
+    if (boundCapsuleId) {
+      const own = capsules.find((c) => c.id.toLowerCase() === boundCapsuleId);
+      const ownOrigin = own ? originOf(own) : undefined;
+      if (ownOrigin) return ownOrigin;
+    }
+    if (!scope.projectId) return undefined;
+    const origins = new Set<string>();
+    for (const capsule of capsules) {
+      if (capsule.projectId !== scope.projectId) continue;
+      if (scope.workspaceId && capsule.workspaceId && capsule.workspaceId !== scope.workspaceId) continue;
+      const origin = originOf(capsule);
+      if (origin) origins.add(origin);
+    }
+    return origins.size === 1 ? origins.values().next().value : undefined;
+  }
+
   public getTabLineage(tabId: string): { tabId: string; parentTabId?: string; source: string; createdAt: number } | undefined {
     if (!this.terminalAgentAffinity || !tabId) return undefined;
     for (const entry of this.terminalAgentAffinity.values()) {
@@ -13631,7 +13729,7 @@ export class NativeTabHost extends EventEmitter {
     return this.getDevToolsHost().captureScreenshot(rect, tabId, paneId, options);
   }
 
-  public async captureVerificationScreenshot(rect?: Rectangle, tabId?: string, paneId?: SplitPaneId, options?: { format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean; timeoutMs?: number }): Promise<VerificationCaptureEnvelope> {
+  public async captureVerificationScreenshot(rect?: Rectangle, tabId?: string, paneId?: SplitPaneId, options?: { format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean; timeoutMs?: number; maxBytes?: number }): Promise<VerificationCaptureEnvelope> {
     return this.getDevToolsHost().captureVerificationScreenshot(rect, tabId, paneId, options);
   }
   public async drainTarget(
@@ -15102,7 +15200,7 @@ export class NativeTabHost extends EventEmitter {
    * requested id. `workspaceRoot` is confined to the resolved workspace (F4):
    * a traversal candidate can never steer receipts outside the real root.
    */
-  public async runThemeQa(tabId: string, options?: { workspaceRoot?: string }): Promise<{ ok: boolean; report?: unknown; error?: string }> {
+  public async runThemeQa(tabId: string, options?: CockpitThemeQaOptions): Promise<{ ok: boolean; report?: unknown; error?: string }> {
     const requestedTabId = typeof tabId === 'string' ? tabId : '';
     const tab = requestedTabId ? this.tabs.get(requestedTabId) : undefined;
     if (!tab || (tab.view?.webContents && tab.view.webContents.isDestroyed())) {
@@ -15127,16 +15225,27 @@ export class NativeTabHost extends EventEmitter {
     // Fail closed when no host root resolved: passing the candidate through
     // `confineWorkspaceRoot`'s empty-default branch would let a traversal
     // root steer receipts for an unbound tab (C). '' degrades to provisional.
-    const resolvedRoot = this.resolveTabWorkspace(requestedTabId, tab.state.url);
-    const workspaceRoot = resolvedRoot
-      ? confineWorkspaceRoot(options?.workspaceRoot, resolvedRoot)
-      : '';
+    // A redirected or non-theme root is refused: a receipt filed under it would misattribute the proof.
+    const guarded = this.guardQaWorkspaceRoot(options?.workspaceRoot, this.resolveTabWorkspace(requestedTabId, tab.state.url));
+    if (guarded.refusal) {
+      const error = `${guarded.refusal.code}: ${guarded.refusal.message}`;
+      this.setThemeQaState(requestedTabId, { status: 'error', issueCount: 0, error, updatedAt: Date.now() });
+      return { ok: false, error };
+    }
+    const workspaceRoot = guarded.root;
     this.setThemeQaState(requestedTabId, { status: 'running', issueCount: 0, updatedAt: Date.now() });
     const { promise, resolve } = Promise.withResolvers<{ ok: boolean; report?: unknown; error?: string }>();
     const gen = this.getDocumentGeneration(requestedTabId);
     this.asyncQaQueue.enqueue(requestedTabId, gen, async (signal: AbortSignal) => {
         try {
-          const report = await this.controlPlane!.validateThemeQa(target, { workspaceRoot, signal });
+          const report = await this.controlPlane!.validateThemeQa(target, {
+            workspaceRoot,
+            profile: options?.profile,
+            thresholds: options?.thresholds,
+            viewports: options?.viewports,
+            multiBreakpoint: options?.multiBreakpoint,
+            signal,
+          });
           const summary = report.summary;
           const findings = report.findings;
           const issueCount = typeof summary?.criticalCount === 'number'
@@ -15183,6 +15292,8 @@ export class NativeTabHost extends EventEmitter {
     tabId?: string;
     selector?: string;
     customBreakpoints?: Array<{ id: string; name: string; width: number; height: number; mobile: boolean; deviceScaleFactor?: number }>;
+    /** Extra `{ w, h }` viewports measured after the standard (or custom) breakpoints. */
+    viewports?: Array<{ w: number; h: number }>;
     /**
      * Script evaluated once per breakpoint, after the emulated width has taken effect. Its result is
      * returned as `integrity` on that breakpoint. Internal callers only: it is never exposed through
@@ -15206,13 +15317,7 @@ export class NativeTabHost extends EventEmitter {
     const wc = rcWc;
     const previousPreset = tab.state.devicePresetId;
     const previousCustomViewport = tab.customViewport ? { ...tab.customViewport } : undefined;
-    const testBreakpoints = opts.customBreakpoints || [
-      { id: 'mobile-small', name: 'Mobile Small (320px)', width: 320, height: 568, deviceScaleFactor: 2, mobile: true },
-      { id: 'mobile-standard', name: 'Mobile Standard (375px)', width: 375, height: 667, deviceScaleFactor: 2, mobile: true },
-      { id: 'tablet-portrait', name: 'Tablet Portrait (768px)', width: 768, height: 1024, deviceScaleFactor: 2, mobile: false },
-      { id: 'tablet-landscape', name: 'Tablet Landscape (1024px)', width: 1024, height: 768, deviceScaleFactor: 2, mobile: false },
-      { id: 'desktop-laptop', name: 'Desktop Laptop (1440px)', width: 1440, height: 900, deviceScaleFactor: 1, mobile: false },
-    ];
+    const testBreakpoints = resolveSweepBreakpoints(opts.customBreakpoints, opts.viewports);
 
     const results: Record<string, unknown> = {};
     const targetSelector = opts.selector ? JSON.stringify(opts.selector) : 'null';
@@ -15225,6 +15330,7 @@ export class NativeTabHost extends EventEmitter {
     // the call returns — so each measurement describes a live surface without the tab
     // ever becoming the visible one.
     const sweepBreakpoints = async (): Promise<void> => {
+      this.sweepingEmulationTabs?.add(targetId);
       for (const bp of testBreakpoints) {
         const sweepPreset: DevicePreset = {
           id: `sweep-${bp.id}`,
@@ -15392,6 +15498,7 @@ export class NativeTabHost extends EventEmitter {
             this.updateLayout();
           }
         } catch {}
+        this.sweepingEmulationTabs?.delete(targetId);
       }
     }, false);
 

@@ -93,6 +93,7 @@ describe('Theme QA vertical slice', () => {
     });
     await filePort.write(root, 'theme.css', 'body { color: red; }');
     const report = await workflow.validate({
+      profile: 'audit',
       runId: 'run-12345678901234567890',
       attemptId: 'attempt-12345678901234567890',
       workspaceRoot: root,
@@ -146,6 +147,7 @@ describe('Theme QA vertical slice', () => {
     });
 
     const report = await workflow.validate({
+      profile: 'audit',
       runId: 'run-12345678901234567890',
       attemptId: 'attempt-12345678901234567890',
       workspaceRoot: root,
@@ -193,6 +195,7 @@ describe('Theme QA vertical slice', () => {
       reload: (value) => browser.reload(value),
     });
     const report = await workflow.validate({
+      profile: 'audit',
       runId: 'run-12345678901234567890',
       attemptId: 'attempt-12345678901234567890',
       workspaceRoot: root,

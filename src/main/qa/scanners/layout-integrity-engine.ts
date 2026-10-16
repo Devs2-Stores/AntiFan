@@ -1,5 +1,5 @@
 export interface LayoutIntegrityFinding {
-  kind: 'overlap' | 'clipping' | 'occlusion' | 'offscreen' | 'zero-size' | 'sticky-obstruction' | 'layout-shift' | 'spacing';
+  kind: 'overlap' | 'clipping' | 'occlusion' | 'offscreen' | 'zero-size' | 'sticky-obstruction' | 'layout-shift' | 'spacing' | 'timed-popup-occluder';
   ruleId?: string; // present on 'spacing' findings: which clearance rule fired
   severity: 'critical' | 'warning';
   selector: string; // best-effort CSS path, capped 200 chars
@@ -669,7 +669,7 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
       else if (ps.textAlign === 'start') side = rtl ? 'right' : 'left';
       else if (ps.textAlign === 'end') side = rtl ? 'left' : 'right';
       if (!side) continue;
-      if (unsettled(p) || movingBetween(p, null) || p.closest(CAROUSEL_SLIDE) || alphaOf(p) < 0.3) continue;
+      if (unsettled(p) || movingBetween(p, null) || p.closest(CAROUSEL_SLIDE) || alphaOf(p) < 0.3 || p.closest('[aria-hidden="true"]')) continue;
       const box = edgeBoxOf(p, true);
       if (!box) continue;
       measured++;
@@ -760,6 +760,72 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
             });
           }
         }
+      }
+    }
+    // ---- 3c. min-gap: interactive siblings and text-against-media pressed together ------------
+    // Neighbours in one flow container closer than the touch-density minimum. A gap under half a
+    // pixel is a joined group (segmented control, stepper), and a negative gap is the overlap
+    // detector's finding, so neither counts here. Inline siblings are skipped: their gap is the
+    // surrounding text's word space.
+    const T_MIN_GAP = vw <= 480 ? 8 : 6;
+    const MEDIA_BOX = 'img, picture, video';
+    const seenMinGap = new Set();
+    for (let i = 0; i < elementLimit; i++) {
+      const parent = allElements[i];
+      if (parent.children.length < 2 || parent.closest('svg, head') || parent.closest(CAROUSEL_SLIDE)) continue;
+      const ps = cs(parent);
+      if (ps.display === 'none' || ps.display === 'contents' || !painted(parent)) continue;
+      const ch = parent.children;
+      for (let a = 0; a < ch.length - 1; a++) {
+        const elA = ch[a];
+        const elB = ch[a + 1];
+        const sA = cs(elA);
+        const sB = cs(elB);
+        if (sA.display === 'inline' || sB.display === 'inline') continue;
+        if ((sA.position !== 'static' && sA.position !== 'relative') || (sB.position !== 'static' && sB.position !== 'relative')) continue;
+        if (!painted(elA) || !painted(elB) || isSrOnly(elA) || isSrOnly(elB)) continue;
+        const rA = elA.getBoundingClientRect();
+        const rB = elB.getBoundingClientRect();
+        if (rA.width < 8 || rA.height < 8 || rB.width < 8 || rB.height < 8) continue;
+        if (rA.bottom <= 0 || rB.top >= vh || rA.right <= 0 || rB.left >= vw) continue;
+        const bothInteractive = elA.matches(ACTIONABLE) && elB.matches(ACTIONABLE);
+        const mediaPair = (elA.matches(MEDIA_BOX) && !elB.matches(MEDIA_BOX)) || (elB.matches(MEDIA_BOX) && !elA.matches(MEDIA_BOX));
+        if (!bothInteractive && !mediaPair) continue;
+        const yOverlap = span(rA.top, rA.bottom, rB.top, rB.bottom);
+        const xOverlap = span(rA.left, rA.right, rB.left, rB.right);
+        let gap = null;
+        let axis = '';
+        if (yOverlap >= Math.min(rA.height, rB.height) * 0.5 && xOverlap <= 0) {
+          gap = Math.max(rB.left - rA.right, rA.left - rB.right);
+          axis = 'horizontal';
+        } else if (xOverlap >= Math.min(rA.width, rB.width) * 0.5 && yOverlap <= 0) {
+          gap = Math.max(rB.top - rA.bottom, rA.top - rB.bottom);
+          axis = 'vertical';
+        }
+        if (gap === null || gap < 0.5 || gap >= T_MIN_GAP) continue;
+        if (mediaPair) {
+          const textBox = elA.matches(MEDIA_BOX) ? elB : elA;
+          if (alphaOfColor(cs(textBox).backgroundColor) >= 0.1 || !firstTextRect(textBox, false)) continue;
+          if ((parseFloat(cs(textBox).paddingTop) || 0) + (parseFloat(cs(textBox).paddingLeft) || 0) >= T_MIN_GAP) continue;
+        }
+        measured++;
+        const selA = getSelector(elA);
+        const selB = getSelector(elB);
+        const key = selA + '|' + selB;
+        if (seenMinGap.has(key)) continue;
+        seenMinGap.add(key);
+        flagged++;
+        const gapVal = Math.round(gap * 10) / 10;
+        push({
+          kind: 'spacing',
+          ruleId: 'min-gap',
+          severity: 'warning',
+          selector: selB,
+          relatedSelector: selA,
+          actualPx: gapVal,
+          details: (bothInteractive ? 'Interactive siblings ' : 'Text block and media ') + selA + ' and ' + selB + ' are ' + gapVal + 'px apart (' + axis + '), under the ' + T_MIN_GAP + 'px minimum gap',
+          rect: toRect(rB),
+        });
       }
     }
     const runsByOwner = new Map();
@@ -1013,7 +1079,7 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
       const w = run.vis.right - run.vis.left;
       const h = run.vis.bottom - run.vis.top;
       if (w < 2 || h < 4 || h < run.r.height * 0.5) continue;
-      if (unsettled(run.p)) continue;
+      if (unsettled(run.p) || run.p.closest('[aria-hidden="true"]')) continue;
       run.layer = layerOf(run.p);
       live.push(run);
     }
@@ -1054,6 +1120,87 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
   }
 
   mark('textOverText');
+  // ---- 5a. popups open without a shopper action that cover page content ------------------------
+  // Nothing is clicked during a scan, so a popup that is open now opened on its own (timer, scroll
+  // or load trigger). A way out is a painted control named close/dismiss/gate by its aria-label,
+  // title or text content, each tested alone: a glyph button often carries an unrelated
+  // aria-label, and an icon button only a title. A toggle that controls the popup also counts.
+  const CLOSE_TEXT = /^(đóng|close|×|✕|✖|x|tắt|bỏ qua|để sau|skip|no thanks|không, cảm ơn)$/i;
+  const CLOSE_GLYPH = /^[x×✕✖✗?]$/i;
+  // A gate the shopper answers to get in (age check, consent wall): the answer is the way out.
+  // Short answers must be the whole name; "Có hàng" is a filter option, not an answer.
+  const GATE_TEXT = /^(ok|yes|có|i agree|i accept)$|^(xác nhận|đồng ý|chấp nhận|tiếp tục|vào trang|vào cửa hàng|vào website|accept|agree|confirm|continue|enter)(?=$|[\s!.,:])|(đủ|trên)\s*(18|21)\s*tuổi|(^|\s)(18|21)\s*\+|\b(over|above)\s+(18|21)\b|\bof\s+(legal\s+)?age\b/i;
+  const dismissible = (layer) => {
+    // A toggle that controls the layer is a way out only while the shopper can reach it.
+    const toggles = layer.id ? document.querySelectorAll('[aria-controls~="' + CSS.escape(layer.id) + '"]') : [];
+    for (let i = 0; i < toggles.length; i++) {
+      const tr = toggles[i].getBoundingClientRect();
+      const cx = (tr.left + tr.right) / 2;
+      const cy = (tr.top + tr.bottom) / 2;
+      if (tr.width < 1 || tr.height < 1 || cx < 0 || cx >= vw || cy < 0 || cy >= vh) continue;
+      const hit = document.elementFromPoint(cx, cy);
+      if (hit && (hit === toggles[i] || toggles[i].contains(hit))) return true;
+    }
+    const inner = layer.querySelectorAll(ACTIONABLE);
+    for (let i = 0; i < inner.length; i++) {
+      const c = inner[i];
+      if (!painted(c)) continue;
+      const text = (c.textContent || '').trim();
+      const names = [c.getAttribute('aria-label'), c.getAttribute('title'), text].map((v) => (v || '').trim()).filter(Boolean);
+      if (names.some((n) => CLOSE_TEXT.test(n) || GATE_TEXT.test(n)) || CLOSE_GLYPH.test(text) || /close|dismiss/i.test(String(c.className) + ' ' + c.id)) return true;
+    }
+    return false;
+  };
+  try {
+    const POPUP_NAME = /modal|popup|popnoti|dialog|lightbox|newsletter|toast|snackbar|cookie|consent/i;
+    const popups = [];
+    for (let i = 0; i < elementLimit; i++) {
+      const el = allElements[i];
+      const pos = cs(el).position;
+      if (pos !== 'fixed' && pos !== 'absolute') continue;
+      const role = el.getAttribute('role');
+      const semantic = role === 'dialog' || role === 'alertdialog' || el.getAttribute('aria-modal') === 'true' || (el.tagName === 'DIALOG' && el.open);
+      const named = POPUP_NAME.test(el.tagName + ' ' + (el.id || '') + ' ' + (typeof el.className === 'string' ? el.className : ''));
+      if (!semantic && !named) continue;
+      if (el.closest(PLATFORM_PREVIEW_CHROME) || unsettled(el) || isSrOnly(el) || !painted(el)) continue;
+      const pr = el.getBoundingClientRect();
+      if (pr.width < 8 || pr.height < 8 || pr.right <= 0 || pr.bottom <= 0 || pr.left >= vw || pr.top >= vh) continue;
+      popups.push({ el: el, r: pr });
+    }
+    const insidePopup = (el) => popups.some((p) => p.el.contains(el));
+    for (let i = 0; i < popups.length; i++) {
+      const pop = popups[i];
+      if (popups.some((o) => o !== pop && o.el.contains(pop.el))) continue;
+      const ps = cs(pop.el);
+      const bgAlpha = alphaOfColor(ps.backgroundColor);
+      const hasImage = Boolean(ps.backgroundImage && ps.backgroundImage !== 'none');
+      const hasContent = (pop.el.textContent || '').trim() || pop.el.querySelector('img, svg, button, a, input, select, textarea');
+      if (!hasContent && bgAlpha < 0.02 && !hasImage) continue;
+      const spanning = pop.r.width >= vw * 0.9 && pop.r.height >= vh * 0.9;
+      const opaque = bgAlpha >= 0.95 || hasImage;
+      let covered = null;
+      const probe = (el, vis, label) => {
+        if (covered || insidePopup(el) || unsettled(el)) return;
+        if (span(vis.left, vis.right, pop.r.left, pop.r.right) <= 0 || span(vis.top, vis.bottom, pop.r.top, pop.r.bottom) <= 0) return;
+        const cx = (vis.left + vis.right) / 2;
+        const cy = (vis.top + vis.bottom) / 2;
+        if (cx < 0 || cy < 0 || cx >= vw || cy >= vh) return;
+        const hit = document.elementFromPoint(cx, cy);
+        if (hit && pop.el.contains(hit)) covered = label;
+      };
+      for (let c = 0; c < controls.length && !covered; c++) if (controls[c].vis) probe(controls[c].el, controls[c].vis, 'control ' + getSelector(controls[c].el));
+      for (let r = 0; r < runs.length && !covered; r++) if (runs[r].vis && !runs[r].p.closest('[aria-hidden="true"]')) probe(runs[r].p, runs[r].vis, 'text "' + snippet(runs[r].n.nodeValue) + '"');
+      if (!covered) continue;
+      const dismiss = dismissible(pop.el);
+      // A full-viewport popup with a way out is a modal opened on purpose; an opaque one with
+      // none is graded by the fixed-layer trap check in the sweep.
+      if (spanning && (dismiss || opaque)) continue;
+      push({ kind: 'timed-popup-occluder', severity: dismiss ? 'warning' : 'critical', selector: getSelector(pop.el), details: 'Popup ' + getSelector(pop.el) + ' is open without any shopper action and covers ' + covered + (dismiss ? '' : '; it has no close control (aria-label, title or text)'), rect: toRect(pop.r) });
+    }
+  } catch (err) {
+    detectorFailed('timed-popup', err);
+  }
+
   // ---- 5. actionable controls stacked on each other ----------------------------------------
   const isAbsoluteOverlayOver = (control, other) => {
     for (let curr = control; curr && !curr.contains(other); curr = curr.parentElement) {
@@ -1213,29 +1360,6 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
     const reportedOwners = new Set();
     // target index -> foreign fixed/sticky layer that last deferred it
     const deferLayer = new Map();
-    const CLOSE_TEXT = /^(đóng|close|×|✕|✖|x|tắt|bỏ qua|để sau|skip|no thanks|không, cảm ơn)$/i;
-    // A gate the shopper answers to get in (age check, consent wall): the answer is the way out.
-    // Short answers must be the whole name; "Có hàng" is a filter option, not an answer.
-    const GATE_TEXT = /^(ok|yes|có|i agree|i accept)$|^(xác nhận|đồng ý|chấp nhận|tiếp tục|vào trang|vào cửa hàng|vào website|accept|agree|confirm|continue|enter)(?=$|[\s!.,:])|(đủ|trên)\s*(18|21)\s*tuổi|(^|\s)(18|21)\s*\+|\b(over|above)\s+(18|21)\b|\bof\s+(legal\s+)?age\b/i;
-    const dismissible = (layer) => {
-      // A toggle that controls the layer is a way out only while the shopper can reach it.
-      const toggles = layer.id ? document.querySelectorAll('[aria-controls~="' + CSS.escape(layer.id) + '"]') : [];
-      for (let i = 0; i < toggles.length; i++) {
-        const tr = toggles[i].getBoundingClientRect();
-        const cx = (tr.left + tr.right) / 2;
-        const cy = (tr.top + tr.bottom) / 2;
-        if (tr.width < 1 || tr.height < 1 || cx < 0 || cx >= vw || cy < 0 || cy >= vh) continue;
-        const hit = document.elementFromPoint(cx, cy);
-        if (hit && (hit === toggles[i] || toggles[i].contains(hit))) return true;
-      }
-      const inner = layer.querySelectorAll(ACTIONABLE);
-      for (let i = 0; i < inner.length; i++) {
-        const c = inner[i];
-        const name = (c.getAttribute('aria-label') || c.getAttribute('title') || c.textContent || '').trim();
-        if (CLOSE_TEXT.test(name) || GATE_TEXT.test(name) || /close|dismiss/i.test(String(c.className) + ' ' + c.id)) return true;
-      }
-      return false;
-    };
     // A fixed layer painted over text in another fixed layer: the two never move against each
     // other, so what the upper one hides there stays hidden at every scroll offset (a chat bubble
     // on the label of a bottom checkout bar). Four pixels of the glyph line is the floor
@@ -1338,20 +1462,59 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
         break;
       }
     }
-    const checkFixedStickyLayerCollisions = (scrollTag) => {
-      const layers = [];
+    const stickyPort = (el) => {
+      for (let p = el.parentElement; p && p !== body && p !== doc; p = p.parentElement) {
+        if (cs(p).overflowY !== 'visible') return p;
+      }
+      return null;
+    };
+    // A sticky box floats over content only while it is stuck at its top/bottom offset inside its
+    // scrollport; once the container's end releases it, it scrolls away as ordinary flow.
+    const releasedSticky = (l, r) => {
+      const st = cs(l);
+      if (st.position !== 'sticky') return false;
+      const pe = stickyPort(l);
+      let top = 0;
+      let bottom = vh;
+      if (pe) {
+        const pr = pe.getBoundingClientRect();
+        top = pr.top + pe.clientTop;
+        bottom = top + pe.clientHeight;
+      }
+      const t = parseFloat(st.top);
+      const b = parseFloat(st.bottom);
+      return !((!isNaN(t) && Math.abs(r.top - (top + t)) <= 1) || (!isNaN(b) && Math.abs(bottom - r.bottom - b) <= 1));
+    };
+    // Fixed/sticky layers are collected once at scroll 0; every check re-reads their geometry.
+    const layerCandidates = [];
+    const stickyOnsets = [];
+    {
       const seenLayers = new Set();
       for (let i = 0; i < elementLimit; i++) {
         const el = allElements[i];
         const pos = cs(el).position;
         if (pos !== 'fixed' && pos !== 'sticky') continue;
         const l = layerOf(el);
-        if (!l || seenLayers.has(l) || unsettled(l) || isSrOnly(l) || !painted(l) || alphaOf(l) < 0.5) continue;
+        if (!l || seenLayers.has(l) || isSrOnly(l)) continue;
         if (l.closest(PLATFORM_PREVIEW_CHROME) || l.closest(DIALOG_SEL)) continue;
+        seenLayers.add(l);
+        layerCandidates.push(l);
+        const ls = cs(l);
+        const stickTop = parseFloat(ls.top);
+        if (ls.position === 'sticky' && !isNaN(stickTop) && stickyOnsets.length < 8 && !stickyPort(l)) {
+          stickyOnsets.push(Math.round(l.getBoundingClientRect().top - stickTop) + 1);
+        }
+      }
+    }
+    const checkFixedStickyLayerCollisions = (scrollTag) => {
+      const layers = [];
+      for (let i = 0; i < layerCandidates.length; i++) {
+        const l = layerCandidates[i];
+        if (unsettled(l) || !painted(l) || alphaOf(l) < 0.5) continue;
         const lr = l.getBoundingClientRect();
         if (lr.width < 16 || lr.height < 16 || lr.bottom <= 0 || lr.top >= vh || lr.right <= 0 || lr.left >= vw) continue;
         if (lr.width >= vw * 0.9 && lr.height >= vh * 0.9) continue;
-        seenLayers.add(l);
+        if (releasedSticky(l, lr)) continue;
         layers.push({ layer: l, r: lr });
       }
       for (let a = 0; a < layers.length; a++) {
@@ -1391,6 +1554,36 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
       }
     };
     checkFixedStickyLayerCollisions('');
+    // Fixed and stuck bars (header, announcement, bottom nav, cookie strip) share the viewport with
+    // the content. When together they take more than 40% of its height the page has no room left to
+    // read; a short landscape phone viewport is where this shows first.
+    {
+      const bars = [];
+      let chromePx = 0;
+      for (let i = 0; i < layerCandidates.length; i++) {
+        const l = layerCandidates[i];
+        if (unsettled(l) || !painted(l) || alphaOf(l) < 0.5) continue;
+        const lr = l.getBoundingClientRect();
+        if (lr.width < vw * 0.5 || lr.height < 8 || lr.bottom <= 0 || lr.top >= vh) continue;
+        if (lr.width >= vw * 0.9 && lr.height >= vh * 0.9) continue;
+        if (releasedSticky(l, lr)) continue;
+        if (bars.some((b) => b.layer.contains(l) || l.contains(b.layer))) continue;
+        bars.push({ layer: l, r: lr });
+        chromePx += Math.min(lr.bottom, vh) - Math.max(lr.top, 0);
+      }
+      if (bars.length && chromePx > vh * 0.4) {
+        const biggest = bars.reduce((m, b) => (b.r.height > m.r.height ? b : m), bars[0]);
+        push({
+          kind: 'sticky-obstruction',
+          ruleId: 'fixed-chrome-ratio',
+          severity: 'critical',
+          selector: getSelector(biggest.layer),
+          actualPx: Math.round(chromePx),
+          details: bars.length + ' fixed/sticky bars take ' + Math.round(chromePx) + 'px of the ' + vh + 'px viewport height (' + Math.round((chromePx / vh) * 100) + '%, limit 40%), leaving ' + Math.round(vh - chromePx) + 'px for content',
+          rect: toRect(biggest.r),
+        });
+      }
+    }
     for (let s = 0; s < steps.length; s++) {
       const want = steps[s];
       const got = s === 0 ? 0 : scrollToY(want);
@@ -1403,6 +1596,7 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
         break;
       }
       stats.sweepSteps++;
+      if (s > 0) checkFixedStickyLayerCollisions('at scrollY=' + Math.round(got));
       // Bars that can hide a band of a line here: an opaque top bar at page load, a bottom bar at
       // the end of the page. A third of a line or control under one is unreadable or untappable
       // even while its centre is clear.
@@ -1506,6 +1700,15 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
           push({ kind: kind, severity: 'critical', selector: getSelector(tg.owner), details: tg.label + ' is covered by ' + getSelector(first.by) + (first.sticky ? ' (fixed/sticky bar ' + first.sticky + ')' : '') + ' at page y=' + Math.round(at + (tg.fixed ? 0 : got)), rect: toRect({ left: tg.vis.left, top: tg.vis.top, right: tg.vis.right, bottom: tg.vis.bottom }) });
         }
       }
+    }
+    // A sticky box is stuck only inside a window of offsets that the sweep strides can step over:
+    // probe once just after each sticky layer first reaches its top offset.
+    for (let o = 0; o < stickyOnsets.length; o++) {
+      const want = stickyOnsets[o];
+      if (want <= 0 || want > maxScroll || steps.some((v) => Math.abs(v - want) < 2)) continue;
+      const got = scrollToY(want);
+      if (Math.abs(got - want) > 2) continue;
+      checkFixedStickyLayerCollisions('at scrollY=' + Math.round(got));
     }
     // A fixed layer spanning the viewport with its own opaque surface hides the page at every
     // scroll offset: what lies under it was deferred at each step and never came clear. A modal or

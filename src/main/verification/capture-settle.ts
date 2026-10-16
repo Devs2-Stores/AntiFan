@@ -250,16 +250,29 @@ export interface DomQuietOptions {
   ignoreSelectors?: string[];
 }
 
+/**
+ * Selectors whose subtree mutations never reset the DOM-quiet window. Kept deliberately
+ * narrow and echoed on every receipt: a wildcard such as `[class*="ticker"]` would hide
+ * unrelated components and turn an unsettled page into a pass.
+ */
+export const DEFAULT_DOM_QUIET_IGNORE: readonly string[] = Object.freeze([
+  '[data-countdown]', '[data-timer]', '.timer', '.countdown',
+  '[data-live-visitor]', '.live-views', '.marquee',
+]);
+
+/** Defaults plus the caller's per-call selectors, de-duplicated, in the order the page script applies them. */
+export function effectiveDomQuietIgnore(extra?: readonly string[]): string[] {
+  const out: string[] = [...DEFAULT_DOM_QUIET_IGNORE];
+  for (const selector of extra ?? []) {
+    if (typeof selector === 'string' && selector.trim() && !out.includes(selector)) out.push(selector);
+  }
+  return out;
+}
+
 export function buildDomQuietScript(timeoutMs: number, options: DomQuietOptions = {}): string {
   const maxTimeout = Math.max(1, timeoutMs);
   const quietWindowMs = Math.min(50, Math.max(10, Math.floor(maxTimeout / 3)));
-  const defaultIgnore = [
-    '[data-countdown]', '[data-timer]', '.timer', '.countdown',
-    '[data-live-visitor]', '.live-views', '.marquee', '[class*="ticker"]'
-  ];
-  const combinedIgnore = options.ignoreSelectors && options.ignoreSelectors.length > 0
-    ? [...defaultIgnore, ...options.ignoreSelectors]
-    : defaultIgnore;
+  const combinedIgnore = effectiveDomQuietIgnore(options.ignoreSelectors);
   const scopeSelectorJson = JSON.stringify(options.scopeSelector || null);
   const ignoreListJson = JSON.stringify(combinedIgnore);
 
@@ -305,7 +318,8 @@ export function buildDomQuietScript(timeoutMs: number, options: DomQuietOptions 
         : (typeof document !== 'undefined' ? document.documentElement : null);
 
       const ignoreList = ${ignoreListJson};
-      const shouldIgnoreNode = (node) => {
+      const shouldIgnoreNode = (rawNode) => {
+        const node = rawNode && rawNode.nodeType === 3 ? rawNode.parentElement : rawNode;
         if (!node || node.nodeType !== 1) return false;
         for (let i = 0; i < ignoreList.length; i++) {
           try {
@@ -528,6 +542,8 @@ export interface PreCaptureQuiescenceResult {
     rotatedImages: number;
     /** Predicates satisfied by tolerance rather than by an exact reading. */
     toleratedPredicates: string[];
+    /** True when a fonts-only refusal was re-sampled once after waiting on document.fonts.ready. */
+    fontsRetried?: boolean;
   };
 }
 
@@ -751,11 +767,42 @@ export function buildPreCaptureSampleExpr(options: { fullPage?: boolean } = {}):
 
 export const PRE_CAPTURE_SAMPLE_EXPR = buildPreCaptureSampleExpr({ fullPage: false });
 
+/** How long a fonts-only refusal waits (while actively awaiting document.fonts.ready) before its single re-sample. */
+export const FONTS_RETRY_WAIT_MS = 1500;
+
+/**
+ * Quiescence gate with one bounded retry for the one predicate a wait can clear without any
+ * page change: fonts. A web font still downloading reads `status: 'loading'` and flips to
+ * `loaded` by itself, so refusing on the first reading turned a slow font CDN into a failed
+ * capture. The retry runs only when fonts were the sole failing predicate; any other refusal,
+ * or a second fonts failure, is returned as measured.
+ */
 export async function evaluatePreCaptureQuiescence(
   evalHost: EvalHost,
   tabId: string,
   paneId: 'desktop' | 'mobile' = 'desktop',
-  options: { dwellMs?: number; signal?: AbortSignal; fullPage?: boolean } = {}
+  options: { dwellMs?: number; signal?: AbortSignal; fullPage?: boolean; fontsRetryWaitMs?: number } = {}
+): Promise<PreCaptureQuiescenceResult> {
+  const first = await evaluatePreCaptureQuiescenceOnce(evalHost, tabId, paneId, options);
+  const p = first.predicates;
+  const onlyFontsFailed =
+    !first.ready &&
+    first.failingPredicate === 'fontsSettled' &&
+    p.documentGenerationSettled && p.viewportStable && p.imagesSettled && p.imageIdentityStable && p.layoutStable;
+  const retryWaitMs = options.fontsRetryWaitMs ?? FONTS_RETRY_WAIT_MS;
+  if (!onlyFontsFailed || retryWaitMs <= 0 || options.signal?.aborted) return first;
+  try {
+    await evalHost.evalJs(buildFontSettleScript(retryWaitMs), tabId, paneId);
+  } catch {}
+  const second = await evaluatePreCaptureQuiescenceOnce(evalHost, tabId, paneId, options);
+  return { ...second, measurements: { ...second.measurements, fontsRetried: true } };
+}
+
+async function evaluatePreCaptureQuiescenceOnce(
+  evalHost: EvalHost,
+  tabId: string,
+  paneId: 'desktop' | 'mobile',
+  options: { dwellMs?: number; signal?: AbortSignal; fullPage?: boolean }
 ): Promise<PreCaptureQuiescenceResult> {
   const t0 = Date.now();
   const dwellMs = options.dwellMs ?? 250;

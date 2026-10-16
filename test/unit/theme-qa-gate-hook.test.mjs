@@ -138,6 +138,19 @@ function makeWorkspace() {
   return root;
 }
 
+/** A complete, root-matching CERTIFIED pass: the only receipt shape that clears the gate on its own. */
+function certifiedReceipt(workspaceRoot) {
+  return {
+    receiptVersion: "1.2",
+    workspaceRoot,
+    verdict: "QA_PASSED",
+    passed: true,
+    execution: "COMPLETED",
+    errorCode: null,
+    certification: "CERTIFIED",
+  };
+}
+
 function partText(part) {
   if (typeof part === "string") return part;
   if (part && typeof part === "object" && typeof part.text === "string") return part.text;
@@ -1617,7 +1630,11 @@ test("a receipt one level under the bound root clears the ancestor's pending edi
 
   writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
   const nestedReceipt = path.join(childReceipts, "r1.json");
-  fs.writeFileSync(nestedReceipt, JSON.stringify({ createdAt: new Date().toISOString() }), "utf8");
+  fs.writeFileSync(
+    nestedReceipt,
+    JSON.stringify({ ...certifiedReceipt(path.join(root, "shopproj")), createdAt: new Date().toISOString() }),
+    "utf8"
+  );
   // NTFS can stamp a file written right after the edit a few ms BEFORE the
   // hook's Date.now() edit time; pin the mtime after the edit so the receipt is fresh.
   const nestedFresh = new Date(Date.now() + 5_000);
@@ -1881,7 +1898,7 @@ test("theme-qa-gate keeps pendingEdits armed and formats reminder when receipt h
   fs.writeFileSync(
     passedReceipt,
     JSON.stringify({
-      verdict: "QA_PASSED",
+      ...certifiedReceipt(root),
       createdAt: new Date(Date.now() + 1000).toISOString(),
       settingsRatchet: {
         ok: true,
@@ -2045,7 +2062,7 @@ test("theme-qa-gate keeps gate armed when newest receipt is valid JSON but not a
 
   // A future-pass receipt still clears afterward — the gate didn't pin.
   const realPass = path.join(receiptsDir, "z-realpass.json");
-  fs.writeFileSync(realPass, JSON.stringify({ verdict: "QA_PASSED" }), "utf8");
+  fs.writeFileSync(realPass, JSON.stringify(certifiedReceipt(root)), "utf8");
   const future = new Date(Date.now() + 60_000);
   fs.utimesSync(realPass, future, future);
   const clearedRes = resText(result(handlers, ctx, "read", "read"));

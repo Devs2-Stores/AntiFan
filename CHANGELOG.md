@@ -6,6 +6,35 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 
 ## [v1.3.6] - Unreleased
 
+### Sửa — Pipeline theme: QA chỉ PASS khi CERTIFIED, thêm probe cho lỗi user hay bắt (audit 4 phiên Sky Fashion, Smart Furniture, PC, An Vặt)
+
+- **Ngưỡng mặc định:** `theme.qa_validate`, cockpit scan, toolbar scan và repair coordinator lấy `thresholds` theo thứ tự: tham số gọi → contract của theme → giá trị mặc định khớp `registry/thresholds.json` của kit (`qa-thresholds.ts`). Gọi trần dưới `build-strict` không còn luôn INCONCLUSIVE; receipt ghi `thresholdsSource`, `certification`, `certificationReasons`, `scope`.
+- **Kích thước viewport:** host đặt lại viewport đã yêu cầu sau mỗi lần commit điều hướng/reload (trừ tab fluid và tab đang sweep). `getViewport` trả `requestedWidth`/`observedWidth`/`mismatch`; QA ghi gap `VIEWPORT_MISMATCH` thay vì chấm desktop ở 949px.
+- **Rule mới trong scanner:** `min-gap` (khoảng cách giữa control/khối chữ/media), `fixed-chrome-ratio` (header/footer cố định chiếm quá nhiều chiều cao), `title-scale`, `input-height-band`, `image-crop`/`image-low-res`; state matrix thêm `MODAL_UNSTYLED`, và Escape không nhận focus/keydown giờ là `CLOSE_ESCAPE_UNMEASURED` thay vì fail sai. Trên trang sản phẩm, state matrix tự nạp opener của PDP.
+- **Probe mới qua MCP:** `anti.qa.variant_image_probe` (bấm màu mà ảnh không đổi), `anti.qa.pdp_contract` (thiếu size guide, nút mua, giá…), `anti.qa.menu_depth` (menu 3 cấp/megamenu có hiện thật), `anti.qa.page_structure` (số section trang chủ 6–10, thứ tự, hero đầu), `anti.qa.pick_product` (chọn sản phẩm khó để QA) và `theme.package_check` (zip export: secret, file thiếu, asset gãy, diff form Partners).
+- **Checklist tự tick:** `theme.cockpit_scan` chạy probe theo trang và tick/un-tick các mục đã đo; mục người dùng vừa đổi không bị ghi đè. Thêm mục size guide cho PDP và trường `measuredBy`.
+- **Chống ghi receipt sai chỗ:** QA từ chối root không phải theme (`WORKSPACE_NOT_THEME`), gợi ý thư mục có dấu khi root là bản ASCII lạc; checklist và cockpit scan vẫn quy root về root đang bind như cũ.
+- **Hook QA:** gate và QA debt chỉ xoá bởi receipt `CERTIFIED` đúng root, hoặc pass theo annotation có trước lần sửa. Receipt `STRUCTURAL` hoàn chỉnh cho phép khai báo `QA_STRUCTURAL_ONLY`: gate đóng nhưng debt `structural-only` còn tới khi có `CERTIFIED`. Lời nhắc nêu lý do chưa CERTIFIED.
+- **Chụp ảnh:** `full_page` không còn giới hạn 16384 CSS px: chụp theo tile rồi ghép, trần 150M device px, artifact tới 64 MiB; nhận `format: 'jpeg'`, PNG quá trần được mã hoá lại JPEG kèm `fallbackReason`. Tab nền không ra frame thì được kích hoạt tạm rồi trả lại tab cũ, không còn bảo khởi động lại app. Settle chờ `document.fonts.ready` thêm một lần khi chỉ thiếu font.
+- **Hover thật:** `anti.agent.cursor.hover` kiểm `:hover`; chưa ăn thì cuộn vào khung và tiếp cận 3 bước, vẫn không ăn thì trả `HOVER_NOT_ACTIVE`.
+- **Batch matrix:** chạy trọn route trong ngân sách 180 s mỗi lần gọi và trả `remainingRoutes` (lô dở dang không bao giờ PASS); width chưa áp được emulation thử lại tối đa 2 lần. Nhận `viewports` tuỳ chọn (cả viewport thấp như 667×375).
+- **Binding tab:** tab đã bind chết thì `TARGET_STALE` kèm `autoBindCandidate` (storefront cùng project), `rebind_target({ tabId: 'auto' })` bind vào đó; proxy tự rebind một lần. Proxy báo một lần khi app đang chạy bản cũ không trả lời `catalogue.digest`.
+- **`await_cdn_sync` với `.liquid`:** cần `expectContains`/`expectNotContains`; poll asset đã compile tới khi khớp.
+- **Chẩn đoán mất cửa sổ project:** mỗi lần cửa sổ project mất ghi một dòng log `project-window-lost`; nguyên nhân gốc chưa tái hiện được.
+- Cần build lại và khởi động lại AntiFan Desktop để có hiệu lực; `npm run hooks:install` cập nhật hook OMP.
+
+### Sửa — QA theme không còn PASS sai (đo trên S2 Sky Fashion)
+
+- **Receipt v1.3 nói thật:** thêm `callId`, `profile`, `coverage`/`coverageFloor`, `measuredRules`, `waivers`, `settle{failingPredicate, domUnstable, evidenceGaps, ignoreSelectors, scopeSelector, retries}`, `expectedStatus`, `workspaceRootRequested`/`workspaceRootRedirected`. Lượt chạy DEGRADED ghi `errorCode: SETTLE_INCOMPLETE` + `errorReason` (trước đây `errorCode: null`). Ghi receipt lỗi thì báo `RECEIPT_WRITE_FAILED` và hạ `CERTIFIED` xuống `STRUCTURAL`. `workspaceRoot` nằm ngoài root đang bind bị từ chối `WORKSPACE_MISMATCH`, không ghi receipt.
+- **`theme.qa_validate` mặc định `build-strict`**, `coverageFloor` mặc định 1. Nhận `thresholds`, `waivers`, `ignoreSelectors`, `scopeSelector`, `settle`, `expectedStatus`. (Sau đó `ThemeQaWorkflow.validate` cũng mặc định `build-strict` và `thresholds` có giá trị mặc định — xem mục pipeline theme ở trên.)
+- **Settle:** `ignoreSelectors` được chuyển tới capture settle (bộ đếm ngược/ticker không còn làm DEGRADED). Mutation của text node được quy về phần tử cha; wildcard `[class*="ticker"]` bị bỏ, cần khai báo tường minh. Khi `fonts` chưa settle thì retry đúng một lần, ghi vào `settleRetries`.
+- **Bớt báo sai trong ma trận:** CSP report-only dạng `Framing '<url>' violates the following report-only Content Security Policy` không còn làm fail ô. Route khai báo `expectedStatus: 404` bỏ qua `ROUTE_404`. Redirect sang trang đăng nhập làm mất `themeid` thì trả `INCONCLUSIVE`/`AUTH_REDIRECT` thay vì ném lỗi.
+- **Scanner:** tap target tính cả vùng chạm của `::before`/`::after`. Thêm các rule `font-below-min`, `control-height-band`, `wrapped-label`, `icon-stroke-mismatch`, `overlay-fit` (chấm theo `thresholds` đầu vào). Layout integrity thêm loại `timed-popup-occluder`; phần tử `position: sticky` đã nhả không còn bị tính là lớp che; chữ `aria-hidden` không còn bị tính vào lỗi chữ đè chữ. Lỗi chồng hit-box giữa các link xếp chồng vẫn là critical.
+- **Công cụ browser:** `anti.theme.await_cdn_sync` chỉ cần document generation hiện tại khi có `reloadOnMatch:true`. Tab đã bind mà biến mất thì trả `TARGET_STALE` kèm `recovery: 'anti.browser.rebind_target'`. `anti.qa.batch_matrix` khi fail/abort vẫn đồng bộ lại binding theo generation thật của tab.
+- **Proxy OMP:** gọi nhầm capability không có trong catalogue thì nhận `CAPABILITY_NOT_FOUND` kèm `details.catalogueMiss`. Lần miss đầu tiên kích hoạt intent `catalogue.digest` (đã xác thực) để báo một lần các tên tool được quảng bá nhưng app chưa đăng ký.
+- **QA debt:** turn Direct-Edit/Super-Fast sửa theme mà kết thúc không có receipt pass thì ghi `<root>/.antifan/qa-debt.json`; phiên sau nhắc "Open QA debt…". Debt chỉ được xoá bởi receipt hoàn chỉnh (`QA_PASSED`, `COMPLETED`, không có `errorCode`, đúng root, coverage đủ) và mới hơn `since`; khai báo `QA_PENDING_SYNC` không xoá được. Lời nhắc của gate ngắn đi khoảng 58%.
+- **Checklist và annotation:** thêm `qag-29`..`qag-37` (chữ 12px/control 44px, root font, hệ icon, nội dung RTE, include scope, variant→image, trạng thái OFF, overlay vừa viewport, chồng hit-box của link). Intent review/research/security/documentation có động từ sửa (`fix`, `sửa lỗi`…) thì không còn bị ép READ-ONLY.
+
 ### Sửa — Hậu kiểm review: QA theme, công cụ browser, terminal
 
 - **Cổng QA theo annotation không còn mở sai:** số lỗi trong phạm vi annotation được hỏi thẳng trang đang mở (phần tử của lỗi nằm trong hay bao quanh phần tử được annotate); không đọc được trang thì selector không có id/class riêng (`div`, `div.container`) bị tính vào phạm vi. Hook chỉ chấp nhận annotation đã có sẵn, không bị sửa, từ trước lần edit làm cổng bật.
@@ -19,7 +48,6 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
   - `anti.layout.compare_candidates`: trên trang che tràn ngang (`body { overflow-x: hidden }`), section bị kéo rộng 2400px vẫn được xếp hạng hợp lệ vì không có tràn tài liệu. Metrics thêm `offViewport` (chữ/media vượt mép viewport) và tính là break.
   - Khôi phục viewport sau `compare_candidates` trên tab agent chạy nền: bước khôi phục dùng `setDevicePreset`, mà `updateLayout` chỉ áp emulation cho tab active, nên override 1440x900 của lần quét cuối vẫn nằm trên tab nền (lần đo/chụp sau báo 1440x900 hoặc `CAPTURE_VIEWPORT_NOT_RESTORED`). Thêm `settleTabEmulation`: với tab nền thì áp emulation hiện tại bên trong một lần gắn tạm (như `setViewportSize`) và chờ lệnh CDP xong; các lần áp emulation trên cùng webContents cũng chạy tuần tự theo thứ tự gọi.
   - `npm run compile` fail ở bước `check-renderer-assets` (app không mở được qua launch guard): gate đọc danh sách asset sinh ra từ `copy-static.mjs` trong khi danh sách đã chuyển sang `scripts/lib/generated-renderer-assets.cjs`. Gate giờ đọc cùng danh sách dùng chung.
-  - Giới hạn còn giữ: `full_page` từ chối trang cao hơn 16384 CSS px (`FULLPAGE_CAPTURE_UNSUPPORTED_GEOMETRY`, ví dụ trang chủ smart-furniture 22.6k px).
 
 ### Sửa lỗi — Tab agent của project này hiện ở project khác
 

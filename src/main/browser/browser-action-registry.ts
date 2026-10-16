@@ -503,6 +503,14 @@ export class BrowserActionRegistry {
           res = { success: hovered, data: { executionTier: 'cdp_trusted', hoverActive: hovered } };
         }
         const data = (res.data && typeof res.data === 'object' ? res.data : {}) as Record<string, unknown>;
+        if (data.code === 'HOVER_NOT_ACTIVE') {
+          throw new CapabilityError('HOVER_NOT_ACTIVE', res.reason || 'CSS :hover is not active after real mouse movement', {
+            x: data.x,
+            y: data.y,
+            recovery: data.recovery,
+            executionTier: data.executionTier,
+          });
+        }
         const executionTier: 'cdp_trusted' | 'isolated_synthetic' =
           data.executionTier === 'isolated_synthetic' ? 'isolated_synthetic' : 'cdp_trusted';
         const hoverActive =

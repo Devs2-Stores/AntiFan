@@ -44,7 +44,7 @@ import { evaluatePreCaptureQuiescence, type PreCaptureQuiescenceResult } from '.
 import { buildTrackerStubScript, buildTrackerStubTeardownScript, TRACKER_BLOCK_PATTERNS } from './tracker-isolation';
 import type { TrackerIsolationReceipt } from './tracker-isolation';
 import { withEvalCeiling } from './eval-ceiling';
-import { stackPngsVertically } from '../verification/png-contact-sheet';
+import { finalizeFullPageTiles, fullPageMaxCssHeight, planTiles, prewarmOptionsForDocument, type PrewarmWalkOptions } from '../verification/full-page-tiles';
 
 const delay = (ms: number): Promise<void> => {
   const { promise, resolve } = Promise.withResolvers<void>();
@@ -454,6 +454,8 @@ export class TabDevToolsHost {
   public inspectedTabId: string | null = null;
   private cdpQueues = new Map<number, Promise<unknown>>();
   private cdpDrainingTargets = new Map<number, { method: string; token: symbol; startedAt?: number }>();
+  /** Tab that was visible before a starvation repair activated the capture target; put back when the capture ends. */
+  private starvationActivationRestore = new Map<string, string>();
   private cdpAttachedWebContents = new Set<number>();
   private cdpAttachedByHost = new Set<number>();
   private cdpWebContentsRefs = new Map<number, Electron.WebContents>();
@@ -2350,14 +2352,59 @@ export class TabDevToolsHost {
       return liftLease;
     }
 
+    // Last rung: activate the target itself. A target the window is not presenting produces no
+    // frames however its presentation is nudged; Page.bringToFront plus an agent-plane tab switch
+    // makes it the presented tab, one frame is awaited, and the liveness probe decides whether the
+    // capture dispatches (that dispatch is the retry). The previously visible tab returns when the
+    // capture ends, or right here if the rung did not help.
+    const activationSteps = await this.activateTargetForRaster(wc, targetId, effectivePane);
+    steps.push(...activationSteps);
+    if ((await this.probeFrameLiveness(targetId, effectivePane)) === true) {
+      recordLifecycleEvent('capture.frameGate', { tabId: targetId, paneId: effectivePane, mode, probe: initial, recovered: 'activate', steps, window: windowState, ...liftTelemetry });
+      return liftLease;
+    }
+    this.restoreAfterStarvationActivation(targetId);
+
     recordLifecycleEvent('capture.frameGate', { tabId: targetId, paneId: effectivePane, mode, probe: initial, steps, window: windowState, ...liftTelemetry });
     const window = windowState
       ? `window is ${windowState.minimized ? 'minimized' : windowState.maximized ? 'maximized' : 'restored'} and ${windowState.visible ? 'visible' : 'not visible'}`
       : 'window presentation unknown';
     throw new CaptureError(
       'CAPTURE_FRAME_STARVATION',
-      `Page.captureScreenshot (${mode}) on tab '${targetId}' would hang: the window's compositor produced no frame for its renderer (requestAnimationFrame stalled while the renderer still answered), so no raster can ever complete and every further CDP command on this target would wait out its bound. Observed: ${window}; repair steps tried: ${steps.join(', ') || 'none'}. Remedy: focus or move the AntiFan window once to restart frame production, or restart the app, then retry.`
+      `Page.captureScreenshot (${mode}) on tab '${targetId}' would hang: no compositor frame reached its renderer (requestAnimationFrame stalled while the renderer still answered), so no raster can complete. Observed: ${window}; repair steps tried: ${steps.join(', ') || 'none'}${activationSteps.includes('activate-tab') ? '; the tab was activated, one frame awaited and re-probed without effect' : ''}. Remedy: the window is not presenting frames: bring the AntiFan window to the front (restore it if minimized, or move it once), then repeat the same call. A restart is needed only if frames do not resume after that.`
     );
+  }
+
+  private async activateTargetForRaster(wc: Electron.WebContents, targetId: string, effectivePane: SplitPaneId | undefined): Promise<string[]> {
+    const done: string[] = [];
+    try {
+      await this.sendCdpCommand(wc, 'Page.bringToFront');
+      done.push('bring-to-front');
+    } catch {}
+    const previous = this.ctx.getActiveTabId();
+    if (previous !== targetId && this.ctx.switchTab) {
+      try {
+        if (this.ctx.switchTab(targetId)) {
+          this.starvationActivationRestore.set(targetId, previous);
+          done.push('activate-tab');
+        }
+      } catch {}
+    }
+    try {
+      await this.evalJs(
+        'new Promise(r => { const t = setTimeout(r, 120); if (typeof requestAnimationFrame === "function") { requestAnimationFrame(() => { clearTimeout(t); r(); }); } })',
+        targetId,
+        effectivePane
+      );
+    } catch {}
+    return done;
+  }
+
+  private restoreAfterStarvationActivation(targetId: string): void {
+    const previous = this.starvationActivationRestore.get(targetId);
+    if (previous === undefined) return;
+    this.starvationActivationRestore.delete(targetId);
+    try { this.ctx.switchTab?.(previous); } catch {}
   }
 
   /**
@@ -2438,7 +2485,15 @@ export class TabDevToolsHost {
     rect?: Rectangle,
     tabId?: string,
     paneId?: SplitPaneId,
-    options?: { format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean; timeoutMs?: number; skipQuiescence?: boolean }
+    options?: {
+      format?: 'png' | 'jpeg';
+      quality?: number;
+      fullPage?: boolean;
+      timeoutMs?: number;
+      skipQuiescence?: boolean;
+      /** Per-artifact byte ceiling of the caller; a full-page PNG above it is delivered as JPEG with a fallbackReason. */
+      maxBytes?: number;
+    }
   ): Promise<VerificationCaptureEnvelope> {
     const targetId = tabId || this.ctx.getActiveTabId();
     const target = this.ctx.getTabRecord(targetId);
@@ -2454,12 +2509,6 @@ export class TabDevToolsHost {
     }
     const mode = resolveCaptureMode(rect, options?.fullPage);
     const imageFormat: 'png' | 'jpeg' = options?.format === 'jpeg' ? 'jpeg' : 'png';
-    if (mode === 'full-page' && imageFormat === 'jpeg') {
-      throw new CaptureError(
-        'FULLPAGE_CAPTURE_UNSUPPORTED_FORMAT',
-        `Full-page verification capture produces PNG evidence only; jpeg was requested for tab '${targetId}'`
-      );
-    }
     if (this.isWebContentsDraining(wc)) {
       throw new CaptureError(
         'TARGET_BUSY_DRAINING',
@@ -2596,19 +2645,22 @@ export class TabDevToolsHost {
           // check stays authoritative — but a page that is already over the ceiling
           // cannot become legal by walking it, so the walk would only add ~2 s of
           // staircase scrolling before the same refusal.
+          let prewarmOptions: PrewarmWalkOptions | undefined;
           if (mode === 'full-page') {
             const preflightHeight = await this.readDocumentScrollHeight(wc);
+            const maxFullPageHeight = fullPageMaxCssHeight(cssViewport.width, dpr * zoom);
             if (
               !Number.isFinite(preflightHeight) ||
               preflightHeight < 1 ||
-              preflightHeight > CAPTURE_MAX_DIMENSION ||
+              preflightHeight > maxFullPageHeight ||
               cssViewport.width > CAPTURE_MAX_DIMENSION
             ) {
               throw new CaptureError(
                 'FULLPAGE_CAPTURE_UNSUPPORTED_GEOMETRY',
-                `Requested ${mode} capture region ${cssViewport.width}x${preflightHeight} CSS px is outside the supported 1..${CAPTURE_MAX_DIMENSION} range on tab '${targetId}'`
+                `Requested ${mode} capture region ${cssViewport.width}x${preflightHeight} CSS px is outside the supported range on tab '${targetId}': width 1..${CAPTURE_MAX_DIMENSION}, height 1..${maxFullPageHeight} at ${dpr * zoom}x device scale (taller documents are captured in tiles up to that height)`
               );
             }
+            prewarmOptions = prewarmOptionsForDocument(preflightHeight, cssViewport.height, maxFullPageHeight);
           }
           // A full-page raster is one compositor snapshot, so lazily mounted
           // content must already be in the document. Walk the page once before
@@ -2618,7 +2670,7 @@ export class TabDevToolsHost {
           if (mode === 'full-page' && !options?.skipQuiescence) {
             try {
               const prewarmRaw = await this.evalJs(
-                buildStaircasePrewarmScript(),
+                buildStaircasePrewarmScript(prewarmOptions),
                 targetId,
                 effectivePane,
                 false,
@@ -2703,14 +2755,15 @@ export class TabDevToolsHost {
           // would silently misrepresent the document region it claims to show.
           if (mode !== 'viewport') {
             const { width, height } = cssCaptureSize;
+            const heightLimit = mode === 'full-page' ? fullPageMaxCssHeight(width, dpr * zoom) : CAPTURE_MAX_DIMENSION;
             if (
               !Number.isFinite(width) || !Number.isFinite(height) ||
               width < 1 || height < 1 ||
-              width > CAPTURE_MAX_DIMENSION || height > CAPTURE_MAX_DIMENSION
+              width > CAPTURE_MAX_DIMENSION || height > heightLimit
             ) {
               throw new CaptureError(
                 'FULLPAGE_CAPTURE_UNSUPPORTED_GEOMETRY',
-                `Requested ${mode} capture region ${width}x${height} CSS px is outside the supported 1..${CAPTURE_MAX_DIMENSION} range on tab '${targetId}'`
+                `Requested ${mode} capture region ${width}x${height} CSS px is outside the supported range on tab '${targetId}': width 1..${CAPTURE_MAX_DIMENSION}, height 1..${heightLimit}`
               );
             }
           }
@@ -2786,6 +2839,9 @@ export class TabDevToolsHost {
           let captureRes: { data?: string } | undefined;
           // Set when the page is captured in slices; stitched once the lift lease is released.
           let fullPageSlices: Buffer[] | null = null;
+          let deliveredFormat: 'png' | 'jpeg' = imageFormat;
+          let formatFallbackReason: string | undefined;
+          let tileCount = 1;
 
           // Frame-liveness gate: refuse the dispatch when the presenter cannot
           // produce the frame Page.captureScreenshot waits for. Timed-out here
@@ -2797,17 +2853,16 @@ export class TabDevToolsHost {
             liftLease = await this.ensureFramesForRaster(wc, targetId, effectivePane, mode, liftLease, cdpBoundMs);
             const rasterScale = dpr * zoom;
             if (mode === 'full-page' && clip && cssCaptureSize.height * rasterScale > FULL_PAGE_SINGLE_RASTER_MAX_DEVICE_PX) {
-              // Every slice shares the one raster bound the lift lease was granted for.
-              const sliceCssHeight = Math.max(1, Math.floor(FULL_PAGE_SLICE_DEVICE_PX / rasterScale));
-              const sliceCount = Math.ceil(cssCaptureSize.height / sliceCssHeight);
+              // Every tile shares the one raster bound the lift lease was granted for.
+              const tilePlan = planTiles(cssCaptureSize.height, Math.max(1, Math.floor(FULL_PAGE_SLICE_DEVICE_PX / rasterScale)));
               const rasterDeadline = Date.now() + cdpBoundMs;
               const slices: Buffer[] = [];
-              for (let offsetY = 0; offsetY < cssCaptureSize.height; offsetY += sliceCssHeight) {
+              for (const tile of tilePlan) {
                 const remainingMs = rasterDeadline - Date.now();
                 if (remainingMs <= 0) {
                   throw new CaptureError(
                     'CAPTURE_TIMEOUT',
-                    `Full-page capture on tab '${targetId}' used its ${cdpBoundMs}ms raster bound after ${slices.length} of ${sliceCount} slices`
+                    `Full-page capture on tab '${targetId}' used its ${cdpBoundMs}ms raster bound after ${slices.length} of ${tilePlan.length} tiles`
                   );
                 }
                 const sliceRes = await this.sendCdpCommand<{ data?: string }>(
@@ -2817,11 +2872,11 @@ export class TabDevToolsHost {
                     format: 'png',
                     fromSurface: true,
                     captureBeyondViewport: true,
-                    clip: { x: clip.x, y: clip.y + offsetY, width: clip.width, height: Math.min(sliceCssHeight, cssCaptureSize.height - offsetY), scale: 1 },
+                    clip: { x: clip.x, y: clip.y + tile.offsetCssY, width: clip.width, height: tile.cssHeight, scale: 1 },
                   },
                   remainingMs
                 );
-                // One missing slice leaves a hole in the page: the whole capture is empty, never a
+                // One missing tile leaves a hole in the page: the whole capture is empty, never a
                 // shorter image under the full-page geometry.
                 if (typeof sliceRes?.data !== 'string' || sliceRes.data.length === 0) {
                   slices.length = 0;
@@ -2941,22 +2996,32 @@ export class TabDevToolsHost {
           });
 
           if (fullPageSlices && fullPageSlices.length > 0) {
-            const stitched = await stackPngsVertically(fullPageSlices);
-            if (!stitched) {
-              throw new CaptureError('CAPTURE_PNG_UNDECODABLE', `Full-page slices on tab '${targetId}' could not be stitched: a slice is not a supported PNG or the widths differ`);
+            const finalized = await finalizeFullPageTiles(fullPageSlices, { format: imageFormat, quality: options?.quality, maxBytes: options?.maxBytes });
+            if (!finalized) {
+              throw new CaptureError('CAPTURE_PNG_UNDECODABLE', `Full-page tiles on tab '${targetId}' could not be stitched: a tile is not a supported PNG, the widths differ, or the composed image exceeds the pixel budget`);
             }
-            captureRes = { data: stitched.toString('base64') };
+            captureRes = { data: finalized.data.toString('base64') };
+            deliveredFormat = finalized.format;
+            formatFallbackReason = finalized.fallbackReason;
+            tileCount = finalized.tileCount;
+          } else if (mode === 'full-page' && imageFormat === 'png' && options?.maxBytes !== undefined && typeof captureRes?.data === 'string' && Buffer.byteLength(captureRes.data, 'base64') > options.maxBytes) {
+            const finalized = await finalizeFullPageTiles([Buffer.from(captureRes.data, 'base64')], { format: 'png', maxBytes: options.maxBytes });
+            if (finalized) {
+              captureRes = { data: finalized.data.toString('base64') };
+              deliveredFormat = finalized.format;
+              formatFallbackReason = finalized.fallbackReason;
+            }
           }
           if (!captureRes || typeof captureRes.data !== 'string' || captureRes.data.length === 0) {
             throw new CaptureError('CAPTURE_EMPTY_PAYLOAD', `CDP Page.captureScreenshot returned an empty payload on tab '${targetId}'`);
           }
           const bytes = Buffer.from(captureRes.data, 'base64');
-          const image = imageFormat === 'jpeg' ? validateJpegBuffer(bytes) : validatePngBuffer(bytes);
+          const image = deliveredFormat === 'jpeg' ? validateJpegBuffer(bytes) : validatePngBuffer(bytes);
           if (!image.ok) {
-            const fallback = imageFormat === 'jpeg' ? 'CAPTURE_JPEG_UNDECODABLE' : 'CAPTURE_PNG_UNDECODABLE';
+            const fallback = deliveredFormat === 'jpeg' ? 'CAPTURE_JPEG_UNDECODABLE' : 'CAPTURE_PNG_UNDECODABLE';
             throw new CaptureError(
               image.code ?? fallback,
-              `CDP Page.captureScreenshot payload on tab '${targetId}' failed ${imageFormat.toUpperCase()} validation (${image.code ?? fallback}, ${bytes.length} bytes)`
+              `CDP Page.captureScreenshot payload on tab '${targetId}' failed ${deliveredFormat.toUpperCase()} validation (${image.code ?? fallback}, ${bytes.length} bytes)`
             );
           }
           const rasterSize = { width: image.width, height: image.height };
@@ -2986,6 +3051,9 @@ export class TabDevToolsHost {
             rasterSize,
             captureMode: mode,
             timestamp: Date.now(),
+            format: deliveredFormat,
+            ...(formatFallbackReason ? { fallbackReason: formatFallbackReason } : {}),
+            ...(tileCount > 1 ? { tiles: { count: tileCount, stitched: true as const } } : {}),
             // The walk's receipt travels with the evidence: a caller reading a
             // full-page capture needs to know whether the document was fully
             // materialized or whether a growth ceiling stopped the walk early.
@@ -3046,6 +3114,7 @@ export class TabDevToolsHost {
           effectivePane
         );
       } catch {}
+      this.restoreAfterStarvationActivation(targetId);
       // Guaranteed white background override clear with drain bypass
       try {
         const sendDirectBgClear = async () => {

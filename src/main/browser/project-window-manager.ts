@@ -258,8 +258,17 @@ export class ProjectWindowManager {
    */
   private handleNativeClosure(key: string, shell: ProjectWindowShell): void {
     if (this.shells.get(key) !== shell) return;
+    this.logWindowLoss('native-closure', key);
     this.forgetShell(key);
     this.notifyDisposed(shell);
+  }
+
+  /**
+   * One structured line per lost project window, so a session that finds its project window gone
+   * can tell a native closure from a caller-reported destruction after the fact.
+   */
+  private logWindowLoss(cause: 'native-closure' | 'shell-gone', key: string): void {
+    console.warn(`[project-window-manager] ${JSON.stringify({ event: 'project-window-lost', cause, owner: key, at: new Date().toISOString() })}`);
   }
 
   /**
@@ -297,6 +306,7 @@ export class ProjectWindowManager {
     // A live window is not "gone": unregistering its routing would strand a shell that a
     // refused or vetoed close deliberately kept alive.
     if (!shell || !shell.window.isDestroyed()) return;
+    this.logWindowLoss('shell-gone', key);
     this.forgetShell(key);
     this.notifyDisposed(shell);
   }

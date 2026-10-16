@@ -607,3 +607,49 @@ describe('shared-asset invalidation survives later writes', () => {
     assert.strictEqual(qag01(conflict.items)?.done, false);
   });
 });
+
+describe('default checklist covers the mobile-quality and data-integrity classes', () => {
+  const CLASSES: Array<[id: string, label: string, pattern: RegExp]> = [
+    ['qag-29', 'spacing/scale (12px text, 44px controls)', /12px[\s\S]*44px/],
+    ['qag-30', 'root font', /root font/i],
+    ['qag-31', 'icon system', /stroke-width[\s\S]*viewBox/],
+    ['qag-32', 'RTE content', /\bRTE\b/],
+    ['qag-33', 'include scope', /include/],
+    ['qag-34', 'variant -> image', /Variant -> Image/],
+    ['qag-35', 'OFF-state', /\(OFF\)/],
+    ['qag-36', 'overlay viewport fit', /Overlay Vừa Khung Nhìn/],
+    ['qag-37', 'stacked-link hit-box overlap', /Link Xếp Chồng/],
+  ];
+
+  it('carries one qa-gate item per class, numbered after qag-28 with unique ids', () => {
+    const ids = new Set(DEFAULT_THEME_CHECKLIST.map((item) => item.id));
+    assert.strictEqual(ids.size, DEFAULT_THEME_CHECKLIST.length, 'ids are unique');
+    for (const [id, label, pattern] of CLASSES) {
+      const item = DEFAULT_THEME_CHECKLIST.find((entry) => entry.id === id);
+      assert.ok(item, `${id} (${label}) is missing`);
+      assert.strictEqual(item.page, 'qa-gate');
+      assert.ok(pattern.test(`${item.name} ${item.desc} ${item.qaPoint}`), `${id} does not cover ${label}`);
+    }
+  });
+
+  it('new items satisfy the store validation caps and start unticked', () => {
+    const added = DEFAULT_THEME_CHECKLIST.filter((item) => /^qag-(?:29|3\d)$/.test(item.id));
+    assert.ok(added.length >= 9);
+    for (const item of added) {
+      assert.strictEqual(item.done, false);
+      assert.strictEqual(item.page, 'qa-gate');
+      for (const field of [item.id, item.code, item.name, item.desc, item.qaPoint]) {
+        assert.ok(field.length > 0 && field.length <= MAX_CHECKLIST_FIELD_CHARS, `${item.id} field length`);
+      }
+    }
+    assert.ok(DEFAULT_THEME_CHECKLIST.length <= MAX_CHECKLIST_ITEMS_PER_SCOPE);
+    assert.doesNotThrow(() => validateChecklistItems(defaultChecklistItems()));
+  });
+
+  it('a fresh scope seeds the new items', () => {
+    const root = makeRoot();
+    const snap = getScope(root, SCOPE);
+    assert.ok(snap.items.some((item) => item.id === 'qag-29'));
+    assert.ok(snap.items.some((item) => item.id === 'qag-37'));
+  });
+});

@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>input-height-band good</title>
+<style>
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0;font:16px/1.5 Arial,sans-serif;color:#111;background:#fff}
+form{padding:24px;max-width:340px}
+label{display:block;margin:0 0 4px;font-size:14px}
+.f{display:block;width:100%;border:1px solid #767676;background:#fff;color:#111;font:16px Arial,sans-serif;padding:0 12px;margin:0 0 12px}
+.go{display:block;width:100%;height:44px;border:0;background:#111;color:#fff;font:16px Arial,sans-serif}
+</style>
+</head>
+<body>
+<form action="/account" method="post">
+<label for="em">Email</label>
+<input id="em" class="f" type="email" style="height:44px">
+<label for="co">Country</label>
+<select id="co" class="f" style="height:44px"><option>Vietnam</option><option>Japan</option></select>
+<button class="go" type="button">Save</button>
+</form>
+</body>
+</html>

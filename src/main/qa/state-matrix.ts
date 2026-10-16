@@ -43,6 +43,8 @@ export type StateMatrixFailureCode =
   | 'FOCUS_NOT_MOVED'
   | 'CLOSE_CONTROL_MISSING'
   | 'CLOSE_ESCAPE_FAILED'
+  | 'CLOSE_ESCAPE_UNMEASURED'
+  | 'MODAL_UNSTYLED'
   | 'CLOSE_BUTTON_FAILED'
   | 'CLOSE_BACKDROP_FAILED'
   | 'BODY_NOT_RESTORED'
@@ -74,6 +76,8 @@ export interface StateMatrixOptions {
   closeMethods?: StateMatrixCloseMethod[];
   /** Grade contrast/tap targets inside each open panel (default true). */
   gradeVisualQuality?: boolean;
+  /** `pdp` also opens size-guide, quick-view, share and review openers that sit inside the product form or card. */
+  autoPopulate?: 'pdp';
 }
 
 export interface StateMatrixOpenMeasurement {
@@ -166,6 +170,7 @@ const CRITICAL_CODES: ReadonlySet<StateMatrixFailureCode> = new Set([
   'OVERLAY_OCCLUDED',
   'CONTENT_OVERFLOWS_PANEL',
   'CLOSE_CONTROL_MISSING',
+  'MODAL_UNSTYLED',
   'CLOSE_ESCAPE_FAILED',
   'CLOSE_BUTTON_FAILED',
   'BODY_NOT_RESTORED',
@@ -175,7 +180,7 @@ const CRITICAL_CODES: ReadonlySet<StateMatrixFailureCode> = new Set([
 /** Escape and a close control are hard requirements only for dialogs; menus degrade to warnings. */
 export function failureSeverity(code: StateMatrixFailureCode, kind: StateMatrixKind): 'critical' | 'warning' {
   if (!CRITICAL_CODES.has(code)) return 'warning';
-  if ((kind === 'dropdown' || kind === 'megamenu') && (code === 'CLOSE_ESCAPE_FAILED' || code === 'CLOSE_CONTROL_MISSING' || code === 'CLOSE_BUTTON_FAILED')) {
+  if ((kind === 'dropdown' || kind === 'megamenu') && (code === 'CLOSE_ESCAPE_FAILED' || code === 'CLOSE_CONTROL_MISSING' || code === 'CLOSE_BUTTON_FAILED' || code === 'MODAL_UNSTYLED')) {
     return 'warning';
   }
   return 'critical';
@@ -251,11 +256,12 @@ const PAGE_HELPERS = String.raw`
  * Discover overlay triggers, tag triggers/panels/close controls with data attributes, and install
  * the safe-mode navigation guard. Returns the tagged list.
  */
-export function buildDiscoverScript(specs: StateMatrixTriggerSpec[], maxTriggers: number): string {
+export function buildDiscoverScript(specs: StateMatrixTriggerSpec[], maxTriggers: number, autoPopulate?: 'pdp'): string {
   return `(() => {
   ${PAGE_HELPERS}
   const SPECS = ${JSON.stringify(specs)};
   const MAX = ${JSON.stringify(maxTriggers)};
+  const PDP = ${JSON.stringify(autoPopulate === 'pdp')};
   // Safe mode: block real navigation and submissions for the whole run; theme handlers still run.
   if (!window.__antifanStateMatrixGuard) {
     const onClick = (e) => {
@@ -283,6 +289,11 @@ export function buildDiscoverScript(specs: StateMatrixTriggerSpec[], maxTriggers
   // Storefront overlay openers that carry no ARIA wiring: buttons only (never links), matched by
   // the words themes use for drawers and dialogs.
   const OPENER_WORDS = /\\b(cart|minicart|gi[oỏ]\\s*h[aà]ng|menu|burger|hamburger|search|t[iì]m\\s*ki[eế]m|filter|l[oọ]c|account|t[aà]i\\s*kho[aả]n|quick\\s*view|xem\\s*nhanh|size\\s*guide|b[aả]ng\\s*size|share|chia\\s*s[eẻ]|notification|th[oô]ng\\s*b[aá]o)\\b/i;
+  // Product-page openers sit inside the cart form or a product card, which the chrome-only
+  // heuristic above skips. Only inert openers qualify, and the form clauses of UNSAFE are lifted
+  // for them because a size guide button inside the cart form is not an add-to-cart.
+  const PDP_OPENER_WORDS = /size\\s*guide|b[aả]ng\\s*size|h[uư][oớ]ng\\s*d[aẫ]n\\s*ch[oọ]n\\s*size|xem\\s*nhanh|quick\\s*view|\\bshare\\b|chia\\s*s[eẻ]|đánh\\s*giá|\\breviews?\\b/i;
+  const UNSAFE_CORE = 'button[type="submit"], input[type="submit"], [name="add" i], [data-add-to-cart], [data-variant-id], [class*="add-to-cart" i], [class*="addtocart" i], [class*="add-cart" i], [class*="addcart" i], [class*="buy-now" i], [class*="buynow" i], [class*="wishlist-add" i], [class*="add-wishlist" i], a[href*="/checkout" i], a[href*="/account/logout" i]';
   const sameOrigin = (el) => {
     if (el.tagName !== 'A') return true;
     const href = el.getAttribute('href') || '';
@@ -367,7 +378,14 @@ export function buildDiscoverScript(specs: StateMatrixTriggerSpec[], maxTriggers
         const sig = (typeof el.className === 'string' ? el.className.replace(/[-_]+/g, ' ') : '') + ' ' + textOf(el);
         if (OPENER_WORDS.test(sig)) isTrigger = true;
       }
-      if (isTrigger) candidates.push({ el, panel: resolvePanel(el), spec: null });
+      let pdpOpener = false;
+      if (!isTrigger && PDP) {
+        const words = textOf(el);
+        const href = el.getAttribute('href');
+        const inert = el.tagName !== 'A' || !href || href.startsWith('#') || href.toLowerCase().startsWith('javascript:');
+        if (inert && words.length <= 80 && PDP_OPENER_WORDS.test(words)) { isTrigger = true; pdpOpener = true; }
+      }
+      if (isTrigger) candidates.push({ el, panel: resolvePanel(el), spec: null, pdp: pdpOpener });
     }
   }
   const out = [];
@@ -375,7 +393,7 @@ export function buildDiscoverScript(specs: StateMatrixTriggerSpec[], maxTriggers
   for (const c of candidates) {
     if (out.length >= MAX) { skipped.push({ selector: selectorOf(c.el), reason: 'MAX_TRIGGERS' }); continue; }
     const sel = selectorOf(c.el);
-    if (c.el.matches(UNSAFE) || UNSAFE_TEXT.test(textOf(c.el)) || !sameOrigin(c.el)) { skipped.push({ selector: sel, reason: 'UNSAFE_TRIGGER' }); continue; }
+    if (c.el.matches(c.pdp ? UNSAFE_CORE : UNSAFE) || UNSAFE_TEXT.test(textOf(c.el)) || !sameOrigin(c.el)) { skipped.push({ selector: sel, reason: 'UNSAFE_TRIGGER' }); continue; }
     if (!visibleTrigger(c.el)) { skipped.push({ selector: sel, reason: 'TRIGGER_NOT_VISIBLE' }); continue; }
     if (c.panel && seenPanels.has(c.panel)) { skipped.push({ selector: sel, reason: 'DUPLICATE_PANEL' }); continue; }
     if (c.panel && isOpen(c.panel)) { skipped.push({ selector: sel, reason: 'PANEL_ALREADY_OPEN' }); continue; }
@@ -548,8 +566,13 @@ export function buildMeasureOpenScript(index: number, kind: StateMatrixKind, clo
   const explicit = ${JSON.stringify(closeSelector)};
   if (explicit) { try { close = document.querySelector(explicit); } catch (e) {} }
   if (!close) {
+    // A full-viewport button named "close" is the backdrop in disguise; it is graded under the
+    // backdrop method only, never taken as the panel's close control.
+    const BACKDROP_CLASS = /backdrop|overlay|overplay|scrim|mask|shade|dimmer/i;
+    const coversViewport = (c) => { const b = c.getBoundingClientRect(); return b.width >= vw * 0.9 && b.height >= vh * 0.9; };
     const cands = Array.from(panel.querySelectorAll(CLOSE_CONTROL)).concat(Array.from(document.querySelectorAll(CLOSE_CONTROL)).filter((c) => !panel.contains(c)));
-    close = cands.find((c) => displayed(c) && effectiveOpacity(c) > 0.05 && (panel.contains(c) || c.closest('[${SM_PANEL}]'))) || null;
+    const usable = (c) => displayed(c) && effectiveOpacity(c) > 0.05 && (panel.contains(c) || c.closest('[${SM_PANEL}]')) && !coversViewport(c) && !(BACKDROP_CLASS.test(typeof c.className === 'string' ? c.className : '') && !panel.contains(c));
+    close = cands.find(usable) || null;
   }
   document.querySelectorAll('[${SM_CLOSE}]').forEach((n) => n.removeAttribute('${SM_CLOSE}'));
   if (close) close.setAttribute('${SM_CLOSE}', '${index}');
@@ -640,6 +663,101 @@ export function buildPointSafetyScript(index: number, x: number, y: number): str
 })()`;
 }
 
+/**
+ * Arm a one-shot capture-phase keydown listener before Escape is sent, so "the page never saw the
+ * key" (an unfocused pane, a dropped input event) can be told apart from "the page saw Escape and
+ * ignored it".
+ */
+export function buildEscapeArmScript(): string {
+  return `(() => {
+  if (window.__antifanSmKey && window.__antifanSmKey.off) window.__antifanSmKey.off();
+  const rec = { seen: false, key: null };
+  const on = (e) => { rec.seen = true; rec.key = e.key; };
+  document.addEventListener('keydown', on, { capture: true, once: true });
+  rec.off = () => document.removeEventListener('keydown', on, true);
+  window.__antifanSmKey = rec;
+  return { armed: true, hasFocus: document.hasFocus() };
+})()`;
+}
+
+export function buildEscapeReadScript(): string {
+  return `(() => {
+  const rec = window.__antifanSmKey || { seen: false, key: null };
+  if (rec.off) rec.off();
+  delete window.__antifanSmKey;
+  return { seen: rec.seen === true, key: rec.key, hasFocus: document.hasFocus() };
+})()`;
+}
+
+/**
+ * Browser-default rendering inside an open panel: the theme never styled it. Each cue is a
+ * measurable default (serif fallback font, native button/input chrome, UA link blue, a bare table,
+ * a list whose markers hang outside the panel, text flush against an unpadded panel edge).
+ */
+export function buildUnstyledProbeScript(index: number): string {
+  return `(() => {
+  ${PAGE_HELPERS}
+  const panel = document.querySelector('${smPanelSelector(index)}');
+  if (!panel || !displayed(panel)) return { unstyled: [] };
+  const box = document.querySelector('[${SM_BOX}="${index}"]') || panel;
+  const boxRect = box.getBoundingClientRect();
+  const cues = [];
+  const add = (cue, el, detail) => { if (cues.length < 8 && !cues.some((c) => c.cue === cue)) cues.push({ cue: cue, selector: selectorOf(el), detail: detail }); };
+  const family = (el) => (getComputedStyle(el).fontFamily.split(',')[0] || '').replace(/["']/g, '').trim().toLowerCase();
+  const ICON_FONT = /icon|awesome|material|glyph|symbol|fontello|feather|ionicons/;
+  const SERIF_UA = /^(times new roman|times|serif)$/;
+  const bodyFamily = family(document.body);
+  const ownText = (el) => Array.from(el.childNodes).some((n) => n.nodeType === 3 && n.nodeValue.trim().length > 0);
+  const textEls = [box].concat(Array.from(box.querySelectorAll('p, li, label, td, th, span, div, a')));
+  for (const el of textEls) {
+    if (!ownText(el) || !displayed(el) || el.closest('button, select, textarea, option')) continue;
+    const fam = family(el);
+    if (!fam || ICON_FONT.test(fam)) continue;
+    if (SERIF_UA.test(fam) && !SERIF_UA.test(bodyFamily)) { add('font-family', el, 'renders in the serif browser default "' + fam + '" while the page body uses "' + bodyFamily + '"'); break; }
+    if (fam !== bodyFamily) { add('font-family', el, 'renders in "' + fam + '" while the page body uses "' + bodyFamily + '"'); break; }
+  }
+  for (const el of box.querySelectorAll('button, input, select, textarea')) {
+    if (!displayed(el)) continue;
+    const type = (el.getAttribute('type') || '').toLowerCase();
+    if (el.tagName === 'INPUT' && /^(checkbox|radio|range|file|color|hidden|image)$/.test(type)) continue;
+    const cs = getComputedStyle(el);
+    const nativeBorder = /^(outset|inset|groove|ridge)$/.test(cs.borderTopStyle) && parseFloat(cs.borderTopWidth) > 0;
+    const faceFill = el.tagName === 'BUTTON' && cs.backgroundColor === 'rgb(239, 239, 239)';
+    if (nativeBorder || faceFill) { add('ua-control-chrome', el, 'keeps the browser-default ' + (nativeBorder ? cs.borderTopStyle + ' border' : 'button face fill')); break; }
+  }
+  for (const a of box.querySelectorAll('a[href]')) {
+    if (displayed(a) && getComputedStyle(a).color === 'rgb(0, 0, 238)') { add('ua-link-colour', a, 'link keeps the browser-default blue rgb(0, 0, 238)'); break; }
+  }
+  for (const table of box.querySelectorAll('table')) {
+    if (!displayed(table)) continue;
+    const cells = Array.from(table.querySelectorAll('td, th')).filter(displayed);
+    if (cells.length < 2) continue;
+    const tcs = getComputedStyle(table);
+    const bare = parseFloat(tcs.borderTopWidth) === 0 && cells.every((c) => { const s = getComputedStyle(c); return parseFloat(s.paddingLeft) <= 1 && parseFloat(s.paddingTop) <= 1 && parseFloat(s.borderTopWidth) === 0 && parseFloat(s.borderBottomWidth) === 0; });
+    if (bare) { add('bare-table', table, 'table cells have no padding and no border'); break; }
+  }
+  for (const list of box.querySelectorAll('ul, ol')) {
+    if (!displayed(list)) continue;
+    const lcs = getComputedStyle(list);
+    if (lcs.listStyleType === 'none' || lcs.listStylePosition !== 'outside' || parseFloat(lcs.paddingLeft) >= 12) continue;
+    const item = Array.from(list.children).find((c) => c.tagName === 'LI' && displayed(c));
+    if (item && item.getBoundingClientRect().left - boxRect.left < 12) { add('list-padding', list, 'list markers hang outside the panel (padding-left ' + lcs.paddingLeft + ')'); break; }
+  }
+  const bcs = getComputedStyle(box);
+  if (parseFloat(bcs.paddingLeft) === 0 && parseFloat(bcs.paddingRight) === 0 && parseFloat(bcs.paddingTop) === 0) {
+    const walker = document.createTreeWalker(box, NodeFilter.SHOW_TEXT, { acceptNode: (n) => (n.nodeValue.trim() && n.parentElement && displayed(n.parentElement) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT) });
+    const first = walker.nextNode();
+    if (first) {
+      const range = document.createRange();
+      range.selectNodeContents(first);
+      const tr = range.getBoundingClientRect();
+      if (tr.width > 0 && tr.left - boxRect.left < 2) add('panel-padding', box, 'panel has no padding and its text starts at the panel edge');
+    }
+  }
+  return { unstyled: cues };
+})()`;
+}
+
 /** Measure after a close attempt. */
 export function buildMeasureClosedScript(index: number): string {
   return `(() => {
@@ -699,6 +817,7 @@ const KINDS: ReadonlyArray<StateMatrixKind> = ['drawer', 'modal', 'dropdown', 'm
 
 /** Validate caller input; throws with a message the capability maps to INVALID_ARGUMENT. */
 export function normalizeStateMatrixOptions(options: StateMatrixOptions = {}): { closeMethods: StateMatrixCloseMethod[]; specs: StateMatrixTriggerSpec[] } {
+  if (options.autoPopulate !== undefined && options.autoPopulate !== 'pdp') throw new Error(`autoPopulate must be "pdp" (got ${JSON.stringify(options.autoPopulate)})`);
   let closeMethods: StateMatrixCloseMethod[] = [...CLOSE_METHODS];
   if (options.closeMethods !== undefined) {
     if (!Array.isArray(options.closeMethods) || !options.closeMethods.length) throw new Error('closeMethods must be a non-empty array of escape | close-button | backdrop');
@@ -752,7 +871,7 @@ export async function runStateMatrix(deps: StateMatrixDeps, options: StateMatrix
   // a failing or malformed discovery still removes the guard and every tag.
   try {
     try {
-      discovered = (await deps.evalJs(buildDiscoverScript(specs, maxTriggers))) as typeof discovered;
+      discovered = (await deps.evalJs(buildDiscoverScript(specs, maxTriggers, options.autoPopulate))) as typeof discovered;
     } catch (err) {
       return empty(`DISCOVERY_FAILED: ${err instanceof Error ? err.message : String(err)}`);
     }
@@ -781,6 +900,26 @@ export async function runStateMatrix(deps: StateMatrixDeps, options: StateMatrix
         return clicked.ok ? { ok: true } : { ok: false, skipped: `CLICK_REFUSED: ${clicked.error || ''}` };
       };
       let firstOpen = true;
+      let escapeProbe: { hasFocus?: boolean; seen?: boolean; key?: string | null } | null = null;
+      // Escape is sent through a probe: a page without focus, or a key that never reached it, says
+      // nothing about whether the overlay honours Escape, so that is reported as unmeasured.
+      const pressEscape = async (): Promise<void> => {
+        try { await deps.evalJs(buildEscapeArmScript()); } catch { /* the press below still runs */ }
+        await deps.pressKey('Escape');
+        try { escapeProbe = (await deps.evalJs(buildEscapeReadScript())) as typeof escapeProbe; } catch { escapeProbe = null; }
+      };
+      const escapeNotClosing = (): void => {
+        const p = escapeProbe;
+        if (p && p.hasFocus === false) {
+          fail('CLOSE_ESCAPE_UNMEASURED', `the page did not have focus when Escape was sent, so whether the ${t.kind} closes on Escape is unmeasured`);
+        } else if (p && p.seen === false) {
+          fail('CLOSE_ESCAPE_UNMEASURED', `no keydown event reached the page when Escape was sent, so whether the ${t.kind} closes on Escape is unmeasured`);
+        } else if (p && p.seen === true && typeof p.key === 'string' && p.key !== 'Escape') {
+          fail('CLOSE_ESCAPE_UNMEASURED', `the key delivered to the page was "${p.key}", not Escape, so whether the ${t.kind} closes on Escape is unmeasured`);
+        } else {
+          fail('CLOSE_ESCAPE_FAILED', `Escape does not close the ${t.kind}`);
+        }
+      };
       const open = async (): Promise<boolean> => {
         await deps.evalJs(buildPrepareScript(t.index, firstOpen));
         firstOpen = false;
@@ -852,6 +991,14 @@ export async function runStateMatrix(deps: StateMatrixDeps, options: StateMatrix
       if (dialogLike && !m.scrollLocked) fail('SCROLL_NOT_LOCKED', 'the page behind the open panel still scrolls');
       if (dialogLike && !m.focusInside) fail('FOCUS_NOT_MOVED', 'keyboard focus stayed outside the open panel');
       if (dialogLike && !m.closeControl) fail('CLOSE_CONTROL_MISSING', 'no visible close control inside the open panel');
+      try {
+        const unstyled = (await deps.evalJs(buildUnstyledProbeScript(t.index))) as { unstyled?: Array<{ cue: string; selector: string; detail: string }> } | null;
+        if (unstyled && Array.isArray(unstyled.unstyled) && unstyled.unstyled.length > 0) {
+          fail('MODAL_UNSTYLED', `${t.kind} panel shows browser-default rendering: ${unstyled.unstyled.slice(0, 3).map((c) => `${c.cue} (${c.detail})`).join('; ')}`);
+        }
+      } catch {
+        // The unstyled probe is advisory; a failed read never masks lifecycle evidence.
+      }
 
       if (gradeVisual) {
         try {
@@ -875,7 +1022,7 @@ export async function runStateMatrix(deps: StateMatrixDeps, options: StateMatrix
         const neutral = m.backdropPoint || { x: 4, y: Math.max(4, viewport.height - 4) };
         type MenuAttempt = [StateMatrixCloseAttemptMethod, () => Promise<{ skipped?: string }>];
         const menuAttempts: MenuAttempt[] = [];
-        if (closeMethods.includes('escape')) menuAttempts.push(['escape', async () => { await deps.pressKey('Escape'); return {}; }]);
+        if (closeMethods.includes('escape')) menuAttempts.push(['escape', async () => { await pressEscape(); return {}; }]);
         menuAttempts.push(['pointer-leave', async () => { await deps.hoverAt(neutral.x, neutral.y); return {}; }]);
         if (closeMethods.includes('backdrop')) {
           menuAttempts.push(['backdrop', async () => {
@@ -896,7 +1043,7 @@ export async function runStateMatrix(deps: StateMatrixDeps, options: StateMatrix
             if (!attempt.bodyRestored) fail('BODY_NOT_RESTORED', `after closing by ${method} the page scroll lock was not released`);
             break;
           }
-          if (method === 'escape') fail('CLOSE_ESCAPE_FAILED', `Escape does not close the ${t.kind}`);
+          if (method === 'escape') escapeNotClosing();
         }
       }
       // Dialogs: each close method from a fresh open so one method's success does not hide another's failure.
@@ -909,7 +1056,7 @@ export async function runStateMatrix(deps: StateMatrixDeps, options: StateMatrix
         }
         const attempt: StateMatrixCloseAttempt = { method, closed: false, bodyRestored: false, focusReturned: false };
         if (method === 'escape') {
-          await deps.pressKey('Escape');
+          await pressEscape();
         } else if (method === 'close-button') {
           if (!m.closeControl) { attempt.skipped = 'NO_CLOSE_CONTROL'; result.closes.push(attempt); continue; }
           const clicked = await deps.click(smCloseSelector(t.index));
@@ -930,7 +1077,7 @@ export async function runStateMatrix(deps: StateMatrixDeps, options: StateMatrix
           if (!attempt.bodyRestored) fail('BODY_NOT_RESTORED', `after closing by ${method} the page scroll lock was not released`);
           if (dialogLike && !attempt.focusReturned) fail('FOCUS_NOT_RETURNED', `after closing by ${method} focus did not return to the trigger`);
         } else if (method === 'escape') {
-          fail('CLOSE_ESCAPE_FAILED', `Escape does not close the ${t.kind}`);
+          escapeNotClosing();
         } else if (method === 'close-button' && !attempt.skipped) {
           fail('CLOSE_BUTTON_FAILED', `clicking the close control ${m.closeControl} does not close the ${t.kind}`);
         } else if (method === 'backdrop') {

@@ -523,7 +523,7 @@ async function run() {
     assert.ok(new Set(source.data.primaryCandidate.evidence.map((item) => item.kind)).size >= 2);
 
     const cssPath = path.join(workspaceRoot, 'assets', 'component-card.css');
-    const initialCss = fs.readFileSync(cssPath, 'utf8');
+    const initialCss = fs.readFileSync(cssPath, 'utf8').replace(/\r\n/g, '\n');
     const updatedCss = initialCss.replace('.product-card {\n  margin-top: 24px;', '.product-card {\n  margin-top: 31px;');
     assert.notEqual(updatedCss, initialCss, 'Fixture CSS mutation target must exist exactly once');
     const writeResult = parseTextResult(await tool('file.write', {

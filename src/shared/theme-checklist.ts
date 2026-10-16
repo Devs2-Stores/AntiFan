@@ -22,6 +22,8 @@ export interface ThemeChecklistItem {
   note?: string;
   /** Optional action linking directly to capability (e.g. 'theme.settings_check') */
   action?: string;
+  /** Capability that measures this item; persisted scopes get it backfilled by id on read. */
+  measuredBy?: string;
   /** Extended / platform-adaptive description */
   description?: string;
 }
@@ -152,6 +154,35 @@ export function setChecklistThemeMode(mode: ThemeSettingsMode): void {
   }
 }
 
+/**
+ * Items a capability measures. `action` mirrors `measuredBy` so a client can
+ * offer the run directly; persisted scopes predate the field, so
+ * `adaptChecklistItems` backfills it by id.
+ */
+const MEASURED_BY: Record<string, { measuredBy: string; action: string }> = Object.fromEntries(
+  ([
+    ['hom-01', 'anti.qa.menu_depth'],
+    ['hom-02', 'anti.qa.page_structure'],
+    ['hom-03', 'anti.qa.page_structure'],
+    ['hom-05', 'anti.qa.page_structure'],
+    ['hom-06', 'anti.qa.page_structure'],
+    ['hom-07', 'anti.qa.page_structure'],
+    ['hom-08', 'anti.qa.page_structure'],
+    ['hom-09', 'anti.qa.menu_depth'],
+    ['pdp-01', 'anti.qa.variant_image_probe'],
+    ['pdp-04', 'anti.qa.variant_image_probe'],
+    ['pdp-11', 'anti.qa.pdp_contract'],
+    ['sys-04', 'anti.qa.state_matrix'],
+    ['qag-07', 'theme.qa_validate'],
+    ['qag-20', 'anti.qa.page_structure'],
+    ['qag-23', 'anti.qa.state_matrix'],
+    ['qag-25', 'theme.qa_validate'],
+    ['qag-29', 'theme.qa_validate'],
+    ['qag-34', 'anti.qa.variant_image_probe'],
+    ['qag-36', 'anti.qa.state_matrix'],
+  ] as const).map(([id, tool]) => [id, { measuredBy: tool, action: tool }])
+);
+
 export function adaptChecklistItems(items: ThemeChecklistItem[], mode?: ThemeSettingsMode): ThemeChecklistItem[] {
   return items.map((it) => {
     if (it.id === 'qag-04') {
@@ -163,7 +194,8 @@ export function adaptChecklistItems(items: ThemeChecklistItem[], mode?: ThemeSet
         action: 'theme.settings_check',
       };
     }
-    return it;
+    const measured = MEASURED_BY[it.id];
+    return measured ? { ...it, measuredBy: it.measuredBy ?? measured.measuredBy, action: it.action ?? measured.action } : it;
   });
 }
 
@@ -201,6 +233,7 @@ export const DEFAULT_THEME_CHECKLIST: ThemeChecklistItem[] = [
   { id: 'pdp-08', code: 'PDP-08', name: 'Sản Phẩm Gợi Ý / Cùng Chuyên Mục', desc: 'Lưới sản phẩm liên quan hoặc sản phẩm vừa xem', qaPoint: 'Không gợi ý trùng chính sản phẩm đang xem', page: 'product', done: false },
   { id: 'pdp-09', code: 'PDP-09', name: 'Nút Thao Tác Trên Ảnh Sản Phẩm (Cảm Ứng)', desc: 'Nút giỏ, yêu thích, xem nhanh, so sánh trên thẻ và ảnh sản phẩm', qaPoint: 'Trên thiết bị cảm ứng (hover: none) các nút không che ảnh sản phẩm', page: 'product', done: false },
   { id: 'pdp-10', code: 'PDP-10', name: 'Combo / Mua Kèm Thêm Nhiều Biến Thể', desc: 'Nút thêm combo, mua kèm, bundle gửi nhiều variant vào giỏ một lần bấm', qaPoint: 'Bấm thêm combo: mọi variant đều vào giỏ và badge tăng đúng. Haravan /cart/add.js trả 404 "The product not found." với payload {items:[...]} nên phải gửi tuần tự từng {id, quantity}; npm run lint:haravan không còn HARAVAN_CART_ADD_ITEMS_ARRAY', page: 'product', done: false },
+  { id: 'pdp-11', code: 'PDP-11', name: 'Size Guide Cho Sản Phẩm Có Kích Cỡ', desc: 'Nút/link mở bảng size guide ngay cạnh bộ chọn kích cỡ khi sản phẩm có option kích cỡ', qaPoint: 'Sản phẩm có option size/kích thước thì có nút mở size guide, mở ra đúng nội dung và đóng lại được; sản phẩm không có size thì không hiện', page: 'product', done: false },
 
   // 4. TRANG GIỎ HÀNG (CART)
   { id: 'crt-01', code: 'CRT-01', name: 'Mini Cart Drawer Trượt Phải (AJAX)', desc: 'Ngăn kéo giỏ hàng trượt từ phải sang khi thêm sản phẩm', qaPoint: 'Mở/đóng mượt mà, bấm backdrop mờ tự đóng', page: 'cart', pathHint: '/cart', done: false },
@@ -276,7 +309,16 @@ export const DEFAULT_THEME_CHECKLIST: ThemeChecklistItem[] = [
   { id: 'qag-26', code: 'QAG-26', name: 'Không Rớt Chữ Mồ Côi & Dải Metadata Cân Đối', desc: 'Kiểm tra nút CTA, pill/tab, nav link, form submit và các dải USP/trust-badge/spec-bar/countdown tại 375px, 768px, 1024px, 1440px', qaPoint: 'Nút/tab/link không bị bẻ xuống dòng 1 từ ngắn mồ côi (<= 5 ký tự ở dòng cuối, WARN); dải metadata cùng hàng chênh cao <= 1.8x và không tràn chữ qua overflow-x: hidden', page: 'qa-gate', pathHint: '/', done: false },
   { id: 'qag-27', code: 'QAG-27', name: 'Mật Độ Thẻ Ngang Mobile (Scroll-Snap Peek 375px)', desc: 'Kiểm tra các dải cuộn ngang trên mobile 375px (tabs sản phẩm, danh mục, flash sale, sản phẩm liên quan)', qaPoint: 'Tại 375px hiện từ 1.15 đến 2.2 thẻ mỗi hàng (rộng ~160px-280px) để lộ mép thẻ kế tiếp gợi ý vuốt ngang; tránh thẻ full-width 100% bắt cuộn dọc dài hoặc nhồi >= 3 thẻ quá hẹp (< 130px)', page: 'qa-gate', pathHint: '/', done: false },
   { id: 'qag-28', code: 'QAG-28', name: 'Độ Toàn Vẹn Giá Trị Settings Data & Image Picker URL', desc: 'Kiểm tra mọi image_picker, select/radio default & value trong settings_schema.json + settings_data.json và fallback cứng trong Liquid', qaPoint: 'Mọi image_picker khác rỗng là full https:// URL (không phải tên file trần), có default hợp lệ trong schema, select value khớp options[].value, và Liquid không chứa | default: hay {% else %} chữ/link cứng', page: 'qa-gate', pathHint: '/', done: false },
-];
+  { id: 'qag-29', code: 'QAG-29', name: 'Thang Chữ & Vùng Bấm Mobile (<= 768px)', desc: 'Đo font-size thật của mọi chữ hiển thị và chiều cao thật của control (nút, input, select, tab, pill) tại 320px, 375px và 768px', qaPoint: 'Chữ >= 12px (rem quy ra px theo root font thật của mobile), control >= 44px chiều cao đo được chứ không chỉ khai min-height; ngưỡng đọc từ hợp đồng typeScale, ngoại lệ phải có trong QA_WAIVERS.json', page: 'qa-gate', pathHint: '/', done: false },
+  { id: 'qag-30', code: 'QAG-30', name: 'Root Font Không Co Nhỏ Trên Mobile', desc: 'Đọc html { font-size } ở mọi breakpoint và mọi giá trị rem/em đang dùng trong CSS theme', qaPoint: 'Root font mobile không nhỏ hơn mobileRootFontPx của hợp đồng; không ép html font-size bằng % hay vw; mỗi rem quy ra px thật vẫn >= 12px (npm run lint:haravan không còn CSS_ROOT_FONT_SHRINK)', page: 'qa-gate', pathHint: '/', done: false },
+  { id: 'qag-31', code: 'QAG-31', name: 'Hệ Icon Thống Nhất Một Nét Một viewBox', desc: 'Mọi SVG icon ở header, thẻ sản phẩm, drawer, footer, trạng thái rỗng', qaPoint: 'Cùng stroke-width và cùng viewBox gốc trong một họ icon, stroke/fill dùng currentColor, icon không co về 0x0; không trộn icon font, emoji và SVG trong cùng một cụm nút', page: 'qa-gate', pathHint: '/', done: false },
+  { id: 'qag-32', code: 'QAG-32', name: 'Nội Dung Rich Text Từ Admin (RTE)', desc: 'Mô tả sản phẩm, bài viết, trang chính sách có bảng, ảnh, iframe, danh sách, heading do merchant soạn trong Admin', qaPoint: 'Bảng cuộn ngang trong khung riêng, ảnh/iframe không vượt 100% bề rộng khung, danh sách giữ marker và thụt lề, không có phần tử nào gây scrollbar ngang ở 375px, link trong nội dung nhìn phân biệt được', page: 'qa-gate', pathHint: '/', done: false },
+  { id: 'qag-33', code: 'QAG-33', name: 'Phạm Vi Biến Của include/snippet', desc: 'Haravan include dùng chung scope với template gọi: kiểm mọi snippet nhận tham số (product-card, swatch, quickview, vòng lặp sản phẩm)', qaPoint: 'Snippet chỉ đọc biến được truyền vào, không fallback ngầm sang product/collection của trang cha; assign trong snippet không trùng tên biến trang cha; sau include biến của trang cha giữ nguyên giá trị; cùng thẻ render giống nhau trong vòng lặp, quickview và trang riêng', page: 'qa-gate', pathHint: '/', done: false },
+  { id: 'qag-34', code: 'QAG-34', name: 'Biến Thể Đổi Ảnh Đúng (Variant -> Image)', desc: 'Chọn lần lượt từng màu/biến thể trên PDP, quickview và thẻ sản phẩm; đọc /products/<handle>.js', qaPoint: 'Mỗi biến thể màu có featured_image riêng và gallery nhảy đúng ảnh đó; 0 biến thể màu thiếu featured_image; tên màu resolve được trong settings, không rơi im lặng về ảnh đầu hay ô màu mặc định', page: 'qa-gate', pathHint: '/', done: false },
+  { id: 'qag-35', code: 'QAG-35', name: 'Trạng Thái Tắt (OFF) Của Toggle Settings', desc: 'Với mọi checkbox/toggle trong settings_schema.json: đặt OFF rồi tải lại storefront', qaPoint: 'Tắt toggle cha thì setting con phụ thuộc bị ẩn hoặc vô hiệu trong Customizer và khối ngoài storefront biến mất hẳn (không DOM rỗng, không khoảng trống, không CSS mồ côi); không lỗi console ở trạng thái OFF', page: 'qa-gate', pathHint: '/', done: false },
+  { id: 'qag-36', code: 'QAG-36', name: 'Overlay Vừa Khung Nhìn', desc: 'Modal, drawer, dropdown, megamenu, popup tại 320x568, 375x667, 768x1024 và khi bàn phím ảo mở', qaPoint: 'Panel có max-height theo viewport (dvh/vh) và cuộn bên trong; nút đóng và CTA chính luôn nằm trong khung nhìn, không bị cắt đáy hoặc đỉnh, không làm body tràn ngang hay cuộn nền', page: 'qa-gate', pathHint: '/', done: false },
+  { id: 'qag-37', code: 'QAG-37', name: 'Link Xếp Chồng Không Đè Vùng Bấm', desc: 'Danh sách link menu, footer, thẻ, breadcrumb xếp dọc: đo getBoundingClientRect từng link rồi elementFromPoint tại tâm', qaPoint: 'Vùng bấm của hai link liền kề không chồng nhau (line-height hay margin âm, ::before/::after phóng to); tâm mỗi link trúng đúng link đó; khoảng cách giữa các tâm >= 24px', page: 'qa-gate', pathHint: '/', done: false },
+].map((item) => ({ ...item, ...MEASURED_BY[item.id] }));
 
 /**
  * Scope marker for a storefront whose workspace could not be resolved. Kept
