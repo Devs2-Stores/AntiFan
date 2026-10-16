@@ -209,6 +209,28 @@ nav li:hover .sub{display:block}
     expect: { triggers: 1, noCodes: { 0: ['STATE_STUCK_OPEN', 'OVERLAY_NOT_OPENED'] } },
   },
   {
+    // Mirrors S2 Sky Fashion: the trigger holds its own ".megamenu__label", the panel opens on a
+    // JS hover class, and a sale popup slides in on a timer once the pointer first moves.
+    id: 'megamenu-with-label-span-and-timed-popup',
+    html: `<!doctype html><html lang="vi"><head><meta charset="utf-8"><style>${BASE_CSS}
+nav ul{list-style:none;margin:0;padding:0;display:flex;gap:16px}
+.megamenu__item > a{display:inline-flex;min-height:48px;align-items:center;padding:0 12px;color:#111}
+.megamenu__panel{position:absolute;left:0;right:0;top:48px;min-height:240px;background:#fff;border-top:1px solid #ccc;padding:16px;opacity:0;visibility:hidden;z-index:50}
+.megamenu__item.is-open .megamenu__panel{opacity:1;visibility:visible}
+.sale-popup{position:fixed;left:16px;bottom:16px;width:320px;height:300px;background:#fff;border:1px solid #ccc;z-index:70;padding:12px;display:none}
+.sale-popup.is-visible{display:block}
+</style></head><body><header style="position:relative"><nav><ul class="megamenu__list"><li class="megamenu__item megamenu__item--has-mega"><a href="#nu" class="megamenu__link megamenu__trigger" aria-haspopup="true"><span class="megamenu__label">Nữ</span></a><div class="megamenu__panel"><a href="#ao" style="display:block;min-height:44px;color:#111">Áo</a><a href="#quan" style="display:block;min-height:44px;color:#111">Quần</a></div></li></ul></nav></header>
+<div class="sale-popup" id="sale-popup"><button class="sale-popup__close" aria-label="Đóng">×</button><p>Flash sale</p></div><main style="min-height:1200px"></main>
+<script>
+  const item = document.querySelector('.megamenu__item');
+  item.addEventListener('mouseenter', () => item.classList.add('is-open'));
+  item.addEventListener('mouseleave', () => item.classList.remove('is-open'));
+  let armed = false;
+  document.addEventListener('mousemove', () => { if (armed) return; armed = true; setTimeout(() => document.getElementById('sale-popup').classList.add('is-visible'), 50); });
+</script></body></html>`,
+    expect: { triggers: 1, panelMatches: { 0: 'megamenu__panel' }, noCodes: { 0: ['STATE_STUCK_OPEN', 'OVERLAY_NOT_OPENED'] }, closeClosed: { 0: ['pointer-leave'] } },
+  },
+  {
     // The theme never styled the dialog: serif default font, default blue link, grey native button
     // face and text flush against the unpadded panel edge.
     id: 'modal-with-browser-default-styling',

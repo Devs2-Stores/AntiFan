@@ -318,8 +318,10 @@ export function buildDiscoverScript(specs: StateMatrixTriggerSpec[], maxTriggers
     }
     const item = trigger.closest('li, [class*="nav-item"], [class*="menu-item"], [data-megamenu]');
     if (item) {
-      const sub = item.querySelector('[class*="megamenu"], [class*="mega-menu"], [class*="dropdown"], [class*="submenu"], [class*="sub-menu"], [role="menu"]');
-      if (sub && sub !== trigger && !sub.contains(trigger)) return sub;
+      // The trigger's own parts (".megamenu__label" inside ".megamenu__link") match the same class
+      // fragments; the panel is a node outside the trigger.
+      const subs = item.querySelectorAll('[class*="megamenu"], [class*="mega-menu"], [class*="dropdown"], [class*="submenu"], [class*="sub-menu"], [role="menu"]');
+      for (const sub of Array.from(subs)) if (sub !== trigger && !trigger.contains(sub) && !sub.contains(trigger)) return sub;
     }
     return null;
   };
@@ -494,9 +496,11 @@ export function buildMeasureOpenScript(index: number, kind: StateMatrixKind, clo
     const inner = panel.querySelector('[role="dialog"], [aria-modal="true"], [class*="__panel"], [class*="-panel"], [class*="__content"], [class*="-content"], [class*="__inner"], [class*="drawer"], [class*="modal"]');
     if (inner && isOpen(inner)) panel = inner;
   }
-  if (!panel || !isOpen(panel)) {
+  if (!panel || (!isOpen(panel) && ${JSON.stringify(kind !== 'megamenu' && kind !== 'dropdown')})) {
     // Discovery had no panel: take the newest dialog-like layer this click opened. Layers that
-    // were open before the click are excluded, so a resident popup is never mistaken for it.
+    // were open before the click are excluded, so a resident popup is never mistaken for it. A
+    // menu whose own panel stays shut is unopened: the layer that appeared meanwhile is a timed
+    // popup, not this menu.
     const layers = Array.from(document.querySelectorAll(LAYER_SELECTOR))
       .filter((el) => !el.closest(PREVIEW_CHROME) && !el.closest('[' + PREOPEN + ']') && isOpen(el))
       .filter((el) => { const cs = getComputedStyle(el); return cs.position === 'fixed' || cs.position === 'absolute' || el.getAttribute('role') === 'dialog' || el.getAttribute('aria-modal') === 'true' || el.tagName === 'DIALOG'; });
