@@ -149,6 +149,7 @@ describe('Theme QA Automation Stack (Haravan Next Stack Enhancements)', () => {
       const workflow = new ThemeQaWorkflow(ports);
       // Omit multiBreakpoint param: must default to true
       const report = await workflow.validate({
+        profile: 'audit',
         runId: 'run-responsive-default',
         attemptId: 'att-responsive-default',
         workspaceRoot: 'E:/Work/test-theme',
@@ -167,6 +168,7 @@ describe('Theme QA Automation Stack (Haravan Next Stack Enhancements)', () => {
       const workflow = new ThemeQaWorkflow(ports);
 
       const report = await workflow.validate({
+        profile: 'audit',
         runId: 'run-responsive-opt-out',
         attemptId: 'att-responsive-opt-out',
         workspaceRoot: 'E:/Work/test-theme',
@@ -185,6 +187,7 @@ describe('Theme QA Automation Stack (Haravan Next Stack Enhancements)', () => {
       const workflow = new ThemeQaWorkflow(ports);
 
       const report = await workflow.validate({
+        profile: 'audit',
         runId: 'run-responsive-required-unmeasured',
         attemptId: 'att-responsive-required-unmeasured',
         workspaceRoot: 'E:/Work/test-theme',
@@ -219,6 +222,7 @@ describe('Theme QA Automation Stack (Haravan Next Stack Enhancements)', () => {
 
       const workflow = new ThemeQaWorkflow(ports);
       const report = await workflow.validate({
+        profile: 'audit',
         runId: 'run-responsive-overflow',
         attemptId: 'att-responsive-overflow',
         workspaceRoot: 'E:/Work/test-theme',
@@ -286,6 +290,7 @@ describe('Theme QA Automation Stack (Haravan Next Stack Enhancements)', () => {
 
       const workflow = new ThemeQaWorkflow(ports);
       const report = await workflow.validate({
+        profile: 'audit',
         runId: 'run-404-clean',
         attemptId: 'att-404-clean',
         workspaceRoot: 'E:/Work/test-theme',
@@ -320,6 +325,7 @@ describe('Theme QA Automation Stack (Haravan Next Stack Enhancements)', () => {
 
       const workflow = new ThemeQaWorkflow(ports);
       const report = await workflow.validate({
+        profile: 'audit',
         runId: 'run-route-404-fail',
         attemptId: 'att-route-404-fail',
         workspaceRoot: 'E:/Work/test-theme',
@@ -357,6 +363,7 @@ describe('Theme QA Automation Stack (Haravan Next Stack Enhancements)', () => {
         });
         const workflow = new ThemeQaWorkflow(ports);
         const report = await workflow.validate({
+          profile: 'audit',
           runId: 'run-auth-redirect',
           attemptId: 'att-auth-redirect',
           workspaceRoot: 'E:/Work/test-theme',
@@ -382,6 +389,7 @@ describe('Theme QA Automation Stack (Haravan Next Stack Enhancements)', () => {
         });
         const workflow = new ThemeQaWorkflow(ports);
         const report = await workflow.validate({
+          profile: 'audit',
           runId: 'run-auth-direct',
           attemptId: 'att-auth-direct',
           workspaceRoot: 'E:/Work/test-theme',
@@ -420,6 +428,7 @@ describe('Theme QA Automation Stack (Haravan Next Stack Enhancements)', () => {
 
       const workflow = new ThemeQaWorkflow(ports);
       const report = await workflow.validate({
+        profile: 'audit',
         runId: 'run-404-broken-subresource',
         attemptId: 'att-404-broken-subresource',
         workspaceRoot: 'E:/Work/test-theme',
@@ -731,6 +740,7 @@ describe('Theme QA Automation Stack (Haravan Next Stack Enhancements)', () => {
 
         const workflow = new ThemeQaWorkflow(ports);
         const reportUnrelated = await workflow.validate({
+          profile: 'audit',
           runId: 'run-scoped-0',
           attemptId: 'att-scoped-0',
           workspaceRoot: tmpWs,
@@ -779,6 +789,7 @@ describe('Theme QA Automation Stack (Haravan Next Stack Enhancements)', () => {
         });
         const workflowScopedHit = new ThemeQaWorkflow(portsScopedHit);
         const reportScopedHit = await workflowScopedHit.validate({
+          profile: 'audit',
           runId: 'run-scoped-1',
           attemptId: 'att-scoped-1',
           workspaceRoot: tmpWs,
@@ -834,6 +845,7 @@ describe('Theme QA Automation Stack (Haravan Next Stack Enhancements)', () => {
         });
         const workflowRoute404 = new ThemeQaWorkflow(portsRoute404);
         const reportRoute404 = await workflowRoute404.validate({
+          profile: 'audit',
           runId: 'run-scoped-404',
           attemptId: 'att-scoped-404',
           workspaceRoot: tmpWs,
@@ -887,6 +899,7 @@ describe('Theme QA Automation Stack (Haravan Next Stack Enhancements)', () => {
         });
         const workflowSelectorlessLiquid = new ThemeQaWorkflow(portsSelectorlessLiquid);
         const reportSelectorlessLiquid = await workflowSelectorlessLiquid.validate({
+          profile: 'audit',
           runId: 'run-scoped-liquid',
           attemptId: 'att-scoped-liquid',
           workspaceRoot: tmpWs,
@@ -900,6 +913,7 @@ describe('Theme QA Automation Stack (Haravan Next Stack Enhancements)', () => {
         );
 
         const reportOutScopeRegression = await workflow.validate({
+          profile: 'audit',
           runId: 'run-scoped-diff-reg',
           attemptId: 'att-scoped-diff-reg',
           workspaceRoot: tmpWs,
@@ -919,6 +933,7 @@ describe('Theme QA Automation Stack (Haravan Next Stack Enhancements)', () => {
         );
 
         const reportOutScopePreExisting = await workflow.validate({
+          profile: 'audit',
           runId: 'run-scoped-diff-pre',
           attemptId: 'att-scoped-diff-pre',
           workspaceRoot: tmpWs,
@@ -1004,6 +1019,7 @@ describe('Theme QA Automation Stack (Haravan Next Stack Enhancements)', () => {
       });
       const workflow = new ThemeQaWorkflow(portsUnmeasuredDom);
       const report = await workflow.validate({
+        profile: 'audit',
         runId: 'run-unmeasured-dom',
         attemptId: 'att-unmeasured-dom',
         workspaceRoot: '/tmp/ws',

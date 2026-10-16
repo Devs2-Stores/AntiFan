@@ -23,7 +23,12 @@
  *  - icon-stroke-mismatch:    outline icons whose rendered stroke differs from the page's modal
  *                             stroke width.
  *  - overlay-fit:             an open fixed dialog/popup panel that extends past the viewport.
- * The five rules above read ONLY from `options.thresholds`; without it they are not run and are
+ *  - title-scale:             at <= 768px, h1-h4 outside thresholds.titleScale for their level; without
+ *                             that range, same-level headings of different sections differing by more
+ *                             than 2px.
+ *  - input-height-band:       inputs/selects of one form differing in height by more than
+ *                             thresholds.inputHeightBandPx (default 4).
+ * The registry rules above read ONLY from `options.thresholds`; without it they are not run and are
  * reported in stats.unmeasuredRules. A control whose ::before/::after pseudo-element enlarges its
  * hit area is graded on that hit area (WCAG 2.5.8 spacing exception).
  *
@@ -46,6 +51,8 @@ export const VISUAL_QUALITY_RULE_IDS = [
   'wrapped-label',
   'icon-stroke-mismatch',
   'overlay-fit',
+  'title-scale',
+  'input-height-band',
 ] as const;
 
 export type VisualQualityRuleId = (typeof VISUAL_QUALITY_RULE_IDS)[number];
@@ -55,6 +62,10 @@ export interface VisualQualityThresholds {
   minControlPx: number;
   minTapHitPx: number;
   tapSpacingCirclePx: number;
+  /** Allowed rendered font-size range [min, max] in px per heading level at <= 768px. */
+  titleScale?: Record<'h1' | 'h2' | 'h3' | 'h4', [number, number]>;
+  /** Largest allowed height difference in px between the inputs of one form (default 4). */
+  inputHeightBandPx?: number;
 }
 
 export interface VisualQualityFinding {
@@ -85,6 +96,8 @@ export interface VisualQualityStats {
 
 export interface VisualQualityScanResult {
   measured: boolean;
+  /** Set when the touch-width rules were read from a responsive-sweep width because the tab itself is wider than 767px. */
+  mobileSweepWidth?: number;
   viewport: { width: number; height: number };
   mobile: boolean;
   findings: VisualQualityFinding[];
@@ -136,6 +149,26 @@ function normalizeThresholds(value: VisualQualityThresholds | undefined): Visual
     }
     out[key] = v;
   }
+  const optionalScale = (value as unknown as Record<string, unknown> | null)?.titleScale;
+  if (optionalScale !== undefined) {
+    const scale = optionalScale as Record<string, unknown> | null;
+    const normalized: Record<string, [number, number]> = {};
+    for (const level of ['h1', 'h2', 'h3', 'h4']) {
+      const range = scale ? scale[level] : undefined;
+      if (!Array.isArray(range) || range.length !== 2 || !range.every((n) => typeof n === 'number' && Number.isFinite(n) && n > 0) || (range[0] as number) > (range[1] as number)) {
+        throw new Error('visual-quality thresholds.titleScale.' + level + ' must be [min, max] positive numbers (got ' + JSON.stringify(range) + ')');
+      }
+      normalized[level] = [range[0] as number, range[1] as number];
+    }
+    out.titleScale = normalized as unknown as number;
+  }
+  const band = (value as unknown as Record<string, unknown> | null)?.inputHeightBandPx;
+  if (band !== undefined) {
+    if (typeof band !== 'number' || !Number.isFinite(band) || band <= 0) {
+      throw new Error('visual-quality thresholds.inputHeightBandPx must be a positive number (got ' + JSON.stringify(band) + ')');
+    }
+    out.inputHeightBandPx = band;
+  }
   return out as unknown as VisualQualityThresholds;
 }
 
@@ -165,7 +198,7 @@ export class VisualQualityScanner {
   const TH = OPTS.thresholds;
   const measuredRules = ['contrast-low'];
   function markMeasured(id) { if (!measuredRules.includes(id)) measuredRules.push(id); }
-  if (TH) ['font-below-min', 'control-height-band', 'wrapped-label', 'icon-stroke-mismatch', 'overlay-fit'].forEach(markMeasured);
+  if (TH) ['font-below-min', 'control-height-band', 'wrapped-label', 'icon-stroke-mismatch', 'overlay-fit', 'title-scale', 'input-height-band'].forEach(markMeasured);
   function rulesReport() {
     return { measuredRules: measuredRules.slice(), unmeasuredRules: ALL_RULES.filter((id) => !measuredRules.includes(id)) };
   }
@@ -694,6 +727,91 @@ export class VisualQualityScanner {
           rect: rectOf(pr),
           measured: { width: Math.round(pr.width), height: Math.round(pr.height), left: Math.round(pr.left), top: Math.round(pr.top), viewportWidth: vw, viewportHeight: vh },
         }, 'fit|' + sel + '|' + Math.round(pr.height));
+      }
+    }
+
+    // ---- title-scale: heading sizes at touch widths ----
+    if (vw <= 768) {
+      const headingRows = [];
+      for (const h of scope.querySelectorAll('h1, h2, h3, h4')) {
+        if (isPreviewChrome(h) || hiddenFromAt(h)) continue;
+        const hr = h.getBoundingClientRect();
+        if (!rendered(h, hr) || visuallyHidden(h, hr) || offCanvas(hr) || !(h.textContent || '').trim()) continue;
+        const px = parseFloat(getComputedStyle(h).fontSize);
+        if (!(px > 0)) continue;
+        const section = h.closest('section, [data-section-type], [id^="shopify-section"], [id^="section-"], .section');
+        headingRows.push({ el: h, level: h.tagName.toLowerCase(), px: px, rect: hr, section: section });
+      }
+      if (TH.titleScale) {
+        for (const row of headingRows) {
+          const range = TH.titleScale[row.level];
+          if (!range || (row.px >= range[0] - 0.01 && row.px <= range[1] + 0.01)) continue;
+          const hsel = selectorOf(row.el);
+          const own = Math.round(row.px * 10) / 10;
+          push({
+            ruleId: 'title-scale',
+            severity: 'warning',
+            selector: hsel,
+            details: row.level.toUpperCase() + ' ' + hsel + ' is ' + own + 'px, outside the ' + range[0] + '-' + range[1] + 'px title scale at ' + vw + 'px viewport',
+            rect: rectOf(row.rect),
+            measured: { level: row.level, fontSizePx: own, minPx: range[0], maxPx: range[1] },
+          }, 'title|' + hsel + '|' + own);
+        }
+      } else {
+        for (const level of ['h1', 'h2', 'h3', 'h4']) {
+          const rows = headingRows.filter((r) => r.level === level);
+          const bySection = new Map();
+          for (const r of rows) if (!bySection.has(r.section)) bySection.set(r.section, r);
+          if (bySection.size < 2) continue;
+          const sizes = Array.from(bySection.values()).map((r) => r.px);
+          if (Math.max.apply(null, sizes) - Math.min.apply(null, sizes) <= 2) continue;
+          const tally = new Map();
+          for (const s of sizes) { const k = Math.round(s * 2) / 2; tally.set(k, (tally.get(k) || 0) + 1); }
+          let modal = null;
+          tally.forEach((count, k) => { if (modal === null || count > tally.get(modal) || (count === tally.get(modal) && k > modal)) modal = k; });
+          for (const r of bySection.values()) {
+            if (Math.abs(r.px - modal) <= 2) continue;
+            const hsel = selectorOf(r.el);
+            const own = Math.round(r.px * 10) / 10;
+            push({
+              ruleId: 'title-scale',
+              severity: 'warning',
+              selector: hsel,
+              details: level.toUpperCase() + ' ' + hsel + ' is ' + own + 'px while the same-level headings of other sections use ' + modal + 'px',
+              rect: rectOf(r.rect),
+              measured: { level: level, fontSizePx: own, modalPx: modal },
+            }, 'title|' + hsel + '|' + own);
+          }
+        }
+      }
+    }
+
+    // ---- input-height-band: fields of one form share one height ----
+    const bandPx = TH.inputHeightBandPx || 4;
+    const FIELD = 'input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="image"]):not([type="file"]):not([type="range"]):not([type="color"]), select';
+    for (const form of scope.querySelectorAll('form')) {
+      if (isPreviewChrome(form)) continue;
+      const fields = [];
+      for (const f of form.querySelectorAll(FIELD)) {
+        if (hiddenFromAt(f) || f.disabled) continue;
+        const fr = f.getBoundingClientRect();
+        if (!rendered(f, fr) || visuallyHidden(f, fr) || offCanvas(fr)) continue;
+        fields.push({ el: f, rect: fr });
+      }
+      if (fields.length < 2) continue;
+      const tallest = Math.max.apply(null, fields.map((f) => f.rect.height));
+      for (const f of fields) {
+        if (tallest - f.rect.height <= bandPx) continue;
+        const fsel = selectorOf(f.el);
+        const own = Math.round(f.rect.height * 10) / 10;
+        push({
+          ruleId: 'input-height-band',
+          severity: 'warning',
+          selector: fsel,
+          details: 'Field ' + fsel + ' is ' + own + 'px tall but another field of the same form is ' + Math.round(tallest * 10) / 10 + 'px (allowed difference ' + bandPx + 'px)',
+          rect: rectOf(f.rect),
+          measured: { heightPx: own, tallestPx: Math.round(tallest * 10) / 10, bandPx: bandPx },
+        }, 'input-band|' + fsel + '|' + Math.round(f.rect.height) + '|' + Math.round(tallest));
       }
     }
   }

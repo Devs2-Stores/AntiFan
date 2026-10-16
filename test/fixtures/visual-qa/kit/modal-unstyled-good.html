@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>modal-unstyled good</title>
+<style>
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0;font:16px/1.5 Arial,sans-serif;color:#111;background:#fff}
+.btn{border:1px solid #111;background:#fff;color:#111;font:16px/1.5 Arial,sans-serif;min-width:48px;min-height:48px;padding:0 16px;cursor:pointer}
+.shade{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;z-index:29}
+.shade.is-open{display:block}
+.panel{position:fixed;top:50%;left:50%;width:320px;max-width:90vw;transform:translate(-50%,-50%);background:#fff;border:1px solid #ccc;padding:20px;z-index:30;display:none;font:16px/1.5 Arial,sans-serif}
+.panel.is-open{display:block}
+.panel a{color:#0b57d0}
+.x{position:absolute;top:4px;right:4px;width:44px;height:44px;border:0;background:#eee;color:#111;font-size:20px;cursor:pointer}
+body.lock{overflow:hidden}
+</style>
+</head>
+<body>
+<header style="padding:12px 16px"><button class="btn open" type="button" aria-haspopup="dialog" aria-controls="panel" aria-expanded="false">Open policy</button></header>
+<main style="padding:16px;min-height:1600px"><p>Page content.</p></main>
+<div class="shade" id="shade"></div>
+<div class="panel" id="panel" role="dialog" aria-modal="true" aria-label="Return policy">
+<button class="x" type="button" aria-label="Close">&times;</button>
+<p>Items can be returned within seven days of delivery.</p>
+<a href="/policies/refund">Read the full refund policy</a>
+<button class="agree" type="button" style="border:1px solid #111;background:#fff;color:#111;font:16px Arial,sans-serif;min-height:44px;padding:0 16px">I agree</button>
+</div>
+<script>
+var btn=document.querySelector('.open');var panel=document.getElementById('panel');var shade=document.getElementById('shade');var x=panel.querySelector('.x');
+function show(){panel.classList.add('is-open');shade.classList.add('is-open');document.body.classList.add('lock');btn.setAttribute('aria-expanded','true');x.focus()}
+function hide(){panel.classList.remove('is-open');shade.classList.remove('is-open');document.body.classList.remove('lock');btn.setAttribute('aria-expanded','false');btn.focus()}
+btn.addEventListener('click',function(){panel.classList.contains('is-open')?hide():show()});
+x.addEventListener('click',hide);shade.addEventListener('click',hide);
+document.addEventListener('keydown',function(e){if(e.key==='Escape'&&panel.classList.contains('is-open'))hide()});
+</script>
+</body>
+</html>

@@ -14,6 +14,7 @@ import { buildDomQuietScript } from '../../src/main/verification/capture-settle'
 import { LayoutOverflowEngine } from '../../src/main/qa/scanners/layout-overflow-engine';
 import { LayoutIntegrityEngine } from '../../src/main/qa/scanners/layout-integrity-engine';
 import { DomSemanticsScanner } from '../../src/main/qa/scanners/dom-semantics-scanner';
+import { IMAGE_FRAME_RULE_IDS } from '../../src/main/qa/scanners/image-frame-scanner';
 import { LiquidErrorScanner } from '../../src/main/qa/scanners/liquid-error-scanner';
 import { BrokenAssetScanner } from '../../src/main/qa/scanners/broken-asset-scanner';
 import { ServerCrashScanner } from '../../src/main/qa/scanners/server-crash-scanner';
@@ -78,6 +79,14 @@ const createMeasuredPorts = (overrides?: {
         return { measured: true, viewport: { name: 'mobile', width: 375, height: 812 }, hasOverflow: false, deltaX: 0, scrollWidth: 375, clientWidth: 375, culprits: [] };
       }
       if (script === liquidScript || script.includes('ERROR_PATTERNS')) return { hasErrors: false, errors: [], scannedElementsCount: 20 };
+      if (script.includes('image-low-res')) {
+        return {
+          measured: true,
+          viewport: { width: 375, height: 812 },
+          findings: [],
+          stats: { imagesChecked: 5, imagesPending: 0, durationMs: 2, truncated: false, truncatedReasons: [], measuredRules: [...IMAGE_FRAME_RULE_IDS], unmeasuredRules: [] },
+        };
+      }
       if (script === assetScript || script.includes('naturalWidth') || script.includes('img.decode')) {
         return { hasBrokenAssets: false, brokenAssets: [], totalImagesScanned: 5, totalStylesheetsScanned: 1 };
       }
@@ -97,6 +106,15 @@ const createMeasuredPorts = (overrides?: {
       return {};
     },
     diagnostics: () => (overrides?.diagnostics ? overrides.diagnostics() : { console: [], failures: [] }),
+    stateMatrix: async () => ({
+      measured: true,
+      safeMode: true,
+      viewport: { width: 375, height: 812 },
+      triggers: [],
+      summary: { total: 0, passed: 0, warned: 0, failed: 0, notRun: 0, criticalCount: 0 },
+      skippedTriggers: [],
+      durationMs: 1,
+    }),
     listTabs: () => [{ id: 'tab-1', url: overrides?.tabUrl ?? 'https://store.example.com/products/demo' }],
     getDocumentGeneration: () => currentGen,
     settleCapture: async (_target: BrowserTarget, _pane: string, _clip: unknown, options: Record<string, unknown>) =>
@@ -118,8 +136,14 @@ const createMeasuredPorts = (overrides?: {
   };
 };
 
+const markAsTheme = (root: string): string => {
+  fs.mkdirSync(path.join(root, 'layout'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'layout', 'theme.liquid'), '', 'utf8');
+  return root;
+};
+
 const withRoots = async <T>(count: number, run: (roots: [string, string]) => Promise<T>): Promise<T> => {
-  const roots = Array.from({ length: Math.max(count, 2) }, () => fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-qa-receipt-v13-')));
+  const roots = Array.from({ length: Math.max(count, 2) }, () => markAsTheme(fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-qa-receipt-v13-'))));
   try {
     return await run(roots as [string, string]);
   } finally {
@@ -152,7 +176,7 @@ describe('theme.qa_validate receipt truthfulness', () => {
   it('still accepts the bound root and a directory inside it', async () => {
     await withRoots(1, async ([root]) => {
       const nested = path.join(root, 'theme');
-      fs.mkdirSync(nested);
+      markAsTheme(nested);
       const catalogue = new CapabilityCatalogue(defaultOptions);
       registerBrowserCapabilities(catalogue, makeBoundBrowser(), mockWorkflow({ summary: { passed: true, criticalCount: 0 } }), () => root);
       await catalogue.dispatch('theme.qa_validate', { tabId: 'tab-1', workspaceRoot: root }, makeBoundContext());
@@ -502,5 +526,111 @@ describe('theme.qa_validate font settle retry', () => {
     const report = await run.promise;
     assert.strictEqual(run.calls(), 1);
     assert.strictEqual(report.execution, 'DEGRADED');
+  });
+});
+
+describe('theme.qa_validate receipt certification fields', () => {
+  const validateWith = async (root: string, summary: Record<string, unknown>, extra: Record<string, unknown> = {}) => {
+    const catalogue = new CapabilityCatalogue(defaultOptions);
+    registerBrowserCapabilities(catalogue, makeBoundBrowser(), mockWorkflow({ summary: { passed: true, criticalCount: 0, ...summary } }), () => root);
+    await catalogue.dispatch('theme.qa_validate', { tabId: 'tab-1', workspaceRoot: root, ...extra }, makeBoundContext());
+    return readReceipts(root)[0]!;
+  };
+
+  it('records a structural pass with its reasons and threshold source', async () => {
+    await withRoots(1, async ([root]) => {
+      const receipt = await validateWith(root, { certification: 'STRUCTURAL', certificationReasons: ['mobile viewport not measured'], thresholdsSource: 'default' });
+      assert.strictEqual(receipt.certification, 'STRUCTURAL');
+      assert.deepStrictEqual(receipt.certificationReasons, ['mobile viewport not measured']);
+      assert.strictEqual(receipt.thresholdsSource, 'default');
+      assert.strictEqual(receipt.scope, 'structural');
+    });
+  });
+
+  it('records a certified pass and an annotation-scoped pass distinctly', async () => {
+    await withRoots(1, async ([root]) => {
+      const certified = await validateWith(root, { certification: 'CERTIFIED', thresholdsSource: 'contract' });
+      assert.strictEqual(certified.certification, 'CERTIFIED');
+      assert.strictEqual(certified.thresholdsSource, 'contract');
+      assert.strictEqual(certified.scope, 'certified');
+      assert.deepStrictEqual(certified.certificationReasons, []);
+    });
+    await withRoots(1, async ([root]) => {
+      const scoped = await validateWith(root, { certification: 'STRUCTURAL' }, { annotationId: 'annotation_1' });
+      assert.strictEqual(scoped.scope, 'annotation');
+    });
+  });
+
+  it('leaves thresholdsSource null when the report names none', async () => {
+    await withRoots(1, async ([root]) => {
+      const receipt = await validateWith(root, { certification: 'STRUCTURAL' });
+      assert.strictEqual(receipt.thresholdsSource, null);
+    });
+  });
+});
+
+describe('theme.qa_validate theme-root guard', () => {
+  const notTheme = (err: unknown) => err instanceof CapabilityError && err.code === 'WORKSPACE_NOT_THEME';
+
+  it('refuses an empty root before the workflow runs and writes no receipt', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-qa-notheme-'));
+    try {
+      const calls = { count: 0 };
+      const catalogue = new CapabilityCatalogue(defaultOptions);
+      registerBrowserCapabilities(catalogue, makeBoundBrowser(), mockWorkflow({ summary: { passed: true, criticalCount: 0 } }, calls), () => root);
+      await assert.rejects(catalogue.dispatch('theme.qa_validate', { tabId: 'tab-1', workspaceRoot: root }, makeBoundContext()), notTheme);
+      assert.strictEqual(calls.count, 0);
+      assert.strictEqual(receiptFiles(root).length, 0);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('names the diacritic-named sibling that holds the theme when the bound root is an ASCII-folded stray', async () => {
+    const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-qa-stray-'));
+    try {
+      const real = markAsTheme(path.join(parent, 'Thời Trang'));
+      const stray = path.join(parent, 'Thoi Trang');
+      fs.mkdirSync(stray);
+      const catalogue = new CapabilityCatalogue(defaultOptions);
+      registerBrowserCapabilities(catalogue, makeBoundBrowser(), mockWorkflow({ summary: { passed: true, criticalCount: 0 } }), () => stray);
+      await assert.rejects(
+        catalogue.dispatch('theme.qa_validate', { tabId: 'tab-1', workspaceRoot: stray }, makeBoundContext()),
+        (err: unknown) => notTheme(err) && (err as CapabilityError).message.includes(real)
+      );
+      assert.strictEqual(receiptFiles(stray).length, 0);
+    } finally {
+      fs.rmSync(parent, { recursive: true, force: true });
+    }
+  });
+
+  it('accepts a root carrying only config/settings.html and a plain folder when allowNonTheme is set', async () => {
+    const legacy = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-qa-legacy-'));
+    const plain = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-qa-plain-'));
+    try {
+      fs.mkdirSync(path.join(legacy, 'config'));
+      fs.writeFileSync(path.join(legacy, 'config', 'settings.html'), '', 'utf8');
+      for (const [root, extra] of [[legacy, {}], [plain, { allowNonTheme: true }]] as Array<[string, Record<string, unknown>]>) {
+        const catalogue = new CapabilityCatalogue(defaultOptions);
+        registerBrowserCapabilities(catalogue, makeBoundBrowser(), mockWorkflow({ summary: { passed: true, criticalCount: 0 } }), () => root);
+        await catalogue.dispatch('theme.qa_validate', { tabId: 'tab-1', workspaceRoot: root, ...extra }, makeBoundContext());
+        assert.strictEqual(receiptFiles(root).length, 1);
+      }
+    } finally {
+      fs.rmSync(legacy, { recursive: true, force: true });
+      fs.rmSync(plain, { recursive: true, force: true });
+    }
+  });
+
+  it('treats a root holding only the AntiFan-owned directory as empty', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-qa-owned-'));
+    try {
+      fs.mkdirSync(path.join(root, '.antifan'));
+      const catalogue = new CapabilityCatalogue(defaultOptions);
+      registerBrowserCapabilities(catalogue, makeBoundBrowser(), mockWorkflow({ summary: { passed: true, criticalCount: 0 } }), () => root);
+      await assert.rejects(catalogue.dispatch('theme.qa_validate', { tabId: 'tab-1', workspaceRoot: root }, makeBoundContext()), notTheme);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });

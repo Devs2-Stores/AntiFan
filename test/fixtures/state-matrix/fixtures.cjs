@@ -10,6 +10,9 @@
 // expect.measured: expected top-level `measured`
 // expect.closeSkipped: { <triggerIndex>: { <close method>: 'skip reason prefix' } }
 // expect.closeClosed:  { <triggerIndex>: [close methods that must have closed the panel] }
+const fs = require('node:fs');
+const path = require('node:path');
+const kit = (name) => fs.readFileSync(path.join(__dirname, '..', 'visual-qa', 'kit', `${name}.html`), 'utf8');
 
 const BASE_CSS = `
 html,body{margin:0;font:16px/1.5 Arial,sans-serif;color:#111;background:#fff}
@@ -204,6 +207,24 @@ nav li > a{display:inline-flex;min-height:48px;align-items:center;padding:0 12px
 nav li:hover .sub{display:block}
 </style></head><body><header><nav><ul><li><a href="#" aria-haspopup="true" class="has-dropdown">Danh mục</a><div class="sub dropdown" role="menu"><a href="#a" style="display:block;min-height:44px;color:#111">Laptop</a><a href="#b" style="display:block;min-height:44px;color:#111">Màn hình</a></div></li></ul></nav></header><main></main></body></html>`,
     expect: { triggers: 1, noCodes: { 0: ['STATE_STUCK_OPEN', 'OVERLAY_NOT_OPENED'] } },
+  },
+  {
+    // The theme never styled the dialog: serif default font, default blue link, grey native button
+    // face and text flush against the unpadded panel edge.
+    id: 'modal-with-browser-default-styling',
+    html: kit('modal-unstyled-bad'),
+    expect: { triggers: 1, status: { 0: 'FAIL' }, codes: { 0: ['MODAL_UNSTYLED'] } },
+  },
+  {
+    id: 'modal-styled-like-the-page',
+    html: kit('modal-unstyled-good'),
+    expect: { triggers: 1, status: { 0: 'PASS' }, noCodes: { 0: ['MODAL_UNSTYLED'] } },
+  },
+  {
+    // A full-screen scrim button labelled "Đóng" is the backdrop, not the panel's close control.
+    id: 'full-screen-scrim-button-is-not-the-close-control',
+    html: overlayPage({ closeButton: false }).replace('<div class="backdrop" id="backdrop"></div>', '<button class="backdrop overplay-all" id="backdrop" aria-label="Đóng giỏ hàng" style="border:0;padding:0"></button>'),
+    expect: { triggers: 1, codes: { 0: ['CLOSE_CONTROL_MISSING'] }, closeClosed: { 0: ['escape'] } },
   },
 ];
 

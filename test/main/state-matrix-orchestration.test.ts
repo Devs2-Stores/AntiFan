@@ -256,6 +256,42 @@ describe('state matrix trigger wording', () => {
   });
 });
 
+describe('state matrix product-page openers', () => {
+  const script = buildDiscoverScript([], 8, 'pdp');
+  const literal = (name: string): RegExp => {
+    const m = script.match(new RegExp(`const ${name} = (\\/.*\\/[a-z]*);`));
+    assert.ok(m && m[1], `${name} literal not found in the generated script`);
+    return new Function(`return ${m[1]};`)() as RegExp;
+  };
+
+  it('recognises size-guide, quick-view, share and review openers by their wording', () => {
+    const opener = literal('PDP_OPENER_WORDS');
+    for (const label of ['Size guide', 'Bảng size', 'Hướng dẫn chọn size', 'Xem nhanh', 'Quick view', 'Share', 'Chia sẻ', 'Đánh giá', 'Reviews']) {
+      assert.ok(opener.test(label), `"${label}" must be a product-page opener`);
+    }
+    for (const label of ['Thêm vào giỏ hàng', 'Add to cart', 'Sharpen', 'Xem ngay']) {
+      assert.ok(!opener.test(label), `"${label}" must not be a product-page opener`);
+    }
+  });
+
+  it('turns the product-page pass on only when asked', async () => {
+    assert.ok(buildDiscoverScript([], 8, 'pdp').includes('const PDP = true'));
+    assert.ok(buildDiscoverScript([], 8).includes('const PDP = false'));
+    let discoverScript = '';
+    const { deps } = fakeDeps((s) => {
+      if (isDiscover(s)) { discoverScript = s; return { ok: true, viewport: { width: 1, height: 1 }, triggers: [], skipped: [] }; }
+      return { ok: true };
+    });
+    await runStateMatrix(deps, { autoPopulate: 'pdp' });
+    assert.ok(discoverScript.includes('const PDP = true'));
+  });
+
+  it('refuses an unknown auto-populate mode', async () => {
+    const { deps } = fakeDeps(() => ({ ok: true }));
+    await assert.rejects(runStateMatrix(deps, { autoPopulate: 'cart' as never }), /autoPopulate must be "pdp"/);
+  });
+});
+
 describe('anti.qa.state_matrix advertisement', () => {
   it('is advertised as a non-replayable interactive tool', () => {
     const proxy = requireFromHere(path.resolve(process.cwd(), 'scripts/antifan-omp-mcp.cjs')) as {

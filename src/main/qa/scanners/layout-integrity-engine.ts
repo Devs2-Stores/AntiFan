@@ -762,6 +762,72 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
         }
       }
     }
+    // ---- 3c. min-gap: interactive siblings and text-against-media pressed together ------------
+    // Neighbours in one flow container closer than the touch-density minimum. A gap under half a
+    // pixel is a joined group (segmented control, stepper), and a negative gap is the overlap
+    // detector's finding, so neither counts here. Inline siblings are skipped: their gap is the
+    // surrounding text's word space.
+    const T_MIN_GAP = vw <= 480 ? 8 : 6;
+    const MEDIA_BOX = 'img, picture, video';
+    const seenMinGap = new Set();
+    for (let i = 0; i < elementLimit; i++) {
+      const parent = allElements[i];
+      if (parent.children.length < 2 || parent.closest('svg, head') || parent.closest(CAROUSEL_SLIDE)) continue;
+      const ps = cs(parent);
+      if (ps.display === 'none' || ps.display === 'contents' || !painted(parent)) continue;
+      const ch = parent.children;
+      for (let a = 0; a < ch.length - 1; a++) {
+        const elA = ch[a];
+        const elB = ch[a + 1];
+        const sA = cs(elA);
+        const sB = cs(elB);
+        if (sA.display === 'inline' || sB.display === 'inline') continue;
+        if ((sA.position !== 'static' && sA.position !== 'relative') || (sB.position !== 'static' && sB.position !== 'relative')) continue;
+        if (!painted(elA) || !painted(elB) || isSrOnly(elA) || isSrOnly(elB)) continue;
+        const rA = elA.getBoundingClientRect();
+        const rB = elB.getBoundingClientRect();
+        if (rA.width < 8 || rA.height < 8 || rB.width < 8 || rB.height < 8) continue;
+        if (rA.bottom <= 0 || rB.top >= vh || rA.right <= 0 || rB.left >= vw) continue;
+        const bothInteractive = elA.matches(ACTIONABLE) && elB.matches(ACTIONABLE);
+        const mediaPair = (elA.matches(MEDIA_BOX) && !elB.matches(MEDIA_BOX)) || (elB.matches(MEDIA_BOX) && !elA.matches(MEDIA_BOX));
+        if (!bothInteractive && !mediaPair) continue;
+        const yOverlap = span(rA.top, rA.bottom, rB.top, rB.bottom);
+        const xOverlap = span(rA.left, rA.right, rB.left, rB.right);
+        let gap = null;
+        let axis = '';
+        if (yOverlap >= Math.min(rA.height, rB.height) * 0.5 && xOverlap <= 0) {
+          gap = Math.max(rB.left - rA.right, rA.left - rB.right);
+          axis = 'horizontal';
+        } else if (xOverlap >= Math.min(rA.width, rB.width) * 0.5 && yOverlap <= 0) {
+          gap = Math.max(rB.top - rA.bottom, rA.top - rB.bottom);
+          axis = 'vertical';
+        }
+        if (gap === null || gap < 0.5 || gap >= T_MIN_GAP) continue;
+        if (mediaPair) {
+          const textBox = elA.matches(MEDIA_BOX) ? elB : elA;
+          if (alphaOfColor(cs(textBox).backgroundColor) >= 0.1 || !firstTextRect(textBox, false)) continue;
+          if ((parseFloat(cs(textBox).paddingTop) || 0) + (parseFloat(cs(textBox).paddingLeft) || 0) >= T_MIN_GAP) continue;
+        }
+        measured++;
+        const selA = getSelector(elA);
+        const selB = getSelector(elB);
+        const key = selA + '|' + selB;
+        if (seenMinGap.has(key)) continue;
+        seenMinGap.add(key);
+        flagged++;
+        const gapVal = Math.round(gap * 10) / 10;
+        push({
+          kind: 'spacing',
+          ruleId: 'min-gap',
+          severity: 'warning',
+          selector: selB,
+          relatedSelector: selA,
+          actualPx: gapVal,
+          details: (bothInteractive ? 'Interactive siblings ' : 'Text block and media ') + selA + ' and ' + selB + ' are ' + gapVal + 'px apart (' + axis + '), under the ' + T_MIN_GAP + 'px minimum gap',
+          rect: toRect(rB),
+        });
+      }
+    }
     const runsByOwner = new Map();
     for (let i = 0; i < runs.length; i++) {
       const rn = runs[i];
@@ -1488,6 +1554,36 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
       }
     };
     checkFixedStickyLayerCollisions('');
+    // Fixed and stuck bars (header, announcement, bottom nav, cookie strip) share the viewport with
+    // the content. When together they take more than 40% of its height the page has no room left to
+    // read; a short landscape phone viewport is where this shows first.
+    {
+      const bars = [];
+      let chromePx = 0;
+      for (let i = 0; i < layerCandidates.length; i++) {
+        const l = layerCandidates[i];
+        if (unsettled(l) || !painted(l) || alphaOf(l) < 0.5) continue;
+        const lr = l.getBoundingClientRect();
+        if (lr.width < vw * 0.5 || lr.height < 8 || lr.bottom <= 0 || lr.top >= vh) continue;
+        if (lr.width >= vw * 0.9 && lr.height >= vh * 0.9) continue;
+        if (releasedSticky(l, lr)) continue;
+        if (bars.some((b) => b.layer.contains(l) || l.contains(b.layer))) continue;
+        bars.push({ layer: l, r: lr });
+        chromePx += Math.min(lr.bottom, vh) - Math.max(lr.top, 0);
+      }
+      if (bars.length && chromePx > vh * 0.4) {
+        const biggest = bars.reduce((m, b) => (b.r.height > m.r.height ? b : m), bars[0]);
+        push({
+          kind: 'sticky-obstruction',
+          ruleId: 'fixed-chrome-ratio',
+          severity: 'critical',
+          selector: getSelector(biggest.layer),
+          actualPx: Math.round(chromePx),
+          details: bars.length + ' fixed/sticky bars take ' + Math.round(chromePx) + 'px of the ' + vh + 'px viewport height (' + Math.round((chromePx / vh) * 100) + '%, limit 40%), leaving ' + Math.round(vh - chromePx) + 'px for content',
+          rect: toRect(biggest.r),
+        });
+      }
+    }
     for (let s = 0; s < steps.length; s++) {
       const want = steps[s];
       const got = s === 0 ? 0 : scrollToY(want);

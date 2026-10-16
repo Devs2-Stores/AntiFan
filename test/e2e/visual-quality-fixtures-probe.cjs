@@ -86,10 +86,14 @@ function judge(fixture, byViewport) {
 async function run() {
   const bundleDir = path.join(workDir, 'bundle');
   esbuild.buildSync({
-    entryPoints: { scanner: path.join(root, 'src/main/qa/scanners/visual-quality-scanner.ts') },
+    entryPoints: {
+      scanner: path.join(root, 'src/main/qa/scanners/visual-quality-scanner.ts'),
+      imageFrame: path.join(root, 'src/main/qa/scanners/image-frame-scanner.ts'),
+    },
     bundle: true, format: 'cjs', platform: 'node', outdir: bundleDir, logLevel: 'error',
   });
   const { VisualQualityScanner } = require(path.join(bundleDir, 'scanner.js'));
+  const { ImageFrameScanner } = require(path.join(bundleDir, 'imageFrame.js'));
   const corpus = require(path.join(root, 'test/fixtures/visual-quality/fixtures.cjs'))
     .filter((fixture) => !only || fixture.id.startsWith(only));
   if (!corpus.length) throw new Error(`No fixture matches --only=${only}`);
@@ -103,9 +107,14 @@ async function run() {
       await win.webContents.loadFile(htmlPath);
       await sleep(fixture.settleMs || 250);
       const before = await win.webContents.executeJavaScript('[window.scrollX, window.scrollY]');
-      const raw = await win.webContents.executeJavaScript(VisualQualityScanner.getBrowserScanScript(fixture.thresholds ? { thresholds } : {}));
+      const imageFrame = fixture.scanner === 'image-frame';
+      const fixtureThresholds = fixture.thresholds && typeof fixture.thresholds === 'object' ? { ...thresholds, ...fixture.thresholds } : thresholds;
+      const script = imageFrame
+        ? ImageFrameScanner.getBrowserScanScript()
+        : VisualQualityScanner.getBrowserScanScript(fixture.thresholds ? { thresholds: fixtureThresholds } : {});
+      const raw = await win.webContents.executeJavaScript(script);
       const after = await win.webContents.executeJavaScript('[window.scrollX, window.scrollY]');
-      const res = VisualQualityScanner.normalize(raw);
+      const res = imageFrame ? ImageFrameScanner.normalize(raw) : VisualQualityScanner.normalize(raw);
       if (before[0] !== after[0] || before[1] !== after[1]) res.error = `scroll not restored ${before} -> ${after}`;
       (results[fixture.id] = results[fixture.id] || {})[vp.name] = res;
     }

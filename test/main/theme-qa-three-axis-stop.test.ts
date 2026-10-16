@@ -27,6 +27,7 @@ import { ProjectRegistry } from '../../src/main/project/project-registry';
 import { WorkspaceRegistry } from '../../src/main/project/workspace-registry';
 import { TINY_PNG_BASE64, verificationCaptureEnvelope } from './verification-capture-fixture';
 import { LayoutOverflowEngine } from '../../src/main/qa/scanners/layout-overflow-engine';
+import { AuditProfileWorkflow } from '../support/audit-workflow';
 
 class MockBrowserHost implements BrowserHostPort {
   public currentHtml = '';
@@ -232,7 +233,7 @@ describe('ThemeQaRepairCoordinator 3-axis stop wiring', () => {
     mockHost.boundWorkspaceId = workspaceId;
 
     browserControl = new BrowserControlPort(mockHost, artifactStore);
-    workflow = new ThemeQaWorkflow({
+    workflow = new AuditProfileWorkflow({
       browser: browserControl,
       artifacts: artifactStore,
       reload: async (target) => ({ reloaded: true, target }),

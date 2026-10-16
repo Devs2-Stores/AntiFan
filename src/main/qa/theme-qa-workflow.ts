@@ -20,6 +20,9 @@ import { VisualQualityScanner, type VisualQualityScanResult, type VisualQualityF
 import { formatInflightNote } from '../browser/first-party-network-tracker';
 import type { ThemeTransactionRegistry } from './theme-transaction-registry';
 import type { TerminalSyncCursor, SyncSettleResult } from './haravan-sync-barrier';
+import { DEFAULT_QA_PROFILE, resolveQaThresholds, type QaProfile, type QaThresholds, type QaThresholdsSource } from './qa-thresholds';
+import { ImageFrameScanner, type ImageFrameScanResult, type ImageFrameFinding } from './scanners/image-frame-scanner';
+import type { StateMatrixResult } from './state-matrix';
 export interface ThemeQaChecklist {
   layout: boolean;
   responsive: boolean | 'UNMEASURED';
@@ -37,7 +40,7 @@ export interface ThemeQaChecklist {
 }
 
 export interface ThemeQaIssueItem {
-  category: 'diagnostics' | 'liquid' | 'overflow' | 'broken_asset' | 'hs_rule' | 'layout_integrity';
+  category: 'diagnostics' | 'liquid' | 'overflow' | 'broken_asset' | 'hs_rule' | 'layout_integrity' | 'visual_quality' | 'state_matrix';
   signature: string;
   severity: 'critical' | 'warning';
   message: string;
@@ -112,7 +115,7 @@ export interface ThemeQaSummary {
   domUnstable?: boolean;
   responsive?: boolean | 'UNMEASURED';
   documentStatus?: number;
-  viewport?: { width: number; height: number };
+  viewport?: { width: number; height: number; requestedWidth?: number | null; observedWidth?: number };
   pageCriticalCount?: number;
   scopedCriticalCount?: number | null;
   /**
@@ -123,6 +126,10 @@ export interface ThemeQaSummary {
   certification?: 'STRUCTURAL' | 'CERTIFIED';
   /** The QA matrix verdict mirrored next to the structural verdict so neither is read alone. */
   matrixVerdict?: 'PASS' | 'FAIL' | 'INCONCLUSIVE';
+  /** Why `certification` is STRUCTURAL: the unmeasured viewports/dimensions and evidence gaps. Empty when CERTIFIED. */
+  certificationReasons?: string[];
+  /** Where the registry thresholds came from: explicit caller value, the workspace contract, or the built-in defaults. */
+  thresholdsSource?: QaThresholdsSource;
 }
 export interface QaMatrixDimension {
   score: number | null;
@@ -198,15 +205,7 @@ export interface QaWaiver {
   reason: string;
 }
 
-export type QaProfile = 'audit' | 'build-strict';
-
-/** Thresholds the registry rules grade against (same shape as the kit `registry/thresholds.json`). */
-export interface QaThresholds {
-  minTextPx: number;
-  minControlPx: number;
-  minTapHitPx: number;
-  tapSpacingCirclePx: number;
-}
+export type { QaProfile, QaThresholds, QaThresholdsSource };
 
 /** Per-call settle barrier overrides. Unset fields keep the host defaults. */
 export interface QaSettleOverrides {
@@ -224,7 +223,7 @@ export interface ThemeQaReport {
   attemptId: string;
   workspaceId: string;
   target: BrowserTarget;
-  viewport?: { width: number; height: number };
+  viewport?: { width: number; height: number; requestedWidth?: number | null; observedWidth?: number };
   summary: ThemeQaSummary;
   checklist: ThemeQaChecklist & { liquidClean: boolean; assetsValid: boolean; hsCompliant: boolean };
   findings?: ThemeQaDetailedFindings;
@@ -242,6 +241,8 @@ export interface ThemeQaReport {
   evidenceCoverage: number;
   /** Effective profile this run was graded under. */
   profile: QaProfile;
+  /** Where the registry thresholds came from. */
+  thresholdsSource: QaThresholdsSource;
   /** Scanner dimensions measured of the dimensions expected; the receipt mirrors it for coverage audits. */
   coverage: { measured: number; expected: number };
   /** Minimum measured/expected share below which a green run is INCONCLUSIVE. */
@@ -1134,17 +1135,101 @@ const VISUAL_MISMATCH_PASS_THRESHOLD_PERCENT = 10;
 /** `/password` is the storefront lock Shopify shows instead of every page. */
 export const AUTH_ROUTE_RE = /\/(?:account\/(?:login|register)|challenge|auth|password)(?:[/?#]|$)/i;
 
-/** Profile ThemeQaWorkflow.validate applies when its caller names none; the `theme.qa_validate` tool defaults to build-strict at its own boundary. */
-export const DEFAULT_QA_PROFILE: QaProfile = 'audit';
+/** Profile ThemeQaWorkflow.validate applies when its caller names none: the same default as the `theme.qa_validate` tool, so every entry point grades identically. */
+export { DEFAULT_QA_PROFILE };
 
-/** Registry rules (graded against caller-supplied contract thresholds) that carry the verdict under build-strict. */
+/** Registry rules (graded against contract thresholds) that carry the verdict under build-strict. */
 const STRICT_REGISTRY_RULES: Record<string, true> = {
   'font-below-min': true,
   'control-height-band': true,
   'wrapped-label': true,
   'icon-stroke-mismatch': true,
   'overlay-fit': true,
+  'title-scale': true,
+  'input-height-band': true,
+  'image-crop': true,
 };
+
+/** Edge-clearance rules that fail a build-strict run (waivable); under audit they stay warnings. */
+const STRICT_SPACING_RULES: Record<string, true> = {
+  'edge-control': true,
+  'sibling-gap': true,
+  'min-gap': true,
+};
+
+/**
+ * Folds a touch-width reading taken inside the responsive sweep into the active-width reading, so
+ * tap targets and registry rules measured at 375px count even when the tab itself is desktop-sized.
+ * Findings the active reading already holds are not repeated.
+ */
+function mergeMobileVisualQuality(base: VisualQualityScanResult | undefined, sweep: VisualQualityScanResult, width: number): VisualQualityScanResult {
+  if (!base || base.measured !== true) return { ...sweep, mobileSweepWidth: width };
+  const known = new Set(base.findings.map((f) => `${f.ruleId}|${f.selector}`));
+  const added = sweep.findings
+    .filter((f) => !known.has(`${f.ruleId}|${f.selector}`))
+    .map((f): VisualQualityFinding => ({ ...f, details: `${f.details} (at ${width}px)`, measured: { ...f.measured, viewportWidth: width } }));
+  const measuredRules = [...new Set([...base.stats.measuredRules, ...sweep.stats.measuredRules])];
+  return {
+    ...base,
+    mobile: true,
+    mobileSweepWidth: width,
+    findings: [...base.findings, ...added],
+    stats: {
+      ...base.stats,
+      controlsChecked: base.stats.controlsChecked + sweep.stats.controlsChecked,
+      measuredRules,
+      unmeasuredRules: base.stats.unmeasuredRules.filter((id) => !measuredRules.includes(id)),
+      truncated: base.stats.truncated || sweep.stats.truncated,
+      truncatedReasons: [...base.stats.truncatedReasons, ...sweep.stats.truncatedReasons],
+    },
+  };
+}
+
+/** Everything a caller may hand to `ThemeQaWorkflow.validate`. */
+export interface ThemeQaValidateInput {
+  runId: string;
+  attemptId: string;
+  workspaceRoot: string;
+  target: BrowserTarget;
+  enabledChecks?: Partial<Record<keyof ThemeQaChecklist, boolean>>;
+  multiBreakpoint?: boolean;
+  signal?: AbortSignal;
+  baselineFindings?: ThemeQaDetailedFindings | ThemeQaIssueItem[];
+  viewports?: {
+    desktop?: { mismatchPercent: number; passed: boolean };
+    tablet?: { mismatchPercent: number; passed: boolean };
+    mobile?: { mismatchPercent: number; passed: boolean };
+  };
+  mutationContext?: {
+    cursor?: TerminalSyncCursor;
+    syncReceipt?: SyncSettleResult;
+    initialDocGen?: number;
+  };
+  /** Recovery counters from the capability wrapper (e.g. failover rebind after
+   * TARGET_STALE). The workflow performs no retries itself — it mirrors the
+   * caller's real counts so the report never hard-codes zero. */
+  recovery?: { attempted: number; succeeded: number };
+  annotationId?: string;
+  annotationTargetSelector?: string;
+  annotationDomAncestry?: string;
+  /**
+   * build-strict (the default for every entry point): contrast below AA, sub-24px tap targets,
+   * invisible click blockers, floating widgets over controls and the registry rules fail the run,
+   * and an unmeasured scan is an evidence gap.
+   * audit: visual-quality findings are reported, never verdict-bearing.
+   */
+  profile?: QaProfile;
+  /** Contract thresholds for the registry rules; without them the workspace contract, then the built-in defaults apply. */
+  thresholds?: QaThresholds;
+  /** Minimum measured/expected scanner dimensions (0..1). Below it a green run is INCONCLUSIVE. Defaults to 1 under build-strict, 0 under audit. */
+  coverageFloor?: number;
+  /** Caller-accepted visual-quality rule exceptions; echoed on the report. */
+  waivers?: QaWaiver[];
+  /** Per-call settle barrier overrides (DOM-quiet ignore selectors, scope, timeouts). */
+  settle?: QaSettleOverrides;
+  /** HTTP status the contract declares for this route; a document returning exactly it is not a ROUTE_404 defect. */
+  expectedDocumentStatus?: number;
+}
 
 export class ThemeQaWorkflow {
   constructor(private readonly ports: ThemeQaWorkflowPorts) {}
@@ -1246,55 +1331,21 @@ export class ThemeQaWorkflow {
   }
 
 
-  async validate(input: {
-    runId: string;
-    attemptId: string;
-    workspaceRoot: string;
-    target: BrowserTarget;
-    enabledChecks?: Partial<Record<keyof ThemeQaChecklist, boolean>>;
-    multiBreakpoint?: boolean;
-    signal?: AbortSignal;
-    baselineFindings?: ThemeQaDetailedFindings | ThemeQaIssueItem[];
-    viewports?: {
-      desktop?: { mismatchPercent: number; passed: boolean };
-      tablet?: { mismatchPercent: number; passed: boolean };
-      mobile?: { mismatchPercent: number; passed: boolean };
-    };
-    mutationContext?: {
-      cursor?: TerminalSyncCursor;
-      syncReceipt?: SyncSettleResult;
-      initialDocGen?: number;
-    };
-    /** Recovery counters from the capability wrapper (e.g. failover rebind after
-     * TARGET_STALE). The workflow performs no retries itself — it mirrors the
-     * caller's real counts so the report never hard-codes zero. */
-    recovery?: { attempted: number; succeeded: number };
-    annotationId?: string;
-    annotationTargetSelector?: string;
-    annotationDomAncestry?: string;
-    /**
-     * build-strict: contrast below AA, sub-24px tap targets, invisible click blockers,
-     * floating widgets over controls and the registry rules fail the run, and an unmeasured
-     * visual-quality scan is an evidence gap. This is the `theme.qa_validate` tool default.
-     * audit (workflow default for internal callers): visual-quality findings are reported, never verdict-bearing.
-     */
-    profile?: QaProfile;
-    /** Contract thresholds for the registry rules (min text, control height, tap hit area, spacing circle). Without them those rules are unmeasured. */
-    thresholds?: QaThresholds;
-    /** Minimum measured/expected scanner dimensions (0..1). Below it a green run is INCONCLUSIVE. Defaults to 1 under build-strict, 0 under audit. */
-    coverageFloor?: number;
-    /** Caller-accepted visual-quality rule exceptions; echoed on the report. */
-    waivers?: QaWaiver[];
-    /** Per-call settle barrier overrides (DOM-quiet ignore selectors, scope, timeouts). */
-    settle?: QaSettleOverrides;
-    /** HTTP status the contract declares for this route; a document returning exactly it is not a ROUTE_404 defect. */
-    expectedDocumentStatus?: number;
-  }): Promise<ThemeQaReport> {
+  async validate(input: ThemeQaValidateInput): Promise<ThemeQaReport> {
     if (input.signal?.aborted) {
       throw new CapabilityError('TARGET_STALE', 'Theme QA validation was aborted by document navigation');
     }
     this.assertOwnership(input.target);
     const effectiveBaselineFindings = input.baselineFindings;
+    // Profile and thresholds are resolved here, not by the caller, so a tool call, a cockpit scan and
+    // a toolbar scan that name neither grade a theme identically.
+    const effectiveProfile: QaProfile = input.profile ?? DEFAULT_QA_PROFILE;
+    const strictProfile = effectiveProfile === 'build-strict';
+    const resolvedThresholds = resolveQaThresholds({ explicit: input.thresholds, workspaceRoot: input.workspaceRoot });
+    const effectiveThresholds = resolvedThresholds.thresholds;
+    // A sweep that cannot run is an evidence gap whenever the caller asked for it or the profile
+    // certifies mobile widths; only an explicit multiBreakpoint:false opts out.
+    const sweepGaps = input.multiBreakpoint === true || (strictProfile && input.multiBreakpoint !== false);
     // Mutation QA lifecycle attestation:
     // Bind cursor/generation baseline captured before mutation and acknowledgment belonging to that mutation.
     // Caller omission of a baseline cannot reclassify a known mutation session as read-only.
@@ -1726,7 +1777,7 @@ export class ThemeQaWorkflow {
       clientWidth: 1440,
       culprits: [],
     };
-    let measuredViewport: { width: number; height: number } | undefined;
+    let measuredViewport: { width: number; height: number; requestedWidth?: number | null; observedWidth?: number } | undefined;
     const settleTick = Promise.withResolvers<void>();
     setImmediate(settleTick.resolve);
     await settleTick.promise;
@@ -1734,7 +1785,13 @@ export class ThemeQaWorkflow {
       if (typeof this.ports.browser.getViewport === 'function') {
         const vpInfo = await this.ports.browser.getViewport(activeTarget);
         if (vpInfo && typeof vpInfo.width === 'number' && vpInfo.width > 0 && typeof vpInfo.height === 'number' && vpInfo.height > 0) {
+          const vpExtra = vpInfo as typeof vpInfo & { requestedWidth?: number | null; observedWidth?: number };
           measuredViewport = { width: vpInfo.width, height: vpInfo.height };
+          if (typeof vpExtra.requestedWidth === 'number' || vpExtra.requestedWidth === null) measuredViewport.requestedWidth = vpExtra.requestedWidth;
+          if (typeof vpExtra.observedWidth === 'number') measuredViewport.observedWidth = vpExtra.observedWidth;
+          if (typeof vpExtra.requestedWidth === 'number' && typeof vpExtra.observedWidth === 'number' && Math.abs(vpExtra.requestedWidth - vpExtra.observedWidth) > 2) {
+            evidenceGaps.push(`VIEWPORT_MISMATCH requested ${vpExtra.requestedWidth} observed ${vpExtra.observedWidth}: the emulated viewport did not take effect, so width-dependent rules were graded at the wrong width`);
+          }
         }
       }
     } catch {}
@@ -1810,20 +1867,26 @@ export class ThemeQaWorkflow {
         try {
           // Each width also gets the integrity scan, read after the emulated width took effect. The
           // layout-shift witness is left out: a resize records shifts of its own.
+          const sweepIntegrityScript = LayoutIntegrityEngine.getBrowserScanScript('sweep', { skipLayoutShift: true });
+          // Under build-strict the touch widths also run the visual-quality scan, so tap targets are
+          // graded from the sweep and the verdict never depends on the tab happening to be mobile-sized.
+          const sweepScript = strictProfile
+            ? `(() => { const reading = ${sweepIntegrityScript}; try { if (window.innerWidth <= 767) reading.visualQuality = ${VisualQualityScanner.getBrowserScanScript({ thresholds: effectiveThresholds, skipFloating: true })}; } catch (e) { reading.visualQualityError = String((e && e.message) || e); } return reading; })()`
+            : sweepIntegrityScript;
           const responsive = await this.ports.browser.responsiveCheck({
             tabId: activeTarget.tabId,
-            perWidthScript: LayoutIntegrityEngine.getBrowserScanScript('sweep', { skipLayoutShift: true }),
+            perWidthScript: sweepScript,
           });
           const isOk = !responsive || typeof responsive !== 'object' || (responsive as Record<string, unknown>).ok !== false;
           const breakpoints = responsive && typeof responsive === 'object' ? (responsive as Record<string, unknown>).breakpoints : undefined;
           responsiveBreakpoints = breakpoints && typeof breakpoints === 'object' ? breakpoints as Record<string, unknown> : undefined;
           if (!isOk) {
             const errMsg = (responsive as Record<string, unknown>).error;
-            if (input.multiBreakpoint === true) {
+            if (sweepGaps) {
               evidenceGaps.push(`Responsive multi-breakpoint sweep failed: ${typeof errMsg === 'string' ? errMsg : 'host returned ok: false'}`);
             }
           } else if (!breakpoints || typeof breakpoints !== 'object' || Object.keys(breakpoints).length === 0) {
-            if (input.multiBreakpoint === true) {
+            if (sweepGaps) {
               evidenceGaps.push('Responsive multi-breakpoint sweep returned no breakpoint measurements');
             }
           } else {
@@ -1843,10 +1906,10 @@ export class ThemeQaWorkflow {
                 }
               }
             }
-            if (unmeasuredWidths.length > 0 && input.multiBreakpoint === true) {
+            if (unmeasuredWidths.length > 0 && sweepGaps) {
               evidenceGaps.push(`Responsive multi-breakpoint sweep could not apply the emulated viewport at width(s) ${unmeasuredWidths.join(', ')}`);
             }
-            if (hasMalformedBreakpoint && input.multiBreakpoint === true) {
+            if (hasMalformedBreakpoint && sweepGaps) {
               evidenceGaps.push('Responsive multi-breakpoint sweep contained malformed or incomplete breakpoint measurements');
             }
             if (failing.length > 0) {
@@ -1875,11 +1938,11 @@ export class ThemeQaWorkflow {
           }
         } catch (error) {
           rethrowTargetLifecycleError(error);
-          if (input.multiBreakpoint === true) {
+          if (sweepGaps) {
             evidenceGaps.push(`Responsive multi-breakpoint sweep failed or unsupported: ${error instanceof Error ? error.message : String(error)}`);
           }
         }
-      } else if (input.multiBreakpoint === true) {
+      } else if (sweepGaps) {
         evidenceGaps.push('Responsive multi-breakpoint sweep unsupported: responsiveCheck capability missing on browser port');
       }
     }
@@ -1912,6 +1975,8 @@ export class ThemeQaWorkflow {
       activeCriticalKeys.add(`${f.kind}:${f.selector || ''}:${f.details.slice(0, 80)}`);
     }
     const sweepIntegrityCriticals: Array<{ width: number; finding: LayoutIntegrityFinding }> = [];
+    const sweepSpacingFindings: Array<{ width: number; finding: LayoutIntegrityFinding }> = [];
+    const sweepVisualQuality = new Map<number, VisualQualityScanResult>();
     const unmeasuredIntegrityWidths: number[] = [];
     const truncatedOrFailedIntegrityWidths: number[] = [];
     for (const w of QA_RESPONSIVE_WIDTHS) {
@@ -1925,6 +1990,9 @@ export class ThemeQaWorkflow {
         if (sweepIntegrity.measured === true && 'findings' in sweepIntegrity && Array.isArray(sweepIntegrity.findings)) {
           const validFindings = sweepIntegrity.findings.filter((f: unknown): f is LayoutIntegrityFinding => !!f && typeof f === 'object' && 'kind' in f && 'severity' in f);
           atWidth = validFindings;
+          if ('visualQuality' in sweepIntegrity) {
+            sweepVisualQuality.set(w, VisualQualityScanner.normalize(sweepIntegrity.visualQuality));
+          }
           const sStats = 'stats' in sweepIntegrity && sweepIntegrity.stats && typeof sweepIntegrity.stats === 'object'
             ? (sweepIntegrity.stats as LayoutIntegrityResult['stats'])
             : undefined;
@@ -1938,6 +2006,7 @@ export class ThemeQaWorkflow {
               sweepIntegrityCriticals.push({ width: w, finding: f });
             } else if (f.severity === 'warning' && w !== integrityWidth) {
               integrityAmbiguities.push(`[${f.kind}@${w}] ${f.selector ? `${f.selector} — ` : ''}${f.details}`);
+              if (f.kind === 'spacing') sweepSpacingFindings.push({ width: w, finding: f });
             }
           }
         } else {
@@ -1956,10 +2025,10 @@ export class ThemeQaWorkflow {
         ...(atWidth && atWidth.length > 0 ? { findings: atWidth } : {}),
       };
     }
-    if (unmeasuredIntegrityWidths.length > 0 && input.multiBreakpoint === true) {
+    if (unmeasuredIntegrityWidths.length > 0 && sweepGaps) {
       evidenceGaps.push(`Responsive layout integrity not measured at width(s) ${unmeasuredIntegrityWidths.join(', ')}`);
     }
-    if (truncatedOrFailedIntegrityWidths.length > 0 && input.multiBreakpoint === true) {
+    if (truncatedOrFailedIntegrityWidths.length > 0 && sweepGaps) {
       evidenceGaps.push(`Responsive layout integrity truncated or detector failed at width(s) ${truncatedOrFailedIntegrityWidths.join(', ')}`);
     }
 
@@ -2125,15 +2194,13 @@ export class ThemeQaWorkflow {
 
     // 9.7 Visual quality (contrast, tap targets, floating widgets, registry rules). Reported in every
     // profile; only build-strict lets it carry the verdict, so audit runs keep their existing contract.
-    const effectiveProfile: QaProfile = input.profile ?? DEFAULT_QA_PROFILE;
-    const strictProfile = effectiveProfile === 'build-strict';
     const waivers: QaWaiver[] = Array.isArray(input.waivers) ? input.waivers : [];
     let visualQualityResult: VisualQualityScanResult | undefined;
     await new Promise((r) => setImmediate(r));
     if (typeof this.ports.browser.eval === 'function') {
       try {
         checkAborted();
-        const evalRes = await this.ports.browser.eval(activeTarget, VisualQualityScanner.getBrowserScanScript(input.thresholds ? { thresholds: input.thresholds } : {}));
+        const evalRes = await this.ports.browser.eval(activeTarget, VisualQualityScanner.getBrowserScanScript({ thresholds: effectiveThresholds }));
         checkAborted();
         visualQualityResult = VisualQualityScanner.normalize(evalRes);
       } catch (error) {
@@ -2141,19 +2208,42 @@ export class ThemeQaWorkflow {
         visualQualityResult = VisualQualityScanner.normalize({ error: `VISUAL_QUALITY_EVAL_FAILED: ${error instanceof Error ? error.message : String(error)}` });
       }
     }
+    const mobileSweepWidth = sweepVisualQuality.get(375)?.measured === true ? 375 : sweepVisualQuality.get(320)?.measured === true ? 320 : undefined;
+    const mobileSweepReading = mobileSweepWidth !== undefined ? sweepVisualQuality.get(mobileSweepWidth) : undefined;
+    if (mobileSweepReading && mobileSweepWidth !== undefined && visualQualityResult?.mobile !== true) {
+      visualQualityResult = mergeMobileVisualQuality(visualQualityResult, mobileSweepReading, mobileSweepWidth);
+    }
+    if (resolvedThresholds.note) {
+      integrityAmbiguities.push(`[thresholds] contract ignored, built-in thresholds used: ${resolvedThresholds.note}`);
+    }
     if (strictProfile && visualQualityResult?.measured !== true) {
       evidenceGaps.push(`Visual quality not measured under build-strict: ${visualQualityResult?.error || 'scanner unavailable'}`);
     }
     if (strictProfile && visualQualityResult?.measured === true && visualQualityResult.mobile !== true) {
       // Tap targets are graded at mobile widths only; a desktop-width run cannot vouch for them.
-      evidenceGaps.push(`Tap targets not graded under build-strict: this run measured ${visualQualityResult.viewport.width}px; validate a mobile viewport (<= 767px) to certify them`);
+      evidenceGaps.push(`Tap targets not graded under build-strict: this run measured ${visualQualityResult.viewport.width}px and the mobile sweep reading is missing; validate a mobile viewport (<= 767px) to certify them`);
     }
-    if (strictProfile && visualQualityResult?.measured === true && !input.thresholds) {
-      evidenceGaps.push('Registry rules unmeasured under build-strict: no contract thresholds were supplied (font-below-min, control-height-band, wrapped-label, icon-stroke-mismatch, overlay-fit)');
+    let imageFrameResult: ImageFrameScanResult | undefined;
+    if (typeof this.ports.browser.eval === 'function') {
+      try {
+        checkAborted();
+        const evalRes = await this.ports.browser.eval(activeTarget, ImageFrameScanner.getBrowserScanScript());
+        checkAborted();
+        imageFrameResult = ImageFrameScanner.normalize(evalRes);
+      } catch (error) {
+        rethrowTargetLifecycleError(error);
+        imageFrameResult = ImageFrameScanner.normalize({ error: `IMAGE_FRAME_EVAL_FAILED: ${error instanceof Error ? error.message : String(error)}` });
+      }
+    }
+    if (strictProfile && imageFrameResult?.measured !== true) {
+      evidenceGaps.push(`Image frame not measured under build-strict: ${imageFrameResult?.error || 'scanner unavailable'}`);
     }
     const waivedRules = new Set(waivers.map((w) => w.rule));
-    const strictVisualFailures: VisualQualityFinding[] = strictProfile && visualQualityResult?.measured === true
-      ? visualQualityResult.findings.filter((f) =>
+    const strictVisualFailures: Array<VisualQualityFinding | ImageFrameFinding> = strictProfile
+      ? [
+          ...(visualQualityResult?.measured === true ? visualQualityResult.findings : []),
+          ...(imageFrameResult?.measured === true ? imageFrameResult.findings : []),
+        ].filter((f) =>
           !waivedRules.has(f.ruleId) &&
           (STRICT_REGISTRY_RULES[f.ruleId] === true ||
             f.ruleId === 'contrast-low' ||
@@ -2161,6 +2251,46 @@ export class ThemeQaWorkflow {
             f.ruleId === 'invisible-click-blocker' ||
             (f.ruleId === 'floating-widget-overlap' && f.measured?.coveredIsControl === true)))
       : [];
+    const isStrictSpacing = (f: LayoutIntegrityFinding): boolean =>
+      f.kind === 'spacing' && typeof f.ruleId === 'string' && STRICT_SPACING_RULES[f.ruleId] === true && !waivedRules.has(f.ruleId);
+    const strictSpacingFailures: Array<{ width: number | null; finding: LayoutIntegrityFinding }> = strictProfile
+      ? [
+          ...integrityFindings.filter(isStrictSpacing).map((finding) => ({ width: integrityWidth ?? null, finding })),
+          ...sweepSpacingFindings.filter(({ finding }) => isStrictSpacing(finding)),
+        ]
+      : [];
+
+    // Overlays are driven open and shut with trusted input, which a static scan cannot see: an
+    // unclosable drawer or an unstyled modal passes every other check on this page.
+    let stateMatrixResult: StateMatrixResult | undefined;
+    let stateMatrixMeasured = false;
+    const stateMatrixFailures: Array<{ trigger: string; code: string; message: string }> = [];
+    if (strictProfile) {
+      if (typeof this.ports.browser.stateMatrix === 'function') {
+        try {
+          checkAborted();
+          const onProduct = /\/products\/[^/?#]+/i.test(activeTargetUrl || contextUrl || targetUrl);
+          const res = await this.ports.browser.stateMatrix(activeTarget, { maxTriggers: 6, ...(onProduct ? { autoPopulate: 'pdp' as const } : {}) }, input.signal);
+          checkAborted();
+          stateMatrixResult = res;
+          if (res.measured || res.error === 'NO_OVERLAY_TRIGGERS_FOUND') {
+            stateMatrixMeasured = true;
+          } else {
+            evidenceGaps.push(`State matrix not measured under build-strict: ${res.error || `${res.summary?.notRun ?? 0} overlay(s) were not run`}`);
+          }
+          for (const trig of res.triggers ?? []) {
+            for (const failure of trig.failures) {
+              if (failure.severity === 'critical') stateMatrixFailures.push({ trigger: trig.trigger, code: failure.code, message: failure.message });
+            }
+          }
+        } catch (error) {
+          rethrowTargetLifecycleError(error);
+          evidenceGaps.push(`State matrix failed under build-strict: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      } else {
+        evidenceGaps.push('State matrix unsupported under build-strict: stateMatrix capability missing on browser port');
+      }
+    }
 
     // Restore paused sliders and unfreeze media after in-page scanning has finished
     if (typeof this.ports.browser.eval === 'function') {
@@ -2390,6 +2520,27 @@ export class ThemeQaWorkflow {
         message: `Layout integrity ${f.kind} (${width}px): ${f.details}`,
         details: { kind: f.kind, width, selector: f.selector, rect: f.rect },
       })),
+      ...strictVisualFailures.map((f): ThemeQaIssueItem => ({
+        category: 'visual_quality',
+        signature: `visual_quality:${f.ruleId}:${f.selector || ''}:${f.details.slice(0, 80)}`,
+        severity: 'critical',
+        message: `Visual quality ${f.ruleId}: ${f.details}`,
+        details: { ruleId: f.ruleId, selector: f.selector, rect: f.rect },
+      })),
+      ...strictSpacingFailures.map(({ width, finding: f }): ThemeQaIssueItem => ({
+        category: 'layout_integrity',
+        signature: `layout_integrity${width === null ? '' : `@${width}`}:${f.ruleId}:${f.selector || ''}:${f.details.slice(0, 80)}`,
+        severity: 'critical',
+        message: `Layout integrity ${f.ruleId}${width === null ? '' : ` (${width}px)`}: ${f.details}`,
+        details: { kind: f.kind, ruleId: f.ruleId, width, selector: f.selector, rect: f.rect },
+      })),
+      ...stateMatrixFailures.map((f): ThemeQaIssueItem => ({
+        category: 'state_matrix',
+        signature: `state_matrix:${f.trigger}:${f.code}`,
+        severity: 'critical',
+        message: `Overlay ${f.trigger}: ${f.code} - ${f.message}`,
+        details: { trigger: f.trigger, code: f.code },
+      })),
     ];
 
     for (const cur of currentItems) {
@@ -2491,7 +2642,9 @@ export class ThemeQaWorkflow {
       diagnosticWarnings.length +
       integrityFindings.length +
       sweepIntegrityCriticals.length +
-      strictVisualFailures.length;
+      strictVisualFailures.length +
+      strictSpacingFailures.length +
+      stateMatrixFailures.length;
     // Observed defects verdict only for checks the caller kept enabled; `enabledChecks` remains a
     // verdict filter, while engine checklist authority is preserved separately in `checklist`.
     const checkParticipates = (key: keyof ThemeQaChecklist): boolean => !enabled || enabled[key] !== false;
@@ -2509,6 +2662,7 @@ export class ThemeQaWorkflow {
       ['layout-integrity', integrityRan && integrityResult?.measured === true],
       ...(input.multiBreakpoint === false ? [] : [['responsive', measuredResponsiveCount > 0] as [string, boolean]]),
       ['dom-semantics', domSemanticsRan && domSemanticsResult?.measured === true],
+      ...(strictProfile ? [['state-matrix', stateMatrixMeasured] as [string, boolean]] : []),
     ];
     const measuredDimensionNames = measuredDimensions.filter(([, ok]) => ok).map(([name]) => name);
     const coverage = { measured: measuredDimensionNames.length, expected: measuredDimensions.length };
@@ -2530,7 +2684,9 @@ export class ThemeQaWorkflow {
       // They belong to the `layout` check, the same key checklist.layout carries.
       (checkParticipates('layout') && (integrityCriticals.length > 0 || sweepIntegrityCriticals.length > 0)) ||
       // Opt-in only: under the default audit profile this list is always empty.
-      strictVisualFailures.length > 0;
+      strictVisualFailures.length > 0 ||
+      strictSpacingFailures.length > 0 ||
+      stateMatrixFailures.length > 0;
     const hasMissingEvidence =
       settleMissingCapability ||
       mutationMissingBarrier ||
@@ -2561,7 +2717,9 @@ export class ThemeQaWorkflow {
       assetResult.brokenAssets.length +
       integrityCriticals.length +
       sweepIntegrityCriticals.length +
-      strictVisualFailures.length;
+      strictVisualFailures.length +
+      strictSpacingFailures.length +
+      stateMatrixFailures.length;
     const resolvedAnnotationTarget =
       input.annotationTargetSelector && input.annotationTargetSelector.trim()
         ? {
@@ -2618,6 +2776,7 @@ export class ThemeQaWorkflow {
       ...(checklist.responsive !== undefined ? { responsive: checklist.responsive } : {}),
       ...(documentStatus !== undefined ? { documentStatus } : {}),
       ...(measuredViewport ? { viewport: measuredViewport } : {}),
+      thresholdsSource: resolvedThresholds.source,
     };
 
     // Resilient axes: verification is the storefront verdict; execution is
@@ -2634,6 +2793,7 @@ export class ThemeQaWorkflow {
       integrityRan && integrityResult?.measured === true,
       measuredResponsiveCount > 0,
       domSemanticsRan && domSemanticsResult?.measured === true,
+      ...(strictProfile ? [stateMatrixMeasured] : []),
     ];
     const evidenceCoverage = measuredDims.filter(Boolean).length / measuredDims.length;
 
@@ -2690,6 +2850,17 @@ export class ThemeQaWorkflow {
     // before the report is serialized so the staged report carries the same labels.
     summary.matrixVerdict = qaMatrix.verdict;
     summary.certification = qaMatrix.verdict === 'PASS' ? 'CERTIFIED' : 'STRUCTURAL';
+    summary.certificationReasons = [];
+    if (summary.certification === 'STRUCTURAL') {
+      for (const [name, vp] of Object.entries(qaMatrix.viewports)) {
+        if (!vp.measured) summary.certificationReasons.push(`visual baseline missing at ${name}: pass viewports.${name} {mismatchPercent, passed} from a baseline comparison`);
+        else if (vp.verdict === 'FAIL') summary.certificationReasons.push(`visual baseline at ${name} differs by ${vp.mismatchPercent}%`);
+      }
+      for (const [name, dim] of Object.entries(qaMatrix.dimensions)) {
+        if (dim.score === null) summary.certificationReasons.push(`${name} unmeasured: ${dim.details}`);
+      }
+      for (const gap of evidenceGaps) summary.certificationReasons.push(`gap: ${gap}`);
+    }
     // 11. Generate PII-sanitized report JSON (RT-02 mitigation)
     const reportDataRaw = JSON.stringify(
       {
@@ -2707,6 +2878,7 @@ export class ThemeQaWorkflow {
         recovery: input.recovery ?? { attempted: 0, succeeded: 0 },
         evidenceCoverage,
         profile: effectiveProfile,
+        thresholdsSource: resolvedThresholds.source,
         coverage,
         ...(isolationOutcome ? { trackerIsolation: isolationOutcome } : {}),
         createdAt: Date.now(),
@@ -2765,9 +2937,14 @@ export class ThemeQaWorkflow {
       recovery: input.recovery ?? { attempted: 0, succeeded: 0 },
       evidenceCoverage,
       profile: effectiveProfile,
+      thresholdsSource: resolvedThresholds.source,
       coverage,
       coverageFloor,
-      measuredRules: [...measuredDimensionNames, ...(visualQualityResult?.measured === true && Array.isArray(visualQualityResult.stats?.measuredRules) ? visualQualityResult.stats.measuredRules : [])],
+      measuredRules: [
+        ...measuredDimensionNames,
+        ...(visualQualityResult?.measured === true && Array.isArray(visualQualityResult.stats?.measuredRules) ? visualQualityResult.stats.measuredRules : []),
+        ...(imageFrameResult?.measured === true ? imageFrameResult.stats.measuredRules : []),
+      ],
       ...(waivers.length > 0 ? { waivers } : {}),
       createdAt: Date.now(),
     };

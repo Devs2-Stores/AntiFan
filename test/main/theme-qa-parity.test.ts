@@ -13,6 +13,13 @@ import { BrowserTarget, CapabilityError, issueRuntimeLease } from '../../src/sha
 import { DiagnosticsInput } from '../../src/main/qa/diagnostics-filter';
 import { withCanonicalCapture } from './verification-capture-fixture';
 
+const mkThemeRoot = (prefix: string): string => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  fs.mkdirSync(path.join(root, 'layout'));
+  fs.writeFileSync(path.join(root, 'layout', 'theme.liquid'), '', 'utf8');
+  return root;
+};
+
 const FIRST_PARTY_URL = 'https://store.example.com/';
 const TAB_HOST: BrowserHostPort = withCanonicalCapture({
   getTabList: () => [{ id: 'tab-1', url: FIRST_PARTY_URL }],
@@ -145,6 +152,7 @@ describe('ThemeQaWorkflow Canonical Validation & Capability Alias Delegation', (
         attemptId: 'attempt-clean',
         workspaceRoot: root,
         target: makeTarget(),
+        profile: 'audit',
       });
 
       assert.strictEqual(report.summary.criticalCount, 0);
@@ -219,6 +227,7 @@ describe('ThemeQaWorkflow Canonical Validation & Capability Alias Delegation', (
         attemptId: 'attempt-nodiag',
         workspaceRoot: root,
         target: makeTarget(),
+        profile: 'audit',
       });
       assert.strictEqual(report.summary.criticalCount, 0);
       assert.strictEqual(report.summary.passed, true);
@@ -273,6 +282,7 @@ describe('ThemeQaWorkflow Canonical Validation & Capability Alias Delegation', (
         attemptId: 'attempt-2',
         workspaceRoot: root,
         target: makeTarget(),
+        profile: 'audit',
         enabledChecks: { layout: false, overflow: false, responsive: false },
       });
       assert.strictEqual(filteredReport.checklist.layout, false, 'Checklist layout must remain false (engine authority preserved)');
@@ -284,7 +294,7 @@ describe('ThemeQaWorkflow Canonical Validation & Capability Alias Delegation', (
   });
 
   it('theme.qa_validate and antifan_theme_qa_validate delegate to registered ThemeQaWorkflow', async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-alias-qa-'));
+    const root = mkThemeRoot('antifan-alias-qa-');
     try {
       let docGen = 1;
       const host: BrowserHostPort = {
@@ -380,7 +390,7 @@ describe('ThemeQaWorkflow Canonical Validation & Capability Alias Delegation', (
   });
 
   it('theme.qa_validate rejects mismatched explicit tabId with TARGET_MISMATCH', async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-tab-mismatch-'));
+    const root = mkThemeRoot('antifan-tab-mismatch-');
     try {
       const artifactStore = new ArtifactStore({ root: path.join(root, 'artifacts') });
       const browser = new BrowserControlPort(TAB_HOST, artifactStore);
@@ -432,7 +442,7 @@ describe('ThemeQaWorkflow Canonical Validation & Capability Alias Delegation', (
   });
 
   it('theme.qa_validate throws CAPABILITY_NOT_FOUND when ThemeQaWorkflow is not registered', async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-missing-qa-'));
+    const root = mkThemeRoot('antifan-missing-qa-');
     try {
       const artifactStore = new ArtifactStore({ root: path.join(root, 'artifacts') });
       const browser = new BrowserControlPort(TAB_HOST, artifactStore);
