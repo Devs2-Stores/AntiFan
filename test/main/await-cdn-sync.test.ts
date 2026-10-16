@@ -281,6 +281,22 @@ describe('the transport at the capability boundary', () => {
     assert.strictEqual(res.error?.code, 'TARGET_MISMATCH');
   });
 
+  it('a refused foreign retarget explains the foreign tab and keeps the rebind recovery', async () => {
+    const { transport, intent } = await harness({ value: 1 }, { liveTabs: ['tab-1', 'tab-other'] });
+    const res = await transport.dispatchIntent(intent('browser.rebind-target', { tabId: 'tab-other' }));
+    assert.strictEqual(res.ok, false);
+    assert.strictEqual(res.error?.code, 'TARGET_MISMATCH');
+    assert.match(res.error?.message ?? '', /another project, session or window/);
+    assert.strictEqual(recovery(res.error), 'anti.browser.rebind_target');
+  });
+
+  it("rebind 'auto' is not read as a foreign tab id: the port decides, so a missing candidate is TARGET_REQUIRED", async () => {
+    const { transport, intent } = await harness({ value: 1 });
+    const res = await transport.dispatchIntent(intent('browser.rebind-target', { tabId: 'auto' }));
+    assert.strictEqual(res.ok, false);
+    assert.strictEqual(res.error?.code, 'TARGET_REQUIRED');
+  });
+
   it('a route sweep that fails after moving the tab leaves the binding on the settled generation', async () => {
     const live = { value: 24 };
     const { catalogue, registry, transport, launch, intent } = await harness(live, { browserCapabilities: false });
@@ -335,5 +351,109 @@ describe('batch_matrix stops sweeping when the invocation is aborted', () => {
     );
     assert.deepStrictEqual(navigations, []);
     assert.strictEqual(currentUrl, 'https://shop.example.com/start');
+  });
+});
+
+describe('await_cdn_sync on a Liquid source', () => {
+  const COMPILED = 'body{color:red}.promo{display:none}';
+  const poll = { reloadOnMatch: false, timeoutMs: 200, pollIntervalMs: 50 };
+
+  function liquidHost(overrides: Partial<BrowserHostPort> = {}, probes: string[] = []): BrowserHostPort {
+    return host({
+      evalJs: async (expression: string) => {
+        probes.push(expression);
+        return { url: 'https://shop.example.com/assets/theme.css?v=7', text: COMPILED };
+      },
+      ...overrides,
+    });
+  }
+
+  it('refuses a .liquid asset without expectations and points at sync:wait, without touching the page', async () => {
+    const probes: string[] = [];
+    const port = new BrowserControlPort(liquidHost({}, probes));
+    await assert.rejects(
+      port.awaitCdnSync(makeTarget('tab-1', 1), { assetPath: 'assets/theme.css.liquid', ...poll }),
+      (err: unknown) => code(err) === 'INVALID_ARGUMENT' && /expectContains/.test(messageOf(err)) && /sync:wait/.test(messageOf(err))
+    );
+    assert.strictEqual(probes.length, 0);
+  });
+
+  it('polls the compiled asset (same name without .liquid) and syncs once every expectation holds', async () => {
+    const probes: string[] = [];
+    const port = new BrowserControlPort(liquidHost({}, probes));
+    const res = await port.awaitCdnSync(makeTarget('tab-1', 1), {
+      assetPath: 'assets/theme.css.liquid',
+      expectContains: ['color:red'],
+      expectNotContains: ['.legacy-banner'],
+      ...poll,
+    });
+    assert.strictEqual(res.synced, true);
+    assert.strictEqual(res.compiledAsset, 'theme.css');
+    assert.strictEqual(res.localSha256, undefined, 'a Liquid source has no comparable local bytes');
+    assert.strictEqual(res.cdnSha256, crypto.createHash('sha256').update(COMPILED).digest('hex'));
+    assert.ok(probes[0]!.includes(JSON.stringify('theme.css')), 'the probe looks for the compiled file name');
+    assert.ok(!probes[0]!.includes('theme.css.liquid'));
+  });
+
+  it('needs no workspace: nothing is read from disk for a Liquid source', async () => {
+    const port = new BrowserControlPort(liquidHost({ resolveTabWorkspace: () => '' }));
+    const res = await port.awaitCdnSync(makeTarget('tab-1', 1), { assetPath: 'assets/theme.css.liquid', expectContains: ['color:red'], ...poll });
+    assert.strictEqual(res.synced, true);
+  });
+
+  it('reports the missing string while the compiled asset is still the old one', async () => {
+    const port = new BrowserControlPort(liquidHost());
+    const res = await port.awaitCdnSync(makeTarget('tab-1', 1), { assetPath: 'assets/theme.css.liquid', expectContains: ['.new-header'], ...poll });
+    assert.strictEqual(res.synced, false);
+    assert.deepStrictEqual(res.unmetExpectations, { missing: ['.new-header'], forbidden: [] });
+  });
+
+  it('reports a forbidden string that is still present', async () => {
+    const port = new BrowserControlPort(liquidHost());
+    const res = await port.awaitCdnSync(makeTarget('tab-1', 1), { assetPath: 'assets/theme.css.liquid', expectNotContains: ['.promo'], ...poll });
+    assert.strictEqual(res.synced, false);
+    assert.deepStrictEqual(res.unmetExpectations, { missing: [], forbidden: ['.promo'] });
+  });
+
+  it('keeps polling until the asset catches up', async () => {
+    let calls = 0;
+    const port = new BrowserControlPort(liquidHost({
+      evalJs: async () => {
+        calls += 1;
+        return { url: 'https://shop.example.com/assets/theme.css', text: calls < 3 ? COMPILED : `${COMPILED}.new-header{top:0}` };
+      },
+    }));
+    const res = await port.awaitCdnSync(makeTarget('tab-1', 1), { assetPath: 'assets/theme.css.liquid', expectContains: ['.new-header'], reloadOnMatch: false, timeoutMs: 1000, pollIntervalMs: 50 });
+    assert.strictEqual(res.synced, true);
+    assert.strictEqual(res.attempts, 3);
+  });
+
+  it('adds the expectations to the hash check on a plain asset', async () => {
+    const port = new BrowserControlPort(liquidHost());
+    const res = await port.awaitCdnSync(makeTarget('tab-1', 1), { assetPath: 'theme.css', workspaceRoot: workspace(), expectContains: ['.never-there'], ...poll });
+    assert.strictEqual(res.synced, false, 'the bytes match but the expectation does not');
+    assert.deepStrictEqual(res.unmetExpectations, { missing: ['.never-there'], forbidden: [] });
+  });
+
+  it('keeps the generation fence when it reloads and drops it when it does not', async () => {
+    const drifted = liquidHost({ getDocumentGeneration: () => 3 });
+    const port = new BrowserControlPort(drifted);
+    await assert.rejects(
+      port.awaitCdnSync(makeTarget('tab-1', 1), { assetPath: 'assets/theme.css.liquid', expectContains: ['color:red'], timeoutMs: 200, pollIntervalMs: 50 }),
+      (err: unknown) => code(err) === 'TARGET_STALE'
+    );
+    const res = await port.awaitCdnSync(makeTarget('tab-1', 1), { assetPath: 'assets/theme.css.liquid', expectContains: ['color:red'], ...poll });
+    assert.strictEqual(res.synced, true);
+  });
+
+  it('refuses malformed expectations', async () => {
+    const port = new BrowserControlPort(liquidHost());
+    for (const expectContains of ['color:red', [''], [1], Array.from({ length: 21 }, (_, i) => `s${i}`)]) {
+      await assert.rejects(
+        // Deliberately off-contract input: the boundary must refuse it, not coerce it.
+        port.awaitCdnSync(makeTarget('tab-1', 1), { assetPath: 'assets/theme.css.liquid', expectContains: expectContains as never, ...poll }),
+        (err: unknown) => code(err) === 'INVALID_ARGUMENT'
+      );
+    }
   });
 });

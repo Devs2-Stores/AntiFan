@@ -706,7 +706,10 @@ export class CapabilityTransportAdapter {
       const isRetargetOp = intent.name === 'browser.set-automation-target' || intent.name === 'antifan_set_automation_target' || intent.name === 'anti.browser.set_automation_target'
         || intent.name === 'browser.rebind-target' || intent.name === 'antifan_rebind_target' || intent.name === 'anti.browser.rebind_target';
       const authorityTabId = authContext.browserTarget?.tabId || record.tabId;
-      if (isRetargetOp && typeof requestedTabParam === 'string' && requestedTabParam.trim() && authorityTabId) {
+      // 'auto' is not a tab id: the port resolves it to the single storefront-host candidate and
+      // applies the same owner/project isolation to that tab, so the id gate below has nothing to read.
+      const isAutoRebind = typeof requestedTabParam === 'string' && requestedTabParam.trim() === 'auto';
+      if (isRetargetOp && !isAutoRebind && typeof requestedTabParam === 'string' && requestedTabParam.trim() && authorityTabId) {
         const resolvedRequested = this.catalogue.resolveTabId(requestedTabParam.trim()) || requestedTabParam.trim();
         const resolvedAuthority = this.catalogue.resolveTabId(authorityTabId) || authorityTabId;
         if (resolvedRequested !== resolvedAuthority) {
@@ -723,8 +726,10 @@ export class CapabilityTransportAdapter {
           if (!allowed) {
             throw new CapabilityError(
               'TARGET_MISMATCH',
-              `Tab ID '${resolvedRequested}' is outside this session's authority (bound '${authorityTabId}'). Rebind only to session-managed or same-project tabs.`,
-              failoverId ? { candidateTabIds: [failoverId], failoverTabId: failoverId } : undefined
+              `Tab ID '${resolvedRequested}' is outside this session's authority (bound '${authorityTabId}'). It belongs to another project, session or window (for example a tab the user opened), so this session cannot take it over. Rebind only to session-managed or same-project tabs: list them with anti.browser.tabs.list (affiliated rows) or open one with anti.browser.tabs.create.`,
+              failoverId
+                ? { candidateTabIds: [failoverId], failoverTabId: failoverId, recovery: 'anti.browser.rebind_target' }
+                : { recovery: 'anti.browser.rebind_target' }
             );
           }
         }
