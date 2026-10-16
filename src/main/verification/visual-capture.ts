@@ -1301,6 +1301,11 @@ export function normalizeRoutePath(pathname: string): string {
   return stripped.length === 0 ? '/' : stripped;
 }
 
+/**
+ * Asserts the captured page is the route the caller expected. A path-only expectation
+ * (`/collections/all`) is resolved against the observed origin, so it pins the route on whatever
+ * host the tab is on and never fails URL_HOST_MISMATCH; pass an absolute URL to pin the host too.
+ */
 export function checkRouteIdentity(
   expectedUrl: string | null | undefined,
   observedUrl: string,
@@ -1322,24 +1327,15 @@ export function checkRouteIdentity(
     };
   }
 
-  const normalizeUrlInput = (u: string) => (/^https?:\/\//i.test(u.trim()) ? u.trim() : 'https://' + u.trim());
+  const normalizeUrlInput = (u: string) => {
+    const t = u.trim();
+    if (/^https?:\/\//i.test(t)) return t;
+    if (t.startsWith('//')) return 'https:' + t;
+    return 'https://' + t;
+  };
   const trimmedExpected = expectedUrl.trim();
   let expectedParsed: URL;
   let observedParsed: URL;
-  try {
-    expectedParsed = new URL(normalizeUrlInput(trimmedExpected));
-  } catch (err) {
-    return {
-      ok: false,
-      status: 'URL_HOST_MISMATCH',
-      code: 'URL_HOST_MISMATCH',
-      requestedUrl: trimmedExpected,
-      expectedUrl: trimmedExpected,
-      observedUrl: safeObserved,
-      redirectChain: safeChain,
-      reason: `Malformed expected URL '${trimmedExpected}': ${err instanceof Error ? err.message : String(err)}`,
-    };
-  }
   try {
     observedParsed = new URL(normalizeUrlInput(safeObserved));
   } catch (err) {
@@ -1352,6 +1348,24 @@ export function checkRouteIdentity(
       observedUrl: safeObserved,
       redirectChain: safeChain,
       reason: `Malformed observed URL '${safeObserved}': ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+  try {
+    if (trimmedExpected.startsWith('/') && !trimmedExpected.startsWith('//')) {
+      expectedParsed = new URL(trimmedExpected, observedParsed.origin);
+    } else {
+      expectedParsed = new URL(normalizeUrlInput(trimmedExpected));
+    }
+  } catch (err) {
+    return {
+      ok: false,
+      status: 'URL_HOST_MISMATCH',
+      code: 'URL_HOST_MISMATCH',
+      requestedUrl: trimmedExpected,
+      expectedUrl: trimmedExpected,
+      observedUrl: safeObserved,
+      redirectChain: safeChain,
+      reason: `Malformed expected URL '${trimmedExpected}': ${err instanceof Error ? err.message : String(err)}`,
     };
   }
 

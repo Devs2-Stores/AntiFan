@@ -112,6 +112,9 @@ export interface ThemeQaSummary {
   domUnstable?: boolean;
   responsive?: boolean | 'UNMEASURED';
   documentStatus?: number;
+  viewport?: { width: number; height: number };
+  pageCriticalCount?: number;
+  scopedCriticalCount?: number | null;
   /**
    * What `verdict` certifies. STRUCTURAL: the measured structural checks passed while the
    * 8-dimension matrix still has unmeasured dimensions or viewports, so PASS is not a visual,
@@ -189,6 +192,7 @@ export interface ThemeQaReport {
   attemptId: string;
   workspaceId: string;
   target: BrowserTarget;
+  viewport?: { width: number; height: number };
   summary: ThemeQaSummary;
   checklist: ThemeQaChecklist & { liquidClean: boolean; assetsValid: boolean; hsCompliant: boolean };
   findings?: ThemeQaDetailedFindings;
@@ -252,6 +256,742 @@ export function sanitizePii(text: string): string {
     // epoch), which would otherwise leave a bare token and break the JSON report.
     .replace(/(?<!\d)(?:\+?84|0)(?:3|5|7|8|9)[0-9]{8}(?!\d)/g, '[REDACTED_PHONE]')
     .replace(/(?:bearer\s+|token=)[a-zA-Z0-9_\-\.]{20,}/gi, '[REDACTED_TOKEN]');
+}
+
+export interface QaReceiptFindingRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface QaReceiptFinding {
+  rule: string;
+  severity: 'critical' | 'warning';
+  selector: string | null;
+  rect: QaReceiptFindingRect | null;
+  message: string;
+}
+
+export function normalizeReceiptRect(raw: unknown): QaReceiptFindingRect | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  const x = typeof r.x === 'number' && Number.isFinite(r.x) ? r.x : null;
+  const y = typeof r.y === 'number' && Number.isFinite(r.y) ? r.y : null;
+  const width =
+    typeof r.width === 'number' && Number.isFinite(r.width)
+      ? r.width
+      : typeof r.w === 'number' && Number.isFinite(r.w)
+        ? r.w
+        : null;
+  const height =
+    typeof r.height === 'number' && Number.isFinite(r.height)
+      ? r.height
+      : typeof r.h === 'number' && Number.isFinite(r.h)
+        ? r.h
+        : null;
+  if (x === null || y === null || width === null || height === null) return null;
+  return { x, y, width, height };
+}
+
+export function truncateReceiptMessage(msg: unknown, maxLen = 300): string {
+  const s = typeof msg === 'string' ? msg : String(msg ?? '');
+  return s.length > maxLen ? s.slice(0, maxLen) : s;
+}
+
+export function buildReceiptFindings(
+  findings: ThemeQaDetailedFindings | undefined,
+  settingsRatchet?: {
+    ok?: boolean;
+    findings?: Array<{ rule?: string; id?: string; file?: string; line?: number; message?: string; detail?: string }>;
+  } | null,
+  maxEntries = 200
+): QaReceiptFinding[] {
+  const criticals: QaReceiptFinding[] = [];
+  const warnings: QaReceiptFinding[] = [];
+
+  if (findings && typeof findings === 'object') {
+    if (Array.isArray(findings.diagnosticIssues)) {
+      for (const d of findings.diagnosticIssues) {
+        if (!d) continue;
+        criticals.push({
+          rule: /^ROUTE_404:/i.test(d.message) ? 'ROUTE_404' : `diagnostics:${d.kind}`,
+          severity: 'critical',
+          selector: null,
+          rect: null,
+          message: truncateReceiptMessage(d.message),
+        });
+      }
+    }
+    if (Array.isArray(findings.liquid?.errors)) {
+      for (const e of findings.liquid.errors) {
+        if (!e) continue;
+        criticals.push({
+          rule: `liquid:${e.type}`,
+          severity: 'critical',
+          selector: e.selector || e.location || null,
+          rect: null,
+          message: truncateReceiptMessage(e.message),
+        });
+      }
+    }
+    if (findings.overflow) {
+      if (Array.isArray(findings.overflow.culprits) && findings.overflow.culprits.length > 0) {
+        for (const c of findings.overflow.culprits) {
+          if (!c) continue;
+          criticals.push({
+            rule: 'overflow',
+            severity: 'critical',
+            selector: c.selector || null,
+            rect: normalizeReceiptRect(c.boundingBox),
+            message: truncateReceiptMessage(`Layout horizontal overflow: deltaX ${c.deltaX}px on ${c.selector || 'window'}`),
+          });
+        }
+      } else if (findings.overflow.hasOverflow) {
+        criticals.push({
+          rule: 'overflow',
+          severity: 'critical',
+          selector: null,
+          rect: null,
+          message: truncateReceiptMessage(
+            `Horizontal overflow detected on ${findings.overflow.viewport?.name || 'active'} viewport (${findings.overflow.viewport?.width || 0}px): deltaX ${findings.overflow.deltaX || 0}px`
+          ),
+        });
+      }
+      if (Array.isArray(findings.overflow.innerClippedCulprits)) {
+        for (const c of findings.overflow.innerClippedCulprits) {
+          if (!c) continue;
+          warnings.push({
+            rule: 'overflow:inner-clipped',
+            severity: 'warning',
+            selector: c.selector || null,
+            rect: normalizeReceiptRect(c.boundingBox),
+            message: truncateReceiptMessage(`Inner clipped horizontal overflow: deltaX ${c.deltaX}px on ${c.selector || 'element'}`),
+          });
+        }
+      }
+    }
+    if (Array.isArray(findings.assets?.brokenAssets)) {
+      for (const a of findings.assets.brokenAssets) {
+        if (!a) continue;
+        criticals.push({
+          rule: `broken_asset:${a.type}`,
+          severity: 'critical',
+          selector: a.elementSelector || null,
+          rect: null,
+          message: truncateReceiptMessage(`Broken ${a.type}: ${a.url} (${a.reason})`),
+        });
+      }
+    }
+    if (Array.isArray(findings.hsRules?.violations)) {
+      for (const v of findings.hsRules.violations) {
+        if (!v) continue;
+        const sev: 'critical' | 'warning' = v.severity === 'error' ? 'critical' : 'warning';
+        const entry: QaReceiptFinding = {
+          rule: v.ruleId || 'hs_rule',
+          severity: sev,
+          selector: v.selector || null,
+          rect: null,
+          message: truncateReceiptMessage(v.message),
+        };
+        if (sev === 'critical') criticals.push(entry);
+        else warnings.push(entry);
+      }
+    }
+    if (Array.isArray(findings.serverCrash?.findings)) {
+      for (const s of findings.serverCrash.findings) {
+        if (!s) continue;
+        criticals.push({
+          rule: `server_crash:${s.type}`,
+          severity: 'critical',
+          selector: null,
+          rect: null,
+          message: truncateReceiptMessage(s.message),
+        });
+      }
+    }
+    const activeIntegrityWidth =
+      findings.layoutIntegrity?.measured === true ? findings.layoutIntegrity.viewport?.width : undefined;
+    const activeCriticalKeys = new Set<string>();
+    if (Array.isArray(findings.layoutIntegrity?.findings)) {
+      for (const lf of findings.layoutIntegrity.findings) {
+        if (!lf) continue;
+        const rule = lf.ruleId ? `layout_integrity:${lf.kind}:${lf.ruleId}` : `layout_integrity:${lf.kind}`;
+        const sev: 'critical' | 'warning' = lf.severity === 'critical' ? 'critical' : 'warning';
+        const entry: QaReceiptFinding = {
+          rule,
+          severity: sev,
+          selector: lf.selector || null,
+          rect: normalizeReceiptRect(lf.rect),
+          message: truncateReceiptMessage(lf.details),
+        };
+        if (sev === 'critical') {
+          activeCriticalKeys.add(`${lf.kind}:${lf.selector || ''}:${(lf.details || '').slice(0, 80)}`);
+          criticals.push(entry);
+        } else {
+          warnings.push(entry);
+        }
+      }
+    }
+    if (findings.responsive && typeof findings.responsive === 'object') {
+      // The overflow block above already reports the width it measured as page-level overflow
+      // (no culprits); with culprits, those may be out of scope, so the sweep reading still counts.
+      const overflowWidth = findings.overflow?.measured && findings.overflow.hasOverflow && !(Array.isArray(findings.overflow.culprits) && findings.overflow.culprits.length > 0) ? findings.overflow.viewport?.width : undefined;
+      for (const [wKey, rEntry] of Object.entries(findings.responsive)) {
+        if (!rEntry) continue;
+        const wNum = Number(wKey);
+        if (rEntry.documentOverflow === true && wNum !== overflowWidth) {
+          criticals.push({
+            rule: `overflow@${wKey}`,
+            severity: 'critical',
+            selector: null,
+            rect: null,
+            message: truncateReceiptMessage(`Horizontal page overflow at ${wKey}px (responsive sweep)`),
+          });
+        }
+        if (!Array.isArray(rEntry.findings)) continue;
+        for (const rf of rEntry.findings) {
+          if (!rf || rf.severity !== 'critical') continue;
+          const key = `${rf.kind}:${rf.selector || ''}:${(rf.details || '').slice(0, 80)}`;
+          if (wNum === activeIntegrityWidth && activeCriticalKeys.has(key)) continue;
+          const rule = rf.ruleId ? `layout_integrity@${wKey}:${rf.kind}:${rf.ruleId}` : `layout_integrity@${wKey}:${rf.kind}`;
+          criticals.push({
+            rule,
+            severity: 'critical',
+            selector: rf.selector || null,
+            rect: normalizeReceiptRect(rf.rect),
+            message: truncateReceiptMessage(`(${wKey}px) ${rf.details}`),
+          });
+        }
+      }
+    }
+    if (Array.isArray(findings.diagnosticWarnings)) {
+      for (const d of findings.diagnosticWarnings) {
+        if (!d) continue;
+        warnings.push({
+          rule: /^AUTH_REDIRECT:/i.test(d.message) ? 'AUTH_REDIRECT' : `diagnostics:${d.kind}`,
+          severity: 'warning',
+          selector: null,
+          rect: null,
+          message: truncateReceiptMessage(d.message),
+        });
+      }
+    }
+  }
+
+  if (settingsRatchet && settingsRatchet.ok === false && Array.isArray(settingsRatchet.findings)) {
+    for (const sf of settingsRatchet.findings) {
+      if (!sf) continue;
+      criticals.push({
+        rule: sf.rule || 'settings_ratchet',
+        severity: 'critical',
+        selector: sf.id || null,
+        rect: null,
+        message: truncateReceiptMessage(sf.message || sf.detail || `${sf.rule || 'settings_ratchet'} at ${sf.file || 'config'}`),
+      });
+    }
+  }
+
+  return [...criticals, ...warnings].slice(0, maxEntries);
+}
+
+interface ParsedSelectorSegment {
+  raw: string;
+  tag: string;
+  id: string;
+  classes: string[];
+  distinctiveClasses: string[];
+}
+
+const GENERIC_LAYOUT_CLASSES: Record<string, true> = {
+  container: true,
+  'container-fluid': true,
+  wrapper: true,
+  'page-wrapper': true,
+  row: true,
+  col: true,
+  flex: true,
+  grid: true,
+  block: true,
+  inline: true,
+  'inline-block': true,
+  relative: true,
+  absolute: true,
+  fixed: true,
+  active: true,
+  open: true,
+  show: true,
+  hidden: true,
+  'w-full': true,
+  'h-full': true,
+  'is-scrolled': true,
+};
+
+const PAGE_ROOT_SEGMENTS: Record<string, true> = {
+  html: true,
+  body: true,
+  window: true,
+  document: true,
+  main: true,
+  'main#maincontent': true,
+  '#maincontent': true,
+  '#pagecontainer': true,
+};
+
+function splitSelectorChain(selector: string): string[] {
+  const s = selector.trim();
+  if (!s) return [];
+  const parts: string[] = [];
+  let buf = '';
+  let bracketDepth = 0;
+  let parenDepth = 0;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i]!;
+    if (ch === '[') bracketDepth++;
+    else if (ch === ']' && bracketDepth > 0) bracketDepth--;
+    else if (ch === '(') parenDepth++;
+    else if (ch === ')' && parenDepth > 0) parenDepth--;
+    if (bracketDepth === 0 && parenDepth === 0 && (ch === '>' || ch === '+' || ch === '~' || /\s/.test(ch))) {
+      const trimmed = buf.trim();
+      if (trimmed) parts.push(trimmed);
+      buf = '';
+      while (i + 1 < s.length && (s[i + 1] === '>' || s[i + 1] === '+' || s[i + 1] === '~' || /\s/.test(s[i + 1]!))) {
+        i++;
+      }
+      continue;
+    }
+    buf += ch;
+  }
+  const tail = buf.trim();
+  if (tail) parts.push(tail);
+  return parts;
+}
+
+function parseSelectorSegment(raw: string): ParsedSelectorSegment {
+  const withoutPseudo = raw
+    .replace(/\[[^\]]*\]/g, '')
+    .replace(/:+[a-zA-Z-]+(?:\([^)]*\))?/g, '')
+    .trim();
+  const tagMatch = withoutPseudo.match(/^[a-zA-Z][a-zA-Z0-9-]*/);
+  const tag = tagMatch ? tagMatch[0].toLowerCase() : '';
+  const idMatch = withoutPseudo.match(/#([a-zA-Z0-9_-]+)/);
+  const id = idMatch && idMatch[1] ? idMatch[1].toLowerCase() : '';
+  const classMatches = [...withoutPseudo.matchAll(/\.([a-zA-Z0-9_-]+)/g)]
+    .map((m) => (m[1] || '').toLowerCase())
+    .filter(Boolean);
+  const distinctiveClasses = classMatches.filter((c) => !GENERIC_LAYOUT_CLASSES[c]);
+  return {
+    raw: withoutPseudo.toLowerCase(),
+    tag,
+    id,
+    classes: classMatches,
+    distinctiveClasses,
+  };
+}
+
+function isPageRootSegment(seg: ParsedSelectorSegment): boolean {
+  if (PAGE_ROOT_SEGMENTS[seg.raw]) return true;
+  if (seg.id === 'maincontent' || seg.id === 'pagecontainer') return true;
+  if ((seg.tag === 'html' || seg.tag === 'body' || seg.tag === 'main') && !seg.id && seg.distinctiveClasses.length === 0) {
+    return true;
+  }
+  return false;
+}
+
+function selectorSegmentsMatch(a: ParsedSelectorSegment, b: ParsedSelectorSegment, allowSameTag = false): boolean {
+  if (!a.raw || !b.raw) return false;
+  if (a.id && b.id) {
+    if (a.id !== b.id) return false;
+    if (a.tag && b.tag && a.tag !== b.tag) return false;
+    return true;
+  }
+  if (a.id || b.id) {
+    if (a.distinctiveClasses.length > 0 && b.distinctiveClasses.length > 0) {
+      if (a.tag && b.tag && a.tag !== b.tag) return false;
+      return a.distinctiveClasses.some((c) => b.distinctiveClasses.includes(c));
+    }
+    return false;
+  }
+  if (a.tag && b.tag && a.tag !== b.tag) return false;
+  if (a.distinctiveClasses.length > 0 && b.distinctiveClasses.length > 0) {
+    return a.distinctiveClasses.some((c) => b.distinctiveClasses.includes(c));
+  }
+  if (allowSameTag && a.distinctiveClasses.length === 0 && b.distinctiveClasses.length === 0) {
+    if (a.classes.length > 0 && b.classes.length > 0) {
+      return a.classes.some((c) => b.classes.includes(c));
+    }
+    return Boolean(a.tag && b.tag && a.tag === b.tag);
+  }
+  return false;
+}
+
+export function isSelectorInAnnotationScope(
+  findingSelector: string | null | undefined,
+  targetSelector: string,
+  domAncestry?: string
+): boolean {
+  if (!findingSelector || typeof findingSelector !== 'string' || !targetSelector || typeof targetSelector !== 'string') {
+    return false;
+  }
+  const fTrim = findingSelector.trim();
+  const tTrim = targetSelector.trim();
+  if (!fTrim || !tTrim) return false;
+  if (/^(?:document|window)$/i.test(fTrim)) return false;
+  if (fTrim.toLowerCase() === tTrim.toLowerCase()) return true;
+
+  const targetChain = splitSelectorChain(tTrim).map(parseSelectorSegment);
+  const ancestryRaw = domAncestry ? splitSelectorChain(domAncestry).map(parseSelectorSegment) : [];
+  const findingChain = splitSelectorChain(fTrim).map(parseSelectorSegment);
+  if (targetChain.length === 0 || findingChain.length === 0) return false;
+
+  const targetIsRoot = targetChain.length === 1 && isPageRootSegment(targetChain[0]!);
+  if (!targetIsRoot && findingChain.every(isPageRootSegment)) {
+    return false;
+  }
+
+  const strippedAncestry = targetIsRoot ? ancestryRaw : ancestryRaw.filter((seg) => !isPageRootSegment(seg));
+  const strippedTarget = targetIsRoot ? targetChain : targetChain.filter((seg) => !isPageRootSegment(seg));
+  if (strippedTarget.length === 0) return false;
+
+  const targetLeaf = strippedTarget[strippedTarget.length - 1]!;
+  let lineage: ParsedSelectorSegment[];
+  if (strippedAncestry.length > 0) {
+    lineage = [...strippedAncestry];
+    const matchIdx = lineage.findIndex((seg) => selectorSegmentsMatch(seg, targetLeaf));
+    if (matchIdx === -1) {
+      lineage.push(...strippedTarget);
+    }
+  } else {
+    lineage = [...strippedTarget];
+  }
+
+  const leafIdxInLineage = lineage.findIndex((seg) => selectorSegmentsMatch(seg, targetLeaf));
+  const targetStartIdx = leafIdxInLineage >= 0 ? leafIdxInLineage : Math.max(0, lineage.length - 1);
+
+  const fFiltered = targetIsRoot ? findingChain : findingChain.filter((seg) => !isPageRootSegment(seg));
+  if (fFiltered.length === 0) return false;
+
+  const prefixAlignsWithLineage = (endIdx: number, maxLineageIdx: number): boolean => {
+    let minL = 0;
+    for (let i = 0; i <= endIdx; i++) {
+      const fSeg = fFiltered[i]!;
+      let matchedAt = -1;
+      for (let l = minL; l <= maxLineageIdx; l++) {
+        if (selectorSegmentsMatch(fSeg, lineage[l]!, i > 0)) {
+          matchedAt = l;
+          break;
+        }
+      }
+      if (matchedAt === -1) return false;
+      minL = matchedAt + 1;
+    }
+    return true;
+  };
+
+  const fLastIdx = fFiltered.length - 1;
+  const fLast = fFiltered[fLastIdx]!;
+
+  for (let l = 0; l < lineage.length; l++) {
+    if (selectorSegmentsMatch(fLast, lineage[l]!, fLastIdx > 0)) {
+      if (fLastIdx === 0 || prefixAlignsWithLineage(fLastIdx - 1, l - 1)) {
+        return true;
+      }
+    }
+  }
+
+  for (let k = 0; k < fLastIdx; k++) {
+    const fSeg = fFiltered[k]!;
+    for (let l = targetStartIdx; l < lineage.length; l++) {
+      if (selectorSegmentsMatch(fSeg, lineage[l]!, k > 0)) {
+        if (k === 0 || prefixAlignsWithLineage(k - 1, l - 1)) {
+          return true;
+        }
+      }
+    }
+  }
+
+  return false;
+}
+
+export function parseAnnotationTargetFromMarkdown(markdown: string): { selector: string; domAncestry?: string } | null {
+  if (!markdown || typeof markdown !== 'string') return null;
+  const pickField = (re: RegExp): string => {
+    const m = markdown.match(re);
+    if (!m) return '';
+    return (m[1] ?? m[2] ?? '').trim();
+  };
+  const elemSel =
+    pickField(/^-\s*Element Selector:\s*(?:`([^`\r\n]+)`|([^\r\n]+))/m) ||
+    pickField(/^-\s*Primary Scoped Selector:\s*(?:`([^`\r\n]+)`|([^\r\n]+))/m) ||
+    pickField(/^selector:\s*(?:["']([^"'\r\n]+)["']|([^\r\n]+))/m);
+  const domAncestry =
+    pickField(/^-\s*DOM Ancestry:\s*(?:`([^`\r\n]+)`|([^\r\n]+))/m) ||
+    pickField(/^dom_ancestry:\s*(?:["']([^"'\r\n]+)["']|([^\r\n]+))/m);
+  const cleanSelector = elemSel && !/^(?:element|n\/a|none|unknown)$/i.test(elemSel) ? elemSel : '';
+  const cleanAncestry = domAncestry && !/^(?:element|n\/a|none|unknown)$/i.test(domAncestry) ? domAncestry : '';
+  const finalSelector = cleanSelector || cleanAncestry;
+  if (!finalSelector) return null;
+  return {
+    selector: finalSelector,
+    ...(cleanAncestry ? { domAncestry: cleanAncestry } : {}),
+  };
+}
+
+export function resolveAnnotationTargetSelector(
+  workspaceRoot: string | undefined,
+  annotationId: string | undefined
+): { selector: string; domAncestry?: string } | null {
+  if (!workspaceRoot || !annotationId || typeof annotationId !== 'string') return null;
+  const trimmedId = annotationId.trim();
+  if (!trimmedId) return null;
+  const annotationsDir = path.join(workspaceRoot, '.antifan', 'annotations');
+  try {
+    if (!fs.existsSync(annotationsDir)) return null;
+    const directCandidates: string[] = [path.join(annotationsDir, `${trimmedId}.md`)];
+    if (trimmedId.startsWith('annotation_')) {
+      directCandidates.push(path.join(annotationsDir, `element_${trimmedId.slice('annotation_'.length)}.md`));
+    }
+    for (const candidatePath of directCandidates) {
+      if (fs.existsSync(candidatePath)) {
+        const content = fs.readFileSync(candidatePath, 'utf8');
+        const parsed = parseAnnotationTargetFromMarkdown(content);
+        if (parsed) return parsed;
+      }
+    }
+    const entries = fs
+      .readdirSync(annotationsDir)
+      .filter((name) => name.endsWith('.md'))
+      .sort()
+      .reverse();
+    const escapedId = trimmedId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const idRe = new RegExp(
+      `(?:^annotation_id:\\s*["']?${escapedId}["']?\\s*$|^\\s*-\\s*Annotation ID:\\s*\`?${escapedId}\`?\\s*$|\\bannotationId[\`":\\s]+${escapedId}\\b)`,
+      'm'
+    );
+    for (const name of entries) {
+      const fullPath = path.join(annotationsDir, name);
+      try {
+        const content = fs.readFileSync(fullPath, 'utf8');
+        if (idRe.test(content)) {
+          const parsed = parseAnnotationTargetFromMarkdown(content);
+          if (parsed) return parsed;
+        }
+      } catch {
+        // skip unreadable file
+      }
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function isUnscopedOrPageLevelSelector(sel: string | null | undefined): boolean {
+  if (!sel || typeof sel !== 'string') return true;
+  const trimmed = sel.trim();
+  if (!trimmed) return true;
+  if (/^(?:document|window)$/i.test(trimmed)) return true;
+  const chain = splitSelectorChain(trimmed).map(parseSelectorSegment);
+  if (chain.length === 0) return true;
+  return chain.every(isPageRootSegment);
+}
+
+/**
+ * True when no segment of the selector carries an id or a non-generic class (`div`, `p > span`,
+ * `div.container`): such a selector matches the annotated element's own descendants as well as
+ * anything else, so it never shows that a finding lies outside the annotation.
+ */
+function isAnonymousSelector(sel: string): boolean {
+  const chain = splitSelectorChain(sel.trim()).map(parseSelectorSegment).filter((seg) => !isPageRootSegment(seg));
+  return chain.length > 0 && chain.every((seg) => !seg.id && seg.distinctiveClasses.length === 0);
+}
+
+/** Every element selector the scoped count reads, so the live page can be asked about each once. */
+export function collectScopeSelectors(findings: ThemeQaDetailedFindings | undefined, limit = 300): string[] {
+  const out = new Set<string>();
+  const add = (sel: string | null | undefined): void => {
+    if (typeof sel === 'string' && sel.trim() && !isUnscopedOrPageLevelSelector(sel) && out.size < limit) out.add(sel.trim());
+  };
+  if (!findings) return [];
+  findings.liquid?.errors?.forEach((e) => add(e?.selector || e?.location));
+  findings.overflow?.culprits?.forEach((c) => add(c?.selector));
+  findings.assets?.brokenAssets?.forEach((a) => add(a?.elementSelector));
+  findings.hsRules?.violations?.forEach((v) => add(v?.selector));
+  findings.layoutIntegrity?.findings?.forEach((f) => { add(f?.selector); add(f?.relatedSelector); });
+  Object.values(findings.responsive || {}).forEach((entry) => entry?.findings?.forEach((f) => { add(f?.selector); add(f?.relatedSelector); }));
+  return [...out];
+}
+
+/**
+ * In-page reading of which selectors match an element inside the annotated element, or one that
+ * contains it. Resolves to { [selector]: boolean } for the selectors that match anything, or null
+ * when the annotated element itself is not on the page.
+ */
+export function buildScopeContainmentScript(targetSelector: string, selectors: string[]): string {
+  return `(() => {
+    let target = null;
+    try { target = document.querySelector(${JSON.stringify(targetSelector)}); } catch (e) { return null; }
+    if (!target) return null;
+    const out = {};
+    for (const sel of ${JSON.stringify(selectors)}) {
+      let els;
+      try { els = document.querySelectorAll(sel); } catch (e) { continue; }
+      if (!els.length) continue;
+      let related = false;
+      for (let i = 0; i < els.length && !related; i++) {
+        related = els[i] === target || target.contains(els[i]) || els[i].contains(target);
+      }
+      out[sel] = related;
+    }
+    return out;
+  })()`;
+}
+
+export function computeScopedCriticalCount(
+  findings: ThemeQaDetailedFindings | undefined,
+  targetSelector: string,
+  domAncestry?: string,
+  fallbackReceiptFindings?: QaReceiptFinding[],
+  /** Live-page reading from buildScopeContainmentScript; it decides every selector it covers. */
+  containment?: Readonly<Record<string, boolean>> | null
+): number {
+  let count = 0;
+  const inScope = (sel: string): boolean => {
+    const live = containment ? containment[sel.trim()] : undefined;
+    if (typeof live === 'boolean') return live;
+    return isSelectorInAnnotationScope(sel, targetSelector, domAncestry) || isAnonymousSelector(sel);
+  };
+  const inScopeOrPageLevel = (sel: string | null | undefined, related?: string | null): boolean => {
+    if (isUnscopedOrPageLevelSelector(sel)) {
+      if (!related || isUnscopedOrPageLevelSelector(related)) return true;
+      return inScope(related);
+    }
+    if (inScope(sel as string)) return true;
+    if (related && !isUnscopedOrPageLevelSelector(related) && inScope(related)) return true;
+    return false;
+  };
+
+  if (findings && typeof findings === 'object') {
+    const countedSignatures = new Set<string>();
+    if (Array.isArray(findings.diagnosticIssues)) {
+      for (const d of findings.diagnosticIssues) {
+        if (d) {
+          count++;
+          countedSignatures.add(`diagnostics:${d.kind}:${d.origin || ''}:${d.message}`);
+        }
+      }
+    }
+    if (Array.isArray(findings.serverCrash?.findings)) {
+      for (const s of findings.serverCrash.findings) {
+        if (s) count++;
+      }
+    }
+    if (Array.isArray(findings.liquid?.errors)) {
+      for (const e of findings.liquid.errors) {
+        if (e && inScopeOrPageLevel(e.selector || e.location)) {
+          count++;
+          countedSignatures.add(`liquid:${e.type}:${e.location || e.selector || ''}:${e.message}`);
+        }
+      }
+    }
+    if (findings.overflow) {
+      if (Array.isArray(findings.overflow.culprits) && findings.overflow.culprits.length > 0) {
+        for (const c of findings.overflow.culprits) {
+          if (c && inScopeOrPageLevel(c.selector)) {
+            count++;
+            countedSignatures.add(`overflow:${c.selector || 'window'}:${Math.round(c.deltaX || 0)}`);
+          }
+        }
+      } else if (findings.overflow.hasOverflow) {
+        count++;
+        countedSignatures.add(
+          `overflow:${findings.overflow.viewport?.name || 'active'}:${Math.round(findings.overflow.deltaX || 0)}`
+        );
+      }
+    }
+    if (Array.isArray(findings.assets?.brokenAssets)) {
+      for (const a of findings.assets.brokenAssets) {
+        if (a && inScopeOrPageLevel(a.elementSelector)) {
+          count++;
+          countedSignatures.add(`broken_asset:${a.type}:${a.url}:${a.reason}`);
+        }
+      }
+    }
+    if (Array.isArray(findings.hsRules?.violations)) {
+      for (const v of findings.hsRules.violations) {
+        if (v && v.severity === 'error' && inScopeOrPageLevel(v.selector)) {
+          count++;
+          countedSignatures.add(`hs_rule:${v.ruleId}:${v.selector || ''}:${v.message}`);
+        }
+      }
+    }
+    const activeIntegrityWidth =
+      findings.layoutIntegrity?.measured === true ? findings.layoutIntegrity.viewport?.width : undefined;
+    const activeCriticalKeys = new Set<string>();
+    if (Array.isArray(findings.layoutIntegrity?.findings)) {
+      for (const lf of findings.layoutIntegrity.findings) {
+        if (!lf || lf.severity !== 'critical') continue;
+        const key = `${lf.kind}:${lf.selector || ''}:${(lf.details || '').slice(0, 80)}`;
+        activeCriticalKeys.add(key);
+        if (inScopeOrPageLevel(lf.selector, lf.relatedSelector)) {
+          count++;
+          countedSignatures.add(`layout_integrity:${key}`);
+        }
+      }
+    }
+    if (findings.responsive && typeof findings.responsive === 'object') {
+      // The overflow block above already counted the width it measured as page-level overflow
+      // (no culprits); with culprits, those may be out of scope, so the sweep reading still counts.
+      const overflowWidth = findings.overflow?.measured && findings.overflow.hasOverflow && !(Array.isArray(findings.overflow.culprits) && findings.overflow.culprits.length > 0) ? findings.overflow.viewport?.width : undefined;
+      for (const [wKey, rEntry] of Object.entries(findings.responsive)) {
+        if (!rEntry) continue;
+        const wNum = Number(wKey);
+        // Document-level horizontal overflow at another breakpoint has no selector: it is a
+        // page-level defect, in scope for every annotation, and it fails the page verdict, so a
+        // scoped pass must not ignore it.
+        if (rEntry.documentOverflow === true && wNum !== overflowWidth) {
+          count++;
+          countedSignatures.add(`responsive_overflow@${wKey}`);
+        }
+        if (!Array.isArray(rEntry.findings)) continue;
+        for (const rf of rEntry.findings) {
+          if (!rf || rf.severity !== 'critical') continue;
+          const key = `${rf.kind}:${rf.selector || ''}:${(rf.details || '').slice(0, 80)}`;
+          if (wNum === activeIntegrityWidth && activeCriticalKeys.has(key)) continue;
+          if (inScopeOrPageLevel(rf.selector, rf.relatedSelector)) {
+            count++;
+            countedSignatures.add(`layout_integrity@${wKey}:${key}`);
+          }
+        }
+      }
+    }
+    if (Array.isArray(findings.differential?.introducedRegressions)) {
+      for (const reg of findings.differential.introducedRegressions) {
+        if (!reg || reg.severity !== 'critical') continue;
+        if (reg.signature && countedSignatures.has(reg.signature)) continue;
+        if (reg.signature) countedSignatures.add(reg.signature);
+        count++;
+      }
+    }
+    return count;
+  }
+
+  if (Array.isArray(fallbackReceiptFindings)) {
+    for (const f of fallbackReceiptFindings) {
+      if (!f || f.severity !== 'critical') continue;
+      const isPageLevelRule =
+        typeof f.rule === 'string' &&
+        (f.rule === 'ROUTE_404' ||
+          f.rule.startsWith('diagnostics:') ||
+          f.rule.startsWith('server_crash:') ||
+          f.rule.startsWith('server-crash:') ||
+          f.rule === 'settings_ratchet');
+      if (isPageLevelRule || inScopeOrPageLevel(f.selector)) {
+        count++;
+      }
+    }
+  }
+  return count;
 }
 const CAPTURE_EVIDENCE_FAILURE_CODES: Partial<Record<CaptureFailureCode, true>> = {
   FULLPAGE_CAPTURE_UNSUPPORTED_GEOMETRY: true,
@@ -470,6 +1210,9 @@ export class ThemeQaWorkflow {
      * TARGET_STALE). The workflow performs no retries itself — it mirrors the
      * caller's real counts so the report never hard-codes zero. */
     recovery?: { attempted: number; succeeded: number };
+    annotationId?: string;
+    annotationTargetSelector?: string;
+    annotationDomAncestry?: string;
     /**
      * audit (default): visual-quality findings are reported, never verdict-bearing.
      * build-strict (opt-in, for new builds): contrast below AA, sub-24px tap targets, invisible
@@ -895,13 +1638,27 @@ export class ThemeQaWorkflow {
       clientWidth: 1440,
       culprits: [],
     };
-    await new Promise((r) => setImmediate(r));
+    let measuredViewport: { width: number; height: number } | undefined;
+    const settleTick = Promise.withResolvers<void>();
+    setImmediate(settleTick.resolve);
+    await settleTick.promise;
+    try {
+      if (typeof this.ports.browser.getViewport === 'function') {
+        const vpInfo = await this.ports.browser.getViewport(activeTarget);
+        if (vpInfo && typeof vpInfo.width === 'number' && vpInfo.width > 0 && typeof vpInfo.height === 'number' && vpInfo.height > 0) {
+          measuredViewport = { width: vpInfo.width, height: vpInfo.height };
+        }
+      }
+    } catch {}
     try {
       checkAborted();
       const evalRes = await this.ports.browser.eval(activeTarget, LayoutOverflowEngine.getBrowserScanScript('active'));
       checkAborted();
       if (isValidViewportOverflowResult(evalRes)) {
         overflowResult = evalRes;
+        if (!measuredViewport && overflowResult.viewport && overflowResult.viewport.width > 0 && overflowResult.viewport.height > 0) {
+          measuredViewport = { width: overflowResult.viewport.width, height: overflowResult.viewport.height };
+        }
       } else {
         // Unlike the other scanners there is no in-process HTML fallback for layout geometry:
         // a malformed or unmeasured response leaves no measurement evidence, so FAIL closed
@@ -945,6 +1702,9 @@ export class ThemeQaWorkflow {
         if (stats && Array.isArray(stats.failedDetectors) && stats.failedDetectors.length > 0) {
           evidenceGaps.push(`Layout integrity detectors failed: ${[...new Set(stats.failedDetectors)].join(', ')}`);
         }
+      } else if (rec && rec.measured === false) {
+        const reason = LayoutIntegrityEngine.readUnmeasuredReason(evalRes);
+        evidenceGaps.push(`Layout integrity not measured: ${reason || 'engine reported unmeasured'}`);
       }
       // A malformed or absent payload is simply unmeasured — the overflow engine's
       // marker contract requires an explicit `measured:false` to declare a gap, so
@@ -1150,7 +1910,53 @@ export class ThemeQaWorkflow {
     const diagResult = classifyDiagnostics(freshDiagnostics, contextUrl);
     const diagnosticIssues: DiagnosticIssue[] = diagResult.criticalIssues;
     const diagnosticWarnings: DiagnosticIssue[] = diagResult.warnings;
-
+    const targetUrl = 'url' in input.target && typeof input.target.url === 'string' ? input.target.url : '';
+    const activeTargetUrl = 'url' in activeTarget && typeof activeTarget.url === 'string' ? activeTarget.url : '';
+    const mainFrame404Failure = Array.isArray(freshDiagnostics.failures)
+      ? freshDiagnostics.failures.find((f) => Boolean(f && f.isMainFrame === true && f.status === 404))
+      : undefined;
+    const mainFrame404RawUrl =
+      mainFrame404Failure && typeof mainFrame404Failure.validatedURL === 'string' && mainFrame404Failure.validatedURL
+        ? mainFrame404Failure.validatedURL
+        : mainFrame404Failure && 'url' in mainFrame404Failure && typeof mainFrame404Failure.url === 'string'
+          ? mainFrame404Failure.url
+          : '';
+    const doc404Url = mainFrame404RawUrl || contextUrl || targetUrl;
+    const isIntentional404Route = [doc404Url, contextUrl, targetUrl].some(
+      (u) => typeof u === 'string' && /\/404(?:[/?#]|$)/i.test(u)
+    );
+    if (documentStatus === 404 && doc404Url && !isIntentional404Route) {
+      diagnosticIssues.push({
+        kind: 'network',
+        origin: doc404Url,
+        message: `ROUTE_404: Document returned HTTP 404 on non-/404 route (${doc404Url})`,
+      });
+    }
+    // `/password` is the storefront lock Shopify shows instead of every page.
+    const AUTH_ROUTE_RE = /\/(?:account\/(?:login|register)|challenge|auth|password)(?:[/?#]|$)/i;
+    const requestedRouteUrl =
+      targetUrl && AUTH_ROUTE_RE.test(targetUrl)
+        ? targetUrl
+        : targetUrl && !AUTH_ROUTE_RE.test(targetUrl) && (!preReloadContextUrl || AUTH_ROUTE_RE.test(preReloadContextUrl))
+          ? targetUrl
+          : preReloadContextUrl || targetUrl;
+    const landedRouteUrl = contextUrl || activeTargetUrl;
+    if (
+      requestedRouteUrl &&
+      landedRouteUrl &&
+      !AUTH_ROUTE_RE.test(requestedRouteUrl) &&
+      AUTH_ROUTE_RE.test(landedRouteUrl)
+    ) {
+      const authMsg = `AUTH_REDIRECT: Route '${requestedRouteUrl}' redirected to authentication page '${landedRouteUrl}'`;
+      diagnosticWarnings.push({
+        kind: 'network',
+        origin: landedRouteUrl,
+        message: authMsg,
+      });
+      if (!evidenceGaps.includes(authMsg)) {
+        evidenceGaps.push(authMsg);
+      }
+    }
     // Pre-reload diagnostics classification (audit-only evidence)
     const preReloadDiagResult = classifyDiagnostics(preReloadDiagnostics, preReloadContextUrl);
     const preReloadCritical: DiagnosticIssue[] = preReloadDiagResult.criticalIssues;
@@ -1219,6 +2025,11 @@ export class ThemeQaWorkflow {
         if (evalRes && typeof evalRes === 'object' && 'summary' in evalRes) {
           domSemanticsResult = evalRes as DomSemanticsScanResult;
           domSemanticsRan = true;
+          if (domSemanticsResult.measured === false) {
+            evidenceGaps.push('DOM semantics not measured: scanner reported measured: false');
+          }
+        } else if (evalRes && typeof evalRes === 'object' && (evalRes as Record<string, unknown>).measured === false) {
+          evidenceGaps.push('DOM semantics not measured: scanner reported measured: false');
         }
       } catch (error) {
         rethrowTargetLifecycleError(error);
@@ -1607,7 +2418,13 @@ export class ThemeQaWorkflow {
       (checkParticipates('layout') && (integrityCriticals.length > 0 || sweepIntegrityCriticals.length > 0)) ||
       // Opt-in only: under the default audit profile this list is always empty.
       strictVisualFailures.length > 0;
-    const hasMissingEvidence = settleMissingCapability || mutationMissingBarrier || evidenceGaps.length > 0 || activeChecklistEntries.length === 0;
+    const hasMissingEvidence =
+      settleMissingCapability ||
+      mutationMissingBarrier ||
+      evidenceGaps.length > 0 ||
+      activeChecklistEntries.length === 0 ||
+      integrityResult?.measured === false ||
+      domSemanticsResult?.measured === false;
 
     let summaryVerdict: 'PASS' | 'FAIL' | 'INCONCLUSIVE' = 'PASS';
     if (hasObservedFailure) {
@@ -1622,14 +2439,72 @@ export class ThemeQaWorkflow {
       summaryVerdict = 'INCONCLUSIVE';
     }
 
+    const pageCriticalCount =
+      hsResult.errorsCount +
+      liquidResult.errors.length +
+      serverCrashResult.errorsCount +
+      diagnosticIssues.length +
+      overflowIssueCount +
+      assetResult.brokenAssets.length +
+      integrityCriticals.length +
+      sweepIntegrityCriticals.length +
+      strictVisualFailures.length;
+    const resolvedAnnotationTarget =
+      input.annotationTargetSelector && input.annotationTargetSelector.trim()
+        ? {
+            selector: input.annotationTargetSelector.trim(),
+            ...(input.annotationDomAncestry ? { domAncestry: input.annotationDomAncestry } : {}),
+          }
+        : resolveAnnotationTargetSelector(input.workspaceRoot, input.annotationId);
+    const scopeFindings: ThemeQaDetailedFindings = {
+      platform: platformResult,
+      liquid: liquidResult,
+      overflow: overflowResult,
+      assets: assetResult,
+      hsRules: hsResult,
+      serverCrash: serverCrashResult,
+      diagnosticIssues,
+      diagnosticWarnings,
+      ...(effectiveBaselineFindings ? { differential } : {}),
+      ...(integrityResult ? { layoutIntegrity: integrityResult } : {}),
+      responsive: responsiveMap,
+    } as ThemeQaDetailedFindings;
+    // Selector text cannot tell whether `p.price` sits inside the annotated card; the page can.
+    let scopeContainment: Record<string, boolean> | null = null;
+    if (resolvedAnnotationTarget) {
+      const scopeSelectors = collectScopeSelectors(scopeFindings);
+      if (scopeSelectors.length > 0) {
+        try {
+          const reading = await this.ports.browser.eval(activeTarget, buildScopeContainmentScript(resolvedAnnotationTarget.selector, scopeSelectors));
+          if (reading && typeof reading === 'object' && !Array.isArray(reading)) scopeContainment = reading as Record<string, boolean>;
+        } catch {
+          // No live reading: the selector matcher decides, failing closed on anonymous selectors.
+        }
+      }
+    }
+    const scopedCriticalCount: number | null | undefined =
+      input.annotationId || resolvedAnnotationTarget
+        ? resolvedAnnotationTarget
+          ? computeScopedCriticalCount(
+              scopeFindings,
+              resolvedAnnotationTarget.selector,
+              resolvedAnnotationTarget.domAncestry,
+              undefined,
+              scopeContainment
+            )
+          : null
+        : undefined;
     const summary: ThemeQaSummary = {
       passed: summaryVerdict === 'PASS',
       verdict: summaryVerdict,
       totalIssues,
-      criticalCount: hsResult.errorsCount + liquidResult.errors.length + serverCrashResult.errorsCount + diagnosticIssues.length + overflowIssueCount + assetResult.brokenAssets.length + integrityCriticals.length + sweepIntegrityCriticals.length + strictVisualFailures.length,
+      criticalCount: pageCriticalCount,
+      pageCriticalCount,
+      ...(scopedCriticalCount !== undefined ? { scopedCriticalCount } : {}),
       ...(settleReceipt?.domUnstable ? { domUnstable: true } : {}),
       ...(checklist.responsive !== undefined ? { responsive: checklist.responsive } : {}),
       ...(documentStatus !== undefined ? { documentStatus } : {}),
+      ...(measuredViewport ? { viewport: measuredViewport } : {}),
     };
 
     // Resilient axes: verification is the storefront verdict; execution is
@@ -1709,6 +2584,7 @@ export class ThemeQaWorkflow {
         attemptId: input.attemptId,
         workspaceId: activeTarget.workspaceId,
         target: activeTarget,
+        ...(measuredViewport ? { viewport: measuredViewport } : {}),
         summary,
         checklist,
         findings,
@@ -1761,6 +2637,7 @@ export class ThemeQaWorkflow {
       attemptId: input.attemptId,
       workspaceId: activeTarget.workspaceId,
       target: activeTarget,
+      ...(measuredViewport ? { viewport: measuredViewport } : {}),
       summary,
       checklist,
       findings,

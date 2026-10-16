@@ -39,6 +39,7 @@ export interface ViewportOverflowResult {
   scrollWidth: number;
   clientWidth: number;
   culprits: OverflowCulprit[];
+  innerClippedCulprits?: OverflowCulprit[];
 }
 
 export class LayoutOverflowEngine {
@@ -141,6 +142,64 @@ export class LayoutOverflowEngine {
         }
       }
 
+      const innerClippedCulprits = [];
+      if (measured) {
+        const clipContainers = typeof document.querySelectorAll === 'function'
+          ? Array.from(document.querySelectorAll('header, nav, main, section, footer, [id^="shopify-section-"], [id^="haravan-section-"], .section, .container, .wrapper, .card, body > *'))
+          : (body && body.children ? Array.from(body.children) : []);
+        for (let cIdx = 0; cIdx < clipContainers.length && innerClippedCulprits.length < 10; cIdx++) {
+          const container = clipContainers[cIdx];
+          if (!container || container.nodeType !== 1 || !container.children || container.children.length === 0) continue;
+          const cs = window.getComputedStyle(container);
+          if (!cs || cs.display === 'none' || cs.visibility === 'hidden' || cs.opacity === '0') continue;
+          if (cs.overflowX !== 'hidden' && cs.overflowX !== 'clip') continue;
+          const clsStr = typeof container.className === 'string' ? container.className : '';
+          if (/swiper|carousel|slider|splide|flickity|glide|owl|marquee|ticker|sr-only|visually-hidden/i.test(clsStr)) continue;
+          const cRect = typeof container.getBoundingClientRect === 'function' ? container.getBoundingClientRect() : null;
+          if (!cRect || cRect.width <= 0 || cRect.height <= 0) continue;
+          for (let k = 0; k < container.children.length && innerClippedCulprits.length < 10; k++) {
+            const child = container.children[k];
+            if (!child || child.nodeType !== 1 || typeof child.getBoundingClientRect !== 'function') continue;
+            const chStyle = window.getComputedStyle(child);
+            if (!chStyle || chStyle.display === 'none' || chStyle.visibility === 'hidden' || chStyle.opacity === '0' || chStyle.position === 'absolute' || chStyle.position === 'fixed') continue;
+            if (chStyle.textOverflow === 'ellipsis') continue;
+            const chCls = typeof child.className === 'string' ? child.className : '';
+            if (/swiper|carousel|slider|splide|flickity|glide|owl|marquee|ticker|sr-only|visually-hidden/i.test(chCls)) continue;
+            const chRect = child.getBoundingClientRect();
+            const overR = chRect.right - cRect.right;
+            const overL = cRect.left - chRect.left;
+            const overDelta = Math.max(overR, overL);
+            if (overDelta > deadband * 2 && chRect.width > 0 && chRect.height > 0) {
+              let sel = (child.tagName || 'div').toLowerCase();
+              if (child.id) sel = '#' + child.id;
+              else if (chCls.trim()) sel += '.' + chCls.trim().split(/\\s+/).slice(0, 2).join('.');
+              innerClippedCulprits.push({
+                selector: sel,
+                tagName: (child.tagName || 'div').toLowerCase(),
+                id: child.id || undefined,
+                className: chCls.trim() || undefined,
+                deltaX: Math.round(overDelta * 10) / 10,
+                boundingBox: {
+                  x: Math.round(chRect.x || chRect.left || 0),
+                  y: Math.round(chRect.y || chRect.top || 0),
+                  width: Math.round(chRect.width),
+                  height: Math.round(chRect.height),
+                  right: Math.round(chRect.right)
+                },
+                outerHtmlSnippet: (child.outerHTML || '').substring(0, 200).trim(),
+                offendingStyles: {
+                  width: chStyle.width || '',
+                  minWidth: chStyle.minWidth || '',
+                  position: chStyle.position || '',
+                  overflow: cs.overflowX || '',
+                  margin: chStyle.margin || ''
+                }
+              });
+            }
+          }
+        }
+      }
+
       return {
         viewport: {
           name: '${viewportName}',
@@ -155,7 +214,8 @@ export class LayoutOverflowEngine {
         deltaX: Math.round(deltaX * 10) / 10,
         scrollWidth,
         clientWidth,
-        culprits
+        culprits,
+        ...(innerClippedCulprits.length > 0 ? { innerClippedCulprits } : {})
       };
     })()`;
   }

@@ -1,8 +1,20 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 // @ts-ignore
 import { JSDOM } from 'jsdom';
-import { ThemeQaWorkflow, ThemeQaWorkflowPorts } from '../../src/main/qa/theme-qa-workflow';
+import {
+  ThemeQaWorkflow,
+  ThemeQaWorkflowPorts,
+  buildReceiptFindings,
+  buildScopeContainmentScript,
+  collectScopeSelectors,
+  computeScopedCriticalCount,
+  isSelectorInAnnotationScope,
+  type ThemeQaDetailedFindings,
+} from '../../src/main/qa/theme-qa-workflow';
 import {
   extractCorrelatableAssetFailures,
   extractDocumentHttpStatus,
@@ -28,6 +40,7 @@ const createMockPorts = (overrides?: {
   diagnostics?: () => { console: unknown[]; failures: unknown[] };
   responsiveCheck?: (tabId: string) => Promise<Record<string, unknown>>;
   eval?: (target: BrowserTarget, script: string) => Promise<unknown>;
+  listTabs?: (opts?: { target?: BrowserTarget }) => Array<{ id: string; url: string }>;
 }): ThemeQaWorkflowPorts => {
   const defaultBreakpoints = {
     'mobile-small': { width: 320, height: 568, mobile: true, hasHorizontalOverflow: false },
@@ -86,7 +99,7 @@ const createMockPorts = (overrides?: {
       return {};
     }),
     diagnostics: overrides?.diagnostics ?? (() => ({ console: [], failures: [] })),
-    listTabs: () => [{ id: 'tab-auto-qa-1', url: 'https://store.example.com' }],
+    listTabs: overrides?.listTabs ?? ((opts?: { target?: BrowserTarget }) => [{ id: 'tab-auto-qa-1', url: opts?.target?.url || 'https://store.example.com' }]),
     getDocumentGeneration: () => 1,
     freezeMedia: async () => ({ frozen: true, mediaCount: 0, counts: { media: 0, css: 0, waapi: 0, smil: 0 }, classes: [], animations: [], pausedHandles: 0, restoredHandles: 0 }),
     responsiveCheck: overrides?.responsiveCheck ?? (async () => ({ ok: true, breakpoints: defaultBreakpoints })),
@@ -254,7 +267,7 @@ describe('Theme QA Automation Stack (Haravan Next Stack Enhancements)', () => {
     });
 
     it('allows intentional 404 route with clean subresources to PASS while surfacing documentStatus', async () => {
-      const doc404Url = 'https://store.example.com/khong-ton-tai-qa-test';
+      const doc404Url = 'https://store.example.com/404';
       const ports = createMockPorts({
         diagnostics: () => ({
           console: [],
@@ -287,8 +300,100 @@ describe('Theme QA Automation Stack (Haravan Next Stack Enhancements)', () => {
       assert.strictEqual(report.summary.verdict, 'PASS');
     });
 
+    it('fails non-/404 route returning HTTP 404 with ROUTE_404 critical issue', async () => {
+      const brokenRouteUrl = 'https://store.example.com/khong-ton-tai-qa-test';
+      const ports = createMockPorts({
+        diagnostics: () => ({
+          console: [],
+          failures: [
+            {
+              url: brokenRouteUrl,
+              validatedURL: brokenRouteUrl,
+              status: 404,
+              isMainFrame: true,
+              isFirstParty: true,
+              errorDescription: 'HTTP 404 Not Found',
+            },
+          ],
+        }),
+      });
+
+      const workflow = new ThemeQaWorkflow(ports);
+      const report = await workflow.validate({
+        runId: 'run-route-404-fail',
+        attemptId: 'att-route-404-fail',
+        workspaceRoot: 'E:/Work/test-theme',
+        target: { ...makeTarget(), url: brokenRouteUrl },
+      });
+
+      assert.strictEqual(report.findings?.documentStatus, 404);
+      assert.strictEqual(report.summary.documentStatus, 404);
+      assert.strictEqual(report.findings?.assets.hasBrokenAssets, false);
+      assert.strictEqual(report.checklist.diagnostics, false);
+      assert.strictEqual(report.summary.passed, false);
+      assert.strictEqual(report.summary.verdict, 'FAIL');
+      assert.ok(report.summary.criticalCount >= 1);
+      assert.ok(
+        report.findings?.diagnosticIssues.some((d) => d.message.includes('ROUTE_404') && d.message.includes(brokenRouteUrl)),
+        'ROUTE_404 must be recorded in critical diagnosticIssues'
+      );
+    });
+
+    it('grades auth redirects on non-auth routes as INCONCLUSIVE (not PASS) across login, register, challenge, and auth', async () => {
+      const cases = [
+        { requested: 'https://store.example.com/account', landed: 'https://store.example.com/account/login' },
+        { requested: 'https://store.example.com/account/orders', landed: 'https://store.example.com/account/register' },
+        { requested: 'https://store.example.com/account/addresses', landed: 'https://store.example.com/challenge' },
+        { requested: 'https://store.example.com/collections/vip-members', landed: 'https://store.example.com/auth' },
+      ];
+
+      for (const { requested, landed } of cases) {
+        let callCount = 0;
+        const ports = createMockPorts({
+          listTabs: () => {
+            callCount += 1;
+            return [{ id: 'tab-auto-qa-1', url: callCount === 1 ? requested : landed }];
+          },
+        });
+        const workflow = new ThemeQaWorkflow(ports);
+        const report = await workflow.validate({
+          runId: 'run-auth-redirect',
+          attemptId: 'att-auth-redirect',
+          workspaceRoot: 'E:/Work/test-theme',
+          target: { ...makeTarget(), url: requested },
+        });
+
+        assert.strictEqual(report.summary.passed, false, `Auth redirect from ${requested} to ${landed} must not PASS`);
+        assert.strictEqual(report.summary.verdict, 'INCONCLUSIVE', `Auth redirect from ${requested} to ${landed} must be INCONCLUSIVE`);
+        assert.ok(
+          report.findings?.evidenceGaps?.some((g) => g.includes('AUTH_REDIRECT') && g.includes(requested) && g.includes(landed)),
+          'evidenceGaps must include AUTH_REDIRECT'
+        );
+      }
+
+      for (const authUrl of [
+        'https://store.example.com/account/login',
+        'https://store.example.com/account/register',
+        'https://store.example.com/challenge',
+        'https://store.example.com/auth',
+      ]) {
+        const ports = createMockPorts({
+          listTabs: () => [{ id: 'tab-auto-qa-1', url: authUrl }],
+        });
+        const workflow = new ThemeQaWorkflow(ports);
+        const report = await workflow.validate({
+          runId: 'run-auth-direct',
+          attemptId: 'att-auth-direct',
+          workspaceRoot: 'E:/Work/test-theme',
+          target: { ...makeTarget(), url: authUrl },
+        });
+        assert.strictEqual(report.summary.verdict, 'PASS', `Direct auth page ${authUrl} must not trigger AUTH_REDIRECT`);
+        assert.strictEqual(report.summary.passed, true);
+      }
+    });
+
     it('fails 404 route if subresources (images/stylesheets) are genuinely broken', async () => {
-      const doc404Url = 'https://store.example.com/khong-ton-tai-qa-test';
+      const doc404Url = 'https://store.example.com/404';
       const brokenImageUrl = 'https://store.example.com/assets/banner-missing.png';
       const ports = createMockPorts({
         diagnostics: () => ({
@@ -536,5 +641,451 @@ describe('Theme QA Automation Stack (Haravan Next Stack Enhancements)', () => {
       assert.ok(res.summary.jsonLdTypes.includes('WebSite'));
       assert.ok(res.summary.jsonLdTypes.includes('BreadcrumbList'));
     });
+  });
+
+  describe('5. Direct-Edit Annotation Target Selector Scoping', () => {
+    it('computes scopedCriticalCount and pageCriticalCount from .antifan/annotations/*.md', async () => {
+      assert.strictEqual(
+        isSelectorInAnnotationScope(
+          'section#limited-edition > div.tw-home-deal__inner > a.tw-btn',
+          '#limited-edition',
+          'main#MainContent > div.tw-home > section#limited-edition'
+        ),
+        true,
+        'Descendant of annotated element must be in scope'
+      );
+      assert.strictEqual(
+        isSelectorInAnnotationScope(
+          'div.tw-home',
+          '#limited-edition',
+          'main#MainContent > div.tw-home > section#limited-edition'
+        ),
+        true,
+        'Layout ancestor of annotated element must be in scope'
+      );
+      assert.strictEqual(
+        isSelectorInAnnotationScope(
+          'footer.site-footer > div.footer-newsletter',
+          '#limited-edition',
+          'main#MainContent > div.tw-home > section#limited-edition'
+        ),
+        false,
+        'Unrelated footer element must not be in scope'
+      );
+
+      const tmpWs = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-scoped-qa-'));
+      try {
+        const annDir = path.join(tmpWs, '.antifan', 'annotations');
+        fs.mkdirSync(annDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(annDir, 'element_1792003171976.md'),
+          [
+            '---',
+            'annotation_id: "annotation_1792003171976"',
+            '---',
+            '## Captured Element Evidence [Visual Mode: Element SnapDOM Capture]',
+            '- Annotation ID: `annotation_1792003171976`',
+            '- Element Selector: `#limited-edition`',
+            '- DOM Ancestry: `main#MainContent > div.tw-home > section#limited-edition > div.container > div.tw-home-deal__inner`',
+          ].join('\n'),
+          'utf8'
+        );
+
+        const ports = createMockPorts({
+          eval: async (_target: BrowserTarget, script: string) => {
+            if (script.includes('deadband = 1.0 * dpr') || script.includes('LayoutOverflowEngine')) {
+              return {
+                viewport: { name: 'desktop', width: 1440, height: 900 },
+                measured: true,
+                hasOverflow: true,
+                deltaX: 48,
+                scrollWidth: 1488,
+                clientWidth: 1440,
+                culprits: [
+                  {
+                    selector: 'footer.site-footer > div.footer-marquee',
+                    tagName: 'div',
+                    deltaX: 48,
+                    boundingBox: { x: 0, y: 1800, width: 1488, height: 60, right: 1488, bottom: 1860 },
+                    outerHtmlSnippet: '<div class="footer-marquee"></div>',
+                    offendingStyles: {},
+                  },
+                ],
+              };
+            }
+            if (script.includes('ERROR_PATTERNS') || script.includes('LiquidErrorScanner')) {
+              return { hasErrors: false, errors: [], scannedElementsCount: 20 };
+            }
+            if (script.includes('naturalWidth') || script.includes('BrokenAssetScanner')) {
+              return { hasBrokenAssets: false, brokenAssets: [], totalImagesScanned: 5, totalStylesheetsScanned: 1 };
+            }
+            if (script.includes('HS-') || script.includes('violations') || script.includes('HsGateRules')) {
+              return { passed: true, totalViolations: 0, errorsCount: 0, warningsCount: 0, violations: [] };
+            }
+            if (script.includes('ServerCrashScanner')) {
+              return { hasCrash: false, errorsCount: 0, findings: [] };
+            }
+            return {};
+          },
+        });
+
+        const workflow = new ThemeQaWorkflow(ports);
+        const reportUnrelated = await workflow.validate({
+          runId: 'run-scoped-0',
+          attemptId: 'att-scoped-0',
+          workspaceRoot: tmpWs,
+          target: makeTarget(),
+          annotationId: 'annotation_1792003171976',
+        });
+        assert.strictEqual(reportUnrelated.summary.pageCriticalCount, 1);
+        assert.strictEqual(reportUnrelated.summary.scopedCriticalCount, 0);
+
+        const portsScopedHit = createMockPorts({
+          eval: async (_target: BrowserTarget, script: string) => {
+            if (script.includes('deadband = 1.0 * dpr') || script.includes('LayoutOverflowEngine')) {
+              return {
+                viewport: { name: 'desktop', width: 1440, height: 900 },
+                measured: true,
+                hasOverflow: true,
+                deltaX: 32,
+                scrollWidth: 1472,
+                clientWidth: 1440,
+                culprits: [
+                  {
+                    selector: 'section#limited-edition > div.tw-home-deal__inner > a.tw-btn',
+                    tagName: 'a',
+                    deltaX: 32,
+                    boundingBox: { x: 100, y: 400, width: 1400, height: 48, right: 1500, bottom: 448 },
+                    outerHtmlSnippet: '<a class="tw-btn"></a>',
+                    offendingStyles: {},
+                  },
+                ],
+              };
+            }
+            if (script.includes('ERROR_PATTERNS') || script.includes('LiquidErrorScanner')) {
+              return { hasErrors: false, errors: [], scannedElementsCount: 20 };
+            }
+            if (script.includes('naturalWidth') || script.includes('BrokenAssetScanner')) {
+              return { hasBrokenAssets: false, brokenAssets: [], totalImagesScanned: 5, totalStylesheetsScanned: 1 };
+            }
+            if (script.includes('HS-') || script.includes('violations') || script.includes('HsGateRules')) {
+              return { passed: true, totalViolations: 0, errorsCount: 0, warningsCount: 0, violations: [] };
+            }
+            if (script.includes('ServerCrashScanner')) {
+              return { hasCrash: false, errorsCount: 0, findings: [] };
+            }
+            return {};
+          },
+        });
+        const workflowScopedHit = new ThemeQaWorkflow(portsScopedHit);
+        const reportScopedHit = await workflowScopedHit.validate({
+          runId: 'run-scoped-1',
+          attemptId: 'att-scoped-1',
+          workspaceRoot: tmpWs,
+          target: makeTarget(),
+          annotationId: 'annotation_1792003171976',
+        });
+        assert.strictEqual(reportScopedHit.summary.pageCriticalCount, 1);
+        assert.strictEqual(reportScopedHit.summary.scopedCriticalCount, 1);
+
+        // 3. Annotated + ROUTE_404 on a non-/404 route -> scopedCriticalCount >= 1
+        const brokenRouteUrl = 'https://store.example.com/collections/missing-collection';
+        const portsRoute404 = createMockPorts({
+          listTabs: () => [{ id: 'tab-auto-qa-1', url: brokenRouteUrl }],
+          diagnostics: () => ({
+            console: [],
+            failures: [
+              {
+                url: brokenRouteUrl,
+                validatedURL: brokenRouteUrl,
+                status: 404,
+                isMainFrame: true,
+                isFirstParty: true,
+                errorDescription: 'HTTP 404 Not Found',
+              },
+            ],
+          }),
+          eval: async (_target: BrowserTarget, script: string) => {
+            if (script.includes('deadband = 1.0 * dpr') || script.includes('LayoutOverflowEngine')) {
+              return {
+                viewport: { name: 'desktop', width: 1440, height: 900 },
+                measured: true,
+                hasOverflow: false,
+                deltaX: 0,
+                scrollWidth: 1440,
+                clientWidth: 1440,
+                culprits: [],
+              };
+            }
+            if (script.includes('ERROR_PATTERNS') || script.includes('LiquidErrorScanner')) {
+              return { hasErrors: false, errors: [], scannedElementsCount: 20 };
+            }
+            if (script.includes('naturalWidth') || script.includes('BrokenAssetScanner')) {
+              return { hasBrokenAssets: false, brokenAssets: [], totalImagesScanned: 5, totalStylesheetsScanned: 1 };
+            }
+            if (script.includes('HS-') || script.includes('violations') || script.includes('HsGateRules')) {
+              return { passed: true, totalViolations: 0, errorsCount: 0, warningsCount: 0, violations: [] };
+            }
+            if (script.includes('ServerCrashScanner')) {
+              return { hasCrash: false, errorsCount: 0, findings: [] };
+            }
+            return {};
+          },
+        });
+        const workflowRoute404 = new ThemeQaWorkflow(portsRoute404);
+        const reportRoute404 = await workflowRoute404.validate({
+          runId: 'run-scoped-404',
+          attemptId: 'att-scoped-404',
+          workspaceRoot: tmpWs,
+          target: { ...makeTarget(), url: brokenRouteUrl },
+          annotationId: 'annotation_1792003171976',
+        });
+        assert.strictEqual(reportRoute404.summary.verdict, 'FAIL');
+        assert.ok(
+          (reportRoute404.summary.scopedCriticalCount ?? 0) >= 1,
+          'Annotated run on a 404 route must count ROUTE_404 into scopedCriticalCount (>= 1)'
+        );
+
+        // 4. Annotated + selector-less Liquid error -> scopedCriticalCount >= 1
+        const portsSelectorlessLiquid = createMockPorts({
+          eval: async (_target: BrowserTarget, script: string) => {
+            if (script.includes('deadband = 1.0 * dpr') || script.includes('LayoutOverflowEngine')) {
+              return {
+                viewport: { name: 'desktop', width: 1440, height: 900 },
+                measured: true,
+                hasOverflow: false,
+                deltaX: 0,
+                scrollWidth: 1440,
+                clientWidth: 1440,
+                culprits: [],
+              };
+            }
+            if (script.includes('ERROR_PATTERNS') || script.includes('LiquidErrorScanner')) {
+              return {
+                hasErrors: true,
+                errors: [
+                  {
+                    type: 'runtime_error',
+                    message: 'Liquid error: Could not find snippet icon-watch',
+                    snippet: '<!-- Liquid error: Could not find snippet icon-watch -->',
+                  },
+                ],
+                scannedElementsCount: 20,
+              };
+            }
+            if (script.includes('naturalWidth') || script.includes('BrokenAssetScanner')) {
+              return { hasBrokenAssets: false, brokenAssets: [], totalImagesScanned: 5, totalStylesheetsScanned: 1 };
+            }
+            if (script.includes('HS-') || script.includes('violations') || script.includes('HsGateRules')) {
+              return { passed: true, totalViolations: 0, errorsCount: 0, warningsCount: 0, violations: [] };
+            }
+            if (script.includes('ServerCrashScanner')) {
+              return { hasCrash: false, errorsCount: 0, findings: [] };
+            }
+            return {};
+          },
+        });
+        const workflowSelectorlessLiquid = new ThemeQaWorkflow(portsSelectorlessLiquid);
+        const reportSelectorlessLiquid = await workflowSelectorlessLiquid.validate({
+          runId: 'run-scoped-liquid',
+          attemptId: 'att-scoped-liquid',
+          workspaceRoot: tmpWs,
+          target: makeTarget(),
+          annotationId: 'annotation_1792003171976',
+        });
+        assert.strictEqual(reportSelectorlessLiquid.summary.verdict, 'FAIL');
+        assert.ok(
+          (reportSelectorlessLiquid.summary.scopedCriticalCount ?? 0) >= 1,
+          'Annotated run with a selector-less Liquid error must count it into scopedCriticalCount (>= 1)'
+        );
+
+        const reportOutScopeRegression = await workflow.validate({
+          runId: 'run-scoped-diff-reg',
+          attemptId: 'att-scoped-diff-reg',
+          workspaceRoot: tmpWs,
+          target: makeTarget(),
+          annotationId: 'annotation_1792003171976',
+          baselineFindings: [],
+        });
+        assert.strictEqual(
+          reportOutScopeRegression.findings?.differential?.introducedRegressions.length,
+          1,
+          'Out-of-scope overflow must be recorded in differential.introducedRegressions when baseline was clean'
+        );
+        assert.strictEqual(
+          reportOutScopeRegression.summary.scopedCriticalCount,
+          1,
+          'differential.introducedRegressions must be counted into scopedCriticalCount even when selector is outside targetSelector'
+        );
+
+        const reportOutScopePreExisting = await workflow.validate({
+          runId: 'run-scoped-diff-pre',
+          attemptId: 'att-scoped-diff-pre',
+          workspaceRoot: tmpWs,
+          target: makeTarget(),
+          annotationId: 'annotation_1792003171976',
+          baselineFindings: reportOutScopeRegression.findings,
+        });
+        assert.strictEqual(
+          reportOutScopePreExisting.findings?.differential?.introducedRegressions.length,
+          0,
+          'Pre-existing out-of-scope overflow must not be in introducedRegressions'
+        );
+        assert.strictEqual(
+          reportOutScopePreExisting.summary.scopedCriticalCount,
+          0,
+          'Pre-existing out-of-scope defect must keep scopedCriticalCount === 0'
+        );
+      } finally {
+        fs.rmSync(tmpWs, { recursive: true, force: true });
+      }
+    });
+
+    it('degrades verdict to INCONCLUSIVE when domSemantics scanner reports measured: false', async () => {
+      const portsUnmeasuredDom = createMockPorts({
+        eval: async (_target: BrowserTarget, script: string) => {
+          if (script.includes('LayoutOverflowEngine') || script.includes('clipContainers')) {
+            return {
+              viewport: { name: 'desktop', width: 1440, height: 900 },
+              measured: true,
+              hasOverflow: false,
+              deltaX: 0,
+              scrollWidth: 1440,
+              clientWidth: 1440,
+              culprits: [],
+            };
+          }
+          if (script.includes('ERROR_PATTERNS') || script.includes('LiquidErrorScanner')) {
+            return { hasErrors: false, errors: [], scannedElementsCount: 20 };
+          }
+          if (script.includes('naturalWidth') || script.includes('BrokenAssetScanner')) {
+            return { hasBrokenAssets: false, brokenAssets: [], totalImagesScanned: 5, totalStylesheetsScanned: 1 };
+          }
+          if (script.includes('HS-') || script.includes('violations') || script.includes('HsGateRules')) {
+            return { passed: true, totalViolations: 0, errorsCount: 0, warningsCount: 0, violations: [] };
+          }
+          if (script.includes('ServerCrashScanner')) {
+            return { hasCrash: false, errorsCount: 0, findings: [] };
+          }
+          if (script.includes('headingHierarchy') || script.includes('jsonLdTypes')) {
+            return {
+              measured: false,
+              summary: {
+                passed: true,
+                totalIssues: 0,
+                errorsCount: 0,
+                warningsCount: 0,
+                h1Count: 0,
+                headingSkipsCount: 0,
+                missingAltCount: 0,
+                unlabeledControlsCount: 0,
+                unnamedInputsCount: 0,
+                duplicateIdsCount: 0,
+                metaTagsMissingCount: 0,
+                jsonLdCount: 0,
+                jsonLdInvalidCount: 0,
+                touchTargetUndersizedCount: 0,
+              },
+              findings: [],
+              meta: {
+                title: '',
+                description: null,
+                canonical: null,
+                ogTitle: null,
+                ogImage: null,
+                htmlLang: null,
+                viewport: null,
+              },
+              jsonLdTypes: [],
+            };
+          }
+          return {};
+        },
+      });
+      const workflow = new ThemeQaWorkflow(portsUnmeasuredDom);
+      const report = await workflow.validate({
+        runId: 'run-unmeasured-dom',
+        attemptId: 'att-unmeasured-dom',
+        workspaceRoot: '/tmp/ws',
+        target: makeTarget(),
+      });
+      assert.strictEqual(report.summary.verdict, 'INCONCLUSIVE');
+      assert.strictEqual(report.summary.passed, false);
+      assert.strictEqual(report.execution, 'DEGRADED');
+      assert.ok(
+        report.findings?.evidenceGaps?.some((g) => g.includes('DOM semantics not measured')),
+        'evidenceGaps must record DOM semantics not measured'
+      );
+    });
+  });
+});
+
+describe('responsive page overflow in scoped counts and receipts', () => {
+  const entry = (documentOverflow: boolean | null) => ({
+    documentOverflow,
+    criticalOverflow: documentOverflow === null ? null : documentOverflow ? 1 : 0,
+    criticalOverlap: 0,
+    criticalClipping: 0,
+    criticalOcclusion: 0,
+    criticalOffscreen: 0,
+    spacingWarnings: 0,
+  });
+  const findingsOf = (overflow: Record<string, unknown>, responsive: Record<string, unknown>) =>
+    ({ overflow, responsive } as unknown as ThemeQaDetailedFindings);
+
+  it('counts breakpoint overflow toward an annotation scope when the active culprits sit elsewhere', () => {
+    // The active-viewport culprit is a footer strip outside the hero annotation; the page also
+    // overflows at 375px and 1440px. A scoped pass here would hide a failing page verdict.
+    const findings = findingsOf(
+      { measured: true, hasOverflow: true, viewport: { name: 'desktop', width: 1440, height: 900 }, deltaX: 30, culprits: [{ selector: 'footer .promo-strip', deltaX: 30 }] },
+      { '375': entry(true), '768': entry(false), '1440': entry(true) }
+    );
+    assert.strictEqual(computeScopedCriticalCount(findings, 'section.hero'), 2);
+  });
+
+  it('does not count twice the width the overflow block reported as page-level overflow', () => {
+    const findings = findingsOf(
+      { measured: true, hasOverflow: true, viewport: { name: 'mobile', width: 375, height: 812 }, deltaX: 20, culprits: [] },
+      { '375': entry(true), '768': entry(false) }
+    );
+    assert.strictEqual(computeScopedCriticalCount(findings, 'section.hero'), 1);
+  });
+
+  it('writes breakpoint overflow into the receipt as a page-level critical', () => {
+    const findings = findingsOf(
+      { measured: true, hasOverflow: false, viewport: { name: 'desktop', width: 1440, height: 900 }, deltaX: 0, culprits: [] },
+      { '375': entry(true), '1440': entry(false), '768': entry(null) }
+    );
+    const receipt = buildReceiptFindings(findings);
+    const overflow = receipt.filter((f) => f.rule.startsWith('overflow@'));
+    assert.deepStrictEqual(overflow.map((f) => [f.rule, f.severity, f.selector]), [['overflow@375', 'critical', null]]);
+  });
+});
+
+describe('annotation scope reads the live page', () => {
+  const html = '<!doctype html><html><body><main><div class="container"><div class="product-card"><p class="price">1.000₫</p><div>x</div></div></div>'
+    + '<footer class="site-footer"><p class="price">Footer</p><div class="container">y</div></footer></main></body></html>';
+  const liquidAt = (selectors: string[]) =>
+    ({ liquid: { errors: selectors.map((selector) => ({ type: 'runtime', message: 'Liquid error', selector })) } } as unknown as ThemeQaDetailedFindings);
+
+  it('asks the page which finding elements sit inside or around the annotated element', () => {
+    const dom = new JSDOM(html, { runScripts: 'outside-only' });
+    const findings = liquidAt(['p.price', 'div.product-card > div', 'footer.site-footer > div.container', 'section.missing']);
+    const selectors = collectScopeSelectors(findings);
+    // JSON round-trip: the reading is an object from the page realm, as it arrives over eval.
+    const reading = JSON.parse(JSON.stringify(dom.window.eval(buildScopeContainmentScript('div.product-card', selectors))));
+    assert.deepStrictEqual(reading, {
+      'p.price': true,
+      'div.product-card > div': true,
+      'footer.site-footer > div.container': false,
+    });
+    assert.strictEqual(computeScopedCriticalCount(findings, 'div.product-card', undefined, undefined, reading), 2);
+    assert.strictEqual(dom.window.eval(buildScopeContainmentScript('section.gone', selectors)), null, 'no annotated element, no reading');
+  });
+
+  it('counts a selector with no distinctive token when the page could not be read', () => {
+    const findings = liquidAt(['div', 'div.container', 'footer.site-footer > p.price']);
+    assert.strictEqual(computeScopedCriticalCount(findings, 'div.product-card', 'main > div.container > div.product-card'), 2,
+      'div and div.container cannot be shown to lie outside the card; the footer price can');
   });
 });

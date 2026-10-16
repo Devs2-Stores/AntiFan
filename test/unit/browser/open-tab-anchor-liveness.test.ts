@@ -32,6 +32,7 @@ type CreateTabCall = {
     mobile?: boolean;
     anchorTabId?: string;
     plane?: 'user' | 'agent';
+    projectId?: string;
   };
 };
 
@@ -316,11 +317,55 @@ describe('Opening a tab for a session', () => {
     assert.ok(firstCall);
     assert.equal(firstCall.options?.capsuleId, 'capsule-a');
     assert.equal(firstCall.options?.anchorTabId, 'tab-anchor');
-    // The verified project/workspace are the gate's authority, not the host's payload: the
-    // host binds the tab to the capsule it is given, and the project/workspace are resolved
-    // from that capsule, so forwarding the pair would create a second, unread source of truth.
-    assert.equal('projectId' in firstCall.options, false);
+    // The capsule's verified project rides along as the host's project stamp: the hub
+    // stamps a strip tab with whichever project it is presenting unless told otherwise,
+    // which filed a capsule-a tab under another project. The workspace stays unforwarded:
+    // the host resolves it from the capsule.
+    assert.equal(firstCall.options?.projectId, 'project-alpha');
     assert.equal('workspaceId' in firstCall.options, false);
+  });
+
+  it('stamps the child with the anchor capsule project, never leaving the host to pick the presented project', () => {
+    const { port, createCalls } = makeHarness({
+      anchorAlive: true,
+      adopt: true,
+      owned: ['tab-anchor'],
+      affiliation: { projectId: 'project-united', workspaceId: 'workspace-united', capsuleId: 'capsule-united' },
+    });
+    const routedTarget: BrowserTarget = {
+      tabId: 'tab-anchor',
+      documentGeneration: 1,
+      browserEpoch: 1,
+      runtimeId: 'rt-test',
+      projectId: 'project-united',
+      workspaceId: 'workspace-united',
+    };
+
+    port.openTab({}, { target: routedTarget });
+
+    assert.equal(createCalls[0]?.options?.capsuleId, 'capsule-united');
+    assert.equal(createCalls[0]?.options?.projectId, 'project-united');
+  });
+
+  it('forwards no project stamp for an Unassigned anchor capsule, which names no project', () => {
+    const { port, createCalls } = makeHarness({
+      anchorAlive: true,
+      adopt: true,
+      owned: ['tab-anchor'],
+      affiliation: { capsuleId: 'capsule-unassigned' },
+    });
+    const routedTarget: BrowserTarget = {
+      tabId: 'tab-anchor',
+      documentGeneration: 1,
+      browserEpoch: 1,
+      runtimeId: 'rt-test',
+      projectId: 'project-alpha',
+      workspaceId: 'workspace-one',
+    };
+
+    port.openTab({}, { target: routedTarget });
+
+    assert.equal('projectId' in (createCalls[0]?.options ?? {}), false);
   });
 
   it('keeps old behaviour when target has no projectId/workspaceId: tab is created and options carry no capsuleId', () => {

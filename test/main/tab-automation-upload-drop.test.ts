@@ -32,6 +32,8 @@ describe('TabAutomationHost: Upload & Drag-Drop Automation Security & CDP Parity
     workspaceRoot?: string;
     hasDevTools?: boolean;
     cdpFail?: boolean;
+    /** When set, the host exposes a window anchor resolver returning this value. */
+    anchorWorkspace?: string;
   }) {
     const registry = new SemanticRefRegistry();
     const cdpCommandsSent: Array<{ method: string; params: unknown }> = [];
@@ -98,6 +100,7 @@ describe('TabAutomationHost: Upload & Drag-Drop Automation Security & CDP Parity
       tabDevToolsHost: mockDevToolsHost,
       getTabTerminalSession: () => (options?.workspaceRoot ? 'sess-1' : undefined),
       resolveTargetWorkspace: (sessId) => (sessId === 'sess-1' && options?.workspaceRoot ? options.workspaceRoot : ''),
+      ...(options && options.anchorWorkspace !== undefined ? { resolveAnchorWorkspace: () => options.anchorWorkspace || '' } : {}),
     });
 
     return { host, registry, cdpCommandsSent, mockWc };
@@ -115,6 +118,25 @@ describe('TabAutomationHost: Upload & Drag-Drop Automation Security & CDP Parity
       async () => host.dropFiles('#drop-area', [testFile1]),
       (err: unknown) => err instanceof CapabilityError && err.code === 'WORKSPACE_UNBOUND'
     );
+  });
+
+  it('1b. An anchor resolver with no workspace still leaves the target unbound (never the process cwd)', async () => {
+    const { host } = createHarness({ workspaceRoot: undefined, anchorWorkspace: '' });
+
+    await assert.rejects(
+      async () => host.uploadFileInput('input[type="file"]', [testFile1]),
+      (err: unknown) => err instanceof CapabilityError && err.code === 'WORKSPACE_UNBOUND'
+    );
+    await assert.rejects(
+      async () => host.dropFiles('#drop-area', [testFile1]),
+      (err: unknown) => err instanceof CapabilityError && err.code === 'WORKSPACE_UNBOUND'
+    );
+  });
+
+  it('1c. A bound window anchor authorizes the upload', async () => {
+    const { host } = createHarness({ workspaceRoot: undefined, anchorWorkspace: tmpRoot });
+    const res = await host.uploadFileInput('input[type="file"]', [testFile1]);
+    assert.strictEqual(res.success, true);
   });
 
   it('2. Accepts existing regular files outside the workspace root; rejects directories and non-existent files with INVALID_ARGUMENT', async () => {

@@ -63,6 +63,7 @@ function makeResolver(opts: {
   tabHosts?: Record<string, NativeTabHost>;
   ownerKeys?: Record<string, string | undefined>;
   capsules?: Record<string, string | undefined>;
+  capsuleProjects?: Record<string, string | undefined>;
   liveCapsules?: readonly string[];
   projectCapsules?: Record<string, string | undefined>;
   detached?: readonly string[];
@@ -81,6 +82,7 @@ function makeResolver(opts: {
     sessionOwnerKey: (id) => (opts.ownerKeys ?? {})[id],
     capsuleExists: (capsuleId) => (opts.liveCapsules ?? []).includes(capsuleId),
     projectCapsuleId: (projectId) => (opts.projectCapsules ?? {})[projectId],
+    capsuleProjectId: (capsuleId) => (opts.capsuleProjects ?? {})[capsuleId],
     projectDetached: (projectId) => detached[projectId] === true,
     isBootProject: (projectId) => projectId === opts.bootProjectId,
     ensureHubHost: async () => {
@@ -154,6 +156,47 @@ describe('bridge mint resolver — terminal arm', () => {
     assert.ok(out?.host, 'no host for a project the hub presents');
     assert.equal(out?.host, hosts['web'], 'the mint did not land on the reopened hub');
     assert.equal(out?.capsuleId, 'capsule-phub');
+  });
+
+  it('stamps a hub mint for a project terminal with the terminal project, not the project the hub presents', async () => {
+    const { resolve } = makeResolver({
+      hosts: { web: hub },
+      ownerKeys: { 'term-9': 'project:p-united' },
+      projectCapsules: { 'p-united': 'capsule-united' },
+      capsuleProjects: { 'capsule-united': 'p-united' },
+    });
+    const out = await resolve({ terminalSessionId: 'term-9' });
+    assert.equal(out?.host, hub);
+    assert.equal(out?.capsuleId, 'capsule-united');
+    assert.equal(out?.projectId, 'p-united', 'the anchor would be stamped with the hub\'s presented project');
+  });
+
+  it('stamps a capsule-pinned terminal that no project claims with the capsule\'s project', async () => {
+    const { resolve } = makeResolver({
+      hosts: { web: hub },
+      ownerKeys: { 'term-web': 'web' },
+      capsules: { 'term-web': 'capsule-united' },
+      liveCapsules: ['capsule-united'],
+      capsuleProjects: { 'capsule-united': 'p-united' },
+    });
+    const out = await resolve({ terminalSessionId: 'term-web' });
+    assert.equal(out?.capsuleId, 'capsule-united');
+    assert.equal(out?.projectId, 'p-united');
+  });
+
+  it('stamps a bound-tab mint with the project of the tab\'s capsule', async () => {
+    const tabbed = fakeHost('tab-owner', { 'tab-1': 'capsule-united' });
+    const { resolve } = makeResolver({ tabHosts: { 'tab-1': tabbed }, capsuleProjects: { 'capsule-united': 'p-united' } });
+    const out = await resolve({ boundTabId: 'tab-1' });
+    assert.equal(out?.host, tabbed);
+    assert.equal(out?.projectId, 'p-united');
+  });
+
+  it('stamps nothing when no project can be proven', async () => {
+    const { resolve } = makeResolver({ hosts: { web: hub }, ownerKeys: { 'term-un': 'unassigned' } });
+    const out = await resolve({ terminalSessionId: 'term-un' });
+    assert.equal(out?.projectId, undefined);
+    assert.equal('projectId' in (out ?? {}), false);
   });
 
   it('refuses a project-owned terminal whose project is detached but dead (marked record)', async () => {

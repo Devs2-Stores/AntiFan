@@ -36,6 +36,8 @@ export interface SectionMetrics {
   rect: { x: number; y: number; width: number; height: number } | null;
   docOverflowX: boolean;
   spill: string[];
+  /** Text or media of the section that runs past the viewport edge (lost even when the page masks overflow). */
+  offViewport: string[];
   clippedText: string[];
   truncatedText: number;
   overlappingText: string[];
@@ -48,6 +50,7 @@ export interface SectionMetrics {
 export interface BreakCounts {
   pageOverflow: number;
   spill: number;
+  offViewport: number;
   clippedText: number;
   overlappingText: number;
 }
@@ -150,7 +153,7 @@ export function buildSectionMetricsScript(scopeSelector: string, maxClipHeight: 
   try { scope = document.querySelector(sel); } catch (e) {}
   const vw = window.innerWidth;
   const docEl = document.scrollingElement || document.documentElement;
-  if (!scope) return { found: false, rect: null, docOverflowX: docEl.scrollWidth > vw + 1, spill: [], clippedText: [], truncatedText: 0, overlappingText: [], fontSizes: [], leftEdges: 0, gapCount: 0, gapsOnGrid: 0 };
+  if (!scope) return { found: false, rect: null, docOverflowX: docEl.scrollWidth > vw + 1, spill: [], offViewport: [], clippedText: [], truncatedText: 0, overlappingText: [], fontSizes: [], leftEdges: 0, gapCount: 0, gapsOnGrid: 0 };
   const selectorOf = (el) => {
     if (el.id) return '#' + el.id;
     let s = el.tagName.toLowerCase();
@@ -172,6 +175,8 @@ export function buildSectionMetricsScript(scopeSelector: string, maxClipHeight: 
     return false;
   };
   const spill = [];
+  const offViewport = [];
+  const MEDIA = /^(IMG|PICTURE|VIDEO|SVG|CANVAS|IFRAME|BUTTON|INPUT|SELECT|TEXTAREA)$/;
   const clipped = [];
   let truncated = 0;
   const sizes = new Set();
@@ -185,6 +190,11 @@ export function buildSectionMetricsScript(scopeSelector: string, maxClipHeight: 
     let ownText = '';
     for (const n of el.childNodes) if (n.nodeType === 3) ownText += n.nodeValue;
     ownText = ownText.trim();
+    // Past the viewport edge is lost whatever the page does with its own overflow: a masked
+    // page (overflow-x: hidden on body) reports no document overflow while the text is cut off.
+    if ((ownText || MEDIA.test(el.tagName.toUpperCase())) && (r.right > vw + 2 || r.left < -2) && !inScroller(el) && offViewport.length < 8) {
+      offViewport.push(selectorOf(el) + ' ' + Math.round(r.left) + '..' + Math.round(r.right) + ' vs viewport 0..' + vw);
+    }
     if (!ownText) continue;
     const cs = getComputedStyle(el);
     sizes.add(Math.round(parseFloat(cs.fontSize)));
@@ -240,6 +250,7 @@ export function buildSectionMetricsScript(scopeSelector: string, maxClipHeight: 
     rect: { x: Math.max(0, Math.round(sr.left + sx)), y: Math.max(0, Math.round(sr.top + sy)), width: Math.round(Math.min(sr.width, vw)), height },
     docOverflowX: docEl.scrollWidth > vw + 1,
     spill,
+    offViewport,
     clippedText: clipped,
     truncatedText: truncated,
     overlappingText: overlaps,
@@ -261,11 +272,13 @@ export function scoreCandidateWidth(
   const breakCounts: BreakCounts = {
     pageOverflow: metrics.docOverflowX ? 1 : 0,
     spill: metrics.spill.length,
+    offViewport: (metrics.offViewport || []).length,
     clippedText: metrics.clippedText.length,
     overlappingText: metrics.overlappingText.length,
   };
   if (metrics.docOverflowX) breaks.push(`page overflows horizontally at ${width}px`);
   if (metrics.spill.length) breaks.push(`content spills out of the section: ${metrics.spill.slice(0, 2).join('; ')}`);
+  if (metrics.offViewport && metrics.offViewport.length) breaks.push(`content runs past the viewport edge: ${metrics.offViewport.slice(0, 2).join('; ')}`);
   if (metrics.clippedText.length) breaks.push(`text clipped: ${metrics.clippedText.slice(0, 2).join('; ')}`);
   if (metrics.overlappingText.length) breaks.push(`text overlaps: ${metrics.overlappingText.slice(0, 2).join('; ')}`);
   const penalties: Array<{ reason: string; points: number }> = [];
@@ -284,6 +297,7 @@ export function scoreCandidateWidth(
 const BREAK_KINDS: Array<[keyof BreakCounts, string]> = [
   ['pageOverflow', 'page horizontal overflow'],
   ['spill', 'content spilling out of the section'],
+  ['offViewport', 'content past the viewport edge'],
   ['clippedText', 'clipped text'],
   ['overlappingText', 'overlapping text'],
 ];

@@ -2509,6 +2509,8 @@ export interface BridgeMintResolverDeps {
   capsuleExists(capsuleId: string): boolean;
   /** The project's own validated capsule claim — the mint's pinning evidence. */
   projectCapsuleId(projectId: string): string | undefined;
+  /** The project a live capsule belongs to, or undefined when the capsule claims none. */
+  capsuleProjectId(capsuleId: string): string | undefined;
   /**
    * Whether the project is in detached mode — a live `project:<id>` shell, a
    * `detached:true` persisted record a dead shell left behind, or a reattach in
@@ -2559,7 +2561,11 @@ export function createBridgeMintHostResolver(deps: BridgeMintResolverDeps): Brid
   return async (opts) => {
     if (opts.boundTabId) {
       const tabHost = deps.hostForTab(opts.boundTabId);
-      if (tabHost) return { host: tabHost, capsuleId: tabHost.getTabCapsuleId(opts.boundTabId) };
+      if (tabHost) {
+        const tabCapsuleId = tabHost.getTabCapsuleId(opts.boundTabId);
+        const tabProjectId = tabCapsuleId ? deps.capsuleProjectId(tabCapsuleId) : undefined;
+        return { host: tabHost, capsuleId: tabCapsuleId, ...(tabProjectId ? { projectId: tabProjectId } : {}) };
+      }
     }
     if (opts.terminalSessionId) {
       let capsuleId: string | undefined;
@@ -2605,10 +2611,15 @@ export function createBridgeMintHostResolver(deps: BridgeMintResolverDeps): Brid
           { terminalSessionId: opts.terminalSessionId, ownerKey: ownerKeyValue, ...(claimedProjectId ? { projectId: claimedProjectId } : {}) },
         );
       }
+      // The stamp follows the claim the tab is pinned under: the terminal's own project
+      // when it names one, else the project its capsule belongs to. Leaving it to the
+      // host would stamp the hub's currently presented project instead.
+      const mintProjectId = claimedProjectId ?? (capsuleId ? deps.capsuleProjectId(capsuleId) : undefined);
+      const projectStamp = mintProjectId ? { projectId: mintProjectId } : {};
       if (claimedProjectId && !capsuleId && !claimedDetached && deps.isBootProject(claimedProjectId)) {
-        return { host: host ?? await deps.ensureHubHost(), capsuleId, unpinnedBootProject: true };
+        return { host: host ?? await deps.ensureHubHost(), capsuleId, unpinnedBootProject: true, ...projectStamp };
       }
-      return { host: host ?? await deps.ensureHubHost(), capsuleId };
+      return { host: host ?? await deps.ensureHubHost(), capsuleId, ...projectStamp };
     }
     if (opts.projectId) {
       // Only a validated claim may pin a capsule; unknown/ambiguous projects mint
@@ -2618,7 +2629,7 @@ export function createBridgeMintHostResolver(deps: BridgeMintResolverDeps): Brid
       // present a tab under the window that no longer owns the project.
       const assignment = deps.projectCapsuleId(opts.projectId);
       const detachedHost = deps.hostForOwnerKey(ownerKey({ kind: 'project', projectId: opts.projectId }));
-      if (detachedHost) return { host: detachedHost, capsuleId: assignment };
+      if (detachedHost) return { host: detachedHost, capsuleId: assignment, projectId: opts.projectId };
       if (deps.projectDetached(opts.projectId)) {
         throw new CapabilityError(
           'TERMINAL_SCOPE_UNRESOLVED',
@@ -2627,7 +2638,7 @@ export function createBridgeMintHostResolver(deps: BridgeMintResolverDeps): Brid
           { projectId: opts.projectId },
         );
       }
-      return { host: await deps.ensureHubHost(), capsuleId: assignment };
+      return { host: await deps.ensureHubHost(), capsuleId: assignment, ...(assignment ? { projectId: opts.projectId } : {}) };
     }
     if (opts.boundTabId) return undefined;
     return { host: await deps.ensureHubHost() };
@@ -4431,10 +4442,12 @@ async function createWindow(): Promise<void> {
     },
     resolveTabAffiliation: measuredTabAffiliation,
     createTab: (url, activate = false, options) => {
-      // `anchorTabId` and `projectId` select the window; the host would not know what to do with them,
-      // so they are consumed here and never forwarded.
+      // `anchorTabId` selects the window and `projectId` picks the project a window-less call lands on;
+      // an anchored creation also forwards `projectId` so a hub window stamps the capsule's project
+      // rather than whichever project it is presenting.
       const { anchorTabId, projectId, ...hostOptions } = options ?? {};
-      return hostForTabOrBootstrap(anchorTabId, projectId).createTab(url, activate, hostOptions);
+      const host = tabAmbient.hostForNewTab(anchorTabId, projectId);
+      return host.createTab(url, activate, anchorTabId && projectId ? { ...hostOptions, projectId } : hostOptions);
     },
     closeTab: (tabId, source) => hostForTabOrBootstrap(tabId).closeTab(tabId, source),
     switchTab: (tabId, opts) => hostForTabOrBootstrap(tabId).switchTab(tabId, opts),
@@ -4585,6 +4598,9 @@ async function createWindow(): Promise<void> {
     },
     resolveSemanticRefDescriptor: (tabId, paneId, ref) => hostForTabOrBootstrap(tabId).resolveSemanticRefDescriptor(tabId, paneId, ref),
     withPaintingSurface: (tabId, paneId, action) => hostForTabOrBootstrap(tabId).withPaintingSurface(tabId, paneId, action),
+    holdPageNavigation: (tabId, paneId) => hostForTabOrBootstrap(tabId).holdPageNavigation(tabId, paneId),
+    settleTabEmulation: (tabId) => hostForTabOrBootstrap(tabId).settleTabEmulation(tabId),
+    resolveTabWorkspace: (tabId, tabUrl) => hostForTabOrBootstrap(tabId).resolveTabWorkspace(tabId, tabUrl),
   }, controlPlane.artifacts);
   // Published for windows opened later: `attachSharedServices` hands this same port's
   // viewport gate to every host it builds, so a new window is never left ungated.
@@ -4774,6 +4790,7 @@ async function createWindow(): Promise<void> {
       sessionOwnerKey: (terminalSessionId) => terminalManager.sessionOwnerKey(terminalSessionId),
       capsuleExists: (capsuleId) => capsuleManager?.list().some((c) => c.id === capsuleId) === true,
       projectCapsuleId: (projectId) => resolveProjectAssignment(projectId)?.capsuleId,
+      capsuleProjectId: (capsuleId) => capsuleManager?.list().find((c) => c.id === capsuleId)?.projectId || undefined,
       projectDetached: (projectId) => reattachInProgress.has(projectId)
         || liveProjectShells().some((s) => s.owner.kind === 'project' && s.owner.projectId === projectId)
         || savedTabsOwnerIsDetached(savedTabsFilePath(), projectId),

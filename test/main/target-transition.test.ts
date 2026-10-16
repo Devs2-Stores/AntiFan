@@ -305,6 +305,53 @@ describe('target transition lifecycle error semantics', () => {
     assert.strictEqual(registry.getAttachment(launch.attachmentId)?.tabId, destinationTab, 'Attachment must be rotated to destination tab');
   });
 
+  it('a route sweep moves the session authority to the generation it left the tab on', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-target-trans-sweep-'));
+    const projectId = makeControlPlaneId('project');
+    const workspaceId = makeControlPlaneId('workspace');
+    const lease = issueRuntimeLease(projectId, workspaceId, 30_000, 1);
+    const catalogue = new CapabilityCatalogue({
+      runtime: { mode: 'standalone', lifecycle: 'active' },
+      projectId,
+      workspaceId,
+      runtimeId: lease.runtimeId,
+      hostEpoch: 1,
+    });
+    catalogue.register({
+      name: 'anti.qa.batch_matrix',
+      description: 'Sweeps routes and returns the tab',
+      risk: 'write',
+      requiresBrowserTarget: false,
+      inputSchema: { type: 'object', properties: { routes: { type: 'array' } } },
+      policy: basePolicy({ effect: 'idempotent-write' }),
+      execute: async () => ({ ok: true, passed: true, tabId: 'tab-swept', documentGeneration: 7, routes: [] }),
+    });
+    const registry = new AttachmentRegistry(undefined, root);
+    const ledger = new InvocationLedger({ dataRoot: root });
+    await ledger.initialize();
+    const transport = new CapabilityTransportAdapter(catalogue, registry, ledger);
+    const { launch } = await registry.issueAttachment(makeControlPlaneId('run'), makeControlPlaneId('attempt'), projectId, workspaceId, {
+      backendId: 'test-backend',
+      grant: 'write',
+      lease,
+      leaseToken: lease.token,
+    });
+    const resp = await transport.dispatchIntent({
+      requestId: makeControlPlaneId('request'),
+      idempotencyKey: `test:${makeControlPlaneId('request')}`,
+      attachmentId: launch.attachmentId,
+      attachmentSecret: launch.secret,
+      authorityRevision: launch.authorityRevision,
+      name: 'anti.qa.batch_matrix',
+      params: { routes: ['/'] },
+    });
+    assert.strictEqual(resp.ok, true);
+    assert.ok(resp.replacementAuthorityRevision, 'the sweep rotates authority like a navigation');
+    const record = registry.getAttachment(launch.attachmentId);
+    assert.strictEqual(record?.tabId, 'tab-swept');
+    assert.strictEqual(record?.documentGeneration, 7);
+  });
+
   it('stale-bound retarget to an unrelated live user tab is refused before dispatch', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-target-trans-hijack-'));
     const projectId = makeControlPlaneId('project');

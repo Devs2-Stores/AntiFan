@@ -921,6 +921,84 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
         : 'is entirely hidden below the bottom edge of ' + getSelector(fate.below);
       push({ kind: 'clipping', severity: 'critical', selector: getSelector(p), details: 'Text "' + snippet(fate.belowRun.n.nodeValue) + '" ' + lost + ', which is too short for its content', rect: toRect(fate.belowRun.r) });
     });
+    // Whether the element's strip beyond clipping box b holds text or content. A box that only
+    // bleeds padding or empty area there (a grid row with negative gutters) hides nothing.
+    const clipsContent = (el, b) => {
+      const beyond = (r, min) => r.right - b.right >= min || b.left - r.left >= min;
+      for (let t = 0; t < runs.length; t++) {
+        if (el.contains(runs[t].p) && beyond(runs[t].r, 2)) return true;
+      }
+      const content = el.querySelectorAll('img, picture, video, canvas, svg, iframe, input, button, select, textarea');
+      for (let m = 0; m < content.length && m < 200; m++) {
+        const node = content[m];
+        if (node.parentElement && node.parentElement.closest('svg')) continue;
+        const nr = node.getBoundingClientRect();
+        if (nr.width >= 4 && nr.height >= 4 && painted(node) && beyond(nr, 4)) return true;
+      }
+      return false;
+    };
+    const checkInnerClippedInOverflowAncestor = () => {
+      const CAROUSEL_OR_SLIDER_RE = /swiper|carousel|slider|splide|flickity|glide|owl|marquee|ticker/i;
+      for (let i = 0; i < elementLimit; i++) {
+        const el = allElements[i];
+        if (!el || el === doc || el === body || el.closest('svg, head, script, style, noscript, template') || el.closest(PLATFORM_PREVIEW_CHROME)) continue;
+        if (clippedOwners.has(el) || isSrOnly(el) || unsettled(el) || !painted(el)) continue;
+        if (el.closest(CAROUSEL_SLIDE) || CAROUSEL_OR_SLIDER_RE.test(String(el.className || ''))) continue;
+        const s = cs(el);
+        if (s.position === 'absolute' || s.position === 'fixed' || s.display === 'inline' || s.display === 'contents') continue;
+        const r = el.getBoundingClientRect();
+        if (r.width < 8 || r.height < 8) continue;
+        const clips = boxClips(el);
+        for (let k = 0; k < clips.length; k++) {
+          const a = clips[k];
+          const as = cs(a);
+          const ancOvX = as.overflowX;
+          if (isScrollAxis(ancOvX)) break;
+          if (ancOvX !== 'hidden' && ancOvX !== 'clip') continue;
+          if (CAROUSEL_OR_SLIDER_RE.test(String(a.className || '')) || collapsedByDesign(a)) break;
+          const b = clipBox(a);
+          if (as.overflowY !== 'visible' && span(r.top, r.bottom, b.top, b.bottom) < Math.min(r.height, b.bottom - b.top) * 0.5) break;
+          const overRight = r.right - b.right;
+          const overLeft = b.left - r.left;
+          const overPx = Math.max(overRight, overLeft);
+          if (overPx < 4) continue;
+          if (movingBetween(el, a) || transitionsBetween(el, a, SLIDE_IN) || intendedTruncation(el, a)) break;
+          let absBetween = false;
+          for (let p = parentOf(el); p && p !== a; p = parentOf(p)) {
+            const pos = cs(p).position;
+            if (pos === 'absolute' || pos === 'fixed') { absBetween = true; break; }
+          }
+          if (absBetween) break;
+          let childAlsoOverflows = false;
+          for (let c = 0; c < el.children.length; c++) {
+            const ch = el.children[c];
+            if (!painted(ch)) continue;
+            const cr = ch.getBoundingClientRect();
+            if (cr.width >= 8 && cr.height >= 8 && (cr.right - b.right >= 4 || b.left - cr.left >= 4)) {
+              childAlsoOverflows = true;
+              break;
+            }
+          }
+          if (childAlsoOverflows) break;
+          if (!clipsContent(el, b)) continue;
+          let alreadyCovered = false;
+          clippedOwners.forEach((owner) => {
+            if (el.contains(owner) || owner.contains(el)) alreadyCovered = true;
+          });
+          if (alreadyCovered) break;
+          clippedOwners.add(el);
+          push({
+            kind: 'clipping',
+            severity: 'critical',
+            selector: getSelector(el),
+            details: 'Element ' + getSelector(el) + ' overflows and is clipped horizontally by ' + getSelector(a) + ' (' + Math.round(overPx) + 'px clipped)',
+            rect: toRect(r)
+          });
+          break;
+        }
+      }
+    };
+    checkInnerClippedInOverflowAncestor();
   } catch (err) {
     detectorFailed('clipping', err);
   }
@@ -1260,6 +1338,59 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
         break;
       }
     }
+    const checkFixedStickyLayerCollisions = (scrollTag) => {
+      const layers = [];
+      const seenLayers = new Set();
+      for (let i = 0; i < elementLimit; i++) {
+        const el = allElements[i];
+        const pos = cs(el).position;
+        if (pos !== 'fixed' && pos !== 'sticky') continue;
+        const l = layerOf(el);
+        if (!l || seenLayers.has(l) || unsettled(l) || isSrOnly(l) || !painted(l) || alphaOf(l) < 0.5) continue;
+        if (l.closest(PLATFORM_PREVIEW_CHROME) || l.closest(DIALOG_SEL)) continue;
+        const lr = l.getBoundingClientRect();
+        if (lr.width < 16 || lr.height < 16 || lr.bottom <= 0 || lr.top >= vh || lr.right <= 0 || lr.left >= vw) continue;
+        if (lr.width >= vw * 0.9 && lr.height >= vh * 0.9) continue;
+        seenLayers.add(l);
+        layers.push({ layer: l, r: lr });
+      }
+      for (let a = 0; a < layers.length; a++) {
+        for (let b = a + 1; b < layers.length; b++) {
+          const LA = layers[a];
+          const LB = layers[b];
+          if (nested(LA.layer, LB.layer)) continue;
+          const ix = span(LA.r.left, LA.r.right, LB.r.left, LB.r.right);
+          const iy = span(LA.r.top, LA.r.bottom, LB.r.top, LB.r.bottom);
+          if (ix < 8 || iy < 8) continue;
+          const areaA = LA.r.width * LA.r.height;
+          const areaB = LB.r.width * LB.r.height;
+          const minArea = Math.max(1, Math.min(areaA, areaB));
+          if ((ix * iy) / minArea < 0.25) continue;
+          const smaller = areaA <= areaB ? LA : LB;
+          const larger = areaA <= areaB ? LB : LA;
+          if (reportedOwners.has(smaller.layer)) continue;
+          const sx = Math.max(0, Math.min(vw - 1, (Math.max(LA.r.left, LB.r.left) + Math.min(LA.r.right, LB.r.right)) / 2));
+          const sy = Math.max(0, Math.min(vh - 1, (Math.max(LA.r.top, LB.r.top) + Math.min(LA.r.bottom, LB.r.bottom)) / 2));
+          const stack = document.elementsFromPoint(sx, sy);
+          let hitsFixed = false;
+          for (let k = 0; k < stack.length; k++) {
+            const e = stack[k];
+            if (e === doc || e === body) break;
+            if (nested(e, LA.layer) || nested(e, LB.layer)) { hitsFixed = true; break; }
+          }
+          if (!hitsFixed) continue;
+          reportedOwners.add(smaller.layer);
+          push({
+            kind: 'occlusion',
+            severity: 'critical',
+            selector: getSelector(smaller.layer),
+            details: 'Fixed/sticky ' + getSelector(smaller.layer) + ' collides with fixed/sticky ' + getSelector(larger.layer) + ' (' + Math.round(ix) + 'x' + Math.round(iy) + 'px overlap' + (scrollTag ? ' ' + scrollTag : '') + ')',
+            rect: toRect(smaller.r)
+          });
+        }
+      }
+    };
+    checkFixedStickyLayerCollisions('');
     for (let s = 0; s < steps.length; s++) {
       const want = steps[s];
       const got = s === 0 ? 0 : scrollToY(want);
@@ -1398,6 +1529,166 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
       if (dismissible(layer)) return;
       push({ kind: 'occlusion', severity: 'critical', selector: getSelector(layer), details: 'Fixed ' + getSelector(layer) + ' spans the viewport and hides the page at every scroll offset with no close control (' + list.length + ' texts/controls never come clear, e.g. ' + list[0].label + ')', rect: toRect(lr) });
     });
+    const checkScrolledStateHeaderAndSticky = () => {
+      const toggledScrolledHeaders = [];
+      // Parts of a header that scroll, animate or overlay by design: content past the viewport
+      // there is reachable (a nav scroller), moving (a marquee) or parked off screen (a drawer).
+      const MOVING_RE = /swiper|carousel|slider|splide|flickity|glide|owl|marquee|ticker/i;
+      const outsideHeaderBar = (d, hdr) => {
+        for (let p = d; p && p !== hdr; p = parentOf(p)) {
+          const ps = cs(p);
+          if (p !== d && (ps.position === 'absolute' || ps.position === 'fixed')) return true;
+          if (isScrollAxis(ps.overflowX) || MOVING_RE.test(String(p.className || ''))) return true;
+        }
+        return false;
+      };
+      // Visible part of el's box inside every clipping ancestor up to the root, read fresh: the
+      // memoized boxClips chain describes the page at rest, before the header changed state.
+      const liveClippedRect = (el, r) => {
+        const v = { left: r.left, right: r.right, top: r.top, bottom: r.bottom };
+        for (let p = parentOf(el); p && p !== body && p !== doc; p = parentOf(p)) {
+          const ps = getComputedStyle(p);
+          if (ps.overflowX === 'visible' && ps.overflowY === 'visible') continue;
+          const pr = p.getBoundingClientRect();
+          const left = pr.left + p.clientLeft;
+          const top = pr.top + p.clientTop;
+          if (ps.overflowX !== 'visible') { v.left = Math.max(v.left, left); v.right = Math.min(v.right, left + p.clientWidth); }
+          if (ps.overflowY !== 'visible') { v.top = Math.max(v.top, top); v.bottom = Math.min(v.bottom, top + p.clientHeight); }
+          if (v.right - v.left < 1 || v.bottom - v.top < 1) return null;
+        }
+        return v;
+      };
+      const ownsText = (el) => {
+        for (let c = el.firstChild; c; c = c.nextSibling) {
+          if (c.nodeType === 3 && c.nodeValue && c.nodeValue.trim()) return true;
+        }
+        return false;
+      };
+      // Header parts as they read at rest (top of the page): what the scrolled state changes is
+      // measured against this, never against the design itself.
+      const restParts = new Map();
+      const readHeaderParts = (hdr) => {
+        const parts = [];
+        const nodes = hdr.querySelectorAll('*');
+        for (let n = 0; n < nodes.length; n++) {
+          const el = nodes[n];
+          if (!painted(el) || isSrOnly(el) || el.closest('[aria-hidden="true"], [hidden]') || outsideHeaderBar(el, hdr)) continue;
+          const control = el.matches(ACTIONABLE);
+          const text = ownsText(el);
+          if (!control && !text) continue;
+          const r = el.getBoundingClientRect();
+          if (r.width < 8 || r.height < 8) continue;
+          const vis = liveClippedRect(el, r);
+          parts.push({ el, r, control, text, shown: vis ? vis.bottom - vis.top : 0 });
+        }
+        return parts;
+      };
+      const overlapShare = (a, b) => {
+        const smaller = Math.min(a.width * a.height, b.width * b.height);
+        return smaller > 0 ? (span(a.left, a.right, b.left, b.right) * span(a.top, a.bottom, b.top, b.bottom)) / smaller : 0;
+      };
+      try {
+        const targetScrollY = maxScroll > 0 ? Math.min(600, maxScroll) : 0;
+        const headerCandidates = document.querySelectorAll('header, .header, .site-header, [class*="header"]');
+        scrollToY(0);
+        styleMemo.clear();
+        boxMemo.clear();
+        for (let hIdx = 0; hIdx < headerCandidates.length; hIdx++) {
+          const hdr = headerCandidates[hIdx];
+          const hp = cs(hdr).position;
+          if ((hp === 'fixed' || hp === 'sticky') && painted(hdr)) {
+            readHeaderParts(hdr).forEach((part) => { if (!restParts.has(part.el)) restParts.set(part.el, part); });
+          }
+        }
+        if (targetScrollY > 0) scrollToY(targetScrollY);
+        for (let hIdx = 0; hIdx < headerCandidates.length; hIdx++) {
+          const hdr = headerCandidates[hIdx];
+          const hp = cs(hdr).position;
+          if ((hp === 'fixed' || hp === 'sticky') && hdr.classList && !hdr.classList.contains('is-scrolled')) {
+            hdr.classList.add('is-scrolled');
+            toggledScrolledHeaders.push(hdr);
+          }
+        }
+        styleMemo.clear();
+        boxMemo.clear();
+        checkFixedStickyLayerCollisions('at scrollY=600');
+        for (let hIdx = 0; hIdx < headerCandidates.length; hIdx++) {
+          const hdr = headerCandidates[hIdx];
+          const hp = cs(hdr).position;
+          if (hp !== 'fixed' && hp !== 'sticky') continue;
+          if (!painted(hdr)) continue;
+          const descendants = hdr.querySelectorAll('*');
+          for (let dIdx = 0; dIdx < descendants.length; dIdx++) {
+            const d = descendants[dIdx];
+            if (!painted(d) || isSrOnly(d) || reportedOwners.has(d) || clippedOwners.has(d)) continue;
+            const ds = cs(d);
+            if (ds.position === 'absolute' || ds.position === 'fixed' || ds.display === 'inline' || ds.display === 'contents') continue;
+            const dr = d.getBoundingClientRect();
+            if (dr.width < 8 || dr.height < 8 || dr.right <= vw + 2) continue;
+            if (d.closest('[aria-hidden="true"], [hidden]') || outsideHeaderBar(d, hdr)) continue;
+            // Measure what is painted: a part a clipping ancestor already hides is a clipping
+            // finding, not content pushed past the viewport.
+            const visible = liveClippedRect(d, dr);
+            if (!visible || visible.right <= vw + 2) continue;
+            let childOverflows = false;
+            for (let c = 0; c < d.children.length; c++) {
+              const ch = d.children[c];
+              if (painted(ch) && ch.getBoundingClientRect().right > vw + 2) { childOverflows = true; break; }
+            }
+            if (childOverflows) continue;
+            reportedOwners.add(d);
+            push({
+              kind: 'offscreen',
+              severity: 'critical',
+              selector: getSelector(d),
+              details: 'Element ' + getSelector(d) + ' in scrolled header ' + getSelector(hdr) + ' overflows viewport width at scrollY=600 (right: ' + Math.round(visible.right) + 'px > ' + vw + 'px)',
+              rect: toRect(dr)
+            });
+          }
+        }
+        const reportedPairs = new Set();
+        for (let hIdx = 0; hIdx < headerCandidates.length; hIdx++) {
+          const hdr = headerCandidates[hIdx];
+          const hp = cs(hdr).position;
+          if ((hp !== 'fixed' && hp !== 'sticky') || !painted(hdr)) continue;
+          const parts = readHeaderParts(hdr);
+          for (let i = 0; i < parts.length; i++) {
+            const part = parts[i];
+            const rest = restParts.get(part.el);
+            // Text the shrunken header now cuts part-way; hidden whole is a header collapsing by design.
+            if (part.text && rest && !clippedOwners.has(part.el) && part.shown > 0) {
+              const wasWhole = rest.shown >= rest.r.height - 1;
+              if (wasWhole && part.shown < part.r.height * 0.75 && part.r.height - part.shown >= 4) {
+                clippedOwners.add(part.el);
+                push({ kind: 'clipping', severity: 'critical', selector: getSelector(part.el), details: 'Text in scrolled header ' + getSelector(hdr) + ' is cut at scrollY=600: ' + Math.round(part.shown) + ' of ' + Math.round(part.r.height) + 'px still shows', rect: toRect(part.r) });
+              }
+            }
+            if (!part.control) continue;
+            for (let j = i + 1; j < parts.length; j++) {
+              const other = parts[j];
+              if (!other.control || part.el.contains(other.el) || other.el.contains(part.el)) continue;
+              const now = overlapShare(part.r, other.r);
+              const restA = restParts.get(part.el);
+              const restB = restParts.get(other.el);
+              // Only controls the scrolled state slid onto each other: a pair that already
+              // overlapped at rest is a designed overlay or a defect the rest-state pass owns.
+              if (now < 0.3 || !restA || !restB || overlapShare(restA.r, restB.r) >= 0.1) continue;
+              const pairKey = getSelector(part.el) + '|' + getSelector(other.el);
+              if (reportedPairs.has(pairKey)) continue;
+              reportedPairs.add(pairKey);
+              push({ kind: 'occlusion', severity: 'critical', selector: getSelector(other.el), relatedSelector: getSelector(part.el), details: 'Controls ' + getSelector(part.el) + ' and ' + getSelector(other.el) + ' overlap ' + Math.round(now * 100) + '% in scrolled header ' + getSelector(hdr) + ' at scrollY=600 (apart at the top of the page)', rect: toRect(other.r) });
+            }
+          }
+        }
+      } catch (err) {
+        detectorFailed('offscreen', err);
+      } finally {
+        for (let hIdx = 0; hIdx < toggledScrolledHeaders.length; hIdx++) {
+          toggledScrolledHeaders[hIdx].classList.remove('is-scrolled');
+        }
+      }
+    };
+    checkScrolledStateHeaderAndSticky();
   } catch (err) {
     detectorFailed('occlusion', err);
   } finally {

@@ -308,6 +308,14 @@ export interface BridgeMintTargetResolution {
   host: NativeTabHost;
   capsuleId?: string;
   /**
+   * The project the minted tab is stamped under. The web hub is one window that presents
+   * several projects, and a host that is handed no project stamps a new strip tab with
+   * whichever project the hub happens to be showing — so a tab pinned to another
+   * project's capsule would be listed under the wrong project. Absent means no project
+   * is provable and the host keeps its own default.
+   */
+  projectId?: string;
+  /**
    * The resolver vouches that a project-claimed terminal legitimately has no capsule to
    * pin: the claimed project is the process's boot project, which no capsule ever claims.
    * Without it a project claim lacking a capsule is refused (fail closed).
@@ -2732,6 +2740,7 @@ export class BridgeServer {
                   tabId = sessionHost.createTab('about:blank', wantsVisibleTab, {
                     plane: wantsVisibleTab ? 'user' : 'agent',
                     ...(mintTarget?.capsuleId ? { capsuleId: mintTarget.capsuleId } : {}),
+                    ...(mintTarget?.projectId ? { projectId: mintTarget.projectId } : {}),
                   });
                   mintedTabs.push({ id: tabId, host: sessionHost });
                   if (typeof sessionHost.bindTerminalAgentAffinity === 'function') {
@@ -2761,6 +2770,7 @@ export class BridgeServer {
                   tabId = mintHost.createTab('about:blank', wantsVisibleTab, {
                     plane: wantsVisibleTab ? 'user' : 'agent',
                     ...(mintTarget?.capsuleId ? { capsuleId: mintTarget.capsuleId } : {}),
+                    ...(mintTarget?.projectId ? { projectId: mintTarget.projectId } : {}),
                   });
                   mintedTabs.push({ id: tabId, host: mintHost });
                 }
@@ -3100,6 +3110,7 @@ export class BridgeServer {
               ephemeral: isEphemeral,
               ...(p.userFacing === true ? { plane: 'user' as const } : isAgentCaller ? { plane: 'agent' as const } : {}),
               ...(mintTarget?.capsuleId ? { capsuleId: mintTarget.capsuleId } : {}),
+              ...(mintTarget?.projectId ? { projectId: mintTarget.projectId } : {}),
             });
             // A bound session's mint must land in its session pool the same way the
             // capability path adopts (`browser-control-port.openTab`): without pool
@@ -3975,7 +3986,7 @@ export class BridgeServer {
     // The resolver is authoritative on the capsule: it verified the stamp against the live
     // capsule store, so a dropped/undefined capsuleId there means "mint unpinned", never
     // "resurrect whatever the session happened to be stamped with".
-    return { host: resolution.host, capsuleId: resolution.capsuleId };
+    return { host: resolution.host, capsuleId: resolution.capsuleId, ...(resolution.projectId ? { projectId: resolution.projectId } : {}) };
   }
 
   /** Defensive tab-existence check: hasTab is an optional host capability.

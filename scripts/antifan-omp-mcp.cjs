@@ -26,7 +26,9 @@ const QA_VALIDATE_PROPERTIES = {
 };
 
 // Definition row shape: [name, description, properties, required?, oneOf?,
-// ambientTargetField?]. The sixth element names the advertised field that
+// ambientTargetField?]. The fifth element is either a oneOf list of required
+// groups or { anyOf: [...] } for forms that may be combined (an argument and its
+// alias); both are gated the same way: at least one group fully supplied. The sixth element names the advertised field that
 // selects the tab the capability acts on; when it is present, an omitted value
 // is filled from the session's bound tab at invoke time (see ambientTargetFieldFor
 // and the injection in invoke()). A field that predicates over stored records
@@ -34,6 +36,12 @@ const QA_VALIDATE_PROPERTIES = {
 // must stay undeclared so no ambient value is ever injected into it. The
 // compile-time gate (check-mcp-budget-dominance.mjs) verifies every declared
 // row against the app capability catalogue.
+/** The required groups of a definition's fifth element: a oneOf list or { anyOf }. */
+function argumentForms(forms) {
+  if (Array.isArray(forms)) return forms;
+  return forms && Array.isArray(forms.anyOf) ? forms.anyOf : [];
+}
+
 const definitions = [
   ['anti.browser.tabs.list', 'List tabs affiliated with the authenticated session project by default. Pass all: true for global GUI discovery; affiliated marks same-project entries, not a grant of action authority.', { all: { type: 'boolean', default: false, description: 'Opt in to global GUI discovery.' }, affiliatedOnly: { type: 'boolean', description: 'Restrict discovery to the authenticated project/workspace.' }, projectId: { type: 'string', description: 'Project selector; must match the authenticated session project.' } }],
   ['anti.browser.tabs.get', 'Read a single tab row in the authenticated session project scope by tabId (same row shape as tabs.list; refused for out-of-scope tabs). Omit tabId to read the bound tab.', { tabId: { type: 'string' }, projectId: { type: 'string', description: 'Project selector; must match the authenticated session project.' } }, [], [], 'tabId'],
@@ -113,12 +121,14 @@ const definitions = [
   ['anti.artifact.stat', 'Retrieve metadata and size information for an authorized artifact.', { artifactId: { type: 'string' } }, ['artifactId']],
   ['browser.set-viewport', 'Set the bound Chromium tab viewport dimensions and device emulation.', { width: { type: 'number' }, height: { type: 'number' }, mobile: { type: 'boolean' }, deviceScaleFactor: { type: 'number' }, tabId: { type: 'string' }, reload: { type: 'boolean' } }, ['width', 'height'], [], 'tabId'],
   ['browser.get-viewport', 'Get the bound Chromium tab viewport dimensions, DPR, device preset, and layout surface state without applying overrides.', { tabId: { type: 'string' } }, [], [], 'tabId'],
-  ['browser.wait', 'Deterministic wait for selector, url, navigation, dom-stable, network, actionability, generation, images-settled, or legacy condition states', { condition: { type: 'string', enum: ['selector', 'url', 'navigation', 'dom-stable', 'network', 'actionability', 'generation', 'ref', 'document_loaded', 'url_match', 'network_idle', 'dom_stable', 'images-settled'], description: 'Wait condition to evaluate: selector | url | navigation | dom-stable | network | actionability | generation | images-settled (or legacy aliases)' }, selector: { type: 'string', description: 'CSS selector to wait for' }, ref: { type: 'string', description: 'Semantic reference token (@e1) to wait for' }, urlPattern: { type: 'string', description: 'URL pattern or substring to match' }, url: { type: 'string', description: 'Alias for urlPattern' }, minGeneration: { type: 'number', description: 'Minimum document generation to wait for (generation or navigation condition)' }, state: { type: 'string', enum: ['attached', 'visible', 'actionable', 'detached', 'hidden'] }, timeoutMs: { type: 'number', description: 'Timeout in milliseconds (5000 default, 30000 max — the capability invocation budget; larger values are refused)' }, idleWindowMs: { type: 'number', description: 'Debounce idle window in milliseconds (500 default)' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, ['condition'], [], 'tabId'],
+  ['browser.wait', 'Deterministic wait for selector, url, navigation, dom-stable, network, actionability, generation, images-settled, timeout, or legacy condition states', { condition: { type: 'string', enum: ['selector', 'url', 'navigation', 'dom-stable', 'network', 'actionability', 'generation', 'ref', 'document_loaded', 'url_match', 'network_idle', 'dom_stable', 'images-settled', 'timeout'], description: 'Wait condition to evaluate: selector | url | navigation | dom-stable | network | actionability | generation | images-settled | timeout (or legacy aliases)' }, type: { type: 'string', enum: ['selector', 'url', 'navigation', 'dom-stable', 'network', 'actionability', 'generation', 'ref', 'document_loaded', 'url_match', 'network_idle', 'dom_stable', 'images-settled', 'timeout'], description: 'Alias for condition' }, selector: { type: 'string', description: 'CSS selector to wait for' }, ref: { type: 'string', description: 'Semantic reference token (@e1) to wait for' }, urlPattern: { type: 'string', description: 'URL pattern or substring to match' }, url: { type: 'string', description: 'Alias for urlPattern' }, minGeneration: { type: 'number', description: 'Minimum document generation to wait for (generation or navigation condition)' }, state: { type: 'string', enum: ['attached', 'visible', 'actionable', 'detached', 'hidden'] }, timeoutMs: { type: 'number', description: 'Timeout in milliseconds (5000 default, 30000 max — the capability invocation budget; larger values are refused)' }, idleWindowMs: { type: 'number', description: 'Debounce idle window in milliseconds (500 default)' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], { anyOf: [{ required: ['condition'] }, { required: ['type'] }] }, 'tabId'],
   ['file.read', 'Read a file relative to the authoritative workspace root.', { path: { type: 'string' }, maxBytes: { type: 'number' } }, ['path']],
   ['file.write', 'Write a file relative to the authoritative workspace root with boundary enforcement.', { path: { type: 'string' }, content: { type: 'string' } }, ['path', 'content']],
   ['anti.theme.resolve_element', 'Map a live DOM element to bounded, correlated local theme source candidates.', { selector: { type: 'string' }, ref: { type: 'string' }, workspaceRoot: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], [], 'tabId'],
   ['anti.inspect.matched_styles', 'Inspect live CDP matched CSS and classify active versus overridden declarations.', { nodeId: { type: 'number' }, selector: { type: 'string' }, ref: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, stylesheetUrlMap: { type: 'object' } }, [], [], 'tabId'],
   ['anti.inspect.responsive_matrix', 'Probe document and target overflow at the five standard responsive widths (or customBreakpoints).', { selector: { type: 'string' }, tabId: { type: 'string' }, customBreakpoints: { type: 'array', items: { type: 'object' } } }, [], [], 'tabId'],
+  ['anti.theme.await_cdn_sync', 'Poll the storefront copy of one static asset (CSS/JS, not .liquid) until its SHA-256 matches the local workspace file, then optionally reload the bound tab. Reads only inside the bound workspace; lastError says why a poll did not match.', { assetPath: { type: 'string', description: 'Workspace-relative or filename asset path (e.g. assets/theme.css or theme.css)' }, workspaceRoot: { type: 'string' }, timeoutMs: { type: 'number', description: 'Polling timeout in milliseconds (default 15000, max 25000)' }, pollIntervalMs: { type: 'number' }, reloadOnMatch: { type: 'boolean' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, ['assetPath'], [], 'tabId'],
+  ['anti.qa.batch_matrix', 'Sequentially navigate and sweep up to 20 routes of the bound storefront (same origin only) across responsive breakpoints in the bound tab, then return the tab to its starting page. A route with an unmeasured width reports passed: null.', { routes: { type: 'array', items: { type: 'string' }, description: 'Storefront URLs or paths to scan sequentially in the bound tab' }, breakpoints: { type: 'array', items: { type: 'number' }, description: 'Viewport widths in CSS px (default [320, 375, 768, 1024, 1440])' }, tabId: { type: 'string' } }, ['routes'], [], 'tabId'],
   ['anti.verification.record_claim', 'Record a live verification claim as UNVERIFIED with explicit proof obligations.', { claim: { type: 'string' }, category: { type: 'string', enum: ['INTERACTION', 'LAYOUT', 'RESPONSIVE', 'CUSTOM', 'VISUAL'] }, actor: { type: 'string', enum: ['agent', 'user'] }, tabId: { type: 'string' }, selector: { type: 'string' }, expectedHeight: { type: 'number' }, expectedSections: { type: 'number' }, tolerance: { type: 'number' }, proofObligations: { type: 'array', maxItems: 50, items: { type: 'object', properties: { id: { type: 'string' }, metric: { type: 'string', description: 'Obligation metric identifier (required)' }, tolerance: { type: 'number' }, critical: { type: 'boolean' }, expected: {} }, required: ['metric'] } }, linkedIssueId: { type: 'string' } }, ['claim', 'tabId', 'category']],
   ['anti.verification.verify_claim', 'Evaluate a recorded claim against fresh live browser evidence and persist an authoritative receipt.', { claimId: { type: 'string' }, witnessObservation: { type: 'string' }, semanticFailureObservation: { type: 'string' } }, ['claimId']],
   ['anti.theme.export_clean', 'Materialize, sanitize (Livewire/SSR blobs and unhydrated modals stripped), and export clean static theme HTML directly to workspace file. materializeDataSrc:true also swaps lazy data-src/data-srcset into live sources during the walk.', { outputPath: { type: 'string' }, selector: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, clean: { type: 'boolean', default: true }, materialize: { type: 'boolean', default: true }, materializeDataSrc: { type: 'boolean' } }, ['outputPath'], [], 'tabId'],
@@ -2540,8 +2550,8 @@ async function invoke(method, params = {}, callerRequestId) {
   // group's members are all present with usable values; supplying members of
   // several groups at once still passes here, because which combination is
   // legal is the capability's own refusal to make.
-  const declaredOneOf = advertisedDef[4];
-  if (Array.isArray(declaredOneOf) && declaredOneOf.length > 0) {
+  const declaredOneOf = argumentForms(advertisedDef[4]);
+  if (declaredOneOf.length > 0) {
     const usable = (field) => {
       const value = params[field];
       return !(value === undefined || value === null || (typeof value === 'string' && value.trim() === ''));
@@ -3066,14 +3076,14 @@ async function listTools() {
     ? definitions.filter(([name]) => isCapabilityPermitted(name, allowedCaps, forbiddenCaps))
     : definitions;
   return {
-    tools: filteredDefs.map(([name, description, properties, required, oneOf]) => ({
+    tools: filteredDefs.map(([name, description, properties, required, forms]) => ({
       name,
       description,
       inputSchema: {
         type: 'object',
         properties,
         ...(required && required.length > 0 ? { required } : {}),
-        ...(Array.isArray(oneOf) && oneOf.length > 0 ? { oneOf } : {}),
+        ...(argumentForms(forms).length > 0 ? { [Array.isArray(forms) ? 'oneOf' : 'anyOf']: argumentForms(forms) } : {}),
       },
     })),
   };

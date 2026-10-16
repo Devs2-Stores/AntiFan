@@ -568,9 +568,11 @@ export function registerThemeTransactionCapabilities(
         validateThemeSchemas,
         checkSettingsBinding,
         checkAssetReferences,
+        checkF1genzSettingsSchema,
       } = themeChecksModule;
 
       const isHaravan = isHaravanThemeWorkspace(root);
+      const hasSettingsSchema = fs.existsSync(path.join(root, 'config', 'settings_schema.json'));
       const detectedPlatform = isHaravan
         ? 'haravan'
         : PlatformDetector.detectFromWorkspace(root).platform;
@@ -580,11 +582,15 @@ export function registerThemeTransactionCapabilities(
       const schemaValidation = typeof validateThemeSchemas === 'function'
         ? validateThemeSchemas(root, {
             platform: detectedPlatform !== 'unknown' ? detectedPlatform : null,
-            schemaRequired: fs.existsSync(path.join(root, 'config', 'settings_schema.json')),
+            schemaRequired: hasSettingsSchema,
           })
         : null;
       const settingsBinding = checkSettingsBinding(root);
       const assets = checkAssetReferences(root);
+      const f1genzSchema =
+        isHaravan && hasSettingsSchema && typeof checkF1genzSettingsSchema === 'function'
+          ? checkF1genzSettingsSchema(root)
+          : null;
 
       const contractFailures: Array<{ rule: string; file?: string }> = haravanContracts?.failures || [];
       const schemaFailures = (schemaValidation?.failures || [])
@@ -601,10 +607,39 @@ export function registerThemeTransactionCapabilities(
           message: f.detail,
           detail: f.detail,
         }));
+      const f1genzFailures = (f1genzSchema?.failures || []).map(
+        (f: { rule: string; id?: string; file?: string; line?: number; message: string }) => ({
+          rule: f.rule,
+          ...(f.id ? { id: f.id } : {}),
+          file: f.file || 'config/settings_schema.json',
+          line: f.line || 1,
+          message: f.message,
+          detail: f.message,
+        })
+      );
+      const deadSettingFindings = (settingsBinding?.dead || [])
+        .filter(
+          (d: { id: string }) =>
+            !f1genzFailures.some((f: { rule: string; id?: string }) => f.rule === 'dead-setting' && f.id === d.id)
+        )
+        .map((d: { id: string }) => ({
+          rule: 'dead-setting',
+          id: d.id,
+          file: hasSettingsSchema ? 'config/settings_schema.json' : 'config/settings.html',
+          line: 1,
+          message: `schema setting has no resolved reference: ${d.id}`,
+          detail: `Declared setting '${d.id}' is never referenced in theme Liquid files`,
+        }));
+      // Haravan reads every schema setting through the theme, so an unread one is dead. Other
+      // platforms read some settings themselves (Shopify checkout_*), so there it is a warning.
+      const deadSettingFailures = isHaravan ? deadSettingFindings : [];
+      const warnings = isHaravan ? [] : deadSettingFindings;
       const failures = [
         ...(haravanContracts?.failures || []),
         ...schemaFailures,
         ...(settingsBinding?.failures || []),
+        ...f1genzFailures,
+        ...deadSettingFailures,
         ...(assets?.localMissing?.map((m: { ref: string; files?: string[] }) => ({
           rule: 'LOCAL_ASSET_MISSING',
           file: m.files?.[0] || 'assets/',
@@ -616,21 +651,28 @@ export function registerThemeTransactionCapabilities(
 
       const refusals = [];
       if (settingsBinding && !settingsBinding.ok) refusals.push({ check: 'settings-binding', failures: settingsBinding.failures.length });
+      if (f1genzFailures.length + deadSettingFailures.length > 0) {
+        refusals.push({ check: 'f1genz-settings-schema', failures: f1genzFailures.length + deadSettingFailures.length });
+      }
       if (assets && !assets.ok) refusals.push({ check: 'assets', failures: assets.localMissing.length });
       if (haravanContracts && !haravanContracts.ok) refusals.push({ check: 'haravan-contracts', failures: haravanContracts.failures.length });
       if (schemaFailures.length > 0) refusals.push({ check: 'theme-schemas', failures: schemaFailures.length });
 
+      const deadInSchema = Array.isArray(settingsBinding?.dead) ? settingsBinding.dead.length : 0;
       const ok = failures.length === 0;
 
       return {
         ok,
         failures,
         totalFailures: failures.length,
+        deadInSchema,
+        ...(warnings.length > 0 ? { warnings } : {}),
         refusals,
         settingsBinding,
         assets,
         haravanContracts,
         ...(schemaValidation ? { schemaValidation } : {}),
+        ...(f1genzSchema ? { f1genzSchema } : {}),
       };
     },
   });

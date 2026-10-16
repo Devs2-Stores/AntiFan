@@ -1157,7 +1157,7 @@ export function buildIsolatedExecutorScript(request: RendererActionRequest): str
         if (!targetElement) {
           return { ok: false, error: 'Target element required for focus action', code: 'REF_NOT_FOUND' };
         }
-        if (typeof targetElement.focus === 'function') {
+        if (!req.skipFocus && typeof targetElement.focus === 'function') {
           targetElement.focus();
         }
         if (req.clear) {
@@ -1397,7 +1397,26 @@ export function buildIsolatedCollectorScript(nonce: string, expectedUrl: string,
           code: 'SELECTOR_NOT_FOUND'
         };
       }
-      scanNode(startNode, [], 0, 0, 0);
+      // Paths are walked from the document by every resolver, so a scoped scan starts from the
+      // root's own path: document > ... > root (through a shadow root when the root lives in one).
+      const rootPath = [];
+      if (startNode !== document) {
+        for (let cur = startNode; cur && cur.parentNode; ) {
+          const parent = cur.parentNode;
+          const siblings = Array.from(parent.children || []);
+          rootPath.unshift({ kind: 'dom', index: siblings.indexOf(cur), tag: cur.tagName.toLowerCase(), id: cur.id || undefined });
+          if (parent === document) break;
+          if (parent.nodeType === 11 && parent.host) {
+            const host = parent.host;
+            const hostSiblings = Array.from((host.parentNode && host.parentNode.children) || []);
+            rootPath.unshift({ kind: 'shadow', index: hostSiblings.indexOf(host), tag: host.tagName.toLowerCase() });
+            cur = host;
+          } else {
+            cur = parent;
+          }
+        }
+      }
+      scanNode(startNode, rootPath, 0, 0, 0);
       const vpWidth = window.innerWidth || 1280;
       descriptors.sort((a, b) => {
         const aInVp = a.rect.centerY >= 0 && a.rect.centerY <= vpHeight && a.rect.centerX >= 0 && a.rect.centerX <= vpWidth;

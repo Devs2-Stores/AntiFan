@@ -17,7 +17,8 @@
  *           the trigger.
  *
  * Safe mode is always on: navigation from anchors and form submissions are blocked by
- * capture-phase listeners for the duration of the run, and add-to-cart / submit / foreign-origin
+ * capture-phase listeners for the duration of the run (and the host refuses navigation a theme
+ * script starts itself, reported as `blockedNavigations`), and add-to-cart / submit / foreign-origin
  * controls are never used as triggers. A panel that will not close by any method stops the run
  * (remaining triggers are reported NOT_RUN) instead of forcing classes back.
  */
@@ -123,6 +124,8 @@ export interface StateMatrixResult {
   skippedTriggers: Array<{ selector: string; reason: string }>;
   durationMs: number;
   error?: string;
+  /** Pages a trigger's own script tried to open (origin + path); the host refused each. */
+  blockedNavigations?: string[];
 }
 
 /** Trusted-input and evaluation seams; the port wires them to CDP-backed automation. */

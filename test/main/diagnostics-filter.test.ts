@@ -60,6 +60,23 @@ describe('computeOrigin — origin classification of diagnostic sources', () => 
 describe('classifyDiagnostics — critical vs warning matrix', () => {
   const contextUrl = 'https://store.example.com/';
 
+  it('downgrades a CSP block only when the blocked resource is a third-party widget', () => {
+    const csp = (url: string) => ({
+      level: 3,
+      message: `Refused to load the script '${url}' because it violates the following Content Security Policy directive: "script-src 'self' https://www.google.com https://www.gstatic.com".`,
+      source: 'https://store.example.com/',
+      origin: 'store.example.com',
+      isFirstParty: true,
+    });
+    const ownScript = classifyDiagnostics({ console: [csp('https://store.example.com/assets/app.js')] }, contextUrl);
+    assert.strictEqual(ownScript.criticalIssues.length, 1, 'the theme script is blocked even though the policy names google.com');
+    const widget = classifyDiagnostics({ console: [csp('https://www.google.com/recaptcha/api.js')] }, contextUrl);
+    assert.strictEqual(widget.criticalIssues.length, 0);
+    assert.strictEqual(widget.warnings.length, 1);
+    const lookalike = classifyDiagnostics({ console: [csp('https://google.com.evil.example/x.js')] }, contextUrl);
+    assert.strictEqual(lookalike.criticalIssues.length, 1, 'a host that only starts with google.com is not google.com');
+  });
+
   it('console error (level 3) from first-party is critical', () => {
     const result = classifyDiagnostics(
       { console: [{ level: 3, message: 'boom', source: 'https://store.example.com/app.js', origin: 'store.example.com', isFirstParty: true }] },

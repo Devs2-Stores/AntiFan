@@ -174,6 +174,25 @@ function isThemeAssetHost(origin: string, assetHosts: readonly string[]): boolea
   });
 }
 
+/** Hosts whose widgets a storefront embeds; a CSP block of their resources is not a theme defect. */
+const THIRD_PARTY_CSP_HOSTS = ['google.com', 'gstatic.com', 'recaptcha.net', 'facebook.com', 'facebook.net', 'googletagmanager.com', 'google-analytics.com', 'doubleclick.net', 'tiktok.com'];
+
+/**
+ * Host of the resource a CSP console error says it blocked ("Refused to load the script
+ * 'https://…' because it violates…"), or '' when the message names no URL (an inline script or
+ * eval, which is the page's own code).
+ */
+export function cspBlockedHost(message: string): string {
+  const match = /Refused to [^']*'([^']+)'/i.exec(message);
+  return match ? normalizeHostname(hostnameOf(match[1]!)) : '';
+}
+
+function isThirdPartyCspBlock(message: string): boolean {
+  if (!/Content Security Policy/i.test(message)) return false;
+  const host = cspBlockedHost(message);
+  return host !== '' && THIRD_PARTY_CSP_HOSTS.some((domain) => host === domain || host.endsWith(`.${domain}`));
+}
+
 /**
  * Decide critical vs warning for a diagnostics snapshot.
  * `contextUrl` is the storefront tab URL — used only when an entry lacks
@@ -198,8 +217,11 @@ export function classifyDiagnostics(
     const origin = normalizeHostname(originInfo.origin);
     const message = sanitizeDiagnosticText(entry.message || '');
 
+    // The blocked URL decides, not the policy text: a directive that allows google.com still
+    // names it when it blocks the theme's own script.
+    const isReportOnlyOrThirdPartyCsp = /\[Report Only\]/i.test(message) || isThirdPartyCspBlock(message);
     const issue: DiagnosticIssue = { kind: 'console', origin, message };
-    if (originInfo.isFirstParty || isThemeAssetHost(origin, assetHosts)) {
+    if (!isReportOnlyOrThirdPartyCsp && (originInfo.isFirstParty || isThemeAssetHost(origin, assetHosts))) {
       criticalIssues.push(issue);
     } else {
       warnings.push(issue);

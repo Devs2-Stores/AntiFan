@@ -93,6 +93,63 @@ function matchSettingReadIds(text) {
   for (const match of text.matchAll(SETTINGS_BRACKET_READ_PATTERN)) ids.push(match[2]);
   return ids;
 }
+const SETTING_ID_ATTR_PATTERN = /\bsetting-id\s*=\s*(['"])([A-Za-z0-9_-]+)\1/g;
+const SETTING_ID_DYN_ATTR_PATTERN = /\bsetting-id\s*=\s*(['"])\{\{[-~]?\s*([A-Za-z_][A-Za-z0-9_]*)\s*[-~]?\}\}\1/g;
+
+function resolveDynamicTemplatesInFile(text) {
+  const varTemplates = new Map();
+  const addTemplate = (name, tpl) => {
+    const cleaned = tpl.replace(/\0DYN\0/g, '');
+    if (!cleaned || !/^[A-Za-z0-9_-]+$/.test(cleaned)) return;
+    if (!varTemplates.has(name)) varTemplates.set(name, new Set());
+    varTemplates.get(name).add(tpl);
+  };
+
+  for (const cap of text.matchAll(/\{%[-~]?\s*capture\s+([A-Za-z0-9_]+)\s*[-~]?%\}([\s\S]*?)\{%[-~]?\s*endcapture\s*[-~]?%\}/g)) {
+    const varName = cap[1];
+    const body = cap[2].trim();
+    if (!body.includes('{{') && !/^[A-Za-z0-9_-]+$/.test(body)) continue;
+    const tpl = body.replace(/\{\{[\s\S]*?\}\}/g, '\0DYN\0');
+    addTemplate(varName, tpl);
+  }
+
+  for (let pass = 0; pass < 3; pass += 1) {
+    for (const asg of text.matchAll(/\{%[-~]?\s*assign\s+([A-Za-z0-9_]+)\s*=\s*([\s\S]*?)\s*[-~]?%\}/g)) {
+      const varName = asg[1];
+      const rhs = asg[2].trim();
+      const parts = rhs.split(/\|\s*append\s*:\s*/).map((p) => p.trim());
+      if (parts.length === 1) {
+        const m = parts[0].match(/^(['"])([A-Za-z0-9_-]+)\1$/);
+        if (m) addTemplate(varName, m[2]);
+        continue;
+      }
+      let current = [''];
+      let valid = true;
+      for (const part of parts) {
+        const strMatch = part.match(/^(['"])([^'"]*)\1$/);
+        if (strMatch) {
+          current = current.map((c) => c + strMatch[2]);
+        } else if (/^[A-Za-z0-9_]+$/.test(part) && varTemplates.has(part)) {
+          const next = [];
+          for (const c of current) {
+            for (const t of varTemplates.get(part)) next.push(c + t);
+          }
+          current = next;
+        } else if (/^[A-Za-z0-9_.[\]'"]+$/.test(part)) {
+          current = current.map((c) => c + '\0DYN\0');
+        } else {
+          valid = false;
+          break;
+        }
+      }
+      if (valid) {
+        for (const tpl of current) addTemplate(varName, tpl);
+      }
+    }
+  }
+  return varTemplates;
+}
+
 
 /** 1-based line number of the first line matching a pattern, or null. */
 function findFirstMatchLine(lines, pattern) {
@@ -876,7 +933,12 @@ export function checkHaravanLiquidContracts(themeDir, options = {}) {
  * reads is reported as dead, which is a smell rather than a refusal.
  */
 export function checkSettingsBinding(themeDir) {
+  const declared = collectDeclaredSettingIds(themeDir);
   const reads = new Map();
+  const recordRead = (id, relativePath) => {
+    if (!reads.has(id)) reads.set(id, new Set());
+    reads.get(id).add(relativePath);
+  };
   for (const directory of SOURCE_DIRECTORIES) {
     for (const absolutePath of listSourceFiles(path.join(themeDir, directory), SOURCE_EXTENSIONS)) {
       const source = readFileIfPresent(absolutePath);
@@ -884,13 +946,39 @@ export function checkSettingsBinding(themeDir) {
       const relativePath = toPosixRelative(themeDir, absolutePath);
       const stripped = source.replace(LIQUID_COMMENT_BLOCK, ' ');
       for (const id of matchSettingReadIds(stripped)) {
-        if (!reads.has(id)) reads.set(id, new Set());
-        reads.get(id).add(relativePath);
+        recordRead(id, relativePath);
+      }
+      const htmlClean = stripped.replace(HTML_COMMENT_BLOCK, ' ');
+      for (const attrMatch of htmlClean.matchAll(SETTING_ID_ATTR_PATTERN)) {
+        recordRead(attrMatch[2], relativePath);
+      }
+      const varTemplates = resolveDynamicTemplatesInFile(stripped);
+      if (varTemplates.size > 0 && declared.size > 0) {
+        const dynVars = new Set();
+        for (const m of stripped.matchAll(/(?<![\w.$])settings\[\s*([A-Za-z_][A-Za-z0-9_]*)\s*\]/g)) {
+          dynVars.add(m[1]);
+        }
+        for (const m of htmlClean.matchAll(SETTING_ID_DYN_ATTR_PATTERN)) {
+          dynVars.add(m[2]);
+        }
+        for (const varName of dynVars) {
+          const tpls = varTemplates.get(varName);
+          if (!tpls) continue;
+          for (const tpl of tpls) {
+            const pattern = tpl
+              .split('\0DYN\0')
+              .map((seg) => seg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+              .join('[A-Za-z0-9_-]+');
+            const re = new RegExp(`^${pattern}$`);
+            for (const id of declared) {
+              if (re.test(id)) recordRead(id, relativePath);
+            }
+          }
+        }
       }
     }
   }
 
-  const declared = collectDeclaredSettingIds(themeDir);
   const undeclared = [];
   const failures = [];
   for (const id of [...reads.keys()].sort(compareStrings)) {
@@ -914,6 +1002,726 @@ export function checkSettingsBinding(themeDir) {
     .map((id) => ({ id }));
 
   return { ok: failures.length === 0, undeclared, dead, failures };
+}
+
+const F1GENZ_CONTENT_SETTING_TYPES = new Set([
+  'text', 'textarea', 'image_picker', 'link_list', 'collection', 'blog', 'page',
+]);
+const F1GENZ_HSTATIC_HTTPS_RE = /^https:\/\/[a-z0-9.-]*hstatic\.net\/.+/i;
+const F1GENZ_OTHER_HTTPS_RE = /^https:\/\/[a-z0-9.-]+\/.+/i;
+const F1GENZ_THEME_SCOPED_URL_RE = /\/themes\/[^/]+\/[^/]+\//i;
+const F1GENZ_SOCIAL_ID_RE = /(facebook|instagram|tiktok|youtube|zalo|shopee|lazada)/i;
+const F1GENZ_TECHNICAL_LITERAL_RE = /^\s*-?\d+(\.\d+)?(px|rem|em|%|vh|vw|s|ms|deg|fr)?\s*$|^#[0-9a-f]{3,8}$|^(true|false)$/i;
+
+function maskRangesPreserveNewlines(str, regex) {
+  return str.replace(regex, (m) => m.replace(/[^\r\n]/g, ' '));
+}
+
+function isBareSocialDomainUrl(rawVal) {
+  if (typeof rawVal !== 'string') return false;
+  const trimmed = rawVal.trim();
+  if (!trimmed || trimmed === '#') return false;
+  let candidate = trimmed;
+  if (candidate.startsWith('//')) {
+    candidate = `https:${candidate}`;
+  } else if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(candidate) && /^[a-z0-9.-]+\.[a-z]{2,}(?:\/.*)?$/i.test(candidate)) {
+    candidate = `https://${candidate}`;
+  }
+  try {
+    const parsed = new URL(candidate);
+    if (!parsed.hostname || !parsed.hostname.includes('.')) return false;
+    return (parsed.pathname === '' || parsed.pathname === '/') && !parsed.search && !parsed.hash;
+  } catch {
+    return false;
+  }
+}
+
+function getContentSettingFromCondition(cond, kind, settingsVars, varTemplates, settingMap) {
+  const trimmed = cond.trim();
+  if (!trimmed) return null;
+  const clauses = trimmed.split(/\b(?:and|or)\b/i).map((c) => c.trim()).filter(Boolean);
+  let matchedSettingId = null;
+  for (const clause of clauses) {
+    const settingMatch = clause.match(/settings(?:\.([A-Za-z0-9_]+)|\[\s*(?:['"]([A-Za-z0-9_-]+)['"]|([A-Za-z0-9_]+))\s*\])/);
+    let ref = settingMatch ? (settingMatch[1] || settingMatch[2] || settingMatch[3]) : null;
+    let exprEnd = settingMatch ? settingMatch.index + settingMatch[0].length : 0;
+    let exprStart = settingMatch ? settingMatch.index : 0;
+    if (!ref) {
+      for (const m of clause.matchAll(/(?<![.\w])([A-Za-z_][A-Za-z0-9_]*)(?![.\w[])/g)) {
+        if (settingsVars.has(m[1])) {
+          ref = settingsVars.get(m[1]);
+          exprStart = m.index;
+          exprEnd = m.index + m[0].length;
+          break;
+        }
+      }
+    }
+    if (!ref) return null;
+    let isContentSetting = false;
+    let resolvedId = ref;
+    if (settingMap.has(ref)) {
+      isContentSetting = F1GENZ_CONTENT_SETTING_TYPES.has(settingMap.get(ref).type);
+    } else if (varTemplates && varTemplates.has(ref)) {
+      for (const tpl of varTemplates.get(ref)) {
+        const pattern = tpl
+          .split('\0DYN\0')
+          .map((seg) => seg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+          .join('[A-Za-z0-9_]+');
+        const re = new RegExp(`^${pattern}$`);
+        for (const [sid, sObj] of settingMap.entries()) {
+          if (re.test(sid) && F1GENZ_CONTENT_SETTING_TYPES.has(sObj.type)) {
+            isContentSetting = true;
+            resolvedId = sid;
+            break;
+          }
+        }
+      }
+    } else if (!/(?:^|_)(enable|disable|show|hide|autoplay)(?:_|$)/i.test(ref)) {
+      isContentSetting = true;
+    }
+    if (!isContentSetting) return null;
+    const afterTrim = clause.slice(exprEnd).trim();
+    const beforeTrim = clause.slice(0, exprStart).trim();
+    if (kind === 'if' || kind === 'elsif') {
+      if (
+        /^!=\s*(?:blank|nil|empty|''|"")(?:\b|$)/.test(afterTrim) ||
+        /^\.[A-Za-z0-9_.]+\s*!=\s*(?:blank|nil|empty|''|"")(?:\b|$)/.test(afterTrim) ||
+        /^\.size\s*>\s*0\b/.test(afterTrim)
+      ) {
+        matchedSettingId = matchedSettingId || resolvedId;
+      } else if (afterTrim === '' && !/(?:==|!=|<=|>=|<|>|contains)\s*$/.test(beforeTrim)) {
+        matchedSettingId = matchedSettingId || resolvedId;
+      } else {
+        return null;
+      }
+    } else if (kind === 'unless') {
+      if (/^==\s*(?:blank|nil|empty|''|"")(?:\b|$)/.test(afterTrim)) {
+        matchedSettingId = matchedSettingId || resolvedId;
+      } else {
+        return null;
+      }
+    }
+  }
+  return matchedSettingId;
+}
+
+/**
+ * The company branch a theme workspace declares in .workspace-context.json ("f1genz", "devs2", ...),
+ * or null when the workspace declares none.
+ */
+export function readWorkspaceBranch(themeDir) {
+  for (const name of ['.workspace-context.json', 'workspace-context.json']) {
+    const parsed = parseJsonDocument(readFileIfPresent(path.join(themeDir, name)) ?? '');
+    if (parsed.ok && parsed.value && typeof parsed.value.branch === 'string' && parsed.value.branch.trim()) {
+      return parsed.value.branch.trim().toLowerCase();
+    }
+  }
+  return null;
+}
+
+/**
+ * F1genz house rules for settings_schema.json and the Liquid that reads it. They are brand
+ * conventions, not platform contracts, so they run only on a workspace whose
+ * .workspace-context.json names the f1genz branch (or when options.branch says so); any other
+ * workspace gets an empty, skipped result.
+ */
+export function checkF1genzSettingsSchema(themeDir, options = {}) {
+  const errors = [];
+  const warnings = [];
+  const info = [];
+  const branch = typeof options.branch === 'string' ? options.branch.trim().toLowerCase() : readWorkspaceBranch(themeDir);
+  if (branch !== 'f1genz') {
+    return { ok: true, errors, warnings, info, failures: errors, skipped: 'workspace is not on the f1genz branch' };
+  }
+  const normalizeFinding = (rule, message, meta = {}) => {
+    const out = { rule, message };
+    if (meta.file !== undefined && meta.file !== null) {
+      out.file = String(meta.file).replace(/\\/g, '/');
+    }
+    if (typeof meta.line === 'number' && meta.line > 0) {
+      out.line = meta.line;
+    }
+    const k = meta.id !== undefined ? meta.id : meta.key;
+    if (k !== undefined && k !== null) {
+      out.id = String(k);
+      out.key = String(k);
+    }
+    return out;
+  };
+  const fail = (rule, message, meta) => errors.push(normalizeFinding(rule, message, meta));
+  const warn = (rule, message, meta) => warnings.push(normalizeFinding(rule, message, meta));
+
+  const schemaPath = path.join(themeDir, 'config', 'settings_schema.json');
+  const rawSchemaText = readFileIfPresent(schemaPath);
+  if (rawSchemaText === null) {
+    return { ok: true, errors, warnings, info, failures: errors };
+  }
+  const parsedSchema = parseJsonDocument(rawSchemaText);
+  if (!parsedSchema.ok || !Array.isArray(parsedSchema.value)) {
+    return { ok: true, errors, warnings, info, failures: errors };
+  }
+  const schema = parsedSchema.value;
+
+  const residueWordsRaw = Array.isArray(options.residueWords)
+    ? options.residueWords
+    : typeof options.residueWords === 'string'
+      ? options.residueWords.split(',')
+      : [];
+  const residuePatterns = [];
+  const seenResidue = new Set();
+  for (const rawWord of residueWordsRaw) {
+    const norm = String(rawWord).normalize('NFC').trim();
+    if (!norm) continue;
+    const lower = norm.toLowerCase();
+    if (seenResidue.has(lower)) continue;
+    seenResidue.add(lower);
+    const escaped = norm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    residuePatterns.push({
+      word: norm,
+      regex: new RegExp(`(?<![\\p{L}\\p{N}_])${escaped}(?![\\p{L}\\p{N}_])`, 'iu'),
+    });
+  }
+  const checkResidue = (str, fieldDesc, meta) => {
+    if (!residuePatterns.length || typeof str !== 'string' || !str) return;
+    const norm = str.normalize('NFC');
+    for (const { word, regex } of residuePatterns) {
+      if (regex.test(norm)) {
+        fail(
+          'residue-vocabulary',
+          `${meta.file}:${meta.line || 1} (${meta.id || 'schema'}) ${fieldDesc} contains donor residue vocabulary '${word}': "${str.slice(0, 80)}"`,
+          meta,
+        );
+      }
+    }
+  };
+
+  const idLines = new Map();
+  const groupLines = new Map();
+  for (const m of rawSchemaText.matchAll(/"id"\s*:\s*"([^"]+)"/g)) {
+    if (!idLines.has(m[1])) idLines.set(m[1], lineOfIndex(rawSchemaText, m.index));
+  }
+  for (const m of rawSchemaText.matchAll(/"name"\s*:\s*"([^"]+)"/g)) {
+    if (!groupLines.has(m[1])) groupLines.set(m[1], []);
+    groupLines.get(m[1]).push(lineOfIndex(rawSchemaText, m.index));
+  }
+  const getSettingLine = (id) => idLines.get(id) || 1;
+  const getGroupLine = (name, occ = 1) => {
+    const list = groupLines.get(name);
+    if (!list || !list.length) return 1;
+    return list[Math.min(occ - 1, list.length - 1)] || 1;
+  };
+
+  const sectionNames = new Map();
+  const groupNumberMap = new Map();
+  const settingMap = new Map();
+
+  for (const [sectionIndex, section] of schema.entries()) {
+    if (!isPlainObject(section)) continue;
+    if (typeof section.name === 'string' && section.name) {
+      const prevCount = sectionNames.get(section.name) || 0;
+      sectionNames.set(section.name, prevCount + 1);
+      const groupLine = getGroupLine(section.name, prevCount + 1);
+      if (prevCount > 0) {
+        fail('duplicate-group', `duplicate section name: ${section.name}`, {
+          file: 'config/settings_schema.json',
+          line: groupLine,
+          id: section.name,
+        });
+      }
+      const numMatch = section.name.match(/^\s*(\d+)\s*[.:\-)]/);
+      if (numMatch) {
+        const groupNum = numMatch[1];
+        if (groupNumberMap.has(groupNum) && groupNumberMap.get(groupNum) !== section.name) {
+          fail(
+            'duplicate-group',
+            `duplicate numbered group prefix '${groupNum}.': "${section.name}" conflicts with "${groupNumberMap.get(groupNum)}"`,
+            { file: 'config/settings_schema.json', line: groupLine, id: section.name },
+          );
+        } else {
+          groupNumberMap.set(groupNum, section.name);
+        }
+      }
+    }
+    if (!Array.isArray(section.settings)) continue;
+    for (const [settingIndex, setting] of section.settings.entries()) {
+      if (!isPlainObject(setting)) continue;
+      const location = `${section.name || sectionIndex + 1} setting ${settingIndex + 1}`;
+      const settingLine = setting.id ? getSettingLine(setting.id) : getGroupLine(section.name || '', 1);
+      if (setting.type === 'header' || setting.type === 'paragraph') {
+        if (setting.content) {
+          checkResidue(setting.content, 'content', {
+            file: 'config/settings_schema.json',
+            line: settingLine,
+            id: section.name || location,
+          });
+        }
+        continue;
+      }
+      if (!setting.id || typeof setting.id !== 'string') continue;
+      if (!settingMap.has(setting.id)) {
+        settingMap.set(setting.id, { ...setting, sectionName: section.name, sectionIndex, line: settingLine });
+      }
+      checkResidue(setting.label, 'label', { file: 'config/settings_schema.json', line: settingLine, id: setting.id });
+      checkResidue(setting.info, 'info', { file: 'config/settings_schema.json', line: settingLine, id: setting.id });
+      if (typeof setting.default === 'string') {
+        checkResidue(setting.default, 'default', { file: 'config/settings_schema.json', line: settingLine, id: setting.id });
+      }
+      if ((setting.type === 'select' || setting.type === 'radio') && Array.isArray(setting.options)) {
+        const validValues = new Set();
+        for (const opt of setting.options) {
+          if (isPlainObject(opt)) {
+            if (opt.value !== undefined) validValues.add(String(opt.value));
+            if (typeof opt.label === 'string') {
+              checkResidue(opt.label, 'options[].label', {
+                file: 'config/settings_schema.json',
+                line: settingLine,
+                id: setting.id,
+              });
+            }
+          }
+        }
+        if (setting.default !== undefined && setting.default !== null) {
+          const defStr = String(setting.default);
+          if (!validValues.has(defStr)) {
+            fail(
+              'select-default-invalid',
+              `${location} (${setting.id}) default '${defStr}' is not in options[].value (${[...validValues].join(', ')})`,
+              { file: 'config/settings_schema.json', line: settingLine, id: setting.id },
+            );
+          }
+        }
+      }
+    }
+  }
+
+  const settingsDataPath = path.join(themeDir, 'config', 'settings_data.json');
+  const rawDataText = readFileIfPresent(settingsDataPath) ?? '';
+  const parsedData = rawDataText ? parseJsonDocument(rawDataText) : { ok: false, value: null };
+  const settingsData = parsedData.ok && isPlainObject(parsedData.value) ? parsedData.value : null;
+  const dataKeyLines = new Map();
+  for (const m of rawDataText.matchAll(/"([^"]+)"\s*:/g)) {
+    if (!dataKeyLines.has(m[1])) dataKeyLines.set(m[1], lineOfIndex(rawDataText, m.index));
+  }
+  const getDataKeyLine = (key) => dataKeyLines.get(key) || 1;
+
+  const dataScopes = [];
+  if (settingsData) {
+    if (isPlainObject(settingsData.current)) {
+      dataScopes.push({ scopeName: 'current', values: settingsData.current });
+    }
+    if (isPlainObject(settingsData.presets)) {
+      for (const [presetName, presetObj] of Object.entries(settingsData.presets)) {
+        if (isPlainObject(presetObj)) {
+          dataScopes.push({ scopeName: `presets.${presetName}`, values: presetObj });
+        }
+      }
+    }
+  }
+
+  const reportedOrphans = new Set();
+  for (const { scopeName, values } of dataScopes) {
+    for (const [k, val] of Object.entries(values)) {
+      const dataLine = getDataKeyLine(k);
+      if (typeof val === 'string') {
+        checkResidue(val, `settings_data.json (${scopeName})`, {
+          file: 'config/settings_data.json',
+          line: dataLine,
+          id: k,
+        });
+      }
+      const setting = settingMap.get(k);
+      if (!setting) {
+        if (!reportedOrphans.has(k)) {
+          reportedOrphans.add(k);
+          warn('data-orphan-key', `settings_data.json key '${k}' (${scopeName}) does not exist in settings_schema.json`, {
+            file: 'config/settings_data.json',
+            line: dataLine,
+            id: k,
+          });
+        }
+        continue;
+      }
+      if ((setting.type === 'select' || setting.type === 'radio') && Array.isArray(setting.options)) {
+        if (val !== undefined && val !== null) {
+          const validValues = new Set(
+            setting.options
+              .filter((o) => isPlainObject(o) && o.value !== undefined)
+              .map((o) => String(o.value)),
+          );
+          const valStr = String(val);
+          if (!validValues.has(valStr)) {
+            fail(
+              'select-value-invalid',
+              `settings_data.json (${scopeName}) key '${k}' has value '${valStr}' not in schema options[].value (${[...validValues].join(', ')})`,
+              { file: 'config/settings_data.json', line: dataLine, id: k },
+            );
+          }
+        }
+      }
+    }
+  }
+
+  const currentDataObj = settingsData && isPlainObject(settingsData.current) ? settingsData.current : {};
+  for (const [id, setting] of settingMap.entries()) {
+    const schemaLine = setting.line || 1;
+    if (setting.type === 'image_picker') {
+      const defVal = typeof setting.default === 'string' ? setting.default.trim() : '';
+      const curVal = typeof currentDataObj[id] === 'string' ? currentDataObj[id].trim() : '';
+      let hasValidDataUrl = false;
+      if (defVal !== '') {
+        if (F1GENZ_HSTATIC_HTTPS_RE.test(defVal)) {
+          if (F1GENZ_THEME_SCOPED_URL_RE.test(defVal)) {
+            warn(
+              'image-picker-theme-scoped-url',
+              `image_picker '${id}' default in settings_schema.json uses theme-scoped URL '${defVal}'`,
+              { file: 'config/settings_schema.json', line: schemaLine, id },
+            );
+          }
+        } else if (F1GENZ_OTHER_HTTPS_RE.test(defVal)) {
+          fail(
+            'image-picker-bare-default',
+            `image_picker '${id}' default in settings_schema.json uses non-hstatic https host '${defVal}' — must be full https://...hstatic.net/... URL`,
+            { file: 'config/settings_schema.json', line: schemaLine, id },
+          );
+        } else {
+          fail(
+            'image-picker-bare-default',
+            `image_picker '${id}' default in settings_schema.json has invalid/bare value '${defVal}' — must be full https://...hstatic.net/... URL`,
+            { file: 'config/settings_schema.json', line: schemaLine, id },
+          );
+        }
+      }
+      const seenThemeScopedData = new Set();
+      for (const { scopeName, values } of dataScopes) {
+        if (!(id in values)) continue;
+        const rawVal = values[id];
+        const val = typeof rawVal === 'string' ? rawVal.trim() : '';
+        if (val === '') continue;
+        const dataLine = getDataKeyLine(id);
+        if (F1GENZ_HSTATIC_HTTPS_RE.test(val)) {
+          hasValidDataUrl = true;
+          if (F1GENZ_THEME_SCOPED_URL_RE.test(val) && !seenThemeScopedData.has(val)) {
+            seenThemeScopedData.add(val);
+            warn(
+              'image-picker-theme-scoped-url',
+              `image_picker '${id}' (${scopeName}) in settings_data.json uses theme-scoped URL '${val}'`,
+              { file: 'config/settings_data.json', line: dataLine, id },
+            );
+          }
+        } else if (F1GENZ_OTHER_HTTPS_RE.test(val)) {
+          hasValidDataUrl = true;
+          fail(
+            'image-picker-bare-value',
+            `image_picker '${id}' (${scopeName}) in settings_data.json uses non-hstatic https host '${val}' — must be full https://...hstatic.net/... URL`,
+            { file: 'config/settings_data.json', line: dataLine, id },
+          );
+        } else {
+          fail(
+            'image-picker-bare-value',
+            `image_picker '${id}' (${scopeName}) in settings_data.json has bare/invalid value '${val}'`,
+            { file: 'config/settings_data.json', line: dataLine, id },
+          );
+        }
+      }
+      if (defVal === '' && hasValidDataUrl) {
+        const sampleUrl = curVal || 'https://cdn.hstatic.net/...';
+        fail(
+          'image-picker-default-missing',
+          `image_picker '${id}' has valid URL in settings_data.json but empty 'default' in settings_schema.json — copy '${sampleUrl}' into schema 'default'`,
+          { file: 'config/settings_schema.json', line: schemaLine, id },
+        );
+      } else if (defVal === '' && curVal === '' && !hasValidDataUrl) {
+        warn(
+          'image-picker-empty',
+          `image_picker '${id}' is empty in both settings_schema.json default and settings_data.json`,
+          { file: 'config/settings_schema.json', line: schemaLine, id },
+        );
+      }
+    }
+    if (setting.type === 'text' && F1GENZ_SOCIAL_ID_RE.test(id)) {
+      if (typeof setting.default === 'string' && isBareSocialDomainUrl(setting.default)) {
+        warn(
+          'social-bare-domain',
+          `social setting '${id}' default in settings_schema.json is a bare domain placeholder '${setting.default.trim()}'`,
+          { file: 'config/settings_schema.json', line: schemaLine, id },
+        );
+      }
+      for (const { scopeName, values } of dataScopes) {
+        if (typeof values[id] === 'string' && isBareSocialDomainUrl(values[id])) {
+          const dataLine = getDataKeyLine(id);
+          warn(
+            'social-bare-domain',
+            `social setting '${id}' (${scopeName}) in settings_data.json is a bare domain placeholder '${values[id].trim()}'`,
+            { file: 'config/settings_data.json', line: dataLine, id },
+          );
+        }
+      }
+    }
+  }
+
+  const liquidFolders = ['layout', 'snippets', 'templates', 'assets', 'sections'];
+  const liquidFiles = liquidFolders
+    .flatMap((folder) => listSourceFiles(path.join(themeDir, folder), new Set(['.liquid'])))
+    .map((file) => ({
+      file,
+      relFile: toPosixRelative(themeDir, file),
+      text: readFileIfPresent(file) ?? '',
+    }));
+
+  const referencedIds = new Set();
+  const dynamicReferencedIds = new Set();
+  const annotatedFilesById = new Map();
+
+  for (const { relFile, text } of liquidFiles) {
+    const isStorefrontLiquid = /^(layout|templates|sections|snippets)\//.test(relFile);
+    let cleanText = maskRangesPreserveNewlines(text, /\{%[-~]?\s*comment\s*[-~]?%\}[\s\S]*?\{%[-~]?\s*endcomment\s*[-~]?%\}/g);
+    cleanText = maskRangesPreserveNewlines(cleanText, /\{%[-~]?\s*raw\s*[-~]?%\}[\s\S]*?\{%[-~]?\s*endraw\s*[-~]?%\}/g);
+    // Whole tag bodies, not lines: an output or {% liquid %} block may span several lines.
+    for (const tag of cleanText.matchAll(/\{\{[\s\S]*?\}\}|\{%[\s\S]*?%\}/g)) {
+      for (const match of tag[0].matchAll(/settings\.([A-Za-z0-9_]+)|settings\[\s*['"]([A-Za-z0-9_-]+)['"]\s*\]/g)) {
+        referencedIds.add(match[1] || match[2]);
+      }
+    }
+    const varTemplates = resolveDynamicTemplatesInFile(cleanText);
+    for (const m of cleanText.matchAll(/settings\[\s*([A-Za-z0-9_]+)\s*\]/g)) {
+      const tpls = varTemplates.get(m[1]);
+      if (!tpls) continue;
+      for (const tpl of tpls) {
+        const pattern = tpl
+          .split('\0DYN\0')
+          .map((seg) => seg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+          .join('[A-Za-z0-9_]+');
+        const family = new RegExp(`^${pattern}$`);
+        for (const id of settingMap.keys()) {
+          if (family.test(id)) dynamicReferencedIds.add(id);
+        }
+      }
+    }
+
+    cleanText = maskRangesPreserveNewlines(cleanText, /<!--[\s\S]*?-->/g);
+    const settingsVars = new Map();
+    for (const m of cleanText.matchAll(/\{%[-~]?\s*assign\s+([A-Za-z0-9_]+)\s*=\s*settings(?:\.([A-Za-z0-9_]+)|\[\s*(?:['"]([A-Za-z0-9_-]+)['"]|([A-Za-z0-9_]+))\s*\])\s*(?:\|[\s\S]*?)?[-~]?%\}/g)) {
+      settingsVars.set(m[1], m[2] || m[3] || m[4]);
+    }
+    for (const m of cleanText.matchAll(/\{%[-~]?\s*capture\s+([A-Za-z0-9_]+)\s*[-~]?%\}\s*\{\{[-~]?\s*settings(?:\.([A-Za-z0-9_]+)|\[\s*(?:['"]([A-Za-z0-9_-]+)['"]|([A-Za-z0-9_]+))\s*\])[\s\S]*?\}\}\s*\{%[-~]?\s*endcapture\s*[-~]?%\}/g)) {
+      settingsVars.set(m[1], m[2] || m[3] || m[4]);
+    }
+
+    if (isStorefrontLiquid) {
+      for (const tagMatch of cleanText.matchAll(/(\{\{[-~]?([\s\S]*?)[-~]?}}|\{%[-~]?([\s\S]*?)[-~]?%\})/g)) {
+        const inner = tagMatch[2] !== undefined ? tagMatch[2] : tagMatch[3];
+        const tagOffset = tagMatch.index;
+        if (inner.includes('default')) {
+          for (const dm of inner.matchAll(/(?:^|[=,(\s])(settings\.[A-Za-z0-9_]+|settings\[\s*(?:['"][A-Za-z0-9_-]+['"]|[A-Za-z0-9_]+)\s*\]|[A-Za-z0-9_.[\]'"]+)((?:\s*\|\s*[A-Za-z0-9_]+(?:\s*:\s*(?:'[^']*'|"[^"]*"|[^|]+))?)*?)\s*\|\s*default\s*:\s*('([^']*)'|"([^"]*)"|([^\s|}]+))/g)) {
+            const primary = dm[1].trim();
+            let settingKey = null;
+            const directMatch = primary.match(/^settings(?:\.([A-Za-z0-9_]+)|\[\s*(?:['"]([A-Za-z0-9_-]+)['"]|([A-Za-z0-9_]+))\s*\])$/);
+            if (directMatch) {
+              settingKey = directMatch[1] || directMatch[2] || directMatch[3];
+            } else if (/^[A-Za-z0-9_]+$/.test(primary) && settingsVars.has(primary)) {
+              settingKey = settingsVars.get(primary);
+            }
+            if (!settingKey) continue;
+            const isQuoted = dm[3].startsWith("'") || dm[3].startsWith('"');
+            const literalVal = dm[4] !== undefined ? dm[4] : (dm[5] !== undefined ? dm[5] : dm[6]);
+            const line = lineOfIndex(cleanText, tagOffset + dm.index);
+            if (isQuoted && literalVal.trim() === '') continue;
+            const isTechnical = F1GENZ_TECHNICAL_LITERAL_RE.test(literalVal.trim());
+            if (!isQuoted && !isTechnical) continue;
+            const fallbackKind = isTechnical ? 'technical literal' : 'hardcoded literal';
+            fail(
+              'liquid-hardcoded-fallback',
+              `${relFile}:${line} ${fallbackKind} fallback on setting '${settingKey}': ${primary} | default: ${dm[3]}`,
+              { file: relFile, line, id: settingKey },
+            );
+          }
+        }
+        const innerNoStrings = inner.replace(/'[^']*'|\"[^\"]*\"/g, (s) => ' '.repeat(s.length));
+        for (const hm of inner.matchAll(/(?<![.\w])(linklists|collections|blogs|pages)\[\s*(['"])([^'"]+)\2\s*\]/g)) {
+          const obj = hm[1];
+          const handle = hm[3];
+          if (obj === 'collections' && handle === 'all') continue;
+          const line = lineOfIndex(cleanText, tagOffset + hm.index);
+          const expr = `${obj}['${handle}']`;
+          fail(
+            'liquid-hardcoded-handle',
+            `${relFile}:${line} hardcoded ${obj} handle '${handle}' (${expr}); must read handle from a schema setting`,
+            { file: relFile, line, id: expr },
+          );
+        }
+        for (const dm of innerNoStrings.matchAll(/(?<![.\w])(linklists|collections|blogs|pages)\.([A-Za-z0-9_-]+)/g)) {
+          const obj = dm[1];
+          const prop = dm[2];
+          if (['first', 'last', 'size', 'empty', 'blank'].includes(prop)) continue;
+          if (obj === 'collections' && prop === 'all') continue;
+          const line = lineOfIndex(cleanText, tagOffset + dm.index);
+          const expr = `${obj}.${prop}`;
+          fail(
+            'liquid-hardcoded-handle',
+            `${relFile}:${line} hardcoded ${obj} handle '${prop}' (${expr}); must read handle from a schema setting`,
+            { file: relFile, line, id: expr },
+          );
+        }
+      }
+    }
+
+    const guardRanges = [];
+    const stack = [];
+    const childBlockRanges = [];
+    const tagRe = /\{%[-~]?\s*(if|unless|elsif|else|endif)\b([\s\S]*?)[-~]?%\}/g;
+    let m;
+    while ((m = tagRe.exec(cleanText)) !== null) {
+      const kw = m[1];
+      const cond = m[2] || '';
+      const startIdx = m.index;
+      const endIdx = tagRe.lastIndex;
+      const tagLine = lineOfIndex(cleanText, startIdx);
+      if (kw === 'if' || kw === 'unless') {
+        stack.push({
+          kind: kw,
+          openStart: startIdx,
+          openLine: tagLine,
+          branches: [{ type: kw, cond, bodyStart: endIdx, bodyEnd: endIdx, tagLine }],
+        });
+      } else if (kw === 'elsif') {
+        if (stack.length > 0) {
+          const top = stack[stack.length - 1];
+          top.branches[top.branches.length - 1].bodyEnd = startIdx;
+          top.branches.push({ type: 'elsif', cond, bodyStart: endIdx, bodyEnd: endIdx, tagLine });
+        }
+      } else if (kw === 'else') {
+        if (stack.length > 0) {
+          const top = stack[stack.length - 1];
+          top.branches[top.branches.length - 1].bodyEnd = startIdx;
+          top.branches.push({ type: 'else', cond: '', bodyStart: endIdx, bodyEnd: endIdx, tagLine });
+        }
+      } else if (kw === 'endif') {
+        if (stack.length > 0) {
+          const top = stack.pop();
+          top.branches[top.branches.length - 1].bodyEnd = startIdx;
+          top.closeEnd = endIdx;
+          for (const b of top.branches) {
+            if (b.cond) guardRanges.push({ kw: b.type, cond: b.cond, start: b.bodyStart, end: b.bodyEnd });
+          }
+          if (isStorefrontLiquid) {
+            const elseBranch = top.branches.find((b) => b.type === 'else');
+            if (elseBranch) {
+              let matchedSetting = null;
+              for (const b of top.branches) {
+                if (b.type === 'else') break;
+                const sId = getContentSettingFromCondition(b.cond, b.type, settingsVars, varTemplates, settingMap);
+                if (sId) {
+                  matchedSetting = sId;
+                  break;
+                }
+              }
+              if (matchedSetting) {
+                let bodySlice = cleanText.slice(elseBranch.bodyStart, elseBranch.bodyEnd);
+                const baseOffset = elseBranch.bodyStart;
+                const chars = bodySlice.split('');
+                for (const cr of childBlockRanges) {
+                  if (cr.start >= elseBranch.bodyStart && cr.end <= elseBranch.bodyEnd) {
+                    for (let k = cr.start - baseOffset; k < cr.end - baseOffset; k += 1) {
+                      if (chars[k] !== '\n' && chars[k] !== '\r') chars[k] = ' ';
+                    }
+                  }
+                }
+                bodySlice = chars.join('');
+                const noSvg = bodySlice.replace(/<svg\b[\s\S]*?<\/svg>/gi, ' ');
+                const noLiquid = noSvg.replace(/\{\{[\s\S]*?\}\}/g, ' ').replace(/\{%[\s\S]*?%\}/g, ' ');
+                let literalAttr = null;
+                for (const tm of noLiquid.matchAll(/<[A-Za-z0-9_-]+([^>]*)>/g)) {
+                  const hm = tm[1].match(/\b(href|src)\s*=\s*(['"])([\s\S]*?)\2/i);
+                  if (hm && hm[3].trim() !== '') {
+                    literalAttr = `${hm[1]}="${hm[3].trim()}"`;
+                    break;
+                  }
+                }
+                const textOnly = noLiquid.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/gi, ' ').replace(/\s+/g, ' ').trim();
+                const hasHardcodedText =
+                  /[\p{L}\p{N}]/u.test(textOnly) ||
+                  (textOnly === '#' && !/\{\{|\{%/.test(noSvg));
+                if (hasHardcodedText || literalAttr) {
+                  const snippetDesc = literalAttr || `"${textOnly.slice(0, 70)}"`;
+                  fail(
+                    'liquid-hardcoded-fallback',
+                    `${relFile}:${elseBranch.tagLine} hardcoded {% else %} fallback for setting '${matchedSetting}': ${snippetDesc}`,
+                    { file: relFile, line: elseBranch.tagLine, id: matchedSetting },
+                  );
+                }
+              }
+            }
+          }
+          childBlockRanges.push({ start: top.openStart, end: top.closeEnd });
+        }
+      }
+    }
+
+    for (const tagMatch of cleanText.matchAll(/<[^>]+>/gs)) {
+      const tag = tagMatch[0];
+      const idMatch = tag.match(/setting-id="([^"]+)"/);
+      const typeMatch = tag.match(/setting-type="([^"]+)"/);
+      if (!idMatch || !typeMatch) continue;
+      const rawId = idMatch[1];
+      const editorType = typeMatch[1];
+      const tagLine = lineOfIndex(cleanText, tagMatch.index);
+      let token = rawId;
+      const isDynamicAttr = rawId.includes('{{') || rawId.includes('{%');
+      if (isDynamicAttr) {
+        const dynMatch = rawId.match(/^\{\{[-~]?\s*([A-Za-z0-9_]+)\s*[-~]?\}\}$/);
+        if (dynMatch) token = dynMatch[1];
+      } else {
+        if (!annotatedFilesById.has(rawId)) {
+          annotatedFilesById.set(rawId, { files: new Set(), firstFile: relFile, firstLine: tagLine });
+        }
+        annotatedFilesById.get(rawId).files.add(relFile);
+      }
+      if (isStorefrontLiquid && ['text', 'textarea', 'image'].includes(editorType)) {
+        const aliasVars = [token];
+        for (const [vName, sRef] of settingsVars.entries()) {
+          if (sRef === token) aliasVars.push(vName);
+        }
+        const activeConds = guardRanges
+          .filter((r) => tagMatch.index >= r.start && tagMatch.index <= r.end)
+          .map((r) => r.cond);
+        const isGuarded = activeConds.some(
+          (c) =>
+            aliasVars.some((tok) => c.includes(tok)) &&
+            (/!=\s*(?:blank|nil|empty|''|"")/.test(c) || /==\s*(?:blank|nil|empty|''|"")/.test(c) || !/(?:==|!=)/.test(c)),
+        );
+        if (!isGuarded) {
+          warn(
+            'setting-id-unguarded',
+            `${relFile}:${tagLine} element with setting-id="${rawId}" (setting-type="${editorType}") is not guarded by if ... != blank`,
+            { file: relFile, line: tagLine, id: token },
+          );
+        }
+      }
+    }
+  }
+
+  for (const [id, infoObj] of annotatedFilesById.entries()) {
+    if (infoObj.files.size >= 2) {
+      warn(
+        'duplicate-setting-id',
+        `setting-id '${id}' is bound in ${infoObj.files.size} files: ${[...infoObj.files].join(', ')}`,
+        { file: infoObj.firstFile, line: infoObj.firstLine, id },
+      );
+    }
+  }
+
+  for (const id of settingMap.keys()) {
+    if (!referencedIds.has(id) && !dynamicReferencedIds.has(id) && !annotatedFilesById.has(id)) {
+      const s = settingMap.get(id);
+      fail('dead-setting', `schema setting has no resolved reference: ${id} ("${s.label}" in "${s.sectionName}")`, {
+        file: 'config/settings_schema.json',
+        line: s.line || 1,
+        id,
+      });
+    }
+  }
+
+  return { ok: errors.length === 0, errors, warnings, info, failures: errors };
 }
 
 /**

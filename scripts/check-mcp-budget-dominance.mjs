@@ -278,10 +278,14 @@ if (CapabilityCatalogue && BrowserControlPort && makeControlPlaneId && problems.
         problems.push(`advertised tool '${advertised}' property '${p}' diverges from '${resolved}': advertised ${specKey(advProps[p])} vs declared ${specKey(declaredProps[p])}`);
       }
     }
-    const advOneOfKey = oneOfKey(advOneOf);
-    const declaredOneOfKey = oneOfKey(declared.oneOf);
-    if (advOneOfKey !== declaredOneOfKey) {
-      problems.push(`advertised tool '${advertised}' oneOf diverges from '${resolved}': advertised ${advOneOfKey ?? '(none)'} vs declared ${declaredOneOfKey ?? '(none)'}`);
+    // The fifth row element is a oneOf list, or { anyOf } for forms that may be combined.
+    const advForms = Array.isArray(advOneOf) ? { oneOf: advOneOf } : { anyOf: advOneOf && advOneOf.anyOf };
+    for (const keyword of ['oneOf', 'anyOf']) {
+      const advKey = oneOfKey(advForms[keyword]);
+      const declaredKey = oneOfKey(declared[keyword]);
+      if (advKey !== declaredKey) {
+        problems.push(`advertised tool '${advertised}' ${keyword} diverges from '${resolved}': advertised ${advKey ?? '(none)'} vs declared ${declaredKey ?? '(none)'}`);
+      }
     }
     if (resolved.startsWith('core.')) {
       advertisedCore.add(resolved);

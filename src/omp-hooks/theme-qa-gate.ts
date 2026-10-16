@@ -46,8 +46,8 @@
  */
 
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
-
 import {
   MODE_LABELS,
   SCOPED_MODES,
@@ -80,6 +80,8 @@ interface ToolResultEvent {
   toolName?: string;
   name?: string;
   input?: Record<string, unknown>;
+  args?: Record<string, unknown>;
+  details?: Record<string, unknown>;
   content?: unknown;
   isError?: boolean;
 }
@@ -191,6 +193,61 @@ const LIQUID_TAG_RE = /\{\{|\{%/;
 
 /** workspaceRoot -> timestamp of the earliest still-unverified edit. */
 const pendingEdits = new Map<string, number>();
+/**
+ * workspaceRoot -> annotation files (absolute path -> mtime) present when the edit armed the gate.
+ * Only these can scope a failing receipt: an annotation written or rewritten after the edit could
+ * point the scope at any element.
+ */
+const annotationsAtArm = new Map<string, Map<string, number>>();
+
+/** Annotation markdown files under the root and one level down (where receipts may also land). */
+function snapshotAnnotations(root: string): Map<string, number> {
+  const out = new Map<string, number>();
+  const scan = (dir: string): void => {
+    try {
+      for (const name of fs.readdirSync(dir)) {
+        if (!name.endsWith(".md")) continue;
+        const full = path.join(dir, name);
+        try {
+          out.set(full, fs.statSync(full).mtimeMs);
+        } catch {
+          /* vanished between readdir and stat */
+        }
+      }
+    } catch {
+      /* no annotations here */
+    }
+  };
+  scan(path.join(root, ".antifan", "annotations"));
+  try {
+    for (const child of fs.readdirSync(root)) {
+      if (child.startsWith(".")) continue;
+      scan(path.join(root, child, ".antifan", "annotations"));
+    }
+  } catch {
+    /* unreadable root */
+  }
+  return out;
+}
+
+/** Whether the receipt's annotation was on disk, unchanged, before the edit that armed the gate. */
+function annotationPredatesEdit(root: string, annotationId: unknown): boolean {
+  if (typeof annotationId !== "string" || !annotationId.trim()) return false;
+  const id = annotationId.trim();
+  const digits = id.startsWith("annotation_") ? id.slice("annotation_".length) : null;
+  for (const [file, mtimeAtArm] of annotationsAtArm.get(root) ?? []) {
+    const name = path.basename(file);
+    let names = name === `${id}.md` || (digits !== null && name === `element_${digits}.md`);
+    try {
+      if (fs.statSync(file).mtimeMs !== mtimeAtArm) continue;
+      if (!names) names = fs.readFileSync(file, "utf8").includes(id);
+    } catch {
+      continue;
+    }
+    if (names) return true;
+  }
+  return false;
+}
 interface HookSettingsFinding {
   rule: string;
   id?: string;
@@ -396,13 +453,45 @@ function extractTargetPaths(input: Record<string, unknown> | undefined): string[
   return Array.from(new Set(targets));
 }
 
-/** extractTargetPaths() may return absolute or cwd-relative paths — normalise to absolute. */
+function expandHome(target: string): string {
+  const trimmed = target.trim();
+  if (trimmed === "~") return os.homedir();
+  if (trimmed.startsWith("~/") || trimmed.startsWith("~\\")) {
+    return path.join(os.homedir(), trimmed.slice(2));
+  }
+  return trimmed;
+}
+
+/** extractTargetPaths() may return absolute, tilde, or cwd-relative paths — normalise to absolute. */
 function toAbsolutePath(target: string, cwd: string): string {
   try {
-    return path.normalize(path.isAbsolute(target) ? target : path.resolve(cwd, target));
+    const expanded = expandHome(target);
+    return path.normalize(path.isAbsolute(expanded) ? expanded : path.resolve(cwd, expanded));
   } catch {
     return target;
   }
+}
+
+function extractResultTargetPaths(event: ToolResultEvent): string[] {
+  const fromInput = extractTargetPaths(event.input ?? event.args);
+  if (fromInput.length > 0) return fromInput;
+  const targets: string[] = [];
+  if (event.details && typeof event.details === "object") {
+    for (const key of ["resolvedPath", "path", "file", "filePath"]) {
+      const v = event.details[key];
+      if (typeof v === "string" && v.trim()) targets.push(v.trim());
+    }
+  }
+  const text = contentText(event.content);
+  if (text) {
+    const headerRe = /^\[([^#\r\n\]]+)#[0-9A-Za-z]{3,8}\]/gm;
+    let m: RegExpExecArray | null;
+    while ((m = headerRe.exec(text)) !== null) {
+      const p = m[1]?.trim();
+      if (p && !p.startsWith("theme-qa-gate")) targets.push(p);
+    }
+  }
+  return Array.from(new Set(targets));
 }
 
 /** POSIX path relative to `root`, or null when the path escapes / equals the root. */
@@ -487,16 +576,85 @@ function isAnnotationWorkspace(dir: string): boolean {
   return false;
 }
 
+const NON_THEME_SEGMENT_RE =
+  /(^|\/)(?:\.claude|\.omp|\.agents)\/(?:agent\/)?(?:managed-)?skills(\/|$)|(^|\/)skills\/[^/]+\/(?:scripts|references|test|tests|fixtures)(\/|$)|(^|\/)(?:scripts\/)?(?:test|tests|__tests__)\/fixtures(\/|$)|(^|\/)fixtures\/(?:good|bad|mock-theme[^/]*)(\/|$)/i;
+const TOP_THEME_REL_RE = /^(layout|templates|sections|snippets|assets|config)\//;
+const NESTED_SUBTHEME_REL_RE =
+  /^(?:(?!(?:scripts|test|tests|__tests__|fixtures|deliverables|plans|reports|docs|scratch|node_modules|\.[^/]+)\/)[^/]+\/)?(layout|templates|sections|snippets|assets|config)\//i;
+
+function hasThemeRootLayout(dir: string): boolean {
+  try {
+    const hasLayoutLiquid =
+      fs.existsSync(path.join(dir, "layout", "theme.liquid")) ||
+      fs.existsSync(path.join(dir, "layout", "theme.bwt"));
+    if (!hasLayoutLiquid) return false;
+    return fs.statSync(path.join(dir, "config")).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function findNearestThemeRoot(absFilePath: string): string | null {
+  let dir = path.dirname(absFilePath);
+  for (let i = 0; i < 12; i++) {
+    if (NON_THEME_SEGMENT_RE.test(dir.replace(/\\/g, "/"))) return null;
+    if (hasThemeRootLayout(dir)) return dir;
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+  return null;
+}
+
 /** Walk up from a file path; a workspace is annotation-bound iff it carries a real annotation store. */
 function findAnnotationWorkspace(filePath: string, cwd: string): string | null {
-  let dir = path.dirname(path.isAbsolute(filePath) ? filePath : path.join(cwd, filePath));
+  const abs = toAbsolutePath(filePath, cwd);
+  if (NON_THEME_SEGMENT_RE.test(abs.replace(/\\/g, "/"))) return null;
+  let dir = path.dirname(abs);
   for (let i = 0; i < 12; i++) {
+    if (NON_THEME_SEGMENT_RE.test(dir.replace(/\\/g, "/"))) return null;
     if (isAnnotationWorkspace(dir)) return dir;
     const parent = path.dirname(dir);
     if (parent === dir) return null;
     dir = parent;
   }
   return null;
+}
+
+function resolveThemeTarget(
+  target: string,
+  cwd: string
+): { absTarget: string; root: string; rel: string } | null {
+  if (!target || DEVICE_PATH_RE.test(target) || target.toLowerCase().startsWith("xd://")) {
+    return null;
+  }
+  const absTarget = toAbsolutePath(target, cwd);
+  const normTarget = absTarget.replace(/\\/g, "/");
+  if (NON_THEME_SEGMENT_RE.test(normTarget)) return null;
+  const root = findAnnotationWorkspace(absTarget, cwd);
+  if (!root || isAntiFanRepo(root)) return null;
+  const rel = toRootRelative(root, absTarget);
+  if (!rel || !THEME_PATH_RE.test(rel)) return null;
+  const concreteThemeRoot = findNearestThemeRoot(absTarget);
+  if (concreteThemeRoot) {
+    const themeRelToRoot = toRootRelative(root, concreteThemeRoot);
+    if (concreteThemeRoot !== path.normalize(root) && themeRelToRoot === null) {
+      return null;
+    }
+    const relToTheme = toRootRelative(concreteThemeRoot, absTarget);
+    if (!relToTheme || !TOP_THEME_REL_RE.test(relToTheme)) return null;
+    return { absTarget, root, rel };
+  }
+  if (hasThemeRootLayout(root)) {
+    if (!TOP_THEME_REL_RE.test(rel)) return null;
+    return { absTarget, root, rel };
+  }
+  const normCwd = path.normalize(cwd);
+  if (hasThemeRootLayout(normCwd) && toRootRelative(normCwd, absTarget) === null) {
+    return null;
+  }
+  if (!NESTED_SUBTHEME_REL_RE.test(rel)) return null;
+  return { absTarget, root, rel };
 }
 
 // --- Edit-mode scoping (the QA half of the Direct/Super-Fast contract) -------
@@ -742,27 +900,69 @@ function reconcileReceipts(): void {
         findings?: HookSettingsFinding[];
         newFailures?: number;
       } | undefined;
+      const verdict = receipt.verdict;
+      const hasAnnotationId = typeof receipt.annotationId === "string" && receipt.annotationId.trim().length > 0;
+      const scopedCriticalCount =
+        typeof receipt.scopedCriticalCount === "number" && Number.isFinite(receipt.scopedCriticalCount)
+          ? receipt.scopedCriticalCount
+          : null;
+      const hasSettingsRegression = Boolean(settingsRatchet && settingsRatchet.ok === false);
+      // The flag is authoritative; the findings scan covers receipts written before it existed.
+      const hasAuthRedirectFinding =
+        receipt.authRedirect === true ||
+        Array.isArray(receipt.findings) &&
+        receipt.findings.some(
+          (f) =>
+            Boolean(
+              f &&
+                typeof f === "object" &&
+                typeof (f as Record<string, unknown>).message === "string" &&
+                ((f as Record<string, unknown>).message as string).includes("AUTH_REDIRECT")
+            )
+        );
+      const isFailVerdict = verdict === "QA_FAILED" || verdict === "FAIL";
+      const isInconclusiveVerdict = verdict === "QA_INCONCLUSIVE" || verdict === "INCONCLUSIVE";
+      const isPassVerdict =
+        verdict === "QA_PASSED" ||
+        verdict === "PASS" ||
+        (verdict === undefined && receipt.passed !== false);
+      // A scoped count is only evidence when the run completed: a DEGRADED execution means
+      // some scanner did not report, so "0 scoped criticals" may just be missing findings.
+      const executionCompleted = receipt.execution === "COMPLETED";
+      const scopedGatePassed =
+        isFailVerdict &&
+        !hasAuthRedirectFinding &&
+        hasAnnotationId &&
+        annotationPredatesEdit(root, receipt.annotationId) &&
+        scopedCriticalCount === 0 &&
+        executionCompleted &&
+        !hasSettingsRegression;
 
-      if (receipt.verdict === "QA_FAILED") {
+      if (verdict === "QA_UNREADABLE" || isInconclusiveVerdict) {
+        // Corrupt/in-flight receipt or inconclusive/evidence-gap receipt
+        // (AUTH_REDIRECT, unmeasured surface, capture timeout, etc.): keep the
+        // gate armed — never clear through automatic receipt reconciliation.
+        if (hasSettingsRegression && settingsRatchet) {
+          const findings = Array.isArray(settingsRatchet.findings) ? settingsRatchet.findings : [];
+          pendingSettingsFindings.set(root, findings);
+        }
+      } else if ((isFailVerdict && !scopedGatePassed) || (!isPassVerdict && !scopedGatePassed)) {
         // DO NOT clear pendingEdits.delete(root). Keep gate armed for ANY failed
         // receipt — including non-Haravan and visual-only failures that carry no
-        // settingsRatchet at all.
-        // Settings findings are cached for reminder formatting only when the
-        // ratchet itself reported new failures.
-        if (settingsRatchet && settingsRatchet.ok === false) {
+        // settingsRatchet at all — unless an annotation-scoped FAIL check proved 0
+        // scoped critical defects (including 0 page-level/selector-less criticals).
+        if (hasSettingsRegression && settingsRatchet) {
           const findings = Array.isArray(settingsRatchet.findings) ? settingsRatchet.findings : [];
           pendingSettingsFindings.set(root, findings);
         } else {
-          // Ratchet clean or absent: drop stale settings findings left over from
-          // an earlier regression so reminders never resurrect resolved data.
           pendingSettingsFindings.delete(root);
         }
-      } else if (receipt.verdict === "QA_UNREADABLE") {
-        // Corrupt/in-flight receipt selected as newest: keep the gate armed —
-        // fail closed rather than trusting an unreadable verdict.
+      } else if (hasSettingsRegression && settingsRatchet) {
+        const findings = Array.isArray(settingsRatchet.findings) ? settingsRatchet.findings : [];
+        pendingSettingsFindings.set(root, findings);
       } else {
-        // QA_PASSED, absent verdict (legacy receipts), or any other value: clear.
-        // An unreadable newest receipt never reaches this branch (QA_UNREADABLE).
+        // QA_PASSED, legacy pass receipt (verdict undefined), or scoped annotation
+        // pass on a QA_FAILED verdict (scopedCriticalCount === 0, no settings regression): clear.
         clearPending(root);
       }
     }
@@ -1103,6 +1303,7 @@ function microRecordQualifies(rec: MicroEditRecord | undefined): rec is MicroEdi
 /** Clear the pending edit AND its micro record AND cached settings findings for one root. */
 function clearPending(root: string): void {
   pendingEdits.delete(root);
+  annotationsAtArm.delete(root);
   microEdits.delete(root);
   pendingSettingsFindings.delete(root);
 }
@@ -1162,6 +1363,7 @@ export default function themeQaGate(pi: HookAPI): void {
   pi.on("session_start", () => {
     try {
       pendingEdits.clear();
+      annotationsAtArm.clear();
       consumedDeclarations.clear();
       microEdits.clear();
       pendingSettingsFindings.clear();
@@ -1184,20 +1386,29 @@ export default function themeQaGate(pi: HookAPI): void {
       const targets = extractTargetPaths(event.input);
       const isDeviceOnly = targets.length > 0 && targets.every((t) => DEVICE_PATH_RE.test(t));
       const isWrite = WRITE_TOOLS.has(toolName) && !isDeviceOnly;
-      const sessionKey = sessionIdOf(ctx) || (ctx?.cwd ?? process.cwd());
+      const cwd = ctx?.cwd ?? process.cwd();
+      const themeTargets: Array<{ absTarget: string; root: string; rel: string }> = [];
+      if (isWrite) {
+        for (const target of targets) {
+          const resolved = resolveThemeTarget(target, cwd);
+          if (!resolved) continue;
+          themeTargets.push(resolved);
+        }
+      }
+      const isThemeWrite = themeTargets.length > 0;
+      const sessionKey = sessionIdOf(ctx) || cwd;
       const st = scopedSessionStates.get(sessionKey);
       const now = Date.now();
       if (st) {
-        if (isWrite) {
+        if (isThemeWrite) {
           st.dirty = true;
           st.editTs = now;
         }
       } else {
-        scopedSessionStates.set(sessionKey, { lastEmittedSeq: null, dirty: isWrite, editTs: isWrite ? now : 0 });
+        scopedSessionStates.set(sessionKey, { lastEmittedSeq: null, dirty: isThemeWrite, editTs: isThemeWrite ? now : 0 });
       }
       if (!isWrite) return;
       if (targets.length === 0) return;
-      const cwd = ctx.cwd ?? process.cwd();
       const absTargets = Array.from(new Set(targets.map((t) => toAbsolutePath(t, cwd))));
       const isMulti = targets.length > 1 || absTargets.length > 1;
       const added = isMulti ? null : addedTextOf(toolName, event.input);
@@ -1205,15 +1416,11 @@ export default function themeQaGate(pi: HookAPI): void {
       if (toolName === "write" && firstTarget !== undefined) {
         maybeQueueChurnHint(firstTarget);
       }
-      for (const target of targets) {
-        const absTarget = toAbsolutePath(target, cwd);
-        const root = findAnnotationWorkspace(absTarget, cwd);
-        if (!root || isAntiFanRepo(root)) continue;
-        const rel = toRootRelative(root, absTarget);
-        if (!rel || !THEME_PATH_RE.test(rel)) continue;
+      for (const { root, rel } of themeTargets) {
         if (!pendingEdits.has(root)) {
           const wasEmpty = pendingEdits.size === 0;
           pendingEdits.set(root, Date.now());
+          annotationsAtArm.set(root, snapshotAnnotations(root));
           // Re-arming after a cleared/expired gate must remind on the next
           // result, not wait out the previous cadence window.
           if (wasEmpty) toolResultCounter = 0;
@@ -1271,7 +1478,7 @@ export default function themeQaGate(pi: HookAPI): void {
       // parses as JSON. Callers parse these (eval `tool.write` joins the parts), so an
       // appended notice turns valid JSON into "Extra data". Gate notices travel through
       // the `context` handler instead.
-      const targets = extractTargetPaths(event.input);
+      const targets = extractResultTargetPaths(event);
       const hasXdTarget = targets.some((t) => t.toLowerCase().startsWith("xd://") || DEVICE_PATH_RE.test(t));
       if (isAntifanTool || hasXdTarget || parsesAsJson(event.content)) {
         return undefined;
@@ -1280,9 +1487,18 @@ export default function themeQaGate(pi: HookAPI): void {
       const chunks: string[] = drainChurnHints();
 
       // The reminder only lands on a mutation-class result. A reminder on every
-      // pending read/grep/bash output spammed ~50 results per turn once armed; it
+      // pending read/grep/glob/bash output spammed ~50 results per turn once armed; it
       // belongs on the result of a write/edit, right where the unverified surface grows.
-      if (pendingEdits.size > 0 && WRITE_TOOLS.has(resultTool) && !contentHasMarker(event.content, GATE_MARKER)) {
+      const cwd = ctx?.cwd ?? process.cwd();
+      const isThemeResultTarget =
+        targets.length === 0 ||
+        targets.some((target) => resolveThemeTarget(target, cwd) !== null);
+      if (
+        pendingEdits.size > 0 &&
+        WRITE_TOOLS.has(resultTool) &&
+        isThemeResultTarget &&
+        !contentHasMarker(event.content, GATE_MARKER)
+      ) {
         toolResultCounter += 1;
         if ((toolResultCounter - 1) % REMIND_EVERY === 0) {
           chunks.push(reminderText());
@@ -1501,6 +1717,7 @@ function readLatestRatchetStats(workspaceRoot: string, minReceiptTime = 0): Ratc
           bypassLog.push({ at: new Date().toISOString(), token: bypass.token });
           consumeDeclaration(bypass);
           pendingEdits.clear();
+          annotationsAtArm.clear();
           microEdits.clear();
           pendingSettingsFindings.clear();
           return outMessages ? { messages: outMessages } : undefined;

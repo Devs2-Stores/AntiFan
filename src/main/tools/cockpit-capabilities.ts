@@ -36,6 +36,7 @@ import { loadOrBootstrapBaseline, evaluateSettingsRatchet, type SettingsFinding 
 import {
   PAGE_DEFS,
   PRODUCT_PAGE_PATH,
+  ARTICLE_PAGE_PATH,
   buildChecklistReport,
   adaptChecklistItems,
   type ThemeChecklistItem,
@@ -66,6 +67,7 @@ export interface CockpitSettingsSummary {
   ok: boolean;
   newFailures: number;
   legacyDebt: number;
+  deadInSchema?: number;
   topViolations: SettingsFinding[];
 }
 
@@ -117,10 +119,10 @@ function resolveRepoRoot(): string {
   return process.cwd();
 }
 
-async function collectHaravanSettingsFindings(workspaceRoot: string): Promise<SettingsFinding[]> {
+async function collectHaravanSettingsFindings(workspaceRoot: string): Promise<{ findings: SettingsFinding[]; deadIds: Array<{ id: string }> }> {
   const repoRoot = resolveRepoRoot();
   const themeChecksPath = path.join(repoRoot, 'scripts', 'lib', 'theme-checks.mjs');
-  if (!fs.existsSync(themeChecksPath)) return [];
+  if (!fs.existsSync(themeChecksPath)) return { findings: [], deadIds: [] };
 
   try {
     const themeChecksModule = await import(pathToFileURL(themeChecksPath).href);
@@ -128,8 +130,10 @@ async function collectHaravanSettingsFindings(workspaceRoot: string): Promise<Se
       checkHaravanLiquidContracts,
       checkSettingsBinding,
       checkAssetReferences,
+      checkF1genzSettingsSchema,
     } = themeChecksModule;
 
+    const hasSettingsSchema = fs.existsSync(path.join(workspaceRoot, 'config', 'settings_schema.json'));
     const haravanContracts = typeof checkHaravanLiquidContracts === 'function'
       ? checkHaravanLiquidContracts(workspaceRoot, { platform: 'haravan' })
       : null;
@@ -139,7 +143,9 @@ async function collectHaravanSettingsFindings(workspaceRoot: string): Promise<Se
     const assets = typeof checkAssetReferences === 'function'
       ? checkAssetReferences(workspaceRoot)
       : null;
-
+    const f1genzSchema = hasSettingsSchema && typeof checkF1genzSettingsSchema === 'function'
+      ? checkF1genzSettingsSchema(workspaceRoot)
+      : null;
     const findings: SettingsFinding[] = [];
 
     if (Array.isArray(haravanContracts?.failures)) {
@@ -193,9 +199,42 @@ async function collectHaravanSettingsFindings(workspaceRoot: string): Promise<Se
       }
     }
 
-    return findings;
+    const deadIds = Array.isArray(settingsBinding?.dead) ? settingsBinding.dead : [];
+    const seenF1genzKeys = new Set<string>();
+    if (Array.isArray(f1genzSchema?.failures)) {
+      for (const f of f1genzSchema.failures) {
+        const file = f.file || 'config/settings_schema.json';
+        const key = `${f.rule}::${f.id || ''}::${file}`;
+        if (seenF1genzKeys.has(key)) continue;
+        seenF1genzKeys.add(key);
+        findings.push({
+          rule: f.rule || 'F1GENZ_SCHEMA_FAILURE',
+          id: f.id,
+          file,
+          line: f.line || 1,
+          message: f.message,
+          detail: f.message,
+        });
+      }
+    }
+    for (const d of deadIds) {
+      if (!d || typeof d.id !== 'string') continue;
+      const file = hasSettingsSchema ? 'config/settings_schema.json' : 'config/settings.html';
+      const key = `dead-setting::${d.id}::${file}`;
+      if (seenF1genzKeys.has(key)) continue;
+      seenF1genzKeys.add(key);
+      findings.push({
+        rule: 'dead-setting',
+        id: d.id,
+        file,
+        line: 1,
+        message: `schema setting has no resolved reference: ${d.id}`,
+        detail: `Declared setting '${d.id}' is never referenced in theme Liquid files`,
+      });
+    }
+    return { findings, deadIds };
   } catch {
-    return [];
+    return { findings: [], deadIds: [] };
   }
 }
 
@@ -204,7 +243,7 @@ export async function resolveSettingsSummary(workspaceRoot?: string): Promise<Co
     return undefined;
   }
   try {
-    const findings = await collectHaravanSettingsFindings(workspaceRoot);
+    const { findings, deadIds } = await collectHaravanSettingsFindings(workspaceRoot);
     // Non-pure ratchet: load baseline FRESH on every call so in-memory ratchet mutation
     // never leaks or drifts across invocations.
     const baseline = loadOrBootstrapBaseline(workspaceRoot, findings);
@@ -212,11 +251,13 @@ export async function resolveSettingsSummary(workspaceRoot?: string): Promise<Co
     const settingsRatchet = evaluateSettingsRatchet(baseline, findings, {
       workspaceRoot,
       persist: false,
+      deadIds,
     });
     return {
       ok: settingsRatchet.ok,
       newFailures: settingsRatchet.newFailures.length,
       legacyDebt: settingsRatchet.legacyDebt.length,
+      ...(typeof settingsRatchet.deadInSchema === 'number' ? { deadInSchema: settingsRatchet.deadInSchema } : {}),
       topViolations: settingsRatchet.newFailures.slice(0, 5),
     };
   } catch {
@@ -266,7 +307,8 @@ function resolveScanRoute(page: string, boundUrl: string, origin: string, explic
       const baseOrigin = new URL(origin).origin;
       const candidate = new URL(explicitUrl.trim(), baseOrigin);
       if (candidate.origin !== baseOrigin) return null;
-      if (pageDef?.routeKind === 'handle-required' && !PRODUCT_PAGE_PATH.test(candidate.pathname)) {
+      const handleRe = page === 'article' ? ARTICLE_PAGE_PATH : PRODUCT_PAGE_PATH;
+      if (pageDef?.routeKind === 'handle-required' && !handleRe.test(candidate.pathname)) {
         return null;
       }
       return candidate.href;
@@ -278,7 +320,8 @@ function resolveScanRoute(page: string, boundUrl: string, origin: string, explic
   if (pageDef.routeKind === 'handle-required') {
     if (!boundUrl) return null;
     try {
-      return PRODUCT_PAGE_PATH.test(new URL(boundUrl).pathname) ? boundUrl : null;
+      const handleRe = page === 'article' ? ARTICLE_PAGE_PATH : PRODUCT_PAGE_PATH;
+      return handleRe.test(new URL(boundUrl).pathname) ? boundUrl : null;
     } catch {
       return null;
     }
@@ -495,9 +538,12 @@ export function registerCockpitCapabilities(
             const candidate = new URL(explicitUrl, new URL(identity.origin).origin);
             if (PRODUCT_PAGE_PATH.test(candidate.pathname)) {
               resolvedPage = 'product';
+            } else if (ARTICLE_PAGE_PATH.test(candidate.pathname)) {
+              resolvedPage = 'article';
             } else {
               const matched = Object.entries(PAGE_DEFS).find(
-                ([, def]) => def.routeKind !== 'handle-required' && def.path === candidate.pathname
+                // A def path may carry a query (`/search?q=a`); the route is its pathname.
+                ([, def]) => def.routeKind !== 'handle-required' && def.path.split(/[?#]/)[0] === candidate.pathname
               );
               if (matched) resolvedPage = matched[0];
             }
@@ -505,7 +551,37 @@ export function registerCockpitCapabilities(
         }
         const pageDef = resolvedPage ? PAGE_DEFS[resolvedPage] : undefined;
         const pageLabel = resolvedPage || 'custom';
-        const route = resolveScanRoute(resolvedPage, boundUrl, identity.origin, explicitUrl || undefined);
+        let route = resolveScanRoute(resolvedPage, boundUrl, identity.origin, explicitUrl || undefined);
+        if (!route && pageDef?.routeKind === 'handle-required' && identity.origin && context.browserTarget && typeof browser.eval === 'function') {
+          try {
+            const selectorExpr = resolvedPage === 'article'
+              ? `(() => { const a = document.querySelector('a[href*="/blogs/"][href*="/"], a[href*="/articles/"]'); return a ? a.getAttribute('href') : null; })()`
+              : `(() => { const a = document.querySelector('a[href*="/products/"]'); return a ? a.getAttribute('href') : null; })()`;
+            const discoveredHref = await browser.eval(
+              context.browserTarget,
+              selectorExpr,
+              identity.tabId,
+              'desktop',
+              { allowDegradedSurface: true }
+            );
+            if (typeof discoveredHref === 'string' && discoveredHref.trim()) {
+              route = resolveScanRoute(resolvedPage, boundUrl, identity.origin, discoveredHref.trim());
+            }
+          } catch {}
+        }
+        if (!route && pageDef?.routeKind === 'handle-required' && identity.origin && context.browserTarget && typeof browser.dom === 'function') {
+          try {
+            const domRes = await browser.dom(context.browserTarget, context.runId || 'cockpit-scan', context.attemptId || '1', undefined, identity.tabId);
+            const html = typeof domRes === 'string' ? domRes : '';
+            const linkRe = resolvedPage === 'article'
+              ? /<a\b[^>]*\bhref\s*=\s*(['"])([^'"]*\/(?:blogs\/[^'"?#]+\/|articles\/)[^'"?#]+[^'"]*)\1/i
+              : /<a\b[^>]*\bhref\s*=\s*(['"])([^'"]*\/products\/[^'"?#]+[^'"]*)\1/i;
+            const m = linkRe.exec(html);
+            if (m?.[2]) {
+              route = resolveScanRoute(resolvedPage, boundUrl, identity.origin, m[2].trim());
+            }
+          } catch {}
+        }
         if (!route) {
           throw new CapabilityError(
             'ROUTE_UNRESOLVED',

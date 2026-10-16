@@ -572,3 +572,38 @@ describe('default checklist copies', () => {
     assert.strictEqual(second.length, defaultCount);
   });
 });
+
+describe('shared-asset invalidation survives later writes', () => {
+  /** A ticked layout check recorded at T0, then a stylesheet edited after it. */
+  function seedTickedThenEditCss(root: string, cssName: string): void {
+    const items = defaultChecklistItems().map((entry) => (entry.id === 'qag-01' ? { ...entry, done: true } : entry));
+    seedScope(root, SCOPE, items, T0);
+    fs.mkdirSync(path.join(root, 'assets'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'assets', cssName), 'body{margin:0}', 'utf8');
+  }
+  const qag01 = (items: ThemeChecklistItem[]) => items.find((entry) => entry.id === 'qag-01');
+
+  it('voids the tick for any stylesheet, not only one scaffold\'s file names', () => {
+    const root = makeRoot();
+    seedTickedThenEditCss(root, 'base-v2.scss.liquid');
+    assert.strictEqual(qag01(getScope(root, SCOPE).items)?.done, false);
+  });
+
+  it('a per-item op on another item persists the voided tick instead of restoring it', () => {
+    const root = makeRoot();
+    seedTickedThenEditCss(root, 'theme.css');
+    mutateScope(root, SCOPE, { op: 'mark', itemId: 'hom-01', done: true });
+    const stored = readChecklistFile(root).data.scopes[SCOPE];
+    assert.ok(stored && stored.updatedAt > T0);
+    assert.strictEqual(qag01(stored.items)?.done, false, 'the write carries the invalidation, so the newer stamp cannot hide it');
+    assert.strictEqual(stored.items.find((entry) => entry.id === 'hom-01')?.done, true);
+  });
+
+  it('a CAS conflict hands back the voided view to re-base on', () => {
+    const root = makeRoot();
+    seedTickedThenEditCss(root, 'theme.css');
+    const conflict = setScopeCas(root, SCOPE, defaultChecklistItems(), T_STALE);
+    assert.strictEqual(conflict.conflict, true);
+    assert.strictEqual(qag01(conflict.items)?.done, false);
+  });
+});

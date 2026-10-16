@@ -523,6 +523,23 @@ describe('buildPreCaptureSampleExpr (quiescence sample expressions)', () => {
     assert.strictEqual(sample.pendingImages, 0, 'Offscreen lazy image must NOT count as pending in full-page mode to prevent capture deadlock');
     assert.strictEqual(sample.imageParts.length, 2, 'Visible and offscreen lazy image must be tracked in full-page identity hash');
   });
+  it('viewport mode leaves a carousel slide parked beside the viewport out of image identity', () => {
+    const inCarousel = { closest: (selector: string) => (/carousel|slider|swiper/.test(selector) ? {} : null) };
+    const sample = runScriptInDom(buildPreCaptureSampleExpr({ fullPage: false }), {
+      window: { innerWidth: 1000, innerHeight: 500, scrollY: 0 },
+      document: {
+        readyState: 'complete',
+        fonts: { status: 'loaded' },
+        documentElement: { scrollHeight: 500, scrollWidth: 1000 },
+        images: [
+          { ...inCarousel, complete: true, naturalWidth: 400, naturalHeight: 200, src: 'https://ex.com/slide-1.png', offsetParent: {}, offsetWidth: 1000, offsetHeight: 300, getBoundingClientRect: () => ({ x: 0, y: 0, left: 0, right: 1000, width: 1000, height: 300, top: 0, bottom: 300 }) },
+          { ...inCarousel, complete: true, naturalWidth: 400, naturalHeight: 200, src: 'https://ex.com/slide-2.png', offsetParent: {}, offsetWidth: 1000, offsetHeight: 300, getBoundingClientRect: () => ({ x: 1000, y: 0, left: 1000, right: 2000, width: 1000, height: 300, top: 0, bottom: 300 }) },
+        ],
+      },
+    });
+    assert.strictEqual(sample.imageParts.length, 1, 'only the slide on screen can change the viewport raster');
+    assert.ok(sample.imageParts[0].includes('slide-1.png'));
+  });
   it('does not count hidden empty-source images as broken but retains visible broken images', () => {
     const hiddenStyle = { display: 'block', visibility: 'hidden', opacity: '1' };
     const visibleStyle = { display: 'block', visibility: 'visible', opacity: '1' };

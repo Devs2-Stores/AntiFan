@@ -1297,6 +1297,22 @@ describe('ThemeTransactionRegistry ControlPlane Integration & Capability Dispatc
       assert.strictEqual(validShopifyRes.ok, true);
       assert.strictEqual(validShopifyRes.totalFailures, 0);
 
+      // 1b. A Shopify theme setting the platform reads itself (checkout_*) is never read in Liquid:
+      // a warning there, not a refusal.
+      fs.mkdirSync(path.join(shopifyRoot, 'config'), { recursive: true });
+      fs.writeFileSync(
+        path.join(shopifyRoot, 'config', 'settings_schema.json'),
+        JSON.stringify([{ name: 'theme_info' }, { name: 'Checkout', settings: [{ type: 'image_picker', id: 'checkout_logo_image', label: 'Logo' }] }]),
+        'utf8'
+      );
+      const checkoutSettingRes = (await capability.execute({ workspaceRoot: shopifyRoot }, context)) as {
+        ok: boolean;
+        warnings?: Array<{ rule: string; id?: string }>;
+      };
+      assert.strictEqual(checkoutSettingRes.ok, true);
+      assert.ok(checkoutSettingRes.warnings?.some((w) => w.rule === 'dead-setting' && w.id === 'checkout_logo_image'));
+      fs.rmSync(path.join(shopifyRoot, 'config'), { recursive: true, force: true });
+
       // 2. Malformed section schema JSON -> ok: false with SECTION_SCHEMA_JSON_INVALID
       fs.writeFileSync(
         path.join(shopifyRoot, 'sections', 'hero.liquid'),
@@ -1366,6 +1382,56 @@ describe('ThemeTransactionRegistry ControlPlane Integration & Capability Dispatc
           (f) => f.rule === 'SETTINGS_SCHEMA_JSON_INVALID' && f.file === 'config/settings_schema.json'
         ),
         'relative workspaceRoot must resolve against the caller workspace root'
+      );
+
+      // 6. Haravan F1GENZ workspace with unread setting + bare image_picker value -> dead-setting & image-picker-bare-value
+      const f1genzRoot = path.join(haravanRoot, 'f1genz-subtheme');
+      fs.mkdirSync(path.join(f1genzRoot, 'config'), { recursive: true });
+      fs.writeFileSync(path.join(f1genzRoot, '.workspace-context.json'), JSON.stringify({ kind: 'theme', platform: 'haravan', branch: 'f1genz' }), 'utf8');
+      fs.mkdirSync(path.join(f1genzRoot, 'snippets'), { recursive: true });
+      fs.writeFileSync(
+        path.join(f1genzRoot, 'config', 'settings_schema.json'),
+        JSON.stringify([
+          {
+            name: '1. Header',
+            settings: [
+              { type: 'text', id: 'header_title', label: 'Header Title', default: 'Watch' },
+              { type: 'text', id: 'unused_slogan', label: 'Unused Slogan', default: 'Never Read' },
+              { type: 'image_picker', id: 'header_logo', label: 'Logo', default: 'https://theme.hstatic.net/1000/1000/14/logo.png' },
+            ],
+          },
+        ]),
+        'utf8'
+      );
+      fs.writeFileSync(
+        path.join(f1genzRoot, 'config', 'settings_data.json'),
+        JSON.stringify({
+          current: {
+            header_title: 'Watch',
+            header_logo: 'logo.png',
+          },
+        }),
+        'utf8'
+      );
+      fs.writeFileSync(
+        path.join(f1genzRoot, 'snippets', 'header.liquid'),
+        '<h1 setting-id="header_title" setting-type="text">{{ settings.header_title }}</h1>\n{% if settings.header_logo != blank %}<img setting-id="header_logo" setting-type="image" src="{{ settings.header_logo }}">{% endif %}',
+        'utf8'
+      );
+      const f1genzRes = (await capability.execute({ workspaceRoot: f1genzRoot }, context)) as {
+        ok: boolean;
+        deadInSchema: number;
+        failures: Array<{ rule: string; id?: string; file?: string }>;
+      };
+      assert.strictEqual(f1genzRes.ok, false);
+      assert.strictEqual(f1genzRes.deadInSchema, 1);
+      assert.ok(
+        f1genzRes.failures.some((f) => f.rule === 'dead-setting' && f.id === 'unused_slogan'),
+        'theme.settings_check must surface dead-setting for unread schema settings'
+      );
+      assert.ok(
+        f1genzRes.failures.some((f) => f.rule === 'image-picker-bare-value' && f.id === 'header_logo'),
+        'theme.settings_check must surface image-picker-bare-value from checkF1genzSettingsSchema'
       );
     } finally {
       fs.rmSync(dataRoot, { recursive: true, force: true });

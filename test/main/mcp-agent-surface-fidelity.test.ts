@@ -8,7 +8,11 @@ import * as path from 'node:path';
 import { createRequire } from 'node:module';
 import { CapabilityCatalogue } from '../../src/main/tools/capability-catalogue';
 import { registerBrowserCapabilities } from '../../src/main/tools/browser-capabilities';
-import { BrowserControlPort, BrowserHostPort, compactStylePairForResponse } from '../../src/main/tools/browser-control-port';
+import { BrowserControlPort, BrowserHostPort, batchRouteVerdict, buildRefLookupExpression, compactStylePairForResponse } from '../../src/main/tools/browser-control-port';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+// @ts-ignore jsdom ships no type declarations (same as theme-qa-automation-stack.test.ts)
+import { JSDOM } from 'jsdom';
 import { issueRuntimeLease, makeControlPlaneId, BrowserTarget } from '../../src/shared/control-plane-contracts';
 
 const requireFromHere = createRequire(__filename);
@@ -168,10 +172,10 @@ describe('anti.theme.resolve_element element resolution', () => {
     registerBrowserCapabilities(scope.catalogue, new BrowserControlPort(host), undefined, () => fixtureThemeRoot);
     await scope.catalogue.dispatch('anti.theme.resolve_element', { ref: 'e4', workspaceRoot: fixtureThemeRoot, tabId: 'tab-1' }, scope.dispatchContext);
     assert.deepStrictEqual(asked, ['tab-1 @e4']);
-    const script = scripts.find((s) => s.includes('const desc = '));
+    const script = scripts.find((s) => s.includes('var loc = '));
     assert.ok(script, 'the inspect script must carry the descriptor');
     assert.ok(script.includes('"kind":"dom","index":3') && script.includes('"tag":"button"'), 'path and tag are passed to the page');
-    assert.ok(!script.includes('const desc = null'), 'the registry path is used, not the stamped-ref fallback');
+    assert.ok(!script.includes('var loc = null'), 'the registry path is used, not the stamped-ref fallback');
   });
 
   it('reports a stale registry ref as stale instead of mapping something else', async () => {
@@ -284,5 +288,214 @@ describe('advertised MCP schemas', () => {
   it('tells agents that a structural PASS is not a matrix certification', () => {
     assert.ok(row('theme.qa_validate')[1].includes('summary.certification'));
     assert.ok(row('anti.theme.qa_validate')[1].includes('summary.certification'));
+  });
+});
+
+describe('tools that navigate or reload are never classed as reads', () => {
+  // A read may be replayed by the proxy after a reconnect; replaying a navigation sweep or a
+  // reload changes the tab under the agent.
+  for (const name of ['anti.qa.batch_matrix', 'anti.theme.await_cdn_sync']) {
+    it(`${name} is a write in the catalogue and absent from the proxy's read-safe set`, () => {
+      const scope = makeScope();
+      registerBrowserCapabilities(scope.catalogue, new BrowserControlPort(baseHost({})));
+      const cap = scope.catalogue.get(name);
+      assert.ok(cap, `${name} is registered`);
+      assert.strictEqual(cap.risk, 'write');
+      assert.notStrictEqual(scope.catalogue.getPolicy(name)?.effect, 'read');
+      const proxy = requireFromHere(path.resolve(process.cwd(), 'scripts/antifan-omp-mcp.cjs')) as { READ_SAFE_CAPABILITIES: Record<string, boolean> };
+      assert.notStrictEqual(proxy.READ_SAFE_CAPABILITIES[name], true);
+    });
+  }
+});
+
+describe('snapshot refs resolve through the registry path in page scripts', () => {
+  const page = () => new JSDOM('<!doctype html><html><head></head><body><header><nav><a href="#a">A</a><button class="cart">Cart</button></nav></header><main><button class="cart">Other</button></main></body></html>', { runScripts: 'outside-only' });
+  const run = (dom: JSDOM, expr: string) => dom.window.eval(expr) as Element | null;
+  // document > html(0) > body(1) > header(0) > nav(0) > button(1)
+  const cartPath = [{ kind: 'dom', index: 0 }, { kind: 'dom', index: 1 }, { kind: 'dom', index: 0 }, { kind: 'dom', index: 0 }, { kind: 'dom', index: 1 }];
+
+  it('walks the descriptor path to the element the snapshot described', () => {
+    const el = run(page(), buildRefLookupExpression({ path: cartPath, tag: 'button', id: null }, '@e4', 'main .cart'));
+    assert.strictEqual(el?.textContent, 'Cart', 'the header button, not the selector fallback');
+  });
+
+  it('refuses a path that now lands on a different tag, then falls back to the selector', () => {
+    const el = run(page(), buildRefLookupExpression({ path: cartPath, tag: 'a', id: null }, '@e4', 'main .cart'));
+    assert.strictEqual(el?.textContent, 'Other');
+  });
+
+  it('uses a legacy stamp only for a well-formed ref and never splices a malformed one', () => {
+    const dom = page();
+    dom.window.document.querySelector('main .cart')!.setAttribute('data-antifan-ref', '@e9');
+    assert.strictEqual(run(dom, buildRefLookupExpression(null, 'e9', ''))?.textContent, 'Other');
+    assert.strictEqual(run(dom, buildRefLookupExpression(null, '@e1"], body, [x="', '')), null);
+  });
+});
+
+describe('trace and wait resolve registry refs', () => {
+  function hostWith(descriptor: unknown, scripts: string[]) {
+    return baseHost({
+      evalJs: async (script: string) => { scripts.push(script); return { actionable: true }; },
+      resolveSemanticRefDescriptor: () => {
+        if (descriptor instanceof Error) throw descriptor;
+        return descriptor as { path: unknown[]; fingerprint?: { tag?: string } };
+      },
+    });
+  }
+
+  it('an actionability wait on a ref looks the element up by its registry path', async () => {
+    const scope = makeScope();
+    const scripts: string[] = [];
+    const port = new BrowserControlPort(hostWith({ path: [{ kind: 'dom', index: 0 }], fingerprint: { tag: 'html' } }, scripts));
+    await port.wait(scope.target, { condition: 'actionability', ref: '@e3', timeoutMs: 2000 });
+    const check = scripts.find((x) => x.includes('NOT_CONNECTED'));
+    assert.ok(check && check.includes('"kind":"dom"') && check.includes('"tag":"html"'));
+  });
+
+  it('a trace on a stale ref fails instead of tracing the whole document', async () => {
+    const scope = makeScope();
+    const stale = Object.assign(new Error('Semantic ref "@e5" is stale'), { code: 'REF_STALE' });
+    const port = new BrowserControlPort(hostWith(stale, []));
+    await assert.rejects(
+      port.traceInteraction(scope.target, 'run-trace', 'attempt-trace', { action: 'hover', ref: '@e5' }),
+      (err: unknown) => errorCode(err) === 'REF_STALE'
+    );
+  });
+});
+
+describe('batch_matrix verdicts and route bounds', () => {
+  const clean = { emulationApplied: true, hasHorizontalOverflow: false, integrity: { measured: true, findings: [] } };
+
+  it('fails on overflow or a critical finding and never passes an unmeasured width', () => {
+    assert.strictEqual(batchRouteVerdict({ a: clean, b: clean }, 2).passed, true);
+    assert.strictEqual(batchRouteVerdict({ a: clean, b: { ...clean, hasHorizontalOverflow: true } }, 2).passed, false);
+    assert.strictEqual(batchRouteVerdict({ a: clean, b: { ...clean, integrity: { measured: true, findings: [{ severity: 'critical' }] } } }, 2).passed, false);
+    assert.strictEqual(batchRouteVerdict({ a: clean, b: { ...clean, emulationApplied: false, hasHorizontalOverflow: null } }, 2).passed, null);
+    assert.strictEqual(batchRouteVerdict({ a: clean, b: { ...clean, integrity: { measured: false } } }, 2).passed, null);
+    assert.strictEqual(batchRouteVerdict({ a: clean }, 2).passed, null, 'a width missing from the sweep is unmeasured');
+  });
+
+  it('refuses a route on another origin before the tab moves', async () => {
+    const scope = makeScope();
+    const navigations: string[] = [];
+    const port = new BrowserControlPort(baseHost({
+      getTabUrl: () => 'https://shop.example.com/',
+      navigate: (url: string) => { navigations.push(url); return true; },
+    }));
+    await assert.rejects(
+      port.runBatchMatrix(scope.target, { routes: ['/collections/all', 'https://evil.example.net/'] }),
+      (err: unknown) => errorCode(err) === 'INVALID_ARGUMENT' && /leaves the storefront origin/.test((err as Error).message)
+    );
+    assert.deepStrictEqual(navigations, []);
+  });
+});
+
+describe('await_cdn_sync reads only inside the bound workspace', () => {
+  const workspace = () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-cdn-sync-'));
+    fs.mkdirSync(path.join(root, 'assets'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'assets', 'theme.css'), 'body{color:red}', 'utf8');
+    return root;
+  };
+
+  it('refuses a Liquid source up front', async () => {
+    const port = new BrowserControlPort(baseHost({}));
+    await assert.rejects(
+      port.awaitCdnSync(makeScope().target, { assetPath: 'theme.scss.liquid', workspaceRoot: workspace() }),
+      (err: unknown) => errorCode(err) === 'INVALID_ARGUMENT' && /Liquid source/.test((err as Error).message)
+    );
+  });
+
+  it('never resolves a path past the workspace root, and says so without the root path', async () => {
+    const root = workspace();
+    const port = new BrowserControlPort(baseHost({}));
+    await assert.rejects(
+      port.awaitCdnSync(makeScope().target, { assetPath: 'assets/../../outside.css', workspaceRoot: root }),
+      (err: unknown) => errorCode(err) === 'INVALID_ARGUMENT' && !(err as Error).message.includes(root)
+    );
+  });
+
+  it('is unbound without a workspace instead of reading the process directory', async () => {
+    const port = new BrowserControlPort(baseHost({ resolveTabWorkspace: () => '' }));
+    await assert.rejects(
+      port.awaitCdnSync(makeScope().target, { assetPath: 'theme.css' }),
+      (err: unknown) => errorCode(err) === 'WORKSPACE_UNBOUND'
+    );
+  });
+
+  it('reports why the last poll did not match', async () => {
+    const port = new BrowserControlPort(baseHost({
+      evalJs: async () => ({ error: 'ASSET_NOT_REFERENCED: no stylesheet or script on the page loads theme.css' }),
+    }));
+    const res = await port.awaitCdnSync(makeScope().target, { assetPath: 'theme.css', workspaceRoot: workspace(), timeoutMs: 200, pollIntervalMs: 50 });
+    assert.strictEqual(res.synced, false);
+    assert.match(String(res.lastError), /ASSET_NOT_REFERENCED/);
+  });
+});
+
+describe('trace evidence and the pointer arriving on the target', () => {
+  const snap = (hovered: boolean, color: string) => ({
+    url: 'https://shop.example.com/',
+    bodyClasses: [],
+    activeOverlays: [],
+    target: { found: true, hovered, computedStyles: { color }, children: [{ tagName: 'span', className: '', computedStyles: { color } }] },
+  });
+  const evaluate = (before: unknown, after: unknown, action: string) =>
+    (new BrowserControlPort(baseHost({})) as any).evaluateBehaviorEvidence(before, after, { color: 'x' }, { color: 'y' }, action);
+
+  it('does not count a click whose only change is the hover restyle', () => {
+    assert.strictEqual(evaluate(snap(false, 'rgb(0, 0, 0)'), snap(true, 'rgb(255, 0, 0)'), 'click').verdict, 'NO_OBSERVABLE_EFFECT');
+  });
+
+  it('keeps the restyle as evidence for a hover', () => {
+    assert.strictEqual(evaluate(snap(false, 'rgb(0, 0, 0)'), snap(true, 'rgb(255, 0, 0)'), 'hover').verdict, 'IN_PAGE_MUTATION');
+  });
+
+  it('counts a click restyle when the pointer was already over the target', () => {
+    assert.strictEqual(evaluate(snap(true, 'rgb(0, 0, 0)'), snap(true, 'rgb(255, 0, 0)'), 'click').verdict, 'IN_PAGE_MUTATION');
+  });
+});
+
+describe('state_matrix holds the tab on the page under test', () => {
+  it('refuses page-initiated navigation for the run and reports where a trigger tried to go', async () => {
+    let released = 0;
+    const port = new BrowserControlPort(baseHost({
+      executeActionSequence: async () => ({ success: true, results: [{ success: true }] }),
+      holdPageNavigation: () => ({ release: () => { released += 1; return ['https://shop.example.com/auth/sign-in']; } }),
+    }));
+    const res = await port.stateMatrix(makeScope().target, { maxTriggers: 2 });
+    assert.deepStrictEqual(res.blockedNavigations, ['https://shop.example.com/auth/sign-in']);
+    assert.ok(released >= 1, 'the hold is released when the run ends');
+  });
+
+  it('releases the hold when the run throws', async () => {
+    let released = 0;
+    const port = new BrowserControlPort(baseHost({
+      executeActionSequence: async () => ({ success: true, results: [{ success: true }] }),
+      holdPageNavigation: () => ({ release: () => { released += 1; return []; } }),
+      withPaintingSurface: async () => { throw new Error('surface lost'); },
+    }));
+    await assert.rejects(port.stateMatrix(makeScope().target, {}), /surface lost/);
+    assert.strictEqual(released, 1);
+  });
+});
+
+describe('batch_matrix keeps the theme preview', () => {
+  it('carries themeid onto routes that name none and returns the settled generation', async () => {
+    const navigations: string[] = [];
+    let url = 'https://shop.example.com/?themeid=1001506727';
+    const port = new BrowserControlPort(baseHost({
+      getTabUrl: () => url,
+      navigate: (_tabId: string, next: string) => { navigations.push(next); url = next; return true; },
+      getDocumentGeneration: () => 9,
+    }));
+    (port as any).responsiveCheck = async () => ({ breakpoints: {} });
+    const res = await port.runBatchMatrix({ ...makeScope().target, documentGeneration: 9 }, { routes: ['/collections/all', '/pages/about?themeid=42'], breakpoints: [375] });
+    assert.deepStrictEqual(navigations.slice(0, 2), [
+      'https://shop.example.com/collections/all?themeid=1001506727',
+      'https://shop.example.com/pages/about?themeid=42',
+    ]);
+    assert.strictEqual(navigations[navigations.length - 1], 'https://shop.example.com/?themeid=1001506727', 'the tab goes back');
+    assert.strictEqual(res.documentGeneration, 9);
   });
 });

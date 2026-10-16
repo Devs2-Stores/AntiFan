@@ -278,4 +278,82 @@ describe('LayoutOverflowEngine', () => {
       );
     }
   });
+
+  it('detects inner horizontal clipping inside an overflow-x: hidden ancestor even when document hasOverflow is false', () => {
+    const scriptSource = LayoutOverflowEngine.getBrowserScanScript('mobile');
+    const script = new vm.Script(scriptSource);
+    const clippedChild = {
+      nodeType: 1,
+      tagName: 'DIV',
+      id: 'promo-row',
+      className: 'promo-row',
+      children: [],
+      parentElement: null as unknown,
+      outerHTML: '<div id="promo-row" class="promo-row">Promo</div>',
+      getBoundingClientRect: () => ({ left: 12, right: 532, top: 20, bottom: 60, width: 520, height: 40, x: 12, y: 20 }),
+    };
+    const clipContainer = {
+      nodeType: 1,
+      tagName: 'DIV',
+      id: 'promo-clip',
+      className: 'promo-clip',
+      scrollWidth: 520,
+      clientWidth: 340,
+      children: [clippedChild],
+      parentElement: null as unknown,
+      outerHTML: '<div id="promo-clip" class="promo-clip">...</div>',
+      getBoundingClientRect: () => ({ left: 12, right: 352, top: 20, bottom: 60, width: 340, height: 40, x: 12, y: 20 }),
+    };
+    clippedChild.parentElement = clipContainer;
+    const mockBody = {
+      nodeType: 1,
+      tagName: 'BODY',
+      id: '',
+      className: '',
+      scrollWidth: 375,
+      clientWidth: 375,
+      children: [clipContainer],
+      parentElement: null,
+      outerHTML: '<body>...</body>',
+      getBoundingClientRect: () => ({ left: 0, right: 375, top: 0, bottom: 667, width: 375, height: 667, x: 0, y: 0 }),
+    };
+    clipContainer.parentElement = mockBody;
+    const sandbox = {
+      window: {
+        innerWidth: 375,
+        innerHeight: 667,
+        devicePixelRatio: 1,
+        getComputedStyle: (el: unknown) => ({
+          display: 'block',
+          visibility: 'visible',
+          opacity: '1',
+          overflowX: el === clipContainer ? 'hidden' : 'visible',
+          position: 'static',
+          width: el === clippedChild ? '520px' : '340px',
+          minWidth: '0px',
+          marginLeft: '0px',
+          marginRight: '0px',
+        }),
+      },
+      document: {
+        documentElement: {
+          scrollWidth: 375,
+          clientWidth: 375,
+          clientHeight: 667,
+          getBoundingClientRect: () => ({ left: 0, right: 375, top: 0, bottom: 667, width: 375, height: 667, x: 0, y: 0 }),
+        },
+        body: mockBody,
+      },
+      Set,
+      Array,
+      Math,
+      console: { log: () => {}, warn: () => {} },
+    };
+    const result = script.runInContext(vm.createContext(sandbox)) as ViewportOverflowResult;
+    assert.strictEqual(result.measured, true);
+    assert.strictEqual(result.hasOverflow, false);
+    assert.ok(Array.isArray(result.innerClippedCulprits) && result.innerClippedCulprits.length > 0);
+    assert.strictEqual(result.innerClippedCulprits[0]?.selector, '#promo-row');
+    assert.strictEqual(result.innerClippedCulprits[0]?.deltaX, 180);
+  });
 });

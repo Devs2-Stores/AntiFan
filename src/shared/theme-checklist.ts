@@ -97,6 +97,32 @@ export const PAGE_DEFS: Record<string, ThemePageDef> = {
     icon: '📄',
     path: '/pages/lien-he',
   },
+  article: {
+    title: 'Trang Chi Tiết Bài Viết (Article - Tiêu Đề, Tác Giả, Nội Dung, Bình Luận)',
+    badge: 'ARTICLE',
+    icon: '📝',
+    path: '/blogs/news/<handle>',
+    routeKind: 'handle-required',
+    routeNote: 'Mở một bài viết thật (/blogs/<blog>/<handle>) trên storefront hoặc truyền url trực tiếp.',
+  },
+  search: {
+    title: 'Trang Tìm Kiếm Sản Phẩm (/search?q=a)',
+    badge: 'SEARCH',
+    icon: '🔍',
+    path: '/search?q=a',
+  },
+  'page-about': {
+    title: 'Trang Giới Thiệu (/pages/about-us)',
+    badge: 'ABOUT',
+    icon: 'ℹ️',
+    path: '/pages/about-us',
+  },
+  'not-found': {
+    title: 'Trang Lỗi 404 (/404)',
+    badge: '404',
+    icon: '🚫',
+    path: '/404',
+  },
   'qa-gate': {
     title: 'Nghiệm Thu Cổng Chất Lượng & QA Storefront (Responsive 375px, 0 Lỗi Console, Empty State, Settings)',
     badge: 'QA GATE',
@@ -244,6 +270,12 @@ export const DEFAULT_THEME_CHECKLIST: ThemeChecklistItem[] = [
   { id: 'qag-20', code: 'QAG-20', name: 'Section Trong Hợp Đồng Hiển Thị Thật', desc: 'Mọi section trong FULL_REMAKE_CONTRACT/thiết kế có mặt và có kích thước ở 375px và 1440px (Flash Sale, deal, rails, banner)', qaPoint: 'qa-probes.js: sections không có mục failed (width/height > 0, display khác none). Section ẩn vì collection rỗng hoặc đếm ngược hết hạn thì trỏ setting sang nguồn có dữ liệu; theme.qa_validate PASS không thay được bước này', page: 'qa-gate', pathHint: '/', done: false },
   { id: 'qag-21', code: 'QAG-21', name: 'Control Bấm Được Bằng Click Thật', desc: 'Cart drawer, menu mobile, xem nhanh, sticky ATC và nút trong modal thao tác bằng anti.agent.cursor.click theo toạ độ getBoundingClientRect sau scrollIntoView', qaPoint: 'qa-probes.js: occluded và zeroBox rỗng (elementFromPoint tại tâm trúng chính control, icon SVG không co về 0x0); overlay không đè panel cùng wrapper; grid chứa Swiper dùng minmax(0, 1fr). .click() bằng JS không tính là bằng chứng', page: 'qa-gate', pathHint: '/', done: false },
   { id: 'qag-22', code: 'QAG-22', name: 'Schema Settings Sạch', desc: 'Chạy audit-settings-schema.mjs (skill haravan-settings-schema) trên config/settings_schema.json', qaPoint: '0 error: đúng 2 setting màu (primary/secondary), nhóm Thiết lập chung chỉ chứa thiết lập hệ thống, không setting chết hay chuỗi SEO/aria/JS thừa, image_picker không trỏ CDN của theme id khác', page: 'qa-gate', pathHint: '/', done: false },
+  { id: 'qag-23', code: 'QAG-23', name: 'Vòng Đời Overlay Toàn Cục (OPEN -> INTERACT -> CLOSE)', desc: 'Mở/đóng thật mọi modal, drawer, dropdown: Quickview, Cart Drawer, Search Modal, Mobile Menu, Megamenu, Filter Drawer, Sort Dropdown, Share/Size Guide Modal', qaPoint: 'Khi mở: opacity >= 0.95, visibility: visible, pointer-events: auto, rect >= 200x120. Khi đóng (nút X, backdrop, Escape): body overflow != hidden và phần tử nền bấm lại được', page: 'qa-gate', pathHint: '/', done: false },
+  { id: 'qag-24', code: 'QAG-24', name: 'Header Khi Cuộn & Cụm Nút Nổi Đáy (scrollY = 600)', desc: 'Cuộn trang xuống scrollY = 600 tại 375px, 1024px, 1280px, 1440px để kích hoạt .is-scrolled và sticky ATC', qaPoint: 'Header .is-scrolled không rớt dòng/tràn chữ (scrollWidth <= clientWidth + 2); nút nổi đáy (.fab-chat, .back-to-top) không đè lên .sticky-atc, .compare-bar hay .mobile-bottom-nav', page: 'qa-gate', pathHint: '/', done: false },
+  { id: 'qag-25', code: 'QAG-25', name: 'Căn Lề Trái Container & Custom Element Block', desc: 'Đo toạ độ left của .container giữa header, breadcrumb, product main và các section cùng trang; kiểm tra custom element có child block', qaPoint: 'Độ lệch left giữa các .container <= 2px ở 1024px và 1440px (không trộn vw và %); custom element có con block phải khai báo display: block/flex/grid (getBoundingClientRect().height > 0)', page: 'qa-gate', pathHint: '/', done: false },
+  { id: 'qag-26', code: 'QAG-26', name: 'Không Rớt Chữ Mồ Côi & Dải Metadata Cân Đối', desc: 'Kiểm tra nút CTA, pill/tab, nav link, form submit và các dải USP/trust-badge/spec-bar/countdown tại 375px, 768px, 1024px, 1440px', qaPoint: 'Nút/tab/link không bị bẻ xuống dòng 1 từ ngắn mồ côi (<= 5 ký tự ở dòng cuối, WARN); dải metadata cùng hàng chênh cao <= 1.8x và không tràn chữ qua overflow-x: hidden', page: 'qa-gate', pathHint: '/', done: false },
+  { id: 'qag-27', code: 'QAG-27', name: 'Mật Độ Thẻ Ngang Mobile (Scroll-Snap Peek 375px)', desc: 'Kiểm tra các dải cuộn ngang trên mobile 375px (tabs sản phẩm, danh mục, flash sale, sản phẩm liên quan)', qaPoint: 'Tại 375px hiện từ 1.15 đến 2.2 thẻ mỗi hàng (rộng ~160px-280px) để lộ mép thẻ kế tiếp gợi ý vuốt ngang; tránh thẻ full-width 100% bắt cuộn dọc dài hoặc nhồi >= 3 thẻ quá hẹp (< 130px)', page: 'qa-gate', pathHint: '/', done: false },
+  { id: 'qag-28', code: 'QAG-28', name: 'Độ Toàn Vẹn Giá Trị Settings Data & Image Picker URL', desc: 'Kiểm tra mọi image_picker, select/radio default & value trong settings_schema.json + settings_data.json và fallback cứng trong Liquid', qaPoint: 'Mọi image_picker khác rỗng là full https:// URL (không phải tên file trần), có default hợp lệ trong schema, select value khớp options[].value, và Liquid không chứa | default: hay {% else %} chữ/link cứng', page: 'qa-gate', pathHint: '/', done: false },
 ];
 
 /**
@@ -260,7 +292,7 @@ export const WORKSPACE_IDENTIFY_TIMEOUT_MS = 1500;
  * so this is the sole route that can be trusted as "the product page".
  */
 export const PRODUCT_PAGE_PATH = /\/products\/[^/?#]+/;
-
+export const ARTICLE_PAGE_PATH = /\/(?:blogs\/[^/?#]+\/|articles\/)[^/?#]+/;
 /**
  * Storage-safe identity for a theme workspace: readable leaf plus a stable path
  * hash. The path is normalized first — Windows reports the same project as

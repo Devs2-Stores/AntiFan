@@ -63,7 +63,12 @@ export function findUnsatisfiedOneOfAlternatives(
   inputSchema: Record<string, unknown> | undefined,
   params: Record<string, unknown> | undefined
 ): string[][] {
-  const oneOf = inputSchema?.oneOf;
+  // `anyOf` (forms that may be combined, such as an argument and its alias) is held to the
+  // same presence gate: at least one form fully supplied.
+  return [inputSchema?.oneOf, inputSchema?.anyOf].flatMap((clause) => unsatisfiedForms(clause, params));
+}
+
+function unsatisfiedForms(oneOf: unknown, params: Record<string, unknown> | undefined): string[][] {
   if (!Array.isArray(oneOf) || oneOf.length === 0) return [];
   const supplied = params ?? {};
   const unsatisfied: string[][] = [];

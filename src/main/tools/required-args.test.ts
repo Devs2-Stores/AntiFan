@@ -126,6 +126,23 @@ describe('oneOf required alternatives', () => {
   });
 });
 
+describe('anyOf required alternatives', () => {
+  // An argument and its alias: either or both may be sent.
+  const schema = { anyOf: [{ required: ['condition'] }, { required: ['type'] }] };
+
+  it('passes one form, the other, or both', () => {
+    assert.equal(checkRequiredArgs('browser.wait', schema, { condition: 'selector' }), undefined);
+    assert.equal(checkRequiredArgs('browser.wait', schema, { type: 'selector' }), undefined);
+    assert.equal(checkRequiredArgs('browser.wait', schema, { condition: 'selector', type: 'selector' }), undefined);
+  });
+
+  it('refuses a call that supplied neither form', () => {
+    const refusal = checkRequiredArgs('browser.wait', schema, { selector: '#x' });
+    assert.ok(refusal);
+    assert.deepEqual(refusal.unsatisfiedAlternatives, [['condition'], ['type']]);
+  });
+});
+
 describe('assertRequiredArgs', () => {
   it('refuses an omitted required tabId with a code the caller can act on', () => {
     assert.throws(

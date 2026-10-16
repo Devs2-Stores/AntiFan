@@ -2529,3 +2529,407 @@ test("edits to the AntiFan desktop repository never arm the QA gate, even under 
   }
 });
 
+test("non-theme writes (deliverables/, plans/reports/) do not dirty scoped turn_end or append GATE_MARKER on tool_result", () => {
+  const { handlers, sent } = loadHook();
+  const root = makeWorkspace();
+  fs.mkdirSync(path.join(root, "deliverables"), { recursive: true });
+  fs.mkdirSync(path.join(root, "plans", "reports"), { recursive: true });
+  try {
+    const sessionId = "01a0scoped-nontheme";
+    const scopedCtx = sessionCtx(root, sessionId, [modeEntry("direct")]);
+
+    writeCall(handlers, scopedCtx, path.join(root, "deliverables", "RESTYLE_PROGRESS_LEDGER.md"));
+    writeCall(handlers, scopedCtx, path.join(root, "plans", "reports", "qa.md"));
+    handlers.get("turn_end")({ type: "turn_end" }, scopedCtx);
+    assert.equal(sent.length, 0, "non-theme writes must not mark scoped session dirty or emit 0 file(s) changed");
+
+    const coreCtx = { cwd: root };
+    writeCall(handlers, coreCtx, path.join(root, "assets", "theme.css"), "edit");
+    const themeRes = handlers.get("tool_result")(
+      { toolName: "edit", input: { path: "assets/theme.css" }, content: "Applied" },
+      coreCtx
+    );
+    assert.ok(resText(themeRes).includes(GATE_REMINDER_SENTINEL), "real theme edit result carries reminder");
+
+    for (let i = 0; i < 6; i++) {
+      writeCall(handlers, coreCtx, path.join(root, "deliverables", "RESTYLE_PROGRESS_LEDGER.md"), "write");
+      const ledgerRes = handlers.get("tool_result")(
+        { toolName: "write", input: { path: "deliverables/RESTYLE_PROGRESS_LEDGER.md" }, content: "Saved" },
+        coreCtx
+      );
+      assert.equal(ledgerRes, undefined, "non-theme write result must not receive GATE_MARKER reminder even while pendingEdits > 0");
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("scoped receipt gate: passes when annotationId has scopedCriticalCount === 0 despite pageCriticalCount > 0, and fails when scopedCriticalCount > 0 or annotationId is absent", () => {
+  const { handlers } = loadHook();
+  const root = makeWorkspace();
+  const ctx = { cwd: root };
+  const receiptsDir = path.join(root, ".antifan", "qa-receipts");
+  fs.mkdirSync(receiptsDir, { recursive: true });
+
+  try {
+    // The annotation the user made before the agent's edit.
+    const annotationsDir = path.join(root, ".antifan", "annotations");
+    fs.mkdirSync(annotationsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(annotationsDir, "element_1792003171976.md"),
+      '---\nannotation_id: "annotation_1792003171976"\n---\n- Element Selector: `#limited-edition`\n',
+      "utf8"
+    );
+
+    // 1. With annotationId and scopedCriticalCount === 0, gate clears even though verdict is QA_FAILED and pageCriticalCount > 0
+    writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
+    const rScopedPass = path.join(receiptsDir, "1001-scoped-pass.json");
+    fs.writeFileSync(
+      rScopedPass,
+      JSON.stringify({
+        receiptVersion: "1.2",
+        runId: "run-scoped-pass",
+        annotationId: "annotation_1792003171976",
+        verdict: "QA_FAILED",
+        execution: "COMPLETED",
+        passed: false,
+        criticalCount: 3,
+        pageCriticalCount: 3,
+        scopedCriticalCount: 0,
+      }),
+      "utf8"
+    );
+    const future1 = new Date(Date.now() + 5_000);
+    fs.utimesSync(rScopedPass, future1, future1);
+
+    const resPass = resText(result(handlers, ctx, "write ok 1", "write"));
+    assert.equal(count(resPass, GATE_REMINDER_SENTINEL), 0, "gate must clear when annotationId is present and scopedCriticalCount === 0");
+
+    // 1b. An annotation written after the edit armed the gate cannot scope the receipt.
+    writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
+    fs.writeFileSync(
+      path.join(annotationsDir, "element_1792009999999.md"),
+      '---\nannotation_id: "annotation_1792009999999"\n---\n- Element Selector: `footer .unrelated`\n',
+      "utf8"
+    );
+    const rLateAnnotation = path.join(receiptsDir, "1001b-late-annotation.json");
+    fs.writeFileSync(
+      rLateAnnotation,
+      JSON.stringify({
+        receiptVersion: "1.2",
+        runId: "run-late-annotation",
+        annotationId: "annotation_1792009999999",
+        verdict: "QA_FAILED",
+        execution: "COMPLETED",
+        passed: false,
+        criticalCount: 3,
+        pageCriticalCount: 3,
+        scopedCriticalCount: 0,
+      }),
+      "utf8"
+    );
+    const future1b = new Date(future1.getTime() + 2_500);
+    fs.utimesSync(rLateAnnotation, future1b, future1b);
+    assert.equal(
+      count(resText(result(handlers, ctx, "write ok 1b", "write")), GATE_REMINDER_SENTINEL),
+      1,
+      "an annotation created after the edit must not clear the gate"
+    );
+    handlers.get("session_start")({}, ctx);
+
+    // 2. With annotationId and scopedCriticalCount > 0, gate stays armed
+    writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
+    const rScopedFail = path.join(receiptsDir, "1002-scoped-fail.json");
+    fs.writeFileSync(
+      rScopedFail,
+      JSON.stringify({
+        receiptVersion: "1.2",
+        runId: "run-scoped-fail",
+        annotationId: "annotation_1792003171976",
+        verdict: "QA_FAILED",
+        passed: false,
+        criticalCount: 2,
+        pageCriticalCount: 2,
+        scopedCriticalCount: 1,
+      }),
+      "utf8"
+    );
+    const future2 = new Date(future1.getTime() + 5_000);
+    fs.utimesSync(rScopedFail, future2, future2);
+
+    const resFail = resText(result(handlers, ctx, "write ok 2", "write"));
+    assert.equal(count(resFail, GATE_REMINDER_SENTINEL), 1, "gate must remain armed when scopedCriticalCount > 0");
+
+    // 3. Without annotationId, gate stays armed even if scopedCriticalCount is 0
+    handlers.get("session_start")({}, ctx);
+    writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
+    const rUnannotated = path.join(receiptsDir, "1003-unannotated-fail.json");
+    fs.writeFileSync(
+      rUnannotated,
+      JSON.stringify({
+        receiptVersion: "1.2",
+        runId: "run-unannotated-fail",
+        annotationId: null,
+        verdict: "QA_FAILED",
+        passed: false,
+        criticalCount: 2,
+        pageCriticalCount: 2,
+        scopedCriticalCount: 0,
+      }),
+      "utf8"
+    );
+    const future3 = new Date(Date.now() + 20_000);
+    fs.utimesSync(rUnannotated, future3, future3);
+
+    const resUnannotated = resText(result(handlers, ctx, "write ok 3", "write"));
+    assert.equal(count(resUnannotated, GATE_REMINDER_SENTINEL), 1, "without annotationId, QA_FAILED receipt must keep gate armed");
+
+    // 4. Annotated receipt with ROUTE_404 / selector-less Liquid error (scopedCriticalCount >= 1) stays armed
+    handlers.get("session_start")({}, ctx);
+    writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
+    const rPageLevelFail = path.join(receiptsDir, "1004-annotated-route404-liquid.json");
+    fs.writeFileSync(
+      rPageLevelFail,
+      JSON.stringify({
+        receiptVersion: "1.2",
+        runId: "run-annotated-route404",
+        annotationId: "annotation_1792003171976",
+        verdict: "QA_FAILED",
+        passed: false,
+        criticalCount: 2,
+        pageCriticalCount: 2,
+        scopedCriticalCount: 2,
+        findings: [
+          {
+            rule: "ROUTE_404",
+            severity: "critical",
+            selector: null,
+            rect: null,
+            message: "ROUTE_404: Document returned HTTP 404 on non-/404 route",
+          },
+          {
+            rule: "liquid:runtime_error",
+            severity: "critical",
+            selector: null,
+            rect: null,
+            message: "Liquid error: Could not find snippet icon-watch",
+          },
+        ],
+      }),
+      "utf8"
+    );
+    const future4 = new Date(Date.now() + 30_000);
+    fs.utimesSync(rPageLevelFail, future4, future4);
+
+    const resPageLevelFail = resText(result(handlers, ctx, "write ok 4", "write"));
+    assert.equal(
+      count(resPageLevelFail, GATE_REMINDER_SENTINEL),
+      1,
+      "annotated receipt with ROUTE_404 / selector-less Liquid criticals (scopedCriticalCount >= 1) must stay armed"
+    );
+
+    // 5. INCONCLUSIVE annotated receipt with scopedCriticalCount === 0 stays armed (never clears via scoped path)
+    handlers.get("session_start")({}, ctx);
+    writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
+    const rInconclusiveScoped = path.join(receiptsDir, "1005-annotated-inconclusive.json");
+    fs.writeFileSync(
+      rInconclusiveScoped,
+      JSON.stringify({
+        receiptVersion: "1.2",
+        runId: "run-annotated-inconclusive",
+        annotationId: "annotation_1792003171976",
+        verdict: "QA_INCONCLUSIVE",
+        passed: false,
+        criticalCount: 0,
+        pageCriticalCount: 0,
+        scopedCriticalCount: 0,
+        findings: [
+          {
+            rule: "AUTH_REDIRECT",
+            severity: "warning",
+            selector: null,
+            rect: null,
+            message: "AUTH_REDIRECT: Requested route https://store.example.com/account redirected to authentication page https://store.example.com/account/login",
+          },
+        ],
+      }),
+      "utf8"
+    );
+    const future5 = new Date(Date.now() + 40_000);
+    fs.utimesSync(rInconclusiveScoped, future5, future5);
+
+    const resInconclusiveScoped = resText(result(handlers, ctx, "write ok 5", "write"));
+    assert.equal(
+      count(resInconclusiveScoped, GATE_REMINDER_SENTINEL),
+      1,
+      "QA_INCONCLUSIVE annotated receipt with scopedCriticalCount === 0 must stay armed"
+    );
+
+    // 6. Annotated QA_FAILED with scopedCriticalCount === 0 but a DEGRADED execution (a scanner
+    // did not report) stays armed: the zero may only mean missing findings.
+    for (const [n, execution] of [[6, "DEGRADED"], [7, undefined]]) {
+      handlers.get("session_start")({}, ctx);
+      writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
+      const rDegraded = path.join(receiptsDir, `100${n}-annotated-${execution || "no-execution"}.json`);
+      fs.writeFileSync(
+        rDegraded,
+        JSON.stringify({
+          receiptVersion: "1.2",
+          runId: `run-annotated-${execution || "no-execution"}`,
+          annotationId: "annotation_1792003171976",
+          verdict: "QA_FAILED",
+          ...(execution ? { execution } : {}),
+          passed: false,
+          criticalCount: 3,
+          pageCriticalCount: 3,
+          scopedCriticalCount: 0,
+        }),
+        "utf8"
+      );
+      const futureN = new Date(Date.now() + n * 10_000);
+      fs.utimesSync(rDegraded, futureN, futureN);
+      const resDegraded = resText(result(handlers, ctx, `write ok ${n}`, "write"));
+      assert.equal(
+        count(resDegraded, GATE_REMINDER_SENTINEL),
+        1,
+        `annotated QA_FAILED receipt with scopedCriticalCount === 0 and execution ${execution || "absent"} must stay armed`
+      );
+    }
+
+    // 8. The receipt's authRedirect flag keeps the gate armed even when the capped findings list
+    // no longer carries the AUTH_REDIRECT warning.
+    handlers.get("session_start")({}, ctx);
+    writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
+    const rAuthFlag = path.join(receiptsDir, "1008-annotated-auth-flag.json");
+    fs.writeFileSync(
+      rAuthFlag,
+      JSON.stringify({
+        receiptVersion: "1.2",
+        runId: "run-annotated-auth-flag",
+        annotationId: "annotation_1792003171976",
+        verdict: "QA_FAILED",
+        execution: "COMPLETED",
+        passed: false,
+        criticalCount: 3,
+        pageCriticalCount: 3,
+        scopedCriticalCount: 0,
+        authRedirect: true,
+        findings: [],
+      }),
+      "utf8"
+    );
+    const future8 = new Date(Date.now() + 90_000);
+    fs.utimesSync(rAuthFlag, future8, future8);
+    assert.equal(
+      count(resText(result(handlers, ctx, "write ok 8", "write")), GATE_REMINDER_SENTINEL),
+      1,
+      "an annotated receipt flagged authRedirect must stay armed"
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("edits outside cwd theme (skills dirs, tilde paths, scripts/test/fixtures) never arm the cwd theme, while edits inside cwd theme arm PENDING", () => {
+  const { handlers } = loadHook();
+  const root = makeWorkspace();
+  const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), "qa-gate-outside-"));
+  try {
+    fs.mkdirSync(path.join(root, "layout"), { recursive: true });
+    fs.mkdirSync(path.join(root, "config"), { recursive: true });
+    fs.writeFileSync(path.join(root, "layout", "theme.liquid"), "<html></html>", "utf8");
+    fs.writeFileSync(path.join(root, "config", "settings_schema.json"), "[]", "utf8");
+    fs.mkdirSync(path.join(root, "scripts", "test", "fixtures", "bad", "layout"), { recursive: true });
+    fs.mkdirSync(path.join(root, "scripts", "test", "fixtures", "bad", "config"), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, "scripts", "test", "fixtures", "bad", "layout", "theme.liquid"),
+      "<html></html>",
+      "utf8"
+    );
+    fs.mkdirSync(path.join(outsideDir, "layout"), { recursive: true });
+
+    const ctx = { cwd: root };
+
+    // 1. Tilde and absolute paths under ~/.claude/skills/haravan-settings-schema/ (both .md and test fixture layout/theme.liquid)
+    const tildeSkillRef = "~/.claude/skills/haravan-settings-schema/references/schema-and-editor-contract.md";
+    const tildeSkillFixture = "~/.claude/skills/haravan-settings-schema/scripts/test/fixtures/bad/layout/theme.liquid";
+    const absSkillFixture = path.join(
+      os.homedir(),
+      ".claude",
+      "skills",
+      "haravan-settings-schema",
+      "scripts",
+      "test",
+      "fixtures",
+      "bad",
+      "layout",
+      "theme.liquid"
+    );
+    const localTestFixture = path.join(root, "scripts", "test", "fixtures", "bad", "layout", "theme.liquid");
+    const outsideThemeLikeFile = path.join(outsideDir, "layout", "theme.liquid");
+
+    for (const nonThemeTarget of [
+      tildeSkillRef,
+      tildeSkillFixture,
+      absSkillFixture,
+      localTestFixture,
+      outsideThemeLikeFile,
+    ]) {
+      editCall(handlers, ctx, nonThemeTarget, ["<!-- edited -->"]);
+      const editRes = handlers.get("tool_result")(
+        {
+          toolName: "edit",
+          content: [{ type: "text", text: `[${nonThemeTarget}#4DFF]\n1:<!-- edited -->` }],
+        },
+        ctx
+      );
+      assert.equal(
+        count(resText(editRes), GATE_REMINDER_SENTINEL),
+        0,
+        `edit outside cwd theme or under fixtures/skills (${nonThemeTarget}) must not emit QA GATE PENDING`
+      );
+    }
+
+    // Even firing unmarked write results must confirm the gate was never armed by any of those edits
+    assert.equal(
+      fire(handlers, ctx, REMIND_EVERY).reminders,
+      0,
+      "cwd theme gate must remain completely unarmed after outside/fixture/skills edits"
+    );
+
+    // 2. Editing a real theme file inside the cwd theme root MUST arm PENDING
+    const insideTarget = path.join(root, "layout", "theme.liquid");
+    editCall(handlers, ctx, insideTarget, ["<!-- real theme edit -->"]);
+    const insideRes = handlers.get("tool_result")(
+      {
+        toolName: "edit",
+        content: [{ type: "text", text: `[${insideTarget}#8B1F]\n1:<!-- real theme edit -->` }],
+      },
+      ctx
+    );
+    assert.equal(
+      count(resText(insideRes), GATE_REMINDER_SENTINEL),
+      1,
+      "editing layout/theme.liquid inside the cwd theme root must emit QA GATE PENDING"
+    );
+
+    // 3. While the cwd theme gate IS armed, a subsequent edit to an outside skill file must not append PENDING to that outside edit's tool_result
+    editCall(handlers, ctx, tildeSkillRef, ["<!-- doc update -->"]);
+    const outsideWhileArmedRes = handlers.get("tool_result")(
+      {
+        toolName: "edit",
+        content: [{ type: "text", text: `[${tildeSkillRef}#F302]\n10:<!-- doc update -->` }],
+      },
+      ctx
+    );
+    assert.equal(
+      count(resText(outsideWhileArmedRes), GATE_REMINDER_SENTINEL),
+      0,
+      "outside skill edit tool_result must not receive QA GATE PENDING even when cwd theme is armed"
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(outsideDir, { recursive: true, force: true });
+  }
+});
+

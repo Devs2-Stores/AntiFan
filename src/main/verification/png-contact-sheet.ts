@@ -316,3 +316,23 @@ function paintSheet(scaled: RgbaImage[], options: ContactSheetOptions): RgbaImag
   });
   return { width, height, data };
 }
+
+/**
+ * Stack equal-width PNGs top to bottom into one RGBA PNG. Every slice is inflated and the result
+ * deflated on the zlib thread pool, with a yield between slices, so stitching a tall capture never
+ * holds the main process for the whole image. Null when a slice is not a supported PNG or the
+ * widths differ.
+ */
+export async function stackPngsVertically(slices: Buffer[]): Promise<Buffer | null> {
+  if (!slices.length) return null;
+  const decoded: RgbaImage[] = [];
+  for (const slice of slices) {
+    const img = await decodePngAsync(slice);
+    if (!img || (decoded.length > 0 && img.width !== decoded[0]!.width)) return null;
+    decoded.push(img);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+  const width = decoded[0]!.width;
+  const height = decoded.reduce((sum, img) => sum + img.height, 0);
+  return encodePngAsync({ width, height, data: Buffer.concat(decoded.map((img) => img.data), width * height * 4) });
+}

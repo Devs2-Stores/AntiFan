@@ -203,6 +203,11 @@ export class InjectedScriptStore {
                   if (typeof item.scrollTop === 'number') item.el.scrollTop = item.scrollTop;
                 }
               } catch {}
+              try {
+                // Restart only the autoplay this freeze stopped; one the page stopped stays stopped.
+                const autoplay = item && item.autoplayStopped && item.el.swiper && item.el.swiper.autoplay;
+                if (autoplay && typeof autoplay.start === 'function') autoplay.start();
+              } catch {}
             });
             delete window.__antifanSliderSnapshots;
           }
@@ -291,11 +296,13 @@ export class InjectedScriptStore {
         if (normalizeSliders) {
           window.__antifanSliderSnapshots = [];
           const seenElements = new Set();
+          const autoplayStopped = new Set();
           const snapshotElement = (el) => {
             if (!el || seenElements.has(el)) return;
             seenElements.add(el);
             window.__antifanSliderSnapshots.push({
               el,
+              autoplayStopped: autoplayStopped.has(el),
               scrollLeft: typeof el.scrollLeft === 'number' ? el.scrollLeft : 0,
               scrollTop: typeof el.scrollTop === 'number' ? el.scrollTop : 0,
               transform: { value: el.style.getPropertyValue('transform'), priority: el.style.getPropertyPriority('transform') },
@@ -307,11 +314,20 @@ export class InjectedScriptStore {
           };
           const isNavOrMenu = (el) => Boolean(el && typeof el.closest === 'function' && (el.closest('.category-menu') || el.closest('.category-navigation') || el.closest('nav') || el.closest('[class*="menu"]') || el.closest('[class*="dropdown"]')));
           const isSlideContent = (el) => Boolean(el && ((el.classList && typeof el.classList.contains === 'function' && el.classList.contains('slide-content')) || (typeof el.className === 'string' && el.className.includes('slide-content'))));
-          const rawScrollContainers = Array.from(document.querySelectorAll('.slideshow, .carousel, [class*="slider"], [class*="slideshow"], .slick-slider, .swiper'));
+          const rawScrollContainers = Array.from(document.querySelectorAll('.slideshow, .carousel, [class*="slider"], [class*="slideshow"], [class*="carousel"], [class*="marquee"], [class*="ticker"], [data-autoplay], [data-carousel], [data-slider], .slick-slider, .swiper, .swiper-container'));
           const scrollContainers = rawScrollContainers.filter(el => !isNavOrMenu(el) && !isSlideContent(el));
 
-          const rawTrackElements = Array.from(document.querySelectorAll('.s-content, .swiper-wrapper, .slick-track, .owl-stage, .flickity-slider, [class*="slide-wrap"] > div, [data-slider-track], .carousel-inner'));
+          const rawTrackElements = Array.from(document.querySelectorAll('.s-content, .swiper-wrapper, .slick-track, .owl-stage, .flickity-slider, [class*="slide-wrap"] > div, [data-slider-track], .carousel-inner, [class*="marquee"] > *, [class*="ticker"] > *'));
           const trackElements = rawTrackElements.filter(el => !isNavOrMenu(el) && !isSlideContent(el));
+          scrollContainers.forEach(el => {
+            try {
+              const autoplay = el.swiper && el.swiper.autoplay;
+              if (autoplay && autoplay.running !== false && typeof autoplay.stop === 'function') {
+                autoplay.stop();
+                autoplayStopped.add(el);
+              }
+            } catch {}
+          });
           scrollContainers.forEach(snapshotElement);
           trackElements.forEach(snapshotElement);
           scrollContainers.forEach(el => {

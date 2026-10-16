@@ -29,10 +29,10 @@ import {
   scanRenderFailures,
   validateThemeSchemas,
   checkSettingsBinding,
+  checkF1genzSettingsSchema,
   checkAssetReferences,
   checkHaravanLiquidContracts,
 } from '../../scripts/lib/theme-checks.mjs';
-
 const FIXTURES = path.join(import.meta.dirname, '..', 'fixtures', 'theme-checks');
 const readFixture = (relativePath) => fs.readFileSync(path.join(FIXTURES, relativePath), 'utf8');
 const fixtureTheme = (name) => path.join(FIXTURES, name);
@@ -707,5 +707,164 @@ test('Sapo .bwt templates and snippets are scanned for settings bindings, assets
     assert.equal(assetResult.counts.localPresent, 1, 'main.scss.css resolves to assets/main.scss.bwt');
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('checkF1genzSettingsSchema treats non-hstatic https image_picker and literal | default: fallbacks as ERROR while allowing store object variable fallbacks', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'f1genz-schema-severity-'));
+  try {
+    fs.writeFileSync(path.join(tempDir, '.workspace-context.json'), JSON.stringify({ kind: 'theme', platform: 'haravan', branch: 'f1genz' }), 'utf8');
+    fs.mkdirSync(path.join(tempDir, 'config'), { recursive: true });
+    fs.mkdirSync(path.join(tempDir, 'layout'), { recursive: true });
+    fs.mkdirSync(path.join(tempDir, 'snippets'), { recursive: true });
+
+    fs.writeFileSync(
+      path.join(tempDir, 'config', 'settings_schema.json'),
+      JSON.stringify([
+        {
+          name: 'General',
+          settings: [
+            {
+              type: 'image_picker',
+              id: 'hero_banner_ext_def',
+              label: 'Banner Ext Default',
+              default: 'https://images.unsplash.com/photo-123.jpg',
+            },
+            {
+              type: 'image_picker',
+              id: 'hero_banner_ext_val',
+              label: 'Banner Ext Value',
+              default: 'https://file.hstatic.net/1000/file/ok-default.jpg',
+            },
+            { type: 'text', id: 'hero_heading', label: 'Heading', default: 'Luxury Timepieces' },
+            { type: 'text', id: 'hero_gap', label: 'Gap', default: '24px' },
+            { type: 'text', id: 'hero_limit', label: 'Limit', default: '8' },
+            { type: 'text', id: 'brand_name', label: 'Brand', default: 'Timer Watch' },
+          ],
+        },
+      ]),
+      'utf8'
+    );
+    fs.writeFileSync(
+      path.join(tempDir, 'config', 'settings_data.json'),
+      JSON.stringify({
+        current: {
+          hero_banner_ext_def: 'https://file.hstatic.net/1000/file/ok-val.jpg',
+          hero_banner_ext_val: 'https://images.unsplash.com/photo-456.jpg',
+          hero_heading: 'Luxury Timepieces',
+          hero_gap: '24px',
+          hero_limit: '8',
+          brand_name: 'Timer Watch',
+        },
+      }),
+      'utf8'
+    );
+    fs.writeFileSync(
+      path.join(tempDir, 'layout', 'theme.liquid'),
+      '<!doctype html><html><head>{{ content_for_header }}</head><body>{% include "hero" %}{{ content_for_layout }}</body></html>',
+      'utf8'
+    );
+    fs.writeFileSync(
+      path.join(tempDir, 'snippets', 'hero.liquid'),
+      [
+        '<img setting-id="hero_banner_ext_def" setting-type="image" src="{{ settings.hero_banner_ext_def }}" width="100" height="100" alt="">',
+        '<img setting-id="hero_banner_ext_val" setting-type="image" src="{{ settings.hero_banner_ext_val }}" width="100" height="100" alt="">',
+        '<h1 setting-id="hero_heading" setting-type="text">{{ settings.hero_heading | default: "Welcome" }}</h1>',
+        '<div style="gap: {{ settings.hero_gap | default: \'16px\' }}" data-limit="{{ settings.hero_limit | default: 8 }}"></div>',
+        '{% if settings.brand_name != blank %}<span setting-id="brand_name" setting-type="text">{{ settings.brand_name | default: shop.name | default: "" }}</span>{% endif %}',
+      ].join('\n'),
+      'utf8'
+    );
+
+    const res = checkF1genzSettingsSchema(tempDir);
+    assert.equal(res.ok, false);
+    assert.ok(
+      res.errors.some((e) => e.rule === 'image-picker-bare-default' && e.id === 'hero_banner_ext_def'),
+      'non-hstatic https in image_picker default must be an ERROR (image-picker-bare-default)'
+    );
+    assert.ok(
+      res.errors.some((e) => e.rule === 'image-picker-bare-value' && e.id === 'hero_banner_ext_val'),
+      'non-hstatic https in image_picker data must be an ERROR (image-picker-bare-value)'
+    );
+    const fallbackErrors = res.errors.filter((e) => e.rule === 'liquid-hardcoded-fallback');
+    assert.deepEqual(
+      fallbackErrors.map((e) => e.id).sort(),
+      ['hero_gap', 'hero_heading', 'hero_limit'],
+      'quoted literal, unit literal, and numeric literal | default: on settings must all be ERROR'
+    );
+    assert.ok(
+      !res.errors.some((e) => e.id === 'brand_name') && !res.warnings.some((w) => w.id === 'brand_name'),
+      'store object variable fallback (| default: shop.name) and empty string fallback must stay allowed'
+    );
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+// A small Haravan theme whose schema declares two settings read only inside multi-line tags, and a
+// handle the F1genz rules ban (linklists.<handle>).
+function writeBranchTheme(branch) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'theme-branch-gate-'));
+  if (branch) {
+    fs.writeFileSync(path.join(dir, '.workspace-context.json'), JSON.stringify({ kind: 'theme', platform: 'haravan', branch }), 'utf8');
+  }
+  fs.mkdirSync(path.join(dir, 'config'), { recursive: true });
+  fs.mkdirSync(path.join(dir, 'snippets'), { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, 'config', 'settings_schema.json'),
+    JSON.stringify([{ name: 'Footer', settings: [
+      { type: 'text', id: 'footer_text', label: 'Footer text', default: 'Hello' },
+      { type: 'text', id: 'footer_note', label: 'Footer note', default: 'Note' },
+    ] }]),
+    'utf8'
+  );
+  fs.writeFileSync(path.join(dir, 'config', 'settings_data.json'), JSON.stringify({ current: { footer_text: 'Hello', footer_note: 'Note' } }), 'utf8');
+  fs.writeFileSync(
+    path.join(dir, 'snippets', 'footer.liquid'),
+    [
+      '<p setting-id="footer_text" setting-type="text">{{',
+      '  settings.footer_text',
+      '}}</p>',
+      '{%- liquid',
+      '  assign note = settings.footer_note',
+      '-%}',
+      '<span setting-id="footer_note" setting-type="text">{{ note }}</span>',
+      '{% for link in linklists.main-menu.links %}<a href="{{ link.url }}">{{ link.title }}</a>{% endfor %}',
+    ].join('\n'),
+    'utf8'
+  );
+  return dir;
+}
+
+test('checkF1genzSettingsSchema runs only on a workspace on the f1genz branch', () => {
+  for (const branch of ['devs2', null]) {
+    const dir = writeBranchTheme(branch);
+    try {
+      const res = checkF1genzSettingsSchema(dir);
+      assert.equal(res.ok, true);
+      assert.deepEqual(res.errors, []);
+      assert.ok(res.skipped, `branch ${branch} is skipped`);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
+  const f1genz = writeBranchTheme('f1genz');
+  try {
+    const res = checkF1genzSettingsSchema(f1genz);
+    assert.equal(res.skipped, undefined);
+    assert.ok(res.errors.some((e) => e.rule === 'liquid-hardcoded-handle'), 'the house rules run on an f1genz theme');
+  } finally {
+    fs.rmSync(f1genz, { recursive: true, force: true });
+  }
+});
+
+test('checkF1genzSettingsSchema counts a setting read inside a multi-line tag as read', () => {
+  const dir = writeBranchTheme('f1genz');
+  try {
+    const res = checkF1genzSettingsSchema(dir);
+    const dead = res.errors.filter((e) => e.rule === 'dead-setting').map((e) => e.id);
+    assert.deepEqual(dead, [], 'footer_text ({{ on its own line) and footer_note ({% liquid %} block) are both read');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 });

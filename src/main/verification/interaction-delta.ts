@@ -189,6 +189,33 @@ export function computeSparseInteractionDelta(
     } else {
       result.target.aria = { status: 'unchanged', value: bAria };
     }
+
+    if (beforeTarget.computedStyles && afterTarget.computedStyles) {
+      const bCs = beforeTarget.computedStyles;
+      const aCs = afterTarget.computedStyles;
+      if (
+        bCs.color !== aCs.color ||
+        bCs.backgroundColor !== aCs.backgroundColor ||
+        bCs.borderColor !== aCs.borderColor ||
+        bCs.boxShadow !== aCs.boxShadow ||
+        bCs.transform !== aCs.transform ||
+        bCs.opacity !== aCs.opacity
+      ) {
+        result.target.computedStyles = { status: 'changed', before: bCs, after: aCs };
+      } else {
+        result.target.computedStyles = { status: 'unchanged', value: bCs };
+      }
+    }
+
+    if (beforeTarget.children && afterTarget.children) {
+      const bCh = beforeTarget.children;
+      const aCh = afterTarget.children;
+      if (JSON.stringify(bCh) !== JSON.stringify(aCh)) {
+        result.target.children = { status: 'changed', before: bCh, after: aCh };
+      } else {
+        result.target.children = { status: 'unchanged', value: bCh };
+      }
+    }
   }
 
   // 2. Overlay Candidates Comparison
@@ -271,8 +298,9 @@ export function hasAnyObservableChange(delta: SparseInteractionDelta): boolean {
     delta.target.classes?.status === 'changed' ||
     delta.target.rect?.status === 'changed' ||
     delta.target.style?.status === 'changed' ||
+    delta.target.computedStyles?.status === 'changed' ||
+    delta.target.children?.status === 'changed' ||
     delta.target.aria?.status === 'changed';
-
   const overlayChanged =
     delta.overlayCandidateDelta.added.length > 0 ||
     delta.overlayCandidateDelta.removed.length > 0 ||

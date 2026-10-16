@@ -833,6 +833,8 @@ export class CapabilityTransportAdapter {
       const isSwitchTab = intent.name === 'browser.switch-tab' || intent.name === 'antifan_switch_tab' || intent.name === 'anti.browser.tabs.activate';
       const isNavigate = intent.name === 'browser.navigate' || intent.name === 'antifan_navigate' || intent.name === 'anti.browser.navigate';
       const isReload = intent.name === 'browser.reload' || intent.name === 'antifan_reload' || intent.name === 'anti.browser.reload';
+      // A route sweep navigates the bound tab and back: its authority moves like a navigation's.
+      const isRouteSweep = intent.name === 'anti.qa.batch_matrix';
       const isCloseTab = intent.name === 'browser.close-tab' || intent.name === 'antifan_close_tab' || intent.name === 'anti.browser.tabs.close';
       const isRebind = intent.name === 'browser.rebind-target' || intent.name === 'antifan_rebind_target' || intent.name === 'anti.browser.rebind_target';
       if (isSetTarget || isOpenTab) {
@@ -909,7 +911,7 @@ export class CapabilityTransportAdapter {
             }
           }
         }
-      } else if (isNavigate || isReload) {
+      } else if (isNavigate || isReload || isRouteSweep) {
         let targetTabId: string | undefined;
         let targetDocGen: number | undefined;
         if (data && typeof data === 'object') {

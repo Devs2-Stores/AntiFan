@@ -33,8 +33,8 @@ import {
   resolveCaptureMode,
   validateJpegBuffer,
   validatePngBuffer,
-  type CaptureMode,
   type CaptureViewportTransaction,
+  type CaptureMode,
   type RenderSurfaceSnapshot,
   type VerificationCaptureEnvelope,
 } from '../verification/visual-capture';
@@ -44,6 +44,7 @@ import { evaluatePreCaptureQuiescence, type PreCaptureQuiescenceResult } from '.
 import { buildTrackerStubScript, buildTrackerStubTeardownScript, TRACKER_BLOCK_PATTERNS } from './tracker-isolation';
 import type { TrackerIsolationReceipt } from './tracker-isolation';
 import { withEvalCeiling } from './eval-ceiling';
+import { stackPngsVertically } from '../verification/png-contact-sheet';
 
 const delay = (ms: number): Promise<void> => {
   const { promise, resolve } = Promise.withResolvers<void>();
@@ -78,6 +79,62 @@ const NATIVE_VIEWPORT_RASTER_BOUND_MS = 4_000;
  * surface by name when it cannot answer.
  */
 const NO_SURFACE_CAPTURE_PROBE_BOUND_MS = 8_000;
+
+/**
+ * Chromium rasterizes a capture into one GPU texture capped at 16384 device px per edge; a
+ * taller full-page capture comes back with its lower part blank. Past this height (device px,
+ * with headroom under the cap) the page is captured in slices of FULL_PAGE_SLICE_DEVICE_PX each
+ * and stitched.
+ */
+export const FULL_PAGE_SINGLE_RASTER_MAX_DEVICE_PX = 12_000;
+
+/**
+ * Holds slider motion still for a capture whose images kept changing: stops a running Swiper
+ * autoplay and pauses inline animation/transition, recording each element's prior inline values
+ * so CAPTURE_SLIDER_RELEASE_SCRIPT can put the page back once the capture ends.
+ */
+export const CAPTURE_SLIDER_HOLD_SCRIPT = `(() => {
+  const held = Array.isArray(window.__antifanCaptureSliderHold) ? window.__antifanCaptureSliderHold : [];
+  const seen = new Set(held.map((entry) => entry.el));
+  document.querySelectorAll('.swiper, .swiper-container, [class*="swiper"], .slick-slider, .flickity-enabled, [data-autoplay], [data-carousel], [data-slider], [class*="carousel"], [class*="slider"], [class*="marquee"]').forEach((el) => {
+    if (seen.has(el) || !el.style) return;
+    seen.add(el);
+    const entry = { el, autoplay: false, styles: {} };
+    ['animation-play-state', 'transition'].forEach((prop) => {
+      entry.styles[prop] = { value: el.style.getPropertyValue(prop), priority: el.style.getPropertyPriority(prop) };
+    });
+    try {
+      const autoplay = el.swiper && el.swiper.autoplay;
+      if (autoplay && autoplay.running !== false && typeof autoplay.stop === 'function') { autoplay.stop(); entry.autoplay = true; }
+    } catch {}
+    try { el.style.setProperty('animation-play-state', 'paused', 'important'); el.style.setProperty('transition', 'none', 'important'); } catch {}
+    held.push(entry);
+  });
+  window.__antifanCaptureSliderHold = held;
+  return held.length;
+})()`;
+
+/** Puts back what CAPTURE_SLIDER_HOLD_SCRIPT changed; a no-op when nothing was held. */
+export const CAPTURE_SLIDER_RELEASE_SCRIPT = `(() => {
+  const held = window.__antifanCaptureSliderHold;
+  if (!Array.isArray(held)) return 0;
+  delete window.__antifanCaptureSliderHold;
+  held.forEach((entry) => {
+    try {
+      Object.keys(entry.styles).forEach((prop) => {
+        const snap = entry.styles[prop];
+        if (snap.value) entry.el.style.setProperty(prop, snap.value, snap.priority || '');
+        else entry.el.style.removeProperty(prop);
+      });
+    } catch {}
+    try {
+      const autoplay = entry.autoplay && entry.el.swiper && entry.el.swiper.autoplay;
+      if (autoplay && typeof autoplay.start === 'function') autoplay.start();
+    } catch {}
+  });
+  return held.length;
+})()`;
+export const FULL_PAGE_SLICE_DEVICE_PX = 8_192;
 
 /**
  * Budget for one compositor-liveness probe: requestAnimationFrame fires within a
@@ -230,6 +287,12 @@ export interface TabDevToolsStats {
  * reference materialization walk) pass their own through `timeoutMs`.
  */
 const EVAL_JS_DEFAULT_TIMEOUT_MS = 15_000;
+/**
+ * How long a script may keep running after its tab starts a cross-document navigation. A script
+ * that started the navigation itself normally returns first; one still pending after this is
+ * running in a context that is being torn down, so its result is refused instead of awaited.
+ */
+export const EVAL_NAVIGATION_GRACE_MS = 1_500;
 
 /**
  * Soft budget for capturing the active view's raster for the GPU lens.
@@ -1967,6 +2030,13 @@ export class TabDevToolsHost {
           `(() => {
             const ov = document.getElementById('__antifan_agent_overlay__');
             if (ov) ov.classList.add('suppressed');
+            let st = document.getElementById('__antifan_screenshot_guard__');
+            if (!st && (document.head || document.documentElement)) {
+              st = document.createElement('style');
+              st.id = '__antifan_screenshot_guard__';
+              st.textContent = '#__antifan_agent_overlay__, #__antifan_agent_cursor__, #__antifan_agent_highlight__, #__antifan_agent_banner__, [data-antifan-agent-cursor], #haravan-notification, #preview-bar-iframe { display: none !important; visibility: hidden !important; opacity: 0 !important; pointer-events: none !important; }';
+              (document.head || document.documentElement).appendChild(st);
+            }
           })()`,
           targetId,
           effectivePane
@@ -2070,6 +2140,8 @@ export class TabDevToolsHost {
           `(() => {
             const ov = document.getElementById('__antifan_agent_overlay__');
             if (ov) ov.classList.remove('suppressed');
+            const st = document.getElementById('__antifan_screenshot_guard__');
+            if (st) st.remove();
           })()`,
           targetId,
           effectivePane
@@ -2430,6 +2502,13 @@ export class TabDevToolsHost {
             `(() => {
               const ov = document.getElementById('__antifan_agent_overlay__');
               if (ov) ov.classList.add('suppressed');
+              let st = document.getElementById('__antifan_screenshot_guard__');
+              if (!st && (document.head || document.documentElement)) {
+                st = document.createElement('style');
+                st.id = '__antifan_screenshot_guard__';
+                st.textContent = '#__antifan_agent_overlay__, #__antifan_agent_cursor__, #__antifan_agent_highlight__, #__antifan_agent_banner__, [data-antifan-agent-cursor], #haravan-notification, #preview-bar-iframe { display: none !important; visibility: hidden !important; opacity: 0 !important; pointer-events: none !important; }';
+                (document.head || document.documentElement).appendChild(st);
+              }
             })()`,
             targetId,
             effectivePane
@@ -2536,7 +2615,7 @@ export class TabDevToolsHost {
           }
 
           if (!options?.skipQuiescence) {
-            const quiescence = await evaluatePreCaptureQuiescence(
+            let quiescence = await evaluatePreCaptureQuiescence(
               {
                 evalJs: (script: string, tId?: string, pId?: 'desktop' | 'mobile') =>
                   this.evalJs(script, tId || targetId, pId || effectivePane),
@@ -2545,6 +2624,24 @@ export class TabDevToolsHost {
               effectivePane,
               { fullPage: mode === 'full-page' }
             );
+            if (!quiescence.ready && quiescence.failingPredicate === 'imageIdentityStable') {
+              try {
+                await this.evalJs(
+                  CAPTURE_SLIDER_HOLD_SCRIPT,
+                  targetId,
+                  effectivePane
+                );
+                quiescence = await evaluatePreCaptureQuiescence(
+                  {
+                    evalJs: (script: string, tId?: string, pId?: 'desktop' | 'mobile') =>
+                      this.evalJs(script, tId || targetId, pId || effectivePane),
+                  },
+                  targetId,
+                  effectivePane,
+                  { fullPage: mode === 'full-page' }
+                );
+              } catch {}
+            }
             lastQuiescence = quiescence;
             if (!quiescence.ready) {
               // `evaluatePreCaptureQuiescence` reports the failing predicate as one of
@@ -2670,6 +2767,8 @@ export class TabDevToolsHost {
             } catch {}
           }
           let captureRes: { data?: string } | undefined;
+          // Set when the page is captured in slices; stitched once the lift lease is released.
+          let fullPageSlices: Buffer[] | null = null;
 
           // Frame-liveness gate: refuse the dispatch when the presenter cannot
           // produce the frame Page.captureScreenshot waits for. Timed-out here
@@ -2679,18 +2778,55 @@ export class TabDevToolsHost {
           const rasterStartedAt = Date.now();
           try {
             liftLease = await this.ensureFramesForRaster(wc, targetId, effectivePane, mode, liftLease, cdpBoundMs);
-            captureRes = await this.sendCdpCommand<{ data?: string }>(
-              wc,
-              'Page.captureScreenshot',
-              {
-                format: imageFormat,
-                quality: imageFormat === 'jpeg' ? Math.max(1, Math.min(100, Math.round(options?.quality ?? 85))) : undefined,
-                fromSurface: true,
-                captureBeyondViewport: mode !== 'viewport',
-                clip,
-              },
-              cdpBoundMs
-            );
+            const rasterScale = dpr * zoom;
+            if (mode === 'full-page' && clip && cssCaptureSize.height * rasterScale > FULL_PAGE_SINGLE_RASTER_MAX_DEVICE_PX) {
+              // Every slice shares the one raster bound the lift lease was granted for.
+              const sliceCssHeight = Math.max(1, Math.floor(FULL_PAGE_SLICE_DEVICE_PX / rasterScale));
+              const sliceCount = Math.ceil(cssCaptureSize.height / sliceCssHeight);
+              const rasterDeadline = Date.now() + cdpBoundMs;
+              const slices: Buffer[] = [];
+              for (let offsetY = 0; offsetY < cssCaptureSize.height; offsetY += sliceCssHeight) {
+                const remainingMs = rasterDeadline - Date.now();
+                if (remainingMs <= 0) {
+                  throw new CaptureError(
+                    'CAPTURE_TIMEOUT',
+                    `Full-page capture on tab '${targetId}' used its ${cdpBoundMs}ms raster bound after ${slices.length} of ${sliceCount} slices`
+                  );
+                }
+                const sliceRes = await this.sendCdpCommand<{ data?: string }>(
+                  wc,
+                  'Page.captureScreenshot',
+                  {
+                    format: 'png',
+                    fromSurface: true,
+                    captureBeyondViewport: true,
+                    clip: { x: clip.x, y: clip.y + offsetY, width: clip.width, height: Math.min(sliceCssHeight, cssCaptureSize.height - offsetY), scale: 1 },
+                  },
+                  remainingMs
+                );
+                // One missing slice leaves a hole in the page: the whole capture is empty, never a
+                // shorter image under the full-page geometry.
+                if (typeof sliceRes?.data !== 'string' || sliceRes.data.length === 0) {
+                  slices.length = 0;
+                  break;
+                }
+                slices.push(Buffer.from(sliceRes.data, 'base64'));
+              }
+              fullPageSlices = slices;
+            } else {
+              captureRes = await this.sendCdpCommand<{ data?: string }>(
+                wc,
+                'Page.captureScreenshot',
+                {
+                  format: imageFormat,
+                  quality: imageFormat === 'jpeg' ? Math.max(1, Math.min(100, Math.round(options?.quality ?? 85))) : undefined,
+                  fromSurface: true,
+                  captureBeyondViewport: mode !== 'viewport',
+                  clip,
+                },
+                cdpBoundMs
+              );
+            }
           } catch (err) {
             // Frame refusal occurs before dispatch: do not classify it as a
             // raster timeout or probe again. One bounded tier still runs first:
@@ -2787,6 +2923,13 @@ export class TabDevToolsHost {
             ms: Date.now() - rasterStartedAt,
           });
 
+          if (fullPageSlices && fullPageSlices.length > 0) {
+            const stitched = await stackPngsVertically(fullPageSlices);
+            if (!stitched) {
+              throw new CaptureError('CAPTURE_PNG_UNDECODABLE', `Full-page slices on tab '${targetId}' could not be stitched: a slice is not a supported PNG or the widths differ`);
+            }
+            captureRes = { data: stitched.toString('base64') };
+          }
           if (!captureRes || typeof captureRes.data !== 'string' || captureRes.data.length === 0) {
             throw new CaptureError('CAPTURE_EMPTY_PAYLOAD', `CDP Page.captureScreenshot returned an empty payload on tab '${targetId}'`);
           }
@@ -2872,10 +3015,15 @@ export class TabDevToolsHost {
       captureError = this.toCaptureError(err, `Verification capture on tab '${targetId}'`);
     } finally {
       try {
+        await this.evalJs(CAPTURE_SLIDER_RELEASE_SCRIPT, targetId, effectivePane);
+      } catch {}
+      try {
         await this.evalJs(
           `(() => {
             const ov = document.getElementById('__antifan_agent_overlay__');
             if (ov) ov.classList.remove('suppressed');
+            const st = document.getElementById('__antifan_screenshot_guard__');
+            if (st) st.remove();
           })()`,
           targetId,
           effectivePane
@@ -3197,6 +3345,9 @@ export class TabDevToolsHost {
         try {
           return await wc.executeJavaScript(wrapped, userGesture);
         } catch (err: unknown) {
+          if (sawMainFrameNavUrl !== undefined) {
+            throw navigatedError(sawMainFrameNavUrl);
+          }
           const msg = err instanceof Error ? err.message : String(err);
           if (
             msg.includes('Trusted Type') ||
@@ -3223,6 +3374,26 @@ export class TabDevToolsHost {
         }
       };
 
+      let sawMainFrameNavUrl: string | undefined;
+      let navGraceTimer: ReturnType<typeof setTimeout> | undefined;
+      // A typed refusal, never a result-shaped object: callers parse eval results as their own
+      // measurements and would read a stand-in object as data.
+      const navigatedError = (url: string): CapabilityError =>
+        new CapabilityError('TARGET_STALE', `Tab ${targetId} navigated to ${url || 'a new document'} while the script ran; its result belonged to the document that was replaced`, { tabId: targetId, newUrl: url });
+      const { promise: navPromise, reject: navReject } = Promise.withResolvers<never>();
+      const onDidStartNav = (_event: unknown, url?: string, isInPlace?: boolean, isMainFrame?: boolean): void => {
+        // Sub-frame loads and same-document moves (pushState, hash) keep the script's context.
+        if (isMainFrame === false || isInPlace === true) return;
+        const nextUrl = typeof url === 'string' && url ? url : (typeof wc.getURL === 'function' ? wc.getURL() : '');
+        sawMainFrameNavUrl = nextUrl;
+        if (navGraceTimer === undefined) {
+          navGraceTimer = setTimeout(() => navReject(navigatedError(nextUrl)), EVAL_NAVIGATION_GRACE_MS);
+        }
+      };
+      if (typeof wc.on === 'function') {
+        wc.on('did-start-navigation', onDidStartNav);
+      }
+
       // Out-of-Band 2-Tier Watchdog Timers (Node.js level)
       const softTimer = setTimeout(() => {
         console.warn(`[evalJs:SoftWarning] Script evaluation on tab ${targetId} reached soft budget ${softBudgetMs}ms (running on laptop CPU). Awaiting hard ceiling ${hardBudgetMs}ms...`);
@@ -3248,8 +3419,12 @@ export class TabDevToolsHost {
           return await execute();
         };
 
-        return await Promise.race([runner(), hardWatchdogPromise]);
+        return await Promise.race([runner(), navPromise, hardWatchdogPromise]);
       } finally {
+        if (typeof wc.removeListener === 'function') {
+          wc.removeListener('did-start-navigation', onDidStartNav);
+        }
+        if (navGraceTimer !== undefined) clearTimeout(navGraceTimer);
         clearTimeout(softTimer);
         clearTimeout(hardTimer);
       }

@@ -1497,4 +1497,30 @@ describe('Responsive sweep surface', () => {
       assert.ok(!('integrity' in plainReadings[id]!), `${id}: no integrity key without the option`);
     }
   });
+
+  it('restores customViewport emulation on a background tab after runResponsiveCheck completes', async () => {
+    const harness = createSweepHarness();
+    const host = harness.host;
+    const backgroundTab = createTestTabRecord('tab-bg');
+    backgroundTab.view = harness.view as unknown as NativeTabRecord['view'];
+    backgroundTab.customViewport = { width: 1024, height: 768, deviceScaleFactor: 1, mobile: false };
+    backgroundTab.state.devicePresetId = 'custom-1024x768';
+    const activeTab = createTestTabRecord('tab-active');
+    activeTab.view = harness.activeView as unknown as NativeTabRecord['view'];
+    host.tabs.set('tab-active', activeTab);
+    host.tabs.set('tab-bg', backgroundTab);
+    host.tabByWebContents.set(harness.view.webContents, { tabId: 'tab-bg', tab: backgroundTab });
+
+    await host.runResponsiveCheck({ tabId: 'tab-bg' });
+
+    assert.deepStrictEqual(
+      harness.liveEmulation(),
+      { width: 1024, height: 768 },
+      'Background tab customViewport must be re-applied via applyTabDeviceEmulationForTab after responsive sweep'
+    );
+    assert.deepStrictEqual(
+      backgroundTab.customViewport,
+      { width: 1024, height: 768, deviceScaleFactor: 1, mobile: false }
+    );
+  });
 });

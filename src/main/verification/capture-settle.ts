@@ -627,6 +627,7 @@ export function buildPreCaptureSampleExpr(options: { fullPage?: boolean } = {}):
     const r = img.getBoundingClientRect();
     return r.width <= 2 && r.height <= 2;
   };
+  const isCarouselImage = (img) => Boolean(img && typeof img.closest === 'function' && img.closest('[data-autoplay], [data-carousel], [data-slider], [data-slider-track], .swiper, .swiper-container, .slick-slider, .owl-carousel, [class*="carousel"], [class*="slider"], [class*="slideshow"], [class*="marquee"], [class*="ticker"]'));
   const isIgnorableIdentityImage = (img) => {
     if (!img) return true;
     if (img.offsetParent === null && img.offsetWidth === 0 && img.offsetHeight === 0) {
@@ -641,7 +642,10 @@ export function buildPreCaptureSampleExpr(options: { fullPage?: boolean } = {}):
     const bottom = typeof r.bottom === 'number' ? r.bottom : top + (r.height || 0);
     const left = typeof r.left === 'number' ? r.left : (typeof r.x === 'number' ? r.x : 0);
     const right = typeof r.right === 'number' ? r.right : left + (r.width || 0);
-    if (bottom < 0 || top > vh || right < 0 || left > vw) return true;`}
+    // Off-screen slides included: a viewport raster never shows them, and a carousel swaps their
+    // sources on its own schedule, which would hold identity unstable for no visible change. A box
+    // that starts exactly at an edge (the next full-width slide at left == innerWidth) is off screen.
+    if (bottom <= 0 || top >= vh || right <= 0 || left >= vw) return true;`}
     return false;
   };
   // An img whose lazy source still lives in data-* attributes reads complete === true
@@ -711,6 +715,9 @@ export function buildPreCaptureSampleExpr(options: { fullPage?: boolean } = {}):
     (i.currentSrc || i.src || '').slice(0, 200) + '|' + i.naturalWidth + 'x' + i.naturalHeight
   );
   const imageStructureParts = trackedImages.map(i => {
+    if (isCarouselImage(i) && i.offsetWidth > 0 && i.offsetHeight > 0) {
+      return i.offsetWidth + 'x' + i.offsetHeight;
+    }
     const r = i.getBoundingClientRect();
     return r.width + 'x' + r.height;
   });

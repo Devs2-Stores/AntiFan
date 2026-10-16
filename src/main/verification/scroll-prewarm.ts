@@ -50,8 +50,8 @@ export interface ScrollPrewarmReceipt {
 }
 
 export const SCROLL_PREWARM_DEFAULTS = {
-  maxSteps: 12,
-  maxDocumentHeight: 10_000,
+  maxSteps: 20,
+  maxDocumentHeight: 16_384,
   stepRatio: 0.85,
   settleMs: 40,
   appendGraceMs: 500,

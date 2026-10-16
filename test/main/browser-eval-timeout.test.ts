@@ -190,6 +190,62 @@ describe('TabDevToolsHost.evalJs in-page budget guard', () => {
   });
 });
 
+describe('TabDevToolsHost.evalJs across a navigation', () => {
+  // A stub web contents that can emit Electron's did-start-navigation
+  // (event, url, isInPlace, isMainFrame) while a script is pending.
+  const makeNavHost = (settle: (emit: (url: string, isInPlace: boolean) => void) => Promise<unknown>) => {
+    const listeners = new Set<(...args: unknown[]) => void>();
+    const emit = (url: string, isInPlace: boolean) => { for (const l of listeners) l({}, url, isInPlace, true); };
+    const wc = {
+      isDestroyed: () => false,
+      getURL: () => 'https://eval.test/',
+      on: (name: string, fn: (...args: unknown[]) => void) => { if (name === 'did-start-navigation') listeners.add(fn); },
+      removeListener: (name: string, fn: (...args: unknown[]) => void) => { if (name === 'did-start-navigation') listeners.delete(fn); },
+      executeJavaScript: () => settle(emit),
+    } as unknown as Electron.WebContents;
+    const record = { id: 'tab-1', state: { id: 'tab-1', url: 'https://eval.test/' }, focusedPane: 'desktop' } as unknown as NativeTabRecord;
+    const ctx: TabDevToolsContext = {
+      getTabWebContents: () => wc,
+      getTabRecord: () => record,
+      getActiveTabId: () => 'tab-1',
+      getAllTabs: function* () {},
+      broadcastState: () => {},
+      getTabTerminalSession: () => undefined,
+      visibleTerminalSessions: () => [],
+      resolveTargetWorkspace: () => 'ws-eval',
+      resolveAnnotationWorkspace: () => 'ws-eval',
+      createTab: () => 'tab-1',
+      withTabAgentWorking: async <T>(_id: string, action: () => Promise<T>) => action(),
+    };
+    return { host: new TabDevToolsHost(ctx), listeners };
+  };
+  const later = <T>(ms: number, value: T) => new Promise<T>((resolve) => setTimeout(() => resolve(value), ms));
+
+  it('a same-document move (pushState, hash) does not cut the script short', async () => {
+    const { host } = makeNavHost(async (emit) => { emit('https://eval.test/#reviews', true); return later(50, 42); });
+    assert.strictEqual(await host.evalJs('42', 'tab-1', 'desktop', false, 2_000), 42);
+  });
+
+  it('a script that finishes within the grace after starting a navigation keeps its result', async () => {
+    const { host } = makeNavHost(async (emit) => { emit('https://eval.test/cart', false); return later(100, 'done'); });
+    assert.strictEqual(await host.evalJs('x', 'tab-1', 'desktop', false, 5_000), 'done');
+  });
+
+  it('a script still pending after a cross-document navigation is refused with the new URL', async () => {
+    const { host, listeners } = makeNavHost(async (emit) => { emit('https://eval.test/checkout', false); return new Promise(() => {}); });
+    await assert.rejects(
+      () => host.evalJs('wait()', 'tab-1', 'desktop', false, 10_000),
+      (err: unknown) => {
+        assert.ok(err instanceof CapabilityError);
+        assert.strictEqual(err.code, 'TARGET_STALE');
+        assert.match(err.message, /navigated to https:\/\/eval\.test\/checkout/);
+        return true;
+      }
+    );
+    assert.strictEqual(listeners.size, 0, 'the navigation listener is removed');
+  });
+});
+
 describe('TabDevToolsHost evaluation failures cross the Electron boundary readable', () => {
   // What `executeJavaScript` hands Main for an in-page rejection, as measured against the
   // shipped Electron: a native Error arrives as a bare Error carrying only its message (an

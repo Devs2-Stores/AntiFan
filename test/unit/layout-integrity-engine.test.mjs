@@ -121,5 +121,24 @@ describe('LayoutIntegrityEngine', () => {
         'browser scan script must include sibling-gap and wrap-quality rules'
       );
     });
+
+    it('wires the inner overflow-x clipping, scrolled-header and fixed-vs-sticky collision passes into the scan (behaviour: visual-qa fixtures 51-55)', () => {
+      const scriptText = LayoutIntegrityEngine.getBrowserScanScript('active');
+      assert.ok(
+        scriptText.includes('checkInnerClippedInOverflowAncestor') &&
+          scriptText.includes("ancOvX !== 'hidden' && ancOvX !== 'clip'"),
+        'browser scan script must include inner overflow-x:hidden|clip clipping detector'
+      );
+      assert.ok(
+        scriptText.includes('checkScrolledStateHeaderAndSticky') &&
+          scriptText.includes("classList.add('is-scrolled')") &&
+          scriptText.includes("classList.remove('is-scrolled')"),
+        'browser scan script must include scrolled-state (scrollY=600 / .is-scrolled) pass with cleanup'
+      );
+      assert.ok(
+        scriptText.includes('checkFixedStickyLayerCollisions'),
+        'browser scan script must include fixed-vs-fixed and fixed-vs-sticky layer collision pass'
+      );
+    });
   });
 });

@@ -33,6 +33,74 @@ export const THEME_CHECKLIST_FILENAME = 'qa-checklist.json';
 export const MAX_CHECKLIST_FIELD_CHARS = 1024;
 export const MAX_CHECKLIST_ITEMS_PER_SCOPE = 200;
 export const CHECKLIST_PAGE_KEY_PATTERN = /^[a-z0-9-]{1,32}$/;
+/**
+ * Files every page renders through: any stylesheet in assets/, any layout, and header/footer
+ * snippets or sections. An edit to one can break a check already ticked on any page.
+ */
+const SHARED_THEME_ASSET_DIRS: ReadonlyArray<{ dir: string; matches: (name: string) => boolean }> = [
+  { dir: 'assets', matches: (name) => /\.(?:css|scss)(?:\.liquid)?$/i.test(name) },
+  { dir: 'layout', matches: (name) => /\.liquid$/i.test(name) },
+  { dir: 'snippets', matches: (name) => /^(?:header|footer)[\w.-]*\.liquid$/i.test(name) },
+  { dir: 'sections', matches: (name) => /^(?:header|footer)[\w.-]*\.liquid$/i.test(name) },
+];
+
+/** Newest modification time among the theme's shared files (0 when there are none). */
+export function latestSharedThemeAssetMtime(workspaceRoot: string): number {
+  let latest = 0;
+  for (const { dir, matches } of SHARED_THEME_ASSET_DIRS) {
+    let names: string[] = [];
+    try {
+      names = fs.readdirSync(path.join(workspaceRoot, dir));
+    } catch {
+      continue;
+    }
+    for (const name of names) {
+      if (!matches(name)) continue;
+      try {
+        const st = fs.statSync(path.join(workspaceRoot, dir, name));
+        if (st.isFile() && st.mtimeMs > latest) latest = st.mtimeMs;
+      } catch {}
+    }
+  }
+  return latest;
+}
+export const SHARED_ASSET_DEPENDENT_ITEM_IDS = [
+  'qag-01',
+  'qag-07',
+  'qag-21',
+  'qag-23',
+  'qag-24',
+  'qag-25',
+  'qag-26',
+] as const;
+
+export function invalidateStaleSharedAssetItems(
+  workspaceRoot: string,
+  items: ThemeChecklistItem[],
+  updatedAt: number,
+): { items: ThemeChecklistItem[]; invalidatedIds: string[]; latestSharedMtimeMs: number } {
+  if (!workspaceRoot || !Number.isFinite(updatedAt) || updatedAt <= 0) {
+    return { items, invalidatedIds: [], latestSharedMtimeMs: 0 };
+  }
+  const latestSharedMtimeMs = latestSharedThemeAssetMtime(workspaceRoot);
+  if (latestSharedMtimeMs <= updatedAt) {
+    return { items, invalidatedIds: [], latestSharedMtimeMs };
+  }
+  const dependentSet = new Set<string>(SHARED_ASSET_DEPENDENT_ITEM_IDS);
+  const invalidatedIds: string[] = [];
+  const next = items.map((item) => {
+    if (item.done && dependentSet.has(item.id)) {
+      invalidatedIds.push(item.id);
+      return {
+        ...item,
+        done: false,
+        note: 'Invalidated: shared CSS/snippet modified after checklist timestamp',
+      };
+    }
+    return item;
+  });
+  return { items: invalidatedIds.length > 0 ? next : items, invalidatedIds, latestSharedMtimeMs };
+}
 
 export interface ChecklistScopeRecord {
   items: ThemeChecklistItem[];
@@ -375,7 +443,8 @@ export function getScope(workspaceRoot: string, scope: string): ChecklistScopeSn
   if (!rec) {
     return { items: defaultChecklistItems(), updatedAt: 0, existed: false, migrated: false };
   }
-  return { items: rec.items, updatedAt: rec.updatedAt, existed: true, migrated: rec.legacyMigrated === true };
+  const checked = invalidateStaleSharedAssetItems(workspaceRoot, rec.items, rec.updatedAt);
+  return { items: checked.items, updatedAt: rec.updatedAt, existed: true, migrated: rec.legacyMigrated === true };
 }
 
 /**
@@ -385,7 +454,9 @@ export function getScope(workspaceRoot: string, scope: string): ChecklistScopeSn
 export function mutateScope(workspaceRoot: string, scope: string, op: ChecklistMutationOp): ChecklistMutationResult {
   const { data } = readChecklistFile(workspaceRoot);
   const rec = data.scopes[scope];
-  const base = rec?.items ?? defaultChecklistItems();
+  // Built on the same invalidated view getScope shows: writing from the raw record would re-stamp
+  // ticks a shared-asset edit already voided, and the fresh updatedAt would hide them for good.
+  const base = rec ? invalidateStaleSharedAssetItems(workspaceRoot, rec.items, rec.updatedAt).items : defaultChecklistItems();
   const applied = applyChecklistMutation(base, op);
   if (!applied.changed) {
     return { items: base, updatedAt: rec?.updatedAt ?? 0, item: applied.item, toggled: applied.toggled, removed: applied.removed };
@@ -421,7 +492,7 @@ export function setScopeCas(
   // treating that as unconditional overwrite would clobber any interleaved
   // agent mutation (AU8 regression-gate contract).
   if (rec && (typeof baseUpdatedAt !== 'number' || !Number.isFinite(baseUpdatedAt) || rec.updatedAt !== baseUpdatedAt)) {
-    return { conflict: true, items: rec.items, updatedAt: rec.updatedAt };
+    return { conflict: true, items: invalidateStaleSharedAssetItems(workspaceRoot, rec.items, rec.updatedAt).items, updatedAt: rec.updatedAt };
   }
   const validated = validateChecklistItems(items);
   const updatedAt = Date.now();

@@ -61,7 +61,7 @@ import { HaravanUploader } from './haravan-uploader';
 import type { ActionSequenceParams, ActionSequenceResult } from './tab-automation-host';
 import { TerminalManager, DEFAULT_TERMINAL_CAPSULE_ID, workspaceTerminalProvenance, selectAnnotationTargets, selectAnnotationPickerRows, type SessionSummary, type TerminalDiagnosticsReport, type TerminalManagerStats, type TerminalSessionStateProjection } from './terminal-manager';
 import { writeFullPageCapture } from './full-page-capture-file';
-import { normalizePreviewPath, readFilePreview } from './file-preview-reader';
+import { buildVSCodeFileUrl, buildVSCodeLaunchArgs, normalizePreviewPath, readFilePreview } from './file-preview-reader';
 import { checkForUpdatesAndRestart } from './app-menu';
 import { SkillScanner } from './skill-scanner';
 import { getCoreHealthService } from '../diagnostics/core-health';
@@ -5477,19 +5477,18 @@ export class NativeTabHost extends EventEmitter {
     } catch {}
 
     try {
-      const isWin = process.platform === 'win32';
-      const cmd = isWin ? 'code.cmd' : 'code';
-      const args: string[] = ['-r'];
-      if (isFile) {
-        args.push('-g', `${resolvedTarget}${lineColSuffix}`);
-      } else {
-        args.push(resolvedTarget);
+      if (process.platform === 'win32') {
+        // No shell on Windows: code.cmd only runs through cmd.exe, which rewrites the path.
+        void shell.openExternal(buildVSCodeFileUrl(resolvedTarget, isFile, lineColSuffix)).catch((error: unknown) => {
+          console.warn('[native-tab-host] VS Code URL handler refused the path:', error instanceof Error ? error.message : String(error));
+        });
+        return { ok: true, workspacePath: resolvedTarget };
       }
-      const child = spawn(cmd, args, {
+      const child = spawn('code', buildVSCodeLaunchArgs(resolvedTarget, isFile, lineColSuffix), {
         detached: true,
         stdio: 'ignore',
-        shell: process.platform === 'win32',
       });
+      child.on('error', () => {});
       child.unref();
       return { ok: true, workspacePath: resolvedTarget };
     } catch (error) {
@@ -6961,6 +6960,7 @@ export class NativeTabHost extends EventEmitter {
         const isAttached = Boolean(tab.view && this.isTabViewAttached(tab.view));
         return {
           ...tab.state,
+          tabId: tab.state.id,
           // The stamp lives on the record, not the state, so the spread never
           // carries it: the strip's project filter and the search inventory read
           // the wire field and must see it on every row.
@@ -6968,7 +6968,7 @@ export class NativeTabHost extends EventEmitter {
           customViewport: tab.customViewport,
           attached: isAttached,
           isAgentControlled: id === this.automationTabId,
-        } as AntiFanTab & { customViewport?: { width: number; height: number; mobile?: boolean }; attached?: boolean };
+        } as AntiFanTab & { tabId?: string; customViewport?: { width: number; height: number; mobile?: boolean }; attached?: boolean };
       })
       .filter(Boolean) as AntiFanTab[];
   }
@@ -6991,11 +6991,12 @@ export class NativeTabHost extends EventEmitter {
       const isAttached = Boolean(tab.view && this.isTabViewAttached(tab.view));
       records.push({
         ...tab.state,
+        tabId: tab.state.id,
         projectId: tab.projectId,
         customViewport: tab.customViewport,
         attached: isAttached,
         isAgentControlled: tab.state.ephemeral === true || id === this.automationTabId,
-      } as AntiFanTab & { customViewport?: { width: number; height: number; mobile?: boolean }; attached?: boolean });
+      } as AntiFanTab & { tabId?: string; customViewport?: { width: number; height: number; mobile?: boolean }; attached?: boolean });
     }
     return records;
   }
@@ -11286,8 +11287,8 @@ export class NativeTabHost extends EventEmitter {
           mobile: tab.customViewport.mobile ?? (tab.customViewport.width < 768),
           category: tab.customViewport.mobile ? 'mobile' : (tab.customViewport.width < 1024 ? 'tablet' : 'desktop'),
         };
-      } else if (!preset && tab.state.devicePresetId && /^\d+x\d+$/.test(tab.state.devicePresetId)) {
-        const parts = tab.state.devicePresetId.split('x').map(Number);
+      } else if (!preset && tab.state.devicePresetId && /^(?:custom-)?\d+x\d+$/.test(tab.state.devicePresetId)) {
+        const parts = tab.state.devicePresetId.replace(/^custom-/, '').split('x').map(Number);
         const w = parts[0];
         const h = parts[1];
         if (typeof w === 'number' && typeof h === 'number' && !Number.isNaN(w) && !Number.isNaN(h) && w > 0 && h > 0) {
@@ -11397,6 +11398,30 @@ export class NativeTabHost extends EventEmitter {
       console.error('[native-tab-host] applyTabDeviceEmulation error:', err);
     }
   }
+  /**
+   * Apply the tab's current preset or custom viewport and wait until its CDP commands have landed.
+   * A background tab is emulated inside a temporary in-place attach, as setViewportSize does: its
+   * detached view has no surface to lay out against, and updateLayout only emulates the active tab.
+   * Callers that put a viewport back (and then measure it) need the override settled, not queued.
+   */
+  public async settleTabEmulation(tabId: string): Promise<void> {
+    const tab = this.tabs.get(tabId);
+    if (!tab || !tab.view || tab.view.webContents.isDestroyed()) return;
+    const wc = tab.view.webContents;
+    const drained = async (): Promise<void> => {
+      await (this.emulationChains?.get(wc) ?? Promise.resolve()).catch(() => undefined);
+    };
+    if (tabId === this.activeTabId) {
+      this.updateLayout();
+      await drained();
+      return;
+    }
+    await this.runWithAttachedTabView(tab.view, async () => {
+      this.applyTabDeviceEmulationForTab(tabId);
+      await drained();
+    }, false);
+  }
+
   public applyTabDeviceEmulationForTab(tabId: string): void {
     const tab = this.tabs.get(tabId);
     if (!tab) return;
@@ -11545,7 +11570,29 @@ export class NativeTabHost extends EventEmitter {
    *               (1 = exact size, <1 = shrunk preview). Same Blink field the
    *               native call carried.
    */
-  private async applyCdpDeviceEmulationState(
+  /** Per-webContents tail of emulation applications, so they reach CDP in call order. */
+  private emulationChains?: WeakMap<Electron.WebContents, Promise<void>>;
+
+  /**
+   * Apply (or clear, with no preset) the device emulation of one webContents. Each application
+   * sends several CDP commands with awaits between them and most callers fire it without waiting,
+   * so two of them could interleave: a clear landing between a sweep's user-agent and metrics
+   * commands left the sweep's override in place. Applications are queued per webContents.
+   */
+  private applyCdpDeviceEmulationState(
+    wc: Electron.WebContents,
+    preset?: DevicePreset | null,
+    scale = 1
+  ): Promise<void> {
+    if (!wc) return Promise.resolve();
+    const chains = (this.emulationChains ??= new WeakMap());
+    const previous = chains.get(wc) ?? Promise.resolve();
+    const next = previous.catch(() => undefined).then(() => this.applyCdpDeviceEmulationStateNow(wc, preset, scale));
+    chains.set(wc, next);
+    return next;
+  }
+
+  private async applyCdpDeviceEmulationStateNow(
     wc: Electron.WebContents,
     preset?: DevicePreset | null,
     scale = 1
@@ -11943,6 +11990,40 @@ export class NativeTabHost extends EventEmitter {
     const view = isMobile ? tab?.mobileView : tab?.view;
     if (!tab || !view) return action();
     return this.runWithAttachedTabView(view, action, isMobile);
+  }
+
+  /**
+   * Refuse every navigation the page starts itself (a link, a `location` assignment, a form post)
+   * until released; navigations the app starts (loadURL) are untouched. `release` returns where
+   * the page tried to go, as origin + path (queries can carry tokens). A run that drives theme UI
+   * with real clicks holds it so a button whose script navigates cannot carry the tab off the page
+   * under test.
+   */
+  public holdPageNavigation(tabId: string | undefined, paneId: SplitPaneId | undefined): { release(): string[] } {
+    const tab = this.tabs.get(tabId || this.activeTabId);
+    const wc = (paneId === 'mobile' ? tab?.mobileView : tab?.view)?.webContents;
+    const attempted: string[] = [];
+    if (!wc || wc.isDestroyed()) return { release: () => attempted };
+    const onWillNavigate = (event: Electron.Event, url: string): void => {
+      event.preventDefault();
+      let shown = String(url || '');
+      try {
+        const parsed = new URL(shown);
+        shown = parsed.origin + parsed.pathname;
+      } catch {}
+      if (attempted.length < 20) attempted.push(shown);
+    };
+    wc.on('will-navigate', onWillNavigate);
+    let released = false;
+    return {
+      release: () => {
+        if (!released) {
+          released = true;
+          if (!wc.isDestroyed()) wc.removeListener('will-navigate', onWillNavigate);
+        }
+        return attempted;
+      },
+    };
   }
 
   public toggleInspect(): boolean {
@@ -15122,6 +15203,7 @@ export class NativeTabHost extends EventEmitter {
 
     const wc = rcWc;
     const previousPreset = tab.state.devicePresetId;
+    const previousCustomViewport = tab.customViewport ? { ...tab.customViewport } : undefined;
     const testBreakpoints = opts.customBreakpoints || [
       { id: 'mobile-small', name: 'Mobile Small (320px)', width: 320, height: 568, deviceScaleFactor: 2, mobile: true },
       { id: 'mobile-standard', name: 'Mobile Standard (375px)', width: 375, height: 667, deviceScaleFactor: 2, mobile: true },
@@ -15289,8 +15371,21 @@ export class NativeTabHost extends EventEmitter {
         // restoration the visible-tab path always used.
         try {
           await this.applyCdpDeviceEmulationState(wc, null);
-          if (previousPreset && previousPreset !== 'responsive') {
+          if (previousCustomViewport) {
+            tab.customViewport = previousCustomViewport;
+            tab.state.devicePresetId = previousPreset || `custom-${previousCustomViewport.width}x${previousCustomViewport.height}`;
+            if (targetId !== this.activeTabId) {
+              this.applyTabDeviceEmulationForTab(targetId);
+            }
+            this.updateLayout();
+            this.broadcastState();
+            await new Promise<void>((resolve) => setImmediate(resolve));
+          } else if (previousPreset && previousPreset !== 'responsive') {
             this.setDevicePreset(targetId, previousPreset);
+            if (targetId !== this.activeTabId) {
+              this.applyTabDeviceEmulationForTab(targetId);
+            }
+            await new Promise<void>((resolve) => setImmediate(resolve));
           } else {
             this.updateLayout();
           }

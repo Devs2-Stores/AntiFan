@@ -190,7 +190,8 @@ export class BrowserActionRegistry {
         type: 'object',
         properties: {},
       },
-      handler: (_params: Record<string, any>, { tabHost, boundTabId }) => {
+      handler: (_params: Record<string, unknown>, { tabHost, boundTabId }) => {
+        // getTabList already stamps tabId (the field every other tool takes) on each row.
         return {
           tabs: tabHost.getTabList(),
           ...scopedActiveTabAnswer('listTabs', boundTabId),

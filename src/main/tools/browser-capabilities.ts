@@ -2,14 +2,21 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { BrowserTarget, CapabilityRequestContext, AuthenticatedCapabilityContext, CapabilityError, CapabilityEffectPolicyInput, CapabilityRisk, ReceiptBinding, digestText } from '../../shared/control-plane-contracts';
-import { BrowserControlPort, BrowserWaitParams, ResponsiveBreakpointOption, VISUAL_COMPARE_EXECUTION_BUDGET_MS, VISUAL_COMPARE_CANCELLATION_ACK_MS, FULL_PAGE_CAPTURE_EXECUTION_BUDGET_MS, FULL_PAGE_CAPTURE_CANCELLATION_ACK_MS, VIEWPORT_CAPTURE_EXECUTION_BUDGET_MS, VIEWPORT_CAPTURE_CANCELLATION_ACK_MS, REFERENCE_CAPTURE_EXECUTION_BUDGET_MS, REFERENCE_CAPTURE_CANCELLATION_ACK_MS, BROWSER_WAIT_INVOCATION_BUDGET_MS, BROWSER_EVAL_INVOCATION_BUDGET_MS } from './browser-control-port';
+import { BrowserControlPort, BrowserWaitParams, buildRefLookupExpression, ResponsiveBreakpointOption, VISUAL_COMPARE_EXECUTION_BUDGET_MS, VISUAL_COMPARE_CANCELLATION_ACK_MS, FULL_PAGE_CAPTURE_EXECUTION_BUDGET_MS, FULL_PAGE_CAPTURE_CANCELLATION_ACK_MS, VIEWPORT_CAPTURE_EXECUTION_BUDGET_MS, VIEWPORT_CAPTURE_CANCELLATION_ACK_MS, REFERENCE_CAPTURE_EXECUTION_BUDGET_MS, REFERENCE_CAPTURE_CANCELLATION_ACK_MS, BROWSER_WAIT_INVOCATION_BUDGET_MS, BROWSER_EVAL_INVOCATION_BUDGET_MS } from './browser-control-port';
 import { CapabilityCatalogue } from './capability-catalogue';
 import { PlatformDetector } from '../qa/scanners/platform-detector';
 import { loadOrBootstrapBaseline, evaluateSettingsRatchet, type SettingsFinding } from '../qa/settings-ratchet';
 import { LiquidErrorScanner } from '../qa/scanners/liquid-error-scanner';
 import { LayoutOverflowEngine } from '../qa/scanners/layout-overflow-engine';
 import { HsGateRules, HsEvaluationResult } from '../qa/rules/hs-gate-rules';
-import type { ThemeQaWorkflow, ThemeQaReport } from '../qa/theme-qa-workflow';
+import {
+  buildReceiptFindings,
+  computeScopedCriticalCount,
+  resolveAnnotationTargetSelector,
+  type QaReceiptFinding,
+  type ThemeQaWorkflow,
+  type ThemeQaReport,
+} from '../qa/theme-qa-workflow';
 import { dispositionFor, isRebindableStale, type RefusalDisposition } from '../qa/qa-state';
 import { ThemeQaRepairCoordinator } from '../qa/theme-qa-repair-coordinator';
 import type { CockpitPort } from './cockpit-port';
@@ -567,8 +574,29 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
             'network_idle',
             'dom_stable',
             'images-settled',
+            'timeout',
           ],
-          description: 'Wait condition to evaluate: selector | url | navigation | dom-stable | network | actionability | generation | images-settled (or legacy aliases)',
+          description: 'Wait condition to evaluate: selector | url | navigation | dom-stable | network | actionability | generation | images-settled | timeout (or legacy aliases)',
+        },
+        type: {
+          type: 'string',
+          enum: [
+            'selector',
+            'url',
+            'navigation',
+            'dom-stable',
+            'network',
+            'actionability',
+            'generation',
+            'ref',
+            'document_loaded',
+            'url_match',
+            'network_idle',
+            'dom_stable',
+            'images-settled',
+            'timeout',
+          ],
+          description: 'Alias for condition',
         },
         selector: { type: 'string', description: 'CSS selector to wait for' },
         ref: { type: 'string', description: 'Semantic reference token (@e1) to wait for' },
@@ -581,7 +609,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         tabId: { type: 'string' },
         paneId: { type: 'string', enum: ['desktop', 'mobile'] },
       },
-      required: ['condition'],
+      // `type` is an alias of `condition`: either or both may be sent.
+      anyOf: [{ required: ['condition'] }, { required: ['type'] }],
     },
     execute: (params: BrowserWaitParams, context) =>
       browser.wait(context.browserTarget as BrowserTarget, params, params.tabId, params.paneId, context.signal),
@@ -981,6 +1010,26 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
             'network_idle',
             'dom_stable',
             'images-settled',
+            'timeout',
+          ],
+        },
+        type: {
+          type: 'string',
+          enum: [
+            'selector',
+            'url',
+            'navigation',
+            'dom-stable',
+            'network',
+            'actionability',
+            'generation',
+            'ref',
+            'document_loaded',
+            'url_match',
+            'network_idle',
+            'dom_stable',
+            'images-settled',
+            'timeout',
           ],
         },
         selector: { type: 'string' },
@@ -994,7 +1043,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         tabId: { type: 'string' },
         paneId: { type: 'string', enum: ['desktop', 'mobile'] },
       },
-      required: ['condition'],
+      // `type` is an alias of `condition`: either or both may be sent.
+      anyOf: [{ required: ['condition'] }, { required: ['type'] }],
     },
     execute: (params: BrowserWaitParams, context) =>
       browser.wait(context.browserTarget as BrowserTarget, params, params.tabId, params.paneId, context.signal),
@@ -1708,6 +1758,12 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       let errorMessage: string | null = null;
       let passed: boolean | null = null;
       let criticalCount: number | null = null;
+      let pageCriticalCount: number | null = null;
+      let scopedCriticalCount: number | null | undefined = undefined;
+      let receiptFindings: QaReceiptFinding[] = [];
+      // Read from the evidence gaps, not the capped findings list a warning can fall off.
+      let authRedirect = false;
+      let receiptViewport: { width: number; height: number } | undefined;
       let settingsRatchetPayload: {
         ok: boolean;
         newFailures: number;
@@ -1726,6 +1782,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         multiBreakpoint: params.multiBreakpoint,
         viewports: params.viewports,
         target: t,
+        annotationId: params.annotationId,
         ...(params.profile === 'build-strict' ? { profile: 'build-strict' as const } : {}),
         // Mirror real wrapper recovery into the report — never hard-code zero
         // after a failover rebind succeeded.
@@ -1794,8 +1851,14 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
           report = await runValidate(recoveredTarget);
         }
         const summary = report.summary;
+        receiptViewport = report.viewport ?? summary?.viewport;
         passed = summary?.passed ?? null;
         criticalCount = summary?.criticalCount ?? null;
+        pageCriticalCount =
+          typeof summary?.pageCriticalCount === 'number' ? summary.pageCriticalCount : criticalCount;
+        if (summary && typeof summary.pageCriticalCount !== 'number' && typeof pageCriticalCount === 'number') {
+          summary.pageCriticalCount = pageCriticalCount;
+        }
         if (report.execution === 'DEGRADED' || report.execution === 'COMPLETED' || report.execution === 'BLOCKED') {
           receiptExecution = report.execution;
         }
@@ -1815,13 +1878,17 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
             if (fs.existsSync(themeChecksPath)) {
               // Dynamic import: scripts/lib/theme-checks.mjs is an uncompiled pure-ESM CLI module outside TypeScript rootDir.
               const themeChecksModule = await import(pathToFileURL(themeChecksPath).href);
-              const { checkHaravanLiquidContracts, checkSettingsBinding } = themeChecksModule;
+              const { checkHaravanLiquidContracts, checkSettingsBinding, checkF1genzSettingsSchema } = themeChecksModule;
+              const hasSettingsSchema = fs.existsSync(path.join(confinedRoot, 'config', 'settings_schema.json'));
               const haravanContracts = typeof checkHaravanLiquidContracts === 'function'
                 ? checkHaravanLiquidContracts(confinedRoot, { platform: 'haravan' })
                 : { ok: true, failures: [] };
               const settingsBinding = typeof checkSettingsBinding === 'function'
                 ? checkSettingsBinding(confinedRoot)
                 : { ok: true, failures: [] };
+              const f1genzSchema = hasSettingsSchema && typeof checkF1genzSettingsSchema === 'function'
+                ? checkF1genzSettingsSchema(confinedRoot)
+                : null;
 
               const findings: SettingsFinding[] = [];
               if (Array.isArray(haravanContracts?.failures)) {
@@ -1861,14 +1928,51 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
                   }
                 }
               }
+              const deadIds = Array.isArray(settingsBinding?.dead) ? settingsBinding.dead : [];
+              const seenF1genzKeys = new Set<string>();
+              if (Array.isArray(f1genzSchema?.failures)) {
+                for (const f of f1genzSchema.failures) {
+                  const file = f.file || 'config/settings_schema.json';
+                  const key = `${f.rule}::${f.id || ''}::${file}`;
+                  if (seenF1genzKeys.has(key)) continue;
+                  seenF1genzKeys.add(key);
+                  findings.push({
+                    rule: f.rule,
+                    id: f.id,
+                    file,
+                    line: f.line || 1,
+                    message: f.message,
+                    detail: f.message,
+                  });
+                }
+              }
+              for (const d of deadIds) {
+                if (!d || typeof d.id !== 'string') continue;
+                const file = hasSettingsSchema ? 'config/settings_schema.json' : 'config/settings.html';
+                const key = `dead-setting::${d.id}::${file}`;
+                if (seenF1genzKeys.has(key)) continue;
+                seenF1genzKeys.add(key);
+                findings.push({
+                  rule: 'dead-setting',
+                  id: d.id,
+                  file,
+                  line: 1,
+                  message: `schema setting has no resolved reference: ${d.id}`,
+                  detail: `Declared setting '${d.id}' is never referenced in theme Liquid files`,
+                });
+              }
 
               const baseline = loadOrBootstrapBaseline(confinedRoot, findings);
-              const ratchetResult = evaluateSettingsRatchet(baseline, findings, confinedRoot);
+              const ratchetResult = evaluateSettingsRatchet(baseline, findings, {
+                workspaceRoot: confinedRoot,
+                deadIds,
+              });
 
               settingsRatchetPayload = {
                 ok: ratchetResult.ok,
                 newFailures: ratchetResult.newFailures.length,
                 legacyDebt: ratchetResult.legacyDebt.length,
+                ...(typeof ratchetResult.deadInSchema === 'number' ? { deadInSchema: ratchetResult.deadInSchema } : {}),
                 findings: ratchetResult.newFailures,
               };
 
@@ -1912,6 +2016,38 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
             }
           }
         }
+        receiptFindings = buildReceiptFindings(report.findings, settingsRatchetPayload, 200);
+        authRedirect = Array.isArray(report.findings?.evidenceGaps) && report.findings.evidenceGaps.some((gap) => /^AUTH_REDIRECT:/.test(String(gap)));
+        if (typeof report.summary?.criticalCount === 'number') {
+          criticalCount = report.summary.criticalCount;
+          if (typeof pageCriticalCount !== 'number' || report.summary.criticalCount > pageCriticalCount) {
+            pageCriticalCount = report.summary.criticalCount;
+            report.summary.pageCriticalCount = pageCriticalCount;
+          }
+        }
+        if (params.annotationId) {
+          const annotationTarget = resolveAnnotationTargetSelector(confinedRoot, params.annotationId);
+          if (typeof report.summary?.scopedCriticalCount === 'number') {
+            scopedCriticalCount = report.summary.scopedCriticalCount;
+          } else if (annotationTarget) {
+            scopedCriticalCount = computeScopedCriticalCount(
+              report.findings,
+              annotationTarget.selector,
+              annotationTarget.domAncestry,
+              receiptFindings
+            );
+            if (report.summary) {
+              report.summary.scopedCriticalCount = scopedCriticalCount;
+            }
+          } else {
+            scopedCriticalCount = null;
+            if (report.summary && report.summary.scopedCriticalCount === undefined) {
+              report.summary.scopedCriticalCount = null;
+            }
+          }
+        } else if (typeof report.summary?.scopedCriticalCount === 'number') {
+          scopedCriticalCount = report.summary.scopedCriticalCount;
+        }
         return report;
       } catch (err) {
         // Terminal failure: the report never materialised, so the receipt must say so.
@@ -1946,7 +2082,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
             const tabId = target?.tabId;
             const observedUrl = tabId ? await browser.getLiveTabUrl(tabId).catch(() => '') : '';
             const receipt = {
-              receiptVersion: '1.1',
+              receiptVersion: '1.2',
               runId,
               attemptId,
               annotationId: params.annotationId || null,
@@ -1965,6 +2101,11 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
               errorReason: errorMessage,
               passed,
               criticalCount,
+              pageCriticalCount,
+              ...(scopedCriticalCount !== undefined ? { scopedCriticalCount } : {}),
+              authRedirect,
+              findings: receiptFindings,
+              ...(receiptViewport ? { viewport: receiptViewport } : {}),
               createdAt: new Date().toISOString(),
             };
             if (settingsRatchetPayload) {
@@ -2864,29 +3005,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       let elementMissing = false;
       try {
         const inspectScript = `(() => {
-          let el = null;
-          const ref = ${JSON.stringify(normalizedRef)};
-          const s = ${JSON.stringify(rawSelector)};
-          const desc = ${JSON.stringify(descriptor ? { path: descriptor.path, tag: descriptor.fingerprint?.tag || null, id: descriptor.fingerprint?.id || descriptor.id || null } : null)};
-          if (desc) {
-            let current = document;
-            for (const step of Array.isArray(desc.path) ? desc.path : []) {
-              if (!current || !step || typeof step !== 'object') { current = null; break; }
-              if (step.kind === 'dom') current = (current.children && current.children[step.index]) || (step.id && current.getElementById ? current.getElementById(step.id) : null);
-              else if (step.kind === 'shadow') current = current.shadowRoot || null;
-              else if (step.kind === 'iframe') { try { current = current.contentDocument || null; } catch { current = null; } }
-              else current = null;
-            }
-            if (current && current.nodeType === 1) el = current;
-            if (!el && desc.id) el = document.getElementById(desc.id);
-            // The path is positional: a re-rendered page can shift it onto another element.
-            if (el && desc.tag && el.tagName.toLowerCase() !== String(desc.tag).toLowerCase()) el = null;
-          } else if (ref) {
-            try { el = document.querySelector('[data-antifan-ref="' + ref + '"]'); } catch {}
-          }
-          if (!el && s) {
-            try { el = document.querySelector(s); } catch {}
-          }
+          const el = ${buildRefLookupExpression(descriptor ? { path: descriptor.path, tag: descriptor.fingerprint?.tag || null, id: descriptor.fingerprint?.id || descriptor.id || null } : null, normalizedRef, rawSelector)};
           if (!el) return null;
           const cls = typeof el.className === 'string' ? el.className.split(/\\s+/).filter(Boolean) : [];
           const attrs = {};
@@ -4584,6 +4703,56 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       const list = IssueRegister.getInstance().listVerifications(params);
       return { totalCount: list.length, verifications: list };
     },
+  });
+
+  catalogue.register({
+    name: 'anti.theme.await_cdn_sync',
+    description: 'Poll the storefront copy of one static asset (CSS/JS, not .liquid) until its SHA-256 matches the local workspace file, then optionally reload the bound tab. Reads only inside the bound workspace; lastError says why a poll did not match.',
+    // The optional reload changes the tab's document, so the declaration covers it: same class
+    // as anti.browser.reload, never replayed as a read.
+    risk: 'write',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: true, lane: 'event-wait', timeoutMs: BROWSER_WAIT_INVOCATION_BUDGET_MS }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        assetPath: { type: 'string', description: 'Workspace-relative or filename asset path (e.g. assets/theme.css or theme.css)' },
+        workspaceRoot: { type: 'string' },
+        timeoutMs: { type: 'number', description: 'Polling timeout in milliseconds (default 15000, max 25000)' },
+        pollIntervalMs: { type: 'number' },
+        reloadOnMatch: { type: 'boolean' },
+        tabId: { type: 'string' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+      },
+      required: ['assetPath'],
+    },
+    execute: (params: { assetPath: string; workspaceRoot?: string; timeoutMs?: number; pollIntervalMs?: number; reloadOnMatch?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
+      browser.awaitCdnSync(context.browserTarget as BrowserTarget, {
+        ...params,
+        // Same confinement as every other workspace-reading tool: a caller root outside the
+        // bound workspace falls back to the workspace itself.
+        workspaceRoot: confineWorkspaceRoot(params.workspaceRoot, getWorkspaceRoot ? getWorkspaceRoot() : '') || undefined,
+      }),
+  });
+
+  catalogue.register({
+    name: 'anti.qa.batch_matrix',
+    description: 'Sequentially navigate and sweep up to 20 routes of the bound storefront (same origin only) across responsive breakpoints in the bound tab, then return the tab to its starting page. A route with an unmeasured width reports passed: null.',
+    // Navigates the bound tab route by route: the same class as anti.browser.navigate.
+    risk: 'write',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate', timeoutMs: 120_000 }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        routes: { type: 'array', items: { type: 'string' }, description: 'Storefront URLs or paths to scan sequentially in the bound tab' },
+        breakpoints: { type: 'array', items: { type: 'number' }, description: 'Viewport widths in CSS px (default [320, 375, 768, 1024, 1440])' },
+        tabId: { type: 'string' },
+      },
+      required: ['routes'],
+    },
+    execute: (params: { routes: string[]; breakpoints?: number[]; tabId?: string }, context) =>
+      browser.runBatchMatrix(context.browserTarget as BrowserTarget, params),
   });
 }
 

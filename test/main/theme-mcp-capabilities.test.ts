@@ -196,7 +196,7 @@ describe('Theme QA MCP Capabilities', () => {
 
         const receipt = readSoleReceipt(root);
         assert.strictEqual(receipt.verdict, 'QA_PASSED');
-        assert.strictEqual(receipt.receiptVersion, '1.1');
+        assert.strictEqual(receipt.receiptVersion, '1.2');
         assert.strictEqual(receipt.annotationId, 'annotation-pass');
         assert.strictEqual(receipt.passed, true);
         assert.strictEqual(receipt.criticalCount, 0);
@@ -363,7 +363,7 @@ describe('Theme QA MCP Capabilities', () => {
         // this directory and deadlocks forever when a failing run writes nothing.
         const receipt = readSoleReceipt(root);
         assert.strictEqual(receipt.verdict, 'QA_INCONCLUSIVE');
-        assert.strictEqual(receipt.receiptVersion, '1.1');
+        assert.strictEqual(receipt.receiptVersion, '1.2');
         assert.ok(typeof receipt.errorCode === 'string' && receipt.errorCode.length > 0, 'errorCode must be a non-empty string');
         assert.ok(typeof receipt.errorMessage === 'string' && receipt.errorMessage.length > 0, 'errorMessage must be a non-empty string');
         assert.match(String(receipt.errorCode), /CAPTURE_TIMEOUT/);
@@ -419,6 +419,126 @@ describe('Theme QA MCP Capabilities', () => {
         assert.strictEqual(result.ok, true);
         assert.strictEqual(fs.existsSync(receiptsDir), true, 'annotation binding must pre-create .antifan/qa-receipts/');
         assert.deepStrictEqual(fs.readdirSync(receiptsDir), []);
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it('emits receiptVersion 1.2 with findings (selector, rect, truncated message, 200-cap) and annotation scopedCriticalCount', async () => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-qa-receipt-findings-'));
+      try {
+        const annDir = path.join(root, '.antifan', 'annotations');
+        fs.mkdirSync(annDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(annDir, 'element_1792003171976.md'),
+          [
+            '---',
+            'annotation_id: "annotation_1792003171976"',
+            '---',
+            '- Annotation ID: `annotation_1792003171976`',
+            '- Element Selector: `#hero-cta`',
+            '- DOM Ancestry: `main#MainContent > section.hero-banner > div.hero-inner > a#hero-cta`',
+          ].join('\n'),
+          'utf8'
+        );
+
+        const longMessage = 'X'.repeat(380);
+        const manyWarnings = Array.from({ length: 220 }, (_, idx) => ({
+          kind: 'spacing' as const,
+          severity: 'warning' as const,
+          selector: `div.card-${idx}`,
+          details: `Spacing warning ${idx}: ${longMessage}`,
+          rect: { x: 10, y: 20 + idx, w: 120, h: 40 },
+        }));
+
+        const catalogue = new CapabilityCatalogue(defaultOptions);
+        const workflow = {
+          validate: async () => ({
+            summary: {
+              passed: false,
+              verdict: 'FAIL',
+              totalIssues: 222,
+              criticalCount: 2,
+            },
+            findings: {
+              overflow: {
+                viewport: { name: 'desktop', width: 1440, height: 900 },
+                measured: true,
+                hasOverflow: true,
+                deltaX: 60,
+                scrollWidth: 1500,
+                clientWidth: 1440,
+                culprits: [
+                  {
+                    selector: 'footer.site-footer > div.marquee',
+                    tagName: 'div',
+                    deltaX: 60,
+                    boundingBox: { x: 0, y: 1200, width: 1500, height: 48, right: 1500, bottom: 1248 },
+                    outerHtmlSnippet: '<div class="marquee"></div>',
+                    offendingStyles: {},
+                  },
+                ],
+              },
+              layoutIntegrity: {
+                measured: true,
+                viewport: { width: 1440, height: 900 },
+                findings: [
+                  {
+                    kind: 'clipping',
+                    ruleId: 'CLIP-01',
+                    severity: 'critical',
+                    selector: 'section.hero-banner > div.hero-inner > a#hero-cta > span.label',
+                    details: longMessage,
+                    rect: { x: 40, y: 300, w: 180, h: 44 },
+                  },
+                  ...manyWarnings,
+                ],
+                stats: {
+                  elements: 50,
+                  textRuns: 20,
+                  controls: 10,
+                  sweepSteps: 1,
+                  truncated: false,
+                  truncatedReasons: [],
+                  failedDetectors: [],
+                  durationMs: 12,
+                },
+              },
+            },
+          }),
+        } as unknown as ThemeQaWorkflow;
+
+        registerBrowserCapabilities(catalogue, makeBoundBrowser('https://shop.example.com/'), workflow, () => root);
+
+        const res = (await catalogue.dispatch(
+          'theme.qa_validate',
+          { tabId: 'tab-1', workspaceRoot: root, annotationId: 'annotation_1792003171976' },
+          makeBoundContext()
+        )) as { summary: { pageCriticalCount?: number; scopedCriticalCount?: number } };
+
+        assert.strictEqual(res.summary.pageCriticalCount, 2);
+        assert.strictEqual(res.summary.scopedCriticalCount, 1);
+
+        const receipt = readSoleReceipt(root);
+        assert.strictEqual(receipt.receiptVersion, '1.2');
+        assert.strictEqual(receipt.pageCriticalCount, 2);
+        assert.strictEqual(receipt.scopedCriticalCount, 1);
+        assert.ok(Array.isArray(receipt.findings), 'receipt.findings must be an array');
+        assert.strictEqual((receipt.findings as unknown[]).length, 200, 'receipt.findings must be capped at 200 entries');
+
+        const firstFinding = (receipt.findings as Array<Record<string, unknown>>)[0]!;
+        assert.strictEqual(firstFinding.rule, 'overflow');
+        assert.strictEqual(firstFinding.severity, 'critical');
+        assert.strictEqual(firstFinding.selector, 'footer.site-footer > div.marquee');
+        assert.deepStrictEqual(firstFinding.rect, { x: 0, y: 1200, width: 1500, height: 48 });
+
+        const secondFinding = (receipt.findings as Array<Record<string, unknown>>)[1]!;
+        assert.strictEqual(secondFinding.rule, 'layout_integrity:clipping:CLIP-01');
+        assert.strictEqual(secondFinding.severity, 'critical');
+        assert.strictEqual(secondFinding.selector, 'section.hero-banner > div.hero-inner > a#hero-cta > span.label');
+        assert.deepStrictEqual(secondFinding.rect, { x: 40, y: 300, width: 180, height: 44 });
+        assert.strictEqual(typeof secondFinding.message, 'string');
+        assert.strictEqual((secondFinding.message as string).length, 300, 'finding message must be truncated to 300 chars');
       } finally {
         fs.rmSync(root, { recursive: true, force: true });
       }

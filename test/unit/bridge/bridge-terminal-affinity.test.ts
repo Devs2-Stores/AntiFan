@@ -293,6 +293,41 @@ describe('BridgeServer Terminal Affinity Resolution Live RPC Contract Tests', ()
     }
   });
 
+  it('8b. Stamps the anchor with the resolved terminal project instead of leaving it to the host default', async () => {
+    installTerminalStub(
+      { 'term-project': 'capsule-united' },
+      { 'term-project': 'project:proj-united' },
+    );
+    const hubHost = new MockTabHost();
+    resolverStub = () => ({ host: hubHost as unknown as NativeTabHost, capsuleId: 'capsule-united', projectId: 'proj-united' });
+    try {
+      const resp = await rpcCall('antifan.cli.startSession', { terminalSessionId: 'term-project', terminalGeneration: 6 });
+      assert.strictEqual(resp.success, true);
+      assert.strictEqual(hubHost.createTabCalls.length, 1);
+      assert.strictEqual(hubHost.createTabCalls[0]?.options?.capsuleId, 'capsule-united');
+      assert.strictEqual(
+        hubHost.createTabCalls[0]?.options?.projectId,
+        'proj-united',
+        'a hub stamps an unspecified project with the one it is presenting, filing the anchor under the wrong project',
+      );
+    } finally {
+      restoreTerminalManager();
+    }
+  });
+
+  it('8c. Forwards no project stamp when the resolver proves none', async () => {
+    installTerminalStub({ 'term-project': 'capsule-x' }, { 'term-project': 'web' });
+    const hubHost = new MockTabHost();
+    resolverStub = () => ({ host: hubHost as unknown as NativeTabHost, capsuleId: 'capsule-x' });
+    try {
+      const resp = await rpcCall('antifan.cli.startSession', { terminalSessionId: 'term-project', terminalGeneration: 7 });
+      assert.strictEqual(resp.success, true);
+      assert.strictEqual('projectId' in (hubHost.createTabCalls[0]?.options ?? {}), false);
+    } finally {
+      restoreTerminalManager();
+    }
+  });
+
   it('9. Filters the default sentinel capsule before minting', async () => {
     installTerminalStub(
       { 'term-default': DEFAULT_TERMINAL_CAPSULE_ID },

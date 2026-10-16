@@ -12,6 +12,21 @@ export type DeltaFieldStatus<T> =
   | { status: 'unchanged'; value: T }
   | { status: 'unavailable'; reason: string };
 
+export interface RawTargetVisualStyles {
+  color: string;
+  backgroundColor: string;
+  borderColor: string;
+  boxShadow: string;
+  transform: string;
+  opacity: string;
+}
+
+export interface RawTargetChildSnapshot {
+  tagName: string;
+  className: string;
+  computedStyles: RawTargetVisualStyles;
+}
+
 export interface RawTargetSnapshot {
   found: boolean;
   tagName?: string;
@@ -25,6 +40,10 @@ export interface RawTargetSnapshot {
   visibility?: string;
   opacity?: string;
   transform?: string;
+  computedStyles?: RawTargetVisualStyles;
+  /** Whether the pointer was over the target (`:hover`) when the snapshot was read; null when unreadable. */
+  hovered?: boolean | null;
+  children?: RawTargetChildSnapshot[];
 }
 
 export interface RawOverlayCandidate {
@@ -64,6 +83,8 @@ export interface SparseInteractionDelta {
     classes?: DeltaFieldStatus<string[]>;
     rect?: DeltaFieldStatus<{ x: number; y: number; width: number; height: number }>;
     style?: DeltaFieldStatus<{ display: string; visibility: string; opacity: string; transform: string }>;
+    computedStyles?: DeltaFieldStatus<RawTargetVisualStyles>;
+    children?: DeltaFieldStatus<RawTargetChildSnapshot[]>;
     aria?: DeltaFieldStatus<{
       ariaExpanded: string | null;
       ariaHidden: string | null;

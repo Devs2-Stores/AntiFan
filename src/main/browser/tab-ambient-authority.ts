@@ -18,6 +18,7 @@
  *   stays diagnosable.
  */
 import { CapabilityError } from '../../shared/control-plane-contracts';
+import { parseOwnerKey } from '../project/project-context';
 import type { NativeTabHost } from './native-tab-host';
 import type { TabAuthorityDirectory } from './tab-authority-directory';
 import type { WorkspaceCapsule } from '../project/workspace-capsule';
@@ -84,6 +85,33 @@ export class TabAmbientAuthority {
       throw new CapabilityError('TARGET_STALE', `Target tab '${tabId}' is not owned by any live window`, { tabId });
     }
     return this.ambientHostOrThrow(projectId);
+  }
+
+  /**
+   * The host a new tab is created on. An anchored creation lives on its anchor's window
+   * (the session adopts the child there), so the window cannot be chosen freely — but it
+   * must not be a different project's. A `project:<id>` window only ever presents its own
+   * project, so an anchor whose capsule belongs to another project refuses instead of
+   * placing the tab in that foreign window. The shared hub presents every project and
+   * stamps the requested one, so it accepts any.
+   */
+  hostForNewTab(anchorTabId: string | undefined, projectId?: string): NativeTabHost {
+    const host = this.hostForTabOrBootstrap(anchorTabId, projectId);
+    if (!anchorTabId || !projectId) return host;
+    const owner = parseOwnerKey(host.windowOwnerKey());
+    if (owner.kind === 'project' && owner.projectId !== projectId) {
+      throw new CapabilityError(
+        'POLICY_DENIED',
+        `Cannot create a tab for project '${projectId}' on anchor tab '${anchorTabId}': the anchor lives in the window of project '${owner.projectId}'. A tab pinned to one project's capsule is never placed in another project's window. Rebind the session to a live tab of project '${projectId}' (anti.browser.rebind_target), then retry.`,
+        {
+          anchorTabId,
+          requestedProjectId: projectId,
+          windowProjectId: owner.projectId,
+          recovery: 'anti.browser.rebind_target',
+        }
+      );
+    }
+    return host;
   }
 
   /**

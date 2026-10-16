@@ -16,7 +16,39 @@ export interface BaselineFile {
   bootstrappedAt: string;
   counts: Record<string, number>;
   totalFindings: number;
+  /** Rule set the counts were recorded under; absent on baselines from the original set (1). */
+  rulesetVersion?: number;
 }
+
+/**
+ * Version of the settings rule set. A baseline recorded under an older set never ran the rules
+ * added since, so what they find is the theme as it already was, not a regression: the first
+ * evaluation under the newer set absorbs those findings as legacy debt.
+ */
+export const SETTINGS_RULESET_VERSION = 2;
+
+/** Rules each rule-set version added; version 1 is the original set. */
+const RULES_ADDED_IN_VERSION: Record<number, ReadonlySet<string>> = {
+  2: new Set([
+    'dead-setting',
+    'F1GENZ_SCHEMA_FAILURE',
+    'residue-vocabulary',
+    'duplicate-group',
+    'select-default-invalid',
+    'data-orphan-key',
+    'select-value-invalid',
+    'image-picker-theme-scoped-url',
+    'image-picker-bare-default',
+    'image-picker-bare-value',
+    'image-picker-default-missing',
+    'image-picker-empty',
+    'social-bare-domain',
+    'liquid-hardcoded-fallback',
+    'liquid-hardcoded-handle',
+    'setting-id-unguarded',
+    'duplicate-setting-id',
+  ]),
+};
 
 export interface LoadBaselineOptions {
   baselinePath?: string;
@@ -27,6 +59,7 @@ export interface EvaluateRatchetOptions {
   workspaceRoot?: string;
   baselinePath?: string;
   persist?: boolean;
+  deadIds?: Array<{ id: string } | string>;
 }
 
 export interface SettingsRatchetResult {
@@ -35,6 +68,7 @@ export interface SettingsRatchetResult {
   legacyDebt: SettingsFinding[];
   baselineUpdated: boolean;
   auditOnly: boolean;
+  deadInSchema?: number;
 }
 
 /**
@@ -67,6 +101,7 @@ export function loadOrBootstrapBaseline(
         bootstrappedAt: typeof parsed.bootstrappedAt === 'string' ? parsed.bootstrappedAt : new Date().toISOString(),
         counts,
         totalFindings,
+        rulesetVersion: typeof parsed.rulesetVersion === 'number' ? parsed.rulesetVersion : 1,
       };
     } catch {
       // If corrupted, fall through to re-bootstrap
@@ -88,6 +123,7 @@ export function loadOrBootstrapBaseline(
     bootstrappedAt: new Date().toISOString(),
     counts,
     totalFindings,
+    rulesetVersion: SETTINGS_RULESET_VERSION,
   };
 
   try {
@@ -115,10 +151,11 @@ export function evaluateSettingsRatchet(
   currentFindings: SettingsFinding[],
   optionsOrWorkspaceRoot?: string | EvaluateRatchetOptions
 ): SettingsRatchetResult {
-  const options: EvaluateRatchetOptions =
-    typeof optionsOrWorkspaceRoot === 'string'
-      ? { workspaceRoot: optionsOrWorkspaceRoot }
-      : optionsOrWorkspaceRoot || {};
+  const isStringOpt = typeof optionsOrWorkspaceRoot === 'string';
+  const workspaceRoot = isStringOpt ? optionsOrWorkspaceRoot : optionsOrWorkspaceRoot?.workspaceRoot;
+  const baselinePathOpt = isStringOpt ? undefined : optionsOrWorkspaceRoot?.baselinePath;
+  const persistOpt = isStringOpt ? true : (optionsOrWorkspaceRoot?.persist ?? true);
+  const deadIdsOpt = isStringOpt ? undefined : optionsOrWorkspaceRoot?.deadIds;
 
   const workingMap = new Map<string, number>();
   const findingsByKey = new Map<string, SettingsFinding>();
@@ -131,10 +168,25 @@ export function evaluateSettingsRatchet(
       findingsByKey.set(key, f);
     }
   }
-
   const newFailures: SettingsFinding[] = [];
   const legacyDebt: SettingsFinding[] = [];
   let baselineUpdated = false;
+
+  const recordedVersion = typeof baseline.rulesetVersion === 'number' ? baseline.rulesetVersion : 1;
+  if (recordedVersion < SETTINGS_RULESET_VERSION) {
+    const addedRules = new Set<string>();
+    for (let version = recordedVersion + 1; version <= SETTINGS_RULESET_VERSION; version++) {
+      RULES_ADDED_IN_VERSION[version]?.forEach((rule) => addedRules.add(rule));
+    }
+    if (!baseline.counts) baseline.counts = {};
+    for (const [key, workingCount] of workingMap) {
+      if (addedRules.has(key.split('::')[0] || '')) {
+        baseline.counts[key] = Math.max(baseline.counts[key] || 0, workingCount);
+      }
+    }
+    baseline.rulesetVersion = SETTINGS_RULESET_VERSION;
+    baselineUpdated = true;
+  }
 
   const allKeys = new Set<string>([
     ...workingMap.keys(),
@@ -186,8 +238,8 @@ export function evaluateSettingsRatchet(
 
   if (baselineUpdated) {
     baseline.totalFindings = Object.values(baseline.counts || {}).reduce((s, c) => s + (typeof c === 'number' ? c : 0), 0);
-    const persistPath = options.baselinePath || (options.workspaceRoot ? path.join(options.workspaceRoot, '.antifan', 'settings-baseline.json') : null);
-    if (persistPath && options.persist !== false) {
+    const persistPath = baselinePathOpt || (workspaceRoot ? path.join(workspaceRoot, '.antifan', 'settings-baseline.json') : null);
+    if (persistPath && persistOpt !== false) {
       try {
         fs.mkdirSync(path.dirname(persistPath), { recursive: true });
         fs.writeFileSync(persistPath, JSON.stringify(baseline, null, 2), 'utf8');
@@ -198,11 +250,15 @@ export function evaluateSettingsRatchet(
   }
 
   const blocking = Boolean(baseline.reviewed && newFailures.length > 0);
+  const deadInSchema = Array.isArray(deadIdsOpt)
+    ? deadIdsOpt.length
+    : currentFindings.filter((f) => f.rule === 'dead-setting' || f.rule === 'SETTING_DEAD_IN_SCHEMA').length;
   return {
     ok: !blocking,
     newFailures,
     legacyDebt,
     baselineUpdated,
     auditOnly: !baseline.reviewed,
+    ...(Array.isArray(deadIdsOpt) || deadInSchema > 0 ? { deadInSchema } : {}),
   };
 }

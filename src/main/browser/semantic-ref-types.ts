@@ -110,6 +110,7 @@ export interface RendererActionRequest {
   descriptor?: RawElementDescriptor;
   noAutoDismiss?: boolean;
   presetId?: string;
+  skipFocus?: boolean;
 }
 
 export type RendererActionResponse =

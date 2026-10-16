@@ -3,7 +3,7 @@
 // by test/e2e/layout-candidates-fixtures-probe.cjs.
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
-import { composeContactSheet, composeContactSheetFromPngs, decodePng, decodePngAsync, downscale, encodePng, encodePngAsync, readPngSize, CONTACT_SHEET_COLUMN_COLORS, type RgbaImage } from '../../src/main/verification/png-contact-sheet';
+import { composeContactSheet, composeContactSheetFromPngs, decodePng, decodePngAsync, downscale, encodePng, encodePngAsync, readPngSize, stackPngsVertically, CONTACT_SHEET_COLUMN_COLORS, type RgbaImage } from '../../src/main/verification/png-contact-sheet';
 import { normalizeCandidateOptions, runLayoutCandidates, scoreCandidateWidth, type LayoutCandidatesDeps, type SectionMetrics } from '../../src/main/qa/layout-candidates';
 import { BrowserControlPort, type BrowserHostPort } from '../../src/main/tools/browser-control-port';
 import { issueRuntimeLease, makeControlPlaneId, type BrowserTarget } from '../../src/shared/control-plane-contracts';
@@ -91,10 +91,25 @@ describe('png contact sheet', () => {
     assert.ok(decoded.data.equals(expected.image.data));
     assert.strictEqual(await composeContactSheetFromPngs([encodePng(imgs[0]!), Buffer.from('garbage bytes that are no png')]), null);
   });
+
+  it('stacks full-page slices top to bottom in order', async () => {
+    const top = solid(6, 4, [255, 0, 0]);
+    const bottom = solid(6, 3, [0, 0, 255]);
+    const stacked = await stackPngsVertically([encodePng(top), encodePng(bottom)]);
+    assert.ok(stacked);
+    const img = decodePng(stacked)!;
+    assert.strictEqual(img.width, 6);
+    assert.strictEqual(img.height, 7);
+    assert.deepStrictEqual(px(img, 5, 3), [255, 0, 0, 255]);
+    assert.deepStrictEqual(px(img, 0, 4), [0, 0, 255, 255]);
+    assert.strictEqual(await stackPngsVertically([encodePng(top), encodePng(solid(5, 3, [0, 0, 0]))]), null, 'widths must agree');
+    assert.strictEqual(await stackPngsVertically([encodePng(top), Buffer.from('not a png')]), null);
+    assert.strictEqual(await stackPngsVertically([]), null);
+  });
 });
 
 const cleanMetrics = (over: Partial<SectionMetrics> = {}): SectionMetrics => ({
-  found: true, rect: { x: 0, y: 100, width: 1200, height: 400 }, docOverflowX: false, spill: [], clippedText: [], truncatedText: 0,
+  found: true, rect: { x: 0, y: 100, width: 1200, height: 400 }, docOverflowX: false, spill: [], offViewport: [], clippedText: [], truncatedText: 0,
   overlappingText: [], fontSizes: [14, 16, 24], leftEdges: 2, gapCount: 4, gapsOnGrid: 4, ...over,
 });
 
@@ -103,6 +118,11 @@ describe('candidate scoring', () => {
     const broken = scoreCandidateWidth(375, cleanMetrics({ docOverflowX: true, clippedText: ['h3.title "Áo"'] }), { contrastLow: 0, tapTiny: 0, tapSmall: 0 });
     assert.strictEqual(broken.breaks.length, 2);
     const clean = scoreCandidateWidth(1440, cleanMetrics(), { contrastLow: 0, tapTiny: 0, tapSmall: 0 });
+    // A page that masks its overflow (body overflow-x: hidden) reports no document overflow while
+    // a widened section's text runs off screen: that is still a break.
+    const masked = scoreCandidateWidth(1440, cleanMetrics({ offViewport: ['p.copyright 0..2400 vs viewport 0..1440'] }), { contrastLow: 0, tapTiny: 0, tapSmall: 0 });
+    assert.strictEqual(masked.breaks.length, 1);
+    assert.match(masked.breaks[0]!, /past the viewport edge/);
     assert.deepStrictEqual(clean.breaks, []);
     assert.strictEqual(clean.score, 100);
     const sloppy = scoreCandidateWidth(1440, cleanMetrics({ fontSizes: [11, 12, 13, 14, 15, 16, 18, 24], leftEdges: 7, gapsOnGrid: 2 }), { contrastLow: 1, tapTiny: 0, tapSmall: 0 });
@@ -264,6 +284,7 @@ describe('compare_candidates on the port', () => {
       },
       setDevicePreset: (_tab: string, presetId: string, opts?: { reload?: boolean }) => { calls.push(`preset ${presetId} reload=${opts?.reload}`); return true; },
       setZoom: (_tab: string, zoom: number) => { calls.push(`zoom ${zoom}`); return true; },
+      settleTabEmulation: async () => { calls.push('settle'); },
       readRenderSurface: async () => ({ vw: vp.w, vh: vp.h, readyState: 'complete', hidden: false }),
       captureVerificationScreenshot: async () => ({ data: encodePng(solid(6, 4, [css ? 200 : 100, 0, 0])).toString('base64') }),
       evalJs: async (script: string) => {
@@ -288,8 +309,8 @@ describe('compare_candidates on the port', () => {
     assert.strictEqual(res.viewportRestored, true);
     assert.strictEqual(res.contactSheets.length, 2);
     assert.strictEqual(h.cssNow(), null);
-    const tail = h.calls.slice(-2);
-    assert.deepStrictEqual(tail, ['preset iphone-15 reload=false', 'zoom 0.75']);
+    const tail = h.calls.slice(-3);
+    assert.deepStrictEqual(tail, ['preset iphone-15 reload=false', 'zoom 0.75', 'settle'], 'the preset is settled before the run reports it restored');
   });
 
   it('puts a custom size back with its device scale and zoom', async () => {

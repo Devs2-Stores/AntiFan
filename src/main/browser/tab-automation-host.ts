@@ -1001,9 +1001,13 @@ export class TabAutomationHost {
                 action: 'focus',
                 ref: refToken,
                 descriptor,
-                force: params.force,
-                documentUrl: curUrl,
                 nonce: descriptor.nonce,
+                documentUrl: curUrl,
+                force: params.force,
+                skipFocus: true,
+                // The focus gate is input-bearing, so it would auto-dismiss popups unless told not to.
+                noAutoDismiss: params.noAutoDismiss || this.isNoAutoDismiss(targetId),
+                presetId: params.presetId,
               });
               const trustedRes = await this.executeTrustedHover(wc, focusScript, params.x, params.y, params.selector);
               if (trustedRes.success) {
@@ -1165,10 +1169,11 @@ export class TabAutomationHost {
               selector: params.selector,
               x: params.x,
               y: params.y,
+              documentUrl: wc.getURL(),
               force: params.force,
+              skipFocus: true,
               noAutoDismiss: params.noAutoDismiss || this.isNoAutoDismiss(targetId),
               presetId: params.presetId,
-              documentUrl: wc.getURL(),
               nonce: generateCollectionNonce(),
             }) : undefined;
             const curGen = this.ctx.getSemanticDocumentGeneration(targetId, effectivePane);

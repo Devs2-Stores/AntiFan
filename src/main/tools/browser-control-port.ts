@@ -81,12 +81,12 @@ import type { BrowserSessionUserAgentMode } from '../browser/browser-session-par
 import type { AntiFanTab } from '../../shared/contracts';
 import { DEADLINES } from '../../shared/deadline-chain';
 import { injectedScriptStore } from '../browser/scripts/injected-script-store.js';
+import { LayoutIntegrityEngine } from '../qa/scanners/layout-integrity-engine.js';
 import { VisualQualityScanner, type VisualQualityScanResult } from '../qa/scanners/visual-quality-scanner.js';
 import { runStateMatrix, type StateMatrixOptions, type StateMatrixResult } from '../qa/state-matrix.js';
 import { normalizeCandidateOptions, runLayoutCandidates, type LayoutCandidatesOptions, type LayoutCandidatesResult } from '../qa/layout-candidates.js';
 import { composeContactSheetFromPngs } from '../verification/png-contact-sheet.js';
 import type { PageCloseAdmission } from '../run/attachment-registry';
-
 function isTabRecord(item: unknown): item is AntiFanTab {
   if (typeof item !== 'object' || item === null || !('id' in item)) return false;
   return typeof item.id === 'string';
@@ -147,6 +147,7 @@ export interface BrowserHostPort {
   createTab?(url?: string, activate?: boolean, options?: { capsuleId?: string; userAgentMode?: BrowserSessionUserAgentMode; ephemeral?: boolean; devicePresetId?: string; mobile?: boolean; anchorTabId?: string; plane?: 'user' | 'agent'; projectId?: string }): string;
   /** The capsule and project/workspace a tab was created in, or undefined when no capsule owns it. */
   resolveTabAffiliation?(tabId: string): { projectId?: string; workspaceId?: string; capsuleId?: string } | undefined;
+  resolveTabWorkspace?(tabId?: string, tabUrl?: string): string;
   closeTab?(tabId: string, source?: string): boolean;
   switchTab?(tabId: string, opts?: SwitchTabOptions): boolean;
   /** Typed activation: reports why a switch did not happen. Preferred over the boolean form. */
@@ -233,6 +234,10 @@ export interface BrowserHostPort {
   resolveSemanticRefDescriptor?(tabId: string, paneId: 'desktop' | 'mobile' | undefined, ref: string): { path: unknown[]; fingerprint?: { tag?: string; id?: string } ; id?: string } | null;
   /** Hold the pane attached and unthrottled (producing frames) while `action` runs. */
   withPaintingSurface?<T>(tabId: string, paneId: 'desktop' | 'mobile' | undefined, action: () => Promise<T>): Promise<T>;
+  /** Refuse page-initiated navigation until released; release reports where the page tried to go. */
+  holdPageNavigation?(tabId: string, paneId: 'desktop' | 'mobile' | undefined): { release(): string[] };
+  /** Apply the tab's current preset/viewport (attached when it is a background tab) and wait for it to land. */
+  settleTabEmulation?(tabId: string): Promise<void>;
   getNetworkTracker?(): {
     isAttached: (tabId: string, paneId?: string) => boolean;
     awaitQuiescence: (tabId: string, paneId?: string, options?: NetworkTrackerOptions, signal?: AbortSignal) => Promise<{ settled: boolean; durationMs: number; timedOut: boolean }>;
@@ -289,10 +294,12 @@ export type BrowserWaitCondition =
   | 'url_match'
   | 'network_idle'
   | 'dom_stable'
-  | 'images-settled';
+  | 'images-settled'
+  | 'timeout';
 
 export interface BrowserWaitParams {
   condition: BrowserWaitCondition;
+  type?: BrowserWaitCondition;
   selector?: string;
   ref?: string;
   urlPattern?: string;
@@ -372,22 +379,82 @@ export function compactStylePairForResponse(
   return { beforeStyles, afterStyles: { ...afterRest, cssVariablesDelta } };
 }
 
-function buildActionabilityCheckScript(selector?: string, ref?: string): string {
-  const selJson = JSON.stringify(selector || '');
-  const refJson = JSON.stringify(ref || '');
+/** A snapshot ref's registry descriptor, reduced to what a page script needs to find it. */
+export type RefLocator = { path: unknown[]; tag: string | null; id: string | null } | null;
+
+/**
+ * Page-script expression that evaluates to the element a snapshot ref or selector names.
+ * anti.inspect.snapshot keeps refs in the semantic-ref registry, never on the DOM, so the
+ * registry's traversal path is walked first (dom child index, shadow root, same-origin iframe)
+ * and a tag mismatch is refused because the path is positional. Without a registry descriptor
+ * a legacy `data-antifan-ref` stamp is tried (only for a well-formed @eN token, so the ref is
+ * never spliced into a selector), then the selector.
+ */
+export function buildRefLookupExpression(locator: RefLocator, ref: string | undefined, selector: string | undefined): string {
+  return `(function () {
+    var loc = ${JSON.stringify(locator)};
+    var ref = ${JSON.stringify(ref || '')};
+    var sel = ${JSON.stringify(selector || '')};
+    var el = null;
+    if (loc) {
+      var cur = document;
+      var steps = Array.isArray(loc.path) ? loc.path : [];
+      for (var i = 0; i < steps.length && cur; i++) {
+        var step = steps[i];
+        if (!step || typeof step !== 'object') { cur = null; break; }
+        if (step.kind === 'dom') cur = (cur.children && cur.children[step.index]) || (step.id && cur.getElementById ? cur.getElementById(step.id) : null);
+        else if (step.kind === 'shadow') cur = cur.shadowRoot || null;
+        else if (step.kind === 'iframe') { try { cur = cur.contentDocument || null; } catch (e) { cur = null; } }
+        else cur = null;
+      }
+      if (cur && cur.nodeType === 1) el = cur;
+      if (!el && loc.id) el = document.getElementById(loc.id);
+      if (el && loc.tag && el.tagName.toLowerCase() !== String(loc.tag).toLowerCase()) el = null;
+    } else if (/^@?e\\d+$/.test(ref)) {
+      el = document.querySelector('[data-antifan-ref="' + (ref.charAt(0) === '@' ? ref : '@' + ref) + '"]');
+    }
+    if (!el && sel) { try { el = document.querySelector(sel); } catch (e) {} }
+    return el;
+  })()`;
+}
+
+/** Largest local asset await_cdn_sync hashes and compares. */
+const AWAIT_CDN_SYNC_MAX_ASSET_BYTES = 5 * 1024 * 1024;
+
+/**
+ * One batch_matrix route's verdict from its sweep: false on page overflow or a critical layout
+ * finding at any measured width; null when a width was not measured (emulation not applied, no
+ * overflow reading, or the integrity scan did not run) and nothing failed; true otherwise.
+ */
+export function batchRouteVerdict(
+  breakpoints: Record<string, Record<string, unknown>>,
+  expectedWidths: number
+): { passed: boolean | null; unmeasured: string[] } {
+  const unmeasured: string[] = [];
+  let failed = false;
+  const entries = Object.entries(breakpoints);
+  for (const [key, bp] of entries) {
+    if (!bp || typeof bp !== 'object') { unmeasured.push(key); continue; }
+    const overflow = bp.hasHorizontalOverflow;
+    if (bp.emulationApplied === false || typeof overflow !== 'boolean') unmeasured.push(key);
+    else if (overflow) failed = true;
+    const integrity = bp.integrity && typeof bp.integrity === 'object'
+      ? (bp.integrity as { measured?: boolean; findings?: Array<{ severity?: string }> })
+      : undefined;
+    if (!integrity || integrity.measured === false) {
+      if (!unmeasured.includes(key)) unmeasured.push(key);
+    } else if (Array.isArray(integrity.findings) && integrity.findings.some((f) => f && f.severity === 'critical')) {
+      failed = true;
+    }
+  }
+  if (entries.length < expectedWidths) unmeasured.push(`${expectedWidths - entries.length} width(s) missing from the sweep`);
+  return { passed: failed ? false : unmeasured.length ? null : true, unmeasured };
+}
+
+function buildActionabilityCheckScript(selector?: string, ref?: string, locator: RefLocator = null): string {
   return `(() => {
     try {
-      const sel = ${selJson};
-      const ref = ${refJson};
-      let el = null;
-      if (ref) {
-        const norm = ref.startsWith('@') ? ref : '@' + ref;
-        el = document.querySelector('[data-antifan-ref="' + ref + '"]') ||
-             document.querySelector('[data-antifan-ref="' + norm + '"]');
-      }
-      if (!el && sel) {
-        try { el = document.querySelector(sel); } catch {}
-      }
+      const el = ${buildRefLookupExpression(locator, ref, selector)};
       if (!el || !el.isConnected) return { actionable: false, reason: 'NOT_CONNECTED' };
 
       const style = window.getComputedStyle ? window.getComputedStyle(el) : el.style || {};
@@ -3638,8 +3705,38 @@ export class BrowserControlPort {
     paneId?: 'desktop' | 'mobile',
     signal?: AbortSignal
   ): Promise<BrowserWaitResult> {
-    if (!params || !params.condition) {
+    const effectiveCondition = params?.condition || params?.type;
+    if (!params || !effectiveCondition) {
       throw new CapabilityError('INVALID_ARGUMENT', 'Wait condition is required');
+    }
+    params = { ...params, condition: effectiveCondition };
+    if (params.condition === 'timeout') {
+      const tabId = this.resolveTargetTab(target, explicitTabId || params.tabId);
+      const delayMs = Math.min(Math.max(typeof params.timeoutMs === 'number' && Number.isFinite(params.timeoutMs) ? params.timeoutMs : 1000, 0), BROWSER_WAIT_INVOCATION_BUDGET_MS);
+      return this.waitRegistry.execute(tabId, async (waitSignal) => {
+        const startTime = Date.now();
+        const { promise, resolve, reject } = Promise.withResolvers<void>();
+        const timer = setTimeout(resolve, delayMs);
+        const onAbort = () => {
+          clearTimeout(timer);
+          reject(waitSignal.reason || new CapabilityError('WAIT_ABORTED', 'Wait was aborted'));
+        };
+        if (waitSignal.aborted) {
+          onAbort();
+        } else {
+          waitSignal.addEventListener('abort', onAbort, { once: true });
+        }
+        try {
+          await promise;
+        } finally {
+          waitSignal.removeEventListener('abort', onAbort);
+        }
+        return {
+          satisfied: true,
+          condition: 'timeout',
+          durationMs: Date.now() - startTime,
+        };
+      }, { timeoutMs: delayMs + 2000, signal });
     }
     if (params.condition === 'images-settled') {
       if (typeof params.timeoutMs === 'number' && !Number.isFinite(params.timeoutMs)) {
@@ -3833,13 +3930,15 @@ export class BrowserControlPort {
         if (!targetSelector && !targetRef) {
           throw new CapabilityError('INVALID_ARGUMENT', 'actionability condition requires selector or ref');
         }
+        // Resolved once: the registry descriptor names the element the snapshot described.
+        const targetLocator = this.refLocator(tabId, effectivePane, targetRef, false);
 
         while (!waitSignal.aborted) {
           let checkResult: { actionable: boolean; reason?: string; rect?: { x: number; y: number; width: number; height: number } } | null = null;
           if (typeof this.host.evalJs === 'function') {
             try {
               const raw = await this.host.evalJs(
-                buildActionabilityCheckScript(targetSelector, targetRef),
+                buildActionabilityCheckScript(targetSelector, targetRef, targetLocator),
                 tabId,
                 effectivePane
               );
@@ -4009,8 +4108,8 @@ export class BrowserControlPort {
    * routed creation that could not be adopted is classified against the affiliation the
    * anchor holds NOW rather than the one it held when the child was allocated.
    */
-  private verifyRoutedAnchorCapsule(boundTabId: string | undefined, target: BrowserTarget | undefined): string | undefined {
-    if (!(target && target.projectId && target.workspaceId)) return undefined;
+  private verifyRoutedAnchorCapsule(boundTabId: string | undefined, target: BrowserTarget | undefined): { capsuleId?: string; projectId?: string } {
+    if (!(target && target.projectId && target.workspaceId)) return {};
     if (!boundTabId) {
       // A routed request without a bound anchor cannot verify where the child
       // belongs. Returning undefined would let host.createTab fall back to the
@@ -4079,7 +4178,7 @@ export class BrowserControlPort {
         `project '${target.projectId}', workspace '${target.workspaceId}'. The tab is pinned to the anchor's own ` +
         'capsule and does not inherit the active capsule; open the project/workspace explicitly to route it there.'
       );
-      return affiliation.capsuleId;
+      return { capsuleId: affiliation.capsuleId };
     }
     if (affiliation.projectId !== target.projectId || affiliation.workspaceId !== target.workspaceId) {
       throw new CapabilityError(
@@ -4096,7 +4195,7 @@ export class BrowserControlPort {
         }
       );
     }
-    return affiliation.capsuleId;
+    return { capsuleId: affiliation.capsuleId, projectId: affiliation.projectId };
   }
 
   openTab(options: { url?: string; activate?: boolean; ephemeral?: boolean; userFacing?: boolean; devicePresetId?: string; mobile?: boolean; projectId?: string } = {}, context?: { target?: BrowserTarget; authenticatedProjectId?: string }): { tabId: string } {
@@ -4125,7 +4224,7 @@ export class BrowserControlPort {
     const routed = Boolean(target && target.projectId && target.workspaceId);
     // Phase 2: routed tab creation must be authorized by the anchor tab's own
     // verified affiliation and must never inherit the globally active capsule.
-    const verifiedCapsuleId = this.verifyRoutedAnchorCapsule(boundTabId, target);
+    const verified = this.verifyRoutedAnchorCapsule(boundTabId, target);
     // When userFacing is true, tab opens directly on the visible user plane (non-ephemeral, plane: 'user').
     if (options.userFacing === true && options.ephemeral === true) {
       throw new CapabilityError(
@@ -4143,7 +4242,10 @@ export class BrowserControlPort {
           ephemeral: isEphemeral,
           devicePresetId: options.devicePresetId,
           mobile: options.mobile,
-          capsuleId: verifiedCapsuleId,
+          capsuleId: verified.capsuleId,
+          // The capsule's own project, so the host stamps the child under it rather than
+          // under whichever project the anchor's window happens to be presenting.
+          ...(verified.projectId ? { projectId: verified.projectId } : {}),
           anchorTabId: boundTabId,
           plane,
         }
@@ -5153,6 +5255,29 @@ export class BrowserControlPort {
     return this.host.resolveSemanticRefDescriptor(tabId, paneId, ref);
   }
 
+  /**
+   * The page-script locator for a snapshot ref on an already-resolved tab (see
+   * buildRefLookupExpression). `strict` lets the registry's REF_STALE / REF_NOT_FOUND
+   * propagate; otherwise an unresolvable ref reads as "no locator" and the lookup falls back to
+   * a legacy stamp or the selector.
+   */
+  private refLocator(tabId: string, paneId: 'desktop' | 'mobile' | undefined, ref: string | undefined, strict: boolean): RefLocator {
+    const raw = typeof ref === 'string' ? ref.trim() : '';
+    if (!raw || typeof this.host.resolveSemanticRefDescriptor !== 'function') return null;
+    const normalized = raw.startsWith('@') ? raw : `@${raw}`;
+    if (!/^@e\d+$/.test(normalized)) {
+      if (strict) throw new CapabilityError('INVALID_ARGUMENT', `ref "${raw}" is not a snapshot ref (expected @eN, e.g. @e12)`);
+      return null;
+    }
+    try {
+      const desc = this.host.resolveSemanticRefDescriptor(tabId, paneId, normalized);
+      return desc ? { path: Array.isArray(desc.path) ? desc.path : [], tag: desc.fingerprint?.tag || null, id: desc.fingerprint?.id || desc.id || null } : null;
+    } catch (err) {
+      if (strict) throw err;
+      return null;
+    }
+  }
+
   async inspectLayout(
     target: BrowserTarget,
     params: { selector?: string; selectors?: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' } = {},
@@ -5344,6 +5469,8 @@ export class BrowserControlPort {
     const tabId = this.resolveTargetTab(target, explicitTabId || params.tabId, 'write');
     const effectivePane = paneId || params.paneId || 'desktop';
     await this.assertRenderSurface(tabId, effectivePane, 'anti.trace.interaction');
+    // A stale or unknown ref fails here rather than silently tracing document.body.
+    const refLocator = this.refLocator(tabId, effectivePane, params.ref, true);
 
     return this.viewportGate.withLock(async (lockSignal) => {
       if (lockSignal.aborted) {
@@ -5358,18 +5485,14 @@ export class BrowserControlPort {
       } catch {}
 
       // Capture Dual-Scope Before State
-      const beforeState = await this.captureBehaviorScope(tabId, effectivePane, params.selector, params.ref);
+      const beforeState = await this.captureBehaviorScope(tabId, effectivePane, params.selector, params.ref, refLocator);
 
       // In-page V8 Micro-Observer (rAF loop):
       // Observes per-frame style mutations directly in the V8 runtime without IPC ping-pong.
       // Accurately tracks continuous CSS transitions, Web Animations, and JS/rAF animations.
       const observerScript = `(() => {
         try {
-          const sel = ${JSON.stringify(params.selector || '')};
-          const ref = ${JSON.stringify(params.ref || '')};
-          let el = null;
-          if (ref) el = document.querySelector('[data-antifan-ref="' + ref + '"]');
-          if (!el && sel) el = document.querySelector(sel);
+          let el = ${buildRefLookupExpression(refLocator, params.ref, params.selector)};
           if (!el) el = document.body;
           window.__antifanMotionSamples = [];
           window.__antifanMutations = [];
@@ -5591,10 +5714,9 @@ export class BrowserControlPort {
           }
         } else {
           interactionMode = 'programmatic_dom';
-          const sel = params.ref ? `[data-antifan-ref="${params.ref}"]` : (params.selector || 'body');
           try {
             const evalRes = (await this.host.evalJs(`(() => {
-              const el = document.querySelector(${JSON.stringify(sel)});
+              const el = ${buildRefLookupExpression(refLocator, params.ref, params.selector || 'body')};
               if (!el) return { clicked: false, error: 'Element not found' };
               el.click();
               return { clicked: true };
@@ -5642,10 +5764,9 @@ export class BrowserControlPort {
         }
       } else if (params.action === 'focus') {
         interactionMode = 'programmatic_dom';
-        const sel = params.ref ? `[data-antifan-ref="${params.ref}"]` : (params.selector || 'body');
         try {
           const evalRes = (await this.host.evalJs(`(() => {
-            const el = document.querySelector(${JSON.stringify(sel)});
+            const el = ${buildRefLookupExpression(refLocator, params.ref, params.selector || 'body')};
             if (!el) return { focused: false, error: 'Element not found' };
             el.focus();
             return { focused: true };
@@ -5922,12 +6043,12 @@ export class BrowserControlPort {
       } catch {}
 
       // Capture Dual-Scope After State
-      const afterState = await this.captureBehaviorScope(tabId, effectivePane, params.selector, params.ref);
+      const afterState = await this.captureBehaviorScope(tabId, effectivePane, params.selector, params.ref, refLocator);
 
       const durationMs = Date.now() - startTime;
 
       // Synthesize Semantic Verdict and Evidence Delta
-      const evaluation = this.evaluateBehaviorEvidence(beforeState, afterState, beforeStyles, afterStyles);
+      const evaluation = this.evaluateBehaviorEvidence(beforeState, afterState, beforeStyles, afterStyles, params.action);
 
       // Compute Sparse Interaction Delta (Pure Domain Function)
       const sparseDelta = computeSparseInteractionDelta(beforeState as RawBehaviorScope, afterState as RawBehaviorScope);
@@ -6009,19 +6130,12 @@ export class BrowserControlPort {
     tabId: string,
     effectivePane: 'desktop' | 'mobile',
     selector?: string,
-    ref?: string
+    ref?: string,
+    locator: RefLocator = null
   ): Promise<any | null> {
     const script = `(() => {
       try {
-        const sel = ${JSON.stringify(selector || '')};
-        const ref = ${JSON.stringify(ref || '')};
-        let el = null;
-        if (ref) {
-          el = document.querySelector('[data-antifan-ref="' + ref + '"]');
-        }
-        if (!el && sel) {
-          el = document.querySelector(sel);
-        }
+        const el = ${buildRefLookupExpression(locator, ref, selector)};
         let targetInfo = undefined;
         if (el) {
           const rect = el.getBoundingClientRect();
@@ -6044,6 +6158,30 @@ export class BrowserControlPort {
             visibility: style.visibility,
             opacity: style.opacity,
             transform: style.transform,
+            computedStyles: {
+              color: style.color || '',
+              backgroundColor: style.backgroundColor || '',
+              borderColor: style.borderColor || '',
+              boxShadow: style.boxShadow || '',
+              transform: style.transform || '',
+              opacity: style.opacity || '',
+            },
+            hovered: (() => { try { return el.matches(':hover'); } catch { return null; } })(),
+            children: Array.from(el.children || []).slice(0, 5).map(ch => {
+              const cs = window.getComputedStyle(ch);
+              return {
+                tagName: ch.tagName ? ch.tagName.toLowerCase() : '',
+                className: typeof ch.className === 'string' ? ch.className : '',
+                computedStyles: {
+                  color: cs.color || '',
+                  backgroundColor: cs.backgroundColor || '',
+                  borderColor: cs.borderColor || '',
+                  boxShadow: cs.boxShadow || '',
+                  transform: cs.transform || '',
+                  opacity: cs.opacity || '',
+                },
+              };
+            }),
           };
         }
 
@@ -6104,7 +6242,8 @@ export class BrowserControlPort {
     before: any,
     after: any,
     beforeStyles: Record<string, unknown>,
-    afterStyles: Record<string, unknown>
+    afterStyles: Record<string, unknown>,
+    action?: string
   ): {
     verified: boolean;
     verdict: string;
@@ -6132,7 +6271,15 @@ export class BrowserControlPort {
     const targetHeightDelta = (after?.target?.rect?.height || 0) - (before?.target?.rect?.height || 0);
     const targetGrewSignificantly = targetHeightDelta > 40 || targetWidthDelta > 40;
 
-    const styleChanged = JSON.stringify(beforeStyles) !== JSON.stringify(afterStyles);
+    // A trusted click or focus moves the pointer onto the target, so its :hover rules restyle the
+    // target and its children whether or not the interaction did anything. For any action but
+    // hover, a restyle that coincides with the pointer arriving is the pointer's, not the action's.
+    const pointerArrived = action !== 'hover' && before?.target?.hovered === false && after?.target?.hovered === true;
+    const styleChanged = !pointerArrived && JSON.stringify(beforeStyles) !== JSON.stringify(afterStyles);
+    const targetRestyled = !pointerArrived && (
+      JSON.stringify(before?.target?.computedStyles) !== JSON.stringify(after?.target?.computedStyles) ||
+      JSON.stringify(before?.target?.children) !== JSON.stringify(after?.target?.children)
+    );
 
     if (navigated) {
       verdict = 'PAGE_NAVIGATION';
@@ -6172,6 +6319,7 @@ export class BrowserControlPort {
       addedBodyClasses.length > 0 ||
       removedBodyClasses.length > 0 ||
       styleChanged ||
+      targetRestyled ||
       newOverlays.length > 0
     ) {
       verdict = 'IN_PAGE_MUTATION';
@@ -8144,9 +8292,18 @@ export class BrowserControlPort {
       pressKey: (key) => act({ type: 'pressKey', key }),
       wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     }, params);
-    // Open/close transitions only advance on a pane that produces frames; a background agent
-    // tab would leave every drawer at its closed transform and report it as never opened.
-    return typeof this.host.withPaintingSurface === 'function' ? this.host.withPaintingSurface(tabId, paneId, run) : run();
+    // The page's safe mode stops anchors and submits; a theme script can still assign `location`
+    // (an account button that redirects to sign-in), so the host refuses those for the whole run.
+    const navigationHold = typeof this.host.holdPageNavigation === 'function' ? this.host.holdPageNavigation(tabId, paneId) : null;
+    try {
+      // Open/close transitions only advance on a pane that produces frames; a background agent
+      // tab would leave every drawer at its closed transform and report it as never opened.
+      const result = typeof this.host.withPaintingSurface === 'function' ? await this.host.withPaintingSurface(tabId, paneId, run) : await run();
+      const blocked = navigationHold ? navigationHold.release() : [];
+      return blocked.length > 0 ? { ...result, blockedNavigations: [...blocked] } : result;
+    } finally {
+      navigationHold?.release();
+    }
   }
 
   /**
@@ -8261,6 +8418,9 @@ export class BrowserControlPort {
       }
       this.setDevicePreset({ presetId: point.presetId, tabId, reload: false }, target);
       if (typeof this.host.setZoom === 'function') this.host.setZoom(tabId, zoomFactor);
+      // A preset change only re-lays out the active tab; a background agent tab would keep the
+      // sweep's last override until something re-emulated it, and the caller measures right away.
+      if (typeof this.host.settleTabEmulation === 'function') await this.host.settleTabEmulation(tabId);
       return true;
     } catch (err) {
       console.warn(`[browser-port] compare_candidates could not restore the viewport of tab ${tabId}: ${err instanceof Error ? err.message : String(err)}`);
@@ -8772,6 +8932,269 @@ export class BrowserControlPort {
   bumpMutationRevision(tabId?: string): number {
     return this.host.bumpMutationRevision ? this.host.bumpMutationRevision(tabId) : 1;
   }
+
+  /**
+   * Poll the storefront's copy of one static asset until its bytes match the local workspace file,
+   * then optionally reload the tab. The local file is read only from inside the bound workspace
+   * (no `..`, size-capped); `.liquid` sources are refused because the CDN serves their compiled
+   * output, which can never match the source bytes.
+   */
+  public async awaitCdnSync(
+    target: BrowserTarget,
+    params: {
+      assetPath: string;
+      workspaceRoot?: string;
+      timeoutMs?: number;
+      pollIntervalMs?: number;
+      reloadOnMatch?: boolean;
+      tabId?: string;
+      paneId?: 'desktop' | 'mobile';
+    }
+  ): Promise<Record<string, unknown>> {
+    if (!params || typeof params.assetPath !== 'string' || !params.assetPath.trim()) {
+      throw new CapabilityError('INVALID_ARGUMENT', 'assetPath is required');
+    }
+    const tabId = this.resolveTargetTab(target, params.tabId, 'write');
+    const paneId = params.paneId || 'desktop';
+    const rawAsset = params.assetPath.trim().replace(/\\/g, '/').replace(/^\/+/, '');
+    if (/\.liquid$/i.test(rawAsset)) {
+      throw new CapabilityError('INVALID_ARGUMENT', `${params.assetPath} is a Liquid source: the CDN serves its compiled output, which never matches the source bytes. Reload and run theme.qa_validate instead.`);
+    }
+    const fileName = path.posix.basename(rawAsset);
+    const relCandidates = rawAsset.startsWith('assets/') ? [rawAsset] : [`assets/${rawAsset}`, rawAsset];
+    const root = (params.workspaceRoot && params.workspaceRoot.trim())
+      || (this.host.resolveTabWorkspace ? this.host.resolveTabWorkspace(tabId) : '');
+    if (!root) {
+      throw new CapabilityError('WORKSPACE_UNBOUND', 'await_cdn_sync needs a bound theme workspace to read the local asset from');
+    }
+    const realRoot = path.resolve(root);
+    let localBytes: Buffer | undefined;
+    let resolvedRel = relCandidates[0]!;
+    for (const rel of relCandidates) {
+      const abs = path.resolve(realRoot, rel);
+      const relToRoot = path.relative(realRoot, abs);
+      // Never read outside the workspace: "assets/../../.env" resolves past the root.
+      if (!relToRoot || relToRoot.startsWith('..') || path.isAbsolute(relToRoot)) continue;
+      try {
+        const stat = await fs.stat(abs);
+        if (!stat.isFile()) continue;
+        if (stat.size > AWAIT_CDN_SYNC_MAX_ASSET_BYTES) {
+          throw new CapabilityError('INVALID_ARGUMENT', `${rel} is ${stat.size} bytes; await_cdn_sync compares assets up to ${AWAIT_CDN_SYNC_MAX_ASSET_BYTES} bytes`);
+        }
+        localBytes = await fs.readFile(abs);
+        resolvedRel = rel;
+        break;
+      } catch (err) {
+        if (err instanceof CapabilityError) throw err;
+      }
+    }
+    if (!localBytes) {
+      throw new CapabilityError('INVALID_ARGUMENT', `Local asset not found in the bound workspace: ${params.assetPath}`);
+    }
+    const localSha256 = crypto.createHash('sha256').update(localBytes).digest('hex');
+    const localNorm = localBytes.toString('utf8').replace(/\r\n/g, '\n').trim();
+    const maxWaitMs = Math.min(Math.max(params.timeoutMs ?? 15_000, 200), 25_000);
+    const pollMs = Math.min(Math.max(params.pollIntervalMs ?? 500, 50), 5_000);
+    const startTime = Date.now();
+    let attempts = 0;
+    let lastCdnSha256: string | null = null;
+    let lastError: string | null = null;
+    let assetUrl: string | null = null;
+    while (Date.now() - startTime <= maxWaitMs) {
+      attempts += 1;
+      if (typeof this.host.evalJs === 'function') {
+        try {
+          // Exact file-name match on the URL path (not a substring): "theme.css" must not pick
+          // "custom-theme.css".
+          const probeExpr = `(async () => {
+            const name = ${JSON.stringify(fileName)};
+            const nodes = Array.from(document.querySelectorAll('link[rel="stylesheet"][href], script[src]'));
+            let url = '';
+            for (const n of nodes) {
+              const raw = n.getAttribute('href') || n.getAttribute('src') || '';
+              let u;
+              try { u = new URL(raw, location.href); } catch (e) { continue; }
+              const last = decodeURIComponent(u.pathname.split('/').pop() || '');
+              if (last === name) { url = u.href; break; }
+            }
+            if (!url) return { error: 'ASSET_NOT_REFERENCED: no stylesheet or script on the page loads ' + name };
+            const bust = (url.includes('?') ? '&' : '?') + '_af_sync=' + Date.now();
+            try {
+              const res = await fetch(url + bust, { cache: 'no-store' });
+              if (!res.ok) return { url, error: 'HTTP_' + res.status };
+              return { url, text: await res.text() };
+            } catch (e) {
+              return { url, error: 'FETCH_FAILED: ' + (e && e.message ? e.message : String(e)) };
+            }
+          })()`;
+          const probe = (await this.host.evalJs(probeExpr, tabId, paneId)) as { url?: string; text?: string; error?: string } | null;
+          if (probe && typeof probe.url === 'string') assetUrl = probe.url;
+          if (probe && typeof probe.error === 'string') lastError = probe.error;
+          if (probe && typeof probe.text === 'string') {
+            lastError = null;
+            const cdnSha256 = crypto.createHash('sha256').update(Buffer.from(probe.text, 'utf8')).digest('hex');
+            lastCdnSha256 = cdnSha256;
+            const remoteNorm = probe.text.replace(/\r\n/g, '\n').trim();
+            if (cdnSha256 === localSha256 || remoteNorm === localNorm) {
+              const shouldReload = params.reloadOnMatch !== false;
+              if (shouldReload) {
+                await this.reload(target, tabId);
+              }
+              return {
+                ok: true,
+                synced: true,
+                assetPath: resolvedRel,
+                assetUrl,
+                localSha256,
+                cdnSha256,
+                attempts,
+                durationMs: Date.now() - startTime,
+                reloaded: shouldReload,
+              };
+            }
+          }
+        } catch (err) {
+          lastError = err instanceof Error ? err.message : String(err);
+        }
+      }
+      if (Date.now() - startTime + pollMs > maxWaitMs) break;
+      const tick = Promise.withResolvers<void>();
+      setTimeout(tick.resolve, pollMs);
+      await tick.promise;
+    }
+    return {
+      ok: false,
+      synced: false,
+      assetPath: resolvedRel,
+      assetUrl,
+      localSha256,
+      cdnSha256: lastCdnSha256,
+      attempts,
+      durationMs: Date.now() - startTime,
+      reloaded: false,
+      ...(lastError ? { lastError } : {}),
+    };
+  }
+
+  /**
+   * Sweep several routes of the bound storefront across breakpoints in one tab. Routes stay on the
+   * tab's own origin; a breakpoint the sweep could not measure leaves the route unverified
+   * (passed: null) instead of passing it; the tab goes back to the page it started on.
+   */
+  public async runBatchMatrix(
+    target: BrowserTarget,
+    params: {
+      routes: string[];
+      breakpoints?: number[];
+      tabId?: string;
+    }
+  ): Promise<Record<string, unknown>> {
+    if (!params || !Array.isArray(params.routes) || params.routes.length === 0) {
+      throw new CapabilityError('INVALID_ARGUMENT', 'routes must be a non-empty array of URLs or paths');
+    }
+    if (params.routes.length > 20) {
+      throw new CapabilityError('INVALID_ARGUMENT', 'routes cannot exceed 20 items per batch_matrix call');
+    }
+    const tabId = this.resolveTargetTab(target, params.tabId, 'write');
+    const rawBps = Array.isArray(params.breakpoints) && params.breakpoints.length > 0
+      ? params.breakpoints
+      : [320, 375, 768, 1024, 1440];
+    const customBreakpoints: ResponsiveBreakpointOption[] = rawBps.map((w) => {
+      if (typeof w !== 'number' || !Number.isFinite(w) || w < 240 || w > 3840) {
+        throw new CapabilityError('INVALID_ARGUMENT', `Invalid breakpoint width ${String(w)} (must be 240..3840)`);
+      }
+      const width = Math.round(w);
+      return {
+        id: `bp-${width}`,
+        name: `Width ${width}px`,
+        width,
+        height: width < 768 ? 812 : (width < 1024 ? 1024 : 900),
+        mobile: width < 768,
+        deviceScaleFactor: width < 768 ? 2 : 1,
+      };
+    });
+    const initialUrl = await this.getLiveTabUrl(tabId).catch(() => '');
+    let baseOrigin = '';
+    try {
+      if (initialUrl) baseOrigin = new URL(initialUrl).origin;
+    } catch {}
+    if (!baseOrigin || !/^https?:/.test(baseOrigin)) {
+      throw new CapabilityError('INVALID_ARGUMENT', 'batch_matrix needs the bound tab on an http(s) storefront page to resolve routes against');
+    }
+    // A theme preview (Haravan `themeid`, Shopify `preview_theme_id`) is part of the page the caller
+    // is reviewing: a route that names none keeps it, or the sweep would measure the live theme.
+    const previewParams: Array<[string, string]> = [];
+    for (const key of ['themeid', 'preview_theme_id']) {
+      const value = new URL(initialUrl).searchParams.get(key);
+      if (value) previewParams.push([key, value]);
+    }
+    // Validate every route before navigating anywhere: a refused route never leaves the tab moved.
+    const resolved = params.routes.map((rawRoute) => {
+      if (typeof rawRoute !== 'string' || !rawRoute.trim()) {
+        throw new CapabilityError('INVALID_ARGUMENT', 'Each route must be a non-empty string');
+      }
+      const trimmed = rawRoute.trim();
+      let url: URL;
+      try {
+        url = new URL(trimmed, baseOrigin);
+      } catch {
+        throw new CapabilityError('INVALID_ARGUMENT', `Route is not a valid URL or path: ${trimmed}`);
+      }
+      if (url.origin !== baseOrigin) {
+        throw new CapabilityError('INVALID_ARGUMENT', `Route ${trimmed} leaves the storefront origin ${baseOrigin}; batch_matrix only sweeps the bound store`);
+      }
+      for (const [key, value] of previewParams) {
+        if (!url.searchParams.has(key)) url.searchParams.set(key, value);
+      }
+      return { route: trimmed, url: url.href };
+    });
+    const routeResults: Array<Record<string, unknown>> = [];
+    let failedRouteCount = 0;
+    let unmeasuredRouteCount = 0;
+    try {
+      for (const { route, url } of resolved) {
+        const currentUrl = await this.getLiveTabUrl(tabId).catch(() => '');
+        if (url !== currentUrl) {
+          await this.navigate(target, url, tabId);
+        }
+        const sweep = await this.responsiveCheck(
+          {
+            tabId,
+            customBreakpoints,
+            perWidthScript: LayoutIntegrityEngine.getBrowserScanScript('sweep', { skipLayoutShift: true }),
+          },
+          target
+        );
+        const bpMap = sweep && typeof sweep.breakpoints === 'object' && sweep.breakpoints !== null
+          ? (sweep.breakpoints as Record<string, Record<string, unknown>>)
+          : {};
+        const verdict = batchRouteVerdict(bpMap, customBreakpoints.length);
+        if (verdict.passed === false) failedRouteCount += 1;
+        else if (verdict.passed === null) unmeasuredRouteCount += 1;
+        routeResults.push({ route, url, passed: verdict.passed, ...(verdict.unmeasured.length ? { unmeasured: verdict.unmeasured } : {}), breakpoints: bpMap });
+      }
+    } finally {
+      // Leave the tab where the caller had it.
+      const nowUrl = await this.getLiveTabUrl(tabId).catch(() => '');
+      if (initialUrl && nowUrl !== initialUrl) {
+        await this.navigate(target, initialUrl, tabId).catch(() => undefined);
+      }
+    }
+    return {
+      ok: true,
+      passed: failedRouteCount > 0 ? false : unmeasuredRouteCount > 0 ? null : true,
+      tabId,
+      // The settled generation of the page the tab is back on: the transport moves the session's
+      // authority onto it, as it does after navigate, so the next write call is not stale.
+      documentGeneration: this.host.getDocumentGeneration ? this.host.getDocumentGeneration(tabId) : undefined,
+      routesScanned: routeResults.length,
+      breakpoints: customBreakpoints.map((b) => b.width),
+      failedRouteCount,
+      unmeasuredRouteCount,
+      routes: routeResults,
+    };
+  }
+
   private assertCurrent(target: BrowserTarget): void {
     if (this.host.isCurrentTarget && !this.host.isCurrentTarget(target)) throw new CapabilityError('TARGET_STALE', 'Browser target no longer matches the current tab document');
   }
