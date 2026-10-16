@@ -6,6 +6,23 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 
 ## [v1.3.6] - Unreleased
 
+### Sửa — Pipeline theme: QA chỉ PASS khi CERTIFIED, thêm probe cho lỗi user hay bắt (audit 4 phiên Sky Fashion, Smart Furniture, PC, An Vặt)
+
+- **Ngưỡng mặc định:** `theme.qa_validate`, cockpit scan, toolbar scan và repair coordinator lấy `thresholds` theo thứ tự: tham số gọi → contract của theme → giá trị mặc định khớp `registry/thresholds.json` của kit (`qa-thresholds.ts`). Gọi trần dưới `build-strict` không còn luôn INCONCLUSIVE; receipt ghi `thresholdsSource`, `certification`, `certificationReasons`, `scope`.
+- **Kích thước viewport:** host đặt lại viewport đã yêu cầu sau mỗi lần commit điều hướng/reload (trừ tab fluid và tab đang sweep). `getViewport` trả `requestedWidth`/`observedWidth`/`mismatch`; QA ghi gap `VIEWPORT_MISMATCH` thay vì chấm desktop ở 949px.
+- **Rule mới trong scanner:** `min-gap` (khoảng cách giữa control/khối chữ/media), `fixed-chrome-ratio` (header/footer cố định chiếm quá nhiều chiều cao), `title-scale`, `input-height-band`, `image-crop`/`image-low-res`; state matrix thêm `MODAL_UNSTYLED`, và Escape không nhận focus/keydown giờ là `CLOSE_ESCAPE_UNMEASURED` thay vì fail sai. Trên trang sản phẩm, state matrix tự nạp opener của PDP.
+- **Probe mới qua MCP:** `anti.qa.variant_image_probe` (bấm màu mà ảnh không đổi), `anti.qa.pdp_contract` (thiếu size guide, nút mua, giá…), `anti.qa.menu_depth` (menu 3 cấp/megamenu có hiện thật), `anti.qa.page_structure` (số section trang chủ 6–10, thứ tự, hero đầu), `anti.qa.pick_product` (chọn sản phẩm khó để QA) và `theme.package_check` (zip export: secret, file thiếu, asset gãy, diff form Partners).
+- **Checklist tự tick:** `theme.cockpit_scan` chạy probe theo trang và tick/un-tick các mục đã đo; mục người dùng vừa đổi không bị ghi đè. Thêm mục size guide cho PDP và trường `measuredBy`.
+- **Chống ghi receipt sai chỗ:** QA từ chối root không phải theme (`WORKSPACE_NOT_THEME`), gợi ý thư mục có dấu khi root là bản ASCII lạc; checklist và cockpit scan vẫn quy root về root đang bind như cũ.
+- **Hook QA:** gate và QA debt chỉ xoá bởi receipt `CERTIFIED` đúng root, hoặc pass theo annotation có trước lần sửa. Receipt `STRUCTURAL` hoàn chỉnh cho phép khai báo `QA_STRUCTURAL_ONLY`: gate đóng nhưng debt `structural-only` còn tới khi có `CERTIFIED`. Lời nhắc nêu lý do chưa CERTIFIED.
+- **Chụp ảnh:** `full_page` không còn giới hạn 16384 CSS px: chụp theo tile rồi ghép, trần 150M device px, artifact tới 64 MiB; nhận `format: 'jpeg'`, PNG quá trần được mã hoá lại JPEG kèm `fallbackReason`. Tab nền không ra frame thì được kích hoạt tạm rồi trả lại tab cũ, không còn bảo khởi động lại app. Settle chờ `document.fonts.ready` thêm một lần khi chỉ thiếu font.
+- **Hover thật:** `anti.agent.cursor.hover` kiểm `:hover`; chưa ăn thì cuộn vào khung và tiếp cận 3 bước, vẫn không ăn thì trả `HOVER_NOT_ACTIVE`.
+- **Batch matrix:** chạy trọn route trong ngân sách 180 s mỗi lần gọi và trả `remainingRoutes` (lô dở dang không bao giờ PASS); width chưa áp được emulation thử lại tối đa 2 lần. Nhận `viewports` tuỳ chọn (cả viewport thấp như 667×375).
+- **Binding tab:** tab đã bind chết thì `TARGET_STALE` kèm `autoBindCandidate` (storefront cùng project), `rebind_target({ tabId: 'auto' })` bind vào đó; proxy tự rebind một lần. Proxy báo một lần khi app đang chạy bản cũ không trả lời `catalogue.digest`.
+- **`await_cdn_sync` với `.liquid`:** cần `expectContains`/`expectNotContains`; poll asset đã compile tới khi khớp.
+- **Chẩn đoán mất cửa sổ project:** mỗi lần cửa sổ project mất ghi một dòng log `project-window-lost`; nguyên nhân gốc chưa tái hiện được.
+- Cần build lại và khởi động lại AntiFan Desktop để có hiệu lực; `npm run hooks:install` cập nhật hook OMP.
+
 ### Sửa — QA theme không còn PASS sai (đo trên S2 Sky Fashion)
 
 - **Receipt v1.3 nói thật:** thêm `callId`, `profile`, `coverage`/`coverageFloor`, `measuredRules`, `waivers`, `settle{failingPredicate, domUnstable, evidenceGaps, ignoreSelectors, scopeSelector, retries}`, `expectedStatus`, `workspaceRootRequested`/`workspaceRootRedirected`. Lượt chạy DEGRADED ghi `errorCode: SETTLE_INCOMPLETE` + `errorReason` (trước đây `errorCode: null`). Ghi receipt lỗi thì báo `RECEIPT_WRITE_FAILED` và hạ `CERTIFIED` xuống `STRUCTURAL`. `workspaceRoot` nằm ngoài root đang bind bị từ chối `WORKSPACE_MISMATCH`, không ghi receipt.
