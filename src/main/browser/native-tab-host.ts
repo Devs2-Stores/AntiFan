@@ -1984,7 +1984,6 @@ export class NativeTabHost extends EventEmitter {
     this.semanticDocumentGenerations.set(key, gen);
   }
 
-  /** Counts main-frame cross-document navigations only; history.replaceState, hash changes and iframe loads leave it alone. */
   public getCrossDocumentGeneration(tabId: string, paneId?: string): number {
     return this.crossDocumentGenerations?.get(makeTargetKey(tabId, paneId)) || 1;
   }
@@ -11656,14 +11655,8 @@ export class NativeTabHost extends EventEmitter {
    */
   /** Per-webContents tail of emulation applications, so they reach CDP in call order. */
   private emulationChains?: WeakMap<Electron.WebContents, Promise<void>>;
-  /** Scale of the device-metrics override last sent to each webContents (absent = no override). */
   private emulationInputScales?: WeakMap<Electron.WebContents, number>;
 
-  /**
-   * CDP Input coordinates for an emulated pane land in the shrunk widget, not in the page:
-   * on a 1024 px viewport drawn at 0.923 a click sent at CSS x=659 reached the page at 714.
-   * Callers multiply CSS coordinates by this scale before dispatching input.
-   */
   public getInputScale(wc: Electron.WebContents): number {
     return this.emulationInputScales?.get(wc) ?? 1;
   }
@@ -11771,11 +11764,9 @@ export class NativeTabHost extends EventEmitter {
             screenWidth: targetW,
             screenHeight: targetH,
             scale: safeScale,
-          })).catch(() => {});
-          (this.emulationInputScales ??= new WeakMap()).set(wc, safeScale);
+          })).then(() => { (this.emulationInputScales ??= new WeakMap()).set(wc, safeScale); }, () => {});
         } else {
-          await devTools.sendCdpCommand(wc, 'Emulation.clearDeviceMetricsOverride').catch(() => {});
-          this.emulationInputScales?.delete(wc);
+          await devTools.sendCdpCommand(wc, 'Emulation.clearDeviceMetricsOverride').then(() => { this.emulationInputScales?.delete(wc); }, () => {});
           const userAgentMetadata = chromeUserAgentMetadata(this.defaultUserAgent);
           await devTools.sendCdpCommand(wc, 'Emulation.setUserAgentOverride', {
             userAgent: this.defaultUserAgent,

@@ -131,6 +131,7 @@ describe('menu depth probe', () => {
     const dom = load(`<!doctype html><body>
       <header><button class="hamburger" aria-label="Mở menu">☰</button></header>
       <div class="mobile-menu" style="display:none">
+        <a class="promo-banner is-closed" href="/collections/sale">Ưu đãi</a>
         <button class="mobile-menu__close" aria-label="Đóng menu">×</button>
         <ul class="mobile-menu__list">
           <li><div class="mobile-menu__row"><a href="/collections/nu">Nữ</a><button class="mobile-menu__toggle" aria-expanded="false">+</button></div>

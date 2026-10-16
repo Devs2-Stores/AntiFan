@@ -43,7 +43,7 @@ const MENU_RUNTIME = String.raw`function (op, mobile) {
   var MOBILE_ROOTS = ['[class*="mobile-menu"]', '[class*="mobile-nav"]', '#mobile-menu', '[class*="drawer"] nav', '[class*="drawer"]', '[class*="offcanvas"]', '[class*="off-canvas"]', '[data-mobile-menu]', '[role="dialog"] nav'];
   var OPENERS = ['button[aria-label*="menu"]', 'button[aria-label*="Menu"]', '[aria-label*="menu"][role="button"]', '[aria-label*="Menu"][role="button"]', '.hamburger', '.menu-toggle', '.menu-icon', '.nav-toggle', '.mobile-menu-toggle', '[data-action*="menu"]', 'button[aria-controls*="menu"]', '[class*="burger"]', '[class*="menu-toggle"]', '[class*="menu-btn"]'];
   var TOGGLE_SEL = 'button, summary, [class*="arrow"], [class*="toggle"], [class*="caret"], [class*="expand"], [class*="chevron"], [aria-expanded]';
-  var CLOSERS = '[data-action*="close"], button[aria-label*="close" i], button[aria-label*="đóng" i], [class*="__close"], [class*="-close"], .close';
+  var CLOSERS = '[data-action*="close"], button[aria-label*="close" i], button[aria-label*="đóng" i], button[class*="__close"], button[class*="-close"], button.close';
 
   function isVisible(el) {
     for (var n = el; n && n.nodeType === 1; n = n.parentElement) {

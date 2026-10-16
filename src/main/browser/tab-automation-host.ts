@@ -124,7 +124,6 @@ export interface TabAutomationContext {
   getActiveTabId: () => string;
   getBrowserEpoch: () => number;
   getSemanticDocumentGeneration: (tabId: string, paneId?: string) => number;
-  /** Main-frame cross-document navigations only; absent on partial contexts, where callers fall back to the semantic generation. */
   getCrossDocumentGeneration?: (tabId: string, paneId?: string) => number;
   getLegacyDocumentGeneration?: (tabId: string) => number;
   semanticRefRegistry: SemanticRefRegistry;
@@ -134,7 +133,6 @@ export interface TabAutomationContext {
   getAllTabs: () => IterableIterator<[string, NativeTabRecord]>;
   applyTabThrottling?: () => void;
   tabDevToolsHost?: TabDevToolsHost;
-  /** Device-metrics override scale of a webContents; CSS coordinates are multiplied by it before CDP input. */
   getInputScale?: (wc: Electron.WebContents) => number;
   /**
    * Overrides the agent-side eval soft budget (and therefore the derived hard ceiling). Production
@@ -1337,10 +1335,6 @@ export class TabAutomationHost {
     });
   }
 
-  /**
-   * Generation an action checks after it ran. A click that calls history.replaceState (a variant swatch
-   * writing ?variant=) stays in the same document and must still count as delivered.
-   */
   private documentGenerationOf(tabId: string, paneId: SplitPaneId): number {
     return this.ctx.getCrossDocumentGeneration
       ? this.ctx.getCrossDocumentGeneration(tabId, paneId)
