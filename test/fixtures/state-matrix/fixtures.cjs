@@ -231,6 +231,43 @@ nav ul{list-style:none;margin:0;padding:0;display:flex;gap:16px}
     expect: { triggers: 1, panelMatches: { 0: 'megamenu__panel' }, noCodes: { 0: ['STATE_STUCK_OPEN', 'OVERLAY_NOT_OPENED'] }, closeClosed: { 0: ['pointer-leave'] } },
   },
   {
+    // The menu panel sets its headings in the theme's own display face, loaded through @font-face.
+    id: 'megamenu-in-the-theme-display-face',
+    html: `<!doctype html><html lang="vi"><head><meta charset="utf-8"><style>${BASE_CSS}
+@font-face{font-family:"Theme Display";src:local("Georgia")}
+nav ul{list-style:none;margin:0;padding:0;display:flex;gap:16px}
+.megamenu__item > a{display:inline-flex;min-height:48px;align-items:center;padding:0 12px;color:#111}
+.megamenu__panel{position:absolute;left:0;right:0;top:48px;min-height:240px;background:#fff;border-top:1px solid #ccc;padding:16px;display:none;z-index:50}
+.megamenu__item:hover .megamenu__panel{display:block}
+.megamenu__title{font-family:"Theme Display",serif;font-size:20px;margin:0 0 8px}
+</style></head><body><header style="position:relative"><nav><ul><li class="megamenu__item"><a href="#nu" class="megamenu__trigger" aria-haspopup="true">Nữ</a><div class="megamenu__panel"><p class="megamenu__title">Bộ sưu tập mới</p><a href="#ao" style="display:block;min-height:44px;color:#111">Áo</a></div></li></ul></nav></header><main style="min-height:1200px"></main></body></html>`,
+    expect: { triggers: 1, panelMatches: { 0: 'megamenu__panel' }, noCodes: { 0: ['MODAL_UNSTYLED', 'STATE_STUCK_OPEN'] } },
+  },
+  {
+    // Mirrors S2 Sky Fashion: the dialog wrapper is named ".sky-modal-overlay" and holds a backdrop
+    // button, the card and an absolutely positioned close button.
+    id: 'dialog-wrapper-named-overlay',
+    html: `<!doctype html><html lang="vi"><head><meta charset="utf-8"><style>${BASE_CSS}
+.modal-overlay{position:fixed;inset:0;z-index:80;display:flex;align-items:center;justify-content:center;transform:none;width:auto;max-width:none;min-height:0;padding:0;background:transparent;box-shadow:none}
+.modal-overlay.hidden{display:none}
+.modal-backdrop{position:absolute;inset:0;border:0;background:rgba(0,0,0,.45);padding:0}
+.modal-card{position:relative;width:360px;max-width:90vw;min-height:240px;background:#fff;padding:24px;box-sizing:border-box}
+.modal-close{position:absolute;top:8px;right:8px;width:36px;height:36px;border:1px solid #333;background:#fff;color:#111;font:inherit}
+</style></head><body>
+<header><strong>Shop</strong><button class="btn header__action" type="button" data-action="open-account-modal" aria-label="Tài khoản">Tài khoản</button></header><main style="min-height:1200px"><p>Nội dung.</p></main>
+<div id="account-modal" class="modal-overlay hidden" role="dialog" aria-modal="true"><button class="modal-backdrop" type="button" aria-label="Đóng hộp thoại" data-action="close-modal"></button><div class="modal-card"><button class="modal-close" type="button" aria-label="Đóng">×</button><h2 style="margin:0 0 12px">Đăng nhập</h2><p>Email và mật khẩu.</p></div></div>
+<script>
+  const btn = document.querySelector('[data-action="open-account-modal"]');
+  const modal = document.getElementById('account-modal');
+  function open() { modal.classList.remove('hidden'); document.body.classList.add('lock'); modal.querySelector('.modal-close').focus(); }
+  function shut() { modal.classList.add('hidden'); document.body.classList.remove('lock'); btn.focus(); }
+  btn.addEventListener('click', open);
+  modal.querySelectorAll('.modal-close, .modal-backdrop').forEach((b) => b.addEventListener('click', shut));
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !modal.classList.contains('hidden')) shut(); });
+</script></body></html>`,
+    expect: { triggers: 1, panelMatches: { 0: 'account-modal' }, closeClosed: { 0: ['escape', 'close-button', 'backdrop'] }, noCodes: { 0: ['OVERLAY_TOO_SMALL', 'CLOSE_CONTROL_MISSING', 'STATE_STUCK_OPEN', 'MODAL_UNSTYLED'] } },
+  },
+  {
     // The theme never styled the dialog: serif default font, default blue link, grey native button
     // face and text flush against the unpadded panel edge.
     id: 'modal-with-browser-default-styling',

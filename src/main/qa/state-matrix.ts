@@ -504,9 +504,11 @@ export function buildMeasureOpenScript(index: number, kind: StateMatrixKind, clo
     const layers = Array.from(document.querySelectorAll(LAYER_SELECTOR))
       .filter((el) => !el.closest(PREVIEW_CHROME) && !el.closest('[' + PREOPEN + ']') && isOpen(el))
       .filter((el) => { const cs = getComputedStyle(el); return cs.position === 'fixed' || cs.position === 'absolute' || el.getAttribute('role') === 'dialog' || el.getAttribute('aria-modal') === 'true' || el.tagName === 'DIALOG'; });
-    // Backdrops and scrims match the same class fragments but are not the panel.
+    // Backdrops and scrims match the same class fragments but are not the panel. A wrapper named
+    // "overlay" that is itself the dialog or holds the close control is the panel, not a scrim.
     const BACKDROP = /backdrop|overlay|overplay|scrim|mask|shade|dimmer/i;
-    const candidates = layers.filter((el) => !BACKDROP.test(typeof el.className === 'string' ? el.className : ''));
+    const scrim = (el) => BACKDROP.test(typeof el.className === 'string' ? el.className : '') && el.getAttribute('role') !== 'dialog' && el.getAttribute('aria-modal') !== 'true' && el.tagName !== 'DIALOG' && !el.querySelector(CLOSE_CONTROL);
+    const candidates = layers.filter((el) => !scrim(el));
     // Class fragments also match a panel's own parts (".drawer__close" is absolutely positioned
     // inside ".drawer"): keep only outermost layers. Prefer the layer holding focus, then the one
     // holding a close control, then the largest.
@@ -566,14 +568,14 @@ export function buildMeasureOpenScript(index: number, kind: StateMatrixKind, clo
   if (panel.scrollWidth > panel.clientWidth + 2 && (cs.overflowX === 'visible' || cs.overflowX === 'auto' || cs.overflowX === 'scroll')) {
     spill.push(selectorOf(panel) + (cs.overflowX === 'visible' ? ' scrollWidth ' : ' scrolls sideways: scrollWidth ') + panel.scrollWidth + ' > ' + panel.clientWidth);
   }
+  const BACKDROP_CLASS = /backdrop|overlay|overplay|scrim|mask|shade|dimmer/i;
+  const coversViewport = (c) => { const b = c.getBoundingClientRect(); return b.width >= vw * 0.9 && b.height >= vh * 0.9; };
   let close = null;
   const explicit = ${JSON.stringify(closeSelector)};
   if (explicit) { try { close = document.querySelector(explicit); } catch (e) {} }
   if (!close) {
     // A full-viewport button named "close" is the backdrop in disguise; it is graded under the
     // backdrop method only, never taken as the panel's close control.
-    const BACKDROP_CLASS = /backdrop|overlay|overplay|scrim|mask|shade|dimmer/i;
-    const coversViewport = (c) => { const b = c.getBoundingClientRect(); return b.width >= vw * 0.9 && b.height >= vh * 0.9; };
     const cands = Array.from(panel.querySelectorAll(CLOSE_CONTROL)).concat(Array.from(document.querySelectorAll(CLOSE_CONTROL)).filter((c) => !panel.contains(c)));
     const usable = (c) => displayed(c) && effectiveOpacity(c) > 0.05 && (panel.contains(c) || c.closest('[${SM_PANEL}]')) && !coversViewport(c) && !(BACKDROP_CLASS.test(typeof c.className === 'string' ? c.className : '') && !panel.contains(c));
     close = cands.find(usable) || null;
@@ -584,7 +586,17 @@ export function buildMeasureOpenScript(index: number, kind: StateMatrixKind, clo
   // (".modal-dialog"): the uncovered strips are measured around that box.
   let box = panel;
   if (r.width >= vw * 0.9 && r.height >= vh * 0.9) {
-    const inner = panel.querySelector('.modal-dialog, .modal-content, [role="document"], [class*="__dialog"], [class*="-dialog"], [class*="__content"], [class*="__inner"], [class*="__panel"]');
+    let inner = panel.querySelector('.modal-dialog, .modal-content, [role="document"], [class*="__dialog"], [class*="-dialog"], [class*="__content"], [class*="__inner"], [class*="__panel"]');
+    if (!inner) {
+      // Unnamed card (".sky-modal-card" beside a backdrop button): the painted child that does not
+      // cover the viewport and is not the scrim.
+      const painted = Array.from(panel.children).filter((c) => {
+        const bg = getComputedStyle(c).backgroundColor;
+        return displayed(c) && bg !== 'transparent' && !/rgba\\([^)]*,\\s*0\\)$/.test(bg) && !coversViewport(c) && !BACKDROP_CLASS.test(typeof c.className === 'string' ? c.className : '');
+      });
+      painted.sort((a, b) => { const ra = a.getBoundingClientRect(); const rb = b.getBoundingClientRect(); return rb.width * rb.height - ra.width * ra.height; });
+      inner = painted[0] || null;
+    }
     if (inner) {
       const ir = inner.getBoundingClientRect();
       if (ir.width > 0 && ir.height > 0 && ir.width * ir.height < r.width * r.height * 0.8) box = inner;
@@ -642,9 +654,15 @@ export function buildPointSafetyScript(index: number, x: number, y: number): str
   if (panel && (panel === el || panel.contains(el))) {
     if (!box || box === el || box.contains(el)) return { safe: false, reason: 'INSIDE_PANEL' };
     // Inside a full-viewport wrapper but outside its dialog box: the wrapper's own backdrop,
-    // unless a control sits there (a close button parked beside the dialog).
+    // unless a control sits there (a close button parked beside the dialog). A button covering
+    // most of the viewport is the scrim made clickable, the same rule as outside the panel.
     const ctl = el.closest(UNSAFE + ', ' + INTERACTIVE);
-    if (ctl && panel.contains(ctl)) return { safe: false, reason: 'INTERACTIVE_TARGET', target: selectorOf(ctl) };
+    if (ctl && panel.contains(ctl)) {
+      const cb = ctl.getBoundingClientRect();
+      const cpos = getComputedStyle(ctl).position;
+      const scrimButton = !ctl.matches(UNSAFE) && (cpos === 'fixed' || cpos === 'absolute') && cb.width * cb.height >= window.innerWidth * window.innerHeight * 0.5;
+      if (!scrimButton) return { safe: false, reason: 'INTERACTIVE_TARGET', target: selectorOf(ctl) };
+    }
     return { safe: true, reason: 'PANEL_BACKDROP', target: selectorOf(el) };
   }
   if (el.closest(UNSAFE)) return { safe: false, reason: 'INTERACTIVE_TARGET', target: selectorOf(el.closest(UNSAFE)) };
@@ -711,6 +729,9 @@ export function buildUnstyledProbeScript(index: number): string {
   const ICON_FONT = /icon|awesome|material|glyph|symbol|fontello|feather|ionicons/;
   const SERIF_UA = /^(times new roman|times|serif)$/;
   const bodyFamily = family(document.body);
+  // A family the page loads through @font-face (a display face for menu headings) was chosen by
+  // the theme; only a family nobody declared can be a fallback the panel slipped into.
+  const declared = new Set(Array.from(document.fonts || []).map((f) => String(f.family || '').replace(/["']/g, '').trim().toLowerCase()));
   const ownText = (el) => Array.from(el.childNodes).some((n) => n.nodeType === 3 && n.nodeValue.trim().length > 0);
   const textEls = [box].concat(Array.from(box.querySelectorAll('p, li, label, td, th, span, div, a')));
   for (const el of textEls) {
@@ -718,7 +739,7 @@ export function buildUnstyledProbeScript(index: number): string {
     const fam = family(el);
     if (!fam || ICON_FONT.test(fam)) continue;
     if (SERIF_UA.test(fam) && !SERIF_UA.test(bodyFamily)) { add('font-family', el, 'renders in the serif browser default "' + fam + '" while the page body uses "' + bodyFamily + '"'); break; }
-    if (fam !== bodyFamily) { add('font-family', el, 'renders in "' + fam + '" while the page body uses "' + bodyFamily + '"'); break; }
+    if (fam !== bodyFamily && !declared.has(fam)) { add('font-family', el, 'renders in "' + fam + '" while the page body uses "' + bodyFamily + '"'); break; }
   }
   for (const el of box.querySelectorAll('button, input, select, textarea')) {
     if (!displayed(el)) continue;
