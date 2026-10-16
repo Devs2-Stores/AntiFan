@@ -21,7 +21,12 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 - **Binding tab:** tab đã bind chết thì `TARGET_STALE` kèm `autoBindCandidate` (storefront cùng project), `rebind_target({ tabId: 'auto' })` bind vào đó; proxy tự rebind một lần. Proxy báo một lần khi app đang chạy bản cũ không trả lời `catalogue.digest`.
 - **`await_cdn_sync` với `.liquid`:** cần `expectContains`/`expectNotContains`; poll asset đã compile tới khi khớp.
 - **Chẩn đoán mất cửa sổ project:** mỗi lần cửa sổ project mất ghi một dòng log `project-window-lost`; nguyên nhân gốc chưa tái hiện được.
-- Cần build lại và khởi động lại AntiFan Desktop để có hiệu lực; `npm run hooks:install` cập nhật hook OMP.
+- **Sửa sau khi chạy probe thật trên Sky Fashion:**
+  - Click CDP trên pane được thu nhỏ cho vừa cửa sổ (viewport 1024 vẽ ở scale 0.923) rơi lệch: gửi x=659 thì trang nhận x=714, bấm trượt swatch. Toạ độ CSS giờ nhân với scale của device-metrics override trước khi gửi `Input.dispatchMouseEvent`/`dispatchTouchEvent`.
+  - Click đổi URL bằng `history.replaceState` (swatch ghi `?variant=`) bị báo `Document navigated during action execution`. Kiểm tra sau action giờ chỉ tính điều hướng cross-document của main frame; điều hướng trong cùng document và iframe không còn làm click "không được giao".
+  - `anti.qa.page_structure` lấy footer đang hiển thị ngoài cùng, không còn nhận footer ẩn của cart drawer (trước đây báo sai `home-footer-last`).
+  - `anti.qa.menu_depth` tìm nút mở cấp nằm trong hàng bọc (`li > div > button`), bỏ qua cột menu desktop bị ẩn bằng class kiểu `hide-mobile`, và đóng lại drawer mobile mà probe đã mở.
+- Cần build lại và khởi động lại AntiFan Desktop để có hiệu lực (đã áp và đo lại trên S2 Sky Fashion: `variant_image_probe` PASS, `menu_depth` mobile đủ 3 cấp, drawer đóng sau probe); `npm run hooks:install` cập nhật hook OMP.
 
 ### Sửa — QA theme không còn PASS sai (đo trên S2 Sky Fashion)
 
