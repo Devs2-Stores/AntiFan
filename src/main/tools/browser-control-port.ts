@@ -9326,8 +9326,11 @@ export class BrowserControlPort {
             { name: 'AbortError', code: 'ABORTED' }
           );
         }
-        // The estimate above is a plan, the clock is the fact: a slow store stops the call between routes.
-        if (routeResults.length > 0 && Date.now() - startedAt >= budgetMs) break;
+        if (routeResults.length > 0) {
+          const elapsed = Date.now() - startedAt;
+          const nextRouteMs = Math.max(elapsed / routeResults.length, BATCH_ROUTE_NAV_COST_MS + customBreakpoints.length * BATCH_CELL_COST_MS);
+          if (elapsed + nextRouteMs > budgetMs) break;
+        }
         const currentUrl = await this.getLiveTabUrl(tabId).catch(() => '');
         if (url !== currentUrl) {
           await this.navigate(target, url, tabId);
