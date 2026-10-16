@@ -1754,14 +1754,16 @@ function wakeSleepingSession(sessionId, pendingInput) {
 
 /**
  * Deliver buffered wake keystrokes once main reports the session awake and a
- * pane exists again. Called after every session broadcast; entries whose
- * session is still asleep stay buffered.
+ * surface shows it again: its pooled pane, or the split pane for a split session.
+ * Called after every session broadcast; entries whose session is still asleep
+ * stay buffered.
  */
 function flushDeferredWakeInput() {
   if (deferredWakeInput.size === 0) return;
   for (const [sessionId, text] of Array.from(deferredWakeInput.entries())) {
     if (isSessionSleeping(sessionId)) continue;
-    if (!rawTerminalPool.has(sessionId)) continue;
+    const shownBySplit = sessionId === splitId && Boolean(splitTerm);
+    if (!shownBySplit && !rawTerminalPool.has(sessionId)) continue;
     deferredWakeInput.delete(sessionId);
     api?.sendTerminalInputTo?.(sessionId, text);
   }
@@ -2206,9 +2208,11 @@ const terminalPool = {
     if (!item && typeof id === 'string' && Array.isArray(sessions)) {
       const s = sessions.find((x) => x.id === id);
       // A sleeping session has no PTY: materializing an xterm here would undo
-      // the entire zero-cost guarantee, so this chokepoint refuses. Callers
-      // already tolerate `undefined`.
-      if (s && s.state !== 'sleeping') {
+      // the entire zero-cost guarantee, so this chokepoint refuses. A split session
+      // is drawn only by the lower pane (splitTerm); a pooled pane for it would fit
+      // to the main pane and resize the split PTY to the main pane's height.
+      // Callers already tolerate `undefined`.
+      if (s && s.state !== 'sleeping' && !s.splitOf) {
         item = getOrCreateTerminalPane(id, typeof s.buffer === 'string' ? s.buffer : '', s.snapshotThroughSeq || 0, true);
       }
     }
@@ -3122,6 +3126,16 @@ function getFileMeta(fileName) {
   }
 }
 
+/** Text from a file name, path or error message, made safe to place in markup or an attribute. */
+function escapeQuickLookHtml(text) {
+  return String(text ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function highlightSyntax(rawCode, ext = 'js') {
   if (!rawCode) return ' ';
   const escaped = rawCode
@@ -3590,7 +3604,7 @@ async function openFileQuickLook(rawPath, sessionId) {
       const gutterHtml = lines.map((_, idx) => {
         const lineNum = idx + 1;
         const isTarget = targetLine && targetLine === lineNum;
-        return `<div class="file-quick-look-line-num${isTarget ? ' highlight-line' : ''}" data-line="${lineNum}" title="Click để copy ${result.fileName}:${lineNum}">${lineNum}</div>`;
+        return `<div class="file-quick-look-line-num${isTarget ? ' highlight-line' : ''}" data-line="${lineNum}" title="Click để copy ${escapeQuickLookHtml(result.fileName)}:${lineNum}">${lineNum}</div>`;
       }).join('');
       if (gutterEl) {
         gutterEl.innerHTML = gutterHtml;
@@ -3647,8 +3661,8 @@ async function openFileQuickLook(rawPath, sessionId) {
         codeEl.innerHTML = `
           <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:48px 24px;text-align:center;gap:12px;">
             <div style="font-size:32px;">📁</div>
-            <div style="font-weight:600;font-size:14px;color:#f87171;">${result.message || 'Không thể đọc nội dung file.'}</div>
-            <div style="font-size:11px;color:#64748b;max-width:440px;">${result.filePath || rawPath}</div>
+            <div style="font-weight:600;font-size:14px;color:#f87171;">${escapeQuickLookHtml(result.message || 'Không thể đọc nội dung file.')}</div>
+            <div style="font-size:11px;color:#64748b;max-width:440px;">${escapeQuickLookHtml(result.filePath || rawPath)}</div>
             <button type="button" class="file-quick-look-btn file-quick-look-btn-vscode" id="btnQuickLookErrorVSCode" style="margin-top:8px;">
               <span>Mở bằng VS Code</span>
             </button>
@@ -3672,105 +3686,25 @@ async function openFileQuickLook(rawPath, sessionId) {
     }
   } catch (err) {
     if (nameEl) nameEl.textContent = 'Lỗi ngoại lệ';
-    if (codeEl) codeEl.innerHTML = `<div style="padding:16px;color:#ef4444;">${String(err)}</div>`;
+    if (codeEl) codeEl.innerHTML = `<div style="padding:16px;color:#ef4444;">${escapeQuickLookHtml(String(err))}</div>`;
   }
 }
-const VALID_FILE_EXTENSIONS = {
-  ts: true, tsx: true, js: true, jsx: true, cjs: true, mjs: true,
-  json: true, json5: true, jsonc: true,
-  css: true, scss: true, sass: true, less: true,
-  html: true, htm: true, liquid: true, bwt: true,
-  md: true, markdown: true, txt: true, rtf: true,
-  yaml: true, yml: true, toml: true, ini: true, conf: true, config: true,
-  svg: true, png: true, jpg: true, jpeg: true, webp: true, gif: true, ico: true, avif: true, bmp: true,
-  sh: true, bash: true, zsh: true, ps1: true, bat: true, cmd: true,
-  py: true, rs: true, go: true, c: true, cpp: true, h: true, hpp: true, cs: true, java: true, kt: true, swift: true, rb: true, php: true,
-  lock: true, log: true, sql: true, csv: true, tsv: true, xml: true, vue: true, svelte: true, astro: true,
-  graphql: true, gql: true, proto: true, env: true
-};
-
-const DISALLOWED_EXTENSIONS = {
-  list: true, get: true, set: true, create: true, update: true, delete: true, close: true, activate: true,
-  reload: true, navigate: true, evaluate: true, stat: true, read: true, write: true, drop: true, drag: true,
-  hover: true, click: true, scroll: true, type: true, clear: true, freeze: true, capture: true, compare: true,
-  dump_dom: true, styles: true, snapshot: true, validate_gate: true, verify_claim: true, record_claim: true,
-  style_override: true, export_clean: true, resolve_element: true, tabs: true
-};
-function isValidTerminalFilePath(candidate) {
-  if (!candidate || typeof candidate !== 'string') return false;
-  let p = candidate.trim().replace(/^["'`]/, '').replace(/["'`]$/, '');
-  p = p.replace(/[,\.;\)]+$/, '');
-
-  // Exclude MCP tools, RPC methods, and internal protocol identifiers
-  if (
-    p.startsWith('anti.') ||
-    p.includes('/anti.') ||
-    p.includes('\\anti.') ||
-    p.startsWith('browser.') ||
-    p.includes('/browser.') ||
-    p.includes('\\browser.') ||
-    p.startsWith('theme.') ||
-    p.includes('/theme.') ||
-    p.includes('\\theme.') ||
-    p.startsWith('mcp__') ||
-    p.includes('mcp__') ||
-    p.startsWith('xd://') ||
-    p.includes('antifan-browser/') ||
-    p.includes('antifan-browser\\') ||
-    p.startsWith('console.') ||
-    p.startsWith('process.') ||
-    p.startsWith('window.') ||
-    p.startsWith('document.')
-  ) {
-    return false;
-  }
-  // Strip trailing line/col e.g. :45 or :45:10
-  const lineColIdx = p.search(/:\d+(?::\d+)?$/);
-  if (lineColIdx !== -1) {
-    p = p.slice(0, lineColIdx);
-  }
-
-  // Extract file extension
-  const lastDot = p.lastIndexOf('.');
-  if (lastDot === -1) return false;
-  const ext = p.slice(lastDot + 1).toLowerCase();
-
-  if (DISALLOWED_EXTENSIONS[ext]) return false;
-  return Boolean(VALID_FILE_EXTENSIONS[ext]);
-}
-
 function attachFileLinksProvider(term, currentSessionId) {
   try {
     if (typeof term?.registerLinkProvider !== 'function') return null;
-    const FILE_PATH_RE = /(?:^|[\s"'`(\[<])((?:[a-zA-Z]:[\\/][^\s:;,"'<>()[\]`\x1b]+|(?:\.{1,2}[\\/]|[a-zA-Z0-9_\-\.]+[\\/])[^\s:;,"'<>()[\]`\x1b]+\.[a-zA-Z0-9_\-]+|\/(?:home|Users|usr|var|tmp|etc|work|Work)[\\/][^\s:;,"'<>()[\]`\x1b]+|[a-zA-Z0-9_\-][a-zA-Z0-9_\-\.]*\.[a-zA-Z0-9_\-]+)(?::\d+(?::\d+)?)?)/g;
+    if (typeof findTerminalFileLinkRanges !== 'function') return null;
 
     return term.registerLinkProvider({
       provideLinks(y, callback) {
-        const line = term.buffer.active.getLine(y - 1);
-        if (!line) return callback(undefined);
-        const text = line.translateToString(true);
-        FILE_PATH_RE.lastIndex = 0;
-        const links = [];
-        let match;
-        while ((match = FILE_PATH_RE.exec(text)) !== null) {
-          const fullMatch = match[0];
-          const pathGroup = match[1];
-          if (!isValidTerminalFilePath(pathGroup)) continue;
-          const offsetInMatch = fullMatch.indexOf(pathGroup);
-          const startX = match.index + offsetInMatch;
-          const endX = startX + pathGroup.length;
-          links.push({
-            range: {
-              start: { x: startX + 1, y },
-              end: { x: endX + 1, y },
-            },
-            text: pathGroup,
-            activate(_event, clickedText) {
-              const sid = typeof currentSessionId === 'function' ? currentSessionId() : currentSessionId;
-              openFileQuickLook(clickedText, sid);
-            },
-          });
-        }
+        // Cell coordinates, read across wrapped rows: string offsets drift after a wide glyph.
+        const links = findTerminalFileLinkRanges(term.buffer.active, y).map((found) => ({
+          range: { start: found.start, end: found.end },
+          text: found.text,
+          activate(_event, clickedText) {
+            const sid = typeof currentSessionId === 'function' ? currentSessionId() : currentSessionId;
+            openFileQuickLook(clickedText, sid);
+          },
+        }));
         callback(links.length > 0 ? links : undefined);
       },
     });
@@ -4060,20 +3994,21 @@ function syncTerminalPool(allSessions, currentActiveId, snapshot, snapshotThroug
   const activeSessionIds = new Set(sessionList.map((s) => s.id));
   // A sleeping session stays in `sessions` (it is not closed) but must not own a
   // live xterm: its PTY is gone, so a pooled pane would be pure cost — and every
-  // later touch would rebuild it, defeating the whole feature.
+  // later touch would rebuild it, defeating the whole feature. A split session never
+  // owns a pooled pane either: the lower pane is its only surface, and a hidden pool
+  // pane would fit to the main pane and resize the split PTY to that height.
   const sleepingSessionIds = new Set(sessionList.filter((s) => s.state === 'sleeping').map((s) => s.id));
+  const splitSessionIds = new Set(sessionList.filter((s) => s.splitOf).map((s) => s.id));
   for (const [id, item] of terminalPool.entries()) {
-    if (!activeSessionIds.has(id) || sleepingSessionIds.has(id)) {
+    if (!activeSessionIds.has(id) || sleepingSessionIds.has(id) || splitSessionIds.has(id)) {
       releaseTerminalPane(id, item);
     }
   }
   const activeSession = sessionList.find((s) => s.id === currentActiveId);
-  const splitSiblingId = activeSession?.splitSessionId;
 
   for (const s of sessionList) {
-    if (sleepingSessionIds.has(s.id)) {
-      // Sleeping panes are released above and never rebuilt here, even when the
-      // session is the active tab or the split sibling.
+    if (sleepingSessionIds.has(s.id) || splitSessionIds.has(s.id)) {
+      // Sleeping and split sessions are released above and never rebuilt here.
       continue;
     }
     const sessionSnapshot = s.id === currentActiveId
@@ -4083,7 +4018,7 @@ function syncTerminalPool(allSessions, currentActiveId, snapshot, snapshotThroug
     // A session with no transcript has nothing to parse, so materializing it cannot
     // cost startup time; only content-bearing background panes are deferred.
     const exists = rawTerminalPool.has(s.id);
-    const isEager = s.id === currentActiveId || s.id === splitSiblingId || !sessionSnapshot;
+    const isEager = s.id === currentActiveId || !sessionSnapshot;
     if (!exists && !isEager) {
       // Lazy background session: defer pane creation and transcript parsing until first activation
       continue;
@@ -4711,21 +4646,6 @@ function mountSplit(sessionId, snapshot = undefined, snapshotSeq = undefined) {
   });
 }
 
-function mountSplitClean(newSplitId) {
-  if (!newSplitId) return;
-  const phantom = terminalPool.get(newSplitId);
-  if (phantom) {
-    try { if (phantom.writeTarget && window.globalTerminalWriteDispatcher) window.globalTerminalWriteDispatcher.cancel(phantom.writeTarget); } catch {}
-    try { phantom.webLinksAddon?.dispose(); } catch {}
-    try { phantom.fileLinksProvider?.dispose(); } catch {}
-    try { phantom.webglAddon?.dispose(); } catch {}
-    try { phantom.term?.dispose(); } catch {}
-    try { phantom.paneEl?.remove(); } catch {}
-    terminalPool.delete(newSplitId);
-  }
-  mountSplit(newSplitId);
-}
-
 // Split Toggle Button
 if (splitButton) {
   splitButton.onclick = async () => {
@@ -4748,7 +4668,7 @@ if (splitButton) {
       const targetCols = (mainItem && mainItem.term && mainItem.term.cols) || 120;
       const targetRows = getInitialSplitRows(mainItem?.term);
       const newSplitId = await api.splitTerminal(activeId, { cols: targetCols, rows: targetRows });
-      if (newSplitId) mountSplitClean(newSplitId);
+      if (newSplitId) mountSplit(newSplitId);
     } catch (err) {
       console.error('[Terminal] Split toggle failed:', err);
     } finally {
@@ -6117,7 +6037,7 @@ contextMenu?.querySelectorAll('.context-item').forEach((item) => {
         const targetCols = (mainItem && mainItem.term && mainItem.term.cols) || 120;
         const targetRows = getInitialSplitRows(mainItem?.term);
         const newSplitId = await api.splitTerminal(targetId, { cols: targetCols, rows: targetRows });
-        if (newSplitId && activeId === targetId) mountSplitClean(newSplitId);
+        if (newSplitId && activeId === targetId) mountSplit(newSplitId);
       } else {
         await api.unsplitTerminal?.(targetId);
         if (activeId === targetId) unmountSplit();
@@ -8456,16 +8376,6 @@ function handleIncomingTerminalChunk({ sessionId, data, seq, generation, fromSeq
     // The split pane mounts outside the tab pool and carries no .active class —
     // it is always visible while mounted, so it must keep receiving writes.
     processIncomingChunk(splitSessionState, chunk, true);
-    // Its pooled pane (if any) is hidden while the split is mounted: keep its
-    // rendered cursor in step so a later activation rehydrates instead of
-    // walking a delta chain from a stale seq.
-    const pooled = rawTerminalPool.get(sessionId);
-    if (pooled) {
-      pooled.needsRehydrate = true;
-      const end = (typeof throughSeq === 'number' && throughSeq > 0) ? throughSeq : chunkSeq;
-      if (end > pooled.lastRenderedSeq) pooled.lastRenderedSeq = end;
-      if (chunkGen > 0) pooled.sessionGeneration = chunkGen;
-    }
     return;
   }
 

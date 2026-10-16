@@ -36,6 +36,26 @@ export function normalizePreviewPath(rawPath: string): string {
   return targetPath;
 }
 
+/**
+ * `code` CLI arguments for opening a resolved file (at `lineColSuffix`) or folder. They are passed
+ * as an array to a process started without a shell, so a spaced path needs no quoting.
+ */
+export function buildVSCodeLaunchArgs(resolvedTarget: string, isFile: boolean, lineColSuffix: string): string[] {
+  return isFile ? ['-r', '-g', `${resolvedTarget}${lineColSuffix}`] : ['-r', resolvedTarget];
+}
+
+/**
+ * `vscode://file/` URL for a resolved file (at `lineColSuffix`) or folder. On Windows the `code`
+ * launcher is a .cmd script that only runs through cmd.exe, which expands `%VAR%` even inside
+ * quotes and reads a trailing `\"` as an escaped quote; the URL handler opens the same target with
+ * no shell. Each path segment is percent-encoded; a drive letter stays as written.
+ */
+export function buildVSCodeFileUrl(resolvedTarget: string, isFile: boolean, lineColSuffix: string): string {
+  const segments = resolvedTarget.replace(/\\/g, '/').replace(/\/+$/, '').split('/');
+  const encoded = segments.map((seg, i) => (i === 0 && /^[A-Za-z]:$/.test(seg) ? seg : encodeURIComponent(seg))).join('/');
+  return `vscode://file${encoded.startsWith('/') ? '' : '/'}${encoded}${isFile ? lineColSuffix : ''}`;
+}
+
 export function readFilePreview(targetPath: string): ReadFilePreviewResult {
   const fileName = path.basename(targetPath);
   try {

@@ -492,13 +492,55 @@ export class FakeTerm {
   }
 }
 
+/** East Asian wide and emoji code points: the cells xterm gives two columns. */
+function isWideCodePoint(cp: number): boolean {
+  return (cp >= 0x1100 && cp <= 0x115f) || (cp >= 0x2e80 && cp <= 0xa4cf) || (cp >= 0xac00 && cp <= 0xd7a3)
+    || (cp >= 0xf900 && cp <= 0xfaff) || (cp >= 0xfe30 && cp <= 0xfe4f) || (cp >= 0xff00 && cp <= 0xff60)
+    || (cp >= 0xffe0 && cp <= 0xffe6) || cp >= 0x1f300;
+}
+
+/** A buffer row built from text the way xterm stores it: a wide glyph, then an empty 0-width cell. */
+function fakeBufferLine(text: string, isWrapped: boolean) {
+  const cells: Array<{ chars: string; width: number }> = [];
+  for (const ch of text) {
+    const wide = isWideCodePoint(ch.codePointAt(0) ?? 0);
+    cells.push({ chars: ch, width: wide ? 2 : 1 });
+    if (wide) cells.push({ chars: '', width: 0 });
+  }
+  return {
+    isWrapped,
+    length: cells.length,
+    getCell: (x: number) => {
+      const cell = cells[x];
+      return cell ? { getChars: () => cell.chars, getWidth: () => cell.width } : undefined;
+    },
+  };
+}
+
 /** Minimal xterm terminal: records custom key handlers so shortcut routing can be driven. */
 export class FakeTerminal {
   public cols = 120;
   public rows = 30;
   public readonly writes: string[] = [];
   public readonly element = new FakeElement('div');
-  public readonly buffer = { active: { viewportY: 0, baseY: 0 } };
+  private bufferRows: Array<ReturnType<typeof fakeBufferLine>> = [];
+  public readonly buffer = {
+    active: {
+      viewportY: 0,
+      baseY: 0,
+      getLine: (y: number) => this.bufferRows[y],
+    },
+  };
+  /** Link providers the renderer registered, in order. */
+  public readonly linkProviders: Array<{ provideLinks: (y: number, callback: (links: unknown) => void) => void }> = [];
+  /** Lay out the buffer rows; `wrapped` marks a row that continues the one above it. */
+  public setBufferRows(rows: Array<{ text: string; wrapped?: boolean }>): void {
+    this.bufferRows = rows.map((row) => fakeBufferLine(row.text, row.wrapped === true));
+  }
+  public registerLinkProvider(provider: { provideLinks: (y: number, callback: (links: unknown) => void) => void }): { dispose: () => void } {
+    this.linkProviders.push(provider);
+    return { dispose: () => {} };
+  }
   public customKeyHandler: ((event: KeyEventLike) => boolean) | null = null;
   public readonly addons: unknown[] = [];
 
@@ -941,6 +983,16 @@ export function loadStandalone(options: {
     Terminal: TerminalGlobal,
     FitAddon: { FitAddon: FitAddonGlobal },
   });
+
+  // The shipped link matcher, so the renderer's link provider runs against the real module.
+  const fileLinksPath = path.join(RENDERER_DIR, 'terminal-file-links.js');
+  if (fs.existsSync(fileLinksPath)) {
+    vm.runInContext(fs.readFileSync(fileLinksPath, 'utf8'), context, { filename: 'terminal-file-links.js' });
+    for (const name of ['findTerminalFileLinks', 'findTerminalFileLinkRanges']) {
+      const value = (windowStub as unknown as Record<string, unknown>)[name];
+      if (value) (context as unknown as Record<string, unknown>)[name] = value;
+    }
+  }
 
   const sessionActivityPath = path.join(RENDERER_DIR, 'session-activity.js');
   if (fs.existsSync(sessionActivityPath)) {

@@ -4,7 +4,10 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { TERMINAL_CHANNELS } from '../../src/shared/contracts';
-import { normalizePreviewPath, readFilePreview } from '../../src/main/browser/file-preview-reader';
+import { buildVSCodeFileUrl, buildVSCodeLaunchArgs, normalizePreviewPath, readFilePreview } from '../../src/main/browser/file-preview-reader';
+import { findTerminalFileLinks, isValidTerminalFilePath } from '../../src/shared/terminal-file-links';
+
+const linkTexts = (line: string): string[] => findTerminalFileLinks(line).map((link) => link.text);
 
 const ROOT = path.resolve(__dirname, '../../..');
 
@@ -37,7 +40,7 @@ describe('Terminal File Quick-Look & Link Provider Contracts', () => {
     );
   });
 
-  it('verifies standalone.js contains attachFileLinksProvider, openFileQuickLook, and isValidTerminalFilePath filter', () => {
+  it('verifies standalone.js links terminal paths through the shared findTerminalFileLinkRanges global', () => {
     const jsPath = path.join(ROOT, 'src/renderer/standalone.js');
     assert.ok(fs.existsSync(jsPath));
     const jsContent = fs.readFileSync(jsPath, 'utf8');
@@ -45,8 +48,13 @@ describe('Terminal File Quick-Look & Link Provider Contracts', () => {
     assert.match(jsContent, /async function openFileQuickLook/);
     assert.match(jsContent, /ensureFileQuickLookModal/);
     assert.match(jsContent, /btnFileQuickLookInsertPrompt/);
-    assert.match(jsContent, /function isValidTerminalFilePath/);
-    assert.match(jsContent, /VALID_FILE_EXTENSIONS/);
+    // Cell ranges, not string offsets (behaviour: test/renderer/terminal-file-link-provider.test.ts).
+    assert.match(jsContent, /findTerminalFileLinkRanges\(term\.buffer\.active, y\)/);
+
+    const htmlContent = fs.readFileSync(path.join(ROOT, 'src/renderer/standalone.html'), 'utf8');
+    const sharedIdx = htmlContent.indexOf("'terminal-file-links.js'");
+    assert.ok(sharedIdx !== -1, 'standalone.html must load terminal-file-links.js');
+    assert.ok(sharedIdx < htmlContent.indexOf("'standalone.js'"), 'terminal-file-links.js must load before standalone.js');
   });
 
   it('verifies standalone.css defines File Quick-Look modal styles', () => {
@@ -61,95 +69,53 @@ describe('Terminal File Quick-Look & Link Provider Contracts', () => {
     assert.match(cssContent, /\.file-quick-look-code/);
   });
 
-  it('verifies FILE_PATH_RE correctly matches Windows paths, relative paths, and lines with colons', () => {
-    const FILE_PATH_RE = /(?:^|[\s"'`(\[<])((?:[a-zA-Z]:[\\/][^\s:;,"'<>()[\]`\x1b]+|(?:\.{1,2}[\\/]|[a-zA-Z0-9_\-\.]+[\\/])[^\s:;,"'<>()[\]`\x1b]+\.[a-zA-Z0-9_\-]+|\/(?:home|Users|usr|var|tmp|etc|work|Work)[\\/][^\s:;,"'<>()[\]`\x1b]+|[a-zA-Z0-9_\-][a-zA-Z0-9_\-\.]*\.[a-zA-Z0-9_\-]+)(?::\d+(?::\d+)?)?)/g;
-
-    const line1 = 'File script console đã được cập nhật tại:\nE:\\Work\\tools\\HaravanDemoKit\\scripts\\phukienmaymoc-seed-menus-console.js';
-    const matches1: string[] = [];
-    let m: RegExpExecArray | null;
-    while ((m = FILE_PATH_RE.exec(line1)) !== null) {
-      if (m[1]) matches1.push(m[1]);
-    }
-    assert.strictEqual(matches1.length, 1);
-    assert.strictEqual(matches1[0], 'E:\\Work\\tools\\HaravanDemoKit\\scripts\\phukienmaymoc-seed-menus-console.js');
-
-    const line2 = 'Dán nội dung "E:\\Work\\scripts\\seed.js:45:10" vào console';
-    FILE_PATH_RE.lastIndex = 0;
-    const matches2: string[] = [];
-    while ((m = FILE_PATH_RE.exec(line2)) !== null) {
-      if (m[1]) matches2.push(m[1]);
-    }
-    assert.strictEqual(matches2.length, 1);
-    assert.strictEqual(matches2[0], 'E:\\Work\\scripts\\seed.js:45:10');
-
-    const line3 = 'Created ./src/main/browser/element-picker.ts successfully';
-    FILE_PATH_RE.lastIndex = 0;
-    const matches3: string[] = [];
-    while ((m = FILE_PATH_RE.exec(line3)) !== null) {
-      if (m[1]) matches3.push(m[1]);
-    }
-    assert.strictEqual(matches3.length, 1);
-    assert.strictEqual(matches3[0], './src/main/browser/element-picker.ts');
-
-    const line4 = 'Sửa file package.json:14 và theme.liquid:88 cùng CLAUDE.md';
-    FILE_PATH_RE.lastIndex = 0;
-    const matches4: string[] = [];
-    while ((m = FILE_PATH_RE.exec(line4)) !== null) {
-      if (m[1]) matches4.push(m[1]);
-    }
-    assert.strictEqual(matches4.length, 3);
-    assert.strictEqual(matches4[0], 'package.json:14');
-    assert.strictEqual(matches4[1], 'theme.liquid:88');
-    assert.strictEqual(matches4[2], 'CLAUDE.md');
+  it('findTerminalFileLinks matches Windows paths, relative paths, and lines with colons', () => {
+    assert.deepStrictEqual(
+      linkTexts('E:\\Work\\tools\\HaravanDemoKit\\scripts\\phukienmaymoc-seed-menus-console.js'),
+      ['E:\\Work\\tools\\HaravanDemoKit\\scripts\\phukienmaymoc-seed-menus-console.js'],
+    );
+    assert.deepStrictEqual(linkTexts('Dán nội dung "E:\\Work\\scripts\\seed.js:45:10" vào console'), ['E:\\Work\\scripts\\seed.js:45:10']);
+    assert.deepStrictEqual(linkTexts('Created ./src/main/browser/element-picker.ts successfully'), ['./src/main/browser/element-picker.ts']);
+    assert.deepStrictEqual(linkTexts('Sửa file package.json:14 và theme.liquid:88 cùng CLAUDE.md'), ['package.json:14', 'theme.liquid:88', 'CLAUDE.md']);
   });
 
-  it('verifies isValidTerminalFilePath correctly rejects MCP tools, RPC methods, and non-file paths', () => {
-    // Replicate logic to assert invariants
-    const VALID_FILE_EXTENSIONS: Record<string, true> = {
-      ts: true, tsx: true, js: true, jsx: true, cjs: true, mjs: true, json: true, css: true, scss: true, html: true, liquid: true, bwt: true, md: true, sh: true, py: true
-    };
-    const DISALLOWED_EXTENSIONS: Record<string, true> = {
-      list: true, get: true, set: true, create: true, update: true, delete: true, close: true, activate: true
-    };
+  it('findTerminalFileLinks keeps directory names with spaces inside one absolute-path link', () => {
+    const line = ' Write: \u25a1 E:/Work/themes/devs2/Haravan/S2 Sky Fashion/deliverables/REUSABLE_THEME_PROMPT.md \u00b7 56 lines';
+    const links = findTerminalFileLinks(line);
+    const expected = 'E:/Work/themes/devs2/Haravan/S2 Sky Fashion/deliverables/REUSABLE_THEME_PROMPT.md';
+    assert.deepStrictEqual(links.map((link) => link.text), [expected]);
+    const [link] = links;
+    assert.ok(link);
+    assert.strictEqual(line.slice(link.start, link.end), expected);
 
-    function testIsValid(p: string): boolean {
-      if (!p) return false;
-      let clean = p.trim().replace(/^["'`]/, '').replace(/["'`]$/, '').replace(/[,\.;\)]+$/, '');
-      if (clean.startsWith('anti.') || clean.includes('/anti.') || clean.includes('\\anti.') ||
-          clean.startsWith('browser.') || clean.includes('/browser.') || clean.includes('\\browser.') ||
-          clean.startsWith('theme.') || clean.includes('/theme.') || clean.includes('\\theme.') ||
-          clean.startsWith('mcp__') || clean.includes('mcp__') || clean.startsWith('xd://') ||
-          clean.includes('antifan-browser/') || clean.includes('antifan-browser\\') ||
-          clean.startsWith('console.') || clean.startsWith('process.') ||
-          clean.startsWith('window.') || clean.startsWith('document.')) {
-        return false;
-      }
-      const lineColIdx = clean.search(/:\d+(?::\d+)?$/);
-      if (lineColIdx !== -1) clean = clean.slice(0, lineColIdx);
-      const lastDot = clean.lastIndexOf('.');
-      if (lastDot === -1) return false;
-      const ext = clean.slice(lastDot + 1).toLowerCase();
-      if (DISALLOWED_EXTENSIONS[ext]) return false;
-      return Boolean(VALID_FILE_EXTENSIONS[ext]);
-    }
+    assert.deepStrictEqual(linkTexts('"E:\\Work\\My Theme\\snippets\\a b\\card.liquid:12"'), ['E:\\Work\\My Theme\\snippets\\a b\\card.liquid:12']);
+    assert.deepStrictEqual(linkTexts('/Users/me/S2 Sky Fashion/notes.md'), ['/Users/me/S2 Sky Fashion/notes.md']);
+  });
 
-    // Must reject MCP tools & RPC verbs
-    assert.strictEqual(testIsValid('anti.browser.tabs.list'), false);
-    assert.strictEqual(testIsValid('antifan-browser/anti.browser.tabs.list'), false);
-    assert.strictEqual(testIsValid('E:\\Work\\customizes\\Phukienmaymoc\\antifan-browser\\anti.browser.tabs.list'), false);
-    assert.strictEqual(testIsValid('browser.navigate'), false);
-    assert.strictEqual(testIsValid('theme.style_override'), false);
-    assert.strictEqual(testIsValid('mcp__antifan_browser_dom'), false);
-    assert.strictEqual(testIsValid('tool.stat'), false);
-    assert.strictEqual(testIsValid('actions.create'), false);
-    assert.strictEqual(testIsValid('console.log'), false);
-    assert.strictEqual(testIsValid('process.exit'), false);
-    assert.strictEqual(testIsValid('window.location'), false);
-    // Must accept valid code and template files
-    assert.strictEqual(testIsValid('E:\\Work\\templates\\collection.liquid'), true);
-    assert.strictEqual(testIsValid('./src/main/browser/element-picker.ts:45:10'), true);
-    assert.strictEqual(testIsValid('scripts/seed.js:12'), true);
-    assert.strictEqual(testIsValid('package.json'), true);
+  it('findTerminalFileLinks does not let a spaced segment swallow prose or command chains', () => {
+    assert.deepStrictEqual(linkTexts('E:/Work/a.ts was saved in src/b.ts'), ['E:/Work/a.ts', 'src/b.ts']);
+    assert.deepStrictEqual(linkTexts('cd E:/Work/apps && node scripts/run.js'), ['scripts/run.js']);
+    assert.deepStrictEqual(linkTexts('E:/Work/a.ts, E:/Work/S2 Sky/b.md'), ['E:/Work/a.ts', 'E:/Work/S2 Sky/b.md']);
+  });
+
+  it('isValidTerminalFilePath rejects MCP tools, RPC methods, and non-file paths', () => {
+    assert.strictEqual(isValidTerminalFilePath('anti.browser.tabs.list'), false);
+    assert.strictEqual(isValidTerminalFilePath('antifan-browser/anti.browser.tabs.list'), false);
+    assert.strictEqual(isValidTerminalFilePath('E:\\Work\\customizes\\Phukienmaymoc\\antifan-browser\\anti.browser.tabs.list'), false);
+    assert.strictEqual(isValidTerminalFilePath('browser.navigate'), false);
+    assert.strictEqual(isValidTerminalFilePath('theme.style_override'), false);
+    assert.strictEqual(isValidTerminalFilePath('mcp__antifan_browser_dom'), false);
+    assert.strictEqual(isValidTerminalFilePath('tool.stat'), false);
+    assert.strictEqual(isValidTerminalFilePath('actions.create'), false);
+    assert.strictEqual(isValidTerminalFilePath('console.log'), false);
+    assert.strictEqual(isValidTerminalFilePath('process.exit'), false);
+    assert.strictEqual(isValidTerminalFilePath('window.location'), false);
+    assert.strictEqual(isValidTerminalFilePath('E:\\Work\\templates\\collection.liquid'), true);
+    assert.strictEqual(isValidTerminalFilePath('./src/main/browser/element-picker.ts:45:10'), true);
+    assert.strictEqual(isValidTerminalFilePath('layout/theme.liquid'), true);
+    assert.strictEqual(isValidTerminalFilePath('theme.qa_validate'), false);
+    assert.strictEqual(isValidTerminalFilePath('scripts/seed.js:12'), true);
+    assert.strictEqual(isValidTerminalFilePath('package.json'), true);
   });
 
   it('normalizePreviewPath strips quotes, trailing punctuation and :line:col suffixes', () => {
@@ -248,13 +214,7 @@ describe('Terminal File Quick-Look & Link Provider Contracts', () => {
         } catch {}
       }
 
-      const args: string[] = ['-r'];
-      if (isFile) {
-        args.push('-g', `${resolvedTarget}${lineColSuffix}`);
-      } else {
-        args.push(resolvedTarget);
-      }
-      return { args, target: resolvedTarget };
+      return { args: buildVSCodeLaunchArgs(resolvedTarget, isFile, lineColSuffix), target: resolvedTarget };
     }
 
     // 1. Target file with line & col
@@ -272,5 +232,14 @@ describe('Terminal File Quick-Look & Link Provider Contracts', () => {
     const res3 = computeVSCodeArgs(tempDir);
     assert.strictEqual(res3.target, tempDir);
     assert.deepStrictEqual(res3.args, ['-r', tempDir]);
+
+    // 4. Windows opens through the vscode:// URL handler: no shell, so nothing in the path is
+    // expanded or re-quoted, and a spaced, %-bearing or #-bearing path stays one target.
+    const spaced = 'E:\\Work\\S2 Sky Fashion\\deliverables\\REUSABLE_THEME_PROMPT.md';
+    assert.strictEqual(buildVSCodeFileUrl(spaced, true, ':3'), 'vscode://file/E:/Work/S2%20Sky%20Fashion/deliverables/REUSABLE_THEME_PROMPT.md:3');
+    assert.strictEqual(buildVSCodeFileUrl('E:\\Work\\a%PATH%b\\#1.md', true, ''), 'vscode://file/E:/Work/a%25PATH%25b/%231.md');
+    assert.strictEqual(buildVSCodeFileUrl('E:\\Work\\S2 Sky Fashion\\', false, ':9'), 'vscode://file/E:/Work/S2%20Sky%20Fashion', 'a folder takes no line suffix');
+    assert.strictEqual(buildVSCodeFileUrl('/home/dev/shop/a.liquid', true, ':4:2'), 'vscode://file/home/dev/shop/a.liquid:4:2');
+    assert.deepStrictEqual(buildVSCodeLaunchArgs('/home/dev/My Shop/a.md', true, ':3'), ['-r', '-g', '/home/dev/My Shop/a.md:3']);
   });
 });

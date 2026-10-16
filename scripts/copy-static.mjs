@@ -5,6 +5,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import GENERATED_RENDERER_ASSETS from './lib/generated-renderer-assets.cjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -110,10 +111,7 @@ for (const jsFile of jsFiles) {
 // Ship shared modules to the standalone renderer as classic-script globals
 // (standalone.html loads classic scripts; it cannot `import` the compiled CJS module).
 const sharedSrcDir = path.join(COMPILED_ROOT, 'src', 'shared');
-for (const spec of [
-  { file: 'terminal-write-dispatcher.js', globals: ['TerminalWriteDispatcher', 'globalTerminalWriteDispatcher'] },
-  { file: 'session-activity.js', globals: ['SessionActivityTracker', 'sessionActivityLevel'] },
-]) {
+for (const spec of GENERATED_RENDERER_ASSETS) {
   const sharedDst = path.join(rendererOutDir, spec.file);
   const sharedSrc = path.join(sharedSrcDir, spec.file);
   if (!fs.existsSync(sharedSrc)) continue;

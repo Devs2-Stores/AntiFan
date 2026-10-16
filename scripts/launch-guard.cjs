@@ -22,11 +22,11 @@ const EMIT_SIBLING_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.mjs', '
 // defect this module exists to prevent. They are compared against their mirrored copy instead,
 // because the runtime loads that copy, not the source (#staleMirroredAssets).
 const MIRRORED_ASSET_EXTENSIONS = new Set(['.js', '.mjs', '.cjs', '.css', '.html', '.jpg', '.png', '.svg']);
-// Derived file: `copy-static.mjs` regenerates it from `.compiled/src/shared/terminal-write-dispatcher.js`
-// and writes BOTH the source-tree and the .compiled copy in the same run, so it can never be
-// meaningfully "stale" — and counting it as an input would report every completed compile as an
-// unfinished build, because it is written AFTER tsc has already written the build info.
-const GENERATED_ASSET_BASENAMES = new Set(['terminal-write-dispatcher.js']);
+// Derived files: `copy-static.mjs` regenerates them from `.compiled/src/shared/<name>.js`
+// and writes BOTH the source-tree and the .compiled copy in the same run, so they can never be
+// meaningfully "stale" — and counting them as inputs would report every completed compile as an
+// unfinished build, because they are written AFTER tsc has already written the build info.
+const GENERATED_ASSET_BASENAMES = new Set(require('./lib/generated-renderer-assets.cjs').map((asset) => asset.file));
 
 function readMtimeMs(filePath) {
   try {

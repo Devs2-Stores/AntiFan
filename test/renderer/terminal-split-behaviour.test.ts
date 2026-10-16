@@ -11,6 +11,8 @@ import * as assert from 'node:assert';
 import {
   loadStandalone,
   FakeElement,
+  FakeFitAddon,
+  FakeTerminal,
   type KeyEventLike,
   type SplitGeometry,
   type StandaloneHarness,
@@ -351,5 +353,65 @@ describe('Renderer split-pane behaviour', () => {
     assert.strictEqual(harness.container.classList.contains('split'), false);
     assert.strictEqual(harness.splitButton.classList.contains('active'), false);
     assert.match(harness.splitButton.title, /Chia đôi màn hình terminal/);
+  });
+
+  it('sizes the split PTY only from the split pane, never from a hidden main-pool pane', async () => {
+    // A split session is drawn by the lower pane alone. A main-pool xterm built for it
+    // measures the main pane and resizes the split PTY to that height; ConPTY then repaints
+    // a main-height frame into the short split pane and the overflow piles up as blank
+    // scrollback under an otherwise empty prompt.
+    const MAIN = { cols: 222, rows: 56 };
+    const SPLIT = { cols: 222, rows: 12 };
+    const hosts = new WeakMap<FakeTerminal, FakeElement>();
+    const fitOwners = new WeakMap<FakeFitAddon, FakeTerminal>();
+    const originalOpen = FakeTerminal.prototype.open;
+    const originalLoadAddon = FakeTerminal.prototype.loadAddon;
+    const originalPropose = FakeFitAddon.prototype.proposeDimensions;
+    FakeTerminal.prototype.open = function open(this: FakeTerminal, host?: FakeElement): void {
+      if (host) hosts.set(this, host);
+    };
+    FakeTerminal.prototype.loadAddon = function loadAddon(this: FakeTerminal, addon: unknown): void {
+      this.addons.push(addon);
+      if (addon instanceof FakeFitAddon) fitOwners.set(addon, this);
+    };
+    FakeFitAddon.prototype.proposeDimensions = function proposeDimensions(this: FakeFitAddon) {
+      const owner = fitOwners.get(this);
+      const host = owner ? hosts.get(owner) : undefined;
+      return host?.id === 'terminal-split-host' ? { ...SPLIT } : { ...MAIN };
+    };
+    try {
+      const state = {
+        activeSessionId: 'base',
+        sessions: [
+          { id: 'base', name: 'Base', state: 'running', splitSessionId: 'base-pane', buffer: 'PS> ' },
+          // A freshly split shell has no transcript yet.
+          { id: 'base-pane', name: 'Split', state: 'running', splitOf: 'base', buffer: '' },
+        ],
+        snapshot: 'PS> ',
+        snapshotThroughSeq: 0,
+      };
+      harness.emitSession(state);
+      await settle();
+      await settle();
+      // Every later projection push (cwd, activity, rename) re-runs the pool sync.
+      harness.emitSession(state);
+      await settle();
+      await settle();
+
+      const splitResizes = harness.apiCallArgs
+        .filter((c) => c.name === 'resizeTerminalTo' && c.args[0] === 'base-pane')
+        .map((c) => c.args.slice(1) as [number, number]);
+      assert.ok(splitResizes.length > 0, 'the mounted split pane sizes its own PTY');
+      assert.deepStrictEqual(
+        splitResizes.filter(([cols, rows]) => cols !== SPLIT.cols || rows !== SPLIT.rows),
+        [],
+        `the split PTY must only take the split pane geometry, got ${JSON.stringify(splitResizes)}`,
+      );
+      assert.strictEqual(harness.read<boolean>('rawTerminalPool.has("base-pane")'), false, 'no main-pool xterm exists for a split session');
+    } finally {
+      FakeTerminal.prototype.open = originalOpen;
+      FakeTerminal.prototype.loadAddon = originalLoadAddon;
+      FakeFitAddon.prototype.proposeDimensions = originalPropose;
+    }
   });
 });

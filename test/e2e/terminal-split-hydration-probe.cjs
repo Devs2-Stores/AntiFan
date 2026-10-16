@@ -4,7 +4,7 @@
  * Verifies post-fix invariants in real Electron Chromium runtime:
  * Path 1: Remount with empty/stale splitBuffer authoritatively pulls getFullBuffer from backend and renders
  * Path 2: Same-ID newer snapshot broadcast triggers in-place re-hydration and clean replacement without duplicate append
- * Path 3: Real IPC split creation race: initial chunks arriving during await are routed and cleaned up cleanly by mountSplitClean
+ * Path 3: Real IPC split creation race: initial chunks arriving during await reach the split pane and never build a pooled pane for the split
  */
 
 const { app, BrowserWindow, ipcMain } = require('electron');
@@ -272,7 +272,7 @@ app.whenReady().then(async () => {
         clearInterval(poller);
       }
 
-      const phantomCleanedUp = !terminalPool.has('split-race-test');
+      const phantomNeverPooled = !terminalPool.has('split-race-test');
       let splitText = '';
       if (splitTerm && splitTerm.buffer && splitTerm.buffer.active) {
         const b = splitTerm.buffer.active;
@@ -285,7 +285,7 @@ app.whenReady().then(async () => {
 
       return {
         phantomObservedDuringRace,
-        phantomCleanedUp,
+        phantomNeverPooled,
         splitText: splitText.trim(),
         splitSeq
       };
@@ -293,7 +293,7 @@ app.whenReady().then(async () => {
 
     telemetry.checks.creationMisrouting = {
       phantomObservedDuringRace: check3Result.phantomObservedDuringRace,
-      phantomCleanedUpByMountClean: check3Result.phantomCleanedUp,
+      phantomNeverPooled: check3Result.phantomNeverPooled,
       splitPaneHydratedCleanly: check3Result.splitSeq === 1 && check3Result.splitText.includes('PROBE-RACE'),
       details: check3Result,
     };
@@ -374,7 +374,7 @@ app.whenReady().then(async () => {
       // split mount owns its own xterm; the pool entry for 'split-race-test' must
       // not exist at any point of the race window.
       telemetry.checks.creationMisrouting.phantomObservedDuringRace === false &&
-      telemetry.checks.creationMisrouting.phantomCleanedUpByMountClean &&
+      telemetry.checks.creationMisrouting.phantomNeverPooled &&
       telemetry.checks.creationMisrouting.splitPaneHydratedCleanly &&
       telemetry.checks.nullChunkRetryResilience.handledWithoutTypeError &&
       telemetry.checks.nullChunkRetryResilience.lastRenderedSeqAdvancesToTen &&

@@ -19,9 +19,10 @@
  *
  * Produced set (compiled-root-relative posix paths):
  *   - tsc emit: every `src/**.ts` maps to `src/**.js` under the compiled root;
- *   - the copy lanes in `scripts/copy-static.mjs` (`filesToCopy`, the `jsFiles`
- *     post-process loop and the shared-module `file:` specs target
- *     `src/renderer/`, `scriptsToCopy` targets `scripts/`).
+ *   - the copy lanes in `scripts/copy-static.mjs` (`filesToCopy` and the `jsFiles`
+ *     post-process loop target `src/renderer/`, `scriptsToCopy` targets `scripts/`);
+ *   - the generated shared modules listed in `scripts/lib/generated-renderer-assets.cjs`,
+ *     which copy-static writes to `src/renderer/`.
  *
  * Any consumed asset that is not produced, or that is produced but absent on
  * disk, fails the gate with exit code 1 and names the offenders.
@@ -32,6 +33,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import GENERATED_RENDERER_ASSETS from './lib/generated-renderer-assets.cjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const COMPILED_ROOT = process.env.ANTIFAN_COMPILED_ROOT
@@ -68,15 +70,15 @@ function collectTsEmit(produced, dir) {
 /**
  * Parse the copy lanes out of `scripts/copy-static.mjs` instead of duplicating
  * the lists: `filesToCopy` -> `src/renderer/`, `jsFiles` (the exports-fallback
- * post-process loop) -> `src/renderer/`, shared-module `file:` specs ->
- * `src/renderer/`, `scriptsToCopy` -> `scripts/`.
+ * post-process loop) -> `src/renderer/`, `scriptsToCopy` -> `scripts/`. The
+ * generated shared modules come from the list copy-static itself iterates.
  */
 function collectCopyLanes(produced) {
   const raw = fs.readFileSync(COPY_STATIC, 'utf8');
+  for (const spec of GENERATED_RENDERER_ASSETS) produced.add(`src/renderer/${spec.file}`);
   const lanes = [
     { re: /filesToCopy\s*=\s*\[([\s\S]*?)\]/, dir: 'src/renderer' },
     { re: /jsFiles\s*=\s*\[([\s\S]*?)\]/, dir: 'src/renderer' },
-    { re: /file:\s*'([^']+\.js)'/g, dir: 'src/renderer' },
     { re: /scriptsToCopy\s*=\s*\[([\s\S]*?)\]/, dir: 'scripts' },
   ];
   for (const lane of lanes) {

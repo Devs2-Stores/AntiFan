@@ -97,4 +97,39 @@ describe('launch guard compiled-bundle freshness', () => {
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it('skips every renderer module copy-static generates, and still flags a stale copied asset', () => {
+    // copy-static writes the .compiled copy of a generated module before the source-tree copy, so
+    // the source is always a hair newer; a launcher that does not know the file recompiles forever.
+    const generated = require('../../scripts/lib/generated-renderer-assets.cjs');
+    assert.ok(generated.some((asset) => asset.file === 'session-activity.js'));
+    const { root, srcDir, bundlePath } = makeWorkspace();
+    try {
+      fs.writeFileSync(bundlePath, '// compiled', 'utf8');
+      setMtime(bundlePath, recentMs);
+      fs.writeFileSync(path.join(srcDir, 'index.ts'), 'export const x = 5;', 'utf8');
+      setMtime(path.join(srcDir, 'index.ts'), longAgoMs);
+      const rendererSrc = path.join(srcDir, 'renderer');
+      const rendererOut = path.join(root, '.compiled', 'src', 'renderer');
+      fs.mkdirSync(rendererSrc, { recursive: true });
+      fs.mkdirSync(rendererOut, { recursive: true });
+      for (const { file } of generated) {
+        fs.writeFileSync(path.join(rendererOut, file), '// generated', 'utf8');
+        setMtime(path.join(rendererOut, file), longAgoMs);
+        fs.writeFileSync(path.join(rendererSrc, file), '// generated', 'utf8');
+        setMtime(path.join(rendererSrc, file), longAgoMs + 1);
+      }
+      assert.strictEqual(inspectCompiledBundle({ bundlePath, sourceRoots: [srcDir] }).state, 'fresh');
+
+      fs.writeFileSync(path.join(rendererOut, 'standalone.js'), '// old copy', 'utf8');
+      setMtime(path.join(rendererOut, 'standalone.js'), longAgoMs);
+      fs.writeFileSync(path.join(rendererSrc, 'standalone.js'), '// edited', 'utf8');
+      setMtime(path.join(rendererSrc, 'standalone.js'), longAgoMs + 1);
+      const edited = inspectCompiledBundle({ bundlePath, sourceRoots: [srcDir] });
+      assert.strictEqual(edited.state, 'stale');
+      assert.deepStrictEqual(edited.staleMirroredAssets, [path.join('renderer', 'standalone.js')]);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
