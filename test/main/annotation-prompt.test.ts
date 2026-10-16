@@ -206,3 +206,56 @@ describe('Annotation prompt self-QA directive', () => {
     assert.ok(directHeader.includes(SELF_QA_DIRECTIVE));
   });
 });
+
+import { isReadOnlyAnalysis } from '../../src/shared/annotation-prompt';
+
+describe('Annotation prompt read-only gating', () => {
+  const READ_ONLY_TEXT = 'READ-ONLY analysis';
+
+  it('a security request that also asks for a fix is not READ-ONLY and carries the full self-QA directive', () => {
+    const instruction = 'audit the XSS in the header menu and fix it';
+    const intent = classifyTaskIntent(instruction);
+    assert.strictEqual(intent, 'security');
+    assert.strictEqual(isReadOnlyAnalysis(intent, instruction), false);
+    assert.strictEqual(buildSelfQaDirective(intent, instruction), SELF_QA_DIRECTIVE);
+    const header = buildAgentTaskHeader(instruction);
+    assert.ok(!header.includes(READ_ONLY_TEXT), header);
+    assert.ok(header.includes('Gated by core contract, fresh evidence, and intent verification.'));
+    assert.ok(header.includes(SELF_QA_DIRECTIVE));
+  });
+
+  it('a documentation request that also asks for a fix is not READ-ONLY', () => {
+    const instruction = 'update the README guide and fix the broken install link';
+    const intent = classifyTaskIntent(instruction);
+    assert.strictEqual(intent, 'documentation');
+    assert.strictEqual(isReadOnlyAnalysis(intent, instruction), false);
+    assert.strictEqual(buildSelfQaDirective(intent, instruction), SELF_QA_DIRECTIVE);
+    assert.ok(!buildAgentTaskHeader(instruction).includes(READ_ONLY_TEXT));
+  });
+
+  it('review and research with a fix verb are not READ-ONLY (patch, implement, Vietnamese sua loi)', () => {
+    assert.strictEqual(isReadOnlyAnalysis('review', 'review the header and patch the overflow'), false);
+    assert.strictEqual(isReadOnlyAnalysis('research', 'research the cache layer and implement the winner'), false);
+    assert.strictEqual(isReadOnlyAnalysis('review', 'xem lai header roi sua loi tran ngang'), false);
+    assert.strictEqual(buildSelfQaDirective('review', 'review the header and patch the overflow'), SELF_QA_DIRECTIVE);
+    assert.strictEqual(buildSelfQaDirective('research', 'research the cache layer and implement the winner'), SELF_QA_DIRECTIVE);
+  });
+
+  it('analysis-only requests stay READ-ONLY, including words that merely contain "fix"', () => {
+    const pure = 'audit prefix handling and the suffix parser for security';
+    const intent = classifyTaskIntent(pure);
+    assert.strictEqual(intent, 'security');
+    assert.strictEqual(isReadOnlyAnalysis(intent, pure), true);
+    assert.strictEqual(buildSelfQaDirective(intent, pure), SELF_QA_DIRECTIVE_READONLY);
+    assert.ok(buildAgentTaskHeader(pure).includes(READ_ONLY_TEXT));
+
+    assert.strictEqual(isReadOnlyAnalysis('review', 'review the header spacing'), true);
+    assert.strictEqual(isReadOnlyAnalysis('documentation', ''), true);
+    assert.strictEqual(buildSelfQaDirective('documentation'), SELF_QA_DIRECTIVE_READONLY);
+  });
+
+  it('other intents are never classified as read-only analysis', () => {
+    assert.strictEqual(isReadOnlyAnalysis('bug-fix', 'fix the header'), false);
+    assert.strictEqual(isReadOnlyAnalysis('testing', 'run the tests'), false);
+  });
+});

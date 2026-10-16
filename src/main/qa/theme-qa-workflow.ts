@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import { ArtifactRef, BrowserTarget, CapabilityError } from '../../shared/control-plane-contracts';
 import { BrowserControlPort } from '../tools/browser-control-port';
 import type { CaptureFailureCode, EvidenceCaptureEnvelope } from '../verification/visual-capture';
-import type { VisualSettleReceipt } from '../verification/capture-settle';
+import { effectiveDomQuietIgnore, type VisualSettleReceipt } from '../verification/capture-settle';
 import { CaptureError } from '../verification/visual-capture';
 import { ArtifactStore } from '../tools/artifact-store';
 import { PlatformDetector, PlatformDetectionResult, EcommercePlatform } from './scanners/platform-detector';
@@ -185,7 +185,39 @@ export type VisualSettleReceiptExtended = VisualSettleReceipt & {
   layoutStable?: boolean;
   domUnstable?: boolean;
   evidenceGaps?: string[];
+  /** Selectors whose subtree mutations were excluded from the DOM-quiet predicate (defaults plus per-call), so a pass is auditable. */
+  ignoreSelectors?: string[];
+  scopeSelector?: string;
+  /** One bounded re-settle was spent because the font gate was unsettled on the first attempt. */
+  settleRetries?: number;
 };
+
+/** A caller-accepted visual-quality rule exception: both fields are required so a waiver never reads as silent. */
+export interface QaWaiver {
+  rule: string;
+  reason: string;
+}
+
+export type QaProfile = 'audit' | 'build-strict';
+
+/** Thresholds the registry rules grade against (same shape as the kit `registry/thresholds.json`). */
+export interface QaThresholds {
+  minTextPx: number;
+  minControlPx: number;
+  minTapHitPx: number;
+  tapSpacingCirclePx: number;
+}
+
+/** Per-call settle barrier overrides. Unset fields keep the host defaults. */
+export interface QaSettleOverrides {
+  scopeSelector?: string;
+  ignoreSelectors?: string[];
+  networkTimeoutMs?: number;
+  fontsTimeoutMs?: number;
+  imagesTimeoutMs?: number;
+  domTimeoutMs?: number;
+  totalTimeoutMs?: number;
+}
 
 export interface ThemeQaReport {
   runId: string;
@@ -208,6 +240,18 @@ export interface ThemeQaReport {
   recovery: { attempted: number; succeeded: number };
   /** Fraction of scanner dimensions that produced measurement evidence (0..1). */
   evidenceCoverage: number;
+  /** Effective profile this run was graded under. */
+  profile: QaProfile;
+  /** Scanner dimensions measured of the dimensions expected; the receipt mirrors it for coverage audits. */
+  coverage: { measured: number; expected: number };
+  /** Minimum measured/expected share below which a green run is INCONCLUSIVE. */
+  coverageFloor: number;
+  /** Rules and scan families that produced measurement evidence in this run. */
+  measuredRules: string[];
+  /** Waivers the caller supplied; echoed so an accepted exception stays visible. */
+  waivers?: QaWaiver[];
+  /** Outcome of persisting the workspace receipt; set by the capability layer after the write. */
+  receipt?: { written: boolean; path?: string; code?: string };
   createdAt: number;
 }
 export interface ThemeQaWorkflowPorts {
@@ -1087,6 +1131,21 @@ function isValidViewportOverflowResult(res: unknown): res is ViewportOverflowRes
  */
 const VISUAL_MISMATCH_PASS_THRESHOLD_PERCENT = 10;
 
+/** `/password` is the storefront lock Shopify shows instead of every page. */
+export const AUTH_ROUTE_RE = /\/(?:account\/(?:login|register)|challenge|auth|password)(?:[/?#]|$)/i;
+
+/** Profile ThemeQaWorkflow.validate applies when its caller names none; the `theme.qa_validate` tool defaults to build-strict at its own boundary. */
+export const DEFAULT_QA_PROFILE: QaProfile = 'audit';
+
+/** Registry rules (graded against caller-supplied contract thresholds) that carry the verdict under build-strict. */
+const STRICT_REGISTRY_RULES: Record<string, true> = {
+  'font-below-min': true,
+  'control-height-band': true,
+  'wrapped-label': true,
+  'icon-stroke-mismatch': true,
+  'overlay-fit': true,
+};
+
 export class ThemeQaWorkflow {
   constructor(private readonly ports: ThemeQaWorkflowPorts) {}
 
@@ -1214,12 +1273,22 @@ export class ThemeQaWorkflow {
     annotationTargetSelector?: string;
     annotationDomAncestry?: string;
     /**
-     * audit (default): visual-quality findings are reported, never verdict-bearing.
-     * build-strict (opt-in, for new builds): contrast below AA, sub-24px tap targets, invisible
-     * click blockers and floating widgets over controls fail the run, and an unmeasured
-     * visual-quality scan is an evidence gap.
+     * build-strict: contrast below AA, sub-24px tap targets, invisible click blockers,
+     * floating widgets over controls and the registry rules fail the run, and an unmeasured
+     * visual-quality scan is an evidence gap. This is the `theme.qa_validate` tool default.
+     * audit (workflow default for internal callers): visual-quality findings are reported, never verdict-bearing.
      */
-    profile?: 'audit' | 'build-strict';
+    profile?: QaProfile;
+    /** Contract thresholds for the registry rules (min text, control height, tap hit area, spacing circle). Without them those rules are unmeasured. */
+    thresholds?: QaThresholds;
+    /** Minimum measured/expected scanner dimensions (0..1). Below it a green run is INCONCLUSIVE. Defaults to 1 under build-strict, 0 under audit. */
+    coverageFloor?: number;
+    /** Caller-accepted visual-quality rule exceptions; echoed on the report. */
+    waivers?: QaWaiver[];
+    /** Per-call settle barrier overrides (DOM-quiet ignore selectors, scope, timeouts). */
+    settle?: QaSettleOverrides;
+    /** HTTP status the contract declares for this route; a document returning exactly it is not a ROUTE_404 defect. */
+    expectedDocumentStatus?: number;
   }): Promise<ThemeQaReport> {
     if (input.signal?.aborted) {
       throw new CapabilityError('TARGET_STALE', 'Theme QA validation was aborted by document navigation');
@@ -1452,7 +1521,22 @@ export class ThemeQaWorkflow {
           }
         }
         if (typeof this.ports.browser.settleCapture === 'function') {
-          receipt = await this.ports.browser.settleCapture(activeTarget, 'desktop', undefined, { signal: input.signal });
+          const settleOverrides = input.settle ?? {};
+          let settleAttempt = 0;
+          for (;;) {
+            receipt = await this.ports.browser.settleCapture(activeTarget, 'desktop', undefined, { ...settleOverrides, signal: input.signal });
+            // Font loading is intermittent on a cold document; one bounded re-settle separates a slow face from a broken one.
+            if (settleAttempt === 0 && receipt && !receipt.settleComplete && receipt.gates?.fonts === false && !input.signal?.aborted) {
+              settleAttempt = 1;
+              continue;
+            }
+            break;
+          }
+          if (receipt) {
+            receipt.ignoreSelectors = effectiveDomQuietIgnore(settleOverrides.ignoreSelectors);
+            if (settleOverrides.scopeSelector) receipt.scopeSelector = settleOverrides.scopeSelector;
+            if (settleAttempt > 0) receipt.settleRetries = settleAttempt;
+          }
           if (!receipt || !receipt.settleComplete) {
             const gates = receipt?.gates;
             // Soft settle gaps are audit findings, not crashes: when the page has
@@ -1463,8 +1547,11 @@ export class ThemeQaWorkflow {
             // with execution DEGRADED / verdict INCONCLUSIVE. Fonts still
             // unsettled or an unstable layout means the measurements below would
             // describe a page mid-render, so that remains a hard SETTLE_INCOMPLETE.
+            const failingPredicate = receipt?.failingPredicate
+              ?? (gates?.network === false ? 'network' : gates?.fonts === false ? 'fonts' : gates?.images === false ? 'images' : gates?.dom === false ? 'dom' : undefined);
             const layoutQuiescent = receipt != null && receipt.layoutStable !== false && gates?.fonts === true;
             if (layoutQuiescent && receipt) {
+              if (failingPredicate) receipt.failingPredicate = failingPredicate;
               const gaps = Array.isArray(receipt.evidenceGaps) ? receipt.evidenceGaps : (receipt.evidenceGaps = []);
               if (gates?.network === false) {
                 gaps.push(`Network did not reach idle during settle window${this.describeInflight(activeTarget, receipt)}`);
@@ -1479,7 +1566,8 @@ export class ThemeQaWorkflow {
             } else {
               throw new CapabilityError(
                 'SETTLE_INCOMPLETE',
-                `Theme QA settle gate incomplete: gates not all settled (network=${receipt?.gates?.network}, fonts=${receipt?.gates?.fonts}, images=${receipt?.gates?.images}, dom=${receipt?.gates?.dom})${this.describeInflight(activeTarget, receipt)}`
+                `Theme QA settle gate incomplete: gates not all settled (network=${receipt?.gates?.network}, fonts=${receipt?.gates?.fonts}, images=${receipt?.gates?.images}, dom=${receipt?.gates?.dom})${this.describeInflight(activeTarget, receipt)}`,
+                { failingPredicate: failingPredicate ?? 'layout', gates: receipt?.gates ?? null, ignoreSelectors: receipt?.ignoreSelectors ?? effectiveDomQuietIgnore(settleOverrides.ignoreSelectors) }
               );
             }
           }
@@ -1922,7 +2010,7 @@ export class ThemeQaWorkflow {
           ? mainFrame404Failure.url
           : '';
     const doc404Url = mainFrame404RawUrl || contextUrl || targetUrl;
-    const isIntentional404Route = [doc404Url, contextUrl, targetUrl].some(
+    const isIntentional404Route = input.expectedDocumentStatus === 404 || [doc404Url, contextUrl, targetUrl].some(
       (u) => typeof u === 'string' && /\/404(?:[/?#]|$)/i.test(u)
     );
     if (documentStatus === 404 && doc404Url && !isIntentional404Route) {
@@ -1932,8 +2020,6 @@ export class ThemeQaWorkflow {
         message: `ROUTE_404: Document returned HTTP 404 on non-/404 route (${doc404Url})`,
       });
     }
-    // `/password` is the storefront lock Shopify shows instead of every page.
-    const AUTH_ROUTE_RE = /\/(?:account\/(?:login|register)|challenge|auth|password)(?:[/?#]|$)/i;
     const requestedRouteUrl =
       targetUrl && AUTH_ROUTE_RE.test(targetUrl)
         ? targetUrl
@@ -2037,15 +2123,17 @@ export class ThemeQaWorkflow {
       }
     }
 
-    // 9.7 Visual quality (contrast, tap targets, floating widgets). Reported in every profile;
-    // only build-strict lets it carry the verdict, so audit runs keep their existing contract.
-    const strictProfile = input.profile === 'build-strict';
+    // 9.7 Visual quality (contrast, tap targets, floating widgets, registry rules). Reported in every
+    // profile; only build-strict lets it carry the verdict, so audit runs keep their existing contract.
+    const effectiveProfile: QaProfile = input.profile ?? DEFAULT_QA_PROFILE;
+    const strictProfile = effectiveProfile === 'build-strict';
+    const waivers: QaWaiver[] = Array.isArray(input.waivers) ? input.waivers : [];
     let visualQualityResult: VisualQualityScanResult | undefined;
     await new Promise((r) => setImmediate(r));
     if (typeof this.ports.browser.eval === 'function') {
       try {
         checkAborted();
-        const evalRes = await this.ports.browser.eval(activeTarget, VisualQualityScanner.getBrowserScanScript());
+        const evalRes = await this.ports.browser.eval(activeTarget, VisualQualityScanner.getBrowserScanScript(input.thresholds ? { thresholds: input.thresholds } : {}));
         checkAborted();
         visualQualityResult = VisualQualityScanner.normalize(evalRes);
       } catch (error) {
@@ -2060,12 +2148,18 @@ export class ThemeQaWorkflow {
       // Tap targets are graded at mobile widths only; a desktop-width run cannot vouch for them.
       evidenceGaps.push(`Tap targets not graded under build-strict: this run measured ${visualQualityResult.viewport.width}px; validate a mobile viewport (<= 767px) to certify them`);
     }
+    if (strictProfile && visualQualityResult?.measured === true && !input.thresholds) {
+      evidenceGaps.push('Registry rules unmeasured under build-strict: no contract thresholds were supplied (font-below-min, control-height-band, wrapped-label, icon-stroke-mismatch, overlay-fit)');
+    }
+    const waivedRules = new Set(waivers.map((w) => w.rule));
     const strictVisualFailures: VisualQualityFinding[] = strictProfile && visualQualityResult?.measured === true
       ? visualQualityResult.findings.filter((f) =>
-          f.ruleId === 'contrast-low' ||
-          f.ruleId === 'tap-target-tiny' ||
-          f.ruleId === 'invisible-click-blocker' ||
-          (f.ruleId === 'floating-widget-overlap' && f.measured?.coveredIsControl === true))
+          !waivedRules.has(f.ruleId) &&
+          (STRICT_REGISTRY_RULES[f.ruleId] === true ||
+            f.ruleId === 'contrast-low' ||
+            f.ruleId === 'tap-target-tiny' ||
+            f.ruleId === 'invisible-click-blocker' ||
+            (f.ruleId === 'floating-widget-overlap' && f.measured?.coveredIsControl === true)))
       : [];
 
     // Restore paused sliders and unfreeze media after in-page scanning has finished
@@ -2404,6 +2498,25 @@ export class ThemeQaWorkflow {
     if (input.multiBreakpoint === true && checkParticipates('responsive') && responsiveChecklistStatus === 'UNMEASURED') {
       evidenceGaps.push('Responsive viewports unmeasured: multiBreakpoint sweep was not run or returned no viewports; cannot certify responsive pass');
     }
+    // Coverage: the scan families this run was expected to measure versus the ones that produced
+    // evidence. An explicit multiBreakpoint:false opt-out narrows the declared scope, never the floor.
+    const measuredDimensions: Array<[string, boolean]> = [
+      ['liquid', liquidScanRan],
+      ['layout-overflow', overflowResult.measured === true],
+      ['assets', assetScanRan],
+      ['hs-gate', hsScanRan],
+      ['diagnostics', true], // diagnostics classification always runs on whatever payload exists
+      ['layout-integrity', integrityRan && integrityResult?.measured === true],
+      ...(input.multiBreakpoint === false ? [] : [['responsive', measuredResponsiveCount > 0] as [string, boolean]]),
+      ['dom-semantics', domSemanticsRan && domSemanticsResult?.measured === true],
+    ];
+    const measuredDimensionNames = measuredDimensions.filter(([, ok]) => ok).map(([name]) => name);
+    const coverage = { measured: measuredDimensionNames.length, expected: measuredDimensions.length };
+    const coverageFloor = Math.min(1, Math.max(0, input.coverageFloor ?? (strictProfile ? 1 : 0)));
+    if (coverage.expected > 0 && coverage.measured / coverage.expected < coverageFloor) {
+      const missed = measuredDimensions.filter(([, ok]) => !ok).map(([name]) => name).join(', ');
+      evidenceGaps.push(`Coverage ${coverage.measured}/${coverage.expected} scan families is below the floor ${coverageFloor}; unmeasured: ${missed}`);
+    }
     const hasObservedFailure =
       (checkParticipates('liquidClean') && liquidResult.hasErrors) ||
       ((checkParticipates('layout') || checkParticipates('responsive') || checkParticipates('overflow')) && overflowResult.hasOverflow) ||
@@ -2593,6 +2706,8 @@ export class ThemeQaWorkflow {
         execution: executionAxis,
         recovery: input.recovery ?? { attempted: 0, succeeded: 0 },
         evidenceCoverage,
+        profile: effectiveProfile,
+        coverage,
         ...(isolationOutcome ? { trackerIsolation: isolationOutcome } : {}),
         createdAt: Date.now(),
       },
@@ -2649,6 +2764,11 @@ export class ThemeQaWorkflow {
       execution: executionAxis,
       recovery: input.recovery ?? { attempted: 0, succeeded: 0 },
       evidenceCoverage,
+      profile: effectiveProfile,
+      coverage,
+      coverageFloor,
+      measuredRules: [...measuredDimensionNames, ...(visualQualityResult?.measured === true && Array.isArray(visualQualityResult.stats?.measuredRules) ? visualQualityResult.stats.measuredRules : [])],
+      ...(waivers.length > 0 ? { waivers } : {}),
       createdAt: Date.now(),
     };
   }

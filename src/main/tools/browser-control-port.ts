@@ -4332,7 +4332,7 @@ export class BrowserControlPort {
       if (!liveBoundId) {
         // Binding is stale: claiming a listed tab would be the hijack this gate
         // exists to stop, so recovery must go through the explicit rebind path.
-        throw new CapabilityError('TARGET_STALE', `Bound tab '${boundId.trim()}' no longer exists. Rebind via anti.browser.rebind_target.`, { canRebind: true });
+        throw new CapabilityError('TARGET_STALE', `Bound tab '${boundId.trim()}' no longer exists. Rebind via anti.browser.rebind_target.`, { boundTabId: boundId.trim(), canRebind: true, recovery: 'anti.browser.rebind_target' });
       }
       const allowed = this.host.isTabAllowed ? this.host.isTabAllowed(liveBoundId.trim(), cleanId) : false;
       if (!allowed) {
@@ -6400,6 +6400,9 @@ export class BrowserControlPort {
       networkTracker,
       requireNetworkTracker: options.requireNetworkTracker,
       signal: options.signal,
+      scopeSelector: options.scopeSelector,
+      ignoreSelectors: options.ignoreSelectors,
+      enableMediaFreeze: options.enableMediaFreeze,
     });
     const receipt = await CaptureSettleGate.evaluate(predicates, options);
     CaptureSettleGate.assertResources(receipt);
@@ -8739,6 +8742,14 @@ export class BrowserControlPort {
       checklist,
     };
   }
+
+  private boundTabGoneError(boundTabId: string): CapabilityError {
+    return new CapabilityError(
+      'TARGET_STALE',
+      `Bound tab '${boundTabId}' no longer exists. Rebind the session to a live tab (anti.browser.rebind_target; list tabs with anti.browser.tabs.list), then retry.`,
+      { boundTabId, canRebind: true, recovery: 'anti.browser.rebind_target' }
+    );
+  }
   private resolveTargetTab(target?: BrowserTarget, explicitTabId?: string, operationType: 'read' | 'lifecycle' | 'write' = 'read', params?: Record<string, unknown>): string {
     if (target) {
       assertTarget(target, true);
@@ -8812,7 +8823,7 @@ export class BrowserControlPort {
           if (failoverTab && tabExists(failoverTab)) {
             candidate = failoverTab;
           } else {
-            throw new CapabilityError('TARGET_STALE', `Target tab no longer exists: ${explicitTabId}`);
+            throw this.boundTabGoneError(boundId);
           }
         } else {
           throw new CapabilityError('CAPABILITY_NOT_FOUND', `Unknown tab ID: ${explicitTabId}`);
@@ -8839,7 +8850,7 @@ export class BrowserControlPort {
         if (failoverTab && tabExists(failoverTab)) {
           resolved = failoverTab;
         } else {
-          throw new CapabilityError('TARGET_STALE', `Target tab no longer exists: ${target.tabId}`);
+          throw this.boundTabGoneError(target.tabId);
         }
       } else {
         resolved = target.tabId;
@@ -8954,7 +8965,9 @@ export class BrowserControlPort {
     if (!params || typeof params.assetPath !== 'string' || !params.assetPath.trim()) {
       throw new CapabilityError('INVALID_ARGUMENT', 'assetPath is required');
     }
-    const tabId = this.resolveTargetTab(target, params.tabId, 'write');
+    // Only the reload moves the tab; a CDN hash poll on its own reads the page and the file, so the
+    // document generation fence applies exactly when the call will reload.
+    const tabId = this.resolveTargetTab(target, params.tabId, params.reloadOnMatch === false ? 'read' : 'write');
     const paneId = params.paneId || 'desktop';
     const rawAsset = params.assetPath.trim().replace(/\\/g, '/').replace(/^\/+/, '');
     if (/\.liquid$/i.test(rawAsset)) {
@@ -9087,7 +9100,8 @@ export class BrowserControlPort {
       routes: string[];
       breakpoints?: number[];
       tabId?: string;
-    }
+    },
+    options?: { signal?: AbortSignal }
   ): Promise<Record<string, unknown>> {
     if (!params || !Array.isArray(params.routes) || params.routes.length === 0) {
       throw new CapabilityError('INVALID_ARGUMENT', 'routes must be a non-empty array of URLs or paths');
@@ -9153,6 +9167,12 @@ export class BrowserControlPort {
     let unmeasuredRouteCount = 0;
     try {
       for (const { route, url } of resolved) {
+        if (options?.signal?.aborted) {
+          throw Object.assign(
+            new Error(`batch_matrix stopped before '${route}': the invocation was aborted after ${routeResults.length} of ${resolved.length} routes`),
+            { name: 'AbortError', code: 'ABORTED' }
+          );
+        }
         const currentUrl = await this.getLiveTabUrl(tabId).catch(() => '');
         if (url !== currentUrl) {
           await this.navigate(target, url, tabId);

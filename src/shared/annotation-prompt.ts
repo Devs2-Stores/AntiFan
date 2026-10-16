@@ -96,12 +96,26 @@ Nếu tool \`theme.qa_validate\` có sẵn (MCP AntiFan), dùng nó để cung c
 export const SELF_QA_DIRECTIVE_FAST = `## Self-QA (Super-Fast — không chạy vòng QA qua MCP)
 Chế độ \`[🚀Super-Fast]\` đang bật: sửa trực tiếp đúng file theme được chỉ định. KHÔNG gọi \`theme.qa_validate\`, KHÔNG chụp màn hình, KHÔNG chạy vòng lặp trình duyệt MCP (edit-guard chặn các lệnh đó ở chế độ này). Hook \`theme-qa-gate\` không đòi receipt QA ở chế độ này; cuối lượt chỉ báo các file đã sửa. Người dùng tự kiểm tra trực quan hoặc chạy QA ở một lượt thường sau đó.`;
 
+const FIX_VERB_INTENTS: readonly TaskIntent[] = ['review', 'research', 'security', 'documentation'];
+const FIX_VERB_RE = /\b(?:fix(?:es|ing|ed)?|repair|patch|implement|chinh sua|sua loi|sua lai|sua giup|sua cho|sua ngay)\b/;
+
+/**
+ * Review/research/security/documentation requests are analysis-only until the user also asks for a
+ * fix: the directive and the execution permission must agree, so both read this one predicate.
+ */
+export function isReadOnlyAnalysis(intent: TaskIntent, userInstruction: string = ''): boolean {
+  return FIX_VERB_INTENTS.includes(intent) && !FIX_VERB_RE.test(normalizeInstruction(userInstruction));
+}
+
 export function buildSelfQaDirective(intent: TaskIntent, userInstruction: string = '', actionChip?: string): string {
   if (isSuperFastMode(userInstruction, actionChip)) {
     return SELF_QA_DIRECTIVE_FAST;
   }
   if (intent === 'testing' && /fix|sua|repair|chinh|doi|cap nhat|update|thay|xoa|them|tao|build|implement|chua|khong|ko|sai|hong|lech|in dam|mau sac/i.test(normalizeInstruction(userInstruction))) {
     return SELF_QA_DIRECTIVE;
+  }
+  if (FIX_VERB_INTENTS.includes(intent)) {
+    return isReadOnlyAnalysis(intent, userInstruction) ? SELF_QA_DIRECTIVE_READONLY : SELF_QA_DIRECTIVE;
   }
   return SELF_QA_READONLY_INTENTS[intent] ? SELF_QA_DIRECTIVE_READONLY : SELF_QA_DIRECTIVE;
 }
@@ -292,7 +306,7 @@ export function buildAgentTaskHeader(userInstruction: string, terminalStateOverr
     ? '- No repository file edits. No refactoring the owning theme. The only deliverable is the code snippet.'
     : '- Unrequested adjacent fixes, speculative improvements, unrelated refactors, and silent public-contract changes.';
   const hasMutationRequest = /fix|sua|repair|chinh|doi|cap nhat|update|thay|xoa|them|tao|build|implement|chua|khong|ko|sai|hong|lech|in dam|mau sac/i.test(normalizeInstruction(instruction));
-  const executionPermission = (['review', 'research', 'security', 'documentation'].includes(intent) || (intent === 'testing' && !hasMutationRequest))
+  const executionPermission = (isReadOnlyAnalysis(intent, instruction) || (intent === 'testing' && !hasMutationRequest))
     ? 'READ-ONLY analysis: READY means the analysis workflow may begin; it does not authorize code mutation unless the user explicitly requests implementation.'
     : intent === 'extract-component'
     ? 'SNIPPET-ONLY: produce the component code in the reply. Do not create, edit, or delete any file in the repository.'

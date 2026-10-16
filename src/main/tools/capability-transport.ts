@@ -56,6 +56,9 @@ type EffectAcknowledgement = 'no-effect' | 'effect-possible' | 'effect-committed
 
 const CANONICAL_TAB_PATTERN = /^(tab-[a-zA-Z0-9_\-]+|[0-9a-f]{8}(?:-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?)$/i;
 
+/** Answered by the transport itself (no catalogue entry): the registered capability names and their digest. */
+const CATALOGUE_DIGEST_INTENT = 'catalogue.digest';
+
 /** Expected, caller-visible failure classes — policy/validation/abort outcomes
  * that are part of the contract, not defects worth an issue-register row. */
 const BENIGN_SETTLEMENT_CODES = new Set([
@@ -309,6 +312,23 @@ export class CapabilityTransportAdapter {
     }
     const { record, authority } = authResult;
 
+    // The proxy compares the names it advertises with the names this app registers. The answer
+    // sits behind the same attachment authentication as every dispatch and reads no page state.
+    if (intent.name === CATALOGUE_DIGEST_INTENT) {
+      const names = this.catalogue.listAll().map((definition) => definition.name).sort();
+      return {
+        ok: true,
+        requestId: intent.requestId,
+        invocationId: makeControlPlaneId('invocation'),
+        state: 'completed',
+        data: {
+          names,
+          count: names.length,
+          digest: crypto.createHash('sha256').update(names.join('\n')).digest('hex'),
+        },
+      };
+    }
+
     // Step 2: Lookup capability definition and policy
     const definition = this.catalogue.get(intent.name);
     if (!definition) {
@@ -319,6 +339,7 @@ export class CapabilityTransportAdapter {
         error: {
           code: 'CAPABILITY_NOT_FOUND',
           message: `Capability '${intent.name}' not found in catalogue`,
+          details: { catalogueMiss: true, capability: intent.name },
         },
       };
     }
@@ -1137,12 +1158,20 @@ export class CapabilityTransportAdapter {
       }
 
       // Step 8: Respond
+      const resyncedRevision = intent.name === 'anti.qa.batch_matrix'
+        ? await this.resyncBindingToLiveGeneration(
+            liveAuthority.attachmentId,
+            liveAuthority.browserTarget?.tabId || record.tabId,
+            liveAuthority.browserTarget?.documentGeneration
+          )
+        : undefined;
       return {
         ok: false,
         requestId: intent.requestId,
         invocationId,
         state: classified.state,
         error: errObj,
+        ...(resyncedRevision ? { replacementAuthorityRevision: resyncedRevision } : {}),
       };
     } finally {
       abortListenerCleanup?.();
@@ -1184,6 +1213,25 @@ export class CapabilityTransportAdapter {
         details: { invocationId, cleanupPending: true },
       },
     };
+  }
+
+  /**
+   * A route sweep moves the bound tab through every route and back, so a sweep that fails (or is
+   * aborted) after the first navigation leaves the attachment on a document generation the tab no
+   * longer has. The success path rotates onto the sweep's final generation; the failure path does
+   * the same from the live measurement so no later write call is refused as stale.
+   */
+  private async resyncBindingToLiveGeneration(attachmentId: string, boundTabId: string | undefined, boundGeneration: number | undefined): Promise<string | undefined> {
+    if (!boundTabId || !this.catalogue.resolveTabId(boundTabId)) return undefined;
+    const liveGeneration = this.catalogue.getDocumentGeneration?.(boundTabId);
+    if (typeof liveGeneration !== 'number' || !Number.isFinite(liveGeneration) || liveGeneration < 1) return undefined;
+    if (liveGeneration === boundGeneration) return undefined;
+    try {
+      const rotated = await this.attachmentRegistry.updateAttachmentTab(attachmentId, boundTabId, Math.floor(liveGeneration), { expectedTabId: boundTabId });
+      return rotated ?? undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   private classifySettlement(

@@ -16,6 +16,11 @@ const page = (body, head = '') => `<!doctype html><html lang="vi"><head><meta ch
 // 2x2 PNG used as a photographic backdrop.
 const IMG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFklEQVR42mNkYPhfz8DAwMDAxMDAAAAWBAIBAo5o2gAAAABJRU5ErkJggg==';
 
+// Page content shared with the layout-integrity corpus (test/fixtures/visual-qa/kit).
+const kit = (name) => require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'visual-qa', 'kit', `${name}.html`), 'utf8');
+// Fixtures flagged `thresholds: true` are scanned with test/fixtures/visual-quality/thresholds.json.
+const OPEN_PANEL = '<script>document.querySelector("[data-action=open-panel]").click()</script>';
+
 module.exports = [
   {
     id: 'contrast-low-gray-text',
@@ -160,4 +165,20 @@ module.exports = [
 <div id="preview-bar-iframe" style="position:fixed;left:0;bottom:0;width:40%;height:60px;background:#39c"><a href="#rm" style="color:#9cf;font-size:12px">Remove preview</a></div>`),
     expect: { absent: ['floating-widget-overlap', 'contrast-low'] },
   },
+  { id: 'font-below-min-bad', thresholds: true, html: kit('min-font-size-bad'), expect: { rules: ['font-below-min'] } },
+  { id: 'font-below-min-good', thresholds: true, html: kit('min-font-size-good'), expect: { control: true } },
+  { id: 'control-height-band-bad', thresholds: true, html: kit('control-height-band-bad'), expect: { rules: ['control-height-band'], viewports: ['mobile'], absentBy: { desktop: ['control-height-band'] } } },
+  { id: 'control-height-band-good', thresholds: true, html: kit('control-height-band-good'), expect: { control: true } },
+  { id: 'control-height-band-sibling-mismatch-bad', thresholds: true, html: kit('control-height-band-mismatch-bad'), expect: { rules: ['control-height-band'] } },
+  { id: 'wrapped-label-bad', thresholds: true, html: kit('wrapped-label-bad'), expect: { rules: ['wrapped-label'] } },
+  { id: 'wrapped-label-good', thresholds: true, html: kit('wrapped-label-good'), expect: { control: true } },
+  { id: 'tap-target-hit-area-bad', thresholds: true, html: kit('tap-target-hit-area-bad'), expect: { rules: ['tap-target-tiny'], viewports: ['mobile'], absentBy: { desktop: ['tap-target-tiny', 'tap-target-small'] } } },
+  { id: 'tap-target-hit-area-good', thresholds: true, html: kit('tap-target-hit-area-good'), expect: { control: true } },
+  { id: 'tap-target-hit-area-crowded', thresholds: true, html: kit('tap-target-hit-area-good').replace('gap:24px', 'gap:4px'), expect: { rules: ['tap-target-small'], viewports: ['mobile'], absent: ['tap-target-tiny'] } },
+  { id: 'icon-stroke-mismatch-bad', thresholds: true, html: kit('icon-stroke-bad'), expect: { rules: ['icon-stroke-mismatch'] } },
+  { id: 'icon-stroke-mismatch-good', thresholds: true, html: kit('icon-stroke-good'), expect: { control: true } },
+  { id: 'overlay-fit-bad', thresholds: true, html: kit('overlay-fit-bad') + OPEN_PANEL, expect: { rules: ['overlay-fit'] } },
+  { id: 'overlay-fit-good', thresholds: true, html: kit('overlay-fit-good') + OPEN_PANEL, expect: { control: true } },
+  { id: 'registry-rules-unmeasured-without-thresholds', html: kit('min-font-size-bad'), expect: { absent: ['font-below-min'], measuredRules: ['contrast-low'], unmeasuredRules: ['font-below-min', 'control-height-band', 'wrapped-label', 'icon-stroke-mismatch', 'overlay-fit'] } },
+  { id: 'registry-rules-measured-with-thresholds', thresholds: true, html: kit('page-good'), expect: { control: true, measuredRules: ['contrast-low', 'font-below-min', 'control-height-band', 'wrapped-label', 'icon-stroke-mismatch', 'overlay-fit'] } },
 ];

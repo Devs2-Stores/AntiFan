@@ -22,7 +22,13 @@ const QA_VALIDATE_PROPERTIES = {
   expectedUrl: { type: 'string', description: 'Expected route URL of the bound tab; a host/theme/path mismatch fails closed instead of QA-ing the wrong page' },
   annotationId: { type: 'string', description: 'Annotation ID this run verifies; recorded on the workspace receipt' },
   multiBreakpoint: { type: 'boolean', description: 'Sweep 320/375/768/1024/1440 (default on). true makes unmeasured widths an evidence gap (INCONCLUSIVE); false opts out' },
-  profile: { type: 'string', enum: ['audit', 'build-strict'], description: 'audit (default): findings.visualQuality (contrast, tap targets, floating widgets) is reported but never fails the run. build-strict (new theme builds): contrast below WCAG AA, sub-24px tap targets, invisible click blockers and floating widgets over controls FAIL the run' },
+  profile: { type: 'string', enum: ['audit', 'build-strict'], description: 'build-strict (default): contrast below WCAG AA, sub-24px tap targets, invisible click blockers, floating widgets over controls and the contract-threshold registry rules FAIL the run, and unmeasured scans are evidence gaps. audit: findings.visualQuality is reported but never fails the run' },
+  thresholds: { type: 'object', description: 'Contract thresholds the registry rules grade against (kit registry/thresholds.json shape). Without them font-below-min, control-height-band, wrapped-label, icon-stroke-mismatch and overlay-fit are unmeasured', properties: { minTextPx: { type: 'number' }, minControlPx: { type: 'number' }, minTapHitPx: { type: 'number' }, tapSpacingCirclePx: { type: 'number' } } },
+  coverageFloor: { type: 'number', description: 'Minimum measured/expected scan-family share (0..1). Below it a green run is QA_INCONCLUSIVE. Defaults to 1 under build-strict, 0 under audit' },
+  waivers: { type: 'array', description: 'Accepted visual-quality rule exceptions; each needs a rule id and a reason and is echoed on the report and receipt', items: { type: 'object', properties: { rule: { type: 'string' }, reason: { type: 'string' } }, required: ['rule', 'reason'] } },
+  ignoreSelectors: { type: 'array', items: { type: 'string' }, description: 'Selectors whose subtree mutations are excluded from the DOM-quiet settle predicate (for example a live countdown). Echoed on the receipt' },
+  settle: { type: 'object', description: 'Per-call settle barrier overrides', properties: { scopeSelector: { type: 'string' }, ignoreSelectors: { type: 'array', items: { type: 'string' } }, networkTimeoutMs: { type: 'number' }, fontsTimeoutMs: { type: 'number' }, imagesTimeoutMs: { type: 'number' }, domTimeoutMs: { type: 'number' }, totalTimeoutMs: { type: 'number' } } },
+  expectedStatus: { type: 'number', description: 'HTTP status the contract screen declares for this route (for example 404 on a not-found screen). A document returning exactly that status is not reported as ROUTE_404; echoed on the receipt' },
 };
 
 // Definition row shape: [name, description, properties, required?, oneOf?,
@@ -2518,6 +2524,74 @@ function retargetableAmbientTabId(err, injectedAmbientTabId, ambientTargetField)
   return live;
 }
 
+// The first catalogue miss for an advertised tool asks the app which names it registered (the
+// `catalogue.digest` answer) and reports every advertised-but-unregistered tool once, instead of
+// leaving the session to discover them one failed call at a time. The probe is event-driven on
+// purpose: a probe on every tools/list would add a dispatch to every session, healthy or not.
+// An app that predates the digest, a session filter that forbids it, or no live bridge leave the
+// probe silent; the per-call hint still covers those.
+const CATALOGUE_MISS_MESSAGE = /^(?:Unknown capability:|Capability '[^']*' not found in catalogue)/;
+
+/**
+ * Rewrites a catalogue miss for a tool this proxy advertises into the restart remedy. The code stays
+ * CAPABILITY_NOT_FOUND (fallback rules key on it). A host-level gap ("... is not supported by host")
+ * carries neither the typed marker nor a catalogue text, so it keeps its own message.
+ */
+function annotateCatalogueMiss(err, method, mapped) {
+  if (!err || err.code !== 'CAPABILITY_NOT_FOUND' || !definitions.some(([defName]) => defName === method)) return false;
+  try {
+    const diagnostic = JSON.parse(err.message);
+    const typedMiss = Boolean(diagnostic.details && diagnostic.details.catalogueMiss === true);
+    if (!typedMiss && !CATALOGUE_MISS_MESSAGE.test(String(diagnostic.message || ''))) return false;
+    if (diagnostic.details && diagnostic.details.bridgePredatesProxy === true) return true;
+    diagnostic.message = `${diagnostic.message || 'Capability not found'} — '${method}' is advertised by this MCP proxy but the running AntiFan Desktop build does not register '${mapped}' yet; restart AntiFan Desktop to load it.`;
+    diagnostic.details = { ...diagnostic.details, bridgePredatesProxy: true, capability: method, routedTo: mapped };
+    err.message = JSON.stringify(diagnostic);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Advertised tool names whose bridge name the running app does not register; core.* is served in-process. */
+function catalogueSkew(registeredNames) {
+  const registered = new Set(registeredNames);
+  const missing = [];
+  for (const [name] of definitions) {
+    const mapped = CAPABILITY_MAP[name] || name;
+    if (mapped.startsWith('core.') || registered.has(mapped)) continue;
+    if (!missing.includes(name)) missing.push(name);
+  }
+  return missing;
+}
+
+function createCatalogueSkewReporter(write) {
+  let reported = false;
+  return (missing) => {
+    if (reported || !Array.isArray(missing) || missing.length === 0) return false;
+    reported = true;
+    const shown = missing.slice(0, 12).join(', ');
+    const rest = missing.length > 12 ? ` and ${missing.length - 12} more` : '';
+    write(`[AntiFan MCP] This proxy advertises ${missing.length} tool(s) the running AntiFan Desktop build does not register: ${shown}${rest}. Calls to them fail with CAPABILITY_NOT_FOUND until you restart AntiFan Desktop to load the current build.`);
+    return true;
+  };
+}
+
+const reportCatalogueSkew = createCatalogueSkewReporter((line) => process.stderr.write(`${line}\n`));
+let catalogueProbeStarted = false;
+
+async function probeCatalogueOnce() {
+  if (catalogueProbeStarted) return;
+  const boot = getBootstrap();
+  if (!boot || !boot.secret) return;
+  catalogueProbeStarted = true;
+  try {
+    const answer = await invoke('catalogue.digest', {});
+    const payload = answer && Array.isArray(answer.names) ? answer : answer && answer.data;
+    if (payload && Array.isArray(payload.names)) reportCatalogueSkew(catalogueSkew(payload.names));
+  } catch {}
+}
+
 async function invoke(method, params = {}, callerRequestId) {
   const allowedCaps = resolveAllowedCapabilities();
   const forbiddenCaps = resolveForbiddenCapabilities();
@@ -2845,21 +2919,7 @@ async function invoke(method, params = {}, callerRequestId) {
             err.message = JSON.stringify(diagnostic);
           } catch {}
         }
-        // This script is read fresh by every new session, while the running app keeps the
-        // catalogue it booted with: an advertised tool the bridge does not know means the app
-        // predates this proxy. The code stays CAPABILITY_NOT_FOUND (fallback rules key on it);
-        // the message names the real remedy instead of implying the tool does not exist.
-        if (err && err.code === 'CAPABILITY_NOT_FOUND' && definitions.some(([defName]) => defName === method)) {
-          try {
-            const diagnostic = JSON.parse(err.message);
-            // CAPABILITY_NOT_FOUND is also raised for host-level gaps ("... is not supported by
-            // host"); only the catalogue's own unknown-name refusal means the app predates us.
-            if (!/^Unknown capability:/.test(String(diagnostic.message || ''))) throw new Error('not a catalogue miss');
-            diagnostic.message = `${diagnostic.message || 'Capability not found'} — '${method}' is advertised by this MCP proxy but the running AntiFan Desktop build does not register '${mapped}' yet; restart AntiFan Desktop to load it.`;
-            diagnostic.details = { ...diagnostic.details, bridgePredatesProxy: true, capability: method, routedTo: mapped };
-            err.message = JSON.stringify(diagnostic);
-          } catch {}
-        }
+        if (annotateCatalogueMiss(err, method, mapped)) void probeCatalogueOnce();
         throw err;
       }
       healedOnce = true;
@@ -3298,6 +3358,9 @@ module.exports = {
   fetchArtifactBinary,
   definitions,
   CAPABILITY_MAP,
+  annotateCatalogueMiss,
+  catalogueSkew,
+  createCatalogueSkewReporter,
   CORE_DISPATCH,
   invoke,
   invokeCore,

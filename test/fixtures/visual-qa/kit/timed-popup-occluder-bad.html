@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>timed-popup-occluder bad</title>
+<style>
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0;font:16px/1.5 Arial,sans-serif;color:#111;background:#fff}
+.btn{display:inline-block;border:1px solid #111;background:#fff;color:#111;font:16px/1.5 Arial,sans-serif;padding:0 20px;cursor:pointer}
+.newsletter-modal{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:center;justify-content:center;z-index:50}
+.newsletter-modal.is-open{display:flex}
+.newsletter-modal__panel{background:#fff;padding:32px;width:420px}
+</style>
+</head>
+<body>
+<main style="padding:24px">
+<h1>Collection</h1>
+<p>Page content that the popup will cover.</p>
+<button class="btn" type="button" style="height:44px">Shop now</button>
+</main>
+<div class="newsletter-modal" id="nl"><div class="newsletter-modal__panel"><h2>Join our list</h2><p>Get a discount on your first order.</p></div></div>
+<script>setTimeout(function(){document.getElementById('nl').classList.add('is-open')},150)</script>
+</body>
+</html>

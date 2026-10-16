@@ -250,16 +250,29 @@ export interface DomQuietOptions {
   ignoreSelectors?: string[];
 }
 
+/**
+ * Selectors whose subtree mutations never reset the DOM-quiet window. Kept deliberately
+ * narrow and echoed on every receipt: a wildcard such as `[class*="ticker"]` would hide
+ * unrelated components and turn an unsettled page into a pass.
+ */
+export const DEFAULT_DOM_QUIET_IGNORE: readonly string[] = Object.freeze([
+  '[data-countdown]', '[data-timer]', '.timer', '.countdown',
+  '[data-live-visitor]', '.live-views', '.marquee',
+]);
+
+/** Defaults plus the caller's per-call selectors, de-duplicated, in the order the page script applies them. */
+export function effectiveDomQuietIgnore(extra?: readonly string[]): string[] {
+  const out: string[] = [...DEFAULT_DOM_QUIET_IGNORE];
+  for (const selector of extra ?? []) {
+    if (typeof selector === 'string' && selector.trim() && !out.includes(selector)) out.push(selector);
+  }
+  return out;
+}
+
 export function buildDomQuietScript(timeoutMs: number, options: DomQuietOptions = {}): string {
   const maxTimeout = Math.max(1, timeoutMs);
   const quietWindowMs = Math.min(50, Math.max(10, Math.floor(maxTimeout / 3)));
-  const defaultIgnore = [
-    '[data-countdown]', '[data-timer]', '.timer', '.countdown',
-    '[data-live-visitor]', '.live-views', '.marquee', '[class*="ticker"]'
-  ];
-  const combinedIgnore = options.ignoreSelectors && options.ignoreSelectors.length > 0
-    ? [...defaultIgnore, ...options.ignoreSelectors]
-    : defaultIgnore;
+  const combinedIgnore = effectiveDomQuietIgnore(options.ignoreSelectors);
   const scopeSelectorJson = JSON.stringify(options.scopeSelector || null);
   const ignoreListJson = JSON.stringify(combinedIgnore);
 
@@ -305,7 +318,8 @@ export function buildDomQuietScript(timeoutMs: number, options: DomQuietOptions 
         : (typeof document !== 'undefined' ? document.documentElement : null);
 
       const ignoreList = ${ignoreListJson};
-      const shouldIgnoreNode = (node) => {
+      const shouldIgnoreNode = (rawNode) => {
+        const node = rawNode && rawNode.nodeType === 3 ? rawNode.parentElement : rawNode;
         if (!node || node.nodeType !== 1) return false;
         for (let i = 0; i < ignoreList.length; i++) {
           try {

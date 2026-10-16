@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { randomUUID } from 'node:crypto';
 import { BrowserTarget, CapabilityRequestContext, AuthenticatedCapabilityContext, CapabilityError, CapabilityEffectPolicyInput, CapabilityRisk, ReceiptBinding, digestText } from '../../shared/control-plane-contracts';
 import { BrowserControlPort, BrowserWaitParams, buildRefLookupExpression, ResponsiveBreakpointOption, VISUAL_COMPARE_EXECUTION_BUDGET_MS, VISUAL_COMPARE_CANCELLATION_ACK_MS, FULL_PAGE_CAPTURE_EXECUTION_BUDGET_MS, FULL_PAGE_CAPTURE_CANCELLATION_ACK_MS, VIEWPORT_CAPTURE_EXECUTION_BUDGET_MS, VIEWPORT_CAPTURE_CANCELLATION_ACK_MS, REFERENCE_CAPTURE_EXECUTION_BUDGET_MS, REFERENCE_CAPTURE_CANCELLATION_ACK_MS, BROWSER_WAIT_INVOCATION_BUDGET_MS, BROWSER_EVAL_INVOCATION_BUDGET_MS } from './browser-control-port';
 import { CapabilityCatalogue } from './capability-catalogue';
@@ -10,18 +11,23 @@ import { LiquidErrorScanner } from '../qa/scanners/liquid-error-scanner';
 import { LayoutOverflowEngine } from '../qa/scanners/layout-overflow-engine';
 import { HsGateRules, HsEvaluationResult } from '../qa/rules/hs-gate-rules';
 import {
+  AUTH_ROUTE_RE,
   buildReceiptFindings,
   computeScopedCriticalCount,
   resolveAnnotationTargetSelector,
   type QaReceiptFinding,
   type ThemeQaWorkflow,
   type ThemeQaReport,
+  type QaThresholds,
+  type QaWaiver,
+  type QaSettleOverrides,
+  type QaProfile,
 } from '../qa/theme-qa-workflow';
 import { dispositionFor, isRebindableStale, type RefusalDisposition } from '../qa/qa-state';
 import { ThemeQaRepairCoordinator } from '../qa/theme-qa-repair-coordinator';
 import type { CockpitPort } from './cockpit-port';
 import { registerCockpitCapabilities } from './cockpit-capabilities';
-import { confineWorkspaceRoot } from '../qa/diagnostics-filter';
+import { confineWorkspaceRoot, confineWorkspaceRootStrict } from '../qa/diagnostics-filter';
 import { recordFallbackTelemetry, FallbackTelemetryPayload } from '../telemetry/fallback-recorder';
 import { IssueRegister, VerificationVerdict } from '../session/issue-register';
 import { VerificationEvaluator, deriveFailureSignature, resolvePreviousLifecycle } from '../verification/verification-evaluator';
@@ -290,6 +296,116 @@ export function extractErrorMessage(err: unknown): string | null {
   if (err instanceof Error) return err.message.slice(0, QA_RECEIPT_ERROR_MESSAGE_MAX);
   const text = safeErrorText(err);
   return text ? text.slice(0, QA_RECEIPT_ERROR_MESSAGE_MAX) : null;
+}
+
+/** Profile `theme.qa_validate` grades under when the caller names none. */
+export const DEFAULT_QA_VALIDATE_PROFILE: QaProfile = 'build-strict';
+const QA_SETTLE_TIMEOUT_KEYS = ['networkTimeoutMs', 'fontsTimeoutMs', 'imagesTimeoutMs', 'domTimeoutMs', 'totalTimeoutMs'] as const;
+const QA_SETTLE_TIMEOUT_MAX_MS = 120_000;
+const QA_MAX_LISTED_ITEMS = 50;
+const QA_MAX_SELECTOR_CHARS = 200;
+const QA_THRESHOLD_KEYS = ['minTextPx', 'minControlPx', 'minTapHitPx', 'tapSpacingCirclePx'] as const;
+
+export interface QaValidateOptions {
+  thresholds?: QaThresholds;
+  waivers: QaWaiver[];
+  settle?: QaSettleOverrides;
+  coverageFloor?: number;
+  profile?: QaProfile;
+  expectedStatus?: number;
+}
+
+function invalidQaArgument(message: string): CapabilityError {
+  return new CapabilityError('INVALID_ARGUMENT', `theme.qa_validate: ${message}`);
+}
+
+function readSelectorList(value: unknown, field: string): string[] {
+  if (!Array.isArray(value) || value.length > QA_MAX_LISTED_ITEMS) throw invalidQaArgument(`${field} must be an array of at most ${QA_MAX_LISTED_ITEMS} selectors`);
+  return value.map((item) => {
+    if (typeof item !== 'string' || !item.trim() || item.length > QA_MAX_SELECTOR_CHARS) throw invalidQaArgument(`${field} entries must be non-empty strings of at most ${QA_MAX_SELECTOR_CHARS} characters`);
+    return item.trim();
+  });
+}
+
+/** Validates and normalizes the caller-tunable qa_validate inputs; any malformed value is refused, never defaulted. */
+export function parseQaValidateOptions(params: Record<string, unknown>): QaValidateOptions {
+  const out: QaValidateOptions = { waivers: [] };
+
+  if (params.profile !== undefined) {
+    if (params.profile !== 'audit' && params.profile !== 'build-strict') throw invalidQaArgument("profile must be 'audit' or 'build-strict'");
+    out.profile = params.profile;
+  }
+
+  if (params.thresholds !== undefined) {
+    const raw = params.thresholds as Record<string, unknown> | null;
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw invalidQaArgument('thresholds must be an object');
+    const thresholds = {} as Record<string, number>;
+    for (const key of QA_THRESHOLD_KEYS) {
+      const value = raw[key];
+      if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) throw invalidQaArgument(`thresholds.${key} must be a positive number`);
+      thresholds[key] = value;
+    }
+    out.thresholds = thresholds as unknown as QaThresholds;
+  }
+
+  if (params.coverageFloor !== undefined) {
+    const floor = params.coverageFloor;
+    if (typeof floor !== 'number' || !Number.isFinite(floor) || floor < 0 || floor > 1) throw invalidQaArgument('coverageFloor must be a number between 0 and 1');
+    out.coverageFloor = floor;
+  }
+
+  if (params.waivers !== undefined) {
+    if (!Array.isArray(params.waivers) || params.waivers.length > QA_MAX_LISTED_ITEMS) throw invalidQaArgument(`waivers must be an array of at most ${QA_MAX_LISTED_ITEMS} {rule, reason} entries`);
+    out.waivers = params.waivers.map((entry) => {
+      const item = entry as { rule?: unknown; reason?: unknown } | null;
+      if (!item || typeof item !== 'object' || typeof item.rule !== 'string' || !item.rule.trim() || typeof item.reason !== 'string' || !item.reason.trim()) {
+        throw invalidQaArgument('each waiver needs a non-empty rule and a non-empty reason');
+      }
+      return { rule: item.rule.trim().slice(0, 80), reason: item.reason.trim().slice(0, 500) };
+    });
+  }
+
+  if (params.expectedStatus !== undefined) {
+    const status = params.expectedStatus;
+    if (typeof status !== 'number' || !Number.isInteger(status) || status < 100 || status > 599) throw invalidQaArgument('expectedStatus must be an HTTP status code between 100 and 599');
+    out.expectedStatus = status;
+  }
+
+  const settle: QaSettleOverrides = {};
+  if (params.settle !== undefined) {
+    const raw = params.settle as Record<string, unknown> | null;
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw invalidQaArgument('settle must be an object');
+    if (raw.scopeSelector !== undefined) {
+      if (typeof raw.scopeSelector !== 'string' || !raw.scopeSelector.trim() || raw.scopeSelector.length > QA_MAX_SELECTOR_CHARS) throw invalidQaArgument('settle.scopeSelector must be a non-empty selector string');
+      settle.scopeSelector = raw.scopeSelector.trim();
+    }
+    if (raw.ignoreSelectors !== undefined) settle.ignoreSelectors = readSelectorList(raw.ignoreSelectors, 'settle.ignoreSelectors');
+    for (const key of QA_SETTLE_TIMEOUT_KEYS) {
+      const value = raw[key];
+      if (value === undefined) continue;
+      if (typeof value !== 'number' || !Number.isFinite(value) || value < 1 || value > QA_SETTLE_TIMEOUT_MAX_MS) throw invalidQaArgument(`settle.${key} must be a number between 1 and ${QA_SETTLE_TIMEOUT_MAX_MS}`);
+      settle[key] = value;
+    }
+  }
+  if (params.ignoreSelectors !== undefined) {
+    const top = readSelectorList(params.ignoreSelectors, 'ignoreSelectors');
+    settle.ignoreSelectors = [...(settle.ignoreSelectors ?? []), ...top.filter((s) => !(settle.ignoreSelectors ?? []).includes(s))];
+  }
+  if (Object.keys(settle).length > 0) out.settle = settle;
+  return out;
+}
+
+/** The settle gate that held a degraded or refused run, read from the report or the thrown refusal. */
+function settleFailureOf(report: ThemeQaReport | undefined, err: unknown): { code: 'SETTLE_INCOMPLETE'; reason: string } | null {
+  if (err instanceof CapabilityError && err.code === 'SETTLE_INCOMPLETE') {
+    const predicate = err.details && typeof err.details.failingPredicate === 'string' ? err.details.failingPredicate : null;
+    return { code: 'SETTLE_INCOMPLETE', reason: predicate ?? 'settle' };
+  }
+  const settle = report?.settleReceipt;
+  if (settle && (settle.settleComplete === false || settle.domUnstable === true || typeof settle.failingPredicate === 'string')) {
+    return { code: 'SETTLE_INCOMPLETE', reason: settle.failingPredicate ?? (settle.domUnstable ? 'dom' : 'settle') };
+  }
+  return null;
 }
 
 export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, browser: BrowserControlPort, themeQaWorkflow?: ThemeQaWorkflow, getWorkspaceRoot?: () => string, receipts?: ReceiptStore, getStylesheetUrlMap?: () => Record<string, string>, cockpit?: CockpitPort): void {
@@ -1714,11 +1830,17 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       type: 'object',
       properties: {
         tabId: { type: 'string' },
-        workspaceRoot: { type: 'string', description: 'Workspace root path. Confines the QA receipt directory (.antifan/qa-receipts/) and matches the QA Binding workspaceRoot emitted in the annotation markdown' },
+        workspaceRoot: { type: 'string', description: 'Workspace root path. Must equal or sit inside the bound workspace; an outside root is refused with WORKSPACE_MISMATCH and no receipt is written. Confines the QA receipt directory (.antifan/qa-receipts/) and matches the QA Binding workspaceRoot emitted in the annotation markdown' },
         annotationId: { type: 'string', description: 'Annotation ID this QA run verifies (from the annotation markdown). Recorded on the workspace receipt so consuming-runtime gates can match evidence to the task' },
         expectedUrl: { type: 'string', description: 'Expected route URL of the bound tab (annotation Page URL). Fail-closed: mismatch throws the route-gate code (URL_HOST_MISMATCH/URL_THEME_MISMATCH/URL_PATH_MISMATCH) instead of silently QA-ing the wrong page or theme' },
         multiBreakpoint: { type: 'boolean', description: 'Enable multi-breakpoint responsive testing (320, 375, 768, 1024, 1440). Defaults to true inside workflow; pass false to opt out.' },
-        profile: { type: 'string', enum: ['audit', 'build-strict'], description: 'audit (default) reports visual-quality findings without affecting the verdict; build-strict (new builds) fails on contrast below WCAG AA, sub-24px tap targets, invisible click blockers and floating widgets over controls' },
+        profile: { type: 'string', enum: ['audit', 'build-strict'], description: 'build-strict (default) fails on contrast below WCAG AA, sub-24px tap targets, invisible click blockers, floating widgets over controls and the contract-threshold registry rules, and treats unmeasured scans as evidence gaps; audit reports visual-quality findings without affecting the verdict' },
+        thresholds: { type: 'object', description: 'Contract thresholds the registry rules grade against (kit registry/thresholds.json shape). Without them font-below-min, control-height-band, wrapped-label, icon-stroke-mismatch and overlay-fit are unmeasured', properties: { minTextPx: { type: 'number' }, minControlPx: { type: 'number' }, minTapHitPx: { type: 'number' }, tapSpacingCirclePx: { type: 'number' } } },
+        coverageFloor: { type: 'number', description: 'Minimum measured/expected scan-family share (0..1). Below it a green run is QA_INCONCLUSIVE. Defaults to 1 under build-strict, 0 under audit' },
+        waivers: { type: 'array', description: 'Accepted visual-quality rule exceptions; each needs a rule id and a reason and is echoed on the report and receipt', items: { type: 'object', properties: { rule: { type: 'string' }, reason: { type: 'string' } }, required: ['rule', 'reason'] } },
+        ignoreSelectors: { type: 'array', items: { type: 'string' }, description: 'Selectors whose subtree mutations are excluded from the DOM-quiet settle predicate (for example a live countdown). Echoed on the receipt so a pass stays auditable' },
+        settle: { type: 'object', description: 'Per-call settle barrier overrides', properties: { scopeSelector: { type: 'string' }, ignoreSelectors: { type: 'array', items: { type: 'string' } }, networkTimeoutMs: { type: 'number' }, fontsTimeoutMs: { type: 'number' }, imagesTimeoutMs: { type: 'number' }, domTimeoutMs: { type: 'number' }, totalTimeoutMs: { type: 'number' } } },
+        expectedStatus: { type: 'number', description: 'HTTP status the contract screen declares for this route (for example 404 on a not-found screen). A document returning exactly that status is not reported as ROUTE_404; echoed on the receipt' },
         viewports: {
           type: 'object',
           properties: {
@@ -1736,7 +1858,13 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         expectedUrl?: string;
         workspaceRoot?: string;
         multiBreakpoint?: boolean;
-        profile?: 'audit' | 'build-strict';
+        profile?: QaProfile;
+        thresholds?: QaThresholds;
+        coverageFloor?: number;
+        waivers?: QaWaiver[];
+        ignoreSelectors?: string[];
+        expectedStatus?: number;
+        settle?: QaSettleOverrides;
         viewports?: {
           // `passed` is the caller structural verdict; the QA matrix ANDs it with the pixel threshold, so only downgrades are possible.
           desktop?: { mismatchPercent: number; passed: boolean };
@@ -1749,10 +1877,19 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       const target = context.browserTarget as BrowserTarget;
       const runId = context.runId || 'run-unbound';
       const attemptId = context.attemptId || 'attempt-unbound';
+      const callId = randomUUID();
+      const qaOptions = parseQaValidateOptions(params as Record<string, unknown>);
+      // Refuse a root outside the bound workspace before anything runs: silently
+      // substituting the default root would write receipts a caller believes
+      // describe a different theme.
+      const strictRoot = confineWorkspaceRootStrict(params.workspaceRoot, getWorkspaceRoot?.() || '');
+      if (strictRoot.redirected) {
+        throw new CapabilityError('WORKSPACE_MISMATCH', `Requested workspaceRoot '${strictRoot.requested}' is outside the bound workspace '${strictRoot.root}'; no QA ran and no receipt was written`, { requested: strictRoot.requested, bound: strictRoot.root });
+      }
       // Resolve the confined workspace root BEFORE any terminal branch. The route gate
       // and the pre-flight guards below can throw, and every one of those throws is a
       // terminal QA outcome that still owes the consuming-runtime gate a receipt.
-      const confinedRoot = confineWorkspaceRoot(params.workspaceRoot, getWorkspaceRoot?.() || '');
+      const confinedRoot = strictRoot.root;
       let receiptVerdict: QaReceiptVerdict = 'QA_INCONCLUSIVE';
       let errorCode: string | null = null;
       let errorMessage: string | null = null;
@@ -1763,6 +1900,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       let receiptFindings: QaReceiptFinding[] = [];
       // Read from the evidence gaps, not the capped findings list a warning can fall off.
       let authRedirect = false;
+      let authLandingNote: string | null = null;
       let receiptViewport: { width: number; height: number } | undefined;
       let settingsRatchetPayload: {
         ok: boolean;
@@ -1775,6 +1913,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       let receiptExecution: 'COMPLETED' | 'DEGRADED' | 'BLOCKED' = 'COMPLETED';
       let receiptRecovery = { attempted: 0, succeeded: 0 };
       let receiptDisposition: RefusalDisposition | null = null;
+      let errorReason: string | null = null;
+      let finalReport: ThemeQaReport | undefined;
       const runValidate = async (t: BrowserTarget) => themeQaWorkflow!.validate({
         runId,
         attemptId,
@@ -1783,7 +1923,12 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         viewports: params.viewports,
         target: t,
         annotationId: params.annotationId,
-        ...(params.profile === 'build-strict' ? { profile: 'build-strict' as const } : {}),
+        profile: qaOptions.profile ?? DEFAULT_QA_VALIDATE_PROFILE,
+        ...(qaOptions.thresholds ? { thresholds: qaOptions.thresholds } : {}),
+        ...(qaOptions.coverageFloor !== undefined ? { coverageFloor: qaOptions.coverageFloor } : {}),
+        ...(qaOptions.waivers.length > 0 ? { waivers: qaOptions.waivers } : {}),
+        ...(qaOptions.settle ? { settle: qaOptions.settle } : {}),
+        ...(qaOptions.expectedStatus !== undefined ? { expectedDocumentStatus: qaOptions.expectedStatus } : {}),
         // Mirror real wrapper recovery into the report — never hard-code zero
         // after a failover rebind succeeded.
         recovery: receiptRecovery,
@@ -1799,10 +1944,17 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
           const observedUrl = await browser.getLiveTabUrl(target.tabId);
           const routeCheck = checkRouteIdentity(params.expectedUrl, observedUrl, browser.getTabRedirectChain(target.tabId));
           if (!routeCheck.ok) {
-            throw new CapabilityError(
-              routeCheck.status,
-              `Theme QA route gate failed on tab '${target.tabId}': ${routeCheck.reason || routeCheck.status} (observed: ${routeCheck.observedUrl || 'unknown'})`
-            );
+            // Haravan sends an auth-gated route to its hosted sign-in and drops ?themeid=; that landing is the
+            // platform's page, so the run is unmeasured (authRedirect) rather than a route-gate error.
+            const landedPath = (() => { try { return new URL(routeCheck.observedUrl).pathname; } catch { return routeCheck.observedUrl; } })();
+            const authDrift = (routeCheck.code === 'URL_THEME_MISMATCH' || routeCheck.code === 'URL_PATH_MISMATCH') && AUTH_ROUTE_RE.test(landedPath);
+            if (!authDrift) {
+              throw new CapabilityError(
+                routeCheck.status,
+                `Theme QA route gate failed on tab '${target.tabId}': ${routeCheck.reason || routeCheck.status} (observed: ${routeCheck.observedUrl || 'unknown'})`
+              );
+            }
+            authLandingNote = `AUTH_REDIRECT: Route '${params.expectedUrl}' landed on authentication page '${routeCheck.observedUrl}' (${routeCheck.code}); the page is not graded`;
           }
         }
         // Auto-recovery is narrow by design: only a TARGET_STALE (or sibling
@@ -1851,6 +2003,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
           report = await runValidate(recoveredTarget);
         }
         const summary = report.summary;
+        finalReport = report;
         receiptViewport = report.viewport ?? summary?.viewport;
         passed = summary?.passed ?? null;
         criticalCount = summary?.criticalCount ?? null;
@@ -1870,6 +2023,24 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         receiptVerdict = summary?.passed === true && (summary?.criticalCount ?? 0) === 0
           ? 'QA_PASSED'
           : (summary?.verdict === 'INCONCLUSIVE' && (summary?.criticalCount ?? 0) === 0 ? 'QA_INCONCLUSIVE' : 'QA_FAILED');
+        if (authLandingNote) {
+          if (report.findings) {
+            const gaps = report.findings.evidenceGaps ?? (report.findings.evidenceGaps = []);
+            if (!gaps.includes(authLandingNote)) gaps.push(authLandingNote);
+          }
+          report.execution = 'DEGRADED';
+          receiptExecution = 'DEGRADED';
+          receiptVerdict = 'QA_INCONCLUSIVE';
+          passed = false;
+          if (report.summary) {
+            report.summary.passed = false;
+            report.summary.verdict = 'INCONCLUSIVE';
+            if (report.summary.certification === 'CERTIFIED') report.summary.certification = 'STRUCTURAL';
+          }
+          errorCode = 'AUTH_REDIRECT';
+          errorReason = 'auth-redirect';
+          errorMessage = authLandingNote.slice(0, QA_RECEIPT_ERROR_MESSAGE_MAX);
+        }
 
         if (confinedRoot && isHaravanThemeWorkspace(confinedRoot)) {
           try {
@@ -2048,6 +2219,15 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         } else if (typeof report.summary?.scopedCriticalCount === 'number') {
           scopedCriticalCount = report.summary.scopedCriticalCount;
         }
+        if (receiptExecution !== 'COMPLETED' && !errorCode) {
+          // A degraded run must say why: the failing settle gate when there is one, else the evidence gaps.
+          const settleFailure = settleFailureOf(report, undefined);
+          const gaps = [...(report.settleReceipt?.evidenceGaps ?? []), ...(report.findings?.evidenceGaps ?? [])]
+            .filter((gap, index, all) => all.indexOf(gap) === index);
+          errorCode = settleFailure ? settleFailure.code : 'EVIDENCE_INCOMPLETE';
+          errorReason = settleFailure ? settleFailure.reason : (gaps[0] ? String(gaps[0]).slice(0, QA_RECEIPT_ERROR_MESSAGE_MAX) : 'evidence');
+          errorMessage = gaps.length > 0 ? gaps.join('; ').slice(0, QA_RECEIPT_ERROR_MESSAGE_MAX) : null;
+        }
         return report;
       } catch (err) {
         // Terminal failure: the report never materialised, so the receipt must say so.
@@ -2057,6 +2237,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
           receiptVerdict = classifyTerminalVerdict(err);
           errorCode = extractErrorCode(err);
           errorMessage = extractErrorMessage(err);
+          errorReason = settleFailureOf(undefined, err)?.reason ?? errorMessage;
           // Terminal classification: identity/policy errors are the only
           // BLOCKED executions; every other refusal degrades the run to
           // INCONCLUSIVE evidence with DEGRADED execution (or records the
@@ -2081,24 +2262,45 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
           if (confinedRoot) {
             const tabId = target?.tabId;
             const observedUrl = tabId ? await browser.getLiveTabUrl(tabId).catch(() => '') : '';
+            const settleSource = finalReport?.settleReceipt;
             const receipt = {
-              receiptVersion: '1.2',
+              receiptVersion: '1.3',
               runId,
               attemptId,
+              callId,
               annotationId: params.annotationId || null,
               tabId: tabId || null,
               documentGeneration: target?.documentGeneration ?? null,
               browserEpoch: (target as { browserEpoch?: number } | undefined)?.browserEpoch ?? null,
               expectedUrl: params.expectedUrl || null,
+              expectedStatus: qaOptions.expectedStatus ?? null,
               observedUrl: observedUrl || null,
               workspaceRoot: confinedRoot,
+              workspaceRootRequested: strictRoot.requested || null,
+              workspaceRootRedirected: strictRoot.redirected,
+              profile: finalReport?.profile ?? null,
+              measuredRules: finalReport?.measuredRules ?? [],
+              coverage: finalReport?.coverage ?? null,
+              coverageFloor: finalReport?.coverageFloor ?? null,
               verdict: receiptVerdict,
               execution: receiptExecution,
               recovery: receiptRecovery,
               disposition: receiptDisposition,
               errorCode,
               errorMessage,
-              errorReason: errorMessage,
+              errorReason,
+              settle: settleSource
+                ? {
+                    settleComplete: settleSource.settleComplete ?? null,
+                    failingPredicate: settleSource.failingPredicate ?? null,
+                    domUnstable: settleSource.domUnstable === true,
+                    evidenceGaps: settleSource.evidenceGaps ?? [],
+                    ignoreSelectors: settleSource.ignoreSelectors ?? [],
+                    retries: settleSource.settleRetries ?? 0,
+                    scopeSelector: settleSource.scopeSelector ?? null,
+                  }
+                : null,
+              waivers: finalReport?.waivers ?? qaOptions.waivers,
               passed,
               criticalCount,
               pageCriticalCount,
@@ -2114,14 +2316,16 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
             const receiptsDir = path.join(confinedRoot, '.antifan', 'qa-receipts');
             fs.mkdirSync(receiptsDir, { recursive: true });
             const safeRunId = String(receipt.runId).replace(/[^a-zA-Z0-9_-]/g, '_');
-            fs.writeFileSync(
-              path.join(receiptsDir, `${Date.now()}-${safeRunId}.json`),
-              JSON.stringify(receipt, null, 2),
-              'utf8'
-            );
+            const receiptPath = path.join(receiptsDir, `${Date.now()}-${safeRunId}-${callId.slice(0, 8)}.json`);
+            fs.writeFileSync(receiptPath, JSON.stringify(receipt, null, 2), 'utf8');
+            if (finalReport) finalReport.receipt = { written: true, path: receiptPath };
           }
         } catch {
-          // Receipt emission is best-effort evidence; swallow and preserve the outcome.
+          if (finalReport) {
+            finalReport.receipt = { written: false, code: 'RECEIPT_WRITE_FAILED' };
+            // A run whose evidence file could not be persisted cannot be certified: the consuming gate would find nothing.
+            if (finalReport.summary && finalReport.summary.certification === 'CERTIFIED') finalReport.summary.certification = 'STRUCTURAL';
+          }
         }
       }
     },

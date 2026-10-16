@@ -196,7 +196,7 @@ describe('Theme QA MCP Capabilities', () => {
 
         const receipt = readSoleReceipt(root);
         assert.strictEqual(receipt.verdict, 'QA_PASSED');
-        assert.strictEqual(receipt.receiptVersion, '1.2');
+        assert.strictEqual(receipt.receiptVersion, '1.3');
         assert.strictEqual(receipt.annotationId, 'annotation-pass');
         assert.strictEqual(receipt.passed, true);
         assert.strictEqual(receipt.criticalCount, 0);
@@ -263,6 +263,7 @@ describe('Theme QA MCP Capabilities', () => {
           {
             tabId: 'tab-1',
             workspaceRoot: root,
+            profile: 'audit',
             viewports: {
               desktop: { mismatchPercent: 0.5, passed: true },
               tablet: { mismatchPercent: 1.0, passed: true },
@@ -363,7 +364,7 @@ describe('Theme QA MCP Capabilities', () => {
         // this directory and deadlocks forever when a failing run writes nothing.
         const receipt = readSoleReceipt(root);
         assert.strictEqual(receipt.verdict, 'QA_INCONCLUSIVE');
-        assert.strictEqual(receipt.receiptVersion, '1.2');
+        assert.strictEqual(receipt.receiptVersion, '1.3');
         assert.ok(typeof receipt.errorCode === 'string' && receipt.errorCode.length > 0, 'errorCode must be a non-empty string');
         assert.ok(typeof receipt.errorMessage === 'string' && receipt.errorMessage.length > 0, 'errorMessage must be a non-empty string');
         assert.match(String(receipt.errorCode), /CAPTURE_TIMEOUT/);
@@ -424,7 +425,7 @@ describe('Theme QA MCP Capabilities', () => {
       }
     });
 
-    it('emits receiptVersion 1.2 with findings (selector, rect, truncated message, 200-cap) and annotation scopedCriticalCount', async () => {
+    it('emits receiptVersion 1.3 with findings (selector, rect, truncated message, 200-cap) and annotation scopedCriticalCount', async () => {
       const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-qa-receipt-findings-'));
       try {
         const annDir = path.join(root, '.antifan', 'annotations');
@@ -520,7 +521,7 @@ describe('Theme QA MCP Capabilities', () => {
         assert.strictEqual(res.summary.scopedCriticalCount, 1);
 
         const receipt = readSoleReceipt(root);
-        assert.strictEqual(receipt.receiptVersion, '1.2');
+        assert.strictEqual(receipt.receiptVersion, '1.3');
         assert.strictEqual(receipt.pageCriticalCount, 2);
         assert.strictEqual(receipt.scopedCriticalCount, 1);
         assert.ok(Array.isArray(receipt.findings), 'receipt.findings must be an array');

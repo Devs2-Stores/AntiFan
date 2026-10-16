@@ -43,6 +43,13 @@
  * latches into the session branch (see `./edit-mode`), with `ANTIFAN_EDIT_MODE`
  * as the fallback for a session that never latched one, so the guard and the
  * gate can never disagree about what the session is doing.
+ *
+ * QA debt: a scoped session that edited theme files without a later passing
+ * receipt leaves `<workspaceRoot>/.antifan/qa-debt.json` ({ root, since, files[] },
+ * the format `RESTYLE_MASTER_KIT/lib/receipt-audit.js` reads). It is written at
+ * scoped `turn_end`, carried into the next session by `session_start`, named in
+ * the reminder, and deleted when a complete passing receipt newer (file mtime)
+ * than `since` exists. Only that receipt clears it; a declared status does not.
  */
 
 import * as fs from "node:fs";
@@ -99,7 +106,7 @@ interface CustomMessage {
   attribution?: "user" | "agent";
 }
 
-interface HookAPI {
+export interface HookAPI {
   on(event: "tool_call", handler: (event: ToolCallEvent, ctx: ExtensionContext) => void): void;
   on(
     event: "tool_result",
@@ -107,7 +114,7 @@ interface HookAPI {
   ): void;
   on(event: "context", handler: (event: ContextEvent, ctx: ExtensionContext) => { messages?: unknown[] } | undefined): void;
   on(event: "turn_end", handler: (event: unknown, ctx: ExtensionContext) => void): void;
-  on(event: "session_start", handler: () => void): void;
+  on(event: "session_start", handler: (event?: unknown, ctx?: ExtensionContext) => void): void;
   /** Inject a custom message into the session (delivered + shown once per call). */
   sendMessage?(message: CustomMessage): void;
   /** Append a durable custom entry to the session branch. */
@@ -143,6 +150,8 @@ const BYPASS_TOKENS = [
   "qaStatus:QA_PENDING_SYNC",
 ];
 const RECEIPT_DIR = path.join(".antifan", "qa-receipts");
+/** Open QA debt record read by the kit gate (`qa_gate.js`): { root, since (epoch ms), files[] }. */
+const DEBT_FILE = path.join(".antifan", "qa-debt.json");
 
 /** A pending edit expires after 10 minutes: no receipt dir must never mean "forever". */
 const PENDING_TTL_MS = 10 * 60_000;
@@ -280,6 +289,19 @@ const microEdits = new Map<string, MicroEditRecord>();
 const churnWarnedPaths = new Set<string>();
 const pendingChurnHints = new Map<string, string>();
 let toolResultCounter = 0;
+/** One open QA debt: theme files edited with no passing receipt newer than `since`. */
+interface QaDebt {
+  since: number;
+  files: Set<string>;
+}
+/** workspaceRoot -> debt opened by a scoped (Direct-Edit/Super-Fast) edit or carried from disk. */
+const openDebts = new Map<string, QaDebt>();
+/** Roots whose in-memory debt has changes not yet persisted (flushed at scoped turn end). */
+const dirtyDebtRoots = new Set<string>();
+/** Session cwds whose debt file was already looked up. */
+const debtAdoptedFrom = new Set<string>();
+/** `${root}|${code}` of debt write failures already surfaced to the session. */
+const reportedDebtWriteFailures = new Set<string>();
 /** One-shot MCP-first injection per session, reset on session_start. */
 let mcpFirstInjected = false;
 let bridgeOutageKey: string | null = null;
@@ -889,6 +911,172 @@ function latestReceiptTime(workspaceRoot: string): number {
   return latestReceiptRecord(workspaceRoot)?.time ?? 0;
 }
 
+/** Same normalization as the kit receipt audit, so both sides agree on root identity. */
+function normalizeRootKey(value: unknown): string | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  return value.trim().replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+}
+
+/** A receipt that can clear debt: a completed, passing run for exactly this root (kit `isComplete`). */
+function isCompletePassReceipt(receipt: Record<string, unknown>, root: string): boolean {
+  if (receipt.verdict !== "QA_PASSED" || receipt.passed !== true) return false;
+  if (receipt.execution !== "COMPLETED" || receipt.errorCode !== null) return false;
+  if (receipt.workspaceRootRedirected === true) return false;
+  if (normalizeRootKey(receipt.workspaceRoot) !== normalizeRootKey(root)) return false;
+  const coverage = receipt.coverage as { measured?: unknown; expected?: unknown } | undefined;
+  if (
+    coverage &&
+    typeof coverage.measured === "number" &&
+    typeof coverage.expected === "number" &&
+    coverage.expected > 0 &&
+    coverage.measured < coverage.expected
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/** Whether a complete passing receipt is strictly newer (file mtime) than `since`. */
+function passingReceiptAfter(root: string, since: number): boolean {
+  let names: string[];
+  try {
+    names = fs.readdirSync(path.join(root, RECEIPT_DIR));
+  } catch {
+    return false;
+  }
+  for (const name of names) {
+    if (!name.endsWith(".json")) continue;
+    const file = path.join(root, RECEIPT_DIR, name);
+    try {
+      if (fs.statSync(file).mtimeMs <= since) continue;
+      const raw = JSON.parse(fs.readFileSync(file, "utf8")) as unknown;
+      if (raw && typeof raw === "object" && !Array.isArray(raw) && isCompletePassReceipt(raw as Record<string, unknown>, root)) {
+        return true;
+      }
+    } catch {
+      /* an unreadable or in-flight receipt is not a pass */
+    }
+  }
+  return false;
+}
+
+function readDebtFile(root: string): QaDebt | null {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(path.join(root, DEBT_FILE), "utf8")) as {
+      root?: unknown;
+      since?: unknown;
+      files?: unknown;
+    };
+    if (normalizeRootKey(parsed.root) !== normalizeRootKey(root)) return null;
+    const since = typeof parsed.since === "number" ? parsed.since : Date.parse(String(parsed.since));
+    const files = Array.isArray(parsed.files) ? parsed.files.filter((f): f is string => typeof f === "string") : [];
+    if (!Number.isFinite(since) || files.length === 0) return null;
+    return { since, files: new Set(files) };
+  } catch {
+    return null;
+  }
+}
+
+function writeDebtFile(root: string, debt: QaDebt): { ok: true } | { ok: false; code: string } {
+  const file = path.join(root, DEBT_FILE);
+  const tmp = `${file}.${process.pid}.tmp`;
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const body = { root: root.replace(/\\/g, "/"), since: debt.since, files: [...debt.files].sort() };
+    fs.writeFileSync(tmp, `${JSON.stringify(body, null, 2)}\n`, "utf8");
+    fs.renameSync(tmp, file);
+    return { ok: true };
+  } catch (err) {
+    try {
+      fs.rmSync(tmp, { force: true });
+    } catch {
+      /* best-effort tmp cleanup */
+    }
+    const code = err && typeof err === "object" && "code" in err && typeof err.code === "string" ? err.code : "WRITE_FAILED";
+    return { ok: false, code };
+  }
+}
+
+/** Drop every debt a newer complete passing receipt covers, deleting its file. */
+function settleDebts(): void {
+  for (const [root, debt] of [...openDebts]) {
+    if (!passingReceiptAfter(root, debt.since)) continue;
+    try {
+      fs.rmSync(path.join(root, DEBT_FILE), { force: true });
+    } catch {
+      continue;
+    }
+    openDebts.delete(root);
+    dirtyDebtRoots.delete(root);
+  }
+}
+
+/** Carry a debt left by an earlier session into this one (nearest `.antifan/qa-debt.json` at or above cwd). */
+function adoptDebt(cwd: string | undefined): void {
+  if (!cwd || debtAdoptedFrom.has(cwd)) return;
+  debtAdoptedFrom.add(cwd);
+  let dir = path.resolve(cwd);
+  for (let i = 0; i < 12; i++) {
+    if (fs.existsSync(path.join(dir, DEBT_FILE))) {
+      if (!openDebts.has(dir)) {
+        const debt = readDebtFile(dir);
+        if (debt) openDebts.set(dir, debt);
+      }
+      break;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  settleDebts();
+}
+
+function noteScopedEdit(root: string, rel: string): void {
+  settleDebts();
+  const debt = openDebts.get(root);
+  if (debt) debt.files.add(rel);
+  else openDebts.set(root, { since: Date.now(), files: new Set([rel]) });
+  dirtyDebtRoots.add(root);
+}
+
+/** Persist scoped-edit debt; a write failure is reported to the session once, never swallowed. */
+function flushDebts(pi: HookAPI): void {
+  settleDebts();
+  for (const root of [...dirtyDebtRoots]) {
+    const debt = openDebts.get(root);
+    dirtyDebtRoots.delete(root);
+    if (!debt) continue;
+    const onDisk = readDebtFile(root);
+    if (onDisk) {
+      for (const file of onDisk.files) debt.files.add(file);
+      debt.since = Math.min(debt.since, onDisk.since);
+    }
+    const written = writeDebtFile(root, debt);
+    if (written.ok) continue;
+    dirtyDebtRoots.add(root);
+    const key = `${root}|${written.code}`;
+    if (reportedDebtWriteFailures.has(key)) continue;
+    reportedDebtWriteFailures.add(key);
+    pi.sendMessage?.({
+      customType: "theme-qa-gate",
+      content: `[theme-qa-gate:debt] QA_DEBT_WRITE_FAILED (${written.code}): .antifan/qa-debt.json not written under ${root}; the kit gate cannot see the unverified edit.`,
+      display: true,
+      attribution: "agent",
+      details: { kind: "qa-debt-write-failed", code: written.code, root },
+    });
+  }
+}
+
+function debtReminder(): string {
+  if (openDebts.size === 0) return "";
+  const parts = [...openDebts].map(([root, debt]) => {
+    const files = [...debt.files];
+    const shown = files.slice(0, 3).join(", ");
+    return `${root}: ${files.length} file(s) since ${new Date(debt.since).toISOString()} (${shown}${files.length > 3 ? ", ..." : ""})`;
+  });
+  return ` Open QA debt (.antifan/qa-debt.json) until a passing receipt lands: ${parts.join("; ")}.`;
+}
+
 /** Drop pending entries that a fresh receipt now covers, preserving armed status on settings regressions. */
 function reconcileReceipts(): void {
   for (const [root, editTs] of pendingEdits) {
@@ -1310,11 +1498,12 @@ function clearPending(root: string): void {
 
 /**
  * The reminder deliberately never contains a BYPASS_TOKENS string (in either
- * spelling): it points at the authority instead, naming the terminal statuses
- * without reproducing the exact declaration the gate matches on. It also never
- * cites a repo-relative source path — the consuming session's cwd is the theme
- * workspace, where `src/shared/annotation-prompt.ts` does not resolve — so the
- * SELF_QA_DIRECTIVE contract steps are inlined here instead.
+ * spelling): it names the terminal statuses without reproducing the exact
+ * declaration the gate matches on. It also never cites a repo-relative source
+ * path — the consuming session's cwd is the theme workspace, where
+ * `src/shared/annotation-prompt.ts` does not resolve. It is kept short on
+ * purpose: it lands on every Nth edit result, and the full SELF_QA_DIRECTIVE
+ * contract already lives in the annotation prompt.
  */
 function reminderText(): string {
   const allFindings: HookSettingsFinding[] = [];
@@ -1341,26 +1530,25 @@ function reminderText(): string {
         return `${GATE_MARKER} QA GATE PENDING — Settings regression detected: ${f.rule} at ${loc}${idPart}. ${fixHint}`;
       })
       .join("\n");
-    return `\n\n${formatted}\n(${allFindings.length} new finding(s); showing ${shown.length}.) Run theme.qa_validate with tabId + workspaceRoot once resolved.`;
+    return `\n\n${formatted}\n(${allFindings.length} new finding(s); showing ${shown.length}.) Run theme.qa_validate with tabId + workspaceRoot once resolved.${debtReminder()}`;
   }
 
   const roots = [...pendingEdits.keys()].join(", ");
   return (
-    `\n\n${GATE_MARKER} QA GATE PENDING — theme file(s) under ${roots} were edited without a fresh AntiFan QA receipt. ` +
-    `Before reporting done: run theme.qa_validate with tabId + workspaceRoot + expectedUrl (expectedUrl and annotationId are OPTIONAL per the tool schema; when no annotation "QA Binding" line exists, tabId + workspaceRoot alone is enough) so a receipt lands in .antifan/qa-receipts/. ` +
-    `If a receipt is genuinely impossible, declare the matching SELF_QA_DIRECTIVE terminal status in your OWN assistant message — ` +
-    `the QA_UNAVAILABLE terminal status when the capability is missing (re-probe once on CAPABILITY_NOT_FOUND, it may have registered after a restart) or auth fails (ATTACHMENT_REQUIRED / ATTACHMENT_INVALID / MCP_CONTEXT_REQUIRED / UNAUTHENTICATED); ` +
-    `the QA_INCONCLUSIVE terminal status for environment failures (SETTLE_INCOMPLETE, CAPTURE_NOT_READY, CAPTURE_FRAME_STARVATION, CAPTURE_TIMEOUT, TARGET_BUSY_DRAINING, TARGET_STALE / TARGET_MISMATCH after one rebind_target retry) after one reload/re-probe retry — each with the original error code; ` +
-    `the QA_PENDING_SYNC terminal status when the live tab cannot show the edit until the user syncs the theme (the agent never pushes) — list the edited files and the sync the user must run; ` +
-    `the QA_FAILED terminal status after two failed repair rounds is reported honestly but does NOT clear this gate: fix and re-validate, or hand the failure to the dev. ` +
-    `For a pure CSS micro edit (single plain assets/ *.css|*.scss file, <=10 changed lines total, no Liquid), declare the micro static terminal status with the file, selector and changed-line count in your own message — the gate validates it against the edit IT observed. ` +
-    `Declaring QA_PASSED without a receipt is a contract violation. ` +
-    `The gate clears on a fresh receipt or on that assistant-side declaration; nothing else clears it.`
+    `\n\n${GATE_MARKER} QA GATE PENDING — theme file(s) under ${roots} edited without a fresh AntiFan QA receipt. ` +
+    `Run theme.qa_validate (tabId + workspaceRoot; expectedUrl and annotationId optional) so a receipt lands in .antifan/qa-receipts/. ` +
+    `If impossible, declare one SELF_QA_DIRECTIVE terminal status in your own message, with the original error code: ` +
+    `QA_UNAVAILABLE (capability missing or auth failed), ` +
+    `QA_INCONCLUSIVE (environment failure such as CAPTURE_FRAME_STARVATION or TARGET_STALE, after one retry), ` +
+    `QA_PENDING_SYNC (user must sync the theme; list the edited files), ` +
+    `QA_MICRO_STATIC (single plain assets/ CSS file, <=10 changed lines, no Liquid; name file, selector, line count). ` +
+    `QA_FAILED does not clear the gate. QA_PASSED without a receipt is a contract violation.` +
+    debtReminder()
   );
 }
 
 export default function themeQaGate(pi: HookAPI): void {
-  pi.on("session_start", () => {
+  pi.on("session_start", (_event, ctx) => {
     try {
       pendingEdits.clear();
       annotationsAtArm.clear();
@@ -1375,6 +1563,11 @@ export default function themeQaGate(pi: HookAPI): void {
       bridgeOutageKey = null;
       bridgeRecoveredCode = null;
       scopedSessionStates.clear();
+      openDebts.clear();
+      dirtyDebtRoots.clear();
+      debtAdoptedFrom.clear();
+      reportedDebtWriteFailures.clear();
+      adoptDebt(ctx?.cwd);
     } catch {
       /* never throw out of a handler */
     }
@@ -1387,6 +1580,7 @@ export default function themeQaGate(pi: HookAPI): void {
       const isDeviceOnly = targets.length > 0 && targets.every((t) => DEVICE_PATH_RE.test(t));
       const isWrite = WRITE_TOOLS.has(toolName) && !isDeviceOnly;
       const cwd = ctx?.cwd ?? process.cwd();
+      adoptDebt(cwd);
       const themeTargets: Array<{ absTarget: string; root: string; rel: string }> = [];
       if (isWrite) {
         for (const target of targets) {
@@ -1416,6 +1610,7 @@ export default function themeQaGate(pi: HookAPI): void {
       if (toolName === "write" && firstTarget !== undefined) {
         maybeQueueChurnHint(firstTarget);
       }
+      const scopedEdit = SCOPED_MODES.includes(sessionMode(ctx));
       for (const { root, rel } of themeTargets) {
         if (!pendingEdits.has(root)) {
           const wasEmpty = pendingEdits.size === 0;
@@ -1426,6 +1621,7 @@ export default function themeQaGate(pi: HookAPI): void {
           if (wasEmpty) toolResultCounter = 0;
         }
         recordMicroEdit(root, rel, added);
+        if (scopedEdit) noteScopedEdit(root, rel);
       }
     } catch {
       /* never throw out of a handler */
@@ -1444,6 +1640,7 @@ export default function themeQaGate(pi: HookAPI): void {
         return undefined;
       }
       pruneExpired();
+      adoptDebt(ctx?.cwd ?? process.cwd());
 
       const resultTool = String(event.toolName ?? event.name ?? "").toLowerCase();
       const isAntifanTool = ANTIFAN_TOOL_RE.test(resultTool);
@@ -1480,6 +1677,7 @@ export default function themeQaGate(pi: HookAPI): void {
       // the `context` handler instead.
       const targets = extractResultTargetPaths(event);
       const hasXdTarget = targets.some((t) => t.toLowerCase().startsWith("xd://") || DEVICE_PATH_RE.test(t));
+      if (openDebts.size > 0 && (isAntifanTool || hasXdTarget)) settleDebts();
       if (isAntifanTool || hasXdTarget || parsesAsJson(event.content)) {
         return undefined;
       }
@@ -1570,6 +1768,7 @@ function readLatestRatchetStats(workspaceRoot: string, minReceiptTime = 0): Ratc
     try {
       const mode = sessionMode(ctx);
       if (!SCOPED_MODES.includes(mode)) return;
+      flushDebts(pi);
       const shape = resolveWorkspaceShape(ctx?.cwd ?? process.cwd());
       const sid = sessionIdOf(ctx);
       const sessionKey = sid || shape.workspaceRoot;
@@ -1638,6 +1837,8 @@ function readLatestRatchetStats(workspaceRoot: string, minReceiptTime = 0): Ratc
       }
 
       pruneExpired();
+      adoptDebt(ctx?.cwd ?? process.cwd());
+      settleDebts();
       // An outage observed on an AntiFan MCP result (marker lane) happened while the
       // record may still read listening, so the record alone cannot clear it here.
       const recordEvidence = bridgeOutageEvidence();

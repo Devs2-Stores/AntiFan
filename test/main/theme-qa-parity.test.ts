@@ -341,7 +341,7 @@ describe('ThemeQaWorkflow Canonical Validation & Capability Alias Delegation', (
       };
 
       // 1. Primary capability execution
-      const primaryResult = await catalogue.get('theme.qa_validate')!.execute({}, context) as { summary: { passed: boolean } };
+      const primaryResult = await catalogue.get('theme.qa_validate')!.execute({ profile: 'audit' }, context) as { summary: { passed: boolean } };
       assert.strictEqual(primaryResult.summary.passed, true);
 
       // 2. Alias execution with fresh target generation
@@ -350,6 +350,7 @@ describe('ThemeQaWorkflow Canonical Validation & Capability Alias Delegation', (
         browserTarget: { ...target, documentGeneration: docGen },
       };
       const aliasResult = await catalogue.get('antifan_theme_qa_validate')!.execute({
+        profile: 'audit',
         multiBreakpoint: true,
         viewports: {
           desktop: { mismatchPercent: 1.2, passed: true },

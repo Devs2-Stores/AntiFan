@@ -12,6 +12,7 @@ const esbuild = require('esbuild');
 
 const root = path.resolve(__dirname, '../..');
 const only = (process.argv.find((arg) => arg.startsWith('--only=')) || '').slice(7);
+const thresholds = JSON.parse(fs.readFileSync(path.join(root, 'test/fixtures/visual-quality/thresholds.json'), 'utf8'));
 const viewports = [
   { name: 'mobile', width: 375, height: 667, deviceScaleFactor: 2, mobile: true },
   { name: 'desktop', width: 1440, height: 900, deviceScaleFactor: 1, mobile: false },
@@ -72,6 +73,12 @@ function judge(fixture, byViewport) {
     if (typeof expect.indeterminateAtLeast === 'number' && res.stats.contrastIndeterminate < expect.indeterminateAtLeast) {
       failures.push(`${vp.name}: contrastIndeterminate ${res.stats.contrastIndeterminate} < ${expect.indeterminateAtLeast}`);
     }
+    for (const rule of expect.measuredRules || []) {
+      if (!res.stats.measuredRules.includes(rule)) failures.push(`${vp.name}: ${rule} not in stats.measuredRules (${res.stats.measuredRules.join(',')})`);
+    }
+    for (const rule of expect.unmeasuredRules || []) {
+      if (!res.stats.unmeasuredRules.includes(rule)) failures.push(`${vp.name}: ${rule} not in stats.unmeasuredRules (${res.stats.unmeasuredRules.join(',')})`);
+    }
   }
   return failures;
 }
@@ -96,7 +103,7 @@ async function run() {
       await win.webContents.loadFile(htmlPath);
       await sleep(fixture.settleMs || 250);
       const before = await win.webContents.executeJavaScript('[window.scrollX, window.scrollY]');
-      const raw = await win.webContents.executeJavaScript(VisualQualityScanner.getBrowserScanScript());
+      const raw = await win.webContents.executeJavaScript(VisualQualityScanner.getBrowserScanScript(fixture.thresholds ? { thresholds } : {}));
       const after = await win.webContents.executeJavaScript('[window.scrollX, window.scrollY]');
       const res = VisualQualityScanner.normalize(raw);
       if (before[0] !== after[0] || before[1] !== after[1]) res.error = `scroll not restored ${before} -> ${after}`;

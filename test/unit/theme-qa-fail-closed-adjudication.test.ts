@@ -161,7 +161,15 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
 
     it('build-strict keeps recommended-size tap warnings advisory', async () => {
       // Tap targets are only graded by a mobile-width scan.
-      const report = await run(portsWithVisual(visualResult([smallTapFinding], true)), 'build-strict');
+      const report = await new ThemeQaWorkflow(portsWithVisual(visualResult([smallTapFinding], true))).validate({
+        runId: 'run-vq',
+        attemptId: 'att-vq',
+        workspaceRoot: 'E:/Work/test-theme',
+        target: makeTarget(1),
+        profile: 'build-strict',
+        coverageFloor: 0,
+        thresholds: { minTextPx: 12, minControlPx: 44, minTapHitPx: 24, tapSpacingCirclePx: 24 },
+      });
       assert.strictEqual(report.summary.verdict, 'PASS');
       assert.ok(!(report.findings?.evidenceGaps || []).some((gap) => gap.includes('Tap targets not graded')));
     });

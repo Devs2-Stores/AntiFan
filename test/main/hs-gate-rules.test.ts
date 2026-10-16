@@ -108,3 +108,24 @@ test('HS-05: accepts valid absolute platform CDN images and flags invalid non-CD
   const shopifyValid = `<img class="product__image" src="https://cdn.shopify.com/s/files/1/0000/products/item.png" />`;
   assert.equal(HsGateRules.evaluateHtml(shopifyValid, 'shopify').violations.some(v => v.ruleId === 'HS-05'), false);
 });
+
+test('HS-05: message names the absolute, non-protocol-relative CDN requirement in static and live scripts', () => {
+  const wording = 'absolute (not protocol-relative) platform CDN URL';
+  const html = '<img class="featured-image" src="https://random-domain.com/product_1.jpg" />';
+  const staticViolation = HsGateRules.evaluateHtml(html, 'haravan').violations.find((v) => v.ruleId === 'HS-05');
+  assert.ok(staticViolation, 'a non-CDN featured image must raise HS-05');
+  assert.ok(staticViolation.message.includes(wording), staticViolation.message);
+  assert.ok(HsGateRules.getBrowserEvaluationScript('haravan').includes(wording), 'live HS-05 message must carry the same wording');
+});
+
+test('cart telemetry: contracts never seen are reported as unobserved (null), not as false', () => {
+  const idle = HsGateRules.evaluateCartTelemetry({ observedRequests: [], forms: [] });
+  assert.deepEqual(idle.contracts, { add: null, change: null, read: null });
+
+  const reads = HsGateRules.evaluateCartTelemetry({ observedRequests: [{ url: 'https://shop.example/cart.js', method: 'GET' }], forms: [] });
+  assert.deepEqual(reads.contracts, { add: null, change: null, read: true });
+
+  const perf = { getEntriesByType: () => [] as Array<{ name: string }> };
+  const live = new Function('performance', 'return ' + HsGateRules.getBrowserCartAssertionScript())(perf) as { contracts: Record<string, unknown> };
+  assert.deepEqual(live.contracts, { add: null, change: null, read: null });
+});

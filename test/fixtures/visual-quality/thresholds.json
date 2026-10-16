@@ -1,0 +1,6 @@
+{
+  "minTextPx": 12,
+  "minControlPx": 44,
+  "minTapHitPx": 24,
+  "tapSpacingCirclePx": 24
+}
