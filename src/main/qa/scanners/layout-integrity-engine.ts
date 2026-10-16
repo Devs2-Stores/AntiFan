@@ -770,29 +770,6 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
     const T_MIN_GAP = vw <= 480 ? 8 : 6;
     const MEDIA_BOX = 'img, picture, video';
     const seenMinGap = new Set();
-    // A control with no background, border or shadow shows only its icon or label, so two of them
-    // read as close as their ink is: 44px icon buttons 4px apart have glyphs ~28px apart.
-    const boxVisible = (el) => {
-      const s = cs(el);
-      if (alphaOfColor(s.backgroundColor) >= 0.1 || s.backgroundImage !== 'none' || s.boxShadow !== 'none') return true;
-      return ['Top', 'Right', 'Bottom', 'Left'].some((k) => (parseFloat(s['border' + k + 'Width']) || 0) > 0 && alphaOfColor(s['border' + k + 'Color']) >= 0.1);
-    };
-    const inkRect = (el) => {
-      let l = Infinity;
-      let t = Infinity;
-      let r = -Infinity;
-      let b = -Infinity;
-      const add = (q) => {
-        if (q.width <= 0 || q.height <= 0) return;
-        l = Math.min(l, q.left);
-        t = Math.min(t, q.top);
-        r = Math.max(r, q.right);
-        b = Math.max(b, q.bottom);
-      };
-      el.querySelectorAll('svg, img, picture, video').forEach((m) => add(m.getBoundingClientRect()));
-      for (let rIdx = 0; rIdx < runs.length; rIdx++) if (el.contains(runs[rIdx].p)) add(runs[rIdx].r);
-      return r > l ? { left: l, top: t, right: r, bottom: b } : null;
-    };
     for (let i = 0; i < elementLimit; i++) {
       const parent = allElements[i];
       if (parent.children.length < 2 || parent.closest('svg, head') || parent.closest(CAROUSEL_SLIDE)) continue;
@@ -826,14 +803,6 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
           axis = 'vertical';
         }
         if (gap === null || gap < 0.5 || gap >= T_MIN_GAP) continue;
-        if (bothInteractive && !boxVisible(elA) && !boxVisible(elB)) {
-          const iA = inkRect(elA);
-          const iB = inkRect(elB);
-          if (iA && iB) {
-            const inkGap = axis === 'horizontal' ? Math.max(iB.left - iA.right, iA.left - iB.right) : Math.max(iB.top - iA.bottom, iA.top - iB.bottom);
-            if (inkGap >= T_MIN_GAP) continue;
-          }
-        }
         if (mediaPair) {
           const textBox = elA.matches(MEDIA_BOX) ? elB : elA;
           if (alphaOfColor(cs(textBox).backgroundColor) >= 0.1 || !firstTextRect(textBox, false)) continue;
