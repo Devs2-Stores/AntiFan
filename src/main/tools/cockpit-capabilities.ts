@@ -13,23 +13,24 @@
  * budget-dominance gate builds the catalogue against recording stubs, so
  * collaborator access happens only inside `execute` bodies.
  * MAINTENANCE: adding/removing/renaming a `theme.cockpit_*` capability (or its
- * error semantics) must update the managed skill `antifan-qa-cockpit`
- * (~/.omp/agent/managed-skills/antifan-qa-cockpit/SKILL.md) in the same commit —
- * its §4 reference table is regenerated from this file, and its refusal table
- * mirrors the CapabilityError codes thrown below.
+ * error semantics) must update the skill `antifan-qa-cockpit`
+ * (~/.claude/skills/antifan-qa-cockpit/SKILL.md) in the same commit - its
+ * reference table is maintained by hand and its refusal table mirrors the
+ * CapabilityError codes thrown below.
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
   CapabilityError,
+  type BrowserTarget,
   type CapabilityRequestContext,
   type CapabilityRisk,
 } from '../../shared/control-plane-contracts';
 import type { CapabilityCatalogue } from './capability-catalogue';
 import type { CapabilityEffectPolicyInput } from '../../shared/control-plane-contracts';
 import type { BrowserControlPort } from './browser-control-port';
-import type { CockpitPort, CockpitScopeIdentity } from './cockpit-port';
+import type { CockpitPort, CockpitScopeIdentity, CockpitThemeQaOptions } from './cockpit-port';
 import type { ChecklistMutationOp } from '../qa/theme-checklist-store';
 import { PlatformDetector } from '../qa/scanners/platform-detector';
 import { loadOrBootstrapBaseline, evaluateSettingsRatchet, type SettingsFinding } from '../qa/settings-ratchet';
@@ -42,6 +43,14 @@ import {
   type ThemeChecklistItem,
 } from '../../shared/theme-checklist';
 import { confineWorkspaceRoot } from '../qa/diagnostics-filter';
+import { assertThemeWorkspaceRoot } from '../qa/workspace-markers';
+import { deriveChecklistTicks, type ChecklistProbeResults } from '../qa/checklist-autotick';
+import { makeProbeDeps, type ProbeDeps } from '../qa/probes/probe-deps';
+import { runPickProduct, type PickProductStrategy } from '../qa/probes/pick-product';
+import { runPageStructure } from '../qa/probes/page-structure';
+import { runMenuDepth } from '../qa/probes/menu-depth';
+import { runVariantImageProbe } from '../qa/probes/variant-image-probe';
+import { runPdpContract } from '../qa/probes/pdp-contract';
 import { DEADLINES } from '../../shared/deadline-chain';
 // Circular edge (browser-capabilities ↔ this module): the namespace is resolved
 // lazily inside the registration body, so neither module may reference it at
@@ -333,6 +342,159 @@ function resolveScanRoute(page: string, boundUrl: string, origin: string, explic
   }
 }
 
+const PICK_STRATEGIES: readonly PickProductStrategy[] = ['max-variants', 'long-title', 'sold-out', 'no-image'];
+
+function parsePickStrategy(value: unknown): PickProductStrategy | undefined {
+  if (value === undefined) return undefined;
+  if (!PICK_STRATEGIES.includes(value as PickProductStrategy)) {
+    throw new CapabilityError('INVALID_ARGUMENT', `theme.cockpit_scan pick must be one of ${PICK_STRATEGIES.join(', ')}`);
+  }
+  return value as PickProductStrategy;
+}
+
+const BASELINE_VIEWPORT_KEYS = ['desktop', 'tablet', 'mobile'] as const;
+
+/** Validates the baseline-comparison `viewports` object the QA matrix grades CERTIFIED against. */
+function parseBaselineViewports(value: unknown): CockpitThemeQaOptions['viewports'] {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new CapabilityError('INVALID_ARGUMENT', 'theme.cockpit_scan viewports must be an object keyed by desktop, tablet and mobile');
+  }
+  const raw = value as Record<string, unknown>;
+  const out: NonNullable<CockpitThemeQaOptions['viewports']> = {};
+  for (const key of Object.keys(raw)) {
+    if (!(BASELINE_VIEWPORT_KEYS as readonly string[]).includes(key)) {
+      throw new CapabilityError('INVALID_ARGUMENT', `theme.cockpit_scan viewports.${key} is not a baseline viewport; expected ${BASELINE_VIEWPORT_KEYS.join(', ')}`);
+    }
+    const entry = raw[key] as { mismatchPercent?: unknown; passed?: unknown } | null;
+    if (!entry || typeof entry !== 'object' || typeof entry.mismatchPercent !== 'number' || !Number.isFinite(entry.mismatchPercent) || typeof entry.passed !== 'boolean') {
+      throw new CapabilityError('INVALID_ARGUMENT', `theme.cockpit_scan viewports.${key} needs a numeric mismatchPercent and a boolean passed`);
+    }
+    out[key as (typeof BASELINE_VIEWPORT_KEYS)[number]] = { mismatchPercent: entry.mismatchPercent, passed: entry.passed };
+  }
+  return out;
+}
+
+/** The QA grading inputs a cockpit scan forwards to the workflow; anything malformed is refused, never defaulted. */
+function parseScanQaOptions(params: { profile?: unknown; thresholds?: unknown; viewports?: unknown; multiBreakpoint?: unknown }): CockpitThemeQaOptions {
+  const parsed = browserCaps.parseQaValidateOptions({
+    ...(params.profile !== undefined ? { profile: params.profile } : {}),
+    ...(params.thresholds !== undefined ? { thresholds: params.thresholds } : {}),
+  });
+  if (params.multiBreakpoint !== undefined && typeof params.multiBreakpoint !== 'boolean') {
+    throw new CapabilityError('INVALID_ARGUMENT', 'theme.cockpit_scan multiBreakpoint must be a boolean');
+  }
+  const viewports = parseBaselineViewports(params.viewports);
+  return {
+    ...(parsed.profile ? { profile: parsed.profile } : {}),
+    ...(parsed.thresholds ? { thresholds: parsed.thresholds } : {}),
+    ...(viewports ? { viewports } : {}),
+    ...(params.multiBreakpoint !== undefined ? { multiBreakpoint: params.multiBreakpoint } : {}),
+  };
+}
+
+/** Page key of a storefront URL when the caller named neither page nor url. */
+function inferPageKey(liveUrl: string): string {
+  let pathname: string;
+  try {
+    pathname = new URL(liveUrl).pathname;
+  } catch {
+    return '';
+  }
+  if (PRODUCT_PAGE_PATH.test(pathname)) return 'product';
+  if (ARTICLE_PAGE_PATH.test(pathname)) return 'article';
+  if (pathname === '/' || pathname === '') return 'home';
+  if (/^\/collections\/[^/]+\/?$/.test(pathname)) return 'collection';
+  return '';
+}
+
+const PROBES_BY_PAGE: Readonly<Record<string, ReadonlyArray<keyof ChecklistProbeResults>>> = {
+  home: ['page_structure', 'menu_depth'],
+  product: ['variant_image_probe', 'pdp_contract'],
+  collection: ['menu_depth'],
+};
+
+async function runPageProbes(deps: ProbeDeps, page: string): Promise<ChecklistProbeResults> {
+  const results: ChecklistProbeResults = {};
+  for (const name of PROBES_BY_PAGE[page] ?? []) {
+    try {
+      switch (name) {
+        case 'page_structure': results[name] = await runPageStructure(deps); break;
+        case 'menu_depth': results[name] = await runMenuDepth(deps); break;
+        case 'variant_image_probe': results[name] = await runVariantImageProbe(deps, {}); break;
+        case 'pdp_contract': results[name] = await runPdpContract(deps); break;
+      }
+    } catch (err) {
+      results[name] = { measured: false, passed: null, findings: [], data: {}, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+  return results;
+}
+
+function loadChecklistItems(cockpit: CockpitPort, tabId: string, input: { scope: string; workspaceRoot: string }): ThemeChecklistItem[] | undefined {
+  try {
+    return cockpit.checklistLoad(tabId, input).items;
+  } catch {
+    return undefined;
+  }
+}
+
+/** What a scan adds beyond the QA report: probe evidence and the checklist ticks it decided. */
+export interface ScanProbeOutcome {
+  probes?: ChecklistProbeResults;
+  checklist?: {
+    applied: Array<{ itemId: string; done: boolean }>;
+    skipped: Array<{ itemId: string; reason: string }>;
+  };
+}
+
+/**
+ * Runs the page probes after a successful QA scan and writes the ticks the
+ * measurements decide. An item the user changed while the scan ran is left alone:
+ * a scan never overrides a manual tick or un-tick that is newer than its own start.
+ */
+async function finishScan(args: {
+  cockpit: CockpitPort;
+  browser: BrowserControlPort;
+  context: CapabilityRequestContext;
+  identity: CockpitScopeIdentity;
+  checklistInput: { scope: string; workspaceRoot: string };
+  checklistBefore: ThemeChecklistItem[] | undefined;
+  ok: boolean;
+  report: unknown;
+  page: string;
+}): Promise<ScanProbeOutcome> {
+  const { cockpit, browser, context, identity, checklistInput, checklistBefore, ok, report, page } = args;
+  if (!ok || !identity.workspaceRoot || !context.browserTarget) return {};
+  const deps = makeProbeDeps(browser, context.browserTarget, identity.tabId, 'desktop', context.signal);
+  const probes = await runPageProbes(deps, page);
+  const ticks = deriveChecklistTicks({ qa: report, probes });
+  const checklist: NonNullable<ScanProbeOutcome['checklist']> = { applied: [], skipped: [] };
+  if (ticks.length === 0) return { probes, checklist };
+  const current = loadChecklistItems(cockpit, identity.tabId, checklistInput);
+  if (!current || !checklistBefore) {
+    checklist.skipped = ticks.map((tick) => ({ itemId: tick.itemId, reason: 'checklist could not be loaded' }));
+    return { probes, checklist };
+  }
+  const before = new Map(checklistBefore.map((item) => [item.id, item]));
+  const now = new Map(current.map((item) => [item.id, item]));
+  for (const tick of ticks) {
+    const live = now.get(tick.itemId);
+    if (!live) {
+      checklist.skipped.push({ itemId: tick.itemId, reason: 'item is not in this checklist' });
+      continue;
+    }
+    const was = before.get(tick.itemId);
+    if (was && (was.done !== live.done || (was.note ?? '') !== (live.note ?? ''))) {
+      checklist.skipped.push({ itemId: tick.itemId, reason: 'changed by the user while the scan ran' });
+      continue;
+    }
+    cockpit.checklistMutate(identity.tabId, { ...checklistInput, op: { op: 'mark', itemId: tick.itemId, done: tick.done, note: tick.note } });
+    checklist.applied.push({ itemId: tick.itemId, done: tick.done });
+  }
+  return { probes, checklist };
+}
+
 export function registerCockpitCapabilities(
   catalogue: CapabilityCatalogue,
   cockpit: CockpitPort,
@@ -508,7 +670,7 @@ export function registerCockpitCapabilities(
 
   catalogue.register({
     name: 'theme.cockpit_scan',
-    description: 'Navigate the bound tab to a checklist page route and run the authoritative Theme QA scan on it',
+    description: 'Navigate the bound tab to a checklist page route, run the authoritative Theme QA scan on it, then run the page probes for that route (home: page_structure + menu_depth; product: variant_image_probe + pdp_contract; collection: menu_depth) and tick the checklist items those measurements decide. profile/thresholds/viewports/multiBreakpoint are forwarded to the QA run unchanged; pick chooses the product page (max-variants, long-title, sold-out, no-image) instead of the first product link. The report carries certification: STRUCTURAL unless the baseline viewports are supplied.',
     risk: 'read',
     requiresBrowserTarget: true,
     // Navigating the tab is a real interactive effect: the run is not replay-safe
@@ -519,20 +681,36 @@ export function registerCockpitCapabilities(
       properties: {
         page: { type: 'string', description: 'PAGE_DEFS page key; when omitted the tab is scanned on its current URL' },
         url: { type: 'string', description: 'Optional explicit same-origin URL or /products/<handle> path to scan' },
-        workspaceRoot: { type: 'string', description: 'Workspace root assertion; confined to the bound tab resolved root before the QA run' },
+        workspaceRoot: { type: 'string', description: 'Workspace root assertion; a root outside the bound tab workspace falls back to the bound root, and a bound root without theme markers is refused with WORKSPACE_NOT_THEME' },
+        allowNonTheme: { type: 'boolean', description: 'Accept a workspace root without theme markers (layout/theme.liquid, config/settings_schema.json, config/settings.html)' },
         tabId: { type: 'string' },
+        profile: { type: 'string', enum: ['audit', 'build-strict'], description: 'QA grading profile (default build-strict)' },
+        thresholds: { type: 'object', description: 'Contract thresholds (minTextPx, minControlPx, minTapHitPx, tapSpacingCirclePx, optional titleScale, inputHeightBandPx). Omitted: workspace contract typeScale, else the built-in defaults' },
+        viewports: { type: 'object', description: 'Baseline comparison results per viewport ({desktop|tablet|mobile: {mismatchPercent, passed}}); all three are required for certification CERTIFIED' },
+        multiBreakpoint: { type: 'boolean', description: 'Run the responsive breakpoint sweep (default true)' },
+        pick: { type: 'string', enum: [...PICK_STRATEGIES], description: 'For page=product without an explicit url: crawl /collections/all and scan the product that best matches this strategy' },
       },
     },
-    execute: async (params: { page?: string; url?: string; workspaceRoot?: string; tabId?: string }, context) => {
+    execute: async (params: { page?: string; url?: string; workspaceRoot?: string; allowNonTheme?: boolean; tabId?: string; profile?: unknown; thresholds?: unknown; viewports?: unknown; multiBreakpoint?: unknown; pick?: unknown }, context) => {
       const identity = resolveBoundScope(cockpit, params, context, 'theme.cockpit_scan');
+      const qaOptions = parseScanQaOptions(params);
+      const pick = parsePickStrategy(params.pick);
+      // A caller-supplied workspaceRoot is an assertion, not a target: a root outside
+      // the bound root falls back to the bound root. An unresolvable bound root stays
+      // provisional (no marker check possible, no candidate honoured).
+      let confinedRoot = '';
+      if (identity.workspaceRoot) {
+        confinedRoot = confineWorkspaceRoot(params.workspaceRoot, identity.workspaceRoot);
+        if (params.allowNonTheme !== true) assertThemeWorkspaceRoot(confinedRoot, 'theme.cockpit_scan');
+      }
       const boundUrl = await browser.getLiveTabUrl(identity.tabId).catch(() => '');
       const page = typeof params.page === 'string' ? params.page.trim() : '';
       const explicitUrl = typeof params.url === 'string' ? params.url.trim() : '';
+      let resolvedPage = page;
       if (page || explicitUrl) {
         if (page && !PAGE_DEFS[page]) {
           throw new CapabilityError('INVALID_ARGUMENT', `theme.cockpit_scan page '${page}' is not a known page; expected one of ${Object.keys(PAGE_DEFS).join(', ')}`);
         }
-        let resolvedPage = page;
         if (!resolvedPage && explicitUrl && identity.origin) {
           try {
             const candidate = new URL(explicitUrl, new URL(identity.origin).origin);
@@ -551,7 +729,16 @@ export function registerCockpitCapabilities(
         }
         const pageDef = resolvedPage ? PAGE_DEFS[resolvedPage] : undefined;
         const pageLabel = resolvedPage || 'custom';
-        let route = resolveScanRoute(resolvedPage, boundUrl, identity.origin, explicitUrl || undefined);
+        let pickedUrl: string | undefined;
+        if (pick && resolvedPage === 'product' && !explicitUrl) {
+          const picked = await runPickProduct(makeProbeDeps(browser, context.browserTarget as BrowserTarget, identity.tabId, 'desktop', context.signal), { strategy: pick });
+          const handle = picked.data.handles[0];
+          if (!handle) {
+            throw new CapabilityError('ROUTE_UNRESOLVED', `theme.cockpit_scan pick '${pick}' found no matching product${picked.error ? `: ${picked.error}` : ''}`);
+          }
+          pickedUrl = `/products/${encodeURIComponent(handle)}`;
+        }
+        let route = resolveScanRoute(resolvedPage, boundUrl, identity.origin, pickedUrl ?? (explicitUrl || undefined));
         if (!route && pageDef?.routeKind === 'handle-required' && identity.origin && context.browserTarget && typeof browser.eval === 'function') {
           try {
             const selectorExpr = resolvedPage === 'article'
@@ -599,15 +786,21 @@ export function registerCockpitCapabilities(
           }
         }
       }
-      // A caller-supplied workspaceRoot is an assertion, not a target: outside
-      // the bound root it falls back, never escapes (F4; belt under the P1
-      // confine inside runThemeQa). An unresolvable bound root fails closed —
-      // a candidate can't leak through the pass-through branch.
-      const confinedRoot = identity.workspaceRoot
-        ? confineWorkspaceRoot(params.workspaceRoot, identity.workspaceRoot)
-        : '';
-      const result = await cockpit.runThemeQa(identity.tabId, { workspaceRoot: confinedRoot });
-      return { ok: result.ok === true, report: result.report, error: result.error, scope: identity.scope, workspaceRoot: confinedRoot, isProvisional: identity.isProvisional };
+      const checklistInput = { scope: identity.scope, workspaceRoot: identity.workspaceRoot };
+      const checklistBefore = identity.workspaceRoot ? loadChecklistItems(cockpit, identity.tabId, checklistInput) : undefined;
+      const result = await cockpit.runThemeQa(identity.tabId, { ...qaOptions, workspaceRoot: confinedRoot });
+      const scanned = await finishScan({
+        cockpit,
+        browser,
+        context,
+        identity,
+        checklistInput,
+        checklistBefore,
+        ok: result.ok === true,
+        report: result.report,
+        page: resolvedPage || inferPageKey(await browser.getLiveTabUrl(identity.tabId).catch(() => boundUrl)),
+      });
+      return { ok: result.ok === true, report: result.report, error: result.error, scope: identity.scope, workspaceRoot: confinedRoot, isProvisional: identity.isProvisional, ...scanned };
     },
   });
 

@@ -698,7 +698,7 @@ describe('OMP MCP stdio proxy security & bootstrap fail-closed contract', { conc
       assert.deepEqual(dispatched, ['browser.agent-move', 'anti.screenshot.viewport']);
       const listed = await request(4, 'tools/list', {});
       const schema = (name: string) => listed.result.tools.find((tool: any) => tool.name === name).inputSchema;
-      assert.deepEqual(schema('anti.screenshot.full_page').properties.format.enum, ['png']);
+      assert.deepEqual(schema('anti.screenshot.full_page').properties.format.enum, ['png', 'jpeg']);
       assert.ok(schema('anti.screenshot.full_page').properties.leaseToken);
       assert.ok(schema('anti.screenshot.full_page').properties.expectedUrl);
       assert.ok(schema('anti.screenshot.full_page').properties.inline);

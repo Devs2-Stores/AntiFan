@@ -28,6 +28,9 @@ import { ThemeQaRepairCoordinator } from '../qa/theme-qa-repair-coordinator';
 import type { CockpitPort } from './cockpit-port';
 import { registerCockpitCapabilities } from './cockpit-capabilities';
 import { confineWorkspaceRoot, confineWorkspaceRootStrict } from '../qa/diagnostics-filter';
+import { DEFAULT_QA_PROFILE } from '../qa/qa-thresholds';
+import { assertThemeWorkspaceRoot } from '../qa/workspace-markers';
+import { registerQaProbeCapabilities } from './qa-probe-capabilities';
 import { recordFallbackTelemetry, FallbackTelemetryPayload } from '../telemetry/fallback-recorder';
 import { IssueRegister, VerificationVerdict } from '../session/issue-register';
 import { VerificationEvaluator, deriveFailureSignature, resolvePreviousLifecycle } from '../verification/verification-evaluator';
@@ -299,7 +302,7 @@ export function extractErrorMessage(err: unknown): string | null {
 }
 
 /** Profile `theme.qa_validate` grades under when the caller names none. */
-export const DEFAULT_QA_VALIDATE_PROFILE: QaProfile = 'build-strict';
+export const DEFAULT_QA_VALIDATE_PROFILE: QaProfile = DEFAULT_QA_PROFILE;
 const QA_SETTLE_TIMEOUT_KEYS = ['networkTimeoutMs', 'fontsTimeoutMs', 'imagesTimeoutMs', 'domTimeoutMs', 'totalTimeoutMs'] as const;
 const QA_SETTLE_TIMEOUT_MAX_MS = 120_000;
 const QA_MAX_LISTED_ITEMS = 50;
@@ -317,6 +320,56 @@ export interface QaValidateOptions {
 
 function invalidQaArgument(message: string): CapabilityError {
   return new CapabilityError('INVALID_ARGUMENT', `theme.qa_validate: ${message}`);
+}
+
+const TITLE_LEVELS = ['h1', 'h2', 'h3', 'h4'] as const;
+
+function parseTitleScale(value: unknown): Record<'h1' | 'h2' | 'h3' | 'h4', [number, number]> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw invalidQaArgument('thresholds.titleScale must be an object with h1, h2, h3 and h4');
+  const raw = value as Record<string, unknown>;
+  const out = {} as Record<'h1' | 'h2' | 'h3' | 'h4', [number, number]>;
+  for (const level of TITLE_LEVELS) {
+    const range = raw[level];
+    if (!Array.isArray(range) || range.length !== 2 || range.some((n) => typeof n !== 'number' || !Number.isFinite(n) || n <= 0) || (range[0] as number) > (range[1] as number)) {
+      throw invalidQaArgument(`thresholds.titleScale.${level} must be [min, max] positive numbers with min <= max`);
+    }
+    out[level] = [range[0] as number, range[1] as number];
+  }
+  return out;
+}
+
+const VIEWPORT_MIN_PX = 200;
+const VIEWPORT_MAX_PX = 3000;
+const VIEWPORTS_MAX_ENTRIES = 5;
+
+/** Schema fragment for the optional extra sweep sizes of the responsive and batch matrix tools. */
+const VIEWPORTS_SCHEMA = {
+  type: 'array',
+  maxItems: VIEWPORTS_MAX_ENTRIES,
+  description: `Extra viewport sizes appended to the standard widths, e.g. landscape phone {w:667,h:375}, laptop {w:1366,h:600}, short phone {w:375,h:350}. At most ${VIEWPORTS_MAX_ENTRIES} entries, w and h ${VIEWPORT_MIN_PX}-${VIEWPORT_MAX_PX} CSS px`,
+  items: {
+    type: 'object',
+    properties: { w: { type: 'number' }, h: { type: 'number' } },
+    required: ['w', 'h'],
+  },
+};
+
+/** Validates the `viewports: [{w,h}]` array; absent means "standard sizes only". */
+export function parseViewportsParam(value: unknown, capability: string): Array<{ w: number; h: number }> | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!Array.isArray(value) || value.length === 0 || value.length > VIEWPORTS_MAX_ENTRIES) {
+    throw new CapabilityError('INVALID_ARGUMENT', `${capability}: viewports must be an array of 1-${VIEWPORTS_MAX_ENTRIES} {w,h} entries`);
+  }
+  return value.map((entry, index) => {
+    const item = entry as { w?: unknown; h?: unknown } | null;
+    const w = item?.w;
+    const h = item?.h;
+    const inRange = (n: unknown): n is number => typeof n === 'number' && Number.isInteger(n) && n >= VIEWPORT_MIN_PX && n <= VIEWPORT_MAX_PX;
+    if (!item || typeof item !== 'object' || !inRange(w) || !inRange(h)) {
+      throw new CapabilityError('INVALID_ARGUMENT', `${capability}: viewports[${index}] needs integer w and h between ${VIEWPORT_MIN_PX} and ${VIEWPORT_MAX_PX}`);
+    }
+    return { w, h };
+  });
 }
 
 function readSelectorList(value: unknown, field: string): string[] {
@@ -345,7 +398,14 @@ export function parseQaValidateOptions(params: Record<string, unknown>): QaValid
       if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) throw invalidQaArgument(`thresholds.${key} must be a positive number`);
       thresholds[key] = value;
     }
-    out.thresholds = thresholds as unknown as QaThresholds;
+    const extras: { titleScale?: Record<'h1' | 'h2' | 'h3' | 'h4', [number, number]>; inputHeightBandPx?: number } = {};
+    if (raw.titleScale !== undefined) extras.titleScale = parseTitleScale(raw.titleScale);
+    if (raw.inputHeightBandPx !== undefined) {
+      const band = raw.inputHeightBandPx;
+      if (typeof band !== 'number' || !Number.isFinite(band) || band <= 0 || band > 64) throw invalidQaArgument('thresholds.inputHeightBandPx must be a number between 0 and 64');
+      extras.inputHeightBandPx = band;
+    }
+    out.thresholds = { ...thresholds, ...extras } as unknown as QaThresholds;
   }
 
   if (params.coverageFloor !== undefined) {
@@ -1835,12 +1895,13 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         expectedUrl: { type: 'string', description: 'Expected route URL of the bound tab (annotation Page URL). Fail-closed: mismatch throws the route-gate code (URL_HOST_MISMATCH/URL_THEME_MISMATCH/URL_PATH_MISMATCH) instead of silently QA-ing the wrong page or theme' },
         multiBreakpoint: { type: 'boolean', description: 'Enable multi-breakpoint responsive testing (320, 375, 768, 1024, 1440). Defaults to true inside workflow; pass false to opt out.' },
         profile: { type: 'string', enum: ['audit', 'build-strict'], description: 'build-strict (default) fails on contrast below WCAG AA, sub-24px tap targets, invisible click blockers, floating widgets over controls and the contract-threshold registry rules, and treats unmeasured scans as evidence gaps; audit reports visual-quality findings without affecting the verdict' },
-        thresholds: { type: 'object', description: 'Contract thresholds the registry rules grade against (kit registry/thresholds.json shape). Without them font-below-min, control-height-band, wrapped-label, icon-stroke-mismatch and overlay-fit are unmeasured', properties: { minTextPx: { type: 'number' }, minControlPx: { type: 'number' }, minTapHitPx: { type: 'number' }, tapSpacingCirclePx: { type: 'number' } } },
+        thresholds: { type: 'object', description: 'Contract thresholds the registry rules grade against (kit registry/thresholds.json shape). Optional: when omitted the workspace contract typeScale, else the built-in defaults (12/44/24/24) apply automatically and the receipt records thresholdsSource', properties: { minTextPx: { type: 'number' }, minControlPx: { type: 'number' }, minTapHitPx: { type: 'number' }, tapSpacingCirclePx: { type: 'number' }, titleScale: { type: 'object', description: 'Allowed [min,max] px per heading level at <=768px', properties: { h1: { type: 'array', items: { type: 'number' } }, h2: { type: 'array', items: { type: 'number' } }, h3: { type: 'array', items: { type: 'number' } }, h4: { type: 'array', items: { type: 'number' } } } }, inputHeightBandPx: { type: 'number', description: 'Maximum height spread between inputs of one form (default 4)' } } },
         coverageFloor: { type: 'number', description: 'Minimum measured/expected scan-family share (0..1). Below it a green run is QA_INCONCLUSIVE. Defaults to 1 under build-strict, 0 under audit' },
         waivers: { type: 'array', description: 'Accepted visual-quality rule exceptions; each needs a rule id and a reason and is echoed on the report and receipt', items: { type: 'object', properties: { rule: { type: 'string' }, reason: { type: 'string' } }, required: ['rule', 'reason'] } },
         ignoreSelectors: { type: 'array', items: { type: 'string' }, description: 'Selectors whose subtree mutations are excluded from the DOM-quiet settle predicate (for example a live countdown). Echoed on the receipt so a pass stays auditable' },
         settle: { type: 'object', description: 'Per-call settle barrier overrides', properties: { scopeSelector: { type: 'string' }, ignoreSelectors: { type: 'array', items: { type: 'string' } }, networkTimeoutMs: { type: 'number' }, fontsTimeoutMs: { type: 'number' }, imagesTimeoutMs: { type: 'number' }, domTimeoutMs: { type: 'number' }, totalTimeoutMs: { type: 'number' } } },
         expectedStatus: { type: 'number', description: 'HTTP status the contract screen declares for this route (for example 404 on a not-found screen). A document returning exactly that status is not reported as ROUTE_404; echoed on the receipt' },
+        allowNonTheme: { type: 'boolean', description: 'Accept a workspace root without theme markers (layout/theme.liquid, config/settings_schema.json, config/settings.html) for a plain-folder run. Otherwise such a root is refused with WORKSPACE_NOT_THEME and no receipt is written' },
         viewports: {
           type: 'object',
           properties: {
@@ -1865,6 +1926,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         ignoreSelectors?: string[];
         expectedStatus?: number;
         settle?: QaSettleOverrides;
+        allowNonTheme?: boolean;
         viewports?: {
           // `passed` is the caller structural verdict; the QA matrix ANDs it with the pixel threshold, so only downgrades are possible.
           desktop?: { mismatchPercent: number; passed: boolean };
@@ -1886,6 +1948,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       if (strictRoot.redirected) {
         throw new CapabilityError('WORKSPACE_MISMATCH', `Requested workspaceRoot '${strictRoot.requested}' is outside the bound workspace '${strictRoot.root}'; no QA ran and no receipt was written`, { requested: strictRoot.requested, bound: strictRoot.root });
       }
+      if (params.allowNonTheme !== true) assertThemeWorkspaceRoot(strictRoot.root, 'theme.qa_validate');
       // Resolve the confined workspace root BEFORE any terminal branch. The route gate
       // and the pre-flight guards below can throw, and every one of those throws is a
       // terminal QA outcome that still owes the consuming-runtime gate a receipt.
@@ -2263,6 +2326,15 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
             const tabId = target?.tabId;
             const observedUrl = tabId ? await browser.getLiveTabUrl(tabId).catch(() => '') : '';
             const settleSource = finalReport?.settleReceipt;
+            const summaryExtras = (finalReport?.summary ?? {}) as { certificationReasons?: unknown; thresholdsSource?: unknown; viewport?: { width?: number; requestedWidth?: number | null; observedWidth?: number } };
+            const certification: 'CERTIFIED' | 'STRUCTURAL' = finalReport?.summary?.certification === 'CERTIFIED' ? 'CERTIFIED' : 'STRUCTURAL';
+            const certificationReasons = Array.isArray(summaryExtras.certificationReasons) ? summaryExtras.certificationReasons.map(String) : [];
+            const reportThresholdsSource = (finalReport as { thresholdsSource?: unknown } | undefined)?.thresholdsSource ?? summaryExtras.thresholdsSource;
+            const thresholdsSource = typeof reportThresholdsSource === 'string' ? reportThresholdsSource : null;
+            const observedWidth = summaryExtras.viewport?.observedWidth ?? receiptViewport?.width;
+            const receiptViewportDetail = receiptViewport || typeof observedWidth === 'number'
+              ? { ...(receiptViewport ?? {}), requestedWidth: summaryExtras.viewport?.requestedWidth ?? null, observedWidth: observedWidth ?? null }
+              : null;
             const receipt = {
               receiptVersion: '1.3',
               runId,
@@ -2279,6 +2351,10 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
               workspaceRootRequested: strictRoot.requested || null,
               workspaceRootRedirected: strictRoot.redirected,
               profile: finalReport?.profile ?? null,
+              certification,
+              certificationReasons,
+              thresholdsSource,
+              scope: params.annotationId ? 'annotation' : certification === 'CERTIFIED' ? 'certified' : 'structural',
               measuredRules: finalReport?.measuredRules ?? [],
               coverage: finalReport?.coverage ?? null,
               coverageFloor: finalReport?.coverageFloor ?? null,
@@ -2307,7 +2383,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
               ...(scopedCriticalCount !== undefined ? { scopedCriticalCount } : {}),
               authRedirect,
               findings: receiptFindings,
-              ...(receiptViewport ? { viewport: receiptViewport } : {}),
+              ...(receiptViewportDetail ? { viewport: receiptViewportDetail } : {}),
               createdAt: new Date().toISOString(),
             };
             if (settingsRatchetPayload) {
@@ -2445,6 +2521,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
   // CockpitPort (the gate and headless builds pass none — the registrations
   // must not exist in a catalogue that cannot execute them).
   if (cockpit) registerCockpitCapabilities(catalogue, cockpit, browser);
+  registerQaProbeCapabilities(catalogue, browser, getWorkspaceRoot);
 
   catalogue.register({
     name: 'theme.assert_cart',
@@ -2863,8 +2940,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       properties: {
         tabId: { type: 'string' },
         paneId: { type: 'string', enum: ['desktop', 'mobile'] },
-        format: { type: 'string', enum: ['png'], description: 'Only PNG is supported: full-page evidence is validated as PNG bytes' },
-        quality: { type: 'number' },
+        format: { type: 'string', enum: ['png', 'jpeg'], description: 'png (default) is validated as PNG bytes; jpeg stages a smaller file for very tall pages. A page taller than the single-capture limit is captured in tiles and stitched' },
+        quality: { type: 'number', description: 'JPEG quality 1-100 (default 85); ignored for png' },
         leaseToken: { type: 'string', description: 'Evidence-run artifact lease token from artifact.preflight; required while the run holds an exclusive lease' },
         expectedUrl: { type: 'string', description: 'Expected route URL for route identity gate assertion' },
         materializeDataSrc: { type: 'boolean', description: 'Swap lazy data-src/data-srcset into live sources before capture, for loaders that only swap on user interaction (default false: such images fail the imagesSettled gate with CAPTURE_NOT_READY)' },
@@ -2872,8 +2949,11 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       },
     },
     execute: async (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; format?: 'png' | 'jpeg'; quality?: number; leaseToken?: string; expectedUrl?: string; materializeDataSrc?: boolean; inline?: boolean }, context) => {
-      if (params.format === 'jpeg') {
-        throw new CapabilityError('INVALID_ARGUMENT', 'anti.screenshot.full_page stages PNG evidence only; jpeg is not supported');
+      if (params.format !== undefined && params.format !== 'png' && params.format !== 'jpeg') {
+        throw new CapabilityError('INVALID_ARGUMENT', `anti.screenshot.full_page format must be 'png' or 'jpeg', got '${String(params.format)}'`);
+      }
+      if (params.quality !== undefined && (typeof params.quality !== 'number' || !Number.isFinite(params.quality) || params.quality < 1 || params.quality > 100)) {
+        throw new CapabilityError('INVALID_ARGUMENT', 'anti.screenshot.full_page quality must be a number between 1 and 100');
       }
       return browser.screenshotFullPage(
         context.browserTarget as BrowserTarget,
@@ -2881,7 +2961,15 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         context.attemptId || 'attempt-unbound',
         params.tabId,
         params.paneId,
-        { leaseToken: params.leaseToken, signal: context.signal, timeoutMs: FULL_PAGE_CAPTURE_EXECUTION_BUDGET_MS, expectedUrl: params.expectedUrl, materializeDataSrc: params.materializeDataSrc }
+        {
+          leaseToken: params.leaseToken,
+          signal: context.signal,
+          timeoutMs: FULL_PAGE_CAPTURE_EXECUTION_BUDGET_MS,
+          expectedUrl: params.expectedUrl,
+          materializeDataSrc: params.materializeDataSrc,
+          ...(params.format ? { format: params.format } : {}),
+          ...(params.quality !== undefined ? { quality: params.quality } : {}),
+        }
       );
     },
   });
@@ -3284,12 +3372,14 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
           items: { type: 'object' },
           description: 'Optional custom breakpoints ({ id, name, width, height, mobile, deviceScaleFactor })',
         },
+        viewports: VIEWPORTS_SCHEMA,
       },
     },
     execute: async (
       params: {
         selector?: string;
         tabId?: string;
+        viewports?: unknown;
         customBreakpoints?: Array<{
           id?: string;
           name?: string;
@@ -3302,6 +3392,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       context
     ) => {
       let normalizedCustomBreakpoints: ResponsiveBreakpointOption[] | undefined;
+      const viewports = parseViewportsParam(params.viewports, 'anti.inspect.responsive_matrix');
       if (Array.isArray(params.customBreakpoints) && params.customBreakpoints.length > 0) {
         const seenIds: Record<string, true> = Object.create(null);
         normalizedCustomBreakpoints = params.customBreakpoints.map((bp, idx) => {
@@ -3365,6 +3456,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
           selector: params.selector,
           tabId: params.tabId,
           ...(normalizedCustomBreakpoints ? { customBreakpoints: normalizedCustomBreakpoints } : {}),
+          ...(viewports ? { viewports } : {}),
         },
         context.browserTarget as BrowserTarget
       );
@@ -3374,7 +3466,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         ? (typedRaw.breakpoints as Record<string, Record<string, unknown>>)
         : {};
       const bpEntries = Object.values(breakpoints);
-      const expectedCount = normalizedCustomBreakpoints ? normalizedCustomBreakpoints.length : 5;
+      const expectedCount = normalizedCustomBreakpoints ? normalizedCustomBreakpoints.length : 5 + (viewports?.length ?? 0);
 
       const hasDocOverflow = bpEntries.some((b) => b.documentOverflowX === true || b.hasHorizontalOverflow === true);
       const hasTargetOverflow = bpEntries.some((b) => b.targetOverflowX === true);
@@ -3822,7 +3914,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
   });
   catalogue.register({
     name: 'anti.qa.state_matrix',
-    description: 'Drive overlays (cart/menu/filter drawers, modals, quickview, dropdowns, mega menus) through OPEN -> MEASURE -> CLOSE with trusted CDP input. Open: visible, opacity >= 0.95, pointer-events, minimum size, inside viewport, not clipped/occluded, no content spill, scroll lock + focus inside + close control (dialogs), plus contrast/tap grading inside the panel. Close: Escape, close control and backdrop each from a fresh open, then scroll lock released and focus returned. Safe mode always on: anchor navigation and form submits are blocked; add-to-cart/submit/checkout/foreign-origin controls are never triggers. Auto-discovers triggers or takes explicit {selector, panelSelector?, closeSelector?, kind?}.',
+    description: 'Drive overlays (cart/menu/filter drawers, modals, quickview, dropdowns, mega menus) through OPEN -> MEASURE -> CLOSE with trusted CDP input. Open: visible, opacity >= 0.95, pointer-events, minimum size, inside viewport, not clipped/occluded, no content spill, scroll lock + focus inside + close control (dialogs), plus contrast/tap grading inside the panel. Close: Escape, close control and backdrop each from a fresh open, then scroll lock released and focus returned. Failure codes include MODAL_UNSTYLED (critical for drawers/modals: UA-default fonts, buttons, links, tables or zero panel padding) and CLOSE_ESCAPE_UNMEASURED (warning: the page was unfocused or the key was not delivered, so Escape was not graded). Safe mode always on: anchor navigation and form submits are blocked; add-to-cart/submit/checkout/foreign-origin controls are never triggers. Auto-discovers triggers or takes explicit {selector, panelSelector?, closeSelector?, kind?}.',
     risk: 'write',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate', timeoutMs: 120_000 }),
@@ -3849,6 +3941,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         settleMs: { type: 'number', description: 'Wait after each open/close input (default 450, 100-2000)' },
         closeMethods: { type: 'array', items: { type: 'string', enum: ['escape', 'close-button', 'backdrop'] } },
         gradeVisualQuality: { type: 'boolean', description: 'Grade contrast and tap targets inside each open panel (default true)' },
+        autoPopulate: { type: 'string', enum: ['pdp'], description: 'pdp: also open size-guide / quick-view / share / review openers' },
       },
     },
     execute: (params: Record<string, unknown>, context) =>
@@ -4911,7 +5004,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
 
   catalogue.register({
     name: 'anti.theme.await_cdn_sync',
-    description: 'Poll the storefront copy of one static asset (CSS/JS, not .liquid) until its SHA-256 matches the local workspace file, then optionally reload the bound tab. Reads only inside the bound workspace; lastError says why a poll did not match.',
+    description: 'Poll the storefront copy of one static asset until its SHA-256 matches the local workspace file, then optionally reload the bound tab. A .liquid file is never served as-is: pass expectContains / expectNotContains and the compiled asset (the name without .liquid) is polled until every expected string is present and every forbidden string is absent. Reads only inside the bound workspace; lastError says why a poll did not match.',
     // The optional reload changes the tab's document, so the declaration covers it: same class
     // as anti.browser.reload, never replayed as a read.
     risk: 'write',
@@ -4922,41 +5015,57 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       properties: {
         assetPath: { type: 'string', description: 'Workspace-relative or filename asset path (e.g. assets/theme.css or theme.css)' },
         workspaceRoot: { type: 'string' },
+        allowNonTheme: { type: 'boolean', description: 'Accept a workspace root without theme markers (layout/theme.liquid, config/settings_schema.json, config/settings.html)' },
         timeoutMs: { type: 'number', description: 'Polling timeout in milliseconds (default 15000, max 25000)' },
         pollIntervalMs: { type: 'number' },
         reloadOnMatch: { type: 'boolean' },
+        expectContains: { type: 'array', items: { type: 'string' }, description: 'Strings that must all appear in the served asset; required for .liquid assets, optional hash-match refinement otherwise' },
+        expectNotContains: { type: 'array', items: { type: 'string' }, description: 'Strings that must all be absent from the served asset' },
         tabId: { type: 'string' },
         paneId: { type: 'string', enum: ['desktop', 'mobile'] },
       },
       required: ['assetPath'],
     },
-    execute: (params: { assetPath: string; workspaceRoot?: string; timeoutMs?: number; pollIntervalMs?: number; reloadOnMatch?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
-      browser.awaitCdnSync(context.browserTarget as BrowserTarget, {
-        ...params,
-        // Same confinement as every other workspace-reading tool: a caller root outside the
-        // bound workspace falls back to the workspace itself.
-        workspaceRoot: confineWorkspaceRoot(params.workspaceRoot, getWorkspaceRoot ? getWorkspaceRoot() : '') || undefined,
-      }),
+    execute: (params: { assetPath: string; workspaceRoot?: string; allowNonTheme?: boolean; timeoutMs?: number; pollIntervalMs?: number; reloadOnMatch?: boolean; expectContains?: string[]; expectNotContains?: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => {
+      const { allowNonTheme, ...syncParams } = params;
+      const strict = confineWorkspaceRootStrict(params.workspaceRoot, getWorkspaceRoot ? getWorkspaceRoot() : '');
+      if (strict.redirected) {
+        throw new CapabilityError('WORKSPACE_MISMATCH', `Requested workspaceRoot '${strict.requested}' is outside the bound workspace '${strict.root}'`, { requested: strict.requested, bound: strict.root });
+      }
+      if (allowNonTheme !== true) assertThemeWorkspaceRoot(strict.root, 'anti.theme.await_cdn_sync');
+      return browser.awaitCdnSync(context.browserTarget as BrowserTarget, {
+        ...syncParams,
+        workspaceRoot: strict.root || undefined,
+      });
+    },
   });
 
   catalogue.register({
     name: 'anti.qa.batch_matrix',
-    description: 'Sequentially navigate and sweep up to 20 routes of the bound storefront (same origin only) across responsive breakpoints in the bound tab, then return the tab to its starting page. A route with an unmeasured width reports passed: null.',
+    description: 'Sequentially navigate and sweep up to 20 routes of the bound storefront (same origin only) across responsive breakpoints in the bound tab, then return the tab to its starting page. A route with an unmeasured width reports passed: null. When routes x widths exceed the per-call budget, whole routes run in order and the result lists the rest in remainingRoutes: call again with exactly those routes.',
     // Navigates the bound tab route by route: the same class as anti.browser.navigate.
     risk: 'write',
     requiresBrowserTarget: true,
-    policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate', timeoutMs: 120_000 }),
+    policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate', timeoutMs: 210_000 }),
     inputSchema: {
       type: 'object',
       properties: {
         routes: { type: 'array', items: { type: 'string' }, description: 'Storefront URLs or paths to scan sequentially in the bound tab' },
         breakpoints: { type: 'array', items: { type: 'number' }, description: 'Viewport widths in CSS px (default [320, 375, 768, 1024, 1440])' },
+        viewports: VIEWPORTS_SCHEMA,
         tabId: { type: 'string' },
       },
       required: ['routes'],
     },
-    execute: (params: { routes: string[]; breakpoints?: number[]; tabId?: string }, context) =>
-      browser.runBatchMatrix(context.browserTarget as BrowserTarget, params),
+    execute: (params: { routes: string[]; breakpoints?: number[]; viewports?: unknown; tabId?: string }, context) => {
+      const viewports = parseViewportsParam(params.viewports, 'anti.qa.batch_matrix');
+      return browser.runBatchMatrix(context.browserTarget as BrowserTarget, {
+        routes: params.routes,
+        breakpoints: params.breakpoints,
+        tabId: params.tabId,
+        ...(viewports ? { viewports } : {}),
+      });
+    },
   });
 }
 

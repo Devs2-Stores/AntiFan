@@ -201,6 +201,7 @@ export function validateChecklistItem(raw: unknown, indexLabel = 'item'): ThemeC
   };
   if (src.pathHint !== undefined) item.pathHint = capField(src.pathHint);
   if (src.note !== undefined) item.note = capField(src.note);
+  if (src.measuredBy !== undefined && capField(src.measuredBy)) item.measuredBy = capField(src.measuredBy);
   return item;
 }
 
@@ -237,6 +238,7 @@ function sanitizeChecklistItemForRead(raw: unknown): ThemeChecklistItem | null {
   };
   if (typeof src.pathHint === 'string' && src.pathHint) item.pathHint = capField(src.pathHint);
   if (typeof src.note === 'string' && src.note) item.note = capField(src.note);
+  if (typeof src.measuredBy === 'string' && src.measuredBy) item.measuredBy = capField(src.measuredBy);
   return item;
 }
 

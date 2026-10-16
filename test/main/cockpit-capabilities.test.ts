@@ -7,7 +7,7 @@ import * as os from 'node:os';
 import { CapabilityCatalogue, type CapabilityCatalogueOptions } from '../../src/main/tools/capability-catalogue';
 import type { BrowserControlPort } from '../../src/main/tools/browser-control-port';
 import { registerCockpitCapabilities } from '../../src/main/tools/cockpit-capabilities';
-import { CockpitPort, type CockpitHostPort, type CockpitQaState } from '../../src/main/tools/cockpit-port';
+import { CockpitPort, type CockpitHostPort, type CockpitQaState, type CockpitThemeQaOptions } from '../../src/main/tools/cockpit-port';
 import {
   checklistScope,
   workspaceTag,
@@ -329,6 +329,283 @@ describe('cockpit-capabilities (Phase 5)', () => {
         { tabId: 'tab-1', url: 'https://shop.example.com/pages/custom-landing' },
       ]);
       assert.strictEqual(qaCalls.length, 2);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+interface ScanFixtureOptions {
+  themeMarkers?: boolean;
+  report?: unknown;
+  duringQa?: (root: string, scope: string) => void;
+  liveUrl?: string;
+  evalResult?: (expression: string) => unknown;
+}
+
+function makeScanFixture(options: ScanFixtureOptions = {}) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-cockpit-scan-'));
+  if (options.themeMarkers !== false) {
+    fs.mkdirSync(path.join(root, 'config'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'config', 'settings_schema.json'), '[]', 'utf8');
+  } else {
+    fs.writeFileSync(path.join(root, 'notes.txt'), 'plain folder', 'utf8');
+  }
+  const scope = checklistScope('https://shop.example.com', workspaceTag(root));
+  const navigations: Array<{ tabId: string; url: string }> = [];
+  const qaCalls: Array<{ tabId: string; options: CockpitThemeQaOptions | undefined }> = [];
+  const host: CockpitHostPort = {
+    hasTab: (tabId) => tabId === 'tab-1',
+    getTabUrl: (tabId) => (tabId === 'tab-1' ? 'https://shop.example.com/' : ''),
+    resolveTabWorkspaceRoot: () => root,
+    navigateAndWait: async (tabId, url) => {
+      navigations.push({ tabId, url });
+      return true;
+    },
+    runThemeQa: async (tabId, qaOptions) => {
+      qaCalls.push({ tabId, options: qaOptions });
+      options.duringQa?.(root, scope);
+      return { ok: true, report: options.report ?? { summary: { passed: true } } };
+    },
+    getThemeQaState: () => ({ status: 'pass', issueCount: 0, updatedAt: 1 }),
+    checklistLoad: (_tabId, input) => {
+      const snap = getScope(input.workspaceRoot, input.scope);
+      return {
+        scope: input.scope,
+        workspaceRoot: input.workspaceRoot,
+        items: snap.items,
+        updatedAt: snap.updatedAt,
+        existed: snap.existed,
+        migrated: snap.migrated,
+        isProvisional: isProvisionalChecklistScope(input.scope, input.workspaceRoot),
+      };
+    },
+    checklistMutate: (_tabId, input) => ({
+      ...mutateScope(input.workspaceRoot, input.scope, input.op),
+      scope: input.scope,
+      workspaceRoot: input.workspaceRoot,
+      isProvisional: isProvisionalChecklistScope(input.scope, input.workspaceRoot),
+    }),
+    checklistSave: (_tabId, input) => {
+      const result = setScopeCas(input.workspaceRoot, input.scope, input.items, input.baseUpdatedAt);
+      return {
+        ok: !result.conflict,
+        scope: input.scope,
+        workspaceRoot: input.workspaceRoot,
+        items: result.items,
+        updatedAt: result.updatedAt,
+        conflict: result.conflict,
+        isProvisional: isProvisionalChecklistScope(input.scope, input.workspaceRoot),
+      };
+    },
+  };
+  const browserStub = {
+    getLiveTabUrl: async () => options.liveUrl ?? 'https://shop.example.com/',
+    eval: async (_target: BrowserTarget, expression: string) => options.evalResult?.(expression),
+  } as unknown as BrowserControlPort;
+  const catalogue = new CapabilityCatalogue(defaultOptions);
+  registerCockpitCapabilities(catalogue, new CockpitPort(host), browserStub);
+  return { catalogue, root, scope, navigations, qaCalls };
+}
+
+const WIDTHS = ['320', '375', '768', '1024', '1440'];
+
+function responsiveReport(overflowing: string[]): unknown {
+  return {
+    summary: { passed: true },
+    findings: { responsive: Object.fromEntries(WIDTHS.map((w) => [w, { documentOverflow: overflowing.includes(w) }])) },
+  };
+}
+
+function itemOf(root: string, scope: string, itemId: string): ThemeChecklistItem | undefined {
+  return getScope(root, scope).items.find((item) => item.id === itemId);
+}
+
+interface ScanResult {
+  ok: boolean;
+  workspaceRoot?: string;
+  probes?: Record<string, unknown>;
+  checklist?: { applied: Array<{ itemId: string; done: boolean }>; skipped: Array<{ itemId: string; reason: string }> };
+}
+
+const FULL_THRESHOLDS = { minTextPx: 12, minControlPx: 44, minTapHitPx: 24, tapSpacingCirclePx: 24 };
+
+describe('theme.cockpit_scan grading inputs, root guard and checklist ticks', () => {
+  it('forwards profile, thresholds, viewports and multiBreakpoint to the QA run untouched', async () => {
+    const { catalogue, root, qaCalls } = makeScanFixture();
+    try {
+      const viewports = { desktop: { mismatchPercent: 0.2, passed: true }, mobile: { mismatchPercent: 0.4, passed: true } };
+      await catalogue.dispatch(
+        'theme.cockpit_scan',
+        { profile: 'audit', thresholds: FULL_THRESHOLDS, viewports, multiBreakpoint: false },
+        makeBoundContext()
+      );
+      assert.strictEqual(qaCalls.length, 1);
+      assert.deepStrictEqual(qaCalls[0]?.options, {
+        profile: 'audit',
+        thresholds: FULL_THRESHOLDS,
+        viewports,
+        multiBreakpoint: false,
+        workspaceRoot: root,
+      });
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('sends only the workspace root when no grading input is supplied', async () => {
+    const { catalogue, root, qaCalls } = makeScanFixture();
+    try {
+      await catalogue.dispatch('theme.cockpit_scan', {}, makeBoundContext());
+      assert.deepStrictEqual(qaCalls[0]?.options, { workspaceRoot: root });
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses malformed grading inputs before navigating or scanning', async () => {
+    const { catalogue, root, navigations, qaCalls } = makeScanFixture();
+    try {
+      const invalid = (err: unknown): boolean => err instanceof CapabilityError && err.code === 'INVALID_ARGUMENT';
+      await assert.rejects(() => catalogue.dispatch('theme.cockpit_scan', { url: '/products/a', profile: 'fast' }, makeBoundContext()), invalid);
+      await assert.rejects(() => catalogue.dispatch('theme.cockpit_scan', { url: '/products/a', thresholds: { minTextPx: 12 } }, makeBoundContext()), invalid);
+      await assert.rejects(() => catalogue.dispatch('theme.cockpit_scan', { url: '/products/a', viewports: { watch: { mismatchPercent: 0, passed: true } } }, makeBoundContext()), invalid);
+      await assert.rejects(() => catalogue.dispatch('theme.cockpit_scan', { url: '/products/a', viewports: { desktop: { passed: true } } }, makeBoundContext()), invalid);
+      await assert.rejects(() => catalogue.dispatch('theme.cockpit_scan', { url: '/products/a', multiBreakpoint: 'yes' }, makeBoundContext()), invalid);
+      await assert.rejects(() => catalogue.dispatch('theme.cockpit_scan', { url: '/products/a', pick: 'cheapest' }, makeBoundContext()), invalid);
+      assert.strictEqual(navigations.length, 0);
+      assert.strictEqual(qaCalls.length, 0);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses a bound root without theme markers before navigating, and accepts it with allowNonTheme', async () => {
+    const { catalogue, root, navigations, qaCalls } = makeScanFixture({ themeMarkers: false });
+    try {
+      await assert.rejects(
+        () => catalogue.dispatch('theme.cockpit_scan', { url: '/products/demo-item' }, makeBoundContext()),
+        (err: unknown) => err instanceof CapabilityError && err.code === 'WORKSPACE_NOT_THEME'
+      );
+      assert.strictEqual(navigations.length, 0);
+      assert.strictEqual(qaCalls.length, 0);
+
+      const allowed = (await catalogue.dispatch(
+        'theme.cockpit_scan',
+        { url: '/products/demo-item', allowNonTheme: true },
+        makeBoundContext()
+      )) as ScanResult;
+      assert.strictEqual(allowed.ok, true);
+      assert.strictEqual(qaCalls.length, 1);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('confines a workspaceRoot outside the bound workspace to the bound root', async () => {
+    const { catalogue, root, qaCalls } = makeScanFixture();
+    const other = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-cockpit-other-'));
+    try {
+      const result = (await catalogue.dispatch('theme.cockpit_scan', { url: '/products/demo-item', workspaceRoot: other }, makeBoundContext())) as ScanResult;
+      assert.strictEqual(result.workspaceRoot, root);
+      assert.strictEqual(qaCalls.length, 1);
+      assert.strictEqual(qaCalls[0]?.options?.workspaceRoot, root);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+      fs.rmSync(other, { recursive: true, force: true });
+    }
+  });
+
+  it('ticks the items a clean scan measured and records the note prefix', async () => {
+    const { catalogue, root, scope } = makeScanFixture({ report: responsiveReport([]) });
+    try {
+      assert.strictEqual(itemOf(root, scope, 'qag-07')?.done, false);
+      const result = (await catalogue.dispatch('theme.cockpit_scan', {}, makeBoundContext())) as ScanResult;
+      assert.deepStrictEqual(result.checklist?.applied, [{ itemId: 'qag-07', done: true }]);
+      const item = itemOf(root, scope, 'qag-07');
+      assert.strictEqual(item?.done, true);
+      assert.ok(item?.note?.startsWith('[scan]'), 'the tick carries the scan note prefix');
+      assert.ok(result.probes && 'page_structure' in result.probes && 'menu_depth' in result.probes, 'home runs page_structure and menu_depth');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('un-ticks an item a failing scan measured, naming the overflowing widths', async () => {
+    const { catalogue, root, scope } = makeScanFixture({ report: responsiveReport(['320']) });
+    try {
+      mutateScope(root, scope, { op: 'mark', itemId: 'qag-07', done: true });
+      const result = (await catalogue.dispatch('theme.cockpit_scan', {}, makeBoundContext())) as ScanResult;
+      assert.deepStrictEqual(result.checklist?.applied, [{ itemId: 'qag-07', done: false }]);
+      const item = itemOf(root, scope, 'qag-07');
+      assert.strictEqual(item?.done, false);
+      assert.match(item?.note ?? '', /320px/);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('leaves an item alone when the user changed it while the scan ran', async () => {
+    const { catalogue, root, scope } = makeScanFixture({
+      report: responsiveReport(['320']),
+      duringQa: (scanRoot, scanScope) => {
+        mutateScope(scanRoot, scanScope, { op: 'mark', itemId: 'qag-07', done: true, note: 'đã kiểm tra tay' });
+      },
+    });
+    try {
+      const result = (await catalogue.dispatch('theme.cockpit_scan', {}, makeBoundContext())) as ScanResult;
+      assert.deepStrictEqual(result.checklist?.applied, []);
+      assert.deepStrictEqual(result.checklist?.skipped.map((s) => s.itemId), ['qag-07']);
+      assert.match(result.checklist?.skipped[0]?.reason ?? '', /changed by the user/);
+      const item = itemOf(root, scope, 'qag-07');
+      assert.strictEqual(item?.done, true);
+      assert.strictEqual(item?.note, 'đã kiểm tra tay');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('writes no tick when the scan did not measure anything', async () => {
+    const { catalogue, root, scope } = makeScanFixture({ report: { summary: { passed: true } } });
+    try {
+      const result = (await catalogue.dispatch('theme.cockpit_scan', {}, makeBoundContext())) as ScanResult;
+      assert.deepStrictEqual(result.checklist?.applied, []);
+      assert.strictEqual(itemOf(root, scope, 'qag-07')?.done, false);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('scans the product picked by strategy instead of the first product link', async () => {
+    const product = (handle: string, variants: number) => ({
+      handle, title: handle, variants, unavailableVariants: 0, available: true, images: 1, variantsWithoutImage: 0,
+    });
+    const { catalogue, root, navigations } = makeScanFixture({
+      evalResult: (expression) => (
+        expression.includes('/collections/all')
+          ? { ok: true, scannedPages: 1, products: [product('plain', 1), product('many-sizes', 9)] }
+          : undefined
+      ),
+    });
+    try {
+      await catalogue.dispatch('theme.cockpit_scan', { page: 'product', pick: 'max-variants' }, makeBoundContext());
+      assert.deepStrictEqual(navigations, [{ tabId: 'tab-1', url: 'https://shop.example.com/products/many-sizes' }]);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses the scan when the pick strategy matches no product', async () => {
+    const { catalogue, root, navigations, qaCalls } = makeScanFixture({
+      evalResult: () => ({ ok: false, error: 'no product links found on /collections/all', products: [], scannedPages: 0 }),
+    });
+    try {
+      await assert.rejects(
+        () => catalogue.dispatch('theme.cockpit_scan', { page: 'product', pick: 'sold-out' }, makeBoundContext()),
+        (err: unknown) => err instanceof CapabilityError && err.code === 'ROUTE_UNRESOLVED' && /pick 'sold-out'/.test(err.message)
+      );
+      assert.strictEqual(navigations.length, 0);
+      assert.strictEqual(qaCalls.length, 0);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }

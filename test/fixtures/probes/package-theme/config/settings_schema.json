@@ -1,0 +1,14 @@
+[
+  {
+    "name": "theme_info",
+    "theme_name": "Sky Fashion",
+    "theme_version": "1.0.0"
+  },
+  {
+    "name": "Màu sắc",
+    "settings": [
+      { "type": "color", "id": "color_primary", "label": "Màu chính", "default": "#1f3a5f" },
+      { "type": "color", "id": "color_secondary", "label": "Màu phụ", "default": "#f4d35e" }
+    ]
+  }
+]

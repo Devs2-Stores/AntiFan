@@ -24,6 +24,14 @@ import { LayoutOverflowEngine } from '../../src/main/qa/scanners/layout-overflow
 import { LiquidErrorScanner } from '../../src/main/qa/scanners/liquid-error-scanner';
 import { BrokenAssetScanner } from '../../src/main/qa/scanners/broken-asset-scanner';
 import { ServerCrashScanner } from '../../src/main/qa/scanners/server-crash-scanner';
+
+const mkThemeRoot = (prefix: string): string => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  fs.mkdirSync(path.join(root, 'layout'));
+  fs.writeFileSync(path.join(root, 'layout', 'theme.liquid'), '', 'utf8');
+  return root;
+};
+
 describe('Theme QA MCP Capabilities', () => {
   const defaultOptions = {
     runtime: { mode: 'standalone' as const, lifecycle: 'active' as const },
@@ -182,7 +190,7 @@ describe('Theme QA MCP Capabilities', () => {
 
   describe('workspace QA receipt emitted on every terminal branch', () => {
     it('writes a QA_PASSED receipt when the workflow resolves green', async () => {
-      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-qa-receipt-pass-'));
+      const root = mkThemeRoot('antifan-qa-receipt-pass-');
       try {
         const catalogue = new CapabilityCatalogue(defaultOptions);
         const workflow = { validate: async () => ({ summary: { passed: true, criticalCount: 0 } }) } as any;
@@ -209,7 +217,7 @@ describe('Theme QA MCP Capabilities', () => {
     });
 
     it('writes a QA_FAILED receipt when the workflow resolves red', async () => {
-      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-qa-receipt-fail-'));
+      const root = mkThemeRoot('antifan-qa-receipt-fail-');
       try {
         const catalogue = new CapabilityCatalogue(defaultOptions);
         const workflow = { validate: async () => ({ summary: { passed: false, criticalCount: 2 } }) } as any;
@@ -232,7 +240,7 @@ describe('Theme QA MCP Capabilities', () => {
       // Degraded evidence (settle gaps, missing capability) is not a failure: the
       // QA gate keeps itself armed on QA_FAILED only, so writing FAILED here would
       // pin the gate on every degraded capture and loop the agent on re-validation.
-      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-qa-receipt-inconclusive-'));
+      const root = mkThemeRoot('antifan-qa-receipt-inconclusive-');
       try {
         const catalogue = new CapabilityCatalogue(defaultOptions);
         const workflow = { validate: async () => ({ summary: { passed: false, criticalCount: 0, verdict: 'INCONCLUSIVE' }, execution: 'DEGRADED' }) } as unknown as ThemeQaWorkflow;
@@ -251,7 +259,7 @@ describe('Theme QA MCP Capabilities', () => {
     });
 
     it('serializes on-disk receipt fields from real ThemeQaWorkflow execution', async () => {
-      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-qa-receipt-real-workflow-'));
+      const root = mkThemeRoot('antifan-qa-receipt-real-workflow-');
       try {
         const catalogue = new CapabilityCatalogue(defaultOptions);
         const ports = createMockWorkflowPorts();
@@ -284,7 +292,7 @@ describe('Theme QA MCP Capabilities', () => {
     });
 
     it('serializes on-disk receipt fields from real ThemeQaWorkflow execution with settle gaps', async () => {
-      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-qa-receipt-real-degraded-'));
+      const root = mkThemeRoot('antifan-qa-receipt-real-degraded-');
       try {
         const catalogue = new CapabilityCatalogue(defaultOptions);
         const ports = createMockWorkflowPorts({
@@ -324,7 +332,7 @@ describe('Theme QA MCP Capabilities', () => {
     });
 
     it('keeps a QA_FAILED receipt when an INCONCLUSIVE run still carries critical findings', async () => {
-      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-qa-receipt-inconclusive-critical-'));
+      const root = mkThemeRoot('antifan-qa-receipt-inconclusive-critical-');
       try {
         const catalogue = new CapabilityCatalogue(defaultOptions);
         const workflow = { validate: async () => ({ summary: { passed: false, criticalCount: 1, verdict: 'INCONCLUSIVE' } }) } as any;
@@ -341,7 +349,7 @@ describe('Theme QA MCP Capabilities', () => {
     });
 
     it('still rejects AND persists a QA_INCONCLUSIVE receipt when the workflow throws (P0 regression guard)', async () => {
-      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-qa-receipt-throw-'));
+      const root = mkThemeRoot('antifan-qa-receipt-throw-');
       try {
         const catalogue = new CapabilityCatalogue(defaultOptions);
         const workflow = {
@@ -377,7 +385,7 @@ describe('Theme QA MCP Capabilities', () => {
     });
 
     it('writes a receipt for the pre-flight route gate failure and keeps the route-gate error code', async () => {
-      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-qa-receipt-route-'));
+      const root = mkThemeRoot('antifan-qa-receipt-route-');
       try {
         const catalogue = new CapabilityCatalogue(defaultOptions);
         const workflow = { validate: async () => ({ summary: { passed: true, criticalCount: 0 } }) } as any;
@@ -426,7 +434,7 @@ describe('Theme QA MCP Capabilities', () => {
     });
 
     it('emits receiptVersion 1.3 with findings (selector, rect, truncated message, 200-cap) and annotation scopedCriticalCount', async () => {
-      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-qa-receipt-findings-'));
+      const root = mkThemeRoot('antifan-qa-receipt-findings-');
       try {
         const annDir = path.join(root, '.antifan', 'annotations');
         fs.mkdirSync(annDir, { recursive: true });
@@ -666,7 +674,7 @@ describe('Theme QA MCP Capabilities', () => {
     // capability-level round-trip therefore proves the persisted file, not a
     // mocked echo.
     const makeCockpitFixture = (liveUrl: string, options?: { tabAlive?: boolean; navResult?: boolean }): Fixture => {
-      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-cockpit-'));
+      const root = mkThemeRoot('antifan-cockpit-');
       const navigations: Fixture['navigations'] = [];
       const qaCalls: Fixture['qaCalls'] = [];
       const qaState: CockpitQaState = { status: 'pass', issueCount: 0, updatedAt: 1 };

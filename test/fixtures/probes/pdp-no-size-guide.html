@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Áo sơ mi Oxford</title>
+<meta property="og:type" content="product">
+</head>
+<body>
+<header><nav><a href="/">Trang chủ</a></nav></header>
+<main>
+  <nav class="breadcrumb" aria-label="Breadcrumb"><a href="/">Trang chủ</a> / <span>Áo sơ mi Oxford</span></nav>
+
+  <div class="product-gallery">
+    <div class="swiper-wrapper">
+      <div class="swiper-slide swiper-slide-active" data-key="ao-do"><img src="//cdn.example/products/ao-do_1024x1024.jpg?v=1" alt="Đỏ"></div>
+      <div class="swiper-slide" data-key="ao-xanh"><img src="//cdn.example/products/ao-xanh_1024x1024.jpg?v=1" alt="Xanh"></div>
+    </div>
+  </div>
+
+  <div class="product-info">
+    <h1>Áo sơ mi Oxford</h1>
+    <div class="price"><span class="price-current">450.000₫</span></div>
+    <p class="availability">Tình trạng: Còn hàng</p>
+
+    <form action="/cart/add" method="post">
+      <input type="hidden" name="id" value="101">
+
+      <div class="swatch" data-option-position="1">
+        <div class="header">Màu sắc</div>
+        <input type="radio" id="sw-do" name="option-1" value="Đỏ" checked><label for="sw-do" data-value="Đỏ">Đỏ</label>
+        <input type="radio" id="sw-xanh" name="option-1" value="Xanh"><label for="sw-xanh" data-value="Xanh">Xanh</label>
+      </div>
+
+      <div class="selector-wrapper" data-option-position="2">
+        <label for="size-select">Kích thước</label>
+        <select id="size-select" name="option-2">
+          <option value="S">S</option>
+          <option value="M">M</option>
+        </select>
+      </div>
+
+      <div class="quantity"><input type="number" name="quantity" value="1" min="1"></div>
+      <button type="submit" name="add" class="add-to-cart">Thêm vào giỏ hàng</button>
+      <button type="button" class="buy-now">Mua ngay</button>
+    </form>
+  </div>
+
+  <section class="related-products">
+    <h2>Sản phẩm liên quan</h2>
+    <a href="/products/ao-khac">Áo khác</a>
+  </section>
+</main>
+
+<script type="application/json" data-product-json>
+{"id":1,"handle":"ao-so-mi","title":"Áo sơ mi Oxford","options":["Màu sắc","Kích thước"],
+ "variants":[
+  {"id":101,"option1":"Đỏ","option2":"S","sku":"","available":true,"price":450000,"compare_at_price":0,"featured_image":{"src":"//cdn.example/products/ao-do_master.jpg"}},
+  {"id":102,"option1":"Đỏ","option2":"M","sku":"","available":true,"price":450000,"compare_at_price":0,"featured_image":{"src":"//cdn.example/products/ao-do_master.jpg"}},
+  {"id":103,"option1":"Xanh","option2":"S","sku":"","available":true,"price":450000,"compare_at_price":0,"featured_image":{"src":"//cdn.example/products/ao-xanh_master.jpg"}},
+  {"id":104,"option1":"Xanh","option2":"M","sku":"","available":true,"price":450000,"compare_at_price":0,"featured_image":{"src":"//cdn.example/products/ao-xanh_master.jpg"}}
+ ]}
+</script>
+</body>
+</html>

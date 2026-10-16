@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <title>{{ page_title }} | Sky Fashion</title>
+  {{ content_for_header }}
+  {{ 'theme.scss.css' | asset_url | stylesheet_tag }}
+</head>
+<body class="template-{{ template }}">
+  {% include 'header' %}
+  <main>{{ content_for_layout }}</main>
+  <script src="{{ 'theme.js' | asset_url }}" defer></script>
+</body>
+</html>
