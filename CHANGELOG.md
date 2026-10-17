@@ -6,6 +6,21 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 
 ## [v1.3.6] - Unreleased
 
+### Sửa — `anti.visual.compare` luôn INCONCLUSIVE trên storefront đứng yên
+
+- **Nguyên nhân:** preload của tab (`src/preload/tab-preload.ts`) báo `antifan:dom-mutation` cả cho thay đổi do chính AntiFan tạo: style `#__antifan_screenshot_guard__` chèn/gỡ quanh mỗi raster, mask style, class trên overlay/cursor của agent, và lệnh ghi `class`/`style` không đổi giá trị (bước normalization). `mutationRevision` vì thế tăng trong cửa sổ capture, compare resample 2 lần rồi trả `captureStateCompatible:false`, kể cả trên `/404` mà MutationObserver của trang ghi 0 thay đổi trong 4 s. Không có đường lên `CERTIFIED`.
+- **Sửa:** bỏ qua mutation có node đích hoặc node thêm/bớt mang id `__antifan_*`, và attribute write mà giá trị trước/sau giống nhau (so tập class, so khai báo style). Thay đổi thật của trang trong cùng batch vẫn được báo.
+- Test: `test/main/tab-preload-mutation-report.test.ts` chạy preload đã compile trong JSDOM (6 case; 3 case fail khi bỏ bản sửa).
+- Còn mở: normalization của AntiFan ghi `style.display` lên overlay của theme (không mang id `__antifan`), theme phản ứng với scroll cascade (`header--sticky`, back-to-top), và countdown/marquee mà `domQuiet` bỏ qua nhưng preload vẫn đếm — các thay đổi này vẫn có thể làm tăng revision trong cửa sổ capture. Cần restart AntiFan rồi compare live để biết route nào lên được `CERTIFIED`.
+
+### Sửa — QA theme: bớt critical báo sai trên S2 Sky Fashion (tiêu đề footer, nút đổi cột, nút mở lặp lại theo card, chữ đang fade-in)
+
+- **`title-scale`:** heading nằm trong header/footer cấp trang (landmark `banner`/`contentinfo`, hoặc `<header>`/`<footer>` không nằm trong `article`/`aside`/`main`/`nav`/`section`) là nhãn cột điều hướng, không còn bị đem so cỡ chữ với tiêu đề các section. Khi contract có `titleScale`, các heading này vẫn bị chấm theo khoảng đó. `<footer>`/`<header>` bên trong một section vẫn được so như thường. Fixture: `title-scale-chrome-good`, `title-scale-chrome-range-bad`, `title-scale-section-header-bad`.
+- **State matrix:** nút có `aria-pressed` (đổi 3/4 cột, chuyển chế độ xem) là nút bật/tắt tại chỗ, không còn bị coi là nút mở drawer chỉ vì class chứa chữ `search`/`filter`. Fixture: `density-toggles-in-a-toolbar-are-not-openers`.
+- **State matrix — nút mở lặp lại:** các nút cùng `data-action` mà discovery không tìm ra panel (nút "Xem nhanh" trên từng product card) chỉ được chạy một lần, những nút sau được bỏ qua với lý do `DUPLICATE_ACTION`. Trước đây mỗi card chiếm một trigger: 4 card lấp đầy giới hạn 8 trigger nên nút tài khoản trên dock không bao giờ được chạy, và nút trong carousel autoplay bị click vào toạ độ cũ rồi báo `OVERLAY_NOT_OPENED`. Fixture: `repeated-card-openers-without-a-panel-run-once`.
+- **`contrast-low` khi chữ đang fade-in:** chữ có tổ tiên với opacity < 1 đang chạy animation/transition trên chính `opacity` (AOS `fade-up`) được tính là indeterminate thay vì bị chấm tương phản giữa chừng. Opacity tĩnh vẫn bị chấm, kể cả khi wrapper đang chạy animation chỉ có `transform` (marquee, pulse). Fixture: `contrast-text-mid-fade-in-is-indeterminate`, `contrast-static-low-opacity-text-is-flagged`, `contrast-static-low-opacity-under-a-transform-animation-is-flagged`.
+- Cần restart AntiFan để receipt `theme.qa_validate` dùng code mới.
+
 ### Sửa — Pipeline theme: QA chỉ PASS khi CERTIFIED, thêm probe cho lỗi user hay bắt (audit 4 phiên Sky Fashion, Smart Furniture, PC, An Vặt)
 
 - **Ngưỡng mặc định:** `theme.qa_validate`, cockpit scan, toolbar scan và repair coordinator lấy `thresholds` theo thứ tự: tham số gọi → contract của theme → giá trị mặc định khớp `registry/thresholds.json` của kit (`qa-thresholds.ts`). Gọi trần dưới `build-strict` không còn luôn INCONCLUSIVE; receipt ghi `thresholdsSource`, `certification`, `certificationReasons`, `scope`.
