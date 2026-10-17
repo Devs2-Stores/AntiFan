@@ -67,7 +67,6 @@ beforeEach(async () => {
 afterEach(async () => {
   await drain();
   timers.clear();
-  dom.window.close();
 });
 
 describe('tab preload DOM mutation report', () => {
