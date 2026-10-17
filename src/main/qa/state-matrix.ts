@@ -376,7 +376,7 @@ export function buildDiscoverScript(specs: StateMatrixTriggerSpec[], maxTriggers
         const hp = el.getAttribute('aria-haspopup');
         if (hp === 'true' || hp === 'dialog' || hp === 'menu') isTrigger = true;
       }
-      if (!isTrigger && (el.tagName === 'BUTTON' || el.getAttribute('role') === 'button') && el.closest(CHROME_REGION) && !el.closest(PRODUCT_CONTEXT)) {
+      if (!isTrigger && (el.tagName === 'BUTTON' || el.getAttribute('role') === 'button') && !el.hasAttribute('aria-pressed') && el.closest(CHROME_REGION) && !el.closest(PRODUCT_CONTEXT)) {
         const sig = (typeof el.className === 'string' ? el.className.replace(/[-_]+/g, ' ') : '') + ' ' + textOf(el);
         if (OPENER_WORDS.test(sig)) isTrigger = true;
       }
@@ -392,12 +392,19 @@ export function buildDiscoverScript(specs: StateMatrixTriggerSpec[], maxTriggers
   }
   const out = [];
   const seenPanels = new Set();
+  const seenActions = new Set();
   for (const c of candidates) {
     if (out.length >= MAX) { skipped.push({ selector: selectorOf(c.el), reason: 'MAX_TRIGGERS' }); continue; }
     const sel = selectorOf(c.el);
     if (c.el.matches(c.pdp ? UNSAFE_CORE : UNSAFE) || UNSAFE_TEXT.test(textOf(c.el)) || !sameOrigin(c.el)) { skipped.push({ selector: sel, reason: 'UNSAFE_TRIGGER' }); continue; }
     if (!visibleTrigger(c.el)) { skipped.push({ selector: sel, reason: 'TRIGGER_NOT_VISIBLE' }); continue; }
     if (c.panel && seenPanels.has(c.panel)) { skipped.push({ selector: sel, reason: 'DUPLICATE_PANEL' }); continue; }
+    const action = !c.panel && !c.spec ? c.el.getAttribute('data-action') : null;
+    if (action) {
+      const key = c.el.tagName + '|' + action;
+      if (seenActions.has(key)) { skipped.push({ selector: sel, reason: 'DUPLICATE_ACTION' }); continue; }
+      seenActions.add(key);
+    }
     if (c.panel && isOpen(c.panel)) { skipped.push({ selector: sel, reason: 'PANEL_ALREADY_OPEN' }); continue; }
     const i = out.length;
     c.el.setAttribute('${SM_TRIGGER}', String(i));

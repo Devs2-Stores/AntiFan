@@ -71,6 +71,21 @@ module.exports = [
     expect: { rules: ['contrast-low'] },
   },
   {
+    id: 'contrast-text-mid-fade-in-is-indeterminate',
+    html: page('<main style="padding:24px"><div class="fx"><p style="color:#4d657a">Bộ sưu tập tuyển chọn • Xuân hè</p></div></main>', '@keyframes fx-in{from{opacity:.2}to{opacity:1}}.fx{animation:fx-in 30s linear both}'),
+    expect: { absent: ['contrast-low'], indeterminateAtLeast: 1 },
+  },
+  {
+    id: 'contrast-static-low-opacity-text-is-flagged',
+    html: page('<main style="padding:24px"><div style="opacity:.2"><p style="color:#4d657a">Bộ sưu tập tuyển chọn • Xuân hè</p></div></main>'),
+    expect: { rules: ['contrast-low'] },
+  },
+  {
+    id: 'contrast-static-low-opacity-under-a-transform-animation-is-flagged',
+    html: page('<main style="padding:24px"><div class="mq" style="opacity:.2"><p style="color:#4d657a">Bộ sưu tập tuyển chọn • Xuân hè</p></div></main>', '@keyframes mq-run{from{transform:translateX(0)}to{transform:translateX(-10px)}}.mq{animation:mq-run 4s linear infinite}'),
+    expect: { rules: ['contrast-low'] },
+  },
+  {
     id: 'contrast-disabled-control-exempt',
     html: page('<main style="padding:24px"><button disabled style="color:#c8c8c8;background:#fff;border:1px solid #ddd;min-width:48px;min-height:48px">Hết hàng</button></main>'),
     expect: { control: true },
@@ -185,6 +200,9 @@ module.exports = [
   { id: 'title-scale-good', thresholds: true, html: kit('title-scale-good'), expect: { control: true } },
   { id: 'title-scale-range-bad', thresholds: { titleScale: { h1: [28, 40], h2: [28, 32], h3: [20, 26], h4: [16, 20] } }, html: kit('title-scale-good'), expect: { rules: ['title-scale'], viewports: ['mobile'], absentBy: { desktop: ['title-scale'] } } },
   { id: 'title-scale-range-good', thresholds: { titleScale: { h1: [28, 40], h2: [20, 28], h3: [18, 22], h4: [16, 18] } }, html: kit('title-scale-good'), expect: { control: true } },
+  { id: 'title-scale-chrome-good', thresholds: true, html: kit('title-scale-chrome-good'), expect: { absent: ['title-scale'] } },
+  { id: 'title-scale-chrome-range-bad', thresholds: { titleScale: { h1: [28, 40], h2: [20, 28], h3: [18, 22], h4: [16, 18] } }, html: kit('title-scale-chrome-good'), expect: { rules: ['title-scale'], viewports: ['mobile'], absentBy: { desktop: ['title-scale'] } } },
+  { id: 'title-scale-section-header-bad', thresholds: true, html: kit('title-scale-section-header-bad'), expect: { rules: ['title-scale'], viewports: ['mobile'] } },
   { id: 'input-height-band-bad', thresholds: true, html: kit('input-height-band-bad'), expect: { rules: ['input-height-band'] } },
   { id: 'input-height-band-good', thresholds: true, html: kit('input-height-band-good'), expect: { control: true } },
   { id: 'input-height-band-custom-band-good', thresholds: { inputHeightBandPx: 16 }, html: kit('input-height-band-bad'), expect: { absent: ['input-height-band'] } },

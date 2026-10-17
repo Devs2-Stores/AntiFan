@@ -251,6 +251,17 @@ export class VisualQualityScanner {
     }
     return op;
   }
+  function fading(el) {
+    for (let cur = el; cur && cur.nodeType === 1; cur = cur.parentElement) {
+      if (!(parseFloat(getComputedStyle(cur).opacity) < 1) || typeof cur.getAnimations !== 'function') continue;
+      if (cur.getAnimations().some((a) => a.playState === 'running' && touchesOpacity(a))) return true;
+    }
+    return false;
+  }
+  function touchesOpacity(a) {
+    if (typeof a.transitionProperty === 'string') return a.transitionProperty === 'opacity' || a.transitionProperty === 'all';
+    try { return !!(a.effect && a.effect.getKeyframes().some((k) => 'opacity' in k)); } catch (e) { return false; }
+  }
   function hiddenFromAt(el) {
     try { return !!el.closest('[aria-hidden="true"], [inert]'); } catch (e) { return false; }
   }
@@ -424,7 +435,7 @@ export class VisualQualityScanner {
     const backdrop = backdropOf(el);
     // A transparent fill is gradient/image text (background-clip: text): the glyphs show the
     // background, which a flat-colour ratio cannot grade.
-    if (!backdrop || overMedia(el, r) || fg.a < 0.05) { stats.contrastIndeterminate++; continue; }
+    if (!backdrop || overMedia(el, r) || fg.a < 0.05 || (op < 1 && fading(el))) { stats.contrastIndeterminate++; continue; }
     const effFg = blend({ r: fg.r, g: fg.g, b: fg.b, a: fg.a * op }, backdrop);
     const cr = ratio(effFg, backdrop);
     const fs = parseFloat(cs.fontSize) || 16;
@@ -737,10 +748,12 @@ export class VisualQualityScanner {
         if (isPreviewChrome(h) || hiddenFromAt(h)) continue;
         const hr = h.getBoundingClientRect();
         if (!rendered(h, hr) || visuallyHidden(h, hr) || offCanvas(hr) || !(h.textContent || '').trim()) continue;
+        const landmark = h.closest('footer, header, [role="contentinfo"], [role="banner"]');
+        const chrome = !!landmark && (landmark.matches('[role="contentinfo"], [role="banner"]') || !landmark.parentElement || !landmark.parentElement.closest('article, aside, main, nav, section, [role="main"]'));
         const px = parseFloat(getComputedStyle(h).fontSize);
         if (!(px > 0)) continue;
         const section = h.closest('section, [data-section-type], [id^="shopify-section"], [id^="section-"], .section');
-        headingRows.push({ el: h, level: h.tagName.toLowerCase(), px: px, rect: hr, section: section });
+        headingRows.push({ el: h, level: h.tagName.toLowerCase(), px: px, rect: hr, section: section, chrome: chrome });
       }
       if (TH.titleScale) {
         for (const row of headingRows) {
@@ -759,7 +772,7 @@ export class VisualQualityScanner {
         }
       } else {
         for (const level of ['h1', 'h2', 'h3', 'h4']) {
-          const rows = headingRows.filter((r) => r.level === level);
+          const rows = headingRows.filter((r) => r.level === level && !r.chrome);
           const bySection = new Map();
           for (const r of rows) if (!bySection.has(r.section)) bySection.set(r.section, r);
           if (bySection.size < 2) continue;

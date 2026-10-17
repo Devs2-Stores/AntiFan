@@ -49,14 +49,14 @@ test('malformed title-scale and band thresholds are refused instead of silently 
   assert.throws(() => VisualQualityScanner.getBrowserScanScript({ thresholds: { ...thresholds, inputHeightBandPx: 0 } as never }), /inputHeightBandPx must be a positive number/);
 });
 
-test('title-scale: same-level headings that differ by more than 2px, or fall outside the supplied range, are flagged (Electron probe)', (t) => {
+test('title-scale: same-level section headings that differ by more than 2px, or fall outside the supplied range, are flagged; page header/footer headings are compared only against a supplied range (Electron probe)', (t) => {
   const run = probe('title-scale');
   if (run.skipped) {
     t.skip(run.skipped);
     return;
   }
   assert.equal(run.status, 0, run.output.slice(-1500));
-  assert.match(run.output, /SUMMARY fixtures=4 pass=4 fail=0/);
+  assert.match(run.output, /SUMMARY fixtures=7 pass=7 fail=0/);
 });
 
 test('input-height-band: fields of one form differing by more than the band are flagged, a wider band accepts them (Electron probe)', (t) => {

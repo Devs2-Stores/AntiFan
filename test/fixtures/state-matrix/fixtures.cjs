@@ -296,6 +296,32 @@ nav ul{list-style:none;margin:0;padding:0;display:flex;gap:16px}
     html: overlayPage({ closeButton: false }).replace('<div class="backdrop" id="backdrop"></div>', '<button class="backdrop overplay-all" id="backdrop" aria-label="Đóng giỏ hàng" style="border:0;padding:0"></button>'),
     expect: { triggers: 1, codes: { 0: ['CLOSE_CONTROL_MISSING'] }, closeClosed: { 0: ['escape'] } },
   },
+  {
+    id: 'density-toggles-in-a-toolbar-are-not-openers',
+    html: overlayPage().replace('<main><p>Nội dung trang chủ.</p></main>', '<main><div class="search-toolbar"><button type="button" class="btn search-density__btn is-active" aria-pressed="true" aria-label="Hiển thị 3 cột">3</button><button type="button" class="btn search-density__btn" aria-pressed="false" aria-label="Hiển thị 4 cột">4</button></div><p>Nội dung trang chủ.</p></main>'),
+    expect: { triggers: 1, status: { 0: 'PASS' }, panelMatches: { 0: '#panel' } },
+  },
+  {
+    id: 'repeated-card-openers-without-a-panel-run-once',
+    html: overlayPage().replace('<main><p>Nội dung trang chủ.</p></main>', `<main>${[1, 2, 3].map((n) => `<article class="card"><h3>Áo ${n}</h3><button type="button" class="btn card__tool" data-action="open-quickview" data-handle="ao-${n}" aria-label="Xem nhanh Áo ${n}">Xem</button></article>`).join('')}</main>
+<div class="backdrop" id="qv-backdrop"></div>
+<div id="qv" class="modal" role="dialog" aria-modal="true" aria-label="Xem nhanh"><button class="close" aria-label="Đóng">×</button><h2 style="margin:0">Xem nhanh</h2><p class="qv-body"></p></div>
+<script>
+  (() => {
+    const modal = document.getElementById('qv');
+    const scrim = document.getElementById('qv-backdrop');
+    let last = null;
+    const shut = () => { modal.classList.remove('is-open'); scrim.classList.remove('is-open'); document.body.classList.remove('lock'); if (last) last.focus(); };
+    document.addEventListener('click', (e) => {
+      const opener = e.target.closest('[data-action="open-quickview"]');
+      if (opener) { last = opener; modal.querySelector('.qv-body').textContent = opener.dataset.handle; modal.classList.add('is-open'); scrim.classList.add('is-open'); document.body.classList.add('lock'); modal.querySelector('.close').focus(); return; }
+      if (e.target.closest('#qv .close') || e.target === scrim) shut();
+    });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && modal.classList.contains('is-open')) shut(); });
+  })();
+</script>`),
+    expect: { triggers: 2, status: { 0: 'PASS', 1: 'PASS' }, skipped: ['DUPLICATE_ACTION'] },
+  },
 ];
 
 // Script-driven opening: the dialog appears 700ms after the click (a theme timer or a Bootstrap
