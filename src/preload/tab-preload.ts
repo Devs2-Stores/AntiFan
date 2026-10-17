@@ -426,12 +426,36 @@ window.addEventListener(
     return true;
   };
 
+  const ANTIFAN_OWNED_ID = /^__antifan/;
+  const isAntifanOwned = (node: Node | null): boolean => {
+    for (let cur: Node | null = node; cur; cur = cur.parentNode) {
+      if (cur.nodeType === 1 && ANTIFAN_OWNED_ID.test((cur as Element).id || '')) return true;
+    }
+    return false;
+  };
+  const tokenSet = (value: string | null): string =>
+    (value || '').split(/\s+/).filter(Boolean).sort().join(' ');
+  const isNoOpAttributeWrite = (mutation: MutationRecord): boolean => {
+    const target = mutation.target as Element;
+    if (typeof target.getAttribute !== 'function' || !mutation.attributeName) return false;
+    const current = target.getAttribute(mutation.attributeName);
+    if (mutation.attributeName === 'class') return tokenSet(mutation.oldValue) === tokenSet(current);
+    return mutation.oldValue === current;
+  };
+  const isMeaningfulMutation = (m: MutationRecord): boolean => {
+    if (isAntifanOwned(m.target)) return false;
+    if (m.type === 'childList') {
+      const nodes = [...Array.from(m.addedNodes), ...Array.from(m.removedNodes)];
+      return nodes.length === 0 || !nodes.every((n) => isAntifanOwned(n));
+    }
+    if (m.type !== 'attributes') return true;
+    if (m.attributeName === 'style') return !isVolatileStyleChange(m);
+    return !isNoOpAttributeWrite(m);
+  };
+
   try {
     const observer = new MutationObserver((mutations) => {
-      const hasMeaningfulMutation = mutations.some(
-        (m) => m.type !== 'attributes' || m.attributeName !== 'style' || !isVolatileStyleChange(m)
-      );
-      if (hasMeaningfulMutation) {
+      if (mutations.some(isMeaningfulMutation)) {
         notifyMutation();
       }
     });
