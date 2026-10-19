@@ -375,11 +375,15 @@ function parseBaselineViewports(value: unknown): CockpitThemeQaOptions['viewport
   return out;
 }
 
+/** A route that has not loaded within this bound is a navigation failure; the rest of the policy budget belongs to the QA run. */
+const COCKPIT_NAVIGATION_MS = 60_000;
+
 /** The QA grading inputs a cockpit scan forwards to the workflow; anything malformed is refused, never defaulted. */
-function parseScanQaOptions(params: { profile?: unknown; thresholds?: unknown; viewports?: unknown; multiBreakpoint?: unknown }): CockpitThemeQaOptions {
+function parseScanQaOptions(params: { profile?: unknown; thresholds?: unknown; viewports?: unknown; multiBreakpoint?: unknown; waivers?: unknown }): CockpitThemeQaOptions {
   const parsed = browserCaps.parseQaValidateOptions({
     ...(params.profile !== undefined ? { profile: params.profile } : {}),
     ...(params.thresholds !== undefined ? { thresholds: params.thresholds } : {}),
+    ...(params.waivers !== undefined ? { waivers: params.waivers } : {}),
   });
   if (params.multiBreakpoint !== undefined && typeof params.multiBreakpoint !== 'boolean') {
     throw new CapabilityError('INVALID_ARGUMENT', 'theme.cockpit_scan multiBreakpoint must be a boolean');
@@ -390,6 +394,7 @@ function parseScanQaOptions(params: { profile?: unknown; thresholds?: unknown; v
     ...(parsed.thresholds ? { thresholds: parsed.thresholds } : {}),
     ...(viewports ? { viewports } : {}),
     ...(params.multiBreakpoint !== undefined ? { multiBreakpoint: params.multiBreakpoint } : {}),
+    ...(parsed.waivers.length > 0 ? { waivers: parsed.waivers } : {}),
   };
 }
 
@@ -685,13 +690,14 @@ export function registerCockpitCapabilities(
         allowNonTheme: { type: 'boolean', description: 'Accept a workspace root without theme markers (layout/theme.liquid, config/settings_schema.json, config/settings.html)' },
         tabId: { type: 'string' },
         profile: { type: 'string', enum: ['audit', 'build-strict'], description: 'QA grading profile (default build-strict)' },
-        thresholds: { type: 'object', description: 'Contract thresholds (minTextPx, minControlPx, minTapHitPx, tapSpacingCirclePx, optional titleScale, inputHeightBandPx). Omitted: workspace contract typeScale, else the built-in defaults' },
+        thresholds: { type: 'object', description: 'Contract thresholds (minTextPx, minTapHitPx, optional titleScale, inputHeightBandPx). Omitted: workspace contract typeScale, else the built-in defaults' },
         viewports: { type: 'object', description: 'Baseline comparison results per viewport ({desktop|tablet|mobile: {mismatchPercent, passed}}); all three are required for certification CERTIFIED' },
         multiBreakpoint: { type: 'boolean', description: 'Run the responsive breakpoint sweep (default true)' },
+        waivers: { type: 'array', items: { type: 'object', properties: { rule: { type: 'string' }, reason: { type: 'string' } }, required: ['rule', 'reason'] }, description: 'Same as theme.qa_validate waivers: {rule, reason} pairs echoed on the report and receipt' },
         pick: { type: 'string', enum: [...PICK_STRATEGIES], description: 'For page=product without an explicit url: crawl /collections/all and scan the product that best matches this strategy' },
       },
     },
-    execute: async (params: { page?: string; url?: string; workspaceRoot?: string; allowNonTheme?: boolean; tabId?: string; profile?: unknown; thresholds?: unknown; viewports?: unknown; multiBreakpoint?: unknown; pick?: unknown }, context) => {
+    execute: async (params: { page?: string; url?: string; workspaceRoot?: string; allowNonTheme?: boolean; tabId?: string; profile?: unknown; thresholds?: unknown; viewports?: unknown; multiBreakpoint?: unknown; waivers?: unknown; pick?: unknown }, context) => {
       const identity = resolveBoundScope(cockpit, params, context, 'theme.cockpit_scan');
       const qaOptions = parseScanQaOptions(params);
       const pick = parsePickStrategy(params.pick);
@@ -778,11 +784,11 @@ export function registerCockpitCapabilities(
         // Already on the resolved route: the QA run reloads itself, so a
         // pre-navigation would only add a second full load (toolbar mirror).
         if (route !== boundUrl) {
-          const navigated = await cockpit.navigateAndWait(identity.tabId, route, DEADLINES.toolPolicyMs);
+          const navigated = await cockpit.navigateAndWait(identity.tabId, route, COCKPIT_NAVIGATION_MS);
           if (!navigated) {
             // Scanning the stale page would report findings for the wrong URL
             // under the requested page's name — refuse instead of drifting.
-            throw new CapabilityError('NAVIGATION_FAILED', `theme.cockpit_scan could not reach '${route}' on the bound tab within ${DEADLINES.toolPolicyMs}ms`);
+            throw new CapabilityError('NAVIGATION_FAILED', `theme.cockpit_scan could not reach '${route}' on the bound tab within ${COCKPIT_NAVIGATION_MS}ms`);
           }
         }
       }

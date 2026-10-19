@@ -15268,6 +15268,7 @@ export class NativeTabHost extends EventEmitter {
             thresholds: options?.thresholds,
             viewports: options?.viewports,
             multiBreakpoint: options?.multiBreakpoint,
+            waivers: options?.waivers,
             signal,
           });
           const summary = report.summary;

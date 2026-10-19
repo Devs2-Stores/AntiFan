@@ -141,7 +141,8 @@ export class BrokenAssetScanner {
       function getSelector(el) {
         if (!el) return '';
         let s = el.tagName.toLowerCase();
-        if (el.id) return s + '#' + el.id;
+        const elId = typeof el.id === 'string' ? el.id : (el.getAttribute('id') || '');
+        if (elId) return s + '#' + elId;
         if (el.className && typeof el.className === 'string' && el.className.trim().length > 0) {
           const parts = el.className.trim().split(/\\s+/).filter(Boolean);
           if (parts.length > 0) {
@@ -152,7 +153,8 @@ export class BrokenAssetScanner {
           s += '[alt="' + el.getAttribute('alt').slice(0, 25).replace(/"/g, '') + '"]';
         } else if (el.parentElement) {
           const parent = el.parentElement;
-          const pSel = parent.id ? '#' + parent.id : (parent.className && typeof parent.className === 'string' && parent.className.trim() ? '.' + parent.className.trim().split(/\\s+/)[0] : parent.tagName.toLowerCase());
+          const parentId = typeof parent.id === 'string' ? parent.id : (parent.getAttribute('id') || '');
+          const pSel = parentId ? '#' + parentId : (parent.className && typeof parent.className === 'string' && parent.className.trim() ? '.' + parent.className.trim().split(/\\s+/)[0] : parent.tagName.toLowerCase());
           s = pSel + ' > ' + s;
         }
         return s;

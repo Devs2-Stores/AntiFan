@@ -1321,6 +1321,7 @@ export const DEFAULT_STOREFRONT_WIDGETS: readonly string[] = Object.freeze([
   '#haravan-notification',
   '[id*="haravan-notification"]',
   '#preview-bar-iframe',
+  '#admin_bar_iframe',
   'iframe[src*="admin/preview_bar"]',
   'iframe[src*="preview_bar"]',
   '.haravan-preview-bar',

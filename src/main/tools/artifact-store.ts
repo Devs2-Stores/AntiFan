@@ -238,6 +238,19 @@ export class ArtifactStore {
   }
 
   /**
+   * Committed bytes of a run that is about to write `requestedBytes`. When the write would overflow
+   * the ceiling, the store's own retention sweep runs first: an MCP attachment keeps one runId for the
+   * whole session, so a long session otherwise hits the ceiling on evidence the startup sweep would
+   * already have deleted. Permanent artifacts and files younger than the sweep's protect age stay.
+   */
+  private committedBytesBeforeWrite(runId: string, lease: EvidenceRunLease | undefined, requestedBytes: number, runCeiling: number): number {
+    const committedBytes = lease ? this.refreshRunBytesFromDisk(runId) : (this.runBytes.get(runId) || 0);
+    if (committedBytes + requestedBytes <= runCeiling) return committedBytes;
+    if (this.sweepRetention().deletedFiles === 0) return committedBytes;
+    return this.refreshRunBytesFromDisk(runId);
+  }
+
+  /**
    * Per-artifact byte ceiling for one stage call. Without `maxBytes` it is the store/lease default.
    * An explicit `maxBytes` is the caller's own ceiling for this artifact, so it may sit above the
    * default (a full-page screenshot), but never above what the run budget can hold.
@@ -399,8 +412,8 @@ export class ArtifactStore {
     if (!validExisting) {
       // Leased runs re-read authoritative committed bytes from disk immediately before the write, so a
       // concurrent writer or an out-of-band deletion cannot be hidden by a stale in-memory counter.
-      const committedBytes = lease ? this.refreshRunBytesFromDisk(runId) : (this.runBytes.get(runId) || 0);
       const runCeiling = lease ? Math.min(lease.maxRunBytes, this.maxRunBytes) : this.maxRunBytes;
+      const committedBytes = this.committedBytesBeforeWrite(runId, lease, storedData.byteLength, runCeiling);
       if (committedBytes + storedData.byteLength > runCeiling) {
         throw new CapabilityError('ARTIFACT_TOO_LARGE', 'Run artifact budget exceeded', { runId, committedBytes, requestedBytes: storedData.byteLength, maxRunBytes: runCeiling });
       }
@@ -526,8 +539,8 @@ export class ArtifactStore {
     }
 
     if (!validExisting) {
-      const committedBytes = lease ? this.refreshRunBytesFromDisk(runId) : (this.runBytes.get(runId) || 0);
       const runCeiling = lease ? Math.min(lease.maxRunBytes, this.maxRunBytes) : this.maxRunBytes;
+      const committedBytes = this.committedBytesBeforeWrite(runId, lease, storedData.byteLength, runCeiling);
       if (committedBytes + storedData.byteLength > runCeiling) {
         throw new CapabilityError('ARTIFACT_TOO_LARGE', 'Run artifact budget exceeded', { runId, committedBytes, requestedBytes: storedData.byteLength, maxRunBytes: runCeiling });
       }

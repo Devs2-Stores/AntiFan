@@ -20,7 +20,7 @@
  *
  *   1. `cdpCaptureMs`    25_000  one bounded CDP capture on the compositor
  *   2. `qaWorkflowMs`    40_000  the QA workflow composing several captures + settle
- *   3. `toolPolicyMs`    60_000  the registered policy for the whole `theme.qa_validate`
+ *   3. `toolPolicyMs`   180_000  the registered policy for one `theme.qa_validate` / `theme.cockpit_scan`
  *   4. `proxyCeilingMs` 240_000  `DEFAULT_CLIENT_TIMEOUT_MS` in `scripts/antifan-omp-mcp.cjs`
  *   5. the omp client's own timeout, OUT of this repo (`~/.omp/agent/mcp.json`)
  *
@@ -50,8 +50,12 @@ export const DEADLINES = {
   cdpCaptureMs: 25_000,
   /** The Theme QA workflow, which composes several bounded captures plus settle. */
   qaWorkflowMs: 40_000,
-  /** The registered tool-policy budget for one `theme.qa_validate` call. */
-  toolPolicyMs: 60_000,
+  /**
+   * The registered tool-policy budget for one `theme.qa_validate` or `theme.cockpit_scan` call.
+   * Sized for the five-width breakpoint sweep on a long page: at 60_000 most real runs ended in
+   * EXECUTION_TIMEOUT_PENDING_CLEANUP and agents re-ran them in loops.
+   */
+  toolPolicyMs: 180_000,
   /** Outermost in-repo bound: the stdio proxy rejects the dispatch after this. */
   proxyCeilingMs: 240_000,
 } as const;

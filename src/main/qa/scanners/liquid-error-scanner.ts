@@ -68,7 +68,8 @@ export class LiquidErrorScanner {
           if (match) {
             const el = currentNode.parentElement;
             let selector = el ? el.tagName.toLowerCase() : '';
-            if (el && el.id) selector += '#' + el.id;
+            const elId = el ? (typeof el.id === 'string' ? el.id : (el.getAttribute('id') || '')) : '';
+            if (elId) selector += '#' + elId;
             else if (el && el.className && typeof el.className === 'string') {
               selector += '.' + el.className.trim().split(/\\s+/).slice(0, 2).join('.');
             }

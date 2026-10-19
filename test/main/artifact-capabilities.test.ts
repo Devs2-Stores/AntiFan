@@ -147,6 +147,24 @@ describe('Artifact Capabilities & Content-Addressed Storage (Phase 04)', () => {
     );
   });
 
+  it('3b. Frees aged evidence through the retention sweep before refusing a write that would overflow the run budget', () => {
+    const root = path.join(tempDir, 'quota-sweep');
+    const sweepingStore = new ArtifactStore({ root, maxRunBytes: 50 * 1024, retentionOptions: { maxAgeMs: 3600 * 1000, minProtectAgeMs: 60_000 } });
+    const runId = makeControlPlaneId('run');
+    const attemptId = makeControlPlaneId('attempt');
+    const stageChunk = () => sweepingStore.stage({ kind: 'terminal', mime: 'text/plain', data: crypto.randomBytes(30 * 1024), runId, attemptId, projectId, workspaceId });
+
+    const aged = stageChunk();
+    const twoHoursAgo = new Date(Date.now() - 2 * 3600 * 1000);
+    fs.utimesSync(aged.path, twoHoursAgo, twoHoursAgo);
+
+    const fresh = stageChunk();
+    assert.strictEqual(fs.existsSync(aged.path), false, 'the aged artifact is the one the sweep frees');
+    assert.strictEqual(fs.existsSync(fresh.path), true);
+
+    assert.throws(stageChunk, (err: unknown) => err instanceof CapabilityError && err.code === 'ARTIFACT_TOO_LARGE', 'evidence younger than the protect age is never swept to make room');
+  });
+
   it('4. Reads 1 MiB chunked artifacts through catalogue artifact.read with pagination framing', async () => {
     const runId = makeControlPlaneId('run');
     const attemptId = makeControlPlaneId('attempt');

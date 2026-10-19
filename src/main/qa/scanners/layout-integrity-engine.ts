@@ -70,7 +70,7 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
   const SKIP_LAYOUT_SHIFT = '__SKIP_LAYOUT_SHIFT__' === 'true';
   const ACTIONABLE = 'a[href], button, [role="button"], input:not([type="hidden"]), select, textarea, [data-action]';
   const CAROUSEL_SLIDE = '.swiper-slide, .swiper-wrapper, .slick-slide, .slick-track, .splide__slide, .flickity-slider, .glide__slide, .owl-item, [aria-roledescription="slide"], [aria-roledescription="carousel"]';
-  const PLATFORM_PREVIEW_CHROME = '#haravan-notification, #preview-bar-iframe';
+  const PLATFORM_PREVIEW_CHROME = '#haravan-notification, #preview-bar-iframe, #admin_bar_iframe, #admin-bar-iframe';
   const IDENTITY = 'matrix(1, 0, 0, 1, 0, 0)';
 
   const stats = { elements: 0, textRuns: 0, controls: 0, sweepSteps: 0, truncated: false, truncatedReasons: [], failedDetectors: [], durationMs: 0 };
@@ -1160,7 +1160,7 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
       if (pos !== 'fixed' && pos !== 'absolute') continue;
       const role = el.getAttribute('role');
       const semantic = role === 'dialog' || role === 'alertdialog' || el.getAttribute('aria-modal') === 'true' || (el.tagName === 'DIALOG' && el.open);
-      const named = POPUP_NAME.test(el.tagName + ' ' + (el.id || '') + ' ' + (typeof el.className === 'string' ? el.className : ''));
+      const named = POPUP_NAME.test(el.tagName + ' ' + (el.getAttribute('id') || '') + ' ' + (typeof el.className === 'string' ? el.className : ''));
       if (!semantic && !named) continue;
       if (el.closest(PLATFORM_PREVIEW_CHROME) || unsettled(el) || isSrOnly(el) || !painted(el)) continue;
       const pr = el.getBoundingClientRect();

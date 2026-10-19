@@ -57,7 +57,7 @@ const MENU_RUNTIME = String.raw`function (op, mobile) {
   function clsOf(n) { return typeof n.className === 'string' ? n.className : ''; }
   function mobileish(el) {
     for (var n = el; n && n !== document.body; n = n.parentElement) {
-      var tokens = ((n.id || '') + ' ' + clsOf(n)).split(/\s+/);
+      var tokens = ((n.getAttribute('id') || '') + ' ' + clsOf(n)).split(/\s+/);
       for (var t = 0; t < tokens.length; t += 1) {
         if (MOBILE_RE.test(tokens[t]) && !HIDES_ON_MOBILE_RE.test(tokens[t])) return true;
       }

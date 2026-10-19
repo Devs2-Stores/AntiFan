@@ -33,7 +33,7 @@ import type { ThemeQaWorkflow } from '../qa/theme-qa-workflow';
  * tool call, a cockpit scan and a toolbar scan grade under the same rules. Absent fields take the
  * workflow's defaults.
  */
-export type CockpitThemeQaOptions = Pick<Parameters<ThemeQaWorkflow['validate']>[0], 'profile' | 'thresholds' | 'viewports' | 'multiBreakpoint'> & {
+export type CockpitThemeQaOptions = Pick<Parameters<ThemeQaWorkflow['validate']>[0], 'profile' | 'thresholds' | 'viewports' | 'multiBreakpoint' | 'waivers'> & {
   workspaceRoot?: string;
 };
 

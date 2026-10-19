@@ -70,7 +70,7 @@ describe('Request deadline chain (AP-DEADLINE-001)', () => {
   it('(a) pins the shipped values that the chain composes', () => {
     assert.strictEqual(DEADLINES.cdpCaptureMs, 25_000);
     assert.strictEqual(DEADLINES.qaWorkflowMs, 40_000);
-    assert.strictEqual(DEADLINES.toolPolicyMs, 60_000);
+    assert.strictEqual(DEADLINES.toolPolicyMs, 180_000);
     assert.strictEqual(DEADLINES.proxyCeilingMs, 240_000);
   });
 

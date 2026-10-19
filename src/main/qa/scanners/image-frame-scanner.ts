@@ -72,7 +72,7 @@ export class ImageFrameScanner {
   const started = Date.now();
   const vw = window.innerWidth;
   const vh = window.innerHeight;
-  const PREVIEW_CHROME = '#preview-bar-iframe, [id*="preview-bar"], .preview-bar, ul.preview-cta, #haravan-notification, .hrv-admin-bar, #admin-bar-iframe, #PBarNextFrameWrapper, [data-antifan-override]';
+  const PREVIEW_CHROME = '#preview-bar-iframe, [id*="preview-bar"], .preview-bar, ul.preview-cta, #haravan-notification, .hrv-admin-bar, #admin-bar-iframe, #admin_bar_iframe, #PBarNextFrameWrapper, [data-antifan-override]';
   const findings = [];
   const counts = {};
   const truncatedReasons = [];
@@ -80,7 +80,7 @@ export class ImageFrameScanner {
   const merged = new Map();
   function selectorOf(el) {
     if (!el || el.nodeType !== 1) return '';
-    if (el.id) return '#' + el.id;
+    if (el.getAttribute('id')) return '#' + el.getAttribute('id');
     let sel = el.tagName.toLowerCase();
     if (typeof el.className === 'string' && el.className.trim()) {
       const cls = el.className.trim().split(/\\s+/).filter((c) => c && !c.includes(':')).slice(0, 2);

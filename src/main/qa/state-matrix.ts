@@ -197,10 +197,10 @@ export const smCloseSelector = (i: number) => `[${SM_CLOSE}="${i}"]`;
 
 /** Shared in-page helpers (closest-style lookups, visibility maths). */
 const PAGE_HELPERS = String.raw`
-  const PREVIEW_CHROME = '#preview-bar-iframe, [id*="preview-bar"], .preview-bar, ul.preview-cta, #haravan-notification, .hrv-admin-bar, #admin-bar-iframe';
+  const PREVIEW_CHROME = '#preview-bar-iframe, [id*="preview-bar"], .preview-bar, ul.preview-cta, #haravan-notification, .hrv-admin-bar, #admin-bar-iframe, #admin_bar_iframe';
   const selectorOf = (el) => {
     if (!el || el.nodeType !== 1) return '';
-    if (el.id) return '#' + el.id;
+    if (el.getAttribute('id')) return '#' + el.getAttribute('id');
     let sel = el.tagName.toLowerCase();
     if (typeof el.className === 'string' && el.className.trim()) {
       const cls = el.className.trim().split(/\s+/).filter((c) => c && !c.includes(':')).slice(0, 2);
@@ -334,7 +334,7 @@ export function buildDiscoverScript(specs: StateMatrixTriggerSpec[], maxTriggers
       if (sig.includes('modal') || sig.includes('popup') || sig.includes('quickview') || / role:dialog /.test(sig) || sig.includes(' tag:dialog ')) return 'modal';
       return null;
     };
-    const panelSig = panel ? (' ' + panel.id + ' ' + (typeof panel.className === 'string' ? panel.className : '') + ' role:' + (panel.getAttribute('role') || '') + ' tag:' + panel.tagName.toLowerCase() + ' ').toLowerCase() : '';
+    const panelSig = panel ? (' ' + (panel.getAttribute('id') || '') + ' ' + (typeof panel.className === 'string' ? panel.className : '') + ' role:' + (panel.getAttribute('role') || '') + ' tag:' + panel.tagName.toLowerCase() + ' ').toLowerCase() : '';
     const triggerSig = (' ' + (typeof trigger.className === 'string' ? trigger.className : '') + ' ' + (trigger.getAttribute('aria-label') || '') + ' ').toLowerCase();
     const byPanel = panelSig ? fromSig(panelSig) : null;
     if (byPanel) return byPanel;

@@ -428,16 +428,17 @@ interface ScanResult {
   checklist?: { applied: Array<{ itemId: string; done: boolean }>; skipped: Array<{ itemId: string; reason: string }> };
 }
 
-const FULL_THRESHOLDS = { minTextPx: 12, minControlPx: 44, minTapHitPx: 24, tapSpacingCirclePx: 24 };
+const FULL_THRESHOLDS = { minTextPx: 12, minTapHitPx: 24 };
 
 describe('theme.cockpit_scan grading inputs, root guard and checklist ticks', () => {
-  it('forwards profile, thresholds, viewports and multiBreakpoint to the QA run untouched', async () => {
+  it('forwards profile, thresholds, viewports, multiBreakpoint and waivers to the QA run untouched', async () => {
     const { catalogue, root, qaCalls } = makeScanFixture();
     try {
       const viewports = { desktop: { mismatchPercent: 0.2, passed: true }, mobile: { mismatchPercent: 0.4, passed: true } };
+      const waivers = [{ rule: 'tap-target-hit-area', reason: 'third-party chat bubble' }];
       await catalogue.dispatch(
         'theme.cockpit_scan',
-        { profile: 'audit', thresholds: FULL_THRESHOLDS, viewports, multiBreakpoint: false },
+        { profile: 'audit', thresholds: FULL_THRESHOLDS, viewports, multiBreakpoint: false, waivers },
         makeBoundContext()
       );
       assert.strictEqual(qaCalls.length, 1);
@@ -446,6 +447,7 @@ describe('theme.cockpit_scan grading inputs, root guard and checklist ticks', ()
         thresholds: FULL_THRESHOLDS,
         viewports,
         multiBreakpoint: false,
+        waivers,
         workspaceRoot: root,
       });
     } finally {
@@ -473,6 +475,7 @@ describe('theme.cockpit_scan grading inputs, root guard and checklist ticks', ()
       await assert.rejects(() => catalogue.dispatch('theme.cockpit_scan', { url: '/products/a', viewports: { desktop: { passed: true } } }, makeBoundContext()), invalid);
       await assert.rejects(() => catalogue.dispatch('theme.cockpit_scan', { url: '/products/a', multiBreakpoint: 'yes' }, makeBoundContext()), invalid);
       await assert.rejects(() => catalogue.dispatch('theme.cockpit_scan', { url: '/products/a', pick: 'cheapest' }, makeBoundContext()), invalid);
+      await assert.rejects(() => catalogue.dispatch('theme.cockpit_scan', { url: '/products/a', waivers: [{ rule: 'min-font-size' }] }, makeBoundContext()), invalid);
       assert.strictEqual(navigations.length, 0);
       assert.strictEqual(qaCalls.length, 0);
     } finally {

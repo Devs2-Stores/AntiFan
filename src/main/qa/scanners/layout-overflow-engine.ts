@@ -104,7 +104,8 @@ export class LayoutOverflowEngine {
               // If no child was found to be the narrower culprit, record this element
               if (!hasOffendingChild) {
                 let selector = el.tagName.toLowerCase();
-                if (el.id) selector += '#' + el.id;
+                const elId = typeof el.id === 'string' ? el.id : (el.getAttribute('id') || '');
+                if (elId) selector += '#' + elId;
                 else if (el.className && typeof el.className === 'string') {
                   selector += '.' + el.className.trim().split(/\\s+/).slice(0, 2).join('.');
                 }
@@ -112,7 +113,7 @@ export class LayoutOverflowEngine {
                 culprits.push({
                   selector,
                   tagName: el.tagName.toLowerCase(),
-                  id: el.id || undefined,
+                  id: elId || undefined,
                   className: typeof el.className === 'string' ? el.className.trim() : undefined,
                   deltaX: Math.round(elDelta * 10) / 10,
                   boundingBox: {

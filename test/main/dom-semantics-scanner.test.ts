@@ -51,4 +51,24 @@ describe('DomSemanticsScanner browser script', () => {
       assert.strictEqual(injected.summary[key], direct.summary[key], `${key} must match evaluateDom`);
     }
   });
+
+  it('reads the id attribute of an add-to-cart form whose <input name="id"> clobbers form.id', () => {
+    const JSDOM = loadJsdom();
+    const pdp = `<!doctype html><html lang="vi"><head><title>PDP</title></head><body><h1>Áo</h1>
+<form id="add-to-cart-form" action="/cart/add"><input type="hidden" name="id" value="101"><button type="submit">Mua</button></form>
+<form id="add-to-cart-form" action="/cart/add"><input type="hidden" name="id" value="102"><button type="submit">Mua</button></form>
+</body></html>`;
+    const dom = new JSDOM(pdp, { runScripts: 'outside-only' });
+    // jsdom does not implement HTMLFormElement's [LegacyOverrideBuiltIns] named getter; Chromium does,
+    // so form.id is the <input name="id"> element there. Reproduce that shape on each form.
+    for (const form of Array.from(dom.window.document.querySelectorAll('form'))) {
+      Object.defineProperty(form, 'id', { configurable: true, get: () => form.querySelector('input[name="id"]') });
+    }
+    const injected = dom.window.eval(DomSemanticsScanner.getBrowserScanScript()) as DomSemanticsScanResult;
+    const direct = DomSemanticsScanner.evaluateDom(dom.window.document, 1024);
+
+    assert.strictEqual(injected.measured, true);
+    assert.strictEqual(injected.summary.duplicateIdCount, 1);
+    assert.strictEqual(direct.summary.duplicateIdCount, 1);
+  });
 });

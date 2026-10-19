@@ -34,7 +34,7 @@ const PAGE_STRUCTURE_RUNTIME = String.raw`function () {
   function typeOf(el) { return el.getAttribute('data-section-type') || el.getAttribute('data-section') || ''; }
   function isChrome(el) {
     if (el.tagName.toLowerCase() === 'header') return true;
-    return CHROME.test(norm(typeOf(el)) + ' ' + norm(el.id) + ' ' + norm(clsOf(el)));
+    return CHROME.test(norm(typeOf(el)) + ' ' + norm(el.getAttribute('id')) + ' ' + norm(clsOf(el)));
   }
   function kids(scope) {
     return Array.prototype.filter.call(scope.children, function (c) { return !SKIP.test(c.tagName); });
@@ -72,7 +72,7 @@ const PAGE_STRUCTURE_RUNTIME = String.raw`function () {
     var cls = clsOf(el);
     sections.push({
       tag: el.tagName.toLowerCase(),
-      id: el.id || '',
+      id: el.getAttribute('id') || '',
       cls: cls.slice(0, 200),
       type: typeOf(el),
       heading: h ? (h.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 100) : '',
@@ -83,7 +83,7 @@ const PAGE_STRUCTURE_RUNTIME = String.raw`function () {
       imgCount: el.querySelectorAll('img, picture, video').length,
       top: r.top + sy,
       height: r.height,
-      selector: el.id ? '#' + el.id : el.tagName.toLowerCase() + (cls ? '.' + cls.split(/\s+/)[0] : '')
+      selector: el.getAttribute('id') ? '#' + el.getAttribute('id') : el.tagName.toLowerCase() + (cls ? '.' + cls.split(/\s+/)[0] : '')
     });
   });
   var doc = document.documentElement;

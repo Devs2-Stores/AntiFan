@@ -70,8 +70,9 @@ export class DomSemanticsScanner {
       const getSelector = (el) => {
         if (!el || !el.tagName) return '';
         let sel = el.tagName.toLowerCase();
-        if (el.id) {
-          sel += '#' + el.id;
+        const elId = el.getAttribute('id');
+        if (elId) {
+          sel += '#' + elId;
         } else if (el.className && typeof el.className === 'string') {
           const firstCls = el.className.trim().split(/\\s+/)[0];
           if (firstCls && /^[a-zA-Z][a-zA-Z0-9_-]*$/.test(firstCls)) sel += '.' + firstCls;
@@ -233,7 +234,7 @@ export class DomSemanticsScanner {
       const allWithId = Array.from(document.querySelectorAll('[id]'));
       const idCounts = new Map();
       for (const el of allWithId) {
-        const id = el.id.trim();
+        const id = (el.getAttribute('id') || '').trim();
         if (!id) continue;
         idCounts.set(id, (idCounts.get(id) || 0) + 1);
       }
@@ -440,8 +441,9 @@ export class DomSemanticsScanner {
     const getSelector = (el: Element): string => {
       if (!el || !el.tagName) return '';
       let sel = el.tagName.toLowerCase();
-      if (el.id) {
-        sel += '#' + el.id;
+      const elId = el.getAttribute('id');
+      if (elId) {
+        sel += '#' + elId;
       } else if (el.className && typeof el.className === 'string') {
         const firstCls = el.className.trim().split(/\s+/)[0];
         if (firstCls && /^[a-zA-Z][a-zA-Z0-9_-]*$/.test(firstCls)) sel += '.' + firstCls;
@@ -603,7 +605,7 @@ export class DomSemanticsScanner {
     const allWithId = Array.from(doc.querySelectorAll('[id]'));
     const idCounts = new Map<string, number>();
     for (const el of allWithId) {
-      const id = el.id.trim();
+      const id = (el.getAttribute('id') || '').trim();
       if (!id) continue;
       idCounts.set(id, (idCounts.get(id) || 0) + 1);
     }

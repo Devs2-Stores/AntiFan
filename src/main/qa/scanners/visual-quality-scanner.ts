@@ -196,14 +196,14 @@ export class VisualQualityScanner {
   function rulesReport() {
     return { measuredRules: measuredRules.slice(), unmeasuredRules: ALL_RULES.filter((id) => !measuredRules.includes(id)) };
   }
-  const PREVIEW_CHROME = '#preview-bar-iframe, [id*="preview-bar"], .preview-bar, ul.preview-cta, #haravan-notification, .hrv-admin-bar, #admin-bar-iframe, #PBarNextFrameWrapper, [data-antifan-override]';
+  const PREVIEW_CHROME = '#preview-bar-iframe, [id*="preview-bar"], .preview-bar, ul.preview-cta, #haravan-notification, .hrv-admin-bar, #admin-bar-iframe, #admin_bar_iframe, #PBarNextFrameWrapper, [data-antifan-override]';
 
   function isPreviewChrome(el) {
     try { return !!(el && el.closest && el.closest(PREVIEW_CHROME)); } catch (e) { return false; }
   }
   function selectorOf(el) {
     if (!el || el.nodeType !== 1) return '';
-    if (el.id) return '#' + el.id;
+    if (el.getAttribute('id')) return '#' + el.getAttribute('id');
     let sel = el.tagName.toLowerCase();
     if (typeof el.className === 'string' && el.className.trim()) {
       const cls = el.className.trim().split(/\\s+/).filter((c) => c && !c.includes(':')).slice(0, 2);
@@ -662,7 +662,7 @@ export class VisualQualityScanner {
       const el = everything[i];
       if (getComputedStyle(el).position !== 'fixed' || isPreviewChrome(el)) continue;
       const role = el.getAttribute('role');
-      const named = POPUP_NAME.test(el.tagName + ' ' + (el.id || '') + ' ' + (typeof el.className === 'string' ? el.className : ''));
+      const named = POPUP_NAME.test(el.tagName + ' ' + (el.getAttribute('id') || '') + ' ' + (typeof el.className === 'string' ? el.className : ''));
       const semantic = role === 'dialog' || role === 'alertdialog' || el.getAttribute('aria-modal') === 'true' || (el.tagName === 'DIALOG' && el.open);
       if (!semantic && !named) continue;
       const pr = el.getBoundingClientRect();

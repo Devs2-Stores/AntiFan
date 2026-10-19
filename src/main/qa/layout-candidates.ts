@@ -155,7 +155,7 @@ export function buildSectionMetricsScript(scopeSelector: string, maxClipHeight: 
   const docEl = document.scrollingElement || document.documentElement;
   if (!scope) return { found: false, rect: null, docOverflowX: docEl.scrollWidth > vw + 1, spill: [], offViewport: [], clippedText: [], truncatedText: 0, overlappingText: [], fontSizes: [], leftEdges: 0, gapCount: 0, gapsOnGrid: 0 };
   const selectorOf = (el) => {
-    if (el.id) return '#' + el.id;
+    if (el.getAttribute('id')) return '#' + el.getAttribute('id');
     let s = el.tagName.toLowerCase();
     if (typeof el.className === 'string' && el.className.trim()) s += '.' + el.className.trim().split(/\\s+/).slice(0, 2).join('.');
     return s;

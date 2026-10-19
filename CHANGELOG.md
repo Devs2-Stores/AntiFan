@@ -6,6 +6,15 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 
 ## [v1.3.6] - Unreleased
 
+### Sửa — Theme QA chạy ổn định trong run dài (timeout, form clobber, admin bar, waivers, run budget)
+
+- **Timeout:** `DEADLINES.toolPolicyMs` của `theme.qa_validate` / `theme.cockpit_scan` 60s → 180s (`src/shared/deadline-chain.ts`); sweep 5 viewport trên trang dài thường hết 60s, trả `EXECUTION_TIMEOUT_PENDING_CLEANUP` và agent chạy lại liên tục. Chuỗi vẫn tăng dần: 180s < `proxyCeilingMs` 240s < client OMP 300s. Điều hướng của `theme.cockpit_scan` tách riêng ở 60s (`COCKPIT_NAVIGATION_MS`).
+- **PDP Haravan crash scanner:** form add-to-cart có `<input name="id">` làm `form.id` trả về element, `.trim()` ném lỗi nên mọi receipt PDP `INCONCLUSIVE`. Scanner và probe đọc id qua `getAttribute('id')` (fallback `el.id` khi là chuỗi).
+- **Admin bar Haravan:** `iframe#admin_bar_iframe` (gạch dưới) được thêm vào danh sách preview chrome của scanner, `browser-control-port` và kit `registry-probes.browser.js`; trước đó bị chấm như nội dung theme (contrast 1.02:1).
+- **`theme.cockpit_scan`** nhận và chuyển tiếp `waivers` như `theme.qa_validate` (catalogue, cockpit port, native host, control plane, proxy schema).
+- **Run budget:** khi lần ghi vượt trần run, `ArtifactStore` chạy retention sweep trước rồi mới từ chối; phiên MCP giữ một runId suốt phiên nên trước đây bị `ARTIFACT_TOO_LARGE` dù bằng chứng cũ đã hết hạn.
+- Test: `dom-semantics-scanner` (form clobber), `cockpit-capabilities` (waivers), `artifact-capabilities` 3b (sweep), `deadline-chain`; fixture `admin-bar-chrome-is-ignored` (fail khi bỏ loại trừ). `test:main` và `test:unit` pass.
+
 ### Sửa — "Haravan JSON View" chiếm trang HTML của app Next.js (Zalo Video Creator)
 
 - **Nguyên nhân:** `injectAutoJsonViewer` (`src/main/browser/tab-devtools-host.ts`) chạy trên mọi trang sau khi tải, lấy `body.innerText` và nếu rỗng thì lấy `body.textContent`. Với app Next.js chưa hydrate (`#__next` rỗng), `textContent` chỉ còn nội dung `<script id="__NEXT_DATA__">`, parse được JSON nên trang bị thay bằng cây JSON. Gặp trên `video.zalo.me/creator/*` (Trang sản phẩm, Thông tin kênh).
