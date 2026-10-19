@@ -6,6 +6,12 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 
 ## [v1.3.6] - Unreleased
 
+### Sửa — "Haravan JSON View" chiếm trang HTML của app Next.js (Zalo Video Creator)
+
+- **Nguyên nhân:** `injectAutoJsonViewer` (`src/main/browser/tab-devtools-host.ts`) chạy trên mọi trang sau khi tải, lấy `body.innerText` và nếu rỗng thì lấy `body.textContent`. Với app Next.js chưa hydrate (`#__next` rỗng), `textContent` chỉ còn nội dung `<script id="__NEXT_DATA__">`, parse được JSON nên trang bị thay bằng cây JSON. Gặp trên `video.zalo.me/creator/*` (Trang sản phẩm, Thông tin kênh).
+- **Sửa:** chỉ hiện viewer khi tài liệu là response JSON thô: `document.contentType` là `application/json`, `text/json` hoặc `*+json`, hoặc body chỉ có đúng một `<pre>` (cách Chromium hiển thị response dạng chữ). Cùng điều kiện với viewer trong `src/preload/tab-preload.ts`.
+- Test: case `8b` trong `test/main/tab-devtools-host.test.ts` (fail khi bỏ bản sửa); cả file 59/59. Chromium thật (Playwright, tắt JS để giữ trạng thái chưa hydrate): `video.zalo.me/creator/trang-thong-tin` bản cũ bị chiếm, bản mới giữ nguyên; `api.github.com/repos/microsoft/playwright` (`application/json`) cả hai bản vẫn hiện viewer.
+
 ### Sửa — `anti.visual.compare` luôn INCONCLUSIVE trên storefront đứng yên
 
 - **Nguyên nhân:** preload của tab (`src/preload/tab-preload.ts`) báo `antifan:dom-mutation` cả cho thay đổi do chính AntiFan tạo: style `#__antifan_screenshot_guard__` chèn/gỡ quanh mỗi raster, mask style, class trên overlay/cursor của agent, và lệnh ghi `class`/`style` không đổi giá trị (bước normalization). `mutationRevision` vì thế tăng trong cửa sổ capture, compare resample 2 lần rồi trả `captureStateCompatible:false`, kể cả trên `/404` mà MutationObserver của trang ghi 0 thay đổi trong 4 s. Không có đường lên `CERTIFIED`.

@@ -449,6 +449,56 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
     }, 'Injected AutoJsonViewer script must be 100% valid ECMAScript without SyntaxError');
   });
 
+  it('8b. injectAutoJsonViewer leaves HTML apps with inline JSON scripts alone and still renders raw JSON responses', () => {
+    const { ctx } = createMockContext();
+    const devTools = new TabDevToolsHost(ctx);
+    let injectedScript = '';
+    devTools.injectAutoJsonViewer({
+      isDestroyed: () => false,
+      executeJavaScript: async (code: string) => {
+        injectedScript = code;
+        return undefined;
+      },
+    } as unknown as Electron.WebContents);
+
+    const run = (doc: { contentType: string; children: Array<{ tagName: string; textContent: string }>; textContent: string }) => {
+      const element = () => ({ style: {} as Record<string, string>, addEventListener() {}, querySelectorAll: () => [], textContent: '' });
+      const body = {
+        children: doc.children,
+        textContent: doc.textContent,
+        innerText: '',
+        innerHTML: '<div id="__next"></div>',
+      };
+      const window: Record<string, unknown> = {};
+      const document = {
+        contentType: doc.contentType,
+        body,
+        head: { appendChild() {} },
+        createElement: element,
+        getElementById: element,
+      };
+      vm.runInNewContext(injectedScript, { window, document, navigator: { clipboard: { writeText() {} } }, setTimeout });
+      return { injected: window.__masterJsonInjected === true, html: body.innerHTML };
+    };
+
+    const nextData = '{"props":{"pageProps":{}},"page":"/store","buildId":"x"}';
+    const hydratingApp = run({
+      contentType: 'text/html',
+      children: [{ tagName: 'DIV', textContent: '' }, { tagName: 'SCRIPT', textContent: nextData }],
+      textContent: nextData,
+    });
+    assert.strictEqual(hydratingApp.injected, false, 'An HTML page must never be replaced by its inline __NEXT_DATA__ JSON');
+    assert.strictEqual(hydratingApp.html, '<div id="__next"></div>');
+
+    const rawJson = run({
+      contentType: 'application/json',
+      children: [{ tagName: 'PRE', textContent: '{"ok":true}' }],
+      textContent: '{"ok":true}',
+    });
+    assert.strictEqual(rawJson.injected, true, 'A raw JSON response must still get the tree viewer');
+    assert.ok(rawJson.html.includes('jvTree'));
+  });
+
   it('9. withDeviceMetricsOverride executes CDP Emulation commands and clears metrics in finally', async () => {
     const { ctx } = createMockContext();
     const devTools = new TabDevToolsHost(ctx);

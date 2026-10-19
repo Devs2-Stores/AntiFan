@@ -3636,7 +3636,17 @@ ${expression}
     const script = `
 (function autoJsonView() {
   if (window.__masterJsonInjected) return;
-  const raw = (document.body && document.body.innerText) || (document.body && document.body.textContent) || '';
+  // Only raw JSON responses: a JSON content type, or Chromium's text rendering
+  // of a raw response (body holds exactly one <pre>). Never read an HTML page's
+  // textContent: it includes inline <script> bodies such as Next.js __NEXT_DATA__,
+  // which would replace a still-hydrating app with its bootstrap JSON.
+  const body = document.body;
+  if (!body) return;
+  const ct = String(document.contentType || '').toLowerCase();
+  const isJsonType = ct === 'application/json' || ct === 'text/json' || ct.endsWith('+json');
+  const onlyPre = body.children.length === 1 && body.children[0].tagName === 'PRE' ? body.children[0] : null;
+  if (!isJsonType && !onlyPre) return;
+  const raw = (onlyPre ? onlyPre.textContent : body.textContent) || '';
   const trimmed = String(raw).trim();
   if (!trimmed || trimmed.length < 2) return;
   
