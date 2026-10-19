@@ -13,6 +13,7 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 - **Admin bar Haravan:** `iframe#admin_bar_iframe` (gạch dưới) được thêm vào danh sách preview chrome của scanner, `browser-control-port` và kit `registry-probes.browser.js`; trước đó bị chấm như nội dung theme (contrast 1.02:1).
 - **`theme.cockpit_scan`** nhận và chuyển tiếp `waivers` như `theme.qa_validate` (catalogue, cockpit port, native host, control plane, proxy schema).
 - **Run budget:** khi lần ghi vượt trần run, `ArtifactStore` chạy retention sweep trước rồi mới từ chối; phiên MCP giữ một runId suốt phiên nên trước đây bị `ARTIFACT_TOO_LARGE` dù bằng chứng cũ đã hết hạn.
+- **E2E golden-live:** canary `anti.theme.resolve_element` gọi khi tab còn ở `drawer.html`, nên từ khi resolve_element fail-closed với selector không khớp DOM (`bd42fe58`) thì `test:e2e` luôn đỏ (`SELECTOR_NOT_FOUND`, tái hiện y hệt trên HEAD). `scripts/smoke-theme-golden-live.cjs` điều hướng tab về storefront trước canary.
 - Test: `dom-semantics-scanner` (form clobber), `cockpit-capabilities` (waivers), `artifact-capabilities` 3b (sweep), `deadline-chain`; fixture `admin-bar-chrome-is-ignored` (fail khi bỏ loại trừ). `test:main` và `test:unit` pass.
 
 ### Sửa — "Haravan JSON View" chiếm trang HTML của app Next.js (Zalo Video Creator)

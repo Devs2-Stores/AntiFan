@@ -912,6 +912,11 @@ async function run() {
     }), 'file.write duplicate edge canary');
     assert.equal(edgeWrite.sha256, sha256(Buffer.from(tiedSectionContent, 'utf8')));
 
+    const canaryNavigation = parseTextResult(await tool('anti.browser.navigate', {
+      url: storefrontUrl,
+      tabId,
+    }, 40_000), 'anti.browser.navigate storefront for source canary');
+    assert.equal(canaryNavigation.navigated, true);
     const ambiguousSource = parseTextResult(await tool('anti.theme.resolve_element', {
       selector: '.product-card',
       tabId,
