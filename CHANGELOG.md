@@ -12,6 +12,12 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 - **Sửa:** chỉ hiện viewer khi tài liệu là response JSON thô: `document.contentType` là `application/json`, `text/json` hoặc `*+json`, hoặc body chỉ có đúng một `<pre>` (cách Chromium hiển thị response dạng chữ). Cùng điều kiện với viewer trong `src/preload/tab-preload.ts`.
 - Test: case `8b` trong `test/main/tab-devtools-host.test.ts` (fail khi bỏ bản sửa); cả file 59/59. Chromium thật (Playwright, tắt JS để giữ trạng thái chưa hydrate): `video.zalo.me/creator/trang-thong-tin` bản cũ bị chiếm, bản mới giữ nguyên; `api.github.com/repos/microsoft/playwright` (`application/json`) cả hai bản vẫn hiện viewer.
 
+### Đổi — `anti.agent.file_upload` nhận `workspaceRoot` là `E:\Work\shopee-reels`
+
+- **Lý do:** `validateAuthorizedWorkspaceRoot` chỉ cho `customizes`, `themes`, `apps`, nên phiên chạy từ `E:\Work\Gác` (Trang Tường Thích Bán) luôn bị `OUTSIDE_WORKSPACE` khi tải video/ảnh lên TikTok Studio và phải gán file bằng script.
+- **Đổi:** thêm `AUTHORIZED_WORKSPACE_ROOTS` (`src/main/browser/workspace-resolver.ts`) = 3 root cũ + `E:\Work\shopee-reels`, làm mặc định cho `validateAuthorizedWorkspaceRoot`. `DEFAULT_WORKSPACE_ROOTS` giữ nguyên, nên `resolveWorkspaceFromUrl` không quét thư mục media như một project.
+- Live 19/10 sau restart: upload `avatar-tiktok-chu.jpg` và `sofa-luoi/out/r30.mp4` lên TikTok với `workspaceRoot:"E:\\Work\\shopee-reels"` trả `{"success":true,"uploadedCount":1}`. Test liên quan (`theme-automation-input-fixes`, `tab-workspace-resolution`, `agent-browser-script`): 48/48 pass.
+
 ### Sửa — `anti.visual.compare` luôn INCONCLUSIVE trên storefront đứng yên
 
 - **Nguyên nhân:** preload của tab (`src/preload/tab-preload.ts`) báo `antifan:dom-mutation` cả cho thay đổi do chính AntiFan tạo: style `#__antifan_screenshot_guard__` chèn/gỡ quanh mỗi raster, mask style, class trên overlay/cursor của agent, và lệnh ghi `class`/`style` không đổi giá trị (bước normalization). `mutationRevision` vì thế tăng trong cửa sổ capture, compare resample 2 lần rồi trả `captureStateCompatible:false`, kể cả trên `/404` mà MutationObserver của trang ghi 0 thay đổi trong 4 s. Không có đường lên `CERTIFIED`.

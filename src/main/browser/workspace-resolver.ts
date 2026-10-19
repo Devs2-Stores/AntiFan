@@ -13,6 +13,16 @@ export const DEFAULT_WORKSPACE_ROOTS = [
   path.join('e:\\Work', 'apps'),
 ];
 
+/**
+ * Roots an explicit caller-supplied workspaceRoot may name. Extends the project
+ * roots with media folders that hold upload assets but are not URL-routed
+ * projects, so resolveWorkspaceFromUrl keeps scanning DEFAULT_WORKSPACE_ROOTS only.
+ */
+export const AUTHORIZED_WORKSPACE_ROOTS = [
+  ...DEFAULT_WORKSPACE_ROOTS,
+  path.join('e:\\Work', 'shopee-reels'),
+];
+
 function cleanProjectName(name: string): string {
   return name.toLowerCase().replace(/[-_\s]/g, '');
 }
@@ -88,13 +98,13 @@ export function resolveWorkspaceFromUrl(tabUrl?: string, roots: string[] = DEFAU
 
 /**
  * Validate that an explicit caller-supplied workspaceRoot resides within the
- * session's authorized project roots (DEFAULT_WORKSPACE_ROOTS) and exists on disk.
+ * session's authorized roots (AUTHORIZED_WORKSPACE_ROOTS) and exists on disk.
  * Prevents arbitrary filesystem path traversal/escape while allowing external tabs
  * (e.g. partners.haravan.com) to target an authorized project directory.
  */
 export function validateAuthorizedWorkspaceRoot(
   candidateRoot: string,
-  authorizedRoots: string[] = DEFAULT_WORKSPACE_ROOTS
+  authorizedRoots: string[] = AUTHORIZED_WORKSPACE_ROOTS
 ): string {
   if (typeof candidateRoot !== 'string' || !candidateRoot.trim()) {
     throw new CapabilityError('INVALID_ARGUMENT', 'workspaceRoot must be a non-empty string');
