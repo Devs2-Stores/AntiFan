@@ -52,7 +52,7 @@ describe('checklist autotick', () => {
     const dirty = byId(deriveChecklistTicks({
       qa: {
         measuredRules: ['font-below-min', 'control-height-band'],
-        findings: { visualQuality: { measured: true, mobile: true, findings: [{ ruleId: 'tap-target-small' }, { ruleId: 'contrast-low' }] } },
+        findings: { visualQuality: { measured: true, mobile: true, findings: [{ ruleId: 'tap-target-tiny' }, { ruleId: 'contrast-low' }] } },
       },
     }));
     assert.strictEqual(dirty['qag-29']?.done, false);

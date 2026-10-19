@@ -62,7 +62,7 @@ function deriveFromQa(qa: unknown, ticks: ChecklistTick[]): void {
     const visualFindings = Array.isArray(visual.findings) ? (visual.findings as unknown[]) : [];
     const hits = visualFindings.filter((entry) => {
       const ruleId = asRec(entry)?.ruleId;
-      return ruleId === 'font-below-min' || ruleId === 'control-height-band' || ruleId === 'tap-target-small' || ruleId === 'tap-target-tiny';
+      return ruleId === 'font-below-min' || ruleId === 'control-height-band' || ruleId === 'tap-target-tiny';
     }).length;
     ticks.push(hits === 0
       ? { itemId: 'qag-29', done: true, note: note('chữ và control mobile đạt ngưỡng hợp đồng') }

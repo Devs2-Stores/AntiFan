@@ -307,7 +307,7 @@ const QA_SETTLE_TIMEOUT_KEYS = ['networkTimeoutMs', 'fontsTimeoutMs', 'imagesTim
 const QA_SETTLE_TIMEOUT_MAX_MS = 120_000;
 const QA_MAX_LISTED_ITEMS = 50;
 const QA_MAX_SELECTOR_CHARS = 200;
-const QA_THRESHOLD_KEYS = ['minTextPx', 'minControlPx', 'minTapHitPx', 'tapSpacingCirclePx'] as const;
+const QA_THRESHOLD_KEYS = ['minTextPx', 'minTapHitPx'] as const;
 
 export interface QaValidateOptions {
   thresholds?: QaThresholds;
@@ -1895,7 +1895,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         expectedUrl: { type: 'string', description: 'Expected route URL of the bound tab (annotation Page URL). Fail-closed: mismatch throws the route-gate code (URL_HOST_MISMATCH/URL_THEME_MISMATCH/URL_PATH_MISMATCH) instead of silently QA-ing the wrong page or theme' },
         multiBreakpoint: { type: 'boolean', description: 'Enable multi-breakpoint responsive testing (320, 375, 768, 1024, 1440). Defaults to true inside workflow; pass false to opt out.' },
         profile: { type: 'string', enum: ['audit', 'build-strict'], description: 'build-strict (default) fails on contrast below WCAG AA, sub-24px tap targets, invisible click blockers, floating widgets over controls and the contract-threshold registry rules, and treats unmeasured scans as evidence gaps; audit reports visual-quality findings without affecting the verdict' },
-        thresholds: { type: 'object', description: 'Contract thresholds the registry rules grade against (kit registry/thresholds.json shape). Optional: when omitted the workspace contract typeScale, else the built-in defaults (12/44/24/24) apply automatically and the receipt records thresholdsSource', properties: { minTextPx: { type: 'number' }, minControlPx: { type: 'number' }, minTapHitPx: { type: 'number' }, tapSpacingCirclePx: { type: 'number' }, titleScale: { type: 'object', description: 'Allowed [min,max] px per heading level at <=768px', properties: { h1: { type: 'array', items: { type: 'number' } }, h2: { type: 'array', items: { type: 'number' } }, h3: { type: 'array', items: { type: 'number' } }, h4: { type: 'array', items: { type: 'number' } } } }, inputHeightBandPx: { type: 'number', description: 'Maximum height spread between inputs of one form (default 4)' } } },
+        thresholds: { type: 'object', description: 'Contract thresholds the registry rules grade against (kit registry/thresholds.json shape). Optional: when omitted the workspace contract typeScale, else the built-in defaults (12/24) apply automatically and the receipt records thresholdsSource', properties: { minTextPx: { type: 'number' }, minTapHitPx: { type: 'number' }, titleScale: { type: 'object', description: 'Allowed [min,max] px per heading level at <=768px', properties: { h1: { type: 'array', items: { type: 'number' } }, h2: { type: 'array', items: { type: 'number' } }, h3: { type: 'array', items: { type: 'number' } }, h4: { type: 'array', items: { type: 'number' } } } }, inputHeightBandPx: { type: 'number', description: 'Maximum height spread between inputs of one form (default 4)' } } },
         coverageFloor: { type: 'number', description: 'Minimum measured/expected scan-family share (0..1). Below it a green run is QA_INCONCLUSIVE. Defaults to 1 under build-strict, 0 under audit' },
         waivers: { type: 'array', description: 'Accepted visual-quality rule exceptions; each needs a rule id and a reason and is echoed on the report and receipt', items: { type: 'object', properties: { rule: { type: 'string' }, reason: { type: 'string' } }, required: ['rule', 'reason'] } },
         ignoreSelectors: { type: 'array', items: { type: 'string' }, description: 'Selectors whose subtree mutations are excluded from the DOM-quiet settle predicate (for example a live countdown). Echoed on the receipt so a pass stays auditable' },
@@ -3949,7 +3949,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
   });
   catalogue.register({
     name: 'anti.qa.visual_quality',
-    description: 'Measure WCAG AA text contrast (text over images/gradients reported as indeterminate), mobile tap targets (<44px recommended, <24px WCAG 2.2 minimum; inline links exempt) and floating widgets or transparent fixed layers covering text/controls at page top and page end. Findings are warnings with selector, rect and measured values; scroll position is restored.',
+    description: 'Measure WCAG AA text contrast (text over images/gradients reported as indeterminate), mobile tap targets (<24px WCAG 2.2 minimum, pseudo-element hit area included; inline links exempt) and floating widgets or transparent fixed layers covering text/controls at page top and page end. Findings are warnings with selector, rect and measured values; scroll position is restored.',
     risk: 'read',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive' }),

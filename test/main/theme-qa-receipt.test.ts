@@ -26,7 +26,7 @@ const defaultOptions = {
   runtimeId: 'binding-12345678901234567890',
 };
 
-const THRESHOLDS = { minTextPx: 12, minControlPx: 44, minTapHitPx: 24, tapSpacingCirclePx: 24 };
+const THRESHOLDS = { minTextPx: 12, minTapHitPx: 24 };
 
 const makeBoundBrowser = (liveUrl?: string) =>
   new BrowserControlPort({
@@ -96,7 +96,7 @@ const createMeasuredPorts = (overrides?: {
           viewport: { width: 375, height: 812 },
           mobile: true,
           findings: [],
-          stats: { textElementsChecked: 10, contrastIndeterminate: 0, controlsChecked: 4, floatingWidgets: 0, scrollPositions: 1, durationMs: 3, truncated: false, truncatedReasons: [], measuredRules: ['contrast-low', 'tap-target-small', 'tap-target-tiny', 'floating-widget-overlap', 'invisible-click-blocker', 'font-below-min', 'control-height-band', 'wrapped-label', 'icon-stroke-mismatch', 'overlay-fit'], unmeasuredRules: [] },
+          stats: { textElementsChecked: 10, contrastIndeterminate: 0, controlsChecked: 4, floatingWidgets: 0, scrollPositions: 1, durationMs: 3, truncated: false, truncatedReasons: [], measuredRules: ['contrast-low', 'tap-target-tiny', 'floating-widget-overlap', 'invisible-click-blocker', 'font-below-min', 'control-height-band', 'wrapped-label', 'icon-stroke-mismatch', 'overlay-fit'], unmeasuredRules: [] },
         };
       }
       if (script.includes('HS-') || script.includes('violations') || script.includes('sapo') || script.includes('haravan') || script.includes('evaluateHtml')) {
@@ -213,7 +213,7 @@ describe('theme.qa_validate receipt truthfulness', () => {
       const report = {
         summary: { passed: true, criticalCount: 0 },
         profile: 'build-strict',
-        measuredRules: ['liquid', 'tap-target-small'],
+        measuredRules: ['liquid', 'tap-target-tiny'],
         coverage: { measured: 8, expected: 8 },
         coverageFloor: 1,
       };
@@ -226,7 +226,7 @@ describe('theme.qa_validate receipt truthfulness', () => {
       for (const receipt of receipts) {
         assert.strictEqual(receipt.receiptVersion, '1.3');
         assert.strictEqual(receipt.profile, 'build-strict');
-        assert.deepStrictEqual(receipt.measuredRules, ['liquid', 'tap-target-small']);
+        assert.deepStrictEqual(receipt.measuredRules, ['liquid', 'tap-target-tiny']);
         assert.deepStrictEqual(receipt.coverage, { measured: 8, expected: 8 });
         assert.strictEqual(receipt.workspaceRootRedirected, false);
         assert.ok(typeof receipt.callId === 'string' && (receipt.callId as string).length >= 8);

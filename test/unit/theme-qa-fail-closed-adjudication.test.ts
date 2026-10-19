@@ -134,7 +134,7 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
       stats: { textElementsChecked: 10, contrastIndeterminate: 0, controlsChecked: 0, floatingWidgets: 0, scrollPositions: 2, durationMs: 3, truncated: false, truncatedReasons: [] },
     });
     const contrastFinding = { ruleId: 'contrast-low', severity: 'warning', selector: 'p.note', details: 'contrast 2.9:1', measured: { ratio: 2.9, required: 4.5 } };
-    const smallTapFinding = { ruleId: 'tap-target-small', severity: 'warning', selector: 'button.dot', details: '40x40', measured: { width: 40, height: 40 } };
+    const tinyTapFinding = { ruleId: 'tap-target-tiny', severity: 'warning', selector: 'button.dot', details: '16x16', measured: { width: 16, height: 16, minimumPx: 24 } };
     const cleanImageFrame = {
       measured: true,
       viewport: { width: 390, height: 844 },
@@ -182,9 +182,8 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
       assert.strictEqual(report.summary.criticalCount, 1);
     });
 
-    it('build-strict keeps recommended-size tap warnings advisory', async () => {
-      // Tap targets are only graded by a mobile-width scan.
-      const report = await new ThemeQaWorkflow(portsWithVisual(visualResult([smallTapFinding], true))).validate({
+    it('build-strict grades tap targets from a mobile-width scan: clean passes, under 24px fails', async () => {
+      const validate = (findings: Array<Record<string, unknown>>) => new ThemeQaWorkflow(portsWithVisual(visualResult(findings, true))).validate({
         runId: 'run-vq',
         attemptId: 'att-vq',
         workspaceRoot: 'E:/Work/test-theme',
@@ -193,10 +192,13 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
         coverageFloor: 0,
         // This test pins how one mobile-width scan grades tap targets; the sweep is covered elsewhere.
         multiBreakpoint: false,
-        thresholds: { minTextPx: 12, minControlPx: 44, minTapHitPx: 24, tapSpacingCirclePx: 24 },
+        thresholds: { minTextPx: 12, minTapHitPx: 24 },
       });
-      assert.strictEqual(report.summary.verdict, 'PASS');
-      assert.ok(!(report.findings?.evidenceGaps || []).some((gap) => gap.includes('Tap targets not graded')));
+      const clean = await validate([]);
+      assert.strictEqual(clean.summary.verdict, 'PASS');
+      assert.ok(!(clean.findings?.evidenceGaps || []).some((gap) => gap.includes('Tap targets not graded')));
+      const tiny = await validate([tinyTapFinding]);
+      assert.strictEqual(tiny.summary.verdict, 'FAIL');
     });
 
     it('build-strict does not vouch for tap targets from a desktop-width scan', async () => {

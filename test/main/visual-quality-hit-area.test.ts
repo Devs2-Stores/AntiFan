@@ -12,7 +12,7 @@ function findRoot(): string {
   }
 }
 const root = findRoot();
-const thresholds = { minTextPx: 12, minControlPx: 44, minTapHitPx: 24, tapSpacingCirclePx: 24 };
+const thresholds = { minTextPx: 12, minTapHitPx: 24 };
 
 test('scan script embeds the supplied thresholds and omits them otherwise', () => {
   const withThresholds = VisualQualityScanner.getBrowserScanScript({ thresholds });
@@ -23,7 +23,7 @@ test('scan script embeds the supplied thresholds and omits them otherwise', () =
 
 test('scan script rejects a thresholds object with a missing or non-positive value', () => {
   assert.throws(() => VisualQualityScanner.getBrowserScanScript({ thresholds: { ...thresholds, minTapHitPx: 0 } }), /minTapHitPx/);
-  assert.throws(() => VisualQualityScanner.getBrowserScanScript({ thresholds: { minTextPx: 12 } as never }), /minControlPx/);
+  assert.throws(() => VisualQualityScanner.getBrowserScanScript({ thresholds: { minTextPx: 12 } as never }), /minTapHitPx/);
 });
 
 test('normalize keeps the rule coverage lists and defaults them for a result without them', () => {
@@ -41,9 +41,9 @@ test('normalize keeps the rule coverage lists and defaults them for a result wit
   assert.deepEqual(bare.stats.unmeasuredRules, []);
 });
 
-// Real browser pass over the kit pages: a 16px swatch whose ::before reaches 24px passes by the
-// WCAG 2.5.8 spacing exception, a crowded one and a 16px target without hit area do not.
-test('tap target hit area: pseudo-element hit area and spacing exception (Electron probe)', (t) => {
+// Real browser pass over the kit pages: a 16px swatch whose ::before reaches 24px passes, a 16px
+// target without a hit area does not.
+test('tap target hit area: pseudo-element hit area counts (Electron probe)', (t) => {
   const run = spawnSync(process.execPath, ['scripts/run-electron.cjs', 'test/e2e/visual-quality-fixtures-probe.cjs', '--only=tap-target-hit-area'], {
     cwd: root,
     encoding: 'utf8',
@@ -56,5 +56,5 @@ test('tap target hit area: pseudo-element hit area and spacing exception (Electr
     return;
   }
   assert.equal(run.status, 0, output.slice(-1500));
-  assert.match(output, /SUMMARY fixtures=3 pass=3 fail=0/);
+  assert.match(output, /SUMMARY fixtures=2 pass=2 fail=0/);
 });

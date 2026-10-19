@@ -39,7 +39,7 @@ describe('built-in QA thresholds', () => {
 describe('resolveQaThresholds', () => {
   it('prefers explicit thresholds over the workspace contract', () => {
     const root = workspaceWithContract(contractWith({ minTextPx: 16 }));
-    const explicit = { minTextPx: 13, minControlPx: 48, minTapHitPx: 26, tapSpacingCirclePx: 24 };
+    const explicit = { minTextPx: 13, minTapHitPx: 26 };
     const resolved = resolveQaThresholds({ explicit, workspaceRoot: root });
     assert.strictEqual(resolved.source, 'explicit');
     assert.deepStrictEqual(resolved.thresholds, explicit);
@@ -61,15 +61,21 @@ describe('resolveQaThresholds', () => {
   });
 
   it('lets a contract tighten a threshold and never loosen one', () => {
-    const tighter = resolveQaThresholds({ workspaceRoot: workspaceWithContract(contractWith({ minTextPx: 14, minControlPx: 48 })) });
+    const tighter = resolveQaThresholds({ workspaceRoot: workspaceWithContract(contractWith({ minTextPx: 14, minTapHitPx: 32 })) });
     assert.strictEqual(tighter.source, 'contract');
     assert.strictEqual(tighter.thresholds.minTextPx, 14);
-    assert.strictEqual(tighter.thresholds.minControlPx, 48);
-    assert.strictEqual(tighter.thresholds.minTapHitPx, DEFAULT_QA_THRESHOLDS.minTapHitPx);
+    assert.strictEqual(tighter.thresholds.minTapHitPx, 32);
 
     const looser = resolveQaThresholds({ workspaceRoot: workspaceWithContract(contractWith({ minTextPx: 10 })) });
     assert.strictEqual(looser.source, 'contract');
     assert.strictEqual(looser.thresholds.minTextPx, DEFAULT_QA_THRESHOLDS.minTextPx);
+  });
+
+  it('does not accept the removed control-height floor from a contract', () => {
+    const legacy = resolveQaThresholds({ workspaceRoot: workspaceWithContract(contractWith({ minTextPx: 14, minControlPx: 44 })) });
+    assert.strictEqual(legacy.source, 'default');
+    assert.match(legacy.note ?? '', /minControlPx is not a known threshold/);
+    assert.deepStrictEqual(legacy.thresholds, { ...DEFAULT_QA_THRESHOLDS });
   });
 
   it('reads a contract that starts with a byte-order mark', () => {

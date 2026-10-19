@@ -59,7 +59,7 @@ export interface CandidateWidthResult {
   width: number;
   artifact?: unknown;
   metrics?: SectionMetrics;
-  visualQuality?: { contrastLow: number; tapTiny: number; tapSmall: number; samples: string[] };
+  visualQuality?: { contrastLow: number; tapTiny: number; samples: string[] };
   breaks: string[];
   breakCounts?: BreakCounts;
   penalties: Array<{ reason: string; points: number }>;
@@ -126,7 +126,7 @@ export const LAYOUT_CANDIDATE_LIMITS = Object.freeze({
 });
 
 export const LAYOUT_CANDIDATE_SCORING =
-  'score = 100 - penalties (floored at 0), averaged over widths. Penalties: contrast below AA 5 each; tap target <24px 6 each, <44px 2 each (mobile widths); ellipsis-truncated text 1 each; more than 5 distinct font sizes 2 per extra size; more than 4 distinct left edges 2 per extra edge; share of vertical gaps off a 4px grid x 15. Breaks disqualify: page overflows horizontally, content spills out of the section, text clipped by overflow, or text boxes overlapping. Visual taste is not scored: compare the contact sheets.';
+  'score = 100 - penalties (floored at 0), averaged over widths. Penalties: contrast below AA 5 each; tap target <24px 6 each (mobile widths); ellipsis-truncated text 1 each; more than 5 distinct font sizes 2 per extra size; more than 4 distinct left edges 2 per extra edge; share of vertical gaps off a 4px grid x 15. Breaks disqualify: page overflows horizontally, content spills out of the section, text clipped by overflow, or text boxes overlapping. Visual taste is not scored: compare the contact sheets.';
 
 const STYLE_ID = '__antifan_candidate_override';
 
@@ -266,7 +266,7 @@ export function buildSectionMetricsScript(scopeSelector: string, maxClipHeight: 
 export function scoreCandidateWidth(
   width: number,
   metrics: SectionMetrics,
-  vq: { contrastLow: number; tapTiny: number; tapSmall: number }
+  vq: { contrastLow: number; tapTiny: number }
 ): { breaks: string[]; breakCounts: BreakCounts; penalties: Array<{ reason: string; points: number }>; score: number } {
   const breaks: string[] = [];
   const breakCounts: BreakCounts = {
@@ -285,7 +285,6 @@ export function scoreCandidateWidth(
   const add = (reason: string, points: number) => { if (points > 0) penalties.push({ reason, points: Math.round(points * 10) / 10 }); };
   add(`${vq.contrastLow} text run(s) below WCAG AA`, vq.contrastLow * 5);
   add(`${vq.tapTiny} tap target(s) under 24px`, vq.tapTiny * 6);
-  add(`${vq.tapSmall} tap target(s) under 44px`, vq.tapSmall * 2);
   add(`${metrics.truncatedText} ellipsis-truncated text run(s)`, metrics.truncatedText);
   add(`${metrics.fontSizes.length} distinct font sizes`, Math.max(0, metrics.fontSizes.length - 5) * 2);
   add(`${metrics.leftEdges} distinct left edges`, Math.max(0, metrics.leftEdges - 4) * 2);
@@ -382,7 +381,6 @@ export async function runLayoutCandidates(deps: LayoutCandidatesDeps, options: L
           const vq = {
             contrastLow: vqRaw.findings.filter((f) => f.ruleId === 'contrast-low').reduce((n, f) => n + (f.occurrences || 1), 0),
             tapTiny: vqRaw.findings.filter((f) => f.ruleId === 'tap-target-tiny').reduce((n, f) => n + (f.occurrences || 1), 0),
-            tapSmall: vqRaw.findings.filter((f) => f.ruleId === 'tap-target-small').reduce((n, f) => n + (f.occurrences || 1), 0),
           };
           out.visualQuality = { ...vq, samples: vqRaw.findings.slice(0, 4).map((f) => f.details) };
           Object.assign(out, scoreCandidateWidth(width, metrics, vq));

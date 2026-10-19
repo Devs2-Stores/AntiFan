@@ -115,17 +115,17 @@ const cleanMetrics = (over: Partial<SectionMetrics> = {}): SectionMetrics => ({
 
 describe('candidate scoring', () => {
   it('disqualifies breaks and penalises quality gaps', () => {
-    const broken = scoreCandidateWidth(375, cleanMetrics({ docOverflowX: true, clippedText: ['h3.title "Áo"'] }), { contrastLow: 0, tapTiny: 0, tapSmall: 0 });
+    const broken = scoreCandidateWidth(375, cleanMetrics({ docOverflowX: true, clippedText: ['h3.title "Áo"'] }), { contrastLow: 0, tapTiny: 0 });
     assert.strictEqual(broken.breaks.length, 2);
-    const clean = scoreCandidateWidth(1440, cleanMetrics(), { contrastLow: 0, tapTiny: 0, tapSmall: 0 });
+    const clean = scoreCandidateWidth(1440, cleanMetrics(), { contrastLow: 0, tapTiny: 0 });
     // A page that masks its overflow (body overflow-x: hidden) reports no document overflow while
     // a widened section's text runs off screen: that is still a break.
-    const masked = scoreCandidateWidth(1440, cleanMetrics({ offViewport: ['p.copyright 0..2400 vs viewport 0..1440'] }), { contrastLow: 0, tapTiny: 0, tapSmall: 0 });
+    const masked = scoreCandidateWidth(1440, cleanMetrics({ offViewport: ['p.copyright 0..2400 vs viewport 0..1440'] }), { contrastLow: 0, tapTiny: 0 });
     assert.strictEqual(masked.breaks.length, 1);
     assert.match(masked.breaks[0]!, /past the viewport edge/);
     assert.deepStrictEqual(clean.breaks, []);
     assert.strictEqual(clean.score, 100);
-    const sloppy = scoreCandidateWidth(1440, cleanMetrics({ fontSizes: [11, 12, 13, 14, 15, 16, 18, 24], leftEdges: 7, gapsOnGrid: 2 }), { contrastLow: 1, tapTiny: 0, tapSmall: 0 });
+    const sloppy = scoreCandidateWidth(1440, cleanMetrics({ fontSizes: [11, 12, 13, 14, 15, 16, 18, 24], leftEdges: 7, gapsOnGrid: 2 }), { contrastLow: 1, tapTiny: 0 });
     // 5 (contrast) + 6 (3 extra sizes) + 6 (3 extra edges) + 7.5 (half the gaps off grid)
     assert.strictEqual(sloppy.score, 75.5);
   });

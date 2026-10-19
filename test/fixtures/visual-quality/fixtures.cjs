@@ -91,19 +91,14 @@ module.exports = [
     expect: { control: true },
   },
   {
-    id: 'tap-small-icon-button',
+    id: 'tap-compact-icon-button-clean',
     html: page('<header style="display:flex;justify-content:flex-end;padding:16px"><button aria-label="Xóa" style="width:34px;height:32px;border:0;background:#eee">×</button></header>'),
-    expect: { rules: ['tap-target-small'], viewports: ['mobile'], absent: ['tap-target-tiny'] },
+    expect: { control: true },
   },
   {
     id: 'tap-tiny-icon-button',
     html: page('<header style="padding:16px"><button aria-label="Đóng" style="width:16px;height:16px;padding:0;border:0;background:#eee"></button></header>'),
     expect: { rules: ['tap-target-tiny'], viewports: ['mobile'] },
-  },
-  {
-    id: 'tap-small-not-reported-on-desktop',
-    html: page('<header style="padding:16px"><a href="#cart" style="display:inline-block;width:30px;height:30px;background:#eee" aria-label="Giỏ hàng"></a></header>'),
-    expect: { rules: ['tap-target-small'], viewports: ['mobile'], absentBy: { desktop: ['tap-target-small', 'tap-target-tiny'] } },
   },
   {
     id: 'tap-inline-link-exempt',

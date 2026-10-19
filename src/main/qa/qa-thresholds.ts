@@ -8,9 +8,7 @@ export type QaTitleLevel = 'h1' | 'h2' | 'h3' | 'h4';
 /** Thresholds the registry rules grade against (same shape as the kit `registry/thresholds.json`). */
 export interface QaThresholds {
   minTextPx: number;
-  minControlPx: number;
   minTapHitPx: number;
-  tapSpacingCirclePx: number;
   /** Allowed rendered font-size range [min, max] in px per heading level at mobile widths. Without it same-level headings are compared with each other. */
   titleScale?: Record<QaTitleLevel, [number, number]>;
   /** Largest allowed height difference in px between inputs of one form. Defaults to 4. */
@@ -25,13 +23,11 @@ export const DEFAULT_QA_PROFILE: QaProfile = 'build-strict';
 /** Built-in values; they equal the kit registry/thresholds.json, which AntiFan must not read across repositories. */
 export const DEFAULT_QA_THRESHOLDS: QaThresholds = Object.freeze({
   minTextPx: 12,
-  minControlPx: 44,
   minTapHitPx: 24,
-  tapSpacingCirclePx: 24,
 });
 
 const CONTRACT_RELATIVE_PATH = path.join('deliverables', 'FULL_REMAKE_CONTRACT.json');
-const CONTRACT_KEYS = ['minTextPx', 'minControlPx', 'minTapHitPx', 'tapSpacingCirclePx'] as const;
+const CONTRACT_KEYS = ['minTextPx', 'minTapHitPx'] as const;
 
 export interface ResolvedQaThresholds {
   thresholds: QaThresholds;

@@ -12,6 +12,12 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 - **Sửa:** chỉ hiện viewer khi tài liệu là response JSON thô: `document.contentType` là `application/json`, `text/json` hoặc `*+json`, hoặc body chỉ có đúng một `<pre>` (cách Chromium hiển thị response dạng chữ). Cùng điều kiện với viewer trong `src/preload/tab-preload.ts`.
 - Test: case `8b` trong `test/main/tab-devtools-host.test.ts` (fail khi bỏ bản sửa); cả file 59/59. Chromium thật (Playwright, tắt JS để giữ trạng thái chưa hydrate): `video.zalo.me/creator/trang-thong-tin` bản cũ bị chiếm, bản mới giữ nguyên; `api.github.com/repos/microsoft/playwright` (`application/json`) cả hai bản vẫn hiện viewer.
 
+### Đổi — bỏ ngưỡng 44px cho control và vùng chạm mobile
+
+- **Lý do:** user bỏ quy tắc control ≥ 44px; kit `RESTYLE_MASTER_KIT` 2.12.0 chỉ còn `minTextPx` 12 và `minTapHitPx` 24.
+- **Đổi:** `QaThresholds` / `VisualQualityThresholds` / schema `thresholds` của `theme.qa_validate`, `theme.cockpit_scan` và `scripts/antifan-omp-mcp.cjs` chỉ còn `minTextPx`, `minTapHitPx` (mặc định 12/24); contract khai `typeScale.minControlPx` bị bỏ qua kèm note và dùng mặc định. Bỏ rule `tap-target-small` (dưới 44px khuyến nghị) và nhánh vòng tròn giãn cách; `tap-target-tiny` (vùng chạm < 24px, tính cả pseudo-element, mobile) giữ nguyên. `control-height-band` chỉ còn báo control cùng vai trò lệch chiều cao, không còn dải 24-44px. `layout.compare_candidates` bỏ `tapSmall` và phạt 2 điểm/nút dưới 44px. QAG-29 đổi tiêu chí theo quy tắc mới.
+- Test: 10 file liên quan 185/185 pass; `test/e2e/visual-quality-fixtures-probe.cjs` 52/52.
+
 ### Đổi — `anti.agent.file_upload` nhận `workspaceRoot` là `E:\Work\shopee-reels`
 
 - **Lý do:** `validateAuthorizedWorkspaceRoot` chỉ cho `customizes`, `themes`, `apps`, nên phiên chạy từ `E:\Work\Gác` (Trang Tường Thích Bán) luôn bị `OUTSIDE_WORKSPACE` khi tải video/ảnh lên TikTok Studio và phải gán file bằng script.

@@ -123,7 +123,7 @@ describe('native host QA root guard', () => {
   it('runs on a theme root and forwards profile, thresholds, viewports and multiBreakpoint untouched', async () => {
     const root = makeTheme(tempDir('af-guard-theme-'));
     const { host, inputs } = harness(root);
-    const thresholds = { minTextPx: 12, minControlPx: 44, minTapHitPx: 44 };
+    const thresholds = { minTextPx: 12, minTapHitPx: 32 };
     const viewports = [{ w: 667, h: 375 }, { w: 1366, h: 600 }];
     const result = await host.runThemeQa('tab-1', { workspaceRoot: root, profile: 'build-strict', thresholds, viewports, multiBreakpoint: true });
     assert.equal(result.ok, true);

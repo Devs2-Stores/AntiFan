@@ -13,7 +13,7 @@ function findRoot(): string {
 }
 
 const root = findRoot();
-const thresholds = { minTextPx: 12, minControlPx: 44, minTapHitPx: 24, tapSpacingCirclePx: 24 };
+const thresholds = { minTextPx: 12, minTapHitPx: 24 };
 const titleScale = { h1: [28, 40], h2: [20, 28], h3: [18, 22], h4: [16, 18] };
 
 function probe(only: string): { skipped: string | null; status: number | null; output: string } {

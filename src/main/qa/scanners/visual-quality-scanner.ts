@@ -6,9 +6,9 @@
  *                             under AA (4.5:1, or 3:1 for large text). Text painted over images,
  *                             video, canvas or gradients is counted as indeterminate, never as a
  *                             violation, because its real backdrop is not a single colour.
- *  - tap-target-small/tiny:   on mobile widths (<= 767px), controls under 44x44 CSS px
- *                             (recommended) or under 24x24 (WCAG 2.2 SC 2.5.8 minimum). Inline
- *                             links inside running text are exempt, as WCAG exempts them.
+ *  - tap-target-tiny:         on mobile widths (<= 767px), controls whose hit area (pseudo-element
+ *                             included) is under 24x24 CSS px (WCAG 2.2 SC 2.5.8). Inline links
+ *                             inside running text are exempt, as WCAG exempts them.
  *  - floating-widget-overlap: small fixed-position widgets (chat bubbles, bells, back-to-top)
  *                             that paint over in-flow text or controls at the top of the page or
  *                             at the end of the page, the two rest positions a visitor lands on.
@@ -16,9 +16,7 @@
  *                             sits on top (transparent wrapper box): the content looks clickable
  *                             yet the click lands on the invisible layer.
  *  - font-below-min:          rendered text under thresholds.minTextPx.
- *  - control-height-band:     on mobile widths, a control whose hit height sits between
- *                             thresholds.minTapHitPx and thresholds.minControlPx; on every width,
- *                             same-role siblings in one parent with different heights.
+ *  - control-height-band:     same-role siblings in one parent with different heights.
  *  - wrapped-label:           a button/tab label that breaks onto more than one line.
  *  - icon-stroke-mismatch:    outline icons whose rendered stroke differs from the page's modal
  *                             stroke width.
@@ -42,7 +40,6 @@
 
 export const VISUAL_QUALITY_RULE_IDS = [
   'contrast-low',
-  'tap-target-small',
   'tap-target-tiny',
   'floating-widget-overlap',
   'invisible-click-blocker',
@@ -59,9 +56,7 @@ export type VisualQualityRuleId = (typeof VISUAL_QUALITY_RULE_IDS)[number];
 
 export interface VisualQualityThresholds {
   minTextPx: number;
-  minControlPx: number;
   minTapHitPx: number;
-  tapSpacingCirclePx: number;
   /** Allowed rendered font-size range [min, max] in px per heading level at <= 768px. */
   titleScale?: Record<'h1' | 'h2' | 'h3' | 'h4', [number, number]>;
   /** Largest allowed height difference in px between the inputs of one form (default 4). */
@@ -124,7 +119,6 @@ export const VISUAL_QUALITY_LIMITS = Object.freeze({
   maxFindingsPerRule: 40,
   minContrastNormal: 4.5,
   minContrastLarge: 3,
-  tapRecommendedPx: 44,
   tapMinimumPx: 24,
   mobileMaxWidth: 767,
   floatingMaxViewportShare: 0.15,
@@ -137,7 +131,7 @@ export const VISUAL_QUALITY_LIMITS = Object.freeze({
   viewportFitTolerancePx: 1,
 });
 
-const THRESHOLD_KEYS = ['minTextPx', 'minControlPx', 'minTapHitPx', 'tapSpacingCirclePx'] as const;
+const THRESHOLD_KEYS = ['minTextPx', 'minTapHitPx'] as const;
 
 function normalizeThresholds(value: VisualQualityThresholds | undefined): VisualQualityThresholds | null {
   if (value === undefined) return null;
@@ -491,12 +485,6 @@ export class VisualQualityScanner {
     }
     return out;
   }
-  function rectsOverlap(a, b) { return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top; }
-  function circleHitsRect(cx, cy, radius, q) {
-    const dx = Math.max(q.left - cx, 0, cx - q.right);
-    const dy = Math.max(q.top - cy, 0, cy - q.bottom);
-    return dx * dx + dy * dy < radius * radius;
-  }
   const CONTROL = 'a[href], button, input:not([type="hidden"]), select, textarea, summary, [role="button"], [role="link"], [role="checkbox"], [role="radio"], [role="switch"], [role="tab"], [role="menuitem"]';
   const items = [];
   if (mobile || TH) {
@@ -523,69 +511,27 @@ export class VisualQualityScanner {
       items.push({ el: el, box: r, hit: extra.length ? unionRect([r].concat(extra)) : r, extended: extra.length > 0 });
     }
   }
-  const radius = L.tapMinimumPx / 2;
-  // WCAG 2.5.8 spacing exception for a pseudo-element hit area: the minimum-size circle centred
-  // on the target may not meet another target's hit area or circle.
-  const crowdedBy = (t) => {
-    const cx = (t.hit.left + t.hit.right) / 2;
-    const cy = (t.hit.top + t.hit.bottom) / 2;
-    for (const o of items) {
-      if (o === t || o.el.contains(t.el) || t.el.contains(o.el)) continue;
-      if (rectsOverlap(t.hit, o.hit) || circleHitsRect(cx, cy, radius, o.hit)) return o;
-      if (Math.min(o.hit.width, o.hit.height) < L.tapRecommendedPx) {
-        const dist = Math.hypot((o.hit.left + o.hit.right) / 2 - cx, (o.hit.top + o.hit.bottom) / 2 - cy);
-        if (dist < L.tapMinimumPx) return o;
-      }
-    }
-    return null;
-  };
   if (mobile) {
-    markMeasured('tap-target-small');
     markMeasured('tap-target-tiny');
     for (const it of items) {
       const g = it.hit;
       const w = Math.round(g.width * 10) / 10;
       const h = Math.round(g.height * 10) / 10;
-      const minSide = Math.min(w, h);
-      if (minSide >= L.tapRecommendedPx) continue;
-      const tiny = minSide < L.tapMinimumPx;
-      let crowdedNote = '';
-      if (it.extended && !tiny) {
-        const other = crowdedBy(it);
-        if (!other) continue;
-        crowdedNote = '; its ' + L.tapMinimumPx + 'px spacing circle meets ' + selectorOf(other.el);
-      }
+      if (Math.min(w, h) >= L.tapMinimumPx) continue;
       const sel = selectorOf(it.el);
       push({
-        ruleId: tiny ? 'tap-target-tiny' : 'tap-target-small',
+        ruleId: 'tap-target-tiny',
         severity: 'warning',
         selector: sel,
-        details: (tiny ? 'Tap target below the WCAG 2.2 24px minimum: ' : 'Tap target below the 44px recommended size: ') + sel + ' is ' + w + 'x' + h + 'px' + (it.extended ? ' (including its pseudo-element hit area)' : '') + crowdedNote,
+        details: 'Tap target below the WCAG 2.2 24px minimum: ' + sel + ' is ' + w + 'x' + h + 'px' + (it.extended ? ' (including its pseudo-element hit area)' : ''),
         rect: rectOf(g),
-        measured: { width: w, height: h, minimumPx: tiny ? L.tapMinimumPx : L.tapRecommendedPx, pseudoHitArea: it.extended },
+        measured: { width: w, height: h, minimumPx: L.tapMinimumPx, pseudoHitArea: it.extended },
       }, 'tap|' + sel + '|' + Math.round(w) + 'x' + Math.round(h));
     }
   }
 
   if (TH) {
     // ---- control-height-band ----
-    if (mobile) {
-      for (const it of items) {
-        const h = it.hit.height;
-        if (h >= TH.minTapHitPx && h < TH.minControlPx && !(it.extended && !crowdedBy(it))) {
-          const sel = selectorOf(it.el);
-          const hr = Math.round(h * 10) / 10;
-          push({
-            ruleId: 'control-height-band',
-            severity: 'warning',
-            selector: sel,
-            details: 'Control ' + sel + ' hit height ' + hr + 'px is under the ' + TH.minControlPx + 'px control height at ' + vw + 'px viewport',
-            rect: rectOf(it.hit),
-            measured: { heightPx: hr, minimumPx: TH.minControlPx, floorPx: TH.minTapHitPx },
-          }, 'band|' + sel + '|' + Math.round(h));
-        }
-      }
-    }
     const groups = new Map();
     for (const it of items) {
       const tag = it.el.tagName;
