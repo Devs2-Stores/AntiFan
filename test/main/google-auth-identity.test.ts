@@ -95,6 +95,9 @@ test('only requests from a sign-in document get Safari; a signed-in page keeps i
   }
   assert.ok(isSafari(rewrite(chromeRequest, 'mainFrame', 'https://accounts.google.com/o/oauth2/v2/auth?client_id=x', inTab('https://console.cloud.google.com/'))), 'navigating into OAuth consent');
   assert.ok(isSafari(rewrite(chromeRequest, 'mainFrame', 'https://accounts.google.com/CheckCookie?continue=x', { referrer: 'https://accounts.google.com/v3/signin/challenge/pwd' })), 'redirect hop of a sign-in without a live frame');
+  // The measured post-sign-in chain: CheckCookie leaves from the sign-in page, SetSID from the committed CheckCookie.
+  assert.ok(isSafari(rewrite(chromeRequest, 'mainFrame', 'https://accounts.google.com/CheckCookie?continue=x', inTab(signInPage))), 'CheckCookie from the sign-in page');
+  assert.equal(rewrite(chromeRequest, 'mainFrame', 'https://accounts.youtube.com/accounts/SetSID?ssdc=1', inTab('https://accounts.google.com/CheckCookie?continue=x'))['User-Agent'], desktopUa, 'SetSID keeps the tab identity');
 
   // The same endpoints called by a signed-in YouTube or Cloud Console page keep Chrome.
   for (const [url, top] of [

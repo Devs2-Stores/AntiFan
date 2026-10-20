@@ -317,11 +317,17 @@ interface SignInRequestDetails {
 
 /**
  * A request to the sign-in hosts belongs to a sign-in flow when it navigates a tab to a sign-in page,
- * or when the tab's top document is one (that covers the page's own XHRs and iframes, and the redirect
- * hops it navigates through). The target path counts only for a top-level navigation: the gapi token
+ * or when the tab's top document is one (the page's own XHRs, iframes and images, and the first
+ * navigation it starts). The target path counts only for a top-level navigation: the gapi token
  * iframe and its XHRs (/o/oauth2/iframe, /o/oauth2/iframerpc) sit under a sign-in path but are the
  * session upkeep of a signed-in page, so for them only the top document decides. A disposed frame
  * throws and an uncommitted one reports an empty URL; both fall back to the referrer.
+ *
+ * The post-sign-in redirect chain changes identity on purpose. /CheckCookie leaves while the frame
+ * still shows the sign-in page, so it claims Safari. Once /CheckCookie commits, the next hop
+ * (accounts.youtube.com/accounts/SetSID, where the session cookie is set) claims the tab's Chrome
+ * identity, the same one that keeps the session alive afterwards. A real sign-in passed with this
+ * chain on 2026-10-20 (CheckCookie Safari, SetSID Chrome, then YouTube).
  */
 export function isGoogleSignInFlowRequest(details: SignInRequestDetails): boolean {
   if (!isGoogleAuthHostUrl(details.url)) return false;
