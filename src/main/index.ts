@@ -46,6 +46,7 @@ import {
 } from './project/project-open-picker';
 import { NativeTabHost, collectTabSearchInventory, activateTabSearchResult, isUnhostedTerminalWindow, purgeSavedTabsFileForProject, foldDetachedOwnerRecord, listDetachedProjectOwnerRecords, normalizeSavedTabsDocument, savedTabsFilePath, savedTabsOwnerIsDetached, type FoldDetachedOwnerResult, type TabSearchInventoryRow, type TabSearchActivationFailure } from './browser/native-tab-host';
 import { singleInstanceLockExitCode } from './browser/single-instance-lock';
+import { markWindowClosed, markWindowOpen, openWindowLedgerPath, readOpenWindowLedger, retainOpenWindows } from './browser/open-window-ledger';
 import { closeAuxiliaryWindow } from './browser/auxiliary-close';
 import { ProjectWindowManager, type OpenIntent } from './browser/project-window-manager';
 import { ProjectWindowShell, ownerKey, ownerLabel, resolveRendererAsset, resolvePreloadAsset, type ChromeSurface, type WindowOwner } from './browser/project-window-shell';
@@ -1540,6 +1541,11 @@ function requestApplicationQuit(origin: string): void {
       });
       if (report.shutdown !== 'committed') {
         console.warn(`[antifan] ${report.summary}`, report.refusals.map((refusal) => refusal.detail).join(' '));
+        // Shells the attempt closed before the refusal landed stay closed while the process
+        // keeps running, so the next boot must not bring them back either.
+        updateOpenWindowLedger('reconcile-refused-quit', (filePath) => {
+          retainOpenWindows(filePath, liveProjectShells().filter((s) => !s.window.isDestroyed()).map((s) => ownerKey(s.owner)));
+        });
         // A refused quit keeps the process, so it must also keep a window to come back to: a
         // hub an agent reopened off-screen holds the very work that refused, and the controls
         // that stop it live in its chrome. It is presented before the notice is delivered, so
@@ -1595,6 +1601,13 @@ function revealOffScreenShells(origin: string): void {
 function handleShellClosed(shell: ProjectWindowShell): void {
   if (bootstrapShell === shell) bootstrapShell = null;
   projectWindows?.notifyShellGone(shell.owner);
+  // Only a close the user made while the application is running ends the window's place in
+  // the next boot. A quit closes every shell with the phase already past 'open' (or the
+  // shutdown latch set), and those windows are exactly the ones the next boot restores. A
+  // Windows logoff/shutdown destroys windows without a quit, so it is excluded the same way.
+  if (closeCoordinator.applicationPhase() === 'open' && !isShuttingDown && !osSessionEnding) {
+    updateOpenWindowLedger('user-close', (filePath) => markWindowClosed(filePath, ownerKey(shell.owner)));
+  }
   // Electron fires `closed` before `window-all-closed`, so the keep-alive there never
   // gets its turn: a benchmark run that loses its window — to an incidental close, a
   // renderer crash or an OS action — would still shut down here and discard the whole
@@ -1626,6 +1639,10 @@ function handleShellClosed(shell: ProjectWindowShell): void {
  * shells are left rather than by which one happened to be created first.
  */
 function attachShellLifecycle(shell: ProjectWindowShell): void {
+  updateOpenWindowLedger('open', (filePath) => markWindowOpen(filePath, ownerKey(shell.owner)));
+  // Windows only: the OS is ending the session (logoff, restart, shutdown). The windows it
+  // destroys next were open at exit, so their ledger keys must survive.
+  shell.window.on('session-end', () => { osSessionEnding = true; });
   shell.onCloseRequest(() => {
     // A benchmark run owns its windows (see `refusesWindowClose`): an incidental close
     // would end the measurement and destroy the tabs it was measuring, so the request is
@@ -1641,6 +1658,21 @@ function attachShellLifecycle(shell: ProjectWindowShell): void {
     requestShellClose(shell);
   });
   shell.window.on('closed', () => { handleShellClosed(shell); });
+}
+
+/** Set when Windows reports the session is ending; window closes after it are not user closes. */
+let osSessionEnding = false;
+
+/**
+ * One write to the open-window ledger. A failed write is journaled and never fails the
+ * window lifecycle that triggered it: the worst outcome is one wrong window at next boot.
+ */
+function updateOpenWindowLedger(action: string, update: (filePath: string) => void): void {
+  try {
+    update(openWindowLedgerPath(savedTabsFilePath()));
+  } catch (err) {
+    recordLifecycleEvent('open-window-ledger.write-failed', { action, detail: redactCredentials(String(err)) });
+  }
 }
 
 /**
@@ -2035,15 +2067,22 @@ async function foldPersistedBootProjectRecord(): Promise<void> {
  * (synchronous inside `restoreTabs`), so enumerating marked records at this
  * point can never see a torn document.
  *
- * Per record, in order and sequentially: the reattach latch and the marker are
- * re-read at ensure time (a stale snapshot must not resurrect a record a
- * concurrent reattach already folded), the registry/capsule predicate gates
+ * Per record, in order and sequentially: a window the user closed before the last
+ * exit stays closed (the open-window ledger, when it exists, is the evidence — the
+ * `detached` marker alone survives an ordinary close by design), the reattach latch
+ * and the marker are re-read at ensure time (a stale snapshot must not resurrect a
+ * record a concurrent reattach already folded), the registry/capsule predicate gates
  * dead ids, then `ensureDetachedProjectShell` with the 'restore' intent —
  * `showInactive` presentation, zero focus steals from this leg. One record's
  * failure is caught, journaled and the loop continues: a corrupt or refusing
  * record must not starve the records behind it.
+ *
+ * `openAtLastExit` is the ledger snapshot; `null` (never written, unreadable) keeps
+ * the pre-ledger behaviour of restoring every marked record.
  */
-export async function restoreDetachedProjectShells(): Promise<DetachedRestoreOutcome[]> {
+export async function restoreDetachedProjectShells(
+  openAtLastExit: ReadonlySet<string> | null = null,
+): Promise<DetachedRestoreOutcome[]> {
   const outcomes: DetachedRestoreOutcome[] = [];
   await foldPersistedBootProjectRecord();
   let marked: string[];
@@ -2059,6 +2098,10 @@ export async function restoreDetachedProjectShells(): Promise<DetachedRestoreOut
     const parsed = parseOwnerKey(markedKey);
     if (parsed.kind !== 'project') continue; // enumeration contract: unreachable, fail closed
     const projectId = parsed.projectId;
+    if (openAtLastExit && !openAtLastExit.has(markedKey)) {
+      outcomes.push({ projectId, status: 'skipped', reason: 'closed-before-exit' });
+      continue;
+    }
     if (reattachInProgress.has(projectId)) {
       outcomes.push({ projectId, status: 'skipped', reason: 'reattach-in-progress' });
       continue;
@@ -3851,16 +3894,18 @@ async function openSpaceWindow(
  * bootstrap and `antifan:project:open` use — so its host joins the window directory, its placement
  is its own owner-keyed record, and the close gate counts it. Callers are the application menu
  entry plus the renderer's "open a terminal window" routes (`POPOUT`/`NEW_WINDOW`), which
- delegate here through each host's `openTerminalManager` — there is exactly one such window.
+ delegate here through each host's `openTerminalManager` — there is exactly one such window. The
+ boot passes 'restore' when the window was open at the last exit: presented unfocused, like every
+ other boot-restored shell.
  */
-async function openSharedTerminalManagerWindow(): Promise<void> {
+async function openSharedTerminalManagerWindow(intent: 'user' | 'restore' = 'user'): Promise<void> {
   try {
     // New work, treated exactly as `openProjectWindow` treats it: a committed quit has already
     // counted every window it intends to end, so admitting one now would leave it alive outside
     // the teardown.
     assertApplicationAdmitsWork(closeReservations, 'Open shared terminal manager window');
-    const { created } = await ensureProjectWindow({ kind: 'unassigned' }, 'user');
-    recordLifecycleEvent('terminal-manager-open', { created });
+    const { created } = await ensureProjectWindow({ kind: 'unassigned' }, intent);
+    recordLifecycleEvent('terminal-manager-open', { created, intent });
   } catch (err) {
     recordLifecycleEvent('terminal-manager-open.failed', { detail: redactCredentials(String(err)) });
   }
@@ -4377,7 +4422,11 @@ async function createWindow(): Promise<void> {
   // dead project owns are refused and left on disk for purge; hosts restored
   // here still receive the browser-port gate through the `hosts()` re-attach
   // pass below.
-  await restoreDetachedProjectShells();
+  // The open-window ledger as the last process left it: detached shells the user closed
+  // stay closed, and a Terminal Manager that was open comes back.
+  const openAtLastExit = readOpenWindowLedger(openWindowLedgerPath(savedTabsFilePath()));
+  await restoreDetachedProjectShells(openAtLastExit);
+  if (openAtLastExit?.has(ownerKey({ kind: 'unassigned' }))) await openSharedTerminalManagerWindow('restore');
 
   // One reservation table for both seams, installed before either can serve a request:
   // the registry refuses a mint, a rebind or an adoption onto a page a close attempt has

@@ -25,6 +25,7 @@ import type { ProjectWindowShell, WindowOwner } from '../../src/main/browser/pro
 import { WorkspaceCapsuleManager } from '../../src/main/project/workspace-capsule';
 import type { WindowStateManager } from '../../src/main/browser/window-state';
 import type { NativeTabHost } from '../../src/main/browser/native-tab-host';
+import { openWindowLedgerPath, readOpenWindowLedger } from '../../src/main/browser/open-window-ledger';
 import {
   detachedRestoreAdmitsProject,
   installShellForTesting,
@@ -54,6 +55,7 @@ const PROJECT_A = `project-00000000-${SUFFIX}-0000000000a1`;
 const PROJECT_B = `project-00000000-${SUFFIX}-0000000000a2`;
 const PROJECT_C = `project-00000000-${SUFFIX}-0000000000a3`;
 const PROJECT_D = `project-00000000-${SUFFIX}-0000000000a4`;
+const PROJECT_N = `project-00000000-${SUFFIX}-0000000000ae`;
 const PROJECT_F = `project-00000000-${SUFFIX}-0000000000a6`;
 const PROJECT_G = `project-00000000-${SUFFIX}-0000000000a7`;
 const PROJECT_H = `project-00000000-${SUFFIX}-0000000000a8`;
@@ -146,6 +148,9 @@ function makeFakeWindow() {
     focus: () => { calls.focus++; },
     paint: () => {
       for (const listener of listeners.get('ready-to-show') ?? []) listener();
+    },
+    emit: (event: string) => {
+      for (const listener of listeners.get(event) ?? []) listener();
     },
     destroy: () => {
       win.destroyed = true;
@@ -367,6 +372,7 @@ describe('detached boot restore', () => {
   beforeEach(() => {
     const file = savedTabsPath();
     if (fs.existsSync(file)) fs.rmSync(file, { force: true });
+    fs.rmSync(openWindowLedgerPath(file), { force: true });
   });
 
   afterEach(() => {
@@ -599,6 +605,45 @@ describe('detached boot restore', () => {
       assert.equal(outcomes[1]!.projectId, PROJECT_K);
       assert.equal(outcomes[1]!.status, 'restored', 'the failing record did not starve the next one');
       assert.equal(leg.createdShells.has(PROJECT_K), true);
+    });
+
+    it('a window the user closed before the last exit stays closed; open ones return; only a user close drops them', async () => {
+      seedProject(PROJECT_J, 'Juliett');
+      seedProject(PROJECT_K, 'Kilo');
+      seedProject(PROJECT_L, 'Lima');
+      seedProject(PROJECT_N, 'November');
+      const leg = installLeg();
+      writeDoc({
+        web: { tabs: [], updatedAt: 1 },
+        [`project:${PROJECT_J}`]: { detached: true, tabs: [], updatedAt: 1 },
+        [`project:${PROJECT_K}`]: { detached: true, tabs: [], updatedAt: 1 },
+        [`project:${PROJECT_L}`]: { detached: true, tabs: [], updatedAt: 1 },
+        [`project:${PROJECT_N}`]: { detached: true, tabs: [], updatedAt: 1 },
+      });
+      const ledger = openWindowLedgerPath(savedTabsPath());
+      const ledgerKeys = () => [...(readOpenWindowLedger(ledger) ?? [])].sort();
+
+      const outcomes = await restoreDetachedProjectShells(new Set([`project:${PROJECT_K}`, `project:${PROJECT_L}`, `project:${PROJECT_N}`]));
+      assert.deepEqual(outcomes.map((o) => [o.projectId, o.status, o.reason]), [
+        [PROJECT_J, 'skipped', 'closed-before-exit'],
+        [PROJECT_K, 'restored', undefined],
+        [PROJECT_L, 'restored', undefined],
+        [PROJECT_N, 'restored', undefined],
+      ]);
+      assert.equal(leg.createdShells.has(PROJECT_J), false, 'the closed window is not resurrected');
+      assert.equal(readDoc().owners[`project:${PROJECT_J}`]?.detached, true, 'its detach marker survives: reopening the project still uses its own window');
+      assert.deepEqual(ledgerKeys(), [`project:${PROJECT_N}`, `project:${PROJECT_K}`, `project:${PROJECT_L}`].sort(), 'restored windows are recorded open');
+
+      // The user closes K while others stay on screen: the next boot must not bring K back.
+      leg.createdShells.get(PROJECT_L)!.window.paint();
+      leg.createdShells.get(PROJECT_N)!.window.paint();
+      leg.createdShells.get(PROJECT_K)!.window.destroy();
+      assert.deepEqual(ledgerKeys(), [`project:${PROJECT_N}`, `project:${PROJECT_L}`].sort());
+
+      // Windows ending the session destroys windows without a quit; they were open at exit.
+      leg.createdShells.get(PROJECT_L)!.window.emit('session-end');
+      leg.createdShells.get(PROJECT_N)!.window.destroy();
+      assert.deepEqual(ledgerKeys(), [`project:${PROJECT_N}`, `project:${PROJECT_L}`].sort(), 'an OS session end keeps the key');
     });
 
     it('a live detached shell is joined and surfaced unfocused, not recreated', async () => {

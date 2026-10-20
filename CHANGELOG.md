@@ -6,6 +6,13 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 
 ## [v1.3.6] - Unreleased
 
+### Sửa — Khởi động lại chỉ mở lại các cửa sổ đang mở lúc thoát; Terminal Manager được mở lại
+
+- **Dự án đã đóng bị mở lại hàng loạt:** `restoreDetachedProjectShells` (`src/main/index.ts`) mở lại mọi bản ghi `project:<id>` có `detached:true` trong `saved-tabs.json`, nhưng cờ này cố ý giữ nguyên khi người dùng đóng cửa sổ (để mở lại dự án vẫn vào cửa sổ riêng). Log: lần boot 04:51 mở 11 cửa sổ, người dùng đóng 9; lần boot 05:33 (sau khi kill, không có `quit.requested`) lại mở đủ 11.
+- **Terminal Manager không tự mở lại:** boot chỉ mở hub và các cửa sổ detached; không có trạng thái nào ghi lại việc cửa sổ `unassigned` đang mở.
+- Thêm `src/main/browser/open-window-ledger.ts` → `<profile>/open-windows.json`: Main thêm key khi tạo shell (`attachShellLifecycle`) và chỉ xoá khi **người dùng** đóng cửa sổ lúc app đang chạy (`handleShellClosed`: phase `open`, chưa `isShuttingDown`, Windows chưa báo `session-end`). Quit, kill, crash hay Windows logoff/tắt máy giữ nguyên danh sách. Một lần quit bị từ chối thì danh sách được cắt về các shell còn sống. Lúc boot: bản ghi detached không có trong danh sách bị bỏ qua (`closed-before-exit`, cờ detached vẫn giữ); `unassigned` có trong danh sách thì mở lại Terminal Manager không lấy focus (`openSharedTerminalManagerWindow('restore')`). File chưa có hoặc hỏng thì giữ hành vi cũ (mở mọi bản ghi detached).
+- Test: `detached-project-restore` thêm ca: bản ghi đã đóng không được mở lại, cửa sổ được mở lại được ghi vào danh sách, người dùng đóng thì bị xoá, đóng sau `session-end` thì giữ. Bỏ gate `closed-before-exit` hoặc điều kiện `session-end` trong JS đã biên dịch thì test fail. Nhánh mở lại Terminal Manager chưa có unit test (`ensureProjectWindow` dựng `NativeTabHost` thật).
+
 ### Sửa — Danh tính Safari chỉ dành cho trang đăng nhập Google, không cho lệnh giữ phiên
 
 - `setupClientHintsOverride` (`src/main/browser/google-auth-identity.ts`) trước đây gửi danh tính Safari macOS cho **mọi** request tới `accounts.google.com`/`accounts.youtube.com`, trong khi mọi request Google khác cùng tab là Chrome Windows. Các lệnh giữ phiên mà trang đã đăng nhập gọi liên tục (`RotateCookiesPage`/`RotateCookies` từ YouTube, `ListAccounts`, iframe token `/o/oauth2/iframe` + `iframerpc` từ Cloud Console) vì vậy cho Google thấy một `SID` trên hai thiết bị. `[INFERENCE]` đây là nguyên nhân bị đăng xuất Google hằng ngày; log `cookies.googleAuth` sẽ xác nhận.
