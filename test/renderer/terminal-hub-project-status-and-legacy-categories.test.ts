@@ -185,3 +185,64 @@ describe('hub legacy category removal', () => {
     );
   });
 });
+
+describe('hub search by section name', () => {
+  const MNB = { projectId: 'mnb', name: 'Mnbakery', workspacePath: 'E:\\Work\\customizes\\Mnbakery', status: 'DEAD', statusReason: 'closed-resumable' };
+  const projectIds = (harness: StandaloneHarness): Array<string | null> =>
+    Array.from(harness.tabsRoot.querySelectorAll('.terminal-tab-category-header[data-group-kind="project"]'))
+      .map((h: { getAttribute(n: string): string | null }) => h.getAttribute('data-project-id'));
+  const rowIds = (harness: StandaloneHarness): Array<string | null> =>
+    Array.from(harness.tabsRoot.querySelectorAll('.terminal-tab-wrap'))
+      .map((w: { getAttribute(n: string): string | null }) => w.getAttribute('data-session-id'));
+  const emptyNotice = (harness: StandaloneHarness) => harness.tabsRoot.querySelector('.terminal-tab-search-empty');
+  const search = (harness: StandaloneHarness, query: string): void => {
+    harness.assign(`setTabSearchQuery(${JSON.stringify(query)})`);
+  };
+
+  it('finds a stored project with no terminal by its name, in any case', async () => {
+    const harness = await loadManager([MNB]);
+    for (const query of ['mn', 'MN', 'bakery']) {
+      search(harness, query);
+      assert.deepStrictEqual(projectIds(harness), ['mnb'], `"${query}" keeps the Mnbakery section`);
+      assert.deepStrictEqual(rowIds(harness), [], 'the section has no row to show');
+      assert.strictEqual(emptyNotice(harness), null, `"${query}" is not reported as a miss`);
+    }
+
+    search(harness, 'mnbakery zzz');
+    assert.deepStrictEqual(projectIds(harness), [], 'every token must match');
+    assert.ok(emptyNotice(harness), 'a real miss still says so');
+  });
+
+  it('keeps a matched section whole and narrows by section and row text together', async () => {
+    const harness = await loadManager([MNB]);
+    const folder = { folderKey: 'e:\\work\\customizes\\mnbakery', folderLabel: 'Mnbakery', folderPath: 'E:\\Work\\customizes\\Mnbakery' };
+    harness.setSessions([
+      ROW,
+      { id: 'm-1', name: 'Terminal 1', state: 'running', ownerKey: 'project:mnb', ...folder },
+      { id: 'm-2', name: 'Terminal 2', state: 'running', ownerKey: 'project:mnb', ...folder },
+    ]);
+
+    search(harness, 'mn');
+    assert.deepStrictEqual(rowIds(harness).sort(), ['m-1', 'm-2'], 'a section found by name shows every row in it');
+
+    search(harness, 'mnbakery 2');
+    assert.deepStrictEqual(rowIds(harness), ['m-2'], 'the second token narrows inside the named section');
+    assert.deepStrictEqual(projectIds(harness), ['mnb']);
+  });
+
+  it('never matches a fuzzy token across two folders of one section', async () => {
+    const harness = await loadManager([MNB]);
+    harness.setSessions([
+      { id: 'm-1', name: 'Terminal 1', state: 'running', ownerKey: 'project:mnb', folderKey: 'e:\\work\\customizes\\mnbakery', folderLabel: 'Mnbakery', folderPath: 'E:\\Work\\customizes\\Mnbakery' },
+      { id: 'm-2', name: 'Terminal 2', state: 'running', ownerKey: 'project:mnb', folderKey: 'e:\\work\\qq-shop', folderLabel: 'qq-shop', folderPath: 'E:\\Work\\qq-shop' },
+    ]);
+    // "y" only ends the first folder and "qq" only names the second: the header's joined
+    // hint holds the pair in order, no single field does.
+    search(harness, 'yqq');
+    assert.deepStrictEqual(projectIds(harness), [], 'no field holds the whole token');
+    assert.ok(emptyNotice(harness));
+
+    search(harness, 'qq-shop');
+    assert.deepStrictEqual(projectIds(harness), ['mnb'], 'each folder still matches on its own');
+  });
+});

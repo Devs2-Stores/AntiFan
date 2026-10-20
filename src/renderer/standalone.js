@@ -8010,15 +8010,10 @@ function tokenMatchesHaystack(token, haystack) {
   return isSubsequence(token, haystack);
 }
 
-/**
- * Every token must match somewhere in the session's searchable text (AND), which is what
- * makes a second word narrow the result instead of widening it.
- */
-function sessionMatchesQuery(session, tokens) {
-  if (tokens.length === 0) return true;
-  if (!session) return false;
+/** Folded searchable text of one session row. */
+function sessionSearchText(session) {
   const capsuleId = capsuleIdOf(session);
-  const haystack = [
+  return [
     foldForSearch(session.name),
     // The minted row badge is searchable text: typing the folder a row paints is how a user
     // narrows a mixed hub strip to one project's terminals.
@@ -8032,7 +8027,42 @@ function sessionMatchesQuery(session, tokens) {
     // user reaches that project's rows without scrolling past every other one.
     foldForSearch(capsuleId && isSharedManagerShell() ? `${capsuleLabelOf(capsuleId)} ${capsulePathOf(capsuleId)}` : ''),
   ].join(' ');
-  return tokens.every((token) => tokenMatchesHaystack(token, haystack));
+}
+
+/**
+ * Folded searchable fields of one section: the name its header paints and the folders it
+ * names. The manager seeds a section for every stored project, terminal or not, so a
+ * project with no live row is reachable only through these. Kept as separate, distinct
+ * fields: a fuzzy token matched across one path repeated three times would find "zzz" in
+ * "customizes".
+ */
+function groupSearchFields(group) {
+  const paths = Array.isArray(group.folderPaths) ? group.folderPaths : [];
+  // A multi-folder project's hint is its folders joined with ` · `: split it back so the
+  // fuzzy match cannot run across two folders.
+  const hints = typeof group.hint === 'string' ? group.hint.split(' · ') : [];
+  const fields = [group.label, group.displayLabel, ...hints, group.folderPath, ...paths]
+    .map(foldForSearch)
+    .filter(Boolean);
+  return Array.from(new Set(fields));
+}
+
+/**
+ * The filtered copy of one section, or null when nothing in it matches. Every token must
+ * match (AND), on the row or on the section it sits in, so "mnbakery 16" narrows the
+ * Mnbakery section to its "Terminal 16". A section whose own name matches every token is
+ * kept whole, header included even with no row under it.
+ */
+function narrowGroupForSearch(group, tokens) {
+  const groupFields = groupSearchFields(group);
+  const inGroup = (token) => groupFields.some((field) => tokenMatchesHaystack(token, field));
+  if (tokens.every(inGroup)) return Object.assign({}, group);
+  const items = group.items.filter((s) => {
+    if (!s) return false;
+    const rowText = sessionSearchText(s);
+    return tokens.every((token) => tokenMatchesHaystack(token, rowText) || inGroup(token));
+  });
+  return items.length > 0 ? Object.assign({}, group, { items }) : null;
 }
 
 /** The single write path for the query, so field, filter and chrome never diverge. */
@@ -8140,9 +8170,6 @@ function renderTabs() {
   const searchTokens = parseSearchTokens(tabSearchQuery);
   tabSearchActive = searchTokens.length > 0;
   const allSessions = Array.isArray(sessions) ? sessions : [];
-  const narrow = (items) => (tabSearchActive
-    ? items.filter((s) => sessionMatchesQuery(s, searchTokens))
-    : items);
 
   // In a project window sleeping sessions are a state, not a category, so they are
   // partitioned out before grouping into a "parked" bucket appended last. This is purely a
@@ -8206,13 +8233,14 @@ function renderTabs() {
     });
   }
   // A registered group that is genuinely empty keeps its header; one emptied by the
-  // active filter drops out, because a header over nothing is noise while filtering.
+  // active filter drops out, because a header over nothing is noise while filtering. A
+  // section whose own name matches stays: its header is the result. The horizontal strip
+  // draws no header, so there an empty section has nothing to show and drops out.
   const visibleGroups = tabSearchActive
     ? groups
-      .map((g) => Object.assign({}, g, { items: narrow(g.items) }))
-      .filter((g) => g.items.length > 0)
+      .map((g) => narrowGroupForSearch(g, searchTokens))
+      .filter((g) => g !== null && (g.items.length > 0 || isSidebarLayout))
     : groups;
-  const visibleCount = visibleGroups.reduce((total, g) => total + g.items.length, 0);
   // The rule under the last awake section marks where the user's own order resumes. Placed
   // on the drawn list, so a search that hides either block never strands it.
   if (visibleGroups.some((g) => g.promoted === true)) {
@@ -8280,7 +8308,7 @@ function renderTabs() {
   }
   // A filtered-out strip says so rather than just looking empty. The notice joins the
   // ordered run so its position stays deterministic across renders.
-  if (tabSearchActive && visibleCount === 0) {
+  if (tabSearchActive && visibleGroups.length === 0) {
     ordered.push(ensureSearchEmptyState());
   } else if (tabSearchEmptyEl && tabSearchEmptyEl.parentNode === tabsEl) {
     tabSearchEmptyEl.remove();

@@ -6,6 +6,12 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 
 ## [v1.3.6] - Unreleased
 
+### Sửa — Ô "Tìm tab..." của Terminal Manager tìm được dự án theo tên
+
+- **Lỗi:** gõ `mn`/`MN` báo "Không có tab nào khớp" dù mục `MNBAKERY` đang hiện. `renderTabs` (`src/renderer/standalone.js`) chỉ so truy vấn với từng terminal (tên, thư mục, capsule), không so với tên mục. Terminal Manager hiện mọi dự án đã lưu kể cả dự án không có terminal; mục như vậy không có dòng nào để khớp nên bị lọc mất.
+- **Sửa:** `narrowGroupForSearch` so truy vấn với tên mục và thư mục của nó (`groupSearchFields`, mỗi trường so riêng). Mục khớp tên thì giữ nguyên cả mục, hiện header kể cả khi không có terminal; không thì lọc từng terminal, mỗi từ khớp ở dòng hoặc ở mục (`mnbakery 2` → `Terminal 2` của Mnbakery). Thông báo rỗng chỉ hiện khi không còn mục nào. Dải ngang không vẽ header nên mục rỗng vẫn bị bỏ.
+- Test: `terminal-hub-project-status-and-legacy-categories` thêm 3 ca, trong đó có ca một mục có hai thư mục: một từ tìm mờ không được khớp vắt ngang hai thư mục. Tắt so tên mục thì ca đầu fail; ghép lại `hint` thành một trường thì ca hai thư mục fail.
+
 ### Sửa — Khởi động lại chỉ mở lại các cửa sổ đang mở lúc thoát; Terminal Manager được mở lại
 
 - **Dự án đã đóng bị mở lại hàng loạt:** `restoreDetachedProjectShells` (`src/main/index.ts`) mở lại mọi bản ghi `project:<id>` có `detached:true` trong `saved-tabs.json`, nhưng cờ này cố ý giữ nguyên khi người dùng đóng cửa sổ (để mở lại dự án vẫn vào cửa sổ riêng). Log: lần boot 04:51 mở 11 cửa sổ, người dùng đóng 9; lần boot 05:33 (sau khi kill, không có `quit.requested`) lại mở đủ 11.
