@@ -2,6 +2,7 @@ import { session, Session } from 'electron';
 import { setupClientHintsOverride } from './google-auth-identity';
 import { armCookieDurability } from './cookie-durability';
 import { armCookieEvictionLog } from './cookie-eviction-log';
+import { armGoogleAuthCookieLog } from './google-auth-cookie-log';
 import { armStorefrontPasswordCookieGuard } from './storefront-password-cookie-guard';
 import { recordLifecycleEvent } from '../diagnostics/main-lifecycle-log';
 export type BrowserSessionUserAgentMode = 'clean' | 'native';
@@ -133,6 +134,7 @@ export function configureBrowserSessionPartition(
     if (partition.startsWith('persist:')) {
       armCookieDurability(sess);
       armCookieEvictionLog(sess, partition, (batch) => recordLifecycleEvent('cookies.evicted', { ...batch }));
+      armGoogleAuthCookieLog(sess, partition, (record) => recordLifecycleEvent('cookies.googleAuth', { ...record }));
       armStorefrontPasswordCookieGuard(sess, partition, (record) => recordLifecycleEvent('cookies.storefrontGuard', { ...record }));
     }
   }

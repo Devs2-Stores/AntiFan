@@ -10,7 +10,10 @@
  * The fix is a trailing-edge debounce on every durable (`persist:`) jar: the
  * first change arms a timer, further changes extend it, and one
  * `cookies.flushStore()` commits the whole burst once the page stops mutating
- * cookies. Worst-case loss becomes one debounce window instead of a session.
+ * cookies. A jar that never goes quiet (analytics cookies rewritten every few
+ * hundred milliseconds, cap evictions on a full jar) would push that commit
+ * back forever, so a burst is also committed at most `maxWaitMs` after its
+ * first change. Worst-case loss is one max-wait window instead of a session.
  *
  * Deliberately Electron-free: the contract is the two cookie-store methods the
  * debounce actually calls, so the policy is unit-testable with a plain double.
@@ -31,6 +34,9 @@ export interface CookieDurabilityTarget {
  */
 export const COOKIE_FLUSH_DEBOUNCE_MS = 1000;
 
+/** Longest a change may wait for its commit while the jar keeps changing. */
+export const COOKIE_FLUSH_MAX_WAIT_MS = 5000;
+
 /** Sessions already armed (attach exactly once per session). */
 const durabilityArmed = new WeakSet<object>();
 
@@ -42,21 +48,31 @@ const durabilityArmed = new WeakSet<object>();
  */
 export function armCookieDurability(
   target: CookieDurabilityTarget | null | undefined,
-  debounceMs: number = COOKIE_FLUSH_DEBOUNCE_MS
+  debounceMs: number = COOKIE_FLUSH_DEBOUNCE_MS,
+  maxWaitMs: number = COOKIE_FLUSH_MAX_WAIT_MS
 ): boolean {
   if (!target || typeof target !== 'object') return false;
   const { cookies } = target;
   if (typeof cookies?.on !== 'function' || typeof cookies.flushStore !== 'function') return false;
   if (durabilityArmed.has(target)) return false;
   durabilityArmed.add(target);
-  let flushTimer: NodeJS.Timeout | undefined;
+  let quietTimer: NodeJS.Timeout | undefined;
+  let maxWaitTimer: NodeJS.Timeout | undefined;
+  const commit = (): void => {
+    clearTimeout(quietTimer);
+    clearTimeout(maxWaitTimer);
+    quietTimer = undefined;
+    maxWaitTimer = undefined;
+    cookies.flushStore().catch(() => {});
+  };
   cookies.on('changed', () => {
-    clearTimeout(flushTimer);
-    flushTimer = setTimeout(() => {
-      flushTimer = undefined;
-      cookies.flushStore().catch(() => {});
-    }, debounceMs);
-    flushTimer.unref?.();
+    clearTimeout(quietTimer);
+    quietTimer = setTimeout(commit, debounceMs);
+    quietTimer.unref?.();
+    if (!maxWaitTimer) {
+      maxWaitTimer = setTimeout(commit, maxWaitMs);
+      maxWaitTimer.unref?.();
+    }
   });
   return true;
 }

@@ -6,6 +6,13 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 
 ## [v1.3.6] - Unreleased
 
+### Sửa — Cookie luôn được ghi xuống đĩa khi jar đổi liên tục; log cookie phiên Google
+
+- **Ghi cookie:** `armCookieDurability` (`src/main/browser/cookie-durability.ts`) trước đây chỉ `flushStore()` khi jar yên 1s, mỗi thay đổi lại dời mốc. Jar nào đổi cookie liên tục (analytics ghi đè vài trăm ms một lần, jar đầy liên tục bị evict như `myharavan.com`) thì có thể không bao giờ được ghi, và một lần tắt cứng (từ 07/10 mọi lần khởi động đều `prevCleanShutdown:false`) làm mất cookie. Thêm `COOKIE_FLUSH_MAX_WAIT_MS` = 5s: một đợt thay đổi được ghi chậm nhất 5s sau thay đổi đầu tiên.
+- **Log phiên Google:** `armGoogleAuthCookieLog` (`src/main/browser/google-auth-cookie-log.ts`), gắn vào mọi partition `persist:`, ghi `cookies.googleAuth` vào `runtime/logs/main.log`: `kind:"present"` lúc mở jar (cookie phiên `SID`/`__Secure-*PSID*`/`LOGIN_INFO` nào đã nạp từ đĩa) và `kind:"changed"` (tên, domain, `cause`, `removed`, gom 250ms). Chỉ ghi tên, không ghi giá trị. Mục đích: lần bị đăng xuất Google tới phân biệt được máy mất cookie (thiếu trong `present`, `explicit`/`evicted`) với Google tự huỷ phiên (cookie vẫn có, Google ghi đè hoặc cho hết hạn).
+- Chưa đổi danh tính Safari của `accounts.google.com`: probe Electron thật (profile tạm, chỉ nhập email) cho kết quả không lặp lại được (code cũ lần đầu qua, hai lần sau đều `/v3/signin/rejected`), nên chưa đủ bằng chứng để đổi.
+- Test: `cookie-durability` (jar đổi mỗi 500ms vẫn được ghi trong 5s; chạy với module của HEAD thì fail), `google-auth-cookie-log` (bản ghi `present`, gom thay đổi kèm `cause`, bỏ cookie không liên quan, không lộ giá trị). `test:main` 3031/3031; `smoke:cookie-durability` (Electron thật, `taskkill /F`) PASSED.
+
 ### Sửa — Theme QA chạy ổn định trong run dài (timeout, form clobber, admin bar, waivers, run budget)
 
 - **Timeout:** `DEADLINES.toolPolicyMs` của `theme.qa_validate` / `theme.cockpit_scan` 60s → 180s (`src/shared/deadline-chain.ts`); sweep 5 viewport trên trang dài thường hết 60s, trả `EXECUTION_TIMEOUT_PENDING_CLEANUP` và agent chạy lại liên tục. Chuỗi vẫn tăng dần: 180s < `proxyCeilingMs` 240s < client OMP 300s. Điều hướng của `theme.cockpit_scan` tách riêng ở 60s (`COCKPIT_NAVIGATION_MS`).

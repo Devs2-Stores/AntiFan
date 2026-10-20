@@ -10,7 +10,7 @@
  */
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
-import { COOKIE_FLUSH_DEBOUNCE_MS, armCookieDurability, type CookieDurabilityTarget } from '../../src/main/browser/cookie-durability';
+import { COOKIE_FLUSH_DEBOUNCE_MS, COOKIE_FLUSH_MAX_WAIT_MS, armCookieDurability, type CookieDurabilityTarget } from '../../src/main/browser/cookie-durability';
 
 /** Cookie store double: records every commit synchronously, and emits changes on demand. */
 class FakeCookieStore implements CookieDurabilityTarget {
@@ -65,6 +65,31 @@ describe('armCookieDurability', () => {
 
     t.mock.timers.tick(2);
     assert.strictEqual(store.flushCount, 1, 'one commit for the whole activity, not one per change');
+  });
+
+  it('still commits within the max wait when the jar never goes quiet', (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const store = new FakeCookieStore();
+    armCookieDurability(store);
+
+    // A cookie rewritten every half debounce window: the quiet timer alone would never fire.
+    const step = COOKIE_FLUSH_DEBOUNCE_MS / 2;
+    let elapsed = 0;
+    store.emitChange();
+    while (elapsed + step < COOKIE_FLUSH_MAX_WAIT_MS) {
+      t.mock.timers.tick(step);
+      elapsed += step;
+      store.emitChange();
+    }
+    assert.strictEqual(store.flushCount, 0, 'the max wait has not elapsed yet');
+
+    t.mock.timers.tick(COOKIE_FLUSH_MAX_WAIT_MS - elapsed);
+    assert.strictEqual(store.flushCount, 1, 'a never-quiet jar must still reach disk');
+
+    // The next change opens a fresh window instead of reusing the spent one.
+    store.emitChange();
+    t.mock.timers.tick(COOKIE_FLUSH_DEBOUNCE_MS);
+    assert.strictEqual(store.flushCount, 2, 'the change after a commit gets its own commit');
   });
 
   it('arms a store exactly once', (t) => {
