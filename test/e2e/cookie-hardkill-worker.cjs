@@ -37,6 +37,9 @@ if (!DATA_ROOT) {
   console.error('FAIL: ANTIFAN_SMOKE_ROOT is required');
   process.exit(2);
 }
+// The compiled main modules log through StorageLocations, which falls back to the live data root
+// (E:\Work\.antifan-data) and would write this smoke's lifecycle events into the user's main.log.
+process.env.ANTIFAN_DATA_ROOT = DATA_ROOT;
 
 const profilePath = path.join(DATA_ROOT, 'Profile');
 fs.mkdirSync(profilePath, { recursive: true });
