@@ -6,11 +6,18 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 
 ## [v1.3.6] - Unreleased
 
+### Sửa — Danh tính Safari chỉ dành cho trang đăng nhập Google, không cho lệnh giữ phiên
+
+- `setupClientHintsOverride` (`src/main/browser/google-auth-identity.ts`) trước đây gửi danh tính Safari macOS cho **mọi** request tới `accounts.google.com`/`accounts.youtube.com`, trong khi mọi request Google khác cùng tab là Chrome Windows. Các lệnh giữ phiên mà trang đã đăng nhập gọi liên tục (`RotateCookiesPage`/`RotateCookies` từ YouTube, `ListAccounts`, iframe token `/o/oauth2/iframe` + `iframerpc` từ Cloud Console) vì vậy cho Google thấy một `SID` trên hai thiết bị. `[INFERENCE]` đây là nguyên nhân bị đăng xuất Google hằng ngày; log `cookies.googleAuth` sẽ xác nhận.
+- Giờ `isGoogleSignInFlowRequest` quyết định: lần điều hướng `mainFrame` tới trang đăng nhập (`/v3/signin`, `/ServiceLogin`, `/AccountChooser`, `/o/oauth2`, …), hoặc request mà tài liệu top của tab là trang đăng nhập (XHR, iframe, ảnh của nó) thì Safari; còn lại giữ danh tính của tab. Frame đã huỷ (ném lỗi) hoặc chưa commit (URL rỗng) thì dựa vào referrer.
+- Kiểm thật: Electron tách riêng, profile tạm, user tự đăng nhập Google Devs2: qua tới `CheckCookie` → `SetSID` → YouTube, không bị `/v3/signin/rejected`; sau đó `RotateCookiesPage`/`RotateCookies` từ YouTube đi ra với Chrome.
+- Chưa xử lý: bước kiểm phiên ngầm `ServiceLogin?passive=...` nếu chạy như điều hướng `mainFrame` vẫn mang Safari (trang chọn tài khoản thật cũng có `passive=1209600`, nên không lọc theo tham số được).
+- Test: `google-auth-identity` thêm ca giữ phiên từ YouTube/Cloud Console (kể cả `iframerpc`) giữ Chrome, frame đã huỷ và frame chưa commit; bỏ điều kiện `mainFrame` thì test fail ở `/o/oauth2/iframe`.
+
 ### Sửa — Cookie luôn được ghi xuống đĩa khi jar đổi liên tục; log cookie phiên Google
 
 - **Ghi cookie:** `armCookieDurability` (`src/main/browser/cookie-durability.ts`) trước đây chỉ `flushStore()` khi jar yên 1s, mỗi thay đổi lại dời mốc. Jar nào đổi cookie liên tục (analytics ghi đè vài trăm ms một lần, jar đầy liên tục bị evict như `myharavan.com`) thì có thể không bao giờ được ghi, và một lần tắt cứng (từ 07/10 mọi lần khởi động đều `prevCleanShutdown:false`) làm mất cookie. Thêm `COOKIE_FLUSH_MAX_WAIT_MS` = 5s: một đợt thay đổi được ghi chậm nhất 5s sau thay đổi đầu tiên.
 - **Log phiên Google:** `armGoogleAuthCookieLog` (`src/main/browser/google-auth-cookie-log.ts`), gắn vào mọi partition `persist:`, ghi `cookies.googleAuth` vào `runtime/logs/main.log`: `kind:"present"` lúc mở jar (cookie phiên `SID`/`__Secure-*PSID*`/`LOGIN_INFO` nào đã nạp từ đĩa) và `kind:"changed"` (tên, domain, `cause`, `removed`, gom 250ms). Chỉ ghi tên, không ghi giá trị. Mục đích: lần bị đăng xuất Google tới phân biệt được máy mất cookie (thiếu trong `present`, `explicit`/`evicted`) với Google tự huỷ phiên (cookie vẫn có, Google ghi đè hoặc cho hết hạn).
-- Chưa đổi danh tính Safari của `accounts.google.com`: probe Electron thật (profile tạm, chỉ nhập email) cho kết quả không lặp lại được (code cũ lần đầu qua, hai lần sau đều `/v3/signin/rejected`), nên chưa đủ bằng chứng để đổi.
 - Test: `cookie-durability` (jar đổi mỗi 500ms vẫn được ghi trong 5s; chạy với module của HEAD thì fail), `google-auth-cookie-log` (bản ghi `present`, gom thay đổi kèm `cause`, bỏ cookie không liên quan, không lộ giá trị). `test:main` 3031/3031; `smoke:cookie-durability` (Electron thật, `taskkill /F`) PASSED.
 
 ### Sửa — Theme QA chạy ổn định trong run dài (timeout, form clobber, admin bar, waivers, run budget)

@@ -264,8 +264,28 @@ function addNavigationClientHints(headers: Record<string, string>): void {
  * next challenge when only those requests claim Safari. Safari sends no Client Hints, so they go too.
  * A Safari UA (an iPhone preset) is already accepted and stays as it is; other hosts keep the tab's
  * identity.
+ *
+ * Every request a sign-in document makes to those hosts claims Safari, including its background
+ * calls (CheckConnection, _/bscframe, generate_204, browserinfo): the measured pass had all of them
+ * on Safari. Requests to the same hosts from any other document keep the tab's identity. Those are
+ * the session-upkeep calls a signed-in service page makes for as long as the user stays signed in
+ * (the RotateCookiesPage iframe, ListAccounts), and sending them as Safari while every other Google
+ * request claims Chrome presents one SID as two devices.
  */
 const SAFARI_DESKTOP_USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15';
+
+/** Lower-case path roots of the sign-in, account-chooser, OAuth consent and post-sign-in interstitial pages. */
+const GOOGLE_SIGN_IN_PATH_ROOTS = [
+  '/v3/signin',
+  '/signin',
+  '/servicelogin',
+  '/interactivelogin',
+  '/accountchooser',
+  '/addsession',
+  '/o/oauth2',
+  '/speedbump',
+  '/lifecycle',
+];
 
 function isGoogleAuthHostUrl(rawUrl: string): boolean {
   try {
@@ -273,6 +293,46 @@ function isGoogleAuthHostUrl(rawUrl: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** True for a sign-in page on the Google sign-in hosts (not for the session-upkeep endpoints there). */
+export function isGoogleSignInPageUrl(rawUrl: string | undefined): boolean {
+  if (!rawUrl) return false;
+  try {
+    const parsed = new URL(rawUrl);
+    if (!GOOGLE_AUTH_HOSTS.has(parsed.hostname.toLowerCase())) return false;
+    const pathname = parsed.pathname.toLowerCase();
+    return GOOGLE_SIGN_IN_PATH_ROOTS.some((root) => pathname === root || pathname.startsWith(`${root}/`));
+  } catch {
+    return false;
+  }
+}
+
+interface SignInRequestDetails {
+  url: string;
+  resourceType?: string;
+  referrer?: string;
+  frame?: { top?: { url?: string } | null; url?: string } | null;
+}
+
+/**
+ * A request to the sign-in hosts belongs to a sign-in flow when it navigates a tab to a sign-in page,
+ * or when the tab's top document is one (that covers the page's own XHRs and iframes, and the redirect
+ * hops it navigates through). The target path counts only for a top-level navigation: the gapi token
+ * iframe and its XHRs (/o/oauth2/iframe, /o/oauth2/iframerpc) sit under a sign-in path but are the
+ * session upkeep of a signed-in page, so for them only the top document decides. A disposed frame
+ * throws and an uncommitted one reports an empty URL; both fall back to the referrer.
+ */
+export function isGoogleSignInFlowRequest(details: SignInRequestDetails): boolean {
+  if (!isGoogleAuthHostUrl(details.url)) return false;
+  if (details.resourceType === 'mainFrame' && isGoogleSignInPageUrl(details.url)) return true;
+  let topUrl: string | undefined;
+  try {
+    topUrl = details.frame?.top?.url || details.frame?.url;
+  } catch {
+    // A disposed WebFrameMain throws on access.
+  }
+  return isGoogleSignInPageUrl(topUrl || details.referrer);
 }
 
 function presentGoogleSignInAsSafari(headers: Record<string, string>): void {
@@ -289,7 +349,7 @@ export function setupClientHintsOverride(sess: Session, ua?: string): void {
 
   sess.webRequest.onBeforeSendHeaders({ urls: ['https://*/*'] }, (details, callback) => {
     const headers = details.requestHeaders;
-    if (isGoogleAuthHostUrl(details.url)) {
+    if (isGoogleSignInFlowRequest(details)) {
       presentGoogleSignInAsSafari(headers);
       callback({ requestHeaders: headers });
       return;

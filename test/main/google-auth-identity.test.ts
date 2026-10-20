@@ -35,16 +35,17 @@ test('Chrome session user agent produces standard Chrome desktop identity', () =
   assert.doesNotMatch(chromeUa, /Firefox/);
 });
 
-type HeaderDetails = { url: string; requestHeaders: Record<string, string>; resourceType?: string };
+type HeaderDetails = { url: string; requestHeaders: Record<string, string>; resourceType?: string; referrer?: string; frame?: unknown };
+type RequestContext = { referrer?: string; frame?: unknown };
 
-function captureHintsRewrite(ua: string): (headers: Record<string, string>, resourceType?: string, url?: string) => Record<string, string> {
+function captureHintsRewrite(ua: string): (headers: Record<string, string>, resourceType?: string, url?: string, context?: RequestContext) => Record<string, string> {
   let listener: ((details: HeaderDetails, cb: (r: { requestHeaders: Record<string, string> }) => void) => void) | undefined;
   const webRequest = { onBeforeSendHeaders: (_filter: unknown, fn: typeof listener) => { listener = fn; } };
   // Only webRequest.onBeforeSendHeaders is touched by setupClientHintsOverride.
   setupClientHintsOverride({ webRequest } as unknown as Session, ua);
-  return (headers, resourceType = 'xhr', url = 'https://shopee.vn/') => {
+  return (headers, resourceType = 'xhr', url = 'https://shopee.vn/', context = {}) => {
     let out: Record<string, string> = {};
-    listener!({ url, requestHeaders: { ...headers }, resourceType }, (r) => { out = r.requestHeaders; });
+    listener!({ url, requestHeaders: { ...headers }, resourceType, ...context }, (r) => { out = r.requestHeaders; });
     return out;
   };
 }
@@ -64,7 +65,7 @@ test('Google sign-in hosts are sent a Safari identity without Client Hints; othe
   assert.doesNotMatch(signIn['User-Agent']!, /Chrome\//);
   assert.deepEqual(Object.keys(signIn).filter((k) => k.toLowerCase().startsWith('sec-ch-')), []);
 
-  const androidSignIn = rewrite({ 'User-Agent': ANDROID_MOBILE_USER_AGENT }, 'xhr', 'https://accounts.google.com/v3/signin/_/AccountsSignInUi/data/batchexecute');
+  const androidSignIn = rewrite({ 'User-Agent': ANDROID_MOBILE_USER_AGENT }, 'xhr', 'https://accounts.google.com/v3/signin/_/AccountsSignInUi/data/batchexecute', { referrer: 'https://accounts.google.com/v3/signin/identifier' });
   assert.equal(androidSignIn['User-Agent'], IPHONE_USER_AGENT);
 
   const iphoneSignIn = rewrite({ 'User-Agent': IPHONE_USER_AGENT }, 'mainFrame', 'https://accounts.google.com/ServiceLogin');
@@ -73,6 +74,48 @@ test('Google sign-in hosts are sent a Safari identity without Client Hints; othe
   const gmail = rewrite(chromeRequest, 'mainFrame', 'https://mail.google.com/mail/');
   assert.equal(gmail['User-Agent'], desktopUa);
   assert.ok(gmail['sec-ch-ua']);
+});
+
+test('only requests from a sign-in document get Safari; a signed-in page keeps its session upkeep on the tab identity', () => {
+  const desktopUa = chromeSessionUserAgent();
+  const rewrite = captureHintsRewrite(desktopUa);
+  const chromeRequest = { 'User-Agent': desktopUa, 'sec-ch-ua': '"Chromium";v="150"' };
+  const inTab = (topUrl: string) => ({ frame: { url: topUrl, top: { url: topUrl } } });
+  const isSafari = (h: Record<string, string>) => /Safari\/605\.1\.15$/.test(h['User-Agent']!) && !h['sec-ch-ua'];
+
+  const signInPage = 'https://accounts.google.com/v3/signin/identifier?flowName=GlifWebSignIn';
+  // The sign-in page's own background calls go with it, as in the measured pass.
+  for (const url of [
+    'https://accounts.google.com/ListAccounts?gpsia=1',
+    'https://accounts.google.com/generate_204',
+    'https://accounts.youtube.com/accounts/CheckConnection',
+    'https://accounts.google.com/RotateCookies',
+  ]) {
+    assert.ok(isSafari(rewrite(chromeRequest, 'xhr', url, inTab(signInPage))), url);
+  }
+  assert.ok(isSafari(rewrite(chromeRequest, 'mainFrame', 'https://accounts.google.com/o/oauth2/v2/auth?client_id=x', inTab('https://console.cloud.google.com/'))), 'navigating into OAuth consent');
+  assert.ok(isSafari(rewrite(chromeRequest, 'mainFrame', 'https://accounts.google.com/CheckCookie?continue=x', { referrer: 'https://accounts.google.com/v3/signin/challenge/pwd' })), 'redirect hop of a sign-in without a live frame');
+
+  // The same endpoints called by a signed-in YouTube or Cloud Console page keep Chrome.
+  for (const [url, top] of [
+    ['https://accounts.google.com/RotateCookiesPage?origin=https://www.youtube.com', 'https://www.youtube.com/'],
+    ['https://accounts.google.com/RotateCookies', 'https://www.youtube.com/'],
+    ['https://accounts.google.com/ListAccounts?gpsia=1', 'https://console.cloud.google.com/apis'],
+    ['https://accounts.youtube.com/accounts/CheckConnection', 'https://studio.youtube.com/'],
+    // gapi token refresh: under a sign-in path, but the upkeep of a signed-in page.
+    ['https://accounts.google.com/o/oauth2/iframe', 'https://console.cloud.google.com/'],
+    ['https://accounts.google.com/ServiceLogin?passive=true&continue=https://www.youtube.com/', 'https://www.youtube.com/'],
+  ] as const) {
+    const out = rewrite(chromeRequest, 'subFrame', url, inTab(top));
+    assert.equal(out['User-Agent'], desktopUa, url);
+  }
+  assert.equal(rewrite(chromeRequest, 'xhr', 'https://accounts.google.com/o/oauth2/iframerpc?action=issueToken', inTab('https://console.cloud.google.com/'))['User-Agent'], desktopUa);
+
+  const disposed = { get top(): never { throw new Error('Render frame was disposed'); } };
+  assert.equal(rewrite(chromeRequest, 'xhr', 'https://accounts.google.com/RotateCookies', { frame: disposed, referrer: 'https://www.youtube.com/' })['User-Agent'], desktopUa);
+  assert.ok(isSafari(rewrite(chromeRequest, 'xhr', 'https://accounts.google.com/v3/signin/_/AccountsSignInUi/data/batchexecute', { frame: disposed, referrer: signInPage })), 'disposed frame of a sign-in page');
+  // An uncommitted frame reports an empty URL; the referrer still decides.
+  assert.ok(isSafari(rewrite(chromeRequest, 'subFrame', 'https://accounts.google.com/_/bscframe', { frame: { url: '', top: { url: '' } }, referrer: signInPage })), 'uncommitted frame');
 });
 
 test('UA metadata for the session UA names the same brands the sec-ch-ua rewrite sends', () => {
