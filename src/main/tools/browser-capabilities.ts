@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { BrowserTarget, CapabilityRequestContext, AuthenticatedCapabilityContext, CapabilityError, CapabilityEffectPolicyInput, CapabilityRisk, ReceiptBinding, digestText } from '../../shared/control-plane-contracts';
 import { BrowserControlPort, BrowserWaitParams, buildRefLookupExpression, ResponsiveBreakpointOption, VISUAL_COMPARE_EXECUTION_BUDGET_MS, VISUAL_COMPARE_CANCELLATION_ACK_MS, FULL_PAGE_CAPTURE_EXECUTION_BUDGET_MS, FULL_PAGE_CAPTURE_CANCELLATION_ACK_MS, VIEWPORT_CAPTURE_EXECUTION_BUDGET_MS, VIEWPORT_CAPTURE_CANCELLATION_ACK_MS, REFERENCE_CAPTURE_EXECUTION_BUDGET_MS, REFERENCE_CAPTURE_CANCELLATION_ACK_MS, BROWSER_WAIT_INVOCATION_BUDGET_MS, BROWSER_EVAL_INVOCATION_BUDGET_MS } from './browser-control-port';
 import { CapabilityCatalogue } from './capability-catalogue';
+import { resolveCallerWorkspaceRoot } from './file-capabilities';
 import { PlatformDetector } from '../qa/scanners/platform-detector';
 import { loadOrBootstrapBaseline, evaluateSettingsRatchet, type SettingsFinding } from '../qa/settings-ratchet';
 import { LiquidErrorScanner } from '../qa/scanners/liquid-error-scanner';
@@ -1489,7 +1490,12 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       },
       required: ['primaryTool', 'fallbackTool', 'fallbackResult'],
     },
-    execute: async (params: FallbackTelemetryPayload, context) => recordFallbackTelemetry(params, getWorkspaceRoot ? getWorkspaceRoot() : undefined),
+    execute: async (params: FallbackTelemetryPayload, context) => {
+      // Telemetry never fails the call: an unresolvable tenant root records without one.
+      let root: string | undefined;
+      try { root = resolveCallerWorkspaceRoot(catalogue, context, getWorkspaceRoot) || undefined; } catch { root = undefined; }
+      return recordFallbackTelemetry(params, root);
+    },
   });
   catalogue.register({
     name: 'browser.set-viewport',
@@ -2031,7 +2037,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       // Refuse a root outside the bound workspace before anything runs: silently
       // substituting the default root would write receipts a caller believes
       // describe a different theme.
-      const strictRoot = confineWorkspaceRootStrict(params.workspaceRoot, getWorkspaceRoot?.() || '');
+      const strictRoot = confineWorkspaceRootStrict(params.workspaceRoot, resolveCallerWorkspaceRoot(catalogue, context, getWorkspaceRoot));
       if (strictRoot.redirected) {
         throw new CapabilityError('WORKSPACE_MISMATCH', `Requested workspaceRoot '${strictRoot.requested}' is outside the bound workspace '${strictRoot.root}'; no QA ran and no receipt was written`, { requested: strictRoot.requested, bound: strictRoot.root });
       }
@@ -3336,7 +3342,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     execute: async (params: { selector?: string; ref?: string; workspaceRoot?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => {
       let root = params.workspaceRoot;
       if (!root) {
-        const candidate = getWorkspaceRoot ? getWorkspaceRoot() : process.cwd();
+        const candidate = getWorkspaceRoot ? resolveCallerWorkspaceRoot(catalogue, context, getWorkspaceRoot) : process.cwd();
         if (!candidate || candidate.includes('.antifan-data')) {
           const cwd = process.cwd();
           if (fs.existsSync(path.join(cwd, 'layout', 'theme.liquid')) || fs.existsSync(path.join(cwd, 'templates')) || fs.existsSync(path.join(cwd, 'sections'))) {
@@ -4543,7 +4549,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
             promptDigest: digestText(`anti.verification.verify_claim:${claim.id}`),
             projectId: context.projectId,
             workspaceId: context.workspaceId,
-            canonicalWorkspace: typeof getWorkspaceRoot === 'function' ? getWorkspaceRoot() : process.cwd(),
+            canonicalWorkspace: typeof getWorkspaceRoot === 'function' ? resolveCallerWorkspaceRoot(catalogue, context, getWorkspaceRoot) : process.cwd(),
             hostInstanceId: 'verification-engine',
             hostEpoch: 'hostEpoch' in context && typeof context.hostEpoch === 'number' ? context.hostEpoch : context.lease.hostEpoch,
             attemptId,
@@ -4862,7 +4868,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
             }
           } else if (obl.metric.startsWith('theme.')) {
             if (obl.metric === THEME_METRICS.SOURCE_FILE_IDENTIFIED) {
-              const root = typeof getWorkspaceRoot === 'function' ? getWorkspaceRoot() : process.cwd();
+              const root = typeof getWorkspaceRoot === 'function' ? resolveCallerWorkspaceRoot(catalogue, context, getWorkspaceRoot) : process.cwd();
               const sel = JSON.stringify(claim.scope.selector || 'body');
               let classes: string[] = [];
               let attributes: Record<string, string> = {};
@@ -5104,7 +5110,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     },
     execute: (params: { assetPath: string; workspaceRoot?: string; allowNonTheme?: boolean; timeoutMs?: number; pollIntervalMs?: number; reloadOnMatch?: boolean; expectContains?: string[]; expectNotContains?: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => {
       const { allowNonTheme, ...syncParams } = params;
-      const strict = confineWorkspaceRootStrict(params.workspaceRoot, getWorkspaceRoot ? getWorkspaceRoot() : '');
+      const strict = confineWorkspaceRootStrict(params.workspaceRoot, resolveCallerWorkspaceRoot(catalogue, context, getWorkspaceRoot));
       if (strict.redirected) {
         throw new CapabilityError('WORKSPACE_MISMATCH', `Requested workspaceRoot '${strict.requested}' is outside the bound workspace '${strict.root}'`, { requested: strict.requested, bound: strict.root });
       }

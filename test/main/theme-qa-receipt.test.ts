@@ -7,7 +7,9 @@ import { createRequire } from 'node:module';
 import { CapabilityCatalogue } from '../../src/main/tools/capability-catalogue';
 import { BrowserControlPort } from '../../src/main/tools/browser-control-port';
 import { registerBrowserCapabilities, parseQaValidateOptions } from '../../src/main/tools/browser-capabilities';
-import { BrowserTarget, CapabilityError, CapabilityRequestContext } from '../../src/shared/control-plane-contracts';
+import { BrowserTarget, CapabilityError, CapabilityRequestContext, issueRuntimeLease, makeControlPlaneId } from '../../src/shared/control-plane-contracts';
+import { ProjectRegistry } from '../../src/main/project/project-registry';
+import { WorkspaceRegistry } from '../../src/main/project/workspace-registry';
 import { ThemeQaWorkflow, type ThemeQaWorkflowPorts, type ThemeQaReport } from '../../src/main/qa/theme-qa-workflow';
 import type { VisualSettleReceipt } from '../../src/main/verification/capture-settle';
 import { buildDomQuietScript } from '../../src/main/verification/capture-settle';
@@ -183,6 +185,46 @@ describe('theme.qa_validate receipt truthfulness', () => {
       await catalogue.dispatch('theme.qa_validate', { tabId: 'tab-1', workspaceRoot: nested }, makeBoundContext());
       assert.strictEqual(receiptFiles(root).length, 1);
       assert.strictEqual(receiptFiles(nested).length, 1);
+    });
+  });
+
+  it('confines to the caller tenant workspace, not the runtime boot workspace', async () => {
+    await withRoots(2, async ([bootRoot, themeRoot]) => {
+      const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-qa-tenant-data-'));
+      try {
+        const workspaces = new WorkspaceRegistry(new ProjectRegistry());
+        const bootProjectId = makeControlPlaneId('project');
+        const bootWorkspaceId = makeControlPlaneId('workspace');
+        const themeProjectId = makeControlPlaneId('project');
+        const themeWorkspaceId = makeControlPlaneId('workspace');
+        workspaces.ensureInitialWorkspace(bootProjectId, bootWorkspaceId, bootRoot, dataDir);
+        workspaces.ensureInitialWorkspace(themeProjectId, themeWorkspaceId, themeRoot, dataDir);
+        const bootLease = issueRuntimeLease(bootProjectId, bootWorkspaceId, 60_000, 1);
+        const catalogue = new CapabilityCatalogue({
+          runtime: { mode: 'standalone', lifecycle: 'active' },
+          projectId: bootProjectId,
+          workspaceId: bootWorkspaceId,
+          runtimeId: bootLease.runtimeId,
+          hostEpoch: 1,
+          workspaceRegistry: workspaces,
+        });
+        registerBrowserCapabilities(catalogue, makeBoundBrowser('https://shop.example.com/'), mockWorkflow({ summary: { passed: true, criticalCount: 0 } }), () => bootRoot);
+        // A session attached to the theme project carries its own lease on the shared runtime.
+        const lease = { ...issueRuntimeLease(themeProjectId, themeWorkspaceId, 60_000, 1), runtimeId: bootLease.runtimeId };
+        const target: BrowserTarget = { projectId: themeProjectId, workspaceId: themeWorkspaceId, runtimeId: bootLease.runtimeId, tabId: 'tab-1', browserEpoch: 1, documentGeneration: 1 };
+        const context: CapabilityRequestContext = { lease, leaseToken: lease.token, projectId: themeProjectId, workspaceId: themeWorkspaceId, browserTarget: target, grant: 'read' };
+
+        await catalogue.dispatch('theme.qa_validate', { tabId: 'tab-1', workspaceRoot: themeRoot }, context);
+        await catalogue.dispatch('theme.qa_validate', { tabId: 'tab-1' }, context);
+        assert.strictEqual(receiptFiles(themeRoot).length, 2, 'explicit and default roots both land in the tenant workspace');
+        await assert.rejects(
+          catalogue.dispatch('theme.qa_validate', { tabId: 'tab-1', workspaceRoot: bootRoot }, context),
+          (err: unknown) => err instanceof CapabilityError && err.code === 'WORKSPACE_MISMATCH'
+        );
+        assert.deepStrictEqual(receiptFiles(bootRoot), []);
+      } finally {
+        fs.rmSync(dataDir, { recursive: true, force: true });
+      }
     });
   });
 

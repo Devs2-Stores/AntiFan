@@ -279,6 +279,10 @@ export class CapabilityCatalogue {
   hasWorkspaceRegistry(): boolean {
     return Boolean(this.options.workspaceRegistry);
   }
+  /** True when the tenancy is this runtime's own boot workspace. */
+  isPrimaryWorkspace(projectId: string, workspaceId: string): boolean {
+    return projectId === this.options.projectId && workspaceId === this.options.workspaceId;
+  }
 
   private validateAndFreezePolicy<TParams, TResult>(definition: CapabilityDefinition<TParams, TResult>): CapabilityEffectPolicy {
     if (!definition.policy) throw new Error(`Capability ${definition.name} missing required CapabilityEffectPolicy`);
@@ -529,7 +533,7 @@ export class CapabilityCatalogue {
     if (this.runtime.lifecycle !== 'active') throw new CapabilityError('RUNTIME_DRAINING', 'Runtime is draining and accepts no new capability requests');
 
     const authoritativeWs = this.resolveAuthoritativeWorkspace(context.projectId, context.workspaceId);
-    const isPrimaryWorkspace = context.projectId === this.options.projectId && context.workspaceId === this.options.workspaceId;
+    const isPrimaryWorkspace = this.isPrimaryWorkspace(context.projectId, context.workspaceId);
     const activeLease = isPrimaryWorkspace ? this.options.getActiveLease?.() : undefined;
 
     assertRuntimeLease(context.lease, {

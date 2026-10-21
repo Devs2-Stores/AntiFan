@@ -49,6 +49,30 @@ export function resolveTenantWorkspaceRoot(
   throw new CapabilityError('WORKSPACE_UNBOUND', `Authoritative workspace ${context.workspaceId} has no resolved root path`);
 }
 
+/**
+ * Root a capability confines a caller-supplied theme root to (QA, CDN sync, package
+ * checks, source resolution). The caller's tenant workspace wins, so a session bound to
+ * a theme project is never judged against the desktop app's boot workspace. A caller
+ * with no tenancy, or one on the boot workspace whose record carries no root, keeps the
+ * runtime root (which also honours THEME_WORKSPACE_ROOT); any other rootless tenant
+ * fails closed like file.*.
+ */
+export function resolveCallerWorkspaceRoot(
+  catalogue: CapabilityCatalogue,
+  context: CapabilityRequestContext | AuthenticatedCapabilityContext | undefined,
+  getRuntimeWorkspaceRoot?: () => string
+): string {
+  if (!context || !context.projectId || !context.workspaceId) return getRuntimeWorkspaceRoot?.() || '';
+  try {
+    return resolveTenantWorkspaceRoot(catalogue, context, getRuntimeWorkspaceRoot);
+  } catch (err) {
+    if (err instanceof CapabilityError && err.code === 'WORKSPACE_UNBOUND' && catalogue.isPrimaryWorkspace(context.projectId, context.workspaceId)) {
+      return getRuntimeWorkspaceRoot?.() || '';
+    }
+    throw err;
+  }
+}
+
 export function registerFileCapabilities(
   catalogue: CapabilityCatalogue,
   files: WorkspaceFilePort,

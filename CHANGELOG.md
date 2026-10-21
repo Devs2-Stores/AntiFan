@@ -6,6 +6,10 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 
 ## [v1.3.6] - Unreleased
 
+### Sửa — QA theme so với workspace của phiên, không phải workspace lúc app khởi động
+
+- **`WORKSPACE_MISMATCH` với theme của chính phiên:** `theme.qa_validate`, `anti.theme.await_cdn_sync`, `theme.package_check`, `anti.theme.resolve_element`, `verify_claim` (`canonicalWorkspace`, `theme.source_file_identified`) và telemetry fallback lấy root theo tenancy của phiên (`projectId`/`workspaceId`, giống `file.*`) qua `resolveCallerWorkspaceRoot` (`src/main/tools/file-capabilities.ts`). Trước đây chúng đọc root của runtime (workspace boot, thường là `process.cwd()` của app = `E:\Work\apps\AntiFan`), nên phiên gắn với project theme bị từ chối dù `file.read` cùng phiên đọc đúng thư mục theme. Phiên không có tenancy, hoặc ở chính workspace boot mà record không có root, vẫn dùng root của runtime (kể cả `THEME_WORKSPACE_ROOT`); tenant khác không có root thì fail closed như `file.*`.
+
 ### Sửa — Các điểm yếu rút từ chat OMP ngày 20/10 (báo cáo `plans/reports/261021-antifan-omp-chat-audit-20-10.md`)
 
 - **Lỗi kết nối nói đúng nguyên nhân:** proxy MCP (`scripts/antifan-omp-mcp.cjs`) không còn biến một lời từ chối pairing dứt khoát (`TERMINAL_SCOPE_UNRESOLVED`, `PROJECT_MISMATCH`, …) thành `CONNECTION_CLOSED`/4001 trống. Mã gốc được trả kèm `details.recovery`; khi tự hồi phục thất bại thì có `details.autohealCause`. Bị từ chối dứt khoát thì proxy **dừng**, không thử bridge khác tìm thấy qua discovery, vì như thế là giao terminal cho instance khác. Lỗi chỉ là "không có ai nghe" (`BRIDGE_UNREACHABLE`) thì vẫn thử ứng viên kế tiếp. `REVISION_STALE` làm mới revision tối đa 2 lần trên cùng attachment, không pair lại. `antifan-agent.cjs` báo `BRIDGE_SESSION_TIMEOUT` khi bridge nhận socket mà không trả lời `startSession`.

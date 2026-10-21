@@ -11,6 +11,7 @@ import * as path from 'node:path';
 import { CapabilityError, type BrowserTarget, type CapabilityEffectPolicyInput, type CapabilityRequestContext } from '../../shared/control-plane-contracts';
 import type { CapabilityCatalogue } from './capability-catalogue';
 import type { BrowserControlPort } from './browser-control-port';
+import { resolveCallerWorkspaceRoot } from './file-capabilities';
 import { confineWorkspaceRootStrict } from '../qa/diagnostics-filter';
 import { assertThemeWorkspaceRoot } from '../qa/workspace-markers';
 import { makeProbeDeps, type ProbeDeps } from '../qa/probes/probe-deps';
@@ -225,9 +226,9 @@ export function registerQaProbeCapabilities(
         allowNonTheme: { type: 'boolean', description: 'Accept a workspace root without theme markers' },
       },
     },
-    execute: async (params: { workspaceRoot?: string; zipPath?: string; expectedBrand?: string; forbiddenWords?: string[]; formBefore?: unknown; formAfter?: unknown; allowNonTheme?: boolean }) => {
+    execute: async (params: { workspaceRoot?: string; zipPath?: string; expectedBrand?: string; forbiddenWords?: string[]; formBefore?: unknown; formAfter?: unknown; allowNonTheme?: boolean }, context?: CapabilityRequestContext) => {
       const name = 'theme.package_check';
-      const bound = getWorkspaceRoot?.() || '';
+      const bound = resolveCallerWorkspaceRoot(catalogue, context, getWorkspaceRoot);
       const strict = confineWorkspaceRootStrict(params.workspaceRoot, bound);
       if (strict.redirected) {
         throw new CapabilityError('WORKSPACE_MISMATCH', `Requested workspaceRoot '${strict.requested}' is outside the bound workspace '${strict.root}'`, { requested: strict.requested, bound: strict.root });
